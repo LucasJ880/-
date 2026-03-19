@@ -1,0 +1,31 @@
+import { NextRequest, NextResponse } from "next/server";
+import { handleCallback } from "@/lib/google-calendar";
+import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get("code");
+  const error = searchParams.get("error");
+
+  if (error) {
+    return NextResponse.redirect(new URL("/settings?google=error&reason=" + error, request.url));
+  }
+
+  if (!code) {
+    return NextResponse.redirect(new URL("/settings?google=error&reason=no_code", request.url));
+  }
+
+  try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.redirect(new URL("/settings?google=error&reason=no_user", request.url));
+    }
+
+    await handleCallback(code, user.id);
+    return NextResponse.redirect(new URL("/settings?google=success", request.url));
+  } catch (err) {
+    console.error("Google OAuth callback error:", err);
+    return NextResponse.redirect(new URL("/settings?google=error&reason=token_fail", request.url));
+  }
+}

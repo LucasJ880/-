@@ -1,0 +1,265 @@
+/**
+ * 提醒生成引擎
+ *
+ * P0 策略：deadline / event 即时计算，不写库；
+ * followup 从 Reminder 表读取；read 状态统一通过 sourceKey 查 Reminder 表。
+ */
+
+import { db } from "@/lib/db";
+
+// ─── Types ─────────────────────────────────────────────────────
+
+export interface ReminderItem {
+  sourceKey: string;
+  type: "deadline" | "event" | "followup";
+  title: string;
+  subtitle: string;
+  priority?: string;
+  taskId?: string | null;
+  eventId?: string | null;
+  isRead: boolean;
+  notify: boolean;
+  project?: { name: string; color: string } | null;
+  location?: string | null;
+}
+
+export interface ReminderLayers {
+  immediate: ReminderItem[];
+  today: ReminderItem[];
+  upcoming: ReminderItem[];
+  unreadCount: number;
+}
+
+// ─── Helpers ───────────────────────────────────────────────────
+
+function fmtTime(iso: Date): string {
+  return `${String(iso.getHours()).padStart(2, "0")}:${String(iso.getMinutes()).padStart(2, "0")}`;
+}
+
+function daysBetween(a: Date, b: Date): number {
+  const msPerDay = 86_400_000;
+  const aDay = new Date(a);
+  aDay.setHours(0, 0, 0, 0);
+  const bDay = new Date(b);
+  bDay.setHours(0, 0, 0, 0);
+  return Math.round((bDay.getTime() - aDay.getTime()) / msPerDay);
+}
+
+// ─── Core ──────────────────────────────────────────────────────
+
+export async function generateReminderLayers(
+  userId: string
+): Promise<ReminderLayers> {
+  const now = new Date();
+
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  const todayEnd = new Date(todayStart);
+  todayEnd.setDate(todayEnd.getDate() + 1);
+
+  const tomorrowEnd = new Date(todayStart);
+  tomorrowEnd.setDate(tomorrowEnd.getDate() + 2);
+
+  const soonEnd = new Date(now.getTime() + 60 * 60_000);
+  const weekEnd = new Date(now.getTime() + 7 * 86_400_000);
+
+  const taskSelect = {
+    id: true,
+    title: true,
+    priority: true,
+    dueDate: true,
+    project: { select: { name: true, color: true } },
+  } as const;
+
+  const [
+    overdueTasks,
+    todayTasks,
+    tomorrowTasks,
+    todayEvents,
+    followups,
+    readRecords,
+  ] = await Promise.all([
+    db.task.findMany({
+      where: { status: { notIn: ["done", "cancelled"] }, dueDate: { lt: todayStart } },
+      select: taskSelect,
+      orderBy: { dueDate: "asc" },
+      take: 20,
+    }),
+    db.task.findMany({
+      where: { status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayStart, lt: todayEnd } },
+      select: taskSelect,
+      orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
+      take: 20,
+    }),
+    db.task.findMany({
+      where: { status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayEnd, lt: tomorrowEnd } },
+      select: taskSelect,
+      orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
+      take: 20,
+    }),
+    db.calendarEvent.findMany({
+      where: {
+        userId,
+        source: "qingyan",
+        endTime: { gt: now },
+        startTime: { lt: todayEnd },
+      },
+      select: {
+        id: true,
+        title: true,
+        startTime: true,
+        endTime: true,
+        allDay: true,
+        location: true,
+        reminderMinutes: true,
+        task: { select: { id: true } },
+      },
+      orderBy: { startTime: "asc" },
+      take: 20,
+    }),
+    db.reminder.findMany({
+      where: { userId, type: "followup", status: "pending", triggerAt: { lte: weekEnd } },
+      select: {
+        id: true,
+        sourceKey: true,
+        title: true,
+        message: true,
+        triggerAt: true,
+        taskId: true,
+        task: { select: { project: { select: { name: true, color: true } } } },
+      },
+      orderBy: { triggerAt: "asc" },
+    }),
+    db.reminder.findMany({
+      where: { userId, status: "read" },
+      select: { sourceKey: true },
+    }),
+  ]);
+
+  const readSet = new Set(readRecords.map((r) => r.sourceKey));
+
+  const immediate: ReminderItem[] = [];
+  const today: ReminderItem[] = [];
+  const upcoming: ReminderItem[] = [];
+
+  // ── Overdue tasks → immediate ──
+  for (const t of overdueTasks) {
+    const key = `deadline:overdue:${t.id}`;
+    if (readSet.has(key)) continue;
+    const days = daysBetween(new Date(t.dueDate!), todayStart);
+    immediate.push({
+      sourceKey: key,
+      type: "deadline",
+      title: t.title,
+      subtitle: `已逾期 ${days} 天`,
+      priority: t.priority,
+      taskId: t.id,
+      isRead: false,
+      notify: false,
+      project: t.project,
+    });
+  }
+
+  // ── Today events → immediate or today ──
+  for (const e of todayEvents) {
+    const key = `event:today:${e.id}`;
+    if (readSet.has(key)) continue;
+    const start = new Date(e.startTime);
+    const end = new Date(e.endTime);
+    const isSoon = !e.allDay && start.getTime() <= soonEnd.getTime();
+    const minsUntil = Math.round((start.getTime() - now.getTime()) / 60_000);
+    const shouldNotify =
+      !e.allDay &&
+      minsUntil > 0 &&
+      minsUntil <= (e.reminderMinutes ?? 15);
+
+    const subtitle = e.allDay
+      ? "全天"
+      : `${fmtTime(start)} - ${fmtTime(end)}`;
+
+    const item: ReminderItem = {
+      sourceKey: key,
+      type: "event",
+      title: e.title,
+      subtitle,
+      taskId: e.task?.id ?? null,
+      eventId: e.id,
+      isRead: false,
+      notify: shouldNotify,
+      location: e.location,
+    };
+
+    if (isSoon) {
+      immediate.push(item);
+    } else {
+      today.push(item);
+    }
+  }
+
+  // ── Today deadline tasks → today ──
+  for (const t of todayTasks) {
+    const key = `deadline:today:${t.id}`;
+    if (readSet.has(key)) continue;
+    today.push({
+      sourceKey: key,
+      type: "deadline",
+      title: t.title,
+      subtitle: "今天截止",
+      priority: t.priority,
+      taskId: t.id,
+      isRead: false,
+      notify: false,
+      project: t.project,
+    });
+  }
+
+  // ── Tomorrow deadline tasks → upcoming ──
+  for (const t of tomorrowTasks) {
+    const key = `deadline:tomorrow:${t.id}`;
+    if (readSet.has(key)) continue;
+    upcoming.push({
+      sourceKey: key,
+      type: "deadline",
+      title: t.title,
+      subtitle: "明天截止",
+      priority: t.priority,
+      taskId: t.id,
+      isRead: false,
+      notify: false,
+      project: t.project,
+    });
+  }
+
+  // ── Followup reminders → immediate / today / upcoming ──
+  for (const f of followups) {
+    const triggerMs = new Date(f.triggerAt).getTime();
+    const isPastDue = triggerMs <= now.getTime();
+    const isToday =
+      triggerMs > now.getTime() &&
+      triggerMs < todayEnd.getTime();
+
+    const item: ReminderItem = {
+      sourceKey: f.sourceKey,
+      type: "followup",
+      title: f.title,
+      subtitle: f.message || "跟进提醒",
+      taskId: f.taskId,
+      isRead: false,
+      notify: isPastDue,
+      project: f.task?.project ?? null,
+    };
+
+    if (isPastDue) {
+      immediate.push(item);
+    } else if (isToday) {
+      today.push(item);
+    } else {
+      upcoming.push(item);
+    }
+  }
+
+  const unreadCount = immediate.length + today.length + upcoming.length;
+
+  return { immediate, today, upcoming, unreadCount };
+}

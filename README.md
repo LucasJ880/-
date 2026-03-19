@@ -1,36 +1,125 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 青砚 - AI 工作助理
 
-## Getting Started
+> 智能中文 AI 工作助理 MVP，第一阶段服务个人，后续扩展成面向中国出口厂家的平台。
 
-First, run the development server:
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 框架 | Next.js 16 (App Router) |
+| 语言 | TypeScript |
+| 样式 | Tailwind CSS 4 |
+| 数据库 | SQLite + Prisma 6 |
+| AI | OpenAI SDK（兼容 DeepSeek / Qwen） |
+| 图标 | Lucide React |
+| 运行时 | Node.js 20 |
+
+## 快速开始
 
 ```bash
+# 安装依赖
+npm install
+
+# 复制环境变量模板并填写 AI API Key
+cp .env.example .env
+
+# 初始化数据库
+npx prisma migrate dev
+
+# 填充示例数据
+npx prisma db seed
+
+# 启动开发服务器
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## AI 配置
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+在 `.env` 文件中配置大模型 API。支持任何兼容 OpenAI 协议的服务：
 
-## Learn More
+```bash
+# OpenAI
+OPENAI_API_KEY="sk-..."
+OPENAI_BASE_URL="https://api.openai.com/v1"
+OPENAI_MODEL="gpt-4o-mini"
 
-To learn more about Next.js, take a look at the following resources:
+# DeepSeek
+OPENAI_API_KEY="sk-..."
+OPENAI_BASE_URL="https://api.deepseek.com/v1"
+OPENAI_MODEL="deepseek-chat"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 通义千问 Qwen
+OPENAI_API_KEY="sk-..."
+OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+OPENAI_MODEL="qwen-plus"
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+未配置 API Key 时，AI 助手页面会显示配置引导。
 
-## Deploy on Vercel
+## 项目结构
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/
+├── app/                  # Next.js App Router 页面
+│   ├── api/
+│   │   ├── ai/chat/      # AI 流式聊天 API (SSE)
+│   │   ├── tasks/        # 任务 CRUD API
+│   │   ├── projects/     # 项目 CRUD API
+│   │   └── stats/        # 统计数据 API
+│   ├── assistant/        # AI 助手页面
+│   ├── tasks/            # 任务管理页面
+│   ├── projects/         # 项目管理页面
+│   ├── layout.tsx        # 全局布局（侧边栏 + 顶栏）
+│   └── page.tsx          # 工作台仪表盘
+├── components/
+│   ├── sidebar.tsx       # 侧边栏导航
+│   ├── header.tsx        # 顶栏
+│   └── task-suggestion-card.tsx  # AI 任务建议卡片
+└── lib/
+    ├── ai.ts             # 统一 AI 客户端 + 任务解析
+    ├── prompts.ts        # 系统提示词
+    ├── db.ts             # Prisma 客户端
+    └── utils.ts          # 工具函数与常量
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 数据模型
+
+- **User** - 用户
+- **Project** - 项目
+- **Task** - 任务（支持状态、优先级、截止日期）
+- **Tag / TagOnTask** - 标签系统
+
+## 已实现功能
+
+### Day 1 — 项目骨架
+- [x] 数据模型设计（User / Project / Task / Tag）
+- [x] 中文后台 UI（侧边栏 + 顶栏 + 主区域）
+- [x] 工作台仪表盘
+- [x] 任务管理（CRUD + 状态切换 + 筛选）
+
+### Day 2 — 功能增强
+- [x] 项目管理（CRUD + 卡片式展示）
+- [x] 任务编辑 + 关联项目 + 截止日期
+- [x] AI 助手页面（占位 UI）
+
+### Day 3 — AI 能力
+- [x] 接入真实大模型 API（流式 SSE 响应）
+- [x] 自然语言 → 结构化任务建议解析
+- [x] 任务建议卡片（展示 + 编辑 + 确认创建）
+- [x] 无 API Key 友好降级（配置引导页）
+- [x] 流式显示中实时隐藏 JSON 标记
+
+## 后续规划
+
+- [ ] AI 感知现有任务/项目上下文
+- [ ] MCP 工具调用雏形
+- [ ] 搜索功能
+- [ ] 提醒系统
+- [ ] 多用户与权限管理
+- [ ] 面向出口厂家的平台化功能
+
+## 许可证
+
+私有项目
