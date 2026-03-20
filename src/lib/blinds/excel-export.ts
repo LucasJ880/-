@@ -86,12 +86,6 @@ function getBarValue(item: CalcItem): number | null {
   return item.calc.cutShangrilaBar;
 }
 
-function getBarLabel(productType: string): string {
-  if (productType === "卷帘") return "卷帘下杆";
-  if (productType === "斑马帘") return "斑马帘下杆";
-  return "香格里拉下杆";
-}
-
 // ─── Main Export ───────────────────────────────────────────────
 
 export async function generateBlindsExcel(order: OrderData): Promise<Buffer> {

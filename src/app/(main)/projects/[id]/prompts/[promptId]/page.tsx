@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface PromptPayload {
   id: string;
@@ -46,14 +47,14 @@ export default function PromptDetailPage() {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      fetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      fetch(`/api/projects/${projectId}/prompts/${promptId}`).then((r) =>
+      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}/prompts/${promptId}`).then((r) =>
         r.json()
       ),
-      fetch(`/api/projects/${projectId}/prompts/${promptId}/versions`).then(
+      apiFetch(`/api/projects/${projectId}/prompts/${promptId}/versions`).then(
         (r) => r.json()
       ),
-      fetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
     ])
       .then(([proj, detail, vers, envs]) => {
         setCanManage(!!proj.canManage);
@@ -88,7 +89,7 @@ export default function PromptDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/prompts/${promptId}`,
         {
           method: "PATCH",
@@ -116,7 +117,7 @@ export default function PromptDetailPage() {
     if (!confirm("将当前 test 生效版本发布到 prod？")) return;
     setPublishing(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/prompts/${promptId}/publish`,
         {
           method: "POST",

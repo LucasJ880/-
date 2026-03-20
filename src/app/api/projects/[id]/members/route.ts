@@ -71,7 +71,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   const body = await request.json();
   const userId = typeof body.userId === "string" ? body.userId.trim() : "";
-  let role =
+  const role =
     typeof body.role === "string" && body.role.trim()
       ? body.role.trim()
       : DEFAULT_NEW_PROJECT_MEMBER_ROLE;

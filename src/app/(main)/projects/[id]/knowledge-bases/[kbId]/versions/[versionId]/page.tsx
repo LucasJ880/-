@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { apiFetch } from "@/lib/api-fetch";
 
 export default function KnowledgeBaseVersionDetailPage() {
   const params = useParams();
@@ -40,7 +41,7 @@ export default function KnowledgeBaseVersionDetailPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch(
+    apiFetch(
       `/api/projects/${projectId}/knowledge-bases/${kbId}/versions/${versionId}`
     )
       .then((r) => r.json())

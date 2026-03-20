@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleCallback } from "@/lib/google-calendar";
-import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {

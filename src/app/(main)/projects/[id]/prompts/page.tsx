@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Plus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface EnvRow {
   id: string;
@@ -53,8 +54,8 @@ export default function ProjectPromptsListPage() {
 
   const loadEnvsAndProject = useCallback(() => {
     return Promise.all([
-      fetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      fetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
     ]).then(([p, e]) => {
       if (p.project) {
         setProjectName(p.project.name);
@@ -72,7 +73,7 @@ export default function ProjectPromptsListPage() {
         setPrompts([]);
         return Promise.resolve();
       }
-      return fetch(
+      return apiFetch(
         `/api/projects/${projectId}/prompts?environmentId=${encodeURIComponent(selectedEnv)}`
       )
         .then((r) => r.json())
@@ -106,7 +107,7 @@ export default function ProjectPromptsListPage() {
     if (!envId) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/prompts`, {
+      const res = await apiFetch(`/api/projects/${projectId}/prompts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useCallback, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -8,13 +8,12 @@ import {
   Edit,
   Trash2,
   FileText,
-  CheckCircle,
-  Clock,
   Ruler,
   Scissors,
   Download,
 } from "lucide-react";
 import { getCordLengthTier } from "@/lib/blinds/calculation-engine";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface BlindsOrderItem {
   id: string;
@@ -88,20 +87,20 @@ export default function BlindsOrderDetailPage({
   const [tab, setTab] = useState<"overview" | "parts" | "fabric">("overview");
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    loadOrder();
-  }, [id]);
-
-  async function loadOrder() {
-    const res = await fetch(`/api/blinds-orders/${id}`);
+  const loadOrder = useCallback(async () => {
+    const res = await apiFetch(`/api/blinds-orders/${id}`);
     if (res.ok) {
       setOrder(await res.json());
     }
     setLoading(false);
-  }
+  }, [id]);
+
+  useEffect(() => {
+    void loadOrder();
+  }, [loadOrder]);
 
   async function updateStatus(newStatus: string) {
-    const res = await fetch(`/api/blinds-orders/${id}`, {
+    const res = await apiFetch(`/api/blinds-orders/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
@@ -114,7 +113,7 @@ export default function BlindsOrderDetailPage({
   async function handleExport() {
     setExporting(true);
     try {
-      const res = await fetch(`/api/blinds-orders/${id}/export`);
+      const res = await apiFetch(`/api/blinds-orders/${id}/export`);
       if (!res.ok) {
         alert("导出失败");
         return;
@@ -137,7 +136,7 @@ export default function BlindsOrderDetailPage({
 
   async function handleDelete() {
     if (!confirm("确定删除此工艺单？此操作不可恢复。")) return;
-    const res = await fetch(`/api/blinds-orders/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/blinds-orders/${id}`, { method: "DELETE" });
     if (res.ok) {
       router.push("/blinds-orders");
     }
@@ -361,7 +360,9 @@ function PartsCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                   <td className="px-3 py-2">{item.headrailType}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cutHeadrail)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cutTube38)}</td>
-                  <td className="px-3 py-2 font-mono">{fmt(barVal)}</td>
+                  <td className="px-3 py-2 font-mono" title={barLabel}>
+                    {fmt(barVal)}
+                  </td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cutCoreRod)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cutFabricWidth)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.insertSize)}</td>

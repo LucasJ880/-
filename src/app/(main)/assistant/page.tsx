@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Sparkles, Loader2, AlertCircle, Settings } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractWorkSuggestion, type WorkSuggestion } from "@/lib/ai";
 import { WorkSuggestionCard, type SimpleProject } from "@/components/work-suggestion-card";
+import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface Message {
   id: string;
@@ -34,57 +36,13 @@ function cleanStreamingText(raw: string): string {
   return raw;
 }
 
-function ConfigGuide() {
-  return (
-    <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center gap-4 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
-        <Bot size={32} />
-      </div>
-      <h2 className="text-xl font-bold">配置 AI 服务</h2>
-      <p className="text-sm leading-relaxed text-muted">
-        青砚 AI 助手需要连接大语言模型才能工作。
-        <br />
-        请在项目根目录的 <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono">.env</code> 文件中配置以下变量：
-      </p>
-      <div className="w-full rounded-xl border border-border bg-card-bg p-4 text-left">
-        <pre className="overflow-x-auto text-xs leading-6 text-foreground">
-{`# OpenAI
-OPENAI_API_KEY="sk-..."
-OPENAI_BASE_URL="https://api.openai.com/v1"
-OPENAI_MODEL="gpt-4o-mini"
-
-# 或 DeepSeek
-OPENAI_API_KEY="sk-..."
-OPENAI_BASE_URL="https://api.deepseek.com/v1"
-OPENAI_MODEL="deepseek-chat"
-
-# 或通义千问 Qwen
-OPENAI_API_KEY="sk-..."
-OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-OPENAI_MODEL="qwen-plus"`}
-        </pre>
-      </div>
-      <p className="text-xs text-muted">
-        配置完成后，重启开发服务器即可使用 AI 助手。
-      </p>
-      <a
-        href="/"
-        className="mt-2 flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm transition-colors hover:bg-background"
-      >
-        <Settings size={14} />
-        返回工作台
-      </a>
-    </div>
-  );
-}
-
 export default function AssistantPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
       content:
-        "你好！我是青砚 AI 助手。\n\n你可以用自然语言告诉我你的工作需求，我会帮你整理成结构化的任务建议。比如：\n\n\u2022 明天要提交项目方案给客户\n\u2022 这周五之前完成季度报表\n\u2022 帮我安排下周的工作计划\n\n试试看吧！",
+        "你好！我是青砚 AI 助手，适合多轮对话与规划：你可以逐步补充背景，我会结合上文给出任务或日程建议。\n\n若只想一句话快速落库，侧栏「收件箱」更高效（单条输入、一次解析）。\n\n例如可以问我：\n\n\u2022 明天要提交项目方案给客户\n\u2022 这周五之前完成季度报表\n\u2022 帮我安排下周的工作计划\n\n试试看吧！",
     },
   ]);
   const [input, setInput] = useState("");
@@ -95,7 +53,7 @@ export default function AssistantPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch("/api/projects")
+    apiFetch("/api/projects")
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -142,7 +100,7 @@ export default function AssistantPage() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const res = await fetch("/api/ai/chat", {
+      const res = await apiFetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: chatHistory }),
@@ -150,7 +108,11 @@ export default function AssistantPage() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        if (res.status === 500 && errData.error?.includes("OPENAI_API_KEY")) {
+        const errMsg = String(errData.error || "");
+        if (
+          res.status === 500 &&
+          (errMsg.includes("OPENAI") || errMsg.includes("API 密钥"))
+        ) {
           setNoApiKey(true);
           setMessages((prev) => prev.filter((m) => m.id !== assistantId && m.id !== userMsg.id));
           return;
@@ -238,7 +200,7 @@ export default function AssistantPage() {
   };
 
   if (noApiKey) {
-    return <ConfigGuide />;
+    return <AiServiceConfigHint variant="full" />;
   }
 
   return (
@@ -252,7 +214,7 @@ export default function AssistantPage() {
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto rounded-xl border border-border bg-card-bg"
+        className="flex-1 overflow-y-auto rounded-[var(--radius-xl)] border border-border bg-gradient-to-b from-card-bg to-sky-50/20 shadow-card"
       >
         <div className="space-y-4 p-5">
           {messages.map((msg) => (

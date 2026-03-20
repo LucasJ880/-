@@ -8,7 +8,6 @@ export async function GET(request: NextRequest) {
   const dateStr = searchParams.get("date");
 
   let dayStart: Date;
-  let dayEnd: Date;
 
   if (dateStr) {
     dayStart = new Date(dateStr);
@@ -17,7 +16,7 @@ export async function GET(request: NextRequest) {
     dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
   }
-  dayEnd = new Date(dayStart);
+  const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayStart.getDate() + 1);
 
   const events = await db.calendarEvent.findMany({

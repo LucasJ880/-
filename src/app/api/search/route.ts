@@ -7,8 +7,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ tasks: [], projects: [] });
   }
 
-  const keyword = `%${q}%`;
-
   const [tasks, projects] = await Promise.all([
     db.task.findMany({
       where: {

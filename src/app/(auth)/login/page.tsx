@@ -1,11 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import {
+  authCardClass,
+  authInputClass,
+  authLabelClass,
+  authPrimaryButtonClass,
+} from "@/lib/auth-styles";
+import { Loader2 } from "lucide-react";
+import { apiFetch } from "@/lib/api-fetch";
 
-export default function LoginPage() {
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -17,7 +31,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await apiFetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -29,7 +43,8 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/");
+      const dest = safeNext(searchParams.get("next"));
+      router.push(dest);
       router.refresh();
     } catch {
       setError("网络错误，请稍后重试");
@@ -39,68 +54,88 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="w-full max-w-sm">
-      <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-slate-900">登录青砚</h1>
-          <p className="mt-1 text-sm text-slate-500">AI 工作助理</p>
+    <div className={authCardClass}>
+      <div className="mb-6 text-center">
+        <h1 className="text-brand-gradient text-2xl font-bold tracking-tight">
+          登录青砚
+        </h1>
+        <p className="mt-1 text-sm text-muted">AI 工作助理</p>
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded-[var(--radius-md)] border border-red-200 bg-danger-bg px-4 py-2.5 text-sm text-danger">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="login-email" className={authLabelClass}>
+            邮箱
+          </label>
+          <input
+            id="login-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+            autoComplete="email"
+            placeholder="name@example.com"
+            className={authInputClass}
+          />
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-600">
-            {error}
-          </div>
-        )}
+        <div>
+          <label htmlFor="login-password" className={authLabelClass}>
+            密码
+          </label>
+          <input
+            id="login-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+            placeholder="至少 6 位"
+            className={authInputClass}
+          />
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              邮箱
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoFocus
-              placeholder="name@example.com"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className={authPrimaryButtonClass}
+        >
+          {loading ? "登录中…" : "登录"}
+        </button>
+      </form>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              密码
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="至少 6 位"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? "登录中..." : "登录"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-center text-sm text-slate-500">
-          还没有账号？
-          <Link
-            href="/register"
-            className="ml-1 font-medium text-blue-600 hover:text-blue-700"
-          >
-            注册
-          </Link>
-        </p>
-      </div>
+      <p className="mt-4 text-center text-sm text-muted">
+        还没有账号？
+        <Link
+          href="/register"
+          className="ml-1 font-medium text-accent hover:text-accent-hover"
+        >
+          注册
+        </Link>
+      </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className={`${authCardClass} flex min-h-[320px] items-center justify-center`}
+        >
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

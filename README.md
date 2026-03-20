@@ -113,13 +113,23 @@ src/
 - [x] 无 API Key 友好降级（配置引导页）
 - [x] 流式显示中实时隐藏 JSON 标记
 
+## 协作与接手文档
+
+- **[docs/AI_TEAM.md](./docs/AI_TEAM.md)**：虚拟角色（PM / 架构 / 设计 / 全栈 / QA）分工与在 Cursor 中的用法，适合大型重构与 UI/UX 升级前对齐流程。  
+- **[docs/PROJECT_AUDIT.md](./docs/PROJECT_AUDIT.md)**：基于代码通读的项目功能地图与 README 差距说明（二手项目接手建议先看）。  
+- **[docs/QA_P0_CHECKLIST.md](./docs/QA_P0_CHECKLIST.md)**：发布前 P0 手工回归清单；自动化门禁可运行 `npm run qa`（lint + Prisma generate + `next build`，不含 migrate）。  
+- **[docs/PM_PHASE1_DELIVERY.md](./docs/PM_PHASE1_DELIVERY.md)**：第一期优化交付清单（PM 输出，供 ARCH 拆分设计与排期）。  
+- **[docs/ARCH_PHASE1_BREAKDOWN.md](./docs/ARCH_PHASE1_BREAKDOWN.md)**：第一期技术拆分（Epic/Story、依赖、开发波次、DESIGN 接口）。  
+- **[docs/DESIGN_SPEC_PHASE1.md](./docs/DESIGN_SPEC_PHASE1.md)**：第一期 UI/UX 与 Token、字阶、五类组件规格（现代 / 智能感方向）。
+
+登录后侧栏 **使用说明** 打开站内 **[功能地图页](/help)**（与 `PROJECT_AUDIT` 路由表一致）。
+
 ## 后续规划
 
 - [ ] AI 感知现有任务/项目上下文
 - [ ] MCP 工具调用雏形
-- [ ] 搜索功能
-- [ ] 提醒系统
-- [ ] 多用户与权限管理
+- [x] 顶栏搜索与提醒（一期已具备）
+- [x] 多用户与权限管理（组织/项目成员等，持续演进）
 - [ ] 面向出口厂家的平台化功能
 
 ## 许可证

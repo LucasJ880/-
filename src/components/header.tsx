@@ -17,6 +17,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 import Link from "next/link";
 
 /* ── Search types ── */
@@ -68,7 +69,7 @@ function SearchPanel({
     setLoading(true);
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(query.trim())}`)
+      apiFetch(`/api/search?q=${encodeURIComponent(query.trim())}`)
         .then((r) => r.json())
         .then(setData)
         .catch(() => setData({ tasks: [], projects: [] }))
@@ -96,6 +97,9 @@ function SearchPanel({
   return (
     <div
       ref={panelRef}
+      id="global-search-results"
+      role="region"
+      aria-label="搜索结果"
       className="absolute left-0 top-full z-50 mt-1.5 w-full min-w-[360px] rounded-xl border border-border bg-card-bg shadow-xl"
     >
       {loading ? (
@@ -111,10 +115,13 @@ function SearchPanel({
         <div className="max-h-96 overflow-y-auto">
           {data && data.tasks.length > 0 && (
             <div>
-              <div className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                <CheckSquare size={11} />
+              <div
+                className="flex items-center gap-1.5 border-b border-border/60 px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted"
+                role="presentation"
+              >
+                <CheckSquare size={11} aria-hidden />
                 任务
-                <span className="ml-auto font-normal">{data.tasks.length}</span>
+                <span className="ml-auto font-normal tabular-nums">{data.tasks.length}</span>
               </div>
               {data.tasks.map((t) => {
                 const pInfo = TASK_PRIORITY[t.priority as TaskPriority] || TASK_PRIORITY.medium;
@@ -124,7 +131,7 @@ function SearchPanel({
                     key={t.id}
                     href={`/tasks/${t.id}`}
                     onClick={onClose}
-                    className="flex items-center gap-2 px-4 py-2 transition-colors hover:bg-background"
+                    className="flex items-center gap-2 px-4 py-2 transition-colors hover:bg-background focus-visible:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   >
                     <div className="min-w-0 flex-1">
                       <p className={cn("truncate text-sm", t.status === "done" && "text-muted line-through")}>
@@ -151,17 +158,20 @@ function SearchPanel({
 
           {data && data.projects.length > 0 && (
             <div className={data.tasks.length > 0 ? "border-t border-border" : ""}>
-              <div className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                <FolderKanban size={11} />
+              <div
+                className="flex items-center gap-1.5 border-b border-border/60 px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted"
+                role="presentation"
+              >
+                <FolderKanban size={11} aria-hidden />
                 项目
-                <span className="ml-auto font-normal">{data.projects.length}</span>
+                <span className="ml-auto font-normal tabular-nums">{data.projects.length}</span>
               </div>
               {data.projects.map((p) => (
                 <Link
                   key={p.id}
-                  href="/projects"
+                  href={`/projects/${p.id}`}
                   onClick={onClose}
-                  className="flex items-center gap-3 px-4 py-2 transition-colors hover:bg-background"
+                  className="flex items-center gap-3 px-4 py-2 transition-colors hover:bg-background focus-visible:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                 >
                   <span className="h-3 w-3 shrink-0 rounded" style={{ backgroundColor: p.color }} />
                   <div className="min-w-0 flex-1">
@@ -297,7 +307,7 @@ function ReminderPanel({
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
-    fetch("/api/reminders")
+    apiFetch("/api/reminders")
       .then((r) => r.json())
       .then((d: RemindersResponse) => {
         setData(d);
@@ -324,7 +334,7 @@ function ReminderPanel({
 
   const handleRead = useCallback(
     (sourceKey: string) => {
-      fetch("/api/reminders/read", {
+      apiFetch("/api/reminders/read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceKey }),
@@ -416,7 +426,7 @@ export function Header() {
   const notifiedRef = useRef<Set<string>>(new Set());
 
   const loadCount = useCallback(() => {
-    fetch("/api/reminders")
+    apiFetch("/api/reminders")
       .then((r) => r.json())
       .then((d: RemindersResponse) => {
         setReminderCount(d.unreadCount);
@@ -443,7 +453,7 @@ export function Header() {
       Notification.requestPermission();
     }
     loadCount();
-    fetch("/api/auth/me")
+    apiFetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.user) setCurrentUser(d.user); })
       .catch(() => {});
@@ -498,19 +508,29 @@ export function Header() {
         </div>
 
         <div ref={searchRef} className="relative">
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+          <div
+            className="relative"
+            role="combobox"
+            aria-expanded={searchOpen}
+            aria-controls={searchOpen && searchQuery.trim() ? "global-search-results" : undefined}
+            aria-haspopup="listbox"
+          >
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
             <input
               ref={inputRef}
-              type="text"
+              type="search"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setSearchOpen(true);
               }}
-              onFocus={() => { if (searchQuery.trim()) setSearchOpen(true); }}
+              onFocus={() => {
+                if (searchQuery.trim()) setSearchOpen(true);
+              }}
               placeholder="搜索任务、项目...  ⌘K"
-              className="h-8 w-56 rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted focus:border-accent focus:w-72"
+              aria-autocomplete="list"
+              autoComplete="off"
+              className="h-8 w-56 rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none transition-[width,box-shadow,border-color] placeholder:text-muted focus:w-72 focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-card-bg"
             />
             {searchQuery && (
               <button
@@ -563,7 +583,7 @@ export function Header() {
               <div className="py-1">
                 <button
                   onClick={async () => {
-                    await fetch("/api/auth/logout", { method: "POST" });
+                    await apiFetch("/api/auth/logout", { method: "POST" });
                     window.location.href = "/login";
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 transition-colors hover:bg-red-50"

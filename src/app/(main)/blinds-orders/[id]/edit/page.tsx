@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { BlindsOrderForm } from "@/components/blinds-order-form";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface OrderData {
   id: string;
@@ -42,7 +43,7 @@ export default function EditBlindsOrderPage({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/blinds-orders/${id}`)
+    apiFetch(`/api/blinds-orders/${id}`)
       .then((res) => res.json())
       .then((data) => {
         setOrder(data);

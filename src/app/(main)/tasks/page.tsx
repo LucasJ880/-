@@ -16,6 +16,7 @@ import {
   BellOff,
   AlertTriangle,
   CalendarClock,
+  ListTodo,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -25,6 +26,8 @@ import {
   type TaskStatus,
   type TaskPriority,
 } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface Task {
   id: string;
@@ -129,7 +132,7 @@ function TaskFormModal({
     try {
       const url = editing ? `/api/tasks/${editing.id}` : "/api/tasks";
       const method = editing ? "PATCH" : "POST";
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -311,7 +314,7 @@ function StatusDropdown({
 
   const handleChange = async (status: TaskStatus) => {
     setOpen(false);
-    await fetch(`/api/tasks/${task.id}`, {
+    await apiFetch(`/api/tasks/${task.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -374,14 +377,14 @@ export default function TasksPage() {
   const loadTasks = useCallback(() => {
     setLoading(true);
     const params = filter !== "all" ? `?status=${filter}` : "";
-    fetch(`/api/tasks${params}`)
+    apiFetch(`/api/tasks${params}`)
       .then((r) => r.json())
       .then(setTasks)
       .finally(() => setLoading(false));
   }, [filter]);
 
   const loadProjects = useCallback(() => {
-    fetch("/api/projects")
+    apiFetch("/api/projects")
       .then((r) => r.json())
       .then((data: { id: string; name: string; color: string }[]) =>
         setProjects(data.map((p) => ({ id: p.id, name: p.name, color: p.color })))
@@ -394,30 +397,29 @@ export default function TasksPage() {
   }, [loadTasks, loadProjects]);
 
   const handleDelete = async (id: string) => {
-    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/tasks/${id}`, { method: "DELETE" });
     loadTasks();
   };
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">任务管理</h1>
-          <p className="mt-1 text-sm text-muted">
-            管理和追踪您的所有工作任务
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setEditingTask(null);
-            setShowForm(true);
-          }}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-        >
-          <Plus size={16} />
-          新建任务
-        </button>
-      </div>
+      <PageHeader
+        title="任务管理"
+        description="管理和追踪您的所有工作任务"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setEditingTask(null);
+              setShowForm(true);
+            }}
+            className="flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 ease-out hover:bg-accent-hover active:scale-[0.98]"
+          >
+            <Plus size={16} />
+            新建任务
+          </button>
+        }
+      />
 
       <div className="flex gap-2">
         {(["all", ...Object.keys(TASK_STATUS)] as const).map((s) => {
@@ -443,20 +445,35 @@ export default function TasksPage() {
       </div>
 
       {loading ? (
-        <div className="flex h-40 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-accent" />
+        <div className="space-y-2 rounded-[var(--radius-lg)] border border-border bg-card-bg p-4 shadow-card">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="flex animate-pulse items-center gap-4 border-b border-border py-3 last:border-0"
+            >
+              <div className="h-4 flex-1 rounded bg-border" />
+              <div className="h-5 w-16 rounded bg-border" />
+            </div>
+          ))}
         </div>
       ) : tasks.length === 0 ? (
-        <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border">
-          <p className="text-sm text-muted">暂无任务</p>
+        <div className="flex flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-border bg-card-bg/80 px-6 py-14 text-center shadow-card">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+            <ListTodo size={28} strokeWidth={1.75} />
+          </div>
+          <h3 className="text-base font-semibold text-foreground">暂无任务</h3>
+          <p className="mt-1 max-w-sm text-sm text-muted">
+            创建任务以跟踪进度；也可在「AI 助手」或「收件箱」用自然语言生成建议。
+          </p>
           <button
+            type="button"
             onClick={() => {
               setEditingTask(null);
               setShowForm(true);
             }}
-            className="mt-2 text-sm text-accent hover:text-accent-hover"
+            className="mt-6 min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-accent-hover active:scale-[0.98]"
           >
-            点击创建第一个任务
+            新建任务
           </button>
         </div>
       ) : (

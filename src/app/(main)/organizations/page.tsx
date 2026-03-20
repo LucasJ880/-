@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Building2, Loader2, Plus } from "lucide-react";
+import { Building2, Loader2, Plus, FolderKanban, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface OrgRow {
   id: string;
@@ -26,7 +28,7 @@ export default function OrganizationsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch("/api/organizations")
+    apiFetch("/api/organizations")
       .then((r) => r.json())
       .then((d) => setOrgs(d.organizations ?? []))
       .finally(() => setLoading(false));
@@ -43,7 +45,7 @@ export default function OrganizationsPage() {
     if (!n) return;
     setCreating(true);
     try {
-      const res = await fetch("/api/organizations", {
+      const res = await apiFetch("/api/organizations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -65,10 +67,21 @@ export default function OrganizationsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">组织</h1>
-        <p className="mt-1 text-sm text-muted">
-          组织是一级数据隔离边界，项目与后续资源将归属在组织下
+      <PageHeader
+        title="组织"
+        description="组织是一级数据隔离边界：成员在此协作，项目必须归属在某个组织下才能统一管理任务与环境。"
+      />
+
+      <div className="flex gap-3 rounded-xl border border-border bg-card-bg px-4 py-3 text-sm text-muted">
+        <Info size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+        <p className="leading-relaxed">
+          <strong className="text-foreground">与项目的关系：</strong>
+          新建项目时需选择组织；任务、环境、Prompt 与知识库挂在项目下。
+          若暂无项目，创建组织后可前往{" "}
+          <Link href="/projects" className="font-medium text-accent hover:underline">
+            项目
+          </Link>{" "}
+          新建。
         </p>
       </div>
 
@@ -112,9 +125,22 @@ export default function OrganizationsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-accent" />
         </div>
       ) : orgs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16">
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border py-16">
           <Building2 className="h-10 w-10 text-muted" />
-          <p className="mt-2 text-sm text-muted">暂无组织，请先创建</p>
+          <p className="text-center text-sm text-muted">
+            暂无组织。创建后即可在{" "}
+            <Link href="/projects" className="text-accent hover:underline">
+              项目
+            </Link>{" "}
+            中新建归属项目。
+          </p>
+          <Link
+            href="/projects"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium transition-colors hover:bg-background"
+          >
+            <FolderKanban size={16} />
+            前往项目管理
+          </Link>
         </div>
       ) : (
         <ul className="space-y-2">

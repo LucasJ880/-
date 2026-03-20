@@ -34,6 +34,7 @@ import {
   type TaskStatus,
   type TaskPriority,
 } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 /* ── Types ── */
 
@@ -175,7 +176,7 @@ function EditPanel({
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`/api/tasks/${task.id}`, {
+      const res = await apiFetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -336,7 +337,7 @@ function CommentSection({ taskId }: { taskId: string }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(() => {
-    fetch(`/api/tasks/${taskId}/comments`)
+    apiFetch(`/api/tasks/${taskId}/comments`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setComments(data);
@@ -352,7 +353,7 @@ function CommentSection({ taskId }: { taskId: string }) {
     if (!input.trim() || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`/api/tasks/${taskId}/comments`, {
+      const res = await apiFetch(`/api/tasks/${taskId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: input.trim() }),
@@ -439,7 +440,7 @@ function ActivityLog({ taskId }: { taskId: string }) {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
-    fetch(`/api/tasks/${taskId}/activities`)
+    apiFetch(`/api/tasks/${taskId}/activities`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setActivities(data);
@@ -542,7 +543,7 @@ function TaskScheduleModal({
     }
 
     try {
-      const res = await fetch("/api/calendar", {
+      const res = await apiFetch("/api/calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -673,7 +674,7 @@ export default function TaskDetailPage() {
   const [showScheduleForm, setShowScheduleForm] = useState(false);
 
   const loadTask = useCallback(() => {
-    fetch(`/api/tasks/${id}`)
+    apiFetch(`/api/tasks/${id}`)
       .then((r) => {
         if (!r.ok) throw new Error();
         return r.json();
@@ -685,7 +686,7 @@ export default function TaskDetailPage() {
 
   useEffect(() => {
     loadTask();
-    fetch("/api/projects")
+    apiFetch("/api/projects")
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data))
@@ -954,7 +955,7 @@ export default function TaskDetailPage() {
                     key={key}
                     disabled={active}
                     onClick={async () => {
-                      await fetch(`/api/tasks/${task.id}`, {
+                      await apiFetch(`/api/tasks/${task.id}`, {
                         method: "PATCH",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ status: key }),
@@ -1019,7 +1020,7 @@ export default function TaskDetailPage() {
                     </div>
                     <button
                       onClick={async () => {
-                        await fetch(`/api/calendar/${ev.id}`, { method: "DELETE" });
+                        await apiFetch(`/api/calendar/${ev.id}`, { method: "DELETE" });
                         loadTask();
                       }}
                       className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-red-500"

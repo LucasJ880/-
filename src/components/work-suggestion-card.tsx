@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   CheckCircle2,
   Calendar,
@@ -12,8 +13,10 @@ import {
   Pencil,
   Clock,
   MapPin,
+  Link2,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, type TaskPriority } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 import type { WorkSuggestion, TaskSuggestion, EventSuggestion } from "@/lib/ai";
 
 export interface SimpleProject {
@@ -56,7 +59,7 @@ function TaskCard({
   const handleCreate = async () => {
     setStatus("creating");
     try {
-      const res = await fetch("/api/tasks", {
+      const res = await apiFetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -83,9 +86,9 @@ function TaskCard({
         <span className="text-sm font-medium text-green-700">
           任务「{form.title}」已创建成功
         </span>
-        <a href="/tasks" className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800">
+        <Link href="/tasks" className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800">
           查看任务列表 <ExternalLink size={12} />
-        </a>
+        </Link>
       </div>
     );
   }
@@ -248,7 +251,7 @@ function EventCard({
       payload.endTime = `${form.date}T${form.endTime}:00`;
     }
     try {
-      const res = await fetch("/api/calendar", {
+      const res = await apiFetch("/api/calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -268,9 +271,9 @@ function EventCard({
         <span className="text-sm font-medium text-green-700">
           日程「{form.title}」已创建成功
         </span>
-        <a href="/" className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800">
+        <Link href="/" className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800">
           查看工作台 <ExternalLink size={12} />
-        </a>
+        </Link>
       </div>
     );
   }
@@ -380,8 +383,6 @@ function EventCard({
 
 /* ── Task + Event Combined Card ── */
 
-import { Link2 } from "lucide-react";
-
 type ComboStatus =
   | "pending"
   | "creating_task"
@@ -446,7 +447,7 @@ function TaskAndEventCard({
     let taskId: string | null = null;
 
     try {
-      const taskRes = await fetch("/api/tasks", {
+      const taskRes = await apiFetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -469,7 +470,7 @@ function TaskAndEventCard({
 
     setStatus("creating_event");
     try {
-      const eventRes = await fetch("/api/calendar", {
+      const eventRes = await apiFetch("/api/calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildEventPayload(taskId!)),
@@ -486,7 +487,7 @@ function TaskAndEventCard({
     if (!createdTaskId) return;
     setStatus("creating_event");
     try {
-      const eventRes = await fetch("/api/calendar", {
+      const eventRes = await apiFetch("/api/calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildEventPayload(createdTaskId)),
@@ -506,9 +507,9 @@ function TaskAndEventCard({
         <span className="text-sm font-medium text-green-700">
           任务「{taskForm.title}」+ 日程「{eventForm.title}」已创建并关联
         </span>
-        <a href="/tasks" className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800">
+        <Link href="/tasks" className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800">
           查看 <ExternalLink size={12} />
-        </a>
+        </Link>
       </div>
     );
   }

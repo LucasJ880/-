@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface OrgDetail {
   id: string;
@@ -44,7 +45,7 @@ export default function OrganizationDetailPage() {
   const [platformRole, setPlatformRole] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/auth/me")
+    apiFetch("/api/auth/me")
       .then((r) => r.json())
       .then((d) => setPlatformRole(d.user?.role ?? null))
       .catch(() => {});
@@ -57,8 +58,8 @@ export default function OrganizationDetailPage() {
     if (!orgId) return;
     setLoading(true);
     Promise.all([
-      fetch(`/api/organizations/${orgId}`).then((r) => r.json()),
-      fetch(`/api/organizations/${orgId}/members`).then((r) => r.json()),
+      apiFetch(`/api/organizations/${orgId}`).then((r) => r.json()),
+      apiFetch(`/api/organizations/${orgId}/members`).then((r) => r.json()),
     ])
       .then(([o, m]) => {
         if (o.error) {
@@ -82,7 +83,7 @@ export default function OrganizationDetailPage() {
     if (!org || !editName.trim()) return;
     setSavingOrg(true);
     try {
-      const res = await fetch(`/api/organizations/${orgId}`, {
+      const res = await apiFetch(`/api/organizations/${orgId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editName.trim() }),
@@ -99,7 +100,7 @@ export default function OrganizationDetailPage() {
 
   async function archiveOrg() {
     if (!confirm("确定归档该组织？归档后不可再在其下新建项目。")) return;
-    const res = await fetch(`/api/organizations/${orgId}`, {
+    const res = await apiFetch(`/api/organizations/${orgId}`, {
       method: "DELETE",
     });
     const data = await res.json().catch(() => ({}));
@@ -116,7 +117,7 @@ export default function OrganizationDetailPage() {
     if (!uid) return;
     setBusyMemberId("__add__");
     try {
-      const res = await fetch(`/api/organizations/${orgId}/members`, {
+      const res = await apiFetch(`/api/organizations/${orgId}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: uid, role: addRole }),
@@ -135,7 +136,7 @@ export default function OrganizationDetailPage() {
   async function updateMember(memberId: string, role: string) {
     setBusyMemberId(memberId);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/organizations/${orgId}/members/${memberId}`,
         {
           method: "PATCH",
@@ -157,7 +158,7 @@ export default function OrganizationDetailPage() {
     if (!confirm("确定从组织中移除此成员？")) return;
     setBusyMemberId(memberId);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/organizations/${orgId}/members/${memberId}`,
         { method: "DELETE" }
       );

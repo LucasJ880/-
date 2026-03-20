@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, BookOpen } from "lucide-react";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface DocRow {
   id: string;
@@ -73,14 +74,14 @@ export default function KnowledgeBaseDetailPage() {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      fetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      fetch(`/api/projects/${projectId}/knowledge-bases/${kbId}`).then((r) =>
+      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}/knowledge-bases/${kbId}`).then((r) =>
         r.json()
       ),
-      fetch(`/api/projects/${projectId}/knowledge-bases/${kbId}/versions`).then(
+      apiFetch(`/api/projects/${projectId}/knowledge-bases/${kbId}/versions`).then(
         (r) => r.json()
       ),
-      fetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
     ])
       .then(([proj, detail, vers, envs]) => {
         setCanManage(!!proj.canManage);
@@ -114,7 +115,7 @@ export default function KnowledgeBaseDetailPage() {
     e.preventDefault();
     setKbSaving(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/knowledge-bases/${kbId}`,
         {
           method: "PATCH",
@@ -139,7 +140,7 @@ export default function KnowledgeBaseDetailPage() {
     e.preventDefault();
     setDocSaving(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/knowledge-bases/${kbId}/documents`,
         {
           method: "POST",
@@ -173,7 +174,7 @@ export default function KnowledgeBaseDetailPage() {
   async function saveDoc(docId: string) {
     setDocSaving(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/knowledge-bases/${kbId}/documents/${docId}`,
         {
           method: "PATCH",
@@ -200,7 +201,7 @@ export default function KnowledgeBaseDetailPage() {
     if (!confirm("归档后将从当前生效列表中隐藏，并生成新版本快照。确定？"))
       return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/knowledge-bases/${kbId}/documents/${docId}`,
         { method: "DELETE" }
       );
@@ -216,7 +217,7 @@ export default function KnowledgeBaseDetailPage() {
     if (!confirm("将 test 当前知识库快照发布到 prod？")) return;
     setPublishing(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/projects/${projectId}/knowledge-bases/${kbId}/publish`,
         {
           method: "POST",

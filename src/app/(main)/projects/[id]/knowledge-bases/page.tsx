@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Plus, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface EnvRow {
   id: string;
@@ -51,8 +52,8 @@ export default function ProjectKnowledgeBasesPage() {
 
   const loadEnvsAndProject = useCallback(() => {
     return Promise.all([
-      fetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      fetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
     ]).then(([p, e]) => {
       if (p.project) {
         setProjectName(p.project.name);
@@ -70,7 +71,7 @@ export default function ProjectKnowledgeBasesPage() {
         setList([]);
         return Promise.resolve();
       }
-      return fetch(
+      return apiFetch(
         `/api/projects/${projectId}/knowledge-bases?environmentId=${encodeURIComponent(selectedEnv)}`
       )
         .then((r) => r.json())
@@ -103,7 +104,7 @@ export default function ProjectKnowledgeBasesPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/knowledge-bases`, {
+      const res = await apiFetch(`/api/projects/${projectId}/knowledge-bases`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

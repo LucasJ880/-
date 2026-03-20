@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
+import { PageHeader } from "@/components/page-header";
 
 interface Project {
   id: string;
@@ -110,7 +112,7 @@ function ProjectModal({
         }
         body.orgId = orgId;
       }
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -238,11 +240,9 @@ function ProjectModal({
 }
 
 function ProjectMenu({
-  project,
   onEdit,
   onDelete,
 }: {
-  project: Project;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -294,20 +294,25 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [organizations, setOrganizations] = useState<OrgOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
 
   const loadProjects = useCallback(() => {
     setLoading(true);
+    setLoadError("");
     Promise.all([
-      fetch("/api/projects").then((r) => r.json()),
-      fetch("/api/organizations")
+      apiFetch("/api/projects").then((r) => r.json()),
+      apiFetch("/api/organizations")
         .then((r) => r.json())
         .then((d) => d.organizations ?? []),
     ])
       .then(([projs, orgs]) => {
         setProjects(Array.isArray(projs) ? projs : []);
         setOrganizations(Array.isArray(orgs) ? orgs : []);
+      })
+      .catch(() => {
+        setLoadError("加载失败，请检查网络或稍后重试。");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -317,47 +322,84 @@ export default function ProjectsPage() {
   }, [loadProjects]);
 
   const handleDelete = async (id: string) => {
-    await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
     loadProjects();
   };
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">项目管理</h1>
-          <p className="mt-1 text-sm text-muted">
-            管理您的工作项目，组织和追踪任务进度
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setEditing(null);
-            setShowModal(true);
-          }}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-        >
-          <Plus size={16} />
-          新建项目
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex h-40 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-accent" />
-        </div>
-      ) : projects.length === 0 ? (
-        <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border">
-          <FolderKanban size={32} className="text-muted" />
-          <p className="mt-2 text-sm text-muted">暂无项目</p>
+      <PageHeader
+        title="项目管理"
+        description="项目归属在组织之下，用于承载任务、环境与知识资源。"
+        actions={
           <button
+            type="button"
             onClick={() => {
               setEditing(null);
               setShowModal(true);
             }}
-            className="mt-2 text-sm text-accent hover:text-accent-hover"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
-            点击创建第一个项目
+            <Plus size={16} />
+            新建项目
+          </button>
+        }
+      />
+
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-xl border border-border bg-card-bg p-5"
+            >
+              <div className="flex gap-3">
+                <div className="h-10 w-10 shrink-0 rounded-lg bg-slate-200" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-2/3 rounded bg-slate-200" />
+                  <div className="h-3 w-1/2 rounded bg-slate-100" />
+                </div>
+              </div>
+              <div className="mt-4 h-3 w-full rounded bg-slate-100" />
+              <div className="mt-3 flex gap-2 border-t border-border pt-3">
+                <div className="h-3 w-16 rounded bg-slate-100" />
+                <div className="h-3 w-16 rounded bg-slate-100" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : loadError ? (
+        <div className="flex flex-col items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            onClick={() => loadProjects()}
+            className="text-sm font-medium text-accent hover:underline"
+          >
+            重试
+          </button>
+        </div>
+      ) : projects.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border py-16">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
+            <FolderKanban size={28} className="text-slate-400" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">还没有项目</p>
+            <p className="mt-1 text-sm text-muted">
+              需先有所属组织；若无组织请先到「组织」页面创建。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null);
+              setShowModal(true);
+            }}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            <Plus size={16} />
+            新建项目
           </button>
         </div>
       ) : (
@@ -392,7 +434,6 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <ProjectMenu
-                  project={project}
                   onEdit={() => {
                     setEditing(project);
                     setShowModal(true);

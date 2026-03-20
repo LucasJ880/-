@@ -1,8 +1,10 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { Settings, Calendar, Loader2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { Calendar, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface GoogleStatus {
   connected: boolean;
@@ -41,7 +43,7 @@ function SettingsContent() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/auth/google/status")
+    apiFetch("/api/auth/google/status")
       .then((r) => r.json())
       .then(setGoogle)
       .catch(() => setGoogle({ connected: false }))
@@ -51,7 +53,7 @@ function SettingsContent() {
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      await fetch("/api/auth/google/status", { method: "DELETE" });
+      await apiFetch("/api/auth/google/status", { method: "DELETE" });
       setGoogle({ connected: false });
     } catch {
       /* ignore */
@@ -65,11 +67,10 @@ function SettingsContent() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Settings size={24} />
-          设置
-        </h1>
-        <p className="mt-1 text-sm text-muted">管理青砚的外部服务连接</p>
+        <PageHeader
+          title="设置"
+          description="管理外部服务连接、集成状态与排错说明。部署与环境变量总览见 docs/DEPLOY_VERCEL.md。"
+        />
       </div>
 
       {googleResult === "success" && (
@@ -152,40 +153,53 @@ function SettingsContent() {
         </div>
 
         <div className="border-t border-border px-5 py-3">
-          <p className="text-[11px] leading-relaxed text-muted">
-            配置步骤：1. 前往{" "}
-            <a
-              href="https://console.cloud.google.com/apis/credentials"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-0.5 text-accent hover:underline"
-            >
-              Google Cloud Console <ExternalLink size={9} />
-            </a>{" "}
-            创建 OAuth 2.0 网页客户端 → 2.「已授权的 JavaScript 来源」填{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
-              {origin || "（当前站点域名，如 https://xxx.vercel.app）"}
-            </code>
-            ；「重定向 URI」必须与 Vercel 环境变量{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
-              GOOGLE_REDIRECT_URI
-            </code>{" "}
-            完全一致，一般为{" "}
-            <code className="break-all rounded bg-slate-100 px-1 py-0.5 text-[10px]">
-              {origin
-                ? `${origin}/api/auth/google/callback`
-                : "https://你的域名/api/auth/google/callback"}
-            </code>{" "}
-            （本地开发则用{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
-              http://localhost:3000/api/auth/google/callback
-            </code>
-            ）→ 3. 启用 Google Calendar API → 4. 将 Client ID、Secret 与{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
-              GOOGLE_REDIRECT_URI
-            </code>{" "}
-            配置到部署环境（如 Vercel 环境变量）
-          </p>
+          <details className="group rounded-lg border border-border/80 bg-background/40">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+              <ChevronDown
+                size={14}
+                className="shrink-0 text-muted transition-transform group-open:rotate-180"
+                aria-hidden
+              />
+              展开：OAuth 与重定向配置步骤（较长）
+            </summary>
+            <div className="border-t border-border/60 px-3 pb-3 pt-2">
+              <p className="text-[11px] leading-relaxed text-muted">
+                配置步骤：1. 前往{" "}
+                <a
+                  href="https://console.cloud.google.com/apis/credentials"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-0.5 text-accent hover:underline"
+                >
+                  Google Cloud Console <ExternalLink size={9} />
+                </a>{" "}
+                创建 OAuth 2.0 网页客户端 → 2.「已授权的 JavaScript 来源」填{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  {origin || "（当前站点域名，如 https://xxx.vercel.app）"}
+                </code>
+                ；「重定向 URI」必须与 Vercel 环境变量{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  GOOGLE_REDIRECT_URI
+                </code>{" "}
+                完全一致，一般为{" "}
+                <code className="break-all rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  {origin
+                    ? `${origin}/api/auth/google/callback`
+                    : "https://你的域名/api/auth/google/callback"}
+                </code>{" "}
+                （本地开发则用{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  http://localhost:3000/api/auth/google/callback
+                </code>
+                ）→ 3. 启用 Google Calendar API → 4. 将 Client ID、Secret 与{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  GOOGLE_REDIRECT_URI
+                </code>{" "}
+                配置到部署环境（如 Vercel 环境变量）。完整部署清单见仓库{" "}
+                <code className="text-[10px]">docs/DEPLOY_VERCEL.md</code>。
+              </p>
+            </div>
+          </details>
         </div>
       </div>
     </div>

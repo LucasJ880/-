@@ -14,6 +14,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 const PROJECT_ROLES = [
   "project_admin",
@@ -77,9 +78,9 @@ export default function ProjectDetailPage() {
     if (!id) return;
     setLoading(true);
     Promise.all([
-      fetch(`/api/projects/${id}`).then((r) => r.json()),
-      fetch(`/api/projects/${id}/members`).then((r) => r.json()),
-      fetch(`/api/projects/${id}/environments`).then((r) => r.json()),
+      apiFetch(`/api/projects/${id}`).then((r) => r.json()),
+      apiFetch(`/api/projects/${id}/members`).then((r) => r.json()),
+      apiFetch(`/api/projects/${id}/environments`).then((r) => r.json()),
     ])
       .then(([p, m, e]) => {
         if (p.error) {
@@ -106,7 +107,7 @@ export default function ProjectDetailPage() {
     if (!uid) return;
     setBusy("member");
     try {
-      const res = await fetch(`/api/projects/${id}/members`, {
+      const res = await apiFetch(`/api/projects/${id}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: uid, role: addRole }),
@@ -125,7 +126,7 @@ export default function ProjectDetailPage() {
   async function patchMember(memberId: string, role: string) {
     setBusy(memberId);
     try {
-      const res = await fetch(`/api/projects/${id}/members/${memberId}`, {
+      const res = await apiFetch(`/api/projects/${id}/members/${memberId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
@@ -144,7 +145,7 @@ export default function ProjectDetailPage() {
     if (!confirm("从项目移除此成员？")) return;
     setBusy(memberId);
     try {
-      const res = await fetch(`/api/projects/${id}/members/${memberId}`, {
+      const res = await apiFetch(`/api/projects/${id}/members/${memberId}`, {
         method: "DELETE",
       });
       const data = await res.json().catch(() => ({}));
@@ -163,7 +164,7 @@ export default function ProjectDetailPage() {
     if (!n) return;
     setBusy("env");
     try {
-      const res = await fetch(`/api/projects/${id}/environments`, {
+      const res = await apiFetch(`/api/projects/${id}/environments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -191,7 +192,7 @@ export default function ProjectDetailPage() {
     if (!confirm(`归档环境「${env.name}」？`)) return;
     setBusy(env.id);
     try {
-      const res = await fetch(`/api/projects/${id}/environments/${env.id}`, {
+      const res = await apiFetch(`/api/projects/${id}/environments/${env.id}`, {
         method: "DELETE",
       });
       const data = await res.json().catch(() => ({}));
@@ -220,9 +221,11 @@ export default function ProjectDetailPage() {
           onClick={() => router.push("/projects")}
           className="inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
         >
-          <ArrowLeft size={14} /> 返回
+          <ArrowLeft size={14} /> 返回项目列表
         </button>
-        <p className="text-red-600">{error || "项目不存在"}</p>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {error || "项目不存在或无权访问"}
+        </div>
       </div>
     );
   }

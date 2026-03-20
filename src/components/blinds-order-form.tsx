@@ -13,6 +13,7 @@ import {
   RULE_VERSION,
   SUPPORTED_FABRIC_RATIOS,
 } from "@/lib/blinds/deduction-rules";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface OrderItem {
   key: string;
@@ -197,7 +198,7 @@ export function BlindsOrderForm({
         bottomBarWidth: item.bottomBarWidth ? parseFloat(item.bottomBarWidth) : null,
       }));
 
-      const res = await fetch("/api/blinds-orders/calculate", {
+      const res = await apiFetch("/api/blinds-orders/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: apiItems }),
@@ -263,7 +264,7 @@ export function BlindsOrderForm({
       const url = mode === "edit" ? `/api/blinds-orders/${orderId}` : "/api/blinds-orders";
       const method = mode === "edit" ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -645,7 +646,7 @@ export function BlindsOrderForm({
                       <td className="px-3 py-2 font-medium text-gray-700">{item.location || "-"}</td>
                       <td className="px-3 py-2 font-mono">{fmt(c.cutHeadrail)}</td>
                       <td className="px-3 py-2 font-mono">{fmt(c.cutTube38)}</td>
-                      <td className="px-3 py-2 font-mono">{fmt(c.cutZebraBar ?? c.cutRollerBar ?? c.cutShangrilaBar)}</td>
+                      <td className="px-3 py-2 font-mono">{fmt(barVal)}</td>
                       <td className="px-3 py-2 font-mono">{fmt(c.cutCoreRod)}</td>
                       <td className="px-3 py-2 font-mono">{fmt(c.cutFabricWidth)}</td>
                       <td className="px-3 py-2 font-mono">{fmt(c.cutFabricLength)}</td>

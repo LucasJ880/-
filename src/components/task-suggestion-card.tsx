@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   CheckCircle2,
   Calendar,
@@ -12,6 +13,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, type TaskPriority } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 import type { TaskSuggestion } from "@/lib/ai";
 
 export interface SimpleProject {
@@ -51,7 +53,7 @@ export function TaskSuggestionCard({ suggestion, projects = [], onCreated }: Pro
   const handleCreate = async () => {
     setStatus("creating");
     try {
-      const res = await fetch("/api/tasks", {
+      const res = await apiFetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -78,12 +80,12 @@ export function TaskSuggestionCard({ suggestion, projects = [], onCreated }: Pro
         <span className="text-sm font-medium text-green-700">
           任务「{form.title}」已创建成功
         </span>
-        <a
+        <Link
           href="/tasks"
           className="ml-auto flex items-center gap-1 text-xs text-green-600 hover:text-green-800"
         >
           查看任务列表 <ExternalLink size={12} />
-        </a>
+        </Link>
       </div>
     );
   }

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { resolveChineseDate, getShanghaiNow, type ResolvedDate } from "@/lib/date/relative-date";
+import { resolveChineseDate, getShanghaiNow } from "@/lib/date/relative-date";
 
 let _client: OpenAI | null = null;
 

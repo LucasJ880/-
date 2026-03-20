@@ -17,6 +17,8 @@ import {
   type SimpleProject,
 } from "@/components/work-suggestion-card";
 import Link from "next/link";
+import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface InboxItem {
   id: string;
@@ -32,10 +34,11 @@ export default function InboxPage() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<SimpleProject[]>([]);
+  const [showAiConfigHint, setShowAiConfigHint] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    fetch("/api/projects")
+    apiFetch("/api/projects")
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -73,7 +76,7 @@ export default function InboxPage() {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/ai/chat", {
+      const res = await apiFetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -83,7 +86,14 @@ export default function InboxPage() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `请求失败 (${res.status})`);
+        const errStr = String((errData as { error?: string }).error || "");
+        if (
+          res.status === 500 &&
+          (errStr.includes("OPENAI") || errStr.includes("API 密钥"))
+        ) {
+          setShowAiConfigHint(true);
+        }
+        throw new Error(errStr || `请求失败 (${res.status})`);
       }
 
       const reader = res.body?.getReader();
@@ -152,10 +162,23 @@ export default function InboxPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col">
-      <div className="mb-5">
+      {showAiConfigHint && (
+        <div className="mb-4">
+          <AiServiceConfigHint variant="compact" />
+        </div>
+      )}
+      <div className="mb-4">
         <h1 className="text-2xl font-bold">收件箱</h1>
         <p className="mt-1 text-sm text-muted">
-          快速记录 → AI 自动解析 → 一键创建任务或日程。不需要填表单，写一句话就行。
+          面向<strong className="text-foreground">单条捕获</strong>：写一句话 → AI 解析 → 一键生成任务或日程，无需多轮对话。
+        </p>
+        <p className="mt-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted">
+          <span className="font-medium text-foreground">与 AI 助手的区别：</span>
+          收件箱适合「马上记下来」；若需要补充背景、拆步骤或连续讨论，请使用{" "}
+          <Link href="/assistant" className="text-accent hover:underline">
+            AI 助手
+          </Link>
+          （保留完整对话上下文）。
         </p>
       </div>
 

@@ -25,7 +25,7 @@ async function main() {
     },
   });
 
-  const tags = await Promise.all(
+  await Promise.all(
     [
       { name: "紧急", color: "#EF4444" },
       { name: "开发", color: "#3B82F6" },

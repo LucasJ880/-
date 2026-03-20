@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Clock,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface BlindsOrder {
   id: string;
@@ -37,20 +38,20 @@ export default function BlindsOrdersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
 
-  useEffect(() => {
-    loadOrders();
-  }, [statusFilter]);
-
-  async function loadOrders() {
+  const loadOrders = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter) params.set("status", statusFilter);
-    const res = await fetch(`/api/blinds-orders?${params}`);
+    const res = await apiFetch(`/api/blinds-orders?${params}`);
     if (res.ok) {
       setOrders(await res.json());
     }
     setLoading(false);
-  }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    void loadOrders();
+  }, [loadOrders]);
 
   const filtered = search
     ? orders.filter(
