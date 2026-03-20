@@ -84,14 +84,14 @@ export function Sidebar() {
     >
       <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
         {!collapsed && (
-          <span className="text-lg font-bold tracking-wide text-brand-gradient">
-            青砚
-          </span>
-        )}
-        {!collapsed && (
-          <span className="ml-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-sky-200/90 backdrop-blur-sm">
-            MVP
-          </span>
+          <>
+            <span className="text-lg font-bold tracking-wide text-brand-gradient">
+              青砚
+            </span>
+            <span className="ml-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-sky-200/90 backdrop-blur-sm">
+              MVP
+            </span>
+          </>
         )}
         <button
           type="button"

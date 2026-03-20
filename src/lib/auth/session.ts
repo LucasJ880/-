@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const COOKIE_NAME = "qy_session";
 
-/** 默认 24 小时；可通过 SESSION_MAX_AGE_SECONDS 覆盖（秒，范围 300～604800） */
+/** 默认 8 小时；可通过 SESSION_MAX_AGE_SECONDS 覆盖（秒，范围 300～604800） */
 export function getSessionMaxAgeSeconds(): number {
   const raw = process.env.SESSION_MAX_AGE_SECONDS;
   if (raw) {
