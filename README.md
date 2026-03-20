@@ -9,7 +9,7 @@
 | 框架 | Next.js 16 (App Router) |
 | 语言 | TypeScript |
 | 样式 | Tailwind CSS 4 |
-| 数据库 | SQLite + Prisma 6 |
+| 数据库 | PostgreSQL + Prisma 6（本地/线上均为 Postgres；部署见 `docs/DEPLOY_VERCEL.md`） |
 | AI | OpenAI SDK（兼容 DeepSeek / Qwen） |
 | 图标 | Lucide React |
 | 运行时 | Node.js 20 |
@@ -20,18 +20,20 @@
 # 安装依赖
 npm install
 
-# 复制环境变量模板并填写 AI API Key
+# 复制环境变量模板，填写 DATABASE_URL / DIRECT_URL（可相同）、JWT_SECRET 等
 cp .env.example .env
 
-# 初始化数据库
-npx prisma migrate dev
+# 应用数据库迁移（需已创建空的 Postgres 库）
+npx prisma migrate deploy
 
-# 填充示例数据
+# 填充示例数据（可选）
 npx prisma db seed
 
 # 启动开发服务器
 npm run dev
 ```
+
+线上部署（Vercel + Neon + GoDaddy 域名）见 **[docs/DEPLOY_VERCEL.md](./docs/DEPLOY_VERCEL.md)**。
 
 打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 
