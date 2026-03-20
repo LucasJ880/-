@@ -33,7 +33,8 @@ npx prisma db seed
 npm run dev
 ```
 
-线上部署（Vercel + Neon + GoDaddy 域名）见 **[docs/DEPLOY_VERCEL.md](./docs/DEPLOY_VERCEL.md)**。
+线上部署（Vercel + Neon + GoDaddy 域名）见 **[docs/DEPLOY_VERCEL.md](./docs/DEPLOY_VERCEL.md)**。  
+登录会话默认 **24 小时** 过期；可在环境变量中设置 `SESSION_MAX_AGE_SECONDS`（秒，300～604800）。需要立刻全员下线时可轮换 `JWT_SECRET`。
 
 打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 

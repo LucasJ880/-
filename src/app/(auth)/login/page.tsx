@@ -120,6 +120,10 @@ function LoginForm() {
           注册
         </Link>
       </p>
+      <p className="mt-3 text-center text-[11px] leading-relaxed text-muted/80">
+        登录状态会在到期后自动失效（默认 24 小时）。新部署不会立刻踢掉仍有效的会话；若希望更快重新登录，请在环境中缩短{" "}
+        <span className="font-mono text-[10px] text-muted">SESSION_MAX_AGE_SECONDS</span>。
+      </p>
     </div>
   );
 }

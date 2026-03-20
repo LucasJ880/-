@@ -2,7 +2,18 @@ import { SignJWT, jwtVerify } from "jose";
 import { NextRequest, NextResponse } from "next/server";
 
 const COOKIE_NAME = "qy_session";
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+
+/** 默认 24 小时；可通过 SESSION_MAX_AGE_SECONDS 覆盖（秒，范围 300～604800） */
+export function getSessionMaxAgeSeconds(): number {
+  const raw = process.env.SESSION_MAX_AGE_SECONDS;
+  if (raw) {
+    const n = parseInt(raw, 10);
+    if (!Number.isNaN(n) && n >= 300 && n <= 604800) {
+      return n;
+    }
+  }
+  return 60 * 60 * 8;
+}
 
 function getSecretKey() {
   const secret = process.env.JWT_SECRET;
@@ -19,10 +30,11 @@ export interface SessionPayload {
 export async function createSession(
   payload: SessionPayload
 ): Promise<string> {
+  const maxAge = getSessionMaxAgeSeconds();
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_MAX_AGE}s`)
+    .setExpirationTime(`${maxAge}s`)
     .sign(getSecretKey());
 }
 
@@ -47,12 +59,13 @@ export function setSessionCookie(
   response: NextResponse,
   token: string
 ): void {
+  const maxAge = getSessionMaxAgeSeconds();
   response.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: SESSION_MAX_AGE,
+    maxAge,
   });
 }
 

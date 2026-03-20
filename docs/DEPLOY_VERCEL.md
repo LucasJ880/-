@@ -58,6 +58,7 @@
 
 | Name | 说明 |
 |------|------|
+| `SESSION_MAX_AGE_SECONDS` | 登录 Cookie / JWT 有效期（**秒**），范围 `300`～`604800`。默认 **86400（24 小时）**。缩短后用户更常需重新登录；**轮换 `JWT_SECRET` 可一次性使用户全部登出**。 |
 | `OPENAI_API_KEY` | AI 对话 |
 | `OPENAI_BASE_URL` | 兼容接口地址 |
 | `OPENAI_MODEL` | 模型名 |

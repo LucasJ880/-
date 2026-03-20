@@ -212,6 +212,7 @@ flowchart TD
 | 2026-03-20 | v1.2 | **波次 B 落地（DEV）**：`apiFetch` + 登录 `next` 回跳（E4）；`AiServiceConfigHint` + `lib/copy/ai-config`、助手/收件箱（E5）；任务骨架屏与空状态（E6）；试点 `apiFetch`：工作台、任务、项目 |
 | 2026-03-20 | v1.3 | **波次 C（E7）**：工作台拆分为 `src/components/dashboard/*` + `useDashboardData`；`page.tsx` 仅组合区块 |
 | 2026-03-20 | v1.4 | **P1 落地**：设置折叠说明、顶栏搜索 a11y/直达项目、项目列表 PageHeader+骨架+错误、组织说明与空状态、收件箱/助手角色文案、`/help`、侧栏入口、客户端请求统一 `apiFetch`、`docs/QA_P0_CHECKLIST.md` + `npm run qa` |
+| 2026-03-20 | v1.5 | **设计二期 + 会话**：`globals.css` 靛青体系与主区玻璃壳；认证页光斑背景；默认会话 **24h** + 可选 `SESSION_MAX_AGE_SECONDS`（`src/lib/auth/session.ts`）；`DEPLOY_VERCEL.md` / `DESIGN_SPEC` 修订 |
 
 ---
 

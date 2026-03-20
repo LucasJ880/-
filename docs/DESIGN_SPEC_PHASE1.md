@@ -66,6 +66,10 @@
 
 **对比度**：`--foreground` 在 `--card-bg` 上、侧栏白字在激活蓝底上，目标满足 **WCAG AA** 正文级（ARCH 抽查）。
 
+### 2.1 修订（二期视觉 · 2026-03）
+
+以代码为准：`src/app/globals.css` 已调整为 **墨灰中性底 + 靛青（indigo）主色 + 低饱和侧栏渐变**；`body` 叠加 **径向光晕网格**，主壳右侧 **轻玻璃分割**（`backdrop-blur`）。认证页见 `src/app/(auth)/layout.tsx` 装饰光斑 + `src/lib/auth-styles.ts` 玻璃卡与渐变主按钮。上表色值若与仓库不一致，以 **globals.css `:root`** 为单一事实来源。
+
 ---
 
 ## 3. 字阶（Type Scale）

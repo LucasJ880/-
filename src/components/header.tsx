@@ -493,7 +493,7 @@ export function Header() {
   }, [searchOpen, closeSearch]);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-card-bg px-6">
+    <header className="flex h-14 items-center justify-between border-b border-white/25 bg-white/55 px-6 backdrop-blur-md supports-[backdrop-filter]:bg-white/45">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-sm text-muted">
           <Calendar size={15} />
