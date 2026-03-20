@@ -1,7 +1,13 @@
 import { google } from "googleapis";
 import { db } from "@/lib/db";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events"];
+// userinfo.* 用于换取令牌后读取 Google 账号邮箱；仅有 calendar.* 时访问 userinfo 会 401
+const SCOPES = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+];
 
 /** 去掉 Vercel / 粘贴时常见的首尾空格、换行，避免换码时 redirect_uri 与授权步不一致 */
 export function getGoogleOAuthEnv() {
