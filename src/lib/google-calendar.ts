@@ -3,12 +3,18 @@ import { db } from "@/lib/db";
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events"];
 
+/** 去掉 Vercel / 粘贴时常见的首尾空格、换行，避免换码时 redirect_uri 与授权步不一致 */
+export function getGoogleOAuthEnv() {
+  return {
+    clientId: process.env.GOOGLE_CLIENT_ID?.trim() ?? "",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "",
+    redirectUri: process.env.GOOGLE_REDIRECT_URI?.trim() ?? "",
+  };
+}
+
 function getOAuth2Client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
+  const { clientId, clientSecret, redirectUri } = getGoogleOAuthEnv();
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
 export function getAuthUrl(): string {
@@ -21,8 +27,15 @@ export function getAuthUrl(): string {
 }
 
 export async function handleCallback(code: string, userId: string) {
+  const { redirectUri } = getGoogleOAuthEnv();
+  if (!redirectUri) {
+    throw new Error("GOOGLE_REDIRECT_URI is not set");
+  }
   const client = getOAuth2Client();
-  const { tokens } = await client.getToken(code);
+  const { tokens } = await client.getToken({
+    code,
+    redirect_uri: redirectUri,
+  });
   client.setCredentials(tokens);
 
   const oauth2 = google.oauth2({ version: "v2", auth: client });
