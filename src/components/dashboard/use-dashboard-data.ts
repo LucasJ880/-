@@ -29,8 +29,12 @@ export function useDashboardData() {
 
   const loadStats = useCallback(() => {
     apiFetch("/api/stats")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`stats ${r.status}`);
+        return r.json();
+      })
       .then(setStats)
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
