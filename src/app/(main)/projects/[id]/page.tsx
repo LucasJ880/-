@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -18,9 +18,14 @@ import {
   Star,
   BarChart3,
   Tag,
+  History,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { ActivityTimeline } from "@/components/activity/activity-timeline";
+import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
+import type { FormattedActivity } from "@/lib/activity/formatter";
 
 const PROJECT_ROLES = [
   "project_admin",
@@ -63,9 +68,19 @@ interface EnvRow {
 }
 
 export default function ProjectDetailPage() {
+  return (
+    <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
+      <ProjectDetailContent />
+    </Suspense>
+  );
+}
+
+function ProjectDetailContent() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = params.id as string;
+  const highlightActivityId = searchParams.get("activity") ?? undefined;
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
@@ -79,6 +94,12 @@ export default function ProjectDetailPage() {
   const [envName, setEnvName] = useState("");
   const [envCode, setEnvCode] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+
+  const [activities, setActivities] = useState<FormattedActivity[]>([]);
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityTotal, setActivityTotal] = useState(0);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityFilter, setActivityFilter] = useState("");
 
   const load = useCallback(() => {
     if (!id) return;
@@ -103,9 +124,32 @@ export default function ProjectDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  const loadActivity = useCallback(
+    (page = 1, targetType = "") => {
+      if (!id) return;
+      setActivityLoading(true);
+      const qs = new URLSearchParams({ page: String(page), pageSize: "15" });
+      if (targetType) qs.set("targetType", targetType);
+      apiFetch(`/api/projects/${id}/activity?${qs}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (page === 1) {
+            setActivities(res.data ?? []);
+          } else {
+            setActivities((prev) => [...prev, ...(res.data ?? [])]);
+          }
+          setActivityTotal(res.total ?? 0);
+          setActivityPage(page);
+        })
+        .finally(() => setActivityLoading(false));
+    },
+    [id]
+  );
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadActivity(1, "");
+  }, [load, loadActivity]);
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
@@ -503,6 +547,63 @@ export default function ProjectDetailPage() {
             </li>
           ))}
         </ul>
+      </div>
+
+      <ProjectNotificationRuleCard projectId={id} />
+
+      {/* 项目动态时间线 */}
+      <div className="rounded-xl border border-border bg-card-bg p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <History size={16} className="text-accent/60" />
+            项目动态
+            {activityTotal > 0 && (
+              <span className="text-xs font-normal text-muted">
+                共 {activityTotal} 条
+              </span>
+            )}
+          </div>
+          <select
+            value={activityFilter}
+            onChange={(e) => {
+              setActivityFilter(e.target.value);
+              loadActivity(1, e.target.value);
+            }}
+            className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-accent"
+          >
+            <option value="">全部类型</option>
+            <option value="project">项目</option>
+            <option value="prompt">Prompt</option>
+            <option value="knowledge_base">知识库</option>
+            <option value="conversation">会话</option>
+            <option value="agent">Agent</option>
+            <option value="tool">工具</option>
+            <option value="runtime">Runtime</option>
+            <option value="conversation_feedback">反馈</option>
+          </select>
+        </div>
+
+        <div className="mt-4">
+          <ActivityTimeline activities={activities} loading={activityLoading && activityPage === 1} highlightId={highlightActivityId} />
+        </div>
+
+        {activities.length < activityTotal && (
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              disabled={activityLoading}
+              onClick={() => loadActivity(activityPage + 1, activityFilter)}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border px-4 py-2 text-xs font-medium text-muted transition-colors hover:bg-[rgba(43,96,85,0.04)] hover:text-foreground disabled:opacity-50"
+            >
+              {activityLoading ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <ChevronDown size={12} />
+              )}
+              加载更多
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

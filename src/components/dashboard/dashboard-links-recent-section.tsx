@@ -17,11 +17,12 @@ import {
 } from "@/lib/utils";
 import type { TaskItem } from "./types";
 
-export function DashboardLinksRecentSection({
-  recentTasks,
-}: {
+interface Props {
   recentTasks: (TaskItem & { updatedAt: string })[];
-}) {
+  onProjectClick?: (projectId: string) => void;
+}
+
+export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Props) {
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-4">
@@ -93,13 +94,14 @@ export function DashboardLinksRecentSection({
               const priorityInfo =
                 TASK_PRIORITY[task.priority as TaskPriority] ||
                 TASK_PRIORITY.medium;
+              const projectId = task.projectId || task.project?.id;
+
               return (
-                <Link
+                <div
                   key={task.id}
-                  href={`/tasks/${task.id}`}
                   className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-background"
                 >
-                  <div className="min-w-0 flex-1">
+                  <Link href={`/tasks/${task.id}`} className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium">
                         {task.title}
@@ -113,18 +115,25 @@ export function DashboardLinksRecentSection({
                         {priorityInfo.label}
                       </span>
                     </div>
-                    {task.project && (
-                      <div className="mt-0.5 flex items-center gap-1.5">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: task.project.color }}
-                        />
-                        <span className="text-xs text-muted">
-                          {task.project.name}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  </Link>
+                  {task.project && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (projectId && onProjectClick) onProjectClick(projectId);
+                      }}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted transition-colors",
+                        onProjectClick && projectId && "hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+                      )}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: task.project.color }}
+                      />
+                      {task.project.name}
+                    </button>
+                  )}
                   <span
                     className={cn(
                       "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
@@ -133,7 +142,7 @@ export function DashboardLinksRecentSection({
                   >
                     {statusInfo.label}
                   </span>
-                </Link>
+                </div>
               );
             })
           ) : (

@@ -4,7 +4,8 @@ export interface TaskItem {
   status: string;
   priority: string;
   dueDate: string | null;
-  project: { name: string; color: string } | null;
+  projectId?: string | null;
+  project: { id?: string; name: string; color: string } | null;
 }
 
 export interface ProjectBreakdown {
@@ -47,25 +48,20 @@ export interface Stats {
   recentTasks: (TaskItem & { updatedAt: string })[];
 }
 
+export interface ReminderItemData {
+  sourceKey: string;
+  type: string;
+  title: string;
+  subtitle: string;
+  taskId?: string | null;
+  projectId?: string | null;
+  project?: { id?: string; name: string; color: string } | null;
+}
+
 export interface ReminderSummaryData {
-  immediate: {
-    sourceKey: string;
-    type: string;
-    title: string;
-    subtitle: string;
-  }[];
-  today: {
-    sourceKey: string;
-    type: string;
-    title: string;
-    subtitle: string;
-  }[];
-  upcoming: {
-    sourceKey: string;
-    type: string;
-    title: string;
-    subtitle: string;
-  }[];
+  immediate: ReminderItemData[];
+  today: ReminderItemData[];
+  upcoming: ReminderItemData[];
   unreadCount: number;
 }
 

@@ -49,15 +49,20 @@ function DueBadge({ dueDate }: { dueDate: string | null }) {
   );
 }
 
-function TaskRow({ task }: { task: TaskItem }) {
+function TaskRow({
+  task,
+  onProjectClick,
+}: {
+  task: TaskItem;
+  onProjectClick?: (projectId: string) => void;
+}) {
   const priorityInfo =
     TASK_PRIORITY[task.priority as TaskPriority] || TASK_PRIORITY.medium;
+  const projectId = task.projectId || task.project?.id;
+
   return (
-    <Link
-      href={`/tasks/${task.id}`}
-      className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-background"
-    >
-      <div className="min-w-0 flex-1">
+    <div className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-background">
+      <Link href={`/tasks/${task.id}`} className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium">{task.title}</span>
           <span
@@ -69,28 +74,38 @@ function TaskRow({ task }: { task: TaskItem }) {
             {priorityInfo.label}
           </span>
         </div>
-        {task.project && (
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: task.project.color }}
-            />
-            <span className="text-[11px] text-muted">{task.project.name}</span>
-          </div>
-        )}
-      </div>
+      </Link>
+      {task.project && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (projectId && onProjectClick) onProjectClick(projectId);
+          }}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted transition-colors",
+            onProjectClick && projectId && "hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+          )}
+        >
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: task.project.color }}
+          />
+          {task.project.name}
+        </button>
+      )}
       <DueBadge dueDate={task.dueDate} />
-    </Link>
+    </div>
   );
 }
 
-export function DashboardTasksSection({
-  highPriorityTasks,
-  upcomingTasks,
-}: {
+interface Props {
   highPriorityTasks: TaskItem[];
   upcomingTasks: TaskItem[];
-}) {
+  onProjectClick?: (projectId: string) => void;
+}
+
+export function DashboardTasksSection({ highPriorityTasks, upcomingTasks, onProjectClick }: Props) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-xl border border-border bg-card-bg">
@@ -103,7 +118,9 @@ export function DashboardTasksSection({
         </div>
         <div className="divide-y divide-border">
           {highPriorityTasks.length > 0 ? (
-            highPriorityTasks.map((t) => <TaskRow key={t.id} task={t} />)
+            highPriorityTasks.map((t) => (
+              <TaskRow key={t.id} task={t} onProjectClick={onProjectClick} />
+            ))
           ) : (
             <div className="px-4 py-8 text-center text-sm text-muted">
               没有高优先级待办，很好！
@@ -120,7 +137,9 @@ export function DashboardTasksSection({
         </div>
         <div className="divide-y divide-border">
           {upcomingTasks.length > 0 ? (
-            upcomingTasks.map((t) => <TaskRow key={t.id} task={t} />)
+            upcomingTasks.map((t) => (
+              <TaskRow key={t.id} task={t} onProjectClick={onProjectClick} />
+            ))
           ) : (
             <div className="px-4 py-8 text-center text-sm text-muted">
               近期没有即将到期的任务

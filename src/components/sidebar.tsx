@@ -7,6 +7,7 @@ import {
   CheckSquare,
   FolderKanban,
   Bot,
+  Bell,
   Inbox,
   Settings,
   CircleHelp,
@@ -46,6 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "工作台",
     items: [
       { href: "/", label: "工作台", icon: LayoutDashboard },
+      { href: "/notifications", label: "通知中心", icon: Bell },
       { href: "/inbox", label: "收件箱", icon: Inbox },
       { href: "/tasks", label: "任务管理", icon: CheckSquare },
     ],

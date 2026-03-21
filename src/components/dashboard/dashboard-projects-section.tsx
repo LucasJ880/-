@@ -2,6 +2,7 @@
 
 import { FolderKanban, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import type { ProjectBreakdown } from "./types";
 
 function ProgressBar({
@@ -35,11 +36,12 @@ function ProgressBar({
   );
 }
 
-export function DashboardProjectsSection({
-  projectBreakdown,
-}: {
+interface Props {
   projectBreakdown: ProjectBreakdown[];
-}) {
+  onProjectClick?: (projectId: string) => void;
+}
+
+export function DashboardProjectsSection({ projectBreakdown, onProjectClick }: Props) {
   if (projectBreakdown.length === 0) return null;
 
   return (
@@ -58,7 +60,15 @@ export function DashboardProjectsSection({
       </div>
       <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-3">
         {projectBreakdown.map((p) => (
-          <div key={p.id} className="space-y-2 bg-card-bg px-5 py-4">
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onProjectClick?.(p.id)}
+            className={cn(
+              "space-y-2 bg-card-bg px-5 py-4 text-left transition-colors",
+              onProjectClick && "cursor-pointer hover:bg-[rgba(43,96,85,0.03)] active:bg-[rgba(43,96,85,0.06)]"
+            )}
+          >
             <div className="flex items-center gap-2">
               <span
                 className="h-2.5 w-2.5 rounded-full"
@@ -88,7 +98,7 @@ export function DashboardProjectsSection({
                 待办 {p.todo}
               </span>
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </div>

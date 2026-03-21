@@ -119,7 +119,8 @@ export async function GET(request: NextRequest) {
         priority: true,
         status: true,
         dueDate: true,
-        project: { select: { name: true, color: true } },
+        projectId: true,
+        project: { select: { id: true, name: true, color: true } },
       },
       orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
       take: 6,
@@ -137,7 +138,8 @@ export async function GET(request: NextRequest) {
         priority: true,
         status: true,
         dueDate: true,
-        project: { select: { name: true, color: true } },
+        projectId: true,
+        project: { select: { id: true, name: true, color: true } },
       },
       orderBy: { dueDate: "asc" },
       take: 6,
@@ -165,7 +167,7 @@ export async function GET(request: NextRequest) {
       take: 5,
       orderBy: { updatedAt: "desc" },
       include: {
-        project: { select: { name: true, color: true } },
+        project: { select: { id: true, name: true, color: true } },
       },
     }),
   ]);

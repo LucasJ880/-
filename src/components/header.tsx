@@ -5,8 +5,6 @@ import {
   Bell,
   User,
   AlertTriangle,
-  Clock,
-  CalendarClock,
   Calendar,
   Search,
   X,
@@ -15,10 +13,15 @@ import {
   Loader2,
   LogOut,
   ChevronDown,
+  Eye,
+  ArrowRight,
+  Star,
+  Settings2,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import Link from "next/link";
+import type { NotificationItem } from "@/components/notification/types";
 
 /* ── Search types ── */
 
@@ -115,11 +118,8 @@ function SearchPanel({
         <div className="max-h-96 overflow-y-auto">
           {data && data.tasks.length > 0 && (
             <div>
-              <div
-                className="flex items-center gap-1.5 border-b border-border/60 px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted"
-                role="presentation"
-              >
-                <CheckSquare size={11} aria-hidden />
+              <div className="flex items-center gap-1.5 border-b border-border/60 px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <CheckSquare size={11} />
                 任务
                 <span className="ml-auto font-normal tabular-nums">{data.tasks.length}</span>
               </div>
@@ -131,7 +131,7 @@ function SearchPanel({
                     key={t.id}
                     href={`/tasks/${t.id}`}
                     onClick={onClose}
-                    className="flex items-center gap-2 px-4 py-2 transition-colors hover:bg-background focus-visible:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                    className="flex items-center gap-2 px-4 py-2 transition-colors hover:bg-background"
                   >
                     <div className="min-w-0 flex-1">
                       <p className={cn("truncate text-sm", t.status === "done" && "text-muted line-through")}>
@@ -158,11 +158,8 @@ function SearchPanel({
 
           {data && data.projects.length > 0 && (
             <div className={data.tasks.length > 0 ? "border-t border-border" : ""}>
-              <div
-                className="flex items-center gap-1.5 border-b border-border/60 px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted"
-                role="presentation"
-              >
-                <FolderKanban size={11} aria-hidden />
+              <div className="flex items-center gap-1.5 border-b border-border/60 px-4 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <FolderKanban size={11} />
                 项目
                 <span className="ml-auto font-normal tabular-nums">{data.projects.length}</span>
               </div>
@@ -171,7 +168,7 @@ function SearchPanel({
                   key={p.id}
                   href={`/projects/${p.id}`}
                   onClick={onClose}
-                  className="flex items-center gap-3 px-4 py-2 transition-colors hover:bg-background focus-visible:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className="flex items-center gap-3 px-4 py-2 transition-colors hover:bg-background"
                 >
                   <span className="h-3 w-3 shrink-0 rounded" style={{ backgroundColor: p.color }} />
                   <div className="min-w-0 flex-1">
@@ -194,131 +191,52 @@ function SearchPanel({
   );
 }
 
-/* ── Reminder types ── */
+/* ── Notification type icons ── */
 
-interface ReminderItem {
-  sourceKey: string;
-  type: "deadline" | "event" | "followup";
-  title: string;
-  subtitle: string;
-  priority?: string;
-  taskId?: string | null;
-  eventId?: string | null;
-  isRead: boolean;
-  notify: boolean;
-  project?: { name: string; color: string } | null;
-  location?: string | null;
-}
-
-interface RemindersResponse {
-  immediate: ReminderItem[];
-  today: ReminderItem[];
-  upcoming: ReminderItem[];
-  unreadCount: number;
-}
-
-const TYPE_ICON: Record<string, { icon: typeof AlertTriangle; color: string }> = {
-  deadline: { icon: CheckSquare, color: "text-[#b06a28]" },
-  event: { icon: Calendar, color: "text-[#2b6055]" },
-  followup: { icon: Bell, color: "text-[#805078]" },
+const NTYPE_ICONS: Record<string, typeof Bell> = {
+  task_due: CheckSquare,
+  calendar_event: Calendar,
+  followup: Bell,
+  runtime_failed: AlertTriangle,
+  feedback: Star,
+  project_update: FolderKanban,
 };
 
-const LAYER_META = [
-  { key: "immediate" as const, label: "需要立即处理", icon: AlertTriangle, color: "text-[#a63d3d]" },
-  { key: "today" as const, label: "今天关注", icon: Clock, color: "text-[#b06a28]" },
-  { key: "upcoming" as const, label: "近期跟进", icon: CalendarClock, color: "text-[#2b6055]" },
-];
+/* ── Notification Panel ── */
 
-/* ── Reminder Item Row ── */
-
-function ReminderItemRow({
-  item,
-  onRead,
-  onClose,
-}: {
-  item: ReminderItem;
-  onRead: (sourceKey: string) => void;
-  onClose: () => void;
-}) {
-  const typeInfo = TYPE_ICON[item.type] || TYPE_ICON.deadline;
-  const TypeIcon = typeInfo.icon;
-  const pInfo = item.priority
-    ? TASK_PRIORITY[item.priority as TaskPriority] || TASK_PRIORITY.medium
-    : null;
-
-  const href = item.taskId ? `/tasks/${item.taskId}` : null;
-
-  const inner = (
-    <>
-      <p className="truncate text-sm">{item.title}</p>
-      <div className="mt-0.5 flex items-center gap-2">
-        <span className="text-[10px] text-muted">{item.subtitle}</span>
-        {item.location && (
-          <span className="text-[10px] text-muted">· {item.location}</span>
-        )}
-        {item.project && (
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: item.project.color }} />
-            <span className="text-[10px] text-muted">{item.project.name}</span>
-          </span>
-        )}
-      </div>
-    </>
-  );
-
-  return (
-    <div className="group flex items-center gap-2 px-4 py-2 transition-colors hover:bg-background">
-      <TypeIcon size={14} className={cn("shrink-0", typeInfo.color)} />
-      {href ? (
-        <Link href={href} onClick={onClose} className="min-w-0 flex-1">
-          {inner}
-        </Link>
-      ) : (
-        <div className="min-w-0 flex-1">{inner}</div>
-      )}
-      {pInfo && (
-        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", pInfo.color)}>
-          {pInfo.label}
-        </span>
-      )}
-      <button
-        onClick={(e) => { e.stopPropagation(); onRead(item.sourceKey); }}
-        title="标记已读"
-        className="shrink-0 rounded p-1 text-muted opacity-0 transition-all group-hover:opacity-100 hover:bg-[rgba(46,122,86,0.06)] hover:text-[#2e7a56]"
-      >
-        <CheckSquare size={13} />
-      </button>
-    </div>
-  );
-}
-
-/* ── Reminder Panel ── */
-
-function ReminderPanel({
+function NotificationPanel({
   open,
   onClose,
   onCountChange,
+  onNavigate,
 }: {
   open: boolean;
   onClose: () => void;
   onCountChange: (n: number) => void;
+  onNavigate?: (item: NotificationItem) => void;
 }) {
-  const [data, setData] = useState<RemindersResponse | null>(null);
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
-    apiFetch("/api/reminders")
+    setLoading(true);
+    apiFetch("/api/notifications?pageSize=12&status=active")
       .then((r) => r.json())
-      .then((d: RemindersResponse) => {
-        setData(d);
-        onCountChange(d.unreadCount);
+      .then((d) => {
+        setItems(d.data ?? []);
       })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+
+    apiFetch("/api/notifications/unread-count")
+      .then((r) => r.json())
+      .then((d) => onCountChange(d.count ?? 0))
       .catch(() => {});
   }, [onCountChange]);
 
   useEffect(() => {
-    if (!open) return;
-    load();
+    if (open) load();
   }, [open, load]);
 
   useEffect(() => {
@@ -332,89 +250,158 @@ function ReminderPanel({
     return () => document.removeEventListener("mousedown", handler);
   }, [open, onClose]);
 
-  const handleRead = useCallback(
-    (sourceKey: string) => {
-      apiFetch("/api/reminders/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceKey }),
-      }).then(() => load());
+  const handleAction = useCallback(
+    async (id: string, action: "read" | "done") => {
+      await apiFetch(`/api/notifications/${id}/${action}`, { method: "PATCH" });
+      load();
     },
     [load]
   );
 
   if (!open) return null;
 
-  const totalItems =
-    (data?.immediate.length ?? 0) +
-    (data?.today.length ?? 0) +
-    (data?.upcoming.length ?? 0);
+  const unreadItems = items.filter((i) => i.status === "unread");
+  const readItems = items.filter((i) => i.status === "read");
 
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-2 w-96 rounded-xl border border-border bg-card-bg shadow-xl"
+      className="absolute right-0 top-full z-50 mt-2 w-[400px] rounded-xl border border-border bg-card-bg shadow-xl"
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold">待处理提醒</h3>
-        <button
-          onClick={onClose}
-          className="rounded p-0.5 text-muted transition-colors hover:bg-background"
-        >
-          <X size={14} />
-        </button>
+        <h3 className="text-sm font-semibold">通知中心</h3>
+        {unreadItems.length > 0 && (
+          <button
+            type="button"
+            onClick={async () => {
+              const ids = unreadItems.map((i) => i.id);
+              await apiFetch("/api/notifications/batch", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids, action: "mark_read" }),
+              });
+              load();
+            }}
+            className="text-[11px] text-accent hover:text-accent-hover"
+          >
+            全部已读
+          </button>
+        )}
       </div>
 
-      {!data ? (
-        <div className="px-4 py-6 text-center text-sm text-muted">加载中...</div>
-      ) : totalItems === 0 ? (
-        <div className="px-4 py-8 text-center">
-          <p className="text-sm text-muted">暂无待处理提醒</p>
-          <p className="mt-1 text-xs text-muted">所有事项都在正常推进中</p>
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={16} className="animate-spin text-accent" />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="px-4 py-10 text-center">
+          <Bell size={24} className="mx-auto mb-2 text-muted/30" />
+          <p className="text-sm text-muted">暂无通知</p>
+          <p className="mt-0.5 text-xs text-muted/60">一切正常运行中</p>
         </div>
       ) : (
-        <div className="max-h-[420px] divide-y divide-border overflow-y-auto">
-          {LAYER_META.map(({ key, label, icon: LayerIcon, color }) => {
-            const items = data[key];
-            if (items.length === 0) return null;
+        <div className="max-h-[420px] divide-y divide-border/50 overflow-y-auto">
+          {items.map((item) => {
+            const Icon = NTYPE_ICONS[item.type] ?? Bell;
+            const isUnread = item.status === "unread";
             return (
-              <div key={key}>
-                <div className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                  <LayerIcon size={12} className={color} />
-                  {label}
-                  <span className="ml-auto font-normal">{items.length}</span>
+              <div
+                key={item.id}
+                className={cn(
+                  "group flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-[rgba(43,96,85,0.03)]",
+                  isUnread && "bg-[rgba(43,96,85,0.02)]"
+                )}
+              >
+                <div className={cn(
+                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                  isUnread ? "bg-[rgba(43,96,85,0.10)] text-accent" : "bg-[rgba(110,125,118,0.06)] text-muted"
+                )}>
+                  <Icon size={13} />
                 </div>
-                {items.map((item) => (
-                  <ReminderItemRow
-                    key={item.sourceKey}
-                    item={item}
-                    onRead={handleRead}
-                    onClose={onClose}
-                  />
-                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isUnread) handleAction(item.id, "read");
+                    onNavigate?.(item);
+                    onClose();
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className={cn("text-[13px] leading-snug", isUnread ? "font-medium text-foreground" : "text-muted")}>
+                    {item.title}
+                  </p>
+                  {item.summary && (
+                    <p className="mt-0.5 truncate text-[11px] text-muted/60">{item.summary}</p>
+                  )}
+                  <p className="mt-0.5 text-[10px] text-muted/40">
+                    {formatTimeAgo(item.createdAt)}
+                  </p>
+                </button>
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                  {isUnread && (
+                    <button
+                      type="button"
+                      onClick={() => handleAction(item.id, "read")}
+                      title="标记已读"
+                      className="rounded p-1 text-muted hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+                    >
+                      <Eye size={12} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleAction(item.id, "done")}
+                    title="标记完成"
+                    className="rounded p-1 text-muted hover:bg-[rgba(46,122,86,0.08)] hover:text-[#2e7a56]"
+                  >
+                    <CheckSquare size={12} />
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
       )}
 
-      <div className="border-t border-border px-4 py-2.5">
+      <div className="flex items-center justify-center gap-4 border-t border-border px-4 py-2.5">
         <Link
-          href="/tasks"
+          href="/settings/notifications"
           onClick={onClose}
-          className="block text-center text-xs text-accent hover:text-accent-hover"
+          className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-accent"
         >
-          查看全部任务
+          <Settings2 size={12} />
+          通知偏好
+        </Link>
+        <Link
+          href="/notifications"
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover"
+        >
+          查看全部 <ArrowRight size={12} />
         </Link>
       </div>
     </div>
   );
 }
 
+function formatTimeAgo(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} 小时前`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay === 1) return "昨天";
+  if (diffDay < 7) return `${diffDay} 天前`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 /* ── Header ── */
 
 export function Header() {
-  const [reminderCount, setReminderCount] = useState(0);
+  const [notifCount, setNotifCount] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -423,28 +410,11 @@ export function Header() {
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const notifiedRef = useRef<Set<string>>(new Set());
 
   const loadCount = useCallback(() => {
-    apiFetch("/api/reminders")
+    apiFetch("/api/notifications/unread-count")
       .then((r) => r.json())
-      .then((d: RemindersResponse) => {
-        setReminderCount(d.unreadCount);
-        const all = [...d.immediate, ...d.today, ...d.upcoming];
-        for (const item of all) {
-          if (item.notify && !notifiedRef.current.has(item.sourceKey)) {
-            notifiedRef.current.add(item.sourceKey);
-            if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-              const n = new Notification("青砚提醒", {
-                body: `${item.title} — ${item.subtitle}`,
-                icon: "/favicon.ico",
-                tag: item.sourceKey,
-              });
-              setTimeout(() => n.close(), 10_000);
-            }
-          }
-        }
-      })
+      .then((d) => setNotifCount(d.count ?? 0))
       .catch(() => {});
   }, []);
 
@@ -492,6 +462,18 @@ export function Header() {
     return () => document.removeEventListener("keydown", handler);
   }, [searchOpen, closeSearch]);
 
+  const handleNotificationNavigate = useCallback((item: NotificationItem) => {
+    if (item.entityType === "task" && item.entityId) {
+      window.location.href = `/tasks/${item.entityId}`;
+    } else if (item.projectId && item.activityId) {
+      window.location.href = `/projects/${item.projectId}?activity=${item.activityId}`;
+    } else if (item.projectId) {
+      window.location.href = `/projects/${item.projectId}`;
+    } else if (item.entityType === "conversation" && item.entityId) {
+      window.location.href = `/projects/${item.projectId}/conversations/${item.entityId}`;
+    }
+  }, []);
+
   return (
     <header className="flex h-14 items-center justify-between border-b border-[rgba(26,36,32,0.06)] bg-[rgba(250,248,244,0.65)] px-6 backdrop-blur-md supports-[backdrop-filter]:bg-[rgba(250,248,244,0.55)]">
       <div className="flex items-center gap-4">
@@ -515,7 +497,7 @@ export function Header() {
             aria-controls={searchOpen && searchQuery.trim() ? "global-search-results" : undefined}
             aria-haspopup="listbox"
           >
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
             <input
               ref={inputRef}
               type="search"
@@ -552,13 +534,18 @@ export function Header() {
             className="relative rounded-lg p-2 text-muted transition-colors hover:bg-background hover:text-foreground"
           >
             <Bell size={18} />
-            {reminderCount > 0 && (
+            {notifCount > 0 && (
               <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#a63d3d] px-1 text-[10px] font-bold text-white">
-                {reminderCount > 99 ? "99+" : reminderCount}
+                {notifCount > 99 ? "99+" : notifCount}
               </span>
             )}
           </button>
-          <ReminderPanel open={panelOpen} onClose={() => setPanelOpen(false)} onCountChange={setReminderCount} />
+          <NotificationPanel
+            open={panelOpen}
+            onClose={() => setPanelOpen(false)}
+            onCountChange={setNotifCount}
+            onNavigate={handleNotificationNavigate}
+          />
         </div>
         <div ref={userMenuRef} className="relative">
           <button

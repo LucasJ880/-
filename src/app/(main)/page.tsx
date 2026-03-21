@@ -1,15 +1,20 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { DashboardCalendarSection } from "@/components/dashboard/dashboard-calendar-section";
 import { DashboardLinksRecentSection } from "@/components/dashboard/dashboard-links-recent-section";
 import { DashboardProjectsSection } from "@/components/dashboard/dashboard-projects-section";
 import { DashboardStatsSection } from "@/components/dashboard/dashboard-stats-section";
 import { DashboardTasksSection } from "@/components/dashboard/dashboard-tasks-section";
 import { DashboardWelcomeSection } from "@/components/dashboard/dashboard-welcome-section";
+import { ProjectQuickViewDrawer } from "@/components/project/project-quick-view-drawer";
 import { useDashboardData } from "@/components/dashboard/use-dashboard-data";
+import type { ReminderItemData } from "@/components/dashboard/types";
 
 export default function Dashboard() {
+  const router = useRouter();
   const {
     stats,
     loading,
@@ -23,6 +28,31 @@ export default function Dashboard() {
     loadEvents,
     handleDeleteEvent,
   } = useDashboardData();
+
+  const [drawerProjectId, setDrawerProjectId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const openProjectDrawer = useCallback((projectId: string) => {
+    setDrawerProjectId(projectId);
+    setDrawerOpen(true);
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+  }, []);
+
+  const handleReminderClick = useCallback(
+    (item: ReminderItemData) => {
+      if (item.projectId) {
+        openProjectDrawer(item.projectId);
+      } else if (item.project?.id) {
+        openProjectDrawer(item.project.id);
+      } else if (item.taskId) {
+        router.push(`/tasks/${item.taskId}`);
+      }
+    },
+    [openProjectDrawer, router]
+  );
 
   if (loading) {
     return (
@@ -47,6 +77,7 @@ export default function Dashboard() {
       <DashboardStatsSection
         stats={stats}
         reminderSummary={reminderSummary}
+        onReminderClick={handleReminderClick}
       />
       <DashboardCalendarSection
         events={events}
@@ -70,9 +101,22 @@ export default function Dashboard() {
       <DashboardTasksSection
         highPriorityTasks={stats.highPriorityTasks}
         upcomingTasks={stats.upcomingTasks}
+        onProjectClick={openProjectDrawer}
       />
-      <DashboardProjectsSection projectBreakdown={stats.projectBreakdown} />
-      <DashboardLinksRecentSection recentTasks={stats.recentTasks} />
+      <DashboardProjectsSection
+        projectBreakdown={stats.projectBreakdown}
+        onProjectClick={openProjectDrawer}
+      />
+      <DashboardLinksRecentSection
+        recentTasks={stats.recentTasks}
+        onProjectClick={openProjectDrawer}
+      />
+
+      <ProjectQuickViewDrawer
+        projectId={drawerProjectId}
+        open={drawerOpen}
+        onClose={closeDrawer}
+      />
     </div>
   );
 }

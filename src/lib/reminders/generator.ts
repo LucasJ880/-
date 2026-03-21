@@ -17,9 +17,10 @@ export interface ReminderItem {
   priority?: string;
   taskId?: string | null;
   eventId?: string | null;
+  projectId?: string | null;
   isRead: boolean;
   notify: boolean;
-  project?: { name: string; color: string } | null;
+  project?: { id?: string; name: string; color: string } | null;
   location?: string | null;
 }
 
@@ -69,7 +70,8 @@ export async function generateReminderLayers(
     title: true,
     priority: true,
     dueDate: true,
-    project: { select: { name: true, color: true } },
+    projectId: true,
+    project: { select: { id: true, name: true, color: true } },
   } as const;
 
   const [
@@ -127,7 +129,7 @@ export async function generateReminderLayers(
         message: true,
         triggerAt: true,
         taskId: true,
-        task: { select: { project: { select: { name: true, color: true } } } },
+        task: { select: { projectId: true, project: { select: { id: true, name: true, color: true } } } },
       },
       orderBy: { triggerAt: "asc" },
     }),
@@ -155,6 +157,7 @@ export async function generateReminderLayers(
       subtitle: `已逾期 ${days} 天`,
       priority: t.priority,
       taskId: t.id,
+      projectId: t.projectId,
       isRead: false,
       notify: false,
       project: t.project,
@@ -208,6 +211,7 @@ export async function generateReminderLayers(
       subtitle: "今天截止",
       priority: t.priority,
       taskId: t.id,
+      projectId: t.projectId,
       isRead: false,
       notify: false,
       project: t.project,
@@ -225,6 +229,7 @@ export async function generateReminderLayers(
       subtitle: "明天截止",
       priority: t.priority,
       taskId: t.id,
+      projectId: t.projectId,
       isRead: false,
       notify: false,
       project: t.project,
@@ -245,6 +250,7 @@ export async function generateReminderLayers(
       title: f.title,
       subtitle: f.message || "跟进提醒",
       taskId: f.taskId,
+      projectId: f.task?.projectId ?? null,
       isRead: false,
       notify: isPastDue,
       project: f.task?.project ?? null,

@@ -33,6 +33,9 @@ model User {
   calendarProviders  CalendarProvider[]
   blindsOrders       BlindsOrder[]
   reminders          Reminder[]
+  notifications               Notification[] @relation("UserNotifications")
+  notificationPreference      UserNotificationPreference?
+  projectNotificationRules    ProjectNotificationRule[]
   ownedOrgs          Organization[]
   orgMemberships     OrganizationMember[]
   projectMemberships ProjectMember[]
@@ -88,6 +91,7 @@ model Project {
   conversations Conversation[]
   agents        Agent[]
   tools         ToolRegistry[]
+  notificationRules ProjectNotificationRule[]
 
   @@index([orgId])
 }
@@ -929,4 +933,76 @@ model EvaluationRun {
 
   @@index([projectId, environmentId])
   @@index([conversationId])
+}
+
+model Notification {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation("UserNotifications", fields: [userId], references: [id])
+  orgId         String?
+  projectId     String?
+  type          String    @default("update")
+  category      String    @default("update")
+  title         String
+  summary       String?
+  entityType    String?
+  entityId      String?
+  activityId    String?
+  status        String    @default("unread")
+  priority      String    @default("medium")
+  dueAt         DateTime?
+  snoozeUntil   DateTime?
+  readAt        DateTime?
+  doneAt        DateTime?
+  sourceKey     String?   @unique
+  metadata      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([projectId])
+}
+
+model UserNotificationPreference {
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId                    String?
+  enableInAppNotifications Boolean  @default(true)
+  onlyHighPriority         Boolean  @default(false)
+  onlyMyItems              Boolean  @default(false)
+  includeWatchedProjects   Boolean  @default(true)
+  quietHoursEnabled        Boolean  @default(false)
+  quietHoursStart          String?
+  quietHoursEnd            String?
+  emailEnabled             Boolean  @default(false)
+  pushEnabled              Boolean  @default(false)
+  enabledTypesJson         String?
+  metadata                 String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ProjectNotificationRule {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId             String
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  watchEnabled          Boolean  @default(false)
+  notifyProjectUpdates  Boolean  @default(true)
+  notifyRuntimeFailed   Boolean  @default(true)
+  notifyFeedbackCreated Boolean  @default(true)
+  notifyLowEvaluations  Boolean  @default(true)
+  notifyTaskDue         Boolean  @default(true)
+  minimumPriority       String   @default("medium")
+  metadata              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([userId, projectId])
+  @@index([projectId])
 }
