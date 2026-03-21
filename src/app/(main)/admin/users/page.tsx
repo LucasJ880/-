@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -48,6 +48,14 @@ const STATUS_OPTIONS = [
 ];
 
 export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={<div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
+      <UsersContent />
+    </Suspense>
+  );
+}
+
+function UsersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user: currentUser, loading: userLoading } = useCurrentUser();

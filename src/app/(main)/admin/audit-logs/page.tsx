@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -95,6 +95,14 @@ const TARGET_LABELS: Record<string, string> = {
 };
 
 export default function AdminAuditLogsPage() {
+  return (
+    <Suspense fallback={<div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
+      <AuditLogsContent />
+    </Suspense>
+  );
+}
+
+function AuditLogsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user: currentUser, loading: userLoading } = useCurrentUser();
