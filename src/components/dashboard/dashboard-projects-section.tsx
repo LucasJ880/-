@@ -1,47 +1,20 @@
 "use client";
 
-import { FolderKanban, ArrowRight } from "lucide-react";
+import { FolderKanban, ArrowRight, Clock, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { ProjectBreakdown } from "./types";
-
-function ProgressBar({
-  done,
-  inProgress,
-  total,
-}: {
-  done: number;
-  inProgress: number;
-  total: number;
-}) {
-  if (total === 0)
-    return <div className="h-1.5 w-full rounded-full bg-[rgba(110,125,118,0.08)]" />;
-  const donePct = (done / total) * 100;
-  const inPct = (inProgress / total) * 100;
-  return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-[rgba(110,125,118,0.08)]">
-      {donePct > 0 && (
-        <div
-          className="bg-[#2e7a56] transition-all"
-          style={{ width: `${donePct}%` }}
-        />
-      )}
-      {inPct > 0 && (
-        <div
-          className="bg-[#2b6055] transition-all"
-          style={{ width: `${inPct}%` }}
-        />
-      )}
-    </div>
-  );
-}
+import { MiniProgressBar } from "@/components/progress/mini-progress-bar";
+import { RiskBadge } from "@/components/progress/risk-badge";
+import { StageIndicator } from "@/components/progress/stage-indicator";
+import type { ProjectBreakdown, ProjectProgressData } from "./types";
 
 interface Props {
   projectBreakdown: ProjectBreakdown[];
+  projectProgress: Record<string, ProjectProgressData>;
   onProjectClick?: (projectId: string) => void;
 }
 
-export function DashboardProjectsSection({ projectBreakdown, onProjectClick }: Props) {
+export function DashboardProjectsSection({ projectBreakdown, projectProgress, onProjectClick }: Props) {
   if (projectBreakdown.length === 0) return null;
 
   return (
@@ -59,47 +32,102 @@ export function DashboardProjectsSection({ projectBreakdown, onProjectClick }: P
         </Link>
       </div>
       <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-3">
-        {projectBreakdown.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => onProjectClick?.(p.id)}
-            className={cn(
-              "space-y-2 bg-card-bg px-5 py-4 text-left transition-colors",
-              onProjectClick && "cursor-pointer hover:bg-[rgba(43,96,85,0.03)] active:bg-[rgba(43,96,85,0.06)]"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: p.color }}
-              />
-              <span className="text-sm font-medium">{p.name}</span>
-              <span className="ml-auto text-xs text-muted">
-                {p.done}/{p.total}
-              </span>
-            </div>
-            <ProgressBar
-              done={p.done}
-              inProgress={p.inProgress}
-              total={p.total}
-            />
-            <div className="flex gap-3 text-[11px] text-muted">
-              <span>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2e7a56]" />{" "}
-                已完成 {p.done}
-              </span>
-              <span>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2b6055]" />{" "}
-                进行中 {p.inProgress}
-              </span>
-              <span>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-[rgba(110,125,118,0.15)]" />{" "}
-                待办 {p.todo}
-              </span>
-            </div>
-          </button>
-        ))}
+        {projectBreakdown.map((p) => {
+          const prog = projectProgress[p.id];
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onProjectClick?.(p.id)}
+              className={cn(
+                "space-y-2.5 bg-card-bg px-5 py-4 text-left transition-colors",
+                onProjectClick && "cursor-pointer hover:bg-[rgba(43,96,85,0.03)] active:bg-[rgba(43,96,85,0.06)]"
+              )}
+            >
+              {/* title row */}
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: p.color }}
+                />
+                <span className="min-w-0 truncate text-sm font-medium">{p.name}</span>
+                {prog && prog.isAtRisk && (
+                  <RiskBadge
+                    level={prog.riskLevel}
+                    isOverdue={prog.isOverdue}
+                    compact
+                  />
+                )}
+              </div>
+
+              {/* progress bar */}
+              {prog ? (
+                <MiniProgressBar
+                  value={prog.taskProgress}
+                  isOverdue={prog.isOverdue}
+                  isAtRisk={prog.isAtRisk}
+                />
+              ) : (
+                <MiniProgressBar
+                  value={p.total > 0 ? Math.round((p.done / p.total) * 100) : 0}
+                />
+              )}
+
+              {/* stats row */}
+              <div className="flex items-center gap-3 text-[11px] text-muted">
+                <span>
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2e7a56]" />{" "}
+                  已完成 {p.done}
+                </span>
+                <span>
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2b6055]" />{" "}
+                  进行中 {p.inProgress}
+                </span>
+                <span>
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-[rgba(110,125,118,0.15)]" />{" "}
+                  待办 {p.todo}
+                </span>
+              </div>
+
+              {/* time & stage row */}
+              {prog && (
+                <div className="flex items-center justify-between gap-2">
+                  {prog.dueDate && (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 text-[10px] font-medium",
+                        prog.isOverdue
+                          ? "text-[#a63d3d]"
+                          : prog.daysRemaining <= 3 && prog.daysRemaining >= 0
+                            ? "text-[#b06a28]"
+                            : "text-muted"
+                      )}
+                    >
+                      {prog.isOverdue ? (
+                        <AlertTriangle size={10} />
+                      ) : (
+                        <Clock size={10} />
+                      )}
+                      {prog.isOverdue
+                        ? "已逾期"
+                        : `剩余 ${prog.daysRemaining} 天`}
+                    </span>
+                  )}
+                  {prog.weekDelta > 0 && (
+                    <span className="text-[10px] font-medium text-[#2e7a56]">
+                      +{prog.weekDelta}% 本周
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* stage indicator */}
+              {prog && prog.stages.length > 0 && (
+                <StageIndicator stages={prog.stages} compact />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

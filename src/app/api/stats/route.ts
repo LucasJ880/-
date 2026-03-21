@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import { getMultiProjectProgress } from "@/lib/progress/query";
 
 function getWeekRange() {
   const now = new Date();
@@ -187,6 +188,11 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  const progressIds = projectBreakdown.map((p) => p.id);
+  const projectProgressMap = progressIds.length > 0
+    ? await getMultiProjectProgress(progressIds)
+    : {};
+
   return NextResponse.json({
     totalTasks,
     todoCount,
@@ -202,6 +208,7 @@ export async function GET(request: NextRequest) {
     highPriorityTasks,
     upcomingTasks,
     projectBreakdown,
+    projectProgress: projectProgressMap,
     recentTasks,
   });
 }

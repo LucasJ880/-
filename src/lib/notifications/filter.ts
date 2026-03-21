@@ -130,10 +130,11 @@ export function shouldAcceptReminderCandidate(
 
 export interface AuditFilterContext {
   action: string;
-  notifType: "runtime_failed" | "feedback" | "project_update";
+  notifType: "runtime_failed" | "feedback" | "project_update" | "evaluation_low";
   priority: string;
   projectId: string;
   projectOwnerId: string;
+  actorUserId?: string | null;
   /** 反馈相关：会话归属用户，无则 undefined */
   conversationUserId: string | null | undefined;
 }
@@ -159,6 +160,9 @@ export function shouldAcceptAuditCandidate(
     case "runtime_failed":
       if (!rule.notifyRuntimeFailed) return false;
       break;
+    case "evaluation_low":
+      if (!rule.notifyLowEvaluations) return false;
+      break;
     case "feedback":
       if (!rule.notifyFeedbackCreated) return false;
       break;
@@ -172,7 +176,15 @@ export function shouldAcceptAuditCandidate(
 
   if (pref.onlyMyItems) {
     if (input.notifType === "runtime_failed") {
-      return true;
+      if (input.projectOwnerId === recipientUserId) return true;
+      return pref.includeWatchedProjects && rule.watchEnabled;
+    }
+    if (input.notifType === "evaluation_low") {
+      const mine =
+        input.actorUserId === recipientUserId ||
+        input.conversationUserId === recipientUserId;
+      if (mine) return true;
+      return pref.includeWatchedProjects && rule.watchEnabled;
     }
     if (input.notifType === "feedback") {
       const convMine = input.conversationUserId === recipientUserId;
@@ -189,4 +201,26 @@ export function shouldAcceptAuditCandidate(
   }
 
   return true;
+}
+
+type NotificationCandidate =
+  | {
+      kind: "reminder";
+      payload: Parameters<typeof shouldAcceptReminderCandidate>[2];
+    }
+  | {
+      kind: "audit";
+      payload: AuditFilterContext;
+    };
+
+export function shouldCreateNotification(
+  pref: PreferenceContext,
+  rulesMap: Map<string, EffectiveProjectRule>,
+  candidate: NotificationCandidate,
+  userId: string
+): boolean {
+  if (candidate.kind === "reminder") {
+    return shouldAcceptReminderCandidate(pref, rulesMap, candidate.payload);
+  }
+  return shouldAcceptAuditCandidate(pref, rulesMap, candidate.payload, userId);
 }

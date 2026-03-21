@@ -2,12 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
-import type { CalendarEventItem, ReminderSummaryData, Stats } from "./types";
+import type {
+  CalendarEventItem,
+  ReminderSummaryData,
+  ScheduleEvent,
+  Stats,
+} from "./types";
+
+function fmtDateISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export function useDashboardData() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
+  const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
+  const [scheduleDate, setScheduleDate] = useState<Date>(() => new Date());
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEventItem | null>(
     null
@@ -74,12 +85,35 @@ export function useDashboardData() {
     });
   }, []);
 
+  const loadScheduleEvents = useCallback(
+    (date?: Date) => {
+      const d = date ?? scheduleDate;
+      const dateParam = fmtDateISO(d);
+      apiFetch(`/api/schedule?date=${dateParam}`)
+        .then((r) => r.json())
+        .then((data) => {
+          setScheduleEvents(Array.isArray(data) ? data : []);
+        })
+        .catch(() => setScheduleEvents([]));
+    },
+    [scheduleDate]
+  );
+
+  const goToDate = useCallback(
+    (d: Date) => {
+      setScheduleDate(d);
+      loadScheduleEvents(d);
+    },
+    [loadScheduleEvents]
+  );
+
   const handleDeleteEvent = useCallback(
     async (id: string) => {
       await apiFetch(`/api/calendar/${id}`, { method: "DELETE" });
       loadEvents();
+      loadScheduleEvents();
     },
-    [loadEvents]
+    [loadEvents, loadScheduleEvents]
   );
 
   const loadReminders = useCallback(() => {
@@ -92,30 +126,36 @@ export function useDashboardData() {
   useEffect(() => {
     loadStats();
     loadEvents();
+    loadScheduleEvents();
     loadReminders();
     loadUser();
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         loadStats();
         loadEvents();
+        loadScheduleEvents();
         loadReminders();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [loadStats, loadEvents, loadReminders, loadUser]);
+  }, [loadStats, loadEvents, loadScheduleEvents, loadReminders, loadUser]);
 
   return {
     stats,
     loading,
     userName,
     events,
+    scheduleEvents,
+    scheduleDate,
+    goToDate,
     showEventForm,
     setShowEventForm,
     editingEvent,
     setEditingEvent,
     reminderSummary,
     loadEvents,
+    loadScheduleEvents,
     handleDeleteEvent,
   };
 }

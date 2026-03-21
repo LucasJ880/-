@@ -25,7 +25,11 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
+import { ProjectDashboard } from "@/components/project-dashboard/project-dashboard";
+import { ProgressComparison } from "@/components/progress/progress-comparison";
+import { StageIndicator } from "@/components/progress/stage-indicator";
 import type { FormattedActivity } from "@/lib/activity/formatter";
+import type { ProjectProgress } from "@/lib/progress/types";
 
 const PROJECT_ROLES = [
   "project_admin",
@@ -100,6 +104,7 @@ function ProjectDetailContent() {
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityFilter, setActivityFilter] = useState("");
+  const [progress, setProgress] = useState<ProjectProgress | null>(null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -108,8 +113,9 @@ function ProjectDetailContent() {
       apiFetch(`/api/projects/${id}`).then((r) => r.json()),
       apiFetch(`/api/projects/${id}/members`).then((r) => r.json()),
       apiFetch(`/api/projects/${id}/environments`).then((r) => r.json()),
+      apiFetch(`/api/projects/${id}/overview`).then((r) => r.json()).catch(() => null),
     ])
-      .then(([p, m, e]) => {
+      .then(([p, m, e, ov]) => {
         if (p.error) {
           setError(p.error);
           setProject(null);
@@ -120,6 +126,7 @@ function ProjectDetailContent() {
         }
         setMembers(m.members ?? []);
         setEnvironments(e.environments ?? []);
+        if (ov?.progress) setProgress(ov.progress);
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -281,7 +288,7 @@ function ProjectDetailContent() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <button
         type="button"
         onClick={() => router.push("/projects")}
@@ -390,6 +397,35 @@ function ProjectDetailContent() {
           </div>
         </div>
       </div>
+
+      {/* progress section */}
+      {progress && (
+        <div className="rounded-xl border border-border bg-card-bg p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <BarChart3 size={16} className="text-accent/60" />
+              项目进度
+            </h3>
+            {progress.stages.length > 0 && (
+              <StageIndicator stages={progress.stages} />
+            )}
+          </div>
+          <div className="mt-4">
+            <ProgressComparison
+              taskProgress={progress.taskProgress}
+              timeProgress={progress.timeProgress}
+              completedTasks={progress.completedTasks}
+              totalTasks={progress.totalTasks}
+              daysRemaining={progress.daysRemaining}
+              daysTotal={progress.daysTotal}
+              isOverdue={progress.isOverdue}
+              riskLabel={progress.riskLabel}
+            />
+          </div>
+        </div>
+      )}
+
+      <ProjectDashboard projectId={id} />
 
       <div className="rounded-xl border border-border bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
 import { getRecentProjectActivity } from "@/lib/activity/query";
+import { getProjectProgress } from "@/lib/progress/query";
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +14,7 @@ export async function GET(
 
   const { project } = access;
 
-  const [counts, recentActivity] = await Promise.all([
+  const [counts, recentActivity, progress] = await Promise.all([
     db.project.findUnique({
       where: { id },
       select: {
@@ -31,6 +32,7 @@ export async function GET(
       },
     }),
     getRecentProjectActivity(id, 8),
+    getProjectProgress(id),
   ]);
 
   return NextResponse.json({
@@ -40,10 +42,13 @@ export async function GET(
       description: project.description,
       color: project.color,
       status: project.status,
+      startDate: project.startDate,
+      dueDate: project.dueDate,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     },
     counts: counts?._count ?? {},
     recentActivity,
+    progress,
   });
 }

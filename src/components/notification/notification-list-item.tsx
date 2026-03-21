@@ -20,6 +20,7 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   calendar_event: Calendar,
   followup: Bell,
   runtime_failed: AlertTriangle,
+  evaluation_low: AlertTriangle,
   feedback: Star,
   project_update: FolderKanban,
   system: Zap,

@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { ReminderSummaryData, ReminderItemData, Stats } from "./types";
+import { MiniProgressBar } from "@/components/progress/mini-progress-bar";
+import { RiskBadge } from "@/components/progress/risk-badge";
+import type { ReminderSummaryData, ReminderItemData, Stats, ProjectProgressData, ProjectBreakdown } from "./types";
 
 function ReminderSummaryCard({
   data,
@@ -130,9 +132,10 @@ interface Props {
   stats: Stats;
   reminderSummary: ReminderSummaryData | null;
   onReminderClick?: (item: ReminderItemData) => void;
+  onProjectClick?: (projectId: string) => void;
 }
 
-export function DashboardStatsSection({ stats, reminderSummary, onReminderClick }: Props) {
+export function DashboardStatsSection({ stats, reminderSummary, onReminderClick, onProjectClick }: Props) {
   const summaryCards = [
     {
       label: "全部任务",
@@ -227,9 +230,77 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick 
             </div>
           ))}
         </div>
+        <WeekProjectProgress
+          projectBreakdown={stats.projectBreakdown}
+          projectProgress={stats.projectProgress}
+          onProjectClick={onProjectClick}
+        />
       </div>
 
       <ReminderSummaryCard data={reminderSummary} onItemClick={onReminderClick} />
     </>
+  );
+}
+
+function WeekProjectProgress({
+  projectBreakdown,
+  projectProgress,
+  onProjectClick,
+}: {
+  projectBreakdown: ProjectBreakdown[];
+  projectProgress: Record<string, ProjectProgressData>;
+  onProjectClick?: (projectId: string) => void;
+}) {
+  if (!projectProgress || Object.keys(projectProgress).length === 0) return null;
+
+  const items = projectBreakdown
+    .filter((p) => projectProgress[p.id])
+    .slice(0, 6);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="border-t border-border px-5 py-3">
+      <p className="mb-2.5 text-xs font-medium text-muted">项目推进</p>
+      <div className="space-y-2.5">
+        {items.map((p) => {
+          const prog = projectProgress[p.id];
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onProjectClick?.(p.id)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
+                onProjectClick && "hover:bg-[rgba(43,96,85,0.03)]"
+              )}
+            >
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: p.color }}
+              />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                {p.name}
+              </span>
+              <div className="w-24 shrink-0">
+                <MiniProgressBar
+                  value={prog.taskProgress}
+                  isOverdue={prog.isOverdue}
+                  isAtRisk={prog.isAtRisk}
+                />
+              </div>
+              {prog.weekDelta > 0 && (
+                <span className="shrink-0 text-[10px] font-medium text-[#2e7a56]">
+                  +{prog.weekDelta}%
+                </span>
+              )}
+              {prog.isAtRisk && (
+                <RiskBadge level={prog.riskLevel} isOverdue={prog.isOverdue} compact />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

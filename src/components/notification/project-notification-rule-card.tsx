@@ -155,8 +155,8 @@ export function ProjectNotificationRuleCard({ projectId }: { projectId: string }
           disabled={saving}
         />
         <Row
-          label="低分评估（预留）"
-          description="自动评估低分时提醒，后续接入评估流水线后生效。"
+          label="低分评估提醒"
+          description="最近 7 天出现低分评估（<=3）时提醒。"
           checked={rule.notifyLowEvaluations}
           onChange={(v) => setRule({ ...rule, notifyLowEvaluations: v })}
           disabled={saving}

@@ -12,13 +12,36 @@ import {
   FolderKanban,
   Users,
   Layers,
+  AlertTriangle,
+  ShieldCheck,
+  Star,
+  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { Drawer } from "@/components/ui/drawer";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { apiFetch } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
+import { ProgressComparison } from "@/components/progress/progress-comparison";
+import { StageIndicator } from "@/components/progress/stage-indicator";
 import type { FormattedActivity } from "@/lib/activity/formatter";
+
+interface ProgressData {
+  taskProgress: number;
+  completedTasks: number;
+  totalTasks: number;
+  timeProgress: number;
+  daysRemaining: number;
+  daysTotal: number;
+  currentStage: string;
+  stages: { key: string; label: string; status: "done" | "current" | "pending" }[];
+  riskLevel: "none" | "low" | "medium" | "high";
+  riskLabel: string | null;
+  isOverdue: boolean;
+  isAtRisk: boolean;
+  weekDelta: number;
+  dueDate: string | null;
+}
 
 interface OverviewData {
   project: {
@@ -27,11 +50,22 @@ interface OverviewData {
     description: string | null;
     color: string;
     status: string;
+    startDate: string | null;
+    dueDate: string | null;
     createdAt: string;
     updatedAt: string;
   };
   counts: Record<string, number>;
   recentActivity: FormattedActivity[];
+  progress: ProgressData | null;
+}
+
+interface HealthSummary {
+  riskCount: number;
+  avgAutoScore: number | null;
+  runtimeFailures: number;
+  openFeedbacks: number;
+  lowScoreCount: number;
 }
 
 interface ProjectQuickViewDrawerProps {
@@ -67,14 +101,28 @@ const STAT_ITEMS = [
 
 export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActivityId }: ProjectQuickViewDrawerProps) {
   const [data, setData] = useState<OverviewData | null>(null);
+  const [health, setHealth] = useState<HealthSummary | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async (pid: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/projects/${pid}/overview`);
-      if (res.ok) {
-        setData(await res.json());
+      const [overviewRes, dashRes] = await Promise.all([
+        apiFetch(`/api/projects/${pid}/overview`),
+        apiFetch(`/api/projects/${pid}/dashboard?range=7d`),
+      ]);
+      if (overviewRes.ok) {
+        setData(await overviewRes.json());
+      }
+      if (dashRes.ok) {
+        const d = await dashRes.json();
+        setHealth({
+          riskCount: d.risks?.length ?? 0,
+          avgAutoScore: d.quality?.avgAutoScore ?? null,
+          runtimeFailures: d.overview?.runtimeFailures?.current ?? 0,
+          openFeedbacks: d.overview?.openFeedbacks ?? 0,
+          lowScoreCount: d.overview?.lowScoreCount?.current ?? 0,
+        });
       }
     } finally {
       setLoading(false);
@@ -87,6 +135,7 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
     }
     if (!open) {
       setData(null);
+      setHealth(null);
     }
   }, [open, projectId, load]);
 
@@ -133,6 +182,29 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
             )}
           </div>
 
+          {/* progress section */}
+          {data.progress && (
+            <div className="rounded-lg border border-border bg-[rgba(43,96,85,0.02)] px-3.5 py-3">
+              <ProgressComparison
+                taskProgress={data.progress.taskProgress}
+                timeProgress={data.progress.timeProgress}
+                completedTasks={data.progress.completedTasks}
+                totalTasks={data.progress.totalTasks}
+                daysRemaining={data.progress.daysRemaining}
+                daysTotal={data.progress.daysTotal}
+                isOverdue={data.progress.isOverdue}
+                riskLabel={data.progress.riskLabel}
+                compact
+              />
+              {data.progress.stages.length > 0 && (
+                <div className="mt-2.5 flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted">阶段</span>
+                  <StageIndicator stages={data.progress.stages} compact />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* stats grid */}
           <div className="grid grid-cols-4 gap-2">
             {STAT_ITEMS.map((s) => {
@@ -149,6 +221,50 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
               );
             })}
           </div>
+
+          {/* health summary */}
+          {health && (
+            <div className="rounded-lg border border-border bg-[rgba(43,96,85,0.02)] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
+                {health.riskCount > 0 ? (
+                  <AlertTriangle size={12} className="text-[#b06a28]" />
+                ) : (
+                  <ShieldCheck size={12} className="text-[#2e7a56]" />
+                )}
+                健康摘要（近 7 天）
+              </div>
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                <div className="flex flex-col items-center">
+                  <Star size={12} className="text-accent/50" />
+                  <span className={cn("text-sm font-semibold", health.avgAutoScore != null && health.avgAutoScore < 3 ? "text-[#a63d3d]" : "text-foreground")}>
+                    {health.avgAutoScore ?? "—"}
+                  </span>
+                  <span className="text-[10px] text-muted">评估均分</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <XCircle size={12} className={health.runtimeFailures > 0 ? "text-[#a63d3d]" : "text-muted/50"} />
+                  <span className={cn("text-sm font-semibold", health.runtimeFailures > 0 ? "text-[#a63d3d]" : "text-foreground")}>
+                    {health.runtimeFailures}
+                  </span>
+                  <span className="text-[10px] text-muted">运行失败</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <MessageSquare size={12} className={health.openFeedbacks > 5 ? "text-[#b06a28]" : "text-muted/50"} />
+                  <span className={cn("text-sm font-semibold", health.openFeedbacks > 5 ? "text-[#b06a28]" : "text-foreground")}>
+                    {health.openFeedbacks}
+                  </span>
+                  <span className="text-[10px] text-muted">待处理反馈</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <AlertTriangle size={12} className={health.riskCount > 0 ? "text-[#b06a28]" : "text-muted/50"} />
+                  <span className={cn("text-sm font-semibold", health.riskCount > 0 ? "text-[#b06a28]" : "text-foreground")}>
+                    {health.riskCount}
+                  </span>
+                  <span className="text-[10px] text-muted">风险项</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* quick links */}
           <div>

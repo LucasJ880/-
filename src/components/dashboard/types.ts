@@ -30,6 +30,25 @@ export interface CalendarEventItem {
   task: { id: string; title: string; status: string } | null;
 }
 
+export interface ProjectProgressData {
+  taskProgress: number;
+  completedTasks: number;
+  totalTasks: number;
+  timeProgress: number;
+  startDate: string | null;
+  dueDate: string | null;
+  daysElapsed: number;
+  daysTotal: number;
+  daysRemaining: number;
+  currentStage: string;
+  stages: { key: string; label: string; status: "done" | "current" | "pending" }[];
+  riskLevel: "none" | "low" | "medium" | "high";
+  riskLabel: string | null;
+  isOverdue: boolean;
+  isAtRisk: boolean;
+  weekDelta: number;
+}
+
 export interface Stats {
   totalTasks: number;
   todoCount: number;
@@ -45,6 +64,7 @@ export interface Stats {
   highPriorityTasks: TaskItem[];
   upcomingTasks: TaskItem[];
   projectBreakdown: ProjectBreakdown[];
+  projectProgress: Record<string, ProjectProgressData>;
   recentTasks: (TaskItem & { updatedAt: string })[];
 }
 
@@ -68,4 +88,26 @@ export interface ReminderSummaryData {
 export interface SimpleTask {
   id: string;
   title: string;
+}
+
+export interface ScheduleEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+  type: "calendar" | "task_due" | "reminder" | "followup";
+  source: "local" | "google" | "task" | "system";
+  priority: "low" | "medium" | "high" | "urgent";
+  status: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  projectColor: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  taskId: string | null;
+  description: string | null;
+  location: string | null;
+  isEditable: boolean;
+  isDeletable: boolean;
 }

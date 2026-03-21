@@ -198,6 +198,7 @@ const NTYPE_ICONS: Record<string, typeof Bell> = {
   calendar_event: Calendar,
   followup: Bell,
   runtime_failed: AlertTriangle,
+  evaluation_low: AlertTriangle,
   feedback: Star,
   project_update: FolderKanban,
 };
@@ -217,6 +218,7 @@ function NotificationPanel({
 }) {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [onlyUnread, setOnlyUnread] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -261,7 +263,7 @@ function NotificationPanel({
   if (!open) return null;
 
   const unreadItems = items.filter((i) => i.status === "unread");
-  const readItems = items.filter((i) => i.status === "read");
+  const visibleItems = onlyUnread ? unreadItems : items;
 
   return (
     <div
@@ -270,38 +272,52 @@ function NotificationPanel({
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold">通知中心</h3>
-        {unreadItems.length > 0 && (
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={async () => {
-              const ids = unreadItems.map((i) => i.id);
-              await apiFetch("/api/notifications/batch", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ids, action: "mark_read" }),
-              });
-              load();
-            }}
-            className="text-[11px] text-accent hover:text-accent-hover"
+            onClick={() => setOnlyUnread((v) => !v)}
+            className={cn(
+              "text-[11px] transition-colors",
+              onlyUnread ? "text-accent" : "text-muted hover:text-foreground"
+            )}
           >
-            全部已读
+            {onlyUnread ? "仅看未读中" : "仅看未读"}
           </button>
-        )}
+          {unreadItems.length > 0 && (
+            <button
+              type="button"
+              onClick={async () => {
+                const ids = unreadItems.map((i) => i.id);
+                await apiFetch("/api/notifications/batch", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ids, action: "mark_read" }),
+                });
+                load();
+              }}
+              className="text-[11px] text-accent hover:text-accent-hover"
+            >
+              全部已读
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 size={16} className="animate-spin text-accent" />
         </div>
-      ) : items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div className="px-4 py-10 text-center">
           <Bell size={24} className="mx-auto mb-2 text-muted/30" />
           <p className="text-sm text-muted">暂无通知</p>
-          <p className="mt-0.5 text-xs text-muted/60">一切正常运行中</p>
+          <p className="mt-0.5 text-xs text-muted/60">
+            {onlyUnread ? "当前没有未读通知" : "一切正常运行中"}
+          </p>
         </div>
       ) : (
         <div className="max-h-[420px] divide-y divide-border/50 overflow-y-auto">
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = NTYPE_ICONS[item.type] ?? Bell;
             const isUnread = item.status === "unread";
             return (

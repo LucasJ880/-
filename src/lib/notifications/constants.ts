@@ -4,6 +4,7 @@ export const NOTIFICATION_TYPE_KEYS = [
   "calendar_event",
   "followup",
   "runtime_failed",
+  "evaluation_low",
   "feedback",
   "project_update",
   "system",

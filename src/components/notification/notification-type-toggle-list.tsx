@@ -8,6 +8,7 @@ const LABELS: Record<string, string> = {
   calendar_event: "日程与日历提醒",
   followup: "跟进提醒",
   runtime_failed: "运行失败告警",
+  evaluation_low: "低分评估告警",
   feedback: "会话 / 消息反馈",
   project_update: "项目与配置变更",
   system: "系统通知（预留）",

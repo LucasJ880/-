@@ -20,12 +20,16 @@ export default function Dashboard() {
     loading,
     userName,
     events,
+    scheduleEvents,
+    scheduleDate,
+    goToDate,
     showEventForm,
     setShowEventForm,
     editingEvent,
     setEditingEvent,
     reminderSummary,
     loadEvents,
+    loadScheduleEvents,
     handleDeleteEvent,
   } = useDashboardData();
 
@@ -78,16 +82,23 @@ export default function Dashboard() {
         stats={stats}
         reminderSummary={reminderSummary}
         onReminderClick={handleReminderClick}
+        onProjectClick={openProjectDrawer}
       />
       <DashboardCalendarSection
         events={events}
+        scheduleEvents={scheduleEvents}
+        scheduleDate={scheduleDate}
+        onDateChange={goToDate}
         showEventForm={showEventForm}
         editingEvent={editingEvent}
         onClose={() => {
           setShowEventForm(false);
           setEditingEvent(null);
         }}
-        onSaved={loadEvents}
+        onSaved={() => {
+          loadEvents();
+          loadScheduleEvents();
+        }}
         onOpenAdd={() => {
           setEditingEvent(null);
           setShowEventForm(true);
@@ -97,6 +108,7 @@ export default function Dashboard() {
           setShowEventForm(true);
         }}
         onDelete={handleDeleteEvent}
+        onOpenProject={openProjectDrawer}
       />
       <DashboardTasksSection
         highPriorityTasks={stats.highPriorityTasks}
@@ -105,6 +117,7 @@ export default function Dashboard() {
       />
       <DashboardProjectsSection
         projectBreakdown={stats.projectBreakdown}
+        projectProgress={stats.projectProgress ?? {}}
         onProjectClick={openProjectDrawer}
       />
       <DashboardLinksRecentSection

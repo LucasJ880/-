@@ -6,8 +6,7 @@ import { ensureUserNotificationPreference } from "./preferences";
 import { loadProjectRulesMap } from "./project-rules";
 import {
   buildPreferenceContext,
-  shouldAcceptReminderCandidate,
-  shouldAcceptAuditCandidate,
+  shouldCreateNotification,
   type AuditFilterContext,
 } from "./filter";
 
@@ -148,14 +147,22 @@ export async function syncRemindersToNotifications(userId: string): Promise<void
       creatorId = meta?.creatorId ?? null;
     }
 
-    const ok = shouldAcceptReminderCandidate(prefCtx, rulesMap, {
-      userId,
-      notifType,
-      priority,
-      projectId,
-      taskAssigneeId: assigneeId,
-      taskCreatorId: creatorId,
-    });
+    const ok = shouldCreateNotification(
+      prefCtx,
+      rulesMap,
+      {
+        kind: "reminder",
+        payload: {
+          userId,
+          notifType,
+          priority,
+          projectId,
+          taskAssigneeId: assigneeId,
+          taskCreatorId: creatorId,
+        },
+      },
+      userId
+    );
     if (!ok) continue;
 
     toCreate.push({
@@ -224,6 +231,7 @@ export async function syncAuditToNotifications(userId: string): Promise<void> {
     },
     select: {
       id: true,
+      userId: true,
       action: true,
       targetType: true,
       targetId: true,
@@ -322,10 +330,16 @@ export async function syncAuditToNotifications(userId: string): Promise<void> {
       priority,
       projectId: l.projectId,
       projectOwnerId,
+      actorUserId: l.userId,
       conversationUserId,
     };
 
-    const ok = shouldAcceptAuditCandidate(prefCtx, rulesMap, auditCtx, userId);
+    const ok = shouldCreateNotification(
+      prefCtx,
+      rulesMap,
+      { kind: "audit", payload: auditCtx },
+      userId
+    );
     if (!ok) continue;
 
     const targetName = extractName(l.afterData);
@@ -354,6 +368,135 @@ export async function syncAuditToNotifications(userId: string): Promise<void> {
   }
 }
 
+function evaluationPriority(score: number | null): string {
+  if (score === null) return "medium";
+  if (score <= 1.5) return "urgent";
+  if (score <= 2.5) return "high";
+  return "medium";
+}
+
+export async function syncLowEvaluationNotifications(userId: string): Promise<void> {
+  const prefRow = await ensureUserNotificationPreference(userId);
+  if (!prefRow.enableInAppNotifications) return;
+
+  const prefCtx = buildPreferenceContext(prefRow);
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const projectIds = await getUserProjectIds(userId);
+  if (projectIds.length === 0) return;
+
+  const rulesMap = await loadProjectRulesMap(userId, projectIds);
+  const projects = await db.project.findMany({
+    where: { id: { in: projectIds } },
+    select: { id: true, ownerId: true, name: true },
+  });
+  const ownerByProject = new Map(projects.map((p) => [p.id, p.ownerId]));
+  const nameByProject = new Map(projects.map((p) => [p.id, p.name]));
+
+  const lowEvalRows = await db.evaluationRun.findMany({
+    where: {
+      projectId: { in: projectIds },
+      createdAt: { gte: since },
+      score: { lte: 3 },
+    },
+    select: {
+      id: true,
+      projectId: true,
+      conversationId: true,
+      score: true,
+      createdById: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 120,
+  });
+  if (lowEvalRows.length === 0) return;
+
+  const sourceKeys = lowEvalRows.map((r) => `eval_low:${r.id}`);
+  const existing = await db.notification.findMany({
+    where: { userId, sourceKey: { in: sourceKeys } },
+    select: { sourceKey: true },
+  });
+  const existingSet = new Set(existing.map((e) => e.sourceKey));
+
+  const convIds = [
+    ...new Set(lowEvalRows.map((r) => r.conversationId).filter((x): x is string => !!x)),
+  ];
+  const convUserMap = new Map<string, string | null>();
+  if (convIds.length > 0) {
+    const convRows = await db.conversation.findMany({
+      where: { id: { in: convIds } },
+      select: { id: true, userId: true },
+    });
+    for (const c of convRows) convUserMap.set(c.id, c.userId ?? null);
+  }
+
+  const toCreate: Array<{
+    userId: string;
+    orgId: string | null;
+    projectId: string;
+    type: string;
+    category: string;
+    title: string;
+    summary: string | null;
+    entityType: string | null;
+    entityId: string | null;
+    activityId: string;
+    status: string;
+    priority: string;
+    sourceKey: string;
+  }> = [];
+
+  for (const row of lowEvalRows) {
+    if (existingSet.has(`eval_low:${row.id}`)) continue;
+    const projectOwnerId = ownerByProject.get(row.projectId) ?? "";
+    const projectName = nameByProject.get(row.projectId) ?? "项目";
+    const priority = evaluationPriority(row.score);
+
+    const auditCtx: AuditFilterContext = {
+      action: "evaluation_low",
+      notifType: "evaluation_low",
+      priority,
+      projectId: row.projectId,
+      projectOwnerId,
+      actorUserId: row.createdById,
+      conversationUserId: row.conversationId
+        ? (convUserMap.get(row.conversationId) ?? null)
+        : null,
+    };
+
+    const ok = shouldCreateNotification(
+      prefCtx,
+      rulesMap,
+      { kind: "audit", payload: auditCtx },
+      userId
+    );
+    if (!ok) continue;
+
+    toCreate.push({
+      userId,
+      orgId: null,
+      projectId: row.projectId,
+      type: "evaluation_low",
+      category: "alert",
+      title: `检测到低分评估 · ${projectName}`,
+      summary:
+        row.score !== null
+          ? `评估分 ${row.score.toFixed(1)}，建议排查 Prompt / 知识库 / 工具链路`
+          : "检测到低分评估，建议尽快复核",
+      entityType: "evaluation_run",
+      entityId: row.id,
+      activityId: row.id,
+      status: "unread",
+      priority,
+      sourceKey: `eval_low:${row.id}`,
+    });
+  }
+
+  if (toCreate.length > 0) {
+    await db.notification.createMany({ data: toCreate, skipDuplicates: true });
+  }
+}
+
 function extractName(dataStr: string | null): string | null {
   if (!dataStr) return null;
   try {
@@ -366,6 +509,7 @@ function extractName(dataStr: string | null): string | null {
 
 const ACTION_LABELS: Record<string, string> = {
   runtime_fail: "Agent 运行失败",
+  evaluation_low: "触发了低分评估",
   create_conversation_feedback: "提交了会话反馈",
   update_conversation_feedback: "更新了会话反馈",
   create_message_feedback: "提交了消息反馈",
@@ -418,7 +562,11 @@ async function getUserProjectIds(userId: string): Promise<string[]> {
 export async function syncNotifications(userId: string): Promise<void> {
   const pref = await ensureUserNotificationPreference(userId);
   if (pref.enableInAppNotifications) {
-    await Promise.all([syncRemindersToNotifications(userId), syncAuditToNotifications(userId)]);
+    await Promise.all([
+      syncRemindersToNotifications(userId),
+      syncAuditToNotifications(userId),
+      syncLowEvaluationNotifications(userId),
+    ]);
   }
 
   await db.notification.updateMany({

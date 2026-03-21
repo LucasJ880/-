@@ -174,6 +174,7 @@ function NotificationsContent() {
     { key: "task_due", label: "任务截止" },
     { key: "calendar_event", label: "日程" },
     { key: "followup", label: "跟进" },
+    { key: "evaluation_low", label: "低分评估" },
     { key: "feedback", label: "反馈" },
     { key: "runtime_failed", label: "运行失败" },
     { key: "project_update", label: "项目更新" },
