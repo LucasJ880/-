@@ -1,0 +1,932 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  phone        String?
+  passwordHash String?
+  authProvider String    @default("email")
+  name         String
+  nickname     String?
+  avatar       String?
+  role         String    @default("user")
+  status       String    @default("active")
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projects           Project[]
+  tasks              Task[]             @relation("TaskAssignee")
+  createdTasks       Task[]             @relation("TaskCreator")
+  comments           TaskComment[]
+  activities         TaskActivity[]
+  calendarEvents     CalendarEvent[]
+  calendarProviders  CalendarProvider[]
+  blindsOrders       BlindsOrder[]
+  reminders          Reminder[]
+  ownedOrgs          Organization[]
+  orgMemberships     OrganizationMember[]
+  projectMemberships ProjectMember[]
+  auditLogs          AuditLog[]
+  promptsCreated     Prompt[]           @relation("PromptCreatedBy")
+  promptsUpdated     Prompt[]           @relation("PromptUpdatedBy")
+  promptVersions     PromptVersion[]    @relation("PromptVersionCreatedBy")
+  promptPublishLogs  PromptPublishLog[] @relation("PromptPublishBy")
+
+  knowledgeBasesCreated            KnowledgeBase[]              @relation("KnowledgeBaseCreatedBy")
+  knowledgeBasesUpdated            KnowledgeBase[]              @relation("KnowledgeBaseUpdatedBy")
+  knowledgeBaseVersionsCreated     KnowledgeBaseVersion[]       @relation("KBVersionCreatedBy")
+  knowledgeDocumentsCreated        KnowledgeDocument[]          @relation("KnowledgeDocumentCreatedBy")
+  knowledgeDocumentsUpdated        KnowledgeDocument[]          @relation("KnowledgeDocumentUpdatedBy")
+  knowledgeDocumentVersionsCreated KnowledgeDocumentVersion[]   @relation("KDVersionCreatedBy")
+  knowledgePublishLogs             KnowledgePublishLog[]        @relation("KBPublishedBy")
+
+  conversations                    Conversation[]               @relation("ConversationUser")
+
+  agentsCreated                    Agent[]                      @relation("AgentCreatedBy")
+  agentsUpdated                    Agent[]                      @relation("AgentUpdatedBy")
+  agentVersionsCreated             AgentVersion[]               @relation("AgentVersionCreatedBy")
+  toolsCreated                     ToolRegistry[]               @relation("ToolCreatedBy")
+  toolsUpdated                     ToolRegistry[]               @relation("ToolUpdatedBy")
+
+  @@index([status])
+  @@index([authProvider])
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id])
+  name        String
+  code        String?  @unique
+  description String?
+  color       String   @default("#3B82F6")
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ownerId      String
+  owner        User     @relation(fields: [ownerId], references: [id])
+  tasks        Task[]
+  blindsOrders BlindsOrder[]
+  members      ProjectMember[]
+  environments Environment[]
+  auditLogs    AuditLog[]
+  prompts      Prompt[]
+  promptPublishLogs PromptPublishLog[]
+  knowledgeBases KnowledgeBase[]
+  knowledgePublishLogs KnowledgePublishLog[]
+  conversations Conversation[]
+  agents        Agent[]
+  tools         ToolRegistry[]
+
+  @@index([orgId])
+}
+
+model Task {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  status       String   @default("todo")
+  priority     String   @default("medium")
+  dueDate      DateTime?
+  needReminder Boolean  @default(false)
+  followupAt   DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+
+  assigneeId  String?
+  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  creatorId   String
+  creator     User     @relation("TaskCreator", fields: [creatorId], references: [id])
+
+  tags            TagOnTask[]
+  comments        TaskComment[]
+  activities      TaskActivity[]
+  calendarEvents  CalendarEvent[]
+  reminders       Reminder[]
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
+model TaskActivity {
+  id        String   @id @default(cuid())
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#6B7280")
+  createdAt DateTime @default(now())
+
+  tasks     TagOnTask[]
+}
+
+model TagOnTask {
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tagId  String
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  allDay          Boolean  @default(false)
+  location        String?
+  reminderMinutes Int      @default(15)
+  source          String   @default("qingyan")
+  externalId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  reminders   Reminder[]
+}
+
+model BlindsOrder {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  status        String   @default("draft")
+  ruleVersion   String   @default("blinds_20251024_v1")
+
+  customerName  String
+  phone         String?
+  address       String?
+  installDate   String?
+  remarks       String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creatorId     String
+  creator       User     @relation(fields: [creatorId], references: [id])
+  projectId     String?
+  project       Project? @relation(fields: [projectId], references: [id])
+
+  items         BlindsOrderItem[]
+}
+
+model BlindsOrderItem {
+  id            String   @id @default(cuid())
+  itemNumber    Int
+
+  location      String
+  width         Float
+  height        Float
+  fabricSku     String
+  productType   String
+  measureType   String
+  controlType   String
+  controlSide   String
+  headrailType  String
+  mountType     String
+  fabricRatio   Float?
+  silkRatio     Float?
+  bottomBarWidth Float?
+  itemRemark    String?
+
+  cutHeadrail     Float?
+  cutTube38       Float?
+  cutRollerBar    Float?
+  cutZebraBar     Float?
+  cutCoreRod      Float?
+  cutShangrilaBar Float?
+  cutFabricWidth  Float?
+  cutFabricLength Float?
+  insertSize      Float?
+  cordLength      Float?
+  cordSleeveLen   Float?
+  squareFeet      Float?
+
+  sortOrder     Int      @default(0)
+
+  orderId       String
+  order         BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Reminder {
+  id          String   @id @default(cuid())
+  type        String
+  status      String   @default("pending")
+  sourceKey   String   @unique
+
+  title       String
+  message     String?
+  triggerAt   DateTime
+  readAt      DateTime?
+
+  taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  eventId     String?
+  event       CalendarEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
+
+model CalendarProvider {
+  id            String   @id @default(cuid())
+  type          String
+  name          String
+  enabled       Boolean  @default(true)
+  accessToken   String?
+  refreshToken  String?
+  tokenExpiry   DateTime?
+  accountEmail  String?
+  calendarId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// 多租户基础模型
+// ============================================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id])
+  status    String   @default("active")
+  planType  String   @default("free")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members   OrganizationMember[]
+  projects  Project[]
+  auditLogs AuditLog[]
+}
+
+model OrganizationMember {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("org_member")
+  status    String   @default("active")
+  joinedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("operator")
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model Environment {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, code])
+  @@index([projectId])
+
+  prompts           Prompt[]
+  publishLogsFrom   PromptPublishLog[] @relation("PublishLogFromEnv")
+  publishLogsTo     PromptPublishLog[] @relation("PublishLogToEnv")
+  knowledgeBases    KnowledgeBase[]
+  knowledgeDocuments KnowledgeDocument[]
+  kbPublishLogsFrom KnowledgePublishLog[] @relation("KbPublishFromEnv")
+  kbPublishLogsTo   KnowledgePublishLog[] @relation("KbPublishToEnv")
+  conversations     Conversation[]
+  agents            Agent[]
+}
+
+model Prompt {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId   String
+  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  key             String
+  name            String
+  type            String   @default("system")
+  status          String   @default("active")
+  activeVersionId String?  @unique
+  activeVersion   PromptVersion? @relation("PromptActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  createdById     String
+  createdBy       User     @relation("PromptCreatedBy", fields: [createdById], references: [id])
+  updatedById     String
+  updatedBy       User     @relation("PromptUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        PromptVersion[] @relation("PromptVersions")
+
+  @@unique([projectId, environmentId, key])
+  @@index([projectId, environmentId])
+  @@index([environmentId])
+}
+
+model PromptVersion {
+  id              String   @id @default(cuid())
+  promptId        String
+  prompt          Prompt   @relation("PromptVersions", fields: [promptId], references: [id], onDelete: Cascade)
+  version         Int
+  content         String
+  note            String?
+  sourceVersionId String?
+  sourceVersion   PromptVersion? @relation("VersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  derivedVersions PromptVersion[] @relation("VersionLineage")
+  createdById     String
+  createdBy       User     @relation("PromptVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime @default(now())
+
+  activeForPrompt Prompt?  @relation("PromptActiveVersion")
+
+  @@unique([promptId, version])
+  @@index([promptId])
+}
+
+model PromptPublishLog {
+  id                String        @id @default(cuid())
+  projectId         String
+  project           Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  promptKey         String
+  fromEnvironmentId String
+  fromEnvironment   Environment   @relation("PublishLogFromEnv", fields: [fromEnvironmentId], references: [id])
+  toEnvironmentId   String
+  toEnvironment     Environment   @relation("PublishLogToEnv", fields: [toEnvironmentId], references: [id])
+  fromVersionId     String
+  toVersionId       String
+  publishedById     String
+  publishedBy       User          @relation("PromptPublishBy", fields: [publishedById], references: [id])
+  note              String?
+  createdAt         DateTime      @default(now())
+
+  @@index([projectId])
+  @@index([promptKey])
+}
+
+// ============================================================
+// 知识库（按项目 + 环境隔离，版本快照 + 发布）
+// ============================================================
+
+model KnowledgeBase {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId   String
+  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  key             String
+  name            String
+  description     String?
+  status          String   @default("active")
+  activeVersionId String?  @unique
+  activeVersion   KnowledgeBaseVersion? @relation("KBActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  createdById     String
+  createdBy       User     @relation("KnowledgeBaseCreatedBy", fields: [createdById], references: [id])
+  updatedById     String
+  updatedBy       User     @relation("KnowledgeBaseUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        KnowledgeBaseVersion[] @relation("KBVersions")
+  documents       KnowledgeDocument[]
+
+  @@unique([projectId, environmentId, key])
+  @@index([projectId, environmentId])
+  @@index([environmentId])
+}
+
+model KnowledgeBaseVersion {
+  id                String   @id @default(cuid())
+  knowledgeBaseId   String
+  knowledgeBase     KnowledgeBase @relation("KBVersions", fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  version           Int
+  note              String?
+  sourceVersionId   String?
+  sourceVersion     KnowledgeBaseVersion? @relation("KBVersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  derivedKbVersions KnowledgeBaseVersion[] @relation("KBVersionLineage")
+  createdById       String
+  createdBy         User     @relation("KBVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime @default(now())
+
+  documentSnapshots KnowledgeDocumentVersion[]
+  activeForKb       KnowledgeBase? @relation("KBActiveVersion")
+
+  @@unique([knowledgeBaseId, version])
+  @@index([knowledgeBaseId])
+}
+
+model KnowledgeDocument {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  environmentId   String
+  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  title           String
+  sourceType      String
+  sourceUrl       String?
+  status          String   @default("active")
+  sortOrder       Int      @default(0)
+  createdById     String
+  createdBy       User     @relation("KnowledgeDocumentCreatedBy", fields: [createdById], references: [id])
+  updatedById     String
+  updatedBy       User     @relation("KnowledgeDocumentUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        KnowledgeDocumentVersion[]
+
+  @@index([knowledgeBaseId])
+  @@index([environmentId])
+}
+
+model KnowledgeDocumentVersion {
+  id                     String   @id @default(cuid())
+  documentId             String
+  document               KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  knowledgeBaseVersionId String
+  knowledgeBaseVersion   KnowledgeBaseVersion @relation(fields: [knowledgeBaseVersionId], references: [id], onDelete: Cascade)
+  version                Int
+  content                String   @default("")
+  summary                String?
+  note                   String?
+  sourceVersionId        String?
+  sourceVersion          KnowledgeDocumentVersion? @relation("DocVersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  derivedDocVersions     KnowledgeDocumentVersion[] @relation("DocVersionLineage")
+  createdById            String
+  createdBy              User     @relation("KDVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt              DateTime @default(now())
+
+  @@unique([documentId, knowledgeBaseVersionId])
+  @@unique([documentId, version])
+  @@index([knowledgeBaseVersionId])
+}
+
+model KnowledgePublishLog {
+  id                         String        @id @default(cuid())
+  projectId                  String
+  project                    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  knowledgeBaseKey           String
+  fromEnvironmentId          String
+  fromEnvironment            Environment   @relation("KbPublishFromEnv", fields: [fromEnvironmentId], references: [id])
+  toEnvironmentId            String
+  toEnvironment              Environment   @relation("KbPublishToEnv", fields: [toEnvironmentId], references: [id])
+  fromKnowledgeBaseVersionId String
+  toKnowledgeBaseVersionId   String
+  publishedById              String
+  publishedBy                User          @relation("KBPublishedBy", fields: [publishedById], references: [id])
+  note                       String?
+  createdAt                  DateTime      @default(now())
+
+  @@index([projectId])
+  @@index([knowledgeBaseKey])
+}
+
+// ============================================================
+// 会话管理（按项目 + 环境隔离，消息记录 + 上下文追踪）
+// ============================================================
+
+model Conversation {
+  id              String    @id @default(cuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId   String
+  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?     @relation("ConversationUser", fields: [userId], references: [id], onDelete: SetNull)
+  title           String    @default("")
+  channel         String    @default("web")
+  status          String    @default("active")
+
+  messageCount    Int       @default(0)
+  inputTokens     Int       @default(0)
+  outputTokens    Int       @default(0)
+  totalTokens     Int       @default(0)
+  estimatedCost   Float     @default(0)
+  avgLatencyMs    Int       @default(0)
+
+  promptId               String?
+  promptVersionId        String?
+  knowledgeBaseId        String?
+  knowledgeBaseVersionId String?
+
+  agentId         String?
+  runtimeStatus   String    @default("idle")
+  lastErrorMessage String?
+  runCount        Int       @default(0)
+
+  startedAt       DateTime  @default(now())
+  lastMessageAt   DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  messages           Message[]
+  contextSnapshots   ConversationContextSnapshot[]
+  toolCallTraces     ToolCallTrace[]
+
+  @@index([projectId, environmentId])
+  @@index([projectId])
+  @@index([environmentId])
+  @@index([userId])
+  @@index([status])
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role            String
+  content         String   @default("")
+  contentType     String   @default("text")
+  sequence        Int
+  modelName       String?
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  latencyMs       Int      @default(0)
+  status          String   @default("success")
+  errorMessage    String?
+  finishReason    String?
+  toolName        String?
+  toolCallId      String?
+  parentMessageId String?
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+
+  toolCallTraces  ToolCallTrace[]
+
+  @@unique([conversationId, sequence])
+  @@index([conversationId])
+}
+
+model ConversationContextSnapshot {
+  id                     String   @id @default(cuid())
+  conversationId         String
+  conversation           Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  promptId               String?
+  promptVersionId        String?
+  promptKey              String?
+  knowledgeBaseId        String?
+  knowledgeBaseVersionId String?
+  knowledgeBaseKey       String?
+  environmentId          String?
+  systemPromptSnapshot   String?
+  retrievalConfigJson    String?
+  extraConfigJson        String?
+  createdAt              DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+model AuditLog {
+  id         String        @id @default(cuid())
+  orgId      String?
+  org        Organization? @relation(fields: [orgId], references: [id])
+  projectId  String?
+  project    Project?      @relation(fields: [projectId], references: [id])
+  userId     String
+  user       User          @relation(fields: [userId], references: [id])
+  action     String
+  targetType String
+  targetId   String?
+  beforeData String?
+  afterData  String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime      @default(now())
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+// ============================================================
+// Agent 配置与编排
+// ============================================================
+
+model Agent {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId   String
+  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  key             String
+  name            String
+  description     String?
+  type            String   @default("chat")
+  status          String   @default("active")
+
+  promptId               String?
+  promptVersionId        String?
+  knowledgeBaseId        String?
+  knowledgeBaseVersionId String?
+  modelProvider          String   @default("openai")
+  modelName              String   @default("gpt-4o-mini")
+  temperature            Float    @default(0.7)
+  maxTokens              Int      @default(4096)
+  systemBehaviorNote     String?
+  extraConfigJson        String?
+
+  activeVersionId String?  @unique
+  activeVersion   AgentVersion? @relation("AgentActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+
+  createdById     String
+  createdBy       User     @relation("AgentCreatedBy", fields: [createdById], references: [id])
+  updatedById     String
+  updatedBy       User     @relation("AgentUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        AgentVersion[] @relation("AgentVersions")
+  toolBindings    AgentToolBinding[]
+
+  @@unique([projectId, environmentId, key])
+  @@index([projectId, environmentId])
+  @@index([environmentId])
+}
+
+model AgentVersion {
+  id                  String   @id @default(cuid())
+  agentId             String
+  agent               Agent    @relation("AgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
+  version             Int
+  configSnapshotJson  String
+  changeNote          String?
+  createdById         String
+  createdBy           User     @relation("AgentVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt           DateTime @default(now())
+
+  activeForAgent      Agent?   @relation("AgentActiveVersion")
+
+  @@unique([agentId, version])
+  @@index([agentId])
+}
+
+model ToolRegistry {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key             String
+  name            String
+  description     String?
+  category        String   @default("builtin")
+  type            String   @default("function")
+  status          String   @default("active")
+  inputSchemaJson  String?
+  outputSchemaJson String?
+  configJson      String?
+  createdById     String
+  createdBy       User     @relation("ToolCreatedBy", fields: [createdById], references: [id])
+  updatedById     String
+  updatedBy       User     @relation("ToolUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  agentBindings   AgentToolBinding[]
+
+  @@unique([projectId, key])
+  @@index([projectId])
+}
+
+model AgentToolBinding {
+  id                String   @id @default(cuid())
+  agentId           String
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  toolId            String
+  tool              ToolRegistry @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  enabled           Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  configOverrideJson String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([agentId, toolId])
+  @@index([agentId])
+  @@index([toolId])
+}
+
+// ============================================================
+// Runtime: 工具调用追踪
+// ============================================================
+
+model ToolCallTrace {
+  id              String   @id @default(cuid())
+  projectId       String
+  environmentId   String
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId       String
+  message         Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  agentId         String?
+  toolId          String?
+  toolKey         String
+  toolName        String
+  toolCallId      String?
+  inputJson       String?
+  outputJson      String?
+  status          String   @default("success")
+  errorMessage    String?
+  durationMs      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([messageId])
+  @@index([projectId, environmentId])
+}
+
+// ============================================================
+// 评估与质量反馈
+// ============================================================
+
+model ConversationFeedback {
+  id                     String   @id @default(cuid())
+  projectId              String
+  environmentId          String
+  conversationId         String
+  agentId                String?
+  promptId               String?
+  promptVersionId        String?
+  knowledgeBaseId        String?
+  knowledgeBaseVersionId String?
+  createdById            String
+
+  rating                 Int      @default(0)
+  scoreAccuracy          Int?
+  scoreHelpfulness       Int?
+  scoreSafety            Int?
+  scoreCompleteness      Int?
+  sentiment              String   @default("neutral")
+  issueType              String?
+  note                   String?
+  status                 String   @default("open")
+
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  tags                   ConversationFeedbackTag[]
+
+  @@index([projectId, environmentId])
+  @@index([conversationId])
+  @@index([status])
+  @@index([rating])
+  @@index([createdById])
+}
+
+model MessageFeedback {
+  id              String   @id @default(cuid())
+  projectId       String
+  environmentId   String
+  conversationId  String
+  messageId       String
+  agentId         String?
+  createdById     String
+
+  rating          Int      @default(0)
+  issueType       String?
+  note            String?
+  status          String   @default("open")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tags            MessageFeedbackTag[]
+
+  @@index([projectId, environmentId])
+  @@index([conversationId])
+  @@index([messageId])
+  @@index([status])
+  @@index([createdById])
+}
+
+model EvaluationTag {
+  id          String   @id @default(cuid())
+  projectId   String
+  key         String
+  label       String
+  category    String   @default("quality")
+  color       String   @default("#6b7280")
+  status      String   @default("active")
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  conversationFeedbackTags ConversationFeedbackTag[]
+  messageFeedbackTags      MessageFeedbackTag[]
+
+  @@unique([projectId, key])
+  @@index([projectId])
+}
+
+model ConversationFeedbackTag {
+  id         String   @id @default(cuid())
+  feedbackId String
+  feedback   ConversationFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        EvaluationTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([feedbackId, tagId])
+  @@index([feedbackId])
+  @@index([tagId])
+}
+
+model MessageFeedbackTag {
+  id         String   @id @default(cuid())
+  feedbackId String
+  feedback   MessageFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        EvaluationTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([feedbackId, tagId])
+  @@index([feedbackId])
+  @@index([tagId])
+}
+
+model EvaluationRun {
+  id              String   @id @default(cuid())
+  projectId       String
+  environmentId   String
+  conversationId  String?
+  messageId       String?
+  type            String   @default("manual")
+  judgeModel      String?
+  judgeVersion    String?
+  criteriaJson    String?
+  resultJson      String?
+  score           Float?
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  @@index([projectId, environmentId])
+  @@index([conversationId])
+}
