@@ -15,7 +15,7 @@ export function getAIClient(): OpenAI {
 }
 
 export function getModel(): string {
-  return process.env.OPENAI_MODEL || "gpt-4o-mini";
+  return process.env.OPENAI_MODEL || "gpt-4o";
 }
 
 /* ── Legacy type (kept for backward compat imports) ── */
