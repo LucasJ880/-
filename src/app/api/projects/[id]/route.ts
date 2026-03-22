@@ -7,6 +7,7 @@ import {
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
+import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
 
 const detailInclude = {
   owner: { select: { id: true, name: true, email: true } },
@@ -135,6 +136,13 @@ export async function PATCH(
       updatedBy: user.email,
     }).catch((err) => console.error("[Webhook] dispatch failed:", err));
   }
+
+  emitProjectPatchEvents(
+    id,
+    beforeProject as unknown as Record<string, unknown>,
+    project as unknown as Record<string, unknown>,
+    { id: user.id, name: user.name }
+  ).catch((err) => console.error("[Discussion] emit events failed:", err));
 
   return NextResponse.json(project);
 }

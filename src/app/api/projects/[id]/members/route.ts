@@ -10,6 +10,7 @@ import {
   isValidProjectMemberRole,
   DEFAULT_NEW_PROJECT_MEMBER_ROLE,
 } from "@/lib/projects/members-utils";
+import { onMemberJoined } from "@/lib/project-discussion/system-events";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -133,6 +134,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       afterData: { userId, role: updated.role, status: updated.status },
       request,
     });
+    onMemberJoined(projectId, updated.user.name, updated.role, user.id).catch(() => {});
     return NextResponse.json(
       {
         member: {
@@ -178,6 +180,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     afterData: { userId, role: created.role },
     request,
   });
+
+  onMemberJoined(projectId, created.user.name, created.role, user.id).catch(() => {});
 
   return NextResponse.json(
     {

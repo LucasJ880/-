@@ -30,6 +30,7 @@ import { ProgressComparison } from "@/components/progress/progress-comparison";
 import { StageIndicator } from "@/components/progress/stage-indicator";
 import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card";
 import { ProjectProgressSection } from "@/components/tender/project-progress-section";
+import { ProjectDiscussionSection } from "@/components/project-discussion/project-discussion-section";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 
@@ -506,6 +507,9 @@ function ProjectDetailContent() {
       )}
 
       <ProjectDashboard projectId={id} />
+
+      {/* 项目讨论 */}
+      <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} />
 
       <div className="rounded-xl border border-border bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">

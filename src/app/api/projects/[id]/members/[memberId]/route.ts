@@ -8,6 +8,7 @@ import {
   countActiveProjectAdmins,
   isSelfPromotion,
 } from "@/lib/projects/members-utils";
+import { onMemberRemoved } from "@/lib/project-discussion/system-events";
 
 type Ctx = { params: Promise<{ id: string; memberId: string }> };
 
@@ -161,6 +162,8 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
     afterData: { status: updated.status },
     request,
   });
+
+  onMemberRemoved(projectId, updated.user.name, user.id).catch(() => {});
 
   return NextResponse.json({
     ok: true,

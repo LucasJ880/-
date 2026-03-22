@@ -50,6 +50,7 @@ model User {
   knowledgeBaseVersionsCreated     KnowledgeBaseVersion[]       @relation("KBVersionCreatedBy")
   knowledgeDocumentsCreated        KnowledgeDocument[]          @relation("KnowledgeDocumentCreatedBy")
   knowledgeDocumentsUpdated        KnowledgeDocument[]          @relation("KnowledgeDocumentUpdatedBy")
+  projectMessages                  ProjectMessage[]             @relation("ProjectMessageSender")
   knowledgeDocumentVersionsCreated KnowledgeDocumentVersion[]   @relation("KDVersionCreatedBy")
   knowledgePublishLogs             KnowledgePublishLog[]        @relation("KBPublishedBy")
 
@@ -127,6 +128,7 @@ model Project {
   externalRef   ExternalReference?
   intelligence  ProjectIntelligence?
   documents     ProjectDocument[]
+  discussion    ProjectConversation?
 
   @@index([orgId])
   @@index([sourceSystem])
@@ -1118,4 +1120,43 @@ model WebhookEndpoint {
   updatedAt    DateTime  @updatedAt
 
   @@index([system])
+}
+
+// ─────────────────────────────────────────
+// 项目讨论（Project Discussion）
+// ─────────────────────────────────────────
+
+model ProjectConversation {
+  id         String    @id @default(cuid())
+  projectId  String    @unique
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind       String    @default("MAIN")
+  title      String    @default("项目讨论")
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  messages   ProjectMessage[]
+
+  @@index([projectId])
+}
+
+model ProjectMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   ProjectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  projectId      String
+  senderId       String?
+  sender         User?    @relation("ProjectMessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  type           String   @default("TEXT")
+  body           String
+  metadata       Json?
+  replyToId      String?
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([senderId, createdAt])
 }
