@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
         ownerId: systemUser!.id,
         orgId,
         color: "#4F7C78",
+        intakeStatus: "pending_dispatch",
       },
     });
 

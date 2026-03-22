@@ -103,6 +103,11 @@ model Project {
   submittedAt          DateTime?
   awardDate            DateTime?
 
+  // 项目分发 (Bid to Go intake)
+  intakeStatus         String   @default("dispatched")
+  dispatchedAt         DateTime?
+  dispatchedById       String?
+
   ownerId      String
   owner        User     @relation(fields: [ownerId], references: [id])
   tasks        Task[]
@@ -126,6 +131,7 @@ model Project {
   @@index([orgId])
   @@index([sourceSystem])
   @@index([tenderStatus])
+  @@index([intakeStatus])
 }
 
 model Task {

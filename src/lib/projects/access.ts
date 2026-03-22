@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import type { Project } from "@prisma/client";
 
+export { buildProjectVisibilityWhere, getVisibleProjectIds, canViewProject } from "./visibility";
+
 export interface ProjectAccessContext {
   user: AuthUser;
   project: Project;
@@ -40,6 +42,10 @@ export async function requireProjectWriteAccess(
       orgRole: "org_admin",
       projectRole: "project_admin",
     };
+  }
+
+  if (project.intakeStatus !== "dispatched") {
+    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
 
   if (project.ownerId === user.id) {
@@ -98,6 +104,10 @@ export async function requireProjectReadAccess(
       orgRole: "org_admin",
       projectRole: "project_admin",
     };
+  }
+
+  if (project.intakeStatus !== "dispatched") {
+    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
 
   let orgRole: string | null = null;

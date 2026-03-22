@@ -25,6 +25,8 @@ interface Project {
   status: string;
   orgId: string | null;
   createdAt: string;
+  intakeStatus?: string;
+  sourceSystem?: string | null;
   owner: { id: string; name: string };
   _count: { tasks: number; environments?: number };
 }
@@ -461,6 +463,16 @@ export default function ProjectsPage() {
                 >
                   详情
                 </Link>
+                {project.intakeStatus === "pending_dispatch" && (
+                  <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(181,137,47,0.1)] text-[#b5892f]">
+                    待分发
+                  </span>
+                )}
+                {project.sourceSystem && (
+                  <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(79,124,120,0.1)] text-primary">
+                    {project.sourceSystem === "bidtogo" ? "BidToGo" : project.sourceSystem}
+                  </span>
+                )}
                 <span
                   className={cn(
                     "ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium",

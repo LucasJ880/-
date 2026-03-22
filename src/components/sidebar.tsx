@@ -73,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "管理",
     adminOnly: true,
     items: [
+      { href: "/admin/project-intake", label: "待分发项目", icon: ClipboardList, adminOnly: true },
       { href: "/admin/users", label: "用户管理", icon: Users, adminOnly: true },
       { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText, adminOnly: true },
     ],

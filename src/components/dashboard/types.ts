@@ -66,6 +66,7 @@ export interface Stats {
   projectBreakdown: ProjectBreakdown[];
   projectProgress: Record<string, ProjectProgressData>;
   recentTasks: (TaskItem & { updatedAt: string })[];
+  pendingDispatchCount?: number;
 }
 
 export interface ReminderItemData {

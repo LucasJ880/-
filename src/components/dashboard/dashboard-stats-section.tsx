@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Bell,
   ChevronRight,
+  PackageOpen,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -196,6 +197,24 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
         <h1 className="text-2xl font-bold">工作台</h1>
         <p className="mt-1 text-sm text-muted">欢迎回来，这是您的工作概览</p>
       </div>
+
+      {(stats.pendingDispatchCount ?? 0) > 0 && (
+        <Link
+          href="/admin/project-intake"
+          className="flex items-center gap-3 rounded-xl border border-[rgba(181,137,47,0.25)] bg-[rgba(181,137,47,0.04)] p-4 transition-all hover:shadow-sm"
+        >
+          <div className="rounded-lg bg-[rgba(181,137,47,0.1)] p-2 text-[#b5892f]">
+            <PackageOpen size={20} />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-[#b5892f]">
+              {stats.pendingDispatchCount}
+            </p>
+            <p className="text-xs text-muted">待分发项目</p>
+          </div>
+          <ChevronRight size={16} className="ml-auto text-muted/40" />
+        </Link>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {summaryCards.map((c) => (

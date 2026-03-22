@@ -4,29 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { getMultiProjectProgress } from "@/lib/progress/query";
 import { getWeekRangeToronto, endOfDayToronto } from "@/lib/time";
-
-async function getVisibleProjectIds(userId: string, role: string) {
-  if (isSuperAdmin(role)) return null;
-
-  const orgMemberships = await db.organizationMember.findMany({
-    where: { userId, status: "active" },
-    select: { orgId: true },
-  });
-  const orgIds = orgMemberships.map((m) => m.orgId);
-
-  const projects = await db.project.findMany({
-    where: {
-      OR: [
-        { ownerId: userId, orgId: null },
-        ...(orgIds.length ? [{ orgId: { in: orgIds } }] : []),
-        { members: { some: { userId, status: "active" } } },
-      ],
-    },
-    select: { id: true },
-  });
-
-  return projects.map((p) => p.id);
-}
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -179,6 +157,13 @@ export async function GET(request: NextRequest) {
     ? await getMultiProjectProgress(progressIds)
     : {};
 
+  let pendingDispatchCount = 0;
+  if (isSuperAdmin(user.role)) {
+    pendingDispatchCount = await db.project.count({
+      where: { intakeStatus: "pending_dispatch" },
+    });
+  }
+
   return NextResponse.json({
     totalTasks,
     todoCount,
@@ -196,5 +181,6 @@ export async function GET(request: NextRequest) {
     projectBreakdown,
     projectProgress: projectProgressMap,
     recentTasks,
+    pendingDispatchCount,
   });
 }

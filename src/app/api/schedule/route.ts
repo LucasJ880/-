@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 
 interface ScheduleEventOut {
   id: string;
@@ -209,25 +210,4 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(results);
 }
 
-async function getVisibleProjectIds(userId: string, role: string) {
-  if (isSuperAdmin(role)) return null;
-
-  const orgMemberships = await db.organizationMember.findMany({
-    where: { userId, status: "active" },
-    select: { orgId: true },
-  });
-  const orgIds = orgMemberships.map((m) => m.orgId);
-
-  const projects = await db.project.findMany({
-    where: {
-      OR: [
-        { ownerId: userId, orgId: null },
-        ...(orgIds.length ? [{ orgId: { in: orgIds } }] : []),
-        { members: { some: { userId, status: "active" } } },
-      ],
-    },
-    select: { id: true },
-  });
-
-  return projects.map((p) => p.id);
-}
+// Visibility is imported from unified module

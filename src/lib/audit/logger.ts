@@ -97,6 +97,9 @@ export const AUDIT_ACTIONS = {
   UPDATE_EVALUATION_TAG: "update_evaluation_tag",
   EXTERNAL_SYNC: "external_sync",
   WEBHOOK_DISPATCH: "webhook_dispatch",
+  DISPATCH_PROJECT: "dispatch_project",
+  ASSIGN_OWNER: "assign_owner",
+  ASSIGN_MEMBERS: "assign_members",
 } as const;
 
 // --- 常用 targetType 常量 ---
