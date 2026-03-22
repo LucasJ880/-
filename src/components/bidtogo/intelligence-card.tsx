@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   ExternalLink,
   Shield,
@@ -12,6 +13,8 @@ import {
   MapPin,
   DollarSign,
   Hash,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -133,36 +136,16 @@ function ReportList({ label, items }: { label: string; items: string[] }) {
   );
 }
 
-function FullReportSection({ json }: { json: string | null }) {
-  if (!json) return null;
-
-  let report: FullReport;
-  try {
-    report = JSON.parse(json);
-  } catch {
-    return null;
-  }
-
-  const hasStructuredContent =
-    report.strengths?.length ||
-    report.weaknesses?.length ||
-    report.requirements_met?.length ||
-    report.requirements_gap?.length ||
-    report.competitive_landscape ||
-    report.pricing_guidance ||
-    report.timeline_notes;
-
-  if (!hasStructuredContent && !report.description) return null;
-
+function FullReportInline({ report }: { report: FullReport }) {
   return (
-    <div className="mt-4 space-y-4 rounded-lg border border-border/60 bg-background p-4">
+    <div className="space-y-4">
       {report.title && (
         <h4 className="text-sm font-semibold text-foreground">{report.title}</h4>
       )}
       {report.description && (
         <p className="text-sm leading-relaxed text-foreground/80">{report.description}</p>
       )}
-      {(report.strengths?.length || report.weaknesses?.length) && (
+      {(report.strengths?.length || report.weaknesses?.length) ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {report.strengths && (
             <ReportList label="优势 / Strengths" items={report.strengths} />
@@ -171,8 +154,8 @@ function FullReportSection({ json }: { json: string | null }) {
             <ReportList label="风险 / Weaknesses" items={report.weaknesses} />
           )}
         </div>
-      )}
-      {(report.requirements_met?.length || report.requirements_gap?.length) && (
+      ) : null}
+      {(report.requirements_met?.length || report.requirements_gap?.length) ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {report.requirements_met && (
             <ReportList label="已满足要求" items={report.requirements_met} />
@@ -181,8 +164,8 @@ function FullReportSection({ json }: { json: string | null }) {
             <ReportList label="需补充 / 缺口" items={report.requirements_gap} />
           )}
         </div>
-      )}
-      {(report.competitive_landscape || report.pricing_guidance || report.timeline_notes) && (
+      ) : null}
+      {(report.competitive_landscape || report.pricing_guidance || report.timeline_notes) ? (
         <div className="grid gap-4 sm:grid-cols-3">
           {report.competitive_landscape && (
             <div>
@@ -202,6 +185,98 @@ function FullReportSection({ json }: { json: string | null }) {
               <p className="mt-1 text-sm text-foreground/80">{report.timeline_notes}</p>
             </div>
           )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FullReportSection({
+  json,
+  url,
+}: {
+  json: string | null;
+  url: string | null;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  let report: FullReport | null = null;
+  if (json) {
+    try {
+      report = JSON.parse(json);
+    } catch { /* ignore */ }
+  }
+
+  const hasStructuredContent = report && (
+    report.description ||
+    report.strengths?.length ||
+    report.weaknesses?.length ||
+    report.requirements_met?.length ||
+    report.requirements_gap?.length ||
+    report.competitive_landscape ||
+    report.pricing_guidance ||
+    report.timeline_notes
+  );
+
+  const hasContent = hasStructuredContent || url;
+  if (!hasContent) return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-border/60 bg-background">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground hover:bg-accent/5 transition-colors rounded-lg"
+      >
+        <span>完整分析报告</span>
+        <div className="flex items-center gap-2">
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[11px] font-normal text-muted hover:text-accent"
+              title="在新窗口打开"
+            >
+              <ExternalLink size={11} />
+            </a>
+          )}
+          {expanded ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border/60 px-4 py-4">
+          {hasStructuredContent && report ? (
+            <FullReportInline report={report} />
+          ) : url ? (
+            <div className="relative">
+              {!iframeLoaded && (
+                <div className="flex items-center justify-center py-12 text-sm text-muted">
+                  加载报告中...
+                </div>
+              )}
+              <iframe
+                src={url}
+                title="AI 完整分析报告"
+                className={cn(
+                  "w-full rounded-lg border border-border",
+                  iframeLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
+                )}
+                style={{ minHeight: 480 }}
+                onLoad={() => setIframeLoaded(true)}
+                sandbox="allow-same-origin allow-scripts allow-popups"
+              />
+              <p className="mt-2 text-center text-[11px] text-muted">
+                若报告未正常显示，请
+                <a href={url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline ml-0.5">
+                  在新窗口打开
+                </a>
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -349,17 +424,7 @@ export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }
               {intelligence.summary}
             </p>
           )}
-          <FullReportSection json={intelligence.fullReportJson} />
-          {intelligence.fullReportUrl && (
-            <a
-              href={intelligence.fullReportUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
-            >
-              查看完整分析报告 <ExternalLink size={14} />
-            </a>
-          )}
+          <FullReportSection json={intelligence.fullReportJson} url={intelligence.fullReportUrl} />
         </div>
       )}
 
