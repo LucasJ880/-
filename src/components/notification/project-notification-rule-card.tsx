@@ -53,12 +53,16 @@ export function ProjectNotificationRuleCard({ projectId }: { projectId: string }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     apiFetch(`/api/projects/${projectId}/notification-rule`)
       .then((r) => r.json())
-      .then((d) => setRule(d.rule))
+      .then((d) => {
+        setRule(d.rule);
+        if (d.rule?.id) setHidden(true);
+      })
       .catch(() => setRule(null))
       .finally(() => setLoading(false));
   }, [projectId]);
@@ -85,7 +89,7 @@ export function ProjectNotificationRuleCard({ projectId }: { projectId: string }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存失败");
       setRule(data.rule);
-      setHint("已保存");
+      setHidden(true);
     } catch (e) {
       setHint(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -93,12 +97,12 @@ export function ProjectNotificationRuleCard({ projectId }: { projectId: string }
     }
   };
 
-  if (loading || !rule) {
-    return (
-      <div className="flex items-center justify-center py-8 text-muted">
-        <Loader2 size={18} className="animate-spin text-accent" />
-      </div>
-    );
+  if (loading) {
+    return null;
+  }
+
+  if (hidden || !rule) {
+    return null;
   }
 
   return (

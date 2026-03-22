@@ -1,9 +1,9 @@
 "use client";
 
-import { BookOpen, FileText, Globe } from "lucide-react";
+import { BookOpen, FileText } from "lucide-react";
 
 interface ContextCardProps {
-  environment: { code: string; name: string } | null;
+  environment?: { code: string; name: string } | null;
   prompt: {
     id: string;
     key: string;
@@ -25,7 +25,7 @@ export function ConversationContextCard({
   knowledgeBase,
   systemPromptPreview,
 }: ContextCardProps) {
-  const hasData = environment || prompt || knowledgeBase;
+  const hasData = prompt || knowledgeBase;
 
   if (!hasData) {
     return (
@@ -40,15 +40,6 @@ export function ConversationContextCard({
     <div className="rounded-[var(--radius-md)] border border-border bg-card-bg p-4">
       <h3 className="mb-3 text-sm font-semibold text-muted">会话上下文</h3>
       <div className="space-y-3">
-        {environment && (
-          <div className="flex items-center gap-2 text-sm">
-            <Globe size={14} className="shrink-0 text-accent/50" />
-            <span className="text-muted">环境:</span>
-            <span className="rounded-md bg-[rgba(43,96,85,0.08)] px-1.5 py-0.5 text-xs font-medium text-[#2b6055]">
-              {environment.name} ({environment.code})
-            </span>
-          </div>
-        )}
         {prompt && (
           <div className="flex items-center gap-2 text-sm">
             <FileText size={14} className="shrink-0 text-accent/50" />

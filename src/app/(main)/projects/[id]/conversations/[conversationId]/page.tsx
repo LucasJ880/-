@@ -585,8 +585,7 @@ export default function ConversationDetailPage() {
               )}
             </div>
             <p className="mt-0.5 text-sm text-muted">
-              {conv.environment.name} ({conv.environment.code})
-              {conv.user?.name ? ` · ${conv.user.name}` : ""}
+              {conv.user?.name ? conv.user.name : ""}
               {conv.runCount ? ` · ${conv.runCount} 次运行` : ""}
             </p>
           </div>
@@ -730,7 +729,7 @@ export default function ConversationDetailPage() {
       {activeTab === "context" && (
         <div className="space-y-4">
           <ConversationContextCard
-            environment={conv.environment}
+            environment={null}
             prompt={promptInfo}
             knowledgeBase={kbInfo}
             systemPromptPreview={contextSnapshot?.systemPromptSnapshot}

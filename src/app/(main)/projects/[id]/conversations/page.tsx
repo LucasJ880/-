@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -11,7 +11,6 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
@@ -19,13 +18,6 @@ import {
   ConversationStatusBadge,
   ChannelBadge,
 } from "@/components/conversation";
-
-interface EnvRow {
-  id: string;
-  name: string;
-  code: string;
-  status: string;
-}
 
 interface ConvRow {
   id: string;
@@ -66,7 +58,6 @@ export default function ProjectConversationsPage() {
 
   const [projectName, setProjectName] = useState("");
   const [canManage, setCanManage] = useState(false);
-  const [environments, setEnvironments] = useState<EnvRow[]>([]);
   const [envId, setEnvId] = useState("");
   const [list, setList] = useState<ConvRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,11 +83,6 @@ export default function ProjectConversationsPage() {
     { id: string; name: string; key: string }[]
   >([]);
 
-  const activeEnvs = useMemo(
-    () => environments.filter((e) => e.status === "active"),
-    [environments]
-  );
-
   const loadInit = useCallback(() => {
     return Promise.all([
       apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
@@ -108,9 +94,9 @@ export default function ProjectConversationsPage() {
         setProjectName(p.project.name);
         setCanManage(!!p.canManage);
       }
-      const envs = e.environments ?? [];
-      setEnvironments(envs);
-      return envs as EnvRow[];
+      const envs = (e.environments ?? []) as { id: string; status: string }[];
+      const first = envs.find((x) => x.status === "active");
+      return first?.id ?? "";
     });
   }, [projectId]);
 
@@ -187,18 +173,17 @@ export default function ProjectConversationsPage() {
   useEffect(() => {
     setLoading(true);
     loadInit()
-      .then((envs) => {
-        const first = envs.find((x: EnvRow) => x.status === "active");
-        const id0 = first?.id ?? "";
-        setEnvId(id0);
-        return loadList(id0);
+      .then((firstEnvId) => {
+        setEnvId(firstEnvId);
+        return loadList("", keyword, statusFilter, channelFilter, 1);
       })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadInit, loadList]);
 
   function handleSearch() {
     setPage(1);
-    loadList(envId, keyword, statusFilter, channelFilter, 1);
+    loadList("", keyword, statusFilter, channelFilter, 1);
   }
 
   function clearFilters() {
@@ -206,7 +191,7 @@ export default function ProjectConversationsPage() {
     setStatusFilter("");
     setChannelFilter("");
     setPage(1);
-    loadList(envId, "", "", "", 1);
+    loadList("", "", "", "", 1);
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -280,48 +265,6 @@ export default function ProjectConversationsPage() {
         )}
       </div>
 
-      {/* Environment switcher */}
-      {activeEnvs.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setEnvId("");
-              setPage(1);
-              loadList("", keyword, statusFilter, channelFilter, 1);
-            }}
-            className={cn(
-              "rounded-lg border px-3 py-1.5 text-sm font-medium",
-              !envId
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border bg-card-bg text-muted hover:text-foreground"
-            )}
-          >
-            全部环境
-          </button>
-          {activeEnvs.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              onClick={() => {
-                setEnvId(e.id);
-                setPage(1);
-                loadList(e.id, keyword, statusFilter, channelFilter, 1);
-              }}
-              className={cn(
-                "rounded-lg border px-3 py-1.5 text-sm font-medium",
-                envId === e.id
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-card-bg text-muted hover:text-foreground"
-              )}
-            >
-              {e.name}{" "}
-              <span className="text-xs opacity-70">({e.code})</span>
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
@@ -343,7 +286,7 @@ export default function ProjectConversationsPage() {
           onChange={(e) => {
             setStatusFilter(e.target.value);
             setPage(1);
-            loadList(envId, keyword, e.target.value, channelFilter, 1);
+            loadList("", keyword, e.target.value, channelFilter, 1);
           }}
         >
           {STATUS_OPTIONS.map((o) => (
@@ -358,7 +301,7 @@ export default function ProjectConversationsPage() {
           onChange={(e) => {
             setChannelFilter(e.target.value);
             setPage(1);
-            loadList(envId, keyword, statusFilter, e.target.value, 1);
+            loadList("", keyword, statusFilter, e.target.value, 1);
           }}
         >
           {CHANNEL_OPTIONS.map((o) => (
@@ -518,9 +461,6 @@ export default function ProjectConversationsPage() {
                           <ChannelBadge channel={conv.channel} />
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
-                          <span>
-                            {conv.environment.name} ({conv.environment.code})
-                          </span>
                           <span>{conv.messageCount} 条消息</span>
                           {conv.totalTokens > 0 && (
                             <span>
@@ -566,7 +506,7 @@ export default function ProjectConversationsPage() {
                 totalPages={totalPages}
                 onPageChange={(pg) => {
                   setPage(pg);
-                  loadList(envId, keyword, statusFilter, channelFilter, pg);
+                  loadList("", keyword, statusFilter, channelFilter, pg);
                 }}
               />
             </div>

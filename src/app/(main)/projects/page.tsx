@@ -10,7 +10,7 @@ import {
   FolderKanban,
   CheckSquare,
   X,
-  Layers,
+
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -342,7 +342,7 @@ export default function ProjectsPage() {
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
         title="项目管理"
-        description="项目归属在组织之下，用于承载任务、环境与知识资源。"
+        description="项目归属在组织之下，用于承载任务与知识资源。"
         actions={
           <button
             type="button"
@@ -487,10 +487,6 @@ export default function ProjectsPage() {
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                   <CheckSquare size={13} />
                   <span>{project._count.tasks} 个任务</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-muted">
-                  <Layers size={13} />
-                  <span>{project._count.environments ?? 0} 个环境</span>
                 </div>
                 <Link
                   href={`/projects/${project.id}`}

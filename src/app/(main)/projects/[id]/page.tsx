@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   Loader2,
   FolderKanban,
-  Layers,
   Users,
   Trash2,
   FileText,
@@ -54,7 +53,7 @@ interface ProjectDetail {
     code: string;
     status: string;
   } | null;
-  _count: { tasks: number; environments: number; members: number };
+  _count: { tasks: number; members: number };
   // BidToGo / tender fields
   category?: string | null;
   sourceSystem?: string | null;
@@ -97,13 +96,6 @@ interface MemberRow {
   user: { id: string; email: string; name: string };
 }
 
-interface EnvRow {
-  id: string;
-  name: string;
-  code: string;
-  status: string;
-}
-
 export default function ProjectDetailPage() {
   return (
     <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
@@ -122,14 +114,11 @@ function ProjectDetailContent() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [members, setMembers] = useState<MemberRow[]>([]);
-  const [environments, setEnvironments] = useState<EnvRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [addUserId, setAddUserId] = useState("");
   const [addRole, setAddRole] = useState<string>("viewer");
-  const [envName, setEnvName] = useState("");
-  const [envCode, setEnvCode] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   const [activities, setActivities] = useState<FormattedActivity[]>([]);
@@ -145,10 +134,9 @@ function ProjectDetailContent() {
     Promise.all([
       apiFetch(`/api/projects/${id}`).then((r) => r.json()),
       apiFetch(`/api/projects/${id}/members`).then((r) => r.json()),
-      apiFetch(`/api/projects/${id}/environments`).then((r) => r.json()),
       apiFetch(`/api/projects/${id}/overview`).then((r) => r.json()).catch(() => null),
     ])
-      .then(([p, m, e, ov]) => {
+      .then(([p, m, ov]) => {
         if (p.error) {
           setError(p.error);
           setProject(null);
@@ -158,7 +146,6 @@ function ProjectDetailContent() {
           setError("");
         }
         setMembers(m.members ?? []);
-        setEnvironments(e.environments ?? []);
         if (ov?.progress) setProgress(ov.progress);
       })
       .finally(() => setLoading(false));
@@ -248,53 +235,6 @@ function ProjectDetailContent() {
     }
   }
 
-  async function addEnv(e: React.FormEvent) {
-    e.preventDefault();
-    const n = envName.trim();
-    if (!n) return;
-    setBusy("env");
-    try {
-      const res = await apiFetch(`/api/projects/${id}/environments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: n,
-          ...(envCode.trim() ? { code: envCode.trim() } : {}),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "创建失败");
-      setEnvName("");
-      setEnvCode("");
-      load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "创建失败");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function archiveEnv(env: EnvRow) {
-    if (env.code === "test" || env.code === "prod") {
-      alert("系统默认环境不可归档");
-      return;
-    }
-    if (!confirm(`归档环境「${env.name}」？`)) return;
-    setBusy(env.id);
-    try {
-      const res = await apiFetch(`/api/projects/${id}/environments/${env.id}`, {
-        method: "DELETE",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "归档失败");
-      load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "归档失败");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -349,7 +289,7 @@ function ProjectDetailContent() {
             </div>
             <p className="mt-1 text-sm text-muted">
               负责人 {project.owner.name} · {project._count.tasks} 任务 ·{" "}
-              {project._count.members} 成员 · {project._count.environments} 环境
+              {project._count.members} 成员
             </p>
             {project.description && (
               <p className="mt-2 text-sm text-muted">{project.description}</p>
@@ -595,75 +535,6 @@ function ProjectDetailContent() {
             ))}
           </tbody>
         </table>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card-bg p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Layers size={16} />
-          环境
-        </div>
-        <p className="mt-1 text-xs text-muted">
-          新建项目会自动创建 test / prod；自定义环境请使用未占用的 code（如 staging）。
-        </p>
-        {canManage && (
-          <form onSubmit={addEnv} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-            <input
-              value={envName}
-              onChange={(e) => setEnvName(e.target.value)}
-              placeholder="环境名称"
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <input
-              value={envCode}
-              onChange={(e) => setEnvCode(e.target.value)}
-              placeholder="code（可选，默认从名称生成）"
-              className="w-full sm:w-48 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <button
-              type="submit"
-              disabled={busy === "env"}
-              className="rounded-[var(--radius-sm)] bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              新增环境
-            </button>
-          </form>
-        )}
-        <ul className="mt-4 space-y-2">
-          {environments.map((env) => (
-            <li
-              key={env.id}
-              className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
-            >
-              <div>
-                <span className="font-medium">{env.name}</span>
-                <span className="ml-2 text-xs text-muted">({env.code})</span>
-                <span
-                  className={cn(
-                    "ml-2 rounded px-1.5 py-0.5 text-[10px]",
-                    env.status === "active"
-                      ? "bg-[rgba(46,122,86,0.04)] text-[#2e7a56]"
-                      : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
-                  )}
-                >
-                  {env.status}
-                </span>
-              </div>
-              {canManage &&
-                env.status === "active" &&
-                env.code !== "test" &&
-                env.code !== "prod" && (
-                  <button
-                    type="button"
-                    onClick={() => archiveEnv(env)}
-                    disabled={busy === env.id}
-                    className="text-xs text-[#a63d3d] hover:underline disabled:opacity-50"
-                  >
-                    归档
-                  </button>
-                )}
-            </li>
-          ))}
-        </ul>
       </div>
 
       <ProjectNotificationRuleCard projectId={id} />

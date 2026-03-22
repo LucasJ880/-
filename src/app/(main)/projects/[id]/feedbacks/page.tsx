@@ -35,12 +35,6 @@ interface FeedbackRow {
   tags: { tag: { id: string; label: string; color: string } }[];
 }
 
-interface EnvOption {
-  id: string;
-  code: string;
-  name: string;
-}
-
 const STATUS_OPTIONS = [
   { value: "", label: "全部状态" },
   { value: "open", label: "待处理" },
@@ -55,10 +49,8 @@ export default function FeedbacksPage() {
   const projectId = params.id as string;
 
   const [canManage, setCanManage] = useState(false);
-  const [environments, setEnvironments] = useState<EnvOption[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [envFilter, setEnvFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [issueFilter, setIssueFilter] = useState("");
   const [ratingFilter, setRatingFilter] = useState("");
@@ -74,18 +66,13 @@ export default function FeedbacksPage() {
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
 
   const loadProject = useCallback(async () => {
-    const [projRes, envRes] = await Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
-    ]);
+    const projRes = await apiFetch(`/api/projects/${projectId}`).then((r) => r.json());
     setCanManage(!!projRes.canManage);
-    setEnvironments(envRes.environments ?? []);
   }, [projectId]);
 
   const loadFeedbacks = useCallback(async () => {
     setLoading(true);
     const qs = new URLSearchParams();
-    if (envFilter) qs.set("environmentId", envFilter);
     if (statusFilter) qs.set("status", statusFilter);
     if (issueFilter) qs.set("issueType", issueFilter);
     if (ratingFilter) qs.set("rating", ratingFilter);
@@ -130,7 +117,7 @@ export default function FeedbacksPage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, envFilter, statusFilter, issueFilter, ratingFilter, tabFilter, page]);
+  }, [projectId, statusFilter, issueFilter, ratingFilter, tabFilter, page]);
 
   useEffect(() => {
     loadProject();
@@ -205,19 +192,6 @@ export default function FeedbacksPage() {
             </button>
           ))}
         </div>
-
-        {environments.length > 0 && (
-          <select
-            value={envFilter}
-            onChange={(e) => { setEnvFilter(e.target.value); setPage(1); }}
-            className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
-          >
-            <option value="">全部环境</option>
-            {environments.map((env) => (
-              <option key={env.id} value={env.id}>{env.name}</option>
-            ))}
-          </select>
-        )}
 
         <select
           value={statusFilter}
