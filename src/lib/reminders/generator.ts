@@ -58,6 +58,13 @@ export async function generateReminderLayers(
   const todayStart = startOfDayToronto(now);
   const todayEnd = endOfDayToronto(now);
 
+  const { getVisibleProjectIds: getVis } = await import("@/lib/projects/visibility");
+  const user = await (await import("@/lib/db")).db.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  const visibleProjectIds = await getVis(userId, user?.role ?? "user");
+
   const tomorrowRef = new Date(now.getTime() + 86_400_000);
   const tomorrowEnd = endOfDayToronto(tomorrowRef);
 
@@ -73,6 +80,16 @@ export async function generateReminderLayers(
     project: { select: { id: true, name: true, color: true } },
   } as const;
 
+  const taskScope = visibleProjectIds !== null
+    ? {
+        OR: [
+          { projectId: { in: visibleProjectIds } },
+          { projectId: null, creatorId: userId },
+          { assigneeId: userId },
+        ],
+      }
+    : {};
+
   const [
     overdueTasks,
     todayTasks,
@@ -82,19 +99,19 @@ export async function generateReminderLayers(
     readRecords,
   ] = await Promise.all([
     db.task.findMany({
-      where: { status: { notIn: ["done", "cancelled"] }, dueDate: { lt: todayStart } },
+      where: { ...taskScope, status: { notIn: ["done", "cancelled"] }, dueDate: { lt: todayStart } },
       select: taskSelect,
       orderBy: { dueDate: "asc" },
       take: 20,
     }),
     db.task.findMany({
-      where: { status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayStart, lt: todayEnd } },
+      where: { ...taskScope, status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayStart, lt: todayEnd } },
       select: taskSelect,
       orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
       take: 20,
     }),
     db.task.findMany({
-      where: { status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayEnd, lt: tomorrowEnd } },
+      where: { ...taskScope, status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayEnd, lt: tomorrowEnd } },
       select: taskSelect,
       orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
       take: 20,

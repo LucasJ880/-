@@ -143,6 +143,8 @@ function NotificationsContent() {
       }
       if (item.entityType === "task" && item.entityId) {
         router.push(`/tasks/${item.entityId}`);
+      } else if (item.entityType === "project" && item.entityId) {
+        router.push(`/projects/${item.entityId}`);
       } else if (item.projectId && item.activityId) {
         router.push(`/projects/${item.projectId}?activity=${item.activityId}`);
       } else if (item.projectId) {
@@ -178,6 +180,7 @@ function NotificationsContent() {
     { key: "feedback", label: "反馈" },
     { key: "runtime_failed", label: "运行失败" },
     { key: "project_update", label: "项目更新" },
+    { key: "project_dispatched", label: "项目分发" },
   ];
 
   const totalPages = Math.ceil(total / 20);

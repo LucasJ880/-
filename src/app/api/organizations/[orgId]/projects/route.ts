@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireOrgRole } from "@/lib/auth/guards";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isValidCodeFormat } from "@/lib/common/validation";
 
@@ -21,8 +22,13 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
     return NextResponse.json({ error: "组织不存在" }, { status: 404 });
   }
 
+  const where: Record<string, unknown> = { orgId, status: "active" };
+  if (!isSuperAdmin(auth.user.role)) {
+    where.intakeStatus = "dispatched";
+  }
+
   const projects = await db.project.findMany({
-    where: { orgId, status: "active" },
+    where,
     include: {
       owner: { select: { id: true, name: true, avatar: true } },
       _count: { select: { members: true, environments: true, tasks: true } },

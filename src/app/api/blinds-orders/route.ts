@@ -3,13 +3,28 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
 
-  const where: Record<string, string> = {};
+  const projectIds = await getVisibleProjectIds(user.id, user.role);
+
+  const where: Record<string, unknown> = {};
   if (status) where.status = status;
+
+  if (projectIds !== null) {
+    where.OR = [
+      { projectId: { in: projectIds } },
+      { projectId: null, creatorId: user.id },
+    ];
+  }
 
   const orders = await db.blindsOrder.findMany({
     where,

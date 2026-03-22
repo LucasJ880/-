@@ -70,6 +70,7 @@ export default function ProjectIntakePage() {
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
   const [dispatchTarget, setDispatchTarget] = useState<IntakeProject | null>(null);
+  const [successMsg, setSuccessMsg] = useState("");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -189,13 +190,23 @@ export default function ProjectIntakePage() {
         </div>
       )}
 
+      {/* Success toast */}
+      {successMsg && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-4 fade-in rounded-xl border border-[rgba(46,122,86,0.2)] bg-[rgba(46,122,86,0.06)] px-5 py-3 text-sm font-medium text-[#2e7a56] shadow-lg">
+          {successMsg}
+        </div>
+      )}
+
       {/* Dispatch Dialog */}
       {dispatchTarget && (
         <DispatchDialog
           project={dispatchTarget}
           onClose={() => setDispatchTarget(null)}
           onSuccess={() => {
+            const name = dispatchTarget.name;
             setDispatchTarget(null);
+            setSuccessMsg(`「${name}」已成功分发，相关人员将收到通知`);
+            setTimeout(() => setSuccessMsg(""), 4000);
             fetchData();
           }}
         />

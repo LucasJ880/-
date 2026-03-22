@@ -16,6 +16,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { isSuperAdmin } from "@/lib/permissions-client";
 
 interface Project {
   id: string;
@@ -293,18 +295,26 @@ function ProjectMenu({
 }
 
 export default function ProjectsPage() {
+  const { user } = useCurrentUser();
+  const isAdmin = isSuperAdmin(user?.role);
   const [projects, setProjects] = useState<Project[]>([]);
   const [organizations, setOrganizations] = useState<OrgOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [intakeFilter, setIntakeFilter] = useState("all");
 
   const loadProjects = useCallback(() => {
     setLoading(true);
     setLoadError("");
+    const params = new URLSearchParams();
+    if (isAdmin && intakeFilter !== "all") {
+      params.set("intakeStatus", intakeFilter);
+    }
+    const qs = params.toString() ? `?${params}` : "";
     Promise.all([
-      apiFetch("/api/projects").then((r) => r.json()),
+      apiFetch(`/api/projects${qs}`).then((r) => r.json()),
       apiFetch("/api/organizations")
         .then((r) => r.json())
         .then((d) => d.organizations ?? []),
@@ -317,7 +327,7 @@ export default function ProjectsPage() {
         setLoadError("加载失败，请检查网络或稍后重试。");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [isAdmin, intakeFilter]);
 
   useEffect(() => {
     loadProjects();
@@ -347,6 +357,31 @@ export default function ProjectsPage() {
           </button>
         }
       />
+
+      {isAdmin && (
+        <div className="flex items-center gap-1.5 text-sm">
+          {[
+            { value: "all", label: "全部项目" },
+            { value: "dispatched", label: "已分发" },
+            { value: "pending_dispatch", label: "待分发" },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                setIntakeFilter(opt.value);
+              }}
+              className={cn(
+                "rounded-lg px-3 py-1.5 font-medium transition-colors",
+                intakeFilter === opt.value
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted hover:bg-card-hover"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

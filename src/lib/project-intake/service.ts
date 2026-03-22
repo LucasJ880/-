@@ -93,5 +93,63 @@ export async function dispatchProject(
     request,
   }).catch(() => {});
 
+  sendDispatchNotifications(
+    projectId,
+    updated.name,
+    dispatchedById,
+    input.ownerUserId,
+    input.memberUserIds
+  ).catch(() => {});
+
   return updated;
+}
+
+async function sendDispatchNotifications(
+  projectId: string,
+  projectName: string,
+  dispatchedById: string,
+  ownerUserId?: string,
+  memberUserIds?: string[]
+) {
+  const recipients = new Set<string>();
+  if (ownerUserId && ownerUserId !== dispatchedById) {
+    recipients.add(ownerUserId);
+  }
+  if (memberUserIds) {
+    for (const uid of memberUserIds) {
+      if (uid !== dispatchedById) recipients.add(uid);
+    }
+  }
+
+  if (recipients.size === 0) return;
+
+  const dispatcher = await db.user.findUnique({
+    where: { id: dispatchedById },
+    select: { name: true },
+  });
+  const dispatcherName = dispatcher?.name ?? "管理员";
+
+  const notifications = [...recipients].map((userId) => {
+    const isOwner = userId === ownerUserId;
+    return {
+      userId,
+      projectId,
+      type: "project_dispatched",
+      category: "update",
+      title: isOwner
+        ? `你被指定为项目「${projectName}」的负责人`
+        : `你被分配到项目「${projectName}」`,
+      summary: `${dispatcherName} 将 Bid to Go 导入的项目分发给了你，请查看详情`,
+      entityType: "project",
+      entityId: projectId,
+      status: "unread",
+      priority: "medium",
+      sourceKey: `dispatch:${projectId}:${userId}`,
+    };
+  });
+
+  await db.notification.createMany({
+    data: notifications,
+    skipDuplicates: true,
+  });
 }

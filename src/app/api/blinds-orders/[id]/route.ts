@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
   const { id } = await params;
   const order = await db.blindsOrder.findUnique({
     where: { id },
@@ -21,6 +28,13 @@ export async function GET(
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 
+  if (order.projectId) {
+    const visibleIds = await getVisibleProjectIds(user.id, user.role);
+    if (visibleIds !== null && !visibleIds.includes(order.projectId)) {
+      return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+    }
+  }
+
   return NextResponse.json(order);
 }
 
@@ -28,6 +42,11 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await request.json();
 
@@ -135,9 +154,14 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
   const { id } = await params;
   await db.blindsOrder.delete({ where: { id } });
   return NextResponse.json({ success: true });

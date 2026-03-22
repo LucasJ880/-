@@ -550,11 +550,19 @@ async function getUserProjectIds(userId: string): Promise<string[]> {
     where: { ownerId: userId, status: "active" },
     select: { id: true },
   });
-  const ids = new Set([
-    ...memberships.map((m) => m.projectId),
-    ...owned.map((p) => p.id),
-  ]);
-  return Array.from(ids);
+  const candidateIds = [
+    ...new Set([
+      ...memberships.map((m) => m.projectId),
+      ...owned.map((p) => p.id),
+    ]),
+  ];
+  if (candidateIds.length === 0) return [];
+
+  const dispatched = await db.project.findMany({
+    where: { id: { in: candidateIds }, intakeStatus: "dispatched" },
+    select: { id: true },
+  });
+  return dispatched.map((p) => p.id);
 }
 
 // ─── Full Sync ─────────────────────────────────────────────────
