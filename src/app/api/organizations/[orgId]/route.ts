@@ -26,13 +26,19 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
   const org = await db.organization.findUnique({
     where: { id: orgId },
     include: {
-      _count: { select: { members: true, projects: true } },
+      _count: { select: { members: true } },
     },
   });
 
   if (!org) {
     return NextResponse.json({ error: "组织不存在" }, { status: 404 });
   }
+
+  const projectWhere: Record<string, unknown> = { orgId };
+  if (!isSuperAdmin(user.role)) {
+    projectWhere.intakeStatus = "dispatched";
+  }
+  const projectCount = await db.project.count({ where: projectWhere });
 
   const myMembership = await getOrgMembership(user.id, orgId);
   const myRole =
@@ -49,7 +55,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
       createdAt: org.createdAt,
       updatedAt: org.updatedAt,
       memberCount: org._count.members,
-      projectCount: org._count.projects,
+      projectCount,
       myRole,
     },
   });

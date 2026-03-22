@@ -1,10 +1,23 @@
 /**
  * 项目可见性统一过滤层
  *
- * 核心规则：
- * 1. intakeStatus === "pending_dispatch" 的项目只有 super_admin 可见
- * 2. intakeStatus === "dispatched" 的项目按现有权限逻辑可见
- * 3. super_admin 可见全部项目
+ * ╔══════════════════════════════════════════════════════════════╗
+ * ║  ⚠️ 开发约束 — 所有项目查询必须经过此模块                  ║
+ * ╠══════════════════════════════════════════════════════════════╣
+ * ║  核心规则：                                                  ║
+ * ║  1. intakeStatus="pending_dispatch" 仅 super_admin 可见      ║
+ * ║  2. intakeStatus="dispatched" 按权限逻辑可见                 ║
+ * ║  3. super_admin 可见全部项目                                 ║
+ * ║                                                              ║
+ * ║  禁止在 API / service 层直接写 db.project.findMany()         ║
+ * ║  而不经过以下函数之一：                                      ║
+ * ║  - buildProjectVisibilityWhere(user)                         ║
+ * ║  - getVisibleProjectIds(userId, role)                        ║
+ * ║  - requireProjectReadAccess(request, projectId)              ║
+ * ║  - canViewProject(user, project)                             ║
+ * ║                                                              ║
+ * ║  如需内部系统查询（如 cron / migration），必须标注 @internal ║
+ * ╚══════════════════════════════════════════════════════════════╝
  */
 
 import { db } from "@/lib/db";

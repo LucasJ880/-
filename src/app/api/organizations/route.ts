@@ -23,13 +23,22 @@ export async function GET(request: NextRequest) {
     const orgs = await db.organization.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        _count: { select: { members: true, projects: true } },
+        _count: { select: { members: true } },
       },
     });
-    const memberships = await db.organizationMember.findMany({
-      where: { userId: user.id, status: "active" },
-    });
-    const roleByOrg = new Map(memberships.map((m) => [m.orgId, m.role]));
+    const [membershipRows, projectCounts] = await Promise.all([
+      db.organizationMember.findMany({
+        where: { userId: user.id, status: "active" },
+      }),
+      db.project.groupBy({
+        by: ["orgId"],
+        _count: true,
+      }),
+    ]);
+    const roleByOrg = new Map(membershipRows.map((m) => [m.orgId, m.role]));
+    const projectCountByOrg = new Map(
+      projectCounts.map((g) => [g.orgId, g._count])
+    );
 
     return NextResponse.json({
       organizations: orgs.map((o) => ({
@@ -42,7 +51,7 @@ export async function GET(request: NextRequest) {
         createdAt: o.createdAt,
         updatedAt: o.updatedAt,
         memberCount: o._count.members,
-        projectCount: o._count.projects,
+        projectCount: projectCountByOrg.get(o.id) ?? 0,
         myRole: roleByOrg.get(o.id) ?? null,
       })),
     });
@@ -52,11 +61,23 @@ export async function GET(request: NextRequest) {
     where: { userId: user.id, status: "active" },
     include: {
       org: {
-        include: { _count: { select: { members: true, projects: true } } },
+        include: { _count: { select: { members: true } } },
       },
     },
     orderBy: { joinedAt: "desc" },
   });
+
+  const memberOrgIds = memberships.map((m) => m.org.id);
+  const dispatchedCounts = memberOrgIds.length
+    ? await db.project.groupBy({
+        by: ["orgId"],
+        where: { orgId: { in: memberOrgIds }, intakeStatus: "dispatched" },
+        _count: true,
+      })
+    : [];
+  const dispatchedCountByOrg = new Map(
+    dispatchedCounts.map((g) => [g.orgId, g._count])
+  );
 
   return NextResponse.json({
     organizations: memberships.map((m) => ({
@@ -69,7 +90,7 @@ export async function GET(request: NextRequest) {
       createdAt: m.org.createdAt,
       updatedAt: m.org.updatedAt,
       memberCount: m.org._count.members,
-      projectCount: m.org._count.projects,
+      projectCount: dispatchedCountByOrg.get(m.org.id) ?? 0,
       myRole: m.role,
     })),
   });

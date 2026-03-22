@@ -8,6 +8,10 @@ import { db } from "@/lib/db";
 //   - Project 是业务隔离边界（任务/工艺单/日程等）
 //   - Environment 是配置隔离边界（变量/运行参数等）
 //
+// ⚠️ 重要：buildProjectContext 内置 intakeStatus 校验。
+// intakeStatus !== "dispatched" 的项目对非 super_admin 不可见，
+// 构建上下文会返回 null（等同于项目不存在）。
+//
 // 所有业务查询都应通过 context 注入 orgId / projectId，
 // 避免跨租户数据泄漏。
 // ============================================================
@@ -55,11 +59,16 @@ export async function buildOrgContext(
 /**
  * 构建项目级上下文
  * 验证用户是否有权访问该项目（通过组织或项目成员身份）
+ *
+ * ⚠️ 内置 intakeStatus 校验：
+ * intakeStatus !== "dispatched" 的项目对非 super_admin 不可见，返回 null。
+ * 如需 super_admin 绕过，请传入 platformRole。
  */
 export async function buildProjectContext(
   userId: string,
   orgId: string,
-  projectId: string
+  projectId: string,
+  opts?: { platformRole?: string }
 ): Promise<ProjectContext | null> {
   const orgCtx = await buildOrgContext(userId, orgId);
   if (!orgCtx) return null;
@@ -68,6 +77,10 @@ export async function buildProjectContext(
     where: { id: projectId, orgId },
   });
   if (!project || project.status !== "active") return null;
+
+  if (project.intakeStatus !== "dispatched" && opts?.platformRole !== "super_admin") {
+    return null;
+  }
 
   const projectMembership = await db.projectMember.findUnique({
     where: { projectId_userId: { projectId, userId } },

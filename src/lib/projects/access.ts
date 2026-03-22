@@ -5,7 +5,12 @@ import { db } from "@/lib/db";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import type { Project } from "@prisma/client";
 
+/**
+ * 项目可见性统一入口 — 所有面向用户的项目查询/鉴权必须使用这些函数。
+ * 详见 src/lib/projects/visibility.ts 中的开发约束。
+ */
 export { buildProjectVisibilityWhere, getVisibleProjectIds, canViewProject } from "./visibility";
+export type { IntakeStatusFilter } from "./visibility";
 
 export interface ProjectAccessContext {
   user: AuthUser;
