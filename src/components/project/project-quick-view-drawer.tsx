@@ -2,20 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  FileText,
-  Database,
-  MessageSquare,
-  Bot,
-  Wrench,
   ArrowRight,
   Loader2,
   FolderKanban,
   Users,
-  Layers,
-  AlertTriangle,
-  ShieldCheck,
-  Star,
-  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { Drawer } from "@/components/ui/drawer";
@@ -60,14 +50,6 @@ interface OverviewData {
   progress: ProgressData | null;
 }
 
-interface HealthSummary {
-  riskCount: number;
-  avgAutoScore: number | null;
-  runtimeFailures: number;
-  openFeedbacks: number;
-  lowScoreCount: number;
-}
-
 interface ProjectQuickViewDrawerProps {
   projectId: string | null;
   open: boolean;
@@ -81,48 +63,21 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   suspended: { label: "已停用", cls: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]" },
 };
 
-const QUICK_LINKS = [
-  { key: "prompts", label: "Prompt", icon: FileText, path: "prompts" },
-  { key: "knowledgeBases", label: "知识库", icon: Database, path: "knowledge-bases" },
-  { key: "conversations", label: "会话", icon: MessageSquare, path: "conversations" },
-  { key: "agents", label: "Agent", icon: Bot, path: "agents" },
-  { key: "tools", label: "工具", icon: Wrench, path: "tools" },
-] as const;
-
 const STAT_ITEMS = [
   { key: "tasks", label: "任务", icon: FolderKanban },
   { key: "members", label: "成员", icon: Users },
-  { key: "environments", label: "环境", icon: Layers },
-  { key: "prompts", label: "Prompt", icon: FileText },
-  { key: "knowledgeBases", label: "知识库", icon: Database },
-  { key: "conversations", label: "会话", icon: MessageSquare },
-  { key: "agents", label: "Agent", icon: Bot },
 ] as const;
 
 export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActivityId }: ProjectQuickViewDrawerProps) {
   const [data, setData] = useState<OverviewData | null>(null);
-  const [health, setHealth] = useState<HealthSummary | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async (pid: string) => {
     setLoading(true);
     try {
-      const [overviewRes, dashRes] = await Promise.all([
-        apiFetch(`/api/projects/${pid}/overview`),
-        apiFetch(`/api/projects/${pid}/dashboard?range=7d`),
-      ]);
+      const overviewRes = await apiFetch(`/api/projects/${pid}/overview`);
       if (overviewRes.ok) {
         setData(await overviewRes.json());
-      }
-      if (dashRes.ok) {
-        const d = await dashRes.json();
-        setHealth({
-          riskCount: d.risks?.length ?? 0,
-          avgAutoScore: d.quality?.avgAutoScore ?? null,
-          runtimeFailures: d.overview?.runtimeFailures?.current ?? 0,
-          openFeedbacks: d.overview?.openFeedbacks ?? 0,
-          lowScoreCount: d.overview?.lowScoreCount?.current ?? 0,
-        });
       }
     } finally {
       setLoading(false);
@@ -135,7 +90,6 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
     }
     if (!open) {
       setData(null);
-      setHealth(null);
     }
   }, [open, projectId, load]);
 
@@ -206,7 +160,7 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
           )}
 
           {/* stats grid */}
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {STAT_ITEMS.map((s) => {
               const count = data.counts[s.key] ?? 0;
               return (
@@ -220,70 +174,6 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
                 </div>
               );
             })}
-          </div>
-
-          {/* health summary */}
-          {health && (
-            <div className="rounded-lg border border-border bg-[rgba(43,96,85,0.02)] px-3.5 py-3">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
-                {health.riskCount > 0 ? (
-                  <AlertTriangle size={12} className="text-[#b06a28]" />
-                ) : (
-                  <ShieldCheck size={12} className="text-[#2e7a56]" />
-                )}
-                健康摘要（近 7 天）
-              </div>
-              <div className="mt-2 grid grid-cols-4 gap-2">
-                <div className="flex flex-col items-center">
-                  <Star size={12} className="text-accent/50" />
-                  <span className={cn("text-sm font-semibold", health.avgAutoScore != null && health.avgAutoScore < 3 ? "text-[#a63d3d]" : "text-foreground")}>
-                    {health.avgAutoScore ?? "—"}
-                  </span>
-                  <span className="text-[10px] text-muted">评估均分</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <XCircle size={12} className={health.runtimeFailures > 0 ? "text-[#a63d3d]" : "text-muted/50"} />
-                  <span className={cn("text-sm font-semibold", health.runtimeFailures > 0 ? "text-[#a63d3d]" : "text-foreground")}>
-                    {health.runtimeFailures}
-                  </span>
-                  <span className="text-[10px] text-muted">运行失败</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <MessageSquare size={12} className={health.openFeedbacks > 5 ? "text-[#b06a28]" : "text-muted/50"} />
-                  <span className={cn("text-sm font-semibold", health.openFeedbacks > 5 ? "text-[#b06a28]" : "text-foreground")}>
-                    {health.openFeedbacks}
-                  </span>
-                  <span className="text-[10px] text-muted">待处理反馈</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <AlertTriangle size={12} className={health.riskCount > 0 ? "text-[#b06a28]" : "text-muted/50"} />
-                  <span className={cn("text-sm font-semibold", health.riskCount > 0 ? "text-[#b06a28]" : "text-foreground")}>
-                    {health.riskCount}
-                  </span>
-                  <span className="text-[10px] text-muted">风险项</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* quick links */}
-          <div>
-            <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted">
-              快捷入口
-            </h4>
-            <div className="grid grid-cols-5 gap-2">
-              {QUICK_LINKS.map((link) => (
-                <Link
-                  key={link.key}
-                  href={`/projects/${data.project.id}/${link.path}`}
-                  onClick={onClose}
-                  className="flex flex-col items-center gap-1.5 rounded-[var(--radius-sm)] border border-transparent px-2 py-3 text-muted transition-all hover:border-border hover:bg-[rgba(43,96,85,0.04)] hover:text-foreground"
-                >
-                  <link.icon size={16} />
-                  <span className="text-[11px]">{link.label}</span>
-                </Link>
-              ))}
-            </div>
           </div>
 
           {/* recent activity */}

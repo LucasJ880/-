@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Bell,
   User,
-  AlertTriangle,
   Calendar,
   Search,
   X,
@@ -15,7 +14,6 @@ import {
   ChevronDown,
   Eye,
   ArrowRight,
-  Star,
   Settings2,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
@@ -197,9 +195,6 @@ const NTYPE_ICONS: Record<string, typeof Bell> = {
   task_due: CheckSquare,
   calendar_event: Calendar,
   followup: Bell,
-  runtime_failed: AlertTriangle,
-  evaluation_low: AlertTriangle,
-  feedback: Star,
   project_update: FolderKanban,
 };
 
@@ -477,8 +472,6 @@ export function Header() {
       window.location.href = `/projects/${item.projectId}?activity=${item.activityId}`;
     } else if (item.projectId) {
       window.location.href = `/projects/${item.projectId}`;
-    } else if (item.entityType === "conversation" && item.entityId) {
-      window.location.href = `/projects/${item.projectId}/conversations/${item.entityId}`;
     }
   }, []);
 

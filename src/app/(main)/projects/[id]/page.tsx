@@ -25,7 +25,6 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
-import { ProjectDashboard } from "@/components/project-dashboard/project-dashboard";
 import { ProgressComparison } from "@/components/progress/progress-comparison";
 import { StageIndicator } from "@/components/progress/stage-indicator";
 import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card";
@@ -505,8 +504,6 @@ function ProjectDetailContent() {
           </div>
         </div>
       )}
-
-      <ProjectDashboard projectId={id} />
 
       {/* 项目讨论 */}
       <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} projectStatus={project.status} />

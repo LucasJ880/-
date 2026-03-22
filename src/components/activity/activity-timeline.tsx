@@ -4,16 +4,11 @@ import { useEffect, useRef } from "react";
 import {
   FileText,
   Database,
-  MessageSquare,
   Bot,
   Wrench,
   FolderKanban,
-  Play,
-  Star,
-  Tag,
   Users,
   Settings,
-  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,20 +19,12 @@ const TARGET_ICONS: Record<string, LucideIcon> = {
   prompt: FileText,
   knowledge_base: Database,
   knowledge_document: Database,
-  conversation: MessageSquare,
-  message: MessageSquare,
   agent: Bot,
   tool: Wrench,
-  tool_trace: Zap,
-  runtime: Play,
-  conversation_feedback: Star,
-  message_feedback: Star,
-  evaluation_tag: Tag,
   user: Users,
   organization: Settings,
   organization_member: Users,
   project_member: Users,
-  environment: Settings,
 };
 
 const ACTION_COLORS: Record<string, string> = {
@@ -46,9 +33,6 @@ const ACTION_COLORS: Record<string, string> = {
   delete: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
   status_change: "bg-[rgba(154,106,47,0.10)] text-[#9a6a2f]",
   role_change: "bg-[rgba(45,106,122,0.10)] text-[#2d6a7a]",
-  runtime_run: "bg-[rgba(43,96,85,0.12)] text-[#2b6055]",
-  runtime_fail: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
-  runtime_tool: "bg-[rgba(45,106,122,0.10)] text-[#2d6a7a]",
   invite: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
   remove: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
 };

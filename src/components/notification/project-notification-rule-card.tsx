@@ -78,9 +78,6 @@ export function ProjectNotificationRuleCard({ projectId }: { projectId: string }
         body: JSON.stringify({
           watchEnabled: rule.watchEnabled,
           notifyProjectUpdates: rule.notifyProjectUpdates,
-          notifyRuntimeFailed: rule.notifyRuntimeFailed,
-          notifyFeedbackCreated: rule.notifyFeedbackCreated,
-          notifyLowEvaluations: rule.notifyLowEvaluations,
           notifyTaskDue: rule.notifyTaskDue,
           minimumPriority: rule.minimumPriority,
         }),
@@ -138,27 +135,6 @@ export function ProjectNotificationRuleCard({ projectId }: { projectId: string }
           description="如状态变更等审计动态。"
           checked={rule.notifyProjectUpdates}
           onChange={(v) => setRule({ ...rule, notifyProjectUpdates: v })}
-          disabled={saving}
-        />
-        <Row
-          label="运行失败时提醒我"
-          description="Agent / Runtime 失败类告警。"
-          checked={rule.notifyRuntimeFailed}
-          onChange={(v) => setRule({ ...rule, notifyRuntimeFailed: v })}
-          disabled={saving}
-        />
-        <Row
-          label="新反馈与反馈更新"
-          description="会话或消息反馈相关通知。"
-          checked={rule.notifyFeedbackCreated}
-          onChange={(v) => setRule({ ...rule, notifyFeedbackCreated: v })}
-          disabled={saving}
-        />
-        <Row
-          label="低分评估提醒"
-          description="最近 7 天出现低分评估（<=3）时提醒。"
-          checked={rule.notifyLowEvaluations}
-          onChange={(v) => setRule({ ...rule, notifyLowEvaluations: v })}
           disabled={saving}
         />
         <Row
