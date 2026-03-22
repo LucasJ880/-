@@ -311,7 +311,7 @@ export default function KnowledgeDocumentDetailPage() {
       <div className="flex flex-wrap gap-4 text-xs text-muted">
         <span>知识库: {doc.knowledgeBase.name} ({doc.knowledgeBase.key})</span>
         <span>
-          更新: {new Date(doc.updatedAt).toLocaleString("zh-CN")}
+          更新: {new Date(doc.updatedAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
           {doc.updatedBy?.name ? ` · ${doc.updatedBy.name}` : ""}
         </span>
       </div>
@@ -441,7 +441,8 @@ export default function KnowledgeDocumentDetailPage() {
                   <div className="flex gap-4 text-xs text-muted">
                     <span>
                       {new Date(viewVersionData.createdAt).toLocaleString(
-                        "zh-CN"
+                        "zh-CN",
+                        { timeZone: "America/Toronto" }
                       )}
                     </span>
                     {viewVersionData.note && (

@@ -58,7 +58,7 @@ export function PromptVersionList({
                 )}
               </div>
               <span className="text-xs text-muted">
-                {new Date(v.createdAt).toLocaleString("zh-CN")}
+                {new Date(v.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
               </span>
             </div>
             {v.note && (

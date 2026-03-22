@@ -49,14 +49,14 @@ const PRIORITY_MAP: Record<string, { label: string; cls: string }> = {
   low: { label: "低", cls: "bg-muted/30 text-muted" },
 };
 
+import { formatHHmmToronto, formatISODateToronto } from "@/lib/time";
+
 function fmtTime(iso: string) {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return formatHHmmToronto(iso);
 }
 
 function fmtDate(iso: string) {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return formatISODateToronto(iso);
 }
 
 function fmtRange(start: string, end: string, allDay: boolean) {

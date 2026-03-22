@@ -55,13 +55,11 @@ const STATUS_ICONS: Record<TaskStatus, typeof Circle> = {
   cancelled: XCircle,
 };
 
+import { daysRemainingToronto } from "@/lib/time";
+
 function getDueStatus(dueDate: string | null, status: string) {
   if (!dueDate || status === "done" || status === "cancelled") return null;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((due.getTime() - now.getTime()) / 86400000);
+  const diff = daysRemainingToronto(dueDate);
   if (diff < 0) return { label: `已逾期 ${Math.abs(diff)} 天`, style: "text-[#a63d3d] bg-[rgba(166,61,61,0.04)] border-[rgba(166,61,61,0.15)]" };
   if (diff === 0) return { label: "今天到期", style: "text-[#b06a28] bg-[rgba(176,106,40,0.04)] border-[rgba(176,106,40,0.15)]" };
   if (diff === 1) return { label: "明天到期", style: "text-[#9a6a2f] bg-[rgba(154,106,47,0.04)] border-[rgba(154,106,47,0.15)]" };
@@ -526,7 +524,9 @@ export default function TasksPage() {
                     )}
                     {task.dueDate && !dueStatus && (
                       <span className="shrink-0 text-[10px] text-muted">
-                        截止 {new Date(task.dueDate).toLocaleDateString("zh-CN")}
+                        截止 {new Date(task.dueDate).toLocaleDateString("zh-CN", {
+                          timeZone: "America/Toronto",
+                        })}
                       </span>
                     )}
                   </div>

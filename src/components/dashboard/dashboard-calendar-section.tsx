@@ -41,8 +41,8 @@ interface LayoutBlock {
 }
 
 function toMinutes(iso: string): number {
-  const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes();
+  const { hour, minute } = torontoTimeParts(new Date(iso));
+  return hour * 60 + minute;
 }
 
 function computeLayout(events: ScheduleEvent[]): LayoutBlock[] {
@@ -123,23 +123,28 @@ function computeLayout(events: ScheduleEvent[]): LayoutBlock[] {
    Helpers
    ═══════════════════════════════════════════ */
 
+import {
+  formatTimeToronto,
+  formatDateDisplayToronto,
+  formatDateLabelToronto,
+  formatISODateToronto,
+  formatHHmmToronto,
+  isTodayToronto,
+  torontoTimeParts,
+  TIMEZONE,
+} from "@/lib/time";
+
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTimeToronto(iso);
 }
 
 function formatNow(): string {
-  return new Date().toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTimeToronto(new Date());
 }
 
 function getNowMinutes(): number {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
+  const { hour, minute } = torontoTimeParts();
+  return hour * 60 + minute;
 }
 
 function getNowOffset(): number {
@@ -151,32 +156,15 @@ function isPast(endTime: string): boolean {
 }
 
 function isToday(d: Date): boolean {
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+  return isTodayToronto(d);
 }
 
 function fmtDateDisplay(d: Date): string {
-  return d.toLocaleDateString("zh-CN", {
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  });
+  return formatDateDisplayToronto(d);
 }
 
 function fmtDateLabel(d: Date): string {
-  const now = new Date();
-  const todayStr = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const dateStr = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diff = dateStr - todayStr;
-  const oneDay = 86_400_000;
-  if (diff === 0) return "今天";
-  if (diff === -oneDay) return "昨天";
-  if (diff === oneDay) return "明天";
-  return "";
+  return formatDateLabelToronto(d);
 }
 
 function addDays(d: Date, n: number): Date {
@@ -689,19 +677,15 @@ function EventFormModal({
       setLocation(editing.location || "");
       setTaskId(editing.task?.id || "");
       if (!editing.allDay) {
-        const fmtTime = (iso: string) => {
-          const d = new Date(iso);
-          return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-        };
-        setStartTime(fmtTime(editing.startTime));
-        setEndTime(fmtTime(editing.endTime));
+        setStartTime(formatHHmmToronto(editing.startTime));
+        setEndTime(formatHHmmToronto(editing.endTime));
       } else {
         setStartTime("09:00");
         setEndTime("10:00");
       }
     } else {
       setTitle(prefillTask ? prefillTask.title : "");
-      setDate(new Date().toISOString().split("T")[0]);
+      setDate(formatISODateToronto(new Date()));
       setStartTime("09:00");
       setEndTime("10:00");
       setAllDay(false);

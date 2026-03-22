@@ -9,19 +9,10 @@ import type {
   MetricWithDelta,
   TrendPoint,
 } from "./types";
+import { buildDashboardRangeToronto, formatISODateToronto } from "@/lib/time";
 
 export function buildRange(days: number): DashboardRange {
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(start.getDate() - days);
-  start.setHours(0, 0, 0, 0);
-
-  const prevEnd = new Date(start);
-  const prevStart = new Date(prevEnd);
-  prevStart.setDate(prevStart.getDate() - days);
-  prevStart.setHours(0, 0, 0, 0);
-
-  return { start, end, prevStart, prevEnd, days };
+  return buildDashboardRangeToronto(days);
 }
 
 function delta(current: number, previous: number): MetricWithDelta {
@@ -31,7 +22,7 @@ function delta(current: number, previous: number): MetricWithDelta {
 }
 
 function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return formatISODateToronto(d);
 }
 
 function buildDayBuckets(range: DashboardRange): Map<string, number> {

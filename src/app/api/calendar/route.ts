@@ -2,22 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { pushEventToGoogle, getGoogleProvider } from "@/lib/google-calendar";
+import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
 
-  let dayStart: Date;
-
-  if (dateStr) {
-    dayStart = new Date(dateStr);
-    dayStart.setHours(0, 0, 0, 0);
-  } else {
-    dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-  }
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayStart.getDate() + 1);
+  const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+  const dayStart = startOfDayToronto(ref);
+  const dayEnd = endOfDayToronto(ref);
 
   const events = await db.calendarEvent.findMany({
     where: {

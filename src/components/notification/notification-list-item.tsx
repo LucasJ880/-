@@ -40,19 +40,10 @@ const STATUS_DOT: Record<string, string> = {
   snoozed: "bg-[#9a6a2f]",
 };
 
+import { formatRelativeToronto } from "@/lib/time";
+
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "刚刚";
-  if (diffMin < 60) return `${diffMin} 分钟前`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} 小时前`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay === 1) return "昨天";
-  if (diffDay < 7) return `${diffDay} 天前`;
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  return formatRelativeToronto(iso);
 }
 
 interface Props {

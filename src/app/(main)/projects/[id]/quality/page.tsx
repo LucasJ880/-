@@ -252,7 +252,7 @@ export default function QualityPage() {
                     <FeedbackStatusBadge status={c.status} />
                     {c.issueType && <IssueTypeBadge issueType={c.issueType} />}
                     {c.note && <span className="truncate text-xs text-muted max-w-[300px]">{c.note}</span>}
-                    <span className="ml-auto text-[10px] text-muted">{new Date(c.createdAt).toLocaleString("zh-CN")}</span>
+                    <span className="ml-auto text-[10px] text-muted">{new Date(c.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}</span>
                     <button
                       type="button"
                       onClick={() => router.push(`/projects/${projectId}/conversations/${c.conversationId}`)}

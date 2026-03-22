@@ -102,7 +102,7 @@ export function QualityPanel({ quality, projectId }: QualityPanelProps) {
                 className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-[rgba(43,96,85,0.04)]"
               >
                 <span className="text-muted">
-                  {new Date(s.createdAt).toLocaleDateString("zh-CN")}
+                  {new Date(s.createdAt).toLocaleDateString("zh-CN", { timeZone: "America/Toronto" })}
                 </span>
                 <span className={cn(
                   "rounded px-1.5 py-0.5 font-medium",
@@ -132,7 +132,7 @@ export function QualityPanel({ quality, projectId }: QualityPanelProps) {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-muted">
-                    {new Date(f.createdAt).toLocaleDateString("zh-CN")}
+                    {new Date(f.createdAt).toLocaleDateString("zh-CN", { timeZone: "America/Toronto" })}
                   </span>
                   <span className="rounded bg-[rgba(166,61,61,0.08)] px-1.5 py-0.5 font-medium text-[#a63d3d]">
                     {f.rating} 分

@@ -53,19 +53,20 @@ const ACTION_COLORS: Record<string, string> = {
   remove: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
 };
 
+import {
+  isTodayToronto,
+  isYesterdayToronto,
+  formatTimeToronto,
+  toToronto,
+} from "@/lib/time";
+
 function formatTime(iso: string): string {
   const d = new Date(iso);
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  const isYesterday = d.toDateString() === yesterday.toDateString();
-
-  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-
-  if (isToday) return `今天 ${time}`;
-  if (isYesterday) return `昨天 ${time}`;
-  return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+  const time = formatTimeToronto(d);
+  if (isTodayToronto(d)) return `今天 ${time}`;
+  if (isYesterdayToronto(d)) return `昨天 ${time}`;
+  const t = toToronto(d);
+  return `${t.getMonth() + 1}/${t.getDate()} ${time}`;
 }
 
 interface ActivityTimelineProps {

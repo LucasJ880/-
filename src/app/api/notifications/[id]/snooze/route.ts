@@ -1,24 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { snoozeNotification } from "@/lib/notifications/service";
+import { startOfDayToronto } from "@/lib/time";
 
 const PRESETS: Record<string, () => Date> = {
-  later_today: () => {
-    const d = new Date();
-    d.setHours(d.getHours() + 3);
-    return d;
-  },
+  later_today: () => new Date(Date.now() + 3 * 3600_000),
   tomorrow_morning: () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(9, 0, 0, 0);
-    return d;
+    const tomorrowStart = startOfDayToronto(new Date(Date.now() + 86_400_000));
+    return new Date(tomorrowStart.getTime() + 9 * 3600_000);
   },
   next_week: () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    d.setHours(9, 0, 0, 0);
-    return d;
+    const nextWeekStart = startOfDayToronto(new Date(Date.now() + 7 * 86_400_000));
+    return new Date(nextWeekStart.getTime() + 9 * 3600_000);
   },
 };
 

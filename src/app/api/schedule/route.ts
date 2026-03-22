@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 
 interface ScheduleEventOut {
   id: string;
@@ -39,10 +40,9 @@ export async function GET(request: NextRequest) {
   }
 
   const dateStr = request.nextUrl.searchParams.get("date");
-  const dayStart = dateStr ? new Date(dateStr) : new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayStart.getDate() + 1);
+  const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+  const dayStart = startOfDayToronto(ref);
+  const dayEnd = endOfDayToronto(ref);
 
   const projectIds = await getVisibleProjectIds(user.id, user.role);
 

@@ -9,19 +9,17 @@ import {
 } from "@/lib/utils";
 import type { TaskItem } from "./types";
 
+import { toToronto, daysRemainingToronto } from "@/lib/time";
+
 function formatDate(d: string | null): string {
   if (!d) return "";
-  const date = new Date(d);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
+  const t = toToronto(new Date(d));
+  return `${t.getMonth() + 1}/${t.getDate()}`;
 }
 
 function DueBadge({ dueDate }: { dueDate: string | null }) {
   if (!dueDate) return null;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((due.getTime() - now.getTime()) / 86400000);
+  const diff = daysRemainingToronto(dueDate);
 
   let style = "border-[rgba(110,125,118,0.15)] bg-[rgba(110,125,118,0.06)] text-[#6e7d76]";
   let label = formatDate(dueDate);

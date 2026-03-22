@@ -1,19 +1,10 @@
 import { db } from "@/lib/db";
 import { calculateProjectProgress } from "./calculator";
 import type { ProjectProgress, ProjectProgressInput } from "./types";
-
-function getWeekStart(): Date {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-}
+import { startOfWeekToronto } from "@/lib/time";
 
 export async function getProjectProgress(projectId: string): Promise<ProjectProgress> {
-  const weekStart = getWeekStart();
+  const weekStart = startOfWeekToronto();
 
   const [project, taskAgg, weekCompleted, moduleCounts] = await Promise.all([
     db.project.findUnique({

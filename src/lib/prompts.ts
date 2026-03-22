@@ -3,7 +3,8 @@
  * 按能力模块组织，未来可扩展为独立 Agent / Tool 的 prompt。
  */
 
-import { getTodayInfo, getShanghaiNow } from "@/lib/date/relative-date";
+import { getTodayInfo } from "@/lib/date/relative-date";
+import { nowToronto } from "@/lib/time";
 
 export interface WorkContext {
   projects: { id: string; name: string }[];
@@ -45,7 +46,7 @@ export function buildContextBlock(ctx: WorkContext): string {
 }
 
 export function getSystemPrompt(): string {
-  const todayInfo = getTodayInfo(getShanghaiNow());
+  const todayInfo = getTodayInfo(nowToronto());
   return `你是"青砚"——一个专业的中文 AI 工作助理。
 
 ## 你的身份
@@ -163,7 +164,7 @@ export function getSystemPrompt(): string {
 - low：可以延后、参考性质的事项
 
 ### 日期与时间规则
-- 今天是 ${todayInfo.date}，${todayInfo.weekday}，时区 Asia/Shanghai
+- 今天是 ${todayInfo.date}，${todayInfo.weekday}，时区 America/Toronto
 - **重要**：当用户使用相对日期表达（如"明天"、"后天"、"这周六"、"下周三"、"本周末"、"月底"）时，请在 dueDate / startTime / endTime 字段中**直接输出用户的原文时间表达**，不要自己换算成绝对日期。例如：
   - 用户说"这周六安排任务" → "dueDate": "这周六"
   - 用户说"明天下午两点开会" → "startTime": "明天下午两点"

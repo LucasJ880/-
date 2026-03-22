@@ -235,7 +235,9 @@ export default function BlindsOrderDetailPage({
         <div className="rounded-lg border border-border bg-white p-4">
           <div className="text-xs text-muted">创建时间</div>
           <div className="mt-1 text-sm text-foreground/80">
-            {new Date(order.createdAt).toLocaleString("zh-CN")}
+            {new Date(order.createdAt).toLocaleString("zh-CN", {
+              timeZone: "America/Toronto",
+            })}
           </div>
         </div>
       </div>

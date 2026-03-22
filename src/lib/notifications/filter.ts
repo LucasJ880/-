@@ -1,5 +1,6 @@
 import { DEFAULT_ENABLED_TYPES, priorityAtLeast } from "./constants";
 import type { EffectiveProjectRule } from "./project-rules";
+import { isInQuietHoursToronto } from "@/lib/time";
 
 export interface PreferenceContext {
   enableInAppNotifications: boolean;
@@ -45,27 +46,14 @@ export function buildPreferenceContext(row: {
   };
 }
 
-/** 解析 "HH:mm" 为当天分钟数 */
-function toMinutes(s: string): number {
-  const [h, m] = s.split(":").map((x) => parseInt(x, 10));
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
-  return h * 60 + m;
-}
-
-/** 当前是否处于静默时段（支持跨午夜，如 22:00–08:00） */
+/** 当前是否处于静默时段（基于 Toronto 时区，支持跨午夜） */
 export function isInQuietHours(
   start: string | null,
   end: string | null,
   enabled: boolean,
   now: Date = new Date()
 ): boolean {
-  if (!enabled || !start || !end) return false;
-  const cur = now.getHours() * 60 + now.getMinutes();
-  const a = toMinutes(start);
-  const b = toMinutes(end);
-  if (a === b) return false;
-  if (a < b) return cur >= a && cur < b;
-  return cur >= a || cur < b;
+  return isInQuietHoursToronto(start, end, enabled, now);
 }
 
 export function breaksQuietHours(priority: string): boolean {

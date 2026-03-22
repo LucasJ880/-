@@ -549,10 +549,12 @@ export default function ProjectConversationsPage() {
                       <span className="shrink-0 text-xs text-muted">
                         {conv.lastMessageAt
                           ? new Date(conv.lastMessageAt).toLocaleString(
-                              "zh-CN"
+                              "zh-CN",
+                              { timeZone: "America/Toronto" }
                             )
                           : new Date(conv.startedAt).toLocaleDateString(
-                              "zh-CN"
+                              "zh-CN",
+                              { timeZone: "America/Toronto" }
                             )}
                       </span>
                     </Link>

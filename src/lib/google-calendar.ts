@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { db } from "@/lib/db";
+import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 
 // userinfo.* 用于换取令牌后读取 Google 账号邮箱；仅有 calendar.* 时访问 userinfo 会 401
 const SCOPES = [
@@ -128,10 +129,9 @@ export async function fetchGoogleEvents(
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
-  const dayStart = dateStr ? new Date(dateStr) : new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayStart.getDate() + 1);
+  const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+  const dayStart = startOfDayToronto(ref);
+  const dayEnd = endOfDayToronto(ref);
 
   try {
     const res = await calendar.events.list({

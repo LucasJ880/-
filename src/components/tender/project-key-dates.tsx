@@ -3,11 +3,11 @@
 import { Calendar, AlertTriangle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TenderProject } from "@/lib/tender/types";
+import { formatDateTimeToronto } from "@/lib/time";
 
 function fmtDateShort(raw: string | null): string {
   if (!raw) return "待补充";
-  const d = new Date(raw);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return formatDateTimeToronto(raw);
 }
 
 function isWithin48h(raw: string | null): boolean {

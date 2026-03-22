@@ -259,7 +259,9 @@ function UsersContent() {
                     <td className="px-4 py-3 text-muted">{u.authProvider}</td>
                     <td className="px-4 py-3 text-xs text-muted">
                       {u.lastLoginAt
-                        ? new Date(u.lastLoginAt).toLocaleString("zh-CN")
+                        ? new Date(u.lastLoginAt).toLocaleString("zh-CN", {
+                            timeZone: "America/Toronto",
+                          })
                         : "—"}
                     </td>
                     <td className="px-4 py-3">
@@ -321,8 +323,8 @@ function UsersContent() {
                     ["认证方式", userDetail.authProvider || "email"],
                     ["所属组织", (userDetail._count as { orgMemberships?: number })?.orgMemberships ?? "—"],
                     ["参与项目", (userDetail._count as { projectMemberships?: number })?.projectMemberships ?? "—"],
-                    ["注册时间", userDetail.createdAt ? new Date(String(userDetail.createdAt)).toLocaleString("zh-CN") : "—"],
-                    ["最近登录", userDetail.lastLoginAt ? new Date(String(userDetail.lastLoginAt)).toLocaleString("zh-CN") : "—"],
+                    ["注册时间", userDetail.createdAt ? new Date(String(userDetail.createdAt)).toLocaleString("zh-CN", { timeZone: "America/Toronto" }) : "—"],
+                    ["最近登录", userDetail.lastLoginAt ? new Date(String(userDetail.lastLoginAt)).toLocaleString("zh-CN", { timeZone: "America/Toronto" }) : "—"],
                   ] as [string, unknown][]).map(([label, value]) => (
                     <div key={label} className="flex items-center justify-between text-sm">
                       <span className="text-muted">{label}</span>

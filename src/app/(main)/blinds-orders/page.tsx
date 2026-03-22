@@ -178,7 +178,9 @@ export default function BlindsOrdersPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted">
-                      {new Date(order.createdAt).toLocaleDateString("zh-CN")}
+                      {new Date(order.createdAt).toLocaleDateString("zh-CN", {
+                        timeZone: "America/Toronto",
+                      })}
                     </td>
                   </tr>
                 );

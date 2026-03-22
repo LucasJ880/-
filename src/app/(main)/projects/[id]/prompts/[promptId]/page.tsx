@@ -705,7 +705,7 @@ export default function PromptDetailPage() {
                 )}
                 <p className="text-xs text-muted">
                   创建于{" "}
-                  {new Date(viewVersion.createdAt).toLocaleString("zh-CN")}
+                  {new Date(viewVersion.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
                 </p>
                 <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background p-4 font-mono text-sm">
                   {viewVersion.content}

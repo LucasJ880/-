@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { TimelineEvent } from "@/lib/tender/types";
+import { formatISODateToronto, formatDateTimeToronto } from "@/lib/time";
 
 function fmtDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return formatISODateToronto(d);
 }
 
 function fmtDateTime(d: Date): string {
-  return `${fmtDate(d)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return formatDateTimeToronto(d);
 }
 
 const EVENT_COLORS: Record<string, { dot: string; text: string }> = {

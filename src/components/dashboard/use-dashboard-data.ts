@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import { formatISODateToronto } from "@/lib/time";
 import type {
   CalendarEventItem,
   ReminderSummaryData,
@@ -10,7 +11,7 @@ import type {
 } from "./types";
 
 function fmtDateISO(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return formatISODateToronto(d);
 }
 
 export function useDashboardData() {

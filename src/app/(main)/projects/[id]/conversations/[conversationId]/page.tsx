@@ -741,7 +741,7 @@ export default function ConversationDetailPage() {
               <dl className="space-y-2 text-xs">
                 <div className="flex gap-2">
                   <dt className="w-28 shrink-0 text-muted">快照时间:</dt>
-                  <dd>{new Date(contextSnapshot.createdAt).toLocaleString("zh-CN")}</dd>
+                  <dd>{new Date(contextSnapshot.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}</dd>
                 </div>
                 {contextSnapshot.promptKey && (
                   <div className="flex gap-2">
@@ -936,7 +936,7 @@ export default function ConversationDetailPage() {
                       </span>
                     ))}
                     <span className="ml-auto text-[10px] text-muted">
-                      {new Date(fb.createdAt).toLocaleString("zh-CN")}
+                      {new Date(fb.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
                     </span>
                   </div>
                   {(fb.scoreAccuracy || fb.scoreHelpfulness || fb.scoreSafety || fb.scoreCompleteness) && (
@@ -1064,7 +1064,7 @@ function TraceCard({ trace }: { trace: ToolTrace }) {
         </span>
         <span className="text-[10px] text-muted">{trace.durationMs}ms</span>
         <span className="text-[10px] text-muted ml-auto">
-          {new Date(trace.createdAt).toLocaleTimeString("zh-CN")}
+          {new Date(trace.createdAt).toLocaleTimeString("zh-CN", { timeZone: "America/Toronto" })}
         </span>
         <button type="button" onClick={() => setOpen(!open)} className="text-muted hover:text-foreground">
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

@@ -170,7 +170,7 @@ export function ProjectQuickViewDrawer({ projectId, open, onClose, highlightActi
                     );
                   })()}
                   <span className="text-xs text-muted">
-                    更新于 {new Date(data.project.updatedAt).toLocaleDateString("zh-CN")}
+                    更新于 {new Date(data.project.updatedAt).toLocaleDateString("zh-CN", { timeZone: "America/Toronto" })}
                   </span>
                 </div>
               </div>

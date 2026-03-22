@@ -237,16 +237,18 @@ export function resolveChineseDate(
 }
 
 /**
- * 获取当前 Asia/Shanghai 时区的 Date 对象。
- * 返回的 Date 的 getFullYear/getMonth/getDate/getDay 对应上海时间。
+ * 获取当前 Toronto 时区的 Date 对象。
+ * 返回的 Date 的 getFullYear/getMonth/getDate/getDay 对应 Toronto 时间。
+ * @deprecated 直接使用 nowToronto() from "@/lib/time"
  */
 export function getShanghaiNow(): Date {
-  const str = new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" });
+  const str = new Date().toLocaleString("en-US", { timeZone: "America/Toronto" });
   return new Date(str);
 }
 
 /**
- * 格式化今天的日期 + 星期（用于 prompt 注入）
+ * 格式化今天的日期 + 星期（用于 prompt 注入）。
+ * 已切换为 Toronto 时区。
  */
 export function getTodayInfo(now?: Date): { date: string; weekday: string } {
   const d = now ?? getShanghaiNow();

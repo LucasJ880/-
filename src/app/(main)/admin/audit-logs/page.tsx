@@ -329,7 +329,9 @@ function AuditLogsContent() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock size={10} />
-                        {new Date(log.createdAt).toLocaleString("zh-CN")}
+                        {new Date(log.createdAt).toLocaleString("zh-CN", {
+                          timeZone: "America/Toronto",
+                        })}
                       </span>
                       {log.ip && <span className="text-[10px]">{log.ip}</span>}
                     </div>
@@ -373,7 +375,7 @@ function AuditLogsContent() {
                     ["对象 ID", selectedLog.targetId ?? "—"],
                     ["操作人", `${selectedLog.user.name} (${selectedLog.user.email})`],
                     ["IP", selectedLog.ip ?? "—"],
-                    ["时间", new Date(selectedLog.createdAt).toLocaleString("zh-CN")],
+                    ["时间", new Date(selectedLog.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })],
                     ["User-Agent", selectedLog.userAgent ?? "—"],
                   ] as [string, string][]).map(([label, value]) => (
                     <div key={label} className="flex items-start justify-between gap-4 text-sm">

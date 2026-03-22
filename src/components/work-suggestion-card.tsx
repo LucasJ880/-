@@ -212,7 +212,7 @@ function formatTime(iso: string) {
 function formatDateLabel(iso: string) {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" });
+    return new Date(iso).toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short", timeZone: "America/Toronto" });
   } catch {
     return iso.split("T")[0];
   }

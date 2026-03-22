@@ -6,6 +6,11 @@
  */
 
 import { db } from "@/lib/db";
+import {
+  startOfDayToronto,
+  endOfDayToronto,
+  formatHHmmToronto,
+} from "@/lib/time";
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -34,16 +39,13 @@ export interface ReminderLayers {
 // ─── Helpers ───────────────────────────────────────────────────
 
 function fmtTime(iso: Date): string {
-  return `${String(iso.getHours()).padStart(2, "0")}:${String(iso.getMinutes()).padStart(2, "0")}`;
+  return formatHHmmToronto(iso);
 }
 
 function daysBetween(a: Date, b: Date): number {
-  const msPerDay = 86_400_000;
-  const aDay = new Date(a);
-  aDay.setHours(0, 0, 0, 0);
-  const bDay = new Date(b);
-  bDay.setHours(0, 0, 0, 0);
-  return Math.round((bDay.getTime() - aDay.getTime()) / msPerDay);
+  const aStart = startOfDayToronto(a);
+  const bStart = startOfDayToronto(b);
+  return Math.round((bStart.getTime() - aStart.getTime()) / 86_400_000);
 }
 
 // ─── Core ──────────────────────────────────────────────────────
@@ -53,14 +55,11 @@ export async function generateReminderLayers(
 ): Promise<ReminderLayers> {
   const now = new Date();
 
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
+  const todayStart = startOfDayToronto(now);
+  const todayEnd = endOfDayToronto(now);
 
-  const todayEnd = new Date(todayStart);
-  todayEnd.setDate(todayEnd.getDate() + 1);
-
-  const tomorrowEnd = new Date(todayStart);
-  tomorrowEnd.setDate(tomorrowEnd.getDate() + 2);
+  const tomorrowRef = new Date(now.getTime() + 86_400_000);
+  const tomorrowEnd = endOfDayToronto(tomorrowRef);
 
   const soonEnd = new Date(now.getTime() + 60 * 60_000);
   const weekEnd = new Date(now.getTime() + 7 * 86_400_000);

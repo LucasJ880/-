@@ -42,7 +42,7 @@ export function AgentVersionList({
             <p className="text-sm font-medium">{v.changeNote || "—"}</p>
             <div className="flex items-center gap-2 text-[10px] text-muted">
               <Clock size={10} />
-              {new Date(v.createdAt).toLocaleString("zh-CN")}
+              {new Date(v.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
               {v.createdBy?.name && <span>· {v.createdBy.name}</span>}
             </div>
           </div>

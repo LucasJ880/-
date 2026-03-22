@@ -99,6 +99,7 @@ function formatDateTime(iso: string) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "America/Toronto",
   });
 }
 
@@ -107,16 +108,15 @@ function formatDate(iso: string) {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "America/Toronto",
   });
 }
 
+import { daysRemainingToronto, formatISODateToronto } from "@/lib/time";
+
 function getDueStatus(dueDate: string | null, status: string) {
   if (!dueDate || status === "done" || status === "cancelled") return null;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((due.getTime() - now.getTime()) / 86400000);
+  const diff = daysRemainingToronto(dueDate);
   if (diff < 0)
     return {
       label: `已逾期 ${Math.abs(diff)} 天`,
@@ -512,7 +512,7 @@ function TaskScheduleModal({
   const [title, setTitle] = useState(task.title);
   const [date, setDate] = useState(() => {
     if (task.dueDate) return task.dueDate.split("T")[0];
-    return new Date().toISOString().split("T")[0];
+    return formatISODateToronto(new Date());
   });
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("10:00");
@@ -1005,10 +1005,10 @@ export default function TaskDetailPage() {
                           <Clock size={9} />
                           {ev.allDay
                             ? "全天"
-                            : `${new Date(ev.startTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} - ${new Date(ev.endTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`}
+                            : `${new Date(ev.startTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "America/Toronto" })} - ${new Date(ev.endTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "America/Toronto" })}`}
                         </span>
                         <span>
-                          {new Date(ev.startTime).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}
+                          {new Date(ev.startTime).toLocaleDateString("zh-CN", { month: "short", day: "numeric", timeZone: "America/Toronto" })}
                         </span>
                         {ev.location && (
                           <span className="flex items-center gap-0.5">

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { resolveChineseDate, getShanghaiNow } from "@/lib/date/relative-date";
+import { resolveChineseDate } from "@/lib/date/relative-date";
+import { nowToronto } from "@/lib/time";
 
 let _client: OpenAI | null = null;
 
@@ -125,7 +126,7 @@ function postProcessEvent(event: EventSuggestion, now: Date): void {
 }
 
 function postProcessDates(suggestion: WorkSuggestion): void {
-  const now = getShanghaiNow();
+  const now = nowToronto();
   if (suggestion.task) postProcessTask(suggestion.task, now);
   if (suggestion.event) postProcessEvent(suggestion.event, now);
 }

@@ -3,20 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { getMultiProjectProgress } from "@/lib/progress/query";
-
-function getWeekRange() {
-  const now = new Date();
-  const day = now.getDay();
-  const diffToMonday = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diffToMonday);
-  monday.setHours(0, 0, 0, 0);
-
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 7);
-
-  return { weekStart: monday, weekEnd: sunday };
-}
+import { getWeekRangeToronto, endOfDayToronto } from "@/lib/time";
 
 async function getVisibleProjectIds(userId: string, role: string) {
   if (isSuperAdmin(role)) return null;
@@ -47,11 +34,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const { weekStart, weekEnd } = getWeekRange();
+  const { weekStart, weekEnd } = getWeekRangeToronto();
   const now = new Date();
-  const threeDaysLater = new Date(now);
-  threeDaysLater.setDate(now.getDate() + 3);
-  threeDaysLater.setHours(23, 59, 59, 999);
+  const threeDaysRef = new Date(now.getTime() + 3 * 86_400_000);
+  const threeDaysLater = endOfDayToronto(threeDaysRef);
 
   const projectIds = await getVisibleProjectIds(user.id, user.role);
 
