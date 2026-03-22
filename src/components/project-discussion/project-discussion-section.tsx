@@ -16,9 +16,13 @@ import { ProjectDiscussionComposer } from "./project-discussion-composer";
 interface Props {
   projectId: string;
   canPost: boolean;
+  projectStatus?: string;
 }
 
-export function ProjectDiscussionSection({ projectId, canPost }: Props) {
+const READONLY_STATUSES = new Set(["archived", "completed"]);
+
+export function ProjectDiscussionSection({ projectId, canPost, projectStatus }: Props) {
+  const isReadonlyProject = projectStatus ? READONLY_STATUSES.has(projectStatus) : false;
   const [messages, setMessages] = useState<DiscussionMessage[]>([]);
   const [messageCount, setMessageCount] = useState(0);
   const [memberCount, setMemberCount] = useState(0);
@@ -198,6 +202,10 @@ export function ProjectDiscussionSection({ projectId, canPost }: Props) {
             projectId={projectId}
             onSent={handleSent}
           />
+        ) : isReadonlyProject ? (
+          <div className="px-5 py-3 text-center text-xs text-muted">
+            项目已{projectStatus === "archived" ? "归档" : "完成"}，仅项目负责人和管理员可继续发言
+          </div>
         ) : (
           <div className="px-5 py-3 text-center text-xs text-muted">
             你没有在此项目发送消息的权限

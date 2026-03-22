@@ -137,18 +137,14 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
 
   const before = { role: member.role, status: member.status };
 
-  const updated = await db.projectMember.update({
-    where: { id: memberId },
-    data: { status: "inactive" },
-    include: {
-      user: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
-        },
-      },
-    },
+  const updated = await db.$transaction(async (tx) => {
+    const m = await tx.projectMember.update({
+      where: { id: memberId },
+      data: { status: "inactive" },
+      include: { user: { select: { id: true, email: true, name: true } } },
+    });
+    await onMemberRemoved(projectId, m.user.name, user.id, m.userId, tx);
+    return m;
   });
 
   await logAudit({
@@ -162,8 +158,6 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
     afterData: { status: updated.status },
     request,
   });
-
-  onMemberRemoved(projectId, updated.user.name, user.id).catch(() => {});
 
   return NextResponse.json({
     ok: true,

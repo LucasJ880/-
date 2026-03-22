@@ -1,9 +1,13 @@
 /**
  * 项目讨论 — 核心服务层
+ *
+ * 会话创建使用 upsert 防止并发重复。
+ * 分页使用 (createdAt, id) 复合排序保证稳定性。
  */
 
 import { db } from "@/lib/db";
-import type { DiscussionMessage, DiscussionOverview } from "./types";
+import type { Prisma } from "@prisma/client";
+import type { DiscussionMessage, DiscussionOverview, SystemEventMetadata } from "./types";
 import { DEFAULT_PAGE_SIZE, MESSAGE_MAX_LENGTH } from "./types";
 
 const senderSelect = {
@@ -19,12 +23,10 @@ function toMessage(row: Record<string, unknown>): DiscussionMessage {
     conversationId: r.conversationId as string,
     projectId: r.projectId as string,
     senderId: (r.senderId as string) ?? null,
-    sender: r.sender
-      ? (r.sender as DiscussionMessage["sender"])
-      : null,
+    sender: r.sender ? (r.sender as DiscussionMessage["sender"]) : null,
     type: r.type as DiscussionMessage["type"],
     body: r.body as string,
-    metadata: r.metadata as DiscussionMessage["metadata"],
+    metadata: (r.metadata as SystemEventMetadata) ?? null,
     replyToId: (r.replyToId as string) ?? null,
     editedAt: r.editedAt ? (r.editedAt as Date).toISOString() : null,
     deletedAt: r.deletedAt ? (r.deletedAt as Date).toISOString() : null,
@@ -33,22 +35,24 @@ function toMessage(row: Record<string, unknown>): DiscussionMessage {
 }
 
 /**
- * 获取或创建项目的主讨论会话（lazy init）
+ * 获取或创建项目的主讨论会话。
+ * 使用 upsert + projectId unique 约束防止并发重复创建。
  */
-export async function getOrCreateMainConversation(projectId: string) {
-  let conv = await db.projectConversation.findUnique({
+export async function getOrCreateMainConversation(
+  projectId: string,
+  tx?: Prisma.TransactionClient
+) {
+  const client = tx ?? db;
+  return client.projectConversation.upsert({
     where: { projectId },
+    update: {},
+    create: { projectId, kind: "MAIN", title: "项目讨论" },
   });
-  if (!conv) {
-    conv = await db.projectConversation.create({
-      data: { projectId, kind: "MAIN", title: "项目讨论" },
-    });
-  }
-  return conv;
 }
 
 /**
- * 获取讨论概览（会话信息 + 最新消息 + 统计）
+ * 获取讨论概览（会话信息 + 最新消息 + 统计）。
+ * cursor 格式: "createdAt_ISO|id"，保证稳定分页。
  */
 export async function getDiscussionOverview(
   projectId: string,
@@ -57,18 +61,25 @@ export async function getDiscussionOverview(
   const conv = await getOrCreateMainConversation(projectId);
   const pageSize = opts?.pageSize ?? DEFAULT_PAGE_SIZE;
 
-  const whereBase: Record<string, unknown> = {
+  const whereBase: Prisma.ProjectMessageWhereInput = {
     conversationId: conv.id,
     deletedAt: null,
   };
+
   if (opts?.cursor) {
-    whereBase.createdAt = { lt: new Date(opts.cursor) };
+    const cursorFilter = parseCursor(opts.cursor);
+    if (cursorFilter) {
+      whereBase.OR = [
+        { createdAt: { lt: cursorFilter.createdAt } },
+        { createdAt: cursorFilter.createdAt, id: { lt: cursorFilter.id } },
+      ];
+    }
   }
 
   const [rows, messageCount, memberCount] = await Promise.all([
     db.projectMessage.findMany({
       where: whereBase,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: pageSize + 1,
       include: { sender: { select: senderSelect } },
     }),
@@ -82,10 +93,8 @@ export async function getDiscussionOverview(
 
   const hasMore = rows.length > pageSize;
   const slice = hasMore ? rows.slice(0, pageSize) : rows;
-  const messages = slice.reverse().map(toMessage);
-  const nextCursor = hasMore
-    ? slice[0].createdAt.toISOString()
-    : null;
+  const messages = slice.reverse().map((r) => toMessage(r as unknown as Record<string, unknown>));
+  const nextCursor = hasMore ? buildCursor(slice[0]) : null;
 
   return {
     conversation: {
@@ -137,7 +146,7 @@ export async function sendMessage(
 }
 
 /**
- * 加载更早消息（cursor 分页）
+ * 加载更早消息（稳定 cursor 分页）
  */
 export async function loadOlderMessages(
   projectId: string,
@@ -150,23 +159,47 @@ export async function loadOlderMessages(
 }> {
   const conv = await getOrCreateMainConversation(projectId);
 
+  const cursorFilter = parseCursor(cursor);
+  const where: Prisma.ProjectMessageWhereInput = {
+    conversationId: conv.id,
+    deletedAt: null,
+  };
+  if (cursorFilter) {
+    where.OR = [
+      { createdAt: { lt: cursorFilter.createdAt } },
+      { createdAt: cursorFilter.createdAt, id: { lt: cursorFilter.id } },
+    ];
+  }
+
   const rows = await db.projectMessage.findMany({
-    where: {
-      conversationId: conv.id,
-      deletedAt: null,
-      createdAt: { lt: new Date(cursor) },
-    },
-    orderBy: { createdAt: "desc" },
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: pageSize + 1,
     include: { sender: { select: senderSelect } },
   });
 
   const hasMore = rows.length > pageSize;
   const slice = hasMore ? rows.slice(0, pageSize) : rows;
-  const messages = slice.reverse().map(toMessage);
-  const nextCursor = hasMore
-    ? slice[0].createdAt.toISOString()
-    : null;
+  const messages = slice.reverse().map((r) => toMessage(r as unknown as Record<string, unknown>));
+  const nextCursor = hasMore ? buildCursor(slice[0]) : null;
 
   return { messages, hasMore, nextCursor };
+}
+
+// ─── cursor helpers ───
+
+function buildCursor(row: { createdAt: Date; id: string }): string {
+  return `${row.createdAt.toISOString()}|${row.id}`;
+}
+
+function parseCursor(cursor: string): { createdAt: Date; id: string } | null {
+  const pipe = cursor.indexOf("|");
+  if (pipe === -1) {
+    const d = new Date(cursor);
+    return isNaN(d.getTime()) ? null : { createdAt: d, id: "" };
+  }
+  const dateStr = cursor.slice(0, pipe);
+  const id = cursor.slice(pipe + 1);
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : { createdAt: d, id };
 }

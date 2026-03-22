@@ -6,6 +6,7 @@ import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
 import type { IntakeStatusFilter } from "@/lib/projects/visibility";
+import { onProjectCreated } from "@/lib/project-discussion/system-events";
 
 const projectInclude = {
   owner: { select: { id: true, name: true } },
@@ -114,6 +115,7 @@ export async function POST(request: NextRequest) {
       },
       include: projectInclude,
     });
+    await onProjectCreated(p.id, p.name, user.id, user.name, tx);
     return p;
   });
 

@@ -1,158 +1,207 @@
 /**
  * 项目讨论 — 系统事件写入
  *
- * 将项目关键变更写入讨论流（type=SYSTEM），
- * 实现人工消息与系统事件共存的项目协作时间流。
+ * 所有系统消息使用严格的 SystemEventMetadata 类型。
+ * emitProjectPatchEvents 接受 Prisma 事务客户端以保证原子性。
+ * 仅当字段值真正变化时才写入消息（幂等保证）。
  */
 
 import { db } from "@/lib/db";
-import { SYSTEM_EVENT_TYPES, type SystemEventType } from "./types";
+import type { Prisma } from "@prisma/client";
+import {
+  SYSTEM_EVENT_TYPES,
+  type SystemEventType,
+  type SystemEventMetadata,
+} from "./types";
 import { getOrCreateMainConversation } from "./service";
 
 interface SystemEventOptions {
   projectId: string;
   eventType: SystemEventType;
   body: string;
-  metadata?: Record<string, unknown>;
+  metadata: SystemEventMetadata;
   actorId?: string;
+  tx?: Prisma.TransactionClient;
 }
 
 /**
  * 写入一条系统消息到项目讨论流。
- * 如果项目尚无讨论会话则自动创建。
+ * 支持传入事务客户端以保证原子性。
  */
 export async function createProjectSystemMessage(opts: SystemEventOptions) {
-  const conv = await getOrCreateMainConversation(opts.projectId);
-  return db.projectMessage.create({
+  const client = opts.tx ?? db;
+  const conv = await getOrCreateMainConversation(opts.projectId, opts.tx);
+  return client.projectMessage.create({
     data: {
       conversationId: conv.id,
       projectId: opts.projectId,
       senderId: opts.actorId ?? null,
       type: "SYSTEM",
       body: opts.body,
-      metadata: {
-        eventType: opts.eventType,
-        ...(opts.metadata ?? {}),
-      },
+      metadata: opts.metadata as unknown as Prisma.InputJsonValue,
     },
   });
 }
 
-/**
- * 项目创建时写入系统消息
- */
+// ─── 事件写入 helper ───
+
 export async function onProjectCreated(
   projectId: string,
   projectName: string,
-  creatorName: string
+  actorId: string,
+  actorName: string,
+  tx?: Prisma.TransactionClient
 ) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.PROJECT_CREATED,
+    actorId,
+    actorName,
+    source: "system",
+    projectName,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.PROJECT_CREATED,
-    body: `${creatorName} 创建了项目「${projectName}」`,
-    metadata: { projectName, creatorName },
+    body: `${actorName} 创建了项目「${projectName}」，讨论流已开启`,
+    metadata,
+    actorId,
+    tx,
   });
 }
 
-/**
- * 成员加入项目时写入系统消息
- */
 export async function onMemberJoined(
   projectId: string,
   memberName: string,
   role: string,
-  actorId?: string
+  actorId: string,
+  memberId?: string,
+  tx?: Prisma.TransactionClient
 ) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.MEMBER_JOINED,
+    actorId,
+    source: "manual",
+    memberId,
+    memberName,
+    memberRole: role,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.MEMBER_JOINED,
     body: `${memberName} 加入了项目（角色：${role}）`,
-    metadata: { memberName, role },
+    metadata,
     actorId,
+    tx,
   });
 }
 
-/**
- * 成员被移除时写入系统消息
- */
 export async function onMemberRemoved(
   projectId: string,
   memberName: string,
-  actorId?: string
+  actorId: string,
+  memberId?: string,
+  tx?: Prisma.TransactionClient
 ) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.MEMBER_REMOVED,
+    actorId,
+    source: "manual",
+    memberId,
+    memberName,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.MEMBER_REMOVED,
     body: `${memberName} 被移出了项目`,
-    metadata: { memberName },
+    metadata,
     actorId,
+    tx,
   });
 }
 
-/**
- * 项目阶段变更时写入系统消息
- */
 export async function onStageChanged(
   projectId: string,
   oldStage: string,
   newStage: string,
-  actorId?: string
+  actorId: string,
+  tx?: Prisma.TransactionClient
 ) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.STAGE_CHANGED,
+    actorId,
+    source: "manual",
+    stageBefore: oldStage,
+    stageAfter: newStage,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.STAGE_CHANGED,
     body: `项目阶段从「${oldStage}」变更为「${newStage}」`,
-    metadata: { oldStage, newStage },
+    metadata,
     actorId,
+    tx,
   });
 }
 
-/**
- * 关键日期变更时写入系统消息
- */
 export async function onDateChanged(
   projectId: string,
+  field: string,
   fieldLabel: string,
   oldDate: string | null,
   newDate: string | null,
-  actorId?: string
+  actorId: string,
+  tx?: Prisma.TransactionClient
 ) {
   const oldStr = oldDate ?? "未设定";
   const newStr = newDate ?? "已清除";
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.DATE_CHANGED,
+    actorId,
+    source: "manual",
+    field,
+    before: oldDate,
+    after: newDate,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.DATE_CHANGED,
     body: `${fieldLabel}从 ${oldStr} 更新为 ${newStr}`,
-    metadata: { fieldLabel, oldDate, newDate },
+    metadata,
     actorId,
+    tx,
   });
 }
 
-/**
- * 项目提交时写入系统消息
- */
 export async function onProjectSubmitted(
   projectId: string,
   actorName: string,
-  actorId?: string
+  actorId: string,
+  submittedAt: string,
+  tx?: Prisma.TransactionClient
 ) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.PROJECT_SUBMITTED,
+    actorId,
+    actorName,
+    source: "manual",
+    submittedAt,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.PROJECT_SUBMITTED,
     body: `${actorName} 提交了项目`,
-    metadata: { actorName },
+    metadata,
     actorId,
+    tx,
   });
 }
 
-/**
- * 项目状态变更时写入系统消息
- */
 export async function onStatusChanged(
   projectId: string,
   oldStatus: string,
   newStatus: string,
-  actorId?: string
+  actorId: string,
+  tx?: Prisma.TransactionClient
 ) {
   const labels: Record<string, string> = {
     active: "进行中",
@@ -162,88 +211,97 @@ export async function onStatusChanged(
   };
   const oldLabel = labels[oldStatus] ?? oldStatus;
   const newLabel = labels[newStatus] ?? newStatus;
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.STATUS_CHANGED,
+    actorId,
+    source: "manual",
+    statusBefore: oldStatus,
+    statusAfter: newStatus,
+  };
   return createProjectSystemMessage({
     projectId,
     eventType: SYSTEM_EVENT_TYPES.STATUS_CHANGED,
     body: `项目状态从「${oldLabel}」变更为「${newLabel}」`,
-    metadata: { oldStatus, newStatus },
+    metadata,
     actorId,
+    tx,
   });
 }
 
+// ─── PATCH 事件批量写入（事务内） ───
+
+const DATE_FIELD_LABELS: Record<string, string> = {
+  publicDate: "发布时间",
+  questionCloseDate: "提问截止时间",
+  closeDate: "截标时间",
+  submittedAt: "提交时间",
+  awardDate: "结果公布时间",
+  distributedAt: "分发时间",
+  interpretedAt: "解读时间",
+  supplierQuotedAt: "供应商报价时间",
+};
+
+function normalizeDate(v: unknown): string | null {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
+function fmtDate(v: unknown): string | null {
+  if (!v) return null;
+  try {
+    return new Date(v as string).toLocaleString("zh-CN", {
+      timeZone: "America/Toronto",
+    });
+  } catch {
+    return String(v);
+  }
+}
+
 /**
- * 在项目 PATCH 中检测关键变更并批量写入系统消息。
- * 调用方传入 before/after 对象和操作人信息。
+ * 在事务内检测项目 PATCH 的关键变更并写入系统消息。
+ * 仅当字段值真正变化时才写入（幂等保证）。
  */
 export async function emitProjectPatchEvents(
   projectId: string,
   before: Record<string, unknown>,
   after: Record<string, unknown>,
-  actor: { id: string; name: string }
+  actor: { id: string; name: string },
+  tx: Prisma.TransactionClient
 ) {
-  const promises: Promise<unknown>[] = [];
+  const writes: Promise<unknown>[] = [];
 
-  if (before.status !== after.status && after.status) {
-    promises.push(
-      onStatusChanged(
-        projectId,
-        String(before.status ?? ""),
-        String(after.status),
-        actor.id
-      )
+  const beforeStatus = String(before.status ?? "");
+  const afterStatus = String(after.status ?? "");
+  if (beforeStatus !== afterStatus && afterStatus) {
+    writes.push(onStatusChanged(projectId, beforeStatus, afterStatus, actor.id, tx));
+  }
+
+  const beforeStage = String(before.tenderStatus ?? "");
+  const afterStage = String(after.tenderStatus ?? "");
+  if (beforeStage !== afterStage && afterStage) {
+    writes.push(
+      onStageChanged(projectId, beforeStage || "未设定", afterStage, actor.id, tx)
     );
   }
 
-  if (before.tenderStatus !== after.tenderStatus && after.tenderStatus) {
-    promises.push(
-      onStageChanged(
-        projectId,
-        String(before.tenderStatus ?? "未设定"),
-        String(after.tenderStatus),
-        actor.id
-      )
-    );
-  }
-
-  const dateFieldLabels: Record<string, string> = {
-    publicDate: "发布时间",
-    questionCloseDate: "提问截止时间",
-    closeDate: "截标时间",
-    submittedAt: "提交时间",
-    awardDate: "结果公布时间",
-    distributedAt: "分发时间",
-    interpretedAt: "解读时间",
-    supplierQuotedAt: "供应商报价时间",
-  };
-
-  for (const [field, label] of Object.entries(dateFieldLabels)) {
-    const oldVal = before[field];
-    const newVal = after[field];
-    if (String(oldVal ?? "") !== String(newVal ?? "")) {
-      const fmt = (v: unknown) => {
-        if (!v) return null;
-        try {
-          return new Date(v as string).toLocaleString("zh-CN", {
-            timeZone: "America/Toronto",
-          });
-        } catch {
-          return String(v);
-        }
-      };
-      promises.push(
-        onDateChanged(projectId, label, fmt(oldVal), fmt(newVal), actor.id)
+  for (const [field, label] of Object.entries(DATE_FIELD_LABELS)) {
+    const oldNorm = normalizeDate(before[field]);
+    const newNorm = normalizeDate(after[field]);
+    if (oldNorm !== newNorm) {
+      writes.push(
+        onDateChanged(projectId, field, label, fmtDate(before[field]), fmtDate(after[field]), actor.id, tx)
       );
     }
   }
 
-  if (
-    after.submittedAt &&
-    !before.submittedAt
-  ) {
-    promises.push(onProjectSubmitted(projectId, actor.name, actor.id));
+  if (after.submittedAt && !before.submittedAt) {
+    writes.push(
+      onProjectSubmitted(projectId, actor.name, actor.id, normalizeDate(after.submittedAt) ?? "", tx)
+    );
   }
 
-  if (promises.length > 0) {
-    await Promise.allSettled(promises);
+  if (writes.length > 0) {
+    await Promise.all(writes);
   }
 }

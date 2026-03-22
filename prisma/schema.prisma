@@ -1136,8 +1136,6 @@ model ProjectConversation {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   messages   ProjectMessage[]
-
-  @@index([projectId])
 }
 
 model ProjectMessage {
@@ -1156,7 +1154,8 @@ model ProjectMessage {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  @@index([projectId, createdAt])
-  @@index([conversationId, createdAt])
+  @@index([conversationId, createdAt, id])
+  @@index([projectId, createdAt, id])
+  @@index([projectId, type, createdAt])
   @@index([senderId, createdAt])
 }

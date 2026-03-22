@@ -5,9 +5,14 @@
  * 1. super_admin 可查看和发送所有项目讨论
  * 2. 项目 owner 可查看和发送
  * 3. 项目活跃成员（ProjectMember.status=active）可查看和发送
- * 4. 项目所属组织的 org_admin 可查看和发送
- * 5. 被移除成员不可发送新消息
+ * 4. 项目所属组织的 org_admin 可查看和发送（仅限本组织项目）
+ * 5. 被移除成员不可发送新消息，也不可查看
  * 6. 非项目相关人员返回 false
+ *
+ * archived/completed 规则（方案 A）：
+ * - 所有有权限的用户都可查看历史讨论
+ * - 仅 owner 和 super_admin 可在 archived/completed 项目继续发言
+ * - 普通成员在 archived/completed 项目只读
  */
 
 import { db } from "@/lib/db";
@@ -36,7 +41,7 @@ async function isActiveMember(userId: string, projectId: string): Promise<boolea
   return pm?.status === "active";
 }
 
-async function isOrgAdmin(userId: string, orgId: string): Promise<boolean> {
+async function isOrgAdminOfProject(userId: string, orgId: string): Promise<boolean> {
   const om = await db.organizationMember.findUnique({
     where: { orgId_userId: { orgId, userId } },
     select: { role: true, status: true },
@@ -44,7 +49,7 @@ async function isOrgAdmin(userId: string, orgId: string): Promise<boolean> {
   return om?.status === "active" && om.role === "org_admin";
 }
 
-function hasProjectAccess(
+function hasViewAccess(
   user: AuthUser,
   project: ProjectForAccess,
   memberActive: boolean,
@@ -58,6 +63,8 @@ function hasProjectAccess(
   return false;
 }
 
+const READONLY_STATUSES = new Set(["archived", "completed"]);
+
 export async function canViewProjectDiscussion(
   user: AuthUser,
   projectId: string
@@ -67,10 +74,10 @@ export async function canViewProjectDiscussion(
 
   const memberActive = await isActiveMember(user.id, projectId);
   const orgAdmin = project.orgId
-    ? await isOrgAdmin(user.id, project.orgId)
+    ? await isOrgAdminOfProject(user.id, project.orgId)
     : false;
 
-  return hasProjectAccess(user, project, memberActive, orgAdmin);
+  return hasViewAccess(user, project, memberActive, orgAdmin);
 }
 
 export async function canPostProjectMessage(
@@ -83,14 +90,17 @@ export async function canPostProjectMessage(
   if (isSuperAdmin(user.role)) return true;
   if (project.intakeStatus !== "dispatched") return false;
 
-  const memberActive = await isActiveMember(user.id, projectId);
-  const orgAdmin = project.orgId
-    ? await isOrgAdmin(user.id, project.orgId)
-    : false;
+  if (READONLY_STATUSES.has(project.status)) {
+    return project.ownerId === user.id;
+  }
 
+  const memberActive = await isActiveMember(user.id, projectId);
   if (project.ownerId === user.id) return true;
   if (memberActive) return true;
-  if (orgAdmin) return true;
+  if (project.orgId) {
+    const orgAdmin = await isOrgAdminOfProject(user.id, project.orgId);
+    if (orgAdmin) return true;
+  }
 
   return false;
 }

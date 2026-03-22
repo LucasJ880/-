@@ -509,7 +509,7 @@ function ProjectDetailContent() {
       <ProjectDashboard projectId={id} />
 
       {/* 项目讨论 */}
-      <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} />
+      <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} projectStatus={project.status} />
 
       <div className="rounded-xl border border-border bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">

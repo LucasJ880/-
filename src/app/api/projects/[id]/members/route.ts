@@ -108,21 +108,16 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     if (existing.status === "active") {
       return NextResponse.json({ error: "该用户已是项目成员" }, { status: 409 });
     }
-    const updated = await db.projectMember.update({
-      where: { id: existing.id },
-      data: { role, status: "active" },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            nickname: true,
-            avatar: true,
-            status: true,
-          },
+    const updated = await db.$transaction(async (tx) => {
+      const m = await tx.projectMember.update({
+        where: { id: existing.id },
+        data: { role, status: "active" },
+        include: {
+          user: { select: { id: true, email: true, name: true, nickname: true, avatar: true, status: true } },
         },
-      },
+      });
+      await onMemberJoined(projectId, m.user.name, m.role, user.id, m.userId, tx);
+      return m;
     });
     await logAudit({
       userId: user.id,
@@ -134,7 +129,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       afterData: { userId, role: updated.role, status: updated.status },
       request,
     });
-    onMemberJoined(projectId, updated.user.name, updated.role, user.id).catch(() => {});
     return NextResponse.json(
       {
         member: {
@@ -149,25 +143,15 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     );
   }
 
-  const created = await db.projectMember.create({
-    data: {
-      projectId,
-      userId,
-      role,
-      status: "active",
-    },
-    include: {
-      user: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          nickname: true,
-          avatar: true,
-          status: true,
-        },
+  const created = await db.$transaction(async (tx) => {
+    const m = await tx.projectMember.create({
+      data: { projectId, userId, role, status: "active" },
+      include: {
+        user: { select: { id: true, email: true, name: true, nickname: true, avatar: true, status: true } },
       },
-    },
+    });
+    await onMemberJoined(projectId, m.user.name, m.role, user.id, m.userId, tx);
+    return m;
   });
 
   await logAudit({
@@ -180,8 +164,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     afterData: { userId, role: created.role },
     request,
   });
-
-  onMemberJoined(projectId, created.user.name, created.role, user.id).catch(() => {});
 
   return NextResponse.json(
     {

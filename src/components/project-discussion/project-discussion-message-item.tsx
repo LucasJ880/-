@@ -75,8 +75,7 @@ function TextMessageItem({ message }: { message: DiscussionMessage }) {
 }
 
 function SystemEventItem({ message }: { message: DiscussionMessage }) {
-  const eventType =
-    (message.metadata as Record<string, unknown>)?.eventType as string | undefined;
+  const eventType = message.metadata?.eventType as string | undefined;
   const Icon = (eventType && SYSTEM_ICONS[eventType]) || Info;
 
   const time = new Date(message.createdAt).toLocaleTimeString("zh-CN", {

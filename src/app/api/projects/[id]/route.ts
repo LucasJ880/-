@@ -91,13 +91,25 @@ export async function PATCH(
     );
   }
 
-  const project = await db.project.update({
-    where: { id },
-    data,
-    include: {
-      owner: { select: { id: true, name: true } },
-      _count: { select: { tasks: true, environments: true } },
-    },
+  const project = await db.$transaction(async (tx) => {
+    const updated = await tx.project.update({
+      where: { id },
+      data,
+      include: {
+        owner: { select: { id: true, name: true } },
+        _count: { select: { tasks: true, environments: true } },
+      },
+    });
+
+    await emitProjectPatchEvents(
+      id,
+      beforeProject as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      { id: user.id, name: user.name },
+      tx
+    );
+
+    return updated;
   });
 
   await logAudit({
@@ -136,13 +148,6 @@ export async function PATCH(
       updatedBy: user.email,
     }).catch((err) => console.error("[Webhook] dispatch failed:", err));
   }
-
-  emitProjectPatchEvents(
-    id,
-    beforeProject as unknown as Record<string, unknown>,
-    project as unknown as Record<string, unknown>,
-    { id: user.id, name: user.name }
-  ).catch((err) => console.error("[Discussion] emit events failed:", err));
 
   return NextResponse.json(project);
 }
