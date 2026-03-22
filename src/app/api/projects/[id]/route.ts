@@ -6,11 +6,15 @@ import {
 } from "@/lib/projects/access";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
+import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
 
 const detailInclude = {
   owner: { select: { id: true, name: true, email: true } },
   org: { select: { id: true, name: true, code: true, status: true } },
   _count: { select: { tasks: true, environments: true, members: true } },
+  externalRef: true,
+  intelligence: true,
+  documents: { orderBy: { sortOrder: "asc" as const } },
 } as const;
 
 export async function GET(
@@ -65,6 +69,8 @@ export async function PATCH(
   if (body.description !== undefined) data.description = body.description;
   if (body.color !== undefined) data.color = body.color;
   if (body.status !== undefined) data.status = body.status;
+  if (body.tenderStatus !== undefined) data.tenderStatus = body.tenderStatus;
+  if (body.priority !== undefined) data.priority = body.priority;
 
   if (body.orgId !== undefined) {
     return NextResponse.json(
@@ -94,15 +100,30 @@ export async function PATCH(
       description: beforeProject.description,
       color: beforeProject.color,
       status: beforeProject.status,
+      tenderStatus: beforeProject.tenderStatus,
     },
     afterData: {
       name: project.name,
       description: project.description,
       color: project.color,
       status: project.status,
+      tenderStatus: project.tenderStatus,
     },
     request,
   });
+
+  if (
+    body.tenderStatus !== undefined &&
+    beforeProject.tenderStatus !== project.tenderStatus &&
+    beforeProject.sourceSystem
+  ) {
+    notifyProjectStatusChange({
+      projectId: id,
+      oldStatus: beforeProject.tenderStatus || "new",
+      newStatus: project.tenderStatus || "new",
+      updatedBy: user.email,
+    }).catch((err) => console.error("[Webhook] dispatch failed:", err));
+  }
 
   return NextResponse.json(project);
 }

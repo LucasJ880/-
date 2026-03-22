@@ -28,6 +28,7 @@ import { ProjectNotificationRuleCard } from "@/components/notification/project-n
 import { ProjectDashboard } from "@/components/project-dashboard/project-dashboard";
 import { ProgressComparison } from "@/components/progress/progress-comparison";
 import { StageIndicator } from "@/components/progress/stage-indicator";
+import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 
@@ -53,6 +54,25 @@ interface ProjectDetail {
     status: string;
   } | null;
   _count: { tasks: number; environments: number; members: number };
+  // BidToGo fields
+  sourceSystem?: string | null;
+  sourcePlatform?: string | null;
+  clientOrganization?: string | null;
+  location?: string | null;
+  estimatedValue?: number | null;
+  currency?: string | null;
+  solicitationNumber?: string | null;
+  tenderStatus?: string | null;
+  dueDate?: string | null;
+  externalRef?: { system: string; externalId: string; url: string | null } | null;
+  intelligence?: {
+    recommendation: string;
+    riskLevel: string;
+    fitScore: number;
+    summary: string | null;
+    fullReportUrl: string | null;
+  } | null;
+  documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
 }
 
 interface MemberRow {
@@ -306,7 +326,14 @@ function ProjectDetailContent() {
             <FolderKanban size={28} />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-bold">{project.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold">{project.name}</h1>
+              {project.sourceSystem === "bidtogo" && (
+                <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-semibold text-accent">
+                  BidToGo
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-sm text-muted">
               负责人 {project.owner.name} · {project._count.tasks} 任务 ·{" "}
               {project._count.members} 成员 · {project._count.environments} 环境
@@ -397,6 +424,26 @@ function ProjectDetailContent() {
           </div>
         </div>
       </div>
+
+      {/* BidToGo intelligence */}
+      {project.sourceSystem === "bidtogo" && (
+        <BidToGoIntelligenceCard
+          project={{
+            sourceSystem: project.sourceSystem,
+            sourcePlatform: project.sourcePlatform ?? null,
+            clientOrganization: project.clientOrganization ?? null,
+            location: project.location ?? null,
+            estimatedValue: project.estimatedValue ?? null,
+            currency: project.currency ?? null,
+            solicitationNumber: project.solicitationNumber ?? null,
+            tenderStatus: project.tenderStatus ?? null,
+            dueDate: project.dueDate ?? null,
+            externalRef: project.externalRef ?? null,
+            intelligence: project.intelligence ?? null,
+            documents: project.documents ?? [],
+          }}
+        />
+      )}
 
       {/* progress section */}
       {progress && (

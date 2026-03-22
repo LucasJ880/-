@@ -95,6 +95,8 @@ export const AUDIT_ACTIONS = {
   UPDATE_MESSAGE_FEEDBACK: "update_message_feedback",
   CREATE_EVALUATION_TAG: "create_evaluation_tag",
   UPDATE_EVALUATION_TAG: "update_evaluation_tag",
+  EXTERNAL_SYNC: "external_sync",
+  WEBHOOK_DISPATCH: "webhook_dispatch",
 } as const;
 
 // --- 常用 targetType 常量 ---
@@ -121,4 +123,7 @@ export const AUDIT_TARGETS = {
   CONVERSATION_FEEDBACK: "conversation_feedback",
   MESSAGE_FEEDBACK: "message_feedback",
   EVALUATION_TAG: "evaluation_tag",
+  EXTERNAL_REF: "external_reference",
+  API_TOKEN: "api_token",
+  WEBHOOK: "webhook_endpoint",
 } as const;

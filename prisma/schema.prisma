@@ -79,6 +79,20 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // BidToGo / 外部集成字段
+  category             String?
+  priority             String   @default("medium")
+  tenderStatus         String?
+  sourceSystem         String?
+  sourcePlatform       String?
+  clientOrganization   String?
+  location             String?
+  estimatedValue       Float?
+  currency             String?
+  solicitationNumber   String?
+  workflowTemplate     String?
+  sourceMetadataJson   String?
+
   ownerId      String
   owner        User     @relation(fields: [ownerId], references: [id])
   tasks        Task[]
@@ -95,7 +109,13 @@ model Project {
   tools         ToolRegistry[]
   notificationRules ProjectNotificationRule[]
 
+  externalRef   ExternalReference?
+  intelligence  ProjectIntelligence?
+  documents     ProjectDocument[]
+
   @@index([orgId])
+  @@index([sourceSystem])
+  @@index([tenderStatus])
 }
 
 model Task {
@@ -1007,4 +1027,78 @@ model ProjectNotificationRule {
 
   @@unique([userId, projectId])
   @@index([projectId])
+}
+
+// ============================================================
+// 外部集成：BidToGo 等系统对接
+// ============================================================
+
+model ExternalReference {
+  id         String   @id @default(cuid())
+  system     String
+  externalId String
+  url        String?
+  projectId  String   @unique
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([system, externalId])
+  @@index([system])
+}
+
+model ProjectIntelligence {
+  id             String   @id @default(cuid())
+  projectId      String   @unique
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recommendation String
+  riskLevel      String
+  fitScore       Int      @default(0)
+  summary        String?
+  fullReportUrl  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model ProjectDocument {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  url       String
+  fileType  String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model ApiToken {
+  id          String    @id @default(cuid())
+  name        String
+  token       String    @unique
+  system      String
+  permissions String    @default("project:create")
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([token])
+  @@index([system])
+}
+
+model WebhookEndpoint {
+  id           String    @id @default(cuid())
+  system       String
+  url          String
+  secret       String
+  events       String
+  isActive     Boolean   @default(true)
+  lastCalledAt DateTime?
+  failCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([system])
 }
