@@ -36,6 +36,7 @@ export async function dispatchProject(
       orgId: input.orgId,
       dispatchedAt: now,
       dispatchedById,
+      distributedAt: project.distributedAt ?? now,
     };
 
     if (input.ownerUserId) {
