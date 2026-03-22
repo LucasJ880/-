@@ -1047,16 +1047,17 @@ model ExternalReference {
 }
 
 model ProjectIntelligence {
-  id             String   @id @default(cuid())
-  projectId      String   @unique
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  recommendation String
-  riskLevel      String
-  fitScore       Int      @default(0)
-  summary        String?
-  fullReportUrl  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  projectId       String   @unique
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recommendation  String
+  riskLevel       String
+  fitScore        Int      @default(0)
+  summary         String?
+  fullReportUrl   String?
+  fullReportJson  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model ProjectDocument {

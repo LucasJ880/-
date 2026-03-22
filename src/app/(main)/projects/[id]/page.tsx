@@ -71,6 +71,7 @@ interface ProjectDetail {
     fitScore: number;
     summary: string | null;
     fullReportUrl: string | null;
+    fullReportJson: string | null;
   } | null;
   documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
 }

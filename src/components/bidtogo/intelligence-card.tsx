@@ -21,12 +21,26 @@ interface ExternalRef {
   url: string | null;
 }
 
+interface FullReport {
+  title?: string;
+  description?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  requirements_met?: string[];
+  requirements_gap?: string[];
+  competitive_landscape?: string;
+  pricing_guidance?: string;
+  timeline_notes?: string;
+  [key: string]: unknown;
+}
+
 interface Intelligence {
   recommendation: string;
   riskLevel: string;
   fitScore: number;
   summary: string | null;
   fullReportUrl: string | null;
+  fullReportJson: string | null;
 }
 
 interface ProjectDocument {
@@ -100,6 +114,98 @@ function daysUntil(dateStr: string): number {
   const target = new Date(dateStr);
   const now = new Date();
   return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function ReportList({ label, items }: { label: string; items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <h5 className="text-xs font-semibold text-muted">{label}</h5>
+      <ul className="mt-1 space-y-1">
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-2 text-sm text-foreground">
+            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent/50" />
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FullReportSection({ json }: { json: string | null }) {
+  if (!json) return null;
+
+  let report: FullReport;
+  try {
+    report = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  const hasStructuredContent =
+    report.strengths?.length ||
+    report.weaknesses?.length ||
+    report.requirements_met?.length ||
+    report.requirements_gap?.length ||
+    report.competitive_landscape ||
+    report.pricing_guidance ||
+    report.timeline_notes;
+
+  if (!hasStructuredContent && !report.description) return null;
+
+  return (
+    <div className="mt-4 space-y-4 rounded-lg border border-border/60 bg-background p-4">
+      {report.title && (
+        <h4 className="text-sm font-semibold text-foreground">{report.title}</h4>
+      )}
+      {report.description && (
+        <p className="text-sm leading-relaxed text-foreground/80">{report.description}</p>
+      )}
+      {(report.strengths?.length || report.weaknesses?.length) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {report.strengths && (
+            <ReportList label="优势 / Strengths" items={report.strengths} />
+          )}
+          {report.weaknesses && (
+            <ReportList label="风险 / Weaknesses" items={report.weaknesses} />
+          )}
+        </div>
+      )}
+      {(report.requirements_met?.length || report.requirements_gap?.length) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {report.requirements_met && (
+            <ReportList label="已满足要求" items={report.requirements_met} />
+          )}
+          {report.requirements_gap && (
+            <ReportList label="需补充 / 缺口" items={report.requirements_gap} />
+          )}
+        </div>
+      )}
+      {(report.competitive_landscape || report.pricing_guidance || report.timeline_notes) && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          {report.competitive_landscape && (
+            <div>
+              <h5 className="text-xs font-semibold text-muted">竞争格局</h5>
+              <p className="mt-1 text-sm text-foreground/80">{report.competitive_landscape}</p>
+            </div>
+          )}
+          {report.pricing_guidance && (
+            <div>
+              <h5 className="text-xs font-semibold text-muted">定价参考</h5>
+              <p className="mt-1 text-sm text-foreground/80">{report.pricing_guidance}</p>
+            </div>
+          )}
+          {report.timeline_notes && (
+            <div>
+              <h5 className="text-xs font-semibold text-muted">时间线备注</h5>
+              <p className="mt-1 text-sm text-foreground/80">{report.timeline_notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }) {
@@ -243,6 +349,7 @@ export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }
               {intelligence.summary}
             </p>
           )}
+          <FullReportSection json={intelligence.fullReportJson} />
           {intelligence.fullReportUrl && (
             <a
               href={intelligence.fullReportUrl}

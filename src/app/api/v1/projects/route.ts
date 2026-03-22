@@ -183,6 +183,10 @@ export async function POST(request: NextRequest) {
           fullReportUrl: intelligence.full_report_url
             ? String(intelligence.full_report_url)
             : null,
+          fullReportJson:
+            intelligence.full_report && typeof intelligence.full_report === "object"
+              ? JSON.stringify(intelligence.full_report)
+              : null,
         },
       });
     }
