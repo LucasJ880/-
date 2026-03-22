@@ -29,6 +29,7 @@ import { ProjectDashboard } from "@/components/project-dashboard/project-dashboa
 import { ProgressComparison } from "@/components/progress/progress-comparison";
 import { StageIndicator } from "@/components/progress/stage-indicator";
 import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card";
+import { ProjectProgressSection } from "@/components/tender/project-progress-section";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 
@@ -54,7 +55,8 @@ interface ProjectDetail {
     status: string;
   } | null;
   _count: { tasks: number; environments: number; members: number };
-  // BidToGo fields
+  // BidToGo / tender fields
+  category?: string | null;
   sourceSystem?: string | null;
   sourcePlatform?: string | null;
   clientOrganization?: string | null;
@@ -64,6 +66,16 @@ interface ProjectDetail {
   solicitationNumber?: string | null;
   tenderStatus?: string | null;
   dueDate?: string | null;
+  createdAt?: string | null;
+  publicDate?: string | null;
+  questionCloseDate?: string | null;
+  closeDate?: string | null;
+  distributedAt?: string | null;
+  interpretedAt?: string | null;
+  supplierQuotedAt?: string | null;
+  submittedAt?: string | null;
+  awardDate?: string | null;
+  sourceMetadataJson?: string | null;
   externalRef?: { system: string; externalId: string; url: string | null } | null;
   intelligence?: {
     recommendation: string;
@@ -442,6 +454,26 @@ function ProjectDetailContent() {
             externalRef: project.externalRef ?? null,
             intelligence: project.intelligence ?? null,
             documents: project.documents ?? [],
+          }}
+        />
+      )}
+
+      {/* Tender progress section — 招投标项目专用 */}
+      {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
+        <ProjectProgressSection
+          project={{
+            createdAt: project.createdAt ?? null,
+            tenderStatus: project.tenderStatus ?? null,
+            publicDate: project.publicDate ?? null,
+            questionCloseDate: project.questionCloseDate ?? null,
+            closeDate: project.closeDate ?? null,
+            dueDate: project.dueDate ?? null,
+            distributedAt: project.distributedAt ?? null,
+            interpretedAt: project.interpretedAt ?? null,
+            supplierQuotedAt: project.supplierQuotedAt ?? null,
+            submittedAt: project.submittedAt ?? null,
+            awardDate: project.awardDate ?? null,
+            sourceMetadataJson: project.sourceMetadataJson ?? null,
           }}
         />
       )}

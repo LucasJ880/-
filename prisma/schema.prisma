@@ -93,6 +93,16 @@ model Project {
   workflowTemplate     String?
   sourceMetadataJson   String?
 
+  // 招投标流程日期
+  publicDate           DateTime?
+  questionCloseDate    DateTime?
+  closeDate            DateTime?
+  distributedAt        DateTime?
+  interpretedAt        DateTime?
+  supplierQuotedAt     DateTime?
+  submittedAt          DateTime?
+  awardDate            DateTime?
+
   ownerId      String
   owner        User     @relation(fields: [ownerId], references: [id])
   tasks        Task[]

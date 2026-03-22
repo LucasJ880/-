@@ -72,6 +72,17 @@ export async function PATCH(
   if (body.tenderStatus !== undefined) data.tenderStatus = body.tenderStatus;
   if (body.priority !== undefined) data.priority = body.priority;
 
+  const dateFields = [
+    "publicDate", "questionCloseDate", "closeDate",
+    "distributedAt", "interpretedAt", "supplierQuotedAt",
+    "submittedAt", "awardDate",
+  ] as const;
+  for (const f of dateFields) {
+    if (body[f] !== undefined) {
+      data[f] = body[f] ? new Date(body[f]) : null;
+    }
+  }
+
   if (body.orgId !== undefined) {
     return NextResponse.json(
       { error: "不允许通过此接口修改组织归属" },

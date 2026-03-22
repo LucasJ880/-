@@ -145,6 +145,11 @@ export async function POST(request: NextRequest) {
           ? String(project.solicitation_number)
           : null,
         dueDate: deadline,
+        closeDate: deadline,
+        publicDate: project.public_date ? new Date(String(project.public_date)) : null,
+        questionCloseDate: project.question_close_date
+          ? new Date(String(project.question_close_date))
+          : null,
         workflowTemplate,
         sourceMetadataJson: metadata ? JSON.stringify(metadata) : null,
         ownerId: systemUser!.id,
