@@ -7,6 +7,7 @@ import {
   getProjectStage,
   getProjectStageStatus,
   getStageSteps,
+  getProjectCompletion,
   resolveCloseDate,
   formatCountdown,
 } from "@/lib/tender/stage";
@@ -58,6 +59,7 @@ export function ProjectProgressSection({
   const currentStage = getProjectStage(project);
   const stageStatus = getProjectStageStatus(project);
   const stages = getStageSteps(project);
+  const completion = getProjectCompletion(project);
   const timelineEvents = buildProjectTimelineEvents(project);
   const closeDate = resolveCloseDate(project);
   const countdown = closeDate ? formatCountdown(closeDate) : null;
@@ -91,6 +93,15 @@ export function ProjectProgressSection({
             <span className="text-muted">当前阶段：</span>
             <span className="font-semibold text-foreground">
               {STAGE_LABELS[currentStage] || currentStage}
+            </span>
+          </div>
+          <div>
+            <span className="text-muted">完成进度：</span>
+            <span className={cn(
+              "font-semibold",
+              completion >= 100 ? "text-success-text" : "text-foreground"
+            )}>
+              {completion}%
             </span>
           </div>
           {countdown && (
@@ -132,7 +143,7 @@ export function ProjectProgressSection({
       {/* ===== B. 流程进度 Stepper ===== */}
       <div>
         <h4 className="mb-3 text-xs font-medium text-muted">流程阶段</h4>
-        <ProjectStageStepper stages={stages} />
+        <ProjectStageStepper stages={stages} completion={completion} />
       </div>
 
       {/* Divider */}

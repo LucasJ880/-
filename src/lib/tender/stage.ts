@@ -1,13 +1,13 @@
 import type { TenderProject, TenderStage, StageInfo, StageStatus } from "./types";
 import { TIMEZONE } from "@/lib/time";
 
-const STAGES: Array<{ key: TenderStage; label: string }> = [
-  { key: "initiation", label: "立项" },
-  { key: "distribution", label: "项目分发" },
-  { key: "interpretation", label: "项目解读" },
-  { key: "supplier_inquiry", label: "供应商询价" },
-  { key: "supplier_quote", label: "供应商报价" },
-  { key: "submission", label: "项目提交" },
+const STAGES: Array<{ key: TenderStage; label: string; weight: number }> = [
+  { key: "initiation", label: "立项", weight: 0 },
+  { key: "distribution", label: "项目分发", weight: 10 },
+  { key: "interpretation", label: "项目解读", weight: 10 },
+  { key: "supplier_inquiry", label: "供应商询价", weight: 20 },
+  { key: "supplier_quote", label: "供应商报价", weight: 50 },
+  { key: "submission", label: "项目提交", weight: 10 },
 ];
 
 const STATUS_TO_STAGE: Record<string, TenderStage> = {
@@ -79,7 +79,7 @@ export function resolveCloseDate(p: TenderProject): Date | null {
 }
 
 /**
- * 生成 6 步 stepper 的状态列表。
+ * 生成 6 步 stepper 的状态列表（含各阶段权重）。
  */
 export function getStageSteps(p: TenderProject): StageInfo[] {
   const current = getProjectStage(p);
@@ -112,8 +112,28 @@ export function getStageSteps(p: TenderProject): StageInfo[] {
       }
     }
 
-    return { key: stage.key, label: stage.label, status };
+    return { key: stage.key, label: stage.label, status, weight: stage.weight };
   });
+}
+
+/**
+ * 计算项目整体完成百分比。
+ * 已完成的阶段权重累加；当前阶段视为进行中（不计入已完成比例）。
+ */
+export function getProjectCompletion(p: TenderProject): number {
+  const current = getProjectStage(p);
+  const overallStatus = getProjectStageStatus(p);
+  const stageIndex = STAGES.findIndex((s) => s.key === current);
+
+  let pct = 0;
+  for (let i = 0; i < STAGES.length; i++) {
+    if (i < stageIndex) {
+      pct += STAGES[i].weight;
+    } else if (i === stageIndex && overallStatus === "completed") {
+      pct += STAGES[i].weight;
+    }
+  }
+  return pct;
 }
 
 /**

@@ -35,6 +35,7 @@ export interface StageInfo {
   key: TenderStage;
   label: string;
   status: StageStatus;
+  weight: number;
 }
 
 export type TimelineEventKind = "internal" | "external" | "today";
