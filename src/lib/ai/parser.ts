@@ -1,60 +1,28 @@
-import OpenAI from "openai";
+/**
+ * 青砚 AI 响应解析器
+ *
+ * 从 AI 回复文本中提取结构化数据。
+ * 从旧 src/lib/ai.ts 迁移而来，增加了类型安全和容错。
+ */
+
 import { resolveChineseDate } from "@/lib/date/relative-date";
 import { nowToronto } from "@/lib/time";
+import type { TaskSuggestion, EventSuggestion, WorkSuggestion } from "./schemas";
 
-let _client: OpenAI | null = null;
-
-export function getAIClient(): OpenAI {
-  if (_client) return _client;
-
-  _client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-  });
-
-  return _client;
-}
-
-export function getModel(): string {
-  return process.env.OPENAI_MODEL || "gpt-5.4";
-}
-
-/* ── Legacy type (kept for backward compat imports) ── */
-
-export interface TaskSuggestion {
-  title: string;
-  description: string;
-  priority: "low" | "medium" | "high" | "urgent";
-  dueDate: string | null;
-  projectId: string | null;
-  project: string | null;
-  needReminder: boolean;
-}
-
-/* ── New unified types ── */
-
-export interface EventSuggestion {
-  title: string;
-  startTime: string;
-  endTime: string;
-  allDay: boolean;
-  location: string | null;
-}
-
-export interface WorkSuggestion {
-  type: "task" | "event" | "task_and_event";
-  task: TaskSuggestion | null;
-  event: EventSuggestion | null;
-}
-
-/* ── Extraction helpers ── */
+// ── Block 标记 ────────────────────────────────────────────────
 
 const WORK_JSON_START = "[WORK_JSON]";
 const WORK_JSON_END = "[/WORK_JSON]";
 const TASK_JSON_START = "[TASK_JSON]";
 const TASK_JSON_END = "[/TASK_JSON]";
 
-function stripBlock(text: string, start: string, end: string): { cleanText: string; jsonStr: string | null } {
+// ── 内部工具 ──────────────────────────────────────────────────
+
+function stripBlock(
+  text: string,
+  start: string,
+  end: string
+): { cleanText: string; jsonStr: string | null } {
   const s = text.indexOf(start);
   const e = text.indexOf(end);
   if (s === -1 || e === -1 || e <= s) return { cleanText: text.trim(), jsonStr: null };
@@ -65,8 +33,8 @@ function stripBlock(text: string, start: string, end: string): { cleanText: stri
 
 function parseTaskFields(parsed: Record<string, unknown>): TaskSuggestion {
   return {
-    title: (parsed.title as string) || "",
-    description: (parsed.description as string) || "",
+    title: String(parsed.title || ""),
+    description: String(parsed.description || ""),
     priority: ["low", "medium", "high", "urgent"].includes(parsed.priority as string)
       ? (parsed.priority as TaskSuggestion["priority"])
       : "medium",
@@ -79,15 +47,15 @@ function parseTaskFields(parsed: Record<string, unknown>): TaskSuggestion {
 
 function parseEventFields(parsed: Record<string, unknown>): EventSuggestion {
   return {
-    title: (parsed.title as string) || "",
-    startTime: (parsed.startTime as string) || "",
-    endTime: (parsed.endTime as string) || "",
+    title: String(parsed.title || ""),
+    startTime: String(parsed.startTime || ""),
+    endTime: String(parsed.endTime || ""),
     allDay: Boolean(parsed.allDay),
     location: (parsed.location as string) || null,
   };
 }
 
-/* ── Date post-processing ── */
+// ── 日期后处理 ────────────────────────────────────────────────
 
 function fmtTime(h: number, m: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -111,7 +79,6 @@ function postProcessEvent(event: EventSuggestion, now: Date): void {
   if (startR.time) {
     event.startTime = `${startR.date}T${startR.time}`;
     event.allDay = false;
-
     const endR = resolveChineseDate(event.endTime, now);
     if (endR?.time) {
       event.endTime = `${endR.date}T${endR.time}`;
@@ -131,20 +98,20 @@ function postProcessDates(suggestion: WorkSuggestion): void {
   if (suggestion.event) postProcessEvent(suggestion.event, now);
 }
 
+// ── 公开 API ──────────────────────────────────────────────────
+
 /**
  * 从 AI 回复中提取 WorkSuggestion。
  * 优先识别 [WORK_JSON]，回退兼容旧 [TASK_JSON]。
- * 提取后自动执行日期后处理（中文相对日期 → 绝对日期）。
  */
 export function extractWorkSuggestion(
   text: string
 ): { cleanText: string; suggestion: WorkSuggestion | null } {
-  // 1. Try new WORK_JSON format
+  // 1. WORK_JSON
   const work = stripBlock(text, WORK_JSON_START, WORK_JSON_END);
   if (work.jsonStr) {
     try {
       const parsed = JSON.parse(work.jsonStr);
-
       let suggestion: WorkSuggestion | null = null;
 
       if (parsed.type === "task_and_event" && parsed.task && parsed.event) {
@@ -168,7 +135,7 @@ export function extractWorkSuggestion(
     } catch { /* fall through */ }
   }
 
-  // 2. Fallback: legacy TASK_JSON
+  // 2. Legacy TASK_JSON
   const legacy = stripBlock(text, TASK_JSON_START, TASK_JSON_END);
   if (legacy.jsonStr) {
     try {

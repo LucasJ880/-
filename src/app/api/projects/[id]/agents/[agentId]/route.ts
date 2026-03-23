@@ -16,7 +16,7 @@ function buildConfigSnapshot(a: Record<string, unknown>) {
     knowledgeBaseId: a.knowledgeBaseId ?? null,
     knowledgeBaseVersionId: a.knowledgeBaseVersionId ?? null,
     modelProvider: a.modelProvider ?? "openai",
-    modelName: a.modelName ?? "gpt-5.4",
+    modelName: a.modelName ?? "gpt-5.2",
     temperature: a.temperature ?? 0.7,
     maxTokens: a.maxTokens ?? 4096,
     systemBehaviorNote: a.systemBehaviorNote ?? null,

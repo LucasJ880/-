@@ -21,7 +21,7 @@ function buildConfigSnapshot(fields: Record<string, unknown>) {
     knowledgeBaseId: fields.knowledgeBaseId ?? null,
     knowledgeBaseVersionId: fields.knowledgeBaseVersionId ?? null,
     modelProvider: fields.modelProvider ?? "openai",
-    modelName: fields.modelName ?? "gpt-5.4",
+    modelName: fields.modelName ?? "gpt-5.2",
     temperature: fields.temperature ?? 0.7,
     maxTokens: fields.maxTokens ?? 4096,
     systemBehaviorNote: fields.systemBehaviorNote ?? null,
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const promptId = typeof body.promptId === "string" && body.promptId.trim() ? body.promptId.trim() : null;
   const knowledgeBaseId = typeof body.knowledgeBaseId === "string" && body.knowledgeBaseId.trim() ? body.knowledgeBaseId.trim() : null;
   const modelProvider = typeof body.modelProvider === "string" && body.modelProvider.trim() ? body.modelProvider.trim() : "openai";
-  const modelName = typeof body.modelName === "string" && body.modelName.trim() ? body.modelName.trim() : "gpt-5.4";
+  const modelName = typeof body.modelName === "string" && body.modelName.trim() ? body.modelName.trim() : "gpt-5.2";
   const temperature = typeof body.temperature === "number" ? body.temperature : 0.7;
   const maxTokens = typeof body.maxTokens === "number" ? body.maxTokens : 4096;
 

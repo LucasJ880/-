@@ -1,11 +1,16 @@
 import { NextRequest } from "next/server";
-import { getAIClient, getModel } from "@/lib/ai";
-import { getSystemPrompt, buildContextBlock } from "@/lib/prompts";
-import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import {
+  isAIConfigured,
+  createChatStream,
+  getChatSystemPrompt,
+  buildContextBlock,
+  type WorkContext,
+} from "@/lib/ai";
 
-async function getWorkContext(userId: string, role: string) {
+async function getWorkContext(userId: string, role: string): Promise<WorkContext> {
   const projectIds = await getVisibleProjectIds(userId, role);
 
   const projectWhere = projectIds !== null
@@ -61,35 +66,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { messages } = await request.json();
-
-  if (!process.env.OPENAI_API_KEY) {
+  if (!isAIConfigured()) {
     return new Response(
-      JSON.stringify({
-        error: "未配置 AI API 密钥，请在 .env 中设置 OPENAI_API_KEY",
-      }),
+      JSON.stringify({ error: "未配置 AI API 密钥，请在 .env 中设置 OPENAI_API_KEY" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 
-  const client = getAIClient();
-  const model = getModel();
+  const { messages } = await request.json();
 
   const workContext = await getWorkContext(user.id, user.role);
-  const contextBlock = buildContextBlock(workContext);
-
-  const systemMessage = {
-    role: "system" as const,
-    content: getSystemPrompt() + contextBlock,
-  };
+  const systemPrompt = getChatSystemPrompt() + buildContextBlock(workContext);
 
   try {
-    const stream = await client.chat.completions.create({
-      model,
-      messages: [systemMessage, ...messages],
-      stream: true,
-      temperature: 0.7,
-      max_tokens: 4096,
+    const stream = await createChatStream({
+      systemPrompt,
+      messages,
+      mode: "chat",
     });
 
     const encoder = new TextEncoder();
@@ -101,21 +94,16 @@ export async function POST(request: NextRequest) {
             const delta = chunk.choices[0]?.delta?.content;
             if (delta) {
               controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ content: delta })}\n\n`
-                )
+                encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`)
               );
             }
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "AI 服务调用失败";
+          const message = err instanceof Error ? err.message : "AI 服务调用失败";
           controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ error: message })}\n\n`
-            )
+            encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`)
           );
           controller.close();
         }
@@ -130,8 +118,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "AI 服务连接失败";
+    const message = err instanceof Error ? err.message : "AI 服务连接失败";
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

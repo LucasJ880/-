@@ -5,6 +5,8 @@ import type {
   LLMGenerateResult,
   ToolCallRequest,
 } from "./types";
+import { getClient } from "@/lib/ai/client";
+import { getAIConfig } from "@/lib/ai/config";
 
 export class OpenAIProvider implements LLMProvider {
   readonly name = "openai";
@@ -12,17 +14,15 @@ export class OpenAIProvider implements LLMProvider {
   private client: OpenAI;
 
   constructor() {
-    this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
-    });
+    this.client = getClient();
   }
 
   async generate(req: LLMGenerateRequest): Promise<LLMGenerateResult> {
     const start = Date.now();
+    const cfg = getAIConfig();
 
     const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model: req.model || process.env.OPENAI_MODEL || "gpt-5.4",
+      model: req.model || cfg.primaryModel,
       messages: req.messages.map((m) => {
         if (m.role === "tool") {
           return {

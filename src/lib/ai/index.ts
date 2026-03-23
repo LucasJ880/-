@@ -1,0 +1,31 @@
+/**
+ * 青砚 AI 模块 — 统一入口
+ */
+
+export { getAIConfig, isAIConfigured, getTaskPreset, TASK_PRESETS } from "./config";
+export type { AIConfig, TaskPreset, TaskMode, ReasoningEffort } from "./config";
+
+export { getClient, createChatStream, createCompletion } from "./client";
+export type { ChatStreamOptions, CompletionOptions } from "./client";
+
+export {
+  getChatSystemPrompt,
+  getSummarySystemPrompt,
+  getTaskBreakdownPrompt,
+  getActionAdvicePrompt,
+  buildContextBlock,
+} from "./prompts";
+export type { WorkContext } from "./prompts";
+
+export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
+
+export type {
+  TaskSuggestion,
+  EventSuggestion,
+  WorkSuggestion,
+  SubTask,
+  TaskBreakdown,
+  Summary,
+  ActionItem,
+  ActionAdvice,
+} from "./schemas";
