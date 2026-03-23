@@ -5,6 +5,7 @@ const STAGES: Array<{ key: TenderStage; label: string }> = [
   { key: "initiation", label: "立项" },
   { key: "distribution", label: "项目分发" },
   { key: "interpretation", label: "项目解读" },
+  { key: "supplier_inquiry", label: "供应商询价" },
   { key: "supplier_quote", label: "供应商报价" },
   { key: "submission", label: "项目提交" },
 ];
@@ -14,6 +15,7 @@ const STATUS_TO_STAGE: Record<string, TenderStage> = {
   under_review: "distribution",
   qualification_check: "distribution",
   pursuing: "interpretation",
+  supplier_inquiry: "supplier_inquiry",
   supplier_quote: "supplier_quote",
   bid_preparation: "submission",
   bid_submitted: "submission",
@@ -30,6 +32,7 @@ const STATUS_TO_STAGE: Record<string, TenderStage> = {
 export function getProjectStage(p: TenderProject): TenderStage {
   if (p.submittedAt) return "submission";
   if (p.supplierQuotedAt) return "supplier_quote";
+  if (p.supplierInquiredAt) return "supplier_inquiry";
   if (p.interpretedAt) return "interpretation";
   if (p.distributedAt || p.dispatchedAt) return "distribution";
 
@@ -76,7 +79,7 @@ export function resolveCloseDate(p: TenderProject): Date | null {
 }
 
 /**
- * 生成 5 步 stepper 的状态列表。
+ * 生成 6 步 stepper 的状态列表。
  */
 export function getStageSteps(p: TenderProject): StageInfo[] {
   const current = getProjectStage(p);

@@ -75,8 +75,8 @@ export async function PATCH(
 
   const dateFields = [
     "publicDate", "questionCloseDate", "closeDate",
-    "distributedAt", "interpretedAt", "supplierQuotedAt",
-    "submittedAt", "awardDate",
+    "distributedAt", "interpretedAt", "supplierInquiredAt",
+    "supplierQuotedAt", "submittedAt", "awardDate",
   ] as const;
   for (const f of dateFields) {
     if (body[f] !== undefined) {

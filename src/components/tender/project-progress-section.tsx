@@ -19,6 +19,7 @@ const STAGE_LABELS: Record<string, string> = {
   initiation: "立项",
   distribution: "项目分发",
   interpretation: "项目解读",
+  supplier_inquiry: "供应商询价",
   supplier_quote: "供应商报价",
   submission: "项目提交",
 };

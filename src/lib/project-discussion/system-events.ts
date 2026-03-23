@@ -238,6 +238,7 @@ const DATE_FIELD_LABELS: Record<string, string> = {
   awardDate: "结果公布时间",
   distributedAt: "分发时间",
   interpretedAt: "解读时间",
+  supplierInquiredAt: "供应商询价时间",
   supplierQuotedAt: "供应商报价时间",
 };
 

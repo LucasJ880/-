@@ -100,6 +100,7 @@ model Project {
   closeDate            DateTime?
   distributedAt        DateTime?
   interpretedAt        DateTime?
+  supplierInquiredAt   DateTime?
   supplierQuotedAt     DateTime?
   submittedAt          DateTime?
   awardDate            DateTime?

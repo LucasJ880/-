@@ -20,6 +20,7 @@ export function buildProjectTimelineEvents(
     { key: "createdAt", label: "项目创建", date: p.createdAt, kind: "internal" },
     { key: "distributedAt", label: "项目分发", date: p.distributedAt || p.dispatchedAt || null, kind: "internal" },
     { key: "interpretedAt", label: "项目解读", date: p.interpretedAt, kind: "internal" },
+    { key: "supplierInquiredAt", label: "供应商询价", date: p.supplierInquiredAt, kind: "internal" },
     { key: "supplierQuotedAt", label: "供应商报价", date: p.supplierQuotedAt, kind: "internal" },
     { key: "publicDate", label: "发布时间", date: p.publicDate, kind: "external" },
     {

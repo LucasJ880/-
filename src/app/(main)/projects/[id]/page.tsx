@@ -73,6 +73,7 @@ interface ProjectDetail {
   dispatchedAt?: string | null;
   intakeStatus?: string | null;
   interpretedAt?: string | null;
+  supplierInquiredAt?: string | null;
   supplierQuotedAt?: string | null;
   submittedAt?: string | null;
   awardDate?: string | null;
@@ -414,6 +415,7 @@ function ProjectDetailContent() {
             dispatchedAt: project.dispatchedAt ?? null,
             intakeStatus: project.intakeStatus ?? null,
             interpretedAt: project.interpretedAt ?? null,
+            supplierInquiredAt: project.supplierInquiredAt ?? null,
             supplierQuotedAt: project.supplierQuotedAt ?? null,
             submittedAt: project.submittedAt ?? null,
             awardDate: project.awardDate ?? null,

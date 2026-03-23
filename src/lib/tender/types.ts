@@ -8,6 +8,7 @@ export interface TenderProject {
   distributedAt: string | null;
   dispatchedAt?: string | null;
   interpretedAt: string | null;
+  supplierInquiredAt: string | null;
   supplierQuotedAt: string | null;
   submittedAt: string | null;
   awardDate: string | null;
@@ -19,6 +20,7 @@ export type TenderStage =
   | "initiation"
   | "distribution"
   | "interpretation"
+  | "supplier_inquiry"
   | "supplier_quote"
   | "submission";
 
