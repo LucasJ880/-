@@ -6,10 +6,12 @@ export interface TenderProject {
   closeDate: string | null;
   dueDate: string | null;
   distributedAt: string | null;
+  dispatchedAt?: string | null;
   interpretedAt: string | null;
   supplierQuotedAt: string | null;
   submittedAt: string | null;
   awardDate: string | null;
+  intakeStatus?: string | null;
   sourceMetadataJson?: string | null;
 }
 

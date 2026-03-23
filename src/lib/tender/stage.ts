@@ -25,13 +25,15 @@ const STATUS_TO_STAGE: Record<string, TenderStage> = {
 
 /**
  * 推导当前招投标阶段。
- * 优先使用日期字段，兜底用 tenderStatus。
+ * 优先使用日期字段，兜底用 tenderStatus / intakeStatus。
  */
 export function getProjectStage(p: TenderProject): TenderStage {
   if (p.submittedAt) return "submission";
   if (p.supplierQuotedAt) return "supplier_quote";
   if (p.interpretedAt) return "interpretation";
-  if (p.distributedAt) return "distribution";
+  if (p.distributedAt || p.dispatchedAt) return "distribution";
+
+  if (p.intakeStatus === "dispatched") return "distribution";
 
   if (p.tenderStatus && STATUS_TO_STAGE[p.tenderStatus]) {
     return STATUS_TO_STAGE[p.tenderStatus];

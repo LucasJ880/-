@@ -70,6 +70,8 @@ interface ProjectDetail {
   questionCloseDate?: string | null;
   closeDate?: string | null;
   distributedAt?: string | null;
+  dispatchedAt?: string | null;
+  intakeStatus?: string | null;
   interpretedAt?: string | null;
   supplierQuotedAt?: string | null;
   submittedAt?: string | null;
@@ -409,6 +411,8 @@ function ProjectDetailContent() {
             closeDate: project.closeDate ?? null,
             dueDate: project.dueDate ?? null,
             distributedAt: project.distributedAt ?? null,
+            dispatchedAt: project.dispatchedAt ?? null,
+            intakeStatus: project.intakeStatus ?? null,
             interpretedAt: project.interpretedAt ?? null,
             supplierQuotedAt: project.supplierQuotedAt ?? null,
             submittedAt: project.submittedAt ?? null,

@@ -133,7 +133,7 @@ export default function ProjectIntakePage() {
               setKeyword(e.target.value);
               setPage(1);
             }}
-            className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full rounded-lg border border-[rgba(26,36,32,0.12)] bg-white pl-10 pr-4 py-2.5 text-sm text-[#1a2420] shadow-sm placeholder:text-[#B8C4C0] outline-none focus:border-[#4F7C78] focus:ring-2 focus:ring-[#4F7C78]/20"
           />
         </div>
         <div className="text-sm text-muted">
@@ -230,7 +230,7 @@ function ProjectIntakeCard({
   const pri = PRIORITY_LABELS[project.priority] ?? PRIORITY_LABELS.medium;
 
   return (
-    <div className="group rounded-xl border border-border bg-card p-4 sm:p-5 hover:shadow-sm transition-all">
+    <div className="group rounded-xl border border-[rgba(26,36,32,0.1)] bg-[#faf8f4] p-4 sm:p-5 shadow-sm hover:shadow-md transition-all">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         {/* Left */}
         <div className="min-w-0 flex-1 space-y-2">
