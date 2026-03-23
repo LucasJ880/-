@@ -741,7 +741,7 @@ model Agent {
   knowledgeBaseId        String?
   knowledgeBaseVersionId String?
   modelProvider          String   @default("openai")
-  modelName              String   @default("gpt-4o-mini")
+  modelName              String   @default("gpt-5.4")
   temperature            Float    @default(0.7)
   maxTokens              Int      @default(4096)
   systemBehaviorNote     String?

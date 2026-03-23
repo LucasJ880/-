@@ -99,7 +99,7 @@ export async function runAgentForConversation(
   }
 
   const modelProvider = agentConfig?.modelProvider ?? (extraConfig?.modelProvider as string) ?? "openai";
-  const modelName = agentConfig?.modelName ?? (extraConfig?.modelName as string) ?? process.env.OPENAI_MODEL ?? "gpt-4o";
+  const modelName = agentConfig?.modelName ?? (extraConfig?.modelName as string) ?? process.env.OPENAI_MODEL ?? "gpt-5.4";
   const temperature = agentConfig?.temperature ?? (extraConfig?.temperature as number) ?? 0.7;
   const maxTokens = agentConfig?.maxTokens ?? (extraConfig?.maxTokens as number) ?? 4096;
   const behaviorNote = agentConfig?.systemBehaviorNote ?? (extraConfig?.systemBehaviorNote as string) ?? null;

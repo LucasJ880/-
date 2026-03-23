@@ -16,7 +16,7 @@ export function getAIClient(): OpenAI {
 }
 
 export function getModel(): string {
-  return process.env.OPENAI_MODEL || "gpt-4o";
+  return process.env.OPENAI_MODEL || "gpt-5.4";
 }
 
 /* ── Legacy type (kept for backward compat imports) ── */

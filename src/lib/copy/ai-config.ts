@@ -5,7 +5,7 @@
 export const AI_CONFIG_ENV_SNIPPET = `# OpenAI
 OPENAI_API_KEY="sk-..."
 OPENAI_BASE_URL="https://api.openai.com/v1"
-OPENAI_MODEL="gpt-4o"
+OPENAI_MODEL="gpt-5.4"
 
 # 或 DeepSeek
 OPENAI_API_KEY="sk-..."

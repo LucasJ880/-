@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       messages: [systemMessage, ...messages],
       stream: true,
       temperature: 0.7,
-      max_tokens: 1500,
+      max_tokens: 4096,
     });
 
     const encoder = new TextEncoder();

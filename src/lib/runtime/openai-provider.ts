@@ -22,7 +22,7 @@ export class OpenAIProvider implements LLMProvider {
     const start = Date.now();
 
     const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model: req.model || process.env.OPENAI_MODEL || "gpt-4o",
+      model: req.model || process.env.OPENAI_MODEL || "gpt-5.4",
       messages: req.messages.map((m) => {
         if (m.role === "tool") {
           return {

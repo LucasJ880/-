@@ -46,7 +46,7 @@ npm run dev
 # OpenAI
 OPENAI_API_KEY="sk-..."
 OPENAI_BASE_URL="https://api.openai.com/v1"
-OPENAI_MODEL="gpt-4o-mini"
+OPENAI_MODEL="gpt-5.4"
 
 # DeepSeek
 OPENAI_API_KEY="sk-..."
