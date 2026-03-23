@@ -25,13 +25,13 @@ export const TASK_PRESETS: Record<string, TaskPreset> = {
   normal: {
     model: MODEL_PRIMARY,
     temperature: 0.5,
-    maxTokens: 4096,
+    maxTokens: 8192,
     reasoningEffort: "medium",
   },
   deep: {
     model: MODEL_PRIMARY,
     temperature: 0.3,
-    maxTokens: 8192,
+    maxTokens: 16384,
     reasoningEffort: "high",
   },
   fast: {
@@ -43,7 +43,7 @@ export const TASK_PRESETS: Record<string, TaskPreset> = {
   chat: {
     model: MODEL_PRIMARY,
     temperature: 0.5,
-    maxTokens: 4096,
+    maxTokens: 8192,
     reasoningEffort: "medium",
   },
 } as const;

@@ -28,6 +28,12 @@ export {
   matchProjectByName,
 } from "./context";
 
+export {
+  prepareConversation,
+  buildSummaryPrefix,
+} from "./conversation";
+export type { ChatMessage, PreparedConversation } from "./conversation";
+
 export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
 
 export type {

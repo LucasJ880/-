@@ -9,6 +9,8 @@ import {
   getWorkContext,
   getProjectDeepContext,
   matchProjectByName,
+  prepareConversation,
+  buildSummaryPrefix,
 } from "@/lib/ai";
 
 export async function POST(request: NextRequest) {
@@ -27,14 +29,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { messages } = await request.json();
+  const { messages: rawMessages } = await request.json();
 
-  const workContext = await getWorkContext(user.id, user.role);
+  const [workContext, prepared] = await Promise.all([
+    getWorkContext(user.id, user.role),
+    prepareConversation(rawMessages),
+  ]);
 
   let deepBlock = "";
-  const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user");
+  const lastUserMsg = [...prepared.messages]
+    .reverse()
+    .find((m) => m.role === "user");
   if (lastUserMsg) {
-    const matched = matchProjectByName(lastUserMsg.content ?? "", workContext.projects);
+    const matched = matchProjectByName(
+      lastUserMsg.content ?? "",
+      workContext.projects
+    );
     if (matched) {
       const deep = await getProjectDeepContext(matched.id);
       if (deep) {
@@ -46,13 +56,14 @@ export async function POST(request: NextRequest) {
   const systemPrompt =
     getChatSystemPrompt() +
     buildContextBlock(workContext) +
-    deepBlock;
+    deepBlock +
+    buildSummaryPrefix(prepared.summarizedContext);
 
   try {
     const stream = await createChatStream({
       systemPrompt,
-      messages,
-      mode: "chat",
+      messages: prepared.messages,
+      mode: prepared.mode,
     });
 
     const encoder = new TextEncoder();
@@ -64,16 +75,21 @@ export async function POST(request: NextRequest) {
             const delta = chunk.choices[0]?.delta?.content;
             if (delta) {
               controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`)
+                encoder.encode(
+                  `data: ${JSON.stringify({ content: delta })}\n\n`
+                )
               );
             }
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
-          const message = err instanceof Error ? err.message : "AI 服务调用失败";
+          const message =
+            err instanceof Error ? err.message : "AI 服务调用失败";
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`)
+            encoder.encode(
+              `data: ${JSON.stringify({ error: message })}\n\n`
+            )
           );
           controller.close();
         }
@@ -88,7 +104,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "AI 服务连接失败";
+    const message =
+      err instanceof Error ? err.message : "AI 服务连接失败";
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
