@@ -171,6 +171,12 @@ export async function POST(request: NextRequest) {
 
     // Intelligence
     if (intelligence) {
+      const fullReport = intelligence.full_report as Record<string, unknown> | undefined;
+      const reportMarkdown =
+        fullReport && typeof fullReport.report_markdown === "string"
+          ? fullReport.report_markdown
+          : null;
+
       await tx.projectIntelligence.create({
         data: {
           projectId: newProject.id,
@@ -190,9 +196,10 @@ export async function POST(request: NextRequest) {
             ? String(intelligence.full_report_url)
             : null,
           fullReportJson:
-            intelligence.full_report && typeof intelligence.full_report === "object"
-              ? JSON.stringify(intelligence.full_report)
+            fullReport && typeof fullReport === "object"
+              ? JSON.stringify(fullReport)
               : null,
+          reportMarkdown,
         },
       });
     }

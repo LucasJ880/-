@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
+    "@tailwindcss/typography": "^0.5.19",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -24,7 +25,9 @@
     "openai": "^6.32.0",
     "prisma": "^6.19.2",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

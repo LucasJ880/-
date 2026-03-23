@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ExternalLink,
   Shield,
@@ -44,6 +46,7 @@ interface Intelligence {
   summary: string | null;
   fullReportUrl: string | null;
   fullReportJson: string | null;
+  reportMarkdown: string | null;
 }
 
 interface ProjectDocument {
@@ -193,20 +196,26 @@ function FullReportInline({ report }: { report: FullReport }) {
 }
 
 function FullReportSection({
+  markdown,
   json,
   url,
 }: {
+  markdown: string | null;
   json: string | null;
   url: string | null;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const [iframeLoaded, setIframeLoaded] = useState(false);
 
   let report: FullReport | null = null;
   if (json) {
     try {
       report = JSON.parse(json);
     } catch { /* ignore */ }
+  }
+
+  let reportMd = markdown || null;
+  if (!reportMd && report && typeof report.report_markdown === "string") {
+    reportMd = report.report_markdown as string;
   }
 
   const hasStructuredContent = report && (
@@ -220,7 +229,7 @@ function FullReportSection({
     report.timeline_notes
   );
 
-  const hasContent = hasStructuredContent || url;
+  const hasContent = reportMd || hasStructuredContent || url;
   if (!hasContent) return null;
 
   return (
@@ -250,32 +259,25 @@ function FullReportSection({
 
       {expanded && (
         <div className="border-t border-border/60 px-4 py-4">
-          {hasStructuredContent && report ? (
+          {reportMd ? (
+            <article className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground/80 prose-li:text-foreground/80 prose-strong:text-foreground prose-table:text-sm prose-th:bg-accent/5 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 prose-blockquote:border-accent/30 prose-blockquote:text-muted">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {reportMd}
+              </ReactMarkdown>
+            </article>
+          ) : hasStructuredContent && report ? (
             <FullReportInline report={report} />
           ) : url ? (
-            <div className="relative">
-              {!iframeLoaded && (
-                <div className="flex items-center justify-center py-12 text-sm text-muted">
-                  加载报告中...
-                </div>
-              )}
-              <iframe
-                src={url}
-                title="AI 完整分析报告"
-                className={cn(
-                  "w-full rounded-lg border border-border",
-                  iframeLoaded ? "opacity-100" : "opacity-0 absolute inset-0"
-                )}
-                style={{ minHeight: 480 }}
-                onLoad={() => setIframeLoaded(true)}
-                sandbox="allow-same-origin allow-scripts allow-popups"
-              />
-              <p className="mt-2 text-center text-[11px] text-muted">
-                若报告未正常显示，请
-                <a href={url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline ml-0.5">
-                  在新窗口打开
-                </a>
-              </p>
+            <div className="text-center py-4">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-accent hover:bg-accent/5 transition-colors"
+              >
+                <ExternalLink size={14} />
+                在新窗口查看完整报告
+              </a>
             </div>
           ) : null}
         </div>
@@ -425,7 +427,7 @@ export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }
               {intelligence.summary}
             </p>
           )}
-          <FullReportSection json={intelligence.fullReportJson} url={intelligence.fullReportUrl} />
+          <FullReportSection markdown={intelligence.reportMarkdown} json={intelligence.fullReportJson} url={intelligence.fullReportUrl} />
         </div>
       )}
 
