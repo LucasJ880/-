@@ -1,61 +1,15 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import {
   isAIConfigured,
   createChatStream,
   getChatSystemPrompt,
   buildContextBlock,
-  type WorkContext,
+  buildProjectDeepBlock,
+  getWorkContext,
+  getProjectDeepContext,
+  matchProjectByName,
 } from "@/lib/ai";
-
-async function getWorkContext(userId: string, role: string): Promise<WorkContext> {
-  const projectIds = await getVisibleProjectIds(userId, role);
-
-  const projectWhere = projectIds !== null
-    ? { id: { in: projectIds }, status: "active" }
-    : { status: "active" };
-
-  const taskWhere = projectIds !== null
-    ? {
-        status: { notIn: ["done", "cancelled"] },
-        OR: [
-          { projectId: { in: projectIds } },
-          { projectId: null, creatorId: userId },
-          { assigneeId: userId },
-        ],
-      }
-    : { status: { notIn: ["done", "cancelled"] } };
-
-  const [projects, recentTasks] = await Promise.all([
-    db.project.findMany({
-      where: projectWhere,
-      select: { id: true, name: true },
-      orderBy: { updatedAt: "desc" },
-      take: 15,
-    }),
-    db.task.findMany({
-      where: taskWhere,
-      select: {
-        title: true,
-        priority: true,
-        project: { select: { name: true } },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 10,
-    }),
-  ]);
-
-  return {
-    projects,
-    recentTasks: recentTasks.map((t) => ({
-      title: t.title,
-      priority: t.priority,
-      projectName: t.project?.name ?? null,
-    })),
-  };
-}
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -76,7 +30,23 @@ export async function POST(request: NextRequest) {
   const { messages } = await request.json();
 
   const workContext = await getWorkContext(user.id, user.role);
-  const systemPrompt = getChatSystemPrompt() + buildContextBlock(workContext);
+
+  let deepBlock = "";
+  const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user");
+  if (lastUserMsg) {
+    const matched = matchProjectByName(lastUserMsg.content ?? "", workContext.projects);
+    if (matched) {
+      const deep = await getProjectDeepContext(matched.id);
+      if (deep) {
+        deepBlock = buildProjectDeepBlock(deep);
+      }
+    }
+  }
+
+  const systemPrompt =
+    getChatSystemPrompt() +
+    buildContextBlock(workContext) +
+    deepBlock;
 
   try {
     const stream = await createChatStream({

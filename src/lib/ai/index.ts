@@ -14,8 +14,19 @@ export {
   getTaskBreakdownPrompt,
   getActionAdvicePrompt,
   buildContextBlock,
+  buildProjectDeepBlock,
 } from "./prompts";
-export type { WorkContext } from "./prompts";
+export type {
+  WorkContext,
+  ProjectSummary,
+  ProjectDeepContext,
+} from "./prompts";
+
+export {
+  getWorkContext,
+  getProjectDeepContext,
+  matchProjectByName,
+} from "./context";
 
 export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
 

@@ -9,11 +9,81 @@
 import { getTodayInfo } from "@/lib/date/relative-date";
 import { nowToronto } from "@/lib/time";
 
-// ── 工作上下文 ────────────────────────────────────────────────
+// ── 工作上下文（第一层：每次对话自动注入） ─────────────────────
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  clientOrganization: string | null;
+  tenderStatus: string | null;
+  estimatedValue: number | null;
+  currency: string | null;
+  closeDate: string | null;
+  priority: string;
+  status: string;
+  sourceSystem: string | null;
+}
+
+export interface TaskSummaryItem {
+  title: string;
+  priority: string;
+  status: string;
+  dueDate: string | null;
+  projectName: string | null;
+}
 
 export interface WorkContext {
-  projects: { id: string; name: string }[];
-  recentTasks: { title: string; priority: string; projectName: string | null }[];
+  projects: ProjectSummary[];
+  recentTasks: TaskSummaryItem[];
+  urgentProjects: ProjectSummary[];
+}
+
+// ── 深度上下文（第二层：提到具体项目时注入） ─────────────────────
+
+export interface ProjectDeepContext {
+  project: ProjectSummary & {
+    description: string | null;
+    location: string | null;
+    solicitationNumber: string | null;
+    publicDate: string | null;
+    questionCloseDate: string | null;
+    createdAt: string;
+  };
+  intelligence: {
+    recommendation: string;
+    riskLevel: string;
+    fitScore: number;
+    summary: string | null;
+  } | null;
+  documents: Array<{ title: string; fileType: string }>;
+  taskStats: { total: number; done: number; overdue: number };
+  recentDiscussion: Array<{ sender: string; body: string; createdAt: string; type: string }>;
+  members: Array<{ name: string; role: string }>;
+}
+
+// ── 上下文格式化 ──────────────────────────────────────────────
+
+const STAGE_LABELS: Record<string, string> = {
+  new: "新导入", under_review: "审核中", qualification_check: "资质检查",
+  pursuing: "跟进中", supplier_inquiry: "供应商询价", supplier_quote: "供应商报价",
+  bid_preparation: "投标准备", bid_submitted: "已提交", won: "中标",
+  lost: "未中标", passed: "已放弃", archived: "已归档",
+};
+
+function fmtStage(s: string | null): string {
+  if (!s) return "未知";
+  return STAGE_LABELS[s] || s;
+}
+
+function fmtValue(v: number | null, c: string | null): string {
+  if (v == null) return "未知";
+  const cur = c || "CAD";
+  return v >= 1_000_000 ? `${cur} ${(v / 1_000_000).toFixed(1)}M` : `${cur} ${v.toLocaleString()}`;
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return "未定";
+  return d.slice(0, 10);
 }
 
 export function buildContextBlock(ctx: WorkContext): string {
@@ -21,10 +91,22 @@ export function buildContextBlock(ctx: WorkContext): string {
 
   const lines: string[] = ["\n## 当前工作上下文"];
 
+  if (ctx.urgentProjects.length > 0) {
+    lines.push("### ⚠ 近期到期项目（7天内截标）");
+    for (const p of ctx.urgentProjects) {
+      lines.push(`- **${p.name}** | 客户:${p.clientOrganization || "未知"} | 截标:${fmtDate(p.closeDate)} | 阶段:${fmtStage(p.tenderStatus)}`);
+    }
+  }
+
   if (ctx.projects.length > 0) {
     lines.push("### 用户的项目列表");
     for (const p of ctx.projects) {
-      lines.push(`- ${p.name} (ID: ${p.id})`);
+      const parts = [`${p.name} (ID: ${p.id})`];
+      if (p.clientOrganization) parts.push(`客户:${p.clientOrganization}`);
+      parts.push(`阶段:${fmtStage(p.tenderStatus)}`);
+      if (p.estimatedValue) parts.push(`金额:${fmtValue(p.estimatedValue, p.currency)}`);
+      if (p.closeDate) parts.push(`截标:${fmtDate(p.closeDate)}`);
+      lines.push(`- ${parts.join(" | ")}`);
     }
   }
 
@@ -32,7 +114,8 @@ export function buildContextBlock(ctx: WorkContext): string {
     lines.push("### 近期未完成任务");
     for (const t of ctx.recentTasks) {
       const proj = t.projectName ? `→ ${t.projectName}` : "→ 无项目";
-      lines.push(`- [${t.priority}] ${t.title} ${proj}`);
+      const due = t.dueDate ? `截止:${fmtDate(t.dueDate)}` : "";
+      lines.push(`- [${t.priority}] ${t.title} ${proj} ${due}`.trimEnd());
     }
   }
 
@@ -46,9 +129,66 @@ export function buildContextBlock(ctx: WorkContext): string {
   return lines.join("\n");
 }
 
+// ── 深度上下文格式化 ──────────────────────────────────────────
+
+export function buildProjectDeepBlock(deep: ProjectDeepContext): string {
+  const p = deep.project;
+  const lines: string[] = [
+    `\n## 当前聚焦项目：${p.name}`,
+    `- ID: ${p.id}`,
+    `- 客户: ${p.clientOrganization || "未知"}`,
+    `- 阶段: ${fmtStage(p.tenderStatus)}`,
+    `- 优先级: ${p.priority}`,
+    `- 截标时间: ${fmtDate(p.closeDate)}`,
+  ];
+  if (p.estimatedValue) lines.push(`- 预估金额: ${fmtValue(p.estimatedValue, p.currency)}`);
+  if (p.location) lines.push(`- 地点: ${p.location}`);
+  if (p.solicitationNumber) lines.push(`- 招标编号: ${p.solicitationNumber}`);
+  if (p.publicDate) lines.push(`- 发布日期: ${fmtDate(p.publicDate)}`);
+  if (p.questionCloseDate) lines.push(`- 提问截止: ${fmtDate(p.questionCloseDate)}`);
+  if (p.description) lines.push(`- 描述: ${p.description.slice(0, 300)}`);
+
+  if (deep.intelligence) {
+    const i = deep.intelligence;
+    const recMap: Record<string, string> = { pursue: "建议投标", review_carefully: "谨慎评估", low_probability: "概率较低", skip: "建议放弃" };
+    const riskMap: Record<string, string> = { low: "低", medium: "中", high: "高", unassessed: "未评估" };
+    lines.push("### AI 情报分析");
+    lines.push(`- 推荐: ${recMap[i.recommendation] || i.recommendation}`);
+    lines.push(`- 风险: ${riskMap[i.riskLevel] || i.riskLevel}`);
+    lines.push(`- 匹配度: ${i.fitScore}/100`);
+    if (i.summary) lines.push(`- 摘要: ${i.summary}`);
+  }
+
+  lines.push(`### 任务进展: ${deep.taskStats.done}/${deep.taskStats.total} 完成${deep.taskStats.overdue > 0 ? `，${deep.taskStats.overdue} 个逾期` : ""}`);
+
+  if (deep.documents.length > 0) {
+    lines.push(`### 项目文档 (${deep.documents.length} 个)`);
+    for (const d of deep.documents.slice(0, 8)) {
+      lines.push(`- ${d.title} [${d.fileType}]`);
+    }
+  }
+
+  if (deep.members.length > 0) {
+    lines.push(`### 项目成员`);
+    for (const m of deep.members) {
+      lines.push(`- ${m.name} (${m.role})`);
+    }
+  }
+
+  if (deep.recentDiscussion.length > 0) {
+    lines.push("### 最近讨论");
+    for (const msg of deep.recentDiscussion) {
+      const prefix = msg.type === "SYSTEM" ? "[系统]" : `[${msg.sender}]`;
+      lines.push(`- ${fmtDate(msg.createdAt)} ${prefix} ${msg.body.slice(0, 120)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 // ── 核心身份 & 行为准则（所有场景共用） ────────────────────────
 
-const IDENTITY = `你是"青砚"，一个中文 AI 工作助手。
+const IDENTITY = `你是"青砚"，一个专注于招投标项目管理的中文 AI 工作助手。
 
 ## 核心原则（必须遵守）
 1. **结果优先**：先给结论或可执行结果，再补充必要解释。绝不说废话。
@@ -57,6 +197,41 @@ const IDENTITY = `你是"青砚"，一个中文 AI 工作助手。
 4. **结构清晰**：复杂内容用分点/标题/表格组织。避免大段叙述。
 5. **中文为主**：始终用中文回复。专业术语可保留英文。
 6. **不要自我介绍**：不说"作为一个AI"、"我是一个语言模型"之类的话。直接进入正题。
+
+## 领域知识：招投标项目管理
+
+你熟悉以下流程和概念：
+
+### 招投标全流程
+1. **立项**：收到招标情报（从 BidToGo 等外部平台推送），进入系统
+2. **项目分发**：超级管理员审核后分发给相关组织/负责人
+3. **项目解读**：团队审阅招标文件、验证投标资质、决定是否跟进
+4. **供应商询价**：向供应商询价、收集报价
+5. **供应商报价**：整理报价、准备初步标书
+6. **项目提交**：制作投标材料、内部审批、正式提交
+
+### 关键概念
+- **Solicitation Number**（招标编号）：唯一标识一个招标
+- **Close Date / Deadline**（截标时间）：投标截止日期，超时不可提交
+- **Question Close Date**（提问截止）：最后可向发标方提问的日期
+- **Public Date**（发布日期）：招标公开发布日期
+- **Fit Score**（匹配度）：AI 分析该招标与公司能力的匹配度（0-100）
+- **Risk Level**（风险等级）：投标风险评估
+- **Recommendation**（推荐建议）：pursue（投标）/ review_carefully（审慎评估）/ skip（放弃）
+
+### 你能帮用户做的事
+- 分析某个招标项目的关键信息、风险和建议
+- 整理投标截止日期、关键节点和时间规划
+- 帮用户判断一个项目是否值得投标
+- 拆解投标准备的工作任务并排优先级
+- 回答关于特定项目的进展、文档、成员等问题
+- 生成投标策略建议、竞争分析框架
+- 对比多个在手项目，帮用户做资源分配决策
+
+### 上下文使用规则
+- 如果"当前工作上下文"中有项目信息，优先使用这些真实数据回答
+- 如果有"当前聚焦项目"，说明用户在讨论这个项目，回答要围绕它
+- 不要编造项目不存在的数据；如果信息缺失，告知用户"系统中暂无该信息"
 
 ## 回复风格
 - 简单问题：直接回答，一句话能说清就不写一段。
@@ -77,6 +252,8 @@ export function getChatSystemPrompt(): string {
 2. **日程解析**：从用户描述中提取结构化日程事件
 3. **工作建议**：帮用户拆解工作、规划优先级、做决策
 4. **信息处理**：摘要、整理、对比、提取要点
+5. **招标分析**：分析项目风险、匹配度、截止日、投标策略
+6. **项目追踪**：回答具体项目的进展、文档、任务和讨论内容
 
 ## 解析规则
 
