@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DashboardCalendarSection } from "@/components/dashboard/dashboard-calendar-section";
+import { DashboardAbandonedSection } from "@/components/dashboard/dashboard-abandoned-section";
 import { DashboardLinksRecentSection } from "@/components/dashboard/dashboard-links-recent-section";
 import { DashboardProjectsSection } from "@/components/dashboard/dashboard-projects-section";
 import { DashboardStatsSection } from "@/components/dashboard/dashboard-stats-section";
@@ -120,6 +121,7 @@ export default function Dashboard() {
         projectProgress={stats.projectProgress ?? {}}
         onProjectClick={openProjectDrawer}
       />
+      <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
       <DashboardLinksRecentSection
         recentTasks={stats.recentTasks}
         onProjectClick={openProjectDrawer}

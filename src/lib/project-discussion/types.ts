@@ -56,6 +56,7 @@ export const SYSTEM_EVENT_TYPES = {
   DATE_CHANGED: "date_changed",
   PROJECT_SUBMITTED: "project_submitted",
   STATUS_CHANGED: "status_changed",
+  PROJECT_ABANDONED: "project_abandoned",
 } as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPES)[keyof typeof SYSTEM_EVENT_TYPES];
@@ -111,6 +112,12 @@ interface StatusChangedPayload extends BasePayload {
   statusAfter: string;
 }
 
+interface ProjectAbandonedPayload extends BasePayload {
+  eventType: "project_abandoned";
+  abandonedStage: string;
+  reason?: string;
+}
+
 export type SystemEventMetadata =
   | ProjectCreatedPayload
   | MemberJoinedPayload
@@ -118,4 +125,5 @@ export type SystemEventMetadata =
   | StageChangedPayload
   | DateChangedPayload
   | ProjectSubmittedPayload
-  | StatusChangedPayload;
+  | StatusChangedPayload
+  | ProjectAbandonedPayload;

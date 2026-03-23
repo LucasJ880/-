@@ -105,6 +105,12 @@ model Project {
   submittedAt          DateTime?
   awardDate            DateTime?
 
+  // 项目放弃
+  abandonedAt          DateTime?
+  abandonedStage       String?
+  abandonedById        String?
+  abandonedReason      String?
+
   // 项目分发 (Bid to Go intake)
   intakeStatus         String   @default("dispatched")
   dispatchedAt         DateTime?

@@ -228,6 +228,42 @@ export async function onStatusChanged(
   });
 }
 
+export async function onProjectAbandoned(
+  projectId: string,
+  actorName: string,
+  actorId: string,
+  abandonedStage: string,
+  reason?: string,
+  tx?: Prisma.TransactionClient
+) {
+  const stageLabels: Record<string, string> = {
+    initiation: "立项",
+    distribution: "项目分发",
+    interpretation: "项目解读",
+    supplier_inquiry: "供应商询价",
+    supplier_quote: "供应商报价",
+    submission: "项目提交",
+  };
+  const stageLabel = stageLabels[abandonedStage] || abandonedStage;
+  const reasonText = reason ? `，原因：${reason}` : "";
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.PROJECT_ABANDONED,
+    actorId,
+    actorName,
+    source: "manual",
+    abandonedStage,
+    reason,
+  };
+  return createProjectSystemMessage({
+    projectId,
+    eventType: SYSTEM_EVENT_TYPES.PROJECT_ABANDONED,
+    body: `${actorName} 放弃了项目（当时阶段：${stageLabel}${reasonText}）`,
+    metadata,
+    actorId,
+    tx,
+  });
+}
+
 // ─── PATCH 事件批量写入（事务内） ───
 
 const DATE_FIELD_LABELS: Record<string, string> = {

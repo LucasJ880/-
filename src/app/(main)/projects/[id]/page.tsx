@@ -19,6 +19,7 @@ import {
   Tag,
   History,
   ChevronDown,
+  Ban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -29,6 +30,8 @@ import { StageIndicator } from "@/components/progress/stage-indicator";
 import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card";
 import { ProjectProgressSection } from "@/components/tender/project-progress-section";
 import { ProjectDiscussionSection } from "@/components/project-discussion/project-discussion-section";
+import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
+import { getProjectStage } from "@/lib/tender/stage";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 
@@ -77,6 +80,9 @@ interface ProjectDetail {
   supplierQuotedAt?: string | null;
   submittedAt?: string | null;
   awardDate?: string | null;
+  abandonedAt?: string | null;
+  abandonedStage?: string | null;
+  abandonedReason?: string | null;
   sourceMetadataJson?: string | null;
   externalRef?: { system: string; externalId: string; url: string | null } | null;
   intelligence?: {
@@ -130,6 +136,7 @@ function ProjectDetailContent() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityFilter, setActivityFilter] = useState("");
   const [progress, setProgress] = useState<ProjectProgress | null>(null);
+  const [showAbandonDialog, setShowAbandonDialog] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -359,10 +366,12 @@ function ProjectDetailContent() {
                   "rounded-full px-2 py-0.5 font-medium",
                   project.status === "active"
                     ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
-                    : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+                    : project.status === "abandoned"
+                      ? "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]"
+                      : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
                 )}
               >
-                {project.status === "active" ? "进行中" : project.status}
+                {project.status === "active" ? "进行中" : project.status === "abandoned" ? "已放弃" : project.status}
               </span>
               {project.org ? (
                 <Link
@@ -380,6 +389,57 @@ function ProjectDetailContent() {
           </div>
         </div>
       </div>
+
+      {/* Abandoned banner */}
+      {project.status === "abandoned" && (
+        <div className="flex items-center gap-3 rounded-xl border border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.04)] px-5 py-4">
+          <Ban size={20} className="shrink-0 text-[#a63d3d]" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-[#a63d3d]">该项目已放弃</p>
+            <p className="text-xs text-[#6e7d76] mt-0.5">
+              放弃阶段：{
+                { initiation: "立项", distribution: "项目分发", interpretation: "项目解读", supplier_inquiry: "供应商询价", supplier_quote: "供应商报价", submission: "项目提交" }[project.abandonedStage ?? ""] ?? project.abandonedStage
+              }
+              {project.abandonedReason && ` · 原因：${project.abandonedReason}`}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Abandon button — visible from interpretation stage onward */}
+      {project.status !== "abandoned" && canManage && (() => {
+        const tenderProps = {
+          createdAt: project.createdAt ?? null,
+          tenderStatus: project.tenderStatus ?? null,
+          publicDate: project.publicDate ?? null,
+          questionCloseDate: project.questionCloseDate ?? null,
+          closeDate: project.closeDate ?? null,
+          dueDate: project.dueDate ?? null,
+          distributedAt: project.distributedAt ?? null,
+          dispatchedAt: project.dispatchedAt ?? null,
+          interpretedAt: project.interpretedAt ?? null,
+          supplierInquiredAt: project.supplierInquiredAt ?? null,
+          supplierQuotedAt: project.supplierQuotedAt ?? null,
+          submittedAt: project.submittedAt ?? null,
+          awardDate: project.awardDate ?? null,
+          intakeStatus: project.intakeStatus ?? null,
+        };
+        const stage = getProjectStage(tenderProps);
+        const canAbandon = ["interpretation", "supplier_inquiry", "supplier_quote", "submission"].includes(stage);
+        if (!canAbandon) return null;
+        return (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowAbandonDialog(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.2)] bg-white px-4 py-2 text-sm font-medium text-[#a63d3d] shadow-sm hover:bg-[rgba(166,61,61,0.04)] transition-colors"
+            >
+              <Ban size={14} />
+              放弃项目
+            </button>
+          </div>
+        );
+      })()}
 
       {/* BidToGo intelligence */}
       {project.sourceSystem === "bidtogo" && (
@@ -599,6 +659,38 @@ function ProjectDetailContent() {
           </div>
         )}
       </div>
+
+      {/* Abandon project dialog */}
+      {showAbandonDialog && project && (() => {
+        const tenderProps = {
+          createdAt: project.createdAt ?? null,
+          tenderStatus: project.tenderStatus ?? null,
+          publicDate: project.publicDate ?? null,
+          questionCloseDate: project.questionCloseDate ?? null,
+          closeDate: project.closeDate ?? null,
+          dueDate: project.dueDate ?? null,
+          distributedAt: project.distributedAt ?? null,
+          dispatchedAt: project.dispatchedAt ?? null,
+          interpretedAt: project.interpretedAt ?? null,
+          supplierInquiredAt: project.supplierInquiredAt ?? null,
+          supplierQuotedAt: project.supplierQuotedAt ?? null,
+          submittedAt: project.submittedAt ?? null,
+          awardDate: project.awardDate ?? null,
+          intakeStatus: project.intakeStatus ?? null,
+        };
+        return (
+          <AbandonProjectDialog
+            projectId={project.id}
+            projectName={project.name}
+            currentStage={getProjectStage(tenderProps)}
+            onClose={() => setShowAbandonDialog(false)}
+            onSuccess={() => {
+              setShowAbandonDialog(false);
+              load();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
