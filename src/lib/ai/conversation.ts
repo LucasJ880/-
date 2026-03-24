@@ -80,15 +80,22 @@ ${transcript.slice(0, 6000)}`;
 
 // ── 智能模式检测 ──────────────────────────────────────────────
 
-const DEEP_KEYWORDS = [
+const BASE_DEEP_KEYWORDS = [
   "分析", "对比", "评估", "策略", "风险",
   "优劣", "建议", "规划", "方案", "拆解",
-  "总结", "复盘", "可行性", "竞争", "投标策略",
+  "总结", "复盘", "可行性", "竞争",
   "详细", "深入", "全面", "综合", "比较",
   "帮我判断", "帮我分析", "帮我评估",
   "值不值得", "是否应该", "怎么选",
-  "报价策略", "资源分配", "优先级排序",
+  "资源分配", "优先级排序",
 ];
+
+// 当前行业特定关键词，切换场景时替换此数组
+const DOMAIN_DEEP_KEYWORDS = [
+  "投标策略", "报价策略",
+];
+
+const DEEP_KEYWORDS = [...BASE_DEEP_KEYWORDS, ...DOMAIN_DEEP_KEYWORDS];
 
 function detectMode(lastUserMessage: string): TaskMode {
   if (!lastUserMessage) return "chat";

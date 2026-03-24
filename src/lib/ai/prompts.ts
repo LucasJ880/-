@@ -8,6 +8,11 @@
 
 import { getTodayInfo } from "@/lib/date/relative-date";
 import { nowToronto } from "@/lib/time";
+import {
+  TENDER_STATUS_LABELS,
+  RECOMMENDATION_LABELS,
+  RISK_LABELS,
+} from "@/lib/domain/labels";
 
 // ── 工作上下文（第一层：每次对话自动注入） ─────────────────────
 
@@ -63,16 +68,9 @@ export interface ProjectDeepContext {
 
 // ── 上下文格式化 ──────────────────────────────────────────────
 
-const STAGE_LABELS: Record<string, string> = {
-  new: "新导入", under_review: "审核中", qualification_check: "资质检查",
-  pursuing: "跟进中", supplier_inquiry: "供应商询价", supplier_quote: "供应商报价",
-  bid_preparation: "投标准备", bid_submitted: "已提交", won: "中标",
-  lost: "未中标", passed: "已放弃", archived: "已归档",
-};
-
 function fmtStage(s: string | null): string {
   if (!s) return "未知";
-  return STAGE_LABELS[s] || s;
+  return TENDER_STATUS_LABELS[s] || s;
 }
 
 function fmtValue(v: number | null, c: string | null): string {
@@ -150,11 +148,9 @@ export function buildProjectDeepBlock(deep: ProjectDeepContext): string {
 
   if (deep.intelligence) {
     const i = deep.intelligence;
-    const recMap: Record<string, string> = { pursue: "建议投标", review_carefully: "谨慎评估", low_probability: "概率较低", skip: "建议放弃" };
-    const riskMap: Record<string, string> = { low: "低", medium: "中", high: "高", unassessed: "未评估" };
     lines.push("### AI 情报分析");
-    lines.push(`- 推荐: ${recMap[i.recommendation] || i.recommendation}`);
-    lines.push(`- 风险: ${riskMap[i.riskLevel] || i.riskLevel}`);
+    lines.push(`- 推荐: ${RECOMMENDATION_LABELS[i.recommendation] || i.recommendation}`);
+    lines.push(`- 风险: ${RISK_LABELS[i.riskLevel] || i.riskLevel}`);
     lines.push(`- 匹配度: ${i.fitScore}/100`);
     if (i.summary) lines.push(`- 摘要: ${i.summary}`);
   }
@@ -186,9 +182,10 @@ export function buildProjectDeepBlock(deep: ProjectDeepContext): string {
   return lines.join("\n");
 }
 
-// ── 核心身份 & 行为准则（所有场景共用） ────────────────────────
+// ── 核心身份（通用，跨行业不变） ──────────────────────────────
 
-const IDENTITY = `你是"青砚"，一个专注于招投标项目管理的中文 AI 工作助手。
+function getBaseIdentity(): string {
+  return `你是"青砚"，一个中文 AI 工作助手。
 
 ## 核心原则（必须遵守）
 1. **结果优先**：先给结论或可执行结果，再补充必要解释。绝不说废话。
@@ -198,6 +195,24 @@ const IDENTITY = `你是"青砚"，一个专注于招投标项目管理的中文
 5. **中文为主**：始终用中文回复。专业术语可保留英文。
 6. **不要自我介绍**：不说"作为一个AI"、"我是一个语言模型"之类的话。直接进入正题。
 
+### 上下文使用规则
+- 如果"当前工作上下文"中有项目信息，优先使用这些真实数据回答
+- 如果有"当前聚焦项目"，说明用户在讨论这个项目，回答要围绕它
+- 不要编造项目不存在的数据；如果信息缺失，告知用户"系统中暂无该信息"
+
+## 回复风格
+- 简单问题：直接回答，一句话能说清就不写一段。
+- 复杂任务：先用 1-2 句话概括方案/结论，再展开执行步骤。
+- 拆解类请求：输出编号列表，每项有明确的行动描述和预期产出。
+- 分析类请求：结论 → 关键依据 → 建议下一步。
+- 如果要输出 JSON 等结构化数据，不要在自然语言部分提及它的存在。`;
+}
+
+// ── 领域知识（当前场景：招投标项目管理） ──────────────────────
+// 切换行业时，替换本函数内容即可，不需要改 getBaseIdentity
+
+function getDomainKnowledge(): string {
+  return `
 ## 领域知识：招投标项目管理
 
 你熟悉以下流程和概念：
@@ -226,19 +241,11 @@ const IDENTITY = `你是"青砚"，一个专注于招投标项目管理的中文
 - 拆解投标准备的工作任务并排优先级
 - 回答关于特定项目的进展、文档、成员等问题
 - 生成投标策略建议、竞争分析框架
-- 对比多个在手项目，帮用户做资源分配决策
+- 对比多个在手项目，帮用户做资源分配决策`;
+}
 
-### 上下文使用规则
-- 如果"当前工作上下文"中有项目信息，优先使用这些真实数据回答
-- 如果有"当前聚焦项目"，说明用户在讨论这个项目，回答要围绕它
-- 不要编造项目不存在的数据；如果信息缺失，告知用户"系统中暂无该信息"
-
-## 回复风格
-- 简单问题：直接回答，一句话能说清就不写一段。
-- 复杂任务：先用 1-2 句话概括方案/结论，再展开执行步骤。
-- 拆解类请求：输出编号列表，每项有明确的行动描述和预期产出。
-- 分析类请求：结论 → 关键依据 → 建议下一步。
-- 如果要输出 JSON 等结构化数据，不要在自然语言部分提及它的存在。`;
+// 组合完整身份
+const IDENTITY = getBaseIdentity() + getDomainKnowledge();
 
 // ── 对话场景系统提示词 ────────────────────────────────────────
 
@@ -252,7 +259,7 @@ export function getChatSystemPrompt(): string {
 2. **日程解析**：从用户描述中提取结构化日程事件
 3. **工作建议**：帮用户拆解工作、规划优先级、做决策
 4. **信息处理**：摘要、整理、对比、提取要点
-5. **招标分析**：分析项目风险、匹配度、截止日、投标策略
+5. **项目分析**：分析项目风险、匹配度、截止日、投标策略
 6. **项目追踪**：回答具体项目的进展、文档、任务和讨论内容
 
 ## 解析规则
