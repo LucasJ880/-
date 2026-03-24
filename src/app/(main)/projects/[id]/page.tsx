@@ -31,6 +31,7 @@ import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card"
 import { ProjectProgressSection } from "@/components/tender/project-progress-section";
 import { ProjectDiscussionSection } from "@/components/project-discussion/project-discussion-section";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
+import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
 import { getProjectStage } from "@/lib/tender/stage";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
@@ -462,6 +463,9 @@ function ProjectDetailContent() {
         />
       )}
 
+      {/* AI 助手 — 项目内嵌对话 */}
+      <ProjectAiChat projectId={id} projectName={project.name} />
+
       {/* Tender progress section — 招投标项目专用 */}
       {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
         <ProjectProgressSection
@@ -514,23 +518,6 @@ function ProjectDetailContent() {
 
       {/* 项目讨论 */}
       <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} projectStatus={project.status} />
-
-      {/* AI 助手入口 */}
-      <Link
-        href={`/assistant?project=${id}`}
-        className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-colors hover:border-accent/40 hover:bg-accent/5"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10">
-          <Bot size={18} className="text-accent" />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold">AI 助手讨论</p>
-          <p className="text-xs text-muted">
-            与 AI 讨论此项目的分析、策略和规划，对话将自动获取项目上下文并永久保存
-          </p>
-        </div>
-        <ChevronDown size={16} className="-rotate-90 text-muted" />
-      </Link>
 
       <div className="rounded-xl border border-border bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
