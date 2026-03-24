@@ -39,6 +39,7 @@ export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
 export type {
   TaskSuggestion,
   EventSuggestion,
+  StageAdvanceSuggestion,
   WorkSuggestion,
   SubTask,
   TaskBreakdown,

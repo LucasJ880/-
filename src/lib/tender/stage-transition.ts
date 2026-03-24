@@ -1,0 +1,272 @@
+/**
+ * 项目阶段推进 — 规则层与统一写入 service
+ *
+ * 所有项目进展变更必须通过此模块，不允许分散在各 route 中直接写时间戳。
+ * Source of truth: Project 表上的时间戳字段，由 getProjectStage() 推导阶段。
+ */
+
+import type { Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
+import type { TenderStage } from "./types";
+import { getProjectStage } from "./stage";
+import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
+import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
+
+// ── 常量 ────────────────────────────────────────────────────
+
+export const STAGE_ORDER: TenderStage[] = [
+  "initiation",
+  "distribution",
+  "interpretation",
+  "supplier_inquiry",
+  "supplier_quote",
+  "submission",
+];
+
+const STAGE_LABEL: Record<TenderStage, string> = {
+  initiation: "立项",
+  distribution: "项目分发",
+  interpretation: "项目解读",
+  supplier_inquiry: "供应商询价",
+  supplier_quote: "供应商报价",
+  submission: "项目提交",
+};
+
+/**
+ * 推进到某阶段时需要写入的 Project 时间戳字段。
+ * initiation 不在此映射中 — 它是默认起始态，无需写入。
+ */
+const STAGE_TO_TIMESTAMP: Partial<Record<TenderStage, string>> = {
+  distribution: "distributedAt",
+  interpretation: "interpretedAt",
+  supplier_inquiry: "supplierInquiredAt",
+  supplier_quote: "supplierQuotedAt",
+  submission: "submittedAt",
+};
+
+/**
+ * 推进到某阶段时同步写入的 tenderStatus 值。
+ * 原因：intelligence-card badge、BidToGo webhook、AI context 都读 tenderStatus。
+ */
+const STAGE_TO_TENDER_STATUS: Partial<Record<TenderStage, string>> = {
+  distribution: "under_review",
+  interpretation: "pursuing",
+  supplier_inquiry: "supplier_inquiry",
+  supplier_quote: "supplier_quote",
+  submission: "bid_submitted",
+};
+
+/**
+ * 高风险阶段：到达这些阶段时一律 require_human_review。
+ */
+const HIGH_RISK_STAGES: Set<TenderStage> = new Set([
+  "supplier_quote",
+  "submission",
+]);
+
+// ── 校验结果类型 ────────────────────────────────────────────
+
+export type TransitionDecision = "allow" | "deny" | "require_human_review";
+
+export interface TransitionValidation {
+  decision: TransitionDecision;
+  targetStage: TenderStage | null;
+  reason: string;
+}
+
+// ── 校验函数 ────────────────────────────────────────────────
+
+export function validateStageTransition(
+  currentStage: TenderStage,
+  targetStage: TenderStage,
+  confidence: number = 1
+): TransitionValidation {
+  const currentIdx = STAGE_ORDER.indexOf(currentStage);
+  const targetIdx = STAGE_ORDER.indexOf(targetStage);
+
+  if (targetIdx < 0 || currentIdx < 0) {
+    return { decision: "deny", targetStage: null, reason: "无效的阶段值" };
+  }
+
+  if (targetIdx <= currentIdx) {
+    return {
+      decision: "deny",
+      targetStage: null,
+      reason: `不允许回退：当前已在「${STAGE_LABEL[currentStage]}」，不能回退到「${STAGE_LABEL[targetStage]}」`,
+    };
+  }
+
+  if (targetIdx === currentIdx + 1 && currentStage === targetStage) {
+    return { decision: "deny", targetStage: null, reason: "目标阶段与当前相同" };
+  }
+
+  if (confidence < 0.7) {
+    return {
+      decision: "require_human_review",
+      targetStage,
+      reason: `AI 置信度不足（${confidence}），需要人工确认`,
+    };
+  }
+
+  const stepCount = targetIdx - currentIdx;
+
+  if (stepCount > 1) {
+    return {
+      decision: "require_human_review",
+      targetStage,
+      reason: `跳级推进（跨 ${stepCount} 步：${STAGE_LABEL[currentStage]} → ${STAGE_LABEL[targetStage]}），需要人工确认`,
+    };
+  }
+
+  if (HIGH_RISK_STAGES.has(targetStage)) {
+    return {
+      decision: "require_human_review",
+      targetStage,
+      reason: `推进到高风险阶段「${STAGE_LABEL[targetStage]}」，需要人工确认`,
+    };
+  }
+
+  return {
+    decision: "allow",
+    targetStage,
+    reason: `合法推进：${STAGE_LABEL[currentStage]} → ${STAGE_LABEL[targetStage]}`,
+  };
+}
+
+// ── 统一写入 service ────────────────────────────────────────
+
+export interface AdvanceStageInput {
+  projectId: string;
+  targetStage: TenderStage;
+  reason: string;
+  source: "ai_suggestion" | "manual";
+  actor: { id: string; name: string; email: string };
+  humanConfirmed?: boolean;
+}
+
+export interface AdvanceStageResult {
+  success: boolean;
+  decision: TransitionDecision;
+  reason: string;
+  project?: Record<string, unknown>;
+}
+
+const PROJECT_INCLUDE = {
+  owner: { select: { id: true, name: true, email: true } },
+  _count: { select: { tasks: true, environments: true } },
+} as const;
+
+export async function advanceProjectStage(
+  input: AdvanceStageInput
+): Promise<AdvanceStageResult> {
+  const { projectId, targetStage, reason, source, actor, humanConfirmed } = input;
+
+  const project = await db.project.findUnique({ where: { id: projectId } });
+  if (!project) {
+    return { success: false, decision: "deny", reason: "项目不存在" };
+  }
+
+  const tenderProject = {
+    submittedAt: project.submittedAt?.toISOString() ?? null,
+    supplierQuotedAt: project.supplierQuotedAt?.toISOString() ?? null,
+    supplierInquiredAt: project.supplierInquiredAt?.toISOString() ?? null,
+    interpretedAt: project.interpretedAt?.toISOString() ?? null,
+    distributedAt: project.distributedAt?.toISOString() ?? null,
+    dispatchedAt: project.dispatchedAt?.toISOString() ?? null,
+    intakeStatus: project.intakeStatus ?? null,
+    tenderStatus: project.tenderStatus ?? null,
+    createdAt: project.createdAt?.toISOString() ?? null,
+    publicDate: project.publicDate?.toISOString() ?? null,
+    questionCloseDate: project.questionCloseDate?.toISOString() ?? null,
+    closeDate: project.closeDate?.toISOString() ?? null,
+    dueDate: project.dueDate?.toISOString() ?? null,
+    awardDate: project.awardDate?.toISOString() ?? null,
+  };
+
+  const currentStage = getProjectStage(tenderProject);
+  const validation = validateStageTransition(currentStage, targetStage);
+
+  if (validation.decision === "deny") {
+    return { success: false, decision: "deny", reason: validation.reason };
+  }
+
+  if (validation.decision === "require_human_review" && !humanConfirmed) {
+    return {
+      success: false,
+      decision: "require_human_review",
+      reason: validation.reason,
+    };
+  }
+
+  const timestampField = STAGE_TO_TIMESTAMP[targetStage];
+  const newTenderStatus = STAGE_TO_TENDER_STATUS[targetStage];
+  const now = new Date();
+
+  const data: Record<string, unknown> = {};
+  if (timestampField) {
+    data[timestampField] = now;
+  }
+  if (newTenderStatus) {
+    data.tenderStatus = newTenderStatus;
+  }
+
+  const updated = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const result = await tx.project.update({
+      where: { id: projectId },
+      data,
+      include: PROJECT_INCLUDE,
+    });
+
+    const afterSnap = { ...project, ...data };
+    await emitProjectPatchEvents(
+      projectId,
+      project as unknown as Record<string, unknown>,
+      afterSnap as unknown as Record<string, unknown>,
+      { id: actor.id, name: actor.name },
+      tx
+    );
+
+    return result;
+  });
+
+  await logAudit({
+    userId: actor.id,
+    orgId: project.orgId ?? undefined,
+    projectId,
+    action: AUDIT_ACTIONS.STATUS_CHANGE,
+    targetType: AUDIT_TARGETS.PROJECT,
+    targetId: projectId,
+    beforeData: {
+      stage: currentStage,
+      tenderStatus: project.tenderStatus,
+    },
+    afterData: {
+      stage: targetStage,
+      tenderStatus: newTenderStatus ?? project.tenderStatus,
+      reason,
+      source,
+      humanConfirmed: humanConfirmed ?? false,
+    },
+  });
+
+  if (newTenderStatus && project.sourceSystem) {
+    notifyProjectStatusChange({
+      projectId,
+      oldStatus: project.tenderStatus || "new",
+      newStatus: newTenderStatus,
+      updatedBy: actor.email,
+    }).catch((err) => console.error("[Webhook] dispatch failed:", err));
+  }
+
+  return {
+    success: true,
+    decision: humanConfirmed ? "require_human_review" : "allow",
+    reason: `已推进到「${STAGE_LABEL[targetStage]}」`,
+    project: updated as unknown as Record<string, unknown>,
+  };
+}
+
+// ── 导出供测试使用 ──────────────────────────────────────────
+
+export { STAGE_LABEL, STAGE_TO_TIMESTAMP, STAGE_TO_TENDER_STATUS };

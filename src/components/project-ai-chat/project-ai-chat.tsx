@@ -39,9 +39,11 @@ function cleanStreamingText(raw: string): string {
 export function ProjectAiChat({
   projectId,
   projectName,
+  onProjectUpdate,
 }: {
   projectId: string;
   projectName: string;
+  onProjectUpdate?: () => void;
 }) {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<StreamingMsg[]>([]);
@@ -376,6 +378,7 @@ export function ProjectAiChat({
                       <WorkSuggestionCard
                         suggestion={msg.workSuggestion}
                         projects={projects}
+                        onCreated={onProjectUpdate}
                       />
                     </div>
                   )}

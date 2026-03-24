@@ -7,7 +7,8 @@
 
 import { resolveChineseDate } from "@/lib/date/relative-date";
 import { nowToronto } from "@/lib/time";
-import type { TaskSuggestion, EventSuggestion, WorkSuggestion } from "./schemas";
+import type { TaskSuggestion, EventSuggestion, WorkSuggestion, StageAdvanceSuggestion } from "./schemas";
+import { STAGE_ORDER } from "@/lib/tender/stage-transition";
 
 // ── Block 标记 ────────────────────────────────────────────────
 
@@ -52,6 +53,36 @@ function parseEventFields(parsed: Record<string, unknown>): EventSuggestion {
     endTime: String(parsed.endTime || ""),
     allDay: Boolean(parsed.allDay),
     location: (parsed.location as string) || null,
+  };
+}
+
+function parseStageAdvanceFields(
+  parsed: Record<string, unknown>
+): StageAdvanceSuggestion | null {
+  const sa = parsed.stageAdvance as Record<string, unknown> | undefined;
+  const fields = sa ?? parsed;
+
+  const targetStage = String(fields.targetStage || "");
+  if (!STAGE_ORDER.includes(targetStage as (typeof STAGE_ORDER)[number])) return null;
+
+  const reason = String(fields.reason || "");
+  if (!reason) return null;
+
+  const rawConfidence = Number(fields.confidence);
+  const confidence = Number.isFinite(rawConfidence) ? Math.max(0, Math.min(1, rawConfidence)) : 0.5;
+
+  const rawEvidence = fields.evidence;
+  const evidence = Array.isArray(rawEvidence)
+    ? rawEvidence.filter((e): e is string => typeof e === "string")
+    : [];
+
+  return {
+    projectId: String(fields.projectId || ""),
+    project: String(fields.project || ""),
+    targetStage,
+    reason,
+    confidence,
+    evidence,
   };
 }
 
@@ -114,18 +145,24 @@ export function extractWorkSuggestion(
       const parsed = JSON.parse(work.jsonStr);
       let suggestion: WorkSuggestion | null = null;
 
-      if (parsed.type === "task_and_event" && parsed.task && parsed.event) {
+      if (parsed.type === "stage_advance") {
+        const sa = parseStageAdvanceFields(parsed);
+        if (sa) {
+          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa };
+        }
+      } else if (parsed.type === "task_and_event" && parsed.task && parsed.event) {
         suggestion = {
           type: "task_and_event",
           task: parseTaskFields(parsed.task as Record<string, unknown>),
           event: parseEventFields(parsed.event as Record<string, unknown>),
+          stageAdvance: null,
         };
       } else if (parsed.type === "event" && parsed.event) {
-        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event) };
+        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null };
       } else if (parsed.type === "task" && parsed.task) {
-        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null };
       } else if (!parsed.type || parsed.type === "task") {
-        suggestion = { type: "task", task: parseTaskFields(parsed), event: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null };
       }
 
       if (suggestion) {
@@ -144,6 +181,7 @@ export function extractWorkSuggestion(
         type: "task",
         task: parseTaskFields(parsed),
         event: null,
+        stageAdvance: null,
       };
       postProcessDates(suggestion);
       return { cleanText: legacy.cleanText, suggestion };

@@ -464,7 +464,7 @@ function ProjectDetailContent() {
       )}
 
       {/* AI 助手 — 项目内嵌对话 */}
-      <ProjectAiChat projectId={id} projectName={project.name} />
+      <ProjectAiChat projectId={id} projectName={project.name} onProjectUpdate={load} />
 
       {/* Tender progress section — 招投标项目专用 */}
       {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (

@@ -25,10 +25,20 @@ export interface EventSuggestion {
   location: string | null;
 }
 
+export interface StageAdvanceSuggestion {
+  projectId: string;
+  project: string;
+  targetStage: string;
+  reason: string;
+  confidence: number;
+  evidence: string[];
+}
+
 export interface WorkSuggestion {
-  type: "task" | "event" | "task_and_event";
+  type: "task" | "event" | "task_and_event" | "stage_advance";
   task: TaskSuggestion | null;
   event: EventSuggestion | null;
+  stageAdvance: StageAdvanceSuggestion | null;
 }
 
 // ── 任务拆解 ──────────────────────────────────────────────────

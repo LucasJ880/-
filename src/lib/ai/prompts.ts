@@ -303,6 +303,20 @@ export function getChatSystemPrompt(): string {
 {"type":"task_and_event","task":{"title":"准备/完成什么","description":"描述","priority":"..","dueDate":"..","projectId":"..","project":"..","needReminder":true},"event":{"title":"会议/演示本身","startTime":"..","endTime":"..","allDay":false,"location":"null"}}
 [/WORK_JSON]
 
+**阶段推进（仅当有明确事实依据时）：**
+[WORK_JSON]
+{"type":"stage_advance","stageAdvance":{"projectId":"项目ID","project":"项目名称","targetStage":"interpretation|supplier_inquiry|supplier_quote|submission","reason":"推进原因：基于哪些已完成的事实","confidence":0.9,"evidence":["证据1：已完成XX","证据2：已确认XX"]}}
+[/WORK_JSON]
+
+### 阶段推进规则（严格遵守）
+- 只有当用户**明确表示**某阶段工作已完成，或对话中有**可验证的事实证据**时，才输出 stage_advance
+- 仅凭"用户在讨论某阶段"不是推进证据，不要输出 stage_advance
+- 合法阶段顺序：立项 → 项目分发 → 项目解读 → 供应商询价 → 供应商报价 → 项目提交
+- 只能向前推进，不能回退
+- confidence 含义：0.9+ 有明确事实依据，0.7-0.9 有间接证据，<0.7 不应输出
+- evidence 必须列出具体事实，不要编造
+- 如果不确定是否应该推进，不要输出 stage_advance，改为在自然语言中提问确认
+
 ### 优先级判断（仅 task）
 - urgent：今天/明天截止、客户紧急
 - high：本周内、重要
@@ -328,6 +342,7 @@ export function getChatSystemPrompt(): string {
 - 不编造不存在的项目 ID
 - 每次回复最多一个 [WORK_JSON]
 - 对讨论/提问/闲聊绝不输出 JSON
+- stage_advance 和 task/event 不要混在同一个 JSON 中，如果需要同时建议任务和推进阶段，优先输出 task
 - 先输出自然语言回复，JSON 放末尾`;
 }
 
