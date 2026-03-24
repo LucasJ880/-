@@ -23,11 +23,13 @@ export async function POST(
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
   }
 
-  const { targetStage, reason, source, humanConfirmed } = body as {
+  const { targetStage, reason, source, humanConfirmed, confidence, evidence } = body as {
     targetStage?: string;
     reason?: string;
     source?: string;
     humanConfirmed?: boolean;
+    confidence?: number;
+    evidence?: string[];
   };
 
   if (!targetStage || !STAGE_ORDER.includes(targetStage as TenderStage)) {
@@ -53,10 +55,21 @@ export async function POST(
     source: resolvedSource,
     actor: { id: user.id, name: user.name, email: user.email },
     humanConfirmed: humanConfirmed === true,
+    confidence: typeof confidence === "number" ? confidence : undefined,
+    evidence: Array.isArray(evidence) ? evidence : undefined,
   });
 
+  // no_op: 幂等成功，前端按成功处理
+  if (result.decision === "no_op") {
+    return NextResponse.json({
+      decision: "no_op",
+      reason: result.reason,
+    });
+  }
+
   if (!result.success) {
-    const status = result.decision === "deny" ? 403 : 200;
+    // deny → 403; require_human_review 未确认 → 409
+    const status = result.decision === "deny" ? 403 : 409;
     return NextResponse.json(
       {
         decision: result.decision,

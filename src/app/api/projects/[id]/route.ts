@@ -6,7 +6,6 @@ import {
 } from "@/lib/projects/access";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
-import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
 import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
 
 const detailInclude = {
@@ -70,15 +69,42 @@ export async function PATCH(
   if (body.description !== undefined) data.description = body.description;
   if (body.color !== undefined) data.color = body.color;
   if (body.status !== undefined) data.status = body.status;
-  if (body.tenderStatus !== undefined) data.tenderStatus = body.tenderStatus;
+  // tenderStatus 由 advance-stage 服务统一同步，不允许 PATCH 直接修改
+  if (body.tenderStatus !== undefined) {
+    return NextResponse.json(
+      {
+        error: "tenderStatus 不允许通过 PATCH 直接修改，请使用 advance-stage 接口",
+        hint: "POST /api/projects/[id]/advance-stage",
+      },
+      { status: 400 }
+    );
+  }
   if (body.priority !== undefined) data.priority = body.priority;
 
-  const dateFields = [
-    "publicDate", "questionCloseDate", "closeDate",
+  // 进展时间戳字段 — 必须通过 POST /api/projects/[id]/advance-stage 更新
+  // 此处拦截，防止绕过规则校验、审计、通知链路
+  const STAGE_PROGRESS_FIELDS = [
     "distributedAt", "interpretedAt", "supplierInquiredAt",
-    "supplierQuotedAt", "submittedAt", "awardDate",
+    "supplierQuotedAt", "submittedAt",
   ] as const;
-  for (const f of dateFields) {
+  const attemptedProgressFields = STAGE_PROGRESS_FIELDS.filter(
+    (f) => body[f] !== undefined
+  );
+  if (attemptedProgressFields.length > 0) {
+    return NextResponse.json(
+      {
+        error: `进展字段 ${attemptedProgressFields.join(", ")} 不允许通过 PATCH 直接修改，请使用 advance-stage 接口`,
+        hint: "POST /api/projects/[id]/advance-stage",
+      },
+      { status: 400 }
+    );
+  }
+
+  // 非进展日期字段 — 仍可通过 PATCH 更新
+  const editableDateFields = [
+    "publicDate", "questionCloseDate", "closeDate", "awardDate",
+  ] as const;
+  for (const f of editableDateFields) {
     if (body[f] !== undefined) {
       data[f] = body[f] ? new Date(body[f]) : null;
     }
@@ -124,30 +150,15 @@ export async function PATCH(
       description: beforeProject.description,
       color: beforeProject.color,
       status: beforeProject.status,
-      tenderStatus: beforeProject.tenderStatus,
     },
     afterData: {
       name: project.name,
       description: project.description,
       color: project.color,
       status: project.status,
-      tenderStatus: project.tenderStatus,
     },
     request,
   });
-
-  if (
-    body.tenderStatus !== undefined &&
-    beforeProject.tenderStatus !== project.tenderStatus &&
-    beforeProject.sourceSystem
-  ) {
-    notifyProjectStatusChange({
-      projectId: id,
-      oldStatus: beforeProject.tenderStatus || "new",
-      newStatus: project.tenderStatus || "new",
-      updatedBy: user.email,
-    }).catch((err) => console.error("[Webhook] dispatch failed:", err));
-  }
 
   return NextResponse.json(project);
 }

@@ -755,14 +755,14 @@ function StageAdvanceCard({
   suggestion: StageAdvanceSuggestion;
   onCreated?: () => void;
 }) {
-  const [state, setState] = useState<"idle" | "confirming" | "loading" | "done" | "error" | "review">("idle");
+  // P0: 全部走"用户确认 -> 写库"流程，不做自动推进
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [serverMessage, setServerMessage] = useState("");
 
   const targetLabel = STAGE_LABELS[suggestion.targetStage] || suggestion.targetStage;
   const projectName = suggestion.project || "当前项目";
-  const isHighConfidence = suggestion.confidence >= 0.7;
 
-  const handleAdvance = async (humanConfirmed = false) => {
+  const handleAdvance = async () => {
     if (!suggestion.projectId) {
       setServerMessage("缺少项目 ID，无法推进");
       setState("error");
@@ -777,13 +777,14 @@ function StageAdvanceCard({
           targetStage: suggestion.targetStage,
           reason: suggestion.reason,
           source: "ai_suggestion",
-          humanConfirmed,
+          humanConfirmed: true,
         }),
       });
       const data = await res.json();
-      if (data.decision === "require_human_review" && !humanConfirmed) {
-        setServerMessage(data.reason || "需要人工确认");
-        setState("review");
+      // no_op：已在目标阶段，按成功处理
+      if (data.decision === "no_op") {
+        setServerMessage(data.reason || "已在该阶段");
+        setState("done");
         return;
       }
       if (data.decision === "deny" || !res.ok) {
@@ -840,19 +841,19 @@ function StageAdvanceCard({
         </div>
       )}
 
-      {!isHighConfidence && state === "idle" && (
+      {suggestion.confidence < 0.7 && state === "idle" && (
         <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-[rgba(154,106,47,0.06)] px-3 py-2 text-xs text-[#9a6a2f]">
           <AlertTriangle size={12} />
-          AI 置信度较低，建议人工确认后再推进
+          AI 置信度较低，请仔细确认后再推进
         </div>
       )}
 
-      {serverMessage && (
+      {serverMessage && state !== "idle" && (
         <div className={cn(
           "mb-3 rounded-lg px-3 py-2 text-xs",
-          state === "error" ? "bg-[rgba(166,61,61,0.06)] text-[#a63d3d]" :
-          state === "review" ? "bg-[rgba(154,106,47,0.06)] text-[#9a6a2f]" :
-          "bg-[rgba(75,130,110,0.06)] text-[#4b826e]"
+          state === "error"
+            ? "bg-[rgba(166,61,61,0.06)] text-[#a63d3d]"
+            : "bg-[rgba(75,130,110,0.06)] text-[#4b826e]"
         )}>
           {serverMessage}
         </div>
@@ -862,48 +863,16 @@ function StageAdvanceCard({
         {state === "idle" && (
           <>
             <button
-              onClick={() => isHighConfidence ? handleAdvance(false) : setState("confirming")}
+              onClick={handleAdvance}
               className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
             >
-              确认推进
+              确认推进到「{targetLabel}」
             </button>
             <button
               onClick={() => setState("done")}
               className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:bg-background"
             >
               暂不推进
-            </button>
-          </>
-        )}
-        {state === "confirming" && (
-          <>
-            <button
-              onClick={() => handleAdvance(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
-            >
-              我确认推进到「{targetLabel}」
-            </button>
-            <button
-              onClick={() => setState("idle")}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:bg-background"
-            >
-              取消
-            </button>
-          </>
-        )}
-        {state === "review" && (
-          <>
-            <button
-              onClick={() => handleAdvance(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
-            >
-              人工确认推进
-            </button>
-            <button
-              onClick={() => setState("done")}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:bg-background"
-            >
-              放弃
             </button>
           </>
         )}
@@ -921,7 +890,7 @@ function StageAdvanceCard({
         )}
         {state === "error" && (
           <button
-            onClick={() => setState("idle")}
+            onClick={() => { setState("idle"); setServerMessage(""); }}
             className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:bg-background"
           >
             重试
