@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Send,
@@ -218,6 +218,20 @@ function ThreadSidebar({
 // ── 主页面 ────────────────────────────────────────────────────
 
 export default function AssistantPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted" />
+        </div>
+      }
+    >
+      <AssistantPageInner />
+    </Suspense>
+  );
+}
+
+function AssistantPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialThreadId = searchParams.get("thread");
