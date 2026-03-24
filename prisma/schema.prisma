@@ -55,6 +55,7 @@ model User {
   knowledgePublishLogs             KnowledgePublishLog[]        @relation("KBPublishedBy")
 
   conversations                    Conversation[]               @relation("ConversationUser")
+  aiThreads                        AiThread[]
 
   agentsCreated                    Agent[]                      @relation("AgentCreatedBy")
   agentsUpdated                    Agent[]                      @relation("AgentUpdatedBy")
@@ -136,6 +137,7 @@ model Project {
   intelligence  ProjectIntelligence?
   documents     ProjectDocument[]
   discussion    ProjectConversation?
+  aiThreads     AiThread[]
 
   @@index([orgId])
   @@index([sourceSystem])
@@ -1166,4 +1168,36 @@ model ProjectMessage {
   @@index([projectId, createdAt, id])
   @@index([projectId, type, createdAt])
   @@index([senderId, createdAt])
+}
+
+// ── AI 助手持久对话 ──────────────────────────────────────────
+
+model AiThread {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId     String?
+  project       Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title         String    @default("新对话")
+  pinned        Boolean   @default(false)
+  archived      Boolean   @default(false)
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  messages      AiMessage[]
+
+  @@index([userId, pinned, lastMessageAt])
+  @@index([userId, projectId])
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  threadId       String
+  thread         AiThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  workSuggestion Json?
+  createdAt      DateTime @default(now())
+
+  @@index([threadId, createdAt])
 }

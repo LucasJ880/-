@@ -515,6 +515,23 @@ function ProjectDetailContent() {
       {/* 项目讨论 */}
       <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} projectStatus={project.status} />
 
+      {/* AI 助手入口 */}
+      <Link
+        href={`/assistant?project=${id}`}
+        className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-colors hover:border-accent/40 hover:bg-accent/5"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10">
+          <Bot size={18} className="text-accent" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold">AI 助手讨论</p>
+          <p className="text-xs text-muted">
+            与 AI 讨论此项目的分析、策略和规划，对话将自动获取项目上下文并永久保存
+          </p>
+        </div>
+        <ChevronDown size={16} className="-rotate-90 text-muted" />
+      </Link>
+
       <div className="rounded-xl border border-border bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Users size={16} />
