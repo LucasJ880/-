@@ -6,6 +6,17 @@
 
 export type MessageType = "TEXT" | "SYSTEM" | "STATUS";
 
+export interface MentionItem {
+  userId: string;
+  name: string;
+}
+
+export interface TextMessageMetadata {
+  mentions?: MentionItem[];
+}
+
+export type MessageMetadata = SystemEventMetadata | TextMessageMetadata | null;
+
 export interface DiscussionMessage {
   id: string;
   conversationId: string;
@@ -18,7 +29,7 @@ export interface DiscussionMessage {
   } | null;
   type: MessageType;
   body: string;
-  metadata: SystemEventMetadata | null;
+  metadata: MessageMetadata;
   replyToId: string | null;
   editedAt: string | null;
   deletedAt: string | null;

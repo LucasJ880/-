@@ -109,7 +109,7 @@ interface MemberRow {
   role: string;
   status: string;
   orgRole: string | null;
-  user: { id: string; email: string; name: string };
+  user: { id: string; email: string; name: string; avatar?: string | null; nickname?: string | null };
 }
 
 export default function ProjectDetailPage() {
@@ -144,6 +144,7 @@ function ProjectDetailContent() {
   const [activityFilter, setActivityFilter] = useState("");
   const [progress, setProgress] = useState<ProjectProgress | null>(null);
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
+  const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -649,7 +650,14 @@ function ProjectDetailContent() {
       )}
 
       {/* 项目讨论 */}
-      <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} projectStatus={project.status} />
+      <ProjectDiscussionSection
+        projectId={id}
+        canPost={canManage || members.some(m => m.status === "active")}
+        projectStatus={project.status}
+        mentionDraft={mentionDraft}
+        onMentionConsumed={() => setMentionDraft(null)}
+        members={members.filter(m => m.status === "active").map(m => ({ userId: m.user.id, name: m.user.name, avatar: m.user.avatar ?? null }))}
+      />
 
       <div id="project-members" className="rounded-xl border border-border bg-card-bg p-5 scroll-mt-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -687,6 +695,7 @@ function ProjectDetailContent() {
         <table className="mt-4 w-full text-left text-sm">
           <thead>
             <tr className="border-b border-border text-xs text-muted">
+              <th className="pb-2 w-10" />
               <th className="pb-2">用户</th>
               <th className="pb-2">邮箱</th>
               <th className="pb-2">项目角色</th>
@@ -698,6 +707,23 @@ function ProjectDetailContent() {
           <tbody>
             {members.map((m) => (
               <tr key={m.id} className="border-b border-border/60">
+                <td className="py-2">
+                  <button
+                    type="button"
+                    title={`@${m.user.name}`}
+                    onClick={() => {
+                      setMentionDraft({ userId: m.user.id, name: m.user.name });
+                      document.getElementById("project-discussion")?.scrollIntoView({ behavior: "smooth" });
+                    }}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/20 overflow-hidden"
+                  >
+                    {m.user.avatar ? (
+                      <img src={m.user.avatar} alt={m.user.name} className="h-full w-full object-cover" />
+                    ) : (
+                      m.user.name.slice(0, 1).toUpperCase()
+                    )}
+                  </button>
+                </td>
                 <td className="py-2">{m.user.name}</td>
                 <td className="py-2 text-muted">{m.user.email}</td>
                 <td className="py-2">

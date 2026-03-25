@@ -7,7 +7,7 @@
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
-import type { DiscussionMessage, DiscussionOverview, SystemEventMetadata } from "./types";
+import type { DiscussionMessage, DiscussionOverview, MessageMetadata, TextMessageMetadata } from "./types";
 import { DEFAULT_PAGE_SIZE, MESSAGE_MAX_LENGTH } from "./types";
 
 const senderSelect = {
@@ -26,7 +26,7 @@ function toMessage(row: Record<string, unknown>): DiscussionMessage {
     sender: r.sender ? (r.sender as DiscussionMessage["sender"]) : null,
     type: r.type as DiscussionMessage["type"],
     body: r.body as string,
-    metadata: (r.metadata as SystemEventMetadata) ?? null,
+    metadata: (r.metadata as MessageMetadata) ?? null,
     replyToId: (r.replyToId as string) ?? null,
     editedAt: r.editedAt ? (r.editedAt as Date).toISOString() : null,
     deletedAt: r.deletedAt ? (r.deletedAt as Date).toISOString() : null,
@@ -120,7 +120,8 @@ export async function sendMessage(
   projectId: string,
   senderId: string,
   body: string,
-  replyToId?: string
+  replyToId?: string,
+  metadata?: TextMessageMetadata
 ): Promise<DiscussionMessage> {
   const trimmed = body.trim();
   if (!trimmed) throw new Error("消息内容不能为空");
@@ -138,6 +139,7 @@ export async function sendMessage(
       type: "TEXT",
       body: trimmed,
       replyToId: replyToId ?? null,
+      ...(metadata ? { metadata: metadata as unknown as Prisma.JsonObject } : {}),
     },
     include: { sender: { select: senderSelect } },
   });

@@ -9,7 +9,7 @@ import {
   CheckCircle2,
   RefreshCw,
 } from "lucide-react";
-import type { DiscussionMessage } from "@/lib/project-discussion/types";
+import type { DiscussionMessage, MentionItem, TextMessageMetadata } from "@/lib/project-discussion/types";
 
 interface Props {
   message: DiscussionMessage;
@@ -67,7 +67,7 @@ function TextMessageItem({ message }: { message: DiscussionMessage }) {
           )}
         </div>
         <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-          {message.body}
+          {renderBodyWithMentions(message.body, message.metadata)}
         </p>
       </div>
     </div>
@@ -75,7 +75,8 @@ function TextMessageItem({ message }: { message: DiscussionMessage }) {
 }
 
 function SystemEventItem({ message }: { message: DiscussionMessage }) {
-  const eventType = message.metadata?.eventType as string | undefined;
+  const meta = message.metadata as Record<string, unknown> | null;
+  const eventType = meta?.eventType as string | undefined;
   const Icon = (eventType && SYSTEM_ICONS[eventType]) || Info;
 
   const time = new Date(message.createdAt).toLocaleTimeString("zh-CN", {
@@ -96,4 +97,32 @@ function SystemEventItem({ message }: { message: DiscussionMessage }) {
       <span className="shrink-0 text-[10px] text-muted/50">{time}</span>
     </div>
   );
+}
+
+function renderBodyWithMentions(
+  body: string,
+  metadata: DiscussionMessage["metadata"]
+): React.ReactNode {
+  const mentions: MentionItem[] =
+    (metadata as TextMessageMetadata | null)?.mentions ?? [];
+  if (mentions.length === 0) return body;
+
+  const names = mentions.map((m) => m.name).sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(`(@(?:${names.map(escapeRegex).join("|")}))`, "g");
+
+  const parts = body.split(pattern);
+  return parts.map((part, i) => {
+    if (part.startsWith("@") && mentions.some((m) => part === `@${m.name}`)) {
+      return (
+        <span key={i} className="rounded bg-accent/10 px-0.5 font-medium text-accent">
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+}
+
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

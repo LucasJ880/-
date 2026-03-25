@@ -13,15 +13,24 @@ import type { DiscussionMessage, DiscussionOverview } from "@/lib/project-discus
 import { ProjectDiscussionMessageItem } from "./project-discussion-message-item";
 import { ProjectDiscussionComposer } from "./project-discussion-composer";
 
+export interface DiscussionMember {
+  userId: string;
+  name: string;
+  avatar: string | null;
+}
+
 interface Props {
   projectId: string;
   canPost: boolean;
   projectStatus?: string;
+  mentionDraft?: { userId: string; name: string } | null;
+  onMentionConsumed?: () => void;
+  members?: DiscussionMember[];
 }
 
 const READONLY_STATUSES = new Set(["archived", "completed"]);
 
-export function ProjectDiscussionSection({ projectId, canPost, projectStatus }: Props) {
+export function ProjectDiscussionSection({ projectId, canPost, projectStatus, mentionDraft, onMentionConsumed, members }: Props) {
   const isReadonlyProject = projectStatus ? READONLY_STATUSES.has(projectStatus) : false;
   const [messages, setMessages] = useState<DiscussionMessage[]>([]);
   const [messageCount, setMessageCount] = useState(0);
@@ -106,7 +115,7 @@ export function ProjectDiscussionSection({ projectId, canPost, projectStatus }: 
   const groupedMessages = groupByDate(messages);
 
   return (
-    <div className="rounded-xl border border-border bg-card-bg">
+    <div id="project-discussion" className="scroll-mt-6 rounded-xl border border-border bg-card-bg">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div className="flex items-center gap-2">
@@ -201,6 +210,9 @@ export function ProjectDiscussionSection({ projectId, canPost, projectStatus }: 
           <ProjectDiscussionComposer
             projectId={projectId}
             onSent={handleSent}
+            mentionDraft={mentionDraft}
+            onMentionConsumed={onMentionConsumed}
+            members={members}
           />
         ) : isReadonlyProject ? (
           <div className="px-5 py-3 text-center text-xs text-muted">

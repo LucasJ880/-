@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
     return NextResponse.json({ error: "无权在此项目发送消息" }, { status: 403 });
   }
 
-  let body: { body?: unknown; replyToId?: unknown };
+  let body: { body?: unknown; replyToId?: unknown; mentions?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -78,12 +78,25 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
   const replyToId =
     typeof body.replyToId === "string" ? body.replyToId : undefined;
 
+  const mentions = Array.isArray(body.mentions)
+    ? body.mentions.filter(
+        (m: unknown): m is { userId: string; name: string } =>
+          typeof m === "object" &&
+          m !== null &&
+          typeof (m as Record<string, unknown>).userId === "string" &&
+          typeof (m as Record<string, unknown>).name === "string"
+      )
+    : undefined;
+
+  const metadata = mentions?.length ? { mentions } : undefined;
+
   try {
     const message = await sendMessage(
       projectId,
       user.id,
       body.body,
-      replyToId
+      replyToId,
+      metadata
     );
     return NextResponse.json({ message }, { status: 201 });
   } catch (err) {
