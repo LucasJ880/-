@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import type { TenderStage } from "./types";
 import { getProjectStage } from "./stage";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
-import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
+import { emitProjectPatchEvents, onStageAdvanced } from "@/lib/project-discussion/system-events";
 import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
 
 // ── 常量 ────────────────────────────────────────────────────
@@ -247,6 +247,17 @@ export async function advanceProjectStage(
         project as unknown as Record<string, unknown>,
         afterSnap as unknown as Record<string, unknown>,
         { id: actor.id, name: actor.name },
+        tx
+      );
+
+      await onStageAdvanced(
+        projectId,
+        currentStage,
+        targetStage,
+        actor.id,
+        actor.name,
+        source,
+        confidence,
         tx
       );
 

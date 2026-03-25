@@ -36,6 +36,14 @@ function cleanStreamingText(raw: string): string {
   return raw;
 }
 
+function dispatchProjectUpdated(projectId: string) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("qingyan:project-updated", { detail: { projectId } })
+    );
+  }
+}
+
 export function ProjectAiChat({
   projectId,
   projectName,
@@ -379,7 +387,10 @@ export function ProjectAiChat({
                         suggestion={msg.workSuggestion}
                         projects={projects}
                         projectId={projectId}
-                        onCreated={onProjectUpdate}
+                        onCreated={() => {
+                          onProjectUpdate?.();
+                          dispatchProjectUpdated(projectId);
+                        }}
                       />
                     </div>
                   )}

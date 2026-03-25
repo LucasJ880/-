@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { pushEventToGoogle, getGoogleProvider } from "@/lib/google-calendar";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
+import { onEventCreated } from "@/lib/project-discussion/system-events";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -72,6 +73,24 @@ export async function POST(request: NextRequest) {
       task: { select: { id: true, title: true, status: true } },
     },
   });
+
+  // Write to project discussion if linked to a project via task
+  if (event.task?.id) {
+    const linkedTask = await db.task.findUnique({
+      where: { id: event.task.id },
+      select: { projectId: true },
+    });
+    if (linkedTask?.projectId) {
+      onEventCreated(
+        linkedTask.projectId,
+        event.id,
+        event.title,
+        event.startTime.toISOString(),
+        user.id,
+        user.name
+      ).catch((err) => console.error("[calendar-api-hook] discussion write failed:", err));
+    }
+  }
 
   const googleProvider = await getGoogleProvider(user.id);
   if (googleProvider) {

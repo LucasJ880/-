@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { onTaskCreated } from "@/lib/project-discussion/system-events";
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -77,6 +78,17 @@ export async function POST(request: NextRequest) {
   await db.taskActivity.create({
     data: { action: "created", detail: task.title, taskId: task.id, actorId: user.id },
   });
+
+  if (task.projectId) {
+    onTaskCreated(
+      task.projectId,
+      task.id,
+      task.title,
+      user.id,
+      user.name,
+      task.priority
+    ).catch((err) => console.error("[task-api-hook] discussion write failed:", err));
+  }
 
   return NextResponse.json(task, { status: 201 });
 }

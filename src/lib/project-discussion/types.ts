@@ -57,6 +57,9 @@ export const SYSTEM_EVENT_TYPES = {
   PROJECT_SUBMITTED: "project_submitted",
   STATUS_CHANGED: "status_changed",
   PROJECT_ABANDONED: "project_abandoned",
+  TASK_CREATED: "task_created",
+  EVENT_CREATED: "event_created",
+  STAGE_ADVANCED: "stage_advanced",
 } as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPES)[keyof typeof SYSTEM_EVENT_TYPES];
@@ -118,6 +121,28 @@ interface ProjectAbandonedPayload extends BasePayload {
   reason?: string;
 }
 
+interface TaskCreatedPayload extends BasePayload {
+  eventType: "task_created";
+  taskId: string;
+  taskTitle: string;
+  taskPriority?: string;
+}
+
+interface EventCreatedPayload extends BasePayload {
+  eventType: "event_created";
+  eventId: string;
+  eventTitle: string;
+  startTime: string;
+}
+
+interface StageAdvancedPayload extends BasePayload {
+  eventType: "stage_advanced";
+  fromStage: string;
+  toStage: string;
+  advanceSource: "ai_suggestion" | "manual";
+  confidence?: number;
+}
+
 export type SystemEventMetadata =
   | ProjectCreatedPayload
   | MemberJoinedPayload
@@ -126,4 +151,7 @@ export type SystemEventMetadata =
   | DateChangedPayload
   | ProjectSubmittedPayload
   | StatusChangedPayload
-  | ProjectAbandonedPayload;
+  | ProjectAbandonedPayload
+  | TaskCreatedPayload
+  | EventCreatedPayload
+  | StageAdvancedPayload;

@@ -264,6 +264,102 @@ export async function onProjectAbandoned(
   });
 }
 
+// ─── 任务/日程/阶段推进 事件写入 ───
+
+export async function onTaskCreated(
+  projectId: string,
+  taskId: string,
+  taskTitle: string,
+  actorId: string,
+  actorName: string,
+  taskPriority?: string
+) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.TASK_CREATED,
+    actorId,
+    actorName,
+    source: "system",
+    taskId,
+    taskTitle,
+    taskPriority,
+  };
+  return createProjectSystemMessage({
+    projectId,
+    eventType: SYSTEM_EVENT_TYPES.TASK_CREATED,
+    body: `${actorName} 创建了任务「${taskTitle}」`,
+    metadata,
+    actorId,
+  });
+}
+
+export async function onEventCreated(
+  projectId: string,
+  eventId: string,
+  eventTitle: string,
+  startTime: string,
+  actorId: string,
+  actorName: string
+) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.EVENT_CREATED,
+    actorId,
+    actorName,
+    source: "system",
+    eventId,
+    eventTitle,
+    startTime,
+  };
+  return createProjectSystemMessage({
+    projectId,
+    eventType: SYSTEM_EVENT_TYPES.EVENT_CREATED,
+    body: `${actorName} 创建了日程「${eventTitle}」`,
+    metadata,
+    actorId,
+  });
+}
+
+export async function onStageAdvanced(
+  projectId: string,
+  fromStage: string,
+  toStage: string,
+  actorId: string,
+  actorName: string,
+  advanceSource: "ai_suggestion" | "manual",
+  confidence?: number,
+  tx?: Prisma.TransactionClient
+) {
+  const stageLabels: Record<string, string> = {
+    initiation: "立项",
+    distribution: "项目分发",
+    interpretation: "项目解读",
+    supplier_inquiry: "供应商询价",
+    supplier_quote: "供应商报价",
+    submission: "项目提交",
+  };
+  const fromLabel = stageLabels[fromStage] || fromStage;
+  const toLabel = stageLabels[toStage] || toStage;
+  const sourceLabel = advanceSource === "ai_suggestion" ? "AI 建议" : "手动";
+
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.STAGE_ADVANCED,
+    actorId,
+    actorName,
+    source: advanceSource === "ai_suggestion" ? "system" : "manual",
+    fromStage,
+    toStage,
+    advanceSource,
+    confidence,
+  };
+  return createProjectSystemMessage({
+    projectId,
+    eventType: SYSTEM_EVENT_TYPES.STAGE_ADVANCED,
+    body: `${actorName} 将项目从「${fromLabel}」推进到「${toLabel}」（来源：${sourceLabel}）`,
+    metadata,
+    actorId,
+    tx,
+  });
+}
+
 // ─── PATCH 事件批量写入（事务内） ───
 
 const DATE_FIELD_LABELS: Record<string, string> = {
