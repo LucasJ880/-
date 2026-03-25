@@ -782,18 +782,12 @@ function StageAdvanceCard({
         }),
       });
       const data = await res.json();
-      // no_op：已在目标阶段，按成功处理
-      if (data.decision === "no_op") {
-        setServerMessage(data.reason || "已在该阶段");
-        setState("done");
-        return;
-      }
       if (data.decision === "deny" || !res.ok) {
         setServerMessage(data.reason || data.error || "推进失败");
         setState("error");
         return;
       }
-      setServerMessage(data.reason || "推进成功");
+      setServerMessage(data.reason || (data.decision === "no_op" ? "已在该阶段" : "推进成功"));
       setState("done");
       onCreated?.();
     } catch (err) {

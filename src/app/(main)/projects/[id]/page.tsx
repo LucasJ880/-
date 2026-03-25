@@ -191,6 +191,18 @@ function ProjectDetailContent() {
     loadActivity(1, "");
   }, [load, loadActivity]);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.projectId === id) {
+        load();
+        loadActivity(1, activityFilter);
+      }
+    };
+    window.addEventListener("qingyan:project-updated", handler);
+    return () => window.removeEventListener("qingyan:project-updated", handler);
+  }, [id, load, loadActivity, activityFilter]);
+
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
     const uid = addUserId.trim();
