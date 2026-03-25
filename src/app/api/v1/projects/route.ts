@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   const tokenPayload = authResult as ApiTokenPayload;
   if (!hasPermission(tokenPayload, "project:create")) {
     return NextResponse.json(
-      { error: "Insufficient permissions", code: "PERMISSION_DENIED" },
+      { error: "权限不足", code: "PERMISSION_DENIED" },
       { status: 403 }
     );
   }
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body", code: "INVALID_JSON" },
+      { error: "请求体 JSON 格式错误", code: "INVALID_JSON" },
       { status: 400 }
     );
   }
@@ -49,14 +49,14 @@ export async function POST(request: NextRequest) {
 
   if (!extRef?.system || !extRef?.id) {
     return NextResponse.json(
-      { error: "external_ref.system and external_ref.id are required", code: "VALIDATION_ERROR" },
+      { error: "external_ref.system 和 external_ref.id 为必填项", code: "VALIDATION_ERROR" },
       { status: 400 }
     );
   }
 
   if (!project?.name) {
     return NextResponse.json(
-      { error: "project.name is required", code: "VALIDATION_ERROR" },
+      { error: "project.name 为必填项", code: "VALIDATION_ERROR" },
       { status: 400 }
     );
   }
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
   if (existing) {
     return NextResponse.json(
       {
-        error: "Project already exists for this external reference",
+        error: "该外部引用已关联到现有项目",
         code: "DUPLICATE_EXTERNAL_REF",
         existing_project_id: existing.project.id,
         existing_project_url: `${BASE_URL}/projects/${existing.project.id}`,
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
       await tx.projectDocument.createMany({
         data: documents.map((doc, i) => ({
           projectId: newProject.id,
-          title: String(doc.title || "Untitled"),
+          title: String(doc.title || "未命名文档"),
           url: String(doc.url || ""),
           fileType: String(doc.file_type || "link"),
           sortOrder: i,

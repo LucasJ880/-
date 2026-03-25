@@ -110,7 +110,7 @@ const FILE_ICON_MAP: Record<string, string> = {
 };
 
 function formatCurrency(value: number, currency: string) {
-  return new Intl.NumberFormat("en-CA", {
+  return new Intl.NumberFormat("zh-CN", {
     style: "currency",
     currency,
     maximumFractionDigits: 0,

@@ -271,7 +271,7 @@ function ProjectIntakeCard({
             {project.estimatedValue != null && (
               <span>
                 预估金额: {project.currency ?? ""}{" "}
-                {project.estimatedValue.toLocaleString()}
+                {project.estimatedValue.toLocaleString("zh-CN")}
               </span>
             )}
             <span className="flex items-center gap-1">

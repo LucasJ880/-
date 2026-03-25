@@ -27,11 +27,11 @@ export function ConversationStatsCard({
     },
     {
       icon: Zap,
-      label: "总 Tokens",
-      value: totalTokens > 0 ? totalTokens.toLocaleString() : "—",
+      label: "总令牌数",
+      value: totalTokens > 0 ? totalTokens.toLocaleString("zh-CN") : "—",
       sub:
         totalTokens > 0
-          ? `入 ${inputTokens.toLocaleString()} / 出 ${outputTokens.toLocaleString()}`
+          ? `入 ${inputTokens.toLocaleString("zh-CN")} / 出 ${outputTokens.toLocaleString("zh-CN")}`
           : undefined,
     },
     {

@@ -31,7 +31,7 @@ function formatPrice(price: string | null, currency: string) {
   if (!price) return "—";
   const num = parseFloat(price);
   if (isNaN(num)) return "—";
-  return `${currency} ${num.toLocaleString("en-CA", { minimumFractionDigits: 2 })}`;
+  return `${currency} ${num.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
 }
 
 export function SupplierHistory({ supplierId }: { supplierId: string }) {
