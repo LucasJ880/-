@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Plus,
   Loader2,
@@ -365,6 +366,18 @@ function StatusDropdown({
 }
 
 export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
+      <TasksPageContent />
+    </Suspense>
+  );
+}
+
+function TasksPageContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const projectFilter = searchParams.get("project") || "";
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<SimpleProject[]>([]);
   const [loading, setLoading] = useState(true);
@@ -380,6 +393,14 @@ export default function TasksPage() {
       .then(setTasks)
       .finally(() => setLoading(false));
   }, [filter]);
+
+  const filteredTasks = projectFilter
+    ? tasks.filter((t) => t.project?.id === projectFilter)
+    : tasks;
+
+  const filterProjectName = projectFilter
+    ? projects.find((p) => p.id === projectFilter)?.name
+    : null;
 
   const loadProjects = useCallback(() => {
     apiFetch("/api/projects")
@@ -419,11 +440,26 @@ export default function TasksPage() {
         }
       />
 
+      {filterProjectName && (
+        <div className="flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-sm">
+          <span className="text-muted">筛选项目：</span>
+          <span className="font-medium text-accent">{filterProjectName}</span>
+          <button
+            type="button"
+            onClick={() => router.push("/tasks")}
+            className="ml-auto flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted hover:bg-background hover:text-foreground transition-colors"
+          >
+            <X size={12} />
+            清除筛选
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-2">
         {(["all", ...Object.keys(TASK_STATUS)] as const).map((s) => {
           const label =
             s === "all"
-              ? `全部 (${tasks.length})`
+              ? `全部 (${filteredTasks.length})`
               : TASK_STATUS[s as TaskStatus].label;
           return (
             <button
@@ -454,7 +490,7 @@ export default function TasksPage() {
             </div>
           ))}
         </div>
-      ) : tasks.length === 0 ? (
+      ) : filteredTasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-border bg-card-bg/80 px-6 py-14 text-center shadow-card">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
             <ListTodo size={28} strokeWidth={1.75} />
@@ -476,7 +512,7 @@ export default function TasksPage() {
         </div>
       ) : (
         <div className="divide-y divide-border rounded-xl border border-border bg-card-bg">
-          {tasks.map((task) => {
+          {filteredTasks.map((task) => {
             const priorityInfo =
               TASK_PRIORITY[task.priority] || TASK_PRIORITY.medium;
             const dueStatus = getDueStatus(task.dueDate, task.status);

@@ -350,27 +350,37 @@ function ProjectDetailContent() {
 
             {/* 项目概览指标 */}
             <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2">
+              <Link
+                href={`/tasks?project=${id}`}
+                className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent/5"
+              >
                 <CheckCircle2 size={15} className="shrink-0 text-accent/60" />
                 <div>
                   <p className="text-base font-bold leading-tight">{project._count.tasks}</p>
                   <p className="text-[11px] text-muted">任务</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2">
+              </Link>
+              <button
+                type="button"
+                onClick={() => document.getElementById("project-members")?.scrollIntoView({ behavior: "smooth" })}
+                className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2 text-left transition-colors hover:border-accent/30 hover:bg-accent/5"
+              >
                 <Users size={15} className="shrink-0 text-accent/60" />
                 <div>
                   <p className="text-base font-bold leading-tight">{project._count.members}</p>
                   <p className="text-[11px] text-muted">成员</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2">
+              </button>
+              <Link
+                href={`/projects/${id}/knowledge-bases`}
+                className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent/5"
+              >
                 <FileText size={15} className="shrink-0 text-accent/60" />
                 <div>
                   <p className="text-base font-bold leading-tight">{(project.documents ?? []).length}</p>
                   <p className="text-[11px] text-muted">文档</p>
                 </div>
-              </div>
+              </Link>
               {project.closeDate ? (() => {
                 const daysLeft = Math.ceil((new Date(project.closeDate).getTime() - Date.now()) / 86400000);
                 return (
@@ -641,7 +651,7 @@ function ProjectDetailContent() {
       {/* 项目讨论 */}
       <ProjectDiscussionSection projectId={id} canPost={canManage || members.some(m => m.status === "active")} projectStatus={project.status} />
 
-      <div className="rounded-xl border border-border bg-card-bg p-5">
+      <div id="project-members" className="rounded-xl border border-border bg-card-bg p-5 scroll-mt-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Users size={16} />
           项目成员
