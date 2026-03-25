@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { TOOL_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { AgentStatusBadge, ToolCategoryBadge, ToolSchemaViewer } from "@/components/agent";
 
 interface ToolDetail {
@@ -162,9 +163,9 @@ export default function ToolDetailPage() {
             <label className="mb-1 block text-xs text-muted">类型</label>
             <select value={fType} onChange={(e) => setFType(e.target.value)} disabled={!canManage}
               className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm disabled:opacity-60">
-              <option value="function">Function</option>
-              <option value="http">HTTP</option>
-              <option value="builtin">Builtin</option>
+              {Object.entries(TOOL_TYPE_LABELS).map(([val, lbl]) => (
+                <option key={val} value={val}>{lbl}</option>
+              ))}
             </select>
           </div>
           <div>

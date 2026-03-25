@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 const CHANNEL_MAP: Record<string, { label: string; className: string }> = {
   web: {
-    label: "Web",
+    label: "网页端",
     className: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]",
   },
   internal: {
@@ -16,7 +16,7 @@ const CHANNEL_MAP: Record<string, { label: string; className: string }> = {
     className: "bg-[rgba(45,106,122,0.08)] text-[#2d6a7a]",
   },
   demo: {
-    label: "Demo",
+    label: "演示",
     className: "bg-[rgba(154,106,47,0.08)] text-[#9a6a2f]",
   },
 };

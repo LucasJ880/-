@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { TOOL_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { ToolCategoryBadge, AgentStatusBadge } from "@/components/agent";
@@ -157,8 +158,8 @@ export default function ToolListPage() {
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs text-muted">Key *</label>
-                <input value={cKey} onChange={(e) => setCKey(e.target.value)} placeholder="web_search" required
+                <label className="mb-1 block text-xs text-muted">标识 Key *</label>
+                <input value={cKey} onChange={(e) => setCKey(e.target.value)} placeholder="如 web_search" required
                   className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent" />
               </div>
               <div>
@@ -182,9 +183,9 @@ export default function ToolListPage() {
                 <label className="mb-1 block text-xs text-muted">类型</label>
                 <select value={cType} onChange={(e) => setCType(e.target.value)}
                   className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm">
-                  <option value="function">Function</option>
-                  <option value="http">HTTP</option>
-                  <option value="builtin">Builtin</option>
+                  {Object.entries(TOOL_TYPE_LABELS).map(([val, lbl]) => (
+                    <option key={val} value={val}>{lbl}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -231,7 +232,7 @@ export default function ToolListPage() {
                     </div>
                     {t.description && <p className="mt-0.5 text-xs text-muted line-clamp-1">{t.description}</p>}
                     <div className="mt-1 flex items-center gap-2 text-xs text-muted">
-                      <span>类型: {t.type}</span>
+                      <span>类型: {label(TOOL_TYPE_LABELS, t.type)}</span>
                       {t.agentCount > 0 && <span>{t.agentCount} Agent 使用</span>}
                     </div>
                   </div>

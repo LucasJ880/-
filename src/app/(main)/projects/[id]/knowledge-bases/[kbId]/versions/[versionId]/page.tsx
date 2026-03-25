@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { DOC_SOURCE_TYPE_LABELS, DOC_STATUS_LABELS, label } from "@/lib/i18n/labels";
 
 export default function KnowledgeBaseVersionDetailPage() {
   const params = useParams();
@@ -111,7 +112,7 @@ export default function KnowledgeBaseVersionDetailPage() {
           {meta.name} · KB 版本 v{meta.version}
         </h1>
         <p className="text-sm text-muted">
-          {meta.key} · {new Date(meta.createdAt).toLocaleString()}
+          {meta.key} · {new Date(meta.createdAt).toLocaleString("zh-CN")}
           {meta.note ? ` · ${meta.note}` : ""}
         </p>
       </div>
@@ -124,7 +125,7 @@ export default function KnowledgeBaseVersionDetailPage() {
             <li key={doc.id} className="rounded-xl border border-border bg-card-bg p-4">
               <div className="font-medium">{doc.title}</div>
               <div className="text-xs text-muted">
-                {doc.sourceType} · 文档版本 v{s.version} · {doc.status}
+                {label(DOC_SOURCE_TYPE_LABELS, doc.sourceType)} · 文档版本 v{s.version} · {label(DOC_STATUS_LABELS, doc.status)}
                 {doc.sourceUrl ? ` · ${doc.sourceUrl}` : ""}
               </div>
               {s.summary && (

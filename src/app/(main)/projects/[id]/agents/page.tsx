@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { AGENT_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { AgentStatusBadge, AgentTypeBadge } from "@/components/agent";
@@ -196,10 +197,9 @@ export default function AgentListPage() {
           className="rounded-lg border border-border bg-card-bg px-2 py-1.5 text-xs"
         >
           <option value="">全部类型</option>
-          <option value="chat">Chat</option>
-          <option value="assistant">Assistant</option>
-          <option value="workflow">Workflow</option>
-          <option value="router">Router</option>
+          {Object.entries(AGENT_TYPE_LABELS).map(([val, lbl]) => (
+            <option key={val} value={val}>{lbl}</option>
+          ))}
         </select>
         <select
           value={statusFilter}
@@ -225,8 +225,8 @@ export default function AgentListPage() {
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs text-muted">Key *</label>
-                <input value={cKey} onChange={(e) => setCKey(e.target.value)} placeholder="my-agent" required
+                <label className="mb-1 block text-xs text-muted">标识 Key *</label>
+                <input value={cKey} onChange={(e) => setCKey(e.target.value)} placeholder="如 my-agent" required
                   className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent" />
               </div>
               <div>
@@ -240,10 +240,9 @@ export default function AgentListPage() {
                 <label className="mb-1 block text-xs text-muted">类型</label>
                 <select value={cType} onChange={(e) => setCType(e.target.value)}
                   className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm">
-                  <option value="chat">Chat</option>
-                  <option value="assistant">Assistant</option>
-                  <option value="workflow">Workflow</option>
-                  <option value="router">Router</option>
+                  {Object.entries(AGENT_TYPE_LABELS).map(([val, lbl]) => (
+                    <option key={val} value={val}>{lbl}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -299,12 +298,12 @@ export default function AgentListPage() {
                       <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted">
                         {a.prompt && (
                           <span className="rounded bg-[rgba(128,80,120,0.08)] px-1.5 py-0.5 text-[#805078]">
-                            Prompt: {a.prompt.key}
+                            模板: {a.prompt.key}
                           </span>
                         )}
                         {a.knowledgeBase && (
                           <span className="rounded bg-[rgba(45,106,122,0.08)] px-1.5 py-0.5 text-[#2d6a7a]">
-                            KB: {a.knowledgeBase.key}
+                            知识库: {a.knowledgeBase.key}
                           </span>
                         )}
                       </div>

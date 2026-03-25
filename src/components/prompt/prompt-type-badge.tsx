@@ -4,15 +4,15 @@ import { cn } from "@/lib/utils";
 
 const TYPE_STYLES: Record<string, { label: string; className: string }> = {
   system: {
-    label: "System",
+    label: "系统",
     className: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]",
   },
   assistant: {
-    label: "Assistant",
+    label: "助手",
     className: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]",
   },
   workflow: {
-    label: "Workflow",
+    label: "工作流",
     className: "bg-[rgba(128,80,120,0.08)] text-[#805078]",
   },
 };

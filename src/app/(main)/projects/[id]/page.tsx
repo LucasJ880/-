@@ -38,6 +38,7 @@ import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog
 import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
 import { getProjectStage } from "@/lib/tender/stage";
+import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 
@@ -789,14 +790,9 @@ function ProjectDetailContent() {
             className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-accent"
           >
             <option value="">全部类型</option>
-            <option value="project">项目</option>
-            <option value="prompt">Prompt</option>
-            <option value="knowledge_base">知识库</option>
-            <option value="conversation">会话</option>
-            <option value="agent">Agent</option>
-            <option value="tool">工具</option>
-            <option value="runtime">Runtime</option>
-            <option value="conversation_feedback">反馈</option>
+            {Object.entries(ACTIVITY_TYPE_LABELS).map(([val, lbl]) => (
+              <option key={val} value={val}>{lbl}</option>
+            ))}
           </select>
         </div>
 

@@ -45,10 +45,10 @@ const STATUS_OPTIONS = [
 
 const CHANNEL_OPTIONS = [
   { value: "", label: "全部渠道" },
-  { value: "web", label: "Web" },
+  { value: "web", label: "网页端" },
   { value: "internal", label: "内部" },
   { value: "api", label: "API" },
-  { value: "demo", label: "Demo" },
+  { value: "demo", label: "演示" },
 ];
 
 export default function ProjectConversationsPage() {
@@ -464,7 +464,7 @@ export default function ProjectConversationsPage() {
                           <span>{conv.messageCount} 条消息</span>
                           {conv.totalTokens > 0 && (
                             <span>
-                              {conv.totalTokens.toLocaleString()} tokens
+                              {conv.totalTokens.toLocaleString()} 令牌
                             </span>
                           )}
                           {conv.user?.name && (
@@ -475,12 +475,12 @@ export default function ProjectConversationsPage() {
                           <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted">
                             {conv.prompt && (
                               <span className="rounded bg-[rgba(128,80,120,0.08)] px-1.5 py-0.5 text-[#805078]">
-                                Prompt: {conv.prompt.key}
+                                模板: {conv.prompt.key}
                               </span>
                             )}
                             {conv.knowledgeBase && (
                               <span className="rounded bg-[rgba(45,106,122,0.08)] px-1.5 py-0.5 text-[#2d6a7a]">
-                                KB: {conv.knowledgeBase.key}
+                                知识库: {conv.knowledgeBase.key}
                               </span>
                             )}
                           </div>

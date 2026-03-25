@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { PROMPT_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { PromptTypeBadge } from "@/components/prompt";
 import { PromptVersionList } from "@/components/prompt/prompt-version-list";
 import { PromptDiffViewer } from "@/components/prompt/prompt-diff-viewer";
@@ -516,9 +517,9 @@ export default function PromptDetailPage() {
                     onChange={(e) => setEditType(e.target.value)}
                     className="mt-0.5 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                   >
-                    <option value="system">system</option>
-                    <option value="assistant">assistant</option>
-                    <option value="workflow">workflow</option>
+                    <option value="system">{label(PROMPT_TYPE_LABELS, "system")}</option>
+                    <option value="assistant">{label(PROMPT_TYPE_LABELS, "assistant")}</option>
+                    <option value="workflow">{label(PROMPT_TYPE_LABELS, "workflow")}</option>
                   </select>
                 </div>
               </div>

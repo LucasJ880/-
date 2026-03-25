@@ -188,7 +188,7 @@ export default function FeedbackTagsPage() {
                 value={formKey}
                 onChange={(e) => setFormKey(e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
-                placeholder="e.g. good_answer"
+                placeholder="如 good_answer"
               />
             </div>
             <div>

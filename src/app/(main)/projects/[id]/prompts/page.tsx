@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { PROMPT_TYPE_LABELS, RESOURCE_STATUS_LABELS, label } from "@/lib/i18n/labels";
 import { PromptTypeBadge, PromptEnvStatus } from "@/components/prompt";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -306,7 +307,7 @@ export default function ProjectPromptsListPage() {
           <option value="">全部类型</option>
           {TYPES.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {label(PROMPT_TYPE_LABELS, t)}
             </option>
           ))}
         </select>
@@ -320,8 +321,8 @@ export default function ProjectPromptsListPage() {
           className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
         >
           <option value="">全部状态</option>
-          <option value="active">active</option>
-          <option value="archived">archived</option>
+          <option value="active">{label(RESOURCE_STATUS_LABELS, "active")}</option>
+          <option value="archived">{label(RESOURCE_STATUS_LABELS, "archived")}</option>
         </select>
         <button
           type="button"
@@ -354,12 +355,12 @@ export default function ProjectPromptsListPage() {
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-muted">key *</label>
+              <label className="text-xs text-muted">标识 Key *</label>
               <input
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
                 className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1.5 text-sm"
-                placeholder="system_main"
+                placeholder="如 system_main"
                 required
               />
             </div>
@@ -374,7 +375,7 @@ export default function ProjectPromptsListPage() {
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted">type</label>
+            <label className="text-xs text-muted">类型</label>
             <select
               value={type}
               onChange={(e) => setType(e.target.value)}
@@ -382,7 +383,7 @@ export default function ProjectPromptsListPage() {
             >
               {TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {label(PROMPT_TYPE_LABELS, t)}
                 </option>
               ))}
             </select>
