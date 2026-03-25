@@ -15,6 +15,8 @@ import type {
   ProjectSummary,
   TaskSummaryItem,
   ProjectDeepContext,
+  SupplierSummary,
+  InquirySummary,
 } from "./prompts";
 
 // ── 第一层：通用工作上下文 ────────────────────────────────────
@@ -161,7 +163,7 @@ export async function getProjectDeepContext(projectId: string): Promise<ProjectD
 
   if (!project) return null;
 
-  const [taskStats, recentMessages] = await Promise.all([
+  const [taskStats, recentMessages, suppliers, inquiries] = await Promise.all([
     db.task.groupBy({
       by: ["status"],
       where: { projectId },
@@ -177,6 +179,25 @@ export async function getProjectDeepContext(projectId: string): Promise<ProjectD
       },
       orderBy: { createdAt: "desc" },
       take: 10,
+    }),
+    project.orgId
+      ? db.supplier.findMany({
+          where: { orgId: project.orgId, status: "active" },
+          select: { id: true, name: true, category: true, region: true, contactEmail: true },
+          orderBy: { name: "asc" },
+          take: 50,
+        })
+      : Promise.resolve([]),
+    db.projectInquiry.findMany({
+      where: { projectId },
+      select: {
+        roundNumber: true,
+        status: true,
+        items: {
+          select: { status: true, isSelected: true, supplier: { select: { name: true } } },
+        },
+      },
+      orderBy: { roundNumber: "asc" },
     }),
   ]);
 
@@ -213,6 +234,20 @@ export async function getProjectDeepContext(projectId: string): Promise<ProjectD
     members: project.members.map((m) => ({
       name: m.user.name || m.user.email,
       role: m.role,
+    })),
+    suppliers: suppliers.map((s): SupplierSummary => ({
+      id: s.id,
+      name: s.name,
+      category: s.category,
+      region: s.region,
+      contactEmail: s.contactEmail,
+    })),
+    inquiries: inquiries.map((iq): InquirySummary => ({
+      roundNumber: iq.roundNumber,
+      status: iq.status,
+      itemCount: iq.items.length,
+      quotedCount: iq.items.filter((i) => i.status === "quoted").length,
+      selectedSupplier: iq.items.find((i) => i.isSelected)?.supplier.name ?? null,
     })),
   };
 }

@@ -378,6 +378,7 @@ export function ProjectAiChat({
                       <WorkSuggestionCard
                         suggestion={msg.workSuggestion}
                         projects={projects}
+                        projectId={projectId}
                         onCreated={onProjectUpdate}
                       />
                     </div>

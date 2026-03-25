@@ -32,6 +32,7 @@ import { ProjectProgressSection } from "@/components/tender/project-progress-sec
 import { ProjectDiscussionSection } from "@/components/project-discussion/project-discussion-section";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
 import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
+import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
 import { getProjectStage } from "@/lib/tender/stage";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
@@ -486,6 +487,15 @@ function ProjectDetailContent() {
             awardDate: project.awardDate ?? null,
             sourceMetadataJson: project.sourceMetadataJson ?? null,
           }}
+        />
+      )}
+
+      {/* 供应商询价 — 招投标项目或有 tender 属性的项目显示 */}
+      {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
+        <ProjectInquirySection
+          projectId={id}
+          orgId={project.orgId}
+          canManage={canManage}
         />
       )}
 

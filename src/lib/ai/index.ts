@@ -40,6 +40,8 @@ export type {
   TaskSuggestion,
   EventSuggestion,
   StageAdvanceSuggestion,
+  SupplierRecommendSuggestion,
+  SupplierRecommendItem,
   WorkSuggestion,
   SubTask,
   TaskBreakdown,

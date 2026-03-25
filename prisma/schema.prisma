@@ -138,6 +138,7 @@ model Project {
   documents     ProjectDocument[]
   discussion    ProjectConversation?
   aiThreads     AiThread[]
+  inquiries     ProjectInquiry[]
 
   @@index([orgId])
   @@index([sourceSystem])
@@ -358,6 +359,7 @@ model Organization {
   members   OrganizationMember[]
   projects  Project[]
   auditLogs AuditLog[]
+  suppliers Supplier[]
 }
 
 model OrganizationMember {
@@ -1200,4 +1202,93 @@ model AiMessage {
   createdAt      DateTime @default(now())
 
   @@index([threadId, createdAt])
+}
+
+// ============================================================
+// 供应商询价（Supplier Inquiry）
+// ============================================================
+
+model Supplier {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id])
+  name          String
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  category      String?
+  region        String?
+  notes         String?
+  status        String   @default("active")
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  brochureUrl          String?
+  brochureParseStatus  String?
+  brochureParseResult  Json?
+  brochureParseWarning String?
+
+  inquiryItems  InquiryItem[]
+
+  @@index([orgId, status])
+  @@index([orgId, name])
+}
+
+model ProjectInquiry {
+  id            String    @id @default(cuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roundNumber   Int       @default(1)
+  title         String?
+  scope         String?
+  status        String    @default("draft")
+  dueDate       DateTime?
+  token         String?   @unique
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  items         InquiryItem[]
+
+  @@unique([projectId, roundNumber])
+  @@index([projectId, status])
+}
+
+model InquiryItem {
+  id            String    @id @default(cuid())
+  inquiryId     String
+  inquiry       ProjectInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  supplierId    String
+  supplier      Supplier  @relation(fields: [supplierId], references: [id])
+
+  // ── 流程状态 ──
+  status        String    @default("pending")
+  sentVia       String?
+  sentAt        DateTime?
+  repliedAt     DateTime?
+  declinedAt    DateTime?
+
+  // ── 报价内容 ──
+  unitPrice     Decimal?  @db.Decimal(18, 2)
+  totalPrice    Decimal?  @db.Decimal(18, 2)
+  currency      String    @default("CAD")
+  deliveryDays  Int?
+  validUntil    DateTime?
+  quoteNotes    String?
+
+  // ── 选定 ──
+  isSelected    Boolean   @default(false)
+
+  // ── 沟通备注 ──
+  contactNotes  String?
+
+  // ── 元数据 ──
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([inquiryId, supplierId])
+  @@index([inquiryId, status])
+  @@index([supplierId])
 }

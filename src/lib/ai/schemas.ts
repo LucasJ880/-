@@ -34,11 +34,25 @@ export interface StageAdvanceSuggestion {
   evidence: string[];
 }
 
+export interface SupplierRecommendItem {
+  supplierId: string;
+  supplierName: string;
+  reason: string;
+  matchScore: number;
+}
+
+export interface SupplierRecommendSuggestion {
+  projectId: string;
+  project: string;
+  suppliers: SupplierRecommendItem[];
+}
+
 export interface WorkSuggestion {
-  type: "task" | "event" | "task_and_event" | "stage_advance";
+  type: "task" | "event" | "task_and_event" | "stage_advance" | "supplier_recommend";
   task: TaskSuggestion | null;
   event: EventSuggestion | null;
   stageAdvance: StageAdvanceSuggestion | null;
+  supplierRecommend: SupplierRecommendSuggestion | null;
 }
 
 // ── 任务拆解 ──────────────────────────────────────────────────

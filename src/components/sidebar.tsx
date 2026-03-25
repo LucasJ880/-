@@ -19,6 +19,7 @@ import {
   ScrollText,
   Shield,
   ChevronsUpDown,
+  Package2,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -57,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/organizations", label: "组织", icon: Building2 },
       { href: "/projects", label: "项目", icon: FolderKanban },
+      { href: "/suppliers", label: "供应商", icon: Package2 },
     ],
   },
   {

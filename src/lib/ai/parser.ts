@@ -7,7 +7,14 @@
 
 import { resolveChineseDate } from "@/lib/date/relative-date";
 import { nowToronto } from "@/lib/time";
-import type { TaskSuggestion, EventSuggestion, WorkSuggestion, StageAdvanceSuggestion } from "./schemas";
+import type {
+  TaskSuggestion,
+  EventSuggestion,
+  WorkSuggestion,
+  StageAdvanceSuggestion,
+  SupplierRecommendSuggestion,
+  SupplierRecommendItem,
+} from "./schemas";
 import { STAGE_ORDER } from "@/lib/tender/stage-transition";
 
 // ── Block 标记 ────────────────────────────────────────────────
@@ -86,6 +93,39 @@ function parseStageAdvanceFields(
   };
 }
 
+function parseSupplierRecommendFields(
+  parsed: Record<string, unknown>
+): SupplierRecommendSuggestion | null {
+  const sr = (parsed.supplierRecommend as Record<string, unknown>) ?? parsed;
+
+  const rawSuppliers = sr.suppliers;
+  if (!Array.isArray(rawSuppliers) || rawSuppliers.length === 0) return null;
+
+  const suppliers: SupplierRecommendItem[] = [];
+  for (const item of rawSuppliers.slice(0, 5)) {
+    if (typeof item !== "object" || !item) continue;
+    const s = item as Record<string, unknown>;
+    const supplierId = String(s.supplierId || "");
+    const supplierName = String(s.supplierName || "");
+    if (!supplierId || !supplierName) continue;
+    const rawScore = Number(s.matchScore);
+    suppliers.push({
+      supplierId,
+      supplierName,
+      reason: String(s.reason || ""),
+      matchScore: Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : 50,
+    });
+  }
+
+  if (suppliers.length === 0) return null;
+
+  return {
+    projectId: String(sr.projectId || ""),
+    project: String(sr.project || ""),
+    suppliers,
+  };
+}
+
 // ── 日期后处理 ────────────────────────────────────────────────
 
 function fmtTime(h: number, m: number): string {
@@ -145,10 +185,15 @@ export function extractWorkSuggestion(
       const parsed = JSON.parse(work.jsonStr);
       let suggestion: WorkSuggestion | null = null;
 
-      if (parsed.type === "stage_advance") {
+      if (parsed.type === "supplier_recommend") {
+        const sr = parseSupplierRecommendFields(parsed);
+        if (sr) {
+          suggestion = { type: "supplier_recommend", task: null, event: null, stageAdvance: null, supplierRecommend: sr };
+        }
+      } else if (parsed.type === "stage_advance") {
         const sa = parseStageAdvanceFields(parsed);
         if (sa) {
-          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa };
+          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa, supplierRecommend: null };
         }
       } else if (parsed.type === "task_and_event" && parsed.task && parsed.event) {
         suggestion = {
@@ -156,13 +201,14 @@ export function extractWorkSuggestion(
           task: parseTaskFields(parsed.task as Record<string, unknown>),
           event: parseEventFields(parsed.event as Record<string, unknown>),
           stageAdvance: null,
+          supplierRecommend: null,
         };
       } else if (parsed.type === "event" && parsed.event) {
-        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null };
+        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null, supplierRecommend: null };
       } else if (parsed.type === "task" && parsed.task) {
-        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null, supplierRecommend: null };
       } else if (!parsed.type || parsed.type === "task") {
-        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null, supplierRecommend: null };
       }
 
       if (suggestion) {
@@ -182,6 +228,7 @@ export function extractWorkSuggestion(
         task: parseTaskFields(parsed),
         event: null,
         stageAdvance: null,
+        supplierRecommend: null,
       };
       postProcessDates(suggestion);
       return { cleanText: legacy.cleanText, suggestion };

@@ -45,6 +45,22 @@ export interface WorkContext {
 
 // ── 深度上下文（第二层：提到具体项目时注入） ─────────────────────
 
+export interface SupplierSummary {
+  id: string;
+  name: string;
+  category: string | null;
+  region: string | null;
+  contactEmail: string | null;
+}
+
+export interface InquirySummary {
+  roundNumber: number;
+  status: string;
+  itemCount: number;
+  quotedCount: number;
+  selectedSupplier: string | null;
+}
+
 export interface ProjectDeepContext {
   project: ProjectSummary & {
     description: string | null;
@@ -64,6 +80,8 @@ export interface ProjectDeepContext {
   taskStats: { total: number; done: number; overdue: number };
   recentDiscussion: Array<{ sender: string; body: string; createdAt: string; type: string }>;
   members: Array<{ name: string; role: string }>;
+  suppliers: SupplierSummary[];
+  inquiries: InquirySummary[];
 }
 
 // ── 上下文格式化 ──────────────────────────────────────────────
@@ -176,6 +194,25 @@ export function buildProjectDeepBlock(deep: ProjectDeepContext): string {
     for (const msg of deep.recentDiscussion) {
       const prefix = msg.type === "SYSTEM" ? "[系统]" : `[${msg.sender}]`;
       lines.push(`- ${fmtDate(msg.createdAt)} ${prefix} ${msg.body.slice(0, 120)}`);
+    }
+  }
+
+  if (deep.suppliers.length > 0) {
+    lines.push(`### 组织供应商库 (${deep.suppliers.length} 家)`);
+    for (const s of deep.suppliers.slice(0, 30)) {
+      const parts = [s.name];
+      if (s.category) parts.push(`品类:${s.category}`);
+      if (s.region) parts.push(`地区:${s.region}`);
+      if (s.contactEmail) parts.push(s.contactEmail);
+      lines.push(`- [ID:${s.id}] ${parts.join(" | ")}`);
+    }
+  }
+
+  if (deep.inquiries.length > 0) {
+    lines.push("### 当前询价轮次");
+    for (const iq of deep.inquiries) {
+      const sel = iq.selectedSupplier ? `，已选定:${iq.selectedSupplier}` : "";
+      lines.push(`- 第${iq.roundNumber}轮 [${iq.status}] ${iq.itemCount}家供应商，${iq.quotedCount}家已报价${sel}`);
     }
   }
 
@@ -308,6 +345,11 @@ export function getChatSystemPrompt(): string {
 {"type":"stage_advance","stageAdvance":{"projectId":"项目ID","project":"项目名称","targetStage":"interpretation|supplier_inquiry|supplier_quote|submission","reason":"推进原因：基于哪些已完成的事实","confidence":0.9,"evidence":["证据1：已完成XX","证据2：已确认XX"]}}
 [/WORK_JSON]
 
+**供应商推荐（当用户询问适合的供应商时）：**
+[WORK_JSON]
+{"type":"supplier_recommend","supplierRecommend":{"projectId":"项目ID","project":"项目名称","suppliers":[{"supplierId":"供应商ID","supplierName":"供应商名称","reason":"推荐理由","matchScore":85}]}}
+[/WORK_JSON]
+
 ### 阶段推进规则（严格遵守）
 - 只有当用户**明确表示**某阶段工作已完成，或对话中有**可验证的事实证据**时，才输出 stage_advance
 - 仅凭"用户在讨论某阶段"不是推进证据，不要输出 stage_advance
@@ -316,6 +358,15 @@ export function getChatSystemPrompt(): string {
 - confidence 含义：0.9+ 有明确事实依据，0.7-0.9 有间接证据，<0.7 不应输出
 - evidence 必须列出具体事实，不要编造
 - 如果不确定是否应该推进，不要输出 stage_advance，改为在自然语言中提问确认
+
+### 供应商推荐规则
+- 仅当"组织供应商库"在上下文中存在，且用户主动询问"适合哪些供应商"/"推荐供应商"/"哪些供应商可以联系"时，才输出 supplier_recommend
+- 推荐依据：项目品类/地区/描述 与供应商的 category/region 匹配
+- supplierId 必须是上下文中真实存在的供应商 ID，绝不编造
+- matchScore 0-100，基于匹配相关性评估
+- reason 用一句话说明为什么推荐该供应商
+- 最多推荐 5 家
+- 如果供应商库为空或没有匹配的供应商，在自然语言中告知用户，不输出 JSON
 
 ### 优先级判断（仅 task）
 - urgent：今天/明天截止、客户紧急
