@@ -350,6 +350,22 @@ export function getChatSystemPrompt(): string {
 {"type":"supplier_recommend","supplierRecommend":{"projectId":"项目ID","project":"项目名称","suppliers":[{"supplierId":"供应商ID","supplierName":"供应商名称","reason":"推荐理由","matchScore":85}]}}
 [/WORK_JSON]
 
+**项目问题邮件（当用户想向业主/GC/顾问提问或请求澄清时）：**
+[WORK_JSON]
+{"type":"question_email","questionEmail":{"projectId":"项目ID","project":"项目名称","title":"问题标题","description":"问题详细描述","locationOrReference":"涉及区域/图纸编号或null","clarificationNeeded":"希望对方确认的事项或null","impactNote":"不确认可能带来的影响或null","toRecipients":"收件人邮箱或null"}}
+[/WORK_JSON]
+
+### 项目问题邮件规则
+- 当用户提到需要"问业主""发 RFI""向 GC 确认""给顾问发邮件""请业主澄清"等意图时，输出 question_email
+- 关键词："问业主"、"发邮件给业主"、"RFI"、"请求确认"、"图纸不清楚"、"需要业主回复"、"向 GC 提问"、"跟顾问确认"
+- title 用简短中文描述问题主题
+- description 用用户原话整理成清晰的问题描述
+- locationOrReference 提取图纸编号、房间号、窗号等引用信息（没有就 null）
+- clarificationNeeded 提取用户希望对方确认的具体事项（没有就 null）
+- impactNote 提取用户提到的潜在影响（没有就 null）
+- projectId 必须是上下文中存在的项目 ID，不编造
+- 如果用户只是讨论问题但没有明确"要发邮件/要问业主"的意图，不输出 question_email
+
 ### 阶段推进规则（严格遵守）
 - 只有当用户**明确表示**某阶段工作已完成，或对话中有**可验证的事实证据**时，才输出 stage_advance
 - 仅凭"用户在讨论某阶段"不是推进证据，不要输出 stage_advance

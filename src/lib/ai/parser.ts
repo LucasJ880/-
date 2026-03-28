@@ -14,6 +14,7 @@ import type {
   StageAdvanceSuggestion,
   SupplierRecommendSuggestion,
   SupplierRecommendItem,
+  QuestionEmailSuggestion,
 } from "./schemas";
 import { STAGE_ORDER } from "@/lib/tender/stage-transition";
 
@@ -126,6 +127,27 @@ function parseSupplierRecommendFields(
   };
 }
 
+function parseQuestionEmailFields(
+  parsed: Record<string, unknown>
+): QuestionEmailSuggestion | null {
+  const qe = (parsed.questionEmail as Record<string, unknown>) ?? parsed;
+
+  const title = String(qe.title || "");
+  const description = String(qe.description || "");
+  if (!title && !description) return null;
+
+  return {
+    projectId: String(qe.projectId || ""),
+    project: String(qe.project || ""),
+    title,
+    description,
+    locationOrReference: (qe.locationOrReference as string) || null,
+    clarificationNeeded: (qe.clarificationNeeded as string) || null,
+    impactNote: (qe.impactNote as string) || null,
+    toRecipients: (qe.toRecipients as string) || null,
+  };
+}
+
 // ── 日期后处理 ────────────────────────────────────────────────
 
 function fmtTime(h: number, m: number): string {
@@ -185,15 +207,20 @@ export function extractWorkSuggestion(
       const parsed = JSON.parse(work.jsonStr);
       let suggestion: WorkSuggestion | null = null;
 
-      if (parsed.type === "supplier_recommend") {
+      if (parsed.type === "question_email") {
+        const qe = parseQuestionEmailFields(parsed);
+        if (qe) {
+          suggestion = { type: "question_email", task: null, event: null, stageAdvance: null, supplierRecommend: null, questionEmail: qe };
+        }
+      } else if (parsed.type === "supplier_recommend") {
         const sr = parseSupplierRecommendFields(parsed);
         if (sr) {
-          suggestion = { type: "supplier_recommend", task: null, event: null, stageAdvance: null, supplierRecommend: sr };
+          suggestion = { type: "supplier_recommend", task: null, event: null, stageAdvance: null, supplierRecommend: sr, questionEmail: null };
         }
       } else if (parsed.type === "stage_advance") {
         const sa = parseStageAdvanceFields(parsed);
         if (sa) {
-          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa, supplierRecommend: null };
+          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa, supplierRecommend: null, questionEmail: null };
         }
       } else if (parsed.type === "task_and_event" && parsed.task && parsed.event) {
         suggestion = {
@@ -202,13 +229,14 @@ export function extractWorkSuggestion(
           event: parseEventFields(parsed.event as Record<string, unknown>),
           stageAdvance: null,
           supplierRecommend: null,
+          questionEmail: null,
         };
       } else if (parsed.type === "event" && parsed.event) {
-        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null, supplierRecommend: null };
+        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null, supplierRecommend: null, questionEmail: null };
       } else if (parsed.type === "task" && parsed.task) {
-        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null, supplierRecommend: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null };
       } else if (!parsed.type || parsed.type === "task") {
-        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null, supplierRecommend: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null };
       }
 
       if (suggestion) {
@@ -229,6 +257,7 @@ export function extractWorkSuggestion(
         event: null,
         stageAdvance: null,
         supplierRecommend: null,
+        questionEmail: null,
       };
       postProcessDates(suggestion);
       return { cleanText: legacy.cleanText, suggestion };

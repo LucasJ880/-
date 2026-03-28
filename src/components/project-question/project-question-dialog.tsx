@@ -34,25 +34,35 @@ type Phase =
   | "sent"
   | "error";
 
+export interface QuestionPrefill {
+  title?: string;
+  description?: string;
+  locationOrReference?: string;
+  clarificationNeeded?: string;
+  impactNote?: string;
+  toRecipients?: string;
+}
+
 interface Props {
   projectId: string;
   onClose: () => void;
   onSent?: () => void;
+  prefill?: QuestionPrefill;
 }
 
 // ── 组件 ──────────────────────────────────────────────────
 
-export function ProjectQuestionDialog({ projectId, onClose, onSent }: Props) {
+export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: Props) {
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState("");
 
   // Form fields
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [locationRef, setLocationRef] = useState("");
-  const [clarification, setClarification] = useState("");
-  const [impactNote, setImpactNote] = useState("");
-  const [toRecipients, setToRecipients] = useState("");
+  const [title, setTitle] = useState(prefill?.title || "");
+  const [description, setDescription] = useState(prefill?.description || "");
+  const [locationRef, setLocationRef] = useState(prefill?.locationOrReference || "");
+  const [clarification, setClarification] = useState(prefill?.clarificationNeeded || "");
+  const [impactNote, setImpactNote] = useState(prefill?.impactNote || "");
+  const [toRecipients, setToRecipients] = useState(prefill?.toRecipients || "");
   const [ccRecipients, setCcRecipients] = useState("");
 
   // Generated result

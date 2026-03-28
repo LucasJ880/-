@@ -47,12 +47,24 @@ export interface SupplierRecommendSuggestion {
   suppliers: SupplierRecommendItem[];
 }
 
+export interface QuestionEmailSuggestion {
+  projectId: string;
+  project: string;
+  title: string;
+  description: string;
+  locationOrReference: string | null;
+  clarificationNeeded: string | null;
+  impactNote: string | null;
+  toRecipients: string | null;
+}
+
 export interface WorkSuggestion {
-  type: "task" | "event" | "task_and_event" | "stage_advance" | "supplier_recommend";
+  type: "task" | "event" | "task_and_event" | "stage_advance" | "supplier_recommend" | "question_email";
   task: TaskSuggestion | null;
   event: EventSuggestion | null;
   stageAdvance: StageAdvanceSuggestion | null;
   supplierRecommend: SupplierRecommendSuggestion | null;
+  questionEmail: QuestionEmailSuggestion | null;
 }
 
 // ── 任务拆解 ──────────────────────────────────────────────────
