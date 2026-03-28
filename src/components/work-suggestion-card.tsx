@@ -1039,12 +1039,16 @@ function SupplierRecommendCard({
 
 function QuestionEmailCard({
   suggestion,
+  projectId,
   onCreated,
 }: {
   suggestion: QuestionEmailSuggestion;
+  projectId?: string;
   onCreated?: () => void;
 }) {
   const [showDialog, setShowDialog] = useState(false);
+
+  const effectiveProjectId = projectId || suggestion.projectId;
 
   const prefill: QuestionPrefill = {
     title: suggestion.title,
@@ -1055,7 +1059,7 @@ function QuestionEmailCard({
     toRecipients: suggestion.toRecipients || undefined,
   };
 
-  if (!suggestion.projectId) {
+  if (!effectiveProjectId) {
     return (
       <div className="my-2 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-xs text-[#a63d3d]">
         缺少项目信息，无法生成问题邮件
@@ -1112,7 +1116,7 @@ function QuestionEmailCard({
 
       {showDialog && (
         <ProjectQuestionDialog
-          projectId={suggestion.projectId}
+          projectId={effectiveProjectId}
           prefill={prefill}
           onClose={() => setShowDialog(false)}
           onSent={() => {
@@ -1129,7 +1133,7 @@ function QuestionEmailCard({
 
 export function WorkSuggestionCard({ suggestion, projects = [], projectId, onCreated }: Props) {
   if (suggestion.type === "question_email" && suggestion.questionEmail) {
-    return <QuestionEmailCard suggestion={suggestion.questionEmail} onCreated={onCreated} />;
+    return <QuestionEmailCard suggestion={suggestion.questionEmail} projectId={projectId} onCreated={onCreated} />;
   }
   if (suggestion.type === "supplier_recommend" && suggestion.supplierRecommend) {
     return <SupplierRecommendCard suggestion={suggestion.supplierRecommend} projectId={projectId} onCreated={onCreated} />;
