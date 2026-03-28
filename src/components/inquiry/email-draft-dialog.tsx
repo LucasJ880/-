@@ -11,7 +11,9 @@ import {
   AlertCircle,
   CheckCircle2,
   Edit3,
+  Languages,
 } from "lucide-react";
+import { LanguageAssistPanel } from "@/components/language-assist/language-assist-panel";
 
 interface Props {
   projectId: string;
@@ -47,6 +49,7 @@ export function EmailDraftDialog({
   const [editBody, setEditBody] = useState("");
   const [error, setError] = useState("");
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  const [showAssist, setShowAssist] = useState(false);
 
   const base = `/api/projects/${projectId}/inquiries/${inquiryId}/items/${itemId}/email`;
 
@@ -218,6 +221,18 @@ export function EmailDraftDialog({
                   )}
                 </div>
 
+                {/* Language assist for email body */}
+                {(phase === "preview" || phase === "editing") && editBody && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAssist(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-accent/20 bg-accent/5 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/10"
+                  >
+                    <Languages size={11} />
+                    对邮件内容进行跨语言理解
+                  </button>
+                )}
+
                 {/* Gmail binding warning */}
                 {gmailConnected === false && (
                   <div className="flex items-center gap-2 rounded-lg border border-[rgba(154,106,47,0.15)] bg-[rgba(154,106,47,0.04)] px-4 py-3 text-sm text-[#9a6a2f]">
@@ -285,6 +300,21 @@ export function EmailDraftDialog({
           </div>
         )}
       </div>
+
+      {/* Language Assist Panel */}
+      {showAssist && (
+        <LanguageAssistPanel
+          text={editBody.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()}
+          context={`这是一封与供应商「${supplierName}」相关的商务邮件`}
+          defaultMode="understand_and_reply"
+          onClose={() => setShowAssist(false)}
+          onUseReply={(reply) => {
+            setEditBody(reply);
+            setPhase("editing");
+            setShowAssist(false);
+          }}
+        />
+      )}
     </div>
   );
 }

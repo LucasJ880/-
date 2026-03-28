@@ -16,6 +16,7 @@ import type { InquiryItemRow } from "./project-inquiry-section";
 import { AddSupplierDialog } from "./add-supplier-dialog";
 import { EmailDraftDialog } from "./email-draft-dialog";
 import { QuoteAnalysisPanel } from "./quote-analysis-panel";
+import { LanguageAssistButton } from "@/components/language-assist/language-assist-panel";
 
 interface InquiryRound {
   id: string;
@@ -159,6 +160,7 @@ export function InquiryDetail({
                 <th className="pb-2 pr-3">总价</th>
                 <th className="pb-2 pr-3">单价</th>
                 <th className="pb-2 pr-3">交期(天)</th>
+                <th className="pb-2 pr-3">备注</th>
                 <th className="pb-2 pr-3">选定</th>
                 {canManage && <th className="pb-2">操作</th>}
               </tr>
@@ -191,6 +193,13 @@ export function InquiryDetail({
                   </td>
                   <td className="py-2.5 pr-3 tabular-nums">
                     {item.deliveryDays ?? "—"}
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <NotesCell
+                      quoteNotes={item.quoteNotes}
+                      contactNotes={item.contactNotes}
+                      supplierName={item.supplier.name}
+                    />
                   </td>
                   <td className="py-2.5 pr-3">
                     {item.isSelected ? (
@@ -544,6 +553,39 @@ function InlineQuoteForm({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ── Notes cell with language assist ───────────────────────────
+
+function NotesCell({
+  quoteNotes,
+  contactNotes,
+  supplierName,
+}: {
+  quoteNotes: string | null;
+  contactNotes: string | null;
+  supplierName: string;
+}) {
+  const text = quoteNotes || contactNotes;
+  if (!text) return <span className="text-muted">—</span>;
+
+  const context = quoteNotes
+    ? `这是供应商「${supplierName}」的报价备注`
+    : `这是与供应商「${supplierName}」的沟通备注`;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="max-w-[120px] truncate text-[12px]" title={text}>
+        {text}
+      </span>
+      <LanguageAssistButton
+        text={text}
+        context={context}
+        mode="understand_and_reply"
+        label="理解"
+      />
     </div>
   );
 }
