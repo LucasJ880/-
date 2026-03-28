@@ -320,8 +320,16 @@ function NotificationsContent() {
                   ? "还没有已处理的通知"
                   : statusFilter === "snoozed"
                     ? "没有稍后提醒的通知"
-                    : "暂时没有任何通知"}
+                    : "当项目有新动态、任务到期或被@提及时，通知会出现在这里"}
             </p>
+            {statusFilter === "all" && (
+              <Link
+                href="/settings/notifications"
+                className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+              >
+                管理通知偏好
+              </Link>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-border/40">

@@ -497,18 +497,26 @@ function TasksPageContent() {
           </div>
           <h3 className="text-base font-semibold text-foreground">暂无任务</h3>
           <p className="mt-1 max-w-sm text-sm text-muted">
-            创建任务以跟踪进度；也可在「AI 助手」或「收件箱」用自然语言生成建议。
+            创建任务以跟踪工作进度，或让 AI 助手帮你从自然语言中提取任务。
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingTask(null);
-              setShowForm(true);
-            }}
-            className="mt-6 min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-accent-hover active:scale-[0.98]"
-          >
-            新建任务
-          </button>
+          <div className="mt-6 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setEditingTask(null);
+                setShowForm(true);
+              }}
+              className="min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-accent-hover active:scale-[0.98]"
+            >
+              新建任务
+            </button>
+            <Link
+              href="/assistant"
+              className="min-h-10 rounded-[var(--radius-md)] border border-border px-5 py-2 text-sm font-medium transition-all hover:bg-background/80"
+            >
+              试试 AI 助手
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="divide-y divide-border rounded-xl border border-border bg-card-bg">

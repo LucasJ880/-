@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import {
   Plus,
   Loader2,
@@ -16,6 +17,7 @@ import {
   Package,
   Power,
   PowerOff,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -230,8 +232,15 @@ export default function SuppliersPage() {
           </div>
           <div className="text-center">
             <p className="text-sm font-medium text-foreground">暂无组织</p>
-            <p className="mt-1 text-sm text-muted">供应商归属于组织，请先到「组织」页面创建并加入组织。</p>
+            <p className="mt-1 max-w-sm text-sm text-muted">供应商归属于组织，请先创建或加入一个组织。</p>
           </div>
+          <Link
+            href="/organizations"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            <Building2 size={16} />
+            前往创建组织
+          </Link>
         </div>
       ) : (
         <>

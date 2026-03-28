@@ -126,21 +126,15 @@ export default function OrganizationsPage() {
         </div>
       ) : orgs.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border py-16">
-          <Building2 className="h-10 w-10 text-muted" />
-          <p className="text-center text-sm text-muted">
-            暂无组织。创建后即可在{" "}
-            <Link href="/projects" className="text-accent hover:underline">
-              项目
-            </Link>{" "}
-            中新建归属项目。
-          </p>
-          <Link
-            href="/projects"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium transition-colors hover:bg-background"
-          >
-            <FolderKanban size={16} />
-            前往项目管理
-          </Link>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[rgba(110,125,118,0.08)]">
+            <Building2 size={28} className="text-[#8a9590]" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">还没有组织</p>
+            <p className="mt-1 max-w-sm text-sm text-muted">
+              在上方填写名称和编码即可创建你的第一个组织。创建后可以邀请成员、新建项目和管理供应商。
+            </p>
+          </div>
         </div>
       ) : (
         <ul className="space-y-2">

@@ -47,20 +47,11 @@ export function DashboardWelcomeSection({
     {
       id: "project",
       icon: <FolderKanban size={20} />,
-      title: "探索你的项目",
-      description: "默认项目已创建好 test / prod 环境，进去看看吧。",
+      title: "创建或加入项目",
+      description: "项目是协作的核心单元，管理进度、成员与供应商。",
       href: "/projects",
       linkLabel: "进入项目",
       done: hasProjects,
-    },
-    {
-      id: "prompt",
-      icon: <FileText size={20} />,
-      title: "创建第一个 Prompt",
-      description: "在项目中管理 Prompt 内容、版本和环境发布。",
-      href: "/projects",
-      linkLabel: "创建 Prompt",
-      done: false,
     },
     {
       id: "task",
@@ -70,6 +61,15 @@ export function DashboardWelcomeSection({
       href: "/tasks",
       linkLabel: "去创建任务",
       done: hasTasks,
+    },
+    {
+      id: "assistant",
+      icon: <FileText size={20} />,
+      title: "试试 AI 助手",
+      description: "用自然语言描述工作，AI 帮你自动创建任务和日程。",
+      href: "/assistant",
+      linkLabel: "打开 AI 助手",
+      done: false,
     },
   ];
 
