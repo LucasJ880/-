@@ -24,6 +24,7 @@ import {
   Clock,
   TrendingUp,
   CheckCircle2,
+  FileQuestion,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -37,6 +38,7 @@ import { ProjectDiscussionSection } from "@/components/project-discussion/projec
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
 import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
+import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -146,6 +148,7 @@ function ProjectDetailContent() {
   const [progress, setProgress] = useState<ProjectProgress | null>(null);
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
   const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
+  const [showQuestionDialog, setShowQuestionDialog] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -625,6 +628,34 @@ function ProjectDetailContent() {
           projectId={id}
           orgId={project.orgId}
           canManage={canManage}
+        />
+      )}
+
+      {/* 向业主提问 — 项目问题澄清邮件 */}
+      {canManage && project.status !== "abandoned" && (
+        <div className="rounded-xl border border-border bg-card-bg p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileQuestion size={16} className="text-accent" />
+              <h3 className="text-sm font-semibold">项目问题</h3>
+              <span className="text-xs text-muted">向业主/GC/顾问发送澄清邮件</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowQuestionDialog(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+            >
+              <FileQuestion size={12} />
+              向业主提问
+            </button>
+          </div>
+        </div>
+      )}
+      {showQuestionDialog && (
+        <ProjectQuestionDialog
+          projectId={id}
+          onClose={() => setShowQuestionDialog(false)}
+          onSent={() => setShowQuestionDialog(false)}
         />
       )}
 

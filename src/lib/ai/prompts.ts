@@ -660,3 +660,89 @@ export function getUnderstandAndReplyPrompt(context: string, targetLang: string)
 6. keyPointsZh 控制在 2-5 条，actionItemsZh 控制在 1-3 条
 7. 如果原文是${summaryLang}，仍然正常分析，回复草稿用${replyLang}`;
 }
+
+// ── 项目问题澄清邮件 ────────────────────────────────────────
+
+export interface ProjectQuestionEmailContext {
+  project: {
+    name: string;
+    solicitationNumber: string | null;
+    clientOrganization: string | null;
+    description: string | null;
+  };
+  question: {
+    title: string;
+    description: string;
+    locationOrReference: string | null;
+    clarificationNeeded: string | null;
+    impactNote: string | null;
+  };
+  senderName: string;
+  senderOrg: string | null;
+  toRecipients: string | null;
+}
+
+export function getProjectQuestionEmailPrompt(ctx: ProjectQuestionEmailContext): string {
+  const lines: string[] = [
+    `You are a professional project communication assistant for "Qingyan".`,
+    `Generate a formal English business email to the project Owner / GC / Consultant requesting clarification or confirmation on a project issue.`,
+    "",
+    "## Project Information",
+    `- Project: ${ctx.project.name}`,
+  ];
+
+  if (ctx.project.solicitationNumber) {
+    lines.push(`- Solicitation / Contract #: ${ctx.project.solicitationNumber}`);
+  }
+  if (ctx.project.clientOrganization) {
+    lines.push(`- Client / Owner: ${ctx.project.clientOrganization}`);
+  }
+  if (ctx.project.description) {
+    lines.push(`- Description: ${ctx.project.description.slice(0, 400)}`);
+  }
+
+  lines.push("", "## Issue Details");
+  lines.push(`- Subject: ${ctx.question.title}`);
+  lines.push(`- Description: ${ctx.question.description}`);
+
+  if (ctx.question.locationOrReference) {
+    lines.push(`- Location / Drawing / Reference: ${ctx.question.locationOrReference}`);
+  }
+  if (ctx.question.clarificationNeeded) {
+    lines.push(`- Clarification Needed: ${ctx.question.clarificationNeeded}`);
+  }
+  if (ctx.question.impactNote) {
+    lines.push(`- Potential Impact: ${ctx.question.impactNote}`);
+  }
+
+  lines.push("", "## Output Requirements");
+  lines.push("Return ONLY valid JSON with no other text:");
+  lines.push("```json");
+  lines.push(`{`);
+  lines.push(`  "subject": "Email subject line",`);
+  lines.push(`  "body": "Full email body in HTML format (use <p>, <br>, <ul>, <li>, <strong>)"`);
+  lines.push(`}`);
+  lines.push("```");
+
+  lines.push("", "## Email Structure Rules");
+  lines.push("The email body MUST follow this structure:");
+  lines.push("1. Brief opening: State purpose of the email (request for clarification/confirmation)");
+  lines.push("2. Background: Reference what documents/drawings/site conditions were reviewed");
+  lines.push("3. Issue description: Clearly describe what was found");
+  lines.push("4. Items requiring confirmation: Use a numbered or bulleted list of specific questions");
+  lines.push("5. Potential impact (if provided): Briefly note how this may affect pricing/schedule/scope");
+  lines.push("6. Closing: Request timely response, professional sign-off");
+
+  lines.push("", "## Writing Rules");
+  lines.push("1. Tone: Formal, clear, concise, professional — suitable for Owner/GC/Consultant communication");
+  lines.push("2. Do NOT make assumptions or draw conclusions without basis");
+  lines.push("3. Do NOT be emotional or accusatory — stay objective and solution-oriented");
+  lines.push("4. Each question/item for confirmation must be specific and actionable");
+  lines.push("5. Do NOT just write 'Please advise' — be explicit about what needs to be confirmed");
+  lines.push("6. This is a project record — write with documentation/audit awareness");
+  lines.push(`7. Sign off as: ${ctx.senderName}${ctx.senderOrg ? `, ${ctx.senderOrg}` : ""}`);
+  lines.push("8. Subject format: RE: [Project Name] — [Brief Issue Description]");
+  lines.push("9. Keep the email under 400 words unless the issue requires more detail");
+
+  return lines.join("\n");
+}

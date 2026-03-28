@@ -1346,3 +1346,35 @@ model ProjectEmail {
   @@index([inquiryItemId])
   @@index([orgId, projectId])
 }
+
+/// 项目问题 / RFI — 向业主/GC/顾问发送的澄清确认邮件
+model ProjectQuestion {
+  id                  String    @id @default(cuid())
+  projectId           String
+  orgId               String?
+
+  // ── 问题内容 ──
+  title               String
+  description         String    @db.Text
+  locationOrReference String?
+  clarificationNeeded String?   @db.Text
+  impactNote          String?   @db.Text
+
+  // ── 生成的邮件 ──
+  generatedSubject    String?
+  generatedBody       String?   @db.Text
+  toRecipients        String?
+  ccRecipients        String?
+
+  // ── 流程状态 ──
+  status              String    @default("draft") // draft | generated | sent | replied | closed
+  emailId             String?
+
+  // ── 元数据 ──
+  createdById         String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([projectId, createdAt])
+}
