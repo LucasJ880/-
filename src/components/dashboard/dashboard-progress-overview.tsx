@@ -8,6 +8,7 @@ import {
   Clock,
   TrendingUp,
   CheckCircle2,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MiniProgressBar } from "@/components/progress/mini-progress-bar";
@@ -194,6 +195,13 @@ export function DashboardProgressOverview({
               {healthy.length}/{sorted.length} 正常
             </span>
           )}
+          <Link
+            href="/reports"
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-accent"
+          >
+            <FileText size={10} />
+            生成周报
+          </Link>
           <Link
             href="/projects"
             className="flex items-center gap-1 text-xs text-accent hover:underline"
