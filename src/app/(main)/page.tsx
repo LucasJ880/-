@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { DashboardCalendarSection } from "@/components/dashboard/dashboard-calendar-section";
 import { DashboardAbandonedSection } from "@/components/dashboard/dashboard-abandoned-section";
 import { DashboardLinksRecentSection } from "@/components/dashboard/dashboard-links-recent-section";
-import { DashboardProjectsSection } from "@/components/dashboard/dashboard-projects-section";
+import { DashboardProgressOverview } from "@/components/dashboard/dashboard-progress-overview";
 import { DashboardStatsSection } from "@/components/dashboard/dashboard-stats-section";
 import { DashboardTasksSection } from "@/components/dashboard/dashboard-tasks-section";
 import { DashboardTodayFocus } from "@/components/dashboard/dashboard-today-focus";
@@ -119,14 +119,14 @@ export default function Dashboard() {
         onDelete={handleDeleteEvent}
         onOpenProject={openProjectDrawer}
       />
+      <DashboardProgressOverview
+        projectBreakdown={stats.projectBreakdown}
+        projectProgress={stats.projectProgress ?? {}}
+        onProjectClick={openProjectDrawer}
+      />
       <DashboardTasksSection
         highPriorityTasks={stats.highPriorityTasks}
         upcomingTasks={stats.upcomingTasks}
-        onProjectClick={openProjectDrawer}
-      />
-      <DashboardProjectsSection
-        projectBreakdown={stats.projectBreakdown}
-        projectProgress={stats.projectProgress ?? {}}
         onProjectClick={openProjectDrawer}
       />
       <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
