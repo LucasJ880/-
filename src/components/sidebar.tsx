@@ -8,7 +8,6 @@ import {
   FolderKanban,
   Bot,
   Bell,
-  Inbox,
   Settings,
   CircleHelp,
   ChevronLeft,
@@ -49,7 +48,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "工作台", icon: LayoutDashboard },
       { href: "/notifications", label: "通知中心", icon: Bell },
-      { href: "/inbox", label: "收件箱", icon: Inbox },
       { href: "/tasks", label: "任务管理", icon: CheckSquare },
     ],
   },
@@ -66,18 +64,13 @@ const NAV_GROUPS: NavGroup[] = [
     items: [{ href: "/assistant", label: "AI 助手", icon: Bot, badge: "Beta" }],
   },
   {
-    title: "业务",
-    items: [
-      { href: "/blinds-orders", label: "工艺单", icon: ClipboardList, badge: "行业" },
-    ],
-  },
-  {
     title: "管理",
     adminOnly: true,
     items: [
       { href: "/admin/project-intake", label: "待分发项目", icon: ClipboardList, adminOnly: true },
       { href: "/admin/users", label: "用户管理", icon: Users, adminOnly: true },
       { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText, adminOnly: true },
+      { href: "/blinds-orders", label: "工艺单", icon: ClipboardList, adminOnly: true, badge: "行业" },
     ],
   },
 ];

@@ -455,64 +455,69 @@ function ProjectDetailContent() {
               </div>
             )}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-              <Link
-                href={`/projects/${id}/prompts`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <FileText size={12} />
-                Prompt 管理
-              </Link>
-              <Link
-                href={`/projects/${id}/knowledge-bases`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <BookOpen size={12} />
-                知识库
-              </Link>
-              <Link
-                href={`/projects/${id}/conversations`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <MessageSquare size={12} />
-                会话管理
-              </Link>
-              <Link
-                href={`/projects/${id}/agents`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <Bot size={12} />
-                Agent 管理
-              </Link>
-              <Link
-                href={`/projects/${id}/tools`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <Wrench size={12} />
-                工具注册
-              </Link>
-              <Link
-                href={`/projects/${id}/feedbacks`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <Star size={12} />
-                评估反馈
-              </Link>
-              <Link
-                href={`/projects/${id}/quality`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <BarChart3 size={12} />
-                质量概览
-              </Link>
-              <Link
-                href={`/projects/${id}/feedback-tags`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-              >
-                <Tag size={12} />
-                评估标签
-              </Link>
-            </div>
+            {canManage && (
+              <div className="mt-4">
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted">开发者工具</p>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Link
+                    href={`/projects/${id}/prompts`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <FileText size={12} />
+                    Prompt 管理
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/knowledge-bases`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <BookOpen size={12} />
+                    知识库
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/conversations`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <MessageSquare size={12} />
+                    会话管理
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/agents`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <Bot size={12} />
+                    Agent 管理
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/tools`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <Wrench size={12} />
+                    工具注册
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/feedbacks`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <Star size={12} />
+                    评估反馈
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/quality`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <BarChart3 size={12} />
+                    质量概览
+                  </Link>
+                  <Link
+                    href={`/projects/${id}/feedback-tags`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
+                  >
+                    <Tag size={12} />
+                    评估标签
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
