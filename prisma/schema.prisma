@@ -1292,3 +1292,57 @@ model InquiryItem {
   @@index([inquiryId, status])
   @@index([supplierId])
 }
+
+// ============================================================
+// 邮件发送
+// ============================================================
+
+/// 用户绑定的 Gmail OAuth 凭据（独立于 CalendarProvider）
+model EmailProvider {
+  id            String    @id @default(cuid())
+  userId        String
+  type          String    @default("gmail")
+  accessToken   String    @db.Text
+  refreshToken  String?   @db.Text
+  tokenExpiry   DateTime?
+  accountEmail  String
+
+  /// 记录本次授权实际获得的 scope 列表（空格分隔），用于权限审查与增量授权诊断
+  grantedScopes String?   @db.Text
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+}
+
+/// 项目内发出的邮件记录
+model ProjectEmail {
+  id                String    @id @default(cuid())
+  orgId             String
+  projectId         String
+  inquiryId         String?
+  inquiryItemId     String?
+
+  toEmail           String
+  toName            String?
+  fromEmail         String
+  subject           String
+  body              String    @db.Text
+
+  status            String    @default("draft")   // draft | sending | sent | failed
+  provider          String    @default("gmail")
+  externalMessageId String?
+  errorMessage      String?
+
+  createdById       String
+  sentById          String?
+  createdAt         DateTime  @default(now())
+  sentAt            DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  @@index([projectId])
+  @@index([inquiryItemId])
+  @@index([orgId, projectId])
+}

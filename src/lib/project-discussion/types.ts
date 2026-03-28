@@ -71,6 +71,7 @@ export const SYSTEM_EVENT_TYPES = {
   TASK_CREATED: "task_created",
   EVENT_CREATED: "event_created",
   STAGE_ADVANCED: "stage_advanced",
+  EMAIL_SENT: "email_sent",
 } as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPES)[keyof typeof SYSTEM_EVENT_TYPES];
@@ -154,6 +155,15 @@ interface StageAdvancedPayload extends BasePayload {
   confidence?: number;
 }
 
+interface EmailSentPayload extends BasePayload {
+  eventType: "email_sent";
+  emailId: string;
+  toEmail: string;
+  toName: string | null;
+  supplierName: string;
+  subject: string;
+}
+
 export type SystemEventMetadata =
   | ProjectCreatedPayload
   | MemberJoinedPayload
@@ -165,4 +175,5 @@ export type SystemEventMetadata =
   | ProjectAbandonedPayload
   | TaskCreatedPayload
   | EventCreatedPayload
-  | StageAdvancedPayload;
+  | StageAdvancedPayload
+  | EmailSentPayload;

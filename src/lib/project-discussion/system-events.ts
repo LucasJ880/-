@@ -360,6 +360,36 @@ export async function onStageAdvanced(
   });
 }
 
+export async function onEmailSent(
+  projectId: string,
+  emailId: string,
+  toEmail: string,
+  toName: string | null,
+  supplierName: string,
+  subject: string,
+  actorId: string,
+  actorName: string
+) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.EMAIL_SENT,
+    actorId,
+    actorName,
+    source: "system",
+    emailId,
+    toEmail,
+    toName,
+    supplierName,
+    subject,
+  };
+  return createProjectSystemMessage({
+    projectId,
+    eventType: SYSTEM_EVENT_TYPES.EMAIL_SENT,
+    body: `${actorName} 向「${supplierName}」(${toEmail}) 发送了邮件：${subject}`,
+    metadata,
+    actorId,
+  });
+}
+
 // ─── PATCH 事件批量写入（事务内） ───
 
 const DATE_FIELD_LABELS: Record<string, string> = {

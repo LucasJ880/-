@@ -431,3 +431,93 @@ export function getActionAdvicePrompt(): string {
 - 按优先级排序，最重要的放第一条。
 - 如果信息不足，先指出缺口，再基于已有信息给 best-effort 建议。`;
 }
+
+// ── 邮件草稿生成提示词 ──────────────────────────────────────
+
+export interface EmailDraftContext {
+  project: {
+    name: string;
+    clientOrganization: string | null;
+    description: string | null;
+    solicitationNumber: string | null;
+    closeDate: string | null;
+  };
+  supplier: {
+    name: string;
+    contactEmail: string;
+    contactName: string | null;
+    category: string | null;
+    region: string | null;
+  };
+  inquiry: {
+    roundNumber: number;
+    title: string | null;
+    scope: string | null;
+    dueDate: string | null;
+  };
+  inquiryItem: {
+    status: string;
+    contactNotes: string | null;
+  };
+  senderName: string;
+  senderOrg: string | null;
+}
+
+export function getEmailDraftPrompt(ctx: EmailDraftContext): string {
+  const lines: string[] = [
+    `你是"青砚"邮件草稿助手。根据以下项目和供应商信息，生成一封专业的中文商务询价邮件草稿。`,
+    "",
+    "## 项目信息",
+    `- 项目名称: ${ctx.project.name}`,
+  ];
+
+  if (ctx.project.clientOrganization) {
+    lines.push(`- 客户/发标方: ${ctx.project.clientOrganization}`);
+  }
+  if (ctx.project.solicitationNumber) {
+    lines.push(`- 招标编号: ${ctx.project.solicitationNumber}`);
+  }
+  if (ctx.project.closeDate) {
+    lines.push(`- 截标时间: ${ctx.project.closeDate}`);
+  }
+  if (ctx.project.description) {
+    lines.push(`- 项目描述: ${ctx.project.description.slice(0, 500)}`);
+  }
+
+  lines.push("", "## 询价信息");
+  lines.push(`- 第 ${ctx.inquiry.roundNumber} 轮询价`);
+  if (ctx.inquiry.title) lines.push(`- 询价标题: ${ctx.inquiry.title}`);
+  if (ctx.inquiry.scope) lines.push(`- 询价范围: ${ctx.inquiry.scope}`);
+  if (ctx.inquiry.dueDate) lines.push(`- 报价截止: ${ctx.inquiry.dueDate}`);
+
+  lines.push("", "## 供应商信息");
+  lines.push(`- 供应商名称: ${ctx.supplier.name}`);
+  if (ctx.supplier.contactName) lines.push(`- 联系人: ${ctx.supplier.contactName}`);
+  lines.push(`- 邮箱: ${ctx.supplier.contactEmail}`);
+  if (ctx.supplier.category) lines.push(`- 品类: ${ctx.supplier.category}`);
+  if (ctx.supplier.region) lines.push(`- 地区: ${ctx.supplier.region}`);
+
+  if (ctx.inquiryItem.contactNotes) {
+    lines.push("", `## 沟通备注`);
+    lines.push(ctx.inquiryItem.contactNotes);
+  }
+
+  lines.push("", "## 输出要求");
+  lines.push("严格按以下 JSON 格式输出，不要输出其他内容：");
+  lines.push("```json");
+  lines.push(`{`);
+  lines.push(`  "subject": "邮件主题",`);
+  lines.push(`  "body": "邮件正文（HTML 格式，可用 <p><br><ul><li> 等基础标签）"`);
+  lines.push(`}`);
+  lines.push("```");
+  lines.push("");
+  lines.push("## 邮件撰写规则");
+  lines.push("1. 称呼：使用供应商联系人姓名（如有），否则用「贵司」");
+  lines.push(`2. 落款：${ctx.senderName}${ctx.senderOrg ? `，${ctx.senderOrg}` : ""}`);
+  lines.push("3. 语气：专业、简洁、有礼貌，符合中国商务邮件习惯");
+  lines.push("4. 内容：说明项目背景、询价需求、报价截止时间（如有），请对方报价");
+  lines.push("5. 不要编造不存在的信息，信息不足时用通用表达");
+  lines.push("6. 主题格式：「询价」+ 项目关键信息 + 供应商名");
+
+  return lines.join("\n");
+}

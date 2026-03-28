@@ -10,9 +10,11 @@ import {
   DollarSign,
   CheckCircle,
   X,
+  Mail,
 } from "lucide-react";
 import type { InquiryItemRow } from "./project-inquiry-section";
 import { AddSupplierDialog } from "./add-supplier-dialog";
+import { EmailDraftDialog } from "./email-draft-dialog";
 
 interface InquiryRound {
   id: string;
@@ -59,6 +61,7 @@ export function InquiryDetail({
   const [busy, setBusy] = useState<string | null>(null);
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [quoteItemId, setQuoteItemId] = useState<string | null>(null);
+  const [emailItem, setEmailItem] = useState<InquiryItemRow | null>(null);
 
   const base = `/api/projects/${projectId}/inquiries/${inquiry.id}`;
   const isEditable =
@@ -208,6 +211,7 @@ export function InquiryDetail({
                           action(item.id, path, method, body)
                         }
                         onRecordQuote={() => setQuoteItemId(item.id)}
+                        onGenerateEmail={() => setEmailItem(item)}
                       />
                     </td>
                   )}
@@ -245,6 +249,21 @@ export function InquiryDetail({
           }}
         />
       )}
+
+      {/* Email draft dialog */}
+      {emailItem && (
+        <EmailDraftDialog
+          projectId={projectId}
+          inquiryId={inquiry.id}
+          itemId={emailItem.id}
+          supplierName={emailItem.supplier.name}
+          onClose={() => setEmailItem(null)}
+          onSent={() => {
+            setEmailItem(null);
+            onUpdate();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -257,6 +276,7 @@ function ItemActions({
   busy,
   onAction,
   onRecordQuote,
+  onGenerateEmail,
 }: {
   item: InquiryItemRow;
   isEditable: boolean;
@@ -267,6 +287,7 @@ function ItemActions({
     body?: Record<string, unknown>
   ) => void;
   onRecordQuote: () => void;
+  onGenerateEmail: () => void;
 }) {
   if (busy) {
     return <Loader2 size={12} className="animate-spin text-muted" />;
@@ -275,6 +296,15 @@ function ItemActions({
   const btns: React.ReactNode[] = [];
 
   if (item.status === "pending" && isEditable) {
+    btns.push(
+      <ActionBtn
+        key="email"
+        label="生成邮件"
+        icon={<Mail size={11} />}
+        className="text-accent"
+        onClick={onGenerateEmail}
+      />
+    );
     btns.push(
       <ActionBtn
         key="send"

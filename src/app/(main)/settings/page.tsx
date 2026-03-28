@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell } from "lucide-react";
+import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
@@ -10,6 +10,12 @@ import { apiFetch } from "@/lib/api-fetch";
 interface GoogleStatus {
   connected: boolean;
   email?: string;
+}
+
+interface GmailStatus {
+  connected: boolean;
+  email?: string;
+  grantedScopes?: string;
 }
 
 export default function SettingsPage() {
@@ -32,11 +38,15 @@ const GOOGLE_ERROR_HINTS: Record<string, string> = {
 
 function SettingsContent() {
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
+  const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gmailLoading, setGmailLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
   const [origin, setOrigin] = useState("");
   const searchParams = useSearchParams();
   const googleResult = searchParams.get("google");
+  const gmailResult = searchParams.get("gmail");
   const googleReason = searchParams.get("reason") ?? "";
 
   useEffect(() => {
@@ -49,6 +59,11 @@ function SettingsContent() {
       .then(setGoogle)
       .catch(() => setGoogle({ connected: false }))
       .finally(() => setLoading(false));
+    apiFetch("/api/auth/google-email/status")
+      .then((r) => r.json())
+      .then(setGmail)
+      .catch(() => setGmail({ connected: false }))
+      .finally(() => setGmailLoading(false));
   }, []);
 
   const handleDisconnect = async () => {
@@ -60,6 +75,18 @@ function SettingsContent() {
       /* ignore */
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const handleGmailDisconnect = async () => {
+    setGmailDisconnecting(true);
+    try {
+      await apiFetch("/api/auth/google-email/status", { method: "DELETE" });
+      setGmail({ connected: false });
+    } catch {
+      /* ignore */
+    } finally {
+      setGmailDisconnecting(false);
     }
   };
 
@@ -85,6 +112,25 @@ function SettingsContent() {
           <div className="flex items-center gap-2 font-medium">
             <XCircle size={16} />
             Google Calendar 连接失败，请重试。
+          </div>
+          {googleReason && (
+            <p className="mt-2 text-xs leading-relaxed opacity-90">
+              {GOOGLE_ERROR_HINTS[googleReason] ?? `错误代码：${googleReason}`}
+            </p>
+          )}
+        </div>
+      )}
+      {gmailResult === "success" && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.04)] px-4 py-3 text-sm text-[#2e7a56]">
+          <CheckCircle2 size={16} />
+          Gmail 邮件服务绑定成功！
+        </div>
+      )}
+      {gmailResult === "error" && (
+        <div className="mb-4 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-[#a63d3d]">
+          <div className="flex items-center gap-2 font-medium">
+            <XCircle size={16} />
+            Gmail 邮件服务绑定失败，请重试。
           </div>
           {googleReason && (
             <p className="mt-2 text-xs leading-relaxed opacity-90">
@@ -212,6 +258,103 @@ function SettingsContent() {
                 </code>{" "}
                 配置到部署环境（如 Vercel 环境变量）。完整部署清单见仓库{" "}
                 <code className="text-[10px]">docs/DEPLOY_VERCEL.md</code>。
+              </p>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      {/* Gmail 邮件服务 */}
+      <div className="mt-4 rounded-xl border border-border bg-card-bg">
+        <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+            <Mail size={20} className="text-accent" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold">Gmail 邮件发送</h2>
+            <p className="text-xs text-muted">
+              绑定后，可在询价流程中通过青砚直接发送邮件给供应商（AI 生成草稿 → 确认 → 发送）
+            </p>
+          </div>
+        </div>
+
+        <div className="px-5 py-4">
+          {gmailLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 size={14} className="animate-spin" />
+              检查连接状态...
+            </div>
+          ) : gmail?.connected ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#2e7a56]" />
+                <span className="text-sm font-medium text-[#2e7a56]">已绑定</span>
+                <span className="text-sm text-muted">{gmail.email}</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleGmailDisconnect}
+                  disabled={gmailDisconnecting}
+                  className="flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.15)] px-3 py-1.5 text-xs font-medium text-[#a63d3d] transition-colors hover:bg-[rgba(166,61,61,0.04)] disabled:opacity-50"
+                >
+                  {gmailDisconnecting ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
+                  解除绑定
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[rgba(110,125,118,0.25)]" />
+                <span className="text-sm text-muted">未绑定</span>
+              </div>
+              <a
+                href="/api/auth/google-email"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
+              >
+                <Mail size={14} />
+                绑定 Gmail 邮件服务
+              </a>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-border px-5 py-3">
+          <details className="group rounded-lg border border-border/80 bg-background/40">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+              <ChevronDown
+                size={14}
+                className="shrink-0 text-muted transition-transform group-open:rotate-180"
+                aria-hidden
+              />
+              展开：Gmail 邮件 OAuth 配置说明
+            </summary>
+            <div className="border-t border-border/60 px-3 pb-3 pt-2 text-[11px] leading-relaxed text-muted">
+              <p>
+                Gmail 邮件使用独立的 OAuth 授权流程（scope: <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.send</code>），与 Google Calendar 授权互不影响。
+              </p>
+              <p className="mt-1.5">
+                需要在 Google Cloud Console 的 OAuth 客户端中额外添加重定向 URI：{" "}
+                <code className="break-all rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">
+                  {origin
+                    ? `${origin}/api/auth/google-email/callback`
+                    : "https://你的域名/api/auth/google-email/callback"}
+                </code>
+              </p>
+              <p className="mt-1.5">
+                Vercel 环境变量：<code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">GOOGLE_EMAIL_REDIRECT_URI</code> 设置为上述地址。
+              </p>
+              <p className="mt-1.5">
+                注意：<code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.send</code> 是 restricted scope，需在{" "}
+                <a
+                  href="https://admin.google.com/ac/owl/list?tab=configuredApps"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-0.5 text-accent hover:underline"
+                >
+                  Google Workspace Admin Console <ExternalLink size={9} />
+                </a>{" "}
+                中将此应用标记为 Trusted。
               </p>
             </div>
           </details>
