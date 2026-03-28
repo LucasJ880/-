@@ -64,6 +64,13 @@ const QUICK_PROMPTS = [
   "帮我分析当前在手项目的优先级",
 ];
 
+const PROJECT_QUICK_PROMPTS = [
+  "分析这个项目的风险",
+  "帮我向业主发一封澄清邮件",
+  "帮我整理关键时间节点",
+  "推荐适合的供应商",
+];
+
 function cleanStreamingText(raw: string): string {
   for (const marker of ["[WORK_JSON]", "[TASK_JSON]"]) {
     const idx = raw.indexOf(marker);
@@ -580,11 +587,24 @@ function AssistantPageInner() {
                 <MessageSquare size={20} className="text-accent" />
               </div>
               <p className="mb-1 text-sm font-medium">开始对话</p>
-              <p className="text-xs text-muted">
+              <p className="mb-4 text-xs text-muted">
                 {activeThread?.project
                   ? `已关联项目「${activeThread.project.name}」，AI 将自动获取项目上下文`
                   : "在下方输入你的问题或工作需求"}
               </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {(activeThread?.project ? PROJECT_QUICK_PROMPTS : QUICK_PROMPTS).map((prompt) => (
+                  <button
+                    key={prompt}
+                    onClick={() => handleSend(prompt)}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 rounded-full border border-border bg-card-bg px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                  >
+                    <Sparkles size={12} />
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -650,6 +670,7 @@ function AssistantPageInner() {
                     <WorkSuggestionCard
                       suggestion={msg.workSuggestion}
                       projects={projects}
+                      projectId={activeThread?.projectId || undefined}
                     />
                   </div>
                 )}

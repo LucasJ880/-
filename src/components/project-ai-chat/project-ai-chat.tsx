@@ -303,8 +303,9 @@ export function ProjectAiChat({
                 <div className="mt-3 flex flex-wrap justify-center gap-2">
                   {[
                     "分析这个项目的风险",
+                    "帮我向业主发一封澄清邮件",
                     "帮我整理关键时间节点",
-                    "这个项目值得投吗",
+                    "推荐适合的供应商",
                   ].map((q) => (
                     <button
                       key={q}
