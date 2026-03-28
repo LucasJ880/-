@@ -28,6 +28,9 @@ export {
   matchProjectByName,
 } from "./context";
 
+export { getProjectAiMemory, buildMemoryBlock } from "./memory";
+export type { ProjectAiMemory } from "./memory";
+
 export {
   prepareConversation,
   buildSummaryPrefix,

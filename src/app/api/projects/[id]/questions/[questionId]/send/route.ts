@@ -3,6 +3,7 @@ import { requireProjectWriteAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
 import { sendGmail, getEmailProvider } from "@/lib/google-email";
 import { onEmailSent } from "@/lib/project-discussion/system-events";
+import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 type Params = { params: Promise<{ id: string; questionId: string }> };
 
@@ -105,6 +106,17 @@ export async function POST(request: NextRequest, { params }: Params) {
       access.user.id,
       access.user.name || access.user.email
     );
+
+    await logAudit({
+      userId: access.user.id,
+      orgId: question.orgId,
+      projectId,
+      action: AUDIT_ACTIONS.AI_SEND,
+      targetType: AUDIT_TARGETS.PROJECT_QUESTION,
+      targetId: questionId,
+      afterData: { toEmail, subject },
+      request,
+    });
 
     return NextResponse.json({
       success: true,

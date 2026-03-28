@@ -13,6 +13,8 @@ import {
   prepareConversation,
   buildSummaryPrefix,
   extractWorkSuggestion,
+  getProjectAiMemory,
+  buildMemoryBlock,
   type ChatMessage,
 } from "@/lib/ai";
 
@@ -108,21 +110,26 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   ]);
 
   let deepBlock = "";
-  if (thread.projectId) {
-    const deep = await getProjectDeepContext(thread.projectId);
+  let memoryBlock = "";
+  const resolvedProjectId =
+    thread.projectId ??
+    matchProjectByName(content, workContext.projects)?.id ??
+    null;
+
+  if (resolvedProjectId) {
+    const [deep, memory] = await Promise.all([
+      getProjectDeepContext(resolvedProjectId),
+      getProjectAiMemory(resolvedProjectId),
+    ]);
     if (deep) deepBlock = buildProjectDeepBlock(deep);
-  } else {
-    const matched = matchProjectByName(content, workContext.projects);
-    if (matched) {
-      const deep = await getProjectDeepContext(matched.id);
-      if (deep) deepBlock = buildProjectDeepBlock(deep);
-    }
+    memoryBlock = buildMemoryBlock(memory);
   }
 
   const systemPrompt =
     getChatSystemPrompt() +
     buildContextBlock(workContext) +
     deepBlock +
+    memoryBlock +
     buildSummaryPrefix(prepared.summarizedContext);
 
   const isFirstMessage = history.length === 1;

@@ -8,6 +8,8 @@
 // ─── 活动类型（项目动态筛选） ───
 export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   project: "项目",
+  task: "任务",
+  calendar_event: "日程",
   prompt: "Prompt 模板",
   knowledge_base: "知识库",
   conversation: "会话",
@@ -15,6 +17,10 @@ export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   tool: "工具",
   runtime: "运行时",
   conversation_feedback: "评估反馈",
+  project_email: "邮件",
+  project_question: "问题邮件",
+  report: "周报 / 摘要",
+  quote_analysis: "报价分析",
 };
 
 // ─── Prompt 类型 ───

@@ -101,6 +101,9 @@ export const AUDIT_ACTIONS = {
   DISPATCH_PROJECT: "dispatch_project",
   ASSIGN_OWNER: "assign_owner",
   ASSIGN_MEMBERS: "assign_members",
+  AI_GENERATE: "ai_generate",
+  AI_SEND: "ai_send",
+  AI_ANALYZE: "ai_analyze",
 } as const;
 
 // --- 常用 targetType 常量 ---
@@ -130,4 +133,8 @@ export const AUDIT_TARGETS = {
   EXTERNAL_REF: "external_reference",
   API_TOKEN: "api_token",
   WEBHOOK: "webhook_endpoint",
+  PROJECT_EMAIL: "project_email",
+  PROJECT_QUESTION: "project_question",
+  REPORT: "report",
+  QUOTE_ANALYSIS: "quote_analysis",
 } as const;

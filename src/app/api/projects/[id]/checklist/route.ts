@@ -4,7 +4,7 @@ import { getProjectDeepContext } from "@/lib/ai/context";
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import {
-  getProgressSummaryPrompt,
+  getBidChecklistPrompt,
   type ProgressSummaryContext,
 } from "@/lib/ai/prompts";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
@@ -18,18 +18,12 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (access instanceof NextResponse) return access;
 
   if (!isAIConfigured()) {
-    return NextResponse.json(
-      { error: "AI 服务未配置" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "AI 服务未配置" }, { status: 500 });
   }
 
   const deep = await getProjectDeepContext(id);
   if (!deep) {
-    return NextResponse.json(
-      { error: "无法加载项目数据" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "无法加载项目数据" }, { status: 404 });
   }
 
   const summaryCtx: ProgressSummaryContext = {
@@ -53,8 +47,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   try {
     const raw = await createCompletion({
-      systemPrompt: getProgressSummaryPrompt(summaryCtx),
-      userPrompt: "请生成项目进展摘要",
+      systemPrompt: getBidChecklistPrompt(summaryCtx),
+      userPrompt: "请生成投标准备清单",
       temperature: 0.3,
     });
 
@@ -75,8 +69,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       targetType: AUDIT_TARGETS.PROJECT,
       targetId: id,
       afterData: {
-        overallStatus: result.overallStatus,
-        statusLabel: result.statusLabel,
+        type: "bid_checklist",
+        overallReadiness: result.overallReadiness,
       },
       request,
     });

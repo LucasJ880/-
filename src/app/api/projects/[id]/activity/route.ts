@@ -16,6 +16,7 @@ export async function GET(
   const endDate = queryString(request, "endDate");
   const targetType = queryString(request, "targetType");
   const action = queryString(request, "action");
+  const includeSystemEvents = queryString(request, "includeSystemEvents") === "true";
 
   const result = await listProjectActivity(id, {
     page,
@@ -24,6 +25,7 @@ export async function GET(
     endDate,
     targetType,
     action,
+    includeSystemEvents,
   });
 
   return NextResponse.json(result);

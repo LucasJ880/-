@@ -38,6 +38,8 @@ import { ProjectDiscussionSection } from "@/components/project-discussion/projec
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
 import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
 import { ProjectProgressSummary } from "@/components/project-progress/project-progress-summary";
+import { BidChecklist } from "@/components/project-checklist/bid-checklist";
+import { ProjectAiMemory } from "@/components/project-memory/project-ai-memory";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
@@ -178,7 +180,7 @@ function ProjectDetailContent() {
     (page = 1, targetType = "") => {
       if (!id) return;
       setActivityLoading(true);
-      const qs = new URLSearchParams({ page: String(page), pageSize: "15" });
+      const qs = new URLSearchParams({ page: String(page), pageSize: "15", includeSystemEvents: "true" });
       if (targetType) qs.set("targetType", targetType);
       apiFetch(`/api/projects/${id}/activity?${qs}`)
         .then((r) => r.json())
@@ -602,6 +604,12 @@ function ProjectDetailContent() {
 
       {/* AI 项目进展摘要 */}
       <ProjectProgressSummary projectId={id} />
+
+      {/* AI 投标准备清单 */}
+      <BidChecklist projectId={id} />
+
+      {/* AI 记忆面板 */}
+      <ProjectAiMemory projectId={id} />
 
       {/* Tender progress section — 招投标项目专用 */}
       {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (

@@ -23,6 +23,9 @@ const ACTION_LABELS: Record<string, string> = {
   update_message_feedback: "更新了消息反馈",
   create_evaluation_tag: "创建了评估标签",
   update_evaluation_tag: "更新了评估标签",
+  ai_generate: "AI 生成了",
+  ai_send: "发送了",
+  ai_analyze: "AI 分析了",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -47,6 +50,10 @@ const TARGET_LABELS: Record<string, string> = {
   conversation_feedback: "会话反馈",
   message_feedback: "消息反馈",
   evaluation_tag: "评估标签",
+  project_email: "邮件草稿",
+  project_question: "问题邮件",
+  report: "周报",
+  quote_analysis: "报价分析",
 };
 
 export interface FormattedActivity {
@@ -74,6 +81,15 @@ export interface RawAuditLog {
   user: { id: string; name: string; email: string };
 }
 
+export interface RawSystemEvent {
+  id: string;
+  body: string;
+  metadata: Record<string, unknown> | null;
+  senderId: string | null;
+  sender: { id: string; name: string; email: string } | null;
+  createdAt: Date | string;
+}
+
 export function formatActivity(log: RawAuditLog): FormattedActivity {
   const actionLabel = ACTION_LABELS[log.action] ?? log.action;
   const targetTypeLabel = TARGET_LABELS[log.targetType] ?? log.targetType;
@@ -84,7 +100,13 @@ export function formatActivity(log: RawAuditLog): FormattedActivity {
   const targetDisplay = targetName ? `${targetTypeLabel}「${targetName}」` : targetTypeLabel;
 
   let summary: string;
-  if (log.action === "runtime_run") {
+  if (log.action === "ai_generate") {
+    summary = `AI 生成了${targetTypeLabel}${targetName ? `「${targetName}」` : ""}`;
+  } else if (log.action === "ai_send") {
+    summary = `发送了${targetTypeLabel}${targetName ? `「${targetName}」` : ""}`;
+  } else if (log.action === "ai_analyze") {
+    summary = `AI 分析了${targetTypeLabel}${targetName ? `「${targetName}」` : ""}`;
+  } else if (log.action === "runtime_run") {
     summary = `运行了 Agent${targetName ? `「${targetName}」` : ""}`;
   } else if (log.action === "runtime_fail") {
     summary = `Agent 运行失败${targetName ? `（${targetName}）` : ""}`;
@@ -111,6 +133,41 @@ export function formatActivity(log: RawAuditLog): FormattedActivity {
     targetName,
     summary,
     diff,
+  };
+}
+
+const SYSTEM_EVENT_LABELS: Record<string, string> = {
+  project_created: "创建项目",
+  member_joined: "成员加入",
+  member_removed: "成员移出",
+  stage_changed: "阶段变更",
+  date_changed: "日期变更",
+  project_submitted: "项目提交",
+  status_changed: "状态变更",
+  project_abandoned: "项目放弃",
+  task_created: "创建任务",
+  event_created: "创建日程",
+  stage_advanced: "阶段推进",
+  email_sent: "邮件发送",
+};
+
+export function formatSystemEvent(msg: RawSystemEvent): FormattedActivity {
+  const eventType = (msg.metadata?.eventType as string) ?? "system";
+  const actorName = (msg.metadata?.actorName as string) ?? msg.sender?.name ?? "系统";
+  const actor = msg.sender ?? { id: "system", name: actorName, email: "" };
+
+  return {
+    id: `sys_${msg.id}`,
+    timestamp: typeof msg.createdAt === "string" ? msg.createdAt : msg.createdAt.toISOString(),
+    actor,
+    actionKey: eventType,
+    actionLabel: SYSTEM_EVENT_LABELS[eventType] ?? eventType,
+    targetType: "system_event",
+    targetTypeLabel: "系统事件",
+    targetId: null,
+    targetName: null,
+    summary: msg.body,
+    diff: null,
   };
 }
 

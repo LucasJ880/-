@@ -11,6 +11,8 @@ import {
   matchProjectByName,
   prepareConversation,
   buildSummaryPrefix,
+  getProjectAiMemory,
+  buildMemoryBlock,
 } from "@/lib/ai";
 
 export async function POST(request: NextRequest) {
@@ -37,6 +39,7 @@ export async function POST(request: NextRequest) {
   ]);
 
   let deepBlock = "";
+  let memoryBlock = "";
   const lastUserMsg = [...prepared.messages]
     .reverse()
     .find((m) => m.role === "user");
@@ -46,10 +49,12 @@ export async function POST(request: NextRequest) {
       workContext.projects
     );
     if (matched) {
-      const deep = await getProjectDeepContext(matched.id);
-      if (deep) {
-        deepBlock = buildProjectDeepBlock(deep);
-      }
+      const [deep, memory] = await Promise.all([
+        getProjectDeepContext(matched.id),
+        getProjectAiMemory(matched.id),
+      ]);
+      if (deep) deepBlock = buildProjectDeepBlock(deep);
+      memoryBlock = buildMemoryBlock(memory);
     }
   }
 
@@ -57,6 +62,7 @@ export async function POST(request: NextRequest) {
     getChatSystemPrompt() +
     buildContextBlock(workContext) +
     deepBlock +
+    memoryBlock +
     buildSummaryPrefix(prepared.summarizedContext);
 
   try {

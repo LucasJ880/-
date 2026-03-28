@@ -9,6 +9,11 @@ import {
   FolderKanban,
   Users,
   Settings,
+  Mail,
+  FileQuestion,
+  ClipboardList,
+  BarChart3,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +30,11 @@ const TARGET_ICONS: Record<string, LucideIcon> = {
   organization: Settings,
   organization_member: Users,
   project_member: Users,
+  project_email: Mail,
+  project_question: FileQuestion,
+  report: ClipboardList,
+  quote_analysis: BarChart3,
+  system_event: Sparkles,
 };
 
 const ACTION_COLORS: Record<string, string> = {
@@ -35,6 +45,16 @@ const ACTION_COLORS: Record<string, string> = {
   role_change: "bg-[rgba(45,106,122,0.10)] text-[#2d6a7a]",
   invite: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
   remove: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
+  ai_generate: "bg-[rgba(99,89,196,0.10)] text-[#6359c4]",
+  ai_send: "bg-[rgba(43,96,85,0.12)] text-[#2b6055]",
+  ai_analyze: "bg-[rgba(99,89,196,0.10)] text-[#6359c4]",
+  stage_advanced: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
+  email_sent: "bg-[rgba(43,96,85,0.12)] text-[#2b6055]",
+  task_created: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
+  event_created: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
+  stage_changed: "bg-[rgba(154,106,47,0.10)] text-[#9a6a2f]",
+  member_joined: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
+  member_removed: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
 };
 
 import {

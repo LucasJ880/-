@@ -20,6 +20,7 @@ import {
   ChevronsUpDown,
   Package2,
   FileText,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -64,6 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "智能",
     items: [
       { href: "/assistant", label: "AI 助手", icon: Bot, badge: "Beta" },
+      { href: "/ai-activity", label: "AI 活动", icon: Activity },
       { href: "/reports", label: "项目周报", icon: FileText },
     ],
   },

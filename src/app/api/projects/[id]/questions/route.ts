@@ -7,6 +7,7 @@ import {
   getProjectQuestionEmailPrompt,
   type ProjectQuestionEmailContext,
 } from "@/lib/ai/prompts";
+import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -139,6 +140,17 @@ export async function POST(request: NextRequest, { params }: Params) {
         status: "generated",
         createdById: access.user.id,
       },
+    });
+
+    await logAudit({
+      userId: access.user.id,
+      orgId: project.orgId,
+      projectId,
+      action: AUDIT_ACTIONS.AI_GENERATE,
+      targetType: AUDIT_TARGETS.PROJECT_QUESTION,
+      targetId: question.id,
+      afterData: { title, subject },
+      request,
     });
 
     return NextResponse.json(question);

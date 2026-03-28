@@ -9,6 +9,7 @@ import {
   getProgressSummaryPrompt,
   type ProgressSummaryContext,
 } from "@/lib/ai/prompts";
+import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -99,6 +100,17 @@ export async function POST(request: NextRequest) {
 
   const successful = results.filter((r) => r.summary);
   const failed = results.filter((r) => !r.summary);
+
+  await logAudit({
+    userId: user.id,
+    action: AUDIT_ACTIONS.AI_ANALYZE,
+    targetType: AUDIT_TARGETS.REPORT,
+    afterData: {
+      totalProjects: projects.length,
+      successCount: successful.length,
+    },
+    request,
+  });
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),

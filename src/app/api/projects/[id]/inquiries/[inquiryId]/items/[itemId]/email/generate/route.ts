@@ -3,6 +3,7 @@ import { requireProjectWriteAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
 import { getEmailDraftPrompt, type EmailDraftContext } from "@/lib/ai/prompts";
+import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 type Params = {
   params: Promise<{ id: string; inquiryId: string; itemId: string }>;
@@ -146,6 +147,17 @@ export async function POST(request: NextRequest, { params }: Params) {
         status: "draft",
         createdById: access.user.id,
       },
+    });
+
+    await logAudit({
+      userId: access.user.id,
+      orgId: project.orgId,
+      projectId,
+      action: AUDIT_ACTIONS.AI_GENERATE,
+      targetType: AUDIT_TARGETS.PROJECT_EMAIL,
+      targetId: email.id,
+      afterData: { supplier: item.supplier.name, subject: draft.subject },
+      request,
     });
 
     return NextResponse.json({
