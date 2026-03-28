@@ -9,6 +9,7 @@ import { DashboardLinksRecentSection } from "@/components/dashboard/dashboard-li
 import { DashboardProjectsSection } from "@/components/dashboard/dashboard-projects-section";
 import { DashboardStatsSection } from "@/components/dashboard/dashboard-stats-section";
 import { DashboardTasksSection } from "@/components/dashboard/dashboard-tasks-section";
+import { DashboardTodayFocus } from "@/components/dashboard/dashboard-today-focus";
 import { DashboardWelcomeSection } from "@/components/dashboard/dashboard-welcome-section";
 import { ProjectQuickViewDrawer } from "@/components/project/project-quick-view-drawer";
 import { useDashboardData } from "@/components/dashboard/use-dashboard-data";
@@ -83,6 +84,13 @@ export default function Dashboard() {
         stats={stats}
         reminderSummary={reminderSummary}
         onReminderClick={handleReminderClick}
+        onProjectClick={openProjectDrawer}
+      />
+      <DashboardTodayFocus
+        highPriorityTasks={stats.highPriorityTasks}
+        upcomingTasks={stats.upcomingTasks}
+        scheduleEvents={scheduleEvents}
+        reminderSummary={reminderSummary}
         onProjectClick={openProjectDrawer}
       />
       <DashboardCalendarSection
