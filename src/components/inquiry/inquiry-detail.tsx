@@ -15,6 +15,7 @@ import {
 import type { InquiryItemRow } from "./project-inquiry-section";
 import { AddSupplierDialog } from "./add-supplier-dialog";
 import { EmailDraftDialog } from "./email-draft-dialog";
+import { QuoteAnalysisPanel } from "./quote-analysis-panel";
 
 interface InquiryRound {
   id: string;
@@ -221,6 +222,13 @@ export function InquiryDetail({
           </table>
         </div>
       )}
+
+      {/* AI Quote Analysis */}
+      <QuoteAnalysisPanel
+        projectId={projectId}
+        inquiryId={inquiry.id}
+        quotedCount={inquiry.items.filter((i) => i.status === "quoted").length}
+      />
 
       {/* Add supplier dialog */}
       {showAddSupplier && orgId && (

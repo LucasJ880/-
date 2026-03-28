@@ -521,3 +521,80 @@ export function getEmailDraftPrompt(ctx: EmailDraftContext): string {
 
   return lines.join("\n");
 }
+
+// ── 报价对比分析提示词 ──────────────────────────────────────
+
+export interface QuoteAnalysisContext {
+  project: {
+    name: string;
+    description: string | null;
+    closeDate: string | null;
+  };
+  inquiry: {
+    roundNumber: number;
+    title: string | null;
+    scope: string | null;
+  };
+  quotes: Array<{
+    supplierName: string;
+    unitPrice: string | null;
+    totalPrice: string | null;
+    currency: string;
+    deliveryDays: number | null;
+    quoteNotes: string | null;
+    isSelected: boolean;
+  }>;
+}
+
+export function getQuoteAnalysisPrompt(ctx: QuoteAnalysisContext): string {
+  const lines: string[] = [
+    `你是"青砚"报价分析助手。请分析以下供应商报价数据，给出专业的对比分析和选择建议。`,
+    "",
+    "## 项目信息",
+    `- 项目名称: ${ctx.project.name}`,
+  ];
+
+  if (ctx.project.description) {
+    lines.push(`- 项目描述: ${ctx.project.description.slice(0, 300)}`);
+  }
+  if (ctx.project.closeDate) {
+    lines.push(`- 截止日期: ${ctx.project.closeDate}`);
+  }
+
+  lines.push("", "## 询价信息");
+  lines.push(`- 第 ${ctx.inquiry.roundNumber} 轮询价`);
+  if (ctx.inquiry.title) lines.push(`- 标题: ${ctx.inquiry.title}`);
+  if (ctx.inquiry.scope) lines.push(`- 范围: ${ctx.inquiry.scope}`);
+
+  lines.push("", "## 供应商报价数据");
+  for (const q of ctx.quotes) {
+    lines.push("");
+    lines.push(`### ${q.supplierName}${q.isSelected ? "（当前选定）" : ""}`);
+    if (q.totalPrice) lines.push(`- 总价: ${q.currency} ${q.totalPrice}`);
+    if (q.unitPrice) lines.push(`- 单价: ${q.currency} ${q.unitPrice}`);
+    if (q.deliveryDays !== null) lines.push(`- 交期: ${q.deliveryDays} 天`);
+    if (q.quoteNotes) lines.push(`- 备注: ${q.quoteNotes}`);
+  }
+
+  lines.push("", "## 输出要求");
+  lines.push("严格按以下 JSON 格式输出，不要输出其他内容：");
+  lines.push("```json");
+  lines.push(`{`);
+  lines.push(`  "summary": "一句话总结（30字以内）",`);
+  lines.push(`  "priceAnalysis": "价格对比分析（含价差比例、性价比评估）",`);
+  lines.push(`  "deliveryAnalysis": "交期对比分析",`);
+  lines.push(`  "risks": "潜在风险提示（如报价异常低、交期过长等）",`);
+  lines.push(`  "recommendation": "推荐选择及理由",`);
+  lines.push(`  "recommendedSupplier": "推荐的供应商名称（必须是上面列出的供应商之一）"`);
+  lines.push(`}`);
+  lines.push("```");
+  lines.push("");
+  lines.push("## 分析规则");
+  lines.push("1. 客观：基于数据分析，不编造信息");
+  lines.push("2. 务实：考虑价格、交期、风险的综合平衡");
+  lines.push("3. 如果报价数据不足（如只有一家），如实说明无法做有效对比");
+  lines.push("4. 价差分析用百分比，便于决策者快速判断");
+  lines.push("5. 如有当前已选定供应商，评估该选择是否合理");
+
+  return lines.join("\n");
+}
