@@ -62,6 +62,8 @@ model User {
   agentVersionsCreated             AgentVersion[]               @relation("AgentVersionCreatedBy")
   toolsCreated                     ToolRegistry[]               @relation("ToolCreatedBy")
   toolsUpdated                     ToolRegistry[]               @relation("ToolUpdatedBy")
+  agentTasksCreated                AgentTask[]                  @relation("AgentTaskCreatedBy")
+  customFlowTemplates              CustomFlowTemplate[]         @relation("CustomFlowTemplateCreatedBy")
 
   @@index([status])
   @@index([authProvider])
@@ -139,6 +141,8 @@ model Project {
   discussion    ProjectConversation?
   aiThreads     AiThread[]
   inquiries     ProjectInquiry[]
+  quotes        ProjectQuote[]
+  agentTasks    AgentTask[]
 
   @@index([orgId])
   @@index([sourceSystem])
@@ -1294,6 +1298,76 @@ model InquiryItem {
 }
 
 // ============================================================
+// 项目报价
+// ============================================================
+
+/// 项目报价单 — AI 辅助生成 + 人工编辑确认
+model ProjectQuote {
+  id              String    @id @default(cuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  templateType    String    @default("export_standard")
+  version         Int       @default(1)
+  status          String    @default("draft")
+
+  title           String?
+  currency        String    @default("CAD")
+  tradeTerms      String?
+  paymentTerms    String?
+  deliveryDays    Int?
+  validUntil      DateTime?
+  moq             Int?
+  originCountry   String?
+
+  subtotal        Decimal?  @db.Decimal(18, 2)
+  totalAmount     Decimal?  @db.Decimal(18, 2)
+
+  internalCost    Decimal?  @db.Decimal(18, 2)
+  profitMargin    Decimal?  @db.Decimal(5, 2)
+  internalNotes   String?
+
+  aiGenerated     Boolean   @default(false)
+  aiDraftJson     String?   @db.Text
+  aiReviewJson    String?   @db.Text
+
+  inquiryId       String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  lineItems       QuoteLineItem[]
+
+  @@index([projectId, status])
+  @@index([projectId, version])
+}
+
+/// 报价行项目
+model QuoteLineItem {
+  id              String    @id @default(cuid())
+  quoteId         String
+  quote           ProjectQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  sortOrder       Int       @default(0)
+  category        String    @default("product")
+  itemName        String
+  specification   String?
+  unit            String?
+  quantity        Decimal?  @db.Decimal(18, 2)
+  unitPrice       Decimal?  @db.Decimal(18, 2)
+  totalPrice      Decimal?  @db.Decimal(18, 2)
+  remarks         String?
+
+  costPrice       Decimal?  @db.Decimal(18, 2)
+  isInternal      Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([quoteId, sortOrder])
+}
+
+// ============================================================
 // 邮件发送
 // ============================================================
 
@@ -1377,4 +1451,136 @@ model ProjectQuestion {
 
   @@index([projectId, status])
   @@index([projectId, createdAt])
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 子智能体委派系统
+// ══════════════════════════════════════════════════════════════════
+
+model AgentTask {
+  id               String    @id @default(cuid())
+  projectId        String
+  project          Project   @relation(fields: [projectId], references: [id])
+  taskType         String    @default("custom")
+  triggerType       String    @default("manual")
+  intent           String    @db.Text
+  riskLevel        String    @default("low")
+  status           String    @default("draft")
+  currentStepIndex Int       @default(0)
+  totalSteps       Int       @default(0)
+  priority         String    @default("normal")
+  parentTaskId     String?
+  requiresApproval Boolean   @default(false)
+  createdById      String
+  createdBy        User      @relation("AgentTaskCreatedBy", fields: [createdById], references: [id])
+  startedAt        DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  steps            AgentTaskStep[]
+  approvalRequests ApprovalRequest[]
+  toolExecutions   ToolExecution[]
+
+  @@index([projectId, status])
+  @@index([createdById, status])
+}
+
+model AgentTaskStep {
+  id               String    @id @default(cuid())
+  taskId           String
+  task             AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  stepIndex        Int
+  skillId          String
+  agentName        String
+  title            String
+  description      String?
+  riskLevel        String    @default("low")
+  requiresApproval Boolean   @default(false)
+  status           String    @default("pending")
+  inputJson        String?   @db.Text
+  outputJson       String?   @db.Text
+  outputSummary    String?
+  checkReportJson  String?   @db.Text
+  confidence       Float?
+  approvedBy       String?
+  approvedAt       DateTime?
+  rejectionNote    String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  error            String?   @db.Text
+  retryCount       Int       @default(0)
+  createdAt        DateTime  @default(now())
+
+  approvalRequests ApprovalRequest[]
+  toolExecutions   ToolExecution[]
+
+  @@index([taskId, stepIndex])
+}
+
+model ApprovalRequest {
+  id               String    @id @default(cuid())
+  taskId           String
+  task             AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  stepId           String
+  step             AgentTaskStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  actionType       String
+  riskLevel        String
+  riskReason       String?   @db.Text
+  previewJson      String?   @db.Text
+  approverUserId   String?
+  status           String    @default("pending")
+  deadlineAt       DateTime?
+  decidedAt        DateTime?
+  decidedBy        String?
+  decisionNote     String?   @db.Text
+  acceptedWithRisk Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  @@index([taskId])
+  @@index([approverUserId, status])
+}
+
+model ToolExecution {
+  id               String    @id @default(cuid())
+  taskId           String?
+  task             AgentTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  stepId           String?
+  step             AgentTaskStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  toolName         String
+  toolInput        String?   @db.Text
+  toolOutput       String?   @db.Text
+  status           String    @default("pending")
+  retryCount       Int       @default(0)
+  maxRetries       Int       @default(2)
+  idempotencyKey   String    @unique
+  error            String?   @db.Text
+  executedBy       String
+  executedAt       DateTime?
+  duration         Int?
+  createdAt        DateTime  @default(now())
+
+  @@index([taskId])
+  @@index([idempotencyKey])
+}
+
+model CustomFlowTemplate {
+  id               String    @id @default(cuid())
+  name             String
+  description      String?   @db.Text
+  icon             String?
+  category         String    @default("custom")
+  stepsJson        String    @db.Text
+  createdById      String
+  createdBy        User      @relation("CustomFlowTemplateCreatedBy", fields: [createdById], references: [id])
+  isPublic         Boolean   @default(false)
+  enabled          Boolean   @default(true)
+  usageCount       Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([createdById])
+  @@index([category])
 }

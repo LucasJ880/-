@@ -8,6 +8,8 @@ export const NOTIFICATION_TYPE_KEYS = [
   "feedback",
   "project_update",
   "system",
+  "agent_task",
+  "agent_approval",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];

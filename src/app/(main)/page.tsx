@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DashboardAiSuggestions } from "@/components/dashboard/dashboard-ai-suggestions";
+import { DashboardAutoInspections } from "@/components/dashboard/dashboard-auto-inspections";
 import { DashboardCalendarSection } from "@/components/dashboard/dashboard-calendar-section";
 import { DashboardAbandonedSection } from "@/components/dashboard/dashboard-abandoned-section";
 import { DashboardLinksRecentSection } from "@/components/dashboard/dashboard-links-recent-section";
@@ -88,6 +89,7 @@ export default function Dashboard() {
         onProjectClick={openProjectDrawer}
       />
       <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
+      <DashboardAutoInspections onProjectClick={openProjectDrawer} />
       <DashboardTodayFocus
         highPriorityTasks={stats.highPriorityTasks}
         upcomingTasks={stats.upcomingTasks}

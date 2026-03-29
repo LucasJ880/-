@@ -58,13 +58,21 @@ export interface QuestionEmailSuggestion {
   toRecipients: string | null;
 }
 
+export interface AgentTaskSuggestion {
+  projectId: string;
+  project: string;
+  intent: string;
+  templateId: string | null;
+}
+
 export interface WorkSuggestion {
-  type: "task" | "event" | "task_and_event" | "stage_advance" | "supplier_recommend" | "question_email";
+  type: "task" | "event" | "task_and_event" | "stage_advance" | "supplier_recommend" | "question_email" | "agent_task";
   task: TaskSuggestion | null;
   event: EventSuggestion | null;
   stageAdvance: StageAdvanceSuggestion | null;
   supplierRecommend: SupplierRecommendSuggestion | null;
   questionEmail: QuestionEmailSuggestion | null;
+  agentTask: AgentTaskSuggestion | null;
 }
 
 // ── 任务拆解 ──────────────────────────────────────────────────

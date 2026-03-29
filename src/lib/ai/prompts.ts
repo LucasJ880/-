@@ -404,6 +404,18 @@ export function getChatSystemPrompt(): string {
 4. "安排开会/聚餐/见面" → event；"安排做XX/完成XX" → task
 5. 不确定 → 优先 task
 
+**AI 自动化任务（当用户请求复合性 AI 执行流程时）：**
+[WORK_JSON]
+{"type":"agent_task","agentTask":{"projectId":"项目ID","project":"项目名称","intent":"用户原始意图描述","templateId":"bid_preparation|project_inspection|null"}}
+[/WORK_JSON]
+
+### AI 自动化任务规则
+- 当用户请求需要多步 AI 协作完成的复合任务时，输出 agent_task
+- 关键词："帮我准备投标"、"全面检查项目"、"自动生成报价"、"项目巡检"、"AI 帮我做一轮完整的XX"
+- 简单单步请求（如"帮我写个邮件"）不输出 agent_task，只有需要多步编排时才输出
+- templateId：匹配"投标/报价"→ bid_preparation；匹配"巡检/检查/风险"→ project_inspection；其他→ null
+- projectId 必须是上下文中存在的项目 ID
+
 ### 严格约束
 - 一次只提取最核心的一个事项
 - 不编造不存在的项目 ID
@@ -1014,6 +1026,251 @@ export function getFollowupEmailPrompt(ctx: FollowupEmailContext): string {
   lines.push(`4. 落款：${ctx.senderName}${ctx.senderOrg ? `，${ctx.senderOrg}` : ""}`);
   lines.push("5. 主题格式：「跟进」+ 项目名 + 报价请求");
   lines.push("6. 称呼用供应商联系人姓名（如有），否则用「贵司」");
+
+  return lines.join("\n");
+}
+
+// ── 报价副驾驶 Prompts ──────────────────────────────────────────
+
+export interface QuoteTemplateRecommendContext {
+  project: {
+    name: string;
+    clientOrganization: string | null;
+    category: string | null;
+    sourceSystem: string | null;
+    tenderStatus: string | null;
+    description: string | null;
+    location: string | null;
+  };
+}
+
+export function getQuoteTemplatePrompt(ctx: QuoteTemplateRecommendContext): string {
+  const lines = [
+    `你是"青砚"报价助手。根据以下项目信息，推荐最适合的报价模板。`,
+    "",
+    "## 项目信息",
+    `- 名称: ${ctx.project.name}`,
+  ];
+  if (ctx.project.clientOrganization) lines.push(`- 客户: ${ctx.project.clientOrganization}`);
+  if (ctx.project.category) lines.push(`- 分类: ${ctx.project.category}`);
+  if (ctx.project.sourceSystem) lines.push(`- 来源系统: ${ctx.project.sourceSystem}`);
+  if (ctx.project.tenderStatus) lines.push(`- 招标状态: ${ctx.project.tenderStatus}`);
+  if (ctx.project.location) lines.push(`- 地点: ${ctx.project.location}`);
+  if (ctx.project.description) lines.push(`- 描述: ${ctx.project.description.slice(0, 500)}`);
+
+  lines.push("", "## 可选模板");
+  lines.push("1. export_standard — 外贸标准报价（海外客户、含 FOB/CIF 贸易条款、MOQ、原产地）");
+  lines.push("2. gov_procurement — 政府采购投标（政府项目、需编号 + 单位 + 数量 + 单价 + 总价格式）");
+  lines.push("3. project_install — 项目制安装报价（含安装/施工、需拆分材料费 + 人工费）");
+  lines.push("4. service_labor — 服务/人工单价报价（纯服务、按工时计价）");
+
+  lines.push("", "## 判断规则");
+  lines.push("- 如果项目来源为 bidtogo 或有 tenderStatus，倾向 gov_procurement");
+  lines.push("- 如果客户为海外组织或地点在国外，倾向 export_standard");
+  lines.push("- 如果描述中提到安装、施工、现场，倾向 project_install");
+  lines.push("- 如果描述中提到咨询、服务、人工，倾向 service_labor");
+  lines.push("- 不确定时默认 export_standard");
+
+  lines.push("", "## 输出要求");
+  lines.push("严格按以下 JSON 格式输出，不要输出其他内容：");
+  lines.push("```json");
+  lines.push(`{ "templateType": "模板ID", "reason": "推荐理由（一句话）", "confidence": "high | medium | low" }`);
+  lines.push("```");
+
+  return lines.join("\n");
+}
+
+export interface QuoteDraftContext {
+  project: {
+    name: string;
+    clientOrganization: string | null;
+    description: string | null;
+    closeDate: string | null;
+    location: string | null;
+    currency: string | null;
+  };
+  supplierQuotes: Array<{
+    supplierName: string;
+    totalPrice: string | null;
+    unitPrice: string | null;
+    currency: string;
+    deliveryDays: number | null;
+    quoteNotes: string | null;
+  }>;
+  templateType: string;
+  inquiryScope: string | null;
+  memory: string;
+}
+
+export function getQuoteDraftPrompt(ctx: QuoteDraftContext): string {
+  const lines = [
+    `你是"青砚"报价草稿助手。根据项目资料和供应商报价，生成一份结构化报价草稿。`,
+    "",
+    "## 核心原则",
+    "1. 基于真实供应商报价推算，不编造价格",
+    "2. 如无供应商报价，只生成行项目结构框架，价格字段留 null",
+    "3. 外贸加价参考 25-40%，政府采购按定额",
+    "4. 必须包含模板建议的所有成本项（运费、关税、包装等按需）",
+    "5. costPrice 是内部成本参考，不展示给客户",
+    "6. quantity × unitPrice = totalPrice，务必计算准确",
+  ];
+
+  lines.push("", "## 项目信息");
+  lines.push(`- 名称: ${ctx.project.name}`);
+  if (ctx.project.clientOrganization) lines.push(`- 客户: ${ctx.project.clientOrganization}`);
+  if (ctx.project.description) lines.push(`- 描述: ${ctx.project.description.slice(0, 500)}`);
+  if (ctx.project.closeDate) lines.push(`- 截止: ${ctx.project.closeDate}`);
+  if (ctx.project.location) lines.push(`- 地点: ${ctx.project.location}`);
+  if (ctx.inquiryScope) lines.push(`- 询价范围: ${ctx.inquiryScope}`);
+
+  lines.push(``, `## 使用模板: ${ctx.templateType}`);
+
+  if (ctx.supplierQuotes.length > 0) {
+    lines.push("", "## 供应商报价参考（以此推算对客户报价）");
+    for (const q of ctx.supplierQuotes) {
+      lines.push(`### ${q.supplierName}`);
+      if (q.totalPrice) lines.push(`- 总价: ${q.currency} ${q.totalPrice}`);
+      if (q.unitPrice) lines.push(`- 单价: ${q.currency} ${q.unitPrice}`);
+      if (q.deliveryDays != null) lines.push(`- 交期: ${q.deliveryDays} 天`);
+      if (q.quoteNotes) lines.push(`- 备注: ${q.quoteNotes}`);
+    }
+  } else {
+    lines.push("", "## 供应商报价：暂无数据，请生成行项目结构，价格留 null");
+  }
+
+  if (ctx.memory) lines.push("", "## AI 历史记忆", ctx.memory);
+
+  lines.push("", "## 输出要求");
+  lines.push("严格按以下 JSON 格式输出，不要输出其他内容：");
+  lines.push("```json");
+  lines.push(`{`);
+  lines.push(`  "title": "报价单标题",`);
+  lines.push(`  "currency": "CAD",`);
+  lines.push(`  "tradeTerms": "FOB Shanghai（外贸模板必填，其他可为空字符串）",`);
+  lines.push(`  "paymentTerms": "T/T 30/70",`);
+  lines.push(`  "deliveryDays": 45,`);
+  lines.push(`  "validUntil": "YYYY-MM-DD（30天后）",`);
+  lines.push(`  "moq": null,`);
+  lines.push(`  "originCountry": "China",`);
+  lines.push(`  "lineItems": [`);
+  lines.push(`    {`);
+  lines.push(`      "category": "product | shipping | customs | packaging | labor | overhead | tax | other",`);
+  lines.push(`      "itemName": "品名",`);
+  lines.push(`      "specification": "规格",`);
+  lines.push(`      "unit": "单位",`);
+  lines.push(`      "quantity": 100,`);
+  lines.push(`      "unitPrice": 28.50,`);
+  lines.push(`      "totalPrice": 2850.00,`);
+  lines.push(`      "costPrice": 18.00,`);
+  lines.push(`      "remarks": ""`);
+  lines.push(`    }`);
+  lines.push(`  ],`);
+  lines.push(`  "internalNotes": "AI 生成说明",`);
+  lines.push(`  "reasoning": "定价依据简要说明"`);
+  lines.push(`}`);
+  lines.push("```");
+
+  return lines.join("\n");
+}
+
+export interface QuoteReviewContext {
+  templateType: string;
+  header: {
+    currency: string;
+    tradeTerms: string;
+    paymentTerms: string;
+    deliveryDays: number | null;
+    validUntil: string;
+    moq: number | null;
+    originCountry: string;
+  };
+  lineItems: Array<{
+    category: string;
+    itemName: string;
+    quantity: number | null;
+    unitPrice: number | null;
+    totalPrice: number | null;
+    costPrice: number | null;
+  }>;
+  totals: {
+    subtotal: number;
+    internalCost: number;
+    profitMargin: number | null;
+  };
+  projectDescription: string | null;
+  supplierQuoteCount: number;
+}
+
+export function getQuoteReviewPrompt(ctx: QuoteReviewContext): string {
+  const lines = [
+    `你是"青砚"报价审查助手。请检查以下报价单，找出潜在问题和改进建议。`,
+    "",
+    "## 审查维度",
+    "1. 完整性：是否缺少必要行项目（运费/关税/包装/安装）",
+    "2. 合理性：利润率是否在合理区间，单价是否异常",
+    "3. 格式规范：是否符合所选模板的要求",
+    "4. 商务条款：付款/交期/有效期是否齐全合理",
+    "5. 一致性：数量×单价是否等于行总价",
+    "6. 竞争力：与行业常见报价相比是否合理",
+  ];
+
+  lines.push("", `## 模板类型: ${ctx.templateType}`);
+
+  lines.push("", "## 报价头信息");
+  lines.push(`- 币种: ${ctx.header.currency}`);
+  if (ctx.header.tradeTerms) lines.push(`- 贸易方式: ${ctx.header.tradeTerms}`);
+  if (ctx.header.paymentTerms) lines.push(`- 付款条款: ${ctx.header.paymentTerms}`);
+  if (ctx.header.deliveryDays != null) lines.push(`- 交期: ${ctx.header.deliveryDays} 天`);
+  if (ctx.header.validUntil) lines.push(`- 有效期: ${ctx.header.validUntil}`);
+  if (ctx.header.moq != null) lines.push(`- MOQ: ${ctx.header.moq}`);
+  if (ctx.header.originCountry) lines.push(`- 原产地: ${ctx.header.originCountry}`);
+
+  lines.push("", "## 行项目明细");
+  for (const item of ctx.lineItems) {
+    const parts = [`[${item.category}] ${item.itemName}`];
+    if (item.quantity != null) parts.push(`数量:${item.quantity}`);
+    if (item.unitPrice != null) parts.push(`单价:${item.unitPrice}`);
+    if (item.totalPrice != null) parts.push(`总价:${item.totalPrice}`);
+    if (item.costPrice != null) parts.push(`成本:${item.costPrice}`);
+    lines.push(`- ${parts.join(" | ")}`);
+  }
+
+  lines.push("", "## 汇总");
+  lines.push(`- 报价总额: ${ctx.totals.subtotal}`);
+  lines.push(`- 内部成本: ${ctx.totals.internalCost}`);
+  lines.push(`- 利润率: ${ctx.totals.profitMargin != null ? ctx.totals.profitMargin + "%" : "未知"}`);
+  lines.push(`- 参考供应商报价数: ${ctx.supplierQuoteCount}`);
+
+  if (ctx.projectDescription) {
+    lines.push("", "## 项目描述（用于判断是否遗漏特殊要求）");
+    lines.push(ctx.projectDescription.slice(0, 500));
+  }
+
+  lines.push("", "## 输出要求");
+  lines.push("严格按以下 JSON 格式输出，不要输出其他内容：");
+  lines.push("```json");
+  lines.push(`{`);
+  lines.push(`  "overallRisk": "low | medium | high",`);
+  lines.push(`  "summary": "一句话总结（20字以内）",`);
+  lines.push(`  "issues": [`);
+  lines.push(`    {`);
+  lines.push(`      "severity": "info | warning | urgent",`);
+  lines.push(`      "field": "对应字段名",`);
+  lines.push(`      "message": "问题描述",`);
+  lines.push(`      "suggestion": "改进建议"`);
+  lines.push(`    }`);
+  lines.push(`  ],`);
+  lines.push(`  "strengths": ["做得好的方面"],`);
+  lines.push(`  "suggestions": ["额外改进建议"]`);
+  lines.push(`}`);
+  lines.push("```");
+  lines.push("");
+  lines.push("## 审查规则");
+  lines.push("1. 客观：基于数据分析，不编造");
+  lines.push("2. 如果报价整体合理，overallRisk 为 low，issues 可以为空");
+  lines.push("3. 利润率 < 5% 必须标记 urgent");
+  lines.push("4. 缺少关键条款标记 warning");
+  lines.push("5. strengths 至少列出 1 条");
 
   return lines.join("\n");
 }

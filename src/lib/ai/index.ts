@@ -15,11 +15,17 @@ export {
   getActionAdvicePrompt,
   buildContextBlock,
   buildProjectDeepBlock,
+  getQuoteTemplatePrompt,
+  getQuoteDraftPrompt,
+  getQuoteReviewPrompt,
 } from "./prompts";
 export type {
   WorkContext,
   ProjectSummary,
   ProjectDeepContext,
+  QuoteTemplateRecommendContext,
+  QuoteDraftContext,
+  QuoteReviewContext,
 } from "./prompts";
 
 export {
@@ -46,6 +52,7 @@ export type {
   SupplierRecommendSuggestion,
   SupplierRecommendItem,
   QuestionEmailSuggestion,
+  AgentTaskSuggestion,
   WorkSuggestion,
   SubTask,
   TaskBreakdown,

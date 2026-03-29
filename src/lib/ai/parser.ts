@@ -207,20 +207,34 @@ export function extractWorkSuggestion(
       const parsed = JSON.parse(work.jsonStr);
       let suggestion: WorkSuggestion | null = null;
 
-      if (parsed.type === "question_email") {
+      if (parsed.type === "agent_task" && parsed.agentTask) {
+        const at = parsed.agentTask;
+        if (at.projectId && at.intent) {
+          suggestion = {
+            type: "agent_task",
+            task: null, event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null,
+            agentTask: {
+              projectId: String(at.projectId),
+              project: String(at.project ?? ""),
+              intent: String(at.intent),
+              templateId: at.templateId ? String(at.templateId) : null,
+            },
+          };
+        }
+      } else if (parsed.type === "question_email") {
         const qe = parseQuestionEmailFields(parsed);
         if (qe) {
-          suggestion = { type: "question_email", task: null, event: null, stageAdvance: null, supplierRecommend: null, questionEmail: qe };
+          suggestion = { type: "question_email", task: null, event: null, stageAdvance: null, supplierRecommend: null, questionEmail: qe, agentTask: null };
         }
       } else if (parsed.type === "supplier_recommend") {
         const sr = parseSupplierRecommendFields(parsed);
         if (sr) {
-          suggestion = { type: "supplier_recommend", task: null, event: null, stageAdvance: null, supplierRecommend: sr, questionEmail: null };
+          suggestion = { type: "supplier_recommend", task: null, event: null, stageAdvance: null, supplierRecommend: sr, questionEmail: null, agentTask: null };
         }
       } else if (parsed.type === "stage_advance") {
         const sa = parseStageAdvanceFields(parsed);
         if (sa) {
-          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa, supplierRecommend: null, questionEmail: null };
+          suggestion = { type: "stage_advance", task: null, event: null, stageAdvance: sa, supplierRecommend: null, questionEmail: null, agentTask: null };
         }
       } else if (parsed.type === "task_and_event" && parsed.task && parsed.event) {
         suggestion = {
@@ -230,13 +244,14 @@ export function extractWorkSuggestion(
           stageAdvance: null,
           supplierRecommend: null,
           questionEmail: null,
+          agentTask: null,
         };
       } else if (parsed.type === "event" && parsed.event) {
-        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null, supplierRecommend: null, questionEmail: null };
+        suggestion = { type: "event", task: null, event: parseEventFields(parsed.event), stageAdvance: null, supplierRecommend: null, questionEmail: null, agentTask: null };
       } else if (parsed.type === "task" && parsed.task) {
-        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed.task), event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null, agentTask: null };
       } else if (!parsed.type || parsed.type === "task") {
-        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null };
+        suggestion = { type: "task", task: parseTaskFields(parsed), event: null, stageAdvance: null, supplierRecommend: null, questionEmail: null, agentTask: null };
       }
 
       if (suggestion) {
@@ -258,6 +273,7 @@ export function extractWorkSuggestion(
         stageAdvance: null,
         supplierRecommend: null,
         questionEmail: null,
+        agentTask: null,
       };
       postProcessDates(suggestion);
       return { cleanText: legacy.cleanText, suggestion };

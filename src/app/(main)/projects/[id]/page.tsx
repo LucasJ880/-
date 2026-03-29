@@ -41,6 +41,8 @@ import { ProjectProgressSummary } from "@/components/project-progress/project-pr
 import { BidChecklist } from "@/components/project-checklist/bid-checklist";
 import { ProjectAiMemory } from "@/components/project-memory/project-ai-memory";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
+import { ProjectQuoteSection } from "@/components/quote/project-quote-section";
+import { ProjectAgentTasks } from "@/components/agent-tasks/project-agent-tasks";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
@@ -642,6 +644,12 @@ function ProjectDetailContent() {
           canManage={canManage}
         />
       )}
+
+      {/* 报价管理 */}
+      <ProjectQuoteSection projectId={id} />
+
+      {/* AI 任务（子智能体编排） */}
+      <ProjectAgentTasks projectId={id} />
 
       {/* 向业主提问 — 项目问题澄清邮件 */}
       {canManage && project.status !== "abandoned" && (

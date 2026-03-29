@@ -8,6 +8,8 @@ import {
   Calendar,
   FolderKanban,
   Zap,
+  Bot,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NotificationItem } from "./types";
@@ -20,6 +22,8 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   project_update: FolderKanban,
   project_dispatched: FolderKanban,
   system: Zap,
+  agent_task: Bot,
+  agent_approval: ShieldCheck,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {

@@ -9,6 +9,8 @@ const LABELS: Record<string, string> = {
   followup: "跟进提醒",
   project_update: "项目与配置变更",
   system: "系统通知（预留）",
+  agent_task: "AI 任务通知",
+  agent_approval: "AI 审批通知",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);
