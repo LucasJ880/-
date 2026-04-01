@@ -16,6 +16,10 @@ import {
   AlertTriangle,
   FolderOpen,
   Plus,
+  Calendar,
+  Pencil,
+  Check,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -34,6 +38,8 @@ interface ProjectDocument {
 
 interface Props {
   projectId: string;
+  closeDate?: string | null;
+  onProjectUpdate?: () => void;
 }
 
 const FILE_ICONS: Record<string, { icon: typeof FileText; color: string }> = {
@@ -61,7 +67,7 @@ function getFileIcon(fileType: string) {
   return FILE_ICONS[fileType.toLowerCase()] ?? { icon: File, color: "text-muted-foreground" };
 }
 
-export function ProjectFileManager({ projectId }: Props) {
+export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Props) {
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -189,6 +195,13 @@ export function ProjectFileManager({ projectId }: Props) {
           }}
         />
       </div>
+
+      {/* 截止时间 */}
+      <DeadlineEditor
+        projectId={projectId}
+        closeDate={closeDate}
+        onSaved={onProjectUpdate}
+      />
 
       {/* 拖拽上传区域 */}
       {(documents.length === 0 || dragOver) && (
@@ -364,6 +377,151 @@ function FileRow({
           )}
         </button>
       </div>
+    </div>
+  );
+}
+
+function DeadlineEditor({
+  projectId,
+  closeDate,
+  onSaved,
+}: {
+  projectId: string;
+  closeDate?: string | null;
+  onSaved?: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const currentDate = closeDate ? closeDate.slice(0, 10) : null;
+
+  const daysLeft = currentDate
+    ? Math.ceil((new Date(currentDate).getTime() - Date.now()) / 86400000)
+    : null;
+
+  const handleSave = useCallback(async () => {
+    if (!value) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ closeDate: value }),
+      });
+      setEditing(false);
+      onSaved?.();
+    } catch {}
+    setSaving(false);
+  }, [value, projectId, onSaved]);
+
+  const handleClear = useCallback(async () => {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ closeDate: null }),
+      });
+      setEditing(false);
+      setValue("");
+      onSaved?.();
+    } catch {}
+    setSaving(false);
+  }, [projectId, onSaved]);
+
+  if (editing) {
+    return (
+      <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2.5">
+        <Calendar size={14} className="shrink-0 text-accent" />
+        <span className="text-xs font-medium text-foreground">截止时间</span>
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="rounded-md border border-border/50 bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+          autoFocus
+        />
+        <button
+          onClick={handleSave}
+          disabled={!value || saving}
+          className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
+        >
+          {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+          保存
+        </button>
+        {currentDate && (
+          <button
+            onClick={handleClear}
+            disabled={saving}
+            className="text-xs text-red-500 hover:text-red-600 disabled:opacity-50 transition-colors"
+          >
+            清除
+          </button>
+        )}
+        <button
+          onClick={() => setEditing(false)}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          取消
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-border/30 bg-muted/20 px-3 py-2.5">
+      <Calendar size={14} className="shrink-0 text-accent/60" />
+      {currentDate ? (
+        <>
+          <span className="text-xs text-muted-foreground">截止时间</span>
+          <span className={cn(
+            "text-sm font-medium",
+            daysLeft !== null && daysLeft <= 3
+              ? "text-red-600"
+              : daysLeft !== null && daysLeft <= 7
+              ? "text-amber-600"
+              : "text-foreground"
+          )}>
+            {new Date(currentDate).toLocaleDateString("zh-CN", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </span>
+          {daysLeft !== null && (
+            <span className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+              daysLeft <= 0
+                ? "bg-red-500/10 text-red-600"
+                : daysLeft <= 3
+                ? "bg-red-500/10 text-red-600"
+                : daysLeft <= 7
+                ? "bg-amber-500/10 text-amber-600"
+                : "bg-accent/10 text-accent"
+            )}>
+              <Clock size={9} />
+              {daysLeft > 0
+                ? `剩余 ${daysLeft} 天`
+                : daysLeft === 0
+                ? "今天截止"
+                : `已过期 ${Math.abs(daysLeft)} 天`}
+            </span>
+          )}
+        </>
+      ) : (
+        <span className="text-xs text-muted-foreground">未设置截止时间</span>
+      )}
+      <button
+        onClick={() => {
+          setValue(currentDate ?? "");
+          setEditing(true);
+        }}
+        className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+      >
+        <Pencil size={10} />
+        {currentDate ? "修改" : "设置"}
+      </button>
     </div>
   );
 }

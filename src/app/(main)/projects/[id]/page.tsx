@@ -603,7 +603,11 @@ function ProjectDetailContent() {
       )}
 
       {/* 项目文件 */}
-      <ProjectFileManager projectId={id} />
+      <ProjectFileManager
+        projectId={id}
+        closeDate={project.closeDate}
+        onProjectUpdate={load}
+      />
 
       {/* AI 助手 — 项目内嵌对话 */}
       <ProjectAiChat projectId={id} projectName={project.name} onProjectUpdate={load} />
