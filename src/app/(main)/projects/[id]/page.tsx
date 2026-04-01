@@ -43,6 +43,7 @@ import { ProjectAiMemory } from "@/components/project-memory/project-ai-memory";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
 import { ProjectQuoteSection } from "@/components/quote/project-quote-section";
 import { ProjectAgentTasks } from "@/components/agent-tasks/project-agent-tasks";
+import { ProjectFileManager } from "@/components/project-files/project-file-manager";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
@@ -600,6 +601,9 @@ function ProjectDetailContent() {
           }}
         />
       )}
+
+      {/* 项目文件 */}
+      <ProjectFileManager projectId={id} />
 
       {/* AI 助手 — 项目内嵌对话 */}
       <ProjectAiChat projectId={id} projectName={project.name} onProjectUpdate={load} />
