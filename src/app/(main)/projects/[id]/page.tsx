@@ -602,6 +602,26 @@ function ProjectDetailContent() {
         />
       )}
 
+      {/* 非 BidToGo 项目的 AI 情报分析 */}
+      {project.sourceSystem !== "bidtogo" && project.intelligence && (
+        <BidToGoIntelligenceCard
+          project={{
+            sourceSystem: "upload",
+            sourcePlatform: null,
+            clientOrganization: project.clientOrganization ?? null,
+            location: project.location ?? null,
+            estimatedValue: project.estimatedValue ?? null,
+            currency: project.currency ?? null,
+            solicitationNumber: project.solicitationNumber ?? null,
+            tenderStatus: project.tenderStatus ?? null,
+            dueDate: project.dueDate ?? null,
+            externalRef: null,
+            intelligence: project.intelligence,
+            documents: project.documents ?? [],
+          }}
+        />
+      )}
+
       {/* 项目文件 */}
       <ProjectFileManager
         projectId={id}

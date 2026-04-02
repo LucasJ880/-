@@ -287,7 +287,8 @@ function FullReportSection({
 }
 
 export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }) {
-  if (!project.sourceSystem || project.sourceSystem !== "bidtogo") return null;
+  const isBidToGo = project.sourceSystem === "bidtogo";
+  if (!isBidToGo && !project.intelligence) return null;
 
   const { externalRef, intelligence, documents } = project;
   const daysLeft = project.dueDate ? daysUntil(project.dueDate) : null;
@@ -295,28 +296,37 @@ export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }
   return (
     <div className="space-y-4">
       {/* Source banner */}
-      <div className="flex items-center gap-2 rounded-xl border border-accent/20 bg-accent-light px-4 py-2.5 text-sm">
-        <Globe size={16} className="text-accent" />
-        <span className="font-semibold text-accent">BidToGo</span>
-        <span className="text-muted">·</span>
-        <span className="text-foreground">外部招标情报</span>
-        {project.sourcePlatform && (
-          <>
-            <span className="text-muted">·</span>
-            <span className="text-muted">来源：{project.sourcePlatform}</span>
-          </>
-        )}
-        {externalRef?.url && (
-          <a
-            href={externalRef.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto inline-flex items-center gap-1 text-xs text-accent hover:underline"
-          >
-            查看原始链接 <ExternalLink size={12} />
-          </a>
-        )}
-      </div>
+      {isBidToGo ? (
+        <div className="flex items-center gap-2 rounded-xl border border-accent/20 bg-accent-light px-4 py-2.5 text-sm">
+          <Globe size={16} className="text-accent" />
+          <span className="font-semibold text-accent">BidToGo</span>
+          <span className="text-muted">·</span>
+          <span className="text-foreground">外部招标情报</span>
+          {project.sourcePlatform && (
+            <>
+              <span className="text-muted">·</span>
+              <span className="text-muted">来源：{project.sourcePlatform}</span>
+            </>
+          )}
+          {externalRef?.url && (
+            <a
+              href={externalRef.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto inline-flex items-center gap-1 text-xs text-accent hover:underline"
+            >
+              查看原始链接 <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-2.5 text-sm">
+          <TrendingUp size={16} className="text-violet-600" />
+          <span className="font-semibold text-violet-600">AI 情报分析</span>
+          <span className="text-muted">·</span>
+          <span className="text-foreground">基于上传文件自动生成</span>
+        </div>
+      )}
 
       {/* Project meta info */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -431,8 +441,8 @@ export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }
         </div>
       )}
 
-      {/* Documents */}
-      {documents.length > 0 && (
+      {/* Documents — only for BidToGo since uploaded projects use ProjectFileManager */}
+      {isBidToGo && documents.length > 0 && (
         <div className="rounded-xl border border-border bg-card-bg p-5">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
             <FileText size={16} className="text-accent" />

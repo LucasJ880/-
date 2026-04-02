@@ -7,6 +7,7 @@
 
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
+import { generateProjectIntelligence } from "./ai-intelligence";
 
 export interface DocumentAiSummary {
   documentType: string;
@@ -91,7 +92,7 @@ function tryParseJson(raw: string): DocumentAiSummary | null {
 export async function generateDocumentSummary(documentId: string): Promise<void> {
   const doc = await db.projectDocument.findUnique({
     where: { id: documentId },
-    select: { id: true, title: true, contentText: true, parseStatus: true },
+    select: { id: true, projectId: true, title: true, contentText: true, parseStatus: true },
   });
 
   if (!doc || doc.parseStatus !== "done" || !doc.contentText) {
@@ -136,6 +137,11 @@ export async function generateDocumentSummary(documentId: string): Promise<void>
         aiSummaryStatus: "done",
       },
     });
+
+    // 摘要生成完成后，异步触发项目级情报分析（新文件 or Addendum 更新）
+    generateProjectIntelligence(doc.projectId).catch((err) =>
+      console.error(`[AiIntelligence] ${doc.projectId} 触发失败:`, err)
+    );
   } catch (e) {
     console.error(`[AiSummary] ${documentId} 生成失败:`, e);
     await db.projectDocument.update({

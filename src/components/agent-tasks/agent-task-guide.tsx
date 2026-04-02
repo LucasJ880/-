@@ -135,8 +135,8 @@ export function AgentTaskGuide({ open, onClose, onCreateTask }: Props) {
   const isLast = step === GUIDE_STEPS.length - 1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl" style={{ backgroundColor: 'var(--card, #fff)' }}>
         {/* 顶部进度 */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <div className="flex items-center gap-1.5">
@@ -166,7 +166,7 @@ export function AgentTaskGuide({ open, onClose, onCreateTask }: Props) {
               <Icon size={20} />
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-foreground/60 font-medium">
                 步骤 {step + 1} / {GUIDE_STEPS.length}
               </div>
               <h3 className="text-base font-semibold text-foreground">{current.title}</h3>
@@ -174,7 +174,7 @@ export function AgentTaskGuide({ open, onClose, onCreateTask }: Props) {
           </div>
 
           {/* 描述 */}
-          <p className="text-sm text-muted-foreground leading-relaxed mb-4">{current.description}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed mb-4">{current.description}</p>
 
           {/* 视觉示意 */}
           <StepVisual type={current.visual} />
@@ -184,7 +184,7 @@ export function AgentTaskGuide({ open, onClose, onCreateTask }: Props) {
             {current.tips.map((tip, i) => (
               <div key={i} className="flex items-start gap-2 text-xs">
                 <Lightbulb size={11} className="mt-0.5 shrink-0 text-amber-500" />
-                <span className="text-foreground/80">{tip}</span>
+                <span className="text-foreground/90">{tip}</span>
               </div>
             ))}
           </div>
