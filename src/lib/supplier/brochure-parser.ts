@@ -9,7 +9,7 @@
  * 可扩展点：V2 可替换 extractText() 为 OCR / 多模态方案
  */
 
-import { PDFParse } from "pdf-parse";
+import { extractText as unpdfExtractText } from "unpdf";
 import { createCompletion } from "@/lib/ai/client";
 import type {
   BrochureParseResult,
@@ -23,11 +23,10 @@ import type {
 const MIN_TEXT_LENGTH = 50;
 
 async function extractText(buffer: Buffer): Promise<{ text: string; pages: number }> {
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  const result = await parser.getText();
-  const pages = result.pages?.length ?? 0;
-  const text = result.text ?? "";
-  await parser.destroy().catch(() => {});
+  const result = await unpdfExtractText(new Uint8Array(buffer));
+  const pages = result.totalPages ?? 0;
+  const raw = result.text;
+  const text = Array.isArray(raw) ? raw.join("\n") : String(raw || "");
   return { text, pages };
 }
 
