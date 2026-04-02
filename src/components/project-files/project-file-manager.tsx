@@ -74,6 +74,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   const [uploadProgress, setUploadProgress] = useState<string[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchFiles = useCallback(async () => {
@@ -96,6 +97,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
       if (files.length === 0) return;
 
       setUploading(true);
+      setUploadError(null);
       setUploadProgress(files.map((f) => f.name));
 
       const formData = new FormData();
@@ -111,11 +113,18 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         const data = await res.json();
 
         if (data.errors?.length > 0) {
-          console.warn("部分文件上传失败:", data.errors);
+          const msgs = data.errors.map((e: { name: string; reason: string }) => `${e.name}: ${e.reason}`);
+          setUploadError(msgs.join("；"));
+        }
+
+        if (!res.ok && data.error) {
+          setUploadError(data.error);
         }
 
         await fetchFiles();
-      } catch {}
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "上传失败，请重试");
+      }
 
       setUploading(false);
       setUploadProgress([]);
@@ -203,42 +212,43 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         onSaved={onProjectUpdate}
       />
 
-      {/* 拖拽上传区域 */}
-      {(documents.length === 0 || dragOver) && (
-        <div
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          className={cn(
-            "mx-4 mt-4 rounded-lg border-2 border-dashed px-6 py-8 text-center transition-colors",
-            dragOver
-              ? "border-accent bg-accent/5"
-              : "border-border/50 hover:border-border"
-          )}
-        >
-          <Upload
-            className={cn(
-              "mx-auto h-8 w-8",
-              dragOver ? "text-accent" : "text-muted-foreground/40"
-            )}
-          />
-          <p className="mt-2 text-sm font-medium text-foreground">
-            {dragOver ? "松开即可上传" : "拖拽文件到这里上传"}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            支持 PDF、Word、Excel、图片等，最大 20MB
-          </p>
-          {documents.length === 0 && !dragOver && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition-colors"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              选择文件
-            </button>
-          )}
-        </div>
-      )}
+      {/* 拖拽上传区域 — 始终可见 */}
+      <div
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className={cn(
+          "mx-4 mt-4 rounded-lg border-2 border-dashed text-center transition-colors cursor-pointer",
+          dragOver
+            ? "border-accent bg-accent/5 px-6 py-8"
+            : documents.length === 0
+            ? "border-border/50 hover:border-border px-6 py-8"
+            : "border-border/30 hover:border-border/60 px-4 py-3"
+        )}
+        onClick={() => !uploading && fileInputRef.current?.click()}
+      >
+        {documents.length === 0 || dragOver ? (
+          <>
+            <Upload
+              className={cn(
+                "mx-auto h-8 w-8",
+                dragOver ? "text-accent" : "text-muted-foreground/40"
+              )}
+            />
+            <p className="mt-2 text-sm font-medium text-foreground">
+              {dragOver ? "松开即可上传" : "拖拽文件到这里，或点击上传"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              支持 PDF、Word、Excel、图片等，最大 20MB
+            </p>
+          </>
+        ) : (
+          <div className="flex items-center justify-center gap-2 text-muted-foreground">
+            <Upload size={14} />
+            <span className="text-xs">拖拽或点击此处上传更多文件</span>
+          </div>
+        )}
+      </div>
 
       {/* 上传进度 */}
       {uploading && uploadProgress.length > 0 && (
@@ -254,6 +264,23 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* 上传错误提示 */}
+      {uploadError && (
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2.5">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0 text-red-500" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-red-600">上传遇到问题</p>
+            <p className="mt-0.5 text-[10px] text-red-500/80">{uploadError}</p>
+          </div>
+          <button
+            onClick={() => setUploadError(null)}
+            className="shrink-0 p-0.5 text-red-400 hover:text-red-600"
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
 

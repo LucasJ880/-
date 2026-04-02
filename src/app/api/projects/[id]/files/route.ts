@@ -96,8 +96,15 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
     const file = entry;
 
-    if (!ALLOWED_TYPES.has(file.type) && file.type !== "") {
-      errors.push({ name: file.name, reason: `不支持的文件类型: ${file.type}` });
+    const ext = getFileExtension(file.name);
+    const ALLOWED_EXTENSIONS = new Set([
+      "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+      "jpg", "jpeg", "png", "webp", "gif",
+      "txt", "csv", "zip", "rar", "7z",
+      "dwg", "dxf", "msg", "eml",
+    ]);
+    if (file.type && !ALLOWED_TYPES.has(file.type) && !ALLOWED_EXTENSIONS.has(ext)) {
+      errors.push({ name: file.name, reason: `不支持的文件类型: ${file.type || ext}` });
       continue;
     }
 
@@ -116,8 +123,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         access: "public",
         contentType: file.type || "application/octet-stream",
       });
-
-      const ext = getFileExtension(file.name);
 
       const doc = await db.projectDocument.create({
         data: {
