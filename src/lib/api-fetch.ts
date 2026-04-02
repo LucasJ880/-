@@ -4,19 +4,33 @@
  */
 
 const AUTH_PATH_PREFIXES = ["/login", "/register"];
-const REDIRECT_COOLDOWN_MS = 3000;
+const REDIRECT_COOLDOWN_MS = 8000;
+const STORAGE_KEY = "qy_401_ts";
 let _redirecting = false;
-let _lastRedirectAt = 0;
 
 export type ApiFetchInit = RequestInit & {
   /** 为 true 时不做 401 跳转（如登录页调试用） */
   skipAuthRedirect?: boolean;
 };
 
+function getLastRedirectTs(): number {
+  try {
+    return Number(sessionStorage.getItem(STORAGE_KEY) || "0");
+  } catch {
+    return 0;
+  }
+}
+
+function setLastRedirectTs(): void {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, String(Date.now()));
+  } catch {}
+}
+
 function shouldRedirectOn401(): boolean {
   if (typeof window === "undefined") return false;
   if (_redirecting) return false;
-  if (Date.now() - _lastRedirectAt < REDIRECT_COOLDOWN_MS) return false;
+  if (Date.now() - getLastRedirectTs() < REDIRECT_COOLDOWN_MS) return false;
   const path = window.location.pathname;
   return !AUTH_PATH_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 }
@@ -42,7 +56,7 @@ export async function apiFetch(
     shouldRedirectOn401()
   ) {
     _redirecting = true;
-    _lastRedirectAt = Date.now();
+    setLastRedirectTs();
     const next = encodeURIComponent(
       window.location.pathname + window.location.search
     );

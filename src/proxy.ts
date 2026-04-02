@@ -40,7 +40,10 @@ export async function proxy(request: NextRequest) {
       (pathname === "/login" || pathname === "/register") &&
       (await isValidToken(token))
     ) {
-      return NextResponse.redirect(new URL("/", request.url));
+      const hasNext = request.nextUrl.searchParams.has("next");
+      if (!hasNext) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
     }
     return NextResponse.next();
   }
