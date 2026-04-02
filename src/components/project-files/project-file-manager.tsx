@@ -40,6 +40,7 @@ interface ProjectDocument {
   source: string;
   uploadedById: string | null;
   parseStatus: string | null;
+  parseError: string | null;
   aiSummaryJson: string | null;
   aiSummaryStatus: string | null;
   createdAt: string;
@@ -149,7 +150,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         if (!done) {
           const stepLabel =
             data.step === "parse"
-              ? "解析文件"
+              ? (data.parseStatus === "failed" ? `解析失败: ${data.parseError || "未知错误"}` : "解析文件")
               : data.step === "ai_summary"
               ? "AI 摘要"
               : data.step === "intelligence"
@@ -199,18 +200,33 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
     processNextFile();
   }, [projectId, fetchFiles, processNextFile]);
 
-  // 页面加载后检测是否有未处理的文件，自动开始处理
+  // 页面加载后检测未处理 / 失败的文件，自动开始处理
+  const autoRetryDone = useRef(false);
   useEffect(() => {
-    if (loading || documents.length === 0) return;
+    if (loading || documents.length === 0 || processingRef.current) return;
+
     const hasPending = documents.some(
       (d) =>
         d.parseStatus === "pending" ||
         (d.parseStatus === "done" && d.aiSummaryStatus === "pending" && d.source === "upload")
     );
-    if (hasPending && !processingRef.current) {
+    if (hasPending) {
       processNextFile();
+      return;
     }
-  }, [loading, documents, processNextFile]);
+
+    // 首次加载时自动重试失败文件（仅触发一次）
+    if (!autoRetryDone.current) {
+      const hasFailed = documents.some(
+        (d) => d.parseStatus === "failed" || d.parseStatus === "parsing" ||
+               d.aiSummaryStatus === "failed" || d.aiSummaryStatus === "generating"
+      );
+      if (hasFailed) {
+        autoRetryDone.current = true;
+        retryFailed();
+      }
+    }
+  }, [loading, documents, processNextFile, retryFailed]);
 
   const handleUpload = useCallback(
     async (fileList: FileList | File[]) => {
@@ -589,8 +605,8 @@ function FileRow({
             {doc.parseStatus === "failed" && (
               <>
                 <span>·</span>
-                <span className="text-red-400 flex items-center gap-0.5">
-                  <AlertTriangle size={8} /> 解析失败
+                <span className="text-red-400 flex items-center gap-0.5" title={doc.parseError || undefined}>
+                  <AlertTriangle size={8} /> 解析失败{doc.parseError ? `（${doc.parseError.slice(0, 60)}）` : ""}
                 </span>
               </>
             )}

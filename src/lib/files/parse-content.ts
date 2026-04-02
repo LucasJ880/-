@@ -105,9 +105,10 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
 
   try {
     const response = await fetch(doc.blobUrl);
-    if (!response.ok) throw new Error(`下载失败: ${response.status}`);
+    if (!response.ok) throw new Error(`Blob 下载失败: HTTP ${response.status} ${response.statusText}`);
 
     const arrayBuf = await response.arrayBuffer();
+    if (arrayBuf.byteLength === 0) throw new Error("下载的文件内容为空");
     const buffer = Buffer.from(arrayBuf);
     const result = await parser(buffer);
 
@@ -125,11 +126,15 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
       data: { contentText: text || null, parseStatus: "done", parseError: null },
     });
   } catch (e) {
+    const errorMsg = e instanceof Error
+      ? `${e.message}${e.stack ? ` | Stack: ${e.stack.split("\n")[1]?.trim() || ""}` : ""}`
+      : String(e);
+    console.error(`[FileParser] ${documentId} (${doc.fileType}) 解析异常:`, errorMsg);
     await db.projectDocument.update({
       where: { id: documentId },
       data: {
         parseStatus: "failed",
-        parseError: e instanceof Error ? e.message : String(e),
+        parseError: errorMsg.slice(0, 500),
       },
     });
   }

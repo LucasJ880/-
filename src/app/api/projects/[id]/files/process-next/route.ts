@@ -64,11 +64,17 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   if (pendingParse) {
     await parseAndStoreContent(pendingParse.id);
+    const afterParse = await db.projectDocument.findUnique({
+      where: { id: pendingParse.id },
+      select: { parseStatus: true, parseError: true },
+    });
     const remaining = await countRemaining(projectId);
     return NextResponse.json({
       step: "parse",
       documentId: pendingParse.id,
       documentTitle: pendingParse.title,
+      parseStatus: afterParse?.parseStatus,
+      parseError: afterParse?.parseError,
       remaining,
       done: false,
     });
