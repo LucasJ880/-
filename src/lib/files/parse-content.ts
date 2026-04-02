@@ -15,10 +15,11 @@ type ParseResult = { text: string } | { error: string };
 
 async function parsePdf(buffer: Buffer): Promise<ParseResult> {
   try {
-    // pdf-parse v2 default export
-    const pdfParse = (await import("pdf-parse")).default;
-    const data = await pdfParse(buffer);
-    return { text: data.text?.trim() || "" };
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    const result = await parser.getText();
+    await parser.destroy().catch(() => {});
+    return { text: result.text?.trim() || "" };
   } catch (e) {
     return { error: `PDF 解析失败: ${e instanceof Error ? e.message : String(e)}` };
   }
