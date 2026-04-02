@@ -76,7 +76,11 @@ export interface ProjectDeepContext {
     fitScore: number;
     summary: string | null;
   } | null;
-  documents: Array<{ title: string; fileType: string; contentText?: string | null; parseStatus?: string | null }>;
+  documents: Array<{
+    title: string; fileType: string;
+    contentText?: string | null; parseStatus?: string | null;
+    aiSummaryJson?: string | null; aiSummaryStatus?: string | null;
+  }>;
   taskStats: { total: number; done: number; overdue: number };
   recentDiscussion: Array<{ sender: string; body: string; createdAt: string; type: string }>;
   members: Array<{ name: string; role: string }>;
@@ -180,9 +184,17 @@ export function buildProjectDeepBlock(deep: ProjectDeepContext): string {
     const CONTENT_BUDGET = 8000;
     let usedChars = 0;
     for (const d of deep.documents.slice(0, 8)) {
-      const status = d.parseStatus === "parsing" ? " ⏳解析中" : d.parseStatus === "failed" ? " ❌解析失败" : "";
-      lines.push(`- ${d.title} [${d.fileType}]${status}`);
-      if (d.contentText && usedChars < CONTENT_BUDGET) {
+      const parseLabel = d.parseStatus === "parsing" ? " ⏳解析中" : d.parseStatus === "failed" ? " ❌解析失败" : "";
+      const summaryLabel = d.aiSummaryStatus === "generating" ? " 🔍摘要生成中" : "";
+      lines.push(`- ${d.title} [${d.fileType}]${parseLabel}${summaryLabel}`);
+
+      // 优先注入结构化摘要，没有时 fallback 到原始全文
+      if (d.aiSummaryJson && d.aiSummaryStatus === "done") {
+        lines.push(`  <ai_summary name="${d.title}">`);
+        lines.push(`  ${d.aiSummaryJson}`);
+        lines.push(`  </ai_summary>`);
+        usedChars += d.aiSummaryJson.length;
+      } else if (d.contentText && usedChars < CONTENT_BUDGET) {
         const remaining = CONTENT_BUDGET - usedChars;
         const snippet = d.contentText.slice(0, remaining);
         lines.push(`  <file_content name="${d.title}">`);
@@ -807,7 +819,11 @@ export interface ProgressSummaryContext {
   recentDiscussion: { sender: string; body: string; createdAt: string; type: string }[];
   inquiries: { roundNumber: number; status: string; itemCount: number; quotedCount: number; selectedSupplier: string | null }[];
   members: { name: string; role: string }[];
-  documents: { title: string; fileType: string; contentText?: string | null; parseStatus?: string | null }[];
+  documents: {
+    title: string; fileType: string;
+    contentText?: string | null; parseStatus?: string | null;
+    aiSummaryJson?: string | null; aiSummaryStatus?: string | null;
+  }[];
 }
 
 export function getProgressSummaryPrompt(ctx: ProgressSummaryContext): string {
@@ -866,7 +882,12 @@ export function getProgressSummaryPrompt(ctx: ProgressSummaryContext): string {
     let summaryDocUsed = 0;
     for (const d of ctx.documents.slice(0, 8)) {
       lines.push(`- ${d.title} [${d.fileType}]`);
-      if (d.contentText && summaryDocUsed < SUMMARY_DOC_BUDGET) {
+      if (d.aiSummaryJson && d.aiSummaryStatus === "done") {
+        lines.push(`  <ai_summary name="${d.title}">`);
+        lines.push(`  ${d.aiSummaryJson}`);
+        lines.push(`  </ai_summary>`);
+        summaryDocUsed += d.aiSummaryJson.length;
+      } else if (d.contentText && summaryDocUsed < SUMMARY_DOC_BUDGET) {
         const remaining = SUMMARY_DOC_BUDGET - summaryDocUsed;
         const snippet = d.contentText.slice(0, remaining);
         lines.push(`  <file_content name="${d.title}">`);

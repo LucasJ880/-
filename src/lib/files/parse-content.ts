@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { generateDocumentSummary } from "./ai-summary";
 
 const MAX_TEXT_LENGTH = 200_000; // DB 存储上限，约 20 万字符
 
@@ -124,6 +125,13 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
       where: { id: documentId },
       data: { contentText: text || null, parseStatus: "done", parseError: null },
     });
+
+    // 文本提取成功后，异步触发 AI 结构化摘要
+    if (text && text.length >= 50) {
+      generateDocumentSummary(documentId).catch((err) =>
+        console.error(`[AiSummary] ${documentId} 触发失败:`, err)
+      );
+    }
   } catch (e) {
     await db.projectDocument.update({
       where: { id: documentId },

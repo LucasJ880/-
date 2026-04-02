@@ -20,6 +20,12 @@ import {
   Pencil,
   Check,
   Clock,
+  ChevronDown,
+  ChevronRight,
+  Sparkles,
+  Brain,
+  Target,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -34,7 +40,25 @@ interface ProjectDocument {
   source: string;
   uploadedById: string | null;
   parseStatus: string | null;
+  aiSummaryJson: string | null;
+  aiSummaryStatus: string | null;
   createdAt: string;
+}
+
+interface DocumentAiSummary {
+  documentType?: string;
+  title?: string | null;
+  issuingParty?: string | null;
+  projectName?: string | null;
+  budget?: string | null;
+  keyDates?: Array<{ label: string; date: string }>;
+  technicalRequirements?: string[];
+  qualificationRequirements?: string[];
+  evaluationCriteria?: Array<{ criterion: string; weight: string | null }>;
+  scope?: string | null;
+  deliverables?: string[];
+  riskFlags?: string[];
+  summary?: string;
 }
 
 interface Props {
@@ -350,87 +374,232 @@ function FileRow({
   deleting: boolean;
   onDelete: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const { icon: Icon, color } = getFileIcon(doc.fileType);
   const isExternal = doc.source !== "upload";
+  const hasSummary = doc.aiSummaryStatus === "done" && doc.aiSummaryJson;
+  const summaryGenerating = doc.aiSummaryStatus === "generating";
+
+  const summary: DocumentAiSummary | null = hasSummary
+    ? (() => { try { return JSON.parse(doc.aiSummaryJson!) as DocumentAiSummary; } catch { return null; } })()
+    : null;
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg border border-border/30 bg-background px-3 py-2.5 hover:border-border/60 transition-colors">
-      <Icon size={18} className={cn("shrink-0", color)} />
+    <div className="rounded-lg border border-border/30 bg-background hover:border-border/60 transition-colors">
+      <div className="group flex items-center gap-3 px-3 py-2.5">
+        <Icon size={18} className={cn("shrink-0", color)} />
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground truncate">
-            {doc.title}
-          </span>
-          {isExternal && (
-            <ExternalLink size={10} className="shrink-0 text-muted-foreground" />
-          )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground truncate">
+              {doc.title}
+            </span>
+            {isExternal && (
+              <ExternalLink size={10} className="shrink-0 text-muted-foreground" />
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground flex-wrap">
+            <span className="uppercase">{doc.fileType}</span>
+            {doc.fileSize && (
+              <>
+                <span>·</span>
+                <span>{formatSize(doc.fileSize)}</span>
+              </>
+            )}
+            <span>·</span>
+            <span>
+              {new Date(doc.createdAt).toLocaleDateString("zh-CN", {
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+            {doc.parseStatus === "parsing" && (
+              <>
+                <span>·</span>
+                <span className="text-accent flex items-center gap-0.5">
+                  <Loader2 size={8} className="animate-spin" /> 解析中
+                </span>
+              </>
+            )}
+            {doc.parseStatus === "done" && doc.source === "upload" && !hasSummary && !summaryGenerating && (
+              <>
+                <span>·</span>
+                <span className="text-emerald-500 flex items-center gap-0.5">
+                  <CheckCircle2 size={8} /> AI 可读
+                </span>
+              </>
+            )}
+            {summaryGenerating && (
+              <>
+                <span>·</span>
+                <span className="text-violet-500 flex items-center gap-0.5">
+                  <Loader2 size={8} className="animate-spin" /> AI 摘要生成中
+                </span>
+              </>
+            )}
+            {hasSummary && summary && (
+              <>
+                <span>·</span>
+                <button
+                  onClick={() => setExpanded((v) => !v)}
+                  className="text-violet-500 flex items-center gap-0.5 hover:text-violet-600 transition-colors"
+                >
+                  <Sparkles size={8} />
+                  AI 摘要
+                  {expanded ? <ChevronDown size={8} /> : <ChevronRight size={8} />}
+                </button>
+              </>
+            )}
+            {doc.parseStatus === "failed" && (
+              <>
+                <span>·</span>
+                <span className="text-red-400 flex items-center gap-0.5">
+                  <AlertTriangle size={8} /> 解析失败
+                </span>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          <span className="uppercase">{doc.fileType}</span>
-          {doc.fileSize && (
-            <>
-              <span>·</span>
-              <span>{formatSize(doc.fileSize)}</span>
-            </>
-          )}
-          <span>·</span>
-          <span>
-            {new Date(doc.createdAt).toLocaleDateString("zh-CN", {
-              month: "short",
-              day: "numeric",
-            })}
-          </span>
-          {doc.parseStatus === "parsing" && (
-            <>
-              <span>·</span>
-              <span className="text-accent flex items-center gap-0.5">
-                <Loader2 size={8} className="animate-spin" /> 解析中
-              </span>
-            </>
-          )}
-          {doc.parseStatus === "done" && doc.source === "upload" && (
-            <>
-              <span>·</span>
-              <span className="text-emerald-500 flex items-center gap-0.5">
-                <CheckCircle2 size={8} /> AI 可读
-              </span>
-            </>
-          )}
-          {doc.parseStatus === "failed" && (
-            <>
-              <span>·</span>
-              <span className="text-red-400 flex items-center gap-0.5">
-                <AlertTriangle size={8} /> 解析失败
-              </span>
-            </>
-          )}
+
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <a
+            href={doc.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+            title="下载 / 预览"
+          >
+            <Download size={13} />
+          </a>
+          <button
+            onClick={onDelete}
+            disabled={deleting}
+            className="rounded p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            title="删除"
+          >
+            {deleting ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Trash2 size={13} />
+            )}
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <a
-          href={doc.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-          title="下载 / 预览"
-        >
-          <Download size={13} />
-        </a>
-        <button
-          onClick={onDelete}
-          disabled={deleting}
-          className="rounded p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-          title="删除"
-        >
-          {deleting ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <Trash2 size={13} />
+      {/* AI 摘要展开区 */}
+      {expanded && summary && (
+        <div className="border-t border-border/20 px-3 py-3 bg-violet-500/[0.03]">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Sparkles size={12} className="text-violet-500" />
+            <span className="text-[11px] font-medium text-violet-600">AI 文档摘要</span>
+            {summary.documentType && (
+              <span className="ml-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[9px] font-medium text-violet-600">
+                {summary.documentType}
+              </span>
+            )}
+          </div>
+
+          {summary.summary && (
+            <p className="text-xs text-foreground/80 mb-2.5 leading-relaxed">{summary.summary}</p>
           )}
-        </button>
-      </div>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px]">
+            {summary.issuingParty && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">发文方:</span>
+                <span className="text-foreground font-medium">{summary.issuingParty}</span>
+              </div>
+            )}
+            {summary.projectName && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">项目:</span>
+                <span className="text-foreground font-medium">{summary.projectName}</span>
+              </div>
+            )}
+            {summary.budget && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">预算:</span>
+                <span className="text-foreground font-medium">{summary.budget} {summary.currency || ""}</span>
+              </div>
+            )}
+            {summary.scope && (
+              <div className="col-span-2 flex items-start gap-1.5">
+                <span className="text-muted-foreground shrink-0">范围:</span>
+                <span className="text-foreground">{summary.scope}</span>
+              </div>
+            )}
+          </div>
+
+          {summary.keyDates && summary.keyDates.length > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-1 mb-1">
+                <Clock size={10} className="text-amber-500" />
+                <span className="text-[10px] font-medium text-muted-foreground">关键日期</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {summary.keyDates.map((kd, i) => (
+                  <span key={i} className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] text-amber-700">
+                    {kd.label}: {kd.date}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {summary.technicalRequirements && summary.technicalRequirements.length > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-1 mb-1">
+                <Target size={10} className="text-blue-500" />
+                <span className="text-[10px] font-medium text-muted-foreground">技术要求 ({summary.technicalRequirements.length})</span>
+              </div>
+              <ul className="space-y-0.5">
+                {summary.technicalRequirements.slice(0, 5).map((req, i) => (
+                  <li key={i} className="text-[10px] text-foreground/80 pl-3 relative before:absolute before:left-0 before:top-[6px] before:h-1 before:w-1 before:rounded-full before:bg-blue-400">
+                    {req}
+                  </li>
+                ))}
+                {summary.technicalRequirements.length > 5 && (
+                  <li className="text-[10px] text-muted-foreground pl-3">
+                    ...还有 {summary.technicalRequirements.length - 5} 项
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {summary.evaluationCriteria && summary.evaluationCriteria.length > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-1 mb-1">
+                <Brain size={10} className="text-emerald-500" />
+                <span className="text-[10px] font-medium text-muted-foreground">评分标准</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {summary.evaluationCriteria.map((ec, i) => (
+                  <span key={i} className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-700">
+                    {ec.criterion}{ec.weight ? ` (${ec.weight})` : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {summary.riskFlags && summary.riskFlags.length > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-1 mb-1">
+                <Shield size={10} className="text-red-500" />
+                <span className="text-[10px] font-medium text-muted-foreground">风险提示</span>
+              </div>
+              <ul className="space-y-0.5">
+                {summary.riskFlags.map((rf, i) => (
+                  <li key={i} className="text-[10px] text-red-600/80 pl-3 relative before:absolute before:left-0 before:top-[6px] before:h-1 before:w-1 before:rounded-full before:bg-red-400">
+                    {rf}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

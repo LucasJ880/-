@@ -1106,6 +1106,8 @@ model ProjectDocument {
   contentText    String?   @db.Text
   parseStatus    String    @default("pending") // pending | parsing | done | failed
   parseError     String?
+  aiSummaryJson  String?   @db.Text            // AI 结构化摘要 JSON
+  aiSummaryStatus String   @default("pending") // pending | generating | done | failed
   source         String    @default("external_link")
   uploadedById   String?
   sortOrder      Int       @default(0)

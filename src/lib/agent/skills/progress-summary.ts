@@ -23,7 +23,11 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
           include: { user: { select: { name: true } } },
         },
         documents: {
-          select: { title: true, fileType: true, contentText: true, parseStatus: true },
+          select: {
+            title: true, fileType: true,
+            contentText: true, parseStatus: true,
+            aiSummaryJson: true, aiSummaryStatus: true,
+          },
           take: 10,
         },
         inquiries: {
@@ -94,6 +98,8 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
         fileType: d.fileType,
         contentText: d.contentText,
         parseStatus: d.parseStatus,
+        aiSummaryJson: d.aiSummaryJson,
+        aiSummaryStatus: d.aiSummaryStatus,
       })),
     };
 

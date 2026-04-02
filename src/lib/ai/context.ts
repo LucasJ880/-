@@ -147,7 +147,11 @@ export async function getProjectDeepContext(projectId: string): Promise<ProjectD
         },
       },
       documents: {
-        select: { title: true, fileType: true, contentText: true, parseStatus: true },
+        select: {
+          title: true, fileType: true,
+          contentText: true, parseStatus: true,
+          aiSummaryJson: true, aiSummaryStatus: true,
+        },
         orderBy: { sortOrder: "asc" },
         take: 10,
       },
