@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Ban, ChevronRight, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -46,6 +46,8 @@ export function DashboardAbandonedSection({
   const [data, setData] = useState<AbandonedStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const didInit = useRef(false);
+
   const load = useCallback((d: number) => {
     setLoading(true);
     apiFetch(`/api/stats/abandoned?days=${d}`)
@@ -59,8 +61,17 @@ export function DashboardAbandonedSection({
   }, []);
 
   useEffect(() => {
-    load(days);
-  }, [days, load]);
+    if (!didInit.current) {
+      didInit.current = true;
+      load(days);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const changeDays = useCallback((d: number) => {
+    setDays(d);
+    load(d);
+  }, [load]);
 
   if (loading && !data) return null;
   if (!data || data.total === 0) return null;
@@ -81,7 +92,7 @@ export function DashboardAbandonedSection({
             <button
               key={d}
               type="button"
-              onClick={() => setDays(d)}
+              onClick={() => changeDays(d)}
               className={cn(
                 "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                 days === d

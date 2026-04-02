@@ -1,9 +1,12 @@
 /**
- * 客户端统一 fetch：带 cookie，401 时跳转登录（波次 B · E4）
+ * 客户端统一 fetch：带 cookie，401 时跳转登录
  * 仅应在浏览器环境调用（"use client" 组件内）。
  */
 
 const AUTH_PATH_PREFIXES = ["/login", "/register"];
+const REDIRECT_COOLDOWN_MS = 3000;
+let _redirecting = false;
+let _lastRedirectAt = 0;
 
 export type ApiFetchInit = RequestInit & {
   /** 为 true 时不做 401 跳转（如登录页调试用） */
@@ -12,6 +15,8 @@ export type ApiFetchInit = RequestInit & {
 
 function shouldRedirectOn401(): boolean {
   if (typeof window === "undefined") return false;
+  if (_redirecting) return false;
+  if (Date.now() - _lastRedirectAt < REDIRECT_COOLDOWN_MS) return false;
   const path = window.location.pathname;
   return !AUTH_PATH_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 }
@@ -19,6 +24,7 @@ function shouldRedirectOn401(): boolean {
 /**
  * 与原生 fetch 类似；默认 `credentials: "include"`。
  * 非登录/注册页收到 401 时跳转 `/login?next=当前路径`。
+ * 内置防抖：多个并发请求同时 401 时只触发一次跳转。
  */
 export async function apiFetch(
   input: RequestInfo | URL,
@@ -35,6 +41,8 @@ export async function apiFetch(
     !skipAuthRedirect &&
     shouldRedirectOn401()
   ) {
+    _redirecting = true;
+    _lastRedirectAt = Date.now();
     const next = encodeURIComponent(
       window.location.pathname + window.location.search
     );

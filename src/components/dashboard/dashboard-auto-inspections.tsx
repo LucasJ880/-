@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Bot,
@@ -55,18 +55,23 @@ export function DashboardAutoInspections({ onProjectClick }: Props) {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const didInit = useRef(false);
+
   const load = useCallback((showLoading = true) => {
     if (showLoading) setLoading(true);
     apiFetch("/api/agent/tasks/recent?triggerType=cron&limit=5")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : { tasks: [] }))
       .then((data) => setTasks(data.tasks ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
     load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import { formatISODateToronto } from "@/lib/time";
 import type {
@@ -27,6 +27,9 @@ export function useDashboardData() {
   const [reminderSummary, setReminderSummary] =
     useState<ReminderSummaryData | null>(null);
   const [userName, setUserName] = useState<string>("");
+  const didInit = useRef(false);
+  const scheduleDateRef = useRef(scheduleDate);
+  scheduleDateRef.current = scheduleDate;
 
   const loadStats = useCallback(() => {
     apiFetch("/api/stats")
@@ -50,10 +53,10 @@ export function useDashboardData() {
 
   const loadEvents = useCallback(() => {
     const internalP = apiFetch("/api/calendar")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .catch(() => []);
     const googleP = apiFetch("/api/calendar/google")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .catch(() => []);
 
     Promise.all([internalP, googleP]).then(([internal, google]) => {
@@ -92,16 +95,16 @@ export function useDashboardData() {
 
   const loadScheduleEvents = useCallback(
     (date?: Date) => {
-      const d = date ?? scheduleDate;
+      const d = date ?? scheduleDateRef.current;
       const dateParam = fmtDateISO(d);
       apiFetch(`/api/schedule?date=${dateParam}`)
-        .then((r) => r.json())
+        .then((r) => (r.ok ? r.json() : []))
         .then((data) => {
           setScheduleEvents(Array.isArray(data) ? data : []);
         })
         .catch(() => setScheduleEvents([]));
     },
-    [scheduleDate]
+    []
   );
 
   const goToDate = useCallback(
@@ -123,17 +126,21 @@ export function useDashboardData() {
 
   const loadReminders = useCallback(() => {
     apiFetch("/api/reminders")
-      .then((r) => r.json())
-      .then(setReminderSummary)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setReminderSummary(d); })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
+
     loadStats();
     loadEvents();
     loadScheduleEvents();
     loadReminders();
     loadUser();
+
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         loadStats();
@@ -144,7 +151,8 @@ export function useDashboardData() {
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [loadStats, loadEvents, loadScheduleEvents, loadReminders, loadUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     stats,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Sparkles,
@@ -157,13 +157,15 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [followupProjectId, setFollowupProjectId] = useState<string | null>(null);
 
+  const didInit = useRef(false);
+
   const scan = useCallback((isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
     apiFetch("/api/proactive/scan", { method: "POST" })
-      .then((r) => r.json())
-      .then(setResult)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setResult(d); })
       .catch(() => {})
       .finally(() => {
         setLoading(false);
@@ -172,12 +174,15 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
   }, []);
 
   useEffect(() => {
-    scan();
+    if (didInit.current) return;
+    didInit.current = true;
 
+    scan();
     const REFRESH_MS = 5 * 60 * 1000;
     const timer = setInterval(() => scan(true), REFRESH_MS);
     return () => clearInterval(timer);
-  }, [scan]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
