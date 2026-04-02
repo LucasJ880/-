@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { canParseFileType, parseAndStoreContent } from "@/lib/files/parse-content";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         contentType: file.type || "application/octet-stream",
       });
 
+      const parsable = canParseFileType(ext);
       const doc = await db.projectDocument.create({
         data: {
           projectId,
@@ -134,8 +136,16 @@ export async function POST(request: NextRequest, ctx: Ctx) {
           fileSize: file.size,
           source: "upload",
           uploadedById: user.id,
+          parseStatus: parsable ? "pending" : "done",
         },
       });
+
+      // 异步解析文件内容（不阻塞响应）
+      if (parsable) {
+        parseAndStoreContent(doc.id).catch((err) =>
+          console.error(`[FileParser] ${doc.id} 解析失败:`, err)
+        );
+      }
 
       results.push({
         id: doc.id,

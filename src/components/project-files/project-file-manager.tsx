@@ -33,6 +33,7 @@ interface ProjectDocument {
   fileSize: number | null;
   source: string;
   uploadedById: string | null;
+  parseStatus: string | null;
   createdAt: string;
 }
 
@@ -122,6 +123,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         }
 
         await fetchFiles();
+        onProjectUpdate?.();
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "上传失败，请重试");
       }
@@ -129,7 +131,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
       setUploading(false);
       setUploadProgress([]);
     },
-    [projectId, fetchFiles]
+    [projectId, fetchFiles, onProjectUpdate]
   );
 
   const handleDelete = useCallback(
@@ -140,10 +142,11 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
           method: "DELETE",
         });
         await fetchFiles();
+        onProjectUpdate?.();
       } catch {}
       setDeletingId(null);
     },
-    [projectId, fetchFiles]
+    [projectId, fetchFiles, onProjectUpdate]
   );
 
   const handleDrop = useCallback(
@@ -378,6 +381,30 @@ function FileRow({
               day: "numeric",
             })}
           </span>
+          {doc.parseStatus === "parsing" && (
+            <>
+              <span>·</span>
+              <span className="text-accent flex items-center gap-0.5">
+                <Loader2 size={8} className="animate-spin" /> 解析中
+              </span>
+            </>
+          )}
+          {doc.parseStatus === "done" && doc.source === "upload" && (
+            <>
+              <span>·</span>
+              <span className="text-emerald-500 flex items-center gap-0.5">
+                <CheckCircle2 size={8} /> AI 可读
+              </span>
+            </>
+          )}
+          {doc.parseStatus === "failed" && (
+            <>
+              <span>·</span>
+              <span className="text-red-400 flex items-center gap-0.5">
+                <AlertTriangle size={8} /> 解析失败
+              </span>
+            </>
+          )}
         </div>
       </div>
 

@@ -1103,6 +1103,9 @@ model ProjectDocument {
   blobUrl        String?
   fileType       String
   fileSize       Int?
+  contentText    String?   @db.Text
+  parseStatus    String    @default("pending") // pending | parsing | done | failed
+  parseError     String?
   source         String    @default("external_link")
   uploadedById   String?
   sortOrder      Int       @default(0)

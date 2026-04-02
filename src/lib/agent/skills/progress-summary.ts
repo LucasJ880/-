@@ -23,7 +23,7 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
           include: { user: { select: { name: true } } },
         },
         documents: {
-          select: { title: true, fileType: true },
+          select: { title: true, fileType: true, contentText: true, parseStatus: true },
           take: 10,
         },
         inquiries: {
@@ -92,6 +92,8 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
       documents: project.documents.map((d) => ({
         title: d.title,
         fileType: d.fileType,
+        contentText: d.contentText,
+        parseStatus: d.parseStatus,
       })),
     };
 
