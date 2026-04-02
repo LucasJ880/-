@@ -51,6 +51,7 @@ interface DocumentAiSummary {
   issuingParty?: string | null;
   projectName?: string | null;
   budget?: string | null;
+  currency?: string | null;
   keyDates?: Array<{ label: string; date: string }>;
   technicalRequirements?: string[];
   qualificationRequirements?: string[];
