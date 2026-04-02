@@ -641,7 +641,7 @@ function ProjectDetailContent() {
       {/* AI 记忆面板 */}
       <ProjectAiMemory projectId={id} />
 
-      {/* Tender progress section — 招投标项目专用 */}
+      {/* Tender progress section — 有招投标进度数据时显示 */}
       {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
         <ProjectProgressSection
           project={{
@@ -664,14 +664,12 @@ function ProjectDetailContent() {
         />
       )}
 
-      {/* 供应商询价 — 招投标项目或有 tender 属性的项目显示 */}
-      {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
-        <ProjectInquirySection
-          projectId={id}
-          orgId={project.orgId}
-          canManage={canManage}
-        />
-      )}
+      {/* 供应商询价 — 所有项目均可使用 */}
+      <ProjectInquirySection
+        projectId={id}
+        orgId={project.orgId}
+        canManage={canManage}
+      />
 
       {/* 报价管理 */}
       <ProjectQuoteSection projectId={id} />

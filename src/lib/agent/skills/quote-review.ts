@@ -12,10 +12,24 @@ import type { SkillContext, SkillResult, CheckReport, CheckIssue } from "../type
 
 async function execute(ctx: SkillContext): Promise<SkillResult> {
   try {
-    const quoteId = ctx.input.quoteId as string | undefined;
+    let quoteId = ctx.input.quoteId as string | undefined;
 
+    // 没有指定 quoteId 时，尝试自动查找项目最新报价
     if (!quoteId) {
-      return { success: false, data: {}, summary: "缺少 quoteId", error: "quoteId required" };
+      const latestQuote = await db.projectQuote.findFirst({
+        where: { projectId: ctx.projectId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+      if (latestQuote) {
+        quoteId = latestQuote.id;
+      } else {
+        return {
+          success: true,
+          data: { skipped: true },
+          summary: "项目暂无报价单，跳过报价审查",
+        };
+      }
     }
 
     const quote = await db.projectQuote.findUnique({
