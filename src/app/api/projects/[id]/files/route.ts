@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { canParseFileType, parseAndStoreContent } from "@/lib/files/parse-content";
+import { canParseFileType } from "@/lib/files/parse-content";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -140,12 +140,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         },
       });
 
-      // 异步解析文件内容（不阻塞响应）
-      if (parsable) {
-        parseAndStoreContent(doc.id).catch((err) =>
-          console.error(`[FileParser] ${doc.id} 解析失败:`, err)
-        );
-      }
+      // 解析由前端调用 /process-next 端点逐一处理，不再 fire-and-forget
 
       results.push({
         id: doc.id,

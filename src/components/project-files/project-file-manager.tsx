@@ -93,6 +93,13 @@ function getFileIcon(fileType: string) {
   return FILE_ICONS[fileType.toLowerCase()] ?? { icon: File, color: "text-muted-foreground" };
 }
 
+type ProcessingStatus = {
+  active: boolean;
+  step: string;
+  documentTitle?: string;
+  remaining: number;
+};
+
 export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Props) {
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +108,13 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [processing, setProcessing] = useState<ProcessingStatus>({
+    active: false,
+    step: "",
+    remaining: 0,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processingRef = useRef(false);
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -116,6 +129,88 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   useEffect(() => {
     fetchFiles();
   }, [fetchFiles]);
+
+  const processNextFile = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setProcessing({ active: true, step: "starting", remaining: 0 });
+
+    try {
+      let done = false;
+      while (!done) {
+        const res = await apiFetch(`/api/projects/${projectId}/files/process-next`, {
+          method: "POST",
+        });
+        if (!res.ok) break;
+
+        const data = await res.json();
+        done = data.done;
+
+        if (!done) {
+          const stepLabel =
+            data.step === "parse"
+              ? "解析文件"
+              : data.step === "ai_summary"
+              ? "AI 摘要"
+              : data.step === "intelligence"
+              ? "情报分析"
+              : "处理中";
+
+          setProcessing({
+            active: true,
+            step: stepLabel,
+            documentTitle: data.documentTitle,
+            remaining: data.remaining ?? 0,
+          });
+          await fetchFiles();
+        }
+      }
+
+      await fetchFiles();
+      onProjectUpdate?.();
+    } catch (err) {
+      console.error("[ProcessNext]", err);
+    }
+
+    setProcessing({ active: false, step: "", remaining: 0 });
+    processingRef.current = false;
+  }, [projectId, fetchFiles, onProjectUpdate]);
+
+  const retryFailed = useCallback(async () => {
+    if (processingRef.current) return;
+    // 第一次调用带 ?retry=1，重置失败状态
+    processingRef.current = true;
+    setProcessing({ active: true, step: "重置失败文件", remaining: 0 });
+
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/files/process-next?retry=1`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.done) {
+          await fetchFiles();
+        }
+      }
+    } catch {}
+
+    processingRef.current = false;
+    // 继续处理剩余文件
+    processNextFile();
+  }, [projectId, fetchFiles, processNextFile]);
+
+  // 页面加载后检测是否有未处理的文件，自动开始处理
+  useEffect(() => {
+    if (loading || documents.length === 0) return;
+    const hasPending = documents.some(
+      (d) =>
+        d.parseStatus === "pending" ||
+        (d.parseStatus === "done" && d.aiSummaryStatus === "pending" && d.source === "upload")
+    );
+    if (hasPending && !processingRef.current) {
+      processNextFile();
+    }
+  }, [loading, documents, processNextFile]);
 
   const handleUpload = useCallback(
     async (fileList: FileList | File[]) => {
@@ -149,6 +244,9 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
 
         await fetchFiles();
         onProjectUpdate?.();
+
+        // 上传完成后自动触发逐文件处理
+        processNextFile();
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "上传失败，请重试");
       }
@@ -156,7 +254,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
       setUploading(false);
       setUploadProgress([]);
     },
-    [projectId, fetchFiles, onProjectUpdate]
+    [projectId, fetchFiles, onProjectUpdate, processNextFile]
   );
 
   const handleDelete = useCallback(
@@ -195,6 +293,9 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
 
   const uploadedFiles = documents.filter((d) => d.source === "upload");
   const externalFiles = documents.filter((d) => d.source !== "upload");
+  const failedCount = documents.filter(
+    (d) => d.parseStatus === "failed" || d.aiSummaryStatus === "failed"
+  ).length;
 
   return (
     <div className="rounded-xl border border-border/50 bg-card">
@@ -292,6 +393,40 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* AI 处理进度 */}
+      {processing.active && (
+        <div className="mx-4 mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-xs font-medium text-violet-600">
+            <Loader2 size={12} className="animate-spin" />
+            <span>
+              {processing.step}
+              {processing.documentTitle ? `：${processing.documentTitle}` : ""}
+            </span>
+          </div>
+          {processing.remaining > 0 && (
+            <p className="mt-1 text-[10px] text-violet-500/70">
+              还剩 {processing.remaining} 个文件待处理
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* 失败文件重试 */}
+      {failedCount > 0 && !processing.active && (
+        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2.5">
+          <AlertTriangle size={13} className="shrink-0 text-red-500" />
+          <span className="flex-1 text-xs text-red-600">
+            {failedCount} 个文件处理失败
+          </span>
+          <button
+            onClick={retryFailed}
+            className="flex items-center gap-1 rounded-md bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-500/20 transition-colors"
+          >
+            重新处理
+          </button>
         </div>
       )}
 
