@@ -210,7 +210,7 @@ function ThreadSidebar({
       {showMobile && (
         <div className="fixed inset-0 z-50 flex lg:hidden">
           <div
-            className="absolute inset-0 bg-black/30"
+            className="absolute inset-0 bg-black/50"
             onClick={onCloseMobile}
           />
           <div className="relative w-72 bg-background shadow-xl">

@@ -89,7 +89,7 @@ export function AgentTaskCreateDialog({
   }, [mode, selectedTemplate, customIntent, projectId, templates, autoExecute, onCreated, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/30 px-5 py-4">

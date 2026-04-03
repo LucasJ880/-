@@ -107,7 +107,7 @@ export function AddSupplierDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md rounded-xl border border-border bg-card-bg p-5 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold">添加供应商到询价</h3>

@@ -273,7 +273,7 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
               className="input-field"
             />
           ) : (
-            <div className="rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-sm">
+            <div className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm">
               {editSubject}
             </div>
           )}
@@ -290,7 +290,7 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
             />
           ) : (
             <div
-              className="max-h-80 overflow-y-auto rounded-lg border border-border/60 bg-background/50 px-4 py-3 text-sm leading-relaxed"
+              className="max-h-80 overflow-y-auto rounded-lg border border-border/60 bg-background px-4 py-3 text-sm leading-relaxed"
               dangerouslySetInnerHTML={{ __html: editBody }}
             />
           )}
@@ -324,7 +324,7 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
   }[phase];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-card-bg shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">

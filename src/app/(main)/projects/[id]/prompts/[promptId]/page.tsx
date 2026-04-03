@@ -674,7 +674,7 @@ export default function PromptDetailPage() {
 
       {/* Version detail drawer */}
       {viewVersionId && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50">
           <div className="h-full w-full max-w-2xl overflow-auto border-l border-border bg-card-bg p-6">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold">

@@ -94,7 +94,7 @@ export function ScheduleEventDrawer({
       {/* backdrop */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px] transition-opacity duration-250",
+          "fixed inset-0 z-40 bg-black/50 transition-opacity duration-250",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={onClose}

@@ -191,7 +191,7 @@ export function LanguageAssistPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-card-bg shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
@@ -329,7 +329,7 @@ function TranslateResultView({
       <div className="flex items-center gap-2 text-[11px] text-muted">
         检测语言：<span className="font-medium text-foreground">{langLabel(result.detectedLang)}</span>
       </div>
-      <div className="relative rounded-lg border border-border/60 bg-background/50 px-4 py-3">
+      <div className="relative rounded-lg border border-border/60 bg-background px-4 py-3">
         <p className="text-sm leading-relaxed">{result.translated}</p>
         <button
           type="button"

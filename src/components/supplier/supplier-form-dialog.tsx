@@ -215,7 +215,7 @@ export function SupplierFormDialog({ open, onClose, onSaved, editing, orgId }: P
   const analysis = parseResult?.analysis;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card-bg p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">
@@ -262,7 +262,7 @@ export function SupplierFormDialog({ open, onClose, onSaved, editing, orgId }: P
                 />
               </div>
             ) : uploadState === "uploading" || uploadState === "parsing" ? (
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-background/50 px-4 py-4">
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-4">
                 <Loader2 size={18} className="animate-spin text-accent" />
                 <div>
                   <span className="text-sm font-medium">

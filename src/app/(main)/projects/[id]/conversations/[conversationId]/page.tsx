@@ -956,7 +956,7 @@ export default function ConversationDetailPage() {
 
       {/* Message feedback dialog */}
       {msgFbTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setMsgFbTarget(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setMsgFbTarget(null)}>
           <div className="mx-4 w-full max-w-md rounded-2xl border border-border bg-card-bg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-4 text-sm font-semibold">消息级反馈</h3>
             <div className="space-y-3">

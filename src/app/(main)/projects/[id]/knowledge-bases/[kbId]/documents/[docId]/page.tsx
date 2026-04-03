@@ -414,7 +414,7 @@ export default function KnowledgeDocumentDetailPage() {
 
       {/* Version content drawer */}
       {viewVersionId && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50">
           <div className="flex h-full w-full max-w-xl flex-col bg-card-bg shadow-xl">
             <div className="flex items-center justify-between border-b border-border p-4">
               <h3 className="font-semibold">

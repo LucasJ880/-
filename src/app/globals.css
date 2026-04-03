@@ -74,6 +74,7 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card-bg);
   --color-card-bg: var(--card-bg);
+  --color-popover: var(--card-bg);
   --color-border: var(--border);
   --color-muted: var(--muted);
   --color-accent: var(--accent);

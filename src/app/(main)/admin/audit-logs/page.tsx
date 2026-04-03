@@ -350,7 +350,7 @@ function AuditLogsContent() {
       )}
 
       {(selectedLog || detailLoading) && (
-        <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/30">
+        <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/50">
           <div className="h-full w-full max-w-lg overflow-y-auto border-l border-border bg-card-bg p-6 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">日志详情</h3>
