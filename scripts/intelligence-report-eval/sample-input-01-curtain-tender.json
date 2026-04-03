@@ -1,0 +1,17 @@
+{
+  "description": "窗饰供应与安装项目（加拿大学区）— 典型 BidToGo 场景",
+  "projectName": "24001-新窗帘的供应与安装及维修",
+  "projectDesc": "District School Board of Niagara 窗饰供应与安装框架协议",
+  "documents": [
+    {
+      "title": "RFP-2024-001 Tender Document.pdf",
+      "aiSummaryJson": "{\"projectType\":\"框架协议\",\"client\":\"District School Board of Niagara\",\"contractPeriod\":\"3年+3次续约\",\"products\":[\"百叶窗\",\"卷帘\",\"斑马帘\",\"电动遮阳帘\",\"太阳能遮阳帘\",\"遮光帘\",\"天窗遮阳系统\",\"窗帘窗幔\",\"隐私帘\",\"医院隔帘\",\"办公隔断帘\"],\"services\":[\"现场测量\",\"供应安装\",\"拆旧废料处理\"],\"keyRequirements\":[\"NFPA 701 防火测试\",\"CSA 标准\",\"一年质保\"],\"submission\":\"2026-11-30\"}",
+      "contentText": "REQUEST FOR PROPOSAL – Supply and Installation of Window Coverings\n\nThe District School Board of Niagara (DSBN) invites proposals from qualified firms for the supply, installation, and maintenance of window coverings across its facilities.\n\nContract Term: Three (3) years with the option to renew for up to three (3) additional one-year periods.\n\nScope of Work:\n1. Supply and install new window coverings including but not limited to: blinds, roller shades, zebra shades, motorized shading systems, solar shades, blackout shades, skylight shading systems, draperies, valances, privacy curtains, hospital cubicle curtains, and office partition curtains.\n2. Provide on-site measurements as required.\n3. Remove and dispose of existing window coverings, repair wall surfaces as needed.\n4. All materials used to be of first quality.\n5. All materials shall be tested in accordance with NFPA 701 – Vertical Burn Test and rated 'PASS'.\n6. All materials and workmanship must comply with the latest version of the Ontario Fire Code.\n7. Products shall meet CSA and CSGA standards.\n8. Warranty: Minimum one (1) year on all products and installation.\n9. System shall be operated by 3/8\" thick fiberglass baton.\n10. Proponents may be required to submit a sample of their product.\n\nEvaluation Criteria (Total 70 points):\n- Service response time (20 pts)\n- Staff qualifications (15 pts)\n- Experience and references (20 pts)\n- Price (15 pts)\n\nSubmission Deadline: November 30, 2026"
+    },
+    {
+      "title": "Addendum-01.pdf",
+      "aiSummaryJson": null,
+      "contentText": "Addendum #1 – Clarifications\n\n1. Q: Is local installation team required? A: Preferred but not mandatory. Subcontracting to qualified local installers is acceptable.\n2. Q: Are samples required at time of bid? A: No. Samples will only be requested from shortlisted proponents.\n3. Q: Insurance requirements? A: Minimum $2,000,000 general liability insurance required.\n4. Flameproofing Affidavit must be provided before any payment is processed."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "description": "外科口罩采购（多伦多医院）— 严格技术标准场景",
+  "projectName": "25003-外科口罩供应采购",
+  "projectDesc": "多伦多某医院集团对外科口罩的年度采购",
+  "documents": [
+    {
+      "title": "RFQ-Surgical-Masks-2025.pdf",
+      "aiSummaryJson": "{\"projectType\":\"年度采购\",\"client\":\"Toronto Hospital Group\",\"products\":[\"Level 3 外科口罩\"],\"keyRequirements\":[\"ASTM F2100-21 标准\",\"不接受 ASTM F2100-23\",\"BFE ≥ 98%\",\"PFE ≥ 98%\"],\"estimatedVolume\":\"500,000 boxes/year (estimated, not guaranteed)\",\"submission\":\"2025-12-12\"}",
+      "contentText": "REQUEST FOR QUOTATION – Surgical Masks\n\nToronto Hospital Group (THG) is seeking quotations for the supply of Level 3 Surgical Masks.\n\nTechnical Requirements:\n- Must comply with ASTM F2100-21 Standard\n- ASTM F2100-23 Standard NOT accepted\n- Bacterial Filtration Efficiency (BFE): ≥ 98%\n- Particulate Filtration Efficiency (PFE): ≥ 98%\n- Fluid Resistance: 160 mmHg\n- Latex-free\n- Individually packaged (50 pcs/box)\n\nEstimated Annual Volume: 500,000 boxes (estimate only, not guaranteed)\n\nPricing:\n- FOB Toronto warehouse\n- All duties, taxes, and transportation costs included\n- 30-day payment terms\n\nDelivery:\n- Initial delivery within 30 days of PO\n- Ongoing: weekly deliveries\n- Must maintain 2-week safety stock at Toronto warehouse\n\nQualification:\n- Valid Health Canada Medical Device Establishment License (MDEL)\n- ISO 13485 certification\n- Test reports from accredited lab within last 12 months\n\nSubmission Deadline: December 12, 2025"
+    }
+  ]
+}

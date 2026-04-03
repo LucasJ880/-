@@ -52,21 +52,57 @@ export interface CompletionOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  timeoutMs?: number;
 }
 
 export async function createCompletion(opts: CompletionOptions): Promise<string> {
+  const result = await createCompletionDetailed(opts);
+  return result.content;
+}
+
+// ── 详细返回版（含 finishReason / 实际 model / 耗时）───────
+
+export interface DetailedCompletionResult {
+  content: string;
+  finishReason: string | null;
+  model: string;
+  elapsedMs: number;
+}
+
+export async function createCompletionDetailed(
+  opts: CompletionOptions,
+): Promise<DetailedCompletionResult> {
   const preset = getTaskPreset(opts.mode ?? "normal");
   const client = getClient();
+  const actualModel = opts.model ?? preset.model;
 
-  const res = await client.chat.completions.create({
-    model: opts.model ?? preset.model,
-    messages: [
-      { role: "developer", content: opts.systemPrompt },
-      { role: "user", content: opts.userPrompt },
-    ],
-    temperature: opts.temperature ?? preset.temperature,
-    max_tokens: opts.maxTokens ?? preset.maxTokens,
-  });
+  const controller = opts.timeoutMs ? new AbortController() : undefined;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), opts.timeoutMs)
+    : undefined;
 
-  return res.choices[0]?.message?.content ?? "";
+  const t0 = Date.now();
+  try {
+    const res = await client.chat.completions.create(
+      {
+        model: actualModel,
+        messages: [
+          { role: "developer", content: opts.systemPrompt },
+          { role: "user", content: opts.userPrompt },
+        ],
+        temperature: opts.temperature ?? preset.temperature,
+        max_tokens: opts.maxTokens ?? preset.maxTokens,
+      },
+      controller ? { signal: controller.signal } : undefined,
+    );
+
+    return {
+      content: res.choices[0]?.message?.content ?? "",
+      finishReason: res.choices[0]?.finish_reason ?? null,
+      model: actualModel,
+      elapsedMs: Date.now() - t0,
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

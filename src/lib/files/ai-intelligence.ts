@@ -1,14 +1,15 @@
 /**
- * 项目 AI 情报分析 — 基于上传文件自动生成
+ * 项目 AI 情报分析 — intelligence_report 专属链路
  *
- * 从项目所有文档的 AI 摘要 + 原始内容中，生成完整的情报分析报告，
- * 写入 ProjectIntelligence（与 BidToGo 同一张表，统一展示）。
+ * 生成链路：读取文档 → 构建 prompt → 主模型调用（含超时） → 失败则 fallback → 解析 JSON → 写 DB
+ * 所有调用参数、耗时、异常均记录结构化日志，便于 Vercel 问题排查。
  */
 
 import { db } from "@/lib/db";
-import { createCompletion } from "@/lib/ai/client";
+import { createCompletionDetailed, type DetailedCompletionResult } from "@/lib/ai/client";
+import { getIntelligenceReportConfig, type IntelligenceReportConfig } from "@/lib/ai/config";
 
-const THINKING_MODEL = process.env.OPENAI_MODEL_THINKING || "";
+// ── 类型 ──────────────────────────────────────────────────────
 
 interface IntelligenceResult {
   recommendation: string;
@@ -18,6 +19,46 @@ interface IntelligenceResult {
   reportMarkdown: string;
   fullReportJson: string;
 }
+
+export interface ReportMeta {
+  doc_type: "intelligence_report";
+  prompt_version: string;
+  generated_at: string;
+  model_used: string;
+  reasoning_effort: string;
+  mode: string;
+  temperature: number;
+  max_tokens: number;
+  source_char_count: number;
+  source_doc_count: number;
+  used_fallback: boolean;
+  finish_reason: string | null;
+  generation_time_ms: number;
+  fallback_reason?: string;
+}
+
+// ── 日志前缀 ──────────────────────────────────────────────────
+
+const TAG = "[IntelligenceReport]";
+
+function logInfo(projectId: string, msg: string, data?: Record<string, unknown>) {
+  console.log(`${TAG} ${projectId} ${msg}`, data ? JSON.stringify(data) : "");
+}
+
+function logWarn(projectId: string, msg: string, data?: Record<string, unknown>) {
+  console.warn(`${TAG} ${projectId} ${msg}`, data ? JSON.stringify(data) : "");
+}
+
+function logError(projectId: string, msg: string, err?: unknown) {
+  console.error(
+    `${TAG} ${projectId} ${msg}`,
+    err instanceof Error ? `${err.name}: ${err.message}` : String(err ?? ""),
+  );
+}
+
+// ── SYSTEM PROMPT (v2) ────────────────────────────────────────
+
+const PROMPT_VERSION = "intelligence_report_v2";
 
 const SYSTEM_PROMPT = `你是"青砚"的投标情报分析助手。
 
@@ -137,27 +178,43 @@ const SYSTEM_PROMPT = `你是"青砚"的投标情报分析助手。
 - 说明核心原因
 - 用简洁但坚定的语言收口`;
 
+// ── fallback 用降级 prompt（确保仍输出 12 章节结构，不退化为聊天）───
+
+const FALLBACK_SUFFIX = `
+
+⚠️ 重要：即使你认为信息有限，也必须严格按 12 章节结构输出。
+每个章节可以标注"待确认"或"资料不足，初步判断为…"，但不允许跳过或合并章节。
+不允许使用聊天语气。输出必须是专业报告格式。`;
+
+// ── Prompt 构建 ───────────────────────────────────────────────
+
 function buildUserPrompt(
   projectName: string,
   projectDesc: string | null,
-  documents: Array<{ title: string; aiSummaryJson: string | null; contentText: string | null }>
-): string {
+  documents: Array<{ title: string; aiSummaryJson: string | null; contentText: string | null }>,
+): { prompt: string; charCount: number; docCount: number } {
   const lines = [`项目名称: ${projectName}`];
   if (projectDesc) lines.push(`项目描述: ${projectDesc}`);
   lines.push("", "以下是项目相关文档的内容：", "");
 
   let budget = 30000;
+  let charCount = 0;
+  let docCount = 0;
+
   for (const doc of documents) {
     lines.push(`### 文档: ${doc.title}`);
+    docCount++;
     if (doc.aiSummaryJson) {
       lines.push("AI 结构化摘要:");
       lines.push(doc.aiSummaryJson);
+      charCount += doc.aiSummaryJson.length;
     }
     if (doc.contentText) {
       const maxSnippet = Math.min(doc.contentText.length, 10000);
       const snippet = doc.contentText.slice(0, maxSnippet);
       lines.push("原文摘录:");
       lines.push(snippet);
+      charCount += maxSnippet;
       if (doc.contentText.length > maxSnippet) {
         lines.push(`...（已截断，原文共 ${doc.contentText.length} 字）`);
       }
@@ -178,11 +235,16 @@ function buildUserPrompt(
   lines.push("- 如发现致命红线或 NO-GO 条件，必须明确指出");
   lines.push("- 输出是一份专业报告，不是聊天回复");
   lines.push("返回纯 JSON。");
-  return lines.join("\n");
+
+  return { prompt: lines.join("\n"), charCount, docCount };
 }
+
+// ── JSON 解析 ─────────────────────────────────────────────────
 
 function tryParseJson(raw: string): IntelligenceResult | null {
   let cleaned = raw.trim();
+
+  // 去掉 markdown 代码块包裹
   const fenceStart = cleaned.indexOf("```");
   if (fenceStart !== -1) {
     const afterFence = cleaned.indexOf("\n", fenceStart);
@@ -191,6 +253,7 @@ function tryParseJson(raw: string): IntelligenceResult | null {
       cleaned = cleaned.slice(afterFence + 1, fenceEnd).trim();
     }
   }
+
   try {
     const parsed = JSON.parse(cleaned);
     return {
@@ -206,14 +269,142 @@ function tryParseJson(raw: string): IntelligenceResult | null {
   }
 }
 
+/**
+ * 检查 reportMarkdown 是否包含大部分 12 章节标题。
+ * 用于判断模型输出是否退化为聊天风格。
+ */
+function validateReportStructure(markdown: string): { valid: boolean; chapterCount: number } {
+  const chapterPatterns = [
+    /一、|项目概览/,
+    /二、|执行摘要/,
+    /三、|需求提炼/,
+    /四、|技术要求/,
+    /五、|商务/,
+    /六、|合规|致命红线/,
+    /七、|供应链|采购可行性/,
+    /八、|竞争力/,
+    /九、|GO.*NO-GO|决策矩阵/,
+    /十、|待确认/,
+    /十一|行动/,
+    /十二|最终结论/,
+  ];
+  let count = 0;
+  for (const p of chapterPatterns) {
+    if (p.test(markdown)) count++;
+  }
+  return { valid: count >= 8, chapterCount: count };
+}
+
+// ── 分类异常识别 ──────────────────────────────────────────────
+
+type FailureCategory = "timeout" | "model_error" | "json_parse" | "incomplete_output" | "unknown";
+
+function classifyError(err: unknown): FailureCategory {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (err.name === "AbortError" || msg.includes("abort") || msg.includes("timeout"))
+      return "timeout";
+    if (msg.includes("rate_limit") || msg.includes("429") || msg.includes("500") || msg.includes("502") || msg.includes("503"))
+      return "model_error";
+  }
+  return "unknown";
+}
+
+// ── 常量 ──────────────────────────────────────────────────────
+
 const VALID_RECOMMENDATIONS = ["pursue", "review_carefully", "low_probability", "skip"];
 const VALID_RISK_LEVELS = ["low", "medium", "high"];
 
+// ── 单次调用尝试 ─────────────────────────────────────────────
+
+interface CallAttemptResult {
+  success: boolean;
+  result: IntelligenceResult | null;
+  raw: string;
+  detail: DetailedCompletionResult | null;
+  error?: unknown;
+  failureCategory?: FailureCategory;
+}
+
+async function attemptGeneration(
+  systemPrompt: string,
+  userPrompt: string,
+  model: string,
+  temperature: number,
+  maxTokens: number,
+  timeoutMs: number,
+): Promise<CallAttemptResult> {
+  try {
+    const detail = await createCompletionDetailed({
+      systemPrompt,
+      userPrompt,
+      model,
+      temperature,
+      maxTokens,
+      timeoutMs,
+    });
+
+    // finish_reason === "length" 意味着 token 用完导致截断
+    if (detail.finishReason === "length") {
+      const partial = tryParseJson(detail.content);
+      return {
+        success: false,
+        result: partial,
+        raw: detail.content,
+        detail,
+        failureCategory: "incomplete_output",
+      };
+    }
+
+    const parsed = tryParseJson(detail.content);
+    if (!parsed) {
+      return {
+        success: false,
+        result: null,
+        raw: detail.content,
+        detail,
+        failureCategory: "json_parse",
+      };
+    }
+
+    return { success: true, result: parsed, raw: detail.content, detail };
+  } catch (err) {
+    return {
+      success: false,
+      result: null,
+      raw: "",
+      detail: null,
+      error: err,
+      failureCategory: classifyError(err),
+    };
+  }
+}
+
+// ── 主入口 ────────────────────────────────────────────────────
+
 /**
  * 为项目生成/更新 AI 情报分析。
- * 会读取项目所有已解析文档的内容和摘要，调用 LLM 生成报告。
+ *
+ * 策略：
+ * 1. 用主模型（高推理 + 大 token）尝试，设 50s 超时
+ * 2. 如果超时 / 失败 / 返回不完整 → 回退到 fallback 模型（普通推理 + 较低 token）
+ * 3. 如果 fallback 也失败 → 尝试用主模型的截断结果（如有）
+ * 4. 所有路径都会将 report_meta 写入 fullReportJson._meta
  */
 export async function generateProjectIntelligence(projectId: string): Promise<void> {
+  const config = getIntelligenceReportConfig();
+
+  logInfo(projectId, "开始生成", {
+    model: config.model,
+    fallback: config.fallbackModel,
+    maxTokens: config.maxTokens,
+    temperature: config.temperature,
+    effort: config.reasoningEffort,
+    promptVersion: config.promptVersion,
+  });
+
+  // ── 读取文档 ──────────────────────────────────────────────
+
   const project = await db.project.findUnique({
     where: { id: projectId },
     select: {
@@ -229,67 +420,202 @@ export async function generateProjectIntelligence(projectId: string): Promise<vo
     },
   });
 
-  if (!project) return;
+  if (!project) {
+    logWarn(projectId, "项目不存在，跳过");
+    return;
+  }
 
   const docsWithContent = project.documents.filter(
-    (d) => d.contentText || d.aiSummaryJson
+    (d) => d.contentText || d.aiSummaryJson,
   );
-  if (docsWithContent.length === 0) return;
+  if (docsWithContent.length === 0) {
+    logWarn(projectId, "无可用文档内容，跳过");
+    return;
+  }
 
-  try {
-    const userPrompt = buildUserPrompt(project.name, project.description, docsWithContent);
-    const raw = await createCompletion({
-      systemPrompt: SYSTEM_PROMPT,
-      userPrompt,
-      mode: "deep",
-      ...(THINKING_MODEL ? { model: THINKING_MODEL } : {}),
-      maxTokens: 16000,
+  const { prompt: userPrompt, charCount, docCount } = buildUserPrompt(
+    project.name,
+    project.description,
+    docsWithContent,
+  );
+
+  logInfo(projectId, "Prompt 构建完成", {
+    sourceChars: charCount,
+    docCount,
+    promptLength: userPrompt.length,
+  });
+
+  // ── 主模型尝试 ────────────────────────────────────────────
+
+  let usedFallback = false;
+  let fallbackReason: string | undefined;
+  let finalResult: IntelligenceResult | null = null;
+  let finalDetail: DetailedCompletionResult | null = null;
+  let actualModel = config.model;
+  let actualTemperature = config.temperature;
+  let actualMaxTokens = config.maxTokens;
+  let actualMode = "deep";
+
+  const primary = await attemptGeneration(
+    SYSTEM_PROMPT,
+    userPrompt,
+    config.model,
+    config.temperature,
+    config.maxTokens,
+    config.primaryTimeoutMs,
+  );
+
+  if (primary.success && primary.result) {
+    finalResult = primary.result;
+    finalDetail = primary.detail;
+    logInfo(projectId, "主模型成功", {
+      model: config.model,
+      elapsedMs: primary.detail?.elapsedMs,
+      finishReason: primary.detail?.finishReason,
+    });
+  } else {
+    // ── 主模型失败，记录原因后尝试 fallback ───────────────
+    fallbackReason = primary.failureCategory || "unknown";
+    logWarn(projectId, `主模型失败 (${fallbackReason})，启动 fallback`, {
+      model: config.model,
+      elapsedMs: primary.detail?.elapsedMs,
+      finishReason: primary.detail?.finishReason,
+      error: primary.error instanceof Error ? primary.error.message : undefined,
+      rawLength: primary.raw?.length,
     });
 
-    const result = tryParseJson(raw);
-    if (!result) {
-      console.error(`[AiIntelligence] ${projectId} JSON 解析失败`);
-      return;
+    usedFallback = true;
+    actualModel = config.fallbackModel;
+    actualTemperature = config.fallbackTemperature;
+    actualMaxTokens = config.fallbackMaxTokens;
+    actualMode = "normal";
+
+    // fallback 使用降级 prompt 后缀，强制保持 12 章节结构
+    const fallbackSystemPrompt = SYSTEM_PROMPT + FALLBACK_SUFFIX;
+
+    const fallback = await attemptGeneration(
+      fallbackSystemPrompt,
+      userPrompt,
+      config.fallbackModel,
+      config.fallbackTemperature,
+      config.fallbackMaxTokens,
+      config.fallbackTimeoutMs,
+    );
+
+    if (fallback.success && fallback.result) {
+      finalResult = fallback.result;
+      finalDetail = fallback.detail;
+      logInfo(projectId, "Fallback 成功", {
+        model: config.fallbackModel,
+        elapsedMs: fallback.detail?.elapsedMs,
+      });
+    } else {
+      logWarn(projectId, `Fallback 也失败 (${fallback.failureCategory})`, {
+        model: config.fallbackModel,
+        elapsedMs: fallback.detail?.elapsedMs,
+        error: fallback.error instanceof Error ? fallback.error.message : undefined,
+      });
+
+      // 最后兜底：如果主模型有截断但可解析的结果，用它
+      if (primary.result) {
+        finalResult = primary.result;
+        finalDetail = primary.detail;
+        fallbackReason = `${fallbackReason}→fallback_also_failed→using_primary_partial`;
+        logWarn(projectId, "使用主模型截断结果作为兜底");
+      } else if (fallback.result) {
+        finalResult = fallback.result;
+        finalDetail = fallback.detail;
+        fallbackReason = `${fallbackReason}→using_fallback_partial`;
+      } else {
+        logError(projectId, "所有尝试均失败，无法生成报告");
+        return;
+      }
     }
+  }
 
-    const recommendation = VALID_RECOMMENDATIONS.includes(result.recommendation)
-      ? result.recommendation
-      : "review_carefully";
-    const riskLevel = VALID_RISK_LEVELS.includes(result.riskLevel)
-      ? result.riskLevel
-      : "medium";
+  // ── 验证报告结构 ──────────────────────────────────────────
 
+  if (finalResult.reportMarkdown) {
+    const { valid, chapterCount } = validateReportStructure(finalResult.reportMarkdown);
+    if (!valid) {
+      logWarn(projectId, `报告结构不完整，仅检测到 ${chapterCount}/12 章节`, {
+        chapterCount,
+        usedFallback,
+      });
+    } else {
+      logInfo(projectId, `报告结构验证通过 (${chapterCount}/12 章节)`);
+    }
+  }
+
+  // ── 规范化字段 ────────────────────────────────────────────
+
+  const recommendation = VALID_RECOMMENDATIONS.includes(finalResult.recommendation)
+    ? finalResult.recommendation
+    : "review_carefully";
+  const riskLevel = VALID_RISK_LEVELS.includes(finalResult.riskLevel)
+    ? finalResult.riskLevel
+    : "medium";
+
+  // ── 构建 report_meta 并注入 fullReportJson ────────────────
+
+  const meta: ReportMeta = {
+    doc_type: "intelligence_report",
+    prompt_version: PROMPT_VERSION,
+    generated_at: new Date().toISOString(),
+    model_used: actualModel,
+    reasoning_effort: usedFallback ? config.fallbackReasoningEffort : config.reasoningEffort,
+    mode: actualMode,
+    temperature: actualTemperature,
+    max_tokens: actualMaxTokens,
+    source_char_count: charCount,
+    source_doc_count: docCount,
+    used_fallback: usedFallback,
+    finish_reason: finalDetail?.finishReason ?? null,
+    generation_time_ms: finalDetail?.elapsedMs ?? 0,
+    ...(fallbackReason ? { fallback_reason: fallbackReason } : {}),
+  };
+
+  // 将 _meta 注入 fullReportJson（不影响前端 FullReport 渲染，因为接口含 [key: string]: unknown）
+  let enrichedJson = "{}";
+  try {
+    const base = finalResult.fullReportJson ? JSON.parse(finalResult.fullReportJson) : {};
+    enrichedJson = JSON.stringify({ ...base, _meta: meta });
+  } catch {
+    enrichedJson = JSON.stringify({ _meta: meta });
+  }
+
+  // ── 写入 DB ───────────────────────────────────────────────
+
+  const data = {
+    recommendation,
+    riskLevel,
+    fitScore: finalResult.fitScore,
+    summary: finalResult.summary,
+    reportMarkdown: finalResult.reportMarkdown || null,
+    fullReportJson: enrichedJson,
+  };
+
+  try {
     const existing = await db.projectIntelligence.findUnique({
       where: { projectId },
       select: { id: true },
     });
 
     if (existing) {
-      await db.projectIntelligence.update({
-        where: { projectId },
-        data: {
-          recommendation,
-          riskLevel,
-          fitScore: result.fitScore,
-          summary: result.summary,
-          reportMarkdown: result.reportMarkdown || null,
-          fullReportJson: result.fullReportJson || null,
-        },
-      });
+      await db.projectIntelligence.update({ where: { projectId }, data });
     } else {
-      await db.projectIntelligence.create({
-        data: {
-          projectId,
-          recommendation,
-          riskLevel,
-          fitScore: result.fitScore,
-          summary: result.summary,
-          reportMarkdown: result.reportMarkdown || null,
-          fullReportJson: result.fullReportJson || null,
-        },
-      });
+      await db.projectIntelligence.create({ data: { projectId, ...data } });
     }
+
+    logInfo(projectId, "报告已保存", {
+      recommendation,
+      riskLevel,
+      fitScore: finalResult.fitScore,
+      usedFallback,
+      totalMs: finalDetail?.elapsedMs,
+      promptVersion: PROMPT_VERSION,
+    });
   } catch (e) {
-    console.error(`[AiIntelligence] ${projectId} 生成失败:`, e);
+    logError(projectId, "DB 写入失败", e);
   }
 }

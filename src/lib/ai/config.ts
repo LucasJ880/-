@@ -75,3 +75,66 @@ export function getAIConfig(): AIConfig {
 export function isAIConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
+
+// ── Intelligence Report 专属配置 ─────────────────────────────
+
+export interface IntelligenceReportConfig {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  reasoningEffort: ReasoningEffort;
+  fallbackModel: string;
+  fallbackTemperature: number;
+  fallbackMaxTokens: number;
+  fallbackReasoningEffort: ReasoningEffort;
+  primaryTimeoutMs: number;
+  fallbackTimeoutMs: number;
+  promptVersion: string;
+}
+
+/**
+ * 读取 intelligence_report 专属配置，未设置则回退到全局 deep / normal 预设。
+ *
+ * 环境变量：
+ *   OPENAI_MODEL_INTELLIGENCE_REPORT          主模型
+ *   OPENAI_TEMPERATURE_INTELLIGENCE_REPORT     温度
+ *   OPENAI_MAX_TOKENS_INTELLIGENCE_REPORT      最大输出 token
+ *   OPENAI_REASONING_EFFORT_INTELLIGENCE_REPORT  推理力度(low/medium/high)
+ *   OPENAI_MODEL_INTELLIGENCE_REPORT_FALLBACK  回退模型
+ */
+export function getIntelligenceReportConfig(): IntelligenceReportConfig {
+  const deep = TASK_PRESETS.deep;
+  const normal = TASK_PRESETS.normal;
+
+  const rawEffort = process.env.OPENAI_REASONING_EFFORT_INTELLIGENCE_REPORT;
+  const effort: ReasoningEffort =
+    rawEffort === "low" || rawEffort === "medium" || rawEffort === "high"
+      ? rawEffort
+      : deep.reasoningEffort;
+
+  return {
+    model: process.env.OPENAI_MODEL_INTELLIGENCE_REPORT || deep.model,
+    temperature: safeFloat(process.env.OPENAI_TEMPERATURE_INTELLIGENCE_REPORT, deep.temperature),
+    maxTokens: safeInt(process.env.OPENAI_MAX_TOKENS_INTELLIGENCE_REPORT, deep.maxTokens),
+    reasoningEffort: effort,
+    fallbackModel: process.env.OPENAI_MODEL_INTELLIGENCE_REPORT_FALLBACK || normal.model,
+    fallbackTemperature: normal.temperature,
+    fallbackMaxTokens: normal.maxTokens,
+    fallbackReasoningEffort: "medium",
+    primaryTimeoutMs: 50_000,
+    fallbackTimeoutMs: 50_000,
+    promptVersion: "intelligence_report_v2",
+  };
+}
+
+function safeFloat(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const v = parseFloat(raw);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function safeInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const v = parseInt(raw, 10);
+  return Number.isFinite(v) ? v : fallback;
+}
