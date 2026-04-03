@@ -1090,6 +1090,14 @@ model ProjectIntelligence {
   fullReportUrl   String?
   fullReportJson  String?
   reportMarkdown  String?
+
+  // 审核工作流
+  reportStatus    String   @default("ai_generated")  // draft | ai_generated | in_review | approved | needs_revision | delivered
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  reviewNotes     String?
+  reviewScore     Int?     // 1-5 人工评分（可选）
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

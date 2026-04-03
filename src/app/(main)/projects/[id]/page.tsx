@@ -108,6 +108,11 @@ interface ProjectDetail {
     fullReportUrl: string | null;
     fullReportJson: string | null;
     reportMarkdown: string | null;
+    reportStatus?: string | null;
+    reviewedBy?: string | null;
+    reviewedAt?: string | null;
+    reviewNotes?: string | null;
+    reviewScore?: number | null;
   } | null;
   documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
 }
@@ -454,6 +459,18 @@ function ProjectDetailContent() {
                 )}>
                   {({"pursue":"建议跟进","review_carefully":"需仔细评估","low_probability":"低概率","skip":"建议跳过"} as Record<string,string>)[project.intelligence.recommendation] || project.intelligence.recommendation}
                 </span>
+                {project.intelligence.reportStatus && project.intelligence.reportStatus !== "ai_generated" && (
+                  <span className={cn(
+                    "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                    project.intelligence.reportStatus === "approved" ? "bg-emerald-50 text-emerald-700" :
+                    project.intelligence.reportStatus === "delivered" ? "bg-violet-50 text-violet-700" :
+                    project.intelligence.reportStatus === "needs_revision" ? "bg-red-50 text-red-700" :
+                    project.intelligence.reportStatus === "in_review" ? "bg-amber-50 text-amber-700" :
+                    "bg-gray-100 text-gray-600"
+                  )}>
+                    {({"in_review":"审核中","approved":"已通过","needs_revision":"需修改","delivered":"已交付","draft":"草稿"} as Record<string,string>)[project.intelligence.reportStatus] || project.intelligence.reportStatus}
+                  </span>
+                )}
                 <span className="text-muted">匹配度</span>
                 <span className={cn(
                   "font-bold",
@@ -586,6 +603,7 @@ function ProjectDetailContent() {
       {project.sourceSystem === "bidtogo" && (
         <BidToGoIntelligenceCard
           project={{
+            projectId: id,
             sourceSystem: project.sourceSystem,
             sourcePlatform: project.sourcePlatform ?? null,
             clientOrganization: project.clientOrganization ?? null,
@@ -599,6 +617,7 @@ function ProjectDetailContent() {
             intelligence: project.intelligence ?? null,
             documents: project.documents ?? [],
           }}
+          onUpdate={load}
         />
       )}
 
@@ -606,6 +625,7 @@ function ProjectDetailContent() {
       {project.sourceSystem !== "bidtogo" && project.intelligence && (
         <BidToGoIntelligenceCard
           project={{
+            projectId: id,
             sourceSystem: "upload",
             sourcePlatform: null,
             clientOrganization: project.clientOrganization ?? null,
@@ -619,6 +639,7 @@ function ProjectDetailContent() {
             intelligence: project.intelligence,
             documents: project.documents ?? [],
           }}
+          onUpdate={load}
         />
       )}
 

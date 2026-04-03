@@ -593,6 +593,11 @@ export async function generateProjectIntelligence(projectId: string): Promise<vo
     summary: finalResult.summary,
     reportMarkdown: finalResult.reportMarkdown || null,
     fullReportJson: enrichedJson,
+    reportStatus: "ai_generated",
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewNotes: null,
+    reviewScore: null,
   };
 
   try {

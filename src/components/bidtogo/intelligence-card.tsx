@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -17,8 +17,14 @@ import {
   Hash,
   ChevronDown,
   ChevronUp,
+  CheckCircle2,
+  PenLine,
+  Send,
+  RotateCcw,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiJson } from "@/lib/api-fetch";
 
 interface ExternalRef {
   system: string;
@@ -47,6 +53,11 @@ interface Intelligence {
   fullReportUrl: string | null;
   fullReportJson: string | null;
   reportMarkdown: string | null;
+  reportStatus?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
+  reviewScore?: number | null;
 }
 
 interface ProjectDocument {
@@ -57,6 +68,7 @@ interface ProjectDocument {
 }
 
 interface BidToGoProject {
+  projectId?: string;
   sourceSystem: string | null;
   sourcePlatform: string | null;
   clientOrganization: string | null;
@@ -70,6 +82,15 @@ interface BidToGoProject {
   intelligence: Intelligence | null;
   documents: ProjectDocument[];
 }
+
+const REPORT_STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  draft: { label: "草稿", cls: "bg-gray-100 text-gray-600" },
+  ai_generated: { label: "AI 已生成", cls: "bg-blue-50 text-blue-700" },
+  in_review: { label: "审核中", cls: "bg-amber-50 text-amber-700" },
+  approved: { label: "已通过", cls: "bg-emerald-50 text-emerald-700" },
+  needs_revision: { label: "需修改", cls: "bg-red-50 text-red-700" },
+  delivered: { label: "已交付", cls: "bg-violet-50 text-violet-700" },
+};
 
 const RECOMMENDATION_MAP: Record<string, { label: string; cls: string }> = {
   pursue: { label: "建议跟进", cls: "bg-success-light text-success-text" },
@@ -286,7 +307,145 @@ function FullReportSection({
   );
 }
 
-export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }) {
+function IntelligenceReviewPanel({
+  projectId,
+  intelligence,
+  onUpdate,
+}: {
+  projectId: string;
+  intelligence: Intelligence;
+  onUpdate?: () => void;
+}) {
+  const [notes, setNotes] = useState(intelligence.reviewNotes || "");
+  const [score, setScore] = useState(intelligence.reviewScore ?? 0);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(intelligence.reportStatus || "ai_generated");
+
+  const patchReview = useCallback(
+    async (reportStatus: string, extraNotes?: string) => {
+      setLoading(true);
+      try {
+        await apiJson(`/api/projects/${projectId}/intelligence/review`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            reportStatus,
+            reviewNotes: extraNotes ?? notes,
+            ...(score > 0 ? { reviewScore: score } : {}),
+          }),
+        });
+        setStatus(reportStatus);
+        onUpdate?.();
+      } catch (e) {
+        console.error("审核更新失败", e);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [projectId, notes, score, onUpdate],
+  );
+
+  const statusInfo = REPORT_STATUS_MAP[status] || REPORT_STATUS_MAP.ai_generated;
+
+  return (
+    <div className="mt-4 rounded-lg border border-border/60 bg-background p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <ClipboardCheck size={15} className="text-accent" />
+          报告审核
+        </h4>
+        <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-medium", statusInfo.cls)}>
+          {statusInfo.label}
+        </span>
+      </div>
+
+      {intelligence.reviewedBy && (
+        <p className="text-xs text-muted">
+          审核人：{intelligence.reviewedBy}
+          {intelligence.reviewedAt && (
+            <> · {new Date(intelligence.reviewedAt).toLocaleString("zh-CN")}</>
+          )}
+        </p>
+      )}
+
+      {/* 评分 */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted">评分：</span>
+        {[1, 2, 3, 4, 5].map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setScore(v)}
+            className={cn(
+              "h-6 w-6 rounded text-xs font-medium transition-colors",
+              score >= v
+                ? "bg-accent text-white"
+                : "bg-background border border-border text-muted hover:border-accent/50",
+            )}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {/* 审核备注 */}
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="审核备注：修改建议、风险备注、是否允许交付…"
+        rows={2}
+        className="w-full rounded-lg border border-border bg-card-bg px-3 py-2 text-sm placeholder:text-muted/60 focus:border-accent/50 focus:outline-none"
+      />
+
+      {/* 操作按钮 */}
+      <div className="flex flex-wrap gap-2">
+        {status !== "in_review" && status !== "approved" && status !== "delivered" && (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => patchReview("in_review")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50"
+          >
+            <PenLine size={12} /> 开始审核
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => patchReview("approved")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+        >
+          <CheckCircle2 size={12} /> 通过
+        </button>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => patchReview("needs_revision")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+        >
+          <RotateCcw size={12} /> 需修改
+        </button>
+        {status === "approved" && (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => patchReview("delivered")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors disabled:opacity-50"
+          >
+            <Send size={12} /> 标记已交付
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function BidToGoIntelligenceCard({
+  project,
+  onUpdate,
+}: {
+  project: BidToGoProject;
+  onUpdate?: () => void;
+}) {
   const isBidToGo = project.sourceSystem === "bidtogo";
   if (!isBidToGo && !project.intelligence) return null;
 
@@ -438,6 +597,15 @@ export function BidToGoIntelligenceCard({ project }: { project: BidToGoProject }
             </p>
           )}
           <FullReportSection markdown={intelligence.reportMarkdown} json={intelligence.fullReportJson} url={intelligence.fullReportUrl} />
+
+          {/* 审核面板 */}
+          {project.projectId && (
+            <IntelligenceReviewPanel
+              projectId={project.projectId}
+              intelligence={intelligence}
+              onUpdate={onUpdate}
+            />
+          )}
         </div>
       )}
 

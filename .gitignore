@@ -50,3 +50,6 @@ next-env.d.ts
 
 /src/generated/prisma
 .env*.local
+
+# eval artifacts
+/artifacts/
