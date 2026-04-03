@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
-import { getProjectDeepContext } from "@/lib/ai/context";
-import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
-import {
-  getProgressSummaryPrompt,
-  type ProgressSummaryContext,
-} from "@/lib/ai/prompts";
+import { generateProgressSummary, type ProgressSummaryResult } from "@/lib/progress/generate-summary";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
+/**
+ * POST /api/reports/weekly
+ *
+ * 对用户可见的所有活跃项目批量生成 project_progress_summary。
+ * 周报 = 多个项目的进展摘要汇总，共享底层数据源和生成器，但面向"周期复盘"。
+ */
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser(request);
   if (!user) {
@@ -22,7 +23,6 @@ export async function POST(request: NextRequest) {
   }
 
   const projectIds = await getVisibleProjectIds(user.id, user.role);
-
   const projectWhere = projectIds !== null
     ? { id: { in: projectIds }, status: "active" }
     : { status: "active" };
@@ -38,56 +38,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "暂无活跃项目" }, { status: 404 });
   }
 
-  const results: {
+  const results: Array<{
     projectId: string;
     projectName: string;
-    summary: Record<string, unknown> | null;
+    summary: ProgressSummaryResult | null;
     error?: string;
-  }[] = [];
+  }> = [];
 
   for (const project of projects) {
     try {
-      const deep = await getProjectDeepContext(project.id);
-      if (!deep) {
-        results.push({ projectId: project.id, projectName: project.name, summary: null, error: "数据加载失败" });
-        continue;
-      }
-
-      const summaryCtx: ProgressSummaryContext = {
-        project: {
-          name: deep.project.name,
-          clientOrganization: deep.project.clientOrganization,
-          tenderStatus: deep.project.tenderStatus,
-          priority: deep.project.priority,
-          closeDate: deep.project.closeDate,
-          location: deep.project.location ?? null,
-          estimatedValue: deep.project.estimatedValue,
-          currency: deep.project.currency,
-          description: deep.project.description ?? null,
-        },
-        taskStats: deep.taskStats,
-        recentDiscussion: deep.recentDiscussion,
-        inquiries: deep.inquiries,
-        members: deep.members,
-        documents: deep.documents,
-      };
-
-      const raw = await createCompletion({
-        systemPrompt: getProgressSummaryPrompt(summaryCtx),
-        userPrompt: "请生成项目进展摘要",
-        temperature: 0.3,
+      const result = await generateProgressSummary(project.id);
+      results.push({
+        projectId: project.id,
+        projectName: project.name,
+        summary: result,
+        ...(result ? {} : { error: "生成失败" }),
       });
-
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        results.push({
-          projectId: project.id,
-          projectName: project.name,
-          summary: JSON.parse(jsonMatch[0]),
-        });
-      } else {
-        results.push({ projectId: project.id, projectName: project.name, summary: null, error: "AI 返回格式异常" });
-      }
     } catch (err) {
       results.push({
         projectId: project.id,
@@ -99,13 +65,13 @@ export async function POST(request: NextRequest) {
   }
 
   const successful = results.filter((r) => r.summary);
-  const failed = results.filter((r) => !r.summary);
 
   await logAudit({
     userId: user.id,
     action: AUDIT_ACTIONS.AI_ANALYZE,
     targetType: AUDIT_TARGETS.REPORT,
     afterData: {
+      doc_type: "weekly_report",
       totalProjects: projects.length,
       successCount: successful.length,
     },
@@ -116,7 +82,13 @@ export async function POST(request: NextRequest) {
     generatedAt: new Date().toISOString(),
     totalProjects: projects.length,
     successCount: successful.length,
-    failCount: failed.length,
-    projects: results,
+    failCount: results.length - successful.length,
+    projects: results.map((r) => ({
+      projectId: r.projectId,
+      projectName: r.projectName,
+      summary: r.summary ? r.summary.output : null,
+      meta: r.summary ? r.summary.meta : null,
+      error: r.error,
+    })),
   });
 }
