@@ -211,8 +211,8 @@ export async function generateProjectIntelligence(projectId: string): Promise<vo
     const raw = await createCompletion({
       systemPrompt: SYSTEM_PROMPT,
       userPrompt,
-      mode: "normal",
-      maxTokens: 10000,
+      mode: "deep",
+      maxTokens: 16000,
     });
 
     const result = tryParseJson(raw);
