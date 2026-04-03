@@ -135,9 +135,10 @@ model Project {
   tools         ToolRegistry[]
   notificationRules ProjectNotificationRule[]
 
-  externalRef   ExternalReference?
-  intelligence  ProjectIntelligence?
-  documents     ProjectDocument[]
+  externalRef         ExternalReference?
+  intelligence        ProjectIntelligence?
+  progressSummaries   ProjectProgressSummary[]
+  documents           ProjectDocument[]
   discussion    ProjectConversation?
   aiThreads     AiThread[]
   inquiries     ProjectInquiry[]
@@ -1100,6 +1101,42 @@ model ProjectIntelligence {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model ProjectProgressSummary {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // 输出内容
+  overallStatus   String                  // green | yellow | red
+  statusLabel     String
+  outputJson      String   @db.Text       // 完整 ProgressSummaryOutput JSON
+  executiveSummary String?
+
+  // 生成元数据
+  docType         String   @default("project_progress_summary")
+  promptVersion   String
+  modelUsed       String
+  usedFallback    Boolean  @default(false)
+  generationTimeMs Int     @default(0)
+  metaJson        String?  @db.Text       // 完整 ProgressSummaryMeta JSON
+
+  // 审核工作流
+  reportStatus    String   @default("ai_generated")  // ai_generated | in_review | approved | needs_revision
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  reviewNotes     String?
+  reviewScore     Int?     // 1-5
+
+  // 触发方式
+  triggerType     String   @default("manual")  // manual | cron | agent
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, createdAt])
 }
 
 model ProjectDocument {

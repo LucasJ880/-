@@ -10,28 +10,51 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
-  Lightbulb,
+  Target,
   Clock,
   ExternalLink,
   Activity,
+  MessageSquareQuote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 
+interface KeyProgress {
+  item: string;
+  significance: string;
+}
+
+interface Blocker {
+  item: string;
+  severity: "high" | "medium" | "low";
+  impact: string;
+}
+
+interface NextAction {
+  action: string;
+  purpose: string;
+  owner: string;
+  deadline: string;
+  priority: "high" | "medium" | "low";
+}
+
 interface ProjectSummary {
   overallStatus: "green" | "yellow" | "red";
   statusLabel: string;
-  summary: string;
-  keyProgress: string[];
-  risks: string[];
-  nextSteps: string[];
-  weekHighlight: string;
+  currentJudgment: string;
+  keyProgress: KeyProgress[];
+  blockers: Blocker[];
+  stageAlignment: string;
+  nextActions: NextAction[];
+  pendingConfirmations: string[];
+  executiveSummary: string;
 }
 
 interface ProjectReport {
   projectId: string;
   projectName: string;
   summary: ProjectSummary | null;
+  meta?: Record<string, unknown> | null;
   error?: string;
 }
 
@@ -40,6 +63,8 @@ interface WeeklyReport {
   totalProjects: number;
   successCount: number;
   failCount: number;
+  healthDistribution?: { green: number; yellow: number; red: number };
+  crossProjectDigest?: string;
   projects: ProjectReport[];
 }
 
@@ -67,11 +92,17 @@ const STATUS_STYLES = {
   },
 } as const;
 
+const SEVERITY_STYLE = {
+  high: "text-[#a63d3d] bg-[rgba(166,61,61,0.06)]",
+  medium: "text-[#9a6a2f] bg-[rgba(154,106,47,0.06)]",
+  low: "text-muted bg-accent/5",
+} as const;
+
 function OverviewBar({ report }: { report: WeeklyReport }) {
-  const projects = report.projects.filter((p) => p.summary);
-  const green = projects.filter((p) => p.summary!.overallStatus === "green").length;
-  const yellow = projects.filter((p) => p.summary!.overallStatus === "yellow").length;
-  const red = projects.filter((p) => p.summary!.overallStatus === "red").length;
+  const hd = report.healthDistribution;
+  const green = hd?.green ?? report.projects.filter((p) => p.summary?.overallStatus === "green").length;
+  const yellow = hd?.yellow ?? report.projects.filter((p) => p.summary?.overallStatus === "yellow").length;
+  const red = hd?.red ?? report.projects.filter((p) => p.summary?.overallStatus === "red").length;
 
   return (
     <div className="flex items-center gap-4 rounded-xl border border-border bg-card-bg px-5 py-4">
@@ -84,23 +115,32 @@ function OverviewBar({ report }: { report: WeeklyReport }) {
       <div className="flex items-center gap-3">
         {green > 0 && (
           <span className="flex items-center gap-1.5 rounded-full border border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.06)] px-2.5 py-1 text-xs font-medium text-[#2e7a56]">
-            <CheckCircle2 size={12} />
-            {green} 正常
+            <CheckCircle2 size={12} /> {green} 正常
           </span>
         )}
         {yellow > 0 && (
           <span className="flex items-center gap-1.5 rounded-full border border-[rgba(154,106,47,0.15)] bg-[rgba(154,106,47,0.06)] px-2.5 py-1 text-xs font-medium text-[#9a6a2f]">
-            <AlertTriangle size={12} />
-            {yellow} 需关注
+            <AlertTriangle size={12} /> {yellow} 需关注
           </span>
         )}
         {red > 0 && (
           <span className="flex items-center gap-1.5 rounded-full border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.06)] px-2.5 py-1 text-xs font-medium text-[#a63d3d]">
-            <AlertTriangle size={12} />
-            {red} 风险
+            <AlertTriangle size={12} /> {red} 风险
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function CrossProjectDigest({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-accent/20 bg-accent/[0.03] px-5 py-4">
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquareQuote size={14} className="text-accent" />
+        <h3 className="text-xs font-semibold text-accent">跨项目健康度对比</h3>
+      </div>
+      <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">{text}</p>
     </div>
   );
 }
@@ -146,69 +186,88 @@ function ProjectReportCard({ report }: { report: ProjectReport }) {
 
       {expanded && (
         <div className="space-y-0 divide-y divide-border border-t border-border">
-          <div className="px-5 py-3.5">
-            <p className="text-xs leading-relaxed text-foreground">{s.summary}</p>
-          </div>
+          {/* Executive Summary */}
+          {s.executiveSummary && (
+            <div className="flex items-start gap-2 px-5 py-3 bg-accent/[0.02]">
+              <MessageSquareQuote size={12} className="mt-0.5 shrink-0 text-accent" />
+              <p className="text-xs font-medium leading-relaxed text-foreground">{s.executiveSummary}</p>
+            </div>
+          )}
 
-          {s.weekHighlight && (
-            <div className="flex items-start gap-2.5 px-5 py-3 bg-[rgba(43,96,85,0.02)]">
-              <Lightbulb size={13} className="mt-0.5 shrink-0 text-accent" />
-              <div>
-                <span className="text-[10px] font-semibold text-accent">本周聚焦</span>
-                <p className="text-xs leading-relaxed text-foreground">{s.weekHighlight}</p>
-              </div>
+          {/* Current Judgment */}
+          {s.currentJudgment && (
+            <div className="px-5 py-3">
+              <p className="text-xs leading-relaxed text-foreground/80">{s.currentJudgment}</p>
             </div>
           )}
 
           <div className="grid grid-cols-1 gap-0 divide-y divide-border md:grid-cols-3 md:divide-x md:divide-y-0">
+            {/* Key Progress */}
             {s.keyProgress.length > 0 && (
               <div className="px-5 py-3">
                 <h5 className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold text-[#2e7a56]">
                   <CheckCircle2 size={10} /> 关键进展
                 </h5>
                 <ul className="space-y-1">
-                  {s.keyProgress.map((item, i) => (
+                  {s.keyProgress.map((kp, i) => (
                     <li key={i} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-foreground">
                       <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#2e7a56]/40" />
-                      {item}
+                      <span>
+                        <span className="font-medium">{kp.item}</span>
+                        {kp.significance && <span className="text-muted"> — {kp.significance}</span>}
+                      </span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {s.risks.length > 0 && (
+            {/* Blockers */}
+            {s.blockers.length > 0 && (
               <div className="px-5 py-3">
                 <h5 className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold text-[#9a6a2f]">
-                  <AlertTriangle size={10} /> 风险
+                  <AlertTriangle size={10} /> 阻塞与风险
                 </h5>
                 <ul className="space-y-1">
-                  {s.risks.map((item, i) => (
+                  {s.blockers.map((b, i) => (
                     <li key={i} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-foreground">
-                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#9a6a2f]/40" />
-                      {item}
+                      <span className={cn("mt-0.5 shrink-0 rounded px-1 py-0 text-[9px] font-medium", SEVERITY_STYLE[b.severity] || SEVERITY_STYLE.medium)}>
+                        {b.severity === "high" ? "高" : b.severity === "medium" ? "中" : "低"}
+                      </span>
+                      <span>{b.item}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {s.nextSteps.length > 0 && (
+            {/* Next Actions */}
+            {s.nextActions.length > 0 && (
               <div className="px-5 py-3">
                 <h5 className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold text-accent">
                   <ArrowRight size={10} /> 下一步
                 </h5>
                 <ul className="space-y-1">
-                  {s.nextSteps.map((item, i) => (
+                  {s.nextActions.map((na, i) => (
                     <li key={i} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-foreground">
                       <span className="mt-0.5 shrink-0 text-accent/50">{i + 1}.</span>
-                      {item}
+                      <span>{na.action}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
           </div>
+
+          {/* Stage Alignment */}
+          {s.stageAlignment && (
+            <div className="px-5 py-3">
+              <h5 className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-accent">
+                <Target size={10} /> 阶段对齐
+              </h5>
+              <p className="text-[11px] leading-relaxed text-foreground/70">{s.stageAlignment}</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -244,20 +303,14 @@ export default function ReportsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">项目周报</h1>
-          <p className="text-sm text-muted">AI 自动分析所有活跃项目，生成结构化进展报告</p>
+          <p className="text-sm text-muted">AI 自动分析所有活跃项目，生成结构化进展报告与跨项目健康度对比</p>
         </div>
         <button
           onClick={generate}
           disabled={loading}
           className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
-          {loading ? (
-            <Loader2 size={15} className="animate-spin" />
-          ) : report ? (
-            <RefreshCw size={15} />
-          ) : (
-            <FileText size={15} />
-          )}
+          {loading ? <Loader2 size={15} className="animate-spin" /> : report ? <RefreshCw size={15} /> : <FileText size={15} />}
           {loading ? "生成中..." : report ? "重新生成" : "生成周报"}
         </button>
       </div>
@@ -271,14 +324,12 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* Error */}
       {error && (
         <div className="rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-5 py-4 text-sm text-[#a63d3d]">
           {error}
         </div>
       )}
 
-      {/* Empty */}
       {!report && !loading && !error && (
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border bg-card-bg py-16">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
@@ -286,14 +337,13 @@ export default function ReportsPage() {
           </div>
           <p className="text-sm font-medium">一键生成全项目进展周报</p>
           <p className="max-w-md text-center text-xs text-muted">
-            AI 将分析每个活跃项目的任务完成、讨论记录、询价进展等数据，输出总体状态评估、关键进展、风险项和建议下一步行动。
+            AI 将分析每个活跃项目的任务、讨论、询价、文档等数据，输出 7 章节结构化摘要，并生成跨项目健康度对比分析。
           </p>
           <button
             onClick={generate}
             className="mt-2 flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
-            <TrendingUp size={15} />
-            立即生成
+            <TrendingUp size={15} /> 立即生成
           </button>
         </div>
       )}
@@ -303,7 +353,12 @@ export default function ReportsPage() {
         <div className="space-y-4">
           <OverviewBar report={report} />
 
-          {/* Sort: red first, then yellow, then green */}
+          {/* Cross-Project Digest */}
+          {report.crossProjectDigest && (
+            <CrossProjectDigest text={report.crossProjectDigest} />
+          )}
+
+          {/* Projects sorted: red first, then yellow, then green */}
           {report.projects
             .sort((a, b) => {
               const order = { red: 0, yellow: 1, green: 2 };

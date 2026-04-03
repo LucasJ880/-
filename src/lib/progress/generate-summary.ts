@@ -417,7 +417,12 @@ async function attemptCall(
 
 // ── 主入口 ────────────────────────────────────────────────────
 
-export async function generateProgressSummary(projectId: string): Promise<ProgressSummaryResult | null> {
+export type TriggerType = "manual" | "cron" | "agent";
+
+export async function generateProgressSummary(
+  projectId: string,
+  triggerType: TriggerType = "manual",
+): Promise<ProgressSummaryResult | null> {
   const normalPreset = getTaskPreset("normal");
   const fastPreset = getTaskPreset("fast");
 
@@ -520,5 +525,82 @@ export async function generateProgressSummary(projectId: string): Promise<Progre
     ms: finalDetail?.elapsedMs,
   });
 
+  // 持久化到 DB
+  try {
+    await db.projectProgressSummary.create({
+      data: {
+        projectId,
+        overallStatus: finalOutput.overallStatus,
+        statusLabel: finalOutput.statusLabel,
+        outputJson: JSON.stringify(finalOutput),
+        executiveSummary: finalOutput.executiveSummary || null,
+        docType: "project_progress_summary",
+        promptVersion: PROMPT_VERSION,
+        modelUsed: meta.model_used,
+        usedFallback,
+        generationTimeMs: meta.generation_time_ms,
+        metaJson: JSON.stringify(meta),
+        reportStatus: "ai_generated",
+        triggerType,
+      },
+    });
+    console.log(`${TAG} ${projectId} 已持久化到 DB`);
+  } catch (persistErr) {
+    console.error(`${TAG} ${projectId} 持久化失败`, persistErr);
+  }
+
   return { output: finalOutput, meta };
+}
+
+// ── 历史查询 ──────────────────────────────────────────────────
+
+export async function getLatestSummary(projectId: string) {
+  return db.projectProgressSummary.findFirst({
+    where: { projectId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getSummaryHistory(projectId: string, limit = 10) {
+  return db.projectProgressSummary.findMany({
+    where: { projectId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      overallStatus: true,
+      statusLabel: true,
+      executiveSummary: true,
+      promptVersion: true,
+      modelUsed: true,
+      usedFallback: true,
+      generationTimeMs: true,
+      reportStatus: true,
+      reviewScore: true,
+      triggerType: true,
+      createdAt: true,
+    },
+  });
+}
+
+export async function updateSummaryReview(
+  summaryId: string,
+  data: {
+    reportStatus: string;
+    reviewedBy: string;
+    reviewNotes?: string;
+    reviewScore?: number;
+  },
+) {
+  const statusNeedsReviewer = ["approved", "needs_revision", "in_review"];
+  return db.projectProgressSummary.update({
+    where: { id: summaryId },
+    data: {
+      reportStatus: data.reportStatus,
+      reviewedBy: data.reviewedBy,
+      reviewNotes: data.reviewNotes ?? undefined,
+      reviewScore: data.reviewScore ?? undefined,
+      reviewedAt: statusNeedsReviewer.includes(data.reportStatus) ? new Date() : undefined,
+    },
+  });
 }
