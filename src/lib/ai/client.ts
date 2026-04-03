@@ -49,6 +49,7 @@ export interface CompletionOptions {
   systemPrompt: string;
   userPrompt: string;
   mode?: TaskMode;
+  model?: string;
   temperature?: number;
   maxTokens?: number;
 }
@@ -58,7 +59,7 @@ export async function createCompletion(opts: CompletionOptions): Promise<string>
   const client = getClient();
 
   const res = await client.chat.completions.create({
-    model: preset.model,
+    model: opts.model ?? preset.model,
     messages: [
       { role: "developer", content: opts.systemPrompt },
       { role: "user", content: opts.userPrompt },
