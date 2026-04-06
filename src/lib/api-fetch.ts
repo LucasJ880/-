@@ -48,6 +48,28 @@ function recordRedirect(): void {
   storageSet(TS_KEY, String(Date.now()));
 }
 
+function getPathname(input: RequestInfo | URL): string | null {
+  try {
+    if (typeof input === "string") {
+      return new URL(input, window.location.origin).pathname;
+    }
+    if (input instanceof URL) return input.pathname;
+    if (input instanceof Request) {
+      return new URL(input.url, window.location.origin).pathname;
+    }
+  } catch {}
+  return null;
+}
+
+function isSessionAuthFailure(res: Response, input: RequestInfo | URL): boolean {
+  const marker = res.headers.get("x-auth-reason");
+  if (marker === "session") return true;
+
+  // 兼容旧接口：/api/auth/me 返回 401 视为 session 失效
+  const path = getPathname(input);
+  return path === "/api/auth/me";
+}
+
 export async function apiFetch(
   input: RequestInfo | URL,
   init?: ApiFetchInit
@@ -61,6 +83,7 @@ export async function apiFetch(
   if (
     res.status === 401 &&
     !skipAuthRedirect &&
+    isSessionAuthFailure(res, input) &&
     shouldRedirectOn401()
   ) {
     _redirecting = true;

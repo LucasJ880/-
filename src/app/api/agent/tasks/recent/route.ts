@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
  * 获取当前用户最近的自动化任务（含 cron 触发的巡检任务）
  */
 export async function GET(request: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(request);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

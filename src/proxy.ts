@@ -44,7 +44,10 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get(COOKIE_NAME)?.value;
   if (!token || !(await isValidToken(token))) {
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "未登录" }, { status: 401 });
+      return NextResponse.json(
+        { error: "未登录" },
+        { status: 401, headers: { "x-auth-reason": "session" } }
+      );
     }
     return NextResponse.redirect(new URL("/login", request.url));
   }
