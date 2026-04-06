@@ -35,20 +35,25 @@ export async function getCurrentUser(
   const payload = await verifySession(token);
   if (!payload?.sub) return null;
 
-  const user = await db.user.findUnique({
-    where: { id: payload.sub },
-  });
-  if (!user || user.status !== "active") return null;
+  try {
+    const user = await db.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!user || user.status !== "active") return null;
 
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    nickname: user.nickname,
-    avatar: user.avatar,
-    role: user.role,
-    status: user.status,
-  };
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      role: user.role,
+      status: user.status,
+    };
+  } catch (err) {
+    console.error("[auth] DB lookup failed for user", payload.sub, err);
+    throw err;
+  }
 }
 
 /**

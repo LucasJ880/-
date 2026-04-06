@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   authCardClass,
@@ -10,7 +10,6 @@ import {
   authPrimaryButtonClass,
 } from "@/lib/auth-styles";
 import { Loader2 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
 
 function safeNext(raw: string | null): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
@@ -18,7 +17,6 @@ function safeNext(raw: string | null): string {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,10 +29,11 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const res = await apiFetch("/api/auth/login", {
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
+        credentials: "include",
       });
 
       const data = await res.json();
@@ -43,9 +42,10 @@ function LoginForm() {
         return;
       }
 
+      try { sessionStorage.removeItem("qy_401_ts"); } catch {}
+
       const dest = safeNext(searchParams.get("next"));
-      router.push(dest);
-      router.refresh();
+      window.location.href = dest;
     } catch {
       setError("网络错误，请稍后重试");
     } finally {
