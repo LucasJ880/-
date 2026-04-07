@@ -99,6 +99,9 @@ type ProcessingStatus = {
   step: string;
   documentTitle?: string;
   remaining: number;
+  phase?: "parse" | "ai_summary" | "intelligence" | "done";
+  processedCount?: number;
+  totalCount?: number;
 };
 
 export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Props) {
@@ -109,6 +112,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [justFinished, setJustFinished] = useState<"intelligence" | null>(null);
   const [processing, setProcessing] = useState<ProcessingStatus>({
     active: false,
     step: "",
@@ -134,7 +138,11 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   const processNextFile = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
-    setProcessing({ active: true, step: "starting", remaining: 0 });
+    setJustFinished(null);
+    setProcessing({ active: true, step: "准备处理", remaining: 0, phase: "parse" });
+
+    let processed = 0;
+    let lastPhase: ProcessingStatus["phase"] = "parse";
 
     try {
       let done = false;
@@ -148,13 +156,17 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         done = data.done;
 
         if (!done) {
+          processed++;
+          const phase = (data.step === "parse" ? "parse" : data.step === "ai_summary" || data.step === "ai_summary_skip" ? "ai_summary" : data.step === "intelligence" ? "intelligence" : lastPhase) as ProcessingStatus["phase"];
+          lastPhase = phase;
+
           const stepLabel =
             data.step === "parse"
               ? (data.parseStatus === "failed" ? `解析失败: ${data.parseError || "未知错误"}` : "解析文件")
               : data.step === "ai_summary"
-              ? "AI 摘要"
+              ? "AI 摘要生成"
               : data.step === "intelligence"
-              ? "情报分析"
+              ? "AI 情报分析"
               : "处理中";
 
           setProcessing({
@@ -162,8 +174,12 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
             step: stepLabel,
             documentTitle: data.documentTitle,
             remaining: data.remaining ?? 0,
+            phase,
+            processedCount: processed,
           });
           await fetchFiles();
+        } else if (data.step === "intelligence") {
+          setJustFinished("intelligence");
         }
       }
 
@@ -173,7 +189,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
       console.error("[ProcessNext]", err);
     }
 
-    setProcessing({ active: false, step: "", remaining: 0 });
+    setProcessing({ active: false, step: "", remaining: 0, phase: "done" });
     processingRef.current = false;
   }, [projectId, fetchFiles, onProjectUpdate]);
 
@@ -412,9 +428,47 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         </div>
       )}
 
+      {/* AI 处理完成提示 */}
+      {justFinished === "intelligence" && !processing.active && (
+        <div className="mx-4 mt-3 rounded-lg border border-green-500/20 bg-green-500/5 px-3 py-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-medium text-green-700">
+              <CheckCircle2 size={13} />
+              <span>AI 情报分析已完成，可到「概览」Tab 查看完整报告</span>
+            </div>
+            <button type="button" onClick={() => setJustFinished(null)} className="text-green-600 hover:text-green-800">
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* AI 处理进度 */}
       {processing.active && (
         <div className="mx-4 mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2.5">
+          {/* Phase indicator */}
+          <div className="flex items-center gap-3 mb-2">
+            {(["parse", "ai_summary", "intelligence"] as const).map((p, i) => {
+              const labels = { parse: "文件解析", ai_summary: "AI 摘要", intelligence: "情报分析" };
+              const isCurrent = processing.phase === p;
+              const isDone = (["parse", "ai_summary", "intelligence"].indexOf(processing.phase ?? "parse") > i);
+              return (
+                <div key={p} className="flex items-center gap-1.5 text-[10px]">
+                  {isDone ? (
+                    <CheckCircle2 size={10} className="text-violet-500" />
+                  ) : isCurrent ? (
+                    <Loader2 size={10} className="animate-spin text-violet-600" />
+                  ) : (
+                    <Clock size={10} className="text-violet-300" />
+                  )}
+                  <span className={cn(isCurrent ? "text-violet-700 font-medium" : isDone ? "text-violet-500" : "text-violet-300")}>
+                    {labels[p]}
+                  </span>
+                  {i < 2 && <span className="text-violet-200 ml-1">→</span>}
+                </div>
+              );
+            })}
+          </div>
           <div className="flex items-center gap-2 text-xs font-medium text-violet-600">
             <Loader2 size={12} className="animate-spin" />
             <span>

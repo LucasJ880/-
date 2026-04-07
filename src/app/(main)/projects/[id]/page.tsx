@@ -51,6 +51,7 @@ import { ProjectAgentTasks } from "@/components/agent-tasks/project-agent-tasks"
 import { AiBidPackageSection } from "@/components/agent-tasks/ai-bid-package";
 import { ProjectFileManager } from "@/components/project-files/project-file-manager";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
+import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-onboarding-guide";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -623,6 +624,14 @@ function ProjectDetailContent() {
       {/* ═══ Tab: 概览 ═══ */}
       {activeTab === "overview" && (
         <div className="space-y-6">
+          {/* 新项目引导 */}
+          <ProjectOnboardingGuide
+            hasDocuments={(project.documents ?? []).length > 0}
+            hasIntelligence={!!project.intelligence}
+            onGoToFiles={() => setActiveTab("files")}
+            onGoToAi={() => setActiveTab("ai")}
+          />
+
           {/* AI 情报分析 */}
           {(project.sourceSystem === "bidtogo" || project.intelligence) && (
             <BidToGoIntelligenceCard
