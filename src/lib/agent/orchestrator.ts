@@ -149,6 +149,9 @@ export async function generatePlan(
             riskLevel: s.riskLevel,
             requiresApproval: s.requiresApproval,
             status: "pending",
+            inputJson: s.inputMapping
+              ? JSON.stringify(s.inputMapping)
+              : null,
           };
         }),
       },

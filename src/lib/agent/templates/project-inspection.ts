@@ -33,11 +33,12 @@ export const PROJECT_INSPECTION_TEMPLATE: FlowTemplate = {
       requiresApproval: false,
     },
     {
-      skillId: "quote_review",
+      skillId: "quote",
       title: "报价状态检查",
       description: "检查现有报价的完整性和风险（如有报价单）",
       riskLevel: "low",
       requiresApproval: false,
+      inputMapping: { action: "'review'" },
     },
   ],
 };

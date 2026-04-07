@@ -3,9 +3,7 @@
  */
 
 import "./project-understanding";
-import "./quote-recommend";
-import "./quote-draft";
-import "./quote-review";
+import "./quote";
 import "./progress-summary";
 import "./risk-scan";
 

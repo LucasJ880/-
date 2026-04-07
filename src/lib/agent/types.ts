@@ -38,7 +38,13 @@ export type SkillDomain =
   | "quote"
   | "email"
   | "report"
-  | "risk";
+  | "risk"
+  | "analysis"
+  | "execution";
+
+// ── 能力层级 ─────────────────────────────────────────────────────
+
+export type SkillTier = "foundation" | "analysis" | "execution";
 
 // ── 技能定义 ─────────────────────────────────────────────────────
 
@@ -49,9 +55,19 @@ export interface SkillDefinition {
   description: string;
   riskLevel: RiskLevel;
   requiresApproval: boolean;
-  inputDescription: string;
-  outputDescription: string;
   execute: (ctx: SkillContext) => Promise<SkillResult>;
+
+  // v2 字段（向后兼容，全部可选）
+  tier?: SkillTier;
+  version?: string;
+  actions?: string[];
+  inputSchema?: Record<string, string>;
+  outputSchema?: Record<string, string>;
+  dependsOn?: string[];
+
+  // 兼容旧字段
+  inputDescription?: string;
+  outputDescription?: string;
 }
 
 // ── 技能执行上下文 ───────────────────────────────────────────────

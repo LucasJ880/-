@@ -301,39 +301,69 @@ async function executeStep(
 
 async function buildStepInput(
   taskId: string,
-  _stepId: string
+  stepId: string
 ): Promise<Record<string, unknown>> {
-  // 聚合前序步骤的输出作为当前步骤的输入
-  const completedSteps = await db.agentTaskStep.findMany({
-    where: { taskId, status: { in: ["completed", "approved"] } },
-    orderBy: { stepIndex: "asc" },
-    select: { skillId: true, outputJson: true },
-  });
+  const [currentStep, completedSteps] = await Promise.all([
+    db.agentTaskStep.findUnique({
+      where: { id: stepId },
+      select: { inputJson: true },
+    }),
+    db.agentTaskStep.findMany({
+      where: { taskId, status: { in: ["completed", "approved"] } },
+      orderBy: { stepIndex: "asc" },
+      select: { skillId: true, stepIndex: true, outputJson: true },
+    }),
+  ]);
 
   const input: Record<string, unknown> = {};
 
+  // 1) 注入当前步骤的 inputMapping（含字面量值如 action: "'review'"）
+  if (currentStep?.inputJson) {
+    try {
+      const mapping = JSON.parse(currentStep.inputJson) as Record<string, string>;
+      for (const [key, val] of Object.entries(mapping)) {
+        const literalMatch = val.match(/^'(.+)'$/);
+        if (literalMatch) {
+          input[key] = literalMatch[1];
+        }
+        // 解析 steps[N].output.xxx 引用
+        const refMatch = val.match(/^steps\[(\d+)\]\.output\.(.+)$/);
+        if (refMatch) {
+          const refIdx = parseInt(refMatch[1], 10);
+          const path = refMatch[2];
+          const refStep = completedSteps.find((s) => s.stepIndex === refIdx);
+          if (refStep?.outputJson) {
+            try {
+              const refOutput = JSON.parse(refStep.outputJson);
+              const resolved = path.split(".").reduce(
+                (obj: Record<string, unknown> | undefined, k: string) =>
+                  obj && typeof obj === "object" ? (obj as Record<string, unknown>)[k] as Record<string, unknown> | undefined : undefined,
+                refOutput as Record<string, unknown>
+              );
+              if (resolved !== undefined) input[key] = resolved;
+            } catch { /* skip */ }
+          }
+        }
+      }
+    } catch { /* skip invalid inputJson */ }
+  }
+
+  // 2) 聚合前序步骤输出（兼容旧逻辑）
   for (const prev of completedSteps) {
     if (!prev.outputJson) continue;
     try {
       const output = JSON.parse(prev.outputJson);
 
-      // 传递模板推荐结果
-      if (prev.skillId === "quote_template_recommend" && output.recommendation) {
-        input.templateType = output.recommendation.templateType;
+      if (prev.skillId === "quote" && output.recommendation) {
+        input.templateType = input.templateType ?? output.recommendation.templateType;
       }
-
-      // 传递报价草稿中的 quoteId
-      if (prev.skillId === "quote_draft_generate" && output.draft) {
-        input.draft = output.draft;
+      if (prev.skillId === "quote" && output.draft) {
+        input.draft = input.draft ?? output.draft;
       }
-
-      // 传递项目上下文
       if (prev.skillId === "project_understanding") {
         input.projectContext = output;
       }
-    } catch {
-      // skip invalid JSON
-    }
+    } catch { /* skip */ }
   }
 
   return input;

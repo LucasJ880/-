@@ -24,23 +24,31 @@ export function listSkills(domain?: SkillDomain): SkillDefinition[] {
 }
 
 /**
- * 为 Orchestrator prompt 提供精简的技能清单
+ * 为 Orchestrator prompt 提供精简的技能清单（含 v2 字段）
  */
 export function getSkillsForOrchestrator(): Array<{
   id: string;
   name: string;
   domain: string;
+  tier: string | undefined;
   description: string;
+  actions: string[];
   riskLevel: string;
   requiresApproval: boolean;
+  inputSchema: Record<string, string>;
+  dependsOn: string[];
 }> {
   return Array.from(SKILL_REGISTRY.values()).map((s) => ({
     id: s.id,
     name: s.name,
     domain: s.domain,
+    tier: s.tier,
     description: s.description,
+    actions: s.actions ?? [],
     riskLevel: s.riskLevel,
     requiresApproval: s.requiresApproval,
+    inputSchema: s.inputSchema ?? {},
+    dependsOn: s.dependsOn ?? [],
   }));
 }
 
