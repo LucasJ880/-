@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const priority = searchParams.get("priority");
+  const limit = Math.min(Number(searchParams.get("limit")) || 100, 500);
+  const cursor = searchParams.get("cursor");
 
   const projectIds = await getVisibleProjectIds(user.id, user.role);
 
@@ -36,9 +38,15 @@ export async function GET(request: NextRequest) {
       tags: { include: { tag: true } },
     },
     orderBy: [{ createdAt: "desc" }],
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 
-  return NextResponse.json(tasks);
+  const hasMore = tasks.length > limit;
+  if (hasMore) tasks.pop();
+  const nextCursor = hasMore ? tasks[tasks.length - 1]?.id : null;
+
+  return NextResponse.json({ items: tasks, nextCursor });
 }
 
 export async function POST(request: NextRequest) {

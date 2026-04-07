@@ -104,7 +104,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       "txt", "csv", "zip", "rar", "7z",
       "dwg", "dxf", "msg", "eml",
     ]);
-    if (file.type && !ALLOWED_TYPES.has(file.type) && !ALLOWED_EXTENSIONS.has(ext)) {
+    if (!ALLOWED_EXTENSIONS.has(ext) && (!file.type || !ALLOWED_TYPES.has(file.type))) {
       errors.push({ name: file.name, reason: `不支持的文件类型: ${file.type || ext}` });
       continue;
     }

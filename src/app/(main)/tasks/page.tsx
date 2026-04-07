@@ -573,7 +573,9 @@ function TasksPageContent() {
 
   const loadTasks = useCallback(() => {
     setLoading(true);
-    apiFetch("/api/tasks").then((r) => r.json()).then((data: Task[]) => setAllTasks(data)).finally(() => setLoading(false));
+    apiFetch("/api/tasks?limit=500").then((r) => r.json()).then((data: { items: Task[] } | Task[]) => {
+      setAllTasks(Array.isArray(data) ? data : data.items);
+    }).finally(() => setLoading(false));
   }, []);
 
   const loadProjects = useCallback(() => {

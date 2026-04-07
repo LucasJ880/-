@@ -696,7 +696,8 @@ function EventFormModal({
 
     apiFetch("/api/tasks?status=todo&status=in_progress")
       .then((r) => r.json())
-      .then((data) => {
+      .then((raw) => {
+        const data = Array.isArray(raw) ? raw : raw?.items;
         if (Array.isArray(data))
           setTasks(
             data.map((t: { id: string; title: string }) => ({

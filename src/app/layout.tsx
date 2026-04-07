@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ToastProvider } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
   title: "青砚 - AI 工作助理",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="h-full">
-      <body className="h-full">{children}</body>
+      <body className="h-full">
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

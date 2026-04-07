@@ -7,6 +7,7 @@
 
 import OpenAI from "openai";
 import { getAIConfig, getTaskPreset, type TaskMode } from "./config";
+import { recordAiCall } from "./monitor";
 
 // ── 单例客户端 ────────────────────────────────────────────────
 
@@ -96,12 +97,23 @@ export async function createCompletionDetailed(
       controller ? { signal: controller.signal } : undefined,
     );
 
+    const elapsedMs = Date.now() - t0;
+    recordAiCall({ model: actualModel, success: true, elapsedMs });
+
     return {
       content: res.choices[0]?.message?.content ?? "",
       finishReason: res.choices[0]?.finish_reason ?? null,
       model: actualModel,
-      elapsedMs: Date.now() - t0,
+      elapsedMs,
     };
+  } catch (err) {
+    recordAiCall({
+      model: actualModel,
+      success: false,
+      elapsedMs: Date.now() - t0,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   } finally {
     if (timer) clearTimeout(timer);
   }

@@ -149,6 +149,7 @@ model Project {
   @@index([sourceSystem])
   @@index([tenderStatus])
   @@index([intakeStatus])
+  @@index([status, createdAt])
 }
 
 model Task {
@@ -180,9 +181,11 @@ model Task {
   reminders       Reminder[]
 
   @@index([projectId, status])
+  @@index([projectId, createdAt])
   @@index([creatorId])
   @@index([assigneeId])
   @@index([dueDate])
+  @@index([status, createdAt])
 }
 
 model TaskComment {
@@ -475,6 +478,7 @@ model PromptVersion {
   @@index([promptId])
 }
 
+// [C7审计] 低频使用，仅在 Prompt 发布时记录。后续可考虑归档到 AuditLog
 model PromptPublishLog {
   id                String        @id @default(cuid())
   projectId         String
@@ -592,6 +596,7 @@ model KnowledgeDocumentVersion {
   @@index([knowledgeBaseVersionId])
 }
 
+// [C7审计] 低频使用，仅在知识库发布时记录。后续可考虑归档到 AuditLog
 model KnowledgePublishLog {
   id                         String        @id @default(cuid())
   projectId                  String
@@ -657,6 +662,7 @@ model Conversation {
 
   @@index([projectId, environmentId])
   @@index([projectId])
+  @@index([projectId, startedAt])
   @@index([environmentId])
   @@index([userId])
   @@index([status])
@@ -690,6 +696,7 @@ model Message {
   @@index([conversationId])
 }
 
+// [C7审计] 低频使用，会话上下文快照。后续可考虑按需懒加载或归档
 model ConversationContextSnapshot {
   id                     String   @id @default(cuid())
   conversationId         String
@@ -1023,6 +1030,7 @@ model Notification {
   @@index([userId, status])
   @@index([userId, createdAt])
   @@index([projectId])
+  @@index([projectId, status])
 }
 
 model UserNotificationPreference {

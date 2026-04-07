@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "缺少 projectId" }, { status: 400 });
 
+  const limit = Math.min(Number(request.nextUrl.searchParams.get("limit")) || 20, 100);
+
   const tasks = await db.agentTask.findMany({
     where: { projectId },
     include: {
@@ -43,6 +45,7 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { createdAt: "desc" },
+    take: limit,
   });
 
   return NextResponse.json({ tasks, templates: listTemplates() });
