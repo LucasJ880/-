@@ -15,6 +15,8 @@ import { getProjectStage } from "./stage";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { emitProjectPatchEvents, onStageAdvanced } from "@/lib/project-discussion/system-events";
 import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
+import { onStageAdvancedTasks } from "./stage-tasks";
+import { notifyProjectMembers } from "@/lib/notifications/create";
 
 // ── 常量 ────────────────────────────────────────────────────
 
@@ -296,6 +298,21 @@ export async function advanceProjectStage(
       updatedBy: actor.email,
     }).catch((err) => console.error("[Webhook] dispatch failed:", err));
   }
+
+  // 阶段→任务联动：关闭旧阶段任务 + 创建新阶段任务
+  onStageAdvancedTasks(projectId, currentStage, targetStage, actor.id)
+    .catch((err) => console.error("[StageTasks] failed:", err));
+
+  // 通知项目成员：阶段已推进
+  notifyProjectMembers(projectId, actor.id, {
+    type: "project_update",
+    title: `项目已推进到「${STAGE_LABEL[targetStage]}」`,
+    summary: `${actor.name} 将项目从「${STAGE_LABEL[currentStage]}」推进到「${STAGE_LABEL[targetStage]}」`,
+    entityType: "project",
+    entityId: projectId,
+    priority: "high",
+    sourceKey: `stage_advance:${projectId}:${targetStage}:${Date.now()}`,
+  }).catch((err) => console.error("[Notify] stage advance:", err));
 
   return {
     success: true,

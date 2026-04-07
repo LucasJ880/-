@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DashboardAiSuggestions } from "@/components/dashboard/dashboard-ai-suggestions";
 import { DashboardAutoInspections } from "@/components/dashboard/dashboard-auto-inspections";
@@ -44,6 +44,7 @@ export default function Dashboard() {
   // Task drawer state
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   const openProjectDrawer = useCallback((projectId: string) => {
     setDrawerProjectId(projectId);
@@ -88,18 +89,18 @@ export default function Dashboard() {
     stats.projectBreakdown.length <= 1;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 sm:px-0">
       {isNewUser && (
         <DashboardWelcomeSection stats={stats} userName={userName} />
       )}
+
+      {/* ─── 核心区块 ─── */}
       <DashboardStatsSection
         stats={stats}
         reminderSummary={reminderSummary}
         onReminderClick={handleReminderClick}
         onProjectClick={openProjectDrawer}
       />
-      <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
-      <DashboardAutoInspections onProjectClick={openProjectDrawer} />
       <DashboardTodayFocus
         highPriorityTasks={stats.highPriorityTasks}
         upcomingTasks={stats.upcomingTasks}
@@ -107,49 +108,67 @@ export default function Dashboard() {
         reminderSummary={reminderSummary}
         onProjectClick={openProjectDrawer}
       />
-      <DashboardCalendarSection
-        events={events}
-        scheduleEvents={scheduleEvents}
-        scheduleDate={scheduleDate}
-        onDateChange={goToDate}
-        showEventForm={showEventForm}
-        editingEvent={editingEvent}
-        onClose={() => {
-          setShowEventForm(false);
-          setEditingEvent(null);
-        }}
-        onSaved={() => {
-          loadEvents();
-          loadScheduleEvents();
-        }}
-        onOpenAdd={() => {
-          setEditingEvent(null);
-          setShowEventForm(true);
-        }}
-        onOpenEdit={(ev) => {
-          setEditingEvent(ev);
-          setShowEventForm(true);
-        }}
-        onDelete={handleDeleteEvent}
-        onOpenProject={openProjectDrawer}
-      />
       <DashboardProgressOverview
         projectBreakdown={stats.projectBreakdown}
         projectProgress={stats.projectProgress ?? {}}
         onProjectClick={openProjectDrawer}
       />
-      <DashboardTasksSection
-        highPriorityTasks={stats.highPriorityTasks}
-        upcomingTasks={stats.upcomingTasks}
-        projectBreakdown={stats.projectBreakdown}
-        onProjectClick={openProjectDrawer}
-        onTaskClick={openTaskDrawer}
-      />
-      <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
-      <DashboardLinksRecentSection
-        recentTasks={stats.recentTasks}
-        onProjectClick={openProjectDrawer}
-      />
+      <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
+
+      {/* ─── 折叠区 ─── */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowMore(!showMore)}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-card-bg px-4 py-2.5 text-xs font-medium text-muted hover:text-foreground hover:bg-card-bg/80 transition-colors"
+        >
+          {showMore ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {showMore ? "收起更多" : "展开更多"}（日历、任务详情、巡检等）
+        </button>
+        {showMore && (
+          <div className="mt-4 space-y-6">
+            <DashboardAutoInspections onProjectClick={openProjectDrawer} />
+            <DashboardCalendarSection
+              events={events}
+              scheduleEvents={scheduleEvents}
+              scheduleDate={scheduleDate}
+              onDateChange={goToDate}
+              showEventForm={showEventForm}
+              editingEvent={editingEvent}
+              onClose={() => {
+                setShowEventForm(false);
+                setEditingEvent(null);
+              }}
+              onSaved={() => {
+                loadEvents();
+                loadScheduleEvents();
+              }}
+              onOpenAdd={() => {
+                setEditingEvent(null);
+                setShowEventForm(true);
+              }}
+              onOpenEdit={(ev) => {
+                setEditingEvent(ev);
+                setShowEventForm(true);
+              }}
+              onDelete={handleDeleteEvent}
+              onOpenProject={openProjectDrawer}
+            />
+            <DashboardTasksSection
+              highPriorityTasks={stats.highPriorityTasks}
+              upcomingTasks={stats.upcomingTasks}
+              projectBreakdown={stats.projectBreakdown}
+              onProjectClick={openProjectDrawer}
+              onTaskClick={openTaskDrawer}
+            />
+            <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
+            <DashboardLinksRecentSection
+              recentTasks={stats.recentTasks}
+              onProjectClick={openProjectDrawer}
+            />
+          </div>
+        )}
+      </div>
 
       <ProjectQuickViewDrawer
         projectId={drawerProjectId}

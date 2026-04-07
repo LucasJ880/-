@@ -212,7 +212,7 @@ export function DashboardProgressOverview({
       </div>
 
       <div className="divide-y divide-border/60">
-        {sorted.map((p) => (
+        {sorted.slice(0, 5).map((p) => (
           <ProjectProgressRow
             key={p.id}
             project={p}
@@ -220,7 +220,7 @@ export function DashboardProgressOverview({
             onProjectClick={onProjectClick}
           />
         ))}
-        {withoutProgress.map((p) => (
+        {sorted.length < 5 && withoutProgress.slice(0, 5 - sorted.length).map((p) => (
           <ProjectSimpleRow
             key={p.id}
             project={p}

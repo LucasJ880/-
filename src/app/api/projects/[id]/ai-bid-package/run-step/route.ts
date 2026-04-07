@@ -12,6 +12,7 @@ import { getSkill } from "@/lib/agent/skills";
 import "@/lib/agent/skills/index";
 import { runStepCheck } from "@/lib/agent/checker";
 import type { SkillContext, SkillResult } from "@/lib/agent/types";
+import { notifyProjectMembers } from "@/lib/notifications/create";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -174,6 +175,17 @@ export async function POST(request: NextRequest, { params }: Ctx) {
           currentStepIndex: nextStep.stepIndex + 1,
         },
       });
+
+      // 通知项目成员：AI 投标方案已完成
+      notifyProjectMembers(projectId, user.id, {
+        type: "agent_task",
+        title: "AI 投标方案已生成",
+        summary: "文档摘要、情报分析、报价草稿和邮件草稿已全部完成，可前往 AI 工作台查看",
+        entityType: "agent_task",
+        entityId: taskId,
+        priority: "high",
+        sourceKey: `bid_package_done:${taskId}`,
+      }).catch((err) => console.error("[Notify] bid package done:", err));
     } else {
       await db.agentTask.update({
         where: { id: taskId },

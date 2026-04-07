@@ -258,7 +258,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
 
       {suggestions.length > 0 ? (
         <div className="space-y-2 p-4">
-          {suggestions.slice(0, 6).map((s) => (
+          {suggestions.slice(0, 3).map((s) => (
             <SuggestionRow
               key={s.id}
               suggestion={s}
@@ -266,7 +266,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
               onBatchFollowup={(pid) => setFollowupProjectId(pid)}
             />
           ))}
-          {suggestions.length > 6 && (
+          {suggestions.length > 3 && (
             <p className="pt-1 text-center text-[11px] text-muted">
               还有 {suggestions.length - 6} 项建议...
             </p>
