@@ -6,6 +6,10 @@ import "./project-understanding";
 import "./quote";
 import "./progress-summary";
 import "./risk-scan";
+import "./intelligence-report";
+import "./document-summary";
+import "./email-draft";
+import "./supply-chain-analysis";
 
 export {
   registerSkill,

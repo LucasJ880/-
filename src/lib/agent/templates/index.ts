@@ -5,10 +5,12 @@
 import type { FlowTemplate } from "../types";
 import { BID_PREPARATION_TEMPLATE } from "./bid-preparation";
 import { PROJECT_INSPECTION_TEMPLATE } from "./project-inspection";
+import { PROJECT_ONBOARDING_TEMPLATE } from "./project-onboarding";
 
 const PRESET_TEMPLATES: FlowTemplate[] = [
   BID_PREPARATION_TEMPLATE,
   PROJECT_INSPECTION_TEMPLATE,
+  PROJECT_ONBOARDING_TEMPLATE,
 ];
 
 /**
