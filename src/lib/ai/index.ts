@@ -11,8 +11,6 @@ export type { ChatStreamOptions, CompletionOptions } from "./client";
 export {
   getChatSystemPrompt,
   getSummarySystemPrompt,
-  getTaskBreakdownPrompt,
-  getActionAdvicePrompt,
   buildContextBlock,
   buildProjectDeepBlock,
   getQuoteTemplatePrompt,

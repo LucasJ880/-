@@ -65,7 +65,7 @@ async function executeRecommend(ctx: SkillContext): Promise<SkillResult> {
       confidence: string;
     };
 
-    const validTypes = ["export_standard", "gov_procurement", "project_install", "service_unit"];
+    const validTypes = ["export_standard", "gov_procurement", "project_install", "service_labor"];
     if (!validTypes.includes(result.templateType)) {
       result.templateType = "export_standard";
     }
@@ -306,7 +306,8 @@ registerSkill({
   domain: "quote",
   tier: "execution",
   version: "2.0.0",
-  description: "报价全流程：模板推荐（recommend）→ 草稿生成（draft）→ 风险审查（review）。通过 input.action 指定动作。",
+  description: "报价全流程：模板推荐（recommend）→ 草稿生成（draft）→ 风险审查（review）。通过 input.action 指定动作。审查环节融合报价审查专家视角。",
+  expertRoleId: "quote_reviewer",
   actions: ["recommend", "draft", "review"],
   riskLevel: "medium",
   requiresApproval: true,
@@ -322,5 +323,6 @@ registerSkill({
     aiReview: "AI 审查 JSON（review）",
     checkReport: "{ passed, score, issues, blockers }（review）",
   },
+  dependsOn: ["project_understanding"],
   execute,
 });

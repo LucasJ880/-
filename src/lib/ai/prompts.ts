@@ -462,30 +462,6 @@ export function getSummarySystemPrompt(): string {
 - 不要复述原文，只提取核心信息。`;
 }
 
-// ── 任务拆解 场景提示词 ──────────────────────────────────────
-
-export function getTaskBreakdownPrompt(): string {
-  return `${IDENTITY}
-
-## 当前任务：任务拆解
-- 将用户描述的大任务拆解为可独立执行的子任务列表。
-- 每个子任务包含：标题、预估耗时、优先级、依赖关系（如有）。
-- 输出格式为编号列表，每项一行。
-- 最后给出建议的执行顺序和关键路径。`;
-}
-
-// ── 行动建议 场景提示词 ──────────────────────────────────────
-
-export function getActionAdvicePrompt(): string {
-  return `${IDENTITY}
-
-## 当前任务：给出行动建议
-- 基于用户描述的情境，给出 3-5 条具体可执行的行动建议。
-- 每条建议要明确：做什么、为什么、预期效果。
-- 按优先级排序，最重要的放第一条。
-- 如果信息不足，先指出缺口，再基于已有信息给 best-effort 建议。`;
-}
-
 // ── 邮件草稿生成提示词 ──────────────────────────────────────
 
 export interface EmailDraftContext {
@@ -801,7 +777,8 @@ export function getProjectQuestionEmailPrompt(ctx: ProjectQuestionEmailContext):
   return lines.join("\n");
 }
 
-// ── 项目进展摘要 ────────────────────────────────────────────
+
+// ── 项目上下文类型（供 checklist 等共用） ────────────────────
 
 export interface ProgressSummaryContext {
   project: {
@@ -824,105 +801,6 @@ export interface ProgressSummaryContext {
     contentText?: string | null; parseStatus?: string | null;
     aiSummaryJson?: string | null; aiSummaryStatus?: string | null;
   }[];
-}
-
-export function getProgressSummaryPrompt(ctx: ProgressSummaryContext): string {
-  const lines: string[] = [];
-
-  lines.push("你是青砚 AI 项目分析师。根据以下项目数据生成一份结构化的项目进展摘要报告。");
-  lines.push("语言：中文。");
-  lines.push("");
-
-  lines.push("## 项目基本信息");
-  lines.push(`- 名称: ${ctx.project.name}`);
-  if (ctx.project.clientOrganization) lines.push(`- 客户: ${ctx.project.clientOrganization}`);
-  if (ctx.project.tenderStatus) lines.push(`- 当前阶段: ${ctx.project.tenderStatus}`);
-  lines.push(`- 优先级: ${ctx.project.priority}`);
-  if (ctx.project.closeDate) lines.push(`- 截标/截止: ${ctx.project.closeDate}`);
-  if (ctx.project.location) lines.push(`- 地点: ${ctx.project.location}`);
-  if (ctx.project.estimatedValue) {
-    lines.push(`- 预估金额: ${ctx.project.estimatedValue} ${ctx.project.currency || "CAD"}`);
-  }
-  if (ctx.project.description) lines.push(`- 描述: ${ctx.project.description.slice(0, 300)}`);
-
-  lines.push("");
-  lines.push("## 任务统计");
-  lines.push(`- 总数: ${ctx.taskStats.total}, 已完成: ${ctx.taskStats.done}, 逾期: ${ctx.taskStats.overdue}`);
-
-  if (ctx.inquiries.length > 0) {
-    lines.push("");
-    lines.push("## 询价轮次");
-    for (const iq of ctx.inquiries) {
-      const selected = iq.selectedSupplier ? `，已选: ${iq.selectedSupplier}` : "";
-      lines.push(`- 第${iq.roundNumber}轮: ${iq.status}，${iq.itemCount}家供应商，${iq.quotedCount}家已报价${selected}`);
-    }
-  }
-
-  if (ctx.recentDiscussion.length > 0) {
-    lines.push("");
-    lines.push("## 最近讨论（最新10条）");
-    for (const msg of ctx.recentDiscussion) {
-      const prefix = msg.type === "SYSTEM" ? "[系统]" : `[${msg.sender}]`;
-      lines.push(`- ${msg.createdAt} ${prefix} ${msg.body.slice(0, 150)}`);
-    }
-  }
-
-  if (ctx.members.length > 0) {
-    lines.push("");
-    lines.push("## 项目成员");
-    for (const m of ctx.members) {
-      lines.push(`- ${m.name} (${m.role})`);
-    }
-  }
-
-  if (ctx.documents.length > 0) {
-    lines.push("");
-    lines.push(`## 项目文档 (${ctx.documents.length}个)`);
-    const SUMMARY_DOC_BUDGET = 8000;
-    let summaryDocUsed = 0;
-    for (const d of ctx.documents.slice(0, 8)) {
-      lines.push(`- ${d.title} [${d.fileType}]`);
-      if (d.aiSummaryJson && d.aiSummaryStatus === "done") {
-        lines.push(`  <ai_summary name="${d.title}">`);
-        lines.push(`  ${d.aiSummaryJson}`);
-        lines.push(`  </ai_summary>`);
-        summaryDocUsed += d.aiSummaryJson.length;
-      } else if (d.contentText && summaryDocUsed < SUMMARY_DOC_BUDGET) {
-        const remaining = SUMMARY_DOC_BUDGET - summaryDocUsed;
-        const snippet = d.contentText.slice(0, remaining);
-        lines.push(`  <file_content name="${d.title}">`);
-        lines.push(`  ${snippet}`);
-        if (d.contentText.length > remaining) lines.push(`  ...（已截断）`);
-        lines.push(`  </file_content>`);
-        summaryDocUsed += snippet.length;
-      }
-    }
-  }
-
-  lines.push("");
-  lines.push("## 输出要求");
-  lines.push("返回纯 JSON，不要包含其他文本：");
-  lines.push("```json");
-  lines.push(`{`);
-  lines.push(`  "overallStatus": "green/yellow/red — 用一个词描述总体健康度",`);
-  lines.push(`  "statusLabel": "一句话概括当前状态（15字以内）",`);
-  lines.push(`  "summary": "2-3句话的项目总体概述",`);
-  lines.push(`  "keyProgress": ["已完成的关键进展，2-4条"],`);
-  lines.push(`  "risks": ["当前风险或需关注的问题，0-3条"],`);
-  lines.push(`  "nextSteps": ["建议的下一步行动，2-4条"],`);
-  lines.push(`  "weekHighlight": "本周最值得关注的一件事"`);
-  lines.push(`}`);
-  lines.push("```");
-
-  lines.push("");
-  lines.push("## 分析原则");
-  lines.push("1. 基于数据说话，不编造没有依据的内容");
-  lines.push("2. overallStatus 判断标准：green=进展正常无风险，yellow=有需关注项但可控，red=有严重风险或严重滞后");
-  lines.push("3. 重点关注：逾期任务、截标时间紧迫度、询价进展、讨论中暴露的问题");
-  lines.push("4. nextSteps 要具体可执行，不要写太泛的建议");
-  lines.push("5. 如果数据不足以做判断，明确说明信息不足，不要胡编");
-
-  return lines.join("\n");
 }
 
 // ── 投标准备清单提示词 ─────────────────────────────────────────

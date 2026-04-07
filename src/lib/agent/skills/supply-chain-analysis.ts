@@ -192,6 +192,7 @@ registerSkill({
   tier: "analysis",
   version: "1.0.0",
   description: "融合跨境电商专家和供应商评估专家角色，分析项目供应链可行性、供应商风险、物流方案、合规要求和成本结构",
+  expertRoleId: "supply_chain_analyst",
   actions: ["analyze"],
   riskLevel: "low",
   requiresApproval: false,

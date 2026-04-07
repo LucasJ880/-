@@ -70,5 +70,6 @@ registerSkill({
     success: "number",
     failed: "number",
   },
+  dependsOn: [],
   execute,
 });

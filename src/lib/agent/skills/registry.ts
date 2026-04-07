@@ -37,6 +37,7 @@ export function getSkillsForOrchestrator(): Array<{
   requiresApproval: boolean;
   inputSchema: Record<string, string>;
   dependsOn: string[];
+  expertRoleId: string | undefined;
 }> {
   return Array.from(SKILL_REGISTRY.values()).map((s) => ({
     id: s.id,
@@ -49,6 +50,7 @@ export function getSkillsForOrchestrator(): Array<{
     requiresApproval: s.requiresApproval,
     inputSchema: s.inputSchema ?? {},
     dependsOn: s.dependsOn ?? [],
+    expertRoleId: s.expertRoleId,
   }));
 }
 

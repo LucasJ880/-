@@ -57,17 +57,14 @@ export interface SkillDefinition {
   requiresApproval: boolean;
   execute: (ctx: SkillContext) => Promise<SkillResult>;
 
-  // v2 字段（向后兼容，全部可选）
+  // v2 字段
   tier?: SkillTier;
   version?: string;
   actions?: string[];
   inputSchema?: Record<string, string>;
   outputSchema?: Record<string, string>;
   dependsOn?: string[];
-
-  // 兼容旧字段
-  inputDescription?: string;
-  outputDescription?: string;
+  expertRoleId?: string;
 }
 
 // ── 技能执行上下文 ───────────────────────────────────────────────

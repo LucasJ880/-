@@ -7,7 +7,7 @@ import type { SkillResult, CheckReport, CheckIssue } from "./types";
 /**
  * 对步骤执行结果进行审查
  *
- * 如果 Skill 自带 checkReport（如 quote_review、risk_scan），直接使用。
+ * 如果 Skill 自带 checkReport（如 quote action:review、risk_scan），直接使用。
  * 否则基于通用规则生成报告。
  */
 export function runStepCheck(

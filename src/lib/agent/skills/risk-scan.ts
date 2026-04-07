@@ -56,7 +56,8 @@ registerSkill({
   domain: "risk",
   tier: "analysis",
   version: "1.1.0",
-  description: "扫描项目截止日、阶段卡顿、供应商未回复、任务逾期、合规认证缺失等风险，生成风险评分和建议。融合风险评估专家视角：单一来源供应商识别、关键物料断供预案、合规红线检测。",
+  description: "扫描项目截止日、阶段卡顿、供应商未回复、任务逾期、合规认证缺失等风险，生成风险评分和建议",
+  expertRoleId: "risk_assessor",
   actions: ["scan"],
   riskLevel: "low",
   requiresApproval: false,
@@ -66,5 +67,6 @@ registerSkill({
     scannedAt: "ISO datetime",
     checkReport: "{ passed, score, issues, blockers }",
   },
+  dependsOn: [],
   execute,
 });

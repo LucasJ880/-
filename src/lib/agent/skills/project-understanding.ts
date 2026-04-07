@@ -64,5 +64,6 @@ registerSkill({
     contextBlock: "string",
     memoryBlock: "string",
   },
+  dependsOn: [],
   execute,
 });

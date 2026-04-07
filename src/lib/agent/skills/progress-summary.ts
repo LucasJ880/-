@@ -38,6 +38,7 @@ registerSkill({
   tier: "analysis",
   version: "1.1.0",
   description: "聚合项目全部数据，融合项目管理专家视角（范围控制、阶段判断、阻塞识别），生成结构化的管理级项目进展摘要",
+  expertRoleId: "project_manager",
   actions: ["generate"],
   riskLevel: "low",
   requiresApproval: false,

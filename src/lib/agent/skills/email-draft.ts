@@ -8,6 +8,18 @@ import { getEmailDraftPrompt } from "@/lib/ai/prompts";
 import { registerSkill } from "./registry";
 import type { SkillContext, SkillResult } from "../types";
 
+const EMAIL_SYSTEM_PROMPT =
+  "你是专业的商务邮件草稿助手。请严格按照 prompt 中要求的 JSON 格式输出，包含 subject 和 body 字段。";
+
+function parseEmailDraft(raw: string): { subject: string; body: string } {
+  try {
+    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (parsed.subject && parsed.body) return parsed;
+  } catch { /* fall through */ }
+  return { subject: "", body: raw };
+}
+
 async function execute(ctx: SkillContext): Promise<SkillResult> {
   try {
     const inquiryItemId = ctx.input.inquiryItemId as string | undefined;
@@ -102,14 +114,15 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
           senderOrg: org?.name ?? null,
         });
 
-        const draft = await createCompletion({
-          systemPrompt: "你是专业的商务邮件草稿助手。只输出邮件正文，不要输出 JSON 或其他格式。",
+        const raw = await createCompletion({
+          systemPrompt: EMAIL_SYSTEM_PROMPT,
           userPrompt: prompt,
           mode: "normal",
           maxTokens: 1500,
         });
 
-        drafts.push({ supplierName: item.supplier.name, draft });
+        const parsed = parseEmailDraft(raw);
+        drafts.push({ supplierName: item.supplier.name, subject: parsed.subject, body: parsed.body });
         generated++;
       } catch {
         // 单封失败不影响其他
@@ -204,16 +217,18 @@ async function generateSingleDraft(
     senderOrg: org?.name ?? null,
   });
 
-  const draft = await createCompletion({
-    systemPrompt: "你是专业的商务邮件草稿助手。只输出邮件正文，不要输出 JSON 或其他格式。",
+  const raw = await createCompletion({
+    systemPrompt: EMAIL_SYSTEM_PROMPT,
     userPrompt: prompt,
     mode: "normal",
     maxTokens: 1500,
   });
 
+  const parsed = parseEmailDraft(raw);
+
   return {
     success: true,
-    data: { draft, supplierName: item.supplier.name },
+    data: { subject: parsed.subject, body: parsed.body, supplierName: item.supplier.name },
     summary: `已为「${item.supplier.name}」生成邮件草稿`,
   };
 }
@@ -232,9 +247,11 @@ registerSkill({
     inquiryItemId: "string（可选，不传则批量生成）",
   },
   outputSchema: {
-    draft: "string（单个模式）",
+    subject: "string",
+    body: "string",
     total: "number（批量模式）",
     generated: "number（批量模式）",
   },
+  dependsOn: ["project_understanding"],
   execute,
 });
