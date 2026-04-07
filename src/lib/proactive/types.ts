@@ -10,14 +10,21 @@ export type TriggerKind =
   | "supplier_no_response"    // 供应商未回复
   | "tasks_overdue"           // 任务逾期
   | "missing_documents"       // 关键文档缺失
-  | "risk_alert";             // 综合风险预警
+  | "risk_alert"              // 综合风险预警
+  | "sales_followup_due"      // 销售跟进到期
+  | "sales_quote_pending"     // 报价后未跟进
+  | "sales_stale_opportunity";// 机会长时间无进展
 
 export type TriggerSeverity = "info" | "warning" | "urgent";
 
 export interface ProactiveSuggestion {
   id: string;
-  projectId: string;
-  projectName: string;
+  projectId?: string;
+  projectName?: string;
+  /** Sales context (alternative to project) */
+  customerId?: string;
+  customerName?: string;
+  opportunityId?: string;
   kind: TriggerKind;
   severity: TriggerSeverity;
   title: string;
@@ -34,7 +41,10 @@ export type SuggestedActionType =
   | "advance_stage"
   | "view_project"
   | "create_task"
-  | "generate_summary";
+  | "generate_summary"
+  | "view_customer"
+  | "call_customer"
+  | "send_quote_email";
 
 export interface SuggestedAction {
   type: SuggestedActionType;

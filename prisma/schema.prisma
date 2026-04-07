@@ -65,6 +65,13 @@ model User {
   agentTasksCreated                AgentTask[]                  @relation("AgentTaskCreatedBy")
   customFlowTemplates              CustomFlowTemplate[]         @relation("CustomFlowTemplateCreatedBy")
 
+  // Sales CRM relations
+  salesCustomersCreated            SalesCustomer[]              @relation("SalesCustomerCreatedBy")
+  salesOpportunitiesAssigned       SalesOpportunity[]           @relation("SalesOpportunityAssignee")
+  salesOpportunitiesCreated        SalesOpportunity[]           @relation("SalesOpportunityCreatedBy")
+  customerInteractionsCreated      CustomerInteraction[]        @relation("CustomerInteractionCreatedBy")
+  salesQuotesCreated               SalesQuote[]                 @relation("SalesQuoteCreatedBy")
+
   @@index([status])
   @@index([authProvider])
 }
@@ -274,7 +281,15 @@ model BlindsOrder {
   projectId     String?
   project       Project? @relation(fields: [projectId], references: [id])
 
+  customerId    String?
+  customer      SalesCustomer? @relation(fields: [customerId], references: [id])
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+
   items         BlindsOrderItem[]
+
+  @@index([customerId])
+  @@index([opportunityId])
 }
 
 model BlindsOrderItem {
@@ -1651,4 +1666,171 @@ model CustomFlowTemplate {
 
   @@index([createdById])
   @@index([category])
+}
+
+// ============================================================
+// Sales CRM Models — Sunny Shutter B2C 销售流程
+// ============================================================
+
+model SalesCustomer {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String?
+  email         String?
+  address       String?
+  source        String?  // referral / google_ads / walk_in / wechat / other
+  wechatNote    String?
+  status        String   @default("active") // active / completed / dormant
+  tags          String?  // comma-separated tags
+  notes         String?  @db.Text
+  jdyDataId     String?  @unique // 简道云 record ID for future sync
+  lastSyncAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdById   String
+  createdBy     User     @relation("SalesCustomerCreatedBy", fields: [createdById], references: [id])
+
+  opportunities  SalesOpportunity[]
+  interactions   CustomerInteraction[]
+  quotes         SalesQuote[]       @relation("SalesQuoteCustomer")
+  blindsOrders   BlindsOrder[]
+
+  @@index([status])
+  @@index([phone])
+  @@index([email])
+  @@index([createdAt])
+}
+
+model SalesOpportunity {
+  id              String    @id @default(cuid())
+  customerId      String
+  customer        SalesCustomer @relation(fields: [customerId], references: [id])
+  title           String
+  stage           String    @default("new_inquiry") // Pipeline stage
+  estimatedValue  Float?
+  windowCount     Int?
+  productTypes    String?   // comma-separated: Zebra,Roller,Drapery,...
+  source          String?   // lead source
+  priority        String    @default("warm") // hot / warm / cold
+  lostReason      String?   @db.Text
+  wonAt           DateTime?
+  lostAt          DateTime?
+  nextFollowupAt  DateTime?
+  measureDate     DateTime?
+  installDate     DateTime?
+  jdyDataId       String?   @unique
+  lastSyncAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  assignedToId    String?
+  assignedTo      User?     @relation("SalesOpportunityAssignee", fields: [assignedToId], references: [id])
+  createdById     String
+  createdBy       User      @relation("SalesOpportunityCreatedBy", fields: [createdById], references: [id])
+
+  interactions    CustomerInteraction[]
+  quotes          SalesQuote[]
+  blindsOrders    BlindsOrder[]
+
+  @@index([customerId])
+  @@index([stage])
+  @@index([assignedToId])
+  @@index([nextFollowupAt])
+  @@index([stage, updatedAt])
+}
+
+model CustomerInteraction {
+  id              String   @id @default(cuid())
+  customerId      String
+  customer        SalesCustomer @relation(fields: [customerId], references: [id])
+  opportunityId   String?
+  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  type            String   // phone_call / wechat / email / in_person / note
+  direction       String?  // inbound / outbound
+  summary         String   @db.Text
+  content         String?  @db.Text
+  emailMessageId  String?
+  attachments     String?  @db.Text // JSON array of file URLs
+  createdAt       DateTime @default(now())
+
+  createdById     String
+  createdBy       User     @relation("CustomerInteractionCreatedBy", fields: [createdById], references: [id])
+
+  @@index([customerId, createdAt])
+  @@index([opportunityId])
+  @@index([type])
+}
+
+model SalesQuote {
+  id               String    @id @default(cuid())
+  opportunityId    String?
+  opportunity      SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  customerId       String
+  customer         SalesCustomer @relation("SalesQuoteCustomer", fields: [customerId], references: [id])
+  version          Int       @default(1)
+  status           String    @default("draft") // draft / sent / accepted / rejected
+  installMode      String    @default("default") // default / pickup
+  merchSubtotal    Float     @default(0)
+  addonsSubtotal   Float     @default(0)
+  installSubtotal  Float     @default(0)
+  installApplied   Float     @default(0)
+  deliveryFee      Float     @default(50)
+  preTaxTotal      Float     @default(0)
+  taxRate          Float     @default(0.13)
+  taxAmount        Float     @default(0)
+  grandTotal       Float     @default(0)
+  currency         String    @default("CAD")
+  sentAt           DateTime?
+  emailMessageId   String?
+  notes            String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  createdById      String
+  createdBy        User      @relation("SalesQuoteCreatedBy", fields: [createdById], references: [id])
+
+  items            SalesQuoteItem[]
+  addons           SalesQuoteAddon[]
+
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SalesQuoteItem {
+  id             String  @id @default(cuid())
+  quoteId        String
+  quote          SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  sortOrder      Int     @default(0)
+  product        String  // Zebra / Roller / Drapery / ...
+  fabric         String  // Light Filtering / Blackout / ...
+  sku            String? // fabric SKU
+  widthIn        Float   // raw width in inches
+  heightIn       Float   // raw height in inches
+  bracketWidth   Float?  // bracket-aligned width
+  bracketHeight  Float?  // bracket-aligned height
+  cordless       Boolean @default(false)
+  msrp           Float   @default(0)
+  discountPct    Float   @default(0)
+  discountValue  Float   @default(0)
+  price          Float   @default(0)
+  installFee     Float   @default(0)
+  location       String? // room location note
+
+  @@index([quoteId, sortOrder])
+}
+
+model SalesQuoteAddon {
+  id          String  @id @default(cuid())
+  quoteId     String
+  quote       SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  addonKey    String  // motor / hub / remote / track6 / track8 / track10 / track12
+  displayName String
+  unitPrice   Float
+  qty         Int     @default(1)
+  subtotal    Float   @default(0)
+
+  @@index([quoteId])
 }

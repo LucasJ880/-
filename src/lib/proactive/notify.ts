@@ -27,19 +27,22 @@ export async function syncSuggestionsToNotifications(
 
   const toCreate = candidates
     .filter((s) => !existingSet.has(`proactive:${s.dedupeKey}`))
-    .map((s) => ({
-      userId,
-      projectId: s.projectId,
-      type: `proactive_${s.kind}` as string,
-      category: s.severity === "urgent" ? "alert" : "reminder",
-      title: s.title,
-      summary: s.description,
-      entityType: "project" as string,
-      entityId: s.projectId,
-      status: "unread",
-      priority: s.severity === "urgent" ? "high" : "medium",
-      sourceKey: `proactive:${s.dedupeKey}`,
-    }));
+    .map((s) => {
+      const isSales = !!s.customerId;
+      return {
+        userId,
+        projectId: s.projectId ?? null,
+        type: `proactive_${s.kind}` as string,
+        category: s.severity === "urgent" ? "alert" : "reminder",
+        title: s.title,
+        summary: s.description,
+        entityType: isSales ? "customer" : "project",
+        entityId: isSales ? s.customerId : s.projectId,
+        status: "unread",
+        priority: s.severity === "urgent" ? "high" : "medium",
+        sourceKey: `proactive:${s.dedupeKey}`,
+      };
+    });
 
   if (toCreate.length === 0) return 0;
 

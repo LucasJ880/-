@@ -21,6 +21,7 @@ import {
   Package2,
   FileText,
   Activity,
+  Handshake,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -51,6 +52,12 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/", label: "工作台", icon: LayoutDashboard },
       { href: "/notifications", label: "通知中心", icon: Bell },
       { href: "/tasks", label: "任务管理", icon: CheckSquare },
+    ],
+  },
+  {
+    title: "销售",
+    items: [
+      { href: "/sales", label: "销售看板", icon: Handshake },
     ],
   },
   {

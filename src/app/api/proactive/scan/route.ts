@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { scanProjectsForUser } from "@/lib/proactive/scanner";
+import { scanSalesForUser } from "@/lib/proactive/sales-scanner";
 import { syncSuggestionsToNotifications } from "@/lib/proactive/notify";
 import { executeAutoActions } from "@/lib/proactive/auto-actions";
 import { getUserAutomationEnabled } from "@/lib/proactive/automation-prefs";
@@ -19,7 +20,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const result = await scanProjectsForUser(user.id, user.role);
+  const [projectResult, salesSuggestions] = await Promise.all([
+    scanProjectsForUser(user.id, user.role),
+    scanSalesForUser(user.id),
+  ]);
+
+  const result = {
+    ...projectResult,
+    suggestions: [...projectResult.suggestions, ...salesSuggestions],
+  };
 
   const [notificationsCreated, autoEnabled] = await Promise.all([
     syncSuggestionsToNotifications(user.id, result.suggestions),
