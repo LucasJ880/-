@@ -20,6 +20,8 @@ import { QuoteHeaderForm } from "./quote-header-form";
 import { QuoteLineTable } from "./quote-line-table";
 import { QuoteSummaryBar } from "./quote-summary-bar";
 import { QuoteAiPanel } from "./quote-ai-panel";
+import { exportQuotePdf } from "@/lib/quote/export-pdf";
+import { exportQuoteExcel } from "@/lib/quote/export-excel";
 
 interface Props {
   projectId: string;
@@ -49,6 +51,7 @@ export function QuoteEditor({ projectId, projectName, quoteId }: Props) {
   const [header, setHeader] = useState<QuoteHeaderData>(DEFAULT_HEADER);
   const [lines, setLines] = useState<QuoteLineItemData[]>([]);
   const [status, setStatus] = useState<QuoteStatus>("draft");
+  const [version, setVersion] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -95,6 +98,7 @@ export function QuoteEditor({ projectId, projectName, quoteId }: Props) {
       );
 
       setStatus((data.status ?? "draft") as QuoteStatus);
+      setVersion(data.version ?? 1);
     } finally {
       setLoading(false);
     }
@@ -314,6 +318,8 @@ export function QuoteEditor({ projectId, projectName, quoteId }: Props) {
             onSave={isDraft ? save : undefined}
             onConfirm={isDraft ? confirm : undefined}
             saving={saving}
+            onExportPdf={() => exportQuotePdf({ header, lines, totals, projectName, quoteVersion: version })}
+            onExportExcel={() => exportQuoteExcel({ header, lines, totals, projectName, quoteVersion: version })}
           />
         </div>
 
