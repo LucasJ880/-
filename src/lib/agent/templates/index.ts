@@ -6,11 +6,13 @@ import type { FlowTemplate } from "../types";
 import { BID_PREPARATION_TEMPLATE } from "./bid-preparation";
 import { PROJECT_INSPECTION_TEMPLATE } from "./project-inspection";
 import { PROJECT_ONBOARDING_TEMPLATE } from "./project-onboarding";
+import { AI_BID_PACKAGE_TEMPLATE } from "./ai-bid-package";
 
 const PRESET_TEMPLATES: FlowTemplate[] = [
   BID_PREPARATION_TEMPLATE,
   PROJECT_INSPECTION_TEMPLATE,
   PROJECT_ONBOARDING_TEMPLATE,
+  AI_BID_PACKAGE_TEMPLATE,
 ];
 
 /**

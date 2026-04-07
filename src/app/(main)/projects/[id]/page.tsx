@@ -43,6 +43,7 @@ import { ProjectAiMemory } from "@/components/project-memory/project-ai-memory";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
 import { ProjectQuoteSection } from "@/components/quote/project-quote-section";
 import { ProjectAgentTasks } from "@/components/agent-tasks/project-agent-tasks";
+import { AiBidPackageSection } from "@/components/agent-tasks/ai-bid-package";
 import { ProjectFileManager } from "@/components/project-files/project-file-manager";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
@@ -694,6 +695,9 @@ function ProjectDetailContent() {
 
       {/* 报价管理 */}
       <ProjectQuoteSection projectId={id} />
+
+      {/* AI 一键投标方案 */}
+      <AiBidPackageSection projectId={id} />
 
       {/* AI 任务（子智能体编排） */}
       <ProjectAgentTasks projectId={id} />

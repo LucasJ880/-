@@ -37,10 +37,20 @@ export interface TaskSummaryItem {
   projectName: string | null;
 }
 
+export interface ProjectProgressBrief {
+  projectName: string;
+  taskProgress: number;
+  timeProgress: number;
+  daysRemaining: number;
+  riskLevel: string;
+  isOverdue: boolean;
+}
+
 export interface WorkContext {
   projects: ProjectSummary[];
   recentTasks: TaskSummaryItem[];
   urgentProjects: ProjectSummary[];
+  projectProgress?: ProjectProgressBrief[];
 }
 
 // ── 深度上下文（第二层：提到具体项目时注入） ─────────────────────

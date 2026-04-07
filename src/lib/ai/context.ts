@@ -13,6 +13,7 @@ import { formatDateTimeToronto } from "@/lib/time";
 import type {
   WorkContext,
   ProjectSummary,
+  ProjectProgressBrief,
   TaskSummaryItem,
   ProjectDeepContext,
   SupplierSummary,
@@ -119,6 +120,63 @@ export async function getWorkContext(userId: string, role: string): Promise<Work
     }),
   ]);
 
+  // Lightweight progress for active projects
+  const projectProgress: ProjectProgressBrief[] = [];
+  if (projects.length > 0) {
+    const pIds = projects.slice(0, 8).map((p) => p.id);
+    const [taskCounts, projectDatesForCtx] = await Promise.all([
+      db.task.groupBy({
+        by: ["projectId", "status"],
+        where: { projectId: { in: pIds } },
+        _count: true,
+      }),
+      db.project.findMany({
+        where: { id: { in: pIds } },
+        select: { id: true, name: true, startDate: true, dueDate: true, closeDate: true, createdAt: true },
+      }),
+    ]);
+    const dateMap = new Map(projectDatesForCtx.map((p) => [p.id, p]));
+    const countMap = new Map<string, { total: number; done: number }>();
+    for (const row of taskCounts) {
+      if (!row.projectId) continue;
+      const cur = countMap.get(row.projectId) ?? { total: 0, done: 0 };
+      cur.total += row._count;
+      if (row.status === "done") cur.done += row._count;
+      countMap.set(row.projectId, cur);
+    }
+    const nowMs = Date.now();
+    for (const pid of pIds) {
+      const d = dateMap.get(pid);
+      const c = countMap.get(pid) ?? { total: 0, done: 0 };
+      if (!d || c.total === 0) continue;
+      const taskPct = Math.round((c.done / c.total) * 100);
+      const start = d.startDate ?? d.createdAt;
+      const due = d.dueDate ?? d.closeDate;
+      let timePct = 0;
+      let daysRemaining = 0;
+      let isOverdue = false;
+      if (start && due) {
+        const sMs = new Date(start).getTime();
+        const dMs = new Date(due).getTime();
+        const total = Math.max(1, Math.round((dMs - sMs) / 86_400_000));
+        const elapsed = Math.round((nowMs - sMs) / 86_400_000);
+        daysRemaining = Math.max(0, Math.round((dMs - nowMs) / 86_400_000));
+        timePct = Math.min(100, Math.round((elapsed / total) * 100));
+        isOverdue = nowMs > dMs;
+      }
+      const gap = timePct - taskPct;
+      const riskLevel = isOverdue && taskPct < 100 ? "high" : gap >= 30 ? "high" : gap >= 15 ? "medium" : "low";
+      projectProgress.push({
+        projectName: d.name,
+        taskProgress: taskPct,
+        timeProgress: timePct,
+        daysRemaining,
+        riskLevel,
+        isOverdue,
+      });
+    }
+  }
+
   return {
     projects: projects.map(toProjectSummary),
     recentTasks: recentTasks.map((t): TaskSummaryItem => ({
@@ -129,6 +187,7 @@ export async function getWorkContext(userId: string, role: string): Promise<Work
       projectName: t.project?.name ?? null,
     })),
     urgentProjects: urgentProjects.map(toProjectSummary),
+    projectProgress: projectProgress.length > 0 ? projectProgress : undefined,
   };
 }
 

@@ -14,6 +14,7 @@ import { DashboardTasksSection } from "@/components/dashboard/dashboard-tasks-se
 import { DashboardTodayFocus } from "@/components/dashboard/dashboard-today-focus";
 import { DashboardWelcomeSection } from "@/components/dashboard/dashboard-welcome-section";
 import { ProjectQuickViewDrawer } from "@/components/project/project-quick-view-drawer";
+import { TaskDrawer } from "@/components/tasks/task-drawer";
 import { useDashboardData } from "@/components/dashboard/use-dashboard-data";
 import type { ReminderItemData } from "@/components/dashboard/types";
 
@@ -40,6 +41,10 @@ export default function Dashboard() {
   const [drawerProjectId, setDrawerProjectId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Task drawer state
+  const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+
   const openProjectDrawer = useCallback((projectId: string) => {
     setDrawerProjectId(projectId);
     setDrawerOpen(true);
@@ -49,17 +54,22 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
+  const openTaskDrawer = useCallback((taskId: string) => {
+    setTaskDrawerId(taskId);
+    setTaskDrawerOpen(true);
+  }, []);
+
   const handleReminderClick = useCallback(
     (item: ReminderItemData) => {
-      if (item.projectId) {
+      if (item.taskId) {
+        openTaskDrawer(item.taskId);
+      } else if (item.projectId) {
         openProjectDrawer(item.projectId);
       } else if (item.project?.id) {
         openProjectDrawer(item.project.id);
-      } else if (item.taskId) {
-        router.push(`/tasks/${item.taskId}`);
       }
     },
-    [openProjectDrawer, router]
+    [openProjectDrawer, openTaskDrawer]
   );
 
   if (loading) {
@@ -131,7 +141,9 @@ export default function Dashboard() {
       <DashboardTasksSection
         highPriorityTasks={stats.highPriorityTasks}
         upcomingTasks={stats.upcomingTasks}
+        projectBreakdown={stats.projectBreakdown}
         onProjectClick={openProjectDrawer}
+        onTaskClick={openTaskDrawer}
       />
       <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
       <DashboardLinksRecentSection
@@ -143,6 +155,12 @@ export default function Dashboard() {
         projectId={drawerProjectId}
         open={drawerOpen}
         onClose={closeDrawer}
+      />
+
+      <TaskDrawer
+        taskId={taskDrawerId}
+        open={taskDrawerOpen}
+        onClose={() => { setTaskDrawerOpen(false); setTaskDrawerId(null); }}
       />
     </div>
   );

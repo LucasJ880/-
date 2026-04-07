@@ -127,7 +127,7 @@ function SearchPanel({
                 return (
                   <Link
                     key={t.id}
-                    href={`/tasks/${t.id}`}
+                    href={`/tasks?open=${t.id}`}
                     onClick={onClose}
                     className="flex items-center gap-2 px-4 py-2 transition-colors hover:bg-background"
                   >
@@ -467,7 +467,7 @@ export function Header() {
 
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
     if (item.entityType === "task" && item.entityId) {
-      window.location.href = `/tasks/${item.entityId}`;
+      window.location.href = `/tasks?open=${item.entityId}`;
     } else if (item.projectId && item.activityId) {
       window.location.href = `/projects/${item.projectId}?activity=${item.activityId}`;
     } else if (item.projectId) {
