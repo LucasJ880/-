@@ -14,7 +14,21 @@ const detailInclude = {
   _count: { select: { tasks: true, environments: true, members: true } },
   externalRef: true,
   intelligence: true,
-  documents: { orderBy: { sortOrder: "asc" as const } },
+  documents: {
+    select: {
+      id: true,
+      title: true,
+      url: true,
+      fileType: true,
+      fileSize: true,
+      sortOrder: true,
+      parseStatus: true,
+      aiSummaryStatus: true,
+      source: true,
+      createdAt: true,
+    },
+    orderBy: { sortOrder: "asc" as const },
+  },
 } as const;
 
 export async function GET(

@@ -25,10 +25,16 @@ export async function GET(request: NextRequest) {
     intakeStatusFilter: intakeFilter,
   });
 
+  const take = Math.min(
+    parseInt(request.nextUrl.searchParams.get("take") ?? "50", 10) || 50,
+    200
+  );
+
   const projects = await db.project.findMany({
     where: where ?? undefined,
     include: projectInclude,
     orderBy: { createdAt: "desc" },
+    take,
   });
 
   return NextResponse.json(projects);

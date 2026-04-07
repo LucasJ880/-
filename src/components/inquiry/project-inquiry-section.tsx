@@ -64,12 +64,10 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
         setRounds(list);
-        if (list.length > 0 && !expandedId) {
-          setExpandedId(list[list.length - 1].id);
-        }
+        setExpandedId((prev) => prev ?? (list.length > 0 ? list[list.length - 1].id : null));
       })
       .finally(() => setLoading(false));
-  }, [projectId, expandedId]);
+  }, [projectId]);
 
   useEffect(() => {
     loadRounds();

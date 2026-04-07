@@ -13,7 +13,7 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
       where: {
         projectId: ctx.projectId,
         parseStatus: "done",
-        aiSummaryStatus: { in: [null, "pending", "failed"] },
+        aiSummaryStatus: { in: ["pending", "failed"] },
       },
       select: { id: true, title: true },
       take: 10,

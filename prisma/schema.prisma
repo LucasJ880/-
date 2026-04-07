@@ -178,6 +178,11 @@ model Task {
   activities      TaskActivity[]
   calendarEvents  CalendarEvent[]
   reminders       Reminder[]
+
+  @@index([projectId, status])
+  @@index([creatorId])
+  @@index([assigneeId])
+  @@index([dueDate])
 }
 
 model TaskComment {

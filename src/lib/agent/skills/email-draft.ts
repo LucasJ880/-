@@ -80,7 +80,7 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
     });
 
     let generated = 0;
-    const drafts: Array<{ supplierName: string; draft: string }> = [];
+    const drafts: Array<{ supplierName: string; subject: string; body: string }> = [];
 
     for (const item of items) {
       try {

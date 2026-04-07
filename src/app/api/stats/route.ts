@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
-import { getMultiProjectProgress } from "@/lib/progress/query";
 import { getWeekRangeToronto, endOfDayToronto } from "@/lib/time";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 
@@ -119,9 +118,6 @@ export async function GET(request: NextRequest) {
         _count: {
           select: { tasks: true },
         },
-        tasks: {
-          select: { status: true },
-        },
       },
       orderBy: { updatedAt: "desc" },
       take: 8,
@@ -137,10 +133,28 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  const projectIds8 = projectStats.map((p) => p.id);
+
+  const taskStatusCounts = projectIds8.length > 0
+    ? await db.task.groupBy({
+        by: ["projectId", "status"],
+        where: { projectId: { in: projectIds8 } },
+        _count: true,
+      })
+    : [];
+
+  const statusMap = new Map<string, Record<string, number>>();
+  for (const row of taskStatusCounts) {
+    if (!row.projectId) continue;
+    if (!statusMap.has(row.projectId)) statusMap.set(row.projectId, {});
+    statusMap.get(row.projectId)![row.status] = row._count;
+  }
+
   const projectBreakdown = projectStats.map((p) => {
+    const counts = statusMap.get(p.id) ?? {};
+    const done = counts["done"] ?? 0;
+    const inProg = counts["in_progress"] ?? 0;
     const total = p._count.tasks;
-    const done = p.tasks.filter((t) => t.status === "done").length;
-    const inProg = p.tasks.filter((t) => t.status === "in_progress").length;
     return {
       id: p.id,
       name: p.name,
@@ -152,10 +166,7 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  const progressIds = projectBreakdown.map((p) => p.id);
-  const projectProgressMap = progressIds.length > 0
-    ? await getMultiProjectProgress(progressIds)
-    : {};
+  const projectProgressMap: Record<string, unknown> = {};
 
   let pendingDispatchCount = 0;
   if (isSuperAdmin(user.role)) {

@@ -87,7 +87,7 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
         },
         documents: {
           where: { aiSummaryStatus: "done" },
-          select: { title: true, aiSummary: true },
+          select: { title: true, aiSummaryJson: true },
           take: 5,
         },
       },
@@ -139,8 +139,8 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
       contextParts.push("", "## 文档摘要");
       for (const doc of project.documents) {
         contextParts.push(`### ${doc.title}`);
-        if (doc.aiSummary && typeof doc.aiSummary === "object") {
-          contextParts.push(JSON.stringify(doc.aiSummary).slice(0, 1500));
+        if (doc.aiSummaryJson) {
+          contextParts.push(String(doc.aiSummaryJson).slice(0, 1500));
         }
       }
     }

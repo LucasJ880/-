@@ -75,7 +75,7 @@ export function ProjectAiChat({
   }, [messages, scrollToBottom]);
 
   useEffect(() => {
-    apiFetch("/api/projects")
+    apiFetch("/api/projects?take=30")
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
