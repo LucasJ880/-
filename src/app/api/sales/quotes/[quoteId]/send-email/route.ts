@@ -55,7 +55,7 @@ export async function POST(
   try {
     const { messageId } = await sendGmail(user.id, {
       to,
-      from: emailProvider.email,
+      from: emailProvider.accountEmail,
       subject: emailSubject,
       body: emailBody,
     });
