@@ -5,3 +5,7 @@ export { ApprovalCard } from "./approval-card";
 export { TemplateEditor } from "./template-editor";
 export { TemplateManager } from "./template-manager";
 export { AgentTaskGuide, hasSeenGuide, resetGuide } from "./agent-task-guide";
+export { WorkflowStatusBar } from "./workflow-status-bar";
+export { ExpertRolePanel } from "./expert-role-panel";
+export { SupplyChainCard } from "./supply-chain-card";
+export { StepDetailPanel } from "./step-detail-panel";

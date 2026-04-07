@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { ApprovalCard } from "./approval-card";
+import { StepDetailPanel } from "./step-detail-panel";
 
 interface TaskStep {
   id: string;
@@ -61,7 +62,12 @@ export function AgentTaskTimeline({ taskId, steps, onRefresh }: Props) {
           const Icon = cfg.icon;
           const isLast = idx === steps.length - 1;
           const isExpanded = expandedStep === step.id;
-          const hasDetail = step.outputSummary || step.error || step.status === "waiting_approval";
+          const hasDetail =
+            step.outputSummary ||
+            step.error ||
+            step.status === "waiting_approval" ||
+            step.status === "completed" ||
+            step.status === "failed";
 
           return (
             <div key={step.id}>
@@ -129,7 +135,7 @@ export function AgentTaskTimeline({ taskId, steps, onRefresh }: Props) {
                 </div>
               </div>
 
-              {/* 展开详情 */}
+              {/* 展开详情 — 使用 StepDetailPanel 显示完整执行日志 */}
               {isExpanded && (
                 <div className="ml-8 mt-1 mb-2">
                   {step.status === "waiting_approval" && (
@@ -144,13 +150,26 @@ export function AgentTaskTimeline({ taskId, steps, onRefresh }: Props) {
                     />
                   )}
 
-                  {step.outputSummary && step.status !== "waiting_approval" && (
+                  {(step.status === "completed" || step.status === "failed") && (
+                    <StepDetailPanel
+                      taskId={taskId}
+                      stepId={step.id}
+                      skillId={step.skillId}
+                    />
+                  )}
+
+                  {step.status !== "completed" &&
+                   step.status !== "failed" &&
+                   step.status !== "waiting_approval" &&
+                   step.outputSummary && (
                     <div className="rounded-lg border border-border/30 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                       {step.outputSummary}
                     </div>
                   )}
 
-                  {step.error && (
+                  {step.status !== "completed" &&
+                   step.status !== "failed" &&
+                   step.error && (
                     <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-600">
                       {step.error}
                     </div>

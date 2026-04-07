@@ -16,6 +16,7 @@ import {
   HelpCircle,
   Sparkles,
   ArrowRight,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -23,6 +24,8 @@ import { AgentTaskTimeline } from "./agent-task-timeline";
 import { AgentTaskCreateDialog } from "./agent-task-create-dialog";
 import { TemplateManager } from "./template-manager";
 import { AgentTaskGuide, hasSeenGuide } from "./agent-task-guide";
+import { WorkflowStatusBar } from "./workflow-status-bar";
+import { ExpertRolePanel } from "./expert-role-panel";
 
 interface TaskStep {
   id: string;
@@ -92,6 +95,7 @@ export function ProjectAgentTasks({ projectId }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showExpertRoles, setShowExpertRoles] = useState(false);
 
   // 首次访问且无任务时自动弹出指引
   useEffect(() => {
@@ -162,6 +166,18 @@ export function ProjectAgentTasks({ projectId }: Props) {
             <HelpCircle className="h-3.5 w-3.5" />
           </button>
           <button
+            onClick={() => setShowExpertRoles((v) => !v)}
+            className={cn(
+              "flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors",
+              showExpertRoles
+                ? "bg-violet-500/10 text-violet-600"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            )}
+            title="专家角色"
+          >
+            <Brain className="h-3.5 w-3.5" />
+          </button>
+          <button
             onClick={() => setShowTemplateManager((v) => !v)}
             className={cn(
               "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
@@ -182,6 +198,16 @@ export function ProjectAgentTasks({ projectId }: Props) {
           </button>
         </div>
       </div>
+
+      {/* 工作流状态总览 */}
+      <WorkflowStatusBar tasks={tasks} />
+
+      {/* 专家角色面板 */}
+      {showExpertRoles && (
+        <div className="border-b border-border/30 px-5 py-4">
+          <ExpertRolePanel />
+        </div>
+      )}
 
       {/* 模板管理面板 */}
       {showTemplateManager && (
