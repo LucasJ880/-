@@ -20,8 +20,9 @@ import { QuoteHeaderForm } from "./quote-header-form";
 import { QuoteLineTable } from "./quote-line-table";
 import { QuoteSummaryBar } from "./quote-summary-bar";
 import { QuoteAiPanel } from "./quote-ai-panel";
-import { exportQuotePdf } from "@/lib/quote/export-pdf";
-import { exportQuoteExcel } from "@/lib/quote/export-excel";
+// dynamic import to avoid jsPDF SSR bundling issue with fflate/Worker
+const lazyExportPdf = () => import("@/lib/quote/export-pdf").then((m) => m.exportQuotePdf);
+const lazyExportExcel = () => import("@/lib/quote/export-excel").then((m) => m.exportQuoteExcel);
 
 interface Props {
   projectId: string;
@@ -318,8 +319,8 @@ export function QuoteEditor({ projectId, projectName, quoteId }: Props) {
             onSave={isDraft ? save : undefined}
             onConfirm={isDraft ? confirm : undefined}
             saving={saving}
-            onExportPdf={() => exportQuotePdf({ header, lines, totals, projectName, quoteVersion: version })}
-            onExportExcel={() => exportQuoteExcel({ header, lines, totals, projectName, quoteVersion: version })}
+            onExportPdf={async () => { const fn = await lazyExportPdf(); fn({ header, lines, totals, projectName, quoteVersion: version }); }}
+            onExportExcel={async () => { const fn = await lazyExportExcel(); fn({ header, lines, totals, projectName, quoteVersion: version }); }}
           />
         </div>
 
