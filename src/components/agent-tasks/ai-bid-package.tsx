@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Sparkles,
   Loader2,
@@ -15,6 +16,10 @@ import {
   Clock,
   RotateCcw,
   Circle,
+  ExternalLink,
+  Copy,
+  Check,
+  Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -55,7 +60,15 @@ const STEP_META: Record<string, { icon: typeof FileText; color: string; bgRunnin
 
 // ── StepCard ─────────────────────────────────────────────────────
 
-function StepCard({ step, isRunning }: { step: StepStatus; isRunning: boolean }) {
+interface StepCardProps {
+  step: StepStatus;
+  isRunning: boolean;
+  projectId: string;
+  onTabSwitch?: (tab: string) => void;
+}
+
+function StepCard({ step, isRunning, projectId, onTabSwitch }: StepCardProps) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const meta = STEP_META[step.skillId] ?? { icon: FileText, color: "text-muted", bgRunning: "bg-muted" };
   const Icon = meta.icon;
@@ -125,6 +138,11 @@ function StepCard({ step, isRunning }: { step: StepStatus; isRunning: boolean })
         )}
       </div>
 
+      {/* Actions: contextual buttons per skill type */}
+      {step.success && (
+        <StepActions step={step} projectId={projectId} onTabSwitch={onTabSwitch} router={router} />
+      )}
+
       {expanded && step.data && Object.keys(step.data).length > 0 && (
         <div className="mt-3 rounded-md bg-background p-3 text-xs">
           <pre className="whitespace-pre-wrap break-words text-foreground/80 max-h-80 overflow-y-auto">
@@ -135,6 +153,179 @@ function StepCard({ step, isRunning }: { step: StepStatus; isRunning: boolean })
     </div>
   );
 }
+
+// ── StepActions ──────────────────────────────────────────────────
+
+function StepActions({
+  step,
+  projectId,
+  onTabSwitch,
+  router,
+}: {
+  step: StepStatus;
+  projectId: string;
+  onTabSwitch?: (tab: string) => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+
+  if (step.skillId === "intelligence_report") {
+    const recommendation = step.data.recommendation as string | undefined;
+    const riskLevel = step.data.riskLevel as string | undefined;
+    const fitScore = step.data.fitScore as number | undefined;
+    const recLabel: Record<string, string> = { pursue: "建议跟进", review_carefully: "需仔细评估", low_probability: "低概率", skip: "建议跳过" };
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {recommendation && (
+            <span className={cn(
+              "rounded-full px-2 py-0.5 font-medium",
+              recommendation === "pursue" ? "bg-[rgba(46,122,86,0.1)] text-[#2e7a56]" :
+              recommendation === "skip" ? "bg-[rgba(166,61,61,0.1)] text-[#a63d3d]" :
+              "bg-[rgba(154,106,47,0.1)] text-[#9a6a2f]"
+            )}>
+              {recLabel[recommendation] ?? recommendation}
+            </span>
+          )}
+          {riskLevel && <span className="text-muted">风险: {riskLevel}</span>}
+          {fitScore != null && <span className="font-medium">匹配度 {fitScore}%</span>}
+        </div>
+        <button
+          type="button"
+          onClick={() => onTabSwitch?.("overview")}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-background/80 transition-colors"
+        >
+          <ExternalLink size={12} />
+          查看完整情报报告
+        </button>
+      </div>
+    );
+  }
+
+  if (step.skillId === "quote") {
+    const draft = step.data.draft as Record<string, unknown> | undefined;
+    const templateType = step.data.templateType as string | undefined;
+    const lines = draft && Array.isArray((draft as Record<string, unknown>).lines) ? (draft as Record<string, unknown>).lines as unknown[] : [];
+
+    return (
+      <div className="mt-3 space-y-2">
+        {lines.length > 0 && (
+          <p className="text-xs text-muted">{lines.length} 个行项目</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {savedQuoteId ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/projects/${projectId}/quotes/${savedQuoteId}`)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition-colors"
+            >
+              <ExternalLink size={12} />
+              打开报价编辑器
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={saving || !draft}
+              onClick={async () => {
+                if (!draft) return;
+                setSaving(true);
+                try {
+                  const res = await apiFetch(`/api/projects/${projectId}/quotes/save-ai-draft`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ draft, templateType }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setSavedQuoteId(data.quoteId);
+                  }
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+              保存为报价单
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onTabSwitch?.("quotes")}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-background/80 transition-colors"
+          >
+            <DollarSign size={12} />
+            查看所有报价
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step.skillId === "email_draft") {
+    const drafts = step.data.drafts as Array<{ supplierName?: string; subject?: string; body?: string }> | undefined;
+    if (!drafts || drafts.length === 0) return null;
+
+    const handleCopy = async (idx: number) => {
+      const d = drafts[idx];
+      const text = [d.subject ? `主题: ${d.subject}` : "", d.body ?? ""].filter(Boolean).join("\n\n");
+      await navigator.clipboard.writeText(text);
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(null), 2000);
+    };
+
+    return (
+      <div className="mt-3 space-y-2">
+        {drafts.map((d, i) => (
+          <div key={i} className="rounded-md border border-border/60 bg-background p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {d.supplierName && (
+                  <p className="text-xs font-medium text-foreground">{d.supplierName}</p>
+                )}
+                {d.subject && (
+                  <p className="text-xs text-muted mt-0.5">主题: {d.subject}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(i)}
+                className="shrink-0 inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-card-bg transition-colors"
+              >
+                {copiedIdx === i ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+                {copiedIdx === i ? "已复制" : "复制"}
+              </button>
+            </div>
+            {d.body && (
+              <pre className="mt-2 whitespace-pre-wrap text-xs text-foreground/80 leading-relaxed max-h-40 overflow-y-auto">{d.body}</pre>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (step.skillId === "document_summary") {
+    return (
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={() => onTabSwitch?.("files")}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-background/80 transition-colors"
+        >
+          <FileText size={12} />
+          查看文件列表
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ── formatData (for raw expand) ─────────────────────────────────
 
 function formatData(skillId: string, data: Record<string, unknown>): string {
   if (skillId === "email_draft") {
@@ -161,11 +352,15 @@ function formatData(skillId: string, data: Record<string, unknown>): string {
     if (lines.length > 0) return lines.join("\n");
   }
   if (skillId === "quote") {
-    const { draftId, totalAmount, currency, lineItemCount } = data;
+    const draft = data.draft as Record<string, unknown> | undefined;
     const lines: string[] = [];
-    if (draftId) lines.push(`草稿 ID: ${draftId}`);
-    if (totalAmount != null) lines.push(`总金额: ${currency ?? ""} ${totalAmount}`);
-    if (lineItemCount != null) lines.push(`行项目数: ${lineItemCount}`);
+    if (draft) {
+      const header = (draft.header ?? draft) as Record<string, unknown>;
+      if (header.title) lines.push(`标题: ${header.title}`);
+      if (header.currency) lines.push(`币种: ${header.currency}`);
+      const lineItems = Array.isArray(draft.lines) ? draft.lines : [];
+      lines.push(`行项目数: ${lineItems.length}`);
+    }
     if (lines.length > 0) return lines.join("\n");
   }
   return JSON.stringify(data, null, 2);
@@ -173,7 +368,7 @@ function formatData(skillId: string, data: Record<string, unknown>): string {
 
 // ── Main Component ───────────────────────────────────────────────
 
-export function AiBidPackageSection({ projectId }: { projectId: string }) {
+export function AiBidPackageSection({ projectId, onTabSwitch }: { projectId: string; onTabSwitch?: (tab: string) => void }) {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepStatus[]>([]);
   const [taskStatus, setTaskStatus] = useState<string>("idle");
@@ -391,6 +586,8 @@ export function AiBidPackageSection({ projectId }: { projectId: string }) {
                 key={step.stepIndex}
                 step={step}
                 isRunning={runningStep === step.stepIndex}
+                projectId={projectId}
+                onTabSwitch={onTabSwitch}
               />
             ))}
           </div>

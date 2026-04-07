@@ -757,7 +757,7 @@ function ProjectDetailContent() {
       {activeTab === "ai" && (
         <div className="space-y-6">
           <ProjectAiChat projectId={id} projectName={project.name} onProjectUpdate={load} />
-          <AiBidPackageSection projectId={id} />
+          <AiBidPackageSection projectId={id} onTabSwitch={(tab) => setActiveTab(tab as ProjectTab)} />
           <ProjectAgentTasks projectId={id} />
         </div>
       )}
