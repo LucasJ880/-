@@ -319,7 +319,10 @@ export function QuoteEditor({ projectId, projectName, quoteId }: Props) {
             onSave={isDraft ? save : undefined}
             onConfirm={isDraft ? confirm : undefined}
             saving={saving}
-            onExportPdf={async () => { const fn = await lazyExportPdf(); fn({ header, lines, totals, projectName, quoteVersion: version }); }}
+            onExportPdf={async () => {
+              const fn = await lazyExportPdf();
+              await fn({ header, lines, totals, projectName, quoteVersion: version });
+            }}
             onExportExcel={async () => { const fn = await lazyExportExcel(); fn({ header, lines, totals, projectName, quoteVersion: version }); }}
           />
         </div>

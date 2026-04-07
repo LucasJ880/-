@@ -8,11 +8,9 @@
  * 后续可替换为服务端 Puppeteer 方案以完美支持中文。
  */
 
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import type { QuoteHeaderData, QuoteLineItemData } from "./types";
 import type { QuoteTotals } from "./calculate";
-import { LINE_CATEGORY_LABELS, TEMPLATE_LABELS } from "./types";
+import { TEMPLATE_LABELS } from "./types";
 
 interface ExportPdfOptions {
   header: QuoteHeaderData;
@@ -38,8 +36,12 @@ function fmt(n: number | null): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function exportQuotePdf(opts: ExportPdfOptions) {
+export async function exportQuotePdf(opts: ExportPdfOptions) {
   const { header, lines, totals, projectName, quoteVersion } = opts;
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
