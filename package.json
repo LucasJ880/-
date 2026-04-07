@@ -8,7 +8,9 @@
     "build": "prisma generate && prisma db push --skip-generate && next build",
     "start": "next start",
     "lint": "eslint",
-    "qa": "npm run lint && npx prisma generate && npx next build"
+    "qa": "npm run lint && npx prisma generate && npx next build",
+    "test": "bash scripts/test-all.sh",
+    "test:api": "bash scripts/test-all.sh --api"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
