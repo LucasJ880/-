@@ -17,6 +17,9 @@ import {
   ListTodo,
   Zap,
   Settings,
+  Phone,
+  FileText,
+  TrendingDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -56,6 +59,9 @@ const KIND_ICONS: Record<TriggerKind, typeof AlertTriangle> = {
   tasks_overdue: ListTodo,
   missing_documents: AlertTriangle,
   risk_alert: AlertTriangle,
+  sales_followup_due: Mail,
+  sales_quote_pending: FileText,
+  sales_stale_opportunity: TrendingDown,
 };
 
 const ACTION_ICONS: Record<SuggestedActionType, typeof ArrowRight> = {
@@ -64,6 +70,9 @@ const ACTION_ICONS: Record<SuggestedActionType, typeof ArrowRight> = {
   view_project: Eye,
   create_task: ListTodo,
   generate_summary: Sparkles,
+  view_customer: Eye,
+  call_customer: Phone,
+  send_quote_email: Mail,
 };
 
 interface AutoActionResult {
