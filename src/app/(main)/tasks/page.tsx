@@ -225,10 +225,14 @@ function TaskRow({
         </button>
         <div className="flex shrink-0 items-center gap-2 text-xs">
           {showProject && task.project && (
-            <span className="flex items-center gap-1 text-muted">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: task.project.color }} />
-              <span className="max-w-[80px] truncate">{task.project.name}</span>
-            </span>
+            <Link
+              href={`/projects/${task.project.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-muted hover:text-accent transition-colors"
+            >
+              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: task.project.color }} />
+              <span className="max-w-[140px] truncate">{task.project.name}</span>
+            </Link>
           )}
           {due && <span className={cn("whitespace-nowrap", due.cls)}>{due.text}</span>}
           {showPriority && <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", TASK_PRIORITY[task.priority].color)}>{TASK_PRIORITY[task.priority].label}</span>}
@@ -277,10 +281,14 @@ function KanbanCard({
         <p className={cn("text-sm font-medium leading-snug", task.status === "done" && "text-muted line-through")}>{task.title}</p>
         <div className="mt-2 flex items-center gap-2 text-[11px]">
           {task.project && (
-            <span className="flex items-center gap-1 text-muted">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: task.project.color }} />
-              <span className="max-w-[70px] truncate">{task.project.name}</span>
-            </span>
+            <Link
+              href={`/projects/${task.project.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-muted hover:text-accent transition-colors"
+            >
+              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: task.project.color }} />
+              <span className="max-w-[120px] truncate">{task.project.name}</span>
+            </Link>
           )}
           {due && <span className={cn("whitespace-nowrap", due.cls)}>{due.text}</span>}
           {(task.priority === "urgent" || task.priority === "high") && (
@@ -775,18 +783,26 @@ function TasksPageContent() {
             const pct = group.totalCount > 0 ? Math.round((group.doneCount / group.totalCount) * 100) : 0;
             return (
               <div key={groupKey} className="rounded-xl border border-border bg-card-bg overflow-hidden">
-                <button onClick={() => toggleGroup(groupKey)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-background">
-                  {collapsed ? <ChevronRight size={14} className="text-muted" /> : <ChevronDown size={14} className="text-muted" />}
+                <div className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-background">
+                  <button onClick={() => toggleGroup(groupKey)} className="shrink-0 text-muted hover:text-foreground">
+                    {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                  </button>
                   {group.projectId && <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: group.projectColor }} />}
-                  <span className="text-sm font-semibold truncate">{group.projectName}</span>
+                  {group.projectId ? (
+                    <Link href={`/projects/${group.projectId}`} className="text-sm font-semibold truncate hover:text-accent transition-colors">
+                      {group.projectName}
+                    </Link>
+                  ) : (
+                    <span className="text-sm font-semibold truncate text-muted">{group.projectName}</span>
+                  )}
                   {group.projectId && (
                     <div className="flex items-center gap-2 ml-2 flex-1 max-w-[200px]">
                       <div className="h-1.5 flex-1 rounded-full bg-border/50"><div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${pct}%` }} /></div>
                       <span className="text-xs text-muted whitespace-nowrap">{pct}%</span>
                     </div>
                   )}
-                  <span className="ml-auto text-xs text-muted shrink-0">{group.tasks.length} 项</span>
-                </button>
+                  <button onClick={() => toggleGroup(groupKey)} className="ml-auto text-xs text-muted shrink-0 hover:text-foreground">{group.tasks.length} 项</button>
+                </div>
                 {!collapsed && (
                   <div className="divide-y divide-border border-t border-border">
                     {group.tasks.map((task) => (

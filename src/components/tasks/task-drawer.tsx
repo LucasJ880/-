@@ -10,7 +10,6 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
-  ExternalLink,
   Loader2,
   Calendar,
   Flag,
@@ -18,6 +17,8 @@ import {
   MessageSquare,
   Activity,
   Send,
+  FolderKanban,
+  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 import { Drawer } from "@/components/ui/drawer";
@@ -244,6 +245,13 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
     }
   }, [open, taskId, loadTask]);
 
+  const refreshProgress = useCallback((projectId: string) => {
+    apiFetch(`/api/projects/${projectId}/overview`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.progress) setProgress(d.progress); })
+      .catch(() => {});
+  }, []);
+
   const handleStatusChange = async (newStatus: TaskStatus) => {
     if (!task || updating) return;
     setUpdating(true);
@@ -254,8 +262,15 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
         body: JSON.stringify({ status: newStatus }),
       });
       if (res.ok) {
+        const data = await res.json();
         setTask((prev) => prev ? { ...prev, status: newStatus } : null);
         onStatusChange?.(task.id, newStatus);
+        // API returns fresh projectProgress after status change
+        if (data.projectProgress) {
+          setProgress(data.projectProgress);
+        } else if (task.project?.id) {
+          refreshProgress(task.project.id);
+        }
       }
     } finally {
       setUpdating(false);
@@ -294,10 +309,30 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
         <div className="flex h-full flex-col">
           <div className="flex-1 overflow-y-auto">
             {/* Title */}
-            <div className="px-5 pt-5 pb-3">
+            <div className="px-5 pt-5 pb-2">
               <h3 className={cn("text-lg font-semibold leading-snug", task.status === "done" && "text-muted line-through")}>
                 {task.title}
               </h3>
+            </div>
+
+            {/* Parent project badge — always visible */}
+            <div className="px-5 pb-3">
+              {task.project ? (
+                <Link
+                  href={`/projects/${task.project.id}`}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-background/60 px-3 py-1.5 text-xs font-medium transition-colors hover:border-accent/40 hover:bg-accent/5 hover:text-accent group"
+                >
+                  <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: task.project.color }} />
+                  <FolderKanban size={12} className="text-muted group-hover:text-accent shrink-0" />
+                  <span className="truncate max-w-[280px]">{task.project.name}</span>
+                  <ArrowRight size={11} className="text-muted group-hover:text-accent shrink-0" />
+                </Link>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-1.5 text-xs text-muted">
+                  <FolderKanban size={12} />
+                  未关联项目
+                </span>
+              )}
             </div>
 
             {/* Status buttons */}
@@ -315,13 +350,14 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
               })}
             </div>
 
-            {/* Project progress */}
+            {/* Project progress — auto-refreshes after status change */}
             {task.project && (
               <div className="mx-5 mb-4 rounded-lg border border-border bg-background/50 p-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: task.project.color }} />
-                  <Link href={`/projects/${task.project.id}`} className="text-sm font-medium hover:text-accent hover:underline">{task.project.name}</Link>
-                  <ExternalLink size={12} className="text-muted" />
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted">项目进度</span>
+                  {progress && (
+                    <Link href={`/projects/${task.project.id}`} className="text-[10px] text-accent hover:underline">查看项目</Link>
+                  )}
                 </div>
                 {progress ? (
                   <div className="space-y-2">

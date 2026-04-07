@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { getProjectProgress } from "@/lib/progress/query";
 
 function canAccessTask(
   task: { projectId: string | null; creatorId: string | null; assigneeId: string | null },
@@ -122,7 +123,14 @@ export async function PATCH(
     },
   });
 
-  return NextResponse.json(task);
+  let projectProgress = null;
+  if (body.status !== undefined && body.status !== oldTask.status && task.projectId) {
+    try {
+      projectProgress = await getProjectProgress(task.projectId);
+    } catch { /* non-critical */ }
+  }
+
+  return NextResponse.json({ ...task, projectProgress });
 }
 
 export async function DELETE(
