@@ -17,6 +17,9 @@ import {
   FolderKanban,
   MoreHorizontal,
   ChevronLeft,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractWorkSuggestion, type WorkSuggestion } from "@/lib/ai";
@@ -26,6 +29,103 @@ import {
 } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch } from "@/lib/api-fetch";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { ReactNode } from "react";
+
+// ── AI Markdown 增强渲染 ─────────────────────────────────────
+
+function transformEmojiBadges(text: string): ReactNode[] {
+  const BADGE_MAP: [RegExp, string, string][] = [
+    [/✅/g, "badge-pass", "✅"],
+    [/✔️?/g, "badge-pass", "✔"],
+    [/🟢/g, "badge-pass", "🟢"],
+    [/❌/g, "badge-fail", "❌"],
+    [/🔴/g, "badge-fail", "🔴"],
+    [/❗/g, "badge-warn", "❗"],
+    [/⚠️?/g, "badge-warn", "⚠"],
+    [/🟡/g, "badge-warn", "🟡"],
+    [/🚨/g, "badge-fail", "🚨"],
+    [/💡/g, "badge-info", "💡"],
+    [/🟠/g, "badge-warn", "🟠"],
+  ];
+
+  const allPattern = /[✅✔🟢❌🔴❗⚠🟡🚨💡🟠]️?/g;
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = allPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const emoji = match[0];
+    let cls = "badge-info";
+    for (const [re, c] of BADGE_MAP) {
+      if (re.test(emoji)) { cls = c; re.lastIndex = 0; break; }
+    }
+    parts.push(
+      <span key={match.index} className={cls}>{emoji}</span>
+    );
+    lastIndex = match.index + emoji.length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts.length > 0 ? parts : [text];
+}
+
+function detectBlockquoteType(text: string): "warning" | "tip" | "conclusion" | "default" {
+  const lower = text.toLowerCase();
+  if (/❌|🔴|🚨|致命|红线|风险|危险|不允许|不接受|禁止/.test(lower)) return "warning";
+  if (/💡|建议|策略|推荐|技巧|提示/.test(lower)) return "tip";
+  if (/✅|结论|核心判断|最终|拍板|判断/.test(lower)) return "conclusion";
+  return "default";
+}
+
+const mdComponents: Components = {
+  h2({ children }) {
+    return <h2>{children}</h2>;
+  },
+  blockquote({ children }) {
+    const text = String(children);
+    const type = detectBlockquoteType(text);
+    const boxClass = type === "warning" ? "warning-box"
+      : type === "tip" ? "tip-box"
+      : type === "conclusion" ? "conclusion-box"
+      : "";
+    return boxClass
+      ? <div className={boxClass}>{children}</div>
+      : <blockquote>{children}</blockquote>;
+  },
+  strong({ children }) {
+    const text = String(children);
+    if (/极高|致命|红线|不允许|禁止|不接受/.test(text)) {
+      return <strong className="risk-high">{children}</strong>;
+    }
+    if (/高风险|注意|关键|重要|必须/.test(text)) {
+      return <strong className="risk-medium">{children}</strong>;
+    }
+    return <strong>{children}</strong>;
+  },
+  td({ children }) {
+    const text = String(children ?? "");
+    if (/^[✅✔🟢❌🔴❗⚠🟡🚨💡🟠]/.test(text.trim())) {
+      return <td>{typeof children === "string" ? transformEmojiBadges(children) : children}</td>;
+    }
+    return <td>{children}</td>;
+  },
+  p({ children }) {
+    if (typeof children === "string") {
+      return <p>{transformEmojiBadges(children)}</p>;
+    }
+    return <p>{children}</p>;
+  },
+  li({ children }) {
+    if (typeof children === "string") {
+      return <li>{transformEmojiBadges(children)}</li>;
+    }
+    return <li>{children}</li>;
+  },
+};
 
 // ── 类型 ──────────────────────────────────────────────────────
 
@@ -255,9 +355,14 @@ function AssistantPageInner() {
   const [projects, setProjects] = useState<SimpleProject[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -366,6 +471,66 @@ function AssistantPageInner() {
     }
   };
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileUploadRef.current(file);
+  }, []);
+
+  const handleFileUploadRef = useRef<(file: File) => void>(() => {});
+
+  const handleFileUpload = async (file: File) => {
+    setUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await apiFetch("/api/ai/upload-file", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "文件上传失败");
+        return;
+      }
+      const data = await res.json();
+      setAttachedFile({ name: data.fileName, text: data.text });
+    } catch (err) {
+      console.error("File upload error:", err);
+      alert("文件解析失败");
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  handleFileUploadRef.current = handleFileUpload;
+
   const handleSend = async (text?: string) => {
     const content = (text || input).trim();
     if (!content || isLoading) return;
@@ -392,15 +557,22 @@ function AssistantPageInner() {
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput("");
+    setAttachedFile(null);
     setIsLoading(true);
 
     try {
+      const payload: Record<string, string> = { content };
+      if (attachedFile) {
+        payload.fileText = attachedFile.text;
+        payload.fileName = attachedFile.name;
+      }
+
       const res = await apiFetch(
         `/api/ai/threads/${threadId}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify(payload),
         }
       );
 
@@ -525,7 +697,22 @@ function AssistantPageInner() {
         onCloseMobile={() => setShowMobileSidebar(false)}
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div
+        className="relative flex flex-1 flex-col overflow-hidden"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-accent/40 bg-accent/5 px-12 py-10">
+              <Paperclip size={32} className="text-accent" />
+              <p className="text-sm font-medium text-accent">松开以上传文件</p>
+              <p className="text-xs text-muted">支持 PDF、Word、Excel、CSV、TXT</p>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
           <button
@@ -633,10 +820,10 @@ function AssistantPageInner() {
                   </div>
                   <div
                     className={cn(
-                      "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                      "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
                       msg.role === "assistant"
-                        ? "bg-background text-foreground"
-                        : "bg-accent text-white",
+                        ? "max-w-[90%] bg-background text-foreground"
+                        : "max-w-[80%] bg-accent text-white",
                       msg.isError &&
                         "border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] text-[#a63d3d]"
                     )}
@@ -648,11 +835,19 @@ function AssistantPageInner() {
                       </div>
                     )}
                     {msg.content ? (
-                      msg.content.split("\n").map((line, i) => (
-                        <p key={i} className={line === "" ? "h-2" : ""}>
-                          {line}
-                        </p>
-                      ))
+                      msg.role === "assistant" ? (
+                        <div className="prose-ai">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        msg.content.split("\n").map((line, i) => (
+                          <p key={i} className={line === "" ? "h-2" : ""}>
+                            {line}
+                          </p>
+                        ))
+                      )
                     ) : msg.isStreaming ? (
                       <div className="flex items-center gap-2 text-muted">
                         <Loader2 size={14} className="animate-spin" />
@@ -681,7 +876,40 @@ function AssistantPageInner() {
 
         {/* Input */}
         <div className="border-t border-border p-3">
+          {attachedFile && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-1.5">
+              <FileText size={14} className="shrink-0 text-accent" />
+              <span className="flex-1 truncate text-xs font-medium text-foreground">{attachedFile.name}</span>
+              <span className="text-[10px] text-muted">{(attachedFile.text.length / 1000).toFixed(0)}k 字符</span>
+              <button onClick={() => setAttachedFile(null)} className="text-muted hover:text-foreground">
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2 rounded-xl border border-border bg-card-bg p-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || uploadingFile}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-accent/10 hover:text-accent disabled:opacity-40"
+              title="上传文件（PDF/Word/Excel/CSV/TXT）"
+            >
+              {uploadingFile ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Paperclip size={15} />
+              )}
+            </button>
             <textarea
               ref={inputRef}
               value={input}
@@ -699,7 +927,9 @@ function AssistantPageInner() {
               placeholder={
                 isLoading
                   ? "AI 正在回复..."
-                  : "输入消息，Enter 发送，Shift+Enter 换行..."
+                  : attachedFile
+                    ? "输入你的问题，如「帮我提炼产品细节」..."
+                    : "输入消息，Enter 发送，Shift+Enter 换行..."
               }
               disabled={isLoading}
               rows={1}

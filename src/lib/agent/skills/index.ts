@@ -10,6 +10,7 @@ import "./intelligence-report";
 import "./document-summary";
 import "./email-draft";
 import "./supply-chain-analysis";
+import "./tender-analysis";
 
 export {
   registerSkill,

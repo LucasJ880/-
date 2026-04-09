@@ -193,3 +193,195 @@ a, button, select, input, textarea {
   transition-duration: 180ms;
   transition-timing-function: ease-out;
 }
+
+/* ── AI Markdown prose ── */
+.prose-ai {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--foreground);
+}
+
+/* Headings — left accent bar + spacing */
+.prose-ai h1, .prose-ai h2, .prose-ai h3, .prose-ai h4 {
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  position: relative;
+}
+.prose-ai h1 { font-size: 1.2em; }
+.prose-ai h2 {
+  font-size: 1.05em;
+  padding-left: 0.75em;
+  border-left: 3px solid #2b6055;
+}
+.prose-ai h3 {
+  font-size: 0.95em;
+  color: #2b6055;
+}
+.prose-ai h4 { font-size: 0.9em; }
+
+/* First heading has no top margin */
+.prose-ai > h1:first-child,
+.prose-ai > h2:first-child,
+.prose-ai > h3:first-child {
+  margin-top: 0;
+}
+
+/* Paragraphs */
+.prose-ai p { margin: 0.4em 0; }
+
+/* Lists */
+.prose-ai ul, .prose-ai ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.prose-ai ul { list-style: disc; }
+.prose-ai ol { list-style: decimal; }
+.prose-ai li {
+  margin: 0.2em 0;
+}
+.prose-ai li::marker {
+  color: #2b6055;
+}
+
+/* Bold / Strong */
+.prose-ai strong { font-weight: 650; }
+
+/* Inline code */
+.prose-ai code {
+  font-size: 0.83em;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: rgba(43, 96, 85, 0.08);
+  color: #2b6055;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+/* Code blocks */
+.prose-ai pre {
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 10px;
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.prose-ai pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* ── Tables — card style with alternating rows ── */
+.prose-ai table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0.75em 0;
+  font-size: 0.82em;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.prose-ai thead th {
+  background: linear-gradient(to bottom, rgba(43,96,85,0.08), rgba(43,96,85,0.04));
+  font-weight: 650;
+  color: #2b6055;
+  padding: 0.55em 0.75em;
+  text-align: left;
+  border-bottom: 2px solid rgba(43,96,85,0.15);
+  white-space: nowrap;
+}
+.prose-ai td {
+  padding: 0.45em 0.75em;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+.prose-ai tbody tr:nth-child(even) {
+  background: rgba(0,0,0,0.015);
+}
+.prose-ai tbody tr:hover {
+  background: rgba(43,96,85,0.04);
+}
+.prose-ai tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Blockquote — callout card ── */
+.prose-ai blockquote {
+  border-left: 4px solid #2b6055;
+  background: rgba(43, 96, 85, 0.04);
+  border-radius: 0 8px 8px 0;
+  padding: 0.6em 0.9em;
+  margin: 0.65em 0;
+  color: inherit;
+}
+.prose-ai blockquote p {
+  margin: 0.15em 0;
+}
+
+/* ── Horizontal rule — section divider ── */
+.prose-ai hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(0,0,0,0.1), transparent);
+  margin: 1em 0;
+}
+
+/* Links */
+.prose-ai a {
+  color: #2b6055;
+  text-decoration: underline;
+  text-decoration-color: rgba(43, 96, 85, 0.3);
+  text-underline-offset: 2px;
+}
+.prose-ai a:hover {
+  text-decoration-color: #2b6055;
+}
+
+/* ── Emoji status badges (inline) ── */
+.prose-ai .badge-pass,
+.prose-ai .badge-fail,
+.prose-ai .badge-warn,
+.prose-ai .badge-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  font-size: 0.78em;
+  font-weight: 600;
+  padding: 0.1em 0.5em;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+.prose-ai .badge-pass { background: rgba(34,139,34,0.1); color: #1a7a1a; }
+.prose-ai .badge-fail { background: rgba(200,50,50,0.1); color: #b52020; }
+.prose-ai .badge-warn { background: rgba(200,150,20,0.1); color: #9a6a10; }
+.prose-ai .badge-info { background: rgba(43,96,85,0.1); color: #2b6055; }
+
+/* ── Risk level badges ── */
+.prose-ai .risk-high { color: #b52020; font-weight: 650; }
+.prose-ai .risk-medium { color: #9a6a10; font-weight: 650; }
+.prose-ai .risk-low { color: #1a7a1a; font-weight: 650; }
+
+/* ── Conclusion / key-point box ── */
+.prose-ai .conclusion-box {
+  background: linear-gradient(135deg, rgba(43,96,85,0.06), rgba(43,96,85,0.02));
+  border: 1px solid rgba(43,96,85,0.15);
+  border-radius: 10px;
+  padding: 0.65em 0.9em;
+  margin: 0.65em 0;
+}
+.prose-ai .warning-box {
+  background: linear-gradient(135deg, rgba(200,50,50,0.05), rgba(200,50,50,0.02));
+  border: 1px solid rgba(200,50,50,0.15);
+  border-radius: 10px;
+  padding: 0.65em 0.9em;
+  margin: 0.65em 0;
+}
+.prose-ai .tip-box {
+  background: linear-gradient(135deg, rgba(200,150,20,0.05), rgba(200,150,20,0.02));
+  border: 1px solid rgba(200,150,20,0.15);
+  border-radius: 10px;
+  padding: 0.65em 0.9em;
+  margin: 0.65em 0;
+}

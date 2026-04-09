@@ -17,6 +17,7 @@ import {
   buildMemoryBlock,
   type ChatMessage,
 } from "@/lib/ai";
+import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 
 type Ctx = { params: Promise<{ threadId: string }> };
 
@@ -89,6 +90,9 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "消息过长" }, { status: 400 });
   }
 
+  const fileText = typeof body.fileText === "string" ? body.fileText : "";
+  const fileName = typeof body.fileName === "string" ? body.fileName : "";
+
   await db.aiMessage.create({
     data: { threadId, role: "user", content },
   });
@@ -125,11 +129,37 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     memoryBlock = buildMemoryBlock(memory);
   }
 
+  const fileBlock = fileText
+    ? `\n\n<uploaded_document filename="${fileName}">\n${fileText.slice(0, 120000)}\n</uploaded_document>\n\n请基于上述文档内容回答用户问题。使用 Markdown 格式输出（表格、标题、列表、粗体等）。`
+    : "";
+
+  const TENDER_KEYWORDS = [
+    "标书", "招标", "投标", "tender", "bid", "rfp", "rfq",
+    "采购", "procurement", "solicitation", "addendum",
+    "中标", "报价策略", "评分", "specification",
+  ];
+  const combinedText = (content + " " + fileName).toLowerCase();
+  const isTenderContext = fileText && TENDER_KEYWORDS.some((kw) => combinedText.includes(kw));
+
+  let expertBlock = "";
+  let effectiveMode = prepared.mode;
+  if (isTenderContext) {
+    const tenderPrompt = getExpertSystemPrompt("bid_analyst");
+    if (tenderPrompt) {
+      expertBlock = `\n\n## 专家角色激活：投标策略分析专家\n${tenderPrompt}\n`;
+      effectiveMode = "deep";
+    }
+  } else if (fileText) {
+    effectiveMode = "deep";
+  }
+
   const systemPrompt =
     getChatSystemPrompt() +
+    expertBlock +
     buildContextBlock(workContext) +
     deepBlock +
     memoryBlock +
+    fileBlock +
     buildSummaryPrefix(prepared.summarizedContext);
 
   const isFirstMessage = history.length === 1;
@@ -138,7 +168,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     const stream = await createChatStream({
       systemPrompt,
       messages: prepared.messages,
-      mode: prepared.mode,
+      mode: effectiveMode,
     });
 
     const encoder = new TextEncoder();

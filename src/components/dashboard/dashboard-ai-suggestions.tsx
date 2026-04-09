@@ -17,7 +17,7 @@ import {
   ListTodo,
   Zap,
   Settings,
-  Phone,
+  PhoneCall,
   FileText,
   TrendingDown,
 } from "lucide-react";
@@ -59,7 +59,7 @@ const KIND_ICONS: Record<TriggerKind, typeof AlertTriangle> = {
   tasks_overdue: ListTodo,
   missing_documents: AlertTriangle,
   risk_alert: AlertTriangle,
-  sales_followup_due: Mail,
+  sales_followup_due: PhoneCall,
   sales_quote_pending: FileText,
   sales_stale_opportunity: TrendingDown,
 };
@@ -71,7 +71,7 @@ const ACTION_ICONS: Record<SuggestedActionType, typeof ArrowRight> = {
   create_task: ListTodo,
   generate_summary: Sparkles,
   view_customer: Eye,
-  call_customer: Phone,
+  call_customer: PhoneCall,
   send_quote_email: Mail,
 };
 

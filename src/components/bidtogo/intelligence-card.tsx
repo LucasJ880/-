@@ -22,9 +22,11 @@ import {
   Send,
   RotateCcw,
   ClipboardCheck,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiJson } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 interface ExternalRef {
   system: string;
@@ -446,6 +448,27 @@ export function BidToGoIntelligenceCard({
   project: BidToGoProject;
   onUpdate?: () => void;
 }) {
+  const [regenerating, setRegenerating] = useState(false);
+
+  const handleRegenerate = useCallback(async () => {
+    if (!project.projectId || regenerating) return;
+    setRegenerating(true);
+    try {
+      const res = await apiFetch(`/api/projects/${project.projectId}/intelligence/regenerate`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error("重新分析失败:", data.error);
+      }
+      onUpdate?.();
+    } catch (err) {
+      console.error("重新分析失败:", err);
+    } finally {
+      setRegenerating(false);
+    }
+  }, [project.projectId, regenerating, onUpdate]);
+
   const isBidToGo = project.sourceSystem === "bidtogo";
   if (!isBidToGo && !project.intelligence) return null;
 
@@ -553,10 +576,28 @@ export function BidToGoIntelligenceCard({
       {/* AI Intelligence */}
       {intelligence && (
         <div className="rounded-xl border border-border bg-card-bg p-5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <TrendingUp size={16} className="text-accent" />
-            AI 情报分析
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <TrendingUp size={16} className="text-accent" />
+              AI 情报分析
+            </h3>
+            {project.projectId && (
+              <button
+                type="button"
+                disabled={regenerating}
+                onClick={handleRegenerate}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/50 hover:text-accent disabled:opacity-50"
+                title="基于最新文档重新生成 AI 情报分析"
+              >
+                {regenerating ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={12} />
+                )}
+                {regenerating ? "分析中…" : "重新分析"}
+              </button>
+            )}
+          </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <span
               className={cn(
