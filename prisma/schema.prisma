@@ -65,6 +65,9 @@ model User {
   agentTasksCreated                AgentTask[]                  @relation("AgentTaskCreatedBy")
   customFlowTemplates              CustomFlowTemplate[]         @relation("CustomFlowTemplateCreatedBy")
 
+  // AI Memory
+  memories                         UserMemory[]
+
   // Sales CRM relations
   salesCustomersCreated            SalesCustomer[]              @relation("SalesCustomerCreatedBy")
   salesOpportunitiesAssigned       SalesOpportunity[]           @relation("SalesOpportunityAssignee")
@@ -1752,6 +1755,15 @@ model CustomerInteraction {
   content         String?  @db.Text
   emailMessageId  String?
   attachments     String?  @db.Text // JSON array of file URLs
+
+  // 多渠道 + 多语言扩展
+  channel         String?  // wechat / xiaohongshu / facebook / email / phone / in_person / other
+  language        String?  // zh / en / mixed
+  rawMessages     String?  @db.Text // JSON: [{role:"customer"|"staff", content:string, time?:string}]
+  sentiment       String?  // positive / neutral / negative
+  outcome         String?  // converted / lost / pending / info_request / follow_up
+  topicTags       String?  // comma-separated: "pricing,zebra,installation"
+
   createdAt       DateTime @default(now())
 
   createdById     String
@@ -1760,6 +1772,7 @@ model CustomerInteraction {
   @@index([customerId, createdAt])
   @@index([opportunityId])
   @@index([type])
+  @@index([channel])
 }
 
 model SalesQuote {
@@ -1833,4 +1846,45 @@ model SalesQuoteAddon {
   subtotal    Float   @default(0)
 
   @@index([quoteId])
+}
+
+// ============================================================
+// AI 用户长期记忆（借鉴 MemPalace 分层设计）
+// ============================================================
+
+/// 用户级 AI 记忆条目 — 跨对话、跨项目的持久知识
+model UserMemory {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 记忆分类（借鉴 MemPalace 的 5 类提取）
+  memoryType    String    // decision / preference / milestone / problem / insight / fact
+  // 记忆层级：L0=身份偏好(始终加载) L1=核心(高频加载) L2=按需(话题匹配)
+  layer         Int       @default(1)
+
+  content       String    @db.Text
+  // 结构化标签，用于按需检索
+  tags          String?   // comma-separated: "sales,pricing,customer:张三"
+  // 来源对话 ID，便于溯源
+  sourceThreadId String?
+  // 关联的客户/项目（可选，便于分域检索）
+  customerId    String?
+  projectId     String?
+
+  // 重要度 1-5，高的优先加载
+  importance    Int       @default(3)
+  // 被引用/激活次数，用于衰减排序
+  accessCount   Int       @default(0)
+  lastAccessedAt DateTime?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, layer])
+  @@index([userId, memoryType])
+  @@index([userId, importance])
+  @@index([userId, tags])
+  @@index([userId, customerId])
+  @@index([userId, projectId])
 }

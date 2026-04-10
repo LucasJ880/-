@@ -21,6 +21,25 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select as ShadSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
 /* ── Pipeline stages ── */
 const STAGES = [
@@ -192,26 +211,24 @@ export default function SalesPage() {
       )}
 
       {/* CSV Import dialog */}
-      {showImport && (
-        <CsvImportDialog
-          onClose={() => setShowImport(false)}
-          onSuccess={() => {
-            setShowImport(false);
-            loadData();
-          }}
-        />
-      )}
+      <CsvImportDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        onSuccess={() => {
+          setShowImport(false);
+          loadData();
+        }}
+      />
 
       {/* New Customer dialog */}
-      {showNewCustomer && (
-        <NewCustomerDialog
-          onClose={() => setShowNewCustomer(false)}
-          onSuccess={() => {
-            setShowNewCustomer(false);
-            loadData();
-          }}
-        />
-      )}
+      <NewCustomerDialog
+        open={showNewCustomer}
+        onOpenChange={setShowNewCustomer}
+        onSuccess={() => {
+          setShowNewCustomer(false);
+          loadData();
+        }}
+      />
     </div>
   );
 }
@@ -410,15 +427,14 @@ function PipelineBoard({
         </div>
       )}
 
-      {showNewOpp && (
-        <NewOpportunityDialog
-          onClose={() => setShowNewOpp(false)}
-          onSuccess={() => {
-            setShowNewOpp(false);
-            onRefresh();
-          }}
-        />
-      )}
+      <NewOpportunityDialog
+        open={showNewOpp}
+        onOpenChange={setShowNewOpp}
+        onSuccess={() => {
+          setShowNewOpp(false);
+          onRefresh();
+        }}
+      />
     </>
   );
 }
@@ -484,12 +500,14 @@ function OpportunityCard({
   );
 }
 
-/* ── New Opportunity Dialog ── */
+/* ── New Opportunity Dialog (shadcn/ui) ── */
 function NewOpportunityDialog({
-  onClose,
+  open,
+  onOpenChange,
   onSuccess,
 }: {
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }) {
   const [form, setForm] = useState({
@@ -505,6 +523,7 @@ function NewOpportunityDialog({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!open) return;
     apiFetch("/api/sales/customers")
       .then((r) => r.json())
       .then((d) => {
@@ -516,7 +535,7 @@ function NewOpportunityDialog({
         );
       })
       .catch(() => {});
-  }, []);
+  }, [open]);
 
   async function handleSave() {
     if (!form.customerId || !form.title.trim()) {
@@ -546,83 +565,86 @@ function NewOpportunityDialog({
     }
   }
 
-  const inputClass =
-    "w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20";
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">新建销售机会</h3>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>新建销售机会</DialogTitle>
+          <DialogDescription>为客户创建新的销售跟进机会</DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">客户 *</label>
-            <select
-              className={inputClass}
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>客户 *</Label>
+            <ShadSelect
               value={form.customerId}
-              onChange={(e) => setForm({ ...form, customerId: e.target.value })}
+              onValueChange={(v) => setForm({ ...form, customerId: v })}
             >
-              <option value="">选择客户…</option>
-              {customerOptions.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder="选择客户…" />
+              </SelectTrigger>
+              <SelectContent>
+                {customerOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </ShadSelect>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">标题 *</label>
-            <input
-              className={inputClass}
+          <div className="space-y-1.5">
+            <Label>标题 *</Label>
+            <Input
               placeholder="例：客厅窗帘报价"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">阶段</label>
-              <select
-                className={inputClass}
+            <div className="space-y-1.5">
+              <Label>阶段</Label>
+              <ShadSelect
                 value={form.stage}
-                onChange={(e) => setForm({ ...form, stage: e.target.value })}
+                onValueChange={(v) => setForm({ ...form, stage: v })}
               >
-                {STAGES.map((s) => (
-                  <option key={s.key} value={s.key}>{s.label}</option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STAGES.map((s) => (
+                    <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </ShadSelect>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">优先级</label>
-              <select
-                className={inputClass}
+            <div className="space-y-1.5">
+              <Label>优先级</Label>
+              <ShadSelect
                 value={form.priority}
-                onChange={(e) => setForm({ ...form, priority: e.target.value })}
+                onValueChange={(v) => setForm({ ...form, priority: v })}
               >
-                <option value="hot">热</option>
-                <option value="warm">温</option>
-                <option value="cold">冷</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hot">热</SelectItem>
+                  <SelectItem value="warm">温</SelectItem>
+                  <SelectItem value="cold">冷</SelectItem>
+                </SelectContent>
+              </ShadSelect>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">预估金额 ($)</label>
-              <input
+            <div className="space-y-1.5">
+              <Label>预估金额 ($)</Label>
+              <Input
                 type="number"
-                className={inputClass}
                 placeholder="0"
                 value={form.estimatedValue}
                 onChange={(e) => setForm({ ...form, estimatedValue: e.target.value })}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">产品类型</label>
-              <input
-                className={inputClass}
+            <div className="space-y-1.5">
+              <Label>产品类型</Label>
+              <Input
                 placeholder="Zebra, Roller…"
                 value={form.productTypes}
                 onChange={(e) => setForm({ ...form, productTypes: e.target.value })}
@@ -632,27 +654,18 @@ function NewOpportunityDialog({
         </div>
 
         {error && (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+          <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
         )}
 
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90 disabled:opacity-50"
-          >
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             创建
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -720,15 +733,15 @@ function CustomerList({ customers }: { customers: Customer[] }) {
                   {c.opportunities.map((opp) => {
                     const stage = STAGES.find((s) => s.key === opp.stage);
                     return (
-                      <span
+                      <Badge
                         key={opp.id}
+                        variant="outline"
                         className={cn(
-                          "rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
                           stage?.color || "bg-gray-100 text-gray-600 border-gray-200"
                         )}
                       >
                         {stage?.label || opp.stage}
-                      </span>
+                      </Badge>
                     );
                   })}
                   {c.opportunities.length === 0 && (
@@ -758,12 +771,14 @@ function CustomerList({ customers }: { customers: Customer[] }) {
   );
 }
 
-/* ── CSV Import Dialog ── */
+/* ── CSV Import Dialog (shadcn/ui) ── */
 function CsvImportDialog({
-  onClose,
+  open,
+  onOpenChange,
   onSuccess,
 }: {
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -798,25 +813,19 @@ function CsvImportDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">CSV 客户导入</h3>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>CSV 客户导入</DialogTitle>
+          <DialogDescription>
+            从简道云导出 CSV 文件后上传。支持的列名：客户名称 / 电话 / 邮箱 / 地址 / 来源 / 备注 / 机会标题 / 阶段 / 预估金额 / 产品类型 / 优先级
+          </DialogDescription>
+        </DialogHeader>
 
         {!result ? (
           <>
-            <p className="mt-3 text-sm text-muted leading-relaxed">
-              从简道云导出 CSV 文件后上传。支持的列名：
-              <br />
-              客户名称 / 电话 / 邮箱 / 地址 / 来源 / 备注 / 机会标题 / 阶段 / 预估金额 / 产品类型 / 优先级
-            </p>
-
             <div
-              className="mt-4 flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-border bg-white/50 py-8 transition-colors hover:border-foreground/30"
+              className="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-border bg-white/50 py-8 transition-colors hover:border-foreground/30"
               onClick={() => inputRef.current?.click()}
             >
               <FileSpreadsheet className="h-8 w-8 text-muted/50" />
@@ -833,70 +842,54 @@ function CsvImportDialog({
             </div>
 
             {error && (
-              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-                {error}
-              </p>
+              <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
             )}
 
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={onClose}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleImport}
-                disabled={!file || importing}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90 disabled:opacity-50"
-              >
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+              <Button onClick={handleImport} disabled={!file || importing}>
                 {importing && <Loader2 className="h-4 w-4 animate-spin" />}
                 开始导入
-              </button>
-            </div>
+              </Button>
+            </DialogFooter>
           </>
         ) : (
           <>
-            <div className="mt-4 space-y-2">
-              <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <div className="space-y-2">
+              <div className="rounded-lg bg-success-bg px-4 py-3 text-sm text-success">
                 导入完成！创建了 {result.customersCreated} 位客户，
                 {result.opportunitiesCreated} 个销售机会。
                 {result.skipped > 0 && ` 跳过 ${result.skipped} 行。`}
               </div>
               {result.errors.length > 0 && (
-                <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div className="rounded-lg bg-warning-bg px-4 py-3 text-sm text-warning">
                   {result.errors.length} 行出错：
                   <ul className="mt-1 list-disc pl-4 text-xs">
                     {result.errors.slice(0, 5).map((e, i) => (
-                      <li key={i}>
-                        第 {e.row} 行: {e.message}
-                      </li>
+                      <li key={i}>第 {e.row} 行: {e.message}</li>
                     ))}
                   </ul>
                 </div>
               )}
             </div>
-            <div className="mt-5 flex justify-end">
-              <button
-                onClick={onSuccess}
-                className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90"
-              >
-                完成
-              </button>
-            </div>
+            <DialogFooter>
+              <Button onClick={onSuccess}>完成</Button>
+            </DialogFooter>
           </>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-/* ── New Customer Dialog ── */
+/* ── New Customer Dialog (shadcn/ui) ── */
 function NewCustomerDialog({
-  onClose,
+  open,
+  onOpenChange,
   onSuccess,
 }: {
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }) {
   const [form, setForm] = useState({
@@ -934,109 +927,90 @@ function NewCustomerDialog({
     }
   }
 
-  const inputClass =
-    "w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20";
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">新建客户</h3>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>新建客户</DialogTitle>
+          <DialogDescription>添加新客户到 Sunny Shutter 销售系统</DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">
-              客户名称 *
-            </label>
-            <input
-              className={inputClass}
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="name">客户名称 *</Label>
+            <Input
+              id="name"
               placeholder="例：John Smith"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">
-                电话
-              </label>
-              <input
-                className={inputClass}
+            <div className="space-y-1.5">
+              <Label htmlFor="phone">电话</Label>
+              <Input
+                id="phone"
                 placeholder="416-xxx-xxxx"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">
-                邮箱
-              </label>
-              <input
-                className={inputClass}
+            <div className="space-y-1.5">
+              <Label htmlFor="email">邮箱</Label>
+              <Input
+                id="email"
                 placeholder="email@example.com"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
             </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">
-              地址
-            </label>
-            <input
-              className={inputClass}
+          <div className="space-y-1.5">
+            <Label htmlFor="address">地址</Label>
+            <Input
+              id="address"
               placeholder="123 Main St, Toronto"
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">
-              来源
-            </label>
-            <select
-              className={inputClass}
+          <div className="space-y-1.5">
+            <Label>来源</Label>
+            <ShadSelect
               value={form.source}
-              onChange={(e) => setForm({ ...form, source: e.target.value })}
+              onValueChange={(v) => setForm({ ...form, source: v })}
             >
-              <option value="">请选择…</option>
-              <option value="referral">转介绍</option>
-              <option value="google_ads">Google Ads</option>
-              <option value="walk_in">上门</option>
-              <option value="wechat">微信</option>
-              <option value="phone">电话</option>
-              <option value="other">其他</option>
-            </select>
+              <SelectTrigger>
+                <SelectValue placeholder="请选择…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="referral">转介绍</SelectItem>
+                <SelectItem value="google_ads">Google Ads</SelectItem>
+                <SelectItem value="walk_in">上门</SelectItem>
+                <SelectItem value="wechat">微信</SelectItem>
+                <SelectItem value="phone">电话</SelectItem>
+                <SelectItem value="other">其他</SelectItem>
+              </SelectContent>
+            </ShadSelect>
           </div>
         </div>
 
         {error && (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+          <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
           </p>
         )}
 
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
-          >
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90 disabled:opacity-50"
-          >
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             创建
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

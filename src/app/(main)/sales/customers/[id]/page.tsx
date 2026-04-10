@@ -24,6 +24,25 @@ import {
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select as ShadSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 /* ── Types ── */
 interface CustomerDetail {
@@ -260,14 +279,15 @@ export default function CustomerDetailPage() {
                       <span className="text-sm font-medium text-foreground truncate">
                         {opp.title}
                       </span>
-                      <span
+                      <Badge
+                        variant="outline"
                         className={cn(
-                          "rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                          "border-transparent",
                           STAGE_COLORS[opp.stage] || "bg-gray-100 text-gray-600"
                         )}
                       >
                         {STAGE_LABELS[opp.stage] || opp.stage}
-                      </span>
+                      </Badge>
                     </div>
                     <div className="mt-0.5 flex items-center gap-3 text-xs text-muted">
                       {opp.estimatedValue != null && (
@@ -356,31 +376,29 @@ export default function CustomerDetailPage() {
       {activeTab === "orders" && <OrdersList orders={customer.blindsOrders} />}
 
       {/* Add Interaction Dialog */}
-      {showAddInteraction && (
-        <AddInteractionDialog
-          customerId={customer.id}
-          opportunities={customer.opportunities}
-          onClose={() => setShowAddInteraction(false)}
-          onSuccess={() => {
-            setShowAddInteraction(false);
-            loadCustomer();
-          }}
-        />
-      )}
+      <AddInteractionDialog
+        open={showAddInteraction}
+        onOpenChange={setShowAddInteraction}
+        customerId={customer.id}
+        opportunities={customer.opportunities}
+        onSuccess={() => {
+          setShowAddInteraction(false);
+          loadCustomer();
+        }}
+      />
 
       {/* Create Quote Dialog */}
-      {showCreateQuote && (
-        <CreateQuoteDialog
-          customerId={customer.id}
-          opportunities={customer.opportunities}
-          onClose={() => setShowCreateQuote(false)}
-          onSuccess={() => {
-            setShowCreateQuote(false);
-            setActiveTab("quotes");
-            loadCustomer();
-          }}
-        />
-      )}
+      <CreateQuoteDialog
+        open={showCreateQuote}
+        onOpenChange={setShowCreateQuote}
+        customerId={customer.id}
+        opportunities={customer.opportunities}
+        onSuccess={() => {
+          setShowCreateQuote(false);
+          setActiveTab("quotes");
+          loadCustomer();
+        }}
+      />
 
       {/* Sending email overlay */}
       {sendingEmailFor && (
@@ -571,16 +589,18 @@ function OrdersList({ orders }: { orders: BlindsOrder[] }) {
   );
 }
 
-/* ── Add Interaction Dialog ── */
+/* ── Add Interaction Dialog (shadcn/ui) ── */
 function AddInteractionDialog({
+  open,
+  onOpenChange,
   customerId,
   opportunities,
-  onClose,
   onSuccess,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   customerId: string;
   opportunities: Opportunity[];
-  onClose: () => void;
   onSuccess: () => void;
 }) {
   const [form, setForm] = useState({
@@ -613,95 +633,85 @@ function AddInteractionDialog({
     }
   }
 
-  const inputClass =
-    "w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20";
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">记录互动</h3>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>记录互动</DialogTitle>
+          <DialogDescription>记录与客户的沟通互动</DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3 py-2">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">
-                类型
-              </label>
-              <select
-                className={inputClass}
+            <div className="space-y-1.5">
+              <Label>类型</Label>
+              <ShadSelect
                 value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value })}
+                onValueChange={(v) => setForm({ ...form, type: v })}
               >
-                <option value="phone_call">电话</option>
-                <option value="wechat">微信</option>
-                <option value="email">邮件</option>
-                <option value="in_person">面谈</option>
-                <option value="note">备注</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="phone_call">电话</SelectItem>
+                  <SelectItem value="wechat">微信</SelectItem>
+                  <SelectItem value="email">邮件</SelectItem>
+                  <SelectItem value="in_person">面谈</SelectItem>
+                  <SelectItem value="note">备注</SelectItem>
+                </SelectContent>
+              </ShadSelect>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">
-                方向
-              </label>
-              <select
-                className={inputClass}
-                value={form.direction}
-                onChange={(e) =>
-                  setForm({ ...form, direction: e.target.value })
-                }
+            <div className="space-y-1.5">
+              <Label>方向</Label>
+              <ShadSelect
+                value={form.direction || "none"}
+                onValueChange={(v) => setForm({ ...form, direction: v === "none" ? "" : v })}
               >
-                <option value="">不适用</option>
-                <option value="outbound">发出</option>
-                <option value="inbound">收到</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不适用</SelectItem>
+                  <SelectItem value="outbound">发出</SelectItem>
+                  <SelectItem value="inbound">收到</SelectItem>
+                </SelectContent>
+              </ShadSelect>
             </div>
           </div>
 
           {opportunities.length > 0 && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">
-                关联机会
-              </label>
-              <select
-                className={inputClass}
-                value={form.opportunityId}
-                onChange={(e) =>
-                  setForm({ ...form, opportunityId: e.target.value })
-                }
+            <div className="space-y-1.5">
+              <Label>关联机会</Label>
+              <ShadSelect
+                value={form.opportunityId || "none"}
+                onValueChange={(v) => setForm({ ...form, opportunityId: v === "none" ? "" : v })}
               >
-                <option value="">不关联</option>
-                {opportunities.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.title}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder="不关联" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不关联</SelectItem>
+                  {opportunities.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </ShadSelect>
             </div>
           )}
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">
-              摘要 *
-            </label>
-            <input
-              className={inputClass}
+          <div className="space-y-1.5">
+            <Label>摘要 *</Label>
+            <Input
               placeholder="简要描述这次互动…"
               value={form.summary}
               onChange={(e) => setForm({ ...form, summary: e.target.value })}
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">
-              详细内容
-            </label>
+          <div className="space-y-1.5">
+            <Label>详细内容</Label>
             <textarea
-              className={cn(inputClass, "h-24 resize-none")}
+              className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 h-24 resize-none"
               placeholder="可选：详细内容…"
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
@@ -709,24 +719,15 @@ function AddInteractionDialog({
           </div>
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !form.summary.trim()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90 disabled:opacity-50"
-          >
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button onClick={handleSave} disabled={saving || !form.summary.trim()}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             保存
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -756,14 +757,16 @@ interface PreviewResult {
 }
 
 function CreateQuoteDialog({
+  open,
+  onOpenChange,
   customerId,
   opportunities,
-  onClose,
   onSuccess,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   customerId: string;
   opportunities: Opportunity[];
-  onClose: () => void;
   onSuccess: () => void;
 }) {
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -878,55 +881,57 @@ function CreateQuoteDialog({
     products.find((p) => p.name === productName)?.fabrics || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-2xl border border-border bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">新建报价</h3>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>新建报价</DialogTitle>
+          <DialogDescription>为客户创建窗饰产品报价</DialogDescription>
+        </DialogHeader>
 
         {loadingProducts ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-muted" />
           </div>
         ) : (
-          <div className="mt-4 space-y-4">
+          <div className="space-y-4">
             {/* Options row */}
             <div className="grid grid-cols-2 gap-3">
               {opportunities.length > 0 && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted">
-                    关联机会
-                  </label>
-                  <select
-                    className={inputClass}
-                    value={opportunityId}
-                    onChange={(e) => setOpportunityId(e.target.value)}
+                <div className="space-y-1.5">
+                  <Label>关联机会</Label>
+                  <ShadSelect
+                    value={opportunityId || "none"}
+                    onValueChange={(v) => setOpportunityId(v === "none" ? "" : v)}
                   >
-                    <option value="">不关联</option>
-                    {opportunities.map((o) => (
-                      <option key={o.id} value={o.id}>{o.title}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger>
+                      <SelectValue placeholder="不关联" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">不关联</SelectItem>
+                      {opportunities.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </ShadSelect>
                 </div>
               )}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted">
-                  安装方式
-                </label>
-                <select
-                  className={inputClass}
+              <div className="space-y-1.5">
+                <Label>安装方式</Label>
+                <ShadSelect
                   value={installMode}
-                  onChange={(e) => {
-                    setInstallMode(e.target.value as "default" | "pickup");
+                  onValueChange={(v) => {
+                    setInstallMode(v as "default" | "pickup");
                     setPreview(null);
                   }}
                 >
-                  <option value="default">上门安装</option>
-                  <option value="pickup">自取 (无安装费)</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">上门安装</SelectItem>
+                    <SelectItem value="pickup">自取 (无安装费)</SelectItem>
+                  </SelectContent>
+                </ShadSelect>
               </div>
             </div>
 
@@ -951,9 +956,7 @@ function CreateQuoteDialog({
                   className="rounded-lg border border-border/60 bg-white/50 p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-muted">
-                      #{idx + 1}
-                    </span>
+                    <span className="text-[11px] font-medium text-muted">#{idx + 1}</span>
                     {items.length > 1 && (
                       <button
                         onClick={() => removeItem(idx)}
@@ -969,9 +972,7 @@ function CreateQuoteDialog({
                       <select
                         className={inputClass}
                         value={item.product}
-                        onChange={(e) => {
-                          updateItem(idx, { product: e.target.value, fabric: "" });
-                        }}
+                        onChange={(e) => updateItem(idx, { product: e.target.value, fabric: "" })}
                       >
                         <option value="">选择产品…</option>
                         {products.map((p) => (
@@ -997,9 +998,8 @@ function CreateQuoteDialog({
                   <div className="grid grid-cols-4 gap-2">
                     <div>
                       <label className="mb-0.5 block text-[10px] text-muted">宽 (inch)</label>
-                      <input
+                      <Input
                         type="number"
-                        className={inputClass}
                         placeholder="宽"
                         value={item.widthIn}
                         min={1}
@@ -1008,9 +1008,8 @@ function CreateQuoteDialog({
                     </div>
                     <div>
                       <label className="mb-0.5 block text-[10px] text-muted">高 (inch)</label>
-                      <input
+                      <Input
                         type="number"
-                        className={inputClass}
                         placeholder="高"
                         value={item.heightIn}
                         min={1}
@@ -1019,8 +1018,7 @@ function CreateQuoteDialog({
                     </div>
                     <div>
                       <label className="mb-0.5 block text-[10px] text-muted">位置</label>
-                      <input
-                        className={inputClass}
+                      <Input
                         placeholder="可选"
                         value={item.location}
                         onChange={(e) => updateItem(idx, { location: e.target.value })}
@@ -1040,15 +1038,9 @@ function CreateQuoteDialog({
                   </div>
                   {preview?.itemResults[idx] && (
                     <div className="flex items-center gap-3 rounded bg-accent/5 px-2 py-1 text-[11px]">
-                      <span className="text-muted">
-                        MSRP ${preview.itemResults[idx].msrp}
-                      </span>
-                      <span className="text-muted">
-                        折后 ${preview.itemResults[idx].price.toFixed(2)}
-                      </span>
-                      <span className="text-muted">
-                        安装 ${preview.itemResults[idx].install.toFixed(2)}
-                      </span>
+                      <span className="text-muted">MSRP ${preview.itemResults[idx].msrp}</span>
+                      <span className="text-muted">折后 ${preview.itemResults[idx].price.toFixed(2)}</span>
+                      <span className="text-muted">安装 ${preview.itemResults[idx].install.toFixed(2)}</span>
                     </div>
                   )}
                   {preview?.errors.find((e) => e.index === idx) && (
@@ -1061,10 +1053,10 @@ function CreateQuoteDialog({
             </div>
 
             {/* Notes */}
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">备注</label>
+            <div className="space-y-1.5">
+              <Label>备注</Label>
               <textarea
-                className={cn(inputClass, "h-16 resize-none")}
+                className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 h-16 resize-none"
                 placeholder="可选备注…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -1075,63 +1067,45 @@ function CreateQuoteDialog({
             {preview && preview.itemResults.length > 0 && (
               <div className="rounded-lg border border-accent/20 bg-accent/5 p-3 space-y-1 text-sm">
                 <div className="flex justify-between text-muted">
-                  <span>产品小计</span>
-                  <span>${preview.merchSubtotal.toFixed(2)}</span>
+                  <span>产品小计</span><span>${preview.merchSubtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-muted">
-                  <span>安装费</span>
-                  <span>${preview.installApplied.toFixed(2)}</span>
+                  <span>安装费</span><span>${preview.installApplied.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-muted">
-                  <span>配送费</span>
-                  <span>${preview.deliveryFee.toFixed(2)}</span>
+                  <span>配送费</span><span>${preview.deliveryFee.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-muted">
-                  <span>税费 (HST)</span>
-                  <span>${preview.taxAmount.toFixed(2)}</span>
+                  <span>税费 (HST)</span><span>${preview.taxAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between border-t border-accent/20 pt-1 font-semibold text-foreground">
-                  <span>总计</span>
-                  <span>${preview.grandTotal.toFixed(2)}</span>
+                  <span>总计</span><span>${preview.grandTotal.toFixed(2)}</span>
                 </div>
               </div>
             )}
 
             {/* Actions */}
             <div className="flex items-center justify-between gap-2 pt-1">
-              <button
+              <Button
+                variant="secondary"
                 onClick={handlePreview}
                 disabled={!canPreview || previewLoading}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/5 px-4 py-2 text-sm font-medium text-accent hover:bg-accent/10 disabled:opacity-50 transition-colors"
               >
-                {previewLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <DollarSign className="h-4 w-4" />
-                )}
+                {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
                 计算价格
-              </button>
+              </Button>
               <div className="flex gap-2">
-                <button
-                  onClick={onClose}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={saving || !canPreview}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-                >
+                <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+                <Button variant="accent" onClick={handleSubmit} disabled={saving || !canPreview}>
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                   创建报价
-                </button>
+                </Button>
               </div>
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

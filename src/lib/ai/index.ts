@@ -44,6 +44,35 @@ export type { ChatMessage, PreparedConversation } from "./conversation";
 export { getSalesContext, buildSalesContextBlock } from "./sales-context";
 export type { SalesContext } from "./sales-context";
 
+export {
+  saveMemory,
+  saveMemories,
+  getWakeUpMemories,
+  recallMemories,
+  buildUserMemoryBlock,
+  extractMemoriesFromConversation,
+} from "./user-memory";
+export type { MemoryType, MemoryEntry, ExtractedMemory } from "./user-memory";
+
+export {
+  detectLanguage,
+  detectConversationLanguage,
+  parseWechatConversation,
+  parseGenericConversation,
+  parseEmailThread,
+  extractTopicTags,
+  buildChannelStylePrompt,
+  CHANNEL_STYLE_GUIDE,
+} from "./sales-conversation";
+export type {
+  Channel,
+  Language,
+  Sentiment,
+  ConversationOutcome,
+  RawMessage,
+  ParsedConversation,
+} from "./sales-conversation";
+
 export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
 
 export type {

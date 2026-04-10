@@ -1,9 +1,20 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { X, Bot, Zap, FileText, Loader2, Workflow, Sparkles } from "lucide-react";
+import { Bot, Zap, FileText, Loader2, Workflow, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface FlowTemplateSummary {
   id: string;
@@ -16,14 +27,16 @@ interface FlowTemplateSummary {
 interface Props {
   projectId: string;
   templates: FlowTemplateSummary[];
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }
 
 export function AgentTaskCreateDialog({
   projectId,
   templates,
-  onClose,
+  open,
+  onOpenChange,
   onCreated,
 }: Props) {
   const [mode, setMode] = useState<"template" | "custom">("template");
@@ -80,92 +93,92 @@ export function AgentTaskCreateDialog({
       }
 
       onCreated();
-      onClose();
+      onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
     } finally {
       setCreating(false);
     }
-  }, [mode, selectedTemplate, customIntent, projectId, templates, autoExecute, onCreated, onClose]);
+  }, [mode, selectedTemplate, customIntent, projectId, templates, autoExecute, onCreated, onOpenChange]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border/30 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-blue-500" />
-            <h3 className="font-semibold text-foreground">新建 AI 任务</h3>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="space-y-1 border-b border-border/30 px-5 py-4 text-left sm:text-left">
+          <div className="flex items-center gap-2 pr-6">
+            <Bot className="h-5 w-5 shrink-0 text-blue-500" />
+            <DialogTitle>新建 AI 任务</DialogTitle>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-accent/50 rounded">
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
-        </div>
+          <DialogDescription>选择预置流程或描述任务意图以创建 AI 任务。</DialogDescription>
+        </DialogHeader>
 
-        {/* Content */}
-        <div className="p-5 space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {/* 模式切换 */}
           <div className="flex gap-2">
-            <button
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setMode("template")}
               className={cn(
-                "flex-1 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors",
+                "h-auto flex-1 flex-col gap-2 py-2.5",
                 mode === "template"
-                  ? "border-blue-500 bg-blue-500/5 text-blue-600"
+                  ? "border-blue-500 bg-blue-500/5 text-blue-600 hover:bg-blue-500/10 hover:text-blue-600"
                   : "border-border/50 text-muted-foreground hover:border-border"
               )}
             >
               <Zap className="h-4 w-4" />
               选择预置流程
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setMode("custom")}
               className={cn(
-                "flex-1 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors",
+                "h-auto flex-1 flex-col gap-2 py-2.5",
                 mode === "custom"
-                  ? "border-blue-500 bg-blue-500/5 text-blue-600"
+                  ? "border-blue-500 bg-blue-500/5 text-blue-600 hover:bg-blue-500/10 hover:text-blue-600"
                   : "border-border/50 text-muted-foreground hover:border-border"
               )}
             >
               <FileText className="h-4 w-4" />
               自由描述意图
-            </button>
+            </Button>
           </div>
 
           {/* 模板列表 */}
           {mode === "template" && (
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="max-h-60 space-y-2 overflow-y-auto">
               {allTemplates.length === 0 ? (
-                <div className="text-sm text-muted-foreground text-center py-4">
-                  暂无可用模板
-                </div>
+                <div className="py-4 text-center text-sm text-muted-foreground">暂无可用模板</div>
               ) : (
                 allTemplates.map((tpl) => (
-                  <button
+                  <Button
                     key={tpl.id}
+                    type="button"
+                    variant="outline"
                     onClick={() => setSelectedTemplate(tpl.id)}
                     className={cn(
-                      "w-full text-left rounded-lg border px-4 py-3 transition-colors",
+                      "h-auto w-full flex-col items-start gap-0 px-4 py-3 text-left font-normal",
                       selectedTemplate === tpl.id
-                        ? "border-blue-500 bg-blue-500/5"
+                        ? "border-blue-500 bg-blue-500/5 hover:bg-blue-500/10"
                         : "border-border/50 hover:border-border"
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full items-center gap-2">
                       {tpl.type === "custom" ? (
-                        <Workflow size={13} className="text-blue-500 shrink-0" />
+                        <Workflow size={13} className="shrink-0 text-blue-500" />
                       ) : (
-                        <Sparkles size={13} className="text-accent shrink-0" />
+                        <Sparkles size={13} className="shrink-0 text-accent" />
                       )}
                       <span className="text-sm font-medium text-foreground">{tpl.name}</span>
-                      <span className="text-[9px] text-muted-foreground bg-muted/20 rounded px-1 py-0.5">
+                      <span className="rounded bg-muted/20 px-1 py-0.5 text-[9px] text-muted-foreground">
                         {tpl.type === "custom" ? "自定义" : "预设"}
                       </span>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5 pl-5">
+                    <div className="mt-0.5 pl-5 text-xs text-muted-foreground">
                       {tpl.description} · {tpl.stepCount} 步
                     </div>
-                  </button>
+                  </Button>
                 ))
               )}
             </div>
@@ -177,50 +190,48 @@ export function AgentTaskCreateDialog({
               value={customIntent}
               onChange={(e) => setCustomIntent(e.target.value)}
               placeholder="描述你希望 AI 完成的任务，例如：&#10;• 帮我准备这个项目的投标报价&#10;• 全面检查项目状态和风险&#10;• 生成项目进展摘要"
-              className="w-full h-28 rounded-lg border border-border/50 bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+              className="h-28 w-full resize-none rounded-lg border border-border/50 bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           )}
 
           {/* 选项 */}
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
             <input
+              id="agent-task-auto-exec"
               type="checkbox"
               checked={autoExecute}
               onChange={(e) => setAutoExecute(e.target.checked)}
-              className="rounded"
+              className="rounded border-border accent-blue-500"
             />
-            创建后立即开始执行
-          </label>
+            <Label htmlFor="agent-task-auto-exec" className="text-sm font-normal text-muted-foreground">
+              创建后立即开始执行
+            </Label>
+          </div>
 
           {error && (
-            <div className="text-sm text-red-500 bg-red-500/5 rounded-lg px-3 py-2">
-              {error}
-            </div>
+            <div className="rounded-lg bg-red-500/5 px-3 py-2 text-sm text-red-500">{error}</div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-2 border-t border-border/30 px-5 py-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
+        <DialogFooter className="border-t border-border/30 px-5 py-3 sm:space-x-2">
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             取消
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
             onClick={handleCreate}
             disabled={
               creating ||
               (mode === "template" && !selectedTemplate) ||
               (mode === "custom" && !customIntent.trim())
             }
-            className="flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50 transition-colors"
+            className="bg-blue-500 text-white hover:bg-blue-600"
           >
             {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {creating ? "创建中..." : autoExecute ? "创建并执行" : "创建任务"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

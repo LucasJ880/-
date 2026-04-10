@@ -17,6 +17,11 @@ import {
   buildMemoryBlock,
   getSalesContext,
   buildSalesContextBlock,
+  getWakeUpMemories,
+  recallMemories,
+  buildUserMemoryBlock,
+  extractMemoriesFromConversation,
+  saveMemories,
   type ChatMessage,
 } from "@/lib/ai";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
@@ -110,9 +115,10 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     content: m.content,
   }));
 
-  const [workContext, prepared] = await Promise.all([
+  const [workContext, prepared, wakeUp] = await Promise.all([
     getWorkContext(user.id, user.role),
     prepareConversation(chatMessages),
+    getWakeUpMemories(user.id),
   ]);
 
   let deepBlock = "";
@@ -131,6 +137,13 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     memoryBlock = buildMemoryBlock(memory);
   }
 
+  const l2Memories = await recallMemories(user.id, content, {
+    customerId: undefined,
+    projectId: resolvedProjectId ?? undefined,
+    limit: 5,
+  });
+  const userMemoryBlock = buildUserMemoryBlock(wakeUp.l0, wakeUp.l1, l2Memories);
+
   const fileBlock = fileText
     ? `\n\n<uploaded_document filename="${fileName}">\n${fileText.slice(0, 120000)}\n</uploaded_document>\n\n请基于上述文档内容回答用户问题。使用 Markdown 格式输出（表格、标题、列表、粗体等）。`
     : "";
@@ -145,6 +158,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     "follow up", "follow-up", "quote", "客户管理", "机会",
     "安装", "测量", "订单", "窗帘", "百叶", "blinds", "shutter",
     "邮件草稿", "draft email", "回复客户",
+    "微信", "wechat", "小红书", "xiaohongshu", "facebook", "话术",
   ];
   const combinedText = (content + " " + fileName).toLowerCase();
   const isTenderContext = fileText && TENDER_KEYWORDS.some((kw) => combinedText.includes(kw));
@@ -183,6 +197,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     buildContextBlock(workContext) +
     deepBlock +
     memoryBlock +
+    userMemoryBlock +
     salesBlock +
     fileBlock +
     buildSummaryPrefix(prepared.summarizedContext);
@@ -236,6 +251,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
             }),
           ]);
 
+          // 异步提取记忆（不阻塞响应流）
+          extractAndSaveMemories(user.id, content, cleanText, threadId).catch(
+            () => {}
+          );
+
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
@@ -263,4 +283,26 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       err instanceof Error ? err.message : "AI 服务连接失败";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+async function extractAndSaveMemories(
+  userId: string,
+  userMessage: string,
+  assistantReply: string,
+  threadId: string
+) {
+  const extracted = extractMemoriesFromConversation(userMessage, assistantReply);
+  if (extracted.length === 0) return;
+
+  await saveMemories(
+    userId,
+    extracted.map((m) => ({
+      memoryType: m.memoryType,
+      content: m.content,
+      layer: 1,
+      tags: m.tags,
+      importance: m.importance,
+      sourceThreadId: threadId,
+    }))
+  );
 }

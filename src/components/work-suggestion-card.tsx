@@ -1114,17 +1114,16 @@ function QuestionEmailCard({
         </div>
       </div>
 
-      {showDialog && (
-        <ProjectQuestionDialog
-          projectId={effectiveProjectId}
-          prefill={prefill}
-          onClose={() => setShowDialog(false)}
-          onSent={() => {
-            setShowDialog(false);
-            onCreated?.();
-          }}
-        />
-      )}
+      <ProjectQuestionDialog
+        projectId={effectiveProjectId}
+        open={showDialog}
+        onOpenChange={setShowDialog}
+        prefill={prefill}
+        onSent={() => {
+          setShowDialog(false);
+          onCreated?.();
+        }}
+      />
     </>
   );
 }

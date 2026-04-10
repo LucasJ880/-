@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  X,
   Loader2,
   Send,
   RefreshCw,
@@ -13,6 +12,16 @@ import {
   Mail,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 // ── 类型 ──────────────────────────────────────────────────
 
@@ -45,14 +54,24 @@ export interface QuestionPrefill {
 
 interface Props {
   projectId: string;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSent?: () => void;
   prefill?: QuestionPrefill;
 }
 
+const textareaClass =
+  "flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 disabled:cursor-not-allowed disabled:opacity-50";
+
 // ── 组件 ──────────────────────────────────────────────────
 
-export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: Props) {
+export function ProjectQuestionDialog({
+  projectId,
+  open,
+  onOpenChange,
+  onSent,
+  prefill,
+}: Props) {
   const [phase, setPhase] = useState<Phase>("form");
   const [error, setError] = useState("");
 
@@ -74,6 +93,37 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
 
   // Gmail status
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+
+  const wasOpenRef = useRef(open);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      setPhase("form");
+      setError("");
+      setQuestion(null);
+      setEditSubject("");
+      setEditBody("");
+      setEditTo("");
+      setEditCc("");
+      setTitle("");
+      setDescription("");
+      setLocationRef("");
+      setClarification("");
+      setImpactNote("");
+      setToRecipients("");
+      setCcRecipients("");
+    }
+    if (!wasOpenRef.current && open) {
+      setTitle(prefill?.title || "");
+      setDescription(prefill?.description || "");
+      setLocationRef(prefill?.locationOrReference || "");
+      setClarification(prefill?.clarificationNeeded || "");
+      setImpactNote(prefill?.impactNote || "");
+      setToRecipients(prefill?.toRecipients || "");
+      setCcRecipients("");
+    }
+    wasOpenRef.current = open;
+  }, [open, prefill]);
 
   useEffect(() => {
     apiFetch("/api/auth/google-email/status")
@@ -161,11 +211,10 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
       <div className="space-y-4">
         {/* Title */}
         <Field label="问题标题" required>
-          <input
+          <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="例：2F 窗户尺寸与图纸不一致"
-            className="input-field"
           />
         </Field>
 
@@ -176,17 +225,16 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             placeholder="详细描述发现的问题、现场情况与图纸的差异等"
-            className="input-field resize-none"
+            className={cn(textareaClass, "resize-none")}
           />
         </Field>
 
         {/* Location / Reference */}
         <Field label="涉及区域 / 图纸编号">
-          <input
+          <Input
             value={locationRef}
             onChange={(e) => setLocationRef(e.target.value)}
             placeholder="例：Drawing A2.1, Room 201, Window W-03"
-            className="input-field"
           />
         </Field>
 
@@ -197,35 +245,32 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
             onChange={(e) => setClarification(e.target.value)}
             rows={2}
             placeholder="例：请确认窗户开启方式为左开还是右开"
-            className="input-field resize-none"
+            className={cn(textareaClass, "resize-none")}
           />
         </Field>
 
         {/* Impact */}
         <Field label="潜在影响（可选）">
-          <input
+          <Input
             value={impactNote}
             onChange={(e) => setImpactNote(e.target.value)}
             placeholder="例：如不确认，可能影响生产排期和报价"
-            className="input-field"
           />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="收件人 (To)">
-            <input
+            <Input
               value={toRecipients}
               onChange={(e) => setToRecipients(e.target.value)}
               placeholder="owner@example.com"
-              className="input-field"
             />
           </Field>
           <Field label="抄送 (Cc)">
-            <input
+            <Input
               value={ccRecipients}
               onChange={(e) => setCcRecipients(e.target.value)}
               placeholder="pm@example.com"
-              className="input-field"
             />
           </Field>
         </div>
@@ -247,19 +292,19 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
         {/* Recipients */}
         <div className="grid grid-cols-2 gap-3">
           <Field label="收件人 (To)">
-            <input
+            <Input
               value={editTo}
               onChange={(e) => setEditTo(e.target.value)}
-              className="input-field"
               readOnly={!isEditing}
+              className={cn(!isEditing && "bg-muted/30")}
             />
           </Field>
           <Field label="抄送 (Cc)">
-            <input
+            <Input
               value={editCc}
               onChange={(e) => setEditCc(e.target.value)}
-              className="input-field"
               readOnly={!isEditing}
+              className={cn(!isEditing && "bg-muted/30")}
             />
           </Field>
         </div>
@@ -267,10 +312,9 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
         {/* Subject */}
         <Field label="邮件主题">
           {isEditing ? (
-            <input
+            <Input
               value={editSubject}
               onChange={(e) => setEditSubject(e.target.value)}
-              className="input-field"
             />
           ) : (
             <div className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm">
@@ -286,7 +330,7 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
               value={editBody}
               onChange={(e) => setEditBody(e.target.value)}
               rows={14}
-              className="input-field resize-none font-mono text-[13px]"
+              className={cn(textareaClass, "resize-none font-mono text-[13px]")}
             />
           ) : (
             <div
@@ -323,26 +367,35 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
     error: "向业主提问",
   }[phase];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-card-bg shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div className="flex items-center gap-2">
-            <FileQuestion size={16} className="text-accent" />
-            <h3 className="text-sm font-semibold">{headerTitle}</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted hover:text-foreground"
-          >
-            <X size={16} />
-          </button>
-        </div>
+  const headerDescription = {
+    form: "填写问题信息与收件人，生成澄清邮件草稿。",
+    generating: "正在根据你的描述生成正式澄清邮件。",
+    preview: "确认收件人与正文后发送。",
+    editing: "修改主题或正文后返回预览确认。",
+    sending: "正在通过已绑定的邮箱发送。",
+    sent: "邮件已成功发出。",
+    error: "请检查表单或重试生成。",
+  }[phase];
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className={cn(
+          "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl",
+          "[&>button]:text-muted [&>button]:hover:text-foreground"
+        )}
+      >
+        <DialogHeader className="space-y-1 border-b border-border px-5 py-4 pr-12 text-left">
+          <DialogTitle className="flex items-center gap-2 text-sm font-semibold leading-snug">
+            <FileQuestion size={16} className="text-accent shrink-0" />
+            {headerTitle}
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {headerDescription}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {phase === "form" && renderForm()}
 
           {phase === "generating" && (
@@ -377,102 +430,79 @@ export function ProjectQuestionDialog({ projectId, onClose, onSent, prefill }: P
           )}
         </div>
 
-        {/* Footer */}
         {phase === "form" && (
           <div className="flex items-center justify-end border-t border-border px-5 py-3">
-            <button
-              type="button"
-              onClick={generate}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
-            >
-              <Mail size={12} />
+            <Button type="button" variant="accent" size="sm" onClick={generate}>
+              <Mail className="h-3 w-3" />
               生成邮件草稿
-            </button>
+            </Button>
           </div>
         )}
 
         {phase === "error" && (
           <div className="flex items-center justify-end border-t border-border px-5 py-3">
-            <button
-              type="button"
-              onClick={generate}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-background/80"
-            >
-              <RefreshCw size={12} />
+            <Button type="button" variant="outline" size="sm" onClick={generate}>
+              <RefreshCw className="h-3 w-3" />
               重新生成
-            </button>
+            </Button>
           </div>
         )}
 
         {(phase === "preview" || phase === "editing" || phase === "sending") && (
-          <div className="flex items-center justify-between border-t border-border px-5 py-3">
-            <div className="flex gap-2">
-              <button
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3">
+            <div className="flex flex-wrap gap-2">
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setPhase("form");
                   setQuestion(null);
                 }}
                 disabled={phase === "sending"}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-background/80 disabled:opacity-50"
               >
-                <RefreshCw size={12} />
+                <RefreshCw className="h-3 w-3" />
                 重新填写
-              </button>
+              </Button>
               {phase !== "editing" ? (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setPhase("editing")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-background/80"
                 >
-                  <Edit3 size={12} />
+                  <Edit3 className="h-3 w-3" />
                   编辑
-                </button>
+                </Button>
               ) : (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setPhase("preview")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-background/80"
                 >
                   预览
-                </button>
+                </Button>
               )}
             </div>
-            <button
+            <Button
               type="button"
+              variant="accent"
+              size="sm"
               onClick={handleSend}
               disabled={phase === "sending" || gmailConnected === false || !editTo.trim()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
               {phase === "sending" ? (
-                <Loader2 size={12} className="animate-spin" />
+                <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Send size={12} />
+                <Send className="h-3 w-3" />
               )}
               {phase === "sending" ? "发送中…" : "确认发送"}
-            </button>
+            </Button>
           </div>
         )}
-      </div>
-
-      <style jsx>{`
-        .input-field {
-          width: 100%;
-          border-radius: 0.5rem;
-          border: 1px solid var(--border);
-          background: var(--background);
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          outline: none;
-        }
-        .input-field:focus {
-          border-color: var(--accent);
-        }
-        .input-field[readonly] {
-          background: color-mix(in srgb, var(--background) 50%, transparent);
-        }
-      `}</style>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

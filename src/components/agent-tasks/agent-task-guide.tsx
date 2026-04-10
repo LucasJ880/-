@@ -14,6 +14,15 @@ import {
   Lightbulb,
   Sparkles,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "qingyan_agent_guide_seen";
@@ -98,19 +107,28 @@ const GUIDE_STEPS: GuideStep[] = [
 
 interface Props {
   open: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
   onCreateTask?: () => void;
 }
 
-export function AgentTaskGuide({ open, onClose, onCreateTask }: Props) {
+export function AgentTaskGuide({ open, onOpenChange, onCreateTask }: Props) {
   const [step, setStep] = useState(0);
 
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        try {
+          localStorage.setItem(STORAGE_KEY, "true");
+        } catch {}
+      }
+      onOpenChange(next);
+    },
+    [onOpenChange]
+  );
+
   const handleClose = useCallback(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, "true");
-    } catch {}
-    onClose();
-  }, [onClose]);
+    handleOpenChange(false);
+  }, [handleOpenChange]);
 
   const handleNext = useCallback(() => {
     if (step < GUIDE_STEPS.length - 1) {
@@ -128,103 +146,117 @@ export function AgentTaskGuide({ open, onClose, onCreateTask }: Props) {
     if (open) setStep(0);
   }, [open]);
 
-  if (!open) return null;
-
   const current = GUIDE_STEPS[step];
   const Icon = current.icon;
   const isLast = step === GUIDE_STEPS.length - 1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl" style={{ backgroundColor: 'var(--card, #fff)' }}>
-        {/* 顶部进度 */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <div className="flex items-center gap-1.5">
-            {GUIDE_STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "h-1 rounded-full transition-all duration-300",
-                  i === step ? "w-6 bg-accent" : i < step ? "w-3 bg-accent/40" : "w-3 bg-border"
-                )}
-              />
-            ))}
-          </div>
-          <button
-            onClick={handleClose}
-            className="p-1 rounded hover:bg-muted/30 transition-colors"
-          >
-            <X size={14} className="text-muted-foreground" />
-          </button>
-        </div>
-
-        {/* 内容 */}
-        <div className="px-6 pb-2 pt-3">
-          {/* 图标 + 标题 */}
-          <div className="flex items-center gap-3 mb-3">
-            <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", current.iconColor)}>
-              <Icon size={20} />
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className={cn(
+          "max-w-md gap-0 overflow-hidden border-border bg-card p-0 shadow-2xl [&>button]:hidden"
+        )}
+        style={{ backgroundColor: "var(--card, #fff)" }}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <div className="w-full">
+          {/* 顶部进度 */}
+          <div className="flex items-center justify-between px-5 pt-4 pb-2">
+            <div className="flex items-center gap-1.5">
+              {GUIDE_STEPS.map((_, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "h-1 rounded-full transition-all duration-300",
+                    i === step ? "w-6 bg-accent" : i < step ? "w-3 bg-accent/40" : "w-3 bg-border"
+                  )}
+                />
+              ))}
             </div>
-            <div>
-              <div className="text-xs text-foreground/60 font-medium">
-                步骤 {step + 1} / {GUIDE_STEPS.length}
-              </div>
-              <h3 className="text-base font-semibold text-foreground">{current.title}</h3>
-            </div>
-          </div>
-
-          {/* 描述 */}
-          <p className="text-sm text-foreground/90 leading-relaxed mb-4">{current.description}</p>
-
-          {/* 视觉示意 */}
-          <StepVisual type={current.visual} />
-
-          {/* 要点 */}
-          <div className="mt-4 space-y-1.5">
-            {current.tips.map((tip, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs">
-                <Lightbulb size={11} className="mt-0.5 shrink-0 text-amber-500" />
-                <span className="text-foreground/90">{tip}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 底部操作 */}
-        <div className="flex items-center justify-between border-t border-border/30 px-5 py-3 mt-3">
-          <button
-            onClick={handlePrev}
-            disabled={step === 0}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
-          >
-            <ChevronLeft size={14} />
-            上一步
-          </button>
-
-          <div className="flex items-center gap-2">
-            {isLast && onCreateTask && (
-              <button
-                onClick={() => {
-                  handleClose();
-                  onCreateTask();
-                }}
-                className="flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-500/20 transition-colors"
-              >
-                <Sparkles size={13} />
-                立即试试
-              </button>
-            )}
-            <button
-              onClick={handleNext}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent/90 transition-colors"
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-muted-foreground"
+              onClick={handleClose}
+              aria-label="关闭"
             >
-              {isLast ? "完成" : "下一步"}
-              {!isLast && <ChevronRight size={14} />}
-            </button>
+              <X size={14} />
+            </Button>
           </div>
+
+          {/* 内容 */}
+          <div className="px-6 pb-2 pt-3">
+            {/* 图标 + 标题 */}
+            <div className="mb-3 flex items-start gap-3">
+              <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", current.iconColor)}>
+                <Icon size={20} />
+              </div>
+              <DialogHeader className="flex-1 space-y-1.5 p-0 text-left">
+                <DialogDescription className="text-xs font-medium text-foreground/60">
+                  步骤 {step + 1} / {GUIDE_STEPS.length}
+                </DialogDescription>
+                <DialogTitle className="text-base font-semibold text-foreground">{current.title}</DialogTitle>
+              </DialogHeader>
+            </div>
+
+            {/* 描述 */}
+            <p className="mb-4 text-sm leading-relaxed text-foreground/90">{current.description}</p>
+
+            {/* 视觉示意 */}
+            <StepVisual type={current.visual} />
+
+            {/* 要点 */}
+            <div className="mt-4 space-y-1.5">
+              {current.tips.map((tip, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <Lightbulb size={11} className="mt-0.5 shrink-0 text-amber-500" />
+                  <span className="text-foreground/90">{tip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 底部操作 */}
+          <DialogFooter className="mt-3 flex flex-row items-center justify-between gap-2 border-t border-border/30 px-5 py-3 sm:justify-between sm:space-x-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handlePrev}
+              disabled={step === 0}
+              className="gap-1 px-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
+            >
+              <ChevronLeft className="size-3.5" />
+              上一步
+            </Button>
+
+            <div className="flex items-center gap-2">
+              {isLast && onCreateTask && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    handleClose();
+                    onCreateTask();
+                  }}
+                  className="gap-1.5 bg-blue-500/10 font-medium text-blue-600 hover:bg-blue-500/20 hover:text-blue-600"
+                >
+                  <Sparkles className="size-3.5" />
+                  立即试试
+                </Button>
+              )}
+              <Button type="button" variant="accent" size="sm" onClick={handleNext} className="gap-1.5">
+                {isLast ? "完成" : "下一步"}
+                {!isLast && <ChevronRight className="size-3.5" />}
+              </Button>
+            </div>
+          </DialogFooter>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,11 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Rocket, X } from "lucide-react";
+import { Loader2, Rocket } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 
 interface KbPublishDialogProps {
   open: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
   onConfirm: (remark: string) => Promise<void>;
   kbName: string;
   kbKey: string;
@@ -16,7 +26,7 @@ interface KbPublishDialogProps {
 
 export function KbPublishDialog({
   open,
-  onClose,
+  onOpenChange,
   onConfirm,
   kbName,
   kbKey,
@@ -28,15 +38,13 @@ export function KbPublishDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  if (!open) return null;
-
   async function handleConfirm() {
     setLoading(true);
     setError("");
     try {
       await onConfirm(remark.trim());
       setRemark("");
-      onClose();
+      onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "发布失败");
     } finally {
@@ -45,23 +53,19 @@ export function KbPublishDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border border-border bg-card-bg p-6 shadow-lg">
-        <div className="flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-bold">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md [&>button:last-child]:hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <Rocket size={18} className="text-accent" />
             知识库发布确认
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-background"
-          >
-            <X size={16} />
-          </button>
-        </div>
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            发布将把当前 test 知识库快照（含全部活跃文档）同步到 {targetEnv} 环境
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-4 space-y-3 rounded-lg border border-border bg-background p-3 text-sm">
+        <div className="space-y-3 rounded-lg border border-border bg-background p-3 text-sm">
           <div className="flex justify-between">
             <span className="text-muted">知识库</span>
             <span className="font-medium">{kbName}</span>
@@ -88,13 +92,12 @@ export function KbPublishDialog({
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-muted">
-          发布将把当前 test 知识库快照（含全部活跃文档）同步到 {targetEnv} 环境
-        </p>
-
-        <div className="mt-4">
-          <label className="text-xs text-muted">发布备注（可选）</label>
+        <div>
+          <Label htmlFor="kb-publish-remark" className="text-xs text-muted">
+            发布备注（可选）
+          </Label>
           <textarea
+            id="kb-publish-remark"
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
             rows={2}
@@ -103,22 +106,22 @@ export function KbPublishDialog({
           />
         </div>
 
-        {error && <p className="mt-2 text-sm text-[#a63d3d]">{error}</p>}
+        {error && <p className="text-sm text-[#a63d3d]">{error}</p>}
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button
+        <DialogFooter>
+          <Button
             type="button"
-            onClick={onClose}
+            variant="outline"
+            onClick={() => onOpenChange(false)}
             disabled={loading}
-            className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-background"
           >
             取消
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="accent"
             onClick={handleConfirm}
             disabled={loading || versionNumber == null}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {loading ? (
               <>
@@ -131,9 +134,9 @@ export function KbPublishDialog({
                 确认发布
               </>
             )}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

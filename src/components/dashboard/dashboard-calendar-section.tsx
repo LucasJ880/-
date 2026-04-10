@@ -11,10 +11,20 @@ import {
   Loader2,
   MapPin,
   Plus,
-  X,
   Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-fetch";
 import type { CalendarEventItem, ScheduleEvent, SimpleTask } from "./types";
 import { ScheduleEventDrawer } from "./schedule-event-drawer";
@@ -639,18 +649,18 @@ function TodayTimelineView({
 }
 
 /* ═══════════════════════════════════════════
-   EventFormModal (unchanged)
+   EventFormModal (shadcn Dialog)
    ═══════════════════════════════════════════ */
 
 function EventFormModal({
   open,
-  onClose,
+  onOpenChange,
   onSaved,
   prefillTask,
   editing,
 }: {
   open: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
   onSaved: () => void;
   prefillTask?: SimpleTask | null;
   editing?: CalendarEventItem | null;
@@ -709,8 +719,6 @@ function EventFormModal({
       .catch(() => {});
   }, [open, prefillTask, editing]);
 
-  if (!open) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -745,7 +753,7 @@ function EventFormModal({
         throw new Error(data.error || `保存失败 (${res.status})`);
       }
       onSaved();
-      onClose();
+      onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -754,94 +762,89 @@ function EventFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border border-border bg-card-bg p-5 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md border-border bg-card-bg sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">
             {isEdit ? "编辑日程" : "添加日程"}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-muted hover:bg-background"
-          >
-            <X size={16} />
-          </button>
-        </div>
+          </DialogTitle>
+          <DialogDescription>
+            {isEdit ? "修改日程时间与关联信息。" : "填写标题、时间与可选地点。"}
+          </DialogDescription>
+        </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <input
+          <Input
+            id="event-form-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="日程标题"
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
             autoFocus
           />
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs text-muted">日期</label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="event-form-date">日期</Label>
+              <Input
+                id="event-form-date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               />
             </div>
             <div className="flex items-end">
-              <button
+              <Button
                 type="button"
-                onClick={() => setAllDay(!allDay)}
+                variant={allDay ? "secondary" : "outline"}
                 className={cn(
-                  "w-full rounded-lg border px-3 py-2 text-sm transition-colors",
-                  allDay
-                    ? "border-accent bg-accent/5 font-medium text-accent"
-                    : "border-border text-muted hover:bg-background"
+                  "w-full",
+                  allDay && "border-accent font-medium text-accent"
                 )}
+                onClick={() => setAllDay(!allDay)}
               >
                 {allDay ? "✓ 全天事件" : "全天事件"}
-              </button>
+              </Button>
             </div>
           </div>
           {!allDay && (
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs text-muted">
-                  开始时间
-                </label>
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="event-form-start">开始时间</Label>
+                <Input
+                  id="event-form-start"
                   type="time"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted">
-                  结束时间
-                </label>
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="event-form-end">结束时间</Label>
+                <Input
+                  id="event-form-end"
                   type="time"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                 />
               </div>
             </div>
           )}
-          <input
+          <Input
+            id="event-form-location"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             placeholder="地点（可选）"
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
           />
-          <div>
-            <label className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+          <div className="space-y-2">
+            <Label
+              htmlFor="event-form-task"
+              className="flex items-center gap-1.5"
+            >
               <Link2 size={11} />
               关联任务（可选）
-            </label>
+            </Label>
             <select
+              id="event-form-task"
               value={taskId}
               onChange={(e) => setTaskId(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              className="flex h-9 w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30"
             >
               <option value="">不关联任务</option>
               {tasks.map((t) => (
@@ -856,26 +859,26 @@ function EventFormModal({
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2 pt-1">
-            <button
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-border px-4 py-2 text-sm text-muted transition-colors hover:bg-background"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
             >
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="accent"
               disabled={!title.trim() || saving}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
               {isEdit ? "保存" : "创建"}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -961,7 +964,9 @@ export function DashboardCalendarSection({
       />
       <EventFormModal
         open={showEventForm}
-        onClose={onClose}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) onClose();
+        }}
         onSaved={onSaved}
         editing={editingEvent}
       />

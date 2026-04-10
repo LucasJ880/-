@@ -200,8 +200,11 @@ export default function ProjectIntakePage() {
       {/* Dispatch Dialog */}
       {dispatchTarget && (
         <DispatchDialog
+          open
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setDispatchTarget(null);
+          }}
           project={dispatchTarget}
-          onClose={() => setDispatchTarget(null)}
           onSuccess={() => {
             const name = dispatchTarget.name;
             setDispatchTarget(null);

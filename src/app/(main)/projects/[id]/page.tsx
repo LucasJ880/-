@@ -509,9 +509,12 @@ function ProjectDetailContent() {
               </div>
             </div>
           )}
-          {showQuestionDialog && (
-            <ProjectQuestionDialog projectId={id} onClose={() => setShowQuestionDialog(false)} onSent={() => setShowQuestionDialog(false)} />
-          )}
+          <ProjectQuestionDialog
+            projectId={id}
+            open={showQuestionDialog}
+            onOpenChange={setShowQuestionDialog}
+            onSent={() => setShowQuestionDialog(false)}
+          />
         </div>
       )}
 
@@ -593,13 +596,19 @@ function ProjectDetailContent() {
       <ProjectNotificationRuleCard projectId={id} />
 
       {/* Abandon dialog */}
-      {showAbandonDialog && project && (() => {
-        const tenderProps = buildTenderProps(project);
-        return (
-          <AbandonProjectDialog projectId={project.id} projectName={project.name} currentStage={getProjectStage(tenderProps)}
-            onClose={() => setShowAbandonDialog(false)} onSuccess={() => { setShowAbandonDialog(false); load(); }} />
-        );
-      })()}
+      {project && (
+        <AbandonProjectDialog
+          open={showAbandonDialog}
+          onOpenChange={setShowAbandonDialog}
+          projectId={project.id}
+          projectName={project.name}
+          currentStage={getProjectStage(buildTenderProps(project))}
+          onSuccess={() => {
+            setShowAbandonDialog(false);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

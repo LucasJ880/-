@@ -372,19 +372,18 @@ export function ProjectAgentTasks({ projectId }: Props) {
       </div>
 
       {/* 创建弹窗 */}
-      {showCreate && (
-        <AgentTaskCreateDialog
-          projectId={projectId}
-          templates={templates}
-          onClose={() => setShowCreate(false)}
-          onCreated={fetchTasks}
-        />
-      )}
+      <AgentTaskCreateDialog
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        projectId={projectId}
+        templates={templates}
+        onCreated={fetchTasks}
+      />
 
       {/* 使用指引 */}
       <AgentTaskGuide
         open={showGuide}
-        onClose={() => setShowGuide(false)}
+        onOpenChange={setShowGuide}
         onCreateTask={() => setShowCreate(true)}
       />
     </div>

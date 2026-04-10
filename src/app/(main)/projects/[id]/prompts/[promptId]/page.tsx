@@ -722,7 +722,7 @@ export default function PromptDetailPage() {
       {/* Publish dialog */}
       <PromptPublishDialog
         open={showPublish}
-        onClose={() => setShowPublish(false)}
+        onOpenChange={setShowPublish}
         onConfirm={handlePublish}
         promptName={prompt.name}
         promptKey={prompt.key}

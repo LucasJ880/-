@@ -38,6 +38,26 @@ import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { daysRemainingToronto, toToronto } from "@/lib/time";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select as ShadSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const PROJECT_SELECT_NONE = "__none__";
 
 /* ── Types ── */
 
@@ -418,8 +438,8 @@ function BatchActionBar({
 }
 
 /* ── TaskFormModal ── */
-function TaskFormModal({ open, onClose, onSaved, editing, projects }: {
-  open: boolean; onClose: () => void; onSaved: () => void; editing: Task | null; projects: SimpleProject[];
+function TaskFormModal({ open, onOpenChange, onSaved, editing, projects }: {
+  open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void; editing: Task | null; projects: SimpleProject[];
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -442,8 +462,6 @@ function TaskFormModal({ open, onClose, onSaved, editing, projects }: {
     }
   }, [editing, open]);
 
-  if (!open) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -456,41 +474,49 @@ function TaskFormModal({ open, onClose, onSaved, editing, projects }: {
         body: JSON.stringify({ title: title.trim(), description: description || null, priority, status, projectId: projectId || null, dueDate: dueDate || null, needReminder }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `保存失败 (${res.status})`); }
-      onSaved(); onClose();
+      onSaved(); onOpenChange(false);
     } catch (err) { setSaveError(err instanceof Error ? err.message : "保存失败"); } finally { setSaving(false); }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card-bg p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">{editing ? "编辑任务" : "新建任务"}</h3>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-background"><X size={18} /></button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg border-border bg-card-bg">
         <form onSubmit={handleSubmit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>{editing ? "编辑任务" : "新建任务"}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {editing ? "编辑任务表单" : "新建任务表单"}，任务标题为必填。
+            </DialogDescription>
+          </DialogHeader>
           <div>
-            <label className="mb-1 block text-sm font-medium">任务标题 <span className="text-[#a63d3d]">*</span></label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="输入任务标题..." className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" autoFocus />
+            <Label htmlFor="task-form-title" className="mb-1 block text-sm font-medium text-foreground">
+              任务标题 <span className="text-[#a63d3d]">*</span>
+            </Label>
+            <Input id="task-form-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="输入任务标题..." className="bg-background" autoFocus />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">描述</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="任务描述（可选）..." rows={3} className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
+            <Label htmlFor="task-form-description" className="mb-1 block text-sm font-medium text-foreground">描述</Label>
+            <textarea id="task-form-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="任务描述（可选）..." rows={3} className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">优先级</label>
+              <Label className="mb-1 block text-sm font-medium text-foreground">优先级</Label>
               <div className="flex flex-wrap gap-1.5">
                 {(Object.keys(TASK_PRIORITY) as TaskPriority[]).map((p) => (
-                  <button key={p} type="button" onClick={() => setPriority(p)} className={cn("rounded-lg border px-2.5 py-1 text-xs transition-colors", priority === p ? "border-accent bg-accent text-white" : "border-border hover:bg-background")}>{TASK_PRIORITY[p].label}</button>
+                  <Button key={p} type="button" size="sm" variant={priority === p ? "accent" : "outline"} onClick={() => setPriority(p)} className={cn("h-auto px-2.5 py-1 text-xs", priority === p && "text-white")}>
+                    {TASK_PRIORITY[p].label}
+                  </Button>
                 ))}
               </div>
             </div>
             {editing && (
               <div>
-                <label className="mb-1 block text-sm font-medium">状态</label>
+                <Label className="mb-1 block text-sm font-medium text-foreground">状态</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {(Object.keys(TASK_STATUS) as TaskStatus[]).map((s) => (
-                    <button key={s} type="button" onClick={() => setStatus(s)} className={cn("rounded-lg border px-2.5 py-1 text-xs transition-colors", status === s ? "border-accent bg-accent text-white" : "border-border hover:bg-background")}>{TASK_STATUS[s].label}</button>
+                    <Button key={s} type="button" size="sm" variant={status === s ? "accent" : "outline"} onClick={() => setStatus(s)} className={cn("h-auto px-2.5 py-1 text-xs", status === s && "text-white")}>
+                      {TASK_STATUS[s].label}
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -498,34 +524,41 @@ function TaskFormModal({ open, onClose, onSaved, editing, projects }: {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">所属项目</label>
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent">
-                <option value="">无</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <Label htmlFor="task-form-project" className="mb-1 block text-sm font-medium text-foreground">所属项目</Label>
+              <ShadSelect value={projectId || PROJECT_SELECT_NONE} onValueChange={(v) => setProjectId(v === PROJECT_SELECT_NONE ? "" : v)}>
+                <SelectTrigger id="task-form-project" className="bg-background">
+                  <SelectValue placeholder="选择项目" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={PROJECT_SELECT_NONE}>无</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </ShadSelect>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">截止日期</label>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
+              <Label htmlFor="task-form-due" className="mb-1 block text-sm font-medium text-foreground">截止日期</Label>
+              <Input id="task-form-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="bg-background" />
             </div>
           </div>
           <div>
-            <button type="button" onClick={() => setNeedReminder(!needReminder)} className={cn("flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors", needReminder ? "border-[rgba(154,106,47,0.15)] bg-[rgba(154,106,47,0.04)] text-[#9a6a2f]" : "border-border text-muted hover:bg-background")}>
+            <Button type="button" variant="outline" onClick={() => setNeedReminder(!needReminder)} className={cn("h-auto w-full justify-start gap-2 px-3 py-2 font-normal", needReminder ? "border-[rgba(154,106,47,0.15)] bg-[rgba(154,106,47,0.04)] text-[#9a6a2f]" : "text-muted")}>
               {needReminder ? <Bell size={14} /> : <BellOff size={14} />}
               {needReminder ? "已开启到期提醒" : "开启到期提醒"}
-            </button>
+            </Button>
           </div>
           {saveError && <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">{saveError}</p>}
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-background">取消</button>
-            <button type="submit" disabled={!title.trim() || saving} className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+            <Button type="submit" variant="accent" disabled={!title.trim() || saving}>
               {saving && <Loader2 size={14} className="animate-spin" />}
               {editing ? "保存修改" : "创建任务"}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -818,7 +851,16 @@ function TasksPageContent() {
         </div>
       )}
 
-      <TaskFormModal open={showForm} onClose={() => { setShowForm(false); setEditingTask(null); }} onSaved={loadTasks} editing={editingTask} projects={projects} />
+      <TaskFormModal
+        open={showForm}
+        onOpenChange={(next) => {
+          setShowForm(next);
+          if (!next) setEditingTask(null);
+        }}
+        onSaved={loadTasks}
+        editing={editingTask}
+        projects={projects}
+      />
       <TaskDrawer taskId={drawerTaskId} open={drawerOpen} onClose={() => { setDrawerOpen(false); setDrawerTaskId(null); }} onStatusChange={handleDrawerStatusChange} onDeleted={handleDrawerDeleted} />
     </div>
   );

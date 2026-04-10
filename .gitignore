@@ -53,3 +53,7 @@ next-env.d.ts
 
 # eval artifacts
 /artifacts/
+
+# mempalace
+mempalace.yaml
+entities.json

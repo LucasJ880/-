@@ -74,12 +74,34 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
     }
 
     contextLines.push("", "## 互动历史 (最近10条)");
+    const channelStats = new Map<string, number>();
+    const languageStats = new Map<string, number>();
     for (const int of customer.interactions) {
+      const ch = (int as Record<string, unknown>).channel as string | null;
+      const lang = (int as Record<string, unknown>).language as string | null;
+      if (ch) channelStats.set(ch, (channelStats.get(ch) || 0) + 1);
+      if (lang) languageStats.set(lang, (languageStats.get(lang) || 0) + 1);
+
+      const channelTag = ch ? ` [${ch}]` : "";
+      const langTag = lang ? ` (${lang})` : "";
       contextLines.push(
         `- [${new Date(int.createdAt).toISOString().slice(0, 10)}] ` +
-        `${int.type}${int.direction ? ` (${int.direction})` : ""}: ${int.summary}` +
+        `${int.type}${channelTag}${langTag}${int.direction ? ` (${int.direction})` : ""}: ${int.summary}` +
         (int.content ? `\n  ${int.content.slice(0, 200)}` : "")
       );
+    }
+
+    if (channelStats.size > 0) {
+      const chSummary = [...channelStats.entries()]
+        .map(([ch, n]) => `${ch}(${n}次)`)
+        .join("、");
+      contextLines.push("", `## 渠道分布: ${chSummary}`);
+    }
+    if (languageStats.size > 0) {
+      const langSummary = [...languageStats.entries()]
+        .map(([l, n]) => `${l}(${n}次)`)
+        .join("、");
+      contextLines.push(`语言分布: ${langSummary}`);
     }
 
     contextLines.push("", "## 报价记录");
@@ -99,13 +121,17 @@ ${contextLines.filter(Boolean).join("\n")}
 请基于以上信息，生成一份完整的跟进策略：
 
 1. **客户状态评估**：判断客户当前所处阶段、活跃度、成交概率
-2. **跟进策略建议**：
-   - 推荐的跟进方式（电话/邮件/微信）
+2. **渠道分析**：根据历史互动渠道分布，判断客户最活跃/偏好的沟通渠道
+3. **跟进策略建议**：
+   - 推荐的跟进渠道（微信/邮件/电话/小红书/Facebook），基于客户习惯
    - 跟进时机建议
    - 沟通要点
-3. **跟进邮件草稿**（英文，可直接发送给客户）
-4. **下一步行动清单**（按优先级排列）
-5. **风险提示**（如果有）`;
+4. **跟进话术草稿**（按推荐渠道的语言和风格输出）：
+   - 如果推荐微信：输出中文话术
+   - 如果推荐邮件/Facebook：输出英文话术
+   - 如果客户有多个活跃渠道：分别生成各渠道话术
+5. **下一步行动清单**（按优先级排列）
+6. **风险提示**（如果有）`;
 
     const result = await createCompletion({
       systemPrompt: expertPrompt,

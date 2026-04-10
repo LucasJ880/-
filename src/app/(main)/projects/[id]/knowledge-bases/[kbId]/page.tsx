@@ -747,7 +747,7 @@ export default function KnowledgeBaseDetailPage() {
       {/* Publish dialog */}
       <KbPublishDialog
         open={publishOpen}
-        onClose={() => setPublishOpen(false)}
+        onOpenChange={setPublishOpen}
         onConfirm={handlePublish}
         kbName={kb.name}
         kbKey={kb.key}
