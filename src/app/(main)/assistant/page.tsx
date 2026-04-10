@@ -358,6 +358,7 @@ function AssistantPageInner() {
   const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [channelMode, setChannelMode] = useState<string | null>(null);
   const dragCounterRef = useRef(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -531,9 +532,21 @@ function AssistantPageInner() {
 
   handleFileUploadRef.current = handleFileUpload;
 
+  const CHANNEL_LABELS: Record<string, string> = {
+    wechat: "微信",
+    xiaohongshu: "小红书",
+    facebook: "Facebook",
+    email: "邮件",
+  };
+
   const handleSend = async (text?: string) => {
-    const content = (text || input).trim();
+    let content = (text || input).trim();
     if (!content || isLoading) return;
+
+    if (channelMode) {
+      const chLabel = CHANNEL_LABELS[channelMode] || channelMode;
+      content = `[渠道: ${chLabel}] ${content}\n\n请按${chLabel}渠道风格生成话术。`;
+    }
 
     let threadId = activeThreadId;
 
@@ -876,6 +889,49 @@ function AssistantPageInner() {
 
         {/* Input */}
         <div className="border-t border-border p-3">
+          {/* Channel selector */}
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="text-[11px] text-muted mr-1">话术渠道:</span>
+            {(["wechat", "xiaohongshu", "facebook", "email"] as const).map(
+              (ch) => (
+                <button
+                  key={ch}
+                  onClick={() =>
+                    setChannelMode(channelMode === ch ? null : ch)
+                  }
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors border",
+                    channelMode === ch
+                      ? ch === "wechat"
+                        ? "border-green-300 bg-green-50 text-green-700"
+                        : ch === "xiaohongshu"
+                        ? "border-red-300 bg-red-50 text-red-700"
+                        : ch === "facebook"
+                        ? "border-blue-300 bg-blue-50 text-blue-700"
+                        : "border-amber-300 bg-amber-50 text-amber-700"
+                      : "border-transparent bg-foreground/5 text-muted hover:text-foreground hover:bg-foreground/10"
+                  )}
+                >
+                  {ch === "wechat"
+                    ? "微信"
+                    : ch === "xiaohongshu"
+                    ? "小红书"
+                    : ch === "facebook"
+                    ? "Facebook"
+                    : "邮件"}
+                </button>
+              )
+            )}
+            {channelMode && (
+              <button
+                onClick={() => setChannelMode(null)}
+                className="ml-1 text-[10px] text-muted hover:text-foreground"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
           {attachedFile && (
             <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-1.5">
               <FileText size={14} className="shrink-0 text-accent" />

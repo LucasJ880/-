@@ -22,6 +22,7 @@ import {
   FileText,
   Activity,
   Handshake,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -58,6 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "销售",
     items: [
       { href: "/sales", label: "销售看板", icon: Handshake },
+      { href: "/sales/knowledge", label: "知识库", icon: BookOpen },
     ],
   },
   {

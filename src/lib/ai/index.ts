@@ -73,6 +73,20 @@ export type {
   ParsedConversation,
 } from "./sales-conversation";
 
+export {
+  extractKnowledgeFromInteraction,
+  extractKnowledgeFromCustomer,
+  getPlaybooks,
+  getFAQs,
+  PLAYBOOK_SCENES,
+  FAQ_CATEGORIES,
+} from "./knowledge-extractor";
+export type {
+  ExtractedPlaybook,
+  ExtractedFAQ,
+  ExtractionResult,
+} from "./knowledge-extractor";
+
 export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
 
 export type {

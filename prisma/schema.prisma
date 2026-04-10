@@ -1849,6 +1849,60 @@ model SalesQuoteAddon {
 }
 
 // ============================================================
+// 销售话术库 + FAQ（从真实对话提炼）
+// ============================================================
+
+/// 销售话术模板 — 按渠道 + 场景组织
+model SalesPlaybook {
+  id            String    @id @default(cuid())
+  userId        String
+
+  channel       String    // wechat / xiaohongshu / facebook / email / phone
+  language      String    // zh / en / mixed
+  scene         String    // first_contact / follow_up / price_objection / closing / after_sale / ...
+  sceneLabel    String    // 场景中文名
+  content       String    @db.Text
+  example       String?   @db.Text  // 实际使用范例
+  effectiveness Int       @default(0) // 0-5 有效性评分
+  sourceInteractionId String? // 提取来源互动 ID
+
+  tags          String?   // comma-separated
+  status        String    @default("active") // active / archived
+  usageCount    Int       @default(0)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, channel])
+  @@index([userId, scene])
+  @@index([userId, status])
+}
+
+/// 销售 FAQ — 客户常见问题 + 最佳回答
+model SalesFAQ {
+  id            String    @id @default(cuid())
+  userId        String
+
+  question      String    @db.Text
+  answer        String    @db.Text
+  language      String    // zh / en / mixed
+  category      String    // product / pricing / installation / warranty / delivery / process / other
+  categoryLabel String
+
+  productTags   String?   // comma-separated: "zebra,roller"
+  frequency     Int       @default(1) // 被问到的频次
+  sourceInteractionId String?
+
+  status        String    @default("active") // active / archived
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, category])
+  @@index([userId, language])
+  @@index([userId, status])
+}
+
+// ============================================================
 // AI 用户长期记忆（借鉴 MemPalace 分层设计）
 // ============================================================
 
