@@ -285,7 +285,7 @@ function StatsCards({
   );
 }
 
-/* ── Pipeline Board ── */
+/* ── Pipeline Board with drag-and-drop ── */
 function PipelineBoard({
   opportunities,
   onRefresh,
@@ -293,56 +293,159 @@ function PipelineBoard({
   opportunities: Opportunity[];
   onRefresh: () => void;
 }) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [showNewOpp, setShowNewOpp] = useState(false);
+
   const grouped = STAGES.map((stage) => ({
     ...stage,
     items: opportunities.filter((o) => o.stage === stage.key),
   }));
 
-  if (opportunities.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-white/40 py-16">
-        <TrendingUp className="h-10 w-10 text-muted/50" />
-        <p className="mt-3 text-sm text-muted">暂无销售机会</p>
-        <p className="mt-1 text-xs text-muted/70">
-          通过 CSV 导入客户数据，或手动创建新客户
-        </p>
-      </div>
-    );
-  }
+  const handleDragStart = (e: React.DragEvent, oppId: string) => {
+    setDraggingId(oppId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", oppId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, stageKey: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDropTarget(stageKey);
+  };
+
+  const handleDragLeave = () => {
+    setDropTarget(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, newStage: string) => {
+    e.preventDefault();
+    setDropTarget(null);
+    const oppId = e.dataTransfer.getData("text/plain");
+    setDraggingId(null);
+    if (!oppId) return;
+
+    const opp = opportunities.find((o) => o.id === oppId);
+    if (!opp || opp.stage === newStage) return;
+
+    try {
+      await apiFetch(`/api/sales/opportunities/${oppId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: newStage }),
+      });
+      onRefresh();
+    } catch (err) {
+      console.error("Stage update failed:", err);
+    }
+  };
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4">
-      {grouped.map((col) => (
-        <div key={col.key} className="flex w-64 shrink-0 flex-col">
-          <div
-            className={cn(
-              "mb-2 flex items-center justify-between rounded-lg border px-3 py-1.5",
-              col.color
-            )}
+    <>
+      {opportunities.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-white/40 py-16">
+          <TrendingUp className="h-10 w-10 text-muted/50" />
+          <p className="mt-3 text-sm text-muted">暂无销售机会</p>
+          <p className="mt-1 text-xs text-muted/70">
+            通过 CSV 导入客户数据，或手动创建新客户
+          </p>
+          <button
+            onClick={() => setShowNewOpp(true)}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-white hover:bg-foreground/90"
           >
-            <span className="text-xs font-semibold">{col.label}</span>
-            <span className="rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">
-              {col.items.length}
-            </span>
+            <Plus className="h-4 w-4" />
+            新建机会
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowNewOpp(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              新建机会
+            </button>
           </div>
-          <div className="flex flex-col gap-2">
-            {col.items.map((opp) => (
-              <OpportunityCard key={opp.id} opp={opp} />
+          <div className="flex gap-3 overflow-x-auto pb-4">
+            {grouped.map((col) => (
+              <div
+                key={col.key}
+                className="flex w-64 shrink-0 flex-col"
+                onDragOver={(e) => handleDragOver(e, col.key)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, col.key)}
+              >
+                <div
+                  className={cn(
+                    "mb-2 flex items-center justify-between rounded-lg border px-3 py-1.5",
+                    col.color
+                  )}
+                >
+                  <span className="text-xs font-semibold">{col.label}</span>
+                  <span className="rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">
+                    {col.items.length}
+                  </span>
+                </div>
+                <div
+                  className={cn(
+                    "flex min-h-[80px] flex-col gap-2 rounded-lg border-2 border-transparent p-1 transition-colors",
+                    dropTarget === col.key && "border-dashed border-accent/40 bg-accent/5"
+                  )}
+                >
+                  {col.items.map((opp) => (
+                    <OpportunityCard
+                      key={opp.id}
+                      opp={opp}
+                      isDragging={draggingId === opp.id}
+                      onDragStart={(e) => handleDragStart(e, opp.id)}
+                      onDragEnd={() => setDraggingId(null)}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
-      ))}
-    </div>
+      )}
+
+      {showNewOpp && (
+        <NewOpportunityDialog
+          onClose={() => setShowNewOpp(false)}
+          onSuccess={() => {
+            setShowNewOpp(false);
+            onRefresh();
+          }}
+        />
+      )}
+    </>
   );
 }
 
-function OpportunityCard({ opp }: { opp: Opportunity }) {
+function OpportunityCard({
+  opp,
+  isDragging,
+  onDragStart,
+  onDragEnd,
+}: {
+  opp: Opportunity;
+  isDragging: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}) {
   const pri = PRIORITIES[opp.priority as keyof typeof PRIORITIES] || PRIORITIES.warm;
 
   return (
     <Link
       href={`/sales/customers/${opp.customer?.id}`}
-      className="group rounded-lg border border-border bg-white/80 p-3 transition-all hover:shadow-md hover:border-foreground/20"
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={cn(
+        "group cursor-grab rounded-lg border border-border bg-white/80 p-3 transition-all hover:shadow-md hover:border-foreground/20 active:cursor-grabbing",
+        isDragging && "opacity-40 ring-2 ring-accent/30"
+      )}
     >
       <div className="flex items-start justify-between gap-2">
         <h4 className="text-sm font-medium text-foreground line-clamp-2">
@@ -378,6 +481,178 @@ function OpportunityCard({ opp }: { opp: Opportunity }) {
         </div>
       )}
     </Link>
+  );
+}
+
+/* ── New Opportunity Dialog ── */
+function NewOpportunityDialog({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [form, setForm] = useState({
+    customerId: "",
+    title: "",
+    stage: "new_inquiry",
+    estimatedValue: "",
+    productTypes: "",
+    priority: "warm",
+  });
+  const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/sales/customers")
+      .then((r) => r.json())
+      .then((d) => {
+        setCustomerOptions(
+          (d.customers || []).map((c: { id: string; name: string }) => ({
+            id: c.id,
+            name: c.name,
+          }))
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleSave() {
+    if (!form.customerId || !form.title.trim()) {
+      setError("请选择客户并填写标题");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/sales/opportunities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          estimatedValue: form.estimatedValue || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "创建失败");
+      }
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "未知错误");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass =
+    "w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-foreground">新建销售机会</h3>
+          <button onClick={onClose} className="text-muted hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted">客户 *</label>
+            <select
+              className={inputClass}
+              value={form.customerId}
+              onChange={(e) => setForm({ ...form, customerId: e.target.value })}
+            >
+              <option value="">选择客户…</option>
+              {customerOptions.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted">标题 *</label>
+            <input
+              className={inputClass}
+              placeholder="例：客厅窗帘报价"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">阶段</label>
+              <select
+                className={inputClass}
+                value={form.stage}
+                onChange={(e) => setForm({ ...form, stage: e.target.value })}
+              >
+                {STAGES.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">优先级</label>
+              <select
+                className={inputClass}
+                value={form.priority}
+                onChange={(e) => setForm({ ...form, priority: e.target.value })}
+              >
+                <option value="hot">热</option>
+                <option value="warm">温</option>
+                <option value="cold">冷</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">预估金额 ($)</label>
+              <input
+                type="number"
+                className={inputClass}
+                placeholder="0"
+                value={form.estimatedValue}
+                onChange={(e) => setForm({ ...form, estimatedValue: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">产品类型</label>
+              <input
+                className={inputClass}
+                placeholder="Zebra, Roller…"
+                value={form.productTypes}
+                onChange={(e) => setForm({ ...form, productTypes: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90 disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            创建
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

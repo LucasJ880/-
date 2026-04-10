@@ -105,10 +105,24 @@ function SuggestionRow({
   const action = suggestion.suggestedAction;
   const ActionIcon = action ? ACTION_ICONS[action.type] ?? ArrowRight : ArrowRight;
 
+  const isSalesKind = suggestion.kind.startsWith("sales_");
+  const detailHref = isSalesKind && suggestion.customerId
+    ? `/sales/customers/${suggestion.customerId}`
+    : suggestion.projectId
+      ? `/projects/${suggestion.projectId}`
+      : "#";
+  const detailLabel = isSalesKind
+    ? suggestion.customerName || "客户"
+    : suggestion.projectName || "项目";
+
   function handleAction() {
     if (!action) return;
     if (action.type === "send_followup_email" && action.params?.projectId) {
       onBatchFollowup?.(action.params.projectId);
+    } else if (action.type === "view_customer" && action.params?.customerId) {
+      window.location.href = `/sales/customers/${action.params.customerId}`;
+    } else if (action.type === "call_customer" && action.params?.phone) {
+      window.location.href = `tel:${action.params.phone}`;
     } else if (action.params?.projectId) {
       onProjectClick?.(action.params.projectId);
     }
@@ -145,10 +159,10 @@ function SuggestionRow({
             </button>
           )}
           <Link
-            href={`/projects/${suggestion.projectId}`}
+            href={detailHref}
             className="text-[11px] text-muted hover:text-foreground"
           >
-            {suggestion.projectName}
+            {detailLabel}
           </Link>
         </div>
       </div>

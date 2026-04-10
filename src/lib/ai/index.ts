@@ -41,6 +41,9 @@ export {
 } from "./conversation";
 export type { ChatMessage, PreparedConversation } from "./conversation";
 
+export { getSalesContext, buildSalesContextBlock } from "./sales-context";
+export type { SalesContext } from "./sales-context";
+
 export { extractWorkSuggestion, extractTaskSuggestion } from "./parser";
 
 export type {

@@ -15,6 +15,8 @@ import {
   extractWorkSuggestion,
   getProjectAiMemory,
   buildMemoryBlock,
+  getSalesContext,
+  buildSalesContextBlock,
   type ChatMessage,
 } from "@/lib/ai";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
@@ -138,18 +140,40 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     "采购", "procurement", "solicitation", "addendum",
     "中标", "报价策略", "评分", "specification",
   ];
+  const SALES_KEYWORDS = [
+    "客户", "报价", "跟进", "销售", "成交", "询盘", "pipeline",
+    "follow up", "follow-up", "quote", "客户管理", "机会",
+    "安装", "测量", "订单", "窗帘", "百叶", "blinds", "shutter",
+    "邮件草稿", "draft email", "回复客户",
+  ];
   const combinedText = (content + " " + fileName).toLowerCase();
   const isTenderContext = fileText && TENDER_KEYWORDS.some((kw) => combinedText.includes(kw));
+  const isSalesContext = SALES_KEYWORDS.some((kw) => combinedText.includes(kw));
 
   let expertBlock = "";
+  let salesBlock = "";
   let effectiveMode = prepared.mode;
+
   if (isTenderContext) {
     const tenderPrompt = getExpertSystemPrompt("bid_analyst");
     if (tenderPrompt) {
       expertBlock = `\n\n## 专家角色激活：投标策略分析专家\n${tenderPrompt}\n`;
       effectiveMode = "deep";
     }
-  } else if (fileText) {
+  } else if (isSalesContext) {
+    const salesPrompt = getExpertSystemPrompt("sales_advisor");
+    if (salesPrompt) {
+      expertBlock = `\n\n## 专家角色激活：销售顾问\n${salesPrompt}\n`;
+    }
+    try {
+      const salesCtx = await getSalesContext(user.id);
+      salesBlock = buildSalesContextBlock(salesCtx);
+    } catch {
+      // sales context is best-effort
+    }
+  }
+
+  if (fileText && !isTenderContext) {
     effectiveMode = "deep";
   }
 
@@ -159,6 +183,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     buildContextBlock(workContext) +
     deepBlock +
     memoryBlock +
+    salesBlock +
     fileBlock +
     buildSummaryPrefix(prepared.summarizedContext);
 

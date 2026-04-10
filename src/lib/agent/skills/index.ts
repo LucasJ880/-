@@ -11,6 +11,7 @@ import "./document-summary";
 import "./email-draft";
 import "./supply-chain-analysis";
 import "./tender-analysis";
+import "./sales-followup";
 
 export {
   registerSkill,
