@@ -1778,6 +1778,7 @@ model TradeProspect {
   updatedAt       DateTime  @updatedAt
 
   messages        TradeMessage[]
+  quotes          TradeQuote[]
 
   @@index([campaignId, stage])
   @@index([orgId, stage])
@@ -1819,6 +1820,84 @@ model TradeActivityLog {
   @@index([campaignId, createdAt])
   @@index([prospectId, createdAt])
   @@index([orgId, createdAt])
+}
+
+model TradeQuote {
+  id              String    @id @default(cuid())
+  orgId           String
+  prospectId      String?
+  prospect        TradeProspect? @relation(fields: [prospectId], references: [id])
+  campaignId      String?
+
+  quoteNumber     String    @unique
+  companyName     String
+  contactName     String?
+  contactEmail    String?
+  country         String?
+
+  status          String    @default("draft") // draft / sent / negotiating / accepted / rejected / expired
+  currency        String    @default("USD")
+  incoterm        String    @default("FOB") // FOB / CIF / EXW / DDP / CFR
+  paymentTerms    String?   // T/T 30%, L/C, etc.
+  validDays       Int       @default(30)
+  leadTimeDays    Int?
+  moq             String?
+  shippingPort    String?
+
+  subtotal        Float     @default(0)
+  discount        Float     @default(0)
+  shippingCost    Float     @default(0)
+  totalAmount     Float     @default(0)
+
+  notes           String?   @db.Text
+  internalNotes   String?   @db.Text
+
+  sentAt          DateTime?
+  acceptedAt      DateTime?
+  expiresAt       DateTime?
+
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  items           TradeQuoteItem[]
+
+  @@index([orgId, status])
+  @@index([prospectId])
+}
+
+model TradeQuoteItem {
+  id              String    @id @default(cuid())
+  quoteId         String
+  quote           TradeQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  sortOrder       Int       @default(0)
+  productName     String
+  specification   String?
+  unit            String    @default("pcs")
+  quantity        Float     @default(0)
+  unitPrice       Float     @default(0)
+  totalPrice      Float     @default(0)
+  remarks         String?
+
+  @@index([quoteId, sortOrder])
+}
+
+model TradeKnowledge {
+  id          String   @id @default(cuid())
+  orgId       String
+  category    String   // product / faq / case_study / certification / process
+  title       String
+  content     String   @db.Text
+  tags        String?  // comma-separated
+  language    String   @default("zh")
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId, category])
+  @@index([orgId, isActive])
 }
 
 model TradeEmailTemplate {

@@ -320,6 +320,16 @@ export default function ProspectDetailPage() {
             {generating ? "生成中..." : p.outreachBody ? "重新生成开发信" : "生成开发信"}
           </button>
         )}
+
+        {(p.stage === "interested" || p.stage === "negotiating" || p.stage === "qualified") && (
+          <button
+            onClick={() => router.push(`/trade/quotes/new?prospectId=${p.id}&companyName=${encodeURIComponent(p.companyName)}&contactName=${encodeURIComponent(p.contactName ?? "")}&contactEmail=${encodeURIComponent(p.contactEmail ?? "")}&country=${encodeURIComponent(p.country ?? "")}&campaignId=${p.campaignId}`)}
+            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500/20"
+          >
+            <FileText size={12} />
+            创建报价单
+          </button>
+        )}
       </div>
 
       {/* Quick Actions: Stage + Follow-up */}

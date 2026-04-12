@@ -9,6 +9,7 @@
  */
 
 import { createCompletion } from "@/lib/ai/client";
+import { searchKnowledge } from "@/lib/trade/knowledge-service";
 
 // ── Search Keyword Agent ────────────────────────────────────
 
@@ -181,12 +182,19 @@ export async function generateOutreachEmail(
   report: ResearchReport,
   productDesc: string,
   senderInfo: { companyName: string; senderName: string },
-  opts?: { language?: string },
+  opts?: { language?: string; orgId?: string },
 ): Promise<OutreachDraft> {
   const targetLang = opts?.language ?? detectLanguage(prospect.country);
   const langInstruction = targetLang === "English"
     ? "正文用英文撰写"
     : `正文用${targetLang}撰写（因为客户位于${prospect.country}）`;
+
+  let knowledgeContext = "";
+  if (opts?.orgId) {
+    try {
+      knowledgeContext = await searchKnowledge(opts.orgId, productDesc, { limit: 3 });
+    } catch { /* knowledge not available yet */ }
+  }
 
   const raw = await createCompletion({
     systemPrompt: `你是专业外贸开发信写手。根据客户研究报告生成个性化的首封开发邮件。
@@ -208,7 +216,7 @@ export async function generateOutreachEmail(
 
 我方公司：${senderInfo.companyName}
 发件人：${senderInfo.senderName}
-产品：${productDesc}`,
+产品：${productDesc}${knowledgeContext ? `\n\n产品知识库参考资料：\n${knowledgeContext}` : ""}`,
     mode: "structured",
     temperature: 0.4,
   });
@@ -242,7 +250,15 @@ export interface ClassifyResult {
 export async function classifyReply(
   replyContent: string,
   conversationHistory: string,
+  opts?: { orgId?: string; productDesc?: string },
 ): Promise<ClassifyResult> {
+  let knowledgeContext = "";
+  if (opts?.orgId) {
+    try {
+      const query = `${replyContent.slice(0, 200)} ${opts.productDesc ?? ""}`;
+      knowledgeContext = await searchKnowledge(opts.orgId, query, { limit: 3 });
+    } catch { /* ok */ }
+  }
   const raw = await createCompletion({
     systemPrompt: `你是外贸邮件意图分析专家。分析客户回复的意图，分为以下类别：
 
@@ -261,7 +277,7 @@ export async function classifyReply(
   "suggestedAction": "建议的下一步动作（中文）",
   "draftReply": "如果需要回复，给出英文草稿（可选）"
 }`,
-    userPrompt: `客户回复：\n${replyContent}\n\n历史对话：\n${conversationHistory}`,
+    userPrompt: `客户回复：\n${replyContent}\n\n历史对话：\n${conversationHistory}${knowledgeContext ? `\n\n产品知识库参考：\n${knowledgeContext}` : ""}`,
     mode: "structured",
     temperature: 0.1,
   });
