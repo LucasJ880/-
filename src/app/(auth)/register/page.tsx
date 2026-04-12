@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api-fetch";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [inviteCode, setInviteCode] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +25,10 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
 
+    if (!inviteCode.trim()) {
+      setError("请输入邀请码");
+      return;
+    }
     if (password !== confirmPassword) {
       setError("两次密码输入不一致");
       return;
@@ -39,7 +44,7 @@ export default function RegisterPage() {
       const res = await apiFetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name: name || undefined }),
+        body: JSON.stringify({ email, password, name: name || undefined, inviteCode: inviteCode.trim() }),
       });
 
       const data = await res.json();
@@ -74,6 +79,24 @@ export default function RegisterPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
+          <label htmlFor="reg-invite" className={authLabelClass}>
+            邀请码
+          </label>
+          <input
+            id="reg-invite"
+            type="text"
+            value={inviteCode}
+            onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+            required
+            autoFocus
+            placeholder="请输入邀请码"
+            autoComplete="off"
+            className={authInputClass}
+          />
+          <p className="mt-1 text-xs text-muted">需要邀请码才能注册，请联系管理员获取</p>
+        </div>
+
+        <div>
           <label htmlFor="reg-name" className={authLabelClass}>
             昵称 <span className="font-normal text-muted">(可选)</span>
           </label>
@@ -98,7 +121,6 @@ export default function RegisterPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            autoFocus
             autoComplete="email"
             placeholder="name@example.com"
             className={authInputClass}
