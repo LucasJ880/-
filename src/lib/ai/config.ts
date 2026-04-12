@@ -18,8 +18,9 @@ export interface TaskPreset {
   reasoningEffort: ReasoningEffort;
 }
 
-const MODEL_PRIMARY = process.env.OPENAI_MODEL || "gpt-5.2";
-const MODEL_MINI = process.env.OPENAI_MODEL_MINI || "gpt-5-mini";
+const MODEL_PRIMARY = process.env.OPENAI_MODEL || "gpt-5.4";
+const MODEL_MINI = process.env.OPENAI_MODEL_MINI || "gpt-5.4-mini";
+const MODEL_NANO = process.env.OPENAI_MODEL_NANO || "gpt-5.4-nano";
 
 export const TASK_PRESETS: Record<string, TaskPreset> = {
   normal: {
@@ -35,7 +36,7 @@ export const TASK_PRESETS: Record<string, TaskPreset> = {
     reasoningEffort: "high",
   },
   fast: {
-    model: MODEL_MINI,
+    model: MODEL_NANO,
     temperature: 0.6,
     maxTokens: 2048,
     reasoningEffort: "low",
@@ -44,6 +45,12 @@ export const TASK_PRESETS: Record<string, TaskPreset> = {
     model: MODEL_PRIMARY,
     temperature: 0.5,
     maxTokens: 8192,
+    reasoningEffort: "medium",
+  },
+  structured: {
+    model: MODEL_MINI,
+    temperature: 0.3,
+    maxTokens: 4096,
     reasoningEffort: "medium",
   },
 } as const;
@@ -61,6 +68,7 @@ export interface AIConfig {
   baseURL: string;
   primaryModel: string;
   miniModel: string;
+  nanoModel: string;
 }
 
 export function getAIConfig(): AIConfig {
@@ -69,6 +77,7 @@ export function getAIConfig(): AIConfig {
     baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
     primaryModel: MODEL_PRIMARY,
     miniModel: MODEL_MINI,
+    nanoModel: MODEL_NANO,
   };
 }
 

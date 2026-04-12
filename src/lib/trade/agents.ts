@@ -26,7 +26,7 @@ export async function generateSearchKeywords(
 4. 包含产品关键词 + 买家身份词 + 地区限定词的组合
 5. 用 JSON 数组格式返回，每个元素是一个搜索词字符串`,
     userPrompt: `产品描述：${productDesc}\n\n目标市场：${targetMarket}`,
-    mode: "structured",
+    mode: "fast",
     temperature: 0.3,
   });
 
@@ -76,7 +76,7 @@ export async function generateResearchReport(
 
 我方产品：${productDesc}
 目标市场：${targetMarket}`,
-    mode: "structured",
+    mode: "normal",
     temperature: 0.2,
   });
 
@@ -124,7 +124,7 @@ export async function scoreProspect(
 
 我方产品：${productDesc}
 目标市场：${targetMarket}`,
-    mode: "structured",
+    mode: "fast",
     temperature: 0.1,
   });
 
@@ -217,7 +217,7 @@ export async function generateOutreachEmail(
 我方公司：${senderInfo.companyName}
 发件人：${senderInfo.senderName}
 产品：${productDesc}${knowledgeContext ? `\n\n产品知识库参考资料：\n${knowledgeContext}` : ""}`,
-    mode: "structured",
+    mode: "normal",
     temperature: 0.4,
   });
 
@@ -278,7 +278,7 @@ export async function classifyReply(
   "draftReply": "如果需要回复，给出英文草稿（可选）"
 }`,
     userPrompt: `客户回复：\n${replyContent}\n\n历史对话：\n${conversationHistory}${knowledgeContext ? `\n\n产品知识库参考：\n${knowledgeContext}` : ""}`,
-    mode: "structured",
+    mode: "fast",
     temperature: 0.1,
   });
 
