@@ -12,6 +12,8 @@ import {
   Mail,
   Star,
   ChevronRight,
+  Search,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -87,6 +89,10 @@ export default function CampaignDetailPage() {
   const [loading, setLoading] = useState(true);
   const [stageFilter, setStageFilter] = useState<string>("");
   const [showAdd, setShowAdd] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [batchResearching, setBatchResearching] = useState(false);
+  const [discoverResult, setDiscoverResult] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const [campRes, prospRes] = await Promise.all([
@@ -141,6 +147,68 @@ export default function CampaignDetailPage() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* AI Actions */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={async () => {
+            setDiscovering(true);
+            setDiscoverResult(null);
+            try {
+              const res = await apiFetch(`/api/trade/campaigns/${id}/discover`, { method: "POST" });
+              if (res.ok) {
+                const data = await res.json();
+                setDiscoverResult(`发现 ${data.total} 家公司，新增 ${data.created} 条线索`);
+                loadData();
+              }
+            } finally {
+              setDiscovering(false);
+            }
+          }}
+          disabled={discovering}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-blue-500/50 disabled:opacity-50"
+        >
+          {discovering ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+          {discovering ? "搜索中..." : "AI 发现客户"}
+        </button>
+        <button
+          onClick={async () => {
+            setBatchResearching(true);
+            setBatchResult(null);
+            try {
+              const res = await apiFetch(`/api/trade/campaigns/${id}/batch-research`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ limit: 5 }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                setBatchResult(`研究了 ${data.processed} 条线索，${data.qualified} 条合格`);
+                loadData();
+              }
+            } finally {
+              setBatchResearching(false);
+            }
+          }}
+          disabled={batchResearching}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-blue-500/50 disabled:opacity-50"
+        >
+          {batchResearching ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+          {batchResearching ? "批量研究中..." : "批量 AI 研究"}
+        </button>
+      </div>
+
+      {/* AI Result Messages */}
+      {(discoverResult || batchResult) && (
+        <div className="flex flex-wrap gap-2">
+          {discoverResult && (
+            <span className="rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400">{discoverResult}</span>
+          )}
+          {batchResult && (
+            <span className="rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400">{batchResult}</span>
+          )}
         </div>
       )}
 
@@ -200,8 +268,11 @@ export default function CampaignDetailPage() {
 // ── Components ──────────────────────────────────────────────
 
 function ProspectRow({ prospect: p }: { prospect: Prospect }) {
+  const router = useRouter();
   return (
-    <div className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card-bg px-4 py-3 transition hover:border-border">
+    <div
+      onClick={() => router.push(`/trade/prospects/${p.id}`)}
+      className="group flex cursor-pointer items-center gap-3 rounded-xl border border-border/60 bg-card-bg px-4 py-3 transition hover:border-border">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{p.companyName}</span>

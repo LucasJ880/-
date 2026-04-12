@@ -1,0 +1,102 @@
+/**
+ * POST /api/trade/prospects/[id]/research
+ *
+ * 对单个线索执行 AI 研究 + 打分流水线：
+ * 1. 搜索公司信息（Serper）
+ * 2. 抓取官网内容
+ * 3. AI 生成研究报告
+ * 4. AI 资格打分
+ * 5. 更新线索状态
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { requireRole } from "@/lib/auth/guards";
+import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
+import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
+import { searchGoogle, fetchPageContent } from "@/lib/trade/tools";
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireRole(request, ["trade", "admin"]);
+  if (auth instanceof NextResponse) return auth;
+
+  const { id } = await params;
+  const prospect = await getProspect(id);
+  if (!prospect) {
+    return NextResponse.json({ error: "线索不存在" }, { status: 404 });
+  }
+
+  const campaign = await getCampaign(prospect.campaignId);
+  if (!campaign) {
+    return NextResponse.json({ error: "活动不存在" }, { status: 404 });
+  }
+
+  // Step 1: Search for company info
+  let rawData = "";
+  const searchResults = await searchGoogle(
+    `"${prospect.companyName}" ${prospect.country ?? ""} company products`,
+    { num: 5 },
+  );
+  if (searchResults.length > 0) {
+    rawData = searchResults
+      .map((r) => `[${r.title}](${r.link})\n${r.snippet}`)
+      .join("\n\n");
+  }
+
+  // Step 2: Fetch website content
+  const website = prospect.website ?? searchResults[0]?.link;
+  if (website) {
+    const page = await fetchPageContent(website);
+    if (page.ok) {
+      rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
+    }
+  }
+
+  // Step 3: Generate research report
+  const report = await generateResearchReport(
+    {
+      name: prospect.companyName,
+      website: prospect.website,
+      country: prospect.country,
+      rawData: rawData || undefined,
+    },
+    campaign.productDesc,
+    campaign.targetMarket,
+  );
+
+  // Step 4: Score the prospect
+  const scoreResult = await scoreProspect(
+    report,
+    campaign.productDesc,
+    campaign.targetMarket,
+  );
+
+  // Step 5: Update prospect
+  const newStage =
+    scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
+
+  const updated = await updateProspect(id, {
+    researchReport: report,
+    score: scoreResult.score,
+    scoreReason: scoreResult.reason,
+    stage: newStage,
+    website: website ?? prospect.website,
+  });
+
+  // Update campaign stats
+  if (newStage === "qualified") {
+    const { db } = await import("@/lib/db");
+    await db.tradeCampaign.update({
+      where: { id: campaign.id },
+      data: { qualified: { increment: 1 } },
+    });
+  }
+
+  return NextResponse.json({
+    prospect: updated,
+    report,
+    score: scoreResult,
+  });
+}
