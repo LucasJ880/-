@@ -2224,6 +2224,11 @@ model UserMemory {
   accessCount   Int       @default(0)
   lastAccessedAt DateTime?
 
+  // 向量嵌入 (text-embedding-3-small, 1536维)
+  embedding     Json?
+  // 被此记忆取代的旧记忆 ID（冲突覆盖时记录）
+  supersededById String?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

@@ -51,8 +51,15 @@ export {
   recallMemories,
   buildUserMemoryBlock,
   extractMemoriesFromConversation,
+  listMemories,
+  getMemoryById,
+  updateMemory,
+  deleteMemory,
+  backfillEmbeddings,
 } from "./user-memory";
 export type { MemoryType, MemoryEntry, ExtractedMemory } from "./user-memory";
+
+export { generateEmbedding, generateEmbeddings, cosineSimilarity } from "./embedding";
 
 export {
   detectLanguage,

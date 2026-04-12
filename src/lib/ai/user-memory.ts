@@ -3,13 +3,15 @@
  *
  * L0 (identity / preference): ~100 tokens, 始终加载
  * L1 (core): ~500 tokens, 每次对话加载 top N
- * L2 (on-demand): 按话题关键词匹配加载
+ * L2 (on-demand): 向量语义检索 + 关键词兜底
  *
- * 存储在 PostgreSQL UserMemory 表中，不依赖向量数据库。
- * MVP 阶段用关键词匹配做 L2 检索，后续可扩展 embedding。
+ * 向量检索: OpenAI text-embedding-3-small (1536维)
+ * 冲突检测: 相似度 > 0.88 的同类记忆自动覆盖
  */
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { generateEmbedding, cosineSimilarity } from "./embedding";
 
 export type MemoryType =
   | "decision"
@@ -42,6 +44,35 @@ export async function saveMemory(params: {
   customerId?: string;
   projectId?: string;
 }): Promise<{ id: string }> {
+  let embedding: number[] | null = null;
+  try {
+    embedding = await generateEmbedding(params.content);
+  } catch { /* embedding 生成失败不阻塞存储 */ }
+
+  // 冲突检测：偏好和决策类记忆，检查是否有语义冲突
+  if (embedding && (params.memoryType === "preference" || params.memoryType === "decision")) {
+    const superseded = await detectAndSupersede(
+      params.userId,
+      params.memoryType,
+      embedding,
+    );
+    if (superseded) {
+      // 直接更新旧记忆而非新建
+      const updated = await db.userMemory.update({
+        where: { id: superseded },
+        data: {
+          content: params.content,
+          tags: params.tags ?? undefined,
+          importance: params.importance ?? 3,
+          embedding: embedding ?? Prisma.JsonNull,
+          sourceThreadId: params.sourceThreadId ?? null,
+        },
+        select: { id: true },
+      });
+      return updated;
+    }
+  }
+
   const record = await db.userMemory.create({
     data: {
       userId: params.userId,
@@ -53,6 +84,7 @@ export async function saveMemory(params: {
       sourceThreadId: params.sourceThreadId ?? null,
       customerId: params.customerId ?? null,
       projectId: params.projectId ?? null,
+      embedding: embedding ?? undefined,
     },
     select: { id: true },
   });
@@ -72,18 +104,22 @@ export async function saveMemories(
 ): Promise<number> {
   if (entries.length === 0) return 0;
 
-  const result = await db.userMemory.createMany({
-    data: entries.map((e) => ({
-      userId,
-      memoryType: e.memoryType,
-      content: e.content,
-      layer: e.layer ?? 1,
-      tags: e.tags ?? null,
-      importance: e.importance ?? 3,
-      sourceThreadId: e.sourceThreadId ?? null,
-    })),
-  });
-  return result.count;
+  let saved = 0;
+  for (const e of entries) {
+    try {
+      await saveMemory({
+        userId,
+        memoryType: e.memoryType,
+        content: e.content,
+        layer: e.layer,
+        tags: e.tags,
+        importance: e.importance,
+        sourceThreadId: e.sourceThreadId,
+      });
+      saved++;
+    } catch { /* 单条失败不阻塞其它 */ }
+  }
+  return saved;
 }
 
 // ─── L0 + L1：唤醒层 ─────────────────────────────────────────
@@ -132,20 +168,93 @@ export async function recallMemories(
   }
 ): Promise<MemoryEntry[]> {
   const limit = options?.limit ?? 5;
-  const keywords = extractKeywords(query);
 
-  if (keywords.length === 0 && !options?.customerId && !options?.projectId) {
+  // 尝试向量检索
+  let vectorResults: MemoryEntry[] = [];
+  try {
+    const queryEmbedding = await generateEmbedding(query);
+    vectorResults = await vectorSearch(userId, queryEmbedding, {
+      limit: limit * 2,
+      customerId: options?.customerId,
+      projectId: options?.projectId,
+    });
+  } catch { /* 向量检索失败，降级到关键词 */ }
+
+  // 关键词兜底 / 补充
+  const keywordResults = await keywordSearch(userId, query, {
+    limit,
+    customerId: options?.customerId,
+    projectId: options?.projectId,
+  });
+
+  // 合并去重，向量结果优先
+  const seen = new Set<string>();
+  const merged: MemoryEntry[] = [];
+  for (const m of [...vectorResults, ...keywordResults]) {
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    merged.push(m);
+  }
+
+  const final = merged.slice(0, limit);
+
+  if (final.length > 0) {
+    await db.userMemory.updateMany({
+      where: { id: { in: final.map((m) => m.id) } },
+      data: {
+        accessCount: { increment: 1 },
+        lastAccessedAt: new Date(),
+      },
+    });
+  }
+
+  return final;
+}
+
+async function vectorSearch(
+  userId: string,
+  queryEmbedding: number[],
+  opts: { limit: number; customerId?: string; projectId?: string },
+): Promise<MemoryEntry[]> {
+  const where: Record<string, unknown> = {
+    userId,
+    layer: 2,
+    embedding: { not: Prisma.JsonNullValueFilter.JsonNull },
+  };
+  if (opts.customerId) where.customerId = opts.customerId;
+  if (opts.projectId) where.projectId = opts.projectId;
+
+  const candidates = await db.userMemory.findMany({
+    where: where as never,
+    orderBy: [{ importance: "desc" }],
+    take: 100,
+  });
+
+  const scored = candidates
+    .map((m) => ({
+      memory: m as MemoryEntry,
+      similarity: cosineSimilarity(queryEmbedding, m.embedding as number[]),
+    }))
+    .filter((s) => s.similarity > 0.3)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, opts.limit);
+
+  return scored.map((s) => s.memory);
+}
+
+async function keywordSearch(
+  userId: string,
+  query: string,
+  opts: { limit: number; customerId?: string; projectId?: string },
+): Promise<MemoryEntry[]> {
+  const keywords = extractKeywords(query);
+  if (keywords.length === 0 && !opts.customerId && !opts.projectId) {
     return [];
   }
 
   const conditions: object[] = [{ userId }];
-
-  if (options?.customerId) {
-    conditions.push({ customerId: options.customerId });
-  }
-  if (options?.projectId) {
-    conditions.push({ projectId: options.projectId });
-  }
+  if (opts.customerId) conditions.push({ customerId: opts.customerId });
+  if (opts.projectId) conditions.push({ projectId: opts.projectId });
 
   if (keywords.length > 0) {
     conditions.push({
@@ -159,20 +268,139 @@ export async function recallMemories(
   const memories = await db.userMemory.findMany({
     where: { AND: conditions },
     orderBy: [{ importance: "desc" }, { accessCount: "desc" }],
-    take: limit,
+    take: opts.limit,
   });
 
-  if (memories.length > 0) {
-    await db.userMemory.updateMany({
-      where: { id: { in: memories.map((m) => m.id) } },
-      data: {
-        accessCount: { increment: 1 },
-        lastAccessedAt: new Date(),
-      },
-    });
+  return memories as MemoryEntry[];
+}
+
+// ─── 冲突检测 ────────────────────────────────────────────────
+
+const CONFLICT_THRESHOLD = 0.88;
+
+async function detectAndSupersede(
+  userId: string,
+  memoryType: MemoryType,
+  newEmbedding: number[],
+): Promise<string | null> {
+  const existing = await db.userMemory.findMany({
+    where: {
+      userId,
+      memoryType,
+      embedding: { not: Prisma.JsonNullValueFilter.JsonNull },
+    },
+    take: 50,
+  });
+
+  for (const m of existing) {
+    const sim = cosineSimilarity(newEmbedding, m.embedding as number[]);
+    if (sim >= CONFLICT_THRESHOLD) {
+      return m.id;
+    }
+  }
+  return null;
+}
+
+// ─── 记忆管理 CRUD ──────────────────────────────────────────
+
+export async function listMemories(
+  userId: string,
+  opts?: {
+    layer?: number;
+    memoryType?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ items: MemoryEntry[]; total: number }> {
+  const where: Record<string, unknown> = { userId };
+  if (opts?.layer !== undefined) where.layer = opts.layer;
+  if (opts?.memoryType) where.memoryType = opts.memoryType;
+  if (opts?.search) {
+    where.OR = [
+      { content: { contains: opts.search } },
+      { tags: { contains: opts.search } },
+    ];
   }
 
-  return memories as MemoryEntry[];
+  const [items, total] = await Promise.all([
+    db.userMemory.findMany({
+      where: where as never,
+      orderBy: [{ layer: "asc" }, { importance: "desc" }, { updatedAt: "desc" }],
+      take: opts?.limit ?? 50,
+      skip: opts?.offset ?? 0,
+    }),
+    db.userMemory.count({ where: where as never }),
+  ]);
+
+  return { items: items as MemoryEntry[], total };
+}
+
+export async function getMemoryById(
+  userId: string,
+  id: string,
+): Promise<MemoryEntry | null> {
+  const m = await db.userMemory.findFirst({
+    where: { id, userId },
+  });
+  return m as MemoryEntry | null;
+}
+
+export async function updateMemory(
+  userId: string,
+  id: string,
+  data: {
+    content?: string;
+    memoryType?: MemoryType;
+    layer?: number;
+    tags?: string;
+    importance?: number;
+  },
+): Promise<MemoryEntry> {
+  let embedding: number[] | undefined;
+  if (data.content) {
+    try {
+      embedding = await generateEmbedding(data.content);
+    } catch { /* ignore */ }
+  }
+
+  const updated = await db.userMemory.update({
+    where: { id },
+    data: {
+      ...data,
+      ...(embedding ? { embedding } : {}),
+    },
+  });
+  return updated as MemoryEntry;
+}
+
+export async function deleteMemory(
+  userId: string,
+  id: string,
+): Promise<void> {
+  await db.userMemory.delete({
+    where: { id },
+  });
+}
+
+export async function backfillEmbeddings(userId: string): Promise<number> {
+  const noEmbed = await db.userMemory.findMany({
+    where: { userId, embedding: { equals: Prisma.JsonNull } },
+    take: 100,
+  });
+
+  let count = 0;
+  for (const m of noEmbed) {
+    try {
+      const emb = await generateEmbedding(m.content);
+      await db.userMemory.update({
+        where: { id: m.id },
+        data: { embedding: emb },
+      });
+      count++;
+    } catch { break; }
+  }
+  return count;
 }
 
 // ─── 格式化：注入 prompt ──────────────────────────────────────
