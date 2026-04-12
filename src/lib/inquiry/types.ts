@@ -73,6 +73,28 @@ export function isValidSentVia(v: unknown): v is SentVia {
 
 // --- 输入类型 ---
 
+export const SUPPLIER_SOURCES = {
+  EXHIBITION: "exhibition",
+  REFERRAL: "referral",
+  ONLINE: "online",
+  XIAOHONGSHU: "xiaohongshu",
+  ALIBABA_1688: "1688",
+  COLD_CALL: "cold_call",
+  OTHER: "other",
+} as const;
+
+export type SupplierSource = (typeof SUPPLIER_SOURCES)[keyof typeof SUPPLIER_SOURCES];
+
+export const SUPPLIER_SOURCE_LABELS: Record<SupplierSource, string> = {
+  exhibition: "展会",
+  referral: "转介绍",
+  online: "线上搜索",
+  xiaohongshu: "小红书",
+  "1688": "1688",
+  cold_call: "陌生拜访",
+  other: "其他",
+};
+
 export interface CreateSupplierInput {
   orgId: string;
   name: string;
@@ -82,6 +104,10 @@ export interface CreateSupplierInput {
   category?: string;
   region?: string;
   notes?: string;
+  source?: string;
+  sourceDetail?: string;
+  website?: string;
+  tags?: string;
   brochureUrl?: string;
   brochureParseStatus?: string;
   brochureParseResult?: unknown;
@@ -97,6 +123,14 @@ export interface UpdateSupplierInput {
   region?: string | null;
   notes?: string | null;
   status?: SupplierStatus;
+  source?: string | null;
+  sourceDetail?: string | null;
+  website?: string | null;
+  tags?: string | null;
+  capabilities?: string | null;
+  rating?: number | null;
+  ratingDetail?: unknown | null;
+  lastContactAt?: string | null;
 }
 
 export interface CreateInquiryInput {

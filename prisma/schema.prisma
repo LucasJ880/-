@@ -75,8 +75,32 @@ model User {
   customerInteractionsCreated      CustomerInteraction[]        @relation("CustomerInteractionCreatedBy")
   salesQuotesCreated               SalesQuote[]                 @relation("SalesQuoteCreatedBy")
 
+  // 邀请码溯源
+  inviteCodeId  String?
+
   @@index([status])
   @@index([authProvider])
+  @@index([role])
+}
+
+// ============================================================
+// 邀请码（注册准入 + 角色绑定）
+// ============================================================
+
+model InviteCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  role        String
+  label       String?
+  maxUses     Int?
+  usedCount   Int       @default(0)
+  isActive    Boolean   @default(true)
+  expiresAt   DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  @@index([code])
+  @@index([role])
 }
 
 model Project {
@@ -1308,12 +1332,30 @@ model Supplier {
   contactPhone  String?
   category      String?
   region        String?
-  notes         String?
+  notes         String?  @db.Text
   status        String   @default("active")
   createdById   String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // 来源追踪
+  source        String?  // exhibition / referral / online / xiaohongshu / 1688 / cold_call / other
+  sourceDetail  String?  // "2026广交会-3号馆-B12展位"
+  website       String?
+
+  // AI 自动分类
+  tags              String?  @db.Text  // comma-separated: "阻燃面料,窗帘,工业布,出口"
+  capabilities      String?  @db.Text  // AI 能力画像文本
+  aiClassification  Json?    // {mainCategory, subCategories[], confidence, classifiedAt}
+
+  // 评分
+  rating        Float?   @default(0) // 0-5
+  ratingDetail  Json?    // {quality, response, price, delivery}
+
+  // 时间追踪
+  lastContactAt DateTime?
+
+  // 画册
   brochureUrl          String?
   brochureParseStatus  String?
   brochureParseResult  Json?
@@ -1323,6 +1365,8 @@ model Supplier {
 
   @@index([orgId, status])
   @@index([orgId, name])
+  @@index([orgId, source])
+  @@index([orgId, tags])
 }
 
 model ProjectInquiry {

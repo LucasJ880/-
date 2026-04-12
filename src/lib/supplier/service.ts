@@ -16,6 +16,10 @@ export async function createSupplier(input: CreateSupplierInput, userId: string)
       category: input.category?.trim() || null,
       region: input.region?.trim() || null,
       notes: input.notes?.trim() || null,
+      source: input.source?.trim() || null,
+      sourceDetail: input.sourceDetail?.trim() || null,
+      website: input.website?.trim() || null,
+      tags: input.tags?.trim() || null,
       createdById: userId,
       brochureUrl: input.brochureUrl || null,
       brochureParseStatus: input.brochureParseStatus || null,
@@ -39,6 +43,16 @@ export async function updateSupplier(supplierId: string, input: UpdateSupplierIn
   if (input.region !== undefined) data.region = input.region?.trim() || null;
   if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
   if (input.status !== undefined) data.status = input.status;
+  if (input.source !== undefined) data.source = input.source?.trim() || null;
+  if (input.sourceDetail !== undefined) data.sourceDetail = input.sourceDetail?.trim() || null;
+  if (input.website !== undefined) data.website = input.website?.trim() || null;
+  if (input.tags !== undefined) data.tags = input.tags?.trim() || null;
+  if (input.capabilities !== undefined) data.capabilities = input.capabilities?.trim() || null;
+  if (input.rating !== undefined) data.rating = input.rating;
+  if (input.ratingDetail !== undefined) data.ratingDetail = input.ratingDetail as object;
+  if (input.lastContactAt !== undefined) {
+    data.lastContactAt = input.lastContactAt ? new Date(input.lastContactAt) : null;
+  }
 
   return db.supplier.update({ where: { id: supplierId }, data });
 }
@@ -49,18 +63,21 @@ export async function getSupplier(supplierId: string) {
 
 export async function listSuppliers(
   orgId: string,
-  opts?: { status?: string; search?: string; page?: number; pageSize?: number }
+  opts?: { status?: string; search?: string; source?: string; page?: number; pageSize?: number }
 ) {
   const page = opts?.page ?? 1;
   const pageSize = Math.min(opts?.pageSize ?? 50, 200);
 
   const where: Record<string, unknown> = { orgId };
   if (opts?.status) where.status = opts.status;
+  if (opts?.source) where.source = opts.source;
   if (opts?.search) {
     where.OR = [
       { name: { contains: opts.search, mode: "insensitive" } },
       { contactName: { contains: opts.search, mode: "insensitive" } },
       { contactEmail: { contains: opts.search, mode: "insensitive" } },
+      { tags: { contains: opts.search, mode: "insensitive" } },
+      { category: { contains: opts.search, mode: "insensitive" } },
     ];
   }
 

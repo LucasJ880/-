@@ -15,10 +15,11 @@ export async function GET(request: NextRequest) {
 
   const status = url.searchParams.get("status") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
+  const source = url.searchParams.get("source") ?? undefined;
   const page = parseInt(url.searchParams.get("page") ?? "1", 10) || 1;
   const pageSize = parseInt(url.searchParams.get("pageSize") ?? "50", 10) || 50;
 
-  const result = await listSuppliers(orgId, { status, search, page, pageSize });
+  const result = await listSuppliers(orgId, { status, search, source, page, pageSize });
   return NextResponse.json(result);
 }
 

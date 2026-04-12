@@ -18,6 +18,11 @@ import {
   Power,
   PowerOff,
   Building2,
+  Upload,
+  Brain,
+  Sparkles,
+  Tags,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -25,6 +30,17 @@ import { PageHeader } from "@/components/page-header";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { SupplierFormDialog } from "@/components/supplier/supplier-form-dialog";
 import { SupplierHistory } from "@/components/supplier/supplier-history";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 
 interface SupplierStats {
   projectCount: number;
@@ -44,9 +60,35 @@ interface Supplier {
   region: string | null;
   notes: string | null;
   status: string;
+  source: string | null;
+  sourceDetail: string | null;
+  website: string | null;
+  tags: string | null;
+  capabilities: string | null;
+  rating: number | null;
   createdAt: string;
   stats: SupplierStats;
 }
+
+const SOURCE_LABELS: Record<string, string> = {
+  exhibition: "展会",
+  referral: "转介绍",
+  online: "线上搜索",
+  xiaohongshu: "小红书",
+  "1688": "1688",
+  cold_call: "陌生拜访",
+  other: "其他",
+};
+
+const SOURCE_COLORS: Record<string, string> = {
+  exhibition: "bg-purple-100 text-purple-700",
+  referral: "bg-green-100 text-green-700",
+  online: "bg-blue-100 text-blue-700",
+  xiaohongshu: "bg-red-100 text-red-700",
+  "1688": "bg-orange-100 text-orange-700",
+  cold_call: "bg-amber-100 text-amber-700",
+  other: "bg-gray-100 text-gray-600",
+};
 
 interface ListResponse {
   data: Supplier[];
@@ -137,7 +179,9 @@ export default function SuppliersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [selectedOrgId, setSelectedOrgId] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [showForm, setShowForm] = useState(false);
+  const [showBatchImport, setShowBatchImport] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -156,6 +200,7 @@ export default function SuppliersPage() {
 
     const params = new URLSearchParams({ orgId: selectedOrgId, page: String(page), pageSize: "50" });
     if (statusFilter !== "all") params.set("status", statusFilter);
+    if (sourceFilter !== "all") params.set("source", sourceFilter);
     if (search.trim()) params.set("search", search.trim());
 
     apiFetch(`/api/suppliers?${params}`)
@@ -170,7 +215,7 @@ export default function SuppliersPage() {
       })
       .catch(() => setLoadError("加载供应商列表失败，请稍后重试"))
       .finally(() => setLoading(false));
-  }, [selectedOrgId, page, statusFilter, search]);
+  }, [selectedOrgId, page, statusFilter, sourceFilter, search]);
 
   useEffect(() => {
     loadSuppliers();
@@ -178,7 +223,7 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, selectedOrgId]);
+  }, [search, statusFilter, sourceFilter, selectedOrgId]);
 
   const handleToggleStatus = async (s: Supplier) => {
     const newStatus = s.status === "active" ? "inactive" : "active";
@@ -188,6 +233,15 @@ export default function SuppliersPage() {
       body: JSON.stringify({ status: newStatus }),
     });
     loadSuppliers();
+  };
+
+  const handleClassify = async (id: string) => {
+    try {
+      await apiFetch(`/api/suppliers/${id}/classify`, { method: "POST" });
+      loadSuppliers();
+    } catch {
+      alert("AI 分类失败");
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -213,15 +267,26 @@ export default function SuppliersPage() {
         title="供应商管理"
         description="管理组织内的供应商库，查看合作历史和报价记录。"
         actions={
-          <button
-            type="button"
-            onClick={() => { setEditing(null); setShowForm(true); }}
-            disabled={noOrg}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-          >
-            <Plus size={16} />
-            新建供应商
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowBatchImport(true)}
+              disabled={noOrg}
+              className="flex items-center gap-2 rounded-lg border border-border bg-white/80 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white disabled:opacity-50"
+            >
+              <Upload size={16} />
+              批量导入
+            </button>
+            <button
+              type="button"
+              onClick={() => { setEditing(null); setShowForm(true); }}
+              disabled={noOrg}
+              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              <Plus size={16} />
+              新建供应商
+            </button>
+          </div>
         }
       />
 
@@ -286,6 +351,17 @@ export default function SuppliersPage() {
               ))}
             </div>
 
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-accent"
+            >
+              <option value="all">全部来源</option>
+              {Object.entries(SOURCE_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+
             <span className="ml-auto text-xs text-muted">共 {total} 家</span>
           </div>
 
@@ -323,12 +399,10 @@ export default function SuppliersPage() {
                   <tr className="border-b border-border bg-background/50 text-left text-xs text-muted">
                     <th className="w-8 px-3 py-2.5" />
                     <th className="px-3 py-2.5 font-medium">供应商</th>
-                    <th className="px-3 py-2.5 font-medium">联系人</th>
-                    <th className="px-3 py-2.5 font-medium">品类</th>
+                    <th className="px-3 py-2.5 font-medium">来源</th>
+                    <th className="px-3 py-2.5 font-medium">品类 / 标签</th>
                     <th className="px-3 py-2.5 font-medium">地区</th>
-                    <th className="px-3 py-2.5 font-medium text-center">项目</th>
-                    <th className="px-3 py-2.5 font-medium text-center">报价</th>
-                    <th className="px-3 py-2.5 font-medium text-center">中选</th>
+                    <th className="px-3 py-2.5 font-medium text-center">合作</th>
                     <th className="px-3 py-2.5 font-medium">状态</th>
                     <th className="w-10 px-3 py-2.5" />
                   </tr>
@@ -345,6 +419,7 @@ export default function SuppliersPage() {
                         onEdit={() => { setEditing(s); setShowForm(true); }}
                         onToggleStatus={() => handleToggleStatus(s)}
                         onDelete={() => handleDelete(s.id)}
+                        onClassify={() => handleClassify(s.id)}
                       />
                     );
                   })}
@@ -387,6 +462,16 @@ export default function SuppliersPage() {
         editing={editing}
         orgId={selectedOrgId}
       />
+
+      <BatchImportDialog
+        open={showBatchImport}
+        onOpenChange={setShowBatchImport}
+        orgId={selectedOrgId}
+        onSuccess={() => {
+          setShowBatchImport(false);
+          loadSuppliers();
+        }}
+      />
     </div>
   );
 }
@@ -398,6 +483,7 @@ function SupplierRow({
   onEdit,
   onToggleStatus,
   onDelete,
+  onClassify,
 }: {
   supplier: Supplier;
   isExpanded: boolean;
@@ -405,8 +491,10 @@ function SupplierRow({
   onEdit: () => void;
   onToggleStatus: () => void;
   onDelete: () => void;
+  onClassify: () => void;
 }) {
   const hasHistory = s.stats.inquiryCount > 0;
+  const tagList = s.tags ? s.tags.split(",").filter(Boolean).slice(0, 4) : [];
 
   return (
     <>
@@ -421,60 +509,100 @@ function SupplierRow({
           )}
         </td>
         <td className="px-3 py-3">
-          <button
-            onClick={hasHistory ? onToggleExpand : undefined}
-            className={cn("text-left font-medium", hasHistory && "hover:text-accent cursor-pointer")}
-          >
-            {s.name}
-          </button>
-          {s.contactEmail && (
-            <p className="mt-0.5 text-xs text-muted">{s.contactEmail}</p>
-          )}
-        </td>
-        <td className="px-3 py-3 text-muted">
-          {s.contactName || "—"}
+          <div className="flex items-start gap-2">
+            <div className="min-w-0">
+              <Link
+                href={`/suppliers/${s.id}`}
+                className="font-medium text-foreground hover:text-accent hover:underline"
+              >
+                {s.name}
+              </Link>
+              <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
+                {s.contactName && <span>{s.contactName}</span>}
+                {s.contactEmail && <span>{s.contactEmail}</span>}
+              </div>
+            </div>
+          </div>
         </td>
         <td className="px-3 py-3">
-          {s.category ? (
-            <span className="rounded-full bg-[rgba(79,124,120,0.06)] px-2 py-0.5 text-xs font-medium text-primary">
-              {s.category}
+          {s.source ? (
+            <span className={cn(
+              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+              SOURCE_COLORS[s.source] || "bg-gray-100 text-gray-600"
+            )}>
+              {SOURCE_LABELS[s.source] || s.source}
             </span>
           ) : (
-            <span className="text-muted">—</span>
+            <span className="text-xs text-muted">—</span>
           )}
+          {s.sourceDetail && (
+            <p className="mt-0.5 text-[10px] text-muted truncate max-w-[120px]" title={s.sourceDetail}>
+              {s.sourceDetail}
+            </p>
+          )}
+        </td>
+        <td className="px-3 py-3">
+          <div className="space-y-1">
+            {s.category && (
+              <span className="rounded-full bg-[rgba(79,124,120,0.06)] px-2 py-0.5 text-xs font-medium text-primary">
+                {s.category}
+              </span>
+            )}
+            {tagList.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {tagList.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted"
+                  >
+                    {tag.trim()}
+                  </span>
+                ))}
+                {s.tags && s.tags.split(",").length > 4 && (
+                  <span className="text-[10px] text-muted">
+                    +{s.tags.split(",").length - 4}
+                  </span>
+                )}
+              </div>
+            )}
+            {!s.category && tagList.length === 0 && (
+              <button
+                onClick={onClassify}
+                className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline"
+              >
+                <Sparkles size={10} />
+                AI 分类
+              </button>
+            )}
+          </div>
         </td>
         <td className="px-3 py-3 text-muted text-xs">
           {s.region || "—"}
         </td>
         <td className="px-3 py-3 text-center">
-          {s.stats.projectCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-              <FolderKanban size={12} />
-              {s.stats.projectCount}
-            </span>
-          ) : (
-            <span className="text-xs text-muted">0</span>
-          )}
-        </td>
-        <td className="px-3 py-3 text-center">
-          {s.stats.quotedCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#2e7a56]">
-              <FileText size={12} />
-              {s.stats.quotedCount}
-            </span>
-          ) : (
-            <span className="text-xs text-muted">0</span>
-          )}
-        </td>
-        <td className="px-3 py-3 text-center">
-          {s.stats.selectedCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#b5892f]">
-              <Star size={12} fill="#b5892f" />
-              {s.stats.selectedCount}
-            </span>
-          ) : (
-            <span className="text-xs text-muted">0</span>
-          )}
+          <div className="flex flex-col items-center gap-0.5">
+            {s.stats.projectCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                <FolderKanban size={11} />
+                {s.stats.projectCount} 项目
+              </span>
+            )}
+            {s.stats.quotedCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#2e7a56]">
+                <FileText size={11} />
+                {s.stats.quotedCount} 报价
+              </span>
+            )}
+            {s.stats.selectedCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#b5892f]">
+                <Star size={11} fill="#b5892f" />
+                {s.stats.selectedCount} 中选
+              </span>
+            )}
+            {s.stats.projectCount === 0 && s.stats.quotedCount === 0 && (
+              <span className="text-[11px] text-muted">暂无</span>
+            )}
+          </div>
         </td>
         <td className="px-3 py-3">
           <span className={cn(
@@ -497,8 +625,17 @@ function SupplierRow({
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={10} className="bg-background/30 px-0 py-0">
+          <td colSpan={8} className="bg-background/30 px-0 py-0">
             <div className="border-b border-border/50 py-2">
+              {s.capabilities && (
+                <div className="mx-4 mb-2 rounded-lg bg-accent/[0.03] px-3 py-2">
+                  <div className="flex items-center gap-1 text-[10px] font-semibold text-accent mb-1">
+                    <Brain size={10} />
+                    AI 能力画像
+                  </div>
+                  <p className="text-xs text-foreground/80 leading-relaxed">{s.capabilities}</p>
+                </div>
+              )}
               <div className="mb-1 flex items-center gap-2 px-4 py-1.5 text-xs font-semibold text-muted">
                 <FolderKanban size={12} />
                 项目参与记录
@@ -509,5 +646,205 @@ function SupplierRow({
         </tr>
       )}
     </>
+  );
+}
+
+/* ── Batch Import Dialog ── */
+function BatchImportDialog({
+  open,
+  onOpenChange,
+  orgId,
+  onSuccess,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  orgId: string;
+  onSuccess: () => void;
+}) {
+  const [mode, setMode] = useState<"text" | "structured">("text");
+  const [rawText, setRawText] = useState("");
+  const [source, setSource] = useState("exhibition");
+  const [sourceDetail, setSourceDetail] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{
+    total: number;
+    created: number;
+    failed: number;
+    results: { name: string; status: string; error?: string }[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleImport() {
+    if (!rawText.trim()) {
+      setError("请粘贴供应商信息");
+      return;
+    }
+    setImporting(true);
+    setError(null);
+
+    try {
+      const res = await apiFetch("/api/suppliers/batch-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          mode: "text",
+          rawText,
+          source,
+          sourceDetail: sourceDetail || undefined,
+          autoClassify: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "导入失败");
+      }
+
+      const data = await res.json();
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "未知错误");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleReset() {
+    setRawText("");
+    setResult(null);
+    setError(null);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>批量导入供应商</DialogTitle>
+          <DialogDescription>
+            粘贴展会名片、聊天记录或备忘信息，AI 自动识别并分类
+          </DialogDescription>
+        </DialogHeader>
+
+        {!result ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>来源渠道</Label>
+                <select
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
+                  className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+                >
+                  {Object.entries(SOURCE_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>来源详情</Label>
+                <input
+                  type="text"
+                  value={sourceDetail}
+                  onChange={(e) => setSourceDetail(e.target.value)}
+                  placeholder="如：2026广交会-3号馆"
+                  className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>供应商信息</Label>
+              <textarea
+                className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-48 resize-none font-mono text-xs leading-relaxed"
+                placeholder={`粘贴供应商信息，支持多种格式：
+
+名片格式：
+绍兴华美纺织有限公司
+联系人：张经理
+电话：138-1234-5678
+邮箱：zhang@huamei.com
+主营：阻燃面料、窗帘布
+
+或自由文本：
+今天在广交会3号馆收了几张名片：
+1. 绍兴华美纺织，张经理 138xxxx，做阻燃面料
+2. 广州锦盛窗饰，李总 139xxxx，百叶窗配件`}
+                value={rawText}
+                onChange={(e) => setRawText(e.target.value)}
+              />
+              <p className="text-[11px] text-muted flex items-center gap-1">
+                <Sparkles size={10} className="text-accent" />
+                AI 会自动识别公司名称、联系人、电话、邮箱、品类等信息，并自动分类打标
+              </p>
+            </div>
+
+            {error && (
+              <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
+            )}
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                取消
+              </Button>
+              <Button onClick={handleImport} disabled={!rawText.trim() || importing}>
+                {importing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Brain className="h-4 w-4" />
+                )}
+                AI 解析导入
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className={cn(
+              "rounded-lg px-4 py-3 text-sm",
+              result.failed === 0
+                ? "bg-success-bg text-success"
+                : "bg-warning-bg text-warning"
+            )}>
+              导入完成！成功 {result.created} 家
+              {result.failed > 0 && `，失败 ${result.failed} 家`}
+              <p className="mt-1 text-xs opacity-70">
+                AI 正在后台自动分类打标，稍后刷新可见
+              </p>
+            </div>
+
+            {result.results.length > 0 && (
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {result.results.map((r, i) => (
+                      <tr key={i} className="border-b border-border/50 last:border-0">
+                        <td className="px-3 py-1.5 font-medium">{r.name}</td>
+                        <td className="px-3 py-1.5">
+                          {r.status === "created" ? (
+                            <Badge className="bg-green-100 text-green-700">已创建</Badge>
+                          ) : (
+                            <Badge className="bg-red-100 text-red-700">失败</Badge>
+                          )}
+                        </td>
+                        {r.error && (
+                          <td className="px-3 py-1.5 text-muted">{r.error}</td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={handleReset}>
+                继续导入
+              </Button>
+              <Button onClick={onSuccess}>完成</Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
+import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
@@ -15,6 +16,9 @@ export async function GET(request: NextRequest) {
   const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20')));
 
   const where: Record<string, unknown> = {};
+  if (!isSuperAdmin(user.role)) {
+    where.createdById = user.id;
+  }
   if (status) where.status = status;
   if (search) {
     where.OR = [
