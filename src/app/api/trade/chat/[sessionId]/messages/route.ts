@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { processChat, type ChatMessage } from "@/lib/trade/chat-assistant";
+import { extractMemoriesFromConversation, saveMemories } from "@/lib/ai/user-memory";
 
 export async function POST(
   request: NextRequest,
@@ -45,7 +46,7 @@ export async function POST(
 
   let aiResponse: string;
   try {
-    aiResponse = await processChat(session.orgId, body.content.trim(), chatHistory.slice(0, -1));
+    aiResponse = await processChat(session.orgId, auth.user.id, body.content.trim(), chatHistory.slice(0, -1));
   } catch (e) {
     aiResponse = `抱歉，AI 处理出错: ${e instanceof Error ? e.message : "未知错误"}。请稍后再试。`;
   }
@@ -53,6 +54,9 @@ export async function POST(
   const assistantMsg = await db.tradeChatMessage.create({
     data: { sessionId, role: "assistant", content: aiResponse },
   });
+
+  // 自动提取记忆（异步，不阻塞响应）
+  extractAndSaveMemories(auth.user.id, body.content.trim(), aiResponse).catch(() => {});
 
   const isFirstMessage = history.length <= 1;
   if (isFirstMessage) {
@@ -72,4 +76,20 @@ export async function POST(
     userMessage: { role: "user", content: body.content.trim() },
     assistantMessage: { id: assistantMsg.id, role: "assistant", content: aiResponse },
   });
+}
+
+async function extractAndSaveMemories(userId: string, userMsg: string, aiReply: string) {
+  const extracted = extractMemoriesFromConversation(userMsg, aiReply);
+  if (extracted.length === 0) return;
+
+  await saveMemories(
+    userId,
+    extracted.map((e) => ({
+      memoryType: e.memoryType,
+      content: e.content,
+      layer: e.importance >= 4 ? 1 : 2,
+      tags: e.tags,
+      importance: e.importance,
+    })),
+  );
 }

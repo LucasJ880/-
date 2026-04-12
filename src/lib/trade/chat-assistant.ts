@@ -11,6 +11,11 @@
 
 import { createCompletion } from "@/lib/ai/client";
 import { db } from "@/lib/db";
+import {
+  getWakeUpMemories,
+  recallMemories,
+  buildUserMemoryBlock,
+} from "@/lib/ai/user-memory";
 
 // ── Tool Definitions ────────────────────────────────────────
 
@@ -94,11 +99,19 @@ export interface ChatMessage {
 
 export async function processChat(
   orgId: string,
+  userId: string,
   userMessage: string,
   history: ChatMessage[],
 ): Promise<string> {
-  const systemPrompt = buildSystemPrompt();
+  // ── 加载记忆 ──
+  let memoryBlock = "";
+  try {
+    const { l0, l1 } = await getWakeUpMemories(userId, 8);
+    const l2 = await recallMemories(userId, userMessage, { limit: 5 });
+    memoryBlock = buildUserMemoryBlock(l0, l1, l2);
+  } catch { /* 记忆加载失败不阻塞对话 */ }
 
+  const systemPrompt = buildSystemPrompt() + memoryBlock;
   const recentHistory = history.slice(-10);
 
   const firstPass = await createCompletion({
@@ -135,7 +148,8 @@ export async function processChat(
   const finalResponse = await createCompletion({
     systemPrompt: `你是「青砚」外贸 AI 助手。根据工具返回的数据，用简洁中文回复用户。
 不要暴露工具调用细节，直接呈现有用的信息和建议。
-用表格或列表呈现数据（如果合适），给出具体行动建议。`,
+用表格或列表呈现数据（如果合适），给出具体行动建议。
+${memoryBlock}`,
     userPrompt: `用户问题: ${userMessage}
 
 工具返回数据:
