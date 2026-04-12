@@ -14,6 +14,8 @@ import {
   ChevronRight,
   Search,
   FlaskConical,
+  Zap,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -94,6 +96,10 @@ export default function CampaignDetailPage() {
   const [batchResearching, setBatchResearching] = useState(false);
   const [discoverResult, setDiscoverResult] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<string | null>(null);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [pipelineResult, setPipelineResult] = useState<{ steps: { step: string; status: string; detail: string; count?: number }[]; summary: Record<string, number> } | null>(null);
+  const [logs, setLogs] = useState<{ id: string; action: string; detail: string | null; createdAt: string }[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
 
   const loadData = useCallback(async () => {
     const [campRes, prospRes, statsRes] = await Promise.all([
@@ -182,7 +188,64 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
-      {/* AI Actions */}
+      {/* One-click Pipeline */}
+      <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Zap size={14} className="text-blue-400" />
+              一键自动获客
+            </h3>
+            <p className="mt-0.5 text-xs text-muted">AI 全自动执行：发现客户 → 研究打分 → 生成开发信</p>
+          </div>
+          <button
+            onClick={async () => {
+              setPipelineRunning(true);
+              setPipelineResult(null);
+              try {
+                const res = await apiFetch(`/api/trade/campaigns/${id}/pipeline`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ maxDiscover: 15, maxResearch: 8, maxOutreach: 5 }),
+                });
+                if (res.ok) {
+                  setPipelineResult(await res.json());
+                  loadData();
+                }
+              } finally {
+                setPipelineRunning(false);
+              }
+            }}
+            disabled={pipelineRunning}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+          >
+            {pipelineRunning ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+            {pipelineRunning ? "全自动运行中..." : "开始运行"}
+          </button>
+        </div>
+
+        {pipelineResult && (
+          <div className="mt-3 space-y-1.5">
+            {pipelineResult.steps.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  s.status === "done" ? "bg-emerald-400" : s.status === "error" ? "bg-red-400" : s.status === "skipped" ? "bg-zinc-400" : "bg-blue-400",
+                )} />
+                <span className="text-foreground">{s.detail}</span>
+              </div>
+            ))}
+            <div className="mt-2 flex gap-3 text-[10px] text-muted">
+              <span>发现 {pipelineResult.summary.discovered}</span>
+              <span>研究 {pipelineResult.summary.researched}</span>
+              <span>合格 {pipelineResult.summary.qualified}</span>
+              <span>开发信 {pipelineResult.summary.outreachGenerated}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AI Actions (manual) */}
       <div className="flex flex-wrap gap-2">
         <button
           onClick={async () => {
@@ -280,6 +343,39 @@ export default function CampaignDetailPage() {
           ))}
         </div>
       )}
+
+      {/* Activity Log */}
+      <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+        <button
+          onClick={async () => {
+            setShowLogs(!showLogs);
+            if (!showLogs && logs.length === 0) {
+              const res = await apiFetch(`/api/trade/campaigns/${id}/logs`);
+              if (res.ok) setLogs(await res.json());
+            }
+          }}
+          className="flex w-full items-center justify-between"
+        >
+          <div className="flex items-center gap-2">
+            <ScrollText size={14} className="text-muted" />
+            <h3 className="text-xs font-medium text-muted">活动日志</h3>
+          </div>
+          <ChevronRight size={14} className={cn("text-muted transition", showLogs && "rotate-90")} />
+        </button>
+        {showLogs && logs.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {logs.slice(0, 20).map((log) => (
+              <div key={log.id} className="flex items-start gap-2 text-xs">
+                <span className="shrink-0 text-[10px] text-muted">
+                  {new Date(log.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span className="rounded bg-zinc-500/15 px-1 py-0.5 text-[10px] text-zinc-400">{log.action}</span>
+                <span className="text-foreground">{log.detail}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Add Prospect Modal */}
       {showAdd && campaign && (

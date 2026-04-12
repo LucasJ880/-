@@ -19,6 +19,9 @@ import {
   Clock,
   AlertCircle,
   Plus,
+  History,
+  Calendar,
+  Edit3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -124,6 +127,11 @@ export default function ProspectDetailPage() {
   const [replySubject, setReplySubject] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
   const [replyResult, setReplyResult] = useState<{ intent: string; suggestedAction: string; draftReply?: string } | null>(null);
+  const [timeline, setTimeline] = useState<{ id: string; action: string; detail: string | null; createdAt: string }[]>([]);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [editingStage, setEditingStage] = useState(false);
+  const [editingFollowUp, setEditingFollowUp] = useState(false);
+  const [newFollowUpDate, setNewFollowUpDate] = useState("");
 
   const loadProspect = useCallback(async () => {
     const res = await apiFetch(`/api/trade/prospects/${id}`);
@@ -197,6 +205,33 @@ export default function ProspectDetailPage() {
     } finally {
       setSubmittingReply(false);
     }
+  };
+
+  const handleStageChange = async (newStage: string) => {
+    await apiFetch(`/api/trade/prospects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage: newStage }),
+    });
+    setEditingStage(false);
+    await loadProspect();
+  };
+
+  const handleFollowUpChange = async () => {
+    if (!newFollowUpDate) return;
+    await apiFetch(`/api/trade/prospects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nextFollowUpAt: new Date(newFollowUpDate).toISOString() }),
+    });
+    setEditingFollowUp(false);
+    setNewFollowUpDate("");
+    await loadProspect();
+  };
+
+  const loadTimeline = async () => {
+    const res = await apiFetch(`/api/trade/prospects/${id}/timeline`);
+    if (res.ok) setTimeline(await res.json());
   };
 
   const handleCopyEmail = () => {
@@ -286,6 +321,95 @@ export default function ProspectDetailPage() {
           </button>
         )}
       </div>
+
+      {/* Quick Actions: Stage + Follow-up */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Stage switch */}
+        <div className="flex items-center gap-1.5">
+          <Edit3 size={10} className="text-muted" />
+          {editingStage ? (
+            <select
+              defaultValue={p.stage}
+              onChange={(e) => handleStageChange(e.target.value)}
+              onBlur={() => setEditingStage(false)}
+              autoFocus
+              className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none"
+            >
+              {Object.entries(STAGE_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          ) : (
+            <button
+              onClick={() => setEditingStage(true)}
+              className="rounded-full px-2 py-0.5 text-[10px] text-muted transition hover:text-foreground"
+            >
+              切换阶段
+            </button>
+          )}
+        </div>
+
+        <span className="text-border">|</span>
+
+        {/* Follow-up date */}
+        <div className="flex items-center gap-1.5">
+          <Calendar size={10} className="text-muted" />
+          {editingFollowUp ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="date"
+                value={newFollowUpDate}
+                onChange={(e) => setNewFollowUpDate(e.target.value)}
+                className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none"
+              />
+              <button onClick={handleFollowUpChange} className="text-[10px] text-blue-400 hover:underline">确定</button>
+              <button onClick={() => setEditingFollowUp(false)} className="text-[10px] text-muted hover:text-foreground">取消</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setEditingFollowUp(true)}
+              className="rounded-full px-2 py-0.5 text-[10px] text-muted transition hover:text-foreground"
+            >
+              设置跟进时间
+            </button>
+          )}
+        </div>
+
+        <span className="text-border">|</span>
+
+        {/* Timeline toggle */}
+        <button
+          onClick={async () => {
+            setShowTimeline(!showTimeline);
+            if (!showTimeline && timeline.length === 0) await loadTimeline();
+          }}
+          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-muted transition hover:text-foreground"
+        >
+          <History size={10} />
+          操作记录
+        </button>
+      </div>
+
+      {/* Timeline */}
+      {showTimeline && timeline.length > 0 && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-medium text-muted">
+            <History size={12} />
+            操作记录
+          </h3>
+          <div className="space-y-1.5">
+            {timeline.map((t) => (
+              <div key={t.id} className="flex items-start gap-2 text-xs">
+                <span className="shrink-0 text-[10px] text-muted">
+                  {new Date(t.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span className="rounded bg-zinc-500/15 px-1 py-0.5 text-[10px] text-zinc-400">{t.action}</span>
+                <span className="text-foreground">{t.detail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Score Reason */}
       {p.scoreReason && (

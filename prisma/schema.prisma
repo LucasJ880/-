@@ -1806,6 +1806,21 @@ model TradeMessage {
   @@index([prospectId, direction])
 }
 
+model TradeActivityLog {
+  id          String   @id @default(cuid())
+  orgId       String
+  campaignId  String?
+  prospectId  String?
+  action      String   // discover / research / score / outreach / send / reply / stage_change / import / pipeline
+  detail      String?  @db.Text
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId, createdAt])
+  @@index([prospectId, createdAt])
+  @@index([orgId, createdAt])
+}
+
 model TradeEmailTemplate {
   id          String   @id @default(cuid())
   orgId       String
