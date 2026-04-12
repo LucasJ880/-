@@ -148,27 +148,62 @@ export interface OutreachDraft {
   bodyZh: string;
 }
 
+const COUNTRY_LANG_MAP: Record<string, string> = {
+  // Spanish-speaking
+  spain: "Spanish", mexico: "Spanish", colombia: "Spanish", argentina: "Spanish",
+  chile: "Spanish", peru: "Spanish", venezuela: "Spanish", ecuador: "Spanish",
+  guatemala: "Spanish", cuba: "Spanish", "dominican republic": "Spanish",
+  // French-speaking
+  france: "French", belgium: "French", canada: "French", switzerland: "French",
+  morocco: "French", tunisia: "French", senegal: "French",
+  // German-speaking
+  germany: "German", austria: "German",
+  // Portuguese-speaking
+  brazil: "Portuguese", portugal: "Portuguese",
+  // Russian-speaking
+  russia: "Russian", kazakhstan: "Russian", belarus: "Russian",
+  // Arabic-speaking
+  "saudi arabia": "Arabic", uae: "Arabic", egypt: "Arabic", qatar: "Arabic",
+  // Japanese / Korean
+  japan: "Japanese", "south korea": "Korean", korea: "Korean",
+  // Turkish
+  turkey: "Turkish", türkiye: "Turkish",
+};
+
+function detectLanguage(country?: string | null): string {
+  if (!country) return "English";
+  const normalized = country.toLowerCase().trim();
+  return COUNTRY_LANG_MAP[normalized] ?? "English";
+}
+
 export async function generateOutreachEmail(
   prospect: { companyName: string; contactName?: string | null; contactTitle?: string | null; country?: string | null },
   report: ResearchReport,
   productDesc: string,
   senderInfo: { companyName: string; senderName: string },
+  opts?: { language?: string },
 ): Promise<OutreachDraft> {
+  const targetLang = opts?.language ?? detectLanguage(prospect.country);
+  const langInstruction = targetLang === "English"
+    ? "正文用英文撰写"
+    : `正文用${targetLang}撰写（因为客户位于${prospect.country}）`;
+
   const raw = await createCompletion({
     systemPrompt: `你是专业外贸开发信写手。根据客户研究报告生成个性化的首封开发邮件。
 
 要求：
-1. 同时生成英文版和中文版（中文版供老板审阅理解）
+1. ${langInstruction}，同时附上中文翻译版（供老板审阅理解）
 2. 主题行简洁有力，提及对方公司或行业
 3. 正文 150-250 词，包含：简要自我介绍、为什么联系对方（基于研究）、产品价值主张、明确的行动号召（CTA）
 4. 语气专业但友好，不要过于推销
 5. 不要虚构任何事实
 
 用 JSON 格式返回：
-{"subject": "英文主题", "body": "英文正文", "subjectZh": "中文主题", "bodyZh": "中文正文"}`,
+{"subject": "外语主题", "body": "外语正文", "subjectZh": "中文主题", "bodyZh": "中文正文"}`,
     userPrompt: `目标客户：${prospect.companyName}
 联系人：${prospect.contactName || "未知"} ${prospect.contactTitle || ""}
 国家：${prospect.country || "未知"}
+目标语言：${targetLang}
 客户研究：${JSON.stringify(report)}
 
 我方公司：${senderInfo.companyName}

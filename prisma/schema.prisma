@@ -1806,6 +1806,24 @@ model TradeMessage {
   @@index([prospectId, direction])
 }
 
+model TradeEmailTemplate {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  category    String   // first_touch / follow_up / after_quote / after_sample / re_engage / exhibition
+  language    String   @default("en") // en / zh / es / fr / de / auto
+  subject     String
+  body        String   @db.Text
+  variables   Json?    // ["companyName", "contactName", "productDesc", ...]
+  isDefault   Boolean  @default(false)
+  usageCount  Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId, category])
+}
+
 // ============================================================
 // Sales CRM Models — Sunny Shutter B2C 销售流程
 // ============================================================

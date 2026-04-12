@@ -89,15 +89,17 @@ export default function CampaignDetailPage() {
   const [loading, setLoading] = useState(true);
   const [stageFilter, setStageFilter] = useState<string>("");
   const [showAdd, setShowAdd] = useState(false);
+  const [stats, setStats] = useState<{ funnel: { key: string; label: string; count: number; rate: number }[]; avgScore: number; replyRate: number } | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [batchResearching, setBatchResearching] = useState(false);
   const [discoverResult, setDiscoverResult] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    const [campRes, prospRes] = await Promise.all([
+    const [campRes, prospRes, statsRes] = await Promise.all([
       apiFetch(`/api/trade/campaigns/${id}`),
       apiFetch(`/api/trade/prospects?campaignId=${id}${stageFilter ? `&stage=${stageFilter}` : ""}`),
+      apiFetch(`/api/trade/campaigns/${id}/stats`),
     ]);
     if (campRes.ok) setCampaign(await campRes.json());
     if (prospRes.ok) {
@@ -105,6 +107,7 @@ export default function CampaignDetailPage() {
       setProspects(data.items ?? []);
       setTotal(data.total ?? 0);
     }
+    if (statsRes.ok) setStats(await statsRes.json());
     setLoading(false);
   }, [id, stageFilter]);
 
@@ -145,6 +148,35 @@ export default function CampaignDetailPage() {
               <span key={i} className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">
                 {kw}
               </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Conversion Funnel */}
+      {stats && stats.funnel[0]?.count > 0 && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted">转化漏斗</h3>
+            <div className="flex items-center gap-3 text-[10px] text-muted">
+              <span>平均分: <span className="font-medium text-foreground">{stats.avgScore}</span></span>
+              <span>回复率: <span className="font-medium text-foreground">{stats.replyRate}%</span></span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {stats.funnel.map((f) => (
+              <div key={f.key} className="flex items-center gap-3">
+                <span className="w-14 shrink-0 text-right text-[10px] text-muted">{f.label}</span>
+                <div className="flex h-5 flex-1 overflow-hidden rounded-full bg-background">
+                  <div
+                    className="rounded-full bg-blue-500/30 transition-all duration-500"
+                    style={{ width: `${Math.max(f.rate, f.count > 0 ? 3 : 0)}%` }}
+                  />
+                </div>
+                <span className="w-16 shrink-0 text-right text-[10px] text-foreground">
+                  {f.count} <span className="text-muted">({f.rate}%)</span>
+                </span>
+              </div>
             ))}
           </div>
         </div>
