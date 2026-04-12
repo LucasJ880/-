@@ -16,10 +16,17 @@ import { DashboardWelcomeSection } from "@/components/dashboard/dashboard-welcom
 import { ProjectQuickViewDrawer } from "@/components/project/project-quick-view-drawer";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
 import { useDashboardData } from "@/components/dashboard/use-dashboard-data";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { isAdmin as checkIsAdmin } from "@/lib/permissions-client";
 import type { ReminderItemData } from "@/components/dashboard/types";
 
 export default function Dashboard() {
   const router = useRouter();
+  const { user } = useCurrentUser();
+  const userRole = user?.role || "user";
+  const showProjectModules = checkIsAdmin(userRole) || userRole === "user";
+  const showSalesModules = checkIsAdmin(userRole) || userRole === "sales";
+  const showTradeModules = checkIsAdmin(userRole) || userRole === "trade";
   const {
     stats,
     loading,
@@ -94,7 +101,7 @@ export default function Dashboard() {
         <DashboardWelcomeSection stats={stats} userName={userName} />
       )}
 
-      {/* ─── 核心区块 ─── */}
+      {/* ─── 核心区块（所有角色都看到任务统计） ─── */}
       <DashboardStatsSection
         stats={stats}
         reminderSummary={reminderSummary}
@@ -108,67 +115,104 @@ export default function Dashboard() {
         reminderSummary={reminderSummary}
         onProjectClick={openProjectDrawer}
       />
-      <DashboardProgressOverview
-        projectBreakdown={stats.projectBreakdown}
-        projectProgress={stats.projectProgress ?? {}}
-        onProjectClick={openProjectDrawer}
-      />
+
+      {/* 项目进度（仅 admin + user） */}
+      {showProjectModules && (
+        <DashboardProgressOverview
+          projectBreakdown={stats.projectBreakdown}
+          projectProgress={stats.projectProgress ?? {}}
+          onProjectClick={openProjectDrawer}
+        />
+      )}
+
+      {/* sales 角色的快捷入口 */}
+      {showSalesModules && !checkIsAdmin(userRole) && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-3">销售快捷操作</h3>
+          <div className="flex flex-wrap gap-3">
+            <a href="/sales" className="rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+              进入销售看板
+            </a>
+            <a href="/sales/knowledge" className="rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+              查看知识库
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* trade 角色的快捷入口 */}
+      {showTradeModules && !checkIsAdmin(userRole) && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-3">外贸快捷操作</h3>
+          <div className="flex flex-wrap gap-3">
+            <a href="/trade" className="rounded-lg bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
+              进入外贸看板
+            </a>
+            <a href="/trade/knowledge" className="rounded-lg bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
+              查看知识库
+            </a>
+          </div>
+        </div>
+      )}
+
       <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
 
-      {/* ─── 折叠区 ─── */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setShowMore(!showMore)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-card-bg px-4 py-2.5 text-xs font-medium text-muted hover:text-foreground hover:bg-card-bg/80 transition-colors"
-        >
-          {showMore ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          {showMore ? "收起更多" : "展开更多"}（日历、任务详情、巡检等）
-        </button>
-        {showMore && (
-          <div className="mt-4 space-y-6">
-            <DashboardAutoInspections onProjectClick={openProjectDrawer} />
-            <DashboardCalendarSection
-              events={events}
-              scheduleEvents={scheduleEvents}
-              scheduleDate={scheduleDate}
-              onDateChange={goToDate}
-              showEventForm={showEventForm}
-              editingEvent={editingEvent}
-              onClose={() => {
-                setShowEventForm(false);
-                setEditingEvent(null);
-              }}
-              onSaved={() => {
-                loadEvents();
-                loadScheduleEvents();
-              }}
-              onOpenAdd={() => {
-                setEditingEvent(null);
-                setShowEventForm(true);
-              }}
-              onOpenEdit={(ev) => {
-                setEditingEvent(ev);
-                setShowEventForm(true);
-              }}
-              onDelete={handleDeleteEvent}
-              onOpenProject={openProjectDrawer}
-            />
-            <DashboardTasksSection
-              highPriorityTasks={stats.highPriorityTasks}
-              upcomingTasks={stats.upcomingTasks}
-              projectBreakdown={stats.projectBreakdown}
-              onProjectClick={openProjectDrawer}
-              onTaskClick={openTaskDrawer}
-            />
-            <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
-            <DashboardLinksRecentSection
-              recentTasks={stats.recentTasks}
-              onProjectClick={openProjectDrawer}
-            />
-          </div>
-        )}
-      </div>
+      {/* ─── 折叠区（仅 admin + user 角色显示项目相关） ─── */}
+      {showProjectModules && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowMore(!showMore)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-card-bg px-4 py-2.5 text-xs font-medium text-muted hover:text-foreground hover:bg-card-bg/80 transition-colors"
+          >
+            {showMore ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {showMore ? "收起更多" : "展开更多"}（日历、任务详情、巡检等）
+          </button>
+          {showMore && (
+            <div className="mt-4 space-y-6">
+              <DashboardAutoInspections onProjectClick={openProjectDrawer} />
+              <DashboardCalendarSection
+                events={events}
+                scheduleEvents={scheduleEvents}
+                scheduleDate={scheduleDate}
+                onDateChange={goToDate}
+                showEventForm={showEventForm}
+                editingEvent={editingEvent}
+                onClose={() => {
+                  setShowEventForm(false);
+                  setEditingEvent(null);
+                }}
+                onSaved={() => {
+                  loadEvents();
+                  loadScheduleEvents();
+                }}
+                onOpenAdd={() => {
+                  setEditingEvent(null);
+                  setShowEventForm(true);
+                }}
+                onOpenEdit={(ev) => {
+                  setEditingEvent(ev);
+                  setShowEventForm(true);
+                }}
+                onDelete={handleDeleteEvent}
+                onOpenProject={openProjectDrawer}
+              />
+              <DashboardTasksSection
+                highPriorityTasks={stats.highPriorityTasks}
+                upcomingTasks={stats.upcomingTasks}
+                projectBreakdown={stats.projectBreakdown}
+                onProjectClick={openProjectDrawer}
+                onTaskClick={openTaskDrawer}
+              />
+              <DashboardAbandonedSection onProjectClick={openProjectDrawer} />
+              <DashboardLinksRecentSection
+                recentTasks={stats.recentTasks}
+                onProjectClick={openProjectDrawer}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <ProjectQuickViewDrawer
         projectId={drawerProjectId}
