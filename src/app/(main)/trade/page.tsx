@@ -14,6 +14,9 @@ import {
   Play,
   Trash2,
   ArrowRight,
+  Clock,
+  AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -37,6 +40,19 @@ interface Campaign {
   _count: { prospects: number };
 }
 
+interface FollowUpItem {
+  id: string;
+  companyName: string;
+  contactName: string | null;
+  stage: string;
+  nextFollowUpAt: string | null;
+  isOverdue: boolean;
+  daysUntilFollowUp: number | null;
+  followUpCount: number;
+  campaign: { name: string };
+  messages: { content: string; intent: string | null; createdAt: string }[];
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<string, string> = {
@@ -56,6 +72,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function TradeDashboardPage() {
   const { user } = useCurrentUser();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
@@ -64,8 +81,15 @@ export default function TradeDashboardPage() {
 
   const loadCampaigns = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/trade/campaigns?orgId=${orgId}`);
-      if (res.ok) setCampaigns(await res.json());
+      const [campRes, fuRes] = await Promise.all([
+        apiFetch(`/api/trade/campaigns?orgId=${orgId}`),
+        apiFetch(`/api/trade/follow-ups?orgId=${orgId}&days=7`),
+      ]);
+      if (campRes.ok) setCampaigns(await campRes.json());
+      if (fuRes.ok) {
+        const data = await fuRes.json();
+        setFollowUps(data.items ?? []);
+      }
     } finally {
       setLoading(false);
     }
@@ -83,12 +107,67 @@ export default function TradeDashboardPage() {
       />
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatCard icon={Target} label="活动" value={campaigns.filter((c) => c.status === "active").length} />
         <StatCard icon={Users} label="总线索" value={campaigns.reduce((s, c) => s + c._count.prospects, 0)} />
-        <StatCard icon={Search} label="已研究" value={campaigns.reduce((s, c) => s + c.qualified, 0)} />
+        <StatCard icon={Search} label="合格" value={campaigns.reduce((s, c) => s + c.qualified, 0)} />
         <StatCard icon={Mail} label="已联系" value={campaigns.reduce((s, c) => s + c.contacted, 0)} />
+        <StatCard icon={Clock} label="待跟进" value={followUps.length} highlight={followUps.some((f) => f.isOverdue)} />
       </div>
+
+      {/* Follow-up Reminders */}
+      {followUps.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Clock size={14} className="text-amber-400" />
+            <h3 className="text-sm font-medium text-foreground">
+              待跟进（{followUps.filter((f) => f.isOverdue).length} 已逾期 / {followUps.length} 总计）
+            </h3>
+          </div>
+          <div className="space-y-1.5">
+            {followUps.slice(0, 5).map((f) => (
+              <a
+                key={f.id}
+                href={`/trade/prospects/${f.id}`}
+                className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-amber-500/10"
+              >
+                {f.isOverdue ? (
+                  <AlertTriangle size={12} className="shrink-0 text-red-400" />
+                ) : (
+                  <Clock size={12} className="shrink-0 text-amber-400" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-xs font-medium text-foreground">{f.companyName}</span>
+                    <span className="text-[10px] text-muted">{f.campaign.name}</span>
+                  </div>
+                  {f.messages[0] && (
+                    <p className="mt-0.5 truncate text-[10px] text-muted">
+                      最近: {f.messages[0].content.slice(0, 60)}...
+                    </p>
+                  )}
+                </div>
+                <span className={cn(
+                  "shrink-0 text-[10px] font-medium",
+                  f.isOverdue ? "text-red-400" : "text-amber-400",
+                )}>
+                  {f.isOverdue
+                    ? `逾期 ${Math.abs(f.daysUntilFollowUp ?? 0)} 天`
+                    : f.daysUntilFollowUp === 0
+                      ? "今天"
+                      : `${f.daysUntilFollowUp} 天后`}
+                </span>
+                <ChevronRight size={12} className="shrink-0 text-muted" />
+              </a>
+            ))}
+            {followUps.length > 5 && (
+              <p className="pt-1 text-center text-[10px] text-muted">
+                还有 {followUps.length - 5} 条待跟进
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex items-center justify-between">
@@ -141,14 +220,17 @@ export default function TradeDashboardPage() {
 
 // ── Components ──────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value }: { icon: typeof Target; label: string; value: number }) {
+function StatCard({ icon: Icon, label, value, highlight }: { icon: typeof Target; label: string; value: number; highlight?: boolean }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-card-bg px-4 py-3">
-      <div className="flex items-center gap-2 text-muted">
+    <div className={cn(
+      "rounded-xl border bg-card-bg px-4 py-3",
+      highlight ? "border-amber-500/40" : "border-border/60",
+    )}>
+      <div className={cn("flex items-center gap-2", highlight ? "text-amber-400" : "text-muted")}>
         <Icon size={14} />
         <span className="text-xs">{label}</span>
       </div>
-      <p className="mt-1 text-xl font-semibold text-foreground">{value}</p>
+      <p className={cn("mt-1 text-xl font-semibold", highlight ? "text-amber-400" : "text-foreground")}>{value}</p>
     </div>
   );
 }

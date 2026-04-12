@@ -13,9 +13,12 @@ import {
   Sparkles,
   FileText,
   Send,
-  RefreshCw,
   Copy,
   CheckCircle2,
+  MessageSquare,
+  Clock,
+  AlertCircle,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -85,6 +88,16 @@ const STAGE_COLORS: Record<string, string> = {
   lost: "bg-red-600/20 text-red-300",
 };
 
+const INTENT_LABELS: Record<string, string> = {
+  interested: "感兴趣",
+  question: "询问细节",
+  objection: "提出异议",
+  request_sample: "要求样品",
+  not_interested: "不感兴趣",
+  ooo: "不在办公室",
+  unclear: "意图不明",
+};
+
 const REPORT_LABELS: Record<string, string> = {
   companyOverview: "公司概况",
   products: "主营产品",
@@ -104,7 +117,13 @@ export default function ProspectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [researching, setResearching] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showReplyForm, setShowReplyForm] = useState(false);
+  const [replyContent, setReplyContent] = useState("");
+  const [replySubject, setReplySubject] = useState("");
+  const [submittingReply, setSubmittingReply] = useState(false);
+  const [replyResult, setReplyResult] = useState<{ intent: string; suggestedAction: string; draftReply?: string } | null>(null);
 
   const loadProspect = useCallback(async () => {
     const res = await apiFetch(`/api/trade/prospects/${id}`);
@@ -137,6 +156,46 @@ export default function ProspectDetailPage() {
       await loadProspect();
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleSend = async (mode: "send" | "mark_sent") => {
+    setSending(true);
+    try {
+      const res = await apiFetch(`/api/trade/prospects/${id}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (res.ok) await loadProspect();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSubmitReply = async () => {
+    if (!replyContent.trim()) return;
+    setSubmittingReply(true);
+    setReplyResult(null);
+    try {
+      const res = await apiFetch(`/api/trade/prospects/${id}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: replyContent, subject: replySubject || undefined }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReplyResult({
+          intent: data.classification.intent,
+          suggestedAction: data.classification.suggestedAction,
+          draftReply: data.draftReply,
+        });
+        setReplyContent("");
+        setReplySubject("");
+        await loadProspect();
+      }
+    } finally {
+      setSubmittingReply(false);
     }
   };
 
@@ -264,20 +323,144 @@ export default function ProspectDetailPage() {
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Mail size={14} className="text-violet-400" />
-              <h3 className="text-sm font-medium text-foreground">开发信草稿</h3>
+              <h3 className="text-sm font-medium text-foreground">
+                {p.outreachSentAt ? "已发送的开发信" : "开发信草稿"}
+              </h3>
+              {p.outreachSentAt && (
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-400">
+                  已发送 {new Date(p.outreachSentAt).toLocaleDateString("zh-CN")}
+                </span>
+              )}
             </div>
-            <button
-              onClick={handleCopyEmail}
-              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted transition hover:text-foreground"
-            >
-              {copied ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
-              {copied ? "已复制" : "复制"}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCopyEmail}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted transition hover:text-foreground"
+              >
+                {copied ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                {copied ? "已复制" : "复制"}
+              </button>
+            </div>
           </div>
           <div className="rounded-lg bg-background p-3">
             <p className="mb-2 text-xs font-medium text-muted">Subject: {p.outreachSubject}</p>
             <div className="whitespace-pre-wrap text-sm text-foreground">{p.outreachBody}</div>
           </div>
+
+          {/* Send Actions */}
+          {!p.outreachSentAt && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {p.contactEmail && (
+                <button
+                  onClick={() => handleSend("send")}
+                  disabled={sending}
+                  className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                  发送到 {p.contactEmail}
+                </button>
+              )}
+              <button
+                onClick={() => handleSend("mark_sent")}
+                disabled={sending}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-blue-500/50 disabled:opacity-50"
+              >
+                <CheckCircle2 size={12} />
+                标记为已发送
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Follow-up Info */}
+      {(p.stage === "outreach_sent" || p.stage === "replied" || p.stage === "interested" || p.stage === "negotiating") && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+          <div className="flex items-center gap-2">
+            <Clock size={14} className="text-amber-400" />
+            <h3 className="text-sm font-medium text-foreground">跟进状态</h3>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted">
+            <span>已跟进 {p.followUpCount} 次</span>
+            {p.outreachSentAt && <span>首次联系: {new Date(p.outreachSentAt).toLocaleDateString("zh-CN")}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Record Reply Section */}
+      {(p.stage === "outreach_sent" || p.stage === "replied" || p.stage === "interested" || p.stage === "negotiating" || p.stage === "no_response") && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={14} className="text-cyan-400" />
+              <h3 className="text-sm font-medium text-foreground">记录客户回复</h3>
+            </div>
+            {!showReplyForm && (
+              <button
+                onClick={() => setShowReplyForm(true)}
+                className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-foreground transition hover:border-blue-500/50"
+              >
+                <Plus size={12} />
+                添加回复
+              </button>
+            )}
+          </div>
+
+          {showReplyForm && (
+            <div className="space-y-2">
+              <input
+                value={replySubject}
+                onChange={(e) => setReplySubject(e.target.value)}
+                placeholder="邮件主题（可选）"
+                className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+              />
+              <textarea
+                value={replyContent}
+                onChange={(e) => setReplyContent(e.target.value)}
+                rows={4}
+                placeholder="粘贴客户回复的邮件内容，AI 将自动分析意图并生成建议回复..."
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => { setShowReplyForm(false); setReplyContent(""); setReplySubject(""); }}
+                  className="rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSubmitReply}
+                  disabled={submittingReply || !replyContent.trim()}
+                  className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-cyan-500 disabled:opacity-50"
+                >
+                  {submittingReply ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {submittingReply ? "AI 分析中..." : "提交 + AI 分析"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* AI Classification Result */}
+          {replyResult && (
+            <div className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={12} className="text-cyan-400" />
+                <span className="text-xs font-medium text-cyan-400">AI 分析结果</span>
+              </div>
+              <div className="mt-2 space-y-1 text-xs text-foreground">
+                <p><span className="text-muted">意图：</span>{INTENT_LABELS[replyResult.intent] ?? replyResult.intent}</p>
+                <p><span className="text-muted">建议：</span>{replyResult.suggestedAction}</p>
+              </div>
+              {replyResult.draftReply && (
+                <div className="mt-2">
+                  <p className="mb-1 text-[10px] text-muted">AI 建议回复草稿：</p>
+                  <div className="rounded-lg bg-background p-2 text-xs text-foreground whitespace-pre-wrap">
+                    {replyResult.draftReply}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
