@@ -1807,6 +1807,35 @@ model TradeMessage {
   @@index([prospectId, direction])
 }
 
+model TradeChatSession {
+  id          String    @id @default(cuid())
+  orgId       String
+  userId      String
+  title       String    @default("新对话")
+  status      String    @default("active") // active / archived
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  messages    TradeChatMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([orgId])
+}
+
+model TradeChatMessage {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String   // user / assistant / system / tool
+  content     String   @db.Text
+  toolName    String?
+  toolInput   Json?
+  toolOutput  Json?
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
 model TradeChannel {
   id            String    @id @default(cuid())
   orgId         String
