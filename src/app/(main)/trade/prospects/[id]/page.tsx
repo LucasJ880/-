@@ -129,6 +129,7 @@ export default function ProspectDetailPage() {
   const [replyResult, setReplyResult] = useState<{ intent: string; suggestedAction: string; draftReply?: string } | null>(null);
   const [timeline, setTimeline] = useState<{ id: string; action: string; detail: string | null; createdAt: string }[]>([]);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showChannelSend, setShowChannelSend] = useState(false);
   const [editingStage, setEditingStage] = useState(false);
   const [editingFollowUp, setEditingFollowUp] = useState(false);
   const [newFollowUpDate, setNewFollowUpDate] = useState("");
@@ -387,6 +388,17 @@ export default function ProspectDetailPage() {
 
         <span className="text-border">|</span>
 
+        {/* Send via channel */}
+        <button
+          onClick={() => setShowChannelSend(!showChannelSend)}
+          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-muted transition hover:text-foreground"
+        >
+          <MessageSquare size={10} />
+          发消息
+        </button>
+
+        <span className="text-border">|</span>
+
         {/* Timeline toggle */}
         <button
           onClick={async () => {
@@ -399,6 +411,11 @@ export default function ProspectDetailPage() {
           操作记录
         </button>
       </div>
+
+      {/* Channel Send Panel */}
+      {showChannelSend && (
+        <ChannelSendPanel prospectId={p.id} onSent={loadProspect} />
+      )}
 
       {/* Timeline */}
       {showTimeline && timeline.length > 0 && (
@@ -636,6 +653,87 @@ export default function ProspectDetailPage() {
           <p className="text-sm text-muted">点击「AI 研究」按钮，AI 将自动搜索该公司信息并生成研究报告和评分</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function ChannelSendPanel({ prospectId, onSent }: { prospectId: string; onSent: () => void }) {
+  const [channel, setChannel] = useState("whatsapp");
+  const [to, setTo] = useState("");
+  const [content, setContent] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    if (!to.trim() || !content.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const res = await apiFetch(`/api/trade/channels/${channel}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId: "default", prospectId, to, content }),
+      });
+      if (res.ok) {
+        setResult("发送成功");
+        setContent("");
+        onSent();
+      } else {
+        const data = await res.json();
+        setResult(data.error ?? "发送失败");
+      }
+    } catch {
+      setResult("网络错误");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const CHANNELS = [
+    { value: "whatsapp", label: "WhatsApp" },
+    { value: "wechat", label: "微信" },
+    { value: "wechat_work", label: "企业微信" },
+  ];
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+      <h3 className="mb-3 flex items-center gap-2 text-xs font-medium text-foreground">
+        <MessageSquare size={12} />
+        通过消息通道发送
+      </h3>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <select value={channel} onChange={(e) => setChannel(e.target.value)} className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none">
+            {CHANNELS.map((ch) => (
+              <option key={ch.value} value={ch.value}>{ch.label}</option>
+            ))}
+          </select>
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder={channel === "whatsapp" ? "+86138xxxx / +1xxxx" : "OpenID / 用户ID"}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={3}
+          placeholder="消息内容..."
+          className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+        />
+        <div className="flex items-center justify-between">
+          {result && <span className={cn("text-[10px]", result === "发送成功" ? "text-emerald-400" : "text-red-400")}>{result}</span>}
+          <button
+            onClick={handleSend}
+            disabled={sending || !to.trim() || !content.trim()}
+            className="ml-auto flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          >
+            {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+            发送
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

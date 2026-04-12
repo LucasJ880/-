@@ -24,6 +24,7 @@ import {
   Handshake,
   BookOpen,
   Upload,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -74,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/trade/quotes", label: "外贸报价", icon: ScrollText, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/import", label: "展会导入", icon: Upload, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/templates", label: "邮件模板", icon: FileText, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/channels", label: "消息通道", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/knowledge", label: "外贸知识库", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
     ],
   },

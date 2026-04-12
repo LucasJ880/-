@@ -1807,6 +1807,22 @@ model TradeMessage {
   @@index([prospectId, direction])
 }
 
+model TradeChannel {
+  id            String    @id @default(cuid())
+  orgId         String
+  channel       String    // whatsapp / wechat / wechat_work
+  name          String    // display name
+  status        String    @default("active") // active / inactive / error
+  config        Json      // encrypted config: apiKey, phoneNumberId, accessToken, etc.
+  webhookSecret String?
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([orgId, channel])
+  @@index([orgId])
+}
+
 model TradeActivityLog {
   id          String   @id @default(cuid())
   orgId       String
