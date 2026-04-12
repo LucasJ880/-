@@ -4,7 +4,11 @@
  */
 
 export function isSuperAdmin(role: string | null | undefined): boolean {
-  return role === "super_admin";
+  return role === "super_admin" || role === "admin";
+}
+
+export function isAdmin(role: string | null | undefined): boolean {
+  return role === "admin" || role === "super_admin";
 }
 
 export function canManageOrg(orgRole: string | null | undefined): boolean {
@@ -20,7 +24,36 @@ export function canManageProject(projectRole: string | null | undefined): boolea
 }
 
 export function canViewAdminPages(platformRole: string | null | undefined): boolean {
-  return platformRole === "super_admin";
+  return platformRole === "super_admin" || platformRole === "admin";
+}
+
+/**
+ * 检查前端模块可见性（与 role-access.ts 同步）
+ */
+export function canAccessModule(role: string | null | undefined, modulePath: string): boolean {
+  if (!role) return false;
+  const normalizedRole = role === "super_admin" ? "admin" : role;
+
+  const MODULE_ROLES: Record<string, string[] | undefined> = {
+    "/":              undefined,
+    "/notifications": undefined,
+    "/tasks":         undefined,
+    "/sales":           ["admin", "sales"],
+    "/sales/knowledge": ["admin", "sales"],
+    "/trade":           ["admin", "trade"],
+    "/trade/knowledge": ["admin", "trade"],
+    "/organizations":   ["admin", "user"],
+    "/projects":        ["admin", "user"],
+    "/suppliers":       ["admin", "user"],
+    "/assistant":       undefined,
+    "/ai-activity":     undefined,
+    "/reports":         ["admin", "user"],
+    "/admin":           ["admin"],
+  };
+
+  const roles = MODULE_ROLES[modulePath];
+  if (!roles) return true;
+  return roles.includes(normalizedRole);
 }
 
 const ORG_ROLE_LABELS: Record<string, string> = {
@@ -37,8 +70,11 @@ const PROJECT_ROLE_LABELS: Record<string, string> = {
 };
 
 const PLATFORM_ROLE_LABELS: Record<string, string> = {
-  super_admin: "超级管理员",
+  admin: "管理员",
+  sales: "销售",
+  trade: "外贸助手",
   user: "普通用户",
+  super_admin: "管理员",
 };
 
 export function orgRoleLabel(role: string): string {

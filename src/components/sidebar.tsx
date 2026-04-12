@@ -29,7 +29,7 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
-import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
+import { canViewAdminPages, canAccessModule, orgRoleLabel } from "@/lib/permissions-client";
 
 interface NavItem {
   href: string;
@@ -38,12 +38,14 @@ interface NavItem {
   disabled?: boolean;
   badge?: string;
   adminOnly?: boolean;
+  roles?: string[];
 }
 
 interface NavGroup {
   title: string;
   items: NavItem[];
   adminOnly?: boolean;
+  roles?: string[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
@@ -57,17 +59,27 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: "销售",
+    roles: ["admin", "super_admin", "sales"],
     items: [
-      { href: "/sales", label: "销售看板", icon: Handshake },
-      { href: "/sales/knowledge", label: "知识库", icon: BookOpen },
+      { href: "/sales", label: "销售看板", icon: Handshake, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/knowledge", label: "销售知识库", icon: BookOpen, roles: ["admin", "super_admin", "sales"] },
+    ],
+  },
+  {
+    title: "外贸",
+    roles: ["admin", "super_admin", "trade"],
+    items: [
+      { href: "/trade", label: "外贸看板", icon: Handshake, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/knowledge", label: "外贸知识库", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
     ],
   },
   {
     title: "协作",
+    roles: ["admin", "super_admin", "user"],
     items: [
-      { href: "/organizations", label: "组织", icon: Building2 },
-      { href: "/projects", label: "项目", icon: FolderKanban },
-      { href: "/suppliers", label: "供应商", icon: Package2 },
+      { href: "/organizations", label: "组织", icon: Building2, roles: ["admin", "super_admin", "user"] },
+      { href: "/projects", label: "项目", icon: FolderKanban, roles: ["admin", "super_admin", "user"] },
+      { href: "/suppliers", label: "供应商", icon: Package2, roles: ["admin", "super_admin", "user"] },
     ],
   },
   {
@@ -75,15 +87,17 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/assistant", label: "AI 助手", icon: Bot, badge: "Beta" },
       { href: "/ai-activity", label: "AI 活动", icon: Activity },
-      { href: "/reports", label: "项目周报", icon: FileText },
+      { href: "/reports", label: "项目周报", icon: FileText, roles: ["admin", "super_admin", "user"] },
     ],
   },
   {
     title: "管理",
     adminOnly: true,
+    roles: ["admin", "super_admin"],
     items: [
       { href: "/admin/project-intake", label: "待分发项目", icon: ClipboardList, adminOnly: true },
       { href: "/admin/users", label: "用户管理", icon: Users, adminOnly: true },
+      { href: "/admin/invite-codes", label: "邀请码管理", icon: Shield, adminOnly: true },
       { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText, adminOnly: true },
       { href: "/blinds-orders", label: "工艺单", icon: ClipboardList, adminOnly: true, badge: "行业" },
     ],
@@ -211,6 +225,7 @@ export function Sidebar() {
   const { user } = useCurrentUser();
   const { organizations } = useOrganizations();
   const isAdmin = canViewAdminPages(user?.role);
+  const userRole = user?.role || "user";
 
   return (
     <aside
@@ -247,6 +262,7 @@ export function Sidebar() {
       <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-1">
         {NAV_GROUPS.map((group, gi) => {
           if (group.adminOnly && !isAdmin) return null;
+          if (group.roles && userRole && !group.roles.includes(userRole)) return null;
           return (
             <div
               key={group.title}
@@ -260,6 +276,7 @@ export function Sidebar() {
               )}
               {group.items.map((item) => {
                 if (item.adminOnly && !isAdmin) return null;
+                if (item.roles && userRole && !item.roles.includes(userRole)) return null;
                 const isActive = isItemActive(pathname, item.href);
                 return (
                   <Link

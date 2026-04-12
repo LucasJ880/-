@@ -66,7 +66,7 @@ export function useCurrentUser(): UseCurrentUserReturn {
   return {
     user,
     loading,
-    isSuperAdmin: user?.role === "super_admin",
+    isSuperAdmin: user?.role === "super_admin" || user?.role === "admin",
     reload,
   };
 }

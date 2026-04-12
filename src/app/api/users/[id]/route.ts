@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { isSuperAdmin } from "@/lib/rbac/roles";
-import { getUserById, updateUserProfile, updateUserStatus } from "@/lib/users/service";
+import { getUserById, updateUserProfile, updateUserStatus, updateUserRole } from "@/lib/users/service";
 import { validateUserProfile, isValidUserStatus } from "@/lib/users/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
@@ -124,6 +124,25 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   } else if (body.status !== undefined && !isAdmin) {
     return NextResponse.json(
       { error: "仅管理员可修改用户状态" },
+      { status: 403 }
+    );
+  }
+
+  if (body.role !== undefined && isAdmin) {
+    const validRoles = ["admin", "sales", "trade", "user"];
+    const newRole = String(body.role);
+    if (!validRoles.includes(newRole)) {
+      return NextResponse.json(
+        { error: `无效角色，可选: ${validRoles.join(", ")}` },
+        { status: 400 }
+      );
+    }
+    beforeData.role = targetUser.role;
+    afterData.role = newRole;
+    await updateUserRole(id, newRole);
+  } else if (body.role !== undefined && !isAdmin) {
+    return NextResponse.json(
+      { error: "仅管理员可修改用户角色" },
       { status: 403 }
     );
   }

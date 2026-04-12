@@ -2,7 +2,10 @@ import { cn } from "@/lib/utils";
 import { orgRoleLabel, projectRoleLabel, platformRoleLabel } from "@/lib/permissions-client";
 
 const ROLE_STYLES: Record<string, string> = {
+  admin: "bg-[rgba(128,80,120,0.08)] text-[#805078]",
   super_admin: "bg-[rgba(128,80,120,0.08)] text-[#805078]",
+  sales: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]",
+  trade: "bg-[rgba(59,130,246,0.08)] text-[#3b82f6]",
   org_admin: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]",
   org_member: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]",
   org_viewer: "bg-[rgba(110,125,118,0.06)] text-[#8a9590]",

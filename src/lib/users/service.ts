@@ -122,6 +122,17 @@ export async function updateUserStatus(
   });
 }
 
+/** 更新用户平台角色 */
+export async function updateUserRole(
+  userId: string,
+  role: string
+): Promise<void> {
+  await db.user.update({
+    where: { id: userId },
+    data: { role },
+  });
+}
+
 /** 更新用户资料 */
 export async function updateUserProfile(
   userId: string,

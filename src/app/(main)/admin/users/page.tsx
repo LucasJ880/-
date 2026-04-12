@@ -73,6 +73,9 @@ function UsersContent() {
   const [selectedUser, setSelectedUser] = useState<UserRow | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [userDetail, setUserDetail] = useState<Record<string, unknown> | null>(null);
+  const [editingRole, setEditingRole] = useState(false);
+  const [newRole, setNewRole] = useState("");
+  const [roleUpdating, setRoleUpdating] = useState(false);
 
   const loadUsers = useCallback(() => {
     setLoading(true);
@@ -129,6 +132,27 @@ function UsersContent() {
       setUserDetail(null);
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function handleRoleUpdate() {
+    if (!selectedUser || !newRole) return;
+    setRoleUpdating(true);
+    try {
+      const res = await apiFetch(`/api/users/${selectedUser.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (res.ok) {
+        setEditingRole(false);
+        if (userDetail) {
+          setUserDetail({ ...userDetail, role: newRole });
+        }
+        loadUsers();
+      }
+    } finally {
+      setRoleUpdating(false);
     }
   }
 
@@ -318,7 +342,6 @@ function UsersContent() {
                     ["ID", userDetail.id],
                     ["昵称", userDetail.nickname || "—"],
                     ["手机", userDetail.phone || "—"],
-                    ["平台角色", userDetail.role],
                     ["状态", userDetail.status],
                     ["认证方式", userDetail.authProvider || "email"],
                     ["所属组织", (userDetail._count as { orgMemberships?: number })?.orgMemberships ?? "—"],
@@ -331,6 +354,50 @@ function UsersContent() {
                       <span className="font-medium">{String(value)}</span>
                     </div>
                   ))}
+                </div>
+
+                <div className="rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted">平台角色</span>
+                    <div className="flex items-center gap-2">
+                      <RoleBadge role={String(userDetail.role)} type="platform" />
+                      {!editingRole && (
+                        <button
+                          onClick={() => { setEditingRole(true); setNewRole(String(userDetail.role)); }}
+                          className="text-xs text-accent hover:underline"
+                        >
+                          修改
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {editingRole && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <select
+                        value={newRole}
+                        onChange={(e) => setNewRole(e.target.value)}
+                        className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+                      >
+                        <option value="admin">管理员</option>
+                        <option value="sales">销售</option>
+                        <option value="trade">外贸助手</option>
+                        <option value="user">普通用户</option>
+                      </select>
+                      <button
+                        onClick={handleRoleUpdate}
+                        disabled={roleUpdating || newRole === String(userDetail.role)}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                      >
+                        {roleUpdating ? "保存中..." : "保存"}
+                      </button>
+                      <button
+                        onClick={() => setEditingRole(false)}
+                        className="text-xs text-muted hover:text-foreground"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

@@ -3,6 +3,7 @@ import { getCurrentUser, getOrgMembership, getProjectMembership } from "./index"
 import type { AuthUser } from "./index";
 import {
   isSuperAdmin,
+  isAdmin,
   hasOrgRole,
   hasProjectRole,
   type OrgRole,
@@ -67,6 +68,35 @@ export async function requireSuperAdmin(
 
   if (!isSuperAdmin(result.user.role)) {
     return NextResponse.json({ error: "需要平台管理员权限" }, { status: 403 });
+  }
+  return result;
+}
+
+/**
+ * 平台角色校验 — 按允许的角色列表鉴权
+ * admin / super_admin 始终通过
+ *
+ * @example
+ * const auth = await requireRole(request, ["sales", "admin"]);
+ * if (auth instanceof NextResponse) return auth;
+ */
+export async function requireRole(
+  request: NextRequest,
+  allowedRoles: string[]
+): Promise<AuthResult | NextResponse> {
+  const result = await requireAuth(request);
+  if (result instanceof NextResponse) return result;
+
+  const { user } = result;
+  const normalizedRole = user.role === "super_admin" ? "admin" : user.role;
+
+  if (isAdmin(user.role)) return result;
+
+  if (!allowedRoles.includes(normalizedRole)) {
+    return NextResponse.json(
+      { error: "无权访问，角色不匹配" },
+      { status: 403 }
+    );
   }
   return result;
 }

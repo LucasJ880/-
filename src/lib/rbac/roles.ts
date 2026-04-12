@@ -4,8 +4,16 @@
 
 // --- 平台级角色 ---
 
-export const PLATFORM_ROLES = ["super_admin", "user"] as const;
+export const PLATFORM_ROLES = ["admin", "sales", "trade", "user"] as const;
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
+
+export const PLATFORM_ROLE_LABELS: Record<string, string> = {
+  admin: "管理员",
+  sales: "销售",
+  trade: "外贸助手",
+  user: "普通用户",
+  super_admin: "管理员（旧）",
+};
 
 // --- 组织级角色 ---
 
@@ -53,7 +61,11 @@ export type OrgPlanType = (typeof ORG_PLAN_TYPES)[number];
 // --- 权限检查工具 ---
 
 export function isSuperAdmin(role: string): boolean {
-  return role === "super_admin";
+  return role === "admin" || role === "super_admin";
+}
+
+export function isAdmin(role: string): boolean {
+  return role === "admin" || role === "super_admin";
 }
 
 export function hasOrgRole(userRole: string, requiredRole: OrgRole): boolean {
