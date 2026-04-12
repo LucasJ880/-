@@ -1716,6 +1716,97 @@ model CustomFlowTemplate {
 }
 
 // ============================================================
+// Trade 外贸自动获客系统
+// ============================================================
+
+model TradeCampaign {
+  id              String    @id @default(cuid())
+  orgId           String
+  name            String
+  productDesc     String    @db.Text
+  targetMarket    String    @db.Text
+  searchKeywords  Json?
+  status          String    @default("active") // active / paused / completed
+  scoreThreshold  Float     @default(7)
+  totalProspects  Int       @default(0)
+  qualified       Int       @default(0)
+  contacted       Int       @default(0)
+
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  prospects       TradeProspect[]
+
+  @@index([orgId, status])
+  @@index([createdById])
+}
+
+model TradeProspect {
+  id              String    @id @default(cuid())
+  campaignId      String
+  campaign        TradeCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  orgId           String
+
+  companyName     String
+  contactName     String?
+  contactEmail    String?
+  contactTitle    String?
+  website         String?
+  country         String?
+  source          String    @default("google") // google / exhibition / 1688 / linkedin / manual
+
+  researchReport  Json?
+  score           Float?
+  scoreReason     String?   @db.Text
+
+  stage           String    @default("new")
+  // new → researched → qualified → outreach_draft → outreach_sent
+  // → replied → interested → negotiating → won / lost
+  // → unqualified / no_response
+
+  outreachSubject String?
+  outreachBody    String?   @db.Text
+  outreachLang    String?   @default("en")
+  outreachSentAt  DateTime?
+
+  lastContactAt   DateTime?
+  nextFollowUpAt  DateTime?
+  followUpCount   Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  messages        TradeMessage[]
+
+  @@index([campaignId, stage])
+  @@index([orgId, stage])
+  @@index([nextFollowUpAt])
+  @@index([score])
+}
+
+model TradeMessage {
+  id          String   @id @default(cuid())
+  prospectId  String
+  prospect    TradeProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+
+  direction   String   // inbound / outbound
+  channel     String   @default("email") // email / whatsapp / wechat
+  subject     String?
+  content     String   @db.Text
+
+  intent      String?  // interested / objection / not_interested / ooo / question / request_sample / unclear
+  sentiment   String?  // positive / neutral / negative
+  aiDraft     Boolean  @default(false)
+  approvedAt  DateTime?
+
+  createdAt   DateTime @default(now())
+
+  @@index([prospectId, createdAt])
+  @@index([prospectId, direction])
+}
+
+// ============================================================
 // Sales CRM Models — Sunny Shutter B2C 销售流程
 // ============================================================
 
