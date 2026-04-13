@@ -17,7 +17,8 @@ import type {
   InboundMessage,
 } from "../types";
 
-const ILINK_BASE = "https://ilinkai.weixin.qq.com";
+const ILINK_BASE = process.env.ILINK_API_BASE || "https://ilinkai.weixin.qq.com";
+const ILINK_API_KEY = process.env.ILINK_API_KEY || "";
 
 interface ILinkCredentials {
   token: string;
@@ -72,18 +73,28 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
   async getLoginQR(): Promise<{ qrUrl: string; ticket: string }> {
     this.status = "qr_pending";
 
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (ILINK_API_KEY) headers["Authorization"] = `Bearer ${ILINK_API_KEY}`;
+
     try {
       const res = await fetch(`${ILINK_BASE}/cgi-bin/mmloginqrcode/getqrcode`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ type: 1 }),
       });
 
-      if (!res.ok) throw new Error(`获取 QR 码失败: ${res.status}`);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`获取 QR 码失败: ${res.status} ${errText}`);
+      }
 
       const data = await res.json();
-      const qrUrl = data.qr_url || data.qrUrl || "";
-      const ticket = data.ticket || data.uuid || "";
+      const qrUrl = data.qr_url || data.qrUrl || data.url || "";
+      const ticket = data.ticket || data.uuid || data.id || "";
+
+      if (!qrUrl) {
+        throw new Error("iLink API 未返回有效的 QR 码 URL，请检查 ILINK_API_BASE 和 ILINK_API_KEY 配置");
+      }
 
       await db.weChatGateway.upsert({
         where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
@@ -92,16 +103,35 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
           channel: "personal_wechat",
           loginStatus: "qr_pending",
           status: "inactive",
+          errorMessage: null,
         },
         update: {
           loginStatus: "qr_pending",
           status: "inactive",
+          errorMessage: null,
         },
       });
 
       return { qrUrl, ticket };
     } catch (e) {
       this.status = "error";
+      const errMsg = e instanceof Error ? e.message : String(e);
+
+      await db.weChatGateway.upsert({
+        where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
+        create: {
+          orgId: this.orgId,
+          channel: "personal_wechat",
+          loginStatus: "error",
+          status: "inactive",
+          errorMessage: errMsg,
+        },
+        update: {
+          loginStatus: "error",
+          errorMessage: errMsg,
+        },
+      });
+
       throw e;
     }
   }

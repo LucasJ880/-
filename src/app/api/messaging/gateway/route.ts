@@ -82,21 +82,24 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "request_qr") {
-    await db.weChatGateway.upsert({
-      where: { orgId_channel: { orgId: membership.orgId, channel: "personal_wechat" } },
-      create: {
-        orgId: membership.orgId,
-        channel: "personal_wechat",
-        loginStatus: "qr_pending",
-        status: "inactive",
-      },
-      update: { loginStatus: "qr_pending" },
-    });
+    try {
+      const { PersonalWeChatAdapter } = await import("@/lib/messaging/adapters/personal-wechat");
+      const adapter = new PersonalWeChatAdapter(membership.orgId);
+      const { qrUrl, ticket } = await adapter.getLoginQR();
 
-    return NextResponse.json({
-      message: "QR 码请求已发送，请在青砚设置页扫码登录",
-      status: "qr_pending",
-    });
+      return NextResponse.json({
+        qrUrl,
+        ticket,
+        status: "qr_pending",
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({
+        error: errMsg,
+        status: "error",
+        hint: "请检查 ILINK_API_BASE 和 ILINK_API_KEY 环境变量是否已配置",
+      }, { status: 502 });
+    }
   }
 
   if (action === "disconnect") {

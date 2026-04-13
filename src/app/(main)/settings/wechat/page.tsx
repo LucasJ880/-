@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import {
@@ -15,6 +15,9 @@ import {
   BellOff,
   ArrowLeft,
   RefreshCw,
+  X,
+  QrCode,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -46,11 +49,25 @@ interface BindingInfo {
   filterKeyword: string | null;
 }
 
+interface QrModalState {
+  open: boolean;
+  qrUrl: string | null;
+  ticket: string | null;
+  error: string | null;
+  hint: string | null;
+  loading: boolean;
+}
+
 export default function WeChatSettingsPage() {
   const [gateways, setGateways] = useState<GatewayInfo[]>([]);
   const [bindings, setBindings] = useState<BindingInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const [qrModal, setQrModal] = useState<QrModalState>({
+    open: false, qrUrl: null, ticket: null, error: null, hint: null, loading: false,
+  });
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 企业微信配置表单
   const [wecomForm, setWecomForm] = useState({
@@ -81,7 +98,78 @@ export default function WeChatSettingsPage() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await apiFetch("/api/messaging/gateway").then((r) => r.json());
+        const pg = (res.gateways || []).find((g: GatewayInfo) => g.channel === "personal_wechat");
+        if (pg?.loginStatus === "connected" || pg?.status === "active") {
+          stopPolling();
+          setQrModal({ open: false, qrUrl: null, ticket: null, error: null, hint: null, loading: false });
+          await fetchData();
+        } else if (pg?.loginStatus === "error") {
+          stopPolling();
+          setQrModal((prev) => ({ ...prev, error: pg.errorMessage || "扫码失败", loading: false }));
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+  }, [fetchData, stopPolling]);
+
+  const handleRequestQR = async () => {
+    setQrModal({ open: true, qrUrl: null, ticket: null, error: null, hint: null, loading: true });
+    try {
+      const res = await apiFetch("/api/messaging/gateway", {
+        method: "POST",
+        body: JSON.stringify({ action: "request_qr" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setQrModal({
+          open: true, qrUrl: null, ticket: null,
+          error: data.error || "请求失败",
+          hint: data.hint || null,
+          loading: false,
+        });
+        return;
+      }
+      setQrModal({
+        open: true, qrUrl: data.qrUrl, ticket: data.ticket,
+        error: null, hint: null, loading: false,
+      });
+      startPolling();
+    } catch (e) {
+      setQrModal({
+        open: true, qrUrl: null, ticket: null,
+        error: e instanceof Error ? e.message : "网络请求失败",
+        hint: null, loading: false,
+      });
+    }
+  };
+
+  const closeQrModal = () => {
+    stopPolling();
+    setQrModal({ open: false, qrUrl: null, ticket: null, error: null, hint: null, loading: false });
+  };
+
   const handleGatewayAction = async (action: string, extra?: Record<string, string>) => {
+    if (action === "request_qr") {
+      await handleRequestQR();
+      return;
+    }
     setActionLoading(action);
     try {
       await apiFetch("/api/messaging/gateway", {
@@ -151,6 +239,74 @@ export default function WeChatSettingsPage() {
         <PageHeader title="微信集成" description="管理个人微信和企业微信的连接，控制 AI 消息推送" />
       </div>
 
+      {/* QR 码弹窗 */}
+      {qrModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="relative mx-4 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <button
+              onClick={closeQrModal}
+              className="absolute right-3 top-3 rounded-lg p-1.5 text-muted transition-colors hover:bg-muted/10 hover:text-foreground"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="flex flex-col items-center space-y-4">
+              <div className="rounded-xl bg-[#07c160]/10 p-3">
+                <QrCode size={28} className="text-[#07c160]" />
+              </div>
+              <h3 className="text-lg font-semibold">微信扫码登录</h3>
+
+              {qrModal.loading && (
+                <div className="flex flex-col items-center gap-3 py-8">
+                  <Loader2 size={32} className="animate-spin text-[#07c160]" />
+                  <p className="text-sm text-muted">正在获取二维码…</p>
+                </div>
+              )}
+
+              {qrModal.qrUrl && !qrModal.loading && (
+                <>
+                  <div className="rounded-xl border-2 border-[#07c160]/20 bg-white p-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={qrModal.qrUrl}
+                      alt="微信登录二维码"
+                      className="h-52 w-52 object-contain"
+                    />
+                  </div>
+                  <p className="text-center text-sm text-muted">
+                    请使用微信扫描上方二维码
+                  </p>
+                  <div className="flex items-center gap-2 text-xs text-muted">
+                    <Loader2 size={12} className="animate-spin" />
+                    等待扫码确认中…
+                  </div>
+                </>
+              )}
+
+              {qrModal.error && !qrModal.loading && (
+                <div className="w-full space-y-3">
+                  <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-500" />
+                    <div className="space-y-1">
+                      <p className="text-sm text-red-500">{qrModal.error}</p>
+                      {qrModal.hint && (
+                        <p className="text-xs text-muted">{qrModal.hint}</p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleRequestQR}
+                    className="w-full rounded-lg bg-[#07c160] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#07c160]/90"
+                  >
+                    重新获取二维码
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── 个人微信 ── */}
       <ChannelCard
         title="个人微信"
@@ -173,10 +329,10 @@ export default function WeChatSettingsPage() {
           ) : (
             <button
               onClick={() => handleGatewayAction("request_qr")}
-              disabled={actionLoading !== null}
+              disabled={qrModal.loading}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#07c160] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#07c160]/90"
             >
-              {actionLoading === "request_qr" ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />}
+              {qrModal.loading ? <Loader2 size={12} className="animate-spin" /> : <QrCode size={14} />}
               扫码登录
             </button>
           )
