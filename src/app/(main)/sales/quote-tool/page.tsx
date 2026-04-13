@@ -253,10 +253,10 @@ export default function QuoteToolPage() {
         )}
       </div>
 
-      {/* iframe */}
+      {/* iframe — cache bust via build timestamp */}
       <iframe
         ref={iframeRef}
-        src="/sunny-quote.html"
+        src={`/sunny-quote.html?v=${Date.now()}`}
         onLoad={handleIframeLoad}
         className="flex-1 w-full border-0"
         title="Sunny Quote Tool"

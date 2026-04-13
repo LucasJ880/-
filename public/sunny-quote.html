@@ -5897,14 +5897,96 @@ document.getElementById('generate').addEventListener('click', () => {
 
 
 // ═══════════════════════════════════════════════════════════════
-// 青砚 (Qingyan) Bridge — injected, does NOT modify any original logic
+// 青砚 (Qingyan) Bridge — global payload collector + iframe bridge
 // ═══════════════════════════════════════════════════════════════
+
+// Global function — defined in main script scope so it can directly
+// access items, ADDON_CATALOG, ADDON_UI_MAP, INSTALL_MODE via closure.
+window._qy_collectPayload = function(){
+  var exportItems = [];
+  for(var i = 0; i < items.length; i++){
+    var it = items[i];
+    exportItems.push({
+      product: it.product || '',
+      fabric: it.fabric || '',
+      widthIn: it.w || 0,
+      heightIn: it.h || 0,
+      cordless: !!it.cordless,
+      sku: it.sku || null,
+      discountOverridePct: it.discountOverridePct != null ? it.discountOverridePct : null,
+    });
+  }
+
+  var addonEntries = [];
+  try {
+    if(ADDON_CATALOG && ADDON_CATALOG.length && ADDON_UI_MAP){
+      for(var j = 0; j < ADDON_CATALOG.length; j++){
+        var cfg = ADDON_CATALOG[j];
+        var st = ADDON_UI_MAP[cfg.addon_key];
+        if(st && st.selected && st.qty > 0){
+          addonEntries.push({ addonKey: cfg.addon_key, qty: st.qty });
+        }
+      }
+    }
+  } catch(err){ /* addon collection error */ }
+
+  var installMode = 'default';
+  try { installMode = (INSTALL_MODE === 'pickup') ? 'pickup' : 'default'; } catch(err){}
+
+  var deliveryVal = 50;
+  try {
+    var df = document.getElementById('deliveryFee');
+    if(df) deliveryVal = Math.max(0, parseFloat(df.value) || 50);
+  } catch(err){}
+
+  return {
+    items: exportItems,
+    addons: addonEntries,
+    installMode: installMode,
+    deliveryFee: deliveryVal,
+  };
+};
+
+// Iframe bridge — only activates when loaded inside Qingyan wrapper
 (function(){
-  const IS_IN_IFRAME = window.parent !== window;
+  var IS_IN_IFRAME = (window.parent !== window);
+
+  // Always add the Save button (works both standalone and in iframe)
+  var toolbar = document.querySelector('.toolbar');
+  if(toolbar){
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn';
+    saveBtn.id = 'saveToQingyan';
+    saveBtn.type = 'button';
+    saveBtn.textContent = IS_IN_IFRAME ? '💾 Save to Qingyan' : '💾 Save to Qingyan (需在青砚内打开)';
+    saveBtn.style.background = 'linear-gradient(180deg, #4ade80 0%, #16a34a 100%)';
+    saveBtn.style.borderColor = '#15803d';
+    saveBtn.style.minWidth = '160px';
+    saveBtn.style.color = '#fff';
+    saveBtn.style.fontWeight = '600';
+
+    saveBtn.addEventListener('click', function(){
+      if(!IS_IN_IFRAME){
+        alert('请通过青砚 → 销售 → 报价工具 页面使用此功能');
+        return;
+      }
+      var payload = window._qy_collectPayload();
+      if(!payload || !payload.items || !payload.items.length){
+        alert('No items to save — please add items first.\n\n当前 items 数量: ' + (payload ? payload.items.length : 'N/A'));
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      window.parent.postMessage({ type: 'SAVE_QUOTE', payload: payload }, '*');
+      setTimeout(function(){ saveBtn.disabled = false; saveBtn.textContent = '💾 Save to Qingyan'; }, 8000);
+    });
+    toolbar.insertBefore(saveBtn, toolbar.firstChild);
+  }
+
   if(!IS_IN_IFRAME) return;
 
   // AI endpoint: auto-point to Qingyan backend (same origin)
-  const aiEp = document.getElementById('aiEndpoint');
+  var aiEp = document.getElementById('aiEndpoint');
   if(aiEp) aiEp.value = '/api/sales/ai-quote-intake';
 
   // Receive messages from parent wrapper page
@@ -5912,83 +5994,21 @@ document.getElementById('generate').addEventListener('click', () => {
     if(!e.data || typeof e.data !== 'object') return;
 
     if(e.data.type === 'QINGYAN_INIT'){
-      // Store auth cookie is automatic (same-origin iframe)
       window.__qingyanReady = true;
-      try{ showMiniToast('Connected to Qingyan.'); }catch(err){}
+      try{ showMiniToast('Connected to Qingyan ✓'); }catch(err){}
     }
 
     if(e.data.type === 'SAVE_RESULT'){
+      var btn = document.getElementById('saveToQingyan');
+      if(btn){ btn.disabled = false; btn.textContent = '💾 Save to Qingyan'; }
+
       if(e.data.success){
-        try{ showMiniToast('Saved to Qingyan! Quote #' + (e.data.quoteId || '')); }catch(err){}
+        try{ showMiniToast('✅ Saved to Qingyan! Quote #' + (e.data.quoteId || '')); }catch(err){}
       } else {
         alert('Save failed: ' + (e.data.error || 'Unknown error'));
       }
     }
   });
-
-  function collectQuotePayload(){
-    const exportItems = items.map(function(it){
-      return {
-        product: it.product,
-        fabric: it.fabric,
-        widthIn: it.w,
-        heightIn: it.h,
-        cordless: !!it.cordless,
-        sku: it.sku || null,
-        discountOverridePct: it.discountOverridePct != null ? it.discountOverridePct : null,
-      };
-    });
-
-    var addonEntries = [];
-    if(ADDON_CATALOG && ADDON_UI_MAP){
-      ADDON_CATALOG.forEach(function(cfg){
-        var st = ADDON_UI_MAP[cfg.addon_key];
-        if(st && st.selected && st.qty > 0){
-          addonEntries.push({ addonKey: cfg.addon_key, qty: st.qty });
-        }
-      });
-    }
-
-    var installMode = (INSTALL_MODE === 'pickup') ? 'pickup' : 'default';
-
-    var deliveryVal = 50;
-    try{
-      var df = document.getElementById('deliveryFee');
-      if(df) deliveryVal = Math.max(0, parseFloat(df.value) || 50);
-    }catch(err){}
-
-    return {
-      items: exportItems,
-      addons: addonEntries,
-      installMode: installMode,
-      deliveryFee: deliveryVal,
-    };
-  }
-
-  // Add "Save to Qingyan" button next to Generate button
-  var toolbar = document.querySelector('.toolbar');
-  if(toolbar){
-    var saveBtn = document.createElement('button');
-    saveBtn.className = 'btn';
-    saveBtn.id = 'saveToQingyan';
-    saveBtn.type = 'button';
-    saveBtn.textContent = 'Save to Qingyan';
-    saveBtn.style.background = 'linear-gradient(180deg, #4ade80 0%, #16a34a 100%)';
-    saveBtn.style.borderColor = '#15803d';
-    saveBtn.style.minWidth = '140px';
-    saveBtn.addEventListener('click', function(){
-      var payload = collectQuotePayload();
-      if(!payload.items.length){
-        alert('No items to save. Add items first.');
-        return;
-      }
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
-      window.parent.postMessage({ type: 'SAVE_QUOTE', payload: payload }, '*');
-      setTimeout(function(){ saveBtn.disabled = false; saveBtn.textContent = 'Save to Qingyan'; }, 8000);
-    });
-    toolbar.insertBefore(saveBtn, toolbar.firstChild);
-  }
 })();
 
 </script>
