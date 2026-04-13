@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Upload,
   Brain,
+  CalendarDays,
+  Ruler,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -104,23 +106,29 @@ interface BlindsOrder {
 }
 
 const STAGE_LABELS: Record<string, string> = {
-  new_inquiry: "新询盘",
-  consultation_booked: "已约咨询",
-  measured: "已测量",
+  new_lead: "新线索",
+  needs_confirmed: "需求确认",
+  measure_booked: "预约量房",
   quoted: "已报价",
   negotiation: "洽谈中",
-  won: "已成交",
+  signed: "已签单",
+  producing: "生产中",
+  installing: "安装中",
+  completed: "已完成",
   lost: "已流失",
   on_hold: "暂搁置",
 };
 
 const STAGE_COLORS: Record<string, string> = {
-  new_inquiry: "bg-blue-100 text-blue-800",
-  consultation_booked: "bg-cyan-100 text-cyan-800",
-  measured: "bg-amber-100 text-amber-800",
+  new_lead: "bg-blue-100 text-blue-800",
+  needs_confirmed: "bg-cyan-100 text-cyan-800",
+  measure_booked: "bg-teal-100 text-teal-800",
   quoted: "bg-orange-100 text-orange-800",
   negotiation: "bg-purple-100 text-purple-800",
-  won: "bg-emerald-100 text-emerald-800",
+  signed: "bg-emerald-100 text-emerald-800",
+  producing: "bg-amber-100 text-amber-800",
+  installing: "bg-indigo-100 text-indigo-800",
+  completed: "bg-green-100 text-green-800",
   lost: "bg-red-100 text-red-800",
   on_hold: "bg-gray-100 text-gray-600",
 };
@@ -259,6 +267,23 @@ export default function CustomerDetailPage() {
               {customer.notes}
             </div>
           )}
+          {/* Quick actions */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={`/sales/calendar?customerId=${customer.id}&action=new&type=measure`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+            >
+              <Ruler size={13} />
+              预约量房
+            </Link>
+            <Link
+              href={`/sales/calendar?customerId=${customer.id}&action=new&type=install`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+            >
+              <CalendarDays size={13} />
+              预约安装
+            </Link>
+          </div>
         </div>
 
         {/* Opportunities */}

@@ -19,27 +19,30 @@ import type { DomainScanResult, BriefingItem } from "../types";
 const DAY_MS = 86_400_000;
 
 const ACTIVE_STAGES = [
-  "new_inquiry",
-  "consultation_booked",
-  "measured",
+  "new_lead",
+  "needs_confirmed",
+  "measure_booked",
   "quoted",
   "negotiation",
 ];
 
 const STAGE_LABELS: Record<string, string> = {
-  new_inquiry: "新询盘",
-  consultation_booked: "已预约",
-  measured: "已量房",
+  new_lead: "新线索",
+  needs_confirmed: "需求确认",
+  measure_booked: "预约量房",
   quoted: "已报价",
-  negotiation: "谈判中",
-  won: "成交",
-  lost: "失败",
+  negotiation: "洽谈中",
+  signed: "已签单",
+  producing: "生产中",
+  installing: "安装中",
+  completed: "已完成",
+  lost: "已流失",
 };
 
 const STALE_DAYS: Record<string, number> = {
-  new_inquiry: 3,
-  consultation_booked: 5,
-  measured: 5,
+  new_lead: 3,
+  needs_confirmed: 5,
+  measure_booked: 5,
   quoted: 3,
   negotiation: 7,
 };
@@ -191,7 +194,7 @@ export async function scanSalesDomain(
     where: {
       ...ownerFilter,
       measureDate: { gte: now, lte: threeDaysLater },
-      stage: { in: ["consultation_booked", "measured"] },
+      stage: { in: ["needs_confirmed", "measure_booked"] },
     },
     include: {
       customer: { select: { id: true, name: true, phone: true, address: true } },
@@ -270,7 +273,143 @@ export async function scanSalesDomain(
     }
   }
 
-  // ── 5. 管道统计 ──
+  // ── 5. 今日/明日上门安排（Appointment 模型） ──
+  const tomorrowEnd = new Date(now.getTime() + 2 * DAY_MS);
+  tomorrowEnd.setHours(0, 0, 0, 0);
+
+  const appointmentFilter = options?.isAdmin
+    ? {}
+    : { assignedToId: userId };
+
+  const todayAppointments = await db.appointment.findMany({
+    where: {
+      ...appointmentFilter,
+      startAt: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()), lte: tomorrowEnd },
+      status: { in: ["scheduled", "confirmed"] },
+    },
+    include: {
+      customer: { select: { id: true, name: true, phone: true, address: true } },
+    },
+    orderBy: { startAt: "asc" },
+    take: 10,
+  });
+
+  const APPT_TYPE_LABELS: Record<string, string> = {
+    measure: "量房",
+    install: "安装",
+    revisit: "回访",
+    consultation: "咨询",
+  };
+
+  if (todayAppointments.length > 0) {
+    items.unshift({
+      id: `sales_today_schedule_${now.toISOString().slice(0, 10)}`,
+      domain: "sales",
+      severity: "warning",
+      category: "today_schedule",
+      title: `今日 ${todayAppointments.length} 个上门安排`,
+      description: todayAppointments
+        .map((a) => {
+          const time = new Date(a.startAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+          return `${time} ${APPT_TYPE_LABELS[a.type] ?? a.type}：${a.customer.name}${a.customer.address ? ` (${a.customer.address})` : ""}`;
+        })
+        .join("\n"),
+      action: { type: "view_sales_calendar", label: "查看日历" },
+      dedupeKey: `sales_schedule:${now.toISOString().slice(0, 10)}`,
+    });
+  }
+
+  for (const appt of todayAppointments) {
+    const dedupeKey = `sales_appt:${appt.id}`;
+    if (!seenKeys.has(dedupeKey)) {
+      seenKeys.add(dedupeKey);
+      const time = new Date(appt.startAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+      items.push({
+        id: `sales_appt_${appt.id}`,
+        domain: "sales",
+        severity: "info",
+        category: "appointment",
+        title: `${time} ${APPT_TYPE_LABELS[appt.type] ?? appt.type}：${appt.customer.name}`,
+        description: appt.customer.address
+          ? `地址：${appt.customer.address}${appt.customer.phone ? ` | 电话：${appt.customer.phone}` : ""}`
+          : appt.customer.phone ? `电话：${appt.customer.phone}` : "",
+        action: {
+          type: "view_sales_customer",
+          label: "查看客户",
+          payload: { customerId: appt.customer.id },
+        },
+        entityType: "sales_customer",
+        entityId: appt.customer.id,
+        dedupeKey,
+      });
+    }
+  }
+
+  stats.todayAppointments = todayAppointments.length;
+
+  // ── 6. 工单超期提醒 ──
+  const overdueOrders = await db.blindsOrder.findMany({
+    where: {
+      creatorId: userId,
+      status: { in: ["confirmed", "in_production", "ready"] },
+      expectedInstallDate: { lt: now },
+    },
+    select: { id: true, code: true, customerName: true, status: true, expectedInstallDate: true },
+    take: 10,
+  });
+
+  for (const o of overdueOrders) {
+    const daysOver = Math.ceil((now.getTime() - (o.expectedInstallDate?.getTime() ?? 0)) / DAY_MS);
+    const dedupeKey = `order_overdue:${o.id}`;
+    if (!seenKeys.has(dedupeKey)) {
+      seenKeys.add(dedupeKey);
+      items.push({
+        id: `order_overdue_${o.id}`,
+        domain: "sales",
+        severity: daysOver >= 3 ? "urgent" : "warning",
+        category: "order_overdue",
+        title: `工单超期 ${daysOver} 天：${o.customerName} (${o.code})`,
+        description: `状态: ${o.status}，预计安装日已过`,
+        action: { type: "view_blinds_order", label: "查看工单", payload: { orderId: o.id } },
+        entityType: "blinds_order",
+        entityId: o.id,
+        dedupeKey,
+      });
+    }
+  }
+
+  // ── 6b. 面料库存预警 ──
+  if (isAdmin) {
+    const lowStockFabrics = await db.fabricInventory.findMany({
+      where: { status: { in: ["low", "out_of_stock"] } },
+      select: { id: true, sku: true, fabricName: true, productType: true, status: true, totalYards: true, reservedYards: true },
+      take: 5,
+    });
+
+    for (const f of lowStockFabrics) {
+      const dedupeKey = `fabric_low:${f.id}`;
+      if (!seenKeys.has(dedupeKey)) {
+        seenKeys.add(dedupeKey);
+        const avail = f.totalYards - f.reservedYards;
+        items.push({
+          id: `fabric_low_${f.id}`,
+          domain: "sales",
+          severity: f.status === "out_of_stock" ? "urgent" : "warning",
+          category: "fabric_low_stock",
+          title: f.status === "out_of_stock"
+            ? `面料缺货：${f.fabricName} (${f.productType})`
+            : `面料库存偏低：${f.fabricName} (${f.productType})`,
+          description: `SKU: ${f.sku} — 可用 ${avail.toFixed(1)} yards`,
+          action: { type: "view_inventory", label: "查看库存" },
+          entityType: "fabric",
+          entityId: f.id,
+          dedupeKey,
+        });
+      }
+    }
+  }
+
+  // ── 7. 管道统计 ──
   const [totalActive, newInquiries, wonThisMonth] = await Promise.all([
     db.salesOpportunity.count({
       where: { ...ownerFilter, stage: { in: ACTIVE_STAGES } },
@@ -278,14 +417,14 @@ export async function scanSalesDomain(
     db.salesOpportunity.count({
       where: {
         ...ownerFilter,
-        stage: "new_inquiry",
+        stage: "new_lead",
         createdAt: { gt: new Date(now.getTime() - DAY_MS) },
       },
     }),
     db.salesOpportunity.count({
       where: {
         ...ownerFilter,
-        stage: "won",
+        stage: { in: ["signed", "completed"] },
         wonAt: {
           gte: new Date(now.getFullYear(), now.getMonth(), 1),
         },
@@ -294,15 +433,15 @@ export async function scanSalesDomain(
   ]);
   stats.activeOpportunities = totalActive;
   stats.newInquiries = newInquiries;
-  stats.wonThisMonth = wonThisMonth;
+  stats.signedThisMonth = wonThisMonth;
 
   if (newInquiries > 0) {
     items.unshift({
-      id: `sales_new_inquiries_${now.toISOString().slice(0, 10)}`,
+      id: `sales_new_leads_${now.toISOString().slice(0, 10)}`,
       domain: "sales",
       severity: "info",
-      category: "new_inquiries",
-      title: `昨日新增 ${newInquiries} 条询盘`,
+      category: "new_leads",
+      title: `昨日新增 ${newInquiries} 条线索`,
       description: "建议尽快联系客户。",
       action: { type: "view_sales_board", label: "查看看板" },
       dedupeKey: `sales_new:${now.toISOString().slice(0, 10)}`,

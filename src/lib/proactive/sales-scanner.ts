@@ -17,17 +17,17 @@ function makeId(): string {
 }
 
 const ACTIVE_STAGES = [
-  'new_inquiry',
-  'consultation_booked',
-  'measured',
+  'new_lead',
+  'needs_confirmed',
+  'measure_booked',
   'quoted',
   'negotiation',
 ];
 
 const STALE_DAYS_BY_STAGE: Record<string, number> = {
-  new_inquiry: 3,
-  consultation_booked: 5,
-  measured: 5,
+  new_lead: 3,
+  needs_confirmed: 5,
+  measure_booked: 5,
   quoted: 3,
   negotiation: 7,
 };

@@ -10,11 +10,14 @@ export const ROLE_ROUTE_ACCESS: Record<string, string[]> = {
   admin: ["*"],
   sales: [
     "/api/sales/",
+    "/api/blinds-orders/",
     "/api/ai/",
     "/api/auth/",
     "/api/users/me",
     "/api/tasks/",
     "/api/notifications/",
+    "/api/messaging/",
+    "/api/secretary/",
   ],
   trade: [
     "/api/trade/",
@@ -23,6 +26,8 @@ export const ROLE_ROUTE_ACCESS: Record<string, string[]> = {
     "/api/users/me",
     "/api/tasks/",
     "/api/notifications/",
+    "/api/messaging/",
+    "/api/secretary/",
   ],
   user: [
     "/api/ai/",
@@ -34,6 +39,7 @@ export const ROLE_ROUTE_ACCESS: Record<string, string[]> = {
     "/api/suppliers/",
     "/api/notifications/",
     "/api/reports/",
+    "/api/messaging/",
   ],
 };
 
@@ -51,7 +57,14 @@ export const MODULE_VISIBILITY: Record<string, ModuleVisibility> = {
   "/tasks":           { roles: undefined },
 
   "/sales":             { roles: ["admin", "sales"] },
+  "/sales/quotes":      { roles: ["admin", "sales"] },
+  "/sales/calendar":    { roles: ["admin", "sales"] },
+  "/sales/measure":     { roles: ["admin", "sales"] },
+  "/settings/email":    { roles: ["admin", "sales"] },
+  "/inventory":         { roles: ["admin"] },
+  "/sales/cockpit":     { roles: ["admin", "sales"] },
   "/sales/knowledge":   { roles: ["admin", "sales"] },
+  "/blinds-orders":     { roles: ["admin", "sales"] },
 
   "/trade":             { roles: ["admin", "trade"] },
   "/trade/knowledge":   { roles: ["admin", "trade"] },
@@ -61,8 +74,10 @@ export const MODULE_VISIBILITY: Record<string, ModuleVisibility> = {
   "/suppliers":       { roles: ["admin", "user"] },
 
   "/assistant":       { roles: undefined },
+  "/wechat":          { roles: undefined },
   "/ai-activity":     { roles: undefined },
   "/reports":         { roles: ["admin", "user"] },
+  "/settings/wechat": { roles: undefined },
 
   "/admin":           { roles: ["admin"] },
 };

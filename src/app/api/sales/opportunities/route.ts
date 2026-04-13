@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     data: {
       customerId: body.customerId,
       title: body.title.trim(),
-      stage: body.stage || 'new_inquiry',
+      stage: body.stage || 'new_lead',
       estimatedValue: body.estimatedValue ? parseFloat(body.estimatedValue) : null,
       windowCount: body.windowCount ? parseInt(body.windowCount) : null,
       productTypes: body.productTypes || null,

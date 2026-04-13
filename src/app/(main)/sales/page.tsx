@@ -43,12 +43,15 @@ import { Badge } from "@/components/ui/badge";
 
 /* ── Pipeline stages ── */
 const STAGES = [
-  { key: "new_inquiry", label: "新询盘", color: "bg-blue-100 text-blue-800 border-blue-200" },
-  { key: "consultation_booked", label: "已约咨询", color: "bg-cyan-100 text-cyan-800 border-cyan-200" },
-  { key: "measured", label: "已测量", color: "bg-amber-100 text-amber-800 border-amber-200" },
+  { key: "new_lead", label: "新线索", color: "bg-blue-100 text-blue-800 border-blue-200" },
+  { key: "needs_confirmed", label: "需求确认", color: "bg-cyan-100 text-cyan-800 border-cyan-200" },
+  { key: "measure_booked", label: "预约量房", color: "bg-teal-100 text-teal-800 border-teal-200" },
   { key: "quoted", label: "已报价", color: "bg-orange-100 text-orange-800 border-orange-200" },
   { key: "negotiation", label: "洽谈中", color: "bg-purple-100 text-purple-800 border-purple-200" },
-  { key: "won", label: "已成交", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+  { key: "signed", label: "已签单", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+  { key: "producing", label: "生产中", color: "bg-amber-100 text-amber-800 border-amber-200" },
+  { key: "installing", label: "安装中", color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+  { key: "completed", label: "已完成", color: "bg-green-100 text-green-800 border-green-200" },
   { key: "lost", label: "已流失", color: "bg-red-100 text-red-800 border-red-200" },
   { key: "on_hold", label: "暂搁置", color: "bg-gray-100 text-gray-600 border-gray-200" },
 ] as const;
@@ -244,14 +247,14 @@ function StatsCards({
   viewMode: ViewMode;
 }) {
   const activeOpps = opportunities.filter(
-    (o) => !["won", "lost", "on_hold"].includes(o.stage)
+    (o) => !["signed", "completed", "lost", "on_hold"].includes(o.stage)
   );
   const totalPipeline = activeOpps.reduce(
     (sum, o) => sum + (o.estimatedValue || 0),
     0
   );
-  const wonOpps = opportunities.filter((o) => o.stage === "won");
-  const wonTotal = wonOpps.reduce((sum, o) => sum + (o.estimatedValue || 0), 0);
+  const signedOpps = opportunities.filter((o) => ["signed", "producing", "installing", "completed"].includes(o.stage));
+  const signedTotal = signedOpps.reduce((sum, o) => sum + (o.estimatedValue || 0), 0);
 
   const stats = [
     {
@@ -267,9 +270,9 @@ function StatsCards({
       color: "text-emerald-600",
     },
     {
-      label: "已成交",
-      value: wonOpps.length,
-      sub: wonTotal > 0 ? `$${(wonTotal / 1000).toFixed(1)}k` : undefined,
+      label: "已签单",
+      value: signedOpps.length,
+      sub: signedTotal > 0 ? `$${(signedTotal / 1000).toFixed(1)}k` : undefined,
       icon: TrendingUp,
       color: "text-purple-600",
     },
@@ -513,7 +516,7 @@ function NewOpportunityDialog({
   const [form, setForm] = useState({
     customerId: "",
     title: "",
-    stage: "new_inquiry",
+    stage: "new_lead",
     estimatedValue: "",
     productTypes: "",
     priority: "warm",

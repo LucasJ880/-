@@ -81,12 +81,48 @@ model User {
   customerInteractionsCreated      CustomerInteraction[]        @relation("CustomerInteractionCreatedBy")
   salesQuotesCreated               SalesQuote[]                 @relation("SalesQuoteCreatedBy")
 
+  // Appointments
+  appointmentsAssigned             Appointment[]                @relation("AppointmentAssignee")
+  appointmentsCreated              Appointment[]                @relation("AppointmentCreatedBy")
+
+  // Email Binding
+  emailBinding                     EmailBinding?
+
   // 邀请码溯源
   inviteCodeId  String?
 
   @@index([status])
   @@index([authProvider])
   @@index([role])
+}
+
+// ============================================================
+// 销售邮箱绑定 — SMTP 发信配置（一次绑定，自动发信）
+// ============================================================
+
+model EmailBinding {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id])
+
+  email         String    // 发信邮箱地址 (e.g. sales@sunny.com)
+  displayName   String    // 发件人显示名 (e.g. "Kevin @ Sunny Blinds")
+  provider      String    @default("smtp") // smtp / gmail / outlook
+  smtpHost      String?   // smtp.gmail.com / smtp.office365.com
+  smtpPort      Int?      @default(587)
+  smtpUser      String?   // 通常是邮箱地址
+  smtpPass      String?   // App Password（加密存储）
+  useTls        Boolean   @default(true)
+
+  verified      Boolean   @default(false)
+  verifiedAt    DateTime?
+  lastSentAt    DateTime?
+  lastError     String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
 }
 
 // ============================================================
@@ -298,6 +334,7 @@ model BlindsOrder {
   id            String   @id @default(cuid())
   code          String   @unique
   status        String   @default("draft")
+  // draft → confirmed → in_production → ready → scheduled → installed → completed → cancelled
   ruleVersion   String   @default("blinds_20251024_v1")
 
   customerName  String
@@ -305,6 +342,20 @@ model BlindsOrder {
   address       String?
   installDate   String?
   remarks       String?
+
+  confirmedAt       DateTime?
+  productionStartAt DateTime?
+  readyAt           DateTime?
+  scheduledAt       DateTime?
+  installedAt       DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  expectedInstallDate DateTime?
+  appointmentId       String?
+
+  priority      String   @default("normal") // urgent / normal / low
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -320,9 +371,26 @@ model BlindsOrder {
   opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
 
   items         BlindsOrderItem[]
+  statusLogs    OrderStatusLog[]
 
   @@index([customerId])
   @@index([opportunityId])
+  @@index([status])
+  @@index([expectedInstallDate])
+}
+
+/// 工单状态变更日志
+model OrderStatusLog {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus String
+  toStatus   String
+  note       String?
+  operatorId String
+  createdAt  DateTime @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 model BlindsOrderItem {
@@ -361,6 +429,49 @@ model BlindsOrderItem {
 
   orderId       String
   order         BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// 面料库存管理
+// ============================================================
+
+model FabricInventory {
+  id            String    @id @default(cuid())
+  sku           String    @unique
+  productType   String    // Zebra / Roller / Drapery / ...
+  fabricName    String    // Light Filtering / Blackout / ...
+  color         String?
+  supplier      String?
+
+  totalYards    Float     @default(0)  // 总库存（码数）
+  reservedYards Float     @default(0)  // 已预留（在产工单占用）
+  minYards      Float     @default(10) // 安全库存线
+  unitCost      Float     @default(0)  // 单位成本（$/yard）
+
+  status        String    @default("in_stock") // in_stock / low / out_of_stock
+  lastRestockAt DateTime?
+  notes         String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([productType])
+  @@index([status])
+  @@index([sku])
+}
+
+/// 库存变动日志
+model FabricStockLog {
+  id            String    @id @default(cuid())
+  fabricId      String
+  type          String    // restock / reserve / consume / release / adjust
+  yards         Float     // 变动数量（正=入库，负=出库）
+  reason        String?   // 工单号 / 手动调整说明
+  operatorId    String
+  createdAt     DateTime  @default(now())
+
+  @@index([fabricId, createdAt])
+  @@index([type])
 }
 
 model Reminder {
@@ -1997,6 +2108,8 @@ model SalesCustomer {
   interactions   CustomerInteraction[]
   quotes         SalesQuote[]       @relation("SalesQuoteCustomer")
   blindsOrders   BlindsOrder[]
+  appointments   Appointment[]
+  measurements   MeasurementRecord[]
 
   @@index([status])
   @@index([phone])
@@ -2009,7 +2122,7 @@ model SalesOpportunity {
   customerId      String
   customer        SalesCustomer @relation(fields: [customerId], references: [id])
   title           String
-  stage           String    @default("new_inquiry") // Pipeline stage
+  stage           String    @default("new_lead") // Pipeline stage
   estimatedValue  Float?
   windowCount     Int?
   productTypes    String?   // comma-separated: Zebra,Roller,Drapery,...
@@ -2034,6 +2147,7 @@ model SalesOpportunity {
   interactions    CustomerInteraction[]
   quotes          SalesQuote[]
   blindsOrders    BlindsOrder[]
+  appointments    Appointment[]
 
   @@index([customerId])
   @@index([stage])
@@ -2081,7 +2195,7 @@ model SalesQuote {
   customerId       String
   customer         SalesCustomer @relation("SalesQuoteCustomer", fields: [customerId], references: [id])
   version          Int       @default(1)
-  status           String    @default("draft") // draft / sent / accepted / rejected
+  status           String    @default("draft") // draft / sent / viewed / accepted / signed / rejected / expired
   installMode      String    @default("default") // default / pickup
   merchSubtotal    Float     @default(0)
   addonsSubtotal   Float     @default(0)
@@ -2096,6 +2210,14 @@ model SalesQuote {
   sentAt           DateTime?
   emailMessageId   String?
   notes            String?   @db.Text
+
+  // Sprint 21 新增字段
+  shareToken       String?   @unique  // 报价分享链接 token
+  signatureUrl     String?            // 电子签名图片 URL
+  signedAt         DateTime?          // 签名时间
+  aiSource         String?            // voice / text / image / manual
+  viewedAt         DateTime?          // 客户查看时间
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -2104,6 +2226,7 @@ model SalesQuote {
 
   items            SalesQuoteItem[]
   addons           SalesQuoteAddon[]
+  rooms            QuoteRoom[]
 
   @@index([customerId])
   @@index([opportunityId])
@@ -2115,6 +2238,8 @@ model SalesQuoteItem {
   id             String  @id @default(cuid())
   quoteId        String
   quote          SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  roomId         String?
+  room           QuoteRoom? @relation(fields: [roomId], references: [id])
   sortOrder      Int     @default(0)
   product        String  // Zebra / Roller / Drapery / ...
   fabric         String  // Light Filtering / Blackout / ...
@@ -2132,6 +2257,7 @@ model SalesQuoteItem {
   location       String? // room location note
 
   @@index([quoteId, sortOrder])
+  @@index([roomId])
 }
 
 model SalesQuoteAddon {
@@ -2145,6 +2271,144 @@ model SalesQuoteAddon {
   subtotal    Float   @default(0)
 
   @@index([quoteId])
+}
+
+/// 报价房间维度 — 按房间组织报价项
+model QuoteRoom {
+  id          String  @id @default(cuid())
+  quoteId     String
+  quote       SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  roomName    String  // Living Room / Master Bedroom / ...
+  windowWidth Float?  // 窗户整体宽度（参考）
+  windowHeight Float? // 窗户整体高度（参考）
+  remarks     String? @db.Text
+  sortOrder   Int     @default(0)
+
+  items       SalesQuoteItem[]
+  attachments RoomAttachment[]
+
+  @@index([quoteId, sortOrder])
+}
+
+/// 房间级附件（量房照片/视频）
+model RoomAttachment {
+  id         String   @id @default(cuid())
+  roomId     String
+  room       QuoteRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fileName   String
+  fileUrl    String
+  fileType   String   @default("image") // image / video
+  createdAt  DateTime @default(now())
+
+  @@index([roomId])
+}
+
+// ============================================================
+// 预约管理（量房 / 安装 / 回访）
+// ============================================================
+
+/// 预约记录 — 量房/安装/回访等上门服务
+model Appointment {
+  id              String    @id @default(cuid())
+  customerId      String
+  customer        SalesCustomer @relation(fields: [customerId], references: [id])
+  opportunityId   String?
+  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+
+  type            String    @default("measure") // measure / install / revisit / consultation
+  title           String
+  description     String?   @db.Text
+
+  startAt         DateTime
+  endAt           DateTime
+  allDay          Boolean   @default(false)
+
+  address         String?   @db.Text
+  contactPhone    String?
+
+  status          String    @default("scheduled") // scheduled / confirmed / in_progress / completed / cancelled / no_show
+  cancelReason    String?
+
+  assignedToId    String
+  assignedTo      User      @relation("AppointmentAssignee", fields: [assignedToId], references: [id])
+  createdById     String
+  createdBy       User      @relation("AppointmentCreatedBy", fields: [createdById], references: [id])
+
+  notifiedAt      DateTime? // 微信/站内通知发送时间
+  reminderSentAt  DateTime? // 提前提醒发送时间
+  completedAt     DateTime?
+  notes           String?   @db.Text
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([assignedToId, startAt])
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([status, startAt])
+  @@index([startAt])
+  @@index([type, startAt])
+}
+
+// ============================================================
+// 现场量房记录
+// ============================================================
+
+/// 量房记录 — 一次上门量房产生一条记录，关联客户/机会/预约
+model MeasurementRecord {
+  id              String   @id @default(cuid())
+  customerId      String
+  customer        SalesCustomer @relation(fields: [customerId], references: [id])
+  opportunityId   String?
+  appointmentId   String?
+
+  status          String   @default("draft") // draft / completed / quoted
+  overallNotes    String?  @db.Text
+  measuredById    String
+  measuredAt      DateTime @default(now())
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  windows         MeasurementWindow[]
+
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([measuredById, createdAt])
+}
+
+/// 量房窗位 — 每扇窗的尺寸和产品选择
+model MeasurementWindow {
+  id              String   @id @default(cuid())
+  recordId        String
+  record          MeasurementRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  roomName        String   // Living Room / Master Bedroom / ...
+  windowLabel     String?  // W1 / W2 / Bay Window Left / ...
+  widthIn         Float    // 宽度（英寸）
+  heightIn        Float    // 高度（英寸）
+  measureType     String   @default("IN") // IN / OUT / Tight
+  product         String?  // Zebra / Roller / ...
+  fabric          String?  // Light Filtering / Blackout / ...
+  cordless        Boolean  @default(false)
+  notes           String?
+
+  sortOrder       Int      @default(0)
+  photos          MeasurementPhoto[]
+
+  @@index([recordId, sortOrder])
+}
+
+/// 量房照片 — 关联到具体窗位
+model MeasurementPhoto {
+  id          String   @id @default(cuid())
+  windowId    String
+  window      MeasurementWindow @relation(fields: [windowId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileUrl     String
+  createdAt   DateTime @default(now())
+
+  @@index([windowId])
 }
 
 // ============================================================

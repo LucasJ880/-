@@ -30,12 +30,15 @@ export interface SalesContext {
 }
 
 const STAGE_ZH: Record<string, string> = {
-  new_inquiry: "新询盘",
-  consultation_booked: "已约咨询",
-  measured: "已测量",
+  new_lead: "新线索",
+  needs_confirmed: "需求确认",
+  measure_booked: "预约量房",
   quoted: "已报价",
   negotiation: "洽谈中",
-  won: "已成交",
+  signed: "已签单",
+  producing: "生产中",
+  installing: "安装中",
+  completed: "已完成",
   lost: "已流失",
   on_hold: "暂搁置",
 };
@@ -51,7 +54,7 @@ export async function getSalesContext(userId: string): Promise<SalesContext> {
     db.salesOpportunity.findMany({
       where: {
         customer: { createdById: userId },
-        stage: { notIn: ["won", "lost"] },
+        stage: { notIn: ["signed", "completed", "lost"] },
       },
       include: { customer: { select: { name: true } } },
       orderBy: { updatedAt: "desc" },

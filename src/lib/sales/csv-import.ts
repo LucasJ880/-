@@ -24,12 +24,15 @@ export interface ImportResult {
 }
 
 const VALID_STAGES = [
-  'new_inquiry',
-  'consultation_booked',
-  'measured',
+  'new_lead',
+  'needs_confirmed',
+  'measure_booked',
   'quoted',
   'negotiation',
-  'won',
+  'signed',
+  'producing',
+  'installing',
+  'completed',
   'lost',
   'on_hold',
 ];
@@ -186,7 +189,7 @@ export async function importCustomersCsv(
       if (mapped.opportunityTitle) {
         const stage = mapped.stage && VALID_STAGES.includes(mapped.stage)
           ? mapped.stage
-          : 'new_inquiry';
+          : 'new_lead';
         const priority = mapped.priority && VALID_PRIORITIES.includes(mapped.priority)
           ? mapped.priority
           : 'warm';

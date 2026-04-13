@@ -7,6 +7,8 @@
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 import { db } from "@/lib/db";
+import { parseGptQuotePlan, parseLocalQuotePlan } from "@/lib/sales/ai-quote-parser";
+import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -21,8 +23,9 @@ registry.register({
   parameters: { type: "object", properties: {}, required: [] },
   execute: async (ctx: ToolExecutionContext) => {
     const stages = [
-      "new_inquiry", "consultation_booked", "measured",
-      "quoted", "negotiation", "won", "lost",
+      "new_lead", "needs_confirmed", "measure_booked",
+      "quoted", "negotiation", "signed", "producing",
+      "installing", "completed", "lost",
     ];
 
     const pipeline = await Promise.all(
@@ -204,12 +207,12 @@ registry.register({
         where: {
           ...ownerFilter,
           stage: {
-            in: ["new_inquiry", "consultation_booked", "measured", "quoted", "negotiation"],
+            in: ["new_lead", "needs_confirmed", "measure_booked", "quoted", "negotiation"],
           },
         },
       }),
       db.salesOpportunity.count({
-        where: { ...ownerFilter, stage: "won", wonAt: { gte: monthStart } },
+        where: { ...ownerFilter, stage: { in: ["signed", "completed"] }, wonAt: { gte: monthStart } },
       }),
       db.salesOpportunity.count({
         where: { ...ownerFilter, nextFollowupAt: { lte: now } },
@@ -224,6 +227,164 @@ registry.register({
       wonThisMonth,
       pendingFollowup,
       totalCustomers,
+    });
+  },
+});
+
+// ── sales.ai_quote ──────────────────────────────────────────
+
+registry.register({
+  name: "sales.ai_quote",
+  description: "AI 报价助手：解析自然语言描述为结构化报价行项并计算价格。支持格式如 '3 zebra blackout: 39 1/2 x 55, 42 x 60, add 1 hub'",
+  domain: "sales",
+  parameters: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", description: "用户的自然语言报价描述" },
+      currentProduct: { type: "string", description: "当前选中的产品类型" },
+    },
+    required: ["prompt"],
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const prompt = String(ctx.args.prompt ?? "");
+    const currentProduct = ctx.args.currentProduct as string | undefined;
+
+    const plan = await parseGptQuotePlan(prompt, { currentProduct });
+
+    if (plan.items.length === 0) {
+      const localPlan = parseLocalQuotePlan(prompt);
+      if (localPlan.items.length > 0) {
+        Object.assign(plan, localPlan);
+      }
+    }
+
+    if (plan.items.length === 0) {
+      return { success: false, data: { error: "未能从描述中识别出报价项。请提供产品类型和尺寸。" } };
+    }
+
+    const preview = calculateQuoteTotal({
+      items: plan.items,
+      addons: plan.addons,
+      installMode: plan.installMode,
+    });
+
+    return ok({
+      plan,
+      preview: {
+        itemCount: preview.itemResults.length,
+        merchSubtotal: preview.merchSubtotal,
+        installApplied: preview.installApplied,
+        addonsSubtotal: preview.addonsSubtotal,
+        grandTotal: preview.grandTotal,
+        items: preview.itemResults.map((r) => ({
+          product: r.input.product,
+          fabric: r.input.fabric,
+          width: r.input.widthIn,
+          height: r.input.heightIn,
+          msrp: r.msrp,
+          price: r.price,
+          install: r.install,
+        })),
+      },
+      parseMethod: plan.parseMethod,
+    });
+  },
+});
+
+// ── sales.create_quote ──────────────────────────────────────
+
+registry.register({
+  name: "sales.create_quote",
+  description: "为客户创建正式报价单，需提供客户 ID 和产品项",
+  domain: "sales",
+  parameters: {
+    type: "object",
+    properties: {
+      customerId: { type: "string", description: "客户 ID" },
+      opportunityId: { type: "string", description: "机会 ID（可选）" },
+      items: {
+        type: "array",
+        description: "报价行项数组",
+        items: {
+          type: "object",
+          properties: {
+            product: { type: "string" },
+            fabric: { type: "string" },
+            widthIn: { type: "number" },
+            heightIn: { type: "number" },
+          },
+        },
+      },
+      installMode: { type: "string", description: "default 或 pickup" },
+    },
+    required: ["customerId", "items"],
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const { customerId, opportunityId, items, installMode } = ctx.args as {
+      customerId: string;
+      opportunityId?: string;
+      items: Array<{ product: string; fabric: string; widthIn: number; heightIn: number }>;
+      installMode?: string;
+    };
+
+    const calc = calculateQuoteTotal({
+      items: items.map((i) => ({
+        product: i.product as any,
+        fabric: i.fabric,
+        widthIn: i.widthIn,
+        heightIn: i.heightIn,
+      })),
+      installMode: installMode === "pickup" ? "pickup" : "default",
+    });
+
+    if (calc.itemResults.length === 0) {
+      return { success: false, data: { error: "所有产品项计算失败", details: calc.errors } };
+    }
+
+    const existingCount = await db.salesQuote.count({ where: { customerId } });
+
+    const quote = await db.salesQuote.create({
+      data: {
+        customerId,
+        opportunityId: opportunityId || null,
+        version: existingCount + 1,
+        installMode: installMode || "default",
+        aiSource: "text",
+        merchSubtotal: calc.merchSubtotal,
+        addonsSubtotal: calc.addonsSubtotal,
+        installSubtotal: calc.installSubtotal,
+        installApplied: calc.installApplied,
+        deliveryFee: calc.deliveryFee,
+        preTaxTotal: calc.preTaxTotal,
+        taxRate: calc.taxRate,
+        taxAmount: calc.taxAmount,
+        grandTotal: calc.grandTotal,
+        createdById: ctx.userId,
+        items: {
+          create: calc.itemResults.map((r, idx) => ({
+            sortOrder: idx,
+            product: r.input.product,
+            fabric: r.input.fabric,
+            widthIn: r.input.widthIn,
+            heightIn: r.input.heightIn,
+            bracketWidth: r.bracketWidth,
+            bracketHeight: r.bracketHeight,
+            cordless: r.cordless,
+            msrp: r.msrp,
+            discountPct: r.discountPct,
+            discountValue: r.discountValue,
+            price: r.price,
+            installFee: r.install,
+            location: r.input.location || null,
+          })),
+        },
+      },
+    });
+
+    return ok({
+      quoteId: quote.id,
+      grandTotal: quote.grandTotal,
+      itemCount: calc.itemResults.length,
     });
   },
 });
