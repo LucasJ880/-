@@ -57,6 +57,7 @@ export const MODULE_VISIBILITY: Record<string, ModuleVisibility> = {
   "/tasks":           { roles: undefined },
 
   "/sales":             { roles: ["admin", "sales"] },
+  "/sales/quote-tool":  { roles: ["admin", "sales"] },
   "/sales/quotes":      { roles: ["admin", "sales"] },
   "/sales/calendar":    { roles: ["admin", "sales"] },
   "/sales/measure":     { roles: ["admin", "sales"] },

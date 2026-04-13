@@ -30,6 +30,7 @@ import {
   MessageSquare,
   MessageCircle,
   Brain,
+  Calculator,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -69,6 +70,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ["admin", "super_admin", "sales"],
     items: [
       { href: "/sales", label: "销售看板", icon: Handshake, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/quote-tool", label: "报价工具", icon: Calculator, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/quotes", label: "全部报价", icon: ScrollText, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/calendar", label: "预约日历", icon: CalendarDays, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/measure", label: "现场量房", icon: ClipboardList, roles: ["admin", "super_admin", "sales"] },

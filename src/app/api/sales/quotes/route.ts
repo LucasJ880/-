@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
@@ -45,12 +46,14 @@ export async function POST(request: NextRequest) {
   }
 
   const existingCount = await db.salesQuote.count({ where: { customerId } });
+  const shareToken = randomBytes(16).toString('hex');
 
   const quote = await db.salesQuote.create({
     data: {
       customerId,
       opportunityId: opportunityId || null,
       version: existingCount + 1,
+      shareToken,
       installMode: installMode || 'default',
       merchSubtotal: calc.merchSubtotal,
       addonsSubtotal: calc.addonsSubtotal,
