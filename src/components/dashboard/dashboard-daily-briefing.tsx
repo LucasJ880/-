@@ -97,18 +97,30 @@ const SEVERITY_CONFIG = {
 } as const;
 
 const CATEGORY_ICONS: Record<string, typeof AlertTriangle> = {
+  // 外贸
   followup_overdue: Clock,
   quote_expiring: FileText,
   no_response: Mail,
   prospect_review: Users,
   new_replies: MessageSquare,
+  // 销售
+  followup_due: Clock,
+  quote_pending: FileText,
+  stale_opportunity: AlertTriangle,
+  upcoming_measure: CalendarPlus,
+  upcoming_install: CalendarPlus,
+  new_inquiries: TrendingUp,
 };
 
 const ACTION_CONFIG: Record<string, { icon: typeof Send; style: string }> = {
+  // 外贸
   followup_draft: { icon: Mail, style: "bg-accent/10 text-accent hover:bg-accent/20" },
   quote_extend: { icon: CalendarPlus, style: "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" },
   prospect_review: { icon: UserCheck, style: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20" },
   view_replies: { icon: MessageSquare, style: "bg-accent/10 text-accent hover:bg-accent/20" },
+  // 销售
+  view_sales_customer: { icon: Users, style: "bg-orange-500/10 text-orange-600 dark:text-orange-400 hover:bg-orange-500/20" },
+  view_sales_board: { icon: TrendingUp, style: "bg-orange-500/10 text-orange-600 dark:text-orange-400 hover:bg-orange-500/20" },
 };
 
 // ── 草稿弹窗 ─────────────────────────────────────────────────────
@@ -420,10 +432,22 @@ export function DashboardDailyBriefing() {
   }, []);
 
   const handleAction = useCallback(async (item: BriefingItem) => {
-    if (!item.action || !item.entityId) return;
+    if (!item.action) return;
 
     const actionType = item.action.type;
     const payload = item.action.payload;
+
+    // 销售域动作 — 跳转到客户详情或看板
+    if (actionType === "view_sales_customer" && payload?.customerId) {
+      window.location.href = `/sales/customers/${payload.customerId}`;
+      return;
+    }
+    if (actionType === "view_sales_board") {
+      window.location.href = "/sales";
+      return;
+    }
+
+    if (!item.entityId) return;
 
     // 如果跟进引擎已预生成草稿，直接打开弹窗，无需再调 API
     if (actionType === "followup_draft" && payload?.prefilled) {
@@ -566,6 +590,7 @@ export function DashboardDailyBriefing() {
   const previewItems = items.slice(0, 4);
   const hasMore = items.length > 4;
   const tradeStats = briefing.domains?.find((d) => d.domain === "trade")?.stats;
+  const salesStats = briefing.domains?.find((d) => d.domain === "sales")?.stats;
   const completedCount = completedActions.size;
 
   return (
@@ -608,16 +633,25 @@ export function DashboardDailyBriefing() {
           <p className="text-[13px] text-foreground leading-relaxed">
             {briefing.summary}
           </p>
-          {tradeStats && (
+          {(tradeStats || salesStats) && (
             <div className="mt-2 flex flex-wrap gap-3">
-              {tradeStats.activeCampaigns !== undefined && (
+              {tradeStats?.activeCampaigns !== undefined && (
                 <StatBadge icon={TrendingUp} label="活跃活动" value={tradeStats.activeCampaigns} />
               )}
-              {tradeStats.totalProspects !== undefined && (
-                <StatBadge icon={Users} label="客户总数" value={tradeStats.totalProspects} />
+              {tradeStats?.totalProspects !== undefined && (
+                <StatBadge icon={Users} label="外贸客户" value={tradeStats.totalProspects} />
               )}
-              {tradeStats.recentReplies !== undefined && tradeStats.recentReplies > 0 && (
+              {tradeStats?.recentReplies !== undefined && tradeStats.recentReplies > 0 && (
                 <StatBadge icon={MessageSquare} label="新回复" value={tradeStats.recentReplies} accent />
+              )}
+              {salesStats?.activeOpportunities !== undefined && (
+                <StatBadge icon={TrendingUp} label="活跃机会" value={salesStats.activeOpportunities} />
+              )}
+              {salesStats?.newInquiries !== undefined && salesStats.newInquiries > 0 && (
+                <StatBadge icon={Users} label="新询盘" value={salesStats.newInquiries} accent />
+              )}
+              {salesStats?.wonThisMonth !== undefined && salesStats.wonThisMonth > 0 && (
+                <StatBadge icon={CheckCircle2} label="本月成交" value={salesStats.wonThisMonth} accent />
               )}
             </div>
           )}

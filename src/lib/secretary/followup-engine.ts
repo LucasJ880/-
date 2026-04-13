@@ -332,6 +332,9 @@ export async function saveFollowupNotifications(
       },
     });
     created++;
+
+    // 异步推送到微信
+    pushFollowupToWeChat(userId, s).catch(() => {});
   }
 
   return created;
@@ -475,6 +478,17 @@ const REASON_LABELS: Record<FollowupReason, string> = {
   reply_unhandled: "客户回复未处理",
   negotiation_stalled: "谈判阶段停滞",
 };
+
+async function pushFollowupToWeChat(userId: string, s: FollowupSuggestion): Promise<void> {
+  const { pushFollowupReminder } = await import("@/lib/messaging/push-service");
+  await pushFollowupReminder(
+    userId,
+    s.candidate.companyName,
+    s.strategy,
+    s.candidate.reason,
+    s.candidate.daysSilent,
+  );
+}
 
 const STAGE_LABELS: Record<string, string> = {
   new: "新发现",

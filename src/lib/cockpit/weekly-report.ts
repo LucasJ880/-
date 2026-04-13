@@ -162,7 +162,7 @@ export async function generateWeeklyReport(orgId: string): Promise<WeeklyReport>
     });
   }
 
-  return {
+  const report: WeeklyReport = {
     id: `report_${weekLabel}`,
     weekLabel,
     periodStart: start.toISOString().slice(0, 10),
@@ -174,6 +174,15 @@ export async function generateWeeklyReport(orgId: string): Promise<WeeklyReport>
     metrics: data,
     generatedAt: new Date().toISOString(),
   };
+
+  // 异步推送到微信
+  if (membership) {
+    pushReportToWeChat(membership.userId, report).catch((e) =>
+      console.error("[weekly-report] WeChat push failed:", e),
+    );
+  }
+
+  return report;
 }
 
 export async function getLatestReport(orgId: string): Promise<WeeklyReport | null> {
@@ -213,4 +222,15 @@ export async function getLatestReport(orgId: string): Promise<WeeklyReport | nul
     metrics: null as unknown as CockpitData,
     generatedAt: notification.createdAt.toISOString(),
   };
+}
+
+async function pushReportToWeChat(userId: string, report: WeeklyReport): Promise<void> {
+  const { pushWeeklyReport } = await import("@/lib/messaging/push-service");
+  await pushWeeklyReport(
+    userId,
+    report.weekLabel,
+    report.summary,
+    report.highlights,
+    report.concerns,
+  );
 }

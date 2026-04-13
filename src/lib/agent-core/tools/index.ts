@@ -6,6 +6,7 @@
  */
 
 import "./trade";
+import "./sales";
 import "./secretary";
 import "./skills";
 import "./context";

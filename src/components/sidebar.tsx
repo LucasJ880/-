@@ -25,6 +25,7 @@ import {
   BookOpen,
   Upload,
   MessageSquare,
+  MessageCircle,
   Brain,
   type LucideIcon,
 } from "lucide-react";
@@ -95,6 +96,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "智能",
     items: [
       { href: "/assistant", label: "AI 助手", icon: Bot, badge: "Beta" },
+      { href: "/wechat", label: "微信消息", icon: MessageCircle },
       { href: "/memory", label: "AI 记忆", icon: Brain },
       { href: "/ai-activity", label: "AI 活动", icon: Activity },
       { href: "/reports", label: "项目周报", icon: FileText, roles: ["admin", "super_admin", "user"] },

@@ -157,7 +157,7 @@ export default function Dashboard() {
       )}
 
       {/* ─── AI 每日简报（外贸域扫描汇总 + AI 摘要） ─── */}
-      {showTradeModules && <DashboardDailyBriefing />}
+      {(showTradeModules || showSalesModules) && <DashboardDailyBriefing />}
 
       {/* ─── 原有 AI 建议（项目/销售域） ─── */}
       {showProjectModules && (

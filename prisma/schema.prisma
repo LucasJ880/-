@@ -71,6 +71,9 @@ model User {
   // Dynamic Skills
   agentSkillsCreated               AgentSkill[]                 @relation("AgentSkillCreatedBy")
 
+  // WeChat Bindings
+  wechatBindings                   WeChatBinding[]              @relation("UserWeChatBindings")
+
   // Sales CRM relations
   salesCustomersCreated            SalesCustomer[]              @relation("SalesCustomerCreatedBy")
   salesOpportunitiesAssigned       SalesOpportunity[]           @relation("SalesOpportunityAssignee")
@@ -2382,4 +2385,99 @@ model ConversationSummary {
   @@unique([sourceType, sessionId])
   @@index([userId, sourceType])
   @@index([userId, updatedAt])
+}
+
+// ============================================================
+// 微信双通道消息网关（Sprint 19）
+// ============================================================
+
+/// 微信绑定 — 微信用户 ID 与青砚用户的映射
+model WeChatBinding {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("UserWeChatBindings", fields: [userId], references: [id], onDelete: Cascade)
+  orgId         String?
+
+  channel       String   // personal_wechat / wecom
+  externalId    String   // 微信openid / 企微userid
+  displayName   String?  // 微信昵称
+  avatarUrl     String?
+
+  // 连接状态
+  status        String   @default("active") // active / disconnected / expired
+  lastActiveAt  DateTime?
+
+  // 推送偏好
+  pushBriefing  Boolean  @default(true)
+  pushFollowup  Boolean  @default(true)
+  pushReport    Boolean  @default(true)
+  pushSales     Boolean  @default(false)  // 销售域推送
+  silentStart   String?  // "22:00"
+  silentEnd     String?  // "08:00"
+
+  // 业务域权限（逗号分隔，如 "trade,sales"）—— 绑定时根据用户角色自动设置
+  pushDomains   String   @default("trade") // trade / sales / project / all
+
+  // 消息过滤
+  filterMode    String   @default("all") // all / keyword / whitelist
+  filterKeyword String?  // 触发关键词，如"青砚"
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([channel, externalId])
+  @@index([userId])
+  @@index([channel, status])
+}
+
+/// 微信网关连接 — 个人微信 Bot / 企业微信应用的连接实例
+model WeChatGateway {
+  id            String   @id @default(cuid())
+  orgId         String
+  channel       String   // personal_wechat / wecom
+
+  // 个人微信字段
+  botNickname   String?  // 登录的微信昵称
+  loginStatus   String   @default("disconnected") // qr_pending / scanning / connected / disconnected
+
+  // 企业微信字段
+  corpId        String?
+  agentId       String?
+  secret        String?  // 加密存储
+  callbackToken String?
+  encodingKey   String?
+
+  status        String   @default("inactive") // active / inactive / error
+  lastHeartbeat DateTime?
+  errorMessage  String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([orgId, channel])
+}
+
+/// 微信消息记录
+model WeChatMessage {
+  id            String   @id @default(cuid())
+  bindingId     String   // 关联的 WeChatBinding
+  userId        String
+  orgId         String?
+
+  direction     String   // inbound / outbound
+  channel       String   // personal_wechat / wecom
+  externalUserId String  // 对方微信ID
+  content       String   @db.Text
+  messageType   String   @default("text") // text / image / file / voice
+  externalMsgId String?  // 微信侧消息ID
+
+  // AI 处理
+  agentProcessed Boolean @default(false)
+  agentResponse  String? @db.Text
+
+  createdAt     DateTime @default(now())
+
+  @@index([bindingId, createdAt])
+  @@index([userId, createdAt])
+  @@index([channel, createdAt])
 }
