@@ -5926,9 +5926,8 @@ document.getElementById('generate').addEventListener('click', () => {
     }
   });
 
-  // Collect current quote data for export
   function collectQuotePayload(){
-    const exportItems = (window.items || []).map(function(it){
+    const exportItems = items.map(function(it){
       return {
         product: it.product,
         fabric: it.fabric,
@@ -5940,18 +5939,17 @@ document.getElementById('generate').addEventListener('click', () => {
       };
     });
 
-    // Collect addons
     var addonEntries = [];
-    if(window.ADDON_CATALOG && window.ADDON_UI_MAP){
-      window.ADDON_CATALOG.forEach(function(cfg){
-        var st = window.ADDON_UI_MAP[cfg.addon_key];
+    if(ADDON_CATALOG && ADDON_UI_MAP){
+      ADDON_CATALOG.forEach(function(cfg){
+        var st = ADDON_UI_MAP[cfg.addon_key];
         if(st && st.selected && st.qty > 0){
           addonEntries.push({ addonKey: cfg.addon_key, qty: st.qty });
         }
       });
     }
 
-    var installMode = (window.INSTALL_MODE === 'pickup') ? 'pickup' : 'default';
+    var installMode = (INSTALL_MODE === 'pickup') ? 'pickup' : 'default';
 
     var deliveryVal = 50;
     try{
