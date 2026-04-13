@@ -60,6 +60,9 @@ export async function POST(
   // 自动提取记忆（异步，不阻塞响应）
   extractAndSaveMemories(auth.user.id, body.content.trim(), aiResponse).catch(() => {});
 
+  // 异步增量索引（用于跨会话搜索）
+  indexNewMessages(auth.user.id, session.orgId, sessionId).catch(() => {});
+
   const isFirstMessage = history.length <= 1;
   if (isFirstMessage) {
     const title = body.content.trim().slice(0, 30) + (body.content.trim().length > 30 ? "..." : "");
@@ -78,6 +81,11 @@ export async function POST(
     userMessage: { role: "user", content: body.content.trim() },
     assistantMessage: { id: assistantMsg.id, role: "assistant", content: aiResponse },
   });
+}
+
+async function indexNewMessages(userId: string, orgId: string, sessionId: string) {
+  const { indexTradeChatMessages } = await import("@/lib/context/search-engine");
+  await indexTradeChatMessages(userId, orgId, sessionId);
 }
 
 async function extractAndSaveMemories(userId: string, userMsg: string, aiReply: string) {

@@ -21,3 +21,15 @@ export type {
   AgentRunOptions,
   AgentRunResult,
 } from "./types";
+
+// 动态技能系统
+export {
+  runSkill,
+  recordFeedback,
+  listOrgSkills,
+  optimizeSkill,
+  getSkillStats,
+  seedBuiltinSkills,
+  proposeSkillFromDescription,
+  createSkillFromProposal,
+} from "./skills";

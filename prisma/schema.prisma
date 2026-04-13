@@ -68,6 +68,9 @@ model User {
   // AI Memory
   memories                         UserMemory[]
 
+  // Dynamic Skills
+  agentSkillsCreated               AgentSkill[]                 @relation("AgentSkillCreatedBy")
+
   // Sales CRM relations
   salesCustomersCreated            SalesCustomer[]              @relation("SalesCustomerCreatedBy")
   salesOpportunitiesAssigned       SalesOpportunity[]           @relation("SalesOpportunityAssignee")
@@ -415,6 +418,7 @@ model Organization {
   projects  Project[]
   auditLogs AuditLog[]
   suppliers Supplier[]
+  agentSkills AgentSkill[]
 }
 
 model OrganizationMember {
@@ -2238,4 +2242,144 @@ model UserMemory {
   @@index([userId, tags])
   @@index([userId, customerId])
   @@index([userId, projectId])
+}
+
+// ============================================================
+// 动态技能系统（Sprint 16）
+// ============================================================
+
+/// AI 动态技能 — 可在运行时创建、修改、自我优化的能力单元
+model AgentSkill {
+  id              String   @id @default(cuid())
+  orgId           String
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name            String           // 技能名，如 "外贸开发信优化"
+  slug            String           // 唯一标识，如 "trade-outreach-optimizer"
+  description     String   @db.Text // 技能用途描述
+  domain          String           // trade / sales / project / secretary
+  tier            String   @default("foundation") // foundation / analysis / execution
+
+  // AI 执行配置
+  systemPrompt    String   @db.Text // 执行此技能时的系统 prompt
+  userPromptTemplate String @db.Text // 用户 prompt 模板，支持 {{变量}} 占位
+  outputFormat    String   @default("text") // text / json / markdown
+  temperature     Float    @default(0.3)
+  maxTokens       Int      @default(2000)
+
+  // 参数定义（JSON Schema 格式）
+  inputSchema     Json?            // { type: "object", properties: { ... } }
+  outputSchema    Json?            // 期望输出结构
+
+  // 所需工具（可选，执行时自动挂载这些 Agent Core tools）
+  requiredTools   String?          // comma-separated: "trade.get_prospect,secretary.execute_action"
+
+  // 元信息
+  version         Int      @default(1)
+  isBuiltin       Boolean  @default(false) // 内置技能不可删除
+  isActive        Boolean  @default(true)
+  createdById     String?
+  createdBy       User?    @relation("AgentSkillCreatedBy", fields: [createdById], references: [id])
+
+  // 自我改进
+  lastOptimizedAt DateTime?
+  optimizationCount Int    @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  executions      SkillExecution[]
+
+  @@unique([orgId, slug])
+  @@index([orgId, domain])
+  @@index([orgId, isActive])
+}
+
+/// 技能执行记录 — 每次 AgentSkill 运行的输入/输出/评分
+model SkillExecution {
+  id            String   @id @default(cuid())
+  skillId       String
+  skill         AgentSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  userId        String
+
+  // 执行上下文
+  inputJson     String   @db.Text  // 传入参数 JSON
+  outputJson    String?  @db.Text  // AI 输出 JSON
+  toolCalls     Json?              // 执行过程中的工具调用记录
+
+  // 结果评估
+  success       Boolean  @default(true)
+  durationMs    Int?
+  tokenCount    Int?
+
+  // 用户反馈（核心改进信号）
+  userRating    Int?              // 1-5 星
+  userFeedback  String?  @db.Text // 用户文字反馈
+  wasEdited     Boolean  @default(false) // 用户是否编辑了输出
+
+  // prompt 快照（用于回溯对比）
+  promptSnapshot String? @db.Text // 执行时使用的完整 prompt
+
+  createdAt     DateTime @default(now())
+
+  @@index([skillId, createdAt])
+  @@index([skillId, success])
+  @@index([skillId, userRating])
+}
+
+// ============================================================
+// 跨会话语义搜索 + Context 压缩（Sprint 17）
+// ============================================================
+
+/// 统一消息嵌入索引 — 跨所有会话类型的语义搜索
+model MessageEmbedding {
+  id            String   @id @default(cuid())
+  userId        String
+  orgId         String?
+
+  // 消息来源（多态引用）
+  sourceType    String   // ai_message / trade_chat / project_conversation / project_discussion
+  sourceId      String   // 原始消息 ID
+  sessionId     String   // 所属会话/线程 ID
+  sessionTitle  String?  // 会话标题（冗余存储，加速搜索结果展示）
+
+  role          String   // user / assistant
+  content       String   @db.Text
+  embedding     Json     // 1536 维向量
+
+  createdAt     DateTime @default(now())
+
+  @@unique([sourceType, sourceId])
+  @@index([userId, sourceType])
+  @@index([orgId, sourceType])
+  @@index([userId, createdAt])
+}
+
+/// 会话摘要 — 长对话压缩后的持久化摘要
+model ConversationSummary {
+  id            String   @id @default(cuid())
+  userId        String
+
+  // 会话来源
+  sourceType    String   // ai_thread / trade_chat_session / conversation
+  sessionId     String   // 原始会话 ID
+  sessionTitle  String?
+
+  // 摘要内容
+  summary       String   @db.Text  // AI 生成的结构化摘要
+  keyTopics     String?  @db.Text  // 逗号分隔的关键主题
+  keyDecisions  String?  @db.Text  // 重要决策摘要
+  messageCount  Int                // 被摘要的消息数
+  tokenEstimate Int?               // 原始消息的估算 token 数
+
+  // 向量（用于搜索摘要本身）
+  embedding     Json?
+
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([sourceType, sessionId])
+  @@index([userId, sourceType])
+  @@index([userId, updatedAt])
 }

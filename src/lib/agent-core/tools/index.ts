@@ -7,3 +7,6 @@
 
 import "./trade";
 import "./secretary";
+import "./skills";
+import "./context";
+import "./cockpit";

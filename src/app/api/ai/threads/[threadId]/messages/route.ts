@@ -256,6 +256,9 @@ export async function POST(request: NextRequest, ctx: Ctx) {
             () => {}
           );
 
+          // 异步增量索引（跨会话搜索）
+          indexThreadMessages(user.id, threadId).catch(() => {});
+
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
@@ -283,6 +286,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       err instanceof Error ? err.message : "AI 服务连接失败";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+async function indexThreadMessages(userId: string, threadId: string) {
+  const { indexAiThreadMessages } = await import("@/lib/context/search-engine");
+  await indexAiThreadMessages(userId, threadId);
 }
 
 async function extractAndSaveMemories(
