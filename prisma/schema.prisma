@@ -505,7 +505,7 @@ model CalendarProvider {
   refreshToken  String?
   tokenExpiry   DateTime?
   accountEmail  String?
-  calendarId    String?
+  calendarId    String?   // 逗号分隔的已选日历 ID 列表（primary,xxx@group.calendar.google.com,...）
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

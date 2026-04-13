@@ -30,6 +30,26 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
+interface GoogleCalendarInfo {
+  id: string;
+  summary: string;
+  backgroundColor: string;
+  primary: boolean;
+  selected: boolean;
+}
+
+interface GoogleEvent {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  allDay: boolean;
+  location: string | null;
+  calendarId?: string;
+  calendarName?: string;
+  color?: string;
+}
+
 interface Appointment {
   id: string;
   customerId: string;
@@ -98,6 +118,10 @@ export default function SalesCalendarPage() {
   const [gcalConnected, setGcalConnected] = useState(false);
   const [gcalEmail, setGcalEmail] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
+  const [gcalList, setGcalList] = useState<GoogleCalendarInfo[]>([]);
+  const [showCalPicker, setShowCalPicker] = useState(false);
+  const [savingCals, setSavingCals] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -107,10 +131,15 @@ export default function SalesCalendarPage() {
     const start = new Date(year, month, 1).toISOString();
     const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
     try {
-      const res = await apiFetch(`/api/sales/appointments?start=${start}&end=${end}`).then((r) => r.json());
-      setAppointments(res.appointments ?? []);
+      const [apptRes, gcalRes] = await Promise.all([
+        apiFetch(`/api/sales/appointments?start=${start}&end=${end}`).then((r) => r.json()),
+        apiFetch(`/api/calendar/google?timeMin=${start}&timeMax=${end}`).then((r) => r.json()).catch(() => []),
+      ]);
+      setAppointments(apptRes.appointments ?? []);
+      setGoogleEvents(Array.isArray(gcalRes) ? gcalRes : []);
     } catch {
       setAppointments([]);
+      setGoogleEvents([]);
     } finally {
       setLoading(false);
     }
@@ -122,8 +151,46 @@ export default function SalesCalendarPage() {
     apiFetch("/api/auth/google/status").then((r) => r.json()).then((d) => {
       setGcalConnected(d.connected);
       setGcalEmail(d.email ?? null);
+      if (d.connected) {
+        apiFetch("/api/calendar/google/calendars").then((r) => r.json()).then((cal) => {
+          setGcalList(cal.calendars ?? []);
+        }).catch(() => {});
+      }
     }).catch(() => {});
   }, []);
+
+  const saveCalendarSelection = async (ids: string[]) => {
+    setSavingCals(true);
+    try {
+      await apiFetch("/api/calendar/google/calendars", {
+        method: "POST",
+        body: JSON.stringify({ calendarIds: ids }),
+      });
+      setGcalList((prev) => prev.map((c) => ({ ...c, selected: ids.includes(c.id) })));
+      await loadAppointments();
+    } catch { /* ignore */ }
+    finally { setSavingCals(false); }
+  };
+
+  const toggleCalendar = (calId: string) => {
+    const current = gcalList.filter((c) => c.selected).map((c) => c.id);
+    const next = current.includes(calId) ? current.filter((id) => id !== calId) : [...current, calId];
+    if (next.length === 0) return;
+    saveCalendarSelection(next);
+  };
+
+  const getGoogleEventsForDay = useCallback(
+    (day: number) => {
+      const target = new Date(year, month, day);
+      return googleEvents.filter((e) => {
+        const start = new Date(e.startTime);
+        return start.getFullYear() === target.getFullYear() &&
+          start.getMonth() === target.getMonth() &&
+          start.getDate() === target.getDate();
+      });
+    },
+    [googleEvents, year, month],
+  );
 
   const handleSyncToGoogle = async (apptId: string) => {
     setSyncing(apptId);
@@ -168,6 +235,7 @@ export default function SalesCalendarPage() {
   );
 
   const todayAppts = appointments.filter((a) => isSameDay(new Date(a.startAt), today));
+  const todayGEvents = googleEvents.filter((e) => isSameDay(new Date(e.startTime), today));
   const upcomingAppts = appointments
     .filter((a) => new Date(a.startAt) >= today && a.status !== "cancelled")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
@@ -216,10 +284,11 @@ export default function SalesCalendarPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         {[
-          { label: "今日预约", value: todayAppts.length, color: "text-blue-600" },
-          { label: "本月总计", value: appointments.length, color: "text-emerald-600" },
+          { label: "今日日程", value: todayAppts.length + todayGEvents.length, color: "text-blue-600" },
+          { label: "本月预约", value: appointments.length, color: "text-emerald-600" },
+          { label: "Google 事件", value: googleEvents.length, color: "text-indigo-600" },
           { label: "待量房", value: appointments.filter((a) => a.type === "measure" && a.status === "scheduled").length, color: "text-orange-600" },
           { label: "待安装", value: appointments.filter((a) => a.type === "install" && a.status === "scheduled").length, color: "text-purple-600" },
         ].map((s) => (
@@ -281,6 +350,9 @@ export default function SalesCalendarPage() {
                 {calendarDays.map((day, i) => {
                   const isToday = day !== null && isSameDay(new Date(year, month, day), today);
                   const dayAppts = day ? getApptsForDay(day) : [];
+                  const dayGEvents = day ? getGoogleEventsForDay(day) : [];
+                  const totalItems = dayAppts.length + dayGEvents.length;
+                  const maxShow = 3;
                   return (
                     <div
                       key={i}
@@ -300,7 +372,7 @@ export default function SalesCalendarPage() {
                             {day}
                           </div>
                           <div className="space-y-0.5">
-                            {dayAppts.slice(0, 3).map((a) => {
+                            {dayAppts.slice(0, maxShow).map((a) => {
                               const tc = TYPE_CONFIG[a.type] ?? TYPE_CONFIG.measure;
                               return (
                                 <button
@@ -317,8 +389,21 @@ export default function SalesCalendarPage() {
                                 </button>
                               );
                             })}
-                            {dayAppts.length > 3 && (
-                              <p className="text-[10px] text-muted-foreground px-1">+{dayAppts.length - 3} more</p>
+                            {dayGEvents.slice(0, Math.max(0, maxShow - dayAppts.length)).map((ge) => (
+                              <div
+                                key={`g-${ge.id}`}
+                                className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] truncate"
+                                style={{
+                                  backgroundColor: ge.color || "#4285f4",
+                                  color: "#fff",
+                                }}
+                                title={`${ge.calendarName || "Google"}: ${ge.title}`}
+                              >
+                                {ge.allDay ? "全天" : formatTime(ge.startTime)} {ge.title}
+                              </div>
+                            ))}
+                            {totalItems > maxShow && (
+                              <p className="text-[10px] text-muted-foreground px-1">+{totalItems - maxShow} more</p>
                             )}
                           </div>
                         </>
@@ -352,9 +437,9 @@ export default function SalesCalendarPage() {
         {/* Side panel — today & upcoming */}
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-white/60 p-4">
-            <h3 className="mb-3 text-sm font-semibold">今日预约 ({todayAppts.length})</h3>
-            {todayAppts.length === 0 ? (
-              <p className="text-xs text-muted-foreground">今天没有预约</p>
+            <h3 className="mb-3 text-sm font-semibold">今日日程 ({todayAppts.length + todayGEvents.length})</h3>
+            {todayAppts.length === 0 && todayGEvents.length === 0 ? (
+              <p className="text-xs text-muted-foreground">今天没有日程</p>
             ) : (
               <div className="space-y-2">
                 {todayAppts.map((a) => (
@@ -375,6 +460,25 @@ export default function SalesCalendarPage() {
                       </p>
                     )}
                   </button>
+                ))}
+                {todayGEvents.map((ge) => (
+                  <div
+                    key={`g-${ge.id}`}
+                    className="w-full rounded-lg border p-2.5 text-left"
+                    style={{ borderColor: ge.color || "#4285f4", borderLeftWidth: 3 }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: ge.color || "#4285f4" }} />
+                      <span className="text-xs font-medium">{ge.allDay ? "全天" : formatTime(ge.startTime)}</span>
+                      <span className="text-[10px] text-muted-foreground truncate">{ge.calendarName}</span>
+                    </div>
+                    <p className="mt-1 text-sm font-medium truncate">{ge.title}</p>
+                    {ge.location && (
+                      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
+                        <MapPin size={10} /> {ge.location}
+                      </p>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
@@ -398,6 +502,64 @@ export default function SalesCalendarPage() {
               ))}
             </div>
           </div>
+
+          {/* Google 日历管理 */}
+          {gcalConnected && (
+            <div className="rounded-xl border border-border bg-white/60 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold">Google 日历</h3>
+                <button
+                  onClick={() => setShowCalPicker(!showCalPicker)}
+                  className="text-[11px] text-primary hover:underline"
+                >
+                  {showCalPicker ? "收起" : "管理日历"}
+                </button>
+              </div>
+              {!showCalPicker ? (
+                <div className="space-y-1.5">
+                  {gcalList.filter((c) => c.selected).map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 text-xs">
+                      <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: c.backgroundColor }} />
+                      <span className="truncate">{c.summary}</span>
+                      {c.primary && <span className="text-[10px] text-muted-foreground">(主)</span>}
+                    </div>
+                  ))}
+                  {gcalList.filter((c) => c.selected).length === 0 && (
+                    <p className="text-xs text-muted-foreground">未选择日历</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    本月 Google 事件: {googleEvents.length} 条
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {gcalList.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => toggleCalendar(c.id)}
+                      disabled={savingCals}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg p-2 text-left text-xs transition-colors",
+                        c.selected ? "bg-primary/5 border border-primary/20" : "hover:bg-muted/30 border border-transparent",
+                      )}
+                    >
+                      <div
+                        className={cn("h-3 w-3 rounded-sm border-2 shrink-0", c.selected ? "border-transparent" : "border-border")}
+                        style={c.selected ? { backgroundColor: c.backgroundColor } : undefined}
+                      />
+                      <span className="truncate flex-1">{c.summary}</span>
+                      {c.primary && <span className="text-[10px] text-muted-foreground">(主)</span>}
+                    </button>
+                  ))}
+                  {savingCals && (
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground pt-1">
+                      <Loader2 size={10} className="animate-spin" /> 保存中...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

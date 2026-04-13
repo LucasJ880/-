@@ -109,6 +109,17 @@ export async function getGoogleProvider(userId: string) {
   });
 }
 
+export interface GoogleCalendarInfo {
+  id: string;
+  summary: string;
+  description?: string;
+  backgroundColor: string;
+  foregroundColor: string;
+  primary: boolean;
+  accessRole: string;
+  selected: boolean;
+}
+
 export interface GoogleEvent {
   id: string;
   title: string;
@@ -117,11 +128,62 @@ export interface GoogleEvent {
   allDay: boolean;
   location: string | null;
   source: "google";
+  calendarId?: string;
+  calendarName?: string;
+  color?: string;
 }
 
+/**
+ * 获取用户所有可见的 Google 日历列表（包含共享日历、订阅日历）
+ */
+export async function listGoogleCalendars(
+  userId: string,
+): Promise<GoogleCalendarInfo[]> {
+  const provider = await getGoogleProvider(userId);
+  if (!provider || !provider.accessToken) return [];
+
+  const client = await getAuthedClient(provider);
+  const calendar = google.calendar({ version: "v3", auth: client });
+
+  try {
+    const res = await calendar.calendarList.list({ showHidden: false });
+    return (res.data.items || []).map((item) => ({
+      id: item.id || "",
+      summary: item.summary || "(无名称)",
+      description: item.description || undefined,
+      backgroundColor: item.backgroundColor || "#4285f4",
+      foregroundColor: item.foregroundColor || "#ffffff",
+      primary: item.primary === true,
+      accessRole: item.accessRole || "reader",
+      selected: item.selected === true,
+    }));
+  } catch (err) {
+    console.error("Google Calendar list error:", err);
+    return [];
+  }
+}
+
+/**
+ * 从单个日历拉取事件（兼容旧接口，单天）
+ */
 export async function fetchGoogleEvents(
   userId: string,
   dateStr?: string
+): Promise<GoogleEvent[]> {
+  return fetchGoogleEventsRange(userId, { dateStr });
+}
+
+/**
+ * 从多个日历拉取事件，支持自定义时间范围
+ */
+export async function fetchGoogleEventsRange(
+  userId: string,
+  opts: {
+    dateStr?: string;
+    timeMin?: string;
+    timeMax?: string;
+    calendarIds?: string[];
+  } = {},
 ): Promise<GoogleEvent[]> {
   const provider = await getGoogleProvider(userId);
   if (!provider || !provider.accessToken) return [];
@@ -129,40 +191,83 @@ export async function fetchGoogleEvents(
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
-  const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
-  const dayStart = startOfDayToronto(ref);
-  const dayEnd = endOfDayToronto(ref);
+  let timeMin: string;
+  let timeMax: string;
 
-  try {
-    const res = await calendar.events.list({
-      calendarId: provider.calendarId || "primary",
-      timeMin: dayStart.toISOString(),
-      timeMax: dayEnd.toISOString(),
-      singleEvents: true,
-      orderBy: "startTime",
-      maxResults: 50,
-    });
-
-    return (res.data.items || []).map((item) => {
-      const allDay = Boolean(item.start?.date);
-      return {
-        id: item.id || "",
-        title: item.summary || "(无标题)",
-        startTime: allDay
-          ? `${item.start!.date}T00:00:00`
-          : item.start?.dateTime || "",
-        endTime: allDay
-          ? `${item.end!.date}T23:59:59`
-          : item.end?.dateTime || "",
-        allDay,
-        location: item.location || null,
-        source: "google" as const,
-      };
-    });
-  } catch (err) {
-    console.error("Google Calendar fetch error:", err);
-    return [];
+  if (opts.timeMin && opts.timeMax) {
+    timeMin = new Date(opts.timeMin).toISOString();
+    timeMax = new Date(opts.timeMax).toISOString();
+  } else {
+    const ref = opts.dateStr ? new Date(opts.dateStr + "T12:00:00") : new Date();
+    timeMin = startOfDayToronto(ref).toISOString();
+    timeMax = endOfDayToronto(ref).toISOString();
   }
+
+  // 如果没指定日历，从数据库读取用户选择的日历，默认只有 primary
+  let calendarIds = opts.calendarIds;
+  if (!calendarIds || calendarIds.length === 0) {
+    const selectedRaw = provider.calendarId || "primary";
+    // calendarId 字段可存逗号分隔的多个日历 ID
+    calendarIds = selectedRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (calendarIds.length === 0) calendarIds = ["primary"];
+  }
+
+  const allEvents: GoogleEvent[] = [];
+
+  // 先拿一次日历列表做 ID → 名称+颜色 的映射
+  let calMap: Map<string, { name: string; color: string }> | null = null;
+  if (calendarIds.length > 1) {
+    try {
+      const listRes = await calendar.calendarList.list({ showHidden: false });
+      calMap = new Map();
+      for (const item of listRes.data.items || []) {
+        calMap.set(item.id || "", {
+          name: item.summary || "",
+          color: item.backgroundColor || "#4285f4",
+        });
+      }
+    } catch { /* ignore */ }
+  }
+
+  for (const calId of calendarIds) {
+    try {
+      const res = await calendar.events.list({
+        calendarId: calId,
+        timeMin,
+        timeMax,
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: 100,
+      });
+
+      const info = calMap?.get(calId);
+      for (const item of res.data.items || []) {
+        const allDay = Boolean(item.start?.date);
+        allEvents.push({
+          id: item.id || "",
+          title: item.summary || "(无标题)",
+          startTime: allDay
+            ? `${item.start!.date}T00:00:00`
+            : item.start?.dateTime || "",
+          endTime: allDay
+            ? `${item.end!.date}T23:59:59`
+            : item.end?.dateTime || "",
+          allDay,
+          location: item.location || null,
+          source: "google" as const,
+          calendarId: calId,
+          calendarName: info?.name || (calId === "primary" ? "主日历" : calId),
+          color: item.colorId ? undefined : info?.color,
+        });
+      }
+    } catch (err) {
+      console.error(`Google Calendar fetch error for ${calId}:`, err);
+    }
+  }
+
+  return allEvents.sort((a, b) =>
+    new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+  );
 }
 
 export async function pushEventToGoogle(
