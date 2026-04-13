@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import {
+  syncAppointmentToGoogle,
+  unsyncAppointmentFromGoogle,
+} from "@/lib/sales/appointment-gcal-sync";
 
 export async function GET(
   request: NextRequest,
@@ -66,6 +70,16 @@ export async function PATCH(
     },
   });
 
+  if (body.status === "cancelled") {
+    unsyncAppointmentFromGoogle(id, appointment.assignedTo?.id || user.id).catch(
+      (err) => console.error("Google Calendar unsync error:", err),
+    );
+  } else {
+    syncAppointmentToGoogle(id, appointment.assignedTo?.id || user.id).catch(
+      (err) => console.error("Google Calendar sync error:", err),
+    );
+  }
+
   return NextResponse.json({ appointment });
 }
 
@@ -77,7 +91,12 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
 
   const { id } = await params;
-  await db.appointment.delete({ where: { id } });
 
+  // 先从 Google Calendar 删除事件
+  await unsyncAppointmentFromGoogle(id, user.id).catch(
+    (err) => console.error("Google Calendar unsync error:", err),
+  );
+
+  await db.appointment.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

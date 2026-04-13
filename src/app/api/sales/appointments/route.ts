@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { syncAppointmentToGoogle } from "@/lib/sales/appointment-gcal-sync";
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -103,6 +104,12 @@ export async function POST(request: NextRequest) {
       });
     }
   }
+
+  // 异步同步到 Google Calendar（不阻塞响应）
+  const syncUserId = assignedToId || user.id;
+  syncAppointmentToGoogle(appointment.id, syncUserId).catch((err) =>
+    console.error("Google Calendar sync error:", err),
+  );
 
   return NextResponse.json({ appointment }, { status: 201 });
 }

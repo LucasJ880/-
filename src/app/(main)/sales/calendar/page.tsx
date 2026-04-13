@@ -17,6 +17,10 @@ import {
   Wrench,
   RotateCcw,
   MessageSquare,
+  RefreshCw,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
 } from "lucide-react";
 import {
   Dialog,
@@ -41,6 +45,8 @@ interface Appointment {
   contactPhone?: string;
   status: string;
   notes?: string;
+  googleEventId?: string | null;
+  googleSyncedAt?: string | null;
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof Ruler }> = {
@@ -89,6 +95,9 @@ export default function SalesCalendarPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [gcalConnected, setGcalConnected] = useState(false);
+  const [gcalEmail, setGcalEmail] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -108,6 +117,32 @@ export default function SalesCalendarPage() {
   }, [year, month]);
 
   useEffect(() => { loadAppointments(); }, [loadAppointments]);
+
+  useEffect(() => {
+    apiFetch("/api/auth/google/status").then((r) => r.json()).then((d) => {
+      setGcalConnected(d.connected);
+      setGcalEmail(d.email ?? null);
+    }).catch(() => {});
+  }, []);
+
+  const handleSyncToGoogle = async (apptId: string) => {
+    setSyncing(apptId);
+    try {
+      const res = await apiFetch(`/api/sales/appointments/${apptId}/sync`, { method: "POST" }).then((r) => r.json());
+      if (res.synced) {
+        await loadAppointments();
+        if (selectedAppt?.id === apptId) {
+          setSelectedAppt((prev) => prev ? { ...prev, googleEventId: res.googleEventId, googleSyncedAt: new Date().toISOString() } : null);
+        }
+      } else if (res.error) {
+        alert(res.error);
+      }
+    } catch {
+      alert("同步失败，请稍后重试");
+    } finally {
+      setSyncing(null);
+    }
+  };
 
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
@@ -153,6 +188,32 @@ export default function SalesCalendarPage() {
           </button>
         }
       />
+
+      {/* Google Calendar connection status */}
+      <div className={cn(
+        "flex items-center gap-3 rounded-xl border p-3 text-sm",
+        gcalConnected
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-amber-200 bg-amber-50/50",
+      )}>
+        <CalendarDays size={18} className={gcalConnected ? "text-emerald-600" : "text-amber-600"} />
+        {gcalConnected ? (
+          <span className="text-emerald-700">
+            已连接 Google Calendar{gcalEmail ? ` (${gcalEmail})` : ""} — 预约将自动同步
+          </span>
+        ) : (
+          <>
+            <span className="text-amber-700">尚未连接 Google Calendar — 连接后预约自动同步到你的日历</span>
+            <a
+              href="/api/auth/google"
+              className="ml-auto inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-amber-700 shadow-sm border border-amber-200 hover:bg-amber-50 transition-colors"
+            >
+              <ExternalLink size={12} />
+              连接 Google Calendar
+            </a>
+          </>
+        )}
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
@@ -251,6 +312,7 @@ export default function SalesCalendarPage() {
                                     a.status === "cancelled" && "opacity-40 line-through",
                                   )}
                                 >
+                                  {a.googleEventId && <CheckCircle2 size={8} className="shrink-0 opacity-70" />}
                                   {formatTime(a.startAt)} {a.customer?.name}
                                 </button>
                               );
@@ -363,6 +425,38 @@ export default function SalesCalendarPage() {
                 {selectedAppt.assignedTo && <p className="flex items-center gap-2"><User size={14} /> 负责人：{selectedAppt.assignedTo.name}</p>}
                 {selectedAppt.description && <p className="mt-2 rounded-lg bg-muted/30 p-2 text-xs">{selectedAppt.description}</p>}
               </div>
+              {/* Google Calendar sync status */}
+              {gcalConnected && (
+                <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                  <CalendarDays size={14} className="text-muted-foreground" />
+                  {selectedAppt.googleEventId ? (
+                    <span className="flex items-center gap-1.5 text-xs text-emerald-600">
+                      <CheckCircle2 size={12} />
+                      已同步到 Google Calendar
+                      {selectedAppt.googleSyncedAt && (
+                        <span className="text-muted-foreground">
+                          · {new Date(selectedAppt.googleSyncedAt).toLocaleString("zh-CN")}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">未同步到 Google Calendar</span>
+                  )}
+                  <button
+                    onClick={() => handleSyncToGoogle(selectedAppt.id)}
+                    disabled={syncing === selectedAppt.id}
+                    className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+                  >
+                    {syncing === selectedAppt.id ? (
+                      <Loader2 size={10} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={10} />
+                    )}
+                    {selectedAppt.googleEventId ? "重新同步" : "同步"}
+                  </button>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 {selectedAppt.status === "scheduled" && (
                   <button

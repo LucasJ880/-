@@ -2339,6 +2339,9 @@ model Appointment {
   completedAt     DateTime?
   notes           String?   @db.Text
 
+  googleEventId   String?   // 同步到 Google Calendar 后的事件 ID
+  googleSyncedAt  DateTime? // 最后一次成功同步时间
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

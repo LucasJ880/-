@@ -204,3 +204,67 @@ export async function pushEventToGoogle(
     return null;
   }
 }
+
+export async function updateGoogleEvent(
+  userId: string,
+  googleEventId: string,
+  event: { title: string; startTime: string; endTime: string; allDay: boolean; location?: string | null; description?: string | null },
+): Promise<boolean> {
+  const provider = await getGoogleProvider(userId);
+  if (!provider || !provider.accessToken) return false;
+
+  const client = await getAuthedClient(provider);
+  const calendar = google.calendar({ version: "v3", auth: client });
+
+  try {
+    const body: Record<string, unknown> = {
+      summary: event.title,
+      location: event.location || undefined,
+      description: event.description || undefined,
+    };
+
+    if (event.allDay) {
+      const dateOnly = event.startTime.split("T")[0];
+      const endDate = event.endTime.split("T")[0];
+      const nextDay = new Date(endDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      body.start = { date: dateOnly };
+      body.end = { date: nextDay.toISOString().split("T")[0] };
+    } else {
+      body.start = { dateTime: new Date(event.startTime).toISOString() };
+      body.end = { dateTime: new Date(event.endTime).toISOString() };
+    }
+
+    await calendar.events.update({
+      calendarId: provider.calendarId || "primary",
+      eventId: googleEventId,
+      requestBody: body as Parameters<typeof calendar.events.update>[0] extends { requestBody?: infer R } ? R : never,
+    });
+    return true;
+  } catch (err) {
+    console.error("Google Calendar update error:", err);
+    return false;
+  }
+}
+
+export async function deleteGoogleEvent(
+  userId: string,
+  googleEventId: string,
+): Promise<boolean> {
+  const provider = await getGoogleProvider(userId);
+  if (!provider || !provider.accessToken) return false;
+
+  const client = await getAuthedClient(provider);
+  const calendar = google.calendar({ version: "v3", auth: client });
+
+  try {
+    await calendar.events.delete({
+      calendarId: provider.calendarId || "primary",
+      eventId: googleEventId,
+    });
+    return true;
+  } catch (err) {
+    console.error("Google Calendar delete error:", err);
+    return false;
+  }
+}
