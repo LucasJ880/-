@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { processChat, type ChatMessage } from "@/lib/trade/chat-assistant";
+import { processChat, processChatV2, type ChatMessage } from "@/lib/trade/chat-assistant";
 import { extractMemoriesFromConversation, saveMemories } from "@/lib/ai/user-memory";
 
 export async function POST(
@@ -44,9 +44,11 @@ export async function POST(
     content: m.content,
   }));
 
+  const useV2 = process.env.AGENT_CORE_ENABLED === "true";
   let aiResponse: string;
   try {
-    aiResponse = await processChat(session.orgId, auth.user.id, body.content.trim(), chatHistory.slice(0, -1));
+    const chatFn = useV2 ? processChatV2 : processChat;
+    aiResponse = await chatFn(session.orgId, auth.user.id, body.content.trim(), chatHistory.slice(0, -1));
   } catch (e) {
     aiResponse = `抱歉，AI 处理出错: ${e instanceof Error ? e.message : "未知错误"}。请稍后再试。`;
   }

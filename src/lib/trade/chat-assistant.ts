@@ -163,6 +163,68 @@ ${toolResults.join("\n\n")}
   return finalResponse;
 }
 
+// ── V2: Agent Core 版对话处理 ────────────────────────────────
+
+/**
+ * 使用统一 Agent Core Engine 处理外贸对话。
+ * 基于 OpenAI function calling（替代伪协议），
+ * 自动调用注册表中的外贸 + 秘书域工具。
+ */
+export async function processChatV2(
+  orgId: string,
+  userId: string,
+  userMessage: string,
+  history: ChatMessage[],
+): Promise<string> {
+  const { runAgent } = await import("@/lib/agent-core");
+  const {
+    getWakeUpMemories: getMemories,
+    recallMemories: recall,
+    buildUserMemoryBlock: buildBlock,
+  } = await import("@/lib/ai/user-memory");
+
+  let memoryBlock = "";
+  try {
+    const { l0, l1 } = await getMemories(userId, 8);
+    const l2 = await recall(userId, userMessage, { limit: 5 });
+    memoryBlock = buildBlock(l0, l1, l2);
+  } catch { /* 记忆不阻塞 */ }
+
+  const systemPrompt = `你是「青砚」外贸 AI 助手，帮助老板用中文自然语言管理外贸获客全流程。
+
+你的能力通过工具实现，你可以查询数据、生成简报、创建跟进草稿等。
+
+回复规则：
+1. 用简洁中文回复，信息密度高
+2. 如果需要查数据，直接调用对应工具，不要问用户要不要查
+3. 给出具体可执行的建议，不说废话
+4. 涉及金额用 USD 显示，日期用中文格式
+5. 如果无法确定用户意图，列出你能做的事让用户选
+6. 用表格或列表呈现数据（如果合适）
+
+你了解外贸全流程：找客户→研究→评分→开发信→跟进→报价→成交
+你的角色是老板的外贸 AI 参谋。
+${memoryBlock}`;
+
+  const messages = history.slice(-10).map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
+  messages.push({ role: "user", content: userMessage });
+
+  const result = await runAgent({
+    systemPrompt,
+    messages,
+    domains: ["trade", "secretary"],
+    mode: "chat",
+    temperature: 0.3,
+    userId,
+    orgId,
+  });
+
+  return result.content;
+}
+
 // ── Tool Call Parser ────────────────────────────────────────
 
 function parseToolCalls(text: string): { name: string; args: Record<string, string> }[] {

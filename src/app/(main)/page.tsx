@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { DashboardDailyBriefing } from "@/components/dashboard/dashboard-daily-briefing";
 import { DashboardAiSuggestions } from "@/components/dashboard/dashboard-ai-suggestions";
 import { DashboardAutoInspections } from "@/components/dashboard/dashboard-auto-inspections";
 import { DashboardCalendarSection } from "@/components/dashboard/dashboard-calendar-section";
@@ -155,7 +156,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
+      {/* ─── AI 每日简报（外贸域扫描汇总 + AI 摘要） ─── */}
+      {showTradeModules && <DashboardDailyBriefing />}
+
+      {/* ─── 原有 AI 建议（项目/销售域） ─── */}
+      {showProjectModules && (
+        <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
+      )}
 
       {/* ─── 折叠区（仅 admin + user 角色显示项目相关） ─── */}
       {showProjectModules && (
