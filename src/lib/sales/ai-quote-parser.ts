@@ -341,7 +341,7 @@ export async function transcribeVoice(audioBuffer: Buffer, mimeType: string): Pr
 
   const ext = mimeType.includes("webm") ? "webm" : mimeType.includes("mp4") ? "mp4" : "wav";
   const formData = new FormData();
-  formData.append("file", new Blob([audioBuffer], { type: mimeType }), `audio.${ext}`);
+  formData.append("file", new Blob([audioBuffer as unknown as BlobPart], { type: mimeType }), `audio.${ext}`);
   formData.append("model", "whisper-1");
   formData.append("language", "en");
 

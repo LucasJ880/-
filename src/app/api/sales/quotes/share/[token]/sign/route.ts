@@ -14,9 +14,8 @@ export async function POST(
 ) {
   const { token } = await params;
   const body = await request.json();
-  const { signatureDataUrl, customerName } = body as {
+  const { signatureDataUrl } = body as {
     signatureDataUrl: string;
-    customerName?: string;
   };
 
   if (!signatureDataUrl || !signatureDataUrl.startsWith("data:image/")) {
@@ -66,24 +65,23 @@ export async function POST(
   const customerName = quote.customer.name;
 
   // 1) 站内通知
-  await db.notification.create({
-    data: {
-      userId: salesUserId,
-      type: "quote_signed",
-      title: `报价已签约 — ${customerName}`,
-      body: `${customerName} 签署了报价单，总额 $${quote.grandTotal.toFixed(2)}`,
-      actionUrl: `/sales/customers/${quote.customerId}`,
-    },
+  const { createNotification } = await import("@/lib/notifications/create");
+  await createNotification({
+    userId: salesUserId,
+    type: "quote_signed",
+    title: `报价已签约 — ${customerName}`,
+    summary: `${customerName} 签署了报价单，总额 $${quote.grandTotal.toFixed(2)}`,
+    metadata: { customerId: quote.customerId },
   }).catch(() => {});
 
   // 2) 微信推送
   try {
-    const { pushToUser } = await import("@/lib/messaging/push-service");
-    await pushToUser(salesUserId, {
-      title: `✅ 报价已签约`,
-      body: `${customerName} 签署了报价单\n总额 $${quote.grandTotal.toFixed(2)}`,
-      url: `/sales/customers/${quote.customerId}`,
-    });
+    const { pushNotification } = await import("@/lib/messaging/push-service");
+    await pushNotification(
+      salesUserId,
+      "✅ 报价已签约",
+      `${customerName} 签署了报价单\n总额 $${quote.grandTotal.toFixed(2)}`,
+    );
   } catch {}
 
   // 3) 邮件通知销售

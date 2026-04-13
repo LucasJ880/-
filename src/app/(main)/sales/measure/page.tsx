@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";

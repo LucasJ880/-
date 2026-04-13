@@ -58,8 +58,9 @@ export async function scanSalesDomain(
   const now = new Date();
   const items: BriefingItem[] = [];
   const stats: Record<string, number> = {};
+  const isAdmin = options?.isAdmin ?? false;
 
-  const ownerFilter = options?.isAdmin
+  const ownerFilter = isAdmin
     ? {}
     : {
         OR: [

@@ -103,12 +103,8 @@ ${isAdmin ? `- 库存预警: ${lowStock} 种面料` : ""}
 
   // 推送微信
   try {
-    const { pushToUser } = await import("@/lib/messaging/push-service");
-    await pushToUser(user.id, {
-      title: "📊 销售周报",
-      body: report.slice(0, 500),
-      url: "/sales/cockpit",
-    });
+    const { pushNotification } = await import("@/lib/messaging/push-service");
+    await pushNotification(user.id, "📊 销售周报", report.slice(0, 500));
   } catch {}
 
   // 推送邮件

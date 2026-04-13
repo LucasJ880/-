@@ -32,13 +32,18 @@ export type ToolDomain =
   | "knowledge"
   | "system";
 
+export interface ToolPropertySchema {
+  type: string;
+  description?: string;
+  enum?: string[];
+  items?: ToolPropertySchema;
+  properties?: Record<string, ToolPropertySchema>;
+  required?: string[];
+}
+
 export interface ToolParameterSchema {
   type: "object";
-  properties: Record<string, {
-    type: string;
-    description: string;
-    enum?: string[];
-  }>;
+  properties: Record<string, ToolPropertySchema>;
   required?: string[];
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import {
