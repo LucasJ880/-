@@ -155,20 +155,20 @@ function FocusItemRow({
   const color = TYPE_COLOR[item.type];
 
   const content = (
-    <div className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-background">
+    <div className="flex items-center gap-3 px-4 py-2.5 transition-all duration-150 hover:bg-background">
       <div className={cn("shrink-0", color)}>
         <Icon size={15} />
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className={cn("truncate text-sm font-medium", item.isOverdue && "text-[#a63d3d]")}>
+          <span className={cn("truncate text-[14px] font-medium tracking-[-0.01em]", item.isOverdue && "text-[#a63d3d]")}>
             {item.title}
           </span>
           {item.priority && (
             <span
               className={cn(
-                "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                "shrink-0 rounded-[var(--radius-md)] px-1.5 py-0.5 text-[11px] font-medium tracking-[-0.01em]",
                 (TASK_PRIORITY[item.priority as TaskPriority] || TASK_PRIORITY.medium).color
               )}
             >
@@ -177,7 +177,7 @@ function FocusItemRow({
           )}
         </div>
         {(item.subtitle || item.location) && (
-          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
+          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted tracking-[-0.01em]">
             {item.subtitle && <span>{item.subtitle}</span>}
             {item.location && (
               <span className="flex items-center gap-0.5">
@@ -197,7 +197,7 @@ function FocusItemRow({
             e.stopPropagation();
             if (item.projectId && onProjectClick) onProjectClick(item.projectId);
           }}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius-md)] px-2 py-1 text-[13px] font-medium tracking-[-0.01em] text-muted shadow-xs transition-all duration-150 hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
         >
           <span
             className="h-2 w-2 rounded-full"
@@ -208,7 +208,7 @@ function FocusItemRow({
       )}
 
       {item.time && (
-        <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted">
+        <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted tracking-[-0.01em]">
           <Clock size={10} />
           {item.time}
         </span>
@@ -249,14 +249,14 @@ export function DashboardTodayFocus({
   const dateStr = `${now.getMonth() + 1}月${now.getDate()}日 周${weekday}`;
 
   return (
-    <div className="rounded-xl border border-accent/20 bg-card-bg">
+    <div className="rounded-[var(--radius-lg)] border border-border bg-card-bg shadow-card">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <Target size={15} className="text-accent" />
-          <h2 className="text-sm font-semibold">今日聚焦</h2>
-          <span className="text-xs text-muted">{dateStr}</span>
+          <h2 className="text-[13px] font-semibold tracking-[-0.01em]">今日聚焦</h2>
+          <span className="text-[12px] text-muted tracking-[-0.01em]">{dateStr}</span>
         </div>
-        <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+        <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium tracking-[-0.01em] text-accent">
           {items.length} 项待办
         </span>
       </div>
@@ -274,24 +274,24 @@ export function DashboardTodayFocus({
       ) : (
         <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
           <Sparkles size={24} className="text-accent/30" />
-          <p className="text-sm font-medium text-muted">今天暂无紧急事项</p>
-          <p className="text-xs text-muted/60">
+          <p className="text-[13px] font-medium tracking-[-0.01em] text-muted">今天暂无紧急事项</p>
+          <p className="text-[12px] text-muted/60 tracking-[-0.01em]">
             创建任务或日程后，待办事项会自动出现在这里
           </p>
         </div>
       )}
 
       <div className="border-t border-border px-4 py-2.5">
-        <div className="flex items-center gap-4 text-[11px]">
+        <div className="flex items-center gap-4 text-[12px] tracking-[-0.01em]">
           <Link
             href="/tasks"
-            className="flex items-center gap-1 font-medium text-accent hover:underline"
+            className="flex items-center gap-1 font-medium text-accent transition-all duration-150 hover:underline"
           >
             全部任务 <ArrowRight size={10} />
           </Link>
           <Link
             href="/assistant"
-            className="flex items-center gap-1 font-medium text-muted hover:text-foreground"
+            className="flex items-center gap-1 font-medium text-muted transition-all duration-150 hover:text-foreground"
           >
             AI 助手 <ArrowRight size={10} />
           </Link>

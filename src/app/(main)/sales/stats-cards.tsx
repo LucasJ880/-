@@ -60,16 +60,16 @@ export function StatsCards({
       {stats.map((s) => (
         <div
           key={s.label}
-          className="rounded-xl border border-border bg-white/70 px-4 py-3"
+          className="rounded-[var(--radius-lg)] border border-border bg-card-bg/70 px-4 py-3 card-hover"
         >
           <div className="flex items-center gap-2">
-            <s.icon className={cn("h-4 w-4", s.color)} />
-            <span className="text-xs text-muted">{s.label}</span>
+            <s.icon className={cn("h-3.5 w-3.5", s.color)} />
+            <span className="text-[12px] font-medium text-muted">{s.label}</span>
           </div>
-          <div className="mt-1 text-xl font-semibold text-foreground">
+          <div className="mt-1.5 text-xl font-semibold tracking-[-0.3px] text-foreground">
             {s.value}
           </div>
-          {s.sub && <div className="text-xs text-muted">{s.sub}</div>}
+          {s.sub && <div className="mt-0.5 text-[12px] text-muted">{s.sub}</div>}
         </div>
       ))}
     </div>

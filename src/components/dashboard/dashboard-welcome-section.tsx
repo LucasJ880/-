@@ -79,26 +79,26 @@ export function DashboardWelcomeSection({
   if (allDone) return null;
 
   return (
-    <div className="rounded-xl border border-accent/20 bg-gradient-to-br from-accent/5 via-card-bg to-card-bg p-6">
+    <div className="rounded-[var(--radius-lg)] border border-border bg-gradient-to-br from-accent/5 via-card-bg to-card-bg p-6 shadow-card">
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold">
+          <h2 className="text-lg font-bold tracking-[-0.01em]">
             {userName ? `你好，${userName}！` : "欢迎来到青砚"}
           </h2>
-          <p className="mt-0.5 text-sm text-muted">
+          <p className="mt-0.5 text-[12px] text-muted tracking-[-0.01em]">
             跟着下面的步骤快速上手，只需几分钟
           </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="h-2 w-24 overflow-hidden rounded-full bg-border">
             <div
-              className="h-full rounded-full bg-accent transition-all"
+              className="h-full rounded-full bg-accent transition-all duration-150"
               style={{
                 width: `${(completedCount / steps.length) * 100}%`,
               }}
             />
           </div>
-          <span className="text-xs text-muted">
+          <span className="text-[12px] text-muted tracking-[-0.01em]">
             {completedCount}/{steps.length}
           </span>
         </div>
@@ -110,15 +110,15 @@ export function DashboardWelcomeSection({
             key={step.id}
             href={step.href}
             className={cn(
-              "group flex items-start gap-3 rounded-lg border p-4 transition-all",
+              "group flex items-start gap-3 rounded-[var(--radius-lg)] border p-4 shadow-card transition-all duration-150",
               step.done
                 ? "border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.02)]"
-                : "border-border bg-card-bg hover:border-accent/30 hover:shadow-sm"
+                : "card-hover border-border bg-card-bg"
             )}
           >
             <div
               className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)]",
                 step.done
                   ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
                   : "bg-accent/10 text-accent"
@@ -130,21 +130,21 @@ export function DashboardWelcomeSection({
               <div className="flex items-center gap-2">
                 <p
                   className={cn(
-                    "text-sm font-medium",
+                    "text-[13px] font-medium tracking-[-0.01em]",
                     step.done && "text-[#2e7a56]"
                   )}
                 >
                   {step.title}
                 </p>
                 {step.done && (
-                  <span className="text-[10px] font-medium text-[#2e7a56]">
+                  <span className="text-[11px] font-medium tracking-[-0.01em] text-[#2e7a56]">
                     已完成
                   </span>
                 )}
               </div>
-              <p className="mt-0.5 text-xs text-muted">{step.description}</p>
+              <p className="mt-0.5 text-[12px] text-muted tracking-[-0.01em]">{step.description}</p>
               {!step.done && (
-                <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-accent opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="mt-1.5 inline-flex items-center gap-1 text-[13px] font-medium tracking-[-0.01em] text-accent opacity-0 transition-all duration-150 group-hover:opacity-100">
                   {step.linkLabel}
                   <ArrowRight size={12} />
                 </span>
@@ -154,11 +154,11 @@ export function DashboardWelcomeSection({
         ))}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-xs text-muted">
+      <div className="mt-4 flex items-center gap-2 rounded-[var(--radius-md)] border border-border bg-background px-4 py-2.5 text-[12px] text-muted tracking-[-0.01em]">
         <Users size={14} className="shrink-0 text-accent" />
         <span>
           想邀请团队成员？在
-          <Link href="/organizations" className="mx-0.5 font-medium text-accent hover:underline">
+          <Link href="/organizations" className="mx-0.5 font-medium text-accent transition-all duration-150 hover:underline">
             组织
           </Link>
           中添加成员即可，他们会自动看到组织下的所有项目。

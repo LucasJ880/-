@@ -42,11 +42,11 @@ function ReminderSummaryCard({
   const allItems = [...data.immediate, ...data.today].slice(0, 5);
 
   return (
-    <div className="rounded-xl border border-border bg-card-bg">
+    <div className="rounded-[var(--radius-lg)] border border-border bg-card-bg shadow-card">
       <div className="flex items-center gap-2 border-b border-border px-5 py-3">
         <Bell size={15} className="text-accent" />
-        <h2 className="font-semibold">今日提醒</h2>
-        <span className="ml-auto text-xs text-muted">
+        <h2 className="text-[13px] font-semibold tracking-[-0.01em]">今日提醒</h2>
+        <span className="ml-auto text-[12px] text-muted tracking-[-0.01em]">
           {data.unreadCount} 条待处理
         </span>
       </div>
@@ -75,7 +75,7 @@ function ReminderSummaryCard({
         ].map((c) => (
           <div key={c.label} className="bg-card-bg px-5 py-3 text-center">
             <p className={cn("text-xl font-bold", c.color)}>{c.value}</p>
-            <p className="mt-0.5 text-[11px] text-muted">{c.label}</p>
+            <p className="mt-0.5 text-[11px] text-muted tracking-[-0.01em]">{c.label}</p>
           </div>
         ))}
       </div>
@@ -93,7 +93,7 @@ function ReminderSummaryCard({
                 key={item.sourceKey}
                 type="button"
                 onClick={() => onItemClick?.(item)}
-                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-all duration-150 hover:bg-[rgba(43,96,85,0.03)]"
               >
                 <span
                   className={cn(
@@ -104,8 +104,8 @@ function ReminderSummaryCard({
                   )}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-foreground">{item.title}</p>
-                  <p className="flex items-center gap-1.5 text-[11px] text-muted">
+                  <p className="truncate text-[14px] text-foreground tracking-[-0.01em]">{item.title}</p>
+                  <p className="flex items-center gap-1.5 text-[11px] text-muted tracking-[-0.01em]">
                     <span>{item.subtitle}</span>
                     {item.project && (
                       <>
@@ -194,23 +194,23 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
   return (
     <>
       <div>
-        <h1 className="text-2xl font-bold">工作台</h1>
-        <p className="mt-1 text-sm text-muted">欢迎回来，这是您的工作概览</p>
+        <h1 className="text-2xl font-bold tracking-[-0.01em]">工作台</h1>
+        <p className="mt-1 text-[12px] text-muted tracking-[-0.01em]">欢迎回来，这是您的工作概览</p>
       </div>
 
       {(stats.pendingDispatchCount ?? 0) > 0 && (
         <Link
           href="/admin/project-intake"
-          className="flex items-center gap-3 rounded-xl border border-[rgba(181,137,47,0.25)] bg-[rgba(181,137,47,0.04)] p-4 transition-all hover:shadow-sm"
+          className="card-hover flex items-center gap-3 rounded-[var(--radius-lg)] border border-[rgba(181,137,47,0.25)] bg-[rgba(181,137,47,0.04)] p-4 shadow-card transition-all duration-150"
         >
-          <div className="rounded-lg bg-[rgba(181,137,47,0.1)] p-2 text-[#b5892f]">
+          <div className="rounded-[var(--radius-md)] bg-[rgba(181,137,47,0.1)] p-2 text-[#b5892f]">
             <PackageOpen size={20} />
           </div>
           <div>
-            <p className="text-xl font-bold text-[#b5892f]">
+            <p className="text-xl font-bold tracking-[-0.01em] text-[#b5892f]">
               {stats.pendingDispatchCount}
             </p>
-            <p className="text-xs text-muted">待分发项目</p>
+            <p className="text-[13px] font-medium text-muted tracking-[-0.01em]">待分发项目</p>
           </div>
           <ChevronRight size={16} className="ml-auto text-muted/40" />
         </Link>
@@ -221,31 +221,31 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
           <Link
             key={c.label}
             href={c.href}
-            className="rounded-xl border border-border bg-card-bg p-4 transition-all hover:border-[rgba(43,96,85,0.2)] hover:shadow-[var(--shadow-card)]"
+            className="card-hover rounded-[var(--radius-lg)] border border-border bg-card-bg p-4 shadow-card transition-all duration-150"
           >
             <div className="flex items-center gap-3">
-              <div className={cn("rounded-lg p-2", c.color)}>
+              <div className={cn("rounded-[var(--radius-md)] p-2", c.color)}>
                 <c.icon size={18} />
               </div>
               <div>
-                <p className="text-2xl font-bold">{c.value}</p>
-                <p className="text-xs text-muted">{c.label}</p>
+                <p className="text-2xl font-bold tracking-[-0.01em]">{c.value}</p>
+                <p className="text-[13px] font-medium text-muted tracking-[-0.01em]">{c.label}</p>
               </div>
             </div>
           </Link>
         ))}
       </div>
 
-      <div className="rounded-xl border border-border bg-card-bg">
+      <div className="rounded-[var(--radius-lg)] border border-border bg-card-bg shadow-card">
         <div className="flex items-center gap-2 border-b border-border px-5 py-3">
           <TrendingUp size={15} className="text-accent" />
-          <h2 className="font-semibold">本周进度</h2>
+          <h2 className="text-[13px] font-semibold tracking-[-0.01em]">本周进度</h2>
         </div>
         <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
           {weekCards.map((w) => (
             <div key={w.label} className="bg-card-bg px-5 py-4 text-center">
-              <p className={cn("text-2xl font-bold", w.color)}>{w.value}</p>
-              <p className="mt-0.5 text-xs text-muted">{w.label}</p>
+              <p className={cn("text-2xl font-bold tracking-[-0.01em]", w.color)}>{w.value}</p>
+              <p className="mt-0.5 text-[12px] text-muted tracking-[-0.01em]">{w.label}</p>
             </div>
           ))}
         </div>
@@ -280,7 +280,7 @@ function WeekProjectProgress({
 
   return (
     <div className="border-t border-border px-5 py-3">
-      <p className="mb-2.5 text-xs font-medium text-muted">项目推进</p>
+      <p className="mb-2.5 text-[13px] font-medium text-muted tracking-[-0.01em]">项目推进</p>
       <div className="space-y-2.5">
         {items.map((p) => {
           const prog = projectProgress[p.id];
@@ -290,7 +290,7 @@ function WeekProjectProgress({
               type="button"
               onClick={() => onProjectClick?.(p.id)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
+                "flex w-full items-center gap-3 rounded-[var(--radius-md)] px-2 py-1.5 text-left transition-all duration-150",
                 onProjectClick && "hover:bg-[rgba(43,96,85,0.03)]"
               )}
             >
@@ -298,7 +298,7 @@ function WeekProjectProgress({
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: p.color }}
               />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground tracking-[-0.01em]">
                 {p.name}
               </span>
               <div className="w-24 shrink-0">
@@ -309,7 +309,7 @@ function WeekProjectProgress({
                 />
               </div>
               {prog.weekDelta > 0 && (
-                <span className="shrink-0 text-[10px] font-medium text-[#2e7a56]">
+                <span className="shrink-0 text-[11px] font-medium tracking-[-0.01em] text-[#2e7a56]">
                   +{prog.weekDelta}%
                 </span>
               )}

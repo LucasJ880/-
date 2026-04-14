@@ -3,19 +3,23 @@
 
 /*
  * ═══════════════════════════════════════════════════════════
- *  青砚 Design Tokens
- *  东方美学 × 现代工作台 — 黛青·墨底·宣纸·温润
+ *  青砚 Design Tokens v2
+ *  东方精密工作台 — Linear 精度 × 文房美学
+ *  See DESIGN.md for full specification
  * ═══════════════════════════════════════════════════════════
  */
 
 :root {
-  /* ── 基础色 ── */
-  --background: #f2f0eb;            /* 宣纸 */
+  /* ── 背景层级 ── */
+  --background: #f2f0eb;            /* 宣纸 — L0 */
   --foreground: #1a2420;            /* 墨色 */
-  --card-bg: #faf8f4;              /* 玉白 */
+  --card-bg: #faf8f4;              /* 玉白 — L2 */
   --card-border: rgba(26, 36, 32, 0.05);
   --border: rgba(26, 36, 32, 0.09);
+  --border-strong: rgba(26, 36, 32, 0.14);
   --muted: #6e7d76;                /* 松烟灰 */
+  --text-secondary: #374843;       /* 次墨 */
+  --text-quaternary: #9ca8a2;      /* 淡墨 */
 
   /* ── 品牌色 · 黛青 ── */
   --accent: #2b6055;               /* 黛青 */
@@ -33,7 +37,7 @@
   );
   --sidebar-text: #d0d8d2;
   --sidebar-muted: rgba(208, 216, 210, 0.42);
-  --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
   --sidebar-active: rgba(43, 96, 85, 0.28);
 
   /* ── 语义色 ── */
@@ -46,17 +50,22 @@
   --info: #2d6a7a;                 /* 青瓷 */
   --info-bg: #ebf2f5;
 
-  /* ── 阴影 · 墨晕 ── */
+  /* ── 阴影 · 墨晕（5级） ── */
+  --shadow-xs: 0 1px 2px rgba(26, 36, 32, 0.04);
   --shadow-card: 0 1px 0 rgba(26, 36, 32, 0.03),
-    0 6px 24px rgba(26, 36, 32, 0.05);
+    0 4px 16px rgba(26, 36, 32, 0.04);
   --shadow-float: 0 4px 6px rgba(26, 36, 32, 0.03),
-    0 20px 40px rgba(26, 36, 32, 0.08);
+    0 12px 32px rgba(26, 36, 32, 0.07);
+  --shadow-dialog: 0 8px 16px rgba(26, 36, 32, 0.04),
+    0 24px 48px rgba(26, 36, 32, 0.1);
 
   /* ── 圆角 ── */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
 
   /* ── 温铜金（克制使用） ── */
   --gold: #b08d5b;
@@ -76,7 +85,10 @@
   --color-card-bg: var(--card-bg);
   --color-popover: var(--card-bg);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-quaternary: var(--text-quaternary);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-light: rgba(43, 96, 85, 0.06);
@@ -104,10 +116,17 @@
   --color-gold-soft: var(--gold-soft);
   --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
     system-ui, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", ui-monospace, Menlo, monospace;
+  --shadow-xs: var(--shadow-xs);
+  --shadow-card: var(--shadow-card);
+  --shadow-float: var(--shadow-float);
+  --shadow-dialog: var(--shadow-dialog);
+  --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
 }
 
 /* ── shadcn/ui Animations ── */
@@ -142,12 +161,29 @@
   color: transparent;
 }
 
+@utility shadow-xs {
+  box-shadow: var(--shadow-xs);
+}
+
 @utility shadow-card {
   box-shadow: var(--shadow-card);
 }
 
 @utility shadow-float {
   box-shadow: var(--shadow-float);
+}
+
+@utility shadow-dialog {
+  box-shadow: var(--shadow-dialog);
+}
+
+@utility card-hover {
+  transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  &:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-card);
+  }
 }
 
 @utility bg-app-mesh {
@@ -165,29 +201,44 @@
   background-attachment: fixed;
 }
 
-/* ── Body ── */
+/* ── Body — Inter with OpenType features ── */
 body {
   min-height: 100%;
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-feature-settings: "cv01", "ss03";
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background-color: var(--background);
   background-image: radial-gradient(
       ellipse 100% 60% at 50% -10%,
-      rgba(43, 96, 85, 0.04),
+      rgba(43, 96, 85, 0.035),
       transparent 55%
     ),
     radial-gradient(
       ellipse 50% 30% at 100% 90%,
-      rgba(176, 141, 91, 0.025),
+      rgba(176, 141, 91, 0.02),
       transparent 40%
     );
   background-attachment: fixed;
 }
 
+/* ── Typography — headings with negative tracking ── */
+h1, h2, h3, h4 {
+  font-feature-settings: "cv01", "ss03";
+  font-weight: 600;
+}
+h1 { font-size: 1.5rem; line-height: 1.25; letter-spacing: -0.4px; }
+h2 { font-size: 1.25rem; line-height: 1.3; letter-spacing: -0.3px; }
+h3 { font-size: 1rem; line-height: 1.4; letter-spacing: -0.1px; }
+
 /* ── Scrollbar ── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #b8c0b8 transparent;
+  scrollbar-color: rgba(26, 36, 32, 0.15) transparent;
 }
 
 /* ── Selection ── */
@@ -202,11 +253,11 @@ body {
   outline-offset: 2px;
 }
 
-/* ── Smooth transitions for interactive elements ── */
+/* ── Smooth transitions ── */
 a, button, select, input, textarea {
   transition-property: color, background-color, border-color, box-shadow, opacity;
-  transition-duration: 180ms;
-  transition-timing-function: ease-out;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ── AI Markdown prose ── */

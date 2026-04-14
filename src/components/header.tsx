@@ -537,24 +537,24 @@ export function Header() {
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-[rgba(26,36,32,0.06)] bg-[rgba(250,248,244,0.65)] px-4 md:px-6 backdrop-blur-md supports-[backdrop-filter]:bg-[rgba(250,248,244,0.55)]">
+    <header className="flex h-13 items-center justify-between border-b border-[rgba(26,36,32,0.05)] bg-[rgba(250,248,244,0.6)] px-4 md:px-6 backdrop-blur-xl supports-[backdrop-filter]:bg-[rgba(250,248,244,0.5)]">
       <div className="flex items-center gap-3 md:gap-4">
         {/* Mobile hamburger */}
         <button
           onClick={openMobileSidebar}
-          className="rounded-lg p-1.5 text-muted hover:bg-foreground/5 hover:text-foreground transition-colors md:hidden"
+          className="rounded-[var(--radius-md)] p-1.5 text-muted hover:bg-foreground/[0.04] hover:text-foreground transition-all duration-150 md:hidden"
           aria-label={m.header_open_menu}
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
 
         {/* Brand — mobile only */}
-        <span className="text-base font-bold tracking-widest text-foreground md:hidden">
+        <span className="text-[14px] font-semibold tracking-[0.06em] text-foreground md:hidden">
           {m.app_name}
         </span>
 
-        <div className="hidden md:flex items-center gap-2 text-sm text-muted">
-          <Calendar size={15} />
+        <div className="hidden md:flex items-center gap-2 text-[13px] text-muted">
+          <Calendar size={14} />
           <span>
             {new Date().toLocaleDateString(dateLocale, {
               year: "numeric",
@@ -588,7 +588,7 @@ export function Header() {
               placeholder={m.header_search_placeholder}
               aria-autocomplete="list"
               autoComplete="off"
-              className="h-8 w-36 md:w-56 rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none transition-[width,box-shadow,border-color] placeholder:text-muted focus:w-48 md:focus:w-72 focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-card-bg"
+              className="h-8 w-36 md:w-56 rounded-[var(--radius-md)] border border-border bg-background/80 pl-8 pr-3 text-[12px] outline-none transition-[width,box-shadow,border-color] duration-200 placeholder:text-text-quaternary focus:w-48 md:focus:w-72 focus:border-accent/30 focus-visible:ring-2 focus-visible:ring-accent/20"
             />
             {searchQuery && (
               <button
@@ -603,15 +603,15 @@ export function Header() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <LanguageSwitcher />
 
         <div className="relative">
           <button
             onClick={() => setPanelOpen(!panelOpen)}
-            className="relative rounded-lg p-2 text-muted transition-colors hover:bg-background hover:text-foreground"
+            className="relative rounded-[var(--radius-md)] p-2 text-muted transition-all duration-150 hover:bg-foreground/[0.04] hover:text-foreground"
           >
-            <Bell size={18} />
+            <Bell size={17} />
             {notifCount > 0 && (
               <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#a63d3d] px-1 text-[10px] font-bold text-white">
                 {notifCount > 99 ? "99+" : notifCount}
@@ -628,15 +628,15 @@ export function Header() {
         <div ref={userMenuRef} className="relative">
           <button
             onClick={() => setUserMenuOpen(!userMenuOpen)}
-            className="ml-2 flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-background"
+            className="ml-1 flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 transition-all duration-150 hover:bg-foreground/[0.04]"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-sm font-medium text-white">
-              {currentUser?.name?.[0]?.toUpperCase() || <User size={16} />}
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[12px] font-medium text-white">
+              {currentUser?.name?.[0]?.toUpperCase() || <User size={14} />}
             </div>
-            <span className="hidden md:inline text-sm font-medium">
+            <span className="hidden md:inline text-[13px] font-medium text-foreground">
               {currentUser?.name || "..."}
             </span>
-            <ChevronDown size={14} className="hidden md:inline text-muted" />
+            <ChevronDown size={13} className="hidden md:inline text-muted" />
           </button>
 
           {userMenuOpen && (

@@ -258,18 +258,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   return (
     <aside
       className={cn(
-        "flex flex-col border-r border-white/5 bg-sidebar-gradient text-sidebar-text transition-all duration-250 ease-out",
+        "flex flex-col border-r border-white/[0.06] bg-sidebar-gradient text-sidebar-text transition-all duration-200 ease-out",
         collapsed ? "w-[60px]" : "w-56"
       )}
     >
       {/* Brand */}
-      <div className="flex h-14 items-center gap-2.5 border-b border-white/8 px-4">
+      <div className="flex h-13 items-center gap-2.5 border-b border-white/[0.06] px-4">
         {!collapsed && (
           <>
-            <span className="text-lg font-bold tracking-widest text-brand-gradient">
+            <span className="text-[15px] font-semibold tracking-[0.08em] text-brand-gradient">
               {m.app_name}
             </span>
-            <span className="ml-0.5 rounded-md border border-[rgba(80,160,140,0.2)] bg-[rgba(43,96,85,0.15)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-emerald-300/70">
+            <span className="ml-0.5 rounded-full border border-[rgba(80,160,140,0.2)] bg-[rgba(43,96,85,0.15)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-emerald-300/60">
               MVP
             </span>
           </>
@@ -277,29 +277,29 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="ml-auto rounded-lg p-1 transition-colors hover:bg-sidebar-hover"
+          className="ml-auto rounded-md p-1.5 transition-colors hover:bg-sidebar-hover"
           aria-label={collapsed ? m.sidebar_expand : m.sidebar_collapse}
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
       </div>
 
       <OrgSwitcher collapsed={collapsed} organizations={organizations} />
 
       {/* Navigation */}
-      <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-1">
+      <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-1.5">
         {NAV_GROUPS.map((group, gi) => {
           if (group.adminOnly && !isAdmin) return null;
           if (group.roles && userRole && !group.roles.includes(userRole)) return null;
           return (
             <div
               key={group.titleKey}
-              className={cn("space-y-0.5", gi > 0 && (collapsed ? "mt-2 border-t border-white/8 pt-2" : "mt-3.5"))}
+              className={cn("space-y-px", gi > 0 && (collapsed ? "mt-2 border-t border-white/[0.06] pt-2" : "mt-3"))}
             >
               {!collapsed && (
-                <p className="flex items-center gap-1 px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                <p className="flex items-center gap-1 px-3 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">
                   {m[group.titleKey]}
-                  {group.adminOnly && <Shield size={9} className="text-emerald-400/40" />}
+                  {group.adminOnly && <Shield size={9} className="text-emerald-400/35" />}
                 </p>
               )}
               {group.items.map((item) => {
@@ -312,25 +312,25 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                     href={item.disabled ? "#" : item.href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-[13px] font-medium transition-all duration-200 ease-out",
+                      "flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-[13px] font-medium transition-all duration-150",
                       isActive
-                        ? "bg-sidebar-active text-white shadow-[0_0_16px_-4px_var(--accent-glow)]"
-                        : "text-sidebar-text hover:bg-sidebar-hover hover:text-white/90",
-                      item.disabled && "cursor-not-allowed opacity-35",
+                        ? "bg-sidebar-active text-white shadow-[0_0_12px_-4px_var(--accent-glow)]"
+                        : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
+                      item.disabled && "cursor-not-allowed opacity-30",
                       collapsed && "justify-center px-0"
                     )}
                   >
-                    <item.icon size={17} className="shrink-0" />
+                    <item.icon size={16} className="shrink-0" />
                     {!collapsed && (
                       <>
                         <span className="min-w-0 flex-1 truncate">{m[item.labelKey]}</span>
                         {item.badgeKey && (
-                          <span className="ml-auto shrink-0 rounded-md border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/70">
+                          <span className="ml-auto shrink-0 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/60">
                             {m[item.badgeKey]}
                           </span>
                         )}
                         {item.disabled && (
-                          <span className="ml-auto rounded-md bg-white/8 px-1.5 py-0.5 text-[10px] text-white/35">
+                          <span className="ml-auto rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-white/30">
                             {m.sidebar_coming_soon}
                           </span>
                         )}
@@ -345,13 +345,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       </nav>
 
       {/* Bottom */}
-      <div className="border-t border-white/8 px-2 py-2.5">
+      <div className="border-t border-white/[0.06] px-2 py-2">
         {!collapsed && (
-          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
+          <p className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.1em] text-white/25">
             {m.nav_group_system}
           </p>
         )}
-        <div className="space-y-0.5">
+        <div className="space-y-px">
           {BOTTOM_ITEMS.map((item) => {
             const isActive = isItemActive(pathname, item.href);
             return (
@@ -360,15 +360,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 href={item.disabled ? "#" : item.href}
                 onClick={onNavigate}
                 className={cn(
-                  "flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-[13px] font-medium transition-all duration-200 ease-out",
+                  "flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-[13px] font-medium transition-all duration-150",
                   isActive
-                    ? "bg-sidebar-active text-white shadow-[0_0_16px_-4px_var(--accent-glow)]"
-                    : "text-sidebar-text hover:bg-sidebar-hover hover:text-white/90",
-                  item.disabled && "cursor-not-allowed opacity-35",
+                    ? "bg-sidebar-active text-white shadow-[0_0_12px_-4px_var(--accent-glow)]"
+                    : "text-white/50 hover:bg-sidebar-hover hover:text-white/80",
+                  item.disabled && "cursor-not-allowed opacity-30",
                   collapsed && "justify-center px-0"
                 )}
               >
-                <item.icon size={17} />
+                <item.icon size={16} />
                 {!collapsed && <span>{m[item.labelKey]}</span>}
               </Link>
             );

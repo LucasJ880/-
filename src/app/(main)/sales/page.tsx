@@ -102,16 +102,16 @@ export default function SalesPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowImport(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-white transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150"
             >
-              <Upload className="h-4 w-4" />
+              <Upload className="h-3.5 w-3.5" />
               CSV 导入
             </button>
             <button
               onClick={() => setShowNewCustomer(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-white hover:bg-foreground/90 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-foreground px-3 py-1.5 text-[13px] font-medium text-white shadow-xs hover:bg-foreground/90 active:scale-[0.98] transition-all duration-150"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-3.5 w-3.5" />
               新客户
             </button>
           </div>
@@ -123,12 +123,12 @@ export default function SalesPage() {
       <AiAlertPanel />
 
       <div className="flex items-center justify-between gap-4">
-        <div className="inline-flex rounded-lg border border-border bg-white/60 p-0.5">
+        <div className="inline-flex rounded-[var(--radius-md)] border border-border bg-card-bg/60 p-0.5">
           <button
             className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
               viewMode === "pipeline"
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-white text-foreground shadow-xs"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setViewMode("pipeline")}
@@ -137,9 +137,9 @@ export default function SalesPage() {
           </button>
           <button
             className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
               viewMode === "customers"
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-white text-foreground shadow-xs"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setViewMode("customers")}
@@ -150,13 +150,13 @@ export default function SalesPage() {
 
         {viewMode === "customers" && (
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
             <input
               type="text"
               placeholder="搜索客户…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="rounded-lg border border-border bg-white/80 py-1.5 pl-9 pr-3 text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/20"
+              className="rounded-[var(--radius-md)] border border-border bg-white/80 py-1.5 pl-9 pr-3 text-[13px] placeholder:text-text-quaternary focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/30 transition-all duration-150"
             />
           </div>
         )}
@@ -164,7 +164,7 @@ export default function SalesPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted" />
+          <Loader2 className="h-5 w-5 animate-spin text-muted" />
         </div>
       ) : viewMode === "pipeline" ? (
         <PipelineBoard opportunities={opportunities} onRefresh={loadData} />

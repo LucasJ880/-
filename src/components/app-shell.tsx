@@ -69,7 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Main content */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/15 bg-[rgba(250,248,244,0.4)] backdrop-blur-[2px]">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm">
           <Header />
           <main className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6 md:py-5">
