@@ -8,53 +8,11 @@ const withPWA = withPWAInit({
   fallbacks: {
     document: "/offline",
   },
+  extendDefaultRuntimeCaching: true,
   workboxOptions: {
     skipWaiting: true,
     clientsClaim: true,
     runtimeCaching: [
-      {
-        urlPattern: ({ request }: { request: Request }) =>
-          request.mode === "navigate",
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "pages",
-          networkTimeoutSeconds: 5,
-          expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
-        },
-      },
-      {
-        urlPattern: /\/_next\/static\/.*/i,
-        handler: "CacheFirst",
-        options: {
-          cacheName: "static-assets",
-          expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 },
-        },
-      },
-      {
-        urlPattern: /\/icons\/.*/i,
-        handler: "CacheFirst",
-        options: {
-          cacheName: "icon-assets",
-          expiration: { maxEntries: 20, maxAgeSeconds: 30 * 24 * 60 * 60 },
-        },
-      },
-      {
-        urlPattern: /\/sunny-quote\.html/i,
-        handler: "CacheFirst",
-        options: {
-          cacheName: "quote-tool",
-          expiration: { maxEntries: 5, maxAgeSeconds: 7 * 24 * 60 * 60 },
-        },
-      },
-      {
-        urlPattern: /\/_next\/data\/.*/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "next-data",
-          networkTimeoutSeconds: 5,
-          expiration: { maxEntries: 100, maxAgeSeconds: 24 * 60 * 60 },
-        },
-      },
       {
         urlPattern: /\/api\/sales\/.*/i,
         handler: "NetworkFirst",
@@ -75,6 +33,14 @@ const withPWA = withPWAInit({
           cacheName: "api-general",
           networkTimeoutSeconds: 5,
           expiration: { maxEntries: 50, maxAgeSeconds: 12 * 60 * 60 },
+        },
+      },
+      {
+        urlPattern: /\/sunny-quote\.html/i,
+        handler: "CacheFirst",
+        options: {
+          cacheName: "quote-tool",
+          expiration: { maxEntries: 5, maxAgeSeconds: 7 * 24 * 60 * 60 },
         },
       },
     ],
