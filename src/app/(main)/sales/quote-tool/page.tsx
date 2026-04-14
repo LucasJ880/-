@@ -9,7 +9,11 @@ import {
   Share2,
   ChevronDown,
   AlertTriangle,
+  WifiOff,
 } from "lucide-react";
+import { offlineDb } from "@/lib/offline/db";
+import { enqueue } from "@/lib/offline/sync-engine";
+import { useOnlineStatus } from "@/lib/offline/hooks";
 
 interface SavePayload {
   items: {
@@ -29,8 +33,9 @@ interface SavePayload {
 export default function QuoteToolPage() {
   const router = useRouter();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isOnline = useOnlineStatus();
   const [customers, setCustomers] = useState<
-    { id: string; name: string; phone?: string; email?: string }[]
+    { id: string; name: string; phone?: string; email?: string; _offline?: boolean }[]
   >([]);
   const [customerId, setCustomerId] = useState("");
   const [opportunities, setOpportunities] = useState<
@@ -43,13 +48,35 @@ export default function QuoteToolPage() {
     shareToken: string;
     grandTotal: number;
     autoLinked?: boolean;
+    offlineSaved?: boolean;
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    apiFetch("/api/sales/customers?limit=200")
-      .then((r) => r.json())
-      .then((d) => setCustomers(d.customers ?? []));
+    (async () => {
+      let serverCustomers: { id: string; name: string; phone?: string; email?: string }[] = [];
+      try {
+        if (navigator.onLine) {
+          const res = await apiFetch("/api/sales/customers?limit=200");
+          const d = await res.json();
+          serverCustomers = (d.customers ?? []) as typeof serverCustomers;
+        }
+      } catch { /* offline */ }
+
+      const offlineCustomers = await offlineDb.customers.toArray();
+      const serverIds = new Set(serverCustomers.map((c) => c.id));
+      const pendingOnly = offlineCustomers
+        .filter((c) => !c.serverId || !serverIds.has(c.serverId))
+        .map((c) => ({
+          id: c.serverId || c.localId,
+          name: c.name,
+          phone: c.phone,
+          email: c.email,
+          _offline: c.syncStatus === "pending",
+        }));
+
+      setCustomers([...pendingOnly, ...serverCustomers]);
+    })();
   }, []);
 
   useEffect(() => {
@@ -112,6 +139,73 @@ export default function QuoteToolPage() {
           installMode: payload.installMode ?? "default",
           deliveryFee: payload.deliveryFee,
         };
+
+        if (!navigator.onLine) {
+          const now = new Date().toISOString();
+          const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const offlineCustomer = await offlineDb.customers
+            .where("serverId")
+            .equals(customerId)
+            .first() || await offlineDb.customers.get(customerId);
+
+          await offlineDb.quotes.add({
+            localId,
+            customerLocalId: offlineCustomer?.localId || customerId,
+            customerServerId: offlineCustomer?.serverId || customerId,
+            opportunityId: opportunityId || undefined,
+            items: payload.items.map((i) => ({
+              product: i.product,
+              fabric: i.fabric,
+              widthIn: i.widthIn,
+              heightIn: i.heightIn,
+              cordless: i.cordless,
+              msrp: 0,
+              discountPct: i.discountOverridePct ?? 0,
+              price: 0,
+              installFee: 0,
+            })),
+            addons: (payload.addons ?? []).map((a) => ({
+              addonKey: a.addonKey,
+              displayName: a.addonKey,
+              unitPrice: 0,
+              qty: a.qty,
+              subtotal: 0,
+            })),
+            installMode: payload.installMode ?? "default",
+            merchSubtotal: 0,
+            addonsSubtotal: 0,
+            installSubtotal: 0,
+            installApplied: 0,
+            deliveryFee: payload.deliveryFee ?? 50,
+            preTaxTotal: 0,
+            taxRate: 0.13,
+            taxAmount: 0,
+            grandTotal: 0,
+            syncStatus: "pending",
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          await enqueue({
+            table: "quotes",
+            localId,
+            method: "POST",
+            url: "/api/sales/quotes",
+            body: JSON.stringify(body),
+          });
+
+          setLastSaved({
+            quoteId: localId,
+            shareToken: "",
+            grandTotal: 0,
+            offlineSaved: true,
+          });
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "SAVE_RESULT", success: true, quoteId: localId },
+            "*",
+          );
+          return;
+        }
 
         const res = await apiFetch("/api/sales/quotes", {
           method: "POST",
@@ -245,6 +339,13 @@ export default function QuoteToolPage() {
           </div>
         )}
 
+        {!isOnline && (
+          <span className="flex items-center gap-1 text-xs text-amber-600">
+            <WifiOff size={12} />
+            离线模式
+          </span>
+        )}
+
         {saving && (
           <span className="text-xs text-muted-foreground animate-pulse">
             保存中...
@@ -255,7 +356,9 @@ export default function QuoteToolPage() {
           <div className="ml-auto flex items-center gap-3">
             <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
               <CheckCircle size={14} />
-              已保存 · ${lastSaved.grandTotal.toLocaleString("en-CA", { minimumFractionDigits: 2 })}
+              {lastSaved.offlineSaved
+                ? "已离线保存 · 联网后自动同步"
+                : `已保存 · $${lastSaved.grandTotal.toLocaleString("en-CA", { minimumFractionDigits: 2 })}`}
               {lastSaved.autoLinked && " · 商机已自动推进到「已报价」"}
             </span>
             <button

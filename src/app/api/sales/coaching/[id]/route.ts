@@ -1,13 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { recordAdoption } from "@/lib/sales/coaching-service";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-export async function PATCH(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const PATCH = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
   const body = await request.json();
 
@@ -17,4 +12,4 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   return NextResponse.json({ error: "需要 adopted: boolean" }, { status: 400 });
-}
+});

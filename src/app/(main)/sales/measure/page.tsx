@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
@@ -18,12 +18,18 @@ import {
   AlertTriangle,
   Truck,
   Calculator,
+  WifiOff,
 } from "lucide-react";
+import { offlineDb } from "@/lib/offline/db";
+import { enqueue } from "@/lib/offline/sync-engine";
+import { useOnlineStatus } from "@/lib/offline/hooks";
+import { SyncBadge } from "@/components/offline-indicator";
 
 import { priceFor, calculateQuoteTotal, formatCAD } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS } from "@/lib/blinds/pricing-data";
 import type { ProductName, PriceResult } from "@/lib/blinds/pricing-types";
 import { ADDON_CATALOG, getEligibleAddons } from "@/lib/blinds/pricing-addons";
+import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 
 interface WindowEntry {
   id: string;
@@ -100,17 +106,40 @@ function calcItemPrice(w: WindowEntry): ItemPricing {
 
 export default function MeasurePage() {
   const router = useRouter();
-  const [customers, setCustomers] = useState<{ id: string; name: string; address?: string }[]>([]);
+  const isOnline = useOnlineStatus();
+  const [customers, setCustomers] = useState<{ id: string; name: string; address?: string; _offline?: boolean }[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [overallNotes, setOverallNotes] = useState("");
   const [windows, setWindows] = useState<WindowEntry[]>([newWindow()]);
   const [installMode, setInstallMode] = useState<"default" | "pickup">("default");
   const [saving, setSaving] = useState(false);
+  const [showSketch, setShowSketch] = useState(false);
+  const sketchRef = useRef<PencilCanvasRef>(null);
 
   useEffect(() => {
-    apiFetch("/api/sales/customers?limit=200")
-      .then((r) => r.json())
-      .then((d) => setCustomers(d.customers ?? []));
+    (async () => {
+      let serverCustomers: { id: string; name: string; address?: string }[] = [];
+      try {
+        if (navigator.onLine) {
+          const res = await apiFetch("/api/sales/customers?limit=200");
+          const d = await res.json();
+          serverCustomers = (d.customers ?? []) as typeof serverCustomers;
+        }
+      } catch { /* offline */ }
+
+      const offlineCustomers = await offlineDb.customers.toArray();
+      const serverIds = new Set(serverCustomers.map((c) => c.id));
+      const pendingOnly = offlineCustomers
+        .filter((c) => !c.serverId || !serverIds.has(c.serverId))
+        .map((c) => ({
+          id: c.serverId || c.localId,
+          name: c.name,
+          address: c.address,
+          _offline: c.syncStatus === "pending",
+        }));
+
+      setCustomers([...pendingOnly, ...serverCustomers]);
+    })();
   }, []);
 
   const updateWindow = useCallback((id: string, field: string, value: unknown) => {
@@ -170,21 +199,63 @@ export default function MeasurePage() {
     if (!customerId || !hasValidItems) return;
     setSaving(true);
     try {
-      const body = {
-        customerId,
-        overallNotes,
-        windows: windows.map((w) => ({
-          roomName: w.roomName || "Room",
-          windowLabel: w.windowLabel || null,
-          widthIn: toInches(w.widthWhole, w.widthFrac),
-          heightIn: toInches(w.heightWhole, w.heightFrac),
-          measureType: w.measureType,
-          product: w.product || null,
-          fabric: w.fabric || null,
-          cordless: w.cordless,
-          notes: w.notes || null,
-        })),
-      };
+      const windowsPayload = windows.map((w) => ({
+        roomName: w.roomName || "Room",
+        windowLabel: w.windowLabel || null,
+        widthIn: toInches(w.widthWhole, w.widthFrac),
+        heightIn: toInches(w.heightWhole, w.heightFrac),
+        measureType: w.measureType,
+        product: w.product || null,
+        fabric: w.fabric || null,
+        cordless: w.cordless,
+        notes: w.notes || null,
+        sortOrder: 0,
+      }));
+
+      if (!isOnline) {
+        const now = new Date().toISOString();
+        const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const offlineCustomer = await offlineDb.customers.get(customerId);
+        await offlineDb.measurements.add({
+          localId,
+          customerLocalId: customerId,
+          customerServerId: offlineCustomer?.serverId,
+          status: "draft",
+          overallNotes,
+          windows: windowsPayload.map((w, i) => ({
+            roomName: w.roomName,
+            windowLabel: w.windowLabel || undefined,
+            widthIn: w.widthIn,
+            heightIn: w.heightIn,
+            measureType: w.measureType,
+            product: w.product || undefined,
+            fabric: w.fabric || undefined,
+            cordless: w.cordless,
+            notes: w.notes || undefined,
+            sortOrder: i,
+          })),
+          syncStatus: "pending",
+          measuredAt: now,
+          updatedAt: now,
+        });
+        if (offlineCustomer?.serverId) {
+          await enqueue({
+            table: "measurements",
+            localId,
+            method: "POST",
+            url: "/api/sales/measurements",
+            body: JSON.stringify({
+              customerId: offlineCustomer.serverId,
+              overallNotes,
+              windows: windowsPayload,
+            }),
+          });
+        }
+        router.push("/sales/quotes");
+        return;
+      }
+
+      const body = { customerId, overallNotes, windows: windowsPayload };
       const res = await apiFetch("/api/sales/measurements", {
         method: "POST",
         body: JSON.stringify(body),
@@ -201,6 +272,30 @@ export default function MeasurePage() {
         }
       }
       router.push("/sales/quotes");
+    } catch {
+      const now = new Date().toISOString();
+      const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await offlineDb.measurements.add({
+        localId,
+        customerLocalId: customerId,
+        status: "draft",
+        overallNotes,
+        windows: windows.map((w, i) => ({
+          roomName: w.roomName || "Room",
+          widthIn: toInches(w.widthWhole, w.widthFrac),
+          heightIn: toInches(w.heightWhole, w.heightFrac),
+          measureType: w.measureType,
+          product: w.product || undefined,
+          fabric: w.fabric || undefined,
+          cordless: w.cordless,
+          notes: w.notes || undefined,
+          sortOrder: i,
+        })),
+        syncStatus: "pending",
+        measuredAt: now,
+        updatedAt: now,
+      });
+      router.push("/sales");
     } finally {
       setSaving(false);
     }
@@ -470,6 +565,27 @@ export default function MeasurePage() {
         <Plus size={16} />
         添加窗位
       </button>
+
+      {/* Sketch area (Apple Pencil) */}
+      <div className="rounded-xl border border-border bg-white/60 p-4">
+        <button
+          onClick={() => setShowSketch((v) => !v)}
+          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Ruler size={16} />
+          {showSketch ? "收起手绘草图" : "展开手绘草图（Apple Pencil）"}
+        </button>
+        {showSketch && (
+          <div className="mt-3">
+            <PencilCanvas
+              ref={sketchRef}
+              width={1000}
+              height={500}
+              label="用 Apple Pencil 画窗户形状、标注尺寸"
+            />
+          </div>
+        )}
+      </div>
 
       {/* ══ Price Summary ══ */}
       {quoteSummary && (

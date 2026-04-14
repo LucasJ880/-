@@ -1,34 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx, _user) => {
+  const { id } = await ctx.params;
   const comments = await db.taskComment.findMany({
     where: { taskId: id },
     include: { author: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   });
   return NextResponse.json(comments);
-}
+});
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const POST = withAuth(async (request, ctx, user) => {
+  const { id } = await ctx.params;
   const body = await request.json();
 
   if (!body.content?.trim()) {
     return NextResponse.json({ error: "评论内容不能为空" }, { status: 400 });
-  }
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
   const [comment] = await Promise.all([
@@ -42,4 +31,4 @@ export async function POST(
   ]);
 
   return NextResponse.json(comment, { status: 201 });
-}
+});

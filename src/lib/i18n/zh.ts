@@ -1,14 +1,10 @@
 /**
- * 中文文案集中管理 — i18n 预留
- *
- * 当前阶段：把最高频的 UI 文案集中在此，方便后续扩展多语言。
- * 未来接入 i18n 框架时，只需将此文件替换为 locale loader。
- *
- * 使用方式：import { t } from "@/lib/i18n/zh";
+ * 中文文案
  */
 
-export const t = {
-  // 通用
+import type { Messages } from "./messages";
+
+export const zh: Messages = {
   app_name: "青砚",
   loading: "加载中...",
   save: "保存",
@@ -30,17 +26,81 @@ export const t = {
   submit: "提交",
   refresh: "刷新",
 
-  // 导航
-  nav_dashboard: "工作台",
-  nav_tasks: "任务",
-  nav_projects: "项目",
-  nav_assistant: "AI 助手",
-  nav_calendar: "日历",
-  nav_notifications: "通知",
-  nav_settings: "设置",
-  nav_reports: "周报",
+  nav_group_workspace: "工作台",
+  nav_group_sales: "销售",
+  nav_group_trade: "外贸",
+  nav_group_collaboration: "协作",
+  nav_group_intelligence: "智能",
+  nav_group_admin: "管理",
+  nav_group_system: "系统",
 
-  // 状态
+  nav_dashboard: "工作台",
+  nav_notifications: "通知中心",
+  nav_tasks: "任务管理",
+  nav_sales_pipeline: "销售看板",
+  nav_quote_tool: "报价工具",
+  nav_all_quotes: "全部报价",
+  nav_appointment_calendar: "预约日历",
+  nav_field_measure: "现场量房",
+  nav_cockpit: "驾驶舱",
+  nav_work_orders: "工艺单",
+  nav_fabric_inventory: "面料库存",
+  nav_sales_knowledge: "销售知识库",
+  nav_quote_sheet: "电子报价单",
+  nav_trade_dashboard: "外贸看板",
+  nav_trade_cockpit: "驾驶舱",
+  nav_ai_assistant: "AI 助手",
+  nav_trade_quotes: "外贸报价",
+  nav_trade_import: "展会导入",
+  nav_email_templates: "邮件模板",
+  nav_message_channels: "消息通道",
+  nav_trade_knowledge: "外贸知识库",
+  nav_organizations: "组织",
+  nav_projects: "项目",
+  nav_suppliers: "供应商",
+  nav_wechat_messages: "微信消息",
+  nav_ai_memory: "AI 记忆",
+  nav_ai_activity: "AI 活动",
+  nav_weekly_reports: "项目周报",
+  nav_project_intake: "待分发项目",
+  nav_user_management: "用户管理",
+  nav_invite_codes: "邀请码管理",
+  nav_audit_logs: "审计日志",
+  nav_orders_admin: "工艺单管理",
+  nav_help: "使用说明",
+  nav_settings: "设置",
+
+  sidebar_expand: "展开侧栏",
+  sidebar_collapse: "收起侧栏",
+  sidebar_badge_industry: "行业",
+  sidebar_badge_beta: "Beta",
+  sidebar_coming_soon: "即将推出",
+  sidebar_manage_orgs: "管理所有组织",
+  sidebar_org_members: "人",
+  sidebar_org_projects: "项目",
+
+  header_open_menu: "打开菜单",
+  header_search_placeholder: "搜索任务、项目...  ⌘K",
+  header_search_loading: "搜索中...",
+  header_search_no_results: "未找到相关的结果",
+  header_search_tasks: "任务",
+  header_search_projects: "项目",
+  header_search_n_tasks: "个任务",
+  header_project_active: "进行中",
+  header_project_archived: "已归档",
+  header_notif_title: "通知中心",
+  header_notif_only_unread: "仅看未读中",
+  header_notif_show_unread: "仅看未读",
+  header_notif_mark_all_read: "全部已读",
+  header_notif_empty: "暂无通知",
+  header_notif_no_unread: "当前没有未读通知",
+  header_notif_all_clear: "一切正常运行中",
+  header_notif_mark_read: "标记已读",
+  header_notif_mark_done: "标记完成",
+  header_notif_preferences: "通知偏好",
+  header_notif_view_all: "查看全部",
+  header_logout: "退出登录",
+
   status_active: "进行中",
   status_completed: "已完成",
   status_abandoned: "已放弃",
@@ -49,13 +109,11 @@ export const t = {
   status_done: "已完成",
   status_cancelled: "已取消",
 
-  // 优先级
   priority_urgent: "紧急",
   priority_high: "高",
   priority_medium: "中",
   priority_low: "低",
 
-  // 项目阶段
   stage_initiation: "立项",
   stage_distribution: "项目分发",
   stage_interpretation: "项目解读",
@@ -63,17 +121,18 @@ export const t = {
   stage_supplier_quote: "供应商报价",
   stage_submission: "项目提交",
 
-  // 错误
   error_unauthorized: "未登录",
   error_forbidden: "无权执行此操作",
   error_not_found: "资源不存在",
   error_server: "服务器内部错误",
   error_network: "网络连接失败，请检查网络",
 
-  // 空状态
   empty_tasks: "暂无任务",
   empty_projects: "暂无项目",
   empty_notifications: "暂无通知",
-} as const;
+};
+
+/** @deprecated 使用 useLocale() hook + Messages 类型代替 */
+export const t = zh;
 
 export type TranslationKey = keyof typeof t;

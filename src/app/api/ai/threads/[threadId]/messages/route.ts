@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   isAIConfigured,
@@ -26,12 +26,7 @@ import {
 } from "@/lib/ai";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 
-type Ctx = { params: Promise<{ threadId: string }> };
-
-export async function GET(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request, ctx, user) => {
   const { threadId } = await ctx.params;
 
   const thread = await db.aiThread.findUnique({
@@ -65,12 +60,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     hasMore: messages.length === take,
     nextCursor: messages.length > 0 ? messages[messages.length - 1].id : null,
   });
-}
+});
 
-export async function POST(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, ctx, user) => {
   if (!isAIConfigured()) {
     return NextResponse.json(
       { error: "未配置 AI API 密钥" },
@@ -204,89 +196,81 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   const isFirstMessage = history.length === 1;
 
-  try {
-    const stream = await createChatStream({
-      systemPrompt,
-      messages: prepared.messages,
-      mode: effectiveMode,
-    });
+  const stream = await createChatStream({
+    systemPrompt,
+    messages: prepared.messages,
+    mode: effectiveMode,
+  });
 
-    const encoder = new TextEncoder();
-    let fullText = "";
+  const encoder = new TextEncoder();
+  let fullText = "";
 
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content;
-            if (delta) {
-              fullText += delta;
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ content: delta })}\n\n`
-                )
-              );
-            }
+  const readable = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content;
+          if (delta) {
+            fullText += delta;
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ content: delta })}\n\n`
+              )
+            );
           }
-
-          const { cleanText, suggestion } = extractWorkSuggestion(fullText);
-
-          await db.$transaction([
-            db.aiMessage.create({
-              data: {
-                threadId,
-                role: "assistant",
-                content: cleanText,
-                workSuggestion: suggestion ? (suggestion as object) : undefined,
-              },
-            }),
-            db.aiThread.update({
-              where: { id: threadId },
-              data: {
-                lastMessageAt: new Date(),
-                ...(isFirstMessage && thread.title === "新对话"
-                  ? { title: content.slice(0, 60) }
-                  : {}),
-              },
-            }),
-          ]);
-
-          // 异步提取记忆（不阻塞响应流）
-          extractAndSaveMemories(user.id, content, cleanText, threadId).catch(
-            () => {}
-          );
-
-          // 异步增量索引（跨会话搜索）
-          indexThreadMessages(user.id, threadId).catch(() => {});
-
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
-        } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "AI 服务调用失败";
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ error: message })}\n\n`
-            )
-          );
-          controller.close();
         }
-      },
-    });
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "AI 服务连接失败";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+        const { cleanText, suggestion } = extractWorkSuggestion(fullText);
+
+        await db.$transaction([
+          db.aiMessage.create({
+            data: {
+              threadId,
+              role: "assistant",
+              content: cleanText,
+              workSuggestion: suggestion ? (suggestion as object) : undefined,
+            },
+          }),
+          db.aiThread.update({
+            where: { id: threadId },
+            data: {
+              lastMessageAt: new Date(),
+              ...(isFirstMessage && thread.title === "新对话"
+                ? { title: content.slice(0, 60) }
+                : {}),
+            },
+          }),
+        ]);
+
+        extractAndSaveMemories(user.id, content, cleanText, threadId).catch(
+          () => {}
+        );
+
+        indexThreadMessages(user.id, threadId).catch(() => {});
+
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "AI 服务调用失败";
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ error: message })}\n\n`
+          )
+        );
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(readable, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+});
 
 async function indexThreadMessages(userId: string, threadId: string) {
   const { indexAiThreadMessages } = await import("@/lib/context/search-engine");

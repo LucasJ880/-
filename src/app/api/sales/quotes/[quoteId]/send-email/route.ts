@@ -1,18 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { sendMailAs } from "@/lib/email/sender";
 import { quoteEmailHtml } from "@/lib/email/templates";
 import { randomBytes } from "crypto";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ quoteId: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { quoteId } = await params;
+export const POST = withAuth(async (request, ctx, user) => {
+  const { quoteId } = await ctx.params;
   const body = await request.json();
   const { to, lang } = body as { to: string; lang?: string };
 
@@ -92,4 +86,4 @@ export async function POST(
   });
 
   return NextResponse.json({ messageId: result.messageId, status: "sent" });
-}
+});

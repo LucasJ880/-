@@ -2,18 +2,15 @@
  * 销售周报 — AI 生成 + 微信/邮件推送
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import OpenAI from "openai";
 import { sendMailAs } from "@/lib/email/sender";
 
 const DAY_MS = 86_400_000;
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (_request, _ctx, user) => {
   const isAdmin = user.role === "admin" || user.role === "super_admin";
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
@@ -101,13 +98,11 @@ ${isAdmin ? `- 库存预警: ${lowStock} 种面料` : ""}
     report = `本周签约 ${weekSigned._count || 0} 单（$${((weekSigned._sum.estimatedValue || 0) / 1000).toFixed(1)}k），新增 ${weekNewLeads} 条线索，发出 ${weekQuotes} 份报价。${overdueOrders > 0 ? `⚠️ ${overdueOrders} 个工单超期。` : ""}`;
   }
 
-  // 推送微信
   try {
     const { pushNotification } = await import("@/lib/messaging/push-service");
     await pushNotification(user.id, "📊 销售周报", report.slice(0, 500));
   } catch {}
 
-  // 推送邮件
   await sendMailAs(user.id, {
     to: user.email,
     subject: `Sunny Blinds 销售周报 — ${now.toLocaleDateString("zh-CN")}`,
@@ -120,4 +115,4 @@ ${isAdmin ? `- 库存预警: ${lowStock} 种面料` : ""}
   }).catch(() => {});
 
   return NextResponse.json({ report });
-}
+});

@@ -1,5 +1,5 @@
-import { NextRequest } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import {
   isAIConfigured,
   createChatStream,
@@ -15,19 +15,11 @@ import {
   buildMemoryBlock,
 } from "@/lib/ai";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return new Response(
-      JSON.stringify({ error: "未登录" }),
-      { status: 401, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
+export const POST = withAuth(async (request, _ctx, user) => {
   if (!isAIConfigured()) {
-    return new Response(
-      JSON.stringify({ error: "未配置 AI API 密钥，请在 .env 中设置 OPENAI_API_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+    return NextResponse.json(
+      { error: "未配置 AI API 密钥，请在 .env 中设置 OPENAI_API_KEY" },
+      { status: 500 }
     );
   }
 
@@ -65,56 +57,47 @@ export async function POST(request: NextRequest) {
     memoryBlock +
     buildSummaryPrefix(prepared.summarizedContext);
 
-  try {
-    const stream = await createChatStream({
-      systemPrompt,
-      messages: prepared.messages,
-      mode: prepared.mode,
-    });
+  const stream = await createChatStream({
+    systemPrompt,
+    messages: prepared.messages,
+    mode: prepared.mode,
+  });
 
-    const encoder = new TextEncoder();
+  const encoder = new TextEncoder();
 
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content;
-            if (delta) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ content: delta })}\n\n`
-                )
-              );
-            }
+  const readable = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content;
+          if (delta) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ content: delta })}\n\n`
+              )
+            );
           }
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
-        } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "AI 服务调用失败";
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ error: message })}\n\n`
-            )
-          );
-          controller.close();
         }
-      },
-    });
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "AI 服务调用失败";
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ error: message })}\n\n`
+          )
+        );
+        controller.close();
+      }
+    },
+  });
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "AI 服务连接失败";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-}
+  return new NextResponse(readable, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+});

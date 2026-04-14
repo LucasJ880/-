@@ -1,15 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-export async function GET(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
 
   const opp = await db.salesOpportunity.findUnique({
@@ -49,4 +44,4 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     buyerSignals: latestAnalysis?.buyerSignals ?? [],
     riskSignals: latestAnalysis?.riskSignals ?? [],
   });
-}
+});

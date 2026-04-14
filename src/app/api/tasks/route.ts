@@ -1,15 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { onTaskCreated } from "@/lib/project-discussion/system-events";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const priority = searchParams.get("priority");
@@ -47,15 +42,10 @@ export async function GET(request: NextRequest) {
   const nextCursor = hasMore ? tasks[tasks.length - 1]?.id : null;
 
   return NextResponse.json({ items: tasks, nextCursor });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
 
   if (body.projectId) {
     const projectIds = await getVisibleProjectIds(user.id, user.role);
@@ -99,4 +89,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json(task, { status: 201 });
-}
+});

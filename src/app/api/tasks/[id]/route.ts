@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { getProjectProgress } from "@/lib/progress/query";
 
@@ -16,16 +16,8 @@ function canAccessTask(
   return false;
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx, user) => {
+  const { id } = await ctx.params;
   const task = await db.task.findUnique({
     where: { id },
     include: {
@@ -48,18 +40,10 @@ export async function GET(
   }
 
   return NextResponse.json(task);
-}
+});
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const PATCH = withAuth(async (request, ctx, user) => {
+  const { id } = await ctx.params;
   const body = await request.json();
 
   const oldTask = await db.task.findUnique({
@@ -131,18 +115,10 @@ export async function PATCH(
   }
 
   return NextResponse.json({ ...task, projectProgress });
-}
+});
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const DELETE = withAuth(async (_request, ctx, user) => {
+  const { id } = await ctx.params;
   const task = await db.task.findUnique({
     where: { id },
     select: { projectId: true, creatorId: true, assigneeId: true },
@@ -158,4 +134,4 @@ export async function DELETE(
 
   await db.task.delete({ where: { id } });
   return NextResponse.json({ success: true });
-}
+});

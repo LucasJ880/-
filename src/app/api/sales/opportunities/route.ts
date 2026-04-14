@@ -1,14 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import { withAuth } from '@/lib/common/api-helpers';
 import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const stage = searchParams.get('stage') || '';
   const priority = searchParams.get('priority') || '';
@@ -44,14 +39,9 @@ export async function GET(request: NextRequest) {
   }));
 
   return NextResponse.json({ opportunities: enriched });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   if (!body.customerId || !body.title?.trim()) {
     return NextResponse.json({ error: '客户 ID 和标题不能为空' }, { status: 400 });
@@ -72,4 +62,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json(opportunity, { status: 201 });
-}
+});

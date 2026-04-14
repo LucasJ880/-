@@ -38,19 +38,21 @@ import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
 import { canViewAdminPages, canAccessModule, orgRoleLabel } from "@/lib/permissions-client";
+import { useLocale } from "@/lib/i18n/context";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 interface NavItem {
   href: string;
-  label: string;
+  labelKey: MessageKey;
   icon: LucideIcon;
   disabled?: boolean;
-  badge?: string;
+  badgeKey?: MessageKey;
   adminOnly?: boolean;
   roles?: string[];
 }
 
 interface NavGroup {
-  title: string;
+  titleKey: MessageKey;
   items: NavItem[];
   adminOnly?: boolean;
   roles?: string[];
@@ -58,78 +60,79 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    title: "工作台",
+    titleKey: "nav_group_workspace",
     items: [
-      { href: "/", label: "工作台", icon: LayoutDashboard },
-      { href: "/notifications", label: "通知中心", icon: Bell },
-      { href: "/tasks", label: "任务管理", icon: CheckSquare },
+      { href: "/", labelKey: "nav_dashboard", icon: LayoutDashboard },
+      { href: "/notifications", labelKey: "nav_notifications", icon: Bell },
+      { href: "/tasks", labelKey: "nav_tasks", icon: CheckSquare },
     ],
   },
   {
-    title: "销售",
+    titleKey: "nav_group_sales",
     roles: ["admin", "super_admin", "sales"],
     items: [
-      { href: "/sales", label: "销售看板", icon: Handshake, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/quote-tool", label: "报价工具", icon: Calculator, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/quotes", label: "全部报价", icon: ScrollText, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/calendar", label: "预约日历", icon: CalendarDays, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/measure", label: "现场量房", icon: ClipboardList, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/cockpit", label: "驾驶舱", icon: BarChart3, roles: ["admin", "super_admin", "sales"] },
-      { href: "/blinds-orders", label: "工艺单", icon: ClipboardList, roles: ["admin", "super_admin", "sales"], badge: "行业" },
-      { href: "/inventory", label: "面料库存", icon: Package, roles: ["admin", "super_admin"] },
-      { href: "/sales/knowledge", label: "销售知识库", icon: BookOpen, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales", labelKey: "nav_sales_pipeline", icon: Handshake, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/quote-tool", labelKey: "nav_quote_tool", icon: Calculator, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/quote-sheet", labelKey: "nav_quote_sheet", icon: FileText, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/quotes", labelKey: "nav_all_quotes", icon: ScrollText, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/calendar", labelKey: "nav_appointment_calendar", icon: CalendarDays, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/measure", labelKey: "nav_field_measure", icon: ClipboardList, roles: ["admin", "super_admin", "sales"] },
+      { href: "/sales/cockpit", labelKey: "nav_cockpit", icon: BarChart3, roles: ["admin", "super_admin", "sales"] },
+      { href: "/blinds-orders", labelKey: "nav_work_orders", icon: ClipboardList, roles: ["admin", "super_admin", "sales"], badgeKey: "sidebar_badge_industry" },
+      { href: "/inventory", labelKey: "nav_fabric_inventory", icon: Package, roles: ["admin", "super_admin"] },
+      { href: "/sales/knowledge", labelKey: "nav_sales_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "sales"] },
     ],
   },
   {
-    title: "外贸",
+    titleKey: "nav_group_trade",
     roles: ["admin", "super_admin", "trade"],
     items: [
-      { href: "/trade", label: "外贸看板", icon: Handshake, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/cockpit", label: "驾驶舱", icon: Activity, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/chat", label: "AI 助手", icon: Bot, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/quotes", label: "外贸报价", icon: ScrollText, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/import", label: "展会导入", icon: Upload, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/templates", label: "邮件模板", icon: FileText, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/channels", label: "消息通道", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/knowledge", label: "外贸知识库", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade", labelKey: "nav_trade_dashboard", icon: Handshake, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/cockpit", labelKey: "nav_trade_cockpit", icon: Activity, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/chat", labelKey: "nav_ai_assistant", icon: Bot, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/quotes", labelKey: "nav_trade_quotes", icon: ScrollText, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/import", labelKey: "nav_trade_import", icon: Upload, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/templates", labelKey: "nav_email_templates", icon: FileText, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/channels", labelKey: "nav_message_channels", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/knowledge", labelKey: "nav_trade_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
     ],
   },
   {
-    title: "协作",
+    titleKey: "nav_group_collaboration",
     roles: ["admin", "super_admin", "user"],
     items: [
-      { href: "/organizations", label: "组织", icon: Building2, roles: ["admin", "super_admin", "user"] },
-      { href: "/projects", label: "项目", icon: FolderKanban, roles: ["admin", "super_admin", "user"] },
-      { href: "/suppliers", label: "供应商", icon: Package2, roles: ["admin", "super_admin", "user"] },
+      { href: "/organizations", labelKey: "nav_organizations", icon: Building2, roles: ["admin", "super_admin", "user"] },
+      { href: "/projects", labelKey: "nav_projects", icon: FolderKanban, roles: ["admin", "super_admin", "user"] },
+      { href: "/suppliers", labelKey: "nav_suppliers", icon: Package2, roles: ["admin", "super_admin", "user"] },
     ],
   },
   {
-    title: "智能",
+    titleKey: "nav_group_intelligence",
     items: [
-      { href: "/assistant", label: "AI 助手", icon: Bot, badge: "Beta" },
-      { href: "/wechat", label: "微信消息", icon: MessageCircle },
-      { href: "/memory", label: "AI 记忆", icon: Brain },
-      { href: "/ai-activity", label: "AI 活动", icon: Activity },
-      { href: "/reports", label: "项目周报", icon: FileText, roles: ["admin", "super_admin", "user"] },
+      { href: "/assistant", labelKey: "nav_ai_assistant", icon: Bot, badgeKey: "sidebar_badge_beta" },
+      { href: "/wechat", labelKey: "nav_wechat_messages", icon: MessageCircle },
+      { href: "/memory", labelKey: "nav_ai_memory", icon: Brain },
+      { href: "/ai-activity", labelKey: "nav_ai_activity", icon: Activity },
+      { href: "/reports", labelKey: "nav_weekly_reports", icon: FileText, roles: ["admin", "super_admin", "user"] },
     ],
   },
   {
-    title: "管理",
+    titleKey: "nav_group_admin",
     adminOnly: true,
     roles: ["admin", "super_admin"],
     items: [
-      { href: "/admin/project-intake", label: "待分发项目", icon: ClipboardList, adminOnly: true },
-      { href: "/admin/users", label: "用户管理", icon: Users, adminOnly: true },
-      { href: "/admin/invite-codes", label: "邀请码管理", icon: Shield, adminOnly: true },
-      { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText, adminOnly: true },
-      { href: "/blinds-orders", label: "工艺单管理", icon: ClipboardList, adminOnly: true },
+      { href: "/admin/project-intake", labelKey: "nav_project_intake", icon: ClipboardList, adminOnly: true },
+      { href: "/admin/users", labelKey: "nav_user_management", icon: Users, adminOnly: true },
+      { href: "/admin/invite-codes", labelKey: "nav_invite_codes", icon: Shield, adminOnly: true },
+      { href: "/admin/audit-logs", labelKey: "nav_audit_logs", icon: ScrollText, adminOnly: true },
+      { href: "/blinds-orders", labelKey: "nav_orders_admin", icon: ClipboardList, adminOnly: true },
     ],
   },
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { href: "/help", label: "使用说明", icon: CircleHelp },
-  { href: "/settings", label: "设置", icon: Settings },
+  { href: "/help", labelKey: "nav_help", icon: CircleHelp },
+  { href: "/settings", labelKey: "nav_settings", icon: Settings },
 ];
 
 function isItemActive(pathname: string, href: string) {
@@ -144,6 +147,7 @@ function OrgSwitcher({
   collapsed: boolean;
   organizations: OrgSummary[];
 }) {
+  const { m } = useLocale();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -215,7 +219,7 @@ function OrgSwitcher({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs text-white/85">{org.name}</p>
                   <p className="truncate text-[10px] text-white/35">
-                    {org.memberCount} 人 · {org.projectCount} 项目
+                    {org.memberCount} {m.sidebar_org_members} · {org.projectCount} {m.sidebar_org_projects}
                   </p>
                 </div>
                 {org.myRole && (
@@ -233,7 +237,7 @@ function OrgSwitcher({
               className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/8 hover:text-white/80"
             >
               <Building2 size={12} />
-              管理所有组织
+              {m.sidebar_manage_orgs}
             </Link>
           </div>
         </div>
@@ -242,7 +246,8 @@ function OrgSwitcher({
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
+  const { m } = useLocale();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useCurrentUser();
@@ -262,7 +267,7 @@ export function Sidebar() {
         {!collapsed && (
           <>
             <span className="text-lg font-bold tracking-widest text-brand-gradient">
-              青砚
+              {m.app_name}
             </span>
             <span className="ml-0.5 rounded-md border border-[rgba(80,160,140,0.2)] bg-[rgba(43,96,85,0.15)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-emerald-300/70">
               MVP
@@ -273,7 +278,7 @@ export function Sidebar() {
           type="button"
           onClick={() => setCollapsed(!collapsed)}
           className="ml-auto rounded-lg p-1 transition-colors hover:bg-sidebar-hover"
-          aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+          aria-label={collapsed ? m.sidebar_expand : m.sidebar_collapse}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
@@ -288,12 +293,12 @@ export function Sidebar() {
           if (group.roles && userRole && !group.roles.includes(userRole)) return null;
           return (
             <div
-              key={group.title}
+              key={group.titleKey}
               className={cn("space-y-0.5", gi > 0 && (collapsed ? "mt-2 border-t border-white/8 pt-2" : "mt-3.5"))}
             >
               {!collapsed && (
                 <p className="flex items-center gap-1 px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
-                  {group.title}
+                  {m[group.titleKey]}
                   {group.adminOnly && <Shield size={9} className="text-emerald-400/40" />}
                 </p>
               )}
@@ -303,8 +308,9 @@ export function Sidebar() {
                 const isActive = isItemActive(pathname, item.href);
                 return (
                   <Link
-                    key={item.href + item.label}
+                    key={item.href + item.labelKey}
                     href={item.disabled ? "#" : item.href}
+                    onClick={onNavigate}
                     className={cn(
                       "flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-[13px] font-medium transition-all duration-200 ease-out",
                       isActive
@@ -317,15 +323,15 @@ export function Sidebar() {
                     <item.icon size={17} className="shrink-0" />
                     {!collapsed && (
                       <>
-                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                        {item.badge && (
+                        <span className="min-w-0 flex-1 truncate">{m[item.labelKey]}</span>
+                        {item.badgeKey && (
                           <span className="ml-auto shrink-0 rounded-md border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/70">
-                            {item.badge}
+                            {m[item.badgeKey]}
                           </span>
                         )}
                         {item.disabled && (
                           <span className="ml-auto rounded-md bg-white/8 px-1.5 py-0.5 text-[10px] text-white/35">
-                            即将推出
+                            {m.sidebar_coming_soon}
                           </span>
                         )}
                       </>
@@ -342,7 +348,7 @@ export function Sidebar() {
       <div className="border-t border-white/8 px-2 py-2.5">
         {!collapsed && (
           <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
-            系统
+            {m.nav_group_system}
           </p>
         )}
         <div className="space-y-0.5">
@@ -350,8 +356,9 @@ export function Sidebar() {
             const isActive = isItemActive(pathname, item.href);
             return (
               <Link
-                key={item.label}
+                key={item.labelKey}
                 href={item.disabled ? "#" : item.href}
+                onClick={onNavigate}
                 className={cn(
                   "flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2 text-[13px] font-medium transition-all duration-200 ease-out",
                   isActive
@@ -362,7 +369,7 @@ export function Sidebar() {
                 )}
               >
                 <item.icon size={17} />
-                {!collapsed && <span>{item.label}</span>}
+                {!collapsed && <span>{m[item.labelKey]}</span>}
               </Link>
             );
           })}

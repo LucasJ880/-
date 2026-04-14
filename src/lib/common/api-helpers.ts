@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getCurrentUser, type AuthUser } from "@/lib/auth";
+
 // ============================================================
 // API 路由通用辅助工具
 // ============================================================
@@ -62,7 +64,12 @@ export function withErrorHandler(
     try {
       return await handler(request, ctx);
     } catch (err) {
-      console.error("[API Error]", err);
+      console.error(
+        "[API Error]",
+        request.method,
+        request.nextUrl.pathname,
+        err
+      );
       const message =
         err instanceof Error ? err.message : "服务器内部错误";
       return NextResponse.json(
@@ -71,4 +78,54 @@ export function withErrorHandler(
       );
     }
   };
+}
+
+type AuthHandler = (
+  request: NextRequest,
+  ctx: { params: Promise<Record<string, string>> },
+  user: AuthUser
+) => Promise<NextResponse>;
+
+/** 认证 + try/catch，handler 收到已验证的 user */
+export function withAuth(handler: AuthHandler) {
+  return async (
+    request: NextRequest,
+    ctx: { params: Promise<Record<string, string>> }
+  ) => {
+    try {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return NextResponse.json({ error: "未登录" }, { status: 401 });
+      }
+      if (user.status !== "active") {
+        return NextResponse.json({ error: "账号已停用" }, { status: 403 });
+      }
+      return await handler(request, ctx, user);
+    } catch (err) {
+      console.error(
+        "[API Error]",
+        request.method,
+        request.nextUrl.pathname,
+        err
+      );
+      const message =
+        err instanceof Error ? err.message : "服务器内部错误";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  };
+}
+
+/** 带角色校验的认证包装 */
+export function withRoleAuth(allowedRoles: string[], handler: AuthHandler) {
+  return withAuth(async (request, ctx, user) => {
+    const role = user.role === "super_admin" ? "admin" : user.role;
+    if (
+      user.role !== "admin" &&
+      user.role !== "super_admin" &&
+      !allowedRoles.includes(role)
+    ) {
+      return NextResponse.json({ error: "无权访问" }, { status: 403 });
+    }
+    return handler(request, ctx, user);
+  });
 }

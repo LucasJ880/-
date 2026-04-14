@@ -1,15 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   createCoachingRecord,
   getCoachingStats,
 } from "@/lib/sales/coaching-service";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const customerId = request.nextUrl.searchParams.get("customerId");
   const opportunityId = request.nextUrl.searchParams.get("opportunityId");
   const withStats = request.nextUrl.searchParams.get("stats") === "true";
@@ -40,12 +37,9 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ records, stats });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   const { customerId, opportunityId, insightId, coachingType, recommendation, context } = body as {
     customerId: string;
@@ -71,4 +65,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json(record, { status: 201 });
-}
+});

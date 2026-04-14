@@ -1,17 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
-import { getCurrentUser } from '@/lib/auth';
+import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/pricing-types';
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   const {
     customerId,
@@ -105,7 +100,6 @@ export async function POST(request: NextRequest) {
     include: { items: true, addons: true },
   });
 
-  // 自动关联商机 + 推进阶段到 quoted + 回填金额
   const lifecycle = await onQuoteCreated(
     quote.id,
     customerId,
@@ -124,4 +118,4 @@ export async function POST(request: NextRequest) {
       autoAdvanced: lifecycle.advanced,
     },
   }, { status: 201 });
-}
+});

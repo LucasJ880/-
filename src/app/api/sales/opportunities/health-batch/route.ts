@@ -1,13 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const opportunities = await db.salesOpportunity.findMany({
     where: {
       stage: { notIn: ["completed", "lost"] },
@@ -52,4 +49,4 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ healthMap });
-}
+});

@@ -1,19 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import { detectLanguage, extractTopicTags } from '@/lib/ai';
 import { indexCommunication } from '@/lib/sales/knowledge-pipeline';
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
-  const { id: customerId } = await params;
+export const POST = withAuth(async (request, ctx, user) => {
+  const { id: customerId } = await ctx.params;
   const body = await request.json();
 
   if (!body.summary?.trim()) {
@@ -73,4 +65,4 @@ export async function POST(
   }
 
   return NextResponse.json(interaction, { status: 201 });
-}
+});

@@ -1,17 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-export async function POST(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
 
   const customer = await db.salesCustomer.findUnique({
@@ -178,4 +173,4 @@ ${knowledgeContext}
       { status: 500 }
     );
   }
-}
+});

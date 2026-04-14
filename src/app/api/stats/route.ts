@@ -1,16 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { getWeekRangeToronto, endOfDayToronto } from "@/lib/time";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const { weekStart, weekEnd } = getWeekRangeToronto();
   const now = new Date();
   const threeDaysRef = new Date(now.getTime() + 3 * 86_400_000);
@@ -185,7 +180,6 @@ export async function GET(request: NextRequest) {
     stages: { key: string; label: string; status: "done" | "current" | "pending" }[];
   }> = {};
 
-  // Compute lightweight progress for up to 8 projects from projectBreakdown
   const projectDates = projectIds8.length > 0
     ? await db.project.findMany({
         where: { id: { in: projectIds8 } },
@@ -280,4 +274,4 @@ export async function GET(request: NextRequest) {
     recentTasks,
     pendingDispatchCount,
   });
-}
+});

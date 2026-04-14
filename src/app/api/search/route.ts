@@ -1,14 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const q = request.nextUrl.searchParams.get("q")?.trim();
   if (!q || q.length < 1) {
     return NextResponse.json({ tasks: [], projects: [] });
@@ -69,4 +64,4 @@ export async function GET(request: NextRequest) {
   ]);
 
   return NextResponse.json({ tasks, projects });
-}
+});

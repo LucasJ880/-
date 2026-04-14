@@ -1,16 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { getActiveOpportunities } from "@/lib/sales/opportunity-lifecycle";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx, user) => {
+  const { id } = await ctx.params;
   const opportunities = await getActiveOpportunities(id);
 
   return NextResponse.json({ opportunities });
-}
+});

@@ -13,7 +13,7 @@
 
 import { db } from "@/lib/db";
 
-const STAGE_ORDER = [
+export const STAGE_ORDER = [
   "new_lead",
   "needs_confirmed",
   "measure_booked",
@@ -30,7 +30,7 @@ type Stage = (typeof STAGE_ORDER)[number] | "lost" | "on_hold";
 /**
  * 只向前推进（不回退），且不影响 lost/on_hold 状态
  */
-function shouldAdvance(currentStage: string, targetStage: string): boolean {
+export function shouldAdvance(currentStage: string, targetStage: string): boolean {
   if (currentStage === "lost" || currentStage === "on_hold") return false;
   if (currentStage === "completed") return false;
 

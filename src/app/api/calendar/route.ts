@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { pushEventToGoogle, getGoogleProvider } from "@/lib/google-calendar";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 import { onEventCreated } from "@/lib/project-discussion/system-events";
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, _ctx, _user) => {
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
 
@@ -28,9 +28,9 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json(events);
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
 
   if (!body.title?.trim()) {
@@ -38,11 +38,6 @@ export async function POST(request: NextRequest) {
   }
   if (!body.startTime) {
     return NextResponse.json({ error: "开始时间不能为空" }, { status: 400 });
-  }
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
   const startTime = new Date(body.startTime);
@@ -74,7 +69,6 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  // Write to project discussion if linked to a project via task
   if (event.task?.id) {
     const linkedTask = await db.task.findUnique({
       where: { id: event.task.id },
@@ -110,4 +104,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json(event, { status: 201 });
-}
+});

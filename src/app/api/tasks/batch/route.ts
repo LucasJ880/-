@@ -1,13 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, _ctx, _user) => {
   const body = await request.json();
   const { ids, action, value } = body as {
     ids: string[];
@@ -45,4 +40,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ error: "无效操作" }, { status: 400 });
-}
+});

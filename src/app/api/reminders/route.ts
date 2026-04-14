@@ -1,15 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { generateReminderLayers } from "@/lib/reminders/generator";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json(
-      { immediate: [], today: [], upcoming: [], unreadCount: 0 }
-    );
-  }
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const layers = await generateReminderLayers(user.id);
   return NextResponse.json(layers);
-}
+});

@@ -2315,6 +2315,7 @@ model QuoteRoom {
 }
 
 /// 房间级附件（量房照片/视频）
+// TODO: 量房附件功能预留，API 尚未接入
 model RoomAttachment {
   id         String   @id @default(cuid())
   roomId     String

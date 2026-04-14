@@ -400,3 +400,42 @@ a, button, select, input, textarea {
   padding: 0.65em 0.9em;
   margin: 0.65em 0;
 }
+
+/* ── PWA / iPad optimizations ── */
+
+@supports (-webkit-touch-callout: none) {
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+input, textarea, select, button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+select {
+  -webkit-appearance: none;
+}
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  .grid-cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .hover\:bg-background:active {
+    background-color: var(--background);
+  }
+}
+
+.pwa-safe-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+.pwa-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}

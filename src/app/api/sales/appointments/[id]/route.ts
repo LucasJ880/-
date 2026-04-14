@@ -1,19 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   syncAppointmentToGoogle,
   unsyncAppointmentFromGoogle,
 } from "@/lib/sales/appointment-gcal-sync";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx, user) => {
+  const { id } = await ctx.params;
   const appointment = await db.appointment.findUnique({
     where: { id },
     include: {
@@ -29,16 +23,10 @@ export async function GET(
   }
 
   return NextResponse.json({ appointment });
-}
+});
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const PATCH = withAuth(async (request, ctx, user) => {
+  const { id } = await ctx.params;
   const body = await request.json();
 
   const updateData: Record<string, unknown> = {};
@@ -81,22 +69,15 @@ export async function PATCH(
   }
 
   return NextResponse.json({ appointment });
-}
+});
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+export const DELETE = withAuth(async (_request, ctx, user) => {
+  const { id } = await ctx.params;
 
-  const { id } = await params;
-
-  // 先从 Google Calendar 删除事件
   await unsyncAppointmentFromGoogle(id, user.id).catch(
     (err) => console.error("Google Calendar unsync error:", err),
   );
 
   await db.appointment.delete({ where: { id } });
   return NextResponse.json({ success: true });
-}
+});

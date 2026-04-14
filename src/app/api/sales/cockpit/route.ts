@@ -4,8 +4,8 @@
  * 包含：漏斗分析、团队业绩排行、工单状态、库存预警、周趋势
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
 const DAY_MS = 86_400_000;
@@ -30,10 +30,7 @@ const STAGE_LABELS: Record<string, string> = {
   completed: "已完工",
 };
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const isAdmin = user.role === "admin" || user.role === "super_admin";
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -153,4 +150,4 @@ export async function GET(request: NextRequest) {
       growthPct: Math.round(weekGrowth),
     },
   });
-}
+});

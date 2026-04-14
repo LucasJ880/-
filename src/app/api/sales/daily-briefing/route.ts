@@ -11,8 +11,8 @@
  * 4. AI 建议行动（基于扫描结果生成）
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { scanSalesDomain } from "@/lib/secretary/domains/sales";
 import { runSimple } from "@/lib/agent-core/engine";
@@ -25,13 +25,9 @@ interface SalesBriefing {
   generatedAt: string;
 }
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const today = new Date().toISOString().slice(0, 10);
 
-  // 尝试返回缓存
   const cached = await db.notification.findFirst({
     where: {
       userId: user.id,
@@ -45,18 +41,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ briefing: cached.metadata, cached: true });
   }
 
-  // 生成新简报
   const briefing = await generateBriefing(user.id);
   return NextResponse.json({ briefing, cached: false });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (_request, _ctx, user) => {
   const briefing = await generateBriefing(user.id);
 
-  // 推送到微信
   try {
     const { pushNotification } = await import("@/lib/messaging/push-service");
     await pushNotification(
@@ -67,7 +58,7 @@ export async function POST(request: NextRequest) {
   } catch {}
 
   return NextResponse.json({ briefing, pushed: true });
-}
+});
 
 async function generateBriefing(userId: string): Promise<SalesBriefing> {
   const today = new Date().toISOString().slice(0, 10);
@@ -85,7 +76,6 @@ async function generateBriefing(userId: string): Promise<SalesBriefing> {
       action: i.action ?? undefined,
     }));
 
-  // AI 生成简报摘要
   const dataBlock = JSON.stringify({
     stats: scan.stats,
     urgentCount: urgentItems.filter((i) => i.severity === "urgent").length,
@@ -119,7 +109,6 @@ async function generateBriefing(userId: string): Promise<SalesBriefing> {
     generatedAt: new Date().toISOString(),
   };
 
-  // 缓存到通知表
   const { createNotification } = await import("@/lib/notifications/create");
   await createNotification({
     userId,

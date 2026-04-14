@@ -12,8 +12,8 @@
  *   → AI 根据用户指令优化现有邮件
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   composeEmail,
@@ -22,14 +22,10 @@ import {
   type EmailScene,
 } from "@/lib/sales/email-composer";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const action = new URL(request.url).searchParams.get("action");
   const body = await request.json();
 
-  // ── refine：AI 优化已有邮件 ──
   if (action === "refine") {
     const { currentSubject, currentHtml, refinement } = body as {
       currentSubject: string;
@@ -136,4 +132,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});
