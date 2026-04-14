@@ -20,5 +20,35 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "电子报价单",
+      "short_name": "Quote",
+      "description": "新建/编辑报价单",
+      "url": "/sales/quote-sheet",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "销售看板",
+      "short_name": "Pipeline",
+      "description": "查看客户与商机",
+      "url": "/sales",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "报价工具",
+      "short_name": "Quote Tool",
+      "description": "快速AI报价",
+      "url": "/sales/quote-tool",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "现场量房",
+      "short_name": "Measure",
+      "description": "录入量房数据",
+      "url": "/sales/measure",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
   ]
 }

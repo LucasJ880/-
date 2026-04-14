@@ -10,9 +10,20 @@ const withPWA = withPWAInit({
   },
   workboxOptions: {
     skipWaiting: true,
+    clientsClaim: true,
     runtimeCaching: [
       {
-        urlPattern: /^\/_next\/static\/.*/i,
+        urlPattern: ({ request }: { request: Request }) =>
+          request.mode === "navigate",
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "pages",
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
+        },
+      },
+      {
+        urlPattern: /\/_next\/static\/.*/i,
         handler: "CacheFirst",
         options: {
           cacheName: "static-assets",
@@ -20,7 +31,7 @@ const withPWA = withPWAInit({
         },
       },
       {
-        urlPattern: /^\/icons\/.*/i,
+        urlPattern: /\/icons\/.*/i,
         handler: "CacheFirst",
         options: {
           cacheName: "icon-assets",
@@ -28,7 +39,7 @@ const withPWA = withPWAInit({
         },
       },
       {
-        urlPattern: /^\/sunny-quote\.html/i,
+        urlPattern: /\/sunny-quote\.html/i,
         handler: "CacheFirst",
         options: {
           cacheName: "quote-tool",
@@ -36,7 +47,16 @@ const withPWA = withPWAInit({
         },
       },
       {
-        urlPattern: /^\/api\/sales\/.*/i,
+        urlPattern: /\/_next\/data\/.*/i,
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "next-data",
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 100, maxAgeSeconds: 24 * 60 * 60 },
+        },
+      },
+      {
+        urlPattern: /\/api\/sales\/.*/i,
         handler: "NetworkFirst",
         options: {
           cacheName: "sales-api",
@@ -45,11 +65,11 @@ const withPWA = withPWAInit({
         },
       },
       {
-        urlPattern: /^\/api\/ai\/.*/i,
+        urlPattern: /\/api\/ai\/.*/i,
         handler: "NetworkOnly",
       },
       {
-        urlPattern: /^\/api\/.*/i,
+        urlPattern: /\/api\/.*/i,
         handler: "NetworkFirst",
         options: {
           cacheName: "api-general",
