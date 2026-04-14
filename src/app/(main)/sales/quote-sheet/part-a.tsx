@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { PartALine, ProductName, ProductCategory } from "./types";
 import { getProductCategory } from "./types";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Lock, Unlock, Settings2 } from "lucide-react";
 import { priceFor, isCordlessEligible, formatCAD } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS, DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
+
+const DISCOUNT_CODE = "Sunny2026";
 
 function recalcLine(line: PartALine): PartALine {
   if (!line.product || !line.fabric || !line.widthIn || !line.heightIn) {
@@ -18,7 +20,7 @@ function recalcLine(line: PartALine): PartALine {
     line.fabric,
     line.widthIn,
     line.heightIn,
-    line.discountPct,
+    line.discountOverride,
     line.cordless
   );
 
@@ -36,6 +38,109 @@ function recalcLine(line: PartALine): PartALine {
     installFee: result.install * qty,
     error: null,
   };
+}
+
+function DiscountPanel({
+  unlocked,
+  onUnlock,
+  discountOverride,
+  product,
+  onDiscountChange,
+}: {
+  unlocked: boolean;
+  onUnlock: () => void;
+  discountOverride: number | null;
+  product: ProductName | "";
+  onDiscountChange: (v: number | null) => void;
+}) {
+  const [codeInput, setCodeInput] = useState("");
+  const [showCodeInput, setShowCodeInput] = useState(false);
+  const [codeError, setCodeError] = useState(false);
+
+  const defaultDiscount = product ? (DEFAULT_DISCOUNTS[product as ProductName] ?? 0) : 0;
+  const currentPct = discountOverride !== null ? discountOverride : defaultDiscount;
+  const isCustom = discountOverride !== null;
+
+  const handleCodeSubmit = () => {
+    if (codeInput === DISCOUNT_CODE) {
+      onUnlock();
+      setShowCodeInput(false);
+      setCodeError(false);
+      setCodeInput("");
+    } else {
+      setCodeError(true);
+    }
+  };
+
+  if (!unlocked) {
+    if (showCodeInput) {
+      return (
+        <div className="flex items-center gap-2">
+          <input
+            type="password"
+            value={codeInput}
+            onChange={(e) => { setCodeInput(e.target.value); setCodeError(false); }}
+            onKeyDown={(e) => e.key === "Enter" && handleCodeSubmit()}
+            className={cn(
+              "w-28 rounded border px-2 py-1 text-xs outline-none min-h-[32px]",
+              codeError ? "border-red-400 bg-red-50" : "border-border"
+            )}
+            placeholder="Enter code"
+            autoFocus
+          />
+          <button onClick={handleCodeSubmit}
+            className="rounded bg-teal-600 px-2 py-1 text-[10px] text-white font-medium hover:bg-teal-700">
+            OK
+          </button>
+          <button onClick={() => { setShowCodeInput(false); setCodeError(false); }}
+            className="text-[10px] text-muted-foreground hover:text-foreground">
+            Cancel
+          </button>
+        </div>
+      );
+    }
+    return (
+      <button onClick={() => setShowCodeInput(true)}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-teal-700 transition-colors"
+        title="Adjust discount rate">
+        <Lock className="h-3 w-3" />
+        <span>{(currentPct * 100).toFixed(0)}%</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Unlock className="h-3 w-3 text-teal-600" />
+      <input
+        type="range"
+        min={0} max={60} step={1}
+        value={Math.round(currentPct * 100)}
+        onChange={(e) => {
+          const val = parseInt(e.target.value) / 100;
+          onDiscountChange(val === defaultDiscount ? null : val);
+        }}
+        className="w-20 h-1.5 accent-teal-600"
+      />
+      <input
+        type="number"
+        min={0} max={60} step={1}
+        value={Math.round(currentPct * 100)}
+        onChange={(e) => {
+          const val = (parseInt(e.target.value) || 0) / 100;
+          onDiscountChange(val === defaultDiscount ? null : val);
+        }}
+        className="w-12 rounded border border-border px-1.5 py-0.5 text-xs text-center min-h-[28px]"
+      />
+      <span className="text-[10px] text-muted-foreground">%</span>
+      {isCustom && (
+        <button onClick={() => onDiscountChange(null)}
+          className="text-[9px] text-amber-600 hover:text-amber-800 font-medium">
+          Reset to {(defaultDiscount * 100).toFixed(0)}%
+        </button>
+      )}
+    </div>
+  );
 }
 
 function ToggleBtn({ value, current, onToggle, size = "default" }: {
@@ -197,6 +302,8 @@ export function PartAForm({
   lines: PartALine[];
   onChange: (lines: PartALine[]) => void;
 }) {
+  const [discountUnlocked, setDiscountUnlocked] = useState(false);
+
   const updateLine = useCallback(
     (id: string, updates: Partial<PartALine>) => {
       onChange(
@@ -336,7 +443,7 @@ export function PartAForm({
               {cat === "shutter" && <ShutterFields line={line} onUpdate={(u) => updateLine(line.id, u)} />}
               {cat === "drape" && <DrapeFields line={line} onUpdate={(u) => updateLine(line.id, u)} />}
 
-              {/* Row 3: Pricing breakdown */}
+              {/* Row 3: Pricing breakdown + discount control */}
               {(line.msrp || line.error) && (
                 <div className={cn(
                   "flex flex-wrap items-center gap-4 rounded-lg px-3 py-2 text-xs",
@@ -354,14 +461,20 @@ export function PartAForm({
                           {formatCAD(line.msrp! * qty)}
                         </span>
                       </div>
-                      <div>
+                      <div className="flex items-center gap-2">
                         <span className="text-muted-foreground">Discount: </span>
-                        <span className="font-mono text-red-600">
-                          −{formatCAD(line.discountValue ?? 0)}
-                          <span className="ml-1 text-[10px]">
-                            ({((line.discountPct ?? 0) * 100).toFixed(0)}%)
+                        <DiscountPanel
+                          unlocked={discountUnlocked}
+                          onUnlock={() => setDiscountUnlocked(true)}
+                          discountOverride={line.discountOverride}
+                          product={line.product}
+                          onDiscountChange={(v) => updateLine(line.id, { discountOverride: v })}
+                        />
+                        {!discountUnlocked && (
+                          <span className="font-mono text-red-600">
+                            −{formatCAD(line.discountValue ?? 0)}
                           </span>
-                        </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-muted-foreground">Price: </span>
@@ -414,6 +527,7 @@ export function makeEmptyLine(): PartALine {
     heightIn: null,
     cordless: false,
     panelCount: 1,
+    discountOverride: null,
     msrp: null,
     discountPct: null,
     discountValue: null,

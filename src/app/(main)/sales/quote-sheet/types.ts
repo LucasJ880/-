@@ -13,9 +13,10 @@ export interface PartALine {
   heightIn: number | null;
   cordless: boolean;
   panelCount: number;
-  // Pricing (auto-calculated)
+  // Pricing
+  discountOverride: number | null; // user-set override (0-1), null = use default
   msrp: number | null;
-  discountPct: number | null;
+  discountPct: number | null;      // actual discount applied (display only)
   discountValue: number | null;
   price: number | null;
   installFee: number | null;
