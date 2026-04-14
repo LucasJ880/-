@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/pricing-types';
+import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -104,8 +105,23 @@ export async function POST(request: NextRequest) {
     include: { items: true, addons: true },
   });
 
+  // 自动关联商机 + 推进阶段到 quoted + 回填金额
+  const lifecycle = await onQuoteCreated(
+    quote.id,
+    customerId,
+    calc.grandTotal,
+    opportunityId || null,
+  ).catch((err) => {
+    console.error("Lifecycle automation error:", err);
+    return { opportunityId: null, advanced: false };
+  });
+
   return NextResponse.json({
     quote,
     errors: calc.errors,
+    lifecycle: {
+      opportunityId: lifecycle.opportunityId,
+      autoAdvanced: lifecycle.advanced,
+    },
   }, { status: 201 });
 }

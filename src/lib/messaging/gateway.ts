@@ -49,7 +49,8 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   // 3. 更新活跃时间
   await touchBinding(msg.channel, msg.externalUserId);
 
-  // 4. 持久化入站消息
+  // 4. 持久化入站消息（语音消息标记来源）
+  const isVoice = msg.messageType === "voice";
   await db.weChatMessage.create({
     data: {
       bindingId: binding.id,
@@ -58,7 +59,7 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       direction: "inbound",
       channel: msg.channel,
       externalUserId: msg.externalUserId,
-      content: msg.content,
+      content: isVoice ? `🎤 [语音] ${msg.content}` : msg.content,
       messageType: msg.messageType,
       externalMsgId: msg.externalMsgId,
     },
@@ -163,7 +164,7 @@ async function processWithAgentCore(
     buildUserMemoryBlock,
   } = await import("@/lib/ai/user-memory");
 
-  // 加载最近 5 条微信对话作为上下文
+  // 加载最近对话上下文
   const recentMessages = await db.weChatMessage.findMany({
     where: { userId, channel: msg.channel },
     orderBy: { createdAt: "desc" },
@@ -178,12 +179,19 @@ async function processWithAgentCore(
       content: m.content,
     }));
 
-  // 加载用户记忆
-  const membership = await db.organizationMember.findFirst({
-    where: { userId },
-    select: { orgId: true },
-  });
+  // 加载用户信息 + 角色
+  const [membership, user] = await Promise.all([
+    db.organizationMember.findFirst({
+      where: { userId },
+      select: { orgId: true },
+    }),
+    db.user.findUnique({
+      where: { id: userId },
+      select: { role: true, name: true },
+    }),
+  ]);
   const orgId = membership?.orgId ?? "default";
+  const userRole = user?.role ?? "user";
 
   const [wakeUp, l2] = await Promise.all([
     getWakeUpMemories(userId),
@@ -191,14 +199,51 @@ async function processWithAgentCore(
   ]);
   const memoryBlock = buildUserMemoryBlock(wakeUp.l0, wakeUp.l1, l2);
 
-  const systemPrompt = `你是「青砚」AI 工作助理，正在通过微信与用户对话。
+    // 根据角色构建可用域
+    const domains: Array<"trade" | "sales" | "project" | "secretary" | "knowledge" | "cockpit" | "system"> = ["secretary", "system"];
+  if (userRole === "admin" || userRole === "super_admin") {
+    domains.push("trade", "sales", "cockpit");
+  } else if (userRole === "sales") {
+    domains.push("sales");
+  } else if (userRole === "trade") {
+    domains.push("trade");
+  }
 
+  const isVoice = msg.messageType === "voice";
+
+  const systemPrompt = `你是「青砚」AI 工作助理，正在通过微信与用户 ${user?.name || ""} 对话。
+用户角色：${userRole}
+${isVoice ? "⚠️ 这条消息是语音转写的，可能存在识别误差，请结合上下文理解用户意图。\n" : ""}
 规则：
 - 用简洁中文回复，适合手机阅读（短句、分行）
-- 如果需要数据，直接调用工具查询
+- 如果需要数据，直接调用工具查询，不要凭空编造
 - 给出具体可执行的建议
 - 当用户说"发"、"确认"、"好的"时，执行对应操作
 - 复杂内容用数字列表，方便用户回复数字选择
+- 操作完成后，用简短确认告知用户结果
+
+邮件流程（重要！）：
+1. 用户说"给XXX发邮件/跟进/发报价" → 先调用 sales.compose_email 生成预览
+2. 将预览内容展示给用户：收件人、主题、正文摘要
+3. 询问用户"确认发送？或告诉我怎么修改"
+4. 用户说"发/确认/好的" → 调用 sales.send_quote_email 发送
+5. 用户说"改一下/更热情/加折扣" → 调用 sales.refine_email 修改后再次展示
+6. 反复修改直到用户满意，就像用 ChatGPT 一样自然
+
+知识库与 AI 辅助（重要！）：
+- 用户问"客户嫌贵怎么回"、"之前类似案例怎么成交" → 调用 sales.search_knowledge 搜索知识库
+- 用户问"XXX 这个客户怎么跟"、"给我分析一下 XXX" → 调用 sales.get_coaching 获取 AI 建议
+- 用户问"XXX 的 deal 怎么样"、"健康度多少" → 调用 sales.get_deal_health
+- 当你给出建议时，主动搜索知识库找相似赢单模式，用数据支撑你的建议
+- 给出具体建议后 → 调用 sales.record_coaching 记录建议（系统会在成单后自动学习效果）
+- 用户说"好的用这个"、"试试看" → 调用 sales.coaching_feedback(adopted=true)
+- 用户说"不合适"、"换一个" → 调用 sales.coaching_feedback(adopted=false)
+
+其他操作：
+- "查一下 XXX 的报价" → 调用 sales.get_customer_quotes
+- "帮 XXX 预约量房" → 调用 sales.create_appointment
+- "把 XXX 推进到已签单" → 调用 sales.advance_stage
+- "今天有多少活跃机会" → 调用 sales.get_overview
 ${memoryBlock}`;
 
   const messages = [
@@ -209,12 +254,12 @@ ${memoryBlock}`;
   const result = await runAgent({
     systemPrompt,
     messages,
-    domains: ["trade", "secretary", "system"],
+    domains,
     mode: "chat",
     temperature: 0.3,
     userId,
     orgId,
-    maxToolRounds: 3,
+    maxToolRounds: 5,
   });
 
   return result.content;

@@ -30,6 +30,7 @@ export type ToolDomain =
   | "project"
   | "secretary"
   | "knowledge"
+  | "cockpit"
   | "system";
 
 export interface ToolPropertySchema {

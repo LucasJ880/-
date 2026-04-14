@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { detectLanguage, extractTopicTags } from '@/lib/ai';
+import { indexCommunication } from '@/lib/sales/knowledge-pipeline';
 
 export async function POST(
   request: NextRequest,
@@ -48,6 +49,27 @@ export async function POST(
       where: { id: body.opportunityId },
       data: { updatedAt: new Date() },
     });
+  }
+
+  const textContent = `${body.summary} ${body.content || ""}`.trim();
+  if (textContent.length > 20) {
+    indexCommunication({
+      sourceType: (body.channel as "email" | "wechat" | "call_transcript" | "note") || "note",
+      content: textContent,
+      customerId,
+      opportunityId: body.opportunityId || undefined,
+      interactionId: interaction.id,
+      metadata: {
+        direction: body.direction || undefined,
+        language: body.language || autoLanguage,
+      },
+    }).catch((err) => console.error("[RAG] Auto-index interaction failed:", err));
+
+    import("@/lib/sales/profile-engine")
+      .then(({ updateCustomerProfile }) =>
+        updateCustomerProfile({ customerId }),
+      )
+      .catch((err) => console.error("[RAG] Auto-update profile failed:", err));
   }
 
   return NextResponse.json(interaction, { status: 201 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { syncAppointmentToGoogle } from "@/lib/sales/appointment-gcal-sync";
+import { onMeasureBooked } from "@/lib/sales/opportunity-lifecycle";
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser(request);
@@ -92,17 +93,10 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  if (opportunityId) {
-    const opp = await db.salesOpportunity.findUnique({
-      where: { id: opportunityId },
-      select: { stage: true },
-    });
-    if (opp && opp.stage === "needs_confirmed" && type === "measure") {
-      await db.salesOpportunity.update({
-        where: { id: opportunityId },
-        data: { stage: "measure_booked", measureDate: new Date(startAt) },
-      });
-    }
+  if (opportunityId && type === "measure") {
+    onMeasureBooked(opportunityId, new Date(startAt)).catch((err) =>
+      console.error("Measure booked lifecycle error:", err),
+    );
   }
 
   // 异步同步到 Google Calendar（不阻塞响应）

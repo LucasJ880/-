@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { onQuoteViewed } from "@/lib/sales/opportunity-lifecycle";
 
 export async function GET(
   request: NextRequest,
@@ -44,6 +45,11 @@ export async function GET(
         status: quote.status === "sent" ? "viewed" : quote.status,
       },
     });
+
+    // 客户首次查看报价 → 自动推进商机到 negotiation
+    onQuoteViewed(quote.id).catch((err) =>
+      console.error("Quote viewed lifecycle error:", err),
+    );
   }
 
   return NextResponse.json({

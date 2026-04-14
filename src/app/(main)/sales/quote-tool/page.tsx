@@ -33,11 +33,16 @@ export default function QuoteToolPage() {
     { id: string; name: string; phone?: string; email?: string }[]
   >([]);
   const [customerId, setCustomerId] = useState("");
+  const [opportunities, setOpportunities] = useState<
+    { id: string; title: string; stage: string; estimatedValue: number | null; productTypes: string | null }[]
+  >([]);
+  const [opportunityId, setOpportunityId] = useState("");
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<{
     quoteId: string;
     shareToken: string;
     grandTotal: number;
+    autoLinked?: boolean;
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -46,6 +51,18 @@ export default function QuoteToolPage() {
       .then((r) => r.json())
       .then((d) => setCustomers(d.customers ?? []));
   }, []);
+
+  useEffect(() => {
+    if (!customerId) { setOpportunities([]); setOpportunityId(""); return; }
+    apiFetch(`/api/sales/customers/${customerId}/opportunities`)
+      .then((r) => r.json())
+      .then((d) => {
+        const opps = d.opportunities ?? [];
+        setOpportunities(opps);
+        setOpportunityId(opps.length === 1 ? opps[0].id : "");
+      })
+      .catch(() => setOpportunities([]));
+  }, [customerId]);
 
   const handleIframeLoad = useCallback(() => {
     if (iframeRef.current?.contentWindow) {
@@ -89,6 +106,7 @@ export default function QuoteToolPage() {
       try {
         const body = {
           customerId,
+          opportunityId: opportunityId || undefined,
           items: payload.items,
           addons: payload.addons,
           installMode: payload.installMode ?? "default",
@@ -105,6 +123,7 @@ export default function QuoteToolPage() {
             quoteId: res.quote.id,
             shareToken: res.quote.shareToken ?? "",
             grandTotal: res.quote.grandTotal ?? 0,
+            autoLinked: res.lifecycle?.autoAdvanced ?? false,
           });
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -200,6 +219,32 @@ export default function QuoteToolPage() {
           )}
         </div>
 
+        {/* 商机选择器 — 选客户后自动加载 */}
+        {customerId && opportunities.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-muted-foreground">商机：</label>
+            <div className="relative">
+              <select
+                value={opportunityId}
+                onChange={(e) => setOpportunityId(e.target.value)}
+                className="rounded-lg border border-border bg-white px-3 py-1.5 pr-8 text-sm appearance-none min-w-[160px]"
+              >
+                {opportunities.length > 1 && <option value="">自动匹配</option>}
+                {opportunities.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.title}
+                    {o.productTypes ? ` (${o.productTypes})` : ""}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+              />
+            </div>
+          </div>
+        )}
+
         {saving && (
           <span className="text-xs text-muted-foreground animate-pulse">
             保存中...
@@ -210,10 +255,8 @@ export default function QuoteToolPage() {
           <div className="ml-auto flex items-center gap-3">
             <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
               <CheckCircle size={14} />
-              已保存 · $
-              {lastSaved.grandTotal.toLocaleString("en-CA", {
-                minimumFractionDigits: 2,
-              })}
+              已保存 · ${lastSaved.grandTotal.toLocaleString("en-CA", { minimumFractionDigits: 2 })}
+              {lastSaved.autoLinked && " · 商机已自动推进到「已报价」"}
             </span>
             <button
               onClick={() => router.push("/sales/quotes")}

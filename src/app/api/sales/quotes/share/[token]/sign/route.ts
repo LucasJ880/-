@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sendMailAs } from "@/lib/email/sender";
 import { signedNotifyHtml } from "@/lib/email/templates";
+import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
 
 export async function POST(
   request: NextRequest,
@@ -58,6 +59,11 @@ export async function POST(
       createdById: quote.createdBy.id,
     },
   });
+
+  // 自动推进商机到 signed
+  onQuoteSigned(quote.id).catch((err) =>
+    console.error("Quote signed lifecycle error:", err),
+  );
 
   // --- 三通道签约通知 ---
   const salesUserId = quote.createdBy.id;

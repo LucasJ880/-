@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { onDealWon, onDealLost } from '@/lib/sales/opportunity-lifecycle';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -37,6 +38,16 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 });
   }
 
+  if (body.stage === "completed" && !data.wonAt) {
+    data.wonAt = new Date();
+  }
+  if (body.stage === "lost" && !data.lostAt) {
+    data.lostAt = new Date();
+  }
+  if (body.lostReason !== undefined) {
+    data.lostReason = body.lostReason;
+  }
+
   const updated = await db.salesOpportunity.update({
     where: { id },
     data,
@@ -44,6 +55,12 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       customer: { select: { id: true, name: true, phone: true } },
     },
   });
+
+  if (body.stage === "completed") {
+    onDealWon(id).catch((e) => console.error("[RAG] onDealWon error:", e));
+  } else if (body.stage === "lost") {
+    onDealLost(id).catch((e) => console.error("[RAG] onDealLost error:", e));
+  }
 
   return NextResponse.json(updated);
 }

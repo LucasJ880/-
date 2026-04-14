@@ -239,14 +239,37 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     // 处理消息
     const updates = data.updates || data.messages || [];
     for (const update of updates) {
-      if (!update.content?.text && !update.text) continue;
+      const msgType = update.msg_type ?? update.type ?? 1;
+      const isVoice = msgType === 34 || msgType === "voice";
+      const hasText = update.content?.text || update.text;
+      const hasVoice = isVoice && (update.content?.voice_url || update.voice_url || update.media_id);
+
+      if (!hasText && !hasVoice) continue;
+
+      let content = "";
+      let messageType: "text" | "voice" = "text";
+
+      if (hasVoice) {
+        messageType = "voice";
+        // 下载语音 → Whisper 转写
+        try {
+          const voiceUrl = update.content?.voice_url || update.voice_url;
+          const mediaId = update.media_id || update.content?.media_id;
+          content = await this.transcribeVoice(voiceUrl, mediaId);
+        } catch (e) {
+          console.error("[PersonalWeChatAdapter] Voice transcription failed:", e);
+          content = "[语音消息转写失败]";
+        }
+      } else {
+        content = update.content?.text || update.text || "";
+      }
 
       const msg: InboundMessage = {
         channel: "personal_wechat",
         externalUserId: update.from_user || update.from || "",
         externalUserName: update.from_nickname || update.nickname,
-        content: update.content?.text || update.text || "",
-        messageType: "text",
+        content,
+        messageType,
         externalMsgId: update.msg_id?.toString(),
         timestamp: new Date(update.timestamp ? update.timestamp * 1000 : Date.now()),
       };
@@ -257,6 +280,51 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         );
       }
     }
+  }
+
+  /**
+   * 下载语音文件并调用 Whisper 转写
+   */
+  private async transcribeVoice(voiceUrl?: string, mediaId?: string): Promise<string> {
+    let audioBuffer: Buffer;
+
+    if (voiceUrl) {
+      const res = await fetch(voiceUrl);
+      if (!res.ok) throw new Error(`Download voice failed: ${res.status}`);
+      audioBuffer = Buffer.from(await res.arrayBuffer());
+    } else if (mediaId && this.credentials) {
+      // 通过 iLink media API 下载
+      const res = await fetch(`${ILINK_BASE}/cgi-bin/mmbot/getmedia`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.credentials.token}`,
+        },
+        body: JSON.stringify({ media_id: mediaId }),
+      });
+      if (!res.ok) throw new Error(`Download media failed: ${res.status}`);
+      audioBuffer = Buffer.from(await res.arrayBuffer());
+    } else {
+      throw new Error("No voice URL or media ID");
+    }
+
+    // Whisper API 转写
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+
+    const formData = new FormData();
+    formData.append("file", new Blob([audioBuffer as unknown as BlobPart]), "voice.mp3");
+    formData.append("model", "whisper-1");
+
+    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    });
+
+    if (!res.ok) throw new Error(`Whisper API error: ${res.status}`);
+    const data = await res.json();
+    return data.text || "";
   }
 
   private async updateHeartbeat(): Promise<void> {

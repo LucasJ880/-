@@ -1,11 +1,15 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
+/// pgvector 扩展 — 用于向量相似度搜索
+
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
 }
 
 
@@ -87,6 +91,10 @@ model User {
 
   // Email Binding
   emailBinding                     EmailBinding?
+
+  // Sales RAG
+  salesInsights                    SalesInsight[]           @relation("SalesInsightUser")
+  coachingRecords                  CoachingRecord[]         @relation("CoachingRecordUser")
 
   // 邀请码溯源
   inviteCodeId  String?
@@ -2111,6 +2119,11 @@ model SalesCustomer {
   appointments   Appointment[]
   measurements   MeasurementRecord[]
 
+  // RAG
+  profile            CustomerProfile?
+  knowledgeChunks    SalesKnowledgeChunk[]
+  coachingRecords    CoachingRecord[]
+
   @@index([status])
   @@index([phone])
   @@index([email])
@@ -2149,6 +2162,10 @@ model SalesOpportunity {
   blindsOrders    BlindsOrder[]
   appointments    Appointment[]
 
+  // RAG
+  knowledgeChunks SalesKnowledgeChunk[]
+  coachingRecords CoachingRecord[]
+
   @@index([customerId])
   @@index([stage])
   @@index([assignedToId])
@@ -2177,15 +2194,22 @@ model CustomerInteraction {
   outcome         String?  // converted / lost / pending / info_request / follow_up
   topicTags       String?  // comma-separated: "pricing,zebra,installation"
 
+  // RAG 分析状态
+  analysisStatus  String?  // pending / analyzed / failed
+  analysisResult  Json?    // AI 结构化分析输出
+
   createdAt       DateTime @default(now())
 
   createdById     String
   createdBy       User     @relation("CustomerInteractionCreatedBy", fields: [createdById], references: [id])
 
+  knowledgeChunks SalesKnowledgeChunk[]
+
   @@index([customerId, createdAt])
   @@index([opportunityId])
   @@index([type])
   @@index([channel])
+  @@index([analysisStatus])
 }
 
 model SalesQuote {
@@ -2431,10 +2455,12 @@ model SalesPlaybook {
   example       String?   @db.Text  // 实际使用范例
   effectiveness Int       @default(0) // 0-5 有效性评分
   sourceInteractionId String? // 提取来源互动 ID
+  embedding     Unsupported("vector(1536)")?
 
   tags          String?   // comma-separated
   status        String    @default("active") // active / archived
   usageCount    Int       @default(0)
+  sourceType    String?   // manual / ai_extracted / battle_tested
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -2458,6 +2484,7 @@ model SalesFAQ {
   productTags   String?   // comma-separated: "zebra,roller"
   frequency     Int       @default(1) // 被问到的频次
   sourceInteractionId String?
+  embedding     Unsupported("vector(1536)")?
 
   status        String    @default("active") // active / archived
   createdAt     DateTime  @default(now())
@@ -2747,4 +2774,176 @@ model WeChatMessage {
   @@index([bindingId, createdAt])
   @@index([userId, createdAt])
   @@index([channel, createdAt])
+}
+
+// ============================================================
+// 销售智能 RAG — 知识库 + 客户画像 + 训练闭环
+// ============================================================
+
+/// 销售知识分块 — 沟通内容经 AI 分析后的语义分块
+model SalesKnowledgeChunk {
+  id              String   @id @default(cuid())
+
+  // 来源关联
+  sourceType      String   // email / wechat / call_transcript / note / bulk_upload
+  sourceId        String?  // CustomerInteraction.id 或上传批次 ID
+  customerId      String?
+  customer        SalesCustomer?    @relation(fields: [customerId], references: [id])
+  opportunityId   String?
+  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  interactionId   String?
+  interaction     CustomerInteraction? @relation(fields: [interactionId], references: [id])
+
+  // 内容
+  content         String   @db.Text
+  embedding       Unsupported("vector(1536)")?
+  // 元数据
+  metadata        Json?    // { speaker, direction, timestamp, dealStage, dealOutcome }
+  tags            String[] // AI 提取的标签
+  language        String   @default("en")
+
+  // AI 分析结果
+  sentiment       String?  // positive / negative / neutral
+  intent          String?  // objection / inquiry / negotiation / closing / smalltalk
+  objectionType   String?  // price / timing / competition / authority / need
+  isWinPattern    Boolean  @default(false)
+  isLossSignal    Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([interactionId])
+  @@index([sourceType])
+  @@index([isWinPattern])
+  @@index([isLossSignal])
+  @@index([intent])
+}
+
+/// 销售洞察 — AI 提炼的赢单/丢单模式与最佳实践
+model SalesInsight {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation("SalesInsightUser", fields: [userId], references: [id])
+
+  // 洞察类型
+  insightType     String   // win_pattern / loss_signal / objection_response / best_practice / stage_tactic
+  // 内容
+  title           String
+  description     String   @db.Text
+  embedding       Unsupported("vector(1536)")?
+
+  // 适用条件
+  dealStage       String?  // 适用的商机阶段
+  productType     String?  // 适用的产品类型
+  customerTags    String[] // 适用客户标签
+  objectionType   String?  // 针对的异议类型
+
+  // 效果追踪
+  effectiveness   Float    @default(0) // 0-1 有效性权重
+  usageCount      Int      @default(0)
+  successCount    Int      @default(0)
+
+  // 来源
+  sourceChunkIds  String[]
+  status          String   @default("active") // active / deprecated
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  coachingRecords CoachingRecord[]
+
+  @@index([insightType])
+  @@index([dealStage])
+  @@index([status])
+  @@index([effectiveness])
+}
+
+/// 客户画像 — AI 自动生成的结构化画像（销售 + Marketing 预留）
+model CustomerProfile {
+  id                  String   @id @default(cuid())
+  customerId          String   @unique
+  customer            SalesCustomer @relation(fields: [customerId], references: [id])
+
+  // 基础画像
+  customerType        String?  // residential / commercial / designer / contractor / developer
+  decisionRole        String?  // owner / spouse / property_manager / designer / committee
+  budgetRange         String?  // economy / mid_range / premium / luxury
+  priceSensitivity    Float?   // 0-1
+
+  // 行为画像
+  communicationStyle  String?  // direct / detail_oriented / relationship_focused / price_driven
+  preferredChannel    String?  // wechat / email / phone / in_person
+  responseSpeed       String?  // fast_responder / slow_deliberate / ghost_risk
+  decisionSpeed       String?  // impulse / moderate / slow_researcher
+
+  // 需求画像
+  productPreferences  String[] // motorized / blackout / sheer / zebra ...
+  roomTypes           String[] // bedroom / living_room / office / bathroom ...
+  keyNeeds            String[] // child_safety / energy_efficiency / smart_home ...
+  objectionHistory    String[] // price / timing / competition ...
+
+  // 成交预测
+  winProbability          Float?   // 0-1
+  estimatedLifetimeValue  Float?
+  churnRisk               Float?   // 0-1
+
+  // Marketing 预留字段
+  acquisitionChannel  String?  // referral / google_ads / social_media / walk_in / website
+  referralSource      String?
+  contentEngagement   Json?    // { emailOpenRate, clickRate, lastEngagedAt, interestedTopics[] }
+  segment             String?  // high_value_repeat / new_lead / at_risk
+  campaignIds         String[]
+
+  // 元数据
+  confidence          Float    @default(0) // 画像置信度 0-1
+  lastAnalyzedAt      DateTime?
+  analysisVersion     Int      @default(1)
+  embedding           Unsupported("vector(1536)")?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([customerType])
+  @@index([segment])
+  @@index([budgetRange])
+  @@index([winProbability])
+}
+
+/// 教练记录 — 记录每次 AI 建议及后续效果，用于自我训练
+model CoachingRecord {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation("CoachingRecordUser", fields: [userId], references: [id])
+  customerId      String
+  customer        SalesCustomer @relation(fields: [customerId], references: [id])
+  opportunityId   String?
+  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+
+  // AI 推荐内容
+  insightId       String?
+  insight         SalesInsight? @relation(fields: [insightId], references: [id])
+  coachingType    String   // tactic / objection_response / email_draft / next_action
+  recommendation  String   @db.Text
+  context         Json?    // { dealStage, customerTags, triggerEvent }
+
+  // 销售行为
+  adopted         Boolean?
+  adoptedAt       DateTime?
+
+  // 结果归因
+  outcome         String?  // won / lost / still_open / ignored
+  outcomeAt       DateTime?
+  daysToOutcome   Int?
+  dealValue       Float?
+  contributionScore Float? // 0-1
+
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([insightId])
+  @@index([outcome])
+  @@index([coachingType])
 }

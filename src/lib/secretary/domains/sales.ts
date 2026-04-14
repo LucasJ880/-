@@ -84,7 +84,7 @@ export async function scanSalesDomain(
       quotes: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { createdAt: true, status: true, grandTotal: true },
+        select: { createdAt: true, status: true, grandTotal: true, viewedAt: true, signedAt: true },
       },
     },
     take: 50,
@@ -145,6 +145,63 @@ export async function scanSalesDomain(
               type: "view_sales_customer",
               label: "跟进客户",
               payload: { customerId: opp.customer.id, opportunityId: opp.id },
+            },
+            entityType: "sales_customer",
+            entityId: opp.customer.id,
+            dedupeKey,
+          });
+        }
+      }
+    }
+
+    // ── 2b. 客户已查看报价但未签约（热信号） ──
+    if (lastQuote && lastQuote.viewedAt && !lastQuote.signedAt && opp.stage === "negotiation") {
+      const daysSinceView = Math.floor(
+        (now.getTime() - new Date(lastQuote.viewedAt).getTime()) / DAY_MS,
+      );
+      if (daysSinceView >= 2) {
+        const dedupeKey = `sales_viewed_not_signed:${opp.id}`;
+        if (!seenKeys.has(dedupeKey)) {
+          seenKeys.add(dedupeKey);
+          items.push({
+            id: `sales_viewed_${opp.id}`,
+            domain: "sales",
+            severity: daysSinceView >= 5 ? "urgent" : "warning",
+            category: "viewed_not_signed",
+            title: `客户已看报价 ${daysSinceView} 天未签约：${opp.customer.name}`,
+            description: `金额 $${lastQuote.grandTotal?.toLocaleString() ?? "N/A"} — 建议电话跟进`,
+            action: {
+              type: "view_sales_customer",
+              label: "立即跟进",
+              payload: { customerId: opp.customer.id, opportunityId: opp.id },
+            },
+            entityType: "sales_customer",
+            entityId: opp.customer.id,
+            dedupeKey,
+          });
+        }
+      }
+    }
+
+    // ── 2c. 新线索超 48h 未处理 ──
+    if (opp.stage === "new_lead") {
+      const hoursAge = (now.getTime() - new Date(opp.createdAt).getTime()) / 3_600_000;
+      const hasInteraction = opp.interactions.length > 0;
+      if (hoursAge >= 48 && !hasInteraction) {
+        const dedupeKey = `sales_new_stale:${opp.id}`;
+        if (!seenKeys.has(dedupeKey)) {
+          seenKeys.add(dedupeKey);
+          items.push({
+            id: `sales_new_stale_${opp.id}`,
+            domain: "sales",
+            severity: hoursAge >= 96 ? "urgent" : "warning",
+            category: "new_lead_stale",
+            title: `新线索 ${Math.floor(hoursAge / 24)} 天未联系：${opp.customer.name}`,
+            description: `${opp.title}${opp.customer.phone ? ` — 电话 ${opp.customer.phone}` : ""}`,
+            action: {
+              type: "view_sales_customer",
+              label: "联系客户",
+              payload: { customerId: opp.customer.id },
             },
             entityType: "sales_customer",
             entityId: opp.customer.id,

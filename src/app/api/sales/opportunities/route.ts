@@ -26,12 +26,24 @@ export async function GET(request: NextRequest) {
     where,
     include: {
       customer: { select: { id: true, name: true, phone: true } },
+      quotes: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { grandTotal: true, status: true, createdAt: true },
+      },
       _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
     },
     orderBy: { updatedAt: 'desc' },
   });
 
-  return NextResponse.json({ opportunities });
+  const enriched = opportunities.map((o) => ({
+    ...o,
+    latestQuoteTotal: o.quotes[0]?.grandTotal ?? null,
+    latestQuoteStatus: o.quotes[0]?.status ?? null,
+    quotes: undefined,
+  }));
+
+  return NextResponse.json({ opportunities: enriched });
 }
 
 export async function POST(request: NextRequest) {
