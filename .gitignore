@@ -57,3 +57,5 @@ next-env.d.ts
 # mempalace
 mempalace.yaml
 entities.json
+# Cursor AI Agent Team Framework (submodule)
+cursor-agent-team

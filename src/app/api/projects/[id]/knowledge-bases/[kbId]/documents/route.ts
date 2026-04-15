@@ -55,7 +55,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     }),
   ]);
 
-  let snapshotMap = new Map<
+  const snapshotMap = new Map<
     string,
     { id: string; version: number; contentPreview: string }
   >();

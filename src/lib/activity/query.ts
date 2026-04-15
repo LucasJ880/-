@@ -68,7 +68,7 @@ export async function listProjectActivity(
     db.auditLog.count({ where }),
   ]);
 
-  let auditActivities = (rawLogs as RawAuditLog[]).map(formatActivity);
+  const auditActivities = (rawLogs as RawAuditLog[]).map(formatActivity);
 
   if (params?.includeSystemEvents) {
     const sysWhere: Record<string, unknown> = { projectId, type: "SYSTEM" };

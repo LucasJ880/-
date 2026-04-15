@@ -47,8 +47,8 @@ export async function runAgentForConversation(
     systemBehaviorNote: string | null;
   } | null = null;
 
-  let toolDefs: ToolDefinition[] = [];
-  let toolMap = new Map<string, { id?: string; key: string; name: string; category: string; type: string }>();
+  const toolDefs: ToolDefinition[] = [];
+  const toolMap = new Map<string, { id?: string; key: string; name: string; category: string; type: string }>();
 
   if (conv.agentId) {
     const agent = await db.agent.findFirst({

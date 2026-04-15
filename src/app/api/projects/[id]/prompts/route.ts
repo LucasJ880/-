@@ -72,7 +72,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   ]);
 
   const promptKeys = [...new Set(prompts.map((p) => p.key))];
-  let crossEnvMap: Record<
+  const crossEnvMap: Record<
     string,
     { envCode: string; envName: string; activeVersion: number | null; promptId: string }[]
   > = {};

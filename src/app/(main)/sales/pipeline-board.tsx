@@ -43,6 +43,7 @@ function OpportunityCard({
 }) {
   const pri = PRIORITIES[opp.priority as keyof typeof PRIORITIES] || PRIORITIES.warm;
   const [showTip, setShowTip] = useState(false);
+  const [now] = useState(() => Date.now());
 
   return (
     <Link
@@ -133,7 +134,7 @@ function OpportunityCard({
         )}
         {opp.updatedAt && (
           <span className="text-[10px] text-muted/60">
-            {Math.floor((Date.now() - new Date(opp.updatedAt).getTime()) / 86400000)}天
+            {Math.floor((now - new Date(opp.updatedAt).getTime()) / 86400000)}天
           </span>
         )}
       </div>

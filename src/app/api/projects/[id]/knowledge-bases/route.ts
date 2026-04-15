@@ -100,7 +100,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   });
 
   const kbKeys = [...new Set(bases.map((b) => b.key))];
-  let crossEnvMap = new Map<
+  const crossEnvMap = new Map<
     string,
     { envCode: string; version: number | null; kbId: string }[]
   >();

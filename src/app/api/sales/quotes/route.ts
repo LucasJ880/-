@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/pricing-types';
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
+import { getAddonDef } from '@/lib/blinds/pricing-addons';
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
@@ -84,7 +85,6 @@ export const POST = withAuth(async (request, _ctx, user) => {
       addons: addons?.length
         ? {
             create: addons.map((a) => {
-              const { getAddonDef } = require('@/lib/blinds/pricing-addons');
               const def = getAddonDef(a.addonKey);
               return {
                 addonKey: a.addonKey,

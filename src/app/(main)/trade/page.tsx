@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 
 // ── Types ───────────────────────────────────────────────────
@@ -388,7 +389,7 @@ function QuoteStatsCard({ stats }: { stats: DashboardData["quoteStats"] }) {
     <div className="rounded-xl border border-border/60 bg-card-bg p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-foreground">报价统计</h3>
-        <a href="/trade/quotes" className="text-[10px] text-blue-400 hover:text-blue-300">查看全部</a>
+        <Link href="/trade/quotes" className="text-[10px] text-blue-400 hover:text-blue-300">查看全部</Link>
       </div>
       <div className="mb-3 text-center">
         <p className="text-2xl font-bold text-foreground">

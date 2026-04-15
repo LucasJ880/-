@@ -184,7 +184,7 @@ export function ApprovalCard({ taskId, step, onAction }: Props) {
 }
 
 function useCountdown(deadlineIso: string | null) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
