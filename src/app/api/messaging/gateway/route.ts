@@ -97,8 +97,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         error: errMsg,
         status: "error",
-        hint: "请检查 ILINK_API_BASE 和 ILINK_API_KEY 环境变量是否已配置",
+        hint: "请确认 iLink Bot 服务可用（ilinkai.weixin.qq.com），如使用自建服务请设置 ILINK_API_BASE 环境变量",
       }, { status: 502 });
+    }
+  }
+
+  if (action === "check_qr_status") {
+    const { ticket } = body;
+    if (!ticket) {
+      return NextResponse.json({ error: "缺少 ticket" }, { status: 400 });
+    }
+    try {
+      const { PersonalWeChatAdapter } = await import("@/lib/messaging/adapters/personal-wechat");
+      const adapter = new PersonalWeChatAdapter(membership.orgId);
+      const result = await adapter.checkQRStatus(ticket);
+      return NextResponse.json(result);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: errMsg, status: "error" }, { status: 502 });
     }
   }
 

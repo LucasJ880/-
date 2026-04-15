@@ -11,7 +11,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const where: Record<string, unknown> = {};
   if (!isSuperAdmin(user.role)) {
-    where.createdById = user.id;
+    where.OR = [{ createdById: user.id }, { assignedToId: user.id }];
   }
   if (stage) where.stage = stage;
   if (priority) where.priority = priority;

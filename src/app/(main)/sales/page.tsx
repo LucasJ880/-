@@ -31,6 +31,11 @@ export default function SalesPage() {
       if (viewMode === "pipeline") {
         if (isOnline) {
           const res = await apiFetch("/api/sales/opportunities");
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            console.error("Opportunities API error:", res.status, errData);
+            throw new Error(errData.error || `API ${res.status}`);
+          }
           const data = await res.json();
           setOpportunities(data.opportunities || []);
         }

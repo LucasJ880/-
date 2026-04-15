@@ -115,19 +115,32 @@ export default function WeChatSettingsPage() {
     stopPolling();
     pollRef.current = setInterval(async () => {
       try {
-        const res = await apiFetch("/api/messaging/gateway").then((r) => r.json());
-        const pg = (res.gateways || []).find((g: GatewayInfo) => g.channel === "personal_wechat");
-        if (pg?.loginStatus === "connected" || pg?.status === "active") {
+        const ticket = qrModal.ticket;
+        if (!ticket) return;
+
+        const res = await apiFetch("/api/messaging/gateway", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "check_qr_status", ticket }),
+        });
+        const data = await res.json();
+
+        if (data.status === "confirmed") {
           stopPolling();
           setQrModal({ open: false, qrUrl: null, ticket: null, error: null, hint: null, loading: false });
           await fetchData();
-        } else if (pg?.loginStatus === "error") {
+        } else if (data.status === "scaned") {
+          setQrModal((prev) => ({ ...prev, hint: "已扫码，请在手机上确认…" }));
+        } else if (data.status === "expired") {
           stopPolling();
-          setQrModal((prev) => ({ ...prev, error: pg.errorMessage || "扫码失败", loading: false }));
+          setQrModal((prev) => ({ ...prev, error: "二维码已过期，请重新扫码", loading: false }));
+        } else if (data.status === "error") {
+          stopPolling();
+          setQrModal((prev) => ({ ...prev, error: data.error || "扫码失败", loading: false }));
         }
       } catch { /* ignore */ }
     }, 3000);
-  }, [fetchData, stopPolling]);
+  }, [fetchData, stopPolling, qrModal.ticket]);
 
   const handleRequestQR = async () => {
     setQrModal({ open: true, qrUrl: null, ticket: null, error: null, hint: null, loading: true });
@@ -278,7 +291,7 @@ export default function WeChatSettingsPage() {
                   </p>
                   <div className="flex items-center gap-2 text-xs text-muted">
                     <Loader2 size={12} className="animate-spin" />
-                    等待扫码确认中…
+                    {qrModal.hint || "等待扫码确认中…"}
                   </div>
                 </>
               )}

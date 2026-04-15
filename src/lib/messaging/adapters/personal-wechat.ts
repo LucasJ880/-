@@ -1,14 +1,14 @@
 /**
- * 个人微信 Adapter — 基于 iLink Bot API
+ * 个人微信 Adapter — 基于 iLink Bot API (WeChat ClawBot)
  *
- * 使用 @wechatbot/wechatbot SDK 或直接 HTTP 调用 iLink API。
- * 考虑到 SDK 可能尚未安装，此处用纯 HTTP 实现核心协议，
- * 后续可无缝切换为 SDK 封装。
+ * 协议文档: https://www.wechatbot.dev/en/protocol
+ * 基础 URL: https://ilinkai.weixin.qq.com
  *
- * iLink API 端点: https://ilinkai.weixin.qq.com
- * 协议: QR 登录 → long-poll getupdates → sendmessage
+ * 登录流程: GET /ilink/bot/get_bot_qrcode → 轮询 get_qrcode_status → confirmed 获取 bot_token
+ * 消息收发: POST /ilink/bot/getupdates (long-poll) → POST /ilink/bot/sendmessage
  */
 
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import type {
   MessagingAdapter,
@@ -18,11 +18,31 @@ import type {
 } from "../types";
 
 const ILINK_BASE = process.env.ILINK_API_BASE || "https://ilinkai.weixin.qq.com";
-const ILINK_API_KEY = process.env.ILINK_API_KEY || "";
+
+function generateWechatUin(): string {
+  const buf = crypto.randomBytes(4);
+  const num = buf.readUInt32BE(0);
+  return Buffer.from(String(num)).toString("base64");
+}
+
+function buildHeaders(botToken?: string): Record<string, string> {
+  const h: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-WECHAT-UIN": generateWechatUin(),
+  };
+  if (botToken) {
+    h["AuthorizationType"] = "ilink_bot_token";
+    h["Authorization"] = `Bearer ${botToken}`;
+  }
+  return h;
+}
+
+const BASE_INFO = { base_info: { channel_version: "2.0.0" } };
 
 interface ILinkCredentials {
-  token: string;
-  contextToken: string;
+  botToken: string;
+  baseUrl: string;
+  getUpdatesBuf: string;
 }
 
 export class PersonalWeChatAdapter implements MessagingAdapter {
@@ -33,6 +53,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
   private messageHandler: MessageHandler | null = null;
   private pollAbort: AbortController | null = null;
   private orgId: string;
+  private contextTokenCache = new Map<string, string>();
 
   constructor(orgId: string) {
     this.orgId = orgId;
@@ -48,7 +69,6 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       return;
     }
 
-    // 如果有保存的凭证，尝试恢复连接
     if (gateway.status === "active") {
       this.status = "connected";
       this.startPolling();
@@ -70,17 +90,17 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     return this.status;
   }
 
+  /**
+   * 请求 QR 登录码
+   * GET /ilink/bot/get_bot_qrcode?bot_type=3
+   */
   async getLoginQR(): Promise<{ qrUrl: string; ticket: string }> {
     this.status = "qr_pending";
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (ILINK_API_KEY) headers["Authorization"] = `Bearer ${ILINK_API_KEY}`;
-
     try {
-      const res = await fetch(`${ILINK_BASE}/cgi-bin/mmloginqrcode/getqrcode`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ type: 1 }),
+      const res = await fetch(`${ILINK_BASE}/ilink/bot/get_bot_qrcode?bot_type=3`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!res.ok) {
@@ -89,11 +109,24 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       }
 
       const data = await res.json();
-      const qrUrl = data.qr_url || data.qrUrl || data.url || "";
-      const ticket = data.ticket || data.uuid || data.id || "";
+
+      const qrcode = data.qrcode || "";
+      const qrImgContent = data.qrcode_img_content || "";
+
+      let qrUrl = "";
+      if (qrImgContent) {
+        qrUrl = qrImgContent.startsWith("http")
+          ? qrImgContent
+          : `data:image/png;base64,${qrImgContent}`;
+      } else if (qrcode) {
+        qrUrl = `https://login.weixin.qq.com/qrcode/${qrcode}`;
+      }
 
       if (!qrUrl) {
-        throw new Error("iLink API 未返回有效的 QR 码 URL，请检查 ILINK_API_BASE 和 ILINK_API_KEY 配置");
+        throw new Error(
+          "iLink API 未返回有效的 QR 码，请检查服务是否可用。" +
+          ` 原始响应字段: ${Object.keys(data).join(", ")}`
+        );
       }
 
       await db.weChatGateway.upsert({
@@ -112,7 +145,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         },
       });
 
-      return { qrUrl, ticket };
+      return { qrUrl, ticket: qrcode };
     } catch (e) {
       this.status = "error";
       const errMsg = e instanceof Error ? e.message : String(e);
@@ -136,6 +169,53 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     }
   }
 
+  /**
+   * 轮询 QR 扫码状态
+   * GET /ilink/bot/get_qrcode_status?qrcode=...
+   *
+   * 状态机: wait → scaned → confirmed (或 expired)
+   * confirmed 时返回 bot_token 和 baseurl
+   */
+  async checkQRStatus(qrcode: string): Promise<{
+    status: "wait" | "scaned" | "confirmed" | "expired";
+    botToken?: string;
+    baseUrl?: string;
+    nickname?: string;
+  }> {
+    const res = await fetch(
+      `${ILINK_BASE}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
+      { method: "GET", headers: { "Content-Type": "application/json" } },
+    );
+
+    if (!res.ok) {
+      throw new Error(`QR 状态查询失败: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const status = data.status || "wait";
+
+    if (status === "confirmed") {
+      const botToken = data.bot_token || data.token || "";
+      const baseUrl = data.baseurl || data.base_url || ILINK_BASE;
+      const nickname = data.nickname || data.bot_nickname || "";
+
+      if (botToken) {
+        await this.completeLogin(botToken, baseUrl, nickname);
+      }
+
+      return { status: "confirmed", botToken, baseUrl, nickname };
+    }
+
+    if (status === "expired") {
+      await db.weChatGateway.updateMany({
+        where: { orgId: this.orgId, channel: "personal_wechat" },
+        data: { loginStatus: "disconnected", errorMessage: "二维码已过期，请重新扫码" },
+      });
+    }
+
+    return { status };
+  }
+
   async checkLoginStatus(): Promise<AdapterStatus> {
     const gateway = await db.weChatGateway.findUnique({
       where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
@@ -144,27 +224,31 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     return this.status;
   }
 
+  /**
+   * 发送文本消息
+   * POST /ilink/bot/sendmessage
+   */
   async sendText(to: string, content: string): Promise<string | undefined> {
     if (!this.credentials) {
       throw new Error("个人微信未登录");
     }
 
-    // 微信消息长度限制，自动分段
     const segments = splitMessage(content, 2000);
-
     let lastMsgId: string | undefined;
+
     for (const segment of segments) {
-      const res = await fetch(`${ILINK_BASE}/cgi-bin/mmbot/sendmessage`, {
+      const contextToken = this.contextTokenCache.get(to) || "";
+      const base = this.credentials.baseUrl || ILINK_BASE;
+
+      const res = await fetch(`${base}/ilink/bot/sendmessage`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.credentials.token}`,
-        },
+        headers: buildHeaders(this.credentials.botToken),
         body: JSON.stringify({
+          ...BASE_INFO,
           to_user: to,
           msg_type: 1,
           content: { text: segment },
-          context_token: this.credentials.contextToken,
+          context_token: contextToken,
         }),
       });
 
@@ -174,9 +258,13 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       }
 
       const data = await res.json();
+      if (data.errcode === -14) {
+        await this.handleSessionExpired();
+        throw new Error("会话已过期，请重新扫码登录");
+      }
+
       lastMsgId = data.msg_id?.toString();
 
-      // 分段之间短暂延迟，避免消息顺序错乱
       if (segments.length > 1) {
         await sleep(500);
       }
@@ -211,18 +299,20 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     poll().catch(() => {});
   }
 
+  /**
+   * 长轮询接收消息
+   * POST /ilink/bot/getupdates
+   */
   private async pollOnce(): Promise<void> {
     if (!this.credentials) return;
 
-    const res = await fetch(`${ILINK_BASE}/cgi-bin/mmbot/getupdates`, {
+    const base = this.credentials.baseUrl || ILINK_BASE;
+    const res = await fetch(`${base}/ilink/bot/getupdates`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.credentials.token}`,
-      },
+      headers: buildHeaders(this.credentials.botToken),
       body: JSON.stringify({
-        context_token: this.credentials.contextToken,
-        timeout: 30,
+        ...BASE_INFO,
+        get_updates_buf: this.credentials.getUpdatesBuf,
       }),
       signal: this.pollAbort?.signal,
     });
@@ -231,45 +321,30 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
 
     const data = await res.json();
 
-    // 更新 context_token
-    if (data.context_token) {
-      this.credentials.contextToken = data.context_token;
+    if (data.ret === -14 || data.errcode === -14) {
+      await this.handleSessionExpired();
+      return;
     }
 
-    // 处理消息
+    if (data.get_updates_buf) {
+      this.credentials.getUpdatesBuf = data.get_updates_buf;
+    }
+
     const updates = data.updates || data.messages || [];
     for (const update of updates) {
-      const msgType = update.msg_type ?? update.type ?? 1;
-      const isVoice = msgType === 34 || msgType === "voice";
-      const hasText = update.content?.text || update.text;
-      const hasVoice = isVoice && (update.content?.voice_url || update.voice_url || update.media_id);
-
-      if (!hasText && !hasVoice) continue;
-
-      let content = "";
-      let messageType: "text" | "voice" = "text";
-
-      if (hasVoice) {
-        messageType = "voice";
-        // 下载语音 → Whisper 转写
-        try {
-          const voiceUrl = update.content?.voice_url || update.voice_url;
-          const mediaId = update.media_id || update.content?.media_id;
-          content = await this.transcribeVoice(voiceUrl, mediaId);
-        } catch (e) {
-          console.error("[PersonalWeChatAdapter] Voice transcription failed:", e);
-          content = "[语音消息转写失败]";
-        }
-      } else {
-        content = update.content?.text || update.text || "";
+      if (update.context_token && update.from_user) {
+        this.contextTokenCache.set(update.from_user, update.context_token);
       }
+
+      const hasText = update.content?.text || update.text;
+      if (!hasText) continue;
 
       const msg: InboundMessage = {
         channel: "personal_wechat",
         externalUserId: update.from_user || update.from || "",
         externalUserName: update.from_nickname || update.nickname,
-        content,
-        messageType,
+        content: update.content?.text || update.text || "",
+        messageType: "text",
         externalMsgId: update.msg_id?.toString(),
         timestamp: new Date(update.timestamp ? update.timestamp * 1000 : Date.now()),
       };
@@ -282,49 +357,21 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     }
   }
 
-  /**
-   * 下载语音文件并调用 Whisper 转写
-   */
-  private async transcribeVoice(voiceUrl?: string, mediaId?: string): Promise<string> {
-    let audioBuffer: Buffer;
+  private async handleSessionExpired(): Promise<void> {
+    this.status = "disconnected";
+    this.credentials = null;
+    this.contextTokenCache.clear();
+    this.pollAbort?.abort();
+    this.pollAbort = null;
 
-    if (voiceUrl) {
-      const res = await fetch(voiceUrl);
-      if (!res.ok) throw new Error(`Download voice failed: ${res.status}`);
-      audioBuffer = Buffer.from(await res.arrayBuffer());
-    } else if (mediaId && this.credentials) {
-      // 通过 iLink media API 下载
-      const res = await fetch(`${ILINK_BASE}/cgi-bin/mmbot/getmedia`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.credentials.token}`,
-        },
-        body: JSON.stringify({ media_id: mediaId }),
-      });
-      if (!res.ok) throw new Error(`Download media failed: ${res.status}`);
-      audioBuffer = Buffer.from(await res.arrayBuffer());
-    } else {
-      throw new Error("No voice URL or media ID");
-    }
-
-    // Whisper API 转写
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
-
-    const formData = new FormData();
-    formData.append("file", new Blob([audioBuffer as unknown as BlobPart]), "voice.mp3");
-    formData.append("model", "whisper-1");
-
-    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
+    await db.weChatGateway.updateMany({
+      where: { orgId: this.orgId, channel: "personal_wechat" },
+      data: {
+        status: "inactive",
+        loginStatus: "disconnected",
+        errorMessage: "会话已过期，请重新扫码",
+      },
     });
-
-    if (!res.ok) throw new Error(`Whisper API error: ${res.status}`);
-    const data = await res.json();
-    return data.text || "";
   }
 
   private async updateHeartbeat(): Promise<void> {
@@ -334,11 +381,8 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     });
   }
 
-  /**
-   * 登录成功后由 API 路由调用，传入凭证
-   */
-  async completeLogin(token: string, contextToken: string, nickname?: string): Promise<void> {
-    this.credentials = { token, contextToken };
+  async completeLogin(botToken: string, baseUrl: string, nickname?: string): Promise<void> {
+    this.credentials = { botToken, baseUrl, getUpdatesBuf: "" };
     this.status = "connected";
 
     await db.weChatGateway.upsert({
@@ -356,6 +400,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         status: "active",
         botNickname: nickname,
         lastHeartbeat: new Date(),
+        errorMessage: null,
       },
     });
 
