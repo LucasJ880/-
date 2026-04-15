@@ -18,6 +18,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
     deliveryFee,
     taxRate,
     notes,
+    orderNumber,
+    formDataJson,
   } = body as {
     customerId: string;
     opportunityId?: string;
@@ -27,6 +29,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
     deliveryFee?: number;
     taxRate?: number;
     notes?: string;
+    orderNumber?: string;
+    formDataJson?: string;
   };
 
   if (!customerId || !items?.length) {
@@ -51,6 +55,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       opportunityId: opportunityId || null,
       version: existingCount + 1,
       shareToken,
+      orderNumber: orderNumber || null,
       installMode: installMode || 'default',
       merchSubtotal: calc.merchSubtotal,
       addonsSubtotal: calc.addonsSubtotal,
@@ -62,6 +67,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       taxAmount: calc.taxAmount,
       grandTotal: calc.grandTotal,
       notes: notes || null,
+      formDataJson: formDataJson || null,
       createdById: user.id,
       items: {
         create: calc.itemResults.map((r, idx) => ({

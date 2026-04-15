@@ -207,10 +207,12 @@ export function generateOrderNumber(opts: {
 
   const filled = lines.filter((l) => l.product && l.price);
 
-  // Count by product code
   const codeCounts: Record<string, number> = {};
   for (const l of filled) {
-    const code = PRODUCT_CODE_MAP[l.product] ?? "X";
+    let code = PRODUCT_CODE_MAP[l.product] ?? "X";
+    if (l.product === "Shutters") {
+      code = l.shutterMaterial === "Wooden" ? "W" : "V";
+    }
     codeCounts[code] = (codeCounts[code] ?? 0) + l.panelCount;
   }
 
@@ -220,16 +222,13 @@ export function generateOrderNumber(opts: {
     .map(([code, count]) => `${code}${count}`)
     .join("");
 
-  // SQF calculation — group products
-  const sqfShade = filled
-    .filter((l) => ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb"].includes(l.product))
-    .reduce((sum, l) => sum + ((l.widthIn ?? 0) * (l.heightIn ?? 0) * l.panelCount) / 144, 0);
-  const sqfDrape = filled
-    .filter((l) => ["Drapery", "Sheer"].includes(l.product))
-    .reduce((sum, l) => sum + ((l.widthIn ?? 0) * (l.heightIn ?? 0) * l.panelCount) / 144, 0);
-  const sqfShutter = filled
-    .filter((l) => l.product === "Shutters")
-    .reduce((sum, l) => sum + ((l.widthIn ?? 0) * (l.heightIn ?? 0) * l.panelCount) / 144, 0);
+  const calcSqf = (lines: PartALine[]) =>
+    lines.reduce((sum, l) => sum + ((l.widthIn ?? 0) * (l.heightIn ?? 0) * l.panelCount) / 144, 0);
+
+  const sqfShade = calcSqf(filled.filter((l) =>
+    ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb"].includes(l.product)));
+  const sqfDrape = calcSqf(filled.filter((l) => ["Drapery", "Sheer"].includes(l.product)));
+  const sqfShutter = calcSqf(filled.filter((l) => l.product === "Shutters"));
   const totalSqf = Math.round(sqfShade + sqfDrape + sqfShutter);
 
   const rep = salesRepInitials.toUpperCase().slice(0, 2);

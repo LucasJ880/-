@@ -109,8 +109,15 @@ export const POST = withAuth(async (req, _ctx, user) => {
     }
     try {
       const { PersonalWeChatAdapter } = await import("@/lib/messaging/adapters/personal-wechat");
+      const { registerAdapter, handleInboundMessage } = await import("@/lib/messaging/gateway");
       const adapter = new PersonalWeChatAdapter(membership.orgId);
       const result = await adapter.checkQRStatus(ticket);
+
+      if (result.status === "confirmed") {
+        adapter.onMessage(handleInboundMessage);
+        registerAdapter(adapter);
+      }
+
       return NextResponse.json(result);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
@@ -121,10 +128,16 @@ export const POST = withAuth(async (req, _ctx, user) => {
   if (action === "disconnect") {
     if (!channel) return NextResponse.json({ error: "缺少 channel" }, { status: 400 });
 
-    await db.weChatGateway.updateMany({
-      where: { orgId: membership.orgId, channel },
-      data: { status: "inactive", loginStatus: "disconnected" },
-    });
+    if (channel === "personal_wechat") {
+      const { PersonalWeChatAdapter } = await import("@/lib/messaging/adapters/personal-wechat");
+      const adapter = new PersonalWeChatAdapter(membership.orgId);
+      await adapter.stop();
+    } else {
+      await db.weChatGateway.updateMany({
+        where: { orgId: membership.orgId, channel },
+        data: { status: "inactive", loginStatus: "disconnected" },
+      });
+    }
 
     return NextResponse.json({ ok: true });
   }

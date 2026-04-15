@@ -69,7 +69,12 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       return;
     }
 
-    if (gateway.status === "active") {
+    if (gateway.status === "active" && gateway.botToken) {
+      this.credentials = {
+        botToken: gateway.botToken,
+        baseUrl: gateway.botBaseUrl || ILINK_BASE,
+        getUpdatesBuf: gateway.getUpdatesBuf || "",
+      };
       this.status = "connected";
       this.startPolling();
     }
@@ -78,11 +83,12 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
   async stop(): Promise<void> {
     this.pollAbort?.abort();
     this.pollAbort = null;
+    this.credentials = null;
     this.status = "disconnected";
 
     await db.weChatGateway.updateMany({
       where: { orgId: this.orgId, channel: "personal_wechat" },
-      data: { status: "inactive", loginStatus: "disconnected" },
+      data: { status: "inactive", loginStatus: "disconnected", botToken: null },
     });
   }
 
@@ -328,6 +334,10 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
 
     if (data.get_updates_buf) {
       this.credentials.getUpdatesBuf = data.get_updates_buf;
+      db.weChatGateway.updateMany({
+        where: { orgId: this.orgId, channel: "personal_wechat" },
+        data: { getUpdatesBuf: data.get_updates_buf },
+      }).catch(() => {});
     }
 
     const updates = data.updates || data.messages || [];
@@ -369,6 +379,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       data: {
         status: "inactive",
         loginStatus: "disconnected",
+        botToken: null,
         errorMessage: "会话已过期，请重新扫码",
       },
     });
@@ -393,12 +404,18 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         loginStatus: "connected",
         status: "active",
         botNickname: nickname,
+        botToken,
+        botBaseUrl: baseUrl,
+        getUpdatesBuf: "",
         lastHeartbeat: new Date(),
       },
       update: {
         loginStatus: "connected",
         status: "active",
         botNickname: nickname,
+        botToken,
+        botBaseUrl: baseUrl,
+        getUpdatesBuf: "",
         lastHeartbeat: new Date(),
         errorMessage: null,
       },

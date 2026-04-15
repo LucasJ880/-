@@ -2233,7 +2233,9 @@ model SalesQuote {
   currency         String    @default("CAD")
   sentAt           DateTime?
   emailMessageId   String?
+  orderNumber      String?
   notes            String?   @db.Text
+  formDataJson     String?   @db.Text
 
   // Sprint 21 新增字段
   shareToken       String?   @unique  // 报价分享链接 token
@@ -2731,8 +2733,11 @@ model WeChatGateway {
   orgId         String
   channel       String   // personal_wechat / wecom
 
-  // 个人微信字段
-  botNickname   String?  // 登录的微信昵称
+  // 个人微信 iLink 字段
+  botNickname   String?
+  botToken      String?  @db.Text
+  botBaseUrl    String?
+  getUpdatesBuf String?  @db.Text
   loginStatus   String   @default("disconnected") // qr_pending / scanning / connected / disconnected
 
   // 企业微信字段

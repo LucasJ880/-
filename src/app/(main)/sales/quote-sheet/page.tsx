@@ -18,11 +18,13 @@ import {
   AlertTriangle,
   CheckCircle,
   RefreshCw,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { apiFetch } from "@/lib/api-fetch";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 
 import type {
   PartALine,
@@ -115,7 +117,8 @@ function makeDrapeLines(count: number): DrapeOrderLine[] {
 export default function QuoteSheetPage() {
   const [activeTab, setActiveTab] = useState<TabId>("partA");
   const [saving, setSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean } | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean; quoteId?: string } | null>(null);
 
   // Customer selector
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -125,6 +128,10 @@ export default function QuoteSheetPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [heardUsOn, setHeardUsOn] = useState("");
+
+  // Opportunity selector
+  const [opportunities, setOpportunities] = useState<{ id: string; title: string; stage: string }[]>([]);
+  const [opportunityId, setOpportunityId] = useState("");
 
   // Order info
   const [date, setDate] = useState(new Date().toLocaleDateString("en-CA"));
@@ -178,10 +185,11 @@ export default function QuoteSheetPage() {
     })();
   }, []);
 
-  // Auto-fill customer info when selected
-  const handleCustomerSelect = useCallback((id: string) => {
+  const handleCustomerSelect = useCallback(async (id: string) => {
     setCustomerId(id);
     setLastSaved(null);
+    setOpportunityId("");
+    setOpportunities([]);
     const c = customers.find((x) => x.id === id);
     if (c) {
       setCustomerName(c.name);
@@ -189,6 +197,14 @@ export default function QuoteSheetPage() {
       setCustomerEmail(c.email ?? "");
       setCustomerAddress(c.address ?? "");
       setHeardUsOn(c.source ?? "");
+
+      try {
+        const res = await apiFetch(`/api/sales/customers/${id}/opportunities`);
+        const data = await res.json();
+        const opps = (data.opportunities ?? []) as { id: string; title: string; stage: string }[];
+        setOpportunities(opps);
+        if (opps.length === 1) setOpportunityId(opps[0].id);
+      } catch { /* ignore */ }
     } else {
       setCustomerName("");
       setCustomerPhone("");
@@ -227,55 +243,57 @@ export default function QuoteSheetPage() {
     if (!customerId) return;
     setSaving(true);
     try {
-      const formData: QuoteFormState = {
-        orderNumber,
-        date,
-        customerId,
-        customerName,
-        customerPhone,
-        customerEmail,
-        customerAddress,
-        heardUsOn,
-        salesRep,
-        measureSequence,
-        partALines: partALines.filter((l) => l.product && l.price),
-        partBAddons,
-        partBNotes,
-        paymentMethod,
-        depositAmount,
-        balanceAmount,
-        financeEligible,
-        financeApproved,
-        financeDifference,
-        partCServices,
-        partCAddOns,
+      const filledLines = partALines.filter((l) => l.product && l.fabric && l.widthIn && l.heightIn);
+      if (filledLines.length === 0) {
+        console.error("Save failed: no valid Part A lines");
+        return;
+      }
+
+      const items: QuoteItemInput[] = filledLines.flatMap((line) => {
+        const qty = Math.max(1, line.panelCount);
+        const item: QuoteItemInput = {
+          product: line.product as QuoteItemInput["product"],
+          fabric: line.fabric,
+          widthIn: line.widthIn!,
+          heightIn: line.heightIn!,
+          cordless: line.cordless,
+          discountOverridePct: line.discountOverride,
+          location: line.roomName,
+          sku: line.fabric,
+        };
+        return Array.from({ length: qty }, () => ({ ...item }));
+      });
+
+      const fullFormData: QuoteFormState = {
+        orderNumber, date, customerId, customerName, customerPhone,
+        customerEmail, customerAddress, heardUsOn, salesRep, measureSequence,
+        partALines: filledLines,
+        partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
+        financeEligible, financeApproved, financeDifference,
+        partCServices, partCAddOns,
         shadeOrders: shadeOrders.filter((l) => l.location),
         shutterOrders: shutterOrders.filter((l) => l.location),
         drapeOrders: drapeOrders.filter((l) => l.location),
-        shutterMaterial,
-        shutterLouverSize,
-        shadeValanceType,
-        shadeBracketType,
+        shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
       };
-
-      const quoteId = crypto.randomUUID();
-      let statusAdvanced = false;
 
       const res = await apiFetch("/api/sales/quotes", {
         method: "POST",
         body: JSON.stringify({
           customerId,
+          opportunityId: opportunityId || undefined,
+          items,
           orderNumber,
-          formData,
-          id: quoteId,
+          formDataJson: JSON.stringify(fullFormData),
         }),
       }).then((r) => r.json());
-      statusAdvanced = res.lifecycle?.autoAdvanced ?? false;
 
+      const statusAdvanced = res.lifecycle?.autoAdvanced ?? false;
       setLastSaved({
         time: new Date().toLocaleTimeString("en-CA"),
         orderNum: orderNumber,
         statusAdvanced,
+        quoteId: res.quote?.id,
       });
     } catch (err) {
       console.error("Save failed:", err);
@@ -283,13 +301,31 @@ export default function QuoteSheetPage() {
       setSaving(false);
     }
   }, [
-    orderNumber, date, customerId, customerName, customerPhone, customerEmail,
-    customerAddress, heardUsOn, salesRep, measureSequence,
+    orderNumber, date, customerId, opportunityId, customerName, customerPhone,
+    customerEmail, customerAddress, heardUsOn, salesRep, measureSequence,
     partALines, partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
     financeEligible, financeApproved, financeDifference, partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
-    shadeValanceType, shadeBracketType, subtotalA, subtotalB, subtotalC,
+    shadeValanceType, shadeBracketType,
   ]);
+
+  const handleSendEmail = useCallback(async () => {
+    if (!lastSaved?.quoteId || !customerEmail) return;
+    setSendingEmail(true);
+    try {
+      const res = await apiFetch(`/api/sales/quotes/${lastSaved.quoteId}/send-email`, {
+        method: "POST",
+        body: JSON.stringify({ to: customerEmail, lang: "en" }),
+      }).then((r) => r.json());
+      if (res.messageId || res.status === "sent") {
+        setLastSaved((prev) => prev ? { ...prev, emailSent: true } as typeof prev : prev);
+      }
+    } catch (err) {
+      console.error("Email send failed:", err);
+    } finally {
+      setSendingEmail(false);
+    }
+  }, [lastSaved?.quoteId, customerEmail]);
 
   // PDF export
   const handleExportPDF = useCallback(async () => {
@@ -490,6 +526,26 @@ export default function QuoteSheetPage() {
               Please select a customer to save
             </span>
           )}
+          {opportunities.length > 1 && (
+            <div className="w-56">
+              <Label className="text-xs">Opportunity</Label>
+              <div className="relative mt-1">
+                <select
+                  value={opportunityId}
+                  onChange={(e) => setOpportunityId(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-sm appearance-none min-h-[44px]"
+                >
+                  <option value="">— Auto-link —</option>
+                  {opportunities.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.title} ({o.stage})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -627,6 +683,14 @@ export default function QuoteSheetPage() {
           <Button variant="outline" size="sm" onClick={handleExportPDF} className="gap-1.5">
             <FileDown className="h-4 w-4" /> Export PDF
           </Button>
+          {lastSaved?.quoteId && customerEmail && (
+            <Button variant="outline" size="sm" onClick={handleSendEmail}
+              disabled={sendingEmail}
+              className="gap-1.5">
+              {sendingEmail ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {sendingEmail ? "Sending..." : "Email to Customer"}
+            </Button>
+          )}
           <Button size="sm" onClick={handleSave}
             disabled={saving || !customerId}
             className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50">
