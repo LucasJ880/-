@@ -49,6 +49,7 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["jspdf", "jspdf-autotable"],
+  turbopack: {},
 };
 
 export default withPWA(nextConfig);

@@ -44,10 +44,16 @@ export function AiAlertPanel() {
     setLoading(true);
     try {
       const res = await apiFetch("/api/sales/daily-briefing");
+      if (!res.ok) throw new Error(`briefing ${res.status}`);
       const data = await res.json();
-      setBriefing(data.briefing);
-    } catch {}
-    finally { setLoading(false); }
+      if (data?.briefing && typeof data.briefing === "object") {
+        setBriefing(data.briefing);
+      }
+    } catch (err) {
+      console.warn("[AiAlertPanel] loadBriefing failed:", err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { loadBriefing(); }, [loadBriefing]);
@@ -55,7 +61,8 @@ export function AiAlertPanel() {
   const prevExpandedRef = useRef(false);
   useEffect(() => {
     if (expanded && !prevExpandedRef.current && briefing) {
-      const emailItems = briefing.urgentItems.filter(
+      const safeItems = Array.isArray(briefing.urgentItems) ? briefing.urgentItems : [];
+      const emailItems = safeItems.filter(
         (i) => i.action?.payload?.customerId && EMAIL_SCENES[i.category],
       );
       for (const item of emailItems) {
@@ -130,8 +137,9 @@ export function AiAlertPanel() {
 
   if (!briefing && !loading) return null;
 
-  const urgentCount = briefing?.urgentItems.filter((i) => i.severity === "urgent").length ?? 0;
-  const warningCount = briefing?.urgentItems.filter((i) => i.severity === "warning").length ?? 0;
+  const items = Array.isArray(briefing?.urgentItems) ? briefing.urgentItems : [];
+  const urgentCount = items.filter((i) => i.severity === "urgent").length;
+  const warningCount = items.filter((i) => i.severity === "warning").length;
 
   return (
     <>
@@ -152,7 +160,7 @@ export function AiAlertPanel() {
                   <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{warningCount} 注意</span>
                 )}
               </div>
-              <p className="text-xs text-muted">{briefing ? `今日简报 · ${briefing.urgentItems.length} 项待处理` : "加载中..."}</p>
+              <p className="text-xs text-muted">{briefing ? `今日简报 · ${items.length} 项待处理` : "加载中..."}</p>
             </div>
             <ChevronDownIcon className={cn("h-4 w-4 text-muted transition-transform", expanded && "rotate-180")} />
           </button>
@@ -172,9 +180,9 @@ export function AiAlertPanel() {
               {briefing.aiSummary}
             </div>
 
-            {briefing.urgentItems.length > 0 && (
+            {items.length > 0 && (
               <div className="space-y-3">
-                {briefing.urgentItems.slice(0, 8).map((item, idx) => {
+                {items.slice(0, 8).map((item, idx) => {
                   const customerId = item.action?.payload?.customerId;
                   const canEmail = customerId && EMAIL_SCENES[item.category];
                   const isSent = customerId ? emailSent.has(customerId) : false;

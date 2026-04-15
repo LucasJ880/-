@@ -157,9 +157,18 @@ export function PipelineBoard({
   useEffect(() => {
     if (opportunities.length === 0) return;
     apiFetch("/api/sales/opportunities/health-batch")
-      .then((r) => r.json())
-      .then((d) => { if (d.healthMap) setHealthMap(d.healthMap); })
-      .catch(() => {});
+      .then((r) => {
+        if (!r.ok) throw new Error(`health-batch ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (d?.healthMap && typeof d.healthMap === "object") {
+          setHealthMap(d.healthMap);
+        }
+      })
+      .catch((err) => {
+        console.warn("[PipelineBoard] health-batch failed:", err);
+      });
   }, [opportunities]);
 
   const grouped = STAGES.map((stage) => ({

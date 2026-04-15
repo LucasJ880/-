@@ -25,8 +25,11 @@ export default function SalesPage() {
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const isOnline = useOnlineStatus();
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       if (viewMode === "pipeline") {
         if (isOnline) {
@@ -34,10 +37,15 @@ export default function SalesPage() {
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             console.error("Opportunities API error:", res.status, errData);
-            throw new Error(errData.error || `API ${res.status}`);
+            throw new Error(
+              (errData as { error?: string }).error || `API ${res.status}`,
+            );
           }
           const data = await res.json();
-          setOpportunities(data.opportunities || []);
+          const list = Array.isArray(data?.opportunities)
+            ? data.opportunities
+            : [];
+          setOpportunities(list);
         }
       } else {
         let serverCustomers: Customer[] = [];
@@ -45,49 +53,68 @@ export default function SalesPage() {
           const qs = search ? `?search=${encodeURIComponent(search)}` : "";
           const res = await apiFetch(`/api/sales/customers${qs}`);
           const data = await res.json();
-          serverCustomers = data.customers || [];
+          serverCustomers = Array.isArray(data?.customers)
+            ? data.customers
+            : [];
         }
 
-        const offlineCustomers = await offlineDb.customers
-          .where("syncStatus")
-          .equals("pending")
-          .toArray();
+        let offlineCustomers: Customer[] = [];
+        try {
+          const pending = await offlineDb.customers
+            .where("syncStatus")
+            .equals("pending")
+            .toArray();
+          offlineCustomers = pending.map((c) => ({
+            id: c.localId,
+            name: c.name,
+            phone: c.phone ?? null,
+            email: c.email ?? null,
+            address: c.address ?? null,
+            source: c.source ?? null,
+            status: "active",
+            tags: c.tags ?? null,
+            notes: c.notes ?? null,
+            createdAt: c.createdAt,
+            updatedAt: c.updatedAt,
+            _offlinePending: true,
+          } as Customer & { _offlinePending?: boolean }));
+        } catch {
+          // IndexedDB unavailable — ignore
+        }
 
-        const pendingAsCustomers: Customer[] = offlineCustomers.map((c) => ({
-          id: c.localId,
-          name: c.name,
-          phone: c.phone ?? null,
-          email: c.email ?? null,
-          address: c.address ?? null,
-          source: c.source ?? null,
-          status: "active",
-          tags: c.tags ?? null,
-          notes: c.notes ?? null,
-          createdAt: c.createdAt,
-          updatedAt: c.updatedAt,
-          _offlinePending: true,
-        } as Customer & { _offlinePending?: boolean }));
-
-        setCustomers([...pendingAsCustomers, ...serverCustomers]);
+        setCustomers([...offlineCustomers, ...serverCustomers]);
       }
     } catch (err) {
       console.error("Load sales data failed:", err);
+      setLoadError(err instanceof Error ? err.message : String(err));
       if (viewMode === "customers") {
-        const offlineCustomers = await offlineDb.customers.orderBy("updatedAt").reverse().toArray();
-        setCustomers(offlineCustomers.map((c) => ({
-          id: c.serverId || c.localId,
-          name: c.name,
-          phone: c.phone ?? null,
-          email: c.email ?? null,
-          address: c.address ?? null,
-          source: c.source ?? null,
-          status: "active",
-          tags: c.tags ?? null,
-          notes: c.notes ?? null,
-          createdAt: c.createdAt,
-          updatedAt: c.updatedAt,
-          _offlinePending: c.syncStatus === "pending",
-        } as Customer & { _offlinePending?: boolean })));
+        try {
+          const offlineCustomers = await offlineDb.customers
+            .orderBy("updatedAt")
+            .reverse()
+            .toArray();
+          setCustomers(
+            offlineCustomers.map(
+              (c) =>
+                ({
+                  id: c.serverId || c.localId,
+                  name: c.name,
+                  phone: c.phone ?? null,
+                  email: c.email ?? null,
+                  address: c.address ?? null,
+                  source: c.source ?? null,
+                  status: "active",
+                  tags: c.tags ?? null,
+                  notes: c.notes ?? null,
+                  createdAt: c.createdAt,
+                  updatedAt: c.updatedAt,
+                  _offlinePending: c.syncStatus === "pending",
+                }) as Customer & { _offlinePending?: boolean },
+            ),
+          );
+        } catch {
+          // IndexedDB fallback also failed — leave empty
+        }
       }
     } finally {
       setLoading(false);
@@ -170,6 +197,16 @@ export default function SalesPage() {
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-5 w-5 animate-spin text-muted" />
+        </div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-red-200 bg-red-50/40 py-16 gap-3">
+          <p className="text-sm font-medium text-red-700">加载失败: {loadError}</p>
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3.5 py-2 text-[13px] font-medium text-white"
+          >
+            重试
+          </button>
         </div>
       ) : viewMode === "pipeline" ? (
         <PipelineBoard opportunities={opportunities} onRefresh={loadData} />
