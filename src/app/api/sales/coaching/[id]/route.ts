@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { recordAdoption } from "@/lib/sales/coaching-service";
 
-export const PATCH = withAuth(async (request, ctx, user) => {
+export const PATCH = withAuth(async (request, ctx) => {
   const { id } = await ctx.params;
   const body = await request.json();
 

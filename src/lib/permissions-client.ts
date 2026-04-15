@@ -1,10 +1,12 @@
 /**
  * 前端权限判断 helpers
- * 复用后端 RBAC 角色常量逻辑，避免页面中手写字符串
+ *
+ * SYNC: isSuperAdmin / isAdmin 逻辑必须与 src/lib/rbac/roles.ts 保持一致。
+ * 参数类型放宽为 string | null | undefined 以适配客户端未加载状态。
  */
 
 export function isSuperAdmin(role: string | null | undefined): boolean {
-  return role === "super_admin" || role === "admin";
+  return role === "admin" || role === "super_admin";
 }
 
 export function isAdmin(role: string | null | undefined): boolean {
@@ -28,7 +30,8 @@ export function canViewAdminPages(platformRole: string | null | undefined): bool
 }
 
 /**
- * 检查前端模块可见性（与 role-access.ts 同步）
+ * 检查前端模块可见性
+ * SYNC: MODULE_ROLES 映射与 src/lib/rbac/role-access.ts MODULE_VISIBILITY 同源。
  */
 export function canAccessModule(role: string | null | undefined, modulePath: string): boolean {
   if (!role) return false;

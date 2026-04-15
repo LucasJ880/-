@@ -21,10 +21,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
-import { offlineDb } from "@/lib/offline/db";
-import { enqueue } from "@/lib/offline/sync-engine";
-import { useOnlineStatus } from "@/lib/offline/hooks";
-import { OfflineStatusDot } from "@/components/offline-indicator";
 import { apiFetch } from "@/lib/api-fetch";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 
@@ -117,7 +113,6 @@ function makeDrapeLines(count: number): DrapeOrderLine[] {
 }
 
 export default function QuoteSheetPage() {
-  const isOnline = useOnlineStatus();
   const [activeTab, setActiveTab] = useState<TabId>("partA");
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean } | null>(null);
@@ -173,31 +168,13 @@ export default function QuoteSheetPage() {
   const sigShuttersRef = useRef<PencilCanvasRef>(null);
   const sigDrapesRef = useRef<PencilCanvasRef>(null);
 
-  // Load customers from API
   useEffect(() => {
     (async () => {
       try {
-        if (navigator.onLine) {
-          const res = await apiFetch("/api/sales/customers?limit=200");
-          const d = await res.json();
-          setCustomers((d.customers ?? []) as CustomerOption[]);
-        }
-      } catch { /* offline */ }
-
-      const offlineCustomers = await offlineDb.customers.toArray();
-      setCustomers((prev) => {
-        const ids = new Set(prev.map((c) => c.id));
-        const extra = offlineCustomers
-          .filter((c) => !c.serverId || !ids.has(c.serverId))
-          .map((c) => ({
-            id: c.serverId || c.localId,
-            name: c.name,
-            phone: c.phone,
-            email: c.email,
-            address: c.address,
-          }));
-        return [...prev, ...extra];
-      });
+        const res = await apiFetch("/api/sales/customers?limit=200");
+        const d = await res.json();
+        setCustomers((d.customers ?? []) as CustomerOption[]);
+      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -246,7 +223,6 @@ export default function QuoteSheetPage() {
     });
   }, [date, measureSequence, partALines, salesRep]);
 
-  // Save handler
   const handleSave = useCallback(async () => {
     if (!customerId) return;
     setSaving(true);
@@ -283,63 +259,18 @@ export default function QuoteSheetPage() {
       };
 
       const quoteId = crypto.randomUUID();
-      const preTax = subtotalA + subtotalB + subtotalC;
-      const taxAmount = Math.round(preTax * HST_RATE * 100) / 100;
-
-      await offlineDb.quotes.put({
-        localId: quoteId,
-        customerLocalId: customerId,
-        items: [],
-        addons: [],
-        installMode: "standard",
-        merchSubtotal: subtotalA,
-        addonsSubtotal: subtotalB,
-        installSubtotal: subtotalC,
-        installApplied: subtotalC,
-        deliveryFee: DELIVERY_FEE,
-        preTaxTotal: preTax,
-        taxRate: HST_RATE,
-        taxAmount,
-        grandTotal: preTax + taxAmount,
-        notes: JSON.stringify(formData),
-        syncStatus: "pending",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-
-      const syncBody = JSON.stringify({ ...formData, id: quoteId });
       let statusAdvanced = false;
 
-      if (isOnline) {
-        try {
-          const res = await apiFetch("/api/sales/quotes", {
-            method: "POST",
-            body: JSON.stringify({
-              customerId,
-              orderNumber,
-              formData,
-              id: quoteId,
-            }),
-          }).then((r) => r.json());
-          statusAdvanced = res.lifecycle?.autoAdvanced ?? false;
-        } catch {
-          enqueue({
-            table: "quotes",
-            localId: quoteId,
-            url: "/api/sales/quotes",
-            method: "POST",
-            body: syncBody,
-          });
-        }
-      } else {
-        enqueue({
-          table: "quotes",
-          localId: quoteId,
-          url: "/api/sales/quotes",
-          method: "POST",
-          body: syncBody,
-        });
-      }
+      const res = await apiFetch("/api/sales/quotes", {
+        method: "POST",
+        body: JSON.stringify({
+          customerId,
+          orderNumber,
+          formData,
+          id: quoteId,
+        }),
+      }).then((r) => r.json());
+      statusAdvanced = res.lifecycle?.autoAdvanced ?? false;
 
       setLastSaved({
         time: new Date().toLocaleTimeString("en-CA"),
@@ -357,7 +288,7 @@ export default function QuoteSheetPage() {
     partALines, partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
     financeEligible, financeApproved, financeDifference, partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
-    shadeValanceType, shadeBracketType, subtotalA, subtotalB, subtotalC, isOnline,
+    shadeValanceType, shadeBracketType, subtotalA, subtotalB, subtotalC,
   ]);
 
   // PDF export
@@ -523,7 +454,6 @@ export default function QuoteSheetPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-muted-foreground">Customer & Order Info</h2>
           <div className="flex items-center gap-2">
-            <OfflineStatusDot />
             {lastSaved && (
               <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
                 <CheckCircle className="h-3.5 w-3.5" />
@@ -701,7 +631,7 @@ export default function QuoteSheetPage() {
             disabled={saving || !customerId}
             className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50">
             {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "Saving..." : isOnline ? "Save & Update Status" : "Save Offline"}
+            {saving ? "Saving..." : "Save & Update Status"}
           </Button>
         </div>
       </div>

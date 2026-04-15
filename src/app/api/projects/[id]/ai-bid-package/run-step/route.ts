@@ -5,8 +5,8 @@
  * 前端逐步调用直到所有步骤完成。
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { getSkill } from "@/lib/agent/skills";
 import "@/lib/agent/skills/index";
@@ -14,15 +14,8 @@ import { runStepCheck } from "@/lib/agent/checker";
 import type { SkillContext, SkillResult } from "@/lib/agent/types";
 import { notifyProjectMembers } from "@/lib/notifications/create";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-export async function POST(request: NextRequest, { params }: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id: projectId } = await params;
+export const POST = withAuth(async (request, routeCtx, user) => {
+  const { id: projectId } = await routeCtx.params;
   const body = await request.json();
   const taskId = body.taskId as string | undefined;
 
@@ -46,7 +39,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ done: true, status: task.status, message: `任务已${task.status === "failed" ? "失败" : "取消"}` });
   }
 
-  // 找到下一个 pending 步骤
   const nextStep = task.steps.find((s) => s.status === "pending");
   if (!nextStep) {
     await db.agentTask.update({
@@ -56,7 +48,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ done: true, status: "completed", message: "所有步骤已完成" });
   }
 
-  // 标记任务为 running
   if (task.status === "queued") {
     await db.agentTask.update({
       where: { id: taskId },
@@ -84,7 +75,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     });
   }
 
-  // 标记步骤开始
   await db.agentTaskStep.update({
     where: { id: nextStep.id },
     data: { status: "running", startedAt: new Date() },
@@ -94,7 +84,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     data: { status: "waiting_for_subagent", currentStepIndex: nextStep.stepIndex },
   });
 
-  // 构建 input
   const input = await buildInput(taskId, nextStep.id);
 
   const ctx: SkillContext = {
@@ -131,7 +120,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
   }
   const durationMs = Date.now() - t0;
 
-  // 保存结果
   await db.agentTaskStep.update({
     where: { id: nextStep.id },
     data: {
@@ -140,7 +128,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     },
   });
 
-  // 审查
   const checkReport = runStepCheck(nextStep.skillId, result);
   await db.agentTaskStep.update({
     where: { id: nextStep.id },
@@ -162,7 +149,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
       data: { status: "completed", completedAt: new Date() },
     });
 
-    // 检查是否全部完成
     const remaining = task.steps.filter(
       (s) => s.status === "pending" && s.id !== nextStep.id
     );
@@ -176,7 +162,6 @@ export async function POST(request: NextRequest, { params }: Ctx) {
         },
       });
 
-      // 通知项目成员：AI 投标方案已完成
       notifyProjectMembers(projectId, user.id, {
         type: "agent_task",
         title: "AI 投标方案已生成",
@@ -205,7 +190,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     error: result.error,
     durationMs,
   });
-}
+});
 
 async function buildInput(
   taskId: string,

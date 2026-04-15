@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request) => {
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
   const productType = url.searchParams.get("productType");
@@ -21,11 +18,9 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ fabrics });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+export const POST = withAuth(async (request, _ctx, user) => {
   if (user.role !== "admin" && user.role !== "super_admin") {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
@@ -53,4 +48,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ fabric }, { status: 201 });
-}
+});

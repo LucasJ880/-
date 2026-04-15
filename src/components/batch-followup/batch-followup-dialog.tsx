@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { sanitizeHtml } from "@/lib/common/sanitize";
 
 interface Draft {
   supplierId: string;
@@ -219,7 +220,7 @@ export function BatchFollowupDialog({ projectId, onClose, onSent }: Props) {
                         <p className="mt-3 text-xs font-medium text-muted">正文预览</p>
                         <div
                           className="mt-1 max-h-40 overflow-y-auto rounded-md bg-background p-3 text-xs leading-relaxed"
-                          dangerouslySetInnerHTML={{ __html: draft.body }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(draft.body) }}
                         />
                       </div>
                     )}

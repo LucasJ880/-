@@ -8,7 +8,6 @@ import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import {
   isValidRating,
   isValidScore,
-  isValidFeedbackStatus,
   isValidSentiment,
   isValidIssueType,
   FEEDBACK_STATUSES,

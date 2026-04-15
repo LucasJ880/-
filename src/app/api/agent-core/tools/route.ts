@@ -5,17 +5,12 @@
  * query: ?domain=trade — 按域过滤
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { registry } from "@/lib/agent-core";
 import type { ToolDomain } from "@/lib/agent-core";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request) => {
   const domain = request.nextUrl.searchParams.get("domain") as ToolDomain | null;
   const tools = registry.list(domain ? { domains: [domain] } : undefined);
 
@@ -29,4 +24,4 @@ export async function GET(request: NextRequest) {
       parameters: t.parameters,
     })),
   });
-}
+});

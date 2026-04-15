@@ -4,17 +4,12 @@
  * GET  /api/cockpit — 获取完整驾驶舱数据
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeCockpitData } from "@/lib/cockpit/metrics-engine";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, ctx, user) => {
   const membership = await db.organizationMember.findFirst({
     where: { userId: user.id },
     select: { orgId: true },
@@ -26,4 +21,4 @@ export async function GET(req: NextRequest) {
 
   const data = await computeCockpitData(membership.orgId);
   return NextResponse.json(data);
-}
+});

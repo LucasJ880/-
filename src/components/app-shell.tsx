@@ -1,13 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect, createContext, useContext } from "react";
+import { useState, useCallback, createContext, useContext } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { X } from "lucide-react";
 import { LocaleProvider } from "@/lib/i18n/context";
-import { OfflineIndicator } from "./offline-indicator";
-import { SyncToast } from "./sync-toast";
-import { initSyncEngine } from "@/lib/offline/sync-engine";
 
 interface AppShellContextValue {
   mobileOpen: boolean;
@@ -30,10 +27,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const openMobileSidebar = useCallback(() => setMobileOpen(true), []);
   const closeMobileSidebar = useCallback(() => setMobileOpen(false), []);
-
-  useEffect(() => {
-    initSyncEngine();
-  }, []);
 
   return (
     <LocaleProvider>
@@ -73,15 +66,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Header />
           <main className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6 md:py-5">
-              <div className="mb-3">
-                <OfflineIndicator />
-              </div>
               {children}
             </div>
           </main>
         </div>
       </div>
-      <SyncToast />
     </AppShellContext.Provider>
     </LocaleProvider>
   );

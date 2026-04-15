@@ -8,9 +8,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processInboundMessage } from "@/lib/trade/channel-service";
 
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN ?? "qingyan-whatsapp-verify";
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
 export async function GET(request: NextRequest) {
+  if (!VERIFY_TOKEN) {
+    return NextResponse.json({ error: "Webhook 未配置" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
@@ -23,6 +27,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!VERIFY_TOKEN) {
+    return NextResponse.json({ error: "Webhook 未配置" }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
 

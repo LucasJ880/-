@@ -1,15 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { syncAppointmentToGoogle, hasGoogleCalendar } from "@/lib/sales/appointment-gcal-sync";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const POST = withAuth(async (_request, ctx, user) => {
+  const { id } = await ctx.params;
 
   const connected = await hasGoogleCalendar(user.id);
   if (!connected) {
@@ -25,4 +19,4 @@ export async function POST(
     synced: result.synced,
     googleEventId: result.googleEventId ?? null,
   });
-}
+});

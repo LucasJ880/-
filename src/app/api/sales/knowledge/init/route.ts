@@ -1,10 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { createVectorIndexes } from "@/lib/sales/vector-search";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user || user.role !== "admin") {
+export const POST = withAuth(async (_request, _ctx, user) => {
+  if (user.role !== "admin") {
     return NextResponse.json({ error: "需要管理员权限" }, { status: 403 });
   }
 
@@ -17,4 +16,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

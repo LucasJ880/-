@@ -5,7 +5,12 @@ import { createSession, setSessionCookie } from "@/lib/auth/session";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+  }
   const { email, password } = body as {
     email?: string;
     password?: string;

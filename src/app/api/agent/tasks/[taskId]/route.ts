@@ -1,17 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-
-type Ctx = { params: Promise<{ taskId: string }> };
 
 /**
  * GET /api/agent/tasks/:taskId
  * 任务详情（含步骤 + 审批）
  */
-export async function GET(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, ctx) => {
   const { taskId } = await ctx.params;
 
   const task = await db.agentTask.findUnique({
@@ -36,16 +31,13 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (!task) return NextResponse.json({ error: "任务不存在" }, { status: 404 });
 
   return NextResponse.json({ task });
-}
+});
 
 /**
  * PATCH /api/agent/tasks/:taskId
  * 更新任务（目前仅支持 pause/resume）
  */
-export async function PATCH(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const PATCH = withAuth(async (request, ctx) => {
   const { taskId } = await ctx.params;
   const body = await request.json();
   const { action } = body as { action: "pause" | "resume" };
@@ -59,4 +51,4 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   return NextResponse.json({ error: "不支持的操作" }, { status: 400 });
-}
+});

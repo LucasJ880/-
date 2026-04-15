@@ -3,7 +3,7 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import { onDealWon, onDealLost } from '@/lib/sales/opportunity-lifecycle';
 
-export const PATCH = withAuth(async (request, ctx, user) => {
+export const PATCH = withAuth(async (request, ctx) => {
   const { id } = await ctx.params;
   const body = await request.json();
 
@@ -58,7 +58,7 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   return NextResponse.json(updated);
 });
 
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (_request, ctx) => {
   const { id } = await ctx.params;
 
   const opportunity = await db.salesOpportunity.findUnique({

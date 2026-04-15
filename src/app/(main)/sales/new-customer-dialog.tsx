@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, WifiOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   Dialog,
@@ -21,9 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useOnlineStatus } from "@/lib/offline/hooks";
-import { offlineDb } from "@/lib/offline/db";
-import { enqueue } from "@/lib/offline/sync-engine";
+import { useFormDialog } from "@/lib/hooks/use-form-dialog";
 
 export function NewCustomerDialog({
   open,
@@ -41,46 +39,14 @@ export function NewCustomerDialog({
     address: "",
     source: "",
   });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isOnline = useOnlineStatus();
-
-  async function saveOffline() {
-    const now = new Date().toISOString();
-    const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await offlineDb.customers.add({
-      localId,
-      name: form.name.trim(),
-      phone: form.phone || undefined,
-      email: form.email || undefined,
-      address: form.address || undefined,
-      source: form.source || undefined,
-      syncStatus: "pending",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await enqueue({
-      table: "customers",
-      localId,
-      method: "POST",
-      url: "/api/sales/customers",
-      body: JSON.stringify(form),
-    });
-  }
+  const { loading: saving, error, setError, handleSubmit } = useFormDialog();
 
   async function handleSave() {
     if (!form.name.trim()) {
       setError("客户名称不能为空");
       return;
     }
-    setSaving(true);
-    setError(null);
-    try {
-      if (!isOnline) {
-        await saveOffline();
-        onSuccess();
-        return;
-      }
+    await handleSubmit(async () => {
       const res = await apiFetch("/api/sales/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,17 +56,7 @@ export function NewCustomerDialog({
         const data = await res.json();
         throw new Error(data.error || "创建失败");
       }
-      onSuccess();
-    } catch (err) {
-      if (!navigator.onLine) {
-        await saveOffline();
-        onSuccess();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "未知错误");
-    } finally {
-      setSaving(false);
-    }
+    }, { onSuccess });
   }
 
   return (
@@ -171,13 +127,6 @@ export function NewCustomerDialog({
           </div>
         </div>
 
-        {!isOnline && (
-          <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-            <WifiOff className="h-3.5 w-3.5 shrink-0" />
-            离线模式 — 客户将保存到本地，联网后自动同步
-          </div>
-        )}
-
         {error && (
           <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
@@ -190,7 +139,7 @@ export function NewCustomerDialog({
           </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isOnline ? "创建" : "保存到本地"}
+            创建
           </Button>
         </DialogFooter>
       </DialogContent>

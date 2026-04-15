@@ -7,20 +7,12 @@
  * DELETE /api/agent-core/skills/[id]                — 停用技能
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const GET = withAuth(async (_req, ctx) => {
+  const { id } = await ctx.params;
 
   const skill = await db.agentSkill.findUnique({
     where: { id },
@@ -52,18 +44,10 @@ export async function GET(
   });
 
   return NextResponse.json({ skill, stats, recentExecutions });
-}
+});
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const POST = withAuth(async (req, ctx, user) => {
+  const { id } = await ctx.params;
   const body = await req.json();
 
   const membership = await db.organizationMember.findFirst({
@@ -77,20 +61,13 @@ export async function POST(
 
   if (body.action === "run") {
     const { runSkill } = await import("@/lib/agent-core/skills/runtime");
-    try {
-      const result = await runSkill({
-        skillId: id,
-        variables: body.variables ?? {},
-        userId: user.id,
-        orgId: membership.orgId,
-      });
-      return NextResponse.json({ result });
-    } catch (e) {
-      return NextResponse.json(
-        { error: e instanceof Error ? e.message : String(e) },
-        { status: 500 },
-      );
-    }
+    const result = await runSkill({
+      skillId: id,
+      variables: body.variables ?? {},
+      userId: user.id,
+      orgId: membership.orgId,
+    });
+    return NextResponse.json({ result });
   }
 
   if (body.action === "feedback") {
@@ -115,18 +92,10 @@ export async function POST(
   }
 
   return NextResponse.json({ error: "未知 action" }, { status: 400 });
-}
+});
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const PATCH = withAuth(async (req, ctx) => {
+  const { id } = await ctx.params;
   const body = await req.json();
 
   const skill = await db.agentSkill.findUnique({
@@ -155,18 +124,10 @@ export async function PATCH(
   });
 
   return NextResponse.json({ skill: { id: updated.id, version: updated.version } });
-}
+});
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const DELETE = withAuth(async (_req, ctx) => {
+  const { id } = await ctx.params;
 
   const skill = await db.agentSkill.findUnique({
     where: { id },
@@ -187,4 +148,4 @@ export async function DELETE(
 
   await db.agentSkill.delete({ where: { id } });
   return NextResponse.json({ message: "技能已删除" });
-}
+});

@@ -1,18 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user || !isSuperAdmin(user.role)) {
+export const GET = withAuth(async (request, ctx, user) => {
+  if (!isSuperAdmin(user.role)) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 
-  const { id } = await params;
+  const { id } = await ctx.params;
 
   const project = await db.project.findUnique({
     where: { id },
@@ -33,4 +29,4 @@ export async function GET(
   }
 
   return NextResponse.json(project);
-}
+});

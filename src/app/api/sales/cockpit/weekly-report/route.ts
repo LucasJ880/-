@@ -14,7 +14,6 @@ export const POST = withAuth(async (_request, _ctx, user) => {
   const isAdmin = user.role === "admin" || user.role === "super_admin";
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const myFilter: Record<string, unknown> = isAdmin ? {} : { assignedToId: user.id };
   const myOrderFilter: Record<string, unknown> = isAdmin ? {} : { creatorId: user.id };

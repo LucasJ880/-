@@ -4,7 +4,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
 
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (_request, ctx) => {
   const { id } = await ctx.params;
 
   const opp = await db.salesOpportunity.findUnique({

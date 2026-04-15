@@ -1,11 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { parseAndStoreContent, canParseFileType } from "@/lib/files/parse-content";
+import { parseAndStoreContent } from "@/lib/files/parse-content";
 import { generateDocumentSummary } from "@/lib/files/ai-summary";
 import { generateProjectIntelligence } from "@/lib/files/ai-intelligence";
-
-type Ctx = { params: Promise<{ id: string }> };
 
 /**
  * POST /api/projects/:id/files/process-next
@@ -17,16 +15,12 @@ type Ctx = { params: Promise<{ id: string }> };
  *
  * 返回 { step, documentId?, remaining, done }
  */
-export async function POST(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, ctx) => {
   const { id: projectId } = await ctx.params;
 
   // ?retry=1 → 重置失败/卡住的文件，重新处理
   const retry = request.nextUrl.searchParams.get("retry") === "1";
   if (retry) {
-    // 解析失败或卡住 → 重置解析状态（重新提取文本）
     await db.projectDocument.updateMany({
       where: {
         projectId,
@@ -40,7 +34,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         aiSummaryJson: null,
       },
     });
-    // 解析成功但摘要失败或卡住 → 只重置摘要状态
     await db.projectDocument.updateMany({
       where: {
         projectId,
@@ -104,7 +97,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
   }
 
-  // 短文本文档直接标记为 done
   if (pendingSummary) {
     await db.projectDocument.update({
       where: { id: pendingSummary.id },
@@ -151,7 +143,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   return NextResponse.json({ step: "none", remaining: 0, done: true });
-}
+});
 
 async function countRemaining(projectId: string): Promise<number> {
   const pendingParse = await db.projectDocument.count({

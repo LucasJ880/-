@@ -13,7 +13,6 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "青砚 - AI 工作助理",
   description: "智能中文 AI 工作助理，助力高效办公",
-  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -45,24 +44,6 @@ export default function RootLayout({
       </head>
       <body className="h-full">
         <ToastProvider>{children}</ToastProvider>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.getRegistrations().then(function(regs) {
-                  regs.forEach(function(reg) {
-                    reg.update();
-                  });
-                });
-                navigator.serviceWorker.addEventListener('controllerchange', function() {
-                  if (document.visibilityState === 'visible') {
-                    window.location.reload();
-                  }
-                });
-              }
-            `,
-          }}
-        />
       </body>
     </html>
   );

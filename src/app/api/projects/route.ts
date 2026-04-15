@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
 import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
@@ -13,12 +13,7 @@ const projectInclude = {
   _count: { select: { tasks: true, environments: true } },
 } as const;
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const intakeFilter = (request.nextUrl.searchParams.get("intakeStatus") ?? "all") as IntakeStatusFilter;
 
   const where = await buildProjectVisibilityWhere(user, {
@@ -38,18 +33,13 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json(projects);
-}
+});
 
 /**
  * POST：创建项目 + 创建者 project_admin + 默认 test / prod 环境（同一事务）
  */
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
 
   const orgId = typeof body.orgId === "string" ? body.orgId.trim() : "";
   if (!orgId) {
@@ -142,4 +132,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json(project, { status: 201 });
-}
+});

@@ -14,6 +14,7 @@ import {
   Languages,
 } from "lucide-react";
 import { LanguageAssistPanel } from "@/components/language-assist/language-assist-panel";
+import { sanitizeHtml } from "@/lib/common/sanitize";
 
 interface Props {
   projectId: string;
@@ -216,7 +217,7 @@ export function EmailDraftDialog({
                   ) : (
                     <div
                       className="max-h-80 overflow-y-auto rounded-lg border border-border/60 bg-background px-4 py-3 text-sm leading-relaxed"
-                      dangerouslySetInnerHTML={{ __html: editBody }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(editBody) }}
                     />
                   )}
                 </div>

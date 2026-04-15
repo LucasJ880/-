@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useFormDialog } from "@/lib/hooks/use-form-dialog";
 import { STAGES } from "./types";
 
 export function NewOpportunityDialog({
@@ -41,8 +42,7 @@ export function NewOpportunityDialog({
     priority: "warm",
   });
   const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string }[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { loading: saving, error, setError, handleSubmit } = useFormDialog();
 
   useEffect(() => {
     if (!open) return;
@@ -64,9 +64,7 @@ export function NewOpportunityDialog({
       setError("请选择客户并填写标题");
       return;
     }
-    setSaving(true);
-    setError(null);
-    try {
+    await handleSubmit(async () => {
       const res = await apiFetch("/api/sales/opportunities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,12 +77,7 @@ export function NewOpportunityDialog({
         const data = await res.json();
         throw new Error(data.error || "创建失败");
       }
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "未知错误");
-    } finally {
-      setSaving(false);
-    }
+    }, { onSuccess });
   }
 
   return (

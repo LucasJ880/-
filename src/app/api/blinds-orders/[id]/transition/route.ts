@@ -1,16 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { canTransition, timestampField } from "@/lib/blinds/order-state-machine";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const POST = withAuth(async (request, ctx, user) => {
+  const { id } = await ctx.params;
   const body = await request.json();
   const { toStatus, note, cancelReason } = body as {
     toStatus: string;
@@ -82,4 +76,4 @@ export async function POST(
   });
 
   return NextResponse.json({ order: updated });
-}
+});

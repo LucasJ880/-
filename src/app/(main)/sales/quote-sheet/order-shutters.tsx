@@ -6,6 +6,7 @@ import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
 
 interface Props {
   lines: ShutterOrderLine[];
@@ -45,15 +46,14 @@ export function OrderShuttersForm({
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShutterOrderLine, value: unknown) => {
-      onChange(lines.map((l) => (l.id === id ? { ...l, [field]: value } : l)));
+      onChange(updateLineField(lines, id, field, value));
     },
     [lines, onChange]
   );
 
   const addLine = () => onChange([...lines, emptyLine()]);
   const removeLine = (id: string) => {
-    if (lines.length <= 1) return;
-    onChange(lines.filter((l) => l.id !== id));
+    onChange(removeLineById(lines, id));
   };
 
   return (
@@ -270,7 +270,7 @@ export function OrderShuttersForm({
 
       <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" />
       <p className="text-[9px] text-muted-foreground leading-snug">
-        All above designs are clearly explained by our sales representative. I have read and acknowledged the Sunny Shutter Inc Policy & I agree to the terms and conditions set forth by Sunny Shutter Inc.
+        {SIGNATURE_DISCLAIMER}
       </p>
     </div>
   );

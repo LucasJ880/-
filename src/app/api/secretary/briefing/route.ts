@@ -5,17 +5,12 @@
  * POST — 触发生成简报（手动 or Cron）
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateDailyBriefing, generateBriefingsForOrg } from "@/lib/secretary/briefing";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, ctx, user) => {
   const today = new Date().toISOString().slice(0, 10);
   const sourceKey = `daily_briefing:${user.id}:${today}`;
 
@@ -43,14 +38,9 @@ export async function GET(request: NextRequest) {
       ...(metadata ?? {}),
     },
   });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, ctx, user) => {
   const body = await request.json().catch(() => ({}));
   const orgId = body.orgId ?? "default";
 
@@ -79,4 +69,4 @@ export async function POST(request: NextRequest) {
       items: briefing.domains.flatMap((d) => d.items).slice(0, 20),
     },
   });
-}
+});

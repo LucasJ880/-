@@ -6,7 +6,12 @@ import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { DEFAULT_ENVIRONMENTS } from "@/lib/common/constants";
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+  }
   const { email, password, name, inviteCode } = body as {
     email?: string;
     password?: string;

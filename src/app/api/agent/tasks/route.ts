@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { generatePlan } from "@/lib/agent/orchestrator";
 import { listTemplates } from "@/lib/agent/templates";
@@ -9,10 +9,7 @@ import type { TriggerType } from "@/lib/agent/types";
  * GET /api/agent/tasks?projectId=xxx
  * 列出项目的 AI 任务
  */
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request) => {
   const projectId = request.nextUrl.searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "缺少 projectId" }, { status: 400 });
 
@@ -49,16 +46,13 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ tasks, templates: listTemplates() });
-}
+});
 
 /**
  * POST /api/agent/tasks
  * 创建 AI 任务（编排器生成计划）
  */
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   const { intent, projectId, templateId, triggerType } = body as {
     intent: string;
@@ -71,18 +65,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "缺少 intent 或 projectId" }, { status: 400 });
   }
 
-  try {
-    const result = await generatePlan({
-      intent,
-      projectId,
-      userId: user.id,
-      templateId,
-      triggerType,
-    });
+  const result = await generatePlan({
+    intent,
+    projectId,
+    userId: user.id,
+    templateId,
+    triggerType,
+  });
 
-    return NextResponse.json(result, { status: 201 });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 500 });
-  }
-}
+  return NextResponse.json(result, { status: 201 });
+});

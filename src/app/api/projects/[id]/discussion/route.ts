@@ -1,21 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { canViewProjectDiscussion } from "@/lib/project-discussion/access";
 import { getDiscussionOverview } from "@/lib/project-discussion/service";
-
-type RouteCtx = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/projects/[id]/discussion
  * 获取项目讨论概览：会话信息 + 最新消息 + 统计
  */
-export async function GET(request: NextRequest, ctx: RouteCtx) {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
 
   const canView = await canViewProjectDiscussion(user, projectId);
   if (!canView) {
@@ -29,4 +22,4 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
   const overview = await getDiscussionOverview(projectId, { pageSize, cursor });
 
   return NextResponse.json(overview);
-}
+});

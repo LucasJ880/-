@@ -3,21 +3,14 @@
  * GET  — 查询任务完整状态 + 所有步骤结果
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { generatePlan } from "@/lib/agent/orchestrator";
 import "@/lib/agent/skills/index";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-export async function POST(request: NextRequest, { params }: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id: projectId } = await params;
+export const POST = withAuth(async (_request, ctx, user) => {
+  const { id: projectId } = await ctx.params;
 
   const project = await db.project.findUnique({
     where: { id: projectId },
@@ -41,19 +34,13 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     steps: plan.steps,
     source: plan.source,
   });
-}
+});
 
-export async function GET(request: NextRequest, { params }: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id: projectId } = await params;
+export const GET = withAuth(async (request, ctx) => {
+  const { id: projectId } = await ctx.params;
   const url = new URL(request.url);
   const taskId = url.searchParams.get("taskId");
 
-  // 不传 taskId 时返回最近一条 ai_bid_package 任务
   let resolvedTaskId = taskId;
   if (!resolvedTaskId) {
     const latest = await db.agentTask.findFirst({
@@ -149,4 +136,4 @@ export async function GET(request: NextRequest, { params }: Ctx) {
     completedAt: task.completedAt,
     steps,
   });
-}
+});

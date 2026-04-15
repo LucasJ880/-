@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { sanitizeHtml } from "@/lib/common/sanitize";
 
 // ── 类型 ──────────────────────────────────────────────────
 
@@ -335,7 +336,7 @@ export function ProjectQuestionDialog({
           ) : (
             <div
               className="max-h-80 overflow-y-auto rounded-lg border border-border/60 bg-background px-4 py-3 text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: editBody }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(editBody) }}
             />
           )}
         </Field>

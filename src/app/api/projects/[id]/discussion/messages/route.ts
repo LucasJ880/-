@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import {
   canViewProjectDiscussion,
   canPostProjectMessage,
@@ -7,19 +7,12 @@ import {
 import { sendMessage, loadOlderMessages } from "@/lib/project-discussion/service";
 import { MESSAGE_MAX_LENGTH } from "@/lib/project-discussion/types";
 
-type RouteCtx = { params: Promise<{ id: string }> };
-
 /**
  * GET /api/projects/[id]/discussion/messages?cursor=...
  * 加载更早的消息（向上翻页）
  */
-export async function GET(request: NextRequest, ctx: RouteCtx) {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
 
   const canView = await canViewProjectDiscussion(user, projectId);
   if (!canView) {
@@ -38,19 +31,14 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
 
   const result = await loadOlderMessages(projectId, cursor, pageSize);
   return NextResponse.json(result);
-}
+});
 
 /**
  * POST /api/projects/[id]/discussion/messages
  * 发送文本消息
  */
-export async function POST(request: NextRequest, ctx: RouteCtx) {
+export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
 
   const canPost = await canPostProjectMessage(user, projectId);
   if (!canPost) {
@@ -103,4 +91,4 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
     const msg = err instanceof Error ? err.message : "发送失败";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
-}
+});

@@ -5,7 +5,7 @@ import { pushEventToGoogle, getGoogleProvider } from "@/lib/google-calendar";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 import { onEventCreated } from "@/lib/project-discussion/system-events";
 
-export const GET = withAuth(async (request, _ctx, _user) => {
+export const GET = withAuth(async (request) => {
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
 

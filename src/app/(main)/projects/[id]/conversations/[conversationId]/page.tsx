@@ -5,12 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Loader2,
-  MessageSquare,
-  Send,
-  Pencil,
-  Check,
-  X,
-  Play,
   AlertTriangle,
   Wrench,
   ChevronDown,
@@ -20,11 +14,8 @@ import {
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import {
-  ConversationStatusBadge,
-  ChannelBadge,
   ConversationContextCard,
   ConversationStatsCard,
-  MessageTimeline,
 } from "@/components/conversation";
 import {
   FeedbackStatusBadge,
@@ -33,6 +24,9 @@ import {
   IssueTypeBadge,
   ISSUE_TYPE_OPTIONS,
 } from "@/components/feedback";
+import { ConversationHeader } from "./conversation-header";
+import { MessageList } from "./message-list";
+import { InputArea } from "./input-area";
 
 interface ConvDetail {
   id: string;
@@ -155,12 +149,6 @@ export default function ConversationDetailPage() {
 
   const [activeTab, setActiveTab] = useState<Tab>("messages");
 
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [titleSaving, setTitleSaving] = useState(false);
-
-  const [newMsgContent, setNewMsgContent] = useState("");
-  const [msgSending, setMsgSending] = useState(false);
   const [running, setRunning] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
@@ -183,14 +171,6 @@ export default function ConversationDetailPage() {
   const [fbNote, setFbNote] = useState("");
   const [fbTagIds, setFbTagIds] = useState<string[]>([]);
   const [fbSubmitting, setFbSubmitting] = useState(false);
-
-  // Message feedback dialog
-  const [msgFbTarget, setMsgFbTarget] = useState<string | null>(null);
-  const [msgFbRating, setMsgFbRating] = useState(0);
-  const [msgFbIssueType, setMsgFbIssueType] = useState("");
-  const [msgFbNote, setMsgFbNote] = useState("");
-  const [msgFbTagIds, setMsgFbTagIds] = useState<string[]>([]);
-  const [msgFbSubmitting, setMsgFbSubmitting] = useState(false);
 
   const loadConversation = useCallback(() => {
     return apiFetch(
@@ -266,122 +246,6 @@ export default function ConversationDetailPage() {
       .finally(() => setLoading(false));
   }, [projectId, loadConversation, loadMessages]);
 
-  async function saveTitle() {
-    if (!titleDraft.trim()) return;
-    setTitleSaving(true);
-    try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/conversations/${conversationId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: titleDraft.trim() }),
-        }
-      );
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "保存失败");
-      }
-      setEditingTitle(false);
-      loadConversation();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "保存失败");
-    } finally {
-      setTitleSaving(false);
-    }
-  }
-
-  async function updateStatus(newStatus: string) {
-    const msg =
-      newStatus === "archived"
-        ? "确定归档该会话？"
-        : newStatus === "completed"
-          ? "确定标记为已完成？"
-          : null;
-    if (msg && !confirm(msg)) return;
-    try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/conversations/${conversationId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        }
-      );
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "操作失败");
-      }
-      loadConversation();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "操作失败");
-    }
-  }
-
-  async function sendAndRun(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newMsgContent.trim()) return;
-    setMsgSending(true);
-    setRunning(true);
-    setRuntimeError(null);
-    try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/conversations/${conversationId}/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            role: "user",
-            content: newMsgContent,
-            run: true,
-          }),
-        }
-      );
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "发送失败");
-      if (d.runtime?.error) {
-        setRuntimeError(d.runtime.error);
-      }
-      setNewMsgContent("");
-      await Promise.all([loadConversation(), loadMessages()]);
-      if (tracesLoaded) loadTraces();
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : "发送失败");
-    } finally {
-      setMsgSending(false);
-      setRunning(false);
-    }
-  }
-
-  async function sendOnly(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newMsgContent.trim()) return;
-    setMsgSending(true);
-    try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/conversations/${conversationId}/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            role: "user",
-            content: newMsgContent,
-          }),
-        }
-      );
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "发送失败");
-      }
-      setNewMsgContent("");
-      await Promise.all([loadConversation(), loadMessages()]);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "发送失败");
-    } finally {
-      setMsgSending(false);
-    }
-  }
-
   async function triggerRun() {
     setRunning(true);
     setRuntimeError(null);
@@ -401,6 +265,63 @@ export default function ConversationDetailPage() {
       setRuntimeError(err instanceof Error ? err.message : "运行失败");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleSendAndRun(content: string): Promise<boolean> {
+    setRunning(true);
+    setRuntimeError(null);
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/conversations/${conversationId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: "user",
+            content,
+            run: true,
+          }),
+        }
+      );
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "发送失败");
+      if (d.runtime?.error) {
+        setRuntimeError(d.runtime.error);
+      }
+      await Promise.all([loadConversation(), loadMessages()]);
+      if (tracesLoaded) loadTraces();
+      return true;
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : "发送失败");
+      return false;
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleSendOnly(content: string): Promise<boolean> {
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/conversations/${conversationId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: "user",
+            content,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "发送失败");
+      }
+      await Promise.all([loadConversation(), loadMessages()]);
+      return true;
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "发送失败");
+      return false;
     }
   }
 
@@ -449,50 +370,6 @@ export default function ConversationDetailPage() {
     }
   }
 
-  async function submitMsgFeedback() {
-    if (!msgFbTarget || msgFbRating < 1) return;
-    setMsgFbSubmitting(true);
-    try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/message-feedbacks`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversationId,
-            messageId: msgFbTarget,
-            rating: msgFbRating,
-            issueType: msgFbIssueType || undefined,
-            note: msgFbNote || undefined,
-            tagIds: msgFbTagIds.length > 0 ? msgFbTagIds : undefined,
-          }),
-        }
-      );
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "提交失败");
-      }
-      setMsgFbTarget(null);
-      setMsgFbRating(0);
-      setMsgFbIssueType("");
-      setMsgFbNote("");
-      setMsgFbTagIds([]);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "提交失败");
-    } finally {
-      setMsgFbSubmitting(false);
-    }
-  }
-
-  function openMsgFeedback(messageId: string) {
-    setMsgFbTarget(messageId);
-    setMsgFbRating(0);
-    setMsgFbIssueType("");
-    setMsgFbNote("");
-    setMsgFbTagIds([]);
-    if (!tagsLoaded) loadTags();
-  }
-
   if (loading) {
     return (
       <div className="flex justify-center py-24 text-muted">
@@ -539,103 +416,17 @@ export default function ConversationDetailPage() {
         <ArrowLeft size={14} /> 会话列表
       </button>
 
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex gap-3">
-          <MessageSquare className="mt-1 shrink-0 text-muted" size={24} />
-          <div>
-            <div className="flex items-center gap-2">
-              {editingTitle ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    className="rounded border border-border bg-background px-2 py-1 text-lg font-bold"
-                    value={titleDraft}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && saveTitle()}
-                    autoFocus
-                  />
-                  <button type="button" onClick={saveTitle} disabled={titleSaving} className="rounded p-1 text-[#2e7a56] hover:bg-[rgba(46,122,86,0.04)]">
-                    <Check size={16} />
-                  </button>
-                  <button type="button" onClick={() => setEditingTitle(false)} className="rounded p-1 text-muted hover:bg-background">
-                    <X size={16} />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <h1 className="text-xl font-bold">{conv.title || "无标题"}</h1>
-                  {canManage && (
-                    <button type="button" onClick={() => { setTitleDraft(conv.title); setEditingTitle(true); }} className="rounded p-1 text-muted hover:bg-background">
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                </>
-              )}
-              <ConversationStatusBadge status={conv.status} />
-              <ChannelBadge channel={conv.channel} />
-              {conv.runtimeStatus && conv.runtimeStatus !== "idle" && (
-                <span className={cn(
-                  "rounded-md px-2 py-0.5 text-[10px] font-medium",
-                  conv.runtimeStatus === "running" && "bg-[rgba(43,96,85,0.08)] text-[#2b6055] animate-pulse",
-                  conv.runtimeStatus === "completed" && "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]",
-                  conv.runtimeStatus === "failed" && "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]",
-                )}>
-                  {conv.runtimeStatus === "running" ? "运行中" : conv.runtimeStatus === "completed" ? "已运行" : "运行失败"}
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 text-sm text-muted">
-              {conv.user?.name ? conv.user.name : ""}
-              {conv.runCount ? ` · ${conv.runCount} 次运行` : ""}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {canManage && isActive && (
-            <button
-              type="button"
-              onClick={triggerRun}
-              disabled={running}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-            >
-              {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-              {running ? "运行中..." : "运行 Agent"}
-            </button>
-          )}
-          {canManage && isActive && (
-            <button type="button" onClick={() => updateStatus("completed")} className="rounded-[var(--radius-sm)] border border-[rgba(46,122,86,0.2)] px-3 py-2 text-sm text-success hover:bg-success-bg">
-              标记完成
-            </button>
-          )}
-          {canManage && conv.status !== "archived" && (
-            <button type="button" onClick={() => updateStatus("archived")} className="rounded-[var(--radius-sm)] border border-border px-3 py-2 text-sm text-muted hover:text-foreground hover:bg-[rgba(26,36,32,0.03)]">
-              归档
-            </button>
-          )}
-          {canManage && conv.status === "archived" && (
-            <button type="button" onClick={() => updateStatus("active")} className="rounded-[var(--radius-sm)] border border-[rgba(46,122,86,0.2)] px-3 py-2 text-sm text-success hover:bg-success-bg">
-              恢复
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Runtime error */}
-      {(runtimeError || conv.lastErrorMessage) && (
-        <div className="flex items-start gap-2 rounded-[var(--radius-md)] border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] p-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-danger" />
-          <div className="text-sm text-danger">
-            <p className="font-medium">Runtime 错误</p>
-            <p className="mt-0.5 text-xs opacity-80">{runtimeError || conv.lastErrorMessage}</p>
-          </div>
-          {runtimeError && (
-            <button type="button" onClick={() => setRuntimeError(null)} className="ml-auto text-danger/50 hover:text-danger">
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      )}
+      <ConversationHeader
+        conv={conv}
+        canManage={canManage}
+        projectId={projectId}
+        conversationId={conversationId}
+        running={running}
+        runtimeError={runtimeError}
+        onTriggerRun={triggerRun}
+        onDismissRuntimeError={() => setRuntimeError(null)}
+        onReloadConversation={loadConversation}
+      />
 
       {/* Stats */}
       <ConversationStatsCard
@@ -679,48 +470,22 @@ export default function ConversationDetailPage() {
       {/* Messages tab */}
       {activeTab === "messages" && (
         <div className="space-y-4">
-          <MessageTimeline messages={messages} onFeedback={canManage ? openMsgFeedback : undefined} />
+          <MessageList
+            messages={messages}
+            canManage={canManage}
+            projectId={projectId}
+            conversationId={conversationId}
+            tags={tags}
+            tagsLoaded={tagsLoaded}
+            loadTags={loadTags}
+          />
 
           {canManage && isActive && (
-            <div className="rounded-xl border border-border bg-card-bg p-3">
-              <textarea
-                className="min-h-[48px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
-                placeholder="输入消息内容... (Ctrl+Enter 发送并运行)"
-                value={newMsgContent}
-                onChange={(e) => setNewMsgContent(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    sendAndRun(e);
-                  }
-                }}
-                rows={2}
-              />
-              <div className="mt-2 flex items-center justify-between">
-                <p className="text-[10px] text-muted">
-                  Ctrl+Enter = 发送并运行 Agent
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={sendOnly}
-                    disabled={msgSending || !newMsgContent.trim()}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-background disabled:opacity-50"
-                  >
-                    <Send size={12} />
-                    仅发送
-                  </button>
-                  <button
-                    type="button"
-                    onClick={sendAndRun}
-                    disabled={msgSending || running || !newMsgContent.trim()}
-                    className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-                  >
-                    {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-                    {running ? "运行中..." : "发送并运行"}
-                  </button>
-                </div>
-              </div>
-            </div>
+            <InputArea
+              running={running}
+              onSendAndRun={handleSendAndRun}
+              onSendOnly={handleSendOnly}
+            />
           )}
         </div>
       )}
@@ -782,7 +547,6 @@ export default function ConversationDetailPage() {
       {/* Feedback tab */}
       {activeTab === "feedback" && (
         <div className="space-y-4">
-          {/* Conversation-level feedback form toggle */}
           {canManage && (
             <div className="flex justify-end">
               <button
@@ -796,7 +560,6 @@ export default function ConversationDetailPage() {
             </div>
           )}
 
-          {/* Conversation feedback form */}
           {showFeedbackForm && (
             <div className="space-y-4 rounded-xl border border-border bg-card-bg p-4">
               <h3 className="text-sm font-semibold">会话级评价</h3>
@@ -916,7 +679,6 @@ export default function ConversationDetailPage() {
             </div>
           )}
 
-          {/* Existing feedbacks list */}
           {!feedbacksLoaded ? (
             <div className="flex justify-center py-8"><Loader2 className="animate-spin text-muted" size={20} /></div>
           ) : feedbacks.length === 0 ? (
@@ -951,88 +713,6 @@ export default function ConversationDetailPage() {
               ))}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Message feedback dialog */}
-      {msgFbTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setMsgFbTarget(null)}>
-          <div className="mx-4 w-full max-w-md rounded-2xl border border-border bg-card-bg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-4 text-sm font-semibold">消息级反馈</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted">评分 *</label>
-                <RatingInput value={msgFbRating} onChange={setMsgFbRating} />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted">问题类型</label>
-                <select
-                  value={msgFbIssueType}
-                  onChange={(e) => setMsgFbIssueType(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-                >
-                  <option value="">无</option>
-                  {ISSUE_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              {tags.length > 0 && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted">标签</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {tags.map((tag) => (
-                      <button
-                        key={tag.id}
-                        type="button"
-                        onClick={() =>
-                          setMsgFbTagIds((prev) =>
-                            prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
-                          )
-                        }
-                        className={cn(
-                          "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                          msgFbTagIds.includes(tag.id)
-                            ? "border-accent bg-accent/10 text-accent"
-                            : "border-border text-muted hover:border-accent/50"
-                        )}
-                      >
-                        {tag.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted">备注</label>
-                <textarea
-                  value={msgFbNote}
-                  onChange={(e) => setMsgFbNote(e.target.value)}
-                  className="min-h-[60px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
-                  placeholder="描述问题..."
-                  rows={2}
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setMsgFbTarget(null)}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-foreground"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={submitMsgFeedback}
-                  disabled={msgFbRating < 1 || msgFbSubmitting}
-                  className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-                >
-                  {msgFbSubmitting ? <Loader2 size={12} className="animate-spin" /> : null}
-                  提交
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

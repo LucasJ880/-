@@ -5,22 +5,16 @@
  * 创建 SalesQuote + QuoteRoom + SalesQuoteItem。
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { ALL_PRODUCTS, getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName, QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { randomBytes } from "crypto";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const POST = withAuth(async (request, ctx, user) => {
+  const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const installMode = (body.installMode as string) ?? "default";
 
@@ -136,4 +130,4 @@ export async function POST(
     },
     errors: calc.errors,
   }, { status: 201 });
-}
+});

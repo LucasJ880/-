@@ -1,18 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { dispatchProject } from "@/lib/project-intake/service";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user || !isSuperAdmin(user.role)) {
+export const POST = withAuth(async (request, ctx, user) => {
+  if (!isSuperAdmin(user.role)) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 
-  const { id } = await params;
+  const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
 
   const orgId = typeof body.orgId === "string" ? body.orgId.trim() : "";
@@ -41,4 +37,4 @@ export async function POST(
     const message = err instanceof Error ? err.message : "分发失败";
     return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});

@@ -8,6 +8,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName } from "@/lib/blinds/pricing-types";
+import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
 
 const SHADE_PRODUCTS: ProductName[] = ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb"];
 const ALL_SHADE_FABRICS = SHADE_PRODUCTS.flatMap((p) =>
@@ -82,7 +83,7 @@ export function OrderShadesForm({
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShadeOrderLine, value: unknown) => {
-      onChange(lines.map((l) => (l.id === id ? { ...l, [field]: value } : l)));
+      onChange(updateLineField(lines, id, field, value));
     },
     [lines, onChange]
   );
@@ -90,8 +91,7 @@ export function OrderShadesForm({
   const addLine = () => onChange([...lines, emptyLine()]);
 
   const removeLine = (id: string) => {
-    if (lines.length <= 1) return;
-    onChange(lines.filter((l) => l.id !== id));
+    onChange(removeLineById(lines, id));
   };
 
   return (
@@ -292,7 +292,7 @@ export function OrderShadesForm({
 
       <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" />
       <p className="text-[9px] text-muted-foreground leading-snug">
-        All above designs are clearly explained by our sales representative. I have read and acknowledged the Sunny Shutter Inc Policy & I agree to the terms and conditions set forth by Sunny Shutter Inc.
+        {SIGNATURE_DISCLAIMER}
       </p>
     </div>
   );

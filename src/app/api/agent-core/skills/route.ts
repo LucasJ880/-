@@ -5,17 +5,12 @@
  * POST /api/agent-core/skills          — 创建技能（手动或 AI 提议）
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { seedBuiltinSkills } from "@/lib/agent-core/skills/seed";
 
-export async function GET(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (req, _ctx, user) => {
   const { searchParams } = new URL(req.url);
   const domain = searchParams.get("domain") || undefined;
 
@@ -62,14 +57,9 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ skills });
-}
+});
 
-export async function POST(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (req, _ctx, user) => {
   const membership = await db.organizationMember.findFirst({
     where: { userId: user.id },
     select: { orgId: true, role: true },
@@ -131,4 +121,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: "未知 action" }, { status: 400 });
-}
+});

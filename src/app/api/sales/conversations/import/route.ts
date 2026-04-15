@@ -8,8 +8,8 @@
  * 2. messages (预结构化) → 直接导入
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   parseWechatConversation,
@@ -42,10 +42,7 @@ const VALID_CHANNELS = new Set([
   "other",
 ]);
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body: ImportBody = await request.json();
 
   if (!body.customerId) {
@@ -140,7 +137,7 @@ export async function POST(request: NextRequest) {
     },
     { status: 201 }
   );
-}
+});
 
 function parseByChannel(
   rawText: string,

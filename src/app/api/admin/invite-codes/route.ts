@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
 
   const codes = await db.inviteCode.findMany({
     orderBy: { createdAt: "desc" },
+    take: 200,
   });
 
   return NextResponse.json({ codes });

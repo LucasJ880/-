@@ -1,20 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
 import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const GET = withAuth(async (request, ctx, user) => {
+  const { id } = await ctx.params;
   const order = await db.blindsOrder.findUnique({
     where: { id },
     include: {
@@ -36,18 +28,10 @@ export async function GET(
   }
 
   return NextResponse.json(order);
-}
+});
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const PUT = withAuth(async (request, ctx) => {
+  const { id } = await ctx.params;
   const body = await request.json();
 
   const existing = await db.blindsOrder.findUnique({ where: { id } });
@@ -67,7 +51,6 @@ export async function PUT(
     }
   }
 
-  // Delete old items if new items provided
   if (body.items) {
     await db.blindsOrderItem.deleteMany({ where: { orderId: id } });
   }
@@ -151,18 +134,10 @@ export async function PUT(
   });
 
   return NextResponse.json(order);
-}
+});
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const DELETE = withAuth(async (_request, ctx) => {
+  const { id } = await ctx.params;
   await db.blindsOrder.delete({ where: { id } });
   return NextResponse.json({ success: true });
-}
+});

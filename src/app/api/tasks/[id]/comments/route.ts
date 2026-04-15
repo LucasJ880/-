@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 
-export const GET = withAuth(async (_request, ctx, _user) => {
+export const GET = withAuth(async (_request, ctx) => {
   const { id } = await ctx.params;
   const comments = await db.taskComment.findMany({
     where: { taskId: id },

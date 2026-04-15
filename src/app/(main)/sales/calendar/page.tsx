@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
@@ -8,27 +8,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  MapPin,
-  Phone,
-  Clock,
-  User,
   CalendarDays,
-  Ruler,
-  Wrench,
-  RotateCcw,
-  MessageSquare,
-  RefreshCw,
-  CheckCircle2,
   ExternalLink,
-  Loader2,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { CalendarMonthView, CalendarListView } from "./calendar-grid";
+import { CalendarSidebar } from "./calendar-sidebar";
+import { AppointmentDetailDialog, CreateAppointmentDialog } from "./appointment-dialog";
 
 interface GoogleCalendarInfo {
   id: string;
@@ -69,39 +54,7 @@ interface Appointment {
   googleSyncedAt?: string | null;
 }
 
-const TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof Ruler }> = {
-  measure: { label: "量房", color: "bg-blue-500", icon: Ruler },
-  install: { label: "安装", color: "bg-emerald-500", icon: Wrench },
-  revisit: { label: "回访", color: "bg-purple-500", icon: RotateCcw },
-  consultation: { label: "咨询", color: "bg-orange-500", icon: MessageSquare },
-};
-
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  scheduled: { label: "已排期", color: "bg-blue-100 text-blue-700" },
-  confirmed: { label: "已确认", color: "bg-emerald-100 text-emerald-700" },
-  in_progress: { label: "进行中", color: "bg-amber-100 text-amber-700" },
-  completed: { label: "已完成", color: "bg-green-100 text-green-700" },
-  cancelled: { label: "已取消", color: "bg-gray-100 text-gray-500" },
-  no_show: { label: "未到", color: "bg-red-100 text-red-700" },
-};
-
 type ViewMode = "month" | "week" | "list";
-
-function getDaysInMonth(year: number, month: number) {
-  return new Date(year, month + 1, 0).getDate();
-}
-
-function getFirstDayOfWeek(year: number, month: number) {
-  return new Date(year, month, 1).getDay();
-}
-
-function formatTime(dateStr: string) {
-  return new Date(dateStr).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
-}
 
 function isSameDay(d1: Date, d2: Date) {
   return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
@@ -114,13 +67,11 @@ export default function SalesCalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showCreate, setShowCreate] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
-  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const [gcalConnected, setGcalConnected] = useState(false);
   const [gcalEmail, setGcalEmail] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
   const [gcalList, setGcalList] = useState<GoogleCalendarInfo[]>([]);
-  const [showCalPicker, setShowCalPicker] = useState(false);
   const [savingCals, setSavingCals] = useState(false);
 
   const year = currentDate.getFullYear();
@@ -179,19 +130,6 @@ export default function SalesCalendarPage() {
     saveCalendarSelection(next);
   };
 
-  const getGoogleEventsForDay = useCallback(
-    (day: number) => {
-      const target = new Date(year, month, day);
-      return googleEvents.filter((e) => {
-        const start = new Date(e.startTime);
-        return start.getFullYear() === target.getFullYear() &&
-          start.getMonth() === target.getMonth() &&
-          start.getDate() === target.getDate();
-      });
-    },
-    [googleEvents, year, month],
-  );
-
   const handleSyncToGoogle = async (apptId: string) => {
     setSyncing(apptId);
     try {
@@ -211,29 +149,17 @@ export default function SalesCalendarPage() {
     }
   };
 
+  const handleMarkComplete = async (id: string) => {
+    await apiFetch(`/api/sales/appointments/${id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) });
+    setSelectedAppt(null);
+    loadAppointments();
+  };
+
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
   const goToday = () => setCurrentDate(new Date());
 
-  const daysInMonth = getDaysInMonth(year, month);
-  const firstDay = getFirstDayOfWeek(year, month);
   const today = new Date();
-
-  const calendarDays = useMemo(() => {
-    const days: (number | null)[] = [];
-    for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let d = 1; d <= daysInMonth; d++) days.push(d);
-    return days;
-  }, [firstDay, daysInMonth]);
-
-  const getApptsForDay = useCallback(
-    (day: number) => {
-      const target = new Date(year, month, day);
-      return appointments.filter((a) => isSameDay(new Date(a.startAt), target));
-    },
-    [appointments, year, month],
-  );
-
   const todayAppts = appointments.filter((a) => isSameDay(new Date(a.startAt), today));
   const todayGEvents = googleEvents.filter((e) => isSameDay(new Date(e.startTime), today));
   const upcomingAppts = appointments
@@ -338,94 +264,19 @@ export default function SalesCalendarPage() {
         {/* Calendar grid */}
         <div className="rounded-xl border border-border bg-white/60 overflow-hidden">
           {viewMode === "month" ? (
-            <>
-              <div className="grid grid-cols-7 border-b border-border">
-                {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-                  <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
-                    {d}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7">
-                {calendarDays.map((day, i) => {
-                  const isToday = day !== null && isSameDay(new Date(year, month, day), today);
-                  const dayAppts = day ? getApptsForDay(day) : [];
-                  const dayGEvents = day ? getGoogleEventsForDay(day) : [];
-                  const totalItems = dayAppts.length + dayGEvents.length;
-                  const maxShow = 3;
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        "min-h-[100px] border-b border-r border-border/50 p-1.5",
-                        day === null && "bg-muted/20",
-                      )}
-                    >
-                      {day !== null && (
-                        <>
-                          <div
-                            className={cn(
-                              "mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium",
-                              isToday ? "bg-primary text-white" : "text-foreground",
-                            )}
-                          >
-                            {day}
-                          </div>
-                          <div className="space-y-0.5">
-                            {dayAppts.slice(0, maxShow).map((a) => {
-                              const tc = TYPE_CONFIG[a.type] ?? TYPE_CONFIG.measure;
-                              return (
-                                <button
-                                  key={a.id}
-                                  onClick={() => setSelectedAppt(a)}
-                                  className={cn(
-                                    "flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-white truncate",
-                                    tc.color,
-                                    a.status === "cancelled" && "opacity-40 line-through",
-                                  )}
-                                >
-                                  {a.googleEventId && <CheckCircle2 size={8} className="shrink-0 opacity-70" />}
-                                  {formatTime(a.startAt)} {a.customer?.name}
-                                </button>
-                              );
-                            })}
-                            {dayGEvents.slice(0, Math.max(0, maxShow - dayAppts.length)).map((ge) => (
-                              <div
-                                key={`g-${ge.id}`}
-                                className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] truncate"
-                                style={{
-                                  backgroundColor: ge.color || "#4285f4",
-                                  color: "#fff",
-                                }}
-                                title={`${ge.calendarName || "Google"}: ${ge.title}`}
-                              >
-                                {ge.allDay ? "全天" : formatTime(ge.startTime)} {ge.title}
-                              </div>
-                            ))}
-                            {totalItems > maxShow && (
-                              <p className="text-[10px] text-muted-foreground px-1">+{totalItems - maxShow} more</p>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+            <CalendarMonthView
+              year={year}
+              month={month}
+              appointments={appointments}
+              googleEvents={googleEvents}
+              onSelectAppt={setSelectedAppt}
+            />
           ) : viewMode === "list" ? (
-            <div className="divide-y divide-border/50">
-              {loading ? (
-                <div className="py-20 text-center text-sm text-muted-foreground">加载中...</div>
-              ) : upcomingAppts.length === 0 ? (
-                <div className="py-20 text-center text-sm text-muted-foreground">
-                  <CalendarDays size={40} className="mx-auto mb-3 opacity-30" />
-                  暂无预约
-                </div>
-              ) : (
-                upcomingAppts.map((a) => <AppointmentRow key={a.id} appt={a} onClick={() => setSelectedAppt(a)} />)
-              )}
-            </div>
+            <CalendarListView
+              appointments={upcomingAppts}
+              loading={loading}
+              onSelectAppt={setSelectedAppt}
+            />
           ) : (
             <div className="p-8 text-center text-sm text-muted-foreground">
               <CalendarDays size={40} className="mx-auto mb-3 opacity-30" />
@@ -434,215 +285,29 @@ export default function SalesCalendarPage() {
           )}
         </div>
 
-        {/* Side panel — today & upcoming */}
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-white/60 p-4">
-            <h3 className="mb-3 text-sm font-semibold">今日日程 ({todayAppts.length + todayGEvents.length})</h3>
-            {todayAppts.length === 0 && todayGEvents.length === 0 ? (
-              <p className="text-xs text-muted-foreground">今天没有日程</p>
-            ) : (
-              <div className="space-y-2">
-                {todayAppts.map((a) => (
-                  <button
-                    key={a.id}
-                    onClick={() => setSelectedAppt(a)}
-                    className="w-full rounded-lg border border-border/50 p-2.5 text-left hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className={cn("h-2 w-2 rounded-full", TYPE_CONFIG[a.type]?.color ?? "bg-gray-400")} />
-                      <span className="text-xs font-medium">{formatTime(a.startAt)}</span>
-                      <span className="text-xs text-muted-foreground">{TYPE_CONFIG[a.type]?.label}</span>
-                    </div>
-                    <p className="mt-1 text-sm font-medium truncate">{a.customer?.name}</p>
-                    {a.address && (
-                      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
-                        <MapPin size={10} /> {a.address}
-                      </p>
-                    )}
-                  </button>
-                ))}
-                {todayGEvents.map((ge) => (
-                  <div
-                    key={`g-${ge.id}`}
-                    className="w-full rounded-lg border p-2.5 text-left"
-                    style={{ borderColor: ge.color || "#4285f4", borderLeftWidth: 3 }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: ge.color || "#4285f4" }} />
-                      <span className="text-xs font-medium">{ge.allDay ? "全天" : formatTime(ge.startTime)}</span>
-                      <span className="text-[10px] text-muted-foreground truncate">{ge.calendarName}</span>
-                    </div>
-                    <p className="mt-1 text-sm font-medium truncate">{ge.title}</p>
-                    {ge.location && (
-                      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
-                        <MapPin size={10} /> {ge.location}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-border bg-white/60 p-4">
-            <h3 className="mb-3 text-sm font-semibold">即将到来</h3>
-            <div className="space-y-2">
-              {upcomingAppts.slice(0, 5).map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => setSelectedAppt(a)}
-                  className="w-full rounded-lg p-2 text-left hover:bg-muted/30 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={cn("h-2 w-2 rounded-full", TYPE_CONFIG[a.type]?.color ?? "bg-gray-400")} />
-                    <span className="text-[11px] text-muted-foreground">{formatDate(a.startAt)} {formatTime(a.startAt)}</span>
-                  </div>
-                  <p className="mt-0.5 text-xs font-medium truncate">{a.title}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Google 日历管理 */}
-          {gcalConnected && (
-            <div className="rounded-xl border border-border bg-white/60 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold">Google 日历</h3>
-                <button
-                  onClick={() => setShowCalPicker(!showCalPicker)}
-                  className="text-[11px] text-primary hover:underline"
-                >
-                  {showCalPicker ? "收起" : "管理日历"}
-                </button>
-              </div>
-              {!showCalPicker ? (
-                <div className="space-y-1.5">
-                  {gcalList.filter((c) => c.selected).map((c) => (
-                    <div key={c.id} className="flex items-center gap-2 text-xs">
-                      <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: c.backgroundColor }} />
-                      <span className="truncate">{c.summary}</span>
-                      {c.primary && <span className="text-[10px] text-muted-foreground">(主)</span>}
-                    </div>
-                  ))}
-                  {gcalList.filter((c) => c.selected).length === 0 && (
-                    <p className="text-xs text-muted-foreground">未选择日历</p>
-                  )}
-                  <p className="text-[10px] text-muted-foreground mt-2">
-                    本月 Google 事件: {googleEvents.length} 条
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {gcalList.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => toggleCalendar(c.id)}
-                      disabled={savingCals}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-lg p-2 text-left text-xs transition-colors",
-                        c.selected ? "bg-primary/5 border border-primary/20" : "hover:bg-muted/30 border border-transparent",
-                      )}
-                    >
-                      <div
-                        className={cn("h-3 w-3 rounded-sm border-2 shrink-0", c.selected ? "border-transparent" : "border-border")}
-                        style={c.selected ? { backgroundColor: c.backgroundColor } : undefined}
-                      />
-                      <span className="truncate flex-1">{c.summary}</span>
-                      {c.primary && <span className="text-[10px] text-muted-foreground">(主)</span>}
-                    </button>
-                  ))}
-                  {savingCals && (
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground pt-1">
-                      <Loader2 size={10} className="animate-spin" /> 保存中...
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        {/* Side panel */}
+        <CalendarSidebar
+          todayAppts={todayAppts}
+          todayGEvents={todayGEvents}
+          upcomingAppts={upcomingAppts}
+          gcalConnected={gcalConnected}
+          gcalList={gcalList}
+          googleEventsCount={googleEvents.length}
+          savingCals={savingCals}
+          onToggleCalendar={toggleCalendar}
+          onSelectAppt={setSelectedAppt}
+        />
       </div>
 
       {/* Detail dialog */}
-      <Dialog open={!!selectedAppt} onOpenChange={() => setSelectedAppt(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{selectedAppt?.title}</DialogTitle>
-          </DialogHeader>
-          {selectedAppt && (
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center gap-2">
-                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", TYPE_CONFIG[selectedAppt.type]?.color, "text-white")}>
-                  {TYPE_CONFIG[selectedAppt.type]?.label}
-                </span>
-                <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_CONFIG[selectedAppt.status]?.color)}>
-                  {STATUS_CONFIG[selectedAppt.status]?.label}
-                </span>
-              </div>
-              <div className="space-y-2 text-muted-foreground">
-                <p className="flex items-center gap-2"><User size={14} /> 客户：{selectedAppt.customer?.name}</p>
-                <p className="flex items-center gap-2"><Clock size={14} /> {formatDate(selectedAppt.startAt)} {formatTime(selectedAppt.startAt)} - {formatTime(selectedAppt.endAt)}</p>
-                {selectedAppt.address && <p className="flex items-center gap-2"><MapPin size={14} /> {selectedAppt.address}</p>}
-                {selectedAppt.contactPhone && <p className="flex items-center gap-2"><Phone size={14} /> {selectedAppt.contactPhone}</p>}
-                {selectedAppt.assignedTo && <p className="flex items-center gap-2"><User size={14} /> 负责人：{selectedAppt.assignedTo.name}</p>}
-                {selectedAppt.description && <p className="mt-2 rounded-lg bg-muted/30 p-2 text-xs">{selectedAppt.description}</p>}
-              </div>
-              {/* Google Calendar sync status */}
-              {gcalConnected && (
-                <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 p-2.5">
-                  <CalendarDays size={14} className="text-muted-foreground" />
-                  {selectedAppt.googleEventId ? (
-                    <span className="flex items-center gap-1.5 text-xs text-emerald-600">
-                      <CheckCircle2 size={12} />
-                      已同步到 Google Calendar
-                      {selectedAppt.googleSyncedAt && (
-                        <span className="text-muted-foreground">
-                          · {new Date(selectedAppt.googleSyncedAt).toLocaleString("zh-CN")}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">未同步到 Google Calendar</span>
-                  )}
-                  <button
-                    onClick={() => handleSyncToGoogle(selectedAppt.id)}
-                    disabled={syncing === selectedAppt.id}
-                    className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-                  >
-                    {syncing === selectedAppt.id ? (
-                      <Loader2 size={10} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={10} />
-                    )}
-                    {selectedAppt.googleEventId ? "重新同步" : "同步"}
-                  </button>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                {selectedAppt.status === "scheduled" && (
-                  <button
-                    onClick={async () => {
-                      await apiFetch(`/api/sales/appointments/${selectedAppt.id}`, { method: "PATCH", body: JSON.stringify({ status: "completed" }) });
-                      setSelectedAppt(null);
-                      loadAppointments();
-                    }}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-                  >
-                    标记完成
-                  </button>
-                )}
-                <button
-                  onClick={() => setSelectedAppt(null)}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <AppointmentDetailDialog
+        appointment={selectedAppt}
+        onClose={() => setSelectedAppt(null)}
+        onMarkComplete={handleMarkComplete}
+        gcalConnected={gcalConnected}
+        syncing={syncing}
+        onSyncToGoogle={handleSyncToGoogle}
+      />
 
       {/* Create dialog */}
       <CreateAppointmentDialog
@@ -651,191 +316,5 @@ export default function SalesCalendarPage() {
         onCreated={() => { setShowCreate(false); loadAppointments(); }}
       />
     </div>
-  );
-}
-
-function AppointmentRow({ appt, onClick }: { appt: Appointment; onClick: () => void }) {
-  const tc = TYPE_CONFIG[appt.type] ?? TYPE_CONFIG.measure;
-  const sc = STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.scheduled;
-  return (
-    <button onClick={onClick} className="flex w-full items-center gap-4 p-4 text-left hover:bg-muted/20 transition-colors">
-      <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg text-white", tc.color)}>
-        <tc.icon size={18} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{appt.title}</p>
-        <p className="text-xs text-muted-foreground">{appt.customer?.name} · {formatDate(appt.startAt)} {formatTime(appt.startAt)}</p>
-      </div>
-      <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", sc.color)}>{sc.label}</span>
-    </button>
-  );
-}
-
-function CreateAppointmentDialog({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [form, setForm] = useState({
-    customerId: "",
-    title: "",
-    type: "measure",
-    startAt: "",
-    endAt: "",
-    address: "",
-    contactPhone: "",
-    description: "",
-  });
-  const [customers, setCustomers] = useState<{ id: string; name: string; phone?: string; address?: string }[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    apiFetch("/api/sales/customers?limit=100")
-      .then((r) => r.json())
-      .then((d) => setCustomers(d.customers ?? []));
-  }, [open]);
-
-  const handleCustomerChange = (cid: string) => {
-    const c = customers.find((x) => x.id === cid);
-    setForm((f) => ({
-      ...f,
-      customerId: cid,
-      address: c?.address || f.address,
-      contactPhone: c?.phone || f.contactPhone,
-      title: f.title || `${c?.name ?? ""} 量房`,
-    }));
-  };
-
-  const handleSubmit = async () => {
-    if (!form.customerId || !form.startAt || !form.endAt) return;
-    setSaving(true);
-    try {
-      await apiFetch("/api/sales/appointments", {
-        method: "POST",
-        body: JSON.stringify(form),
-      });
-      onCreated();
-      setForm({ customerId: "", title: "", type: "measure", startAt: "", endAt: "", address: "", contactPhone: "", description: "" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>新建预约</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>客户 *</Label>
-            <select
-              value={form.customerId}
-              onChange={(e) => handleCustomerChange(e.target.value)}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-            >
-              <option value="">选择客户</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>类型</Label>
-              <select
-                value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-              >
-                {Object.entries(TYPE_CONFIG).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>标题</Label>
-              <input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-                placeholder="如：张先生 量房"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>开始时间 *</Label>
-              <input
-                type="datetime-local"
-                value={form.startAt}
-                onChange={(e) => {
-                  const start = e.target.value;
-                  setForm((f) => ({
-                    ...f,
-                    startAt: start,
-                    endAt: f.endAt || new Date(new Date(start).getTime() + 2 * 3600000).toISOString().slice(0, 16),
-                  }));
-                }}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>结束时间 *</Label>
-              <input
-                type="datetime-local"
-                value={form.endAt}
-                onChange={(e) => setForm({ ...form, endAt: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>地址</Label>
-            <input
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-              placeholder="客户地址"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>联系电话</Label>
-            <input
-              value={form.contactPhone}
-              onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>备注</Label>
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={2}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-              取消
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={saving || !form.customerId || !form.startAt || !form.endAt}
-              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-            >
-              {saving ? "创建中..." : "创建预约"}
-            </button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

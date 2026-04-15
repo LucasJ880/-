@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { withAuth } from "@/lib/common/api-helpers";
 
 const STAGE_LABELS: Record<string, string> = {
   initiation: "立项",
@@ -12,12 +12,7 @@ const STAGE_LABELS: Record<string, string> = {
   submission: "项目提交",
 };
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, ctx, user) => {
   const daysParam = request.nextUrl.searchParams.get("days");
   const days = [30, 60, 90].includes(Number(daysParam)) ? Number(daysParam) : 30;
 
@@ -48,6 +43,7 @@ export async function GET(request: NextRequest) {
       owner: { select: { id: true, name: true } },
     },
     orderBy: { abandonedAt: "desc" },
+    take: 100,
   });
 
   const stageBreakdown: Record<string, number> = {};
@@ -82,4 +78,4 @@ export async function GET(request: NextRequest) {
       owner: p.owner,
     })),
   });
-}
+});

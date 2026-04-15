@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { EMAIL_SCENES } from "./types";
 import type { BriefingData, InlineEmail } from "./types";
+import { sanitizeHtml } from "@/lib/common/sanitize";
 
 export function AiAlertPanel() {
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
@@ -229,7 +230,7 @@ export function AiAlertPanel() {
                               </div>
                               <p className="text-xs font-medium text-foreground">{email.subject}</p>
                               <div className="rounded border border-border/50 bg-gray-50/50 p-2 text-[11px] text-foreground/70 max-h-24 overflow-y-auto"
-                                dangerouslySetInnerHTML={{ __html: email.html }}
+                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(email.html) }}
                               />
                               <button
                                 onClick={() => handleSendInline(customerId!)}
@@ -278,7 +279,7 @@ export function AiAlertPanel() {
 
               <div className="rounded-lg border border-border overflow-hidden">
                 <div className="bg-gray-50 px-3 py-1.5 text-xs font-medium text-muted border-b">邮件预览</div>
-                <div className="p-4 text-sm max-h-48 overflow-y-auto" dangerouslySetInnerHTML={{ __html: refineTarget.html }} />
+                <div className="p-4 text-sm max-h-48 overflow-y-auto" dangerouslySetInnerHTML={{ __html: sanitizeHtml(refineTarget.html) }} />
               </div>
 
               <div className="flex gap-2">

@@ -14,8 +14,8 @@
  *   - replace_quote?: boolean
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import {
   parseGptQuotePlan,
   parseLocalQuotePlan,
@@ -23,12 +23,7 @@ import {
 } from "@/lib/sales/ai-quote-parser";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request) => {
   try {
     const body = await request.json();
     const {
@@ -96,4 +91,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

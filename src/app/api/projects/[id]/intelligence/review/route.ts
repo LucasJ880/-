@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-
-type Ctx = { params: Promise<{ id: string }> };
 
 const VALID_STATUSES = [
   "draft",
@@ -20,10 +18,7 @@ type ReviewStatus = (typeof VALID_STATUSES)[number];
  *
  * 获取情报报告的审核状态及 report_meta。
  */
-export async function GET(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, ctx) => {
   const { id: projectId } = await ctx.params;
 
   const intel = await db.projectIntelligence.findUnique({
@@ -67,7 +62,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     meta,
     updatedAt: intel.updatedAt,
   });
-}
+});
 
 /**
  * PATCH /api/projects/:id/intelligence/review
@@ -79,10 +74,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
  *   reviewNotes?: string
  *   reviewScore?: number (1-5)
  */
-export async function PATCH(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const PATCH = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
 
   const intel = await db.projectIntelligence.findUnique({
@@ -129,7 +121,6 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     data.reviewScore = reviewScore;
   }
 
-  // 当设为 approved / needs_revision / delivered 时记录审核人和时间
   if (
     reportStatus === "approved" ||
     reportStatus === "needs_revision" ||
@@ -152,4 +143,4 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   });
 
   return NextResponse.json(updated);
-}
+});

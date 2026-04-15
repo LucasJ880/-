@@ -1,17 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { listGoogleCalendars } from "@/lib/google-calendar";
+import { withAuth } from "@/lib/common/api-helpers";
 
 /**
  * GET  — 获取用户所有 Google 日历列表（含共享日历）
  * POST — 保存用户选择的日历 ID
  */
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ calendars: [] }, { status: 401 });
-
+export const GET = withAuth(async (request, ctx, user) => {
   const calendars = await listGoogleCalendars(user.id);
 
   const provider = await db.calendarProvider.findFirst({
@@ -30,12 +27,9 @@ export async function GET(request: NextRequest) {
   }));
 
   return NextResponse.json({ calendars: result, selectedIds });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, ctx, user) => {
   const body = await request.json();
   const { calendarIds } = body as { calendarIds: string[] };
 
@@ -57,4 +51,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, selectedIds: calendarIds });
-}
+});

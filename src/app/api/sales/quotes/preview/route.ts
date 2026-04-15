@@ -1,15 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import { withAuth } from '@/lib/common/api-helpers';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import { getAvailableFabrics, ALL_PRODUCTS } from '@/lib/blinds/pricing-data';
 import type { QuoteItemInput, InstallMode } from '@/lib/blinds/pricing-types';
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request) => {
   const body = await request.json();
   const { items, installMode, deliveryFee, taxRate } = body as {
     items: QuoteItemInput[];
@@ -24,17 +19,12 @@ export async function POST(request: NextRequest) {
 
   const calc = calculateQuoteTotal({ items, installMode, deliveryFee, taxRate });
   return NextResponse.json(calc);
-}
+});
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
+export const GET = withAuth(async () => {
   const products = ALL_PRODUCTS.map((p) => ({
     name: p,
     fabrics: getAvailableFabrics(p),
   }));
   return NextResponse.json({ products });
-}
+});

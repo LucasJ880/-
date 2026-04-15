@@ -1,18 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { del } from "@vercel/blob";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-
-type Ctx = { params: Promise<{ id: string; fileId: string }> };
 
 /**
  * DELETE /api/projects/:id/files/:fileId
  * 删除项目文件（同时清理 Blob 存储）
  */
-export async function DELETE(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const DELETE = withAuth(async (_request, ctx) => {
   const { id: projectId, fileId } = await ctx.params;
 
   const doc = await db.projectDocument.findFirst({
@@ -23,7 +18,6 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "文件不存在" }, { status: 404 });
   }
 
-  // 如果是上传的文件，从 Blob 存储中删除
   if (doc.blobUrl) {
     try {
       await del(doc.blobUrl);
@@ -35,4 +29,4 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
   await db.projectDocument.delete({ where: { id: fileId } });
 
   return NextResponse.json({ success: true });
-}
+});

@@ -1,15 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx) => {
+  const { id } = await ctx.params;
   const record = await db.measurementRecord.findUnique({
     where: { id },
     include: {
@@ -23,16 +17,10 @@ export async function GET(
 
   if (!record) return NextResponse.json({ error: "不存在" }, { status: 404 });
   return NextResponse.json({ record });
-}
+});
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
-  const { id } = await params;
+export const PATCH = withAuth(async (request, ctx) => {
+  const { id } = await ctx.params;
   const body = await request.json();
 
   const updateData: Record<string, unknown> = {};
@@ -49,4 +37,4 @@ export async function PATCH(
   });
 
   return NextResponse.json({ record });
-}
+});

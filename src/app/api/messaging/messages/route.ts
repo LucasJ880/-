@@ -4,14 +4,11 @@
  * GET /api/messaging/messages — 获取消息历史
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
-export async function GET(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (req, _ctx, user) => {
   const { searchParams } = new URL(req.url);
   const channel = searchParams.get("channel");
   const limit = Math.min(Number(searchParams.get("limit") ?? 50), 200);
@@ -45,4 +42,4 @@ export async function GET(req: NextRequest) {
     nextCursor,
     hasMore,
   });
-}
+});

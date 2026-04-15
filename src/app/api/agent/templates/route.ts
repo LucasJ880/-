@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { listTemplates as listPresetTemplates } from "@/lib/agent/templates";
 import type { StepTemplate } from "@/lib/agent/types";
@@ -8,10 +8,7 @@ import type { StepTemplate } from "@/lib/agent/types";
  * GET /api/agent/templates
  * 获取所有模板（预设 + 用户自定义）
  */
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const presets = listPresetTemplates().map((t) => ({
     ...t,
     type: "preset" as const,
@@ -51,16 +48,13 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ presets, custom: customMapped });
-}
+});
 
 /**
  * POST /api/agent/templates
  * 创建自定义模板
  */
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   const { name, description, icon, category, steps, isPublic } = body as {
     name: string;
@@ -88,4 +82,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ template }, { status: 201 });
-}
+});

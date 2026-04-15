@@ -5,31 +5,17 @@ import Link from "next/link";
 import {
   Plus,
   Loader2,
-  Search,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  ChevronDown,
-  ChevronRight,
-  FolderKanban,
-  FileText,
-  Star,
   Package,
-  Power,
-  PowerOff,
   Building2,
   Upload,
   Brain,
   Sparkles,
-  Tags,
-  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { SupplierFormDialog } from "@/components/supplier/supplier-form-dialog";
-import { SupplierHistory } from "@/components/supplier/supplier-history";
 import {
   Dialog,
   DialogContent,
@@ -41,6 +27,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { SupplierFilters } from "./supplier-filters";
+import { SupplierTable } from "./supplier-table";
 
 interface SupplierStats {
   projectCount: number;
@@ -80,92 +68,12 @@ const SOURCE_LABELS: Record<string, string> = {
   other: "其他",
 };
 
-const SOURCE_COLORS: Record<string, string> = {
-  exhibition: "bg-purple-100 text-purple-700",
-  referral: "bg-green-100 text-green-700",
-  online: "bg-blue-100 text-blue-700",
-  xiaohongshu: "bg-red-100 text-red-700",
-  "1688": "bg-orange-100 text-orange-700",
-  cold_call: "bg-amber-100 text-amber-700",
-  other: "bg-gray-100 text-gray-600",
-};
-
 interface ListResponse {
   data: Supplier[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
-}
-
-function SupplierMenu({
-  supplier,
-  onEdit,
-  onToggleStatus,
-  onDelete,
-}: {
-  supplier: Supplier;
-  onEdit: () => void;
-  onToggleStatus: () => void;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const isActive = supplier.status === "active";
-
-  return (
-    <div className="relative">
-      <button
-        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-        className="rounded p-1.5 text-muted opacity-0 transition-all group-hover:opacity-100 hover:bg-background hover:text-foreground"
-      >
-        <MoreHorizontal size={16} />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-border bg-card-bg py-1 shadow-lg">
-            <button
-              onClick={() => { setOpen(false); onEdit(); }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-background"
-            >
-              <Pencil size={14} />
-              编辑
-            </button>
-            <button
-              onClick={() => { setOpen(false); onToggleStatus(); }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-background"
-            >
-              {isActive ? <PowerOff size={14} /> : <Power size={14} />}
-              {isActive ? "停用" : "启用"}
-            </button>
-            {supplier.stats.inquiryCount === 0 && (
-              <button
-                onClick={() => { setOpen(false); onDelete(); }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-[#a63d3d] transition-colors hover:bg-[rgba(166,61,61,0.04)]"
-              >
-                <Trash2 size={14} />
-                删除
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function StatBadge({ count, label, accent }: { count: number; label: string; accent?: boolean }) {
-  if (count === 0) return <span className="text-xs text-muted">{label} 0</span>;
-  return (
-    <span className={cn(
-      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-      accent
-        ? "bg-[rgba(181,137,47,0.08)] text-[#b5892f]"
-        : "bg-[rgba(79,124,120,0.08)] text-primary"
-    )}>
-      {count} {label}
-    </span>
-  );
 }
 
 export default function SuppliersPage() {
@@ -183,7 +91,6 @@ export default function SuppliersPage() {
   const [showForm, setShowForm] = useState(false);
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const activeOrgs = organizations.filter((o) => o.status === "active");
 
@@ -309,63 +216,19 @@ export default function SuppliersPage() {
         </div>
       ) : (
         <>
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-3">
-            {activeOrgs.length > 1 && (
-              <select
-                value={selectedOrgId}
-                onChange={(e) => setSelectedOrgId(e.target.value)}
-                className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-accent"
-              >
-                {activeOrgs.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
-            )}
+          <SupplierFilters
+            activeOrgs={activeOrgs}
+            selectedOrgId={selectedOrgId}
+            onOrgChange={setSelectedOrgId}
+            search={search}
+            onSearchChange={setSearch}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            sourceFilter={sourceFilter}
+            onSourceFilterChange={setSourceFilter}
+            total={total}
+          />
 
-            <div className="relative flex-1 min-w-[200px] max-w-xs">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="搜索供应商..."
-                className="w-full rounded-lg border border-border bg-background py-1.5 pl-9 pr-3 text-sm outline-none focus:border-accent"
-              />
-            </div>
-
-            <div className="flex items-center gap-1 text-sm">
-              {(["all", "active", "inactive"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setStatusFilter(v)}
-                  className={cn(
-                    "rounded-lg px-3 py-1.5 font-medium transition-colors",
-                    statusFilter === v
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted hover:bg-card-hover"
-                  )}
-                >
-                  {{ all: "全部", active: "活跃", inactive: "停用" }[v]}
-                </button>
-              ))}
-            </div>
-
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
-              className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-accent"
-            >
-              <option value="all">全部来源</option>
-              {Object.entries(SOURCE_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
-
-            <span className="ml-auto text-xs text-muted">共 {total} 家</span>
-          </div>
-
-          {/* Content */}
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted">
               <Loader2 size={16} className="animate-spin" />
@@ -393,64 +256,16 @@ export default function SuppliersPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-border bg-card-bg">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-background/50 text-left text-xs text-muted">
-                    <th className="w-8 px-3 py-2.5" />
-                    <th className="px-3 py-2.5 font-medium">供应商</th>
-                    <th className="px-3 py-2.5 font-medium">来源</th>
-                    <th className="px-3 py-2.5 font-medium">品类 / 标签</th>
-                    <th className="px-3 py-2.5 font-medium">地区</th>
-                    <th className="px-3 py-2.5 font-medium text-center">合作</th>
-                    <th className="px-3 py-2.5 font-medium">状态</th>
-                    <th className="w-10 px-3 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {suppliers.map((s) => {
-                    const isExpanded = expandedId === s.id;
-                    return (
-                      <SupplierRow
-                        key={s.id}
-                        supplier={s}
-                        isExpanded={isExpanded}
-                        onToggleExpand={() => setExpandedId(isExpanded ? null : s.id)}
-                        onEdit={() => { setEditing(s); setShowForm(true); }}
-                        onToggleStatus={() => handleToggleStatus(s)}
-                        onDelete={() => handleDelete(s.id)}
-                        onClassify={() => handleClassify(s.id)}
-                      />
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between border-t border-border px-4 py-3">
-                  <span className="text-xs text-muted">
-                    第 {page}/{totalPages} 页
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                      className="rounded-lg border border-border px-3 py-1 text-xs transition-colors hover:bg-background disabled:opacity-40"
-                    >
-                      上一页
-                    </button>
-                    <button
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page >= totalPages}
-                      className="rounded-lg border border-border px-3 py-1 text-xs transition-colors hover:bg-background disabled:opacity-40"
-                    >
-                      下一页
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <SupplierTable
+              suppliers={suppliers}
+              onEdit={(s) => { setEditing(s); setShowForm(true); }}
+              onToggleStatus={handleToggleStatus}
+              onDelete={handleDelete}
+              onClassify={handleClassify}
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           )}
         </>
       )}
@@ -476,179 +291,6 @@ export default function SuppliersPage() {
   );
 }
 
-function SupplierRow({
-  supplier: s,
-  isExpanded,
-  onToggleExpand,
-  onEdit,
-  onToggleStatus,
-  onDelete,
-  onClassify,
-}: {
-  supplier: Supplier;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
-  onEdit: () => void;
-  onToggleStatus: () => void;
-  onDelete: () => void;
-  onClassify: () => void;
-}) {
-  const hasHistory = s.stats.inquiryCount > 0;
-  const tagList = s.tags ? s.tags.split(",").filter(Boolean).slice(0, 4) : [];
-
-  return (
-    <>
-      <tr className="group border-b border-border/50 transition-colors hover:bg-background/30">
-        <td className="px-3 py-3">
-          {hasHistory ? (
-            <button onClick={onToggleExpand} className="rounded p-0.5 text-muted hover:text-foreground">
-              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
-          ) : (
-            <span className="inline-block w-[14px]" />
-          )}
-        </td>
-        <td className="px-3 py-3">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0">
-              <Link
-                href={`/suppliers/${s.id}`}
-                className="font-medium text-foreground hover:text-accent hover:underline"
-              >
-                {s.name}
-              </Link>
-              <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
-                {s.contactName && <span>{s.contactName}</span>}
-                {s.contactEmail && <span>{s.contactEmail}</span>}
-              </div>
-            </div>
-          </div>
-        </td>
-        <td className="px-3 py-3">
-          {s.source ? (
-            <span className={cn(
-              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
-              SOURCE_COLORS[s.source] || "bg-gray-100 text-gray-600"
-            )}>
-              {SOURCE_LABELS[s.source] || s.source}
-            </span>
-          ) : (
-            <span className="text-xs text-muted">—</span>
-          )}
-          {s.sourceDetail && (
-            <p className="mt-0.5 text-[10px] text-muted truncate max-w-[120px]" title={s.sourceDetail}>
-              {s.sourceDetail}
-            </p>
-          )}
-        </td>
-        <td className="px-3 py-3">
-          <div className="space-y-1">
-            {s.category && (
-              <span className="rounded-full bg-[rgba(79,124,120,0.06)] px-2 py-0.5 text-xs font-medium text-primary">
-                {s.category}
-              </span>
-            )}
-            {tagList.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {tagList.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted"
-                  >
-                    {tag.trim()}
-                  </span>
-                ))}
-                {s.tags && s.tags.split(",").length > 4 && (
-                  <span className="text-[10px] text-muted">
-                    +{s.tags.split(",").length - 4}
-                  </span>
-                )}
-              </div>
-            )}
-            {!s.category && tagList.length === 0 && (
-              <button
-                onClick={onClassify}
-                className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline"
-              >
-                <Sparkles size={10} />
-                AI 分类
-              </button>
-            )}
-          </div>
-        </td>
-        <td className="px-3 py-3 text-muted text-xs">
-          {s.region || "—"}
-        </td>
-        <td className="px-3 py-3 text-center">
-          <div className="flex flex-col items-center gap-0.5">
-            {s.stats.projectCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                <FolderKanban size={11} />
-                {s.stats.projectCount} 项目
-              </span>
-            )}
-            {s.stats.quotedCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#2e7a56]">
-                <FileText size={11} />
-                {s.stats.quotedCount} 报价
-              </span>
-            )}
-            {s.stats.selectedCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#b5892f]">
-                <Star size={11} fill="#b5892f" />
-                {s.stats.selectedCount} 中选
-              </span>
-            )}
-            {s.stats.projectCount === 0 && s.stats.quotedCount === 0 && (
-              <span className="text-[11px] text-muted">暂无</span>
-            )}
-          </div>
-        </td>
-        <td className="px-3 py-3">
-          <span className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium",
-            s.status === "active"
-              ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
-              : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
-          )}>
-            {s.status === "active" ? "活跃" : "停用"}
-          </span>
-        </td>
-        <td className="px-3 py-3">
-          <SupplierMenu
-            supplier={s}
-            onEdit={onEdit}
-            onToggleStatus={onToggleStatus}
-            onDelete={onDelete}
-          />
-        </td>
-      </tr>
-      {isExpanded && (
-        <tr>
-          <td colSpan={8} className="bg-background/30 px-0 py-0">
-            <div className="border-b border-border/50 py-2">
-              {s.capabilities && (
-                <div className="mx-4 mb-2 rounded-lg bg-accent/[0.03] px-3 py-2">
-                  <div className="flex items-center gap-1 text-[10px] font-semibold text-accent mb-1">
-                    <Brain size={10} />
-                    AI 能力画像
-                  </div>
-                  <p className="text-xs text-foreground/80 leading-relaxed">{s.capabilities}</p>
-                </div>
-              )}
-              <div className="mb-1 flex items-center gap-2 px-4 py-1.5 text-xs font-semibold text-muted">
-                <FolderKanban size={12} />
-                项目参与记录
-              </div>
-              <SupplierHistory supplierId={s.id} />
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
 /* ── Batch Import Dialog ── */
 function BatchImportDialog({
   open,
@@ -661,7 +303,6 @@ function BatchImportDialog({
   orgId: string;
   onSuccess: () => void;
 }) {
-  const [mode, setMode] = useState<"text" | "structured">("text");
   const [rawText, setRawText] = useState("");
   const [source, setSource] = useState("exhibition");
   const [sourceDetail, setSourceDetail] = useState("");

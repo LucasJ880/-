@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { runBatchInsightExtraction } from "@/lib/sales/insight-extractor";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request) => {
   const insightType = request.nextUrl.searchParams.get("type");
   const stage = request.nextUrl.searchParams.get("stage");
 
@@ -30,12 +27,9 @@ export async function GET(request: NextRequest) {
   };
 
   return NextResponse.json({ insights, stats });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json().catch(() => ({}));
   const { lookbackDays, limit } = body as {
     lookbackDays?: number;
@@ -45,4 +39,4 @@ export async function POST(request: NextRequest) {
   const result = await runBatchInsightExtraction(user.id, { lookbackDays, limit });
 
   return NextResponse.json({ success: true, ...result });
-}
+});

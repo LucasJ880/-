@@ -12,8 +12,6 @@ import { PipelineBoard } from "./pipeline-board";
 import { CustomerList } from "./customer-list";
 import { CsvImportDialog } from "./csv-import-dialog";
 import { NewCustomerDialog } from "./new-customer-dialog";
-import { offlineDb } from "@/lib/offline/db";
-import { useOnlineStatus } from "@/lib/offline/hooks";
 
 export default function SalesPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("pipeline");
@@ -23,7 +21,6 @@ export default function SalesPage() {
   const [search, setSearch] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const isOnline = useOnlineStatus();
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -32,94 +29,35 @@ export default function SalesPage() {
     setLoadError(null);
     try {
       if (viewMode === "pipeline") {
-        if (isOnline) {
-          const res = await apiFetch("/api/sales/opportunities");
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            console.error("Opportunities API error:", res.status, errData);
-            throw new Error(
-              (errData as { error?: string }).error || `API ${res.status}`,
-            );
-          }
-          const data = await res.json();
-          const list = Array.isArray(data?.opportunities)
-            ? data.opportunities
-            : [];
-          setOpportunities(list);
+        const res = await apiFetch("/api/sales/opportunities");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error("Opportunities API error:", res.status, errData);
+          throw new Error(
+            (errData as { error?: string }).error || `API ${res.status}`,
+          );
         }
+        const data = await res.json();
+        const list = Array.isArray(data?.opportunities)
+          ? data.opportunities
+          : [];
+        setOpportunities(list);
       } else {
-        let serverCustomers: Customer[] = [];
-        if (isOnline) {
-          const qs = search ? `?search=${encodeURIComponent(search)}` : "";
-          const res = await apiFetch(`/api/sales/customers${qs}`);
-          const data = await res.json();
-          serverCustomers = Array.isArray(data?.customers)
-            ? data.customers
-            : [];
-        }
-
-        let offlineCustomers: Customer[] = [];
-        try {
-          const pending = await offlineDb.customers
-            .where("syncStatus")
-            .equals("pending")
-            .toArray();
-          offlineCustomers = pending.map((c) => ({
-            id: c.localId,
-            name: c.name,
-            phone: c.phone ?? null,
-            email: c.email ?? null,
-            address: c.address ?? null,
-            source: c.source ?? null,
-            status: "active",
-            tags: c.tags ?? null,
-            notes: c.notes ?? null,
-            createdAt: c.createdAt,
-            updatedAt: c.updatedAt,
-            _offlinePending: true,
-          } as Customer & { _offlinePending?: boolean }));
-        } catch {
-          // IndexedDB unavailable — ignore
-        }
-
-        setCustomers([...offlineCustomers, ...serverCustomers]);
+        const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+        const res = await apiFetch(`/api/sales/customers${qs}`);
+        const data = await res.json();
+        const serverCustomers = Array.isArray(data?.customers)
+          ? data.customers
+          : [];
+        setCustomers(serverCustomers);
       }
     } catch (err) {
       console.error("Load sales data failed:", err);
       setLoadError(err instanceof Error ? err.message : String(err));
-      if (viewMode === "customers") {
-        try {
-          const offlineCustomers = await offlineDb.customers
-            .orderBy("updatedAt")
-            .reverse()
-            .toArray();
-          setCustomers(
-            offlineCustomers.map(
-              (c) =>
-                ({
-                  id: c.serverId || c.localId,
-                  name: c.name,
-                  phone: c.phone ?? null,
-                  email: c.email ?? null,
-                  address: c.address ?? null,
-                  source: c.source ?? null,
-                  status: "active",
-                  tags: c.tags ?? null,
-                  notes: c.notes ?? null,
-                  createdAt: c.createdAt,
-                  updatedAt: c.updatedAt,
-                  _offlinePending: c.syncStatus === "pending",
-                }) as Customer & { _offlinePending?: boolean },
-            ),
-          );
-        } catch {
-          // IndexedDB fallback also failed — leave empty
-        }
-      }
     } finally {
       setLoading(false);
     }
-  }, [viewMode, search, isOnline]);
+  }, [viewMode, search]);
 
   useEffect(() => {
     loadData();

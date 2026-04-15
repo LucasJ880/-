@@ -1,30 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Plus,
   Loader2,
-  CheckCircle2,
-  Circle,
-  Clock,
-  XCircle,
-  Trash2,
-  ChevronDown,
-  ChevronRight,
-  Pencil,
   X,
   Bell,
   BellOff,
-  AlertTriangle,
   ListTodo,
-  LayoutList,
-  FolderKanban,
-  Columns3,
-  MoreHorizontal,
   CheckSquare,
-  Square,
-  Flag,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -36,7 +21,7 @@ import {
 } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
-import { daysRemainingToronto, toToronto } from "@/lib/time";
+import { daysRemainingToronto } from "@/lib/time";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
 import {
   Dialog,
@@ -56,6 +41,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TaskKanbanView } from "./task-board";
+import { TaskTimeView, TaskProjectView } from "./task-list";
+import { TaskFilters, BatchActionBar } from "./task-filters";
 
 const PROJECT_SELECT_NONE = "__none__";
 
@@ -99,10 +87,10 @@ interface ProjectGroup {
 }
 
 /* ── Helpers ── */
-const PRIORITY_WEIGHT: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 function prioritySort(a: Task, b: Task): number {
-  return (PRIORITY_WEIGHT[a.priority] ?? 2) - (PRIORITY_WEIGHT[b.priority] ?? 2);
+  const w: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+  return (w[a.priority] ?? 2) - (w[b.priority] ?? 2);
 }
 
 function dateSort(a: Task, b: Task): number {
@@ -164,277 +152,6 @@ function groupByProject(tasks: Task[], allTasks: Task[]): ProjectGroup[] {
   groups.forEach((g) => g.tasks.sort(dateSort));
   groups.sort((a, b) => (a.projectId === null ? 1 : b.projectId === null ? -1 : 0));
   return groups;
-}
-
-function formatDue(dueDate: string | null, taskStatus: string): { text: string; cls: string } | null {
-  if (!dueDate) return null;
-  const diff = daysRemainingToronto(dueDate);
-  if (taskStatus === "done" || taskStatus === "cancelled") {
-    const t = toToronto(new Date(dueDate));
-    return { text: `${t.getMonth() + 1}/${t.getDate()}`, cls: "text-muted" };
-  }
-  if (diff < 0) return { text: `逾期${Math.abs(diff)}天`, cls: "text-[#a63d3d] font-medium" };
-  if (diff === 0) return { text: "今天", cls: "text-[#b06a28] font-medium" };
-  if (diff === 1) return { text: "明天", cls: "text-[#9a6a2f]" };
-  const t = toToronto(new Date(dueDate));
-  const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][t.getDay()];
-  if (diff <= 6) return { text: weekday, cls: "text-muted" };
-  return { text: `${t.getMonth() + 1}/${t.getDate()}`, cls: "text-muted" };
-}
-
-/* ── One-click complete button ── */
-function TaskCheckButton({ task, onToggle }: { task: Task; onToggle: (id: string, s: TaskStatus) => void }) {
-  const [animating, setAnimating] = useState(false);
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setAnimating(true);
-    onToggle(task.id, task.status === "done" ? "todo" : "done");
-    setTimeout(() => setAnimating(false), 400);
-  };
-  if (task.status === "done") return <button onClick={handleClick} className="shrink-0 text-[#2e7a56] hover:scale-110 transition-transform"><CheckCircle2 size={18} /></button>;
-  if (task.status === "in_progress") return <button onClick={handleClick} className="shrink-0 text-[#2b6055] hover:scale-110 transition-transform"><Clock size={18} /></button>;
-  if (task.status === "cancelled") return <button onClick={handleClick} className="shrink-0 text-[#a63d3d] hover:scale-110 transition-transform"><XCircle size={18} /></button>;
-  return <button onClick={handleClick} className={cn("shrink-0 text-border transition-all hover:text-[#2e7a56] hover:scale-110", animating && "scale-125 text-[#2e7a56]")}><Circle size={18} /></button>;
-}
-
-/* ── AI next hint ── */
-function AiNextHint({ task, allTasks, visible }: { task: Task; allTasks: Task[]; visible: boolean }) {
-  if (!visible || !task.project) return null;
-  const projectTasks = allTasks.filter(
-    (t) => t.project?.id === task.project?.id && t.status !== "done" && t.status !== "cancelled" && t.id !== task.id
-  );
-  if (!projectTasks.length) return null;
-  projectTasks.sort((a, b) => { const pw = (PRIORITY_WEIGHT[a.priority] ?? 2) - (PRIORITY_WEIGHT[b.priority] ?? 2); return pw !== 0 ? pw : dateSort(a, b); });
-  const next = projectTasks[0];
-  const total = allTasks.filter((t) => t.project?.id === task.project?.id).length;
-  const done = allTasks.filter((t) => t.project?.id === task.project?.id && t.status === "done").length;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const due = next.dueDate ? formatDue(next.dueDate, next.status) : null;
-  return (
-    <div className="mx-5 -mt-1 mb-1 animate-in fade-in slide-in-from-top-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-accent duration-300">
-      <span className="font-medium">进度 {pct}%</span><span className="mx-1.5 text-accent/40">|</span>下一步：{next.title}{due && <span className="text-muted ml-1">({due.text})</span>}
-    </div>
-  );
-}
-
-/* ── Task row (list views) ── */
-function TaskRow({
-  task, allTasks, showProject, onToggle, onOpenDrawer, onEdit, onDelete, justCompleted,
-  selected, onSelect, batchMode,
-}: {
-  task: Task; allTasks: Task[]; showProject: boolean;
-  onToggle: (id: string, s: TaskStatus) => void; onOpenDrawer: (id: string) => void;
-  onEdit: (t: Task) => void; onDelete: (id: string) => void; justCompleted: boolean;
-  selected?: boolean; onSelect?: (id: string) => void; batchMode?: boolean;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const due = formatDue(task.dueDate, task.status);
-  const showPriority = task.priority === "urgent" || task.priority === "high";
-  return (
-    <>
-      <div className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-background">
-        {batchMode ? (
-          <button onClick={(e) => { e.stopPropagation(); onSelect?.(task.id); }} className="shrink-0 text-muted hover:text-accent">
-            {selected ? <CheckSquare size={18} className="text-accent" /> : <Square size={18} />}
-          </button>
-        ) : (
-          <TaskCheckButton task={task} onToggle={onToggle} />
-        )}
-        <button onClick={() => onOpenDrawer(task.id)} className={cn("min-w-0 flex-1 text-left text-sm font-medium truncate transition-colors hover:text-accent", task.status === "done" && "text-muted line-through")}>
-          {task.title}
-        </button>
-        <div className="flex shrink-0 items-center gap-2 text-xs">
-          {showProject && task.project && (
-            <Link
-              href={`/projects/${task.project.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 text-muted hover:text-accent transition-colors"
-            >
-              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: task.project.color }} />
-              <span className="max-w-[140px] truncate">{task.project.name}</span>
-            </Link>
-          )}
-          {due && <span className={cn("whitespace-nowrap", due.cls)}>{due.text}</span>}
-          {showPriority && <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", TASK_PRIORITY[task.priority].color)}>{TASK_PRIORITY[task.priority].label}</span>}
-        </div>
-        <div className="relative">
-          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} className="rounded p-1 text-muted opacity-0 transition-all group-hover:opacity-100 hover:bg-background"><MoreHorizontal size={15} /></button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-lg border border-border bg-card-bg py-1 shadow-lg">
-                <button onClick={() => { setMenuOpen(false); onEdit(task); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-background"><Pencil size={12} /> 编辑</button>
-                <button onClick={() => { setMenuOpen(false); onDelete(task.id); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[#a63d3d] hover:bg-[rgba(166,61,61,0.04)]"><Trash2 size={12} /> 删除</button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-      <AiNextHint task={task} allTasks={allTasks} visible={justCompleted} />
-    </>
-  );
-}
-
-/* ── Kanban Card ── */
-function KanbanCard({
-  task, onOpenDrawer, onToggle, draggingId, onDragStart, onDragEnd,
-}: {
-  task: Task; onOpenDrawer: (id: string) => void;
-  onToggle: (id: string, s: TaskStatus) => void;
-  draggingId: string | null;
-  onDragStart: (id: string) => void;
-  onDragEnd: () => void;
-}) {
-  const due = formatDue(task.dueDate, task.status);
-  const isDragging = draggingId === task.id;
-  return (
-    <div
-      draggable
-      onDragStart={(e) => { e.dataTransfer.setData("text/plain", task.id); onDragStart(task.id); }}
-      onDragEnd={onDragEnd}
-      className={cn(
-        "cursor-grab rounded-lg border border-border bg-card-bg p-3 shadow-sm transition-all hover:shadow-md active:cursor-grabbing",
-        isDragging && "opacity-40 scale-95"
-      )}
-    >
-      <button onClick={() => onOpenDrawer(task.id)} className="w-full text-left">
-        <p className={cn("text-sm font-medium leading-snug", task.status === "done" && "text-muted line-through")}>{task.title}</p>
-        <div className="mt-2 flex items-center gap-2 text-[11px]">
-          {task.project && (
-            <Link
-              href={`/projects/${task.project.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 text-muted hover:text-accent transition-colors"
-            >
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: task.project.color }} />
-              <span className="max-w-[120px] truncate">{task.project.name}</span>
-            </Link>
-          )}
-          {due && <span className={cn("whitespace-nowrap", due.cls)}>{due.text}</span>}
-          {(task.priority === "urgent" || task.priority === "high") && (
-            <span className={cn("rounded px-1 py-0.5 text-[10px] font-medium", TASK_PRIORITY[task.priority].color)}>
-              {TASK_PRIORITY[task.priority].label}
-            </span>
-          )}
-        </div>
-      </button>
-    </div>
-  );
-}
-
-/* ── Kanban Column ── */
-const KANBAN_COLUMNS: { status: TaskStatus; label: string; icon: typeof Circle; color: string }[] = [
-  { status: "todo", label: "待办", icon: Circle, color: "#6e7d76" },
-  { status: "in_progress", label: "进行中", icon: Clock, color: "#2b6055" },
-  { status: "done", label: "已完成", icon: CheckCircle2, color: "#2e7a56" },
-];
-
-function KanbanColumn({
-  column, tasks, onOpenDrawer, onToggle, onDrop, draggingId, onDragStart, onDragEnd, dragOver, setDragOver,
-}: {
-  column: typeof KANBAN_COLUMNS[0]; tasks: Task[];
-  onOpenDrawer: (id: string) => void; onToggle: (id: string, s: TaskStatus) => void;
-  onDrop: (taskId: string, newStatus: TaskStatus) => void;
-  draggingId: string | null; onDragStart: (id: string) => void; onDragEnd: () => void;
-  dragOver: string | null; setDragOver: (s: string | null) => void;
-}) {
-  const Icon = column.icon;
-  const isOver = dragOver === column.status;
-  return (
-    <div
-      className={cn(
-        "flex flex-1 flex-col rounded-xl border bg-background/50 transition-colors",
-        isOver ? "border-accent/40 bg-accent/5" : "border-border"
-      )}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(column.status); }}
-      onDragLeave={() => setDragOver(null)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(null);
-        const taskId = e.dataTransfer.getData("text/plain");
-        if (taskId) onDrop(taskId, column.status);
-      }}
-    >
-      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
-        <Icon size={14} style={{ color: column.color }} />
-        <span className="text-sm font-semibold">{column.label}</span>
-        <span className="ml-auto rounded-full bg-border/40 px-1.5 py-0.5 text-[10px] font-medium text-muted">{tasks.length}</span>
-      </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-2" style={{ minHeight: 120 }}>
-        {tasks.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-xs text-muted/50">拖拽到此处</div>
-        ) : (
-          tasks.map((t) => (
-            <KanbanCard key={t.id} task={t} onOpenDrawer={onOpenDrawer} onToggle={onToggle} draggingId={draggingId} onDragStart={onDragStart} onDragEnd={onDragEnd} />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Batch Action Bar ── */
-function BatchActionBar({
-  count, onStatusChange, onPriorityChange, onDelete, onCancel,
-}: {
-  count: number;
-  onStatusChange: (s: TaskStatus) => void;
-  onPriorityChange: (p: TaskPriority) => void;
-  onDelete: () => void;
-  onCancel: () => void;
-}) {
-  const [showStatus, setShowStatus] = useState(false);
-  const [showPriority, setShowPriority] = useState(false);
-  return (
-    <div className="sticky top-0 z-10 flex items-center gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-2.5 shadow-sm">
-      <CheckSquare size={16} className="text-accent" />
-      <span className="text-sm font-medium text-accent">已选 {count} 项</span>
-      <div className="flex items-center gap-2 ml-auto">
-        {/* Status dropdown */}
-        <div className="relative">
-          <button onClick={() => { setShowStatus(!showStatus); setShowPriority(false); }} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-background">
-            <Clock size={12} /> 改状态 <ChevronDown size={10} />
-          </button>
-          {showStatus && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowStatus(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-border bg-card-bg py-1 shadow-lg">
-                {(Object.keys(TASK_STATUS) as TaskStatus[]).map((s) => (
-                  <button key={s} onClick={() => { setShowStatus(false); onStatusChange(s); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-background">
-                    {TASK_STATUS[s].label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        {/* Priority dropdown */}
-        <div className="relative">
-          <button onClick={() => { setShowPriority(!showPriority); setShowStatus(false); }} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-background">
-            <Flag size={12} /> 改优先级 <ChevronDown size={10} />
-          </button>
-          {showPriority && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowPriority(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-lg border border-border bg-card-bg py-1 shadow-lg">
-                {(Object.keys(TASK_PRIORITY) as TaskPriority[]).map((p) => (
-                  <button key={p} onClick={() => { setShowPriority(false); onPriorityChange(p); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-background">
-                    {TASK_PRIORITY[p].label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        <button onClick={onDelete} className="flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.2)] px-2.5 py-1.5 text-xs font-medium text-[#a63d3d] hover:bg-[rgba(166,61,61,0.04)]">
-          <Trash2 size={12} /> 删除
-        </button>
-        <button onClick={onCancel} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:bg-background">
-          取消
-        </button>
-      </div>
-    </div>
-  );
 }
 
 /* ── TaskFormModal ── */
@@ -596,10 +313,6 @@ function TasksPageContent() {
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Kanban drag state
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
-
   useEffect(() => {
     if (openParam && !drawerOpen) { setDrawerTaskId(openParam); setDrawerOpen(true); }
   }, [openParam]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -731,38 +444,18 @@ function TasksPageContent() {
         </div>
       )}
 
-      {/* Batch action bar */}
       {batchMode && selectedIds.size > 0 && (
         <BatchActionBar count={selectedIds.size} onStatusChange={handleBatchStatus} onPriorityChange={handleBatchPriority} onDelete={handleBatchDelete} onCancel={exitBatchMode} />
       )}
 
-      {/* Filter tabs + view toggle */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2 flex-wrap">
-          {(["all", "todo", "in_progress", "done", "cancelled"] as const).map((s) => {
-            const count = statusCounts[s];
-            const label = s === "all" ? "全部" : TASK_STATUS[s].label;
-            return (
-              <button key={s} onClick={() => setFilter(s)} className={cn("rounded-lg border px-3 py-1.5 text-sm transition-colors", filter === s ? "border-accent bg-accent/5 font-medium text-accent" : "border-border text-muted hover:bg-card-bg")}>
-                {label} <span className="text-xs opacity-60">({count})</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex gap-1 rounded-lg border border-border p-0.5">
-          <button onClick={() => { setViewMode("time"); exitBatchMode(); }} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors", viewMode === "time" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground")}>
-            <LayoutList size={13} /> 时间
-          </button>
-          <button onClick={() => { setViewMode("project"); exitBatchMode(); }} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors", viewMode === "project" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground")}>
-            <FolderKanban size={13} /> 项目
-          </button>
-          <button onClick={() => { setViewMode("kanban"); exitBatchMode(); }} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors", viewMode === "kanban" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground")}>
-            <Columns3 size={13} /> 看板
-          </button>
-        </div>
-      </div>
+      <TaskFilters
+        filter={filter}
+        onFilterChange={setFilter}
+        viewMode={viewMode}
+        onViewModeChange={(v) => { setViewMode(v); exitBatchMode(); }}
+        statusCounts={statusCounts}
+      />
 
-      {/* Content */}
       {loading ? (
         <div className="space-y-2 rounded-[var(--radius-lg)] border border-border bg-card-bg p-4 shadow-card">
           {[1, 2, 3].map((i) => (<div key={i} className="flex animate-pulse items-center gap-4 border-b border-border py-3 last:border-0"><div className="h-4 flex-1 rounded bg-border" /><div className="h-5 w-16 rounded bg-border" /></div>))}
@@ -778,77 +471,19 @@ function TasksPageContent() {
           </div>
         </div>
       ) : viewMode === "kanban" ? (
-        /* ── Kanban view ── */
-        <div className="flex gap-4" style={{ minHeight: 400 }}>
-          {KANBAN_COLUMNS.map((col) => {
-            const colTasks = filteredTasks.filter((t) => t.status === col.status).sort(prioritySort);
-            return <KanbanColumn key={col.status} column={col} tasks={colTasks} onOpenDrawer={openDrawer} onToggle={handleToggle} onDrop={handleKanbanDrop} draggingId={draggingId} onDragStart={setDraggingId} onDragEnd={() => setDraggingId(null)} dragOver={dragOver} setDragOver={setDragOver} />;
-          })}
-        </div>
+        <TaskKanbanView filteredTasks={filteredTasks} onOpenDrawer={openDrawer} onToggle={handleToggle} onDrop={handleKanbanDrop} />
       ) : viewMode === "time" ? (
-        /* ── Time view ── */
-        <div className="space-y-3">
-          {timeGroups.map((group) => {
-            const collapsed = collapsedGroups.has(group.key);
-            return (
-              <div key={group.key} className="rounded-xl border border-border bg-card-bg overflow-hidden">
-                <button onClick={() => toggleGroup(group.key)} className={cn("flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-background", group.isOverdue && "border-l-2 border-l-[#a63d3d]")}>
-                  {collapsed ? <ChevronRight size={14} className="text-muted" /> : <ChevronDown size={14} className="text-muted" />}
-                  <span className={cn("text-sm font-semibold", group.isOverdue ? "text-[#a63d3d]" : "text-foreground")}>{group.label}</span>
-                  {group.isOverdue && <AlertTriangle size={13} className="text-[#a63d3d]" />}
-                  <span className="ml-auto text-xs text-muted">{group.tasks.length} 项</span>
-                </button>
-                {!collapsed && (
-                  <div className="divide-y divide-border border-t border-border">
-                    {group.tasks.map((task) => (
-                      <TaskRow key={task.id} task={task} allTasks={allTasks} showProject={true} onToggle={handleToggle} onOpenDrawer={openDrawer} onEdit={(t) => { setEditingTask(t); setShowForm(true); }} onDelete={handleDelete} justCompleted={justCompletedId === task.id} batchMode={batchMode} selected={selectedIds.has(task.id)} onSelect={toggleSelect} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <TaskTimeView
+          timeGroups={timeGroups} allTasks={allTasks} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup}
+          onToggle={handleToggle} onOpenDrawer={openDrawer} onEdit={(t) => { setEditingTask(t); setShowForm(true); }} onDelete={handleDelete}
+          justCompletedId={justCompletedId} batchMode={batchMode} selectedIds={selectedIds} onSelect={toggleSelect}
+        />
       ) : (
-        /* ── Project view ── */
-        <div className="space-y-3">
-          {projectGroups.map((group) => {
-            const groupKey = group.projectId ?? "__none__";
-            const collapsed = collapsedGroups.has(groupKey);
-            const pct = group.totalCount > 0 ? Math.round((group.doneCount / group.totalCount) * 100) : 0;
-            return (
-              <div key={groupKey} className="rounded-xl border border-border bg-card-bg overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-background">
-                  <button onClick={() => toggleGroup(groupKey)} className="shrink-0 text-muted hover:text-foreground">
-                    {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                  {group.projectId && <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: group.projectColor }} />}
-                  {group.projectId ? (
-                    <Link href={`/projects/${group.projectId}`} className="text-sm font-semibold truncate hover:text-accent transition-colors">
-                      {group.projectName}
-                    </Link>
-                  ) : (
-                    <span className="text-sm font-semibold truncate text-muted">{group.projectName}</span>
-                  )}
-                  {group.projectId && (
-                    <div className="flex items-center gap-2 ml-2 flex-1 max-w-[200px]">
-                      <div className="h-1.5 flex-1 rounded-full bg-border/50"><div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${pct}%` }} /></div>
-                      <span className="text-xs text-muted whitespace-nowrap">{pct}%</span>
-                    </div>
-                  )}
-                  <button onClick={() => toggleGroup(groupKey)} className="ml-auto text-xs text-muted shrink-0 hover:text-foreground">{group.tasks.length} 项</button>
-                </div>
-                {!collapsed && (
-                  <div className="divide-y divide-border border-t border-border">
-                    {group.tasks.map((task) => (
-                      <TaskRow key={task.id} task={task} allTasks={allTasks} showProject={false} onToggle={handleToggle} onOpenDrawer={openDrawer} onEdit={(t) => { setEditingTask(t); setShowForm(true); }} onDelete={handleDelete} justCompleted={justCompletedId === task.id} batchMode={batchMode} selected={selectedIds.has(task.id)} onSelect={toggleSelect} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <TaskProjectView
+          projectGroups={projectGroups} allTasks={allTasks} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup}
+          onToggle={handleToggle} onOpenDrawer={openDrawer} onEdit={(t) => { setEditingTask(t); setShowForm(true); }} onDelete={handleDelete}
+          justCompletedId={justCompletedId} batchMode={batchMode} selectedIds={selectedIds} onSelect={toggleSelect}
+        />
       )}
 
       <TaskFormModal

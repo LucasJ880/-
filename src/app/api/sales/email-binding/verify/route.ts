@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { verifySMTP } from "@/lib/email/sender";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (_request, _ctx, user) => {
   const binding = await db.emailBinding.findUnique({ where: { userId: user.id } });
   if (!binding) {
     return NextResponse.json({ error: "请先保存邮箱配置" }, { status: 400 });
@@ -34,4 +31,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ verified: false, error: result.error });
-}
+});

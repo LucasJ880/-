@@ -5,14 +5,11 @@
  * POST /api/messaging/gateway — 操作通道（启动/停止/配置）
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
-export async function GET(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_req, _ctx, user) => {
   const membership = await db.organizationMember.findFirst({
     where: { userId: user.id },
     select: { orgId: true, role: true },
@@ -39,12 +36,9 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ gateways });
-}
+});
 
-export async function POST(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (req, _ctx, user) => {
   const membership = await db.organizationMember.findFirst({
     where: { userId: user.id },
     select: { orgId: true, role: true },
@@ -54,7 +48,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "需要管理员权限" }, { status: 403 });
   }
 
-  const body = await req.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+  }
   const { action, channel } = body;
 
   if (action === "configure_wecom") {
@@ -130,4 +130,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: `未知操作: ${action}` }, { status: 400 });
-}
+});

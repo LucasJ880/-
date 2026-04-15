@@ -4,10 +4,10 @@
  * POST — 执行一个动作（生成草稿、延期报价、批准客户等）
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { executeAction } from "@/lib/secretary/actions";
 import type { ActionType } from "@/lib/secretary/actions";
+import { withAuth } from "@/lib/common/api-helpers";
 
 const VALID_TYPES: ActionType[] = [
   "followup_draft",
@@ -17,12 +17,7 @@ const VALID_TYPES: ActionType[] = [
   "send_draft",
 ];
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request) => {
   const body = await request.json().catch(() => null);
   if (!body?.type || !body?.entityId) {
     return NextResponse.json(
@@ -55,4 +50,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

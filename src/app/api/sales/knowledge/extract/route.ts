@@ -9,17 +9,14 @@
  * - customerId: 从客户的所有互动批量提取
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import {
   extractKnowledgeFromInteraction,
   extractKnowledgeFromCustomer,
 } from "@/lib/ai/knowledge-extractor";
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
 
   if (body.interactionId) {
@@ -53,4 +50,4 @@ export async function POST(request: NextRequest) {
     { error: "需提供 interactionId 或 customerId" },
     { status: 400 }
   );
-}
+});

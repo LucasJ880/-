@@ -5,23 +5,17 @@
  * POST /api/messaging/bindings — 创建/更新绑定
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { findBindingsByUser, createBinding, updateBindingPreferences, removeBinding } from "@/lib/messaging";
 
-export async function GET(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_req, _ctx, user) => {
   const bindings = await findBindingsByUser(user.id);
   return NextResponse.json({ bindings });
-}
+});
 
-export async function POST(req: NextRequest) {
-  const user = await getCurrentUser(req);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (req, _ctx, user) => {
   const body = await req.json();
   const { action } = body;
 
@@ -54,4 +48,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ binding });
-}
+});

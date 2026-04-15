@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const url = new URL(request.url);
   const customerId = url.searchParams.get("customerId");
 
@@ -28,7 +25,7 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ records });
-}
+});
 
 interface WindowInput {
   roomName: string;
@@ -42,10 +39,7 @@ interface WindowInput {
   notes?: string;
 }
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   const { customerId, opportunityId, appointmentId, overallNotes, windows } = body as {
     customerId: string;
@@ -88,4 +82,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ record }, { status: 201 });
-}
+});

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 
 /**
  * POST /api/reminders/read
@@ -10,15 +10,10 @@ import { getCurrentUser } from "@/lib/auth";
  * - followup 类型：更新已有 Reminder 记录
  * - deadline / event 类型：创建一条 status=read 的标记记录
  */
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx, user) => {
   const { sourceKey } = await request.json();
   if (!sourceKey || typeof sourceKey !== "string") {
     return NextResponse.json({ error: "sourceKey 必填" }, { status: 400 });
-  }
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
   const now = new Date();
@@ -53,4 +48,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
-}
+});

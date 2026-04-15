@@ -6,7 +6,7 @@ import { createCompletion } from "@/lib/ai/client";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
 
-export const POST = withAuth(async (_request, ctx, user) => {
+export const POST = withAuth(async (_request, ctx) => {
   const { id } = await ctx.params;
 
   const customer = await db.salesCustomer.findUnique({

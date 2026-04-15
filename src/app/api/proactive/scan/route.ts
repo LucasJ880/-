@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { scanProjectsForUser } from "@/lib/proactive/scanner";
 import { scanSalesForUser } from "@/lib/proactive/sales-scanner";
 import { syncSuggestionsToNotifications } from "@/lib/proactive/notify";
 import { executeAutoActions } from "@/lib/proactive/auto-actions";
 import { getUserAutomationEnabled } from "@/lib/proactive/automation-prefs";
+import { withAuth } from "@/lib/common/api-helpers";
 
 /**
  * POST /api/proactive/scan
@@ -14,12 +14,7 @@ import { getUserAutomationEnabled } from "@/lib/proactive/automation-prefs";
  * 如果用户启用了自动化，低风险动作会自动执行。
  * 前端在工作台加载时调用，也可由定时任务调用。
  */
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, ctx, user) => {
   const [projectResult, salesSuggestions] = await Promise.all([
     scanProjectsForUser(user.id, user.role),
     scanSalesForUser(user.id),
@@ -52,4 +47,4 @@ export async function POST(request: NextRequest) {
     autoActions,
     automationEnabled: autoEnabled,
   });
-}
+});

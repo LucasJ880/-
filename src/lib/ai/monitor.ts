@@ -1,7 +1,6 @@
 /**
  * AI 调用监控 — 记录成功率、延迟、错误
  *
- * 内存累计指标，通过 /api/admin/ai-stats 暴露给管理后台。
  * 生产环境可替换为外部指标服务（Datadog / Prometheus）。
  */
 

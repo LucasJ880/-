@@ -18,12 +18,7 @@ import {
   AlertTriangle,
   Truck,
   Calculator,
-  WifiOff,
 } from "lucide-react";
-import { offlineDb } from "@/lib/offline/db";
-import { enqueue } from "@/lib/offline/sync-engine";
-import { useOnlineStatus } from "@/lib/offline/hooks";
-import { SyncBadge } from "@/components/offline-indicator";
 
 import { priceFor, calculateQuoteTotal, formatCAD } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS } from "@/lib/blinds/pricing-data";
@@ -106,8 +101,7 @@ function calcItemPrice(w: WindowEntry): ItemPricing {
 
 export default function MeasurePage() {
   const router = useRouter();
-  const isOnline = useOnlineStatus();
-  const [customers, setCustomers] = useState<{ id: string; name: string; address?: string; _offline?: boolean }[]>([]);
+  const [customers, setCustomers] = useState<{ id: string; name: string; address?: string }[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [overallNotes, setOverallNotes] = useState("");
   const [windows, setWindows] = useState<WindowEntry[]>([newWindow()]);
@@ -118,27 +112,11 @@ export default function MeasurePage() {
 
   useEffect(() => {
     (async () => {
-      let serverCustomers: { id: string; name: string; address?: string }[] = [];
       try {
-        if (navigator.onLine) {
-          const res = await apiFetch("/api/sales/customers?limit=200");
-          const d = await res.json();
-          serverCustomers = (d.customers ?? []) as typeof serverCustomers;
-        }
-      } catch { /* offline */ }
-
-      const offlineCustomers = await offlineDb.customers.toArray();
-      const serverIds = new Set(serverCustomers.map((c) => c.id));
-      const pendingOnly = offlineCustomers
-        .filter((c) => !c.serverId || !serverIds.has(c.serverId))
-        .map((c) => ({
-          id: c.serverId || c.localId,
-          name: c.name,
-          address: c.address,
-          _offline: c.syncStatus === "pending",
-        }));
-
-      setCustomers([...pendingOnly, ...serverCustomers]);
+        const res = await apiFetch("/api/sales/customers?limit=200");
+        const d = await res.json();
+        setCustomers((d.customers ?? []) as typeof customers);
+      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -212,49 +190,6 @@ export default function MeasurePage() {
         sortOrder: 0,
       }));
 
-      if (!isOnline) {
-        const now = new Date().toISOString();
-        const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const offlineCustomer = await offlineDb.customers.get(customerId);
-        await offlineDb.measurements.add({
-          localId,
-          customerLocalId: customerId,
-          customerServerId: offlineCustomer?.serverId,
-          status: "draft",
-          overallNotes,
-          windows: windowsPayload.map((w, i) => ({
-            roomName: w.roomName,
-            windowLabel: w.windowLabel || undefined,
-            widthIn: w.widthIn,
-            heightIn: w.heightIn,
-            measureType: w.measureType,
-            product: w.product || undefined,
-            fabric: w.fabric || undefined,
-            cordless: w.cordless,
-            notes: w.notes || undefined,
-            sortOrder: i,
-          })),
-          syncStatus: "pending",
-          measuredAt: now,
-          updatedAt: now,
-        });
-        if (offlineCustomer?.serverId) {
-          await enqueue({
-            table: "measurements",
-            localId,
-            method: "POST",
-            url: "/api/sales/measurements",
-            body: JSON.stringify({
-              customerId: offlineCustomer.serverId,
-              overallNotes,
-              windows: windowsPayload,
-            }),
-          });
-        }
-        router.push("/sales/quotes");
-        return;
-      }
-
       const body = { customerId, overallNotes, windows: windowsPayload };
       const res = await apiFetch("/api/sales/measurements", {
         method: "POST",
@@ -262,40 +197,14 @@ export default function MeasurePage() {
       }).then((r) => r.json());
 
       if (res.record?.id) {
-        const quoteRes = await apiFetch(`/api/sales/measurements/${res.record.id}/generate-quote`, {
+        await apiFetch(`/api/sales/measurements/${res.record.id}/generate-quote`, {
           method: "POST",
           body: JSON.stringify({ installMode }),
-        }).then((r) => r.json());
-        if (quoteRes.quote?.id) {
-          router.push("/sales/quotes");
-          return;
-        }
+        });
       }
       router.push("/sales/quotes");
-    } catch {
-      const now = new Date().toISOString();
-      const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await offlineDb.measurements.add({
-        localId,
-        customerLocalId: customerId,
-        status: "draft",
-        overallNotes,
-        windows: windows.map((w, i) => ({
-          roomName: w.roomName || "Room",
-          widthIn: toInches(w.widthWhole, w.widthFrac),
-          heightIn: toInches(w.heightWhole, w.heightFrac),
-          measureType: w.measureType,
-          product: w.product || undefined,
-          fabric: w.fabric || undefined,
-          cordless: w.cordless,
-          notes: w.notes || undefined,
-          sortOrder: i,
-        })),
-        syncStatus: "pending",
-        measuredAt: now,
-        updatedAt: now,
-      });
-      router.push("/sales");
+    } catch (err) {
+      console.error("Save failed:", err);
     } finally {
       setSaving(false);
     }
@@ -377,7 +286,6 @@ export default function MeasurePage() {
                   {w.roomName && <span className="ml-2 font-normal text-muted-foreground">— {w.roomName}</span>}
                 </span>
                 <div className="flex items-center gap-2">
-                  {/* Inline price badge */}
                   {pricing.type === "ok" && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-0.5 text-sm font-bold text-emerald-700">
                       <DollarSign size={13} />
@@ -587,7 +495,7 @@ export default function MeasurePage() {
         )}
       </div>
 
-      {/* ══ Price Summary ══ */}
+      {/* Price Summary */}
       {quoteSummary && (
         <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -601,7 +509,6 @@ export default function MeasurePage() {
             </span>
           </div>
 
-          {/* Item breakdown */}
           <div className="space-y-1.5 mb-4">
             {quoteSummary.itemResults.map((item, i) => (
               <div key={i} className="flex items-center justify-between text-sm">
@@ -615,7 +522,6 @@ export default function MeasurePage() {
             ))}
           </div>
 
-          {/* Totals */}
           <div className="border-t border-emerald-200 pt-3 space-y-1.5">
             <div className="flex justify-between text-sm text-muted-foreground">
               <span>产品小计</span>

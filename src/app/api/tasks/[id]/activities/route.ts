@@ -1,11 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx) => {
+  const { id } = await ctx.params;
   const activities = await db.taskActivity.findMany({
     where: { taskId: id },
     include: { actor: { select: { id: true, name: true } } },
@@ -13,4 +11,4 @@ export async function GET(
     take: 50,
   });
   return NextResponse.json(activities);
-}
+});

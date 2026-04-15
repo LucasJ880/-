@@ -1,17 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import type { StepTemplate } from "@/lib/agent/types";
-
-type Ctx = { params: Promise<{ templateId: string }> };
 
 /**
  * GET /api/agent/templates/:templateId
  */
-export async function GET(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, ctx, user) => {
   const { templateId } = await ctx.params;
 
   const template = await db.customFlowTemplate.findUnique({
@@ -32,15 +27,12 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   return NextResponse.json({
     template: { ...template, steps, stepsJson: undefined },
   });
-}
+});
 
 /**
  * PATCH /api/agent/templates/:templateId
  */
-export async function PATCH(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const PATCH = withAuth(async (request, ctx, user) => {
   const { templateId } = await ctx.params;
 
   const existing = await db.customFlowTemplate.findUnique({
@@ -77,15 +69,12 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   });
 
   return NextResponse.json({ template });
-}
+});
 
 /**
  * DELETE /api/agent/templates/:templateId
  */
-export async function DELETE(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const DELETE = withAuth(async (_request, ctx, user) => {
   const { templateId } = await ctx.params;
 
   const existing = await db.customFlowTemplate.findUnique({
@@ -100,4 +89,4 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
   await db.customFlowTemplate.delete({ where: { id: templateId } });
 
   return NextResponse.json({ success: true });
-}
+});

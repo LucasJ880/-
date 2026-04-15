@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { isAIConfigured } from "@/lib/ai/config";
@@ -10,6 +9,7 @@ import {
   type ProgressSummaryOutput,
 } from "@/lib/progress/generate-summary";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { withAuth } from "@/lib/common/api-helpers";
 
 interface ProjectEntry {
   projectId: string;
@@ -66,12 +66,7 @@ ${bullet}
  * 对用户可见的所有活跃项目批量生成 project_progress_summary，
  * 并在最后追加一层跨项目健康度对比汇总。
  */
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, ctx, user) => {
   if (!isAIConfigured()) {
     return NextResponse.json({ error: "AI 服务未配置" }, { status: 500 });
   }
@@ -115,7 +110,6 @@ export async function POST(request: NextRequest) {
 
   const successful = results.filter((r) => r.summary);
 
-  // 跨项目健康度对比汇总
   const digestEntries = successful.map((r) => ({
     name: r.projectName,
     output: r.summary!.output,
@@ -157,4 +151,4 @@ export async function POST(request: NextRequest) {
       error: r.error,
     })),
   });
-}
+});

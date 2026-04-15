@@ -1,12 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateBlindsExcel } from "@/lib/blinds/excel-export";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const GET = withAuth(async (_request, ctx) => {
+  const { id } = await ctx.params;
 
   const order = await db.blindsOrder.findUnique({
     where: { id },
@@ -34,4 +32,4 @@ export async function GET(
       "Content-Disposition": `attachment; filename*=UTF-8''${filename}`,
     },
   });
-}
+});

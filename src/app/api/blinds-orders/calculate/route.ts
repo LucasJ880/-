@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { calculateItem, type ItemInput } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
+import { withAuth } from "@/lib/common/api-helpers";
 
 /**
  * 即时计算接口 — 不入库，仅返回计算结果
  * 前端编辑时调用，用于实时预览裁切尺寸
  */
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request) => {
   const body = await request.json();
 
   if (!body.items || !Array.isArray(body.items)) {
@@ -40,4 +41,4 @@ export async function POST(request: NextRequest) {
   );
 
   return NextResponse.json({ ruleVersion: RULE_VERSION, results });
-}
+});

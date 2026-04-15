@@ -1,13 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import { withAuth } from '@/lib/common/api-helpers';
 import { importCustomersCsv } from '@/lib/sales/csv-import';
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
 
@@ -35,4 +30,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

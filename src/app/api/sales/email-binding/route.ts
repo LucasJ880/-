@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, _ctx, user) => {
   const binding = await db.emailBinding.findUnique({
     where: { userId: user.id },
     select: {
@@ -26,12 +23,9 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ binding });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
   const { email, displayName, smtpHost, smtpPort, smtpUser, smtpPass, useTls } = body as {
     email: string;
@@ -76,12 +70,9 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ binding: { id: binding.id, email: binding.email, verified: binding.verified } });
-}
+});
 
-export async function DELETE(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const DELETE = withAuth(async (_request, _ctx, user) => {
   await db.emailBinding.deleteMany({ where: { userId: user.id } });
   return NextResponse.json({ ok: true });
-}
+});

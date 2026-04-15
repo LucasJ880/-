@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { withAuth } from "@/lib/common/api-helpers";
 
 const AI_ACTIONS = ["ai_generate", "ai_send", "ai_analyze"];
 
@@ -14,10 +14,7 @@ const PAGE_SIZE = 30;
  *
  * Query: ?cursor=<lastId>&projectId=<optional>
  */
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request, ctx, user) => {
   const { searchParams } = new URL(request.url);
   const cursor = searchParams.get("cursor");
   const projectId = searchParams.get("projectId");
@@ -82,4 +79,4 @@ export async function GET(request: NextRequest) {
     hasMore,
     nextCursor: items.length > 0 ? items[items.length - 1].id : null,
   });
-}
+});

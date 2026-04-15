@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
-import { isSuperAdmin } from "@/lib/rbac/roles";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { withAuth } from "@/lib/common/api-helpers";
 
 interface ScheduleEventOut {
   id: string;
@@ -34,12 +33,7 @@ function mapPriority(p?: string | null): ScheduleEventOut["priority"] {
   return "medium";
 }
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, ctx, user) => {
   const dateStr = request.nextUrl.searchParams.get("date");
   const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
   const dayStart = startOfDayToronto(ref);
@@ -208,6 +202,4 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json(results);
-}
-
-// Visibility is imported from unified module
+});

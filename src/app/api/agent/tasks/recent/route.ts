@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
 /**
@@ -7,12 +7,7 @@ import { db } from "@/lib/db";
  *
  * 获取当前用户最近的自动化任务（含 cron 触发的巡检任务）
  */
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, _ctx, user) => {
   const triggerType = request.nextUrl.searchParams.get("triggerType");
   const limit = Math.min(Number(request.nextUrl.searchParams.get("limit") || "10"), 20);
 
@@ -48,4 +43,4 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ tasks });
-}
+});

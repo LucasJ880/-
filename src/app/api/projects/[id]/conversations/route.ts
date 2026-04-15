@@ -6,7 +6,6 @@ import {
 } from "@/lib/projects/access";
 import { getEnvironmentInProject } from "@/lib/prompts/scope";
 import {
-  isValidConversationStatus,
   isValidChannel,
 } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
@@ -167,7 +166,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       : null;
 
   let agentKey: string | null = null;
-  let agentName: string | null = null;
   let agentConfigSnapshot: string | null = null;
 
   if (agentId) {
@@ -178,7 +176,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Agent 不存在" }, { status: 404 });
     }
     agentKey = agent.key;
-    agentName = agent.name;
     agentConfigSnapshot = JSON.stringify({
       modelProvider: agent.modelProvider,
       modelName: agent.modelName,

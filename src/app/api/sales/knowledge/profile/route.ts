@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { updateCustomerProfile, refreshAllProfiles } from "@/lib/sales/profile-engine";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (request) => {
   const customerId = request.nextUrl.searchParams.get("customerId");
 
   if (customerId) {
@@ -31,12 +28,9 @@ export async function GET(request: NextRequest) {
   };
 
   return NextResponse.json({ profiles, stats });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request) => {
   const body = await request.json();
   const { action, customerId, limit } = body as {
     action?: "update" | "refresh_all";
@@ -55,4 +49,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ error: "需要 customerId 或 action" }, { status: 400 });
-}
+});

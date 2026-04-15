@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import {
@@ -7,15 +6,11 @@ import {
   getUnderstandAndReplyPrompt,
   type LanguageAssistMode,
 } from "@/lib/ai/prompts";
+import { withAuth } from "@/lib/common/api-helpers";
 
 const MAX_TEXT_LENGTH = 8000;
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request) => {
   if (!isAIConfigured()) {
     return NextResponse.json({ error: "AI 功能未配置" }, { status: 503 });
   }
@@ -80,4 +75,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

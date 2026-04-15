@@ -20,10 +20,6 @@ export default function SalesError({
         const names = await caches.keys();
         await Promise.all(names.map((n) => caches.delete(n)));
       }
-      const regs = await navigator.serviceWorker?.getRegistrations();
-      if (regs) {
-        await Promise.all(regs.map((r) => r.unregister()));
-      }
     } catch {}
     window.location.reload();
   };
@@ -58,7 +54,7 @@ export default function SalesError({
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-4 py-2 text-sm font-medium text-foreground hover:bg-white transition-colors"
         >
           <Trash2 className="h-4 w-4" />
-          清除缓存 + SW 并刷新
+          清除缓存并刷新
         </button>
       </div>
     </div>

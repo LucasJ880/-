@@ -1,16 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
 import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { withAuth } from "@/lib/common/api-helpers";
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const GET = withAuth(async (request, ctx, user) => {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
 
@@ -36,15 +31,10 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json(orders);
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, ctx, user) => {
   const body = await request.json();
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
 
   if (!body.code || !body.customerName) {
     return NextResponse.json(
@@ -132,4 +122,4 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json(order, { status: 201 });
-}
+});

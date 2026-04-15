@@ -16,7 +16,9 @@ const VALID_RECOMMENDATIONS = [
   "skip",
 ];
 const VALID_RISK_LEVELS = ["low", "medium", "high", "unassessed"];
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://rho-sage.vercel.app";
+const BASE_URL =
+  process.env.NEXT_PUBLIC_BASE_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
 export async function POST(request: NextRequest) {
   const authResult = await verifyApiToken(request);

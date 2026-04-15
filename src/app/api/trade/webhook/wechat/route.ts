@@ -11,9 +11,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { processInboundMessage } from "@/lib/trade/channel-service";
 import crypto from "crypto";
 
-const TOKEN = process.env.WECHAT_TOKEN ?? "qingyan-wechat-verify";
+const TOKEN = process.env.WECHAT_TOKEN;
 
 export async function GET(request: NextRequest) {
+  if (!TOKEN) {
+    return NextResponse.json({ error: "Webhook 未配置" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const signature = searchParams.get("signature") ?? "";
   const timestamp = searchParams.get("timestamp") ?? "";
@@ -30,6 +34,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!TOKEN) {
+    return NextResponse.json({ error: "Webhook 未配置" }, { status: 403 });
+  }
+
   try {
     const text = await request.text();
 

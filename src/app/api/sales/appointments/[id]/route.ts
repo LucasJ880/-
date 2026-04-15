@@ -6,7 +6,7 @@ import {
   unsyncAppointmentFromGoogle,
 } from "@/lib/sales/appointment-gcal-sync";
 
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (_request, ctx) => {
   const { id } = await ctx.params;
   const appointment = await db.appointment.findUnique({
     where: { id },

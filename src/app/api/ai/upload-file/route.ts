@@ -1,15 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { parseFileBuffer, isSupportedFileType } from "@/lib/files/parse-buffer";
+import { withAuth } from "@/lib/common/api-helpers";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
-  }
-
+export const POST = withAuth(async (request) => {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
 
@@ -48,4 +43,4 @@ export async function POST(request: NextRequest) {
     console.error("[ai/upload-file] Error:", err);
     return NextResponse.json({ error: "文件解析失败" }, { status: 500 });
   }
-}
+});

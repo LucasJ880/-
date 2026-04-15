@@ -1,18 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { resolveApproval } from "@/lib/agent/approval";
 import { resumeAfterApproval } from "@/lib/agent/executor";
 
-type Ctx = { params: Promise<{ taskId: string; stepId: string }> };
-
 /**
  * POST /api/agent/tasks/:taskId/steps/:stepId/approve
  */
-export async function POST(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, ctx, user) => {
   const { taskId, stepId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const { note, acceptedWithRisk } = body as {
@@ -39,4 +34,4 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   // 审批通过后自动恢复执行
   const result = await resumeAfterApproval(taskId);
   return NextResponse.json({ ...result, approved: true });
-}
+});

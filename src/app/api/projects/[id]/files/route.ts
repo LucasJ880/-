@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { getCurrentUser } from "@/lib/auth";
+import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { canParseFileType } from "@/lib/files/parse-content";
-
-type Ctx = { params: Promise<{ id: string }> };
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const ALLOWED_TYPES = new Set([
@@ -34,10 +32,7 @@ function getFileExtension(name: string): string {
  * GET /api/projects/:id/files
  * 获取项目文件列表
  */
-export async function GET(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const GET = withAuth(async (_request, ctx) => {
   const { id } = await ctx.params;
 
   const documents = await db.projectDocument.findMany({
@@ -46,16 +41,13 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   });
 
   return NextResponse.json({ documents });
-}
+});
 
 /**
  * POST /api/projects/:id/files
  * 上传文件到项目（multipart/form-data）
  */
-export async function POST(request: NextRequest, ctx: Ctx) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-
+export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
 
   const project = await db.project.findUnique({
@@ -140,8 +132,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         },
       });
 
-      // 解析由前端调用 /process-next 端点逐一处理，不再 fire-and-forget
-
       results.push({
         id: doc.id,
         title: doc.title,
@@ -162,4 +152,4 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     { uploaded: results, errors, total: results.length },
     { status: results.length > 0 ? 201 : 400 }
   );
-}
+});
