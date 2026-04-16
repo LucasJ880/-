@@ -477,14 +477,14 @@ export default function QuoteSheetPage() {
   const grandTotal = subtotalA + subtotalB + subtotalC + Math.round((subtotalA + subtotalB + subtotalC) * HST_RATE * 100) / 100;
 
   return (
-    <div className="space-y-6 pb-32">
+    <div className="space-y-4 md:space-y-6 pb-44 md:pb-32">
       <PageHeader
         title="Quote Sheet"
         description="Sunny Shutter Inc. — Digital Quote & Order Form"
       />
 
       {/* Customer selector + Order info */}
-      <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-5 space-y-4">
+      <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-muted-foreground">Customer & Order Info</h2>
           <div className="flex items-center gap-2">
@@ -500,13 +500,13 @@ export default function QuoteSheetPage() {
 
         {/* Customer selector */}
         <div className="flex flex-wrap items-end gap-3">
-          <div className="w-64">
+          <div className="w-full md:w-64">
             <Label className="text-xs">Select Customer</Label>
             <div className="relative mt-1">
               <select
                 value={customerId}
                 onChange={(e) => handleCustomerSelect(e.target.value)}
-                className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-sm appearance-none min-h-[44px]"
+                className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
               >
                 <option value="">— Select customer —</option>
                 {customers.map((c) => (
@@ -525,13 +525,13 @@ export default function QuoteSheetPage() {
             </span>
           )}
           {opportunities.length > 1 && (
-            <div className="w-56">
+            <div className="w-full md:w-56">
               <Label className="text-xs">Opportunity</Label>
               <div className="relative mt-1">
                 <select
                   value={opportunityId}
                   onChange={(e) => setOpportunityId(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-sm appearance-none min-h-[44px]"
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
                 >
                   <option value="">— Auto-link —</option>
                   {opportunities.map((o) => (
@@ -608,13 +608,13 @@ export default function QuoteSheetPage() {
       </div>
 
       {/* Tab navigation */}
-      <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+      <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-4 md:-mx-1 px-4 md:px-1">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
+              "flex items-center gap-1.5 px-3 md:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all shrink-0",
               activeTab === tab.id
                 ? "bg-teal-600 text-white shadow-md"
                 : "bg-white/60 text-muted-foreground hover:bg-teal-50 border border-border"
@@ -626,8 +626,8 @@ export default function QuoteSheetPage() {
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-5">
+      {/* Tab content — mobile 下可横向滚动防止表格溢出 */}
+      <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-3 md:p-5 overflow-x-auto">
         {activeTab === "partA" && (
           <PartAForm lines={partALines} onChange={setPartALines} />
         )}
@@ -666,34 +666,57 @@ export default function QuoteSheetPage() {
         )}
       </div>
 
-      {/* Sticky action bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-border px-4 py-3 flex items-center justify-between z-50 safe-area-bottom">
-        <div className="text-sm space-y-0.5">
+      {/* Sticky action bar — mobile 下避让底部 Tab Bar */}
+      <div
+        className="fixed left-0 right-0 bottom-[var(--mobile-tabbar-height)] md:bottom-0 bg-white/95 backdrop-blur border-t border-border px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between gap-2 z-40"
+        style={{
+          paddingBottom: "max(0.625rem, env(safe-area-inset-bottom, 0))",
+        }}
+      >
+        <div className="min-w-0 text-sm space-y-0.5">
           {orderNumber && (
-            <div className="text-[10px] text-muted-foreground font-mono">{orderNumber}</div>
+            <div className="text-[10px] text-muted-foreground font-mono truncate">{orderNumber}</div>
           )}
-          <div>
-            <span className="text-muted-foreground">Total: </span>
-            <span className="text-lg font-bold text-teal-700">{formatCAD(grandTotal)}</span>
+          <div className="truncate">
+            <span className="text-muted-foreground text-xs md:text-sm">Total: </span>
+            <span className="text-base md:text-lg font-bold text-teal-700">{formatCAD(grandTotal)}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportPDF} className="gap-1.5">
-            <FileDown className="h-4 w-4" /> Export PDF
+        <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPDF}
+            className="gap-1.5 px-2 md:px-3"
+            aria-label="Export PDF"
+          >
+            <FileDown className="h-4 w-4" />
+            <span className="hidden md:inline">Export PDF</span>
           </Button>
           {lastSaved?.quoteId && customerEmail && (
-            <Button variant="outline" size="sm" onClick={handleSendEmail}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSendEmail}
               disabled={sendingEmail}
-              className="gap-1.5">
+              className="gap-1.5 px-2 md:px-3"
+              aria-label="Email to Customer"
+            >
               {sendingEmail ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {sendingEmail ? "Sending..." : "Email to Customer"}
+              <span className="hidden md:inline">
+                {sendingEmail ? "Sending..." : "Email to Customer"}
+              </span>
             </Button>
           )}
-          <Button size="sm" onClick={handleSave}
+          <Button
+            size="sm"
+            onClick={handleSave}
             disabled={saving || !customerId}
-            className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50">
+            className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+          >
             {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "Saving..." : "Save & Update Status"}
+            <span className="hidden md:inline">{saving ? "Saving..." : "Save & Update Status"}</span>
+            <span className="md:hidden">{saving ? "..." : "Save"}</span>
           </Button>
         </div>
       </div>

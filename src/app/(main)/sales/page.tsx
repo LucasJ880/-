@@ -12,8 +12,11 @@ import { PipelineBoard } from "./pipeline-board";
 import { CustomerList } from "./customer-list";
 import { CsvImportDialog } from "./csv-import-dialog";
 import { NewCustomerDialog } from "./new-customer-dialog";
+import { PullToRefresh } from "@/components/pull-to-refresh";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 
 export default function SalesPage() {
+  const { isMobile } = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>("pipeline");
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -63,7 +66,7 @@ export default function SalesPage() {
   }, [loadData]);
 
   return (
-    <div className="space-y-5">
+    <PullToRefresh onRefresh={loadData} enabled={isMobile} className="space-y-5">
       <PageHeader
         title="销售管理"
         description="Sunny Shutter 销售 Pipeline · 客户 · 报价"
@@ -168,6 +171,6 @@ export default function SalesPage() {
           loadData();
         }}
       />
-    </div>
+    </PullToRefresh>
   );
 }

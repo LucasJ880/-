@@ -24,7 +24,7 @@ export function PullToRefresh({ onRefresh, children, enabled = true, className }
   const showIndicator = pullDistance > 8 || refreshing;
 
   return (
-    <div ref={ref} className={className} style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative" }}>
       {showIndicator && (
         <div
           className="pointer-events-none absolute left-0 right-0 z-10 flex items-center justify-center"
@@ -46,6 +46,7 @@ export function PullToRefresh({ onRefresh, children, enabled = true, className }
         </div>
       )}
       <div
+        className={className}
         style={{
           transform: `translateY(${refreshing ? threshold : pullDistance}px)`,
           transition: refreshing || pullDistance === 0 ? "transform 200ms ease-out" : undefined,

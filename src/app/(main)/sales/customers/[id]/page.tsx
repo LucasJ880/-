@@ -14,6 +14,8 @@ import {
   Loader2,
   Ruler,
   CalendarDays,
+  ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -42,6 +44,7 @@ export default function CustomerDetailPage() {
   const [activeTab, setActiveTab] = useState<"timeline" | "quotes" | "orders" | "coaching">(
     "timeline"
   );
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const TAB_ORDER: ("timeline" | "quotes" | "orders" | "coaching")[] = [
     "timeline",
     "quotes",
@@ -127,6 +130,70 @@ export default function CustomerDetailPage() {
         />
       </div>
 
+      {/* ───────── Mobile summary bar (默认收起) ───────── */}
+      <div className="md:hidden -mt-1 space-y-2">
+        <div className="flex items-center gap-2">
+          {customer.phone && (
+            <a
+              href={`tel:${customer.phone}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 active:bg-emerald-100"
+            >
+              <Phone size={13} />
+              呼叫
+            </a>
+          )}
+          {customer.email && (
+            <a
+              href={`mailto:${customer.email}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 active:bg-blue-100"
+            >
+              <Mail size={13} />
+              邮件
+            </a>
+          )}
+          {customer.address && (
+            <a
+              href={`https://maps.apple.com/?q=${encodeURIComponent(customer.address)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/70 px-3 py-1.5 text-xs font-medium text-foreground/80 active:bg-white"
+            >
+              <MapPin size={13} />
+              地图
+            </a>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setMobileSummaryOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5 text-left active:bg-white"
+        >
+          <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+            <Sparkles size={14} className="shrink-0 text-[var(--accent)]" />
+            <span className="truncate">
+              {customer.opportunities.length > 0
+                ? `${customer.opportunities.length} 个销售机会 · 点击查看 AI 建议`
+                : "AI 建议与基本信息"}
+            </span>
+          </div>
+          <ChevronDown
+            size={16}
+            className={cn(
+              "shrink-0 text-muted transition-transform duration-200",
+              mobileSummaryOpen && "rotate-180"
+            )}
+          />
+        </button>
+      </div>
+
+      {/* ───────── AI 建议 + 基本信息 + 机会（desktop 始终显示，mobile 折叠） ───────── */}
+      <div
+        className={cn(
+          "space-y-5",
+          !mobileSummaryOpen && "hidden md:block"
+        )}
+      >
       <AiAdvicePanel customerId={customer.id} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -236,6 +303,7 @@ export default function CustomerDetailPage() {
             </div>
           )}
         </div>
+      </div>
       </div>
 
       <div className="-mx-4 md:mx-0 flex items-center gap-1 overflow-x-auto border-b border-border px-4 md:px-0 scrollbar-hide">

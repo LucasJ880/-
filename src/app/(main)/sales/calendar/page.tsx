@@ -15,6 +15,7 @@ import { CalendarMonthView, CalendarListView } from "./calendar-grid";
 import { CalendarSidebar } from "./calendar-sidebar";
 import { AppointmentDetailDialog, CreateAppointmentDialog } from "./appointment-dialog";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
+import { PullToRefresh } from "@/components/pull-to-refresh";
 
 interface GoogleCalendarInfo {
   id: string;
@@ -174,7 +175,7 @@ export default function SalesCalendarPage() {
     .slice(0, 10);
 
   return (
-    <div className="space-y-6">
+    <PullToRefresh onRefresh={loadAppointments} enabled={isMobile} className="space-y-6">
       <PageHeader
         title="预约日历"
         description="量房 · 安装 · 回访预约管理"
@@ -333,6 +334,6 @@ export default function SalesCalendarPage() {
         onClose={() => setShowCreate(false)}
         onCreated={() => { setShowCreate(false); loadAppointments(); }}
       />
-    </div>
+    </PullToRefresh>
   );
 }
