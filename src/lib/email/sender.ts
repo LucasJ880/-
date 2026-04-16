@@ -8,6 +8,7 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { db } from "@/lib/db";
+import { decryptField } from "@/lib/crypto";
 
 export interface SendMailOptions {
   to: string | string[];
@@ -51,7 +52,10 @@ export async function sendMailAs(userId: string, opts: SendMailOptions): Promise
     return { success: false, error: "邮箱未绑定或未验证" };
   }
 
-  const transport = createTransport(binding);
+  const transport = createTransport({
+    ...binding,
+    smtpPass: decryptField(binding.smtpPass || ""),
+  });
 
   try {
     const info = await transport.sendMail({

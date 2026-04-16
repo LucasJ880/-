@@ -12,7 +12,7 @@ import {
   Rocket,
   Save,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { AgentStatusBadge, AgentTypeBadge, AgentBindingCard, AgentVersionList } from "@/components/agent";
 
 interface AgentDetail {
@@ -120,11 +120,10 @@ export default function AgentDetailPage() {
   const loadAgent = useCallback(async () => {
     setLoading(true);
     try {
-      const [projRes, detailRes] = await Promise.all([
-        apiFetch(`/api/projects/${projectId}`),
+      const [projData, detailRes] = await Promise.all([
+        apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
         apiFetch(`/api/projects/${projectId}/agents/${agentId}`),
       ]);
-      const projData = await projRes.json();
       setCanManage(projData.canManage === true);
 
       if (!detailRes.ok) { setAgent(null); setLoading(false); return; }
@@ -153,14 +152,11 @@ export default function AgentDetailPage() {
   const loadOptions = useCallback(async () => {
     if (!agent) return;
     try {
-      const [pRes, kbRes, tRes] = await Promise.all([
-        apiFetch(`/api/projects/${projectId}/prompts?environmentId=${agent.environment.id}&pageSize=200`),
-        apiFetch(`/api/projects/${projectId}/knowledge-bases?environmentId=${agent.environment.id}&pageSize=200`),
-        apiFetch(`/api/projects/${projectId}/tools?status=active&pageSize=200`),
+      const [pd, kd, td] = await Promise.all([
+        apiJson<{ prompts?: PromptOption[] }>(`/api/projects/${projectId}/prompts?environmentId=${agent.environment.id}&pageSize=200`),
+        apiJson<{ knowledgeBases?: KbOption[] }>(`/api/projects/${projectId}/knowledge-bases?environmentId=${agent.environment.id}&pageSize=200`),
+        apiJson<{ tools?: (ToolOption & { category: string })[] }>(`/api/projects/${projectId}/tools?status=active&pageSize=200`),
       ]);
-      const pd = await pRes.json();
-      const kd = await kbRes.json();
-      const td = await tRes.json();
       setPromptOptions((pd.prompts ?? []).map((p: PromptOption) => ({ id: p.id, key: p.key, name: p.name })));
       setKbOptions((kd.knowledgeBases ?? []).map((k: KbOption) => ({ id: k.id, key: k.key, name: k.name })));
       setToolOptions((td.tools ?? []).map((t: ToolOption & { category: string }) => ({ id: t.id, key: t.key, name: t.name, category: t.category })));
@@ -173,8 +169,7 @@ export default function AgentDetailPage() {
   const loadAllVersions = useCallback(async () => {
     if (versionsLoaded) return;
     try {
-      const res = await apiFetch(`/api/projects/${projectId}/agents/${agentId}/versions?pageSize=100`);
-      const data = await res.json();
+      const data = await apiJson<{ versions?: VersionItem[] }>(`/api/projects/${projectId}/agents/${agentId}/versions?pageSize=100`);
       setAllVersions(data.versions ?? []);
       setVersionsLoaded(true);
     } catch { /* ignore */ }

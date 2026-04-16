@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import {
   Loader2,
   MessageCircle,
@@ -82,8 +82,8 @@ export default function WeChatSettingsPage() {
   const fetchData = useCallback(async () => {
     try {
       const [gwRes, bindRes] = await Promise.all([
-        apiFetch("/api/messaging/gateway").then((r) => r.json()),
-        apiFetch("/api/messaging/bindings").then((r) => r.json()),
+        apiJson<{ gateways?: GatewayInfo[] }>("/api/messaging/gateway"),
+        apiJson<{ bindings?: BindingInfo[] }>("/api/messaging/bindings"),
       ]);
       setGateways(gwRes.gateways || []);
       setBindings(bindRes.bindings || []);

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiJson } from "@/lib/api-fetch";
 import { DOC_SOURCE_TYPE_LABELS, DOC_STATUS_LABELS, label } from "@/lib/i18n/labels";
 
 export default function KnowledgeBaseVersionDetailPage() {
@@ -42,11 +42,10 @@ export default function KnowledgeBaseVersionDetailPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch(
+    apiJson(
       `/api/projects/${projectId}/knowledge-bases/${kbId}/versions/${versionId}`
     )
-      .then((r) => r.json())
-      .then((d) => {
+      .then((d: Record<string, unknown>) => {
         if (d.error) {
           setError(d.error);
           setMeta(null);

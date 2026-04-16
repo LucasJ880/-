@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
@@ -112,9 +112,8 @@ export default function KnowledgeBaseDetailPage() {
   const [publishOpen, setPublishOpen] = useState(false);
 
   const loadDetail = useCallback(() => {
-    return apiFetch(`/api/projects/${projectId}/knowledge-bases/${kbId}`)
-      .then((r) => r.json())
-      .then((d) => {
+    return apiJson(`/api/projects/${projectId}/knowledge-bases/${kbId}`)
+      .then((d: Record<string, unknown>) => {
         if (d.error) {
           setError(d.error);
           setKb(null);
@@ -134,10 +133,9 @@ export default function KnowledgeBaseDetailPage() {
       if (kw) qs.set("keyword", kw);
       if (status) qs.set("status", status);
 
-      return apiFetch(
+      return apiJson<{ documents?: DocRow[]; total?: number; totalPages?: number }>(
         `/api/projects/${projectId}/knowledge-bases/${kbId}/documents?${qs.toString()}`
       )
-        .then((r) => r.json())
         .then((d) => {
           setDocuments(d.documents ?? []);
           setDocTotal(d.total ?? 0);
@@ -148,8 +146,7 @@ export default function KnowledgeBaseDetailPage() {
   );
 
   const loadCrossEnv = useCallback(() => {
-    return apiFetch(`/api/projects/${projectId}/environments`)
-      .then((r) => r.json())
+    return apiJson<{ environments?: { id: string; code: string; status: string }[] }>(`/api/projects/${projectId}/environments`)
       .then(async (envData) => {
         const envList: { id: string; code: string; status: string }[] =
           envData.environments ?? [];
@@ -157,18 +154,18 @@ export default function KnowledgeBaseDetailPage() {
           envList.some((e) => e.code === "prod" && e.status === "active")
         );
 
-        const kbData = await apiFetch(
+        const kbData = await apiJson<{ knowledgeBase?: { key: string } }>(
           `/api/projects/${projectId}/knowledge-bases/${kbId}`
-        ).then((r) => r.json());
+        );
 
         if (!kbData.knowledgeBase) return;
         const kbKey = kbData.knowledgeBase.key;
 
         const results: { envCode: string; version: number | null; kbId: string }[] = [];
         for (const env of envList.filter((e) => e.status === "active")) {
-          const listData = await apiFetch(
+          const listData = await apiJson<{ knowledgeBases?: { key: string; id: string; activeVersion?: { version: number } }[] }>(
             `/api/projects/${projectId}/knowledge-bases?environmentId=${env.id}&keyword=${encodeURIComponent(kbKey)}&pageSize=100`
-          ).then((r) => r.json());
+          );
           const match = (listData.knowledgeBases ?? []).find(
             (b: { key: string }) => b.key === kbKey
           );
@@ -185,7 +182,7 @@ export default function KnowledgeBaseDetailPage() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
       loadDetail(),
       loadDocuments(),
       loadCrossEnv(),

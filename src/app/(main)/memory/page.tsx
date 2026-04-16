@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 /* ─── 类型 ─── */
 
@@ -89,8 +89,7 @@ export default function MemoryPage() {
       if (search.trim()) params.set("search", search.trim());
       params.set("limit", "100");
 
-      const res = await apiFetch(`/api/ai/memory?${params}`);
-      const data = await res.json();
+      const data = await apiJson<{ memories?: MemoryItem[]; total?: number }>(`/api/ai/memory?${params}`);
       setMemories(data.memories ?? []);
       setTotal(data.total ?? 0);
     } catch { /* ignore */ }
@@ -108,12 +107,11 @@ export default function MemoryPage() {
   const handleBackfill = async () => {
     setBackfilling(true);
     try {
-      const res = await apiFetch("/api/ai/memory", {
+      const data = await apiJson<{ backfilled: number }>("/api/ai/memory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "backfill" }),
       });
-      const data = await res.json();
       alert(`已为 ${data.backfilled} 条记忆生成向量嵌入`);
       load();
     } catch {

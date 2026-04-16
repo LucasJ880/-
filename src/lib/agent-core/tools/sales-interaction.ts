@@ -10,7 +10,7 @@ import { ok } from "./sales-helpers";
 // ── sales.compose_email ───────────────────────────────────────
 
 registry.register({
-  name: "sales.compose_email",
+  name: "sales_compose_email",
   description:
     "AI 生成邮件预览（不发送）。生成后展示给用户确认，用户说'发送'时再调用 sales.send_quote_email。用户说'改一下'时调用 sales.refine_email 修改。",
   domain: "sales",
@@ -74,7 +74,7 @@ registry.register({
 // ── sales.refine_email ────────────────────────────────────────
 
 registry.register({
-  name: "sales.refine_email",
+  name: "sales_refine_email",
   description:
     "AI 修改邮件内容。用户对预览邮件不满意时调用，传入修改指令让AI优化。修改后再次展示给用户确认。",
   domain: "sales",
@@ -134,7 +134,7 @@ registry.register({
 // ── sales.send_quote_email ────────────────────────────────────
 
 registry.register({
-  name: "sales.send_quote_email",
+  name: "sales_send_quote_email",
   description:
     "向客户发送报价邮件。AI 自动生成邮件内容，支持多种场景（首发/跟进/重发）。支持 Gmail OAuth 和 SMTP 双通道。",
   domain: "sales",
@@ -226,7 +226,7 @@ registry.register({
 // ── sales.create_appointment ──────────────────────────────────
 
 registry.register({
-  name: "sales.create_appointment",
+  name: "sales_create_appointment",
   description:
     "为客户创建预约（量房、安装、回访、咨询）。支持通过客户姓名搜索。",
   domain: "sales",
@@ -311,7 +311,7 @@ registry.register({
 // ── sales.analyze_interaction ──────────────────────────────────
 
 registry.register({
-  name: "sales.analyze_interaction",
+  name: "sales_analyze_interaction",
   description:
     "对一段销售沟通内容进行 AI 分析，提取意图/情绪/异议/买方信号/风险/下一步建议。" +
     "用于分析微信转发内容或销售问'帮我分析一下这段对话'。",

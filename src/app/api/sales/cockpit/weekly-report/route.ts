@@ -90,7 +90,7 @@ ${isAdmin ? `- 库存预警: ${lowStock} 种面料` : ""}
         },
         { role: "user", content: dataText },
       ],
-      max_tokens: 500,
+      max_completion_tokens: 500,
     });
     report = completion.choices[0]?.message?.content || "周报生成失败";
   } catch {

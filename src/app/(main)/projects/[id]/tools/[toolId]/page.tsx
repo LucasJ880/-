@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { TOOL_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { AgentStatusBadge, ToolCategoryBadge, ToolSchemaViewer } from "@/components/agent";
 
@@ -52,11 +52,10 @@ export default function ToolDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [projRes, toolRes] = await Promise.all([
-        apiFetch(`/api/projects/${projectId}`),
+      const [projData, toolRes] = await Promise.all([
+        apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
         apiFetch(`/api/projects/${projectId}/tools/${toolId}`),
       ]);
-      const projData = await projRes.json();
       setCanManage(projData.canManage === true);
 
       if (!toolRes.ok) { setTool(null); setLoading(false); return; }

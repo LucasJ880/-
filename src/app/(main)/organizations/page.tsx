@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Building2, Loader2, Plus, FolderKanban, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 interface OrgRow {
   id: string;
@@ -28,8 +28,7 @@ export default function OrganizationsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch("/api/organizations")
-      .then((r) => r.json())
+    apiJson<{ organizations?: OrgRow[] }>("/api/organizations")
       .then((d) => setOrgs(d.organizations ?? []))
       .finally(() => setLoading(false));
   }, []);

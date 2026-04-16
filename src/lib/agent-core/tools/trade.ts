@@ -16,7 +16,7 @@ function ok(data: unknown): ToolExecutionResult {
 // ── trade.get_overview ──────────────────────────────────────────
 
 registry.register({
-  name: "trade.get_overview",
+  name: "trade_get_overview",
   description: "获取外贸总览数据：活动数、线索数、报价数、待跟进数、各阶段分布",
   domain: "trade",
   parameters: { type: "object", properties: {}, required: [] },
@@ -57,7 +57,7 @@ registry.register({
 // ── trade.list_campaigns ────────────────────────────────────────
 
 registry.register({
-  name: "trade.list_campaigns",
+  name: "trade_list_campaigns",
   description: "列出所有获客活动及其线索统计",
   domain: "trade",
   parameters: { type: "object", properties: {}, required: [] },
@@ -83,7 +83,7 @@ registry.register({
 // ── trade.search_prospects ──────────────────────────────────────
 
 registry.register({
-  name: "trade.search_prospects",
+  name: "trade_search_prospects",
   description: "搜索外贸线索，可按公司名/国家/阶段筛选",
   domain: "trade",
   parameters: {
@@ -125,7 +125,7 @@ registry.register({
 // ── trade.get_prospect ──────────────────────────────────────────
 
 registry.register({
-  name: "trade.get_prospect",
+  name: "trade_get_prospect",
   description: "获取某个线索的详细信息（含研究报告、消息历史）",
   domain: "trade",
   parameters: {
@@ -180,7 +180,7 @@ registry.register({
 // ── trade.get_follow_ups ────────────────────────────────────────
 
 registry.register({
-  name: "trade.get_follow_ups",
+  name: "trade_get_follow_ups",
   description: "获取需要跟进的线索列表（含逾期状态）",
   domain: "trade",
   parameters: { type: "object", properties: {}, required: [] },
@@ -211,7 +211,7 @@ registry.register({
 // ── trade.list_quotes ───────────────────────────────────────────
 
 registry.register({
-  name: "trade.list_quotes",
+  name: "trade_list_quotes",
   description: "列出外贸报价单，可按状态筛选",
   domain: "trade",
   parameters: {
@@ -241,7 +241,7 @@ registry.register({
 // ── trade.get_suggestions ───────────────────────────────────────
 
 registry.register({
-  name: "trade.get_suggestions",
+  name: "trade_get_suggestions",
   description: "获取外贸下一步行动建议（基于当前数据状态）",
   domain: "trade",
   parameters: { type: "object", properties: {}, required: [] },

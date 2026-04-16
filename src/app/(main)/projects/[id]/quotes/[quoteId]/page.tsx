@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiJson } from "@/lib/api-fetch";
 import { QuoteEditor } from "@/components/quote/quote-editor";
 
 export default function QuoteEditorPage() {
@@ -15,8 +15,7 @@ export default function QuoteEditorPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch(`/api/projects/${projectId}`)
-      .then((r) => r.json())
+    apiJson<{ name?: string }>(`/api/projects/${projectId}`)
       .then((data) => setProjectName(data.name ?? "项目"))
       .catch(() => {})
       .finally(() => setLoading(false));

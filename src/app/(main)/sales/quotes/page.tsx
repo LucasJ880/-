@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import {
@@ -105,7 +105,7 @@ export default function SalesQuotesPage() {
   const loadQuotes = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch("/api/sales/quotes/list").then((r) => r.json());
+      const res = await apiJson<{ quotes?: QuoteItem[] }>("/api/sales/quotes/list");
       setQuotes(res.quotes ?? []);
     } catch {
       setQuotes([]);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
@@ -61,7 +61,7 @@ export default function InventoryPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await apiFetch("/api/inventory").then((r) => r.json());
+      const d = await apiJson<{ fabrics?: Fabric[] }>("/api/inventory");
       setFabrics(d.fabrics ?? []);
     } finally {
       setLoading(false);

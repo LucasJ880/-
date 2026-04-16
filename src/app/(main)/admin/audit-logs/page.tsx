@@ -16,7 +16,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { canViewAdminPages } from "@/lib/permissions-client";
@@ -169,8 +169,7 @@ function AuditLogsContent() {
   async function openDetail(logId: string) {
     setDetailLoading(true);
     try {
-      const res = await apiFetch(`/api/audit-logs/${logId}`);
-      const d = await res.json();
+      const d = await apiJson<{ log?: AuditLogDetail }>(`/api/audit-logs/${logId}`);
       setSelectedLog(d.log ?? null);
     } catch {
       setSelectedLog(null);

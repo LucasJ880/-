@@ -18,7 +18,7 @@ import {
 } from "@/components/work-suggestion-card";
 import Link from "next/link";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 interface InboxItem {
   id: string;
@@ -38,12 +38,11 @@ export default function InboxPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    apiFetch("/api/projects")
-      .then((r) => r.json())
+    apiJson<{ id: string; name: string }[]>("/api/projects")
       .then((data) => {
         if (Array.isArray(data)) {
           setProjects(
-            data.map((p: { id: string; name: string }) => ({
+            data.map((p) => ({
               id: p.id,
               name: p.name,
             }))

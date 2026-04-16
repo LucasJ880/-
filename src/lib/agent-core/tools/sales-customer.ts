@@ -10,7 +10,7 @@ import { ok } from "./sales-helpers";
 // ── sales.search_customers ──────────────────────────────────────
 
 registry.register({
-  name: "sales.search_customers",
+  name: "sales_search_customers",
   description: "搜索销售客户，支持按姓名、电话、邮箱模糊查询",
   domain: "sales",
   parameters: {
@@ -51,7 +51,7 @@ registry.register({
 // ── sales.get_customer ──────────────────────────────────────────
 
 registry.register({
-  name: "sales.get_customer",
+  name: "sales_get_customer",
   description: "获取单个销售客户的详情，包括机会、最近互动、报价",
   domain: "sales",
   parameters: {

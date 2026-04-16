@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Plus, Upload, Search, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import type { Opportunity, Customer, ViewMode } from "./types";
 import { StatsCards } from "./stats-cards";
 import { AiAlertPanel } from "./ai-alert-panel";
@@ -44,8 +44,7 @@ export default function SalesPage() {
         setOpportunities(list);
       } else {
         const qs = search ? `?search=${encodeURIComponent(search)}` : "";
-        const res = await apiFetch(`/api/sales/customers${qs}`);
-        const data = await res.json();
+        const data = await apiJson<{ customers?: Customer[] }>(`/api/sales/customers${qs}`);
         const serverCustomers = Array.isArray(data?.customers)
           ? data.customers
           : [];

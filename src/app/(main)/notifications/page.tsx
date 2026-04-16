@@ -12,7 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import { NotificationListItem } from "@/components/notification/notification-list-item";
@@ -44,8 +44,7 @@ function NotificationsContent() {
       const qs = new URLSearchParams({ page: String(p), pageSize: "20" });
       if (statusFilter) qs.set("status", statusFilter);
       if (typeFilter) qs.set("type", typeFilter);
-      apiFetch(`/api/notifications?${qs}`)
-        .then((r) => r.json())
+      apiJson<{ data?: NotificationItem[]; total?: number; page?: number }>(`/api/notifications?${qs}`)
         .then((d) => {
           setItems(d.data ?? []);
           setTotal(d.total ?? 0);
@@ -61,8 +60,7 @@ function NotificationsContent() {
   }, [load]);
 
   useEffect(() => {
-    apiFetch("/api/notifications/preferences/me")
-      .then((r) => r.json())
+    apiJson<{ preference?: { enableInAppNotifications: boolean; onlyHighPriority: boolean; onlyMyItems: boolean } }>("/api/notifications/preferences/me")
       .then((d) => {
         const p = d.preference;
         if (p)

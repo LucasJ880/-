@@ -11,7 +11,7 @@ import { ok } from "./sales-helpers";
 // ── sales.search_knowledge ──────────────────────────────────────
 
 registry.register({
-  name: "sales.search_knowledge",
+  name: "sales_search_knowledge",
   description:
     "在销售知识库中语义搜索。可搜索历史客户沟通、赢单话术、异议应对、最佳实践。" +
     "用于：销售问'类似客户怎么成交的'、'价格异议怎么回应'、'zebra blinds 安装问题'等。",
@@ -108,7 +108,7 @@ registry.register({
 // ── sales.get_coaching ──────────────────────────────────────────
 
 registry.register({
-  name: "sales.get_coaching",
+  name: "sales_get_coaching",
   description:
     "获取针对某客户/商机的 AI 销售建议。基于知识库中的相似案例和赢单模式，" +
     "给出话术推荐、异议应对和下一步行动建议。",
@@ -203,7 +203,7 @@ registry.register({
 // ── sales.get_deal_health ──────────────────────────────────────
 
 registry.register({
-  name: "sales.get_deal_health",
+  name: "sales_get_deal_health",
   description:
     "获取某客户或商机的 deal 健康度评分（0-100）和最新分析摘要。" +
     "用于回答'XXX 这个客户情况怎么样'、'健康度多少'。",
@@ -295,7 +295,7 @@ registry.register({
 // ── sales.record_coaching ──────────────────────────────────────
 
 registry.register({
-  name: "sales.record_coaching",
+  name: "sales_record_coaching",
   description:
     "记录一条 AI 销售建议。当你给出了具体的跟进建议/话术后，调用此工具记录，" +
     "系统会在 deal 结束时自动评估建议效果，不断自我学习。",
@@ -354,7 +354,7 @@ registry.register({
 // ── sales.coaching_feedback ──────────────────────────────────────
 
 registry.register({
-  name: "sales.coaching_feedback",
+  name: "sales_coaching_feedback",
   description:
     "记录销售对 AI 建议的反馈。当销售说'好的用这个'、'试试看'标记为采纳；" +
     "说'不合适'、'换一个'标记为未采纳。用于训练 AI 持续改进建议质量。",

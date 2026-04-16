@@ -34,7 +34,7 @@ export class OpenAIProvider implements LLMProvider {
         return { role: m.role, content: m.content };
       }),
       temperature: req.temperature ?? 0.7,
-      max_tokens: req.maxTokens ?? 4096,
+      max_completion_tokens: req.maxTokens ?? 4096,
     };
 
     if (req.tools && req.tools.length > 0) {

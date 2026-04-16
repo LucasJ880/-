@@ -23,7 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { isSuperAdmin } from "@/lib/permissions-client";
@@ -320,9 +320,8 @@ export default function ProjectsPage() {
     }
     const qs = params.toString() ? `?${params}` : "";
     Promise.all([
-      apiFetch(`/api/projects${qs}`).then((r) => r.json()),
-      apiFetch("/api/organizations")
-        .then((r) => r.json())
+      apiJson<Project[]>(`/api/projects${qs}`),
+      apiJson<{ organizations?: OrgOption[] }>("/api/organizations")
         .then((d) => d.organizations ?? []),
     ])
       .then(([projs, orgs]) => {

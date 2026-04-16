@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 interface GoogleStatus {
   connected: boolean;
@@ -54,13 +54,11 @@ function SettingsContent() {
   }, []);
 
   useEffect(() => {
-    apiFetch("/api/auth/google/status")
-      .then((r) => r.json())
+    apiJson<GoogleStatus>("/api/auth/google/status")
       .then(setGoogle)
       .catch(() => setGoogle({ connected: false }))
       .finally(() => setLoading(false));
-    apiFetch("/api/auth/google-email/status")
-      .then((r) => r.json())
+    apiJson<GmailStatus>("/api/auth/google-email/status")
       .then(setGmail)
       .catch(() => setGmail({ connected: false }))
       .finally(() => setGmailLoading(false));

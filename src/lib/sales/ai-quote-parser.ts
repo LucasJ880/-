@@ -289,7 +289,7 @@ Return ONLY valid JSON (no markdown):
         model,
         messages,
         temperature: 0.1,
-        max_tokens: 2000,
+        max_completion_tokens: 2000,
       }),
     });
 

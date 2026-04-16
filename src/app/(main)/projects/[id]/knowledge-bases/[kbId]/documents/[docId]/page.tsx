@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { KbDocStatusBadge, KbDocVersionList } from "@/components/knowledge-base";
 
 interface DocDetail {
@@ -89,11 +89,10 @@ export default function KnowledgeDocumentDetailPage() {
   const [viewLoading, setViewLoading] = useState(false);
 
   const loadDoc = useCallback(() => {
-    return apiFetch(
+    return apiJson(
       `/api/projects/${projectId}/knowledge-bases/${kbId}/documents/${docId}`
     )
-      .then((r) => r.json())
-      .then((d) => {
+      .then((d: Record<string, unknown>) => {
         if (d.error) {
           setError(d.error);
           setDoc(null);
@@ -113,7 +112,7 @@ export default function KnowledgeDocumentDetailPage() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
       loadDoc(),
     ])
       .then(([proj]) => {
@@ -206,10 +205,9 @@ export default function KnowledgeDocumentDetailPage() {
     setViewVersionId(versionId);
     setViewLoading(true);
     try {
-      const res = await apiFetch(
+      const data = await apiJson<{ version?: { version: number; content: string; summary: string | null; note: string | null; createdAt: string } }>(
         `/api/projects/${projectId}/knowledge-bases/${kbId}/documents/${docId}/versions/${versionId}`
       );
-      const data = await res.json();
       if (data.version) {
         setViewVersionData({
           version: data.version.version,

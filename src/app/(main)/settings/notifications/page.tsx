@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Bell, Loader2, Save } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 import { NotificationTypeToggleList } from "@/components/notification/notification-type-toggle-list";
 import type { UserNotificationPreferenceDTO } from "@/lib/notifications/preferences";
@@ -106,8 +106,7 @@ export default function NotificationSettingsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch("/api/notifications/preferences/me")
-      .then((r) => r.json())
+    apiJson<{ preference: UserNotificationPreferenceDTO }>("/api/notifications/preferences/me")
       .then((d) => setPref(d.preference))
       .catch(() => setPref(null))
       .finally(() => setLoading(false));

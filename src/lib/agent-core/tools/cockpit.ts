@@ -6,7 +6,7 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
 registry.register({
-  name: "cockpit.get_metrics",
+  name: "cockpit_get_metrics",
   description: "获取老板驾驶舱核心指标：活跃线索、回复率、报价总额、成交数、漏斗数据、ROI",
   domain: "trade",
   parameters: {
@@ -42,7 +42,7 @@ registry.register({
 });
 
 registry.register({
-  name: "cockpit.get_weekly_report",
+  name: "cockpit_get_weekly_report",
   description: "获取本周 AI 生成的周报（含业绩摘要、亮点、风险、建议）",
   domain: "trade",
   parameters: {

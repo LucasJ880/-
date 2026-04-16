@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import {
   Loader2,
   MessageCircle,
@@ -52,7 +52,7 @@ export default function WeChatMessagesPage() {
       if (cursor) params.set("cursor", cursor);
       params.set("limit", "50");
 
-      const res = await apiFetch(`/api/messaging/messages?${params}`).then((r) => r.json());
+      const res = await apiJson<{ messages?: WeChatMessage[]; hasMore?: boolean; nextCursor?: string | null }>(`/api/messaging/messages?${params}`);
 
       if (cursor) {
         setMessages((prev) => [...prev, ...(res.messages || [])]);
@@ -68,7 +68,7 @@ export default function WeChatMessagesPage() {
 
   const fetchBindings = useCallback(async () => {
     try {
-      const res = await apiFetch("/api/messaging/bindings").then((r) => r.json());
+      const res = await apiJson<{ bindings?: BindingInfo[] }>("/api/messaging/bindings");
       setBindings(res.bindings || []);
     } catch {
       // empty state

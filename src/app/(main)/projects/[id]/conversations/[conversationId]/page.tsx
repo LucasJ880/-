@@ -12,7 +12,7 @@ import {
   Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import {
   ConversationContextCard,
   ConversationStatsCard,
@@ -173,10 +173,9 @@ export default function ConversationDetailPage() {
   const [fbSubmitting, setFbSubmitting] = useState(false);
 
   const loadConversation = useCallback(() => {
-    return apiFetch(
+    return apiJson<{ error?: string; conversation?: ConvDetail; prompt?: typeof promptInfo; knowledgeBase?: typeof kbInfo; contextSnapshot?: ContextData }>(
       `/api/projects/${projectId}/conversations/${conversationId}`
     )
-      .then((r) => r.json())
       .then((d) => {
         if (d.error) {
           setError(d.error);
@@ -192,10 +191,9 @@ export default function ConversationDetailPage() {
   }, [projectId, conversationId]);
 
   const loadMessages = useCallback(() => {
-    return apiFetch(
+    return apiJson<{ messages?: MessageItem[] }>(
       `/api/projects/${projectId}/conversations/${conversationId}/messages?pageSize=200`
     )
-      .then((r) => r.json())
       .then((d) => {
         setMessages(d.messages ?? []);
       });
@@ -203,10 +201,9 @@ export default function ConversationDetailPage() {
 
   const loadTraces = useCallback(async () => {
     try {
-      const res = await apiFetch(
+      const d = await apiJson<{ traces?: ToolTrace[] }>(
         `/api/projects/${projectId}/conversations/${conversationId}/tool-traces`
       );
-      const d = await res.json();
       setTraces(d.traces ?? []);
       setTracesLoaded(true);
     } catch { /* ignore */ }
@@ -214,10 +211,9 @@ export default function ConversationDetailPage() {
 
   const loadFeedbacks = useCallback(async () => {
     try {
-      const res = await apiFetch(
+      const d = await apiJson<{ items?: ConvFeedbackItem[] }>(
         `/api/projects/${projectId}/conversation-feedbacks?conversationId=${conversationId}&pageSize=50`
       );
-      const d = await res.json();
       setFeedbacks(d.items ?? []);
       setFeedbacksLoaded(true);
     } catch { /* ignore */ }
@@ -226,8 +222,7 @@ export default function ConversationDetailPage() {
   const loadTags = useCallback(async () => {
     if (tagsLoaded) return;
     try {
-      const res = await apiFetch(`/api/projects/${projectId}/evaluation-tags?status=active`);
-      const d = await res.json();
+      const d = await apiJson<{ tags?: TagItem[] }>(`/api/projects/${projectId}/evaluation-tags?status=active`);
       setTags(d.tags ?? []);
       setTagsLoaded(true);
     } catch { /* ignore */ }
@@ -236,7 +231,7 @@ export default function ConversationDetailPage() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
+      apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
       loadConversation(),
       loadMessages(),
     ])

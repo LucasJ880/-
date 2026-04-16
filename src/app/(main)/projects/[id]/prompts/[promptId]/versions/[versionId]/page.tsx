@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiJson } from "@/lib/api-fetch";
 
 export default function PromptVersionViewPage() {
   const params = useParams();
@@ -22,11 +22,10 @@ export default function PromptVersionViewPage() {
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
-    apiFetch(
+    apiJson(
       `/api/projects/${projectId}/prompts/${promptId}/versions/${versionId}`
     )
-      .then((r) => r.json())
-      .then((d) => {
+      .then((d: Record<string, unknown>) => {
         if (d.error) {
           setError(d.error);
           setContent(null);

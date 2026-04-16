@@ -103,7 +103,7 @@ const BUILTIN_SKILLS: BuiltinSkillSeed[] = [
       },
       required: ["companyName", "stage"],
     },
-    requiredTools: "trade.get_prospect",
+    requiredTools: "trade_get_prospect",
   },
   {
     slug: "trade-market-brief",
@@ -139,7 +139,7 @@ const BUILTIN_SKILLS: BuiltinSkillSeed[] = [
         regions: { type: "string" },
       },
     },
-    requiredTools: "trade.get_overview",
+    requiredTools: "trade_get_overview",
   },
   {
     slug: "general-task-decomposer",

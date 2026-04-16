@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiJson } from "@/lib/api-fetch";
 import { Button } from "@/components/ui/button";
 import { SCENES, CHANNELS, FAQ_CATEGORIES } from "./constants";
 import type { Playbook, FAQ, Tab } from "./types";
@@ -43,14 +43,12 @@ export default function KnowledgePage() {
         if (channelFilter !== "all") params.set("channel", channelFilter);
         if (sceneFilter !== "all") params.set("scene", sceneFilter);
         if (search) params.set("q", search);
-        const res = await apiFetch(`/api/sales/playbooks?${params}`);
-        setPlaybooks(await res.json());
+        setPlaybooks(await apiJson<Playbook[]>(`/api/sales/playbooks?${params}`));
       } else {
         const params = new URLSearchParams();
         if (categoryFilter !== "all") params.set("category", categoryFilter);
         if (search) params.set("q", search);
-        const res = await apiFetch(`/api/sales/faqs?${params}`);
-        setFaqs(await res.json());
+        setFaqs(await apiJson<FAQ[]>(`/api/sales/faqs?${params}`));
       }
     } catch (err) {
       console.error("Load knowledge failed:", err);

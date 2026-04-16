@@ -27,6 +27,7 @@
 
 import { google } from "googleapis";
 import { db } from "@/lib/db";
+import { encryptField, decryptField } from "@/lib/crypto";
 
 // ── Scopes ──────────────────────────────────────────────────
 
@@ -82,8 +83,8 @@ export async function handleEmailCallback(code: string, userId: string) {
 
   const providerData = {
     type: "gmail" as const,
-    accessToken: tokens.access_token ?? "",
-    refreshToken: tokens.refresh_token ?? null,
+    accessToken: encryptField(tokens.access_token ?? ""),
+    refreshToken: tokens.refresh_token ? encryptField(tokens.refresh_token) : null,
     tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     accountEmail: userInfo.email ?? "",
     grantedScopes,
@@ -123,8 +124,8 @@ async function getAuthedGmailClient(provider: {
 }) {
   const client = getOAuth2Client();
   client.setCredentials({
-    access_token: provider.accessToken,
-    refresh_token: provider.refreshToken,
+    access_token: decryptField(provider.accessToken),
+    refresh_token: provider.refreshToken ? decryptField(provider.refreshToken) : undefined,
     expiry_date: provider.tokenExpiry?.getTime(),
   });
 
@@ -132,7 +133,7 @@ async function getAuthedGmailClient(provider: {
     await db.emailProvider.update({
       where: { id: provider.id },
       data: {
-        accessToken: tokens.access_token ?? undefined,
+        accessToken: tokens.access_token ? encryptField(tokens.access_token) : undefined,
         tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
       },
     });

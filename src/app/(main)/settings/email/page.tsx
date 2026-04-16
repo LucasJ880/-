@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { Label } from "@/components/ui/label";
 import {
@@ -53,8 +53,7 @@ export default function EmailBindingPage() {
   const [useTls, setUseTls] = useState(true);
 
   useEffect(() => {
-    apiFetch("/api/sales/email-binding")
-      .then((r) => r.json())
+    apiJson<{ binding?: BindingData }>("/api/sales/email-binding")
       .then((d) => {
         if (d.binding) {
           setBinding(d.binding);
@@ -73,13 +72,14 @@ export default function EmailBindingPage() {
     setSaving(true);
     setMsg("");
     try {
-      const res = await apiFetch("/api/sales/email-binding", {
+      await apiJson("/api/sales/email-binding", {
         method: "POST",
         body: JSON.stringify({ email, displayName, smtpHost, smtpPort, smtpUser, smtpPass, useTls }),
-      }).then((r) => r.json());
-      if (res.error) { setMsg(res.error); return; }
+      });
       setBinding((b) => b ? { ...b, email, displayName, verified: false } : null);
       setMsg("已保存，请点击验证连接");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -89,16 +89,18 @@ export default function EmailBindingPage() {
     setVerifying(true);
     setMsg("");
     try {
-      const res = await apiFetch("/api/sales/email-binding/verify", {
+      const res = await apiJson<{ verified: boolean; error?: string }>("/api/sales/email-binding/verify", {
         method: "POST",
-      }).then((r) => r.json());
+      });
       if (res.verified) {
         setMsg("验证成功！邮箱已可用于自动发信");
         setBinding((b) => b ? { ...b, verified: true, verifiedAt: new Date().toISOString(), lastError: null } : null);
       } else {
         setMsg(`验证失败：${res.error}`);
-        setBinding((b) => b ? { ...b, verified: false, lastError: res.error } : null);
+        setBinding((b) => b ? { ...b, verified: false, lastError: res.error ?? null } : null);
       }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "验证失败");
     } finally {
       setVerifying(false);
     }

@@ -11,7 +11,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { AGENT_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
@@ -64,11 +64,9 @@ export default function AgentListPage() {
 
   const loadInit = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/projects/${projectId}`);
-      const data = await res.json();
+      const data = await apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`);
       setCanManage(data.canManage === true);
-      const envRes = await apiFetch(`/api/projects/${projectId}/environments`);
-      const envData = await envRes.json();
+      const envData = await apiJson<{ environments?: EnvRow[] }>(`/api/projects/${projectId}/environments`);
       const envList: EnvRow[] = envData.environments ?? [];
       setEnvs(envList);
       const active = envList.filter((e) => e.status === "active");
@@ -87,8 +85,7 @@ export default function AgentListPage() {
       if (st) q.set("status", st);
       q.set("page", String(pg));
       q.set("pageSize", "20");
-      const res = await apiFetch(`/api/projects/${projectId}/agents?${q}`);
-      const data = await res.json();
+      const data = await apiJson<{ agents?: AgentRow[]; total?: number; page?: number; totalPages?: number }>(`/api/projects/${projectId}/agents?${q}`);
       setList(data.agents ?? []);
       setTotal(data.total ?? 0);
       setPage(data.page ?? 1);

@@ -9,7 +9,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 interface TagItem {
   id: string;
@@ -61,8 +61,8 @@ export default function FeedbackTagsPage() {
     setLoading(true);
     try {
       const [projRes, tagRes] = await Promise.all([
-        apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
-        apiFetch(`/api/projects/${projectId}/evaluation-tags`).then((r) => r.json()),
+        apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
+        apiJson<{ tags?: TagItem[] }>(`/api/projects/${projectId}/evaluation-tags`),
       ]);
       setCanManage(!!projRes.canManage);
       setTags(tagRes.tags ?? []);

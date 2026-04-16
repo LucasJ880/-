@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 interface OrgDetail {
   id: string;
@@ -45,8 +45,7 @@ export default function OrganizationDetailPage() {
   const [platformRole, setPlatformRole] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch("/api/auth/me")
-      .then((r) => r.json())
+    apiJson<{ user?: { role: string } }>("/api/auth/me")
       .then((d) => setPlatformRole(d.user?.role ?? null))
       .catch(() => {});
   }, []);
@@ -58,19 +57,18 @@ export default function OrganizationDetailPage() {
     if (!orgId) return;
     setLoading(true);
     Promise.all([
-      apiFetch(`/api/organizations/${orgId}`).then((r) => r.json()),
-      apiFetch(`/api/organizations/${orgId}/members`).then((r) => r.json()),
+      apiJson<{ organization: OrgDetail; error?: string }>(`/api/organizations/${orgId}`),
+      apiJson<{ members?: MemberRow[] }>(`/api/organizations/${orgId}/members`),
     ])
       .then(([o, m]) => {
-        if (o.error) {
-          setError(o.error);
-          setOrg(null);
-        } else {
-          setOrg(o.organization);
-          setEditName(o.organization.name);
-          setError("");
-        }
+        setOrg(o.organization);
+        setEditName(o.organization.name);
+        setError("");
         setMembers(m.members ?? []);
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "加载失败");
+        setOrg(null);
       })
       .finally(() => setLoading(false));
   }, [orgId]);

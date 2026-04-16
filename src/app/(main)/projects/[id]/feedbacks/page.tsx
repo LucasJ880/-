@@ -10,7 +10,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import {
   FeedbackStatusBadge,
   RatingBadge,
@@ -66,7 +66,7 @@ export default function FeedbacksPage() {
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
 
   const loadProject = useCallback(async () => {
-    const projRes = await apiFetch(`/api/projects/${projectId}`).then((r) => r.json());
+    const projRes = await apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`);
     setCanManage(!!projRes.canManage);
   }, [projectId]);
 
@@ -83,8 +83,7 @@ export default function FeedbacksPage() {
       const promises: Promise<void>[] = [];
       if (tabFilter === "all" || tabFilter === "conversation") {
         promises.push(
-          apiFetch(`/api/projects/${projectId}/conversation-feedbacks?${qs.toString()}`)
-            .then((r) => r.json())
+          apiJson<{ items?: Record<string, unknown>[]; total?: number }>(`/api/projects/${projectId}/conversation-feedbacks?${qs.toString()}`)
             .then((d) => {
               setConvFeedbacks(
                 (d.items ?? []).map((i: Record<string, unknown>) => ({ ...i, type: "conversation" }))
@@ -99,8 +98,7 @@ export default function FeedbacksPage() {
 
       if (tabFilter === "all" || tabFilter === "message") {
         promises.push(
-          apiFetch(`/api/projects/${projectId}/message-feedbacks?${qs.toString()}`)
-            .then((r) => r.json())
+          apiJson<{ items?: Record<string, unknown>[]; total?: number }>(`/api/projects/${projectId}/message-feedbacks?${qs.toString()}`)
             .then((d) => {
               setMsgFeedbacks(
                 (d.items ?? []).map((i: Record<string, unknown>) => ({ ...i, type: "message" }))

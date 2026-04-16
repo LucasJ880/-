@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import {
@@ -83,8 +83,8 @@ export default function SalesCalendarPage() {
     const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
     try {
       const [apptRes, gcalRes] = await Promise.all([
-        apiFetch(`/api/sales/appointments?start=${start}&end=${end}`).then((r) => r.json()),
-        apiFetch(`/api/calendar/google?timeMin=${start}&timeMax=${end}`).then((r) => r.json()).catch(() => []),
+        apiJson<{ appointments?: Appointment[] }>(`/api/sales/appointments?start=${start}&end=${end}`),
+        apiJson<GoogleEvent[]>(`/api/calendar/google?timeMin=${start}&timeMax=${end}`).catch(() => []),
       ]);
       setAppointments(apptRes.appointments ?? []);
       setGoogleEvents(Array.isArray(gcalRes) ? gcalRes : []);
@@ -99,11 +99,11 @@ export default function SalesCalendarPage() {
   useEffect(() => { loadAppointments(); }, [loadAppointments]);
 
   useEffect(() => {
-    apiFetch("/api/auth/google/status").then((r) => r.json()).then((d) => {
+    apiJson<{ connected: boolean; email?: string }>("/api/auth/google/status").then((d) => {
       setGcalConnected(d.connected);
       setGcalEmail(d.email ?? null);
       if (d.connected) {
-        apiFetch("/api/calendar/google/calendars").then((r) => r.json()).then((cal) => {
+        apiJson<{ calendars?: GoogleCalendarInfo[] }>("/api/calendar/google/calendars").then((cal) => {
           setGcalList(cal.calendars ?? []);
         }).catch(() => {});
       }

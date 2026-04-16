@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 
@@ -178,8 +178,7 @@ export default function QuoteSheetPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await apiFetch("/api/sales/customers?limit=200");
-        const d = await res.json();
+        const d = await apiJson<{ customers?: CustomerOption[] }>("/api/sales/customers?limit=200");
         setCustomers((d.customers ?? []) as CustomerOption[]);
       } catch { /* ignore */ }
     })();
@@ -199,8 +198,7 @@ export default function QuoteSheetPage() {
       setHeardUsOn(c.source ?? "");
 
       try {
-        const res = await apiFetch(`/api/sales/customers/${id}/opportunities`);
-        const data = await res.json();
+        const data = await apiJson<{ opportunities?: { id: string; title: string; stage: string }[] }>(`/api/sales/customers/${id}/opportunities`);
         const opps = (data.opportunities ?? []) as { id: string; title: string; stage: string }[];
         setOpportunities(opps);
         if (opps.length === 1) setOpportunityId(opps[0].id);

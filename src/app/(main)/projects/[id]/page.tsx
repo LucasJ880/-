@@ -20,7 +20,7 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
 import { ProgressComparison } from "@/components/progress/progress-comparison";
@@ -173,9 +173,9 @@ function ProjectDetailContent() {
     if (!id) return;
     setLoading(true);
     Promise.all([
-      apiFetch(`/api/projects/${id}`).then((r) => r.json()),
-      apiFetch(`/api/projects/${id}/members`).then((r) => r.json()),
-      apiFetch(`/api/projects/${id}/overview`).then((r) => r.json()).catch(() => null),
+      apiJson(`/api/projects/${id}`),
+      apiJson(`/api/projects/${id}/members`),
+      apiJson(`/api/projects/${id}/overview`).catch(() => null),
     ])
       .then(([p, m, ov]) => {
         if (p.error) {
@@ -198,8 +198,7 @@ function ProjectDetailContent() {
       setActivityLoading(true);
       const qs = new URLSearchParams({ page: String(page), pageSize: "15", includeSystemEvents: "true" });
       if (targetType) qs.set("targetType", targetType);
-      apiFetch(`/api/projects/${id}/activity?${qs}`)
-        .then((r) => r.json())
+      apiJson<{ data?: FormattedActivity[]; total?: number }>(`/api/projects/${id}/activity?${qs}`)
         .then((res) => {
           if (page === 1) {
             setActivities(res.data ?? []);

@@ -14,7 +14,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PROMPT_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { PromptTypeBadge } from "@/components/prompt";
 import { PromptVersionList } from "@/components/prompt/prompt-version-list";
@@ -123,14 +123,10 @@ export default function PromptDetailPage() {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      apiFetch(`/api/projects/${projectId}/prompts/${promptId}`).then((r) =>
-        r.json()
-      ),
-      apiFetch(
-        `/api/projects/${projectId}/prompts/${promptId}/versions`
-      ).then((r) => r.json()),
-      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
+      apiJson(`/api/projects/${projectId}`),
+      apiJson(`/api/projects/${projectId}/prompts/${promptId}`),
+      apiJson(`/api/projects/${projectId}/prompts/${promptId}/versions`),
+      apiJson(`/api/projects/${projectId}/environments`),
     ])
       .then(([proj, detail, vers, envs]) => {
         setCanManage(!!proj.canManage);
@@ -156,10 +152,9 @@ export default function PromptDetailPage() {
   }, [projectId, promptId]);
 
   function loadCrossEnvVersions(key: string) {
-    apiFetch(
+    apiJson<{ prompts?: { key: string; crossEnvVersions?: CrossEnvVersion[] }[] }>(
       `/api/projects/${projectId}/prompts?keyword=${encodeURIComponent(key)}&pageSize=100`
     )
-      .then((r) => r.json())
       .then((d) => {
         const matching = (d.prompts ?? []).filter(
           (p: { key: string }) => p.key === key
@@ -300,11 +295,12 @@ export default function PromptDetailPage() {
     setDiffLoading(true);
     setActiveTab("diff");
     try {
-      const res = await apiFetch(
+      const data = await apiJson<{
+        from: { version: number; content: string; note: string | null };
+        to: { version: number; content: string; note: string | null };
+      }>(
         `/api/projects/${projectId}/prompts/${promptId}/compare?fromVersionId=${diffFromId}&toVersionId=${diffToId}`
       );
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       setDiffFrom({
         version: data.from.version,
         content: data.from.content,
@@ -326,11 +322,11 @@ export default function PromptDetailPage() {
     setViewVersionId(id);
     setViewLoading(true);
     try {
-      const res = await apiFetch(
+      const data = await apiJson<{
+        version: { version: number; content: string; note: string | null; createdAt: string };
+      }>(
         `/api/projects/${projectId}/prompts/${promptId}/versions/${id}`
       );
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       setViewVersion({
         version: data.version.version,
         content: data.version.content,

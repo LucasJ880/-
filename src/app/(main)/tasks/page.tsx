@@ -20,7 +20,7 @@ import {
   type TaskPriority,
 } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { daysRemainingToronto } from "@/lib/time";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
 import {
@@ -319,13 +319,13 @@ function TasksPageContent() {
 
   const loadTasks = useCallback(() => {
     setLoading(true);
-    apiFetch("/api/tasks?limit=500").then((r) => r.json()).then((data: { items: Task[] } | Task[]) => {
+    apiJson<{ items: Task[] } | Task[]>("/api/tasks?limit=500").then((data) => {
       setAllTasks(Array.isArray(data) ? data : data.items);
     }).finally(() => setLoading(false));
   }, []);
 
   const loadProjects = useCallback(() => {
-    apiFetch("/api/projects?take=50").then((r) => r.json()).then((data: { id: string; name: string; color: string }[]) =>
+    apiJson<{ id: string; name: string; color: string }[]>("/api/projects?take=50").then((data) =>
       setProjects(data.map((p) => ({ id: p.id, name: p.name, color: p.color })))
     );
   }, []);

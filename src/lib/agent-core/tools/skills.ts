@@ -8,7 +8,7 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
 registry.register({
-  name: "skill.list",
+  name: "skill_list",
   description: "列出当前组织的所有可用 AI 技能",
   domain: "system",
   parameters: {
@@ -40,7 +40,7 @@ registry.register({
 });
 
 registry.register({
-  name: "skill.run",
+  name: "skill_run",
   description: "执行一个动态 AI 技能，需提供技能标识和输入参数",
   domain: "system",
   parameters: {
@@ -88,7 +88,7 @@ registry.register({
 });
 
 registry.register({
-  name: "skill.create_from_description",
+  name: "skill_create_from_description",
   description: "根据用户描述的工作流，自动创建一个新的 AI 技能",
   domain: "system",
   parameters: {

@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
@@ -83,9 +83,9 @@ export default function ProjectKnowledgeBasesPage() {
 
   const loadEnvsAndProject = useCallback(() => {
     return Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
-    ]).then(([p, e]) => {
+      apiJson(`/api/projects/${projectId}`),
+      apiJson(`/api/projects/${projectId}/environments`),
+    ]).then(([p, e]: [Record<string, unknown>, Record<string, unknown>]) => {
       if (p.project) {
         setProjectName(p.project.name);
         setCanManage(!!p.canManage);
@@ -115,10 +115,9 @@ export default function ProjectKnowledgeBasesPage() {
       if (kw) qs.set("keyword", kw);
       if (status) qs.set("status", status);
 
-      return apiFetch(
+      return apiJson<{ error?: string; knowledgeBases?: KbRow[]; total?: number; totalPages?: number }>(
         `/api/projects/${projectId}/knowledge-bases?${qs.toString()}`
       )
-        .then((r) => r.json())
         .then((d) => {
           if (d.error) {
             setListError(d.error);

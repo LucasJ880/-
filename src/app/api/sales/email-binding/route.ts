@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { encryptField } from "@/lib/crypto";
 
 export const GET = withAuth(async (_request, _ctx, user) => {
   const binding = await db.emailBinding.findUnique({
@@ -41,6 +42,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "必填字段不完整" }, { status: 400 });
   }
 
+  const encryptedPass = encryptField(smtpPass);
+
   const binding = await db.emailBinding.upsert({
     where: { userId: user.id },
     create: {
@@ -51,7 +54,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       smtpHost,
       smtpPort: smtpPort || 587,
       smtpUser,
-      smtpPass,
+      smtpPass: encryptedPass,
       useTls: useTls ?? true,
       verified: false,
     },
@@ -61,7 +64,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       smtpHost,
       smtpPort: smtpPort || 587,
       smtpUser,
-      smtpPass,
+      smtpPass: encryptedPass,
       useTls: useTls ?? true,
       verified: false,
       verifiedAt: null,

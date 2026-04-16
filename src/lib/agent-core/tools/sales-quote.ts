@@ -14,7 +14,7 @@ import { ok } from "./sales-helpers";
 // ── sales.ai_quote ──────────────────────────────────────────
 
 registry.register({
-  name: "sales.ai_quote",
+  name: "sales_ai_quote",
   description: "AI 报价助手：解析自然语言描述为结构化报价行项并计算价格。支持格式如 '3 zebra blackout: 39 1/2 x 55, 42 x 60, add 1 hub'",
   domain: "sales",
   parameters: {
@@ -74,7 +74,7 @@ registry.register({
 // ── sales.create_quote ──────────────────────────────────────
 
 registry.register({
-  name: "sales.create_quote",
+  name: "sales_create_quote",
   description: "为客户创建正式报价单，需提供客户 ID 和产品项",
   domain: "sales",
   parameters: {
@@ -178,7 +178,7 @@ registry.register({
 // ── sales.get_customer_quotes ─────────────────────────────────
 
 registry.register({
-  name: "sales.get_customer_quotes",
+  name: "sales_get_customer_quotes",
   description:
     "获取指定客户的报价列表，支持按产品类型过滤（如 zebra / roller）。返回报价金额、状态、分享链接等。",
   domain: "sales",

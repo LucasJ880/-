@@ -8,7 +8,7 @@
 // ── 工具定义 ─────────────────────────────────────────────────────
 
 export interface ToolDefinition {
-  /** 工具唯一 ID，如 "trade.list_campaigns" */
+  /** 工具唯一 ID，如 "trade_list_campaigns" */
   name: string;
   /** 中文描述，供 LLM 理解 */
   description: string;

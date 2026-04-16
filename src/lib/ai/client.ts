@@ -40,7 +40,7 @@ export async function createChatStream(opts: ChatStreamOptions) {
     ],
     stream: true,
     temperature: preset.temperature,
-    max_tokens: preset.maxTokens,
+    max_completion_tokens: preset.maxTokens,
   });
 }
 
@@ -92,7 +92,7 @@ export async function createCompletionDetailed(
           { role: "user", content: opts.userPrompt },
         ],
         temperature: opts.temperature ?? preset.temperature,
-        max_tokens: opts.maxTokens ?? preset.maxTokens,
+        max_completion_tokens: opts.maxTokens ?? preset.maxTokens,
       },
       controller ? { signal: controller.signal } : undefined,
     );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { verifySMTP } from "@/lib/email/sender";
+import { decryptField } from "@/lib/crypto";
 
 export const POST = withAuth(async (_request, _ctx, user) => {
   const binding = await db.emailBinding.findUnique({ where: { userId: user.id } });
@@ -13,7 +14,7 @@ export const POST = withAuth(async (_request, _ctx, user) => {
     smtpHost: binding.smtpHost || "",
     smtpPort: binding.smtpPort || 587,
     smtpUser: binding.smtpUser || "",
-    smtpPass: binding.smtpPass || "",
+    smtpPass: decryptField(binding.smtpPass || ""),
     useTls: binding.useTls,
   });
 

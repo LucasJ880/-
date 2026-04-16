@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { db } from "@/lib/db";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
+import { encryptField, decryptField } from "@/lib/crypto";
 
 // userinfo.* 用于换取令牌后读取 Google 账号邮箱；仅有 calendar.* 时访问 userinfo 会 401
 const SCOPES = [
@@ -56,8 +57,8 @@ export async function handleCallback(code: string, userId: string) {
     type: "google",
     name: "Google Calendar",
     enabled: true,
-    accessToken: tokens.access_token ?? null,
-    refreshToken: tokens.refresh_token ?? null,
+    accessToken: tokens.access_token ? encryptField(tokens.access_token) : null,
+    refreshToken: tokens.refresh_token ? encryptField(tokens.refresh_token) : null,
     tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     accountEmail: userInfo.email ?? null,
     calendarId: "primary",
@@ -85,8 +86,8 @@ async function getAuthedClient(provider: {
 }) {
   const client = getOAuth2Client();
   client.setCredentials({
-    access_token: provider.accessToken,
-    refresh_token: provider.refreshToken,
+    access_token: provider.accessToken ? decryptField(provider.accessToken) : undefined,
+    refresh_token: provider.refreshToken ? decryptField(provider.refreshToken) : undefined,
     expiry_date: provider.tokenExpiry?.getTime(),
   });
 
@@ -94,7 +95,7 @@ async function getAuthedClient(provider: {
     await db.calendarProvider.update({
       where: { id: provider.id },
       data: {
-        accessToken: tokens.access_token ?? undefined,
+        accessToken: tokens.access_token ? encryptField(tokens.access_token) : undefined,
         tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
       },
     });

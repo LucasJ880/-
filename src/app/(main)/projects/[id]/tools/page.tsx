@@ -11,7 +11,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { TOOL_TYPE_LABELS, label } from "@/lib/i18n/labels";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
@@ -54,8 +54,7 @@ export default function ToolListPage() {
 
   const loadInit = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/projects/${projectId}`);
-      const data = await res.json();
+      const data = await apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`);
       setCanManage(data.canManage === true);
     } catch { /* ignore */ }
   }, [projectId]);
@@ -69,8 +68,7 @@ export default function ToolListPage() {
       if (st) q.set("status", st);
       q.set("page", String(pg));
       q.set("pageSize", "20");
-      const res = await apiFetch(`/api/projects/${projectId}/tools?${q}`);
-      const data = await res.json();
+      const data = await apiJson<{ tools?: ToolRow[]; total?: number; page?: number; totalPages?: number }>(`/api/projects/${projectId}/tools?${q}`);
       setList(data.tools ?? []);
       setTotal(data.total ?? 0);
       setPage(data.page ?? 1);

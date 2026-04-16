@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import {
   CheckCircle,
   ExternalLink,
@@ -49,8 +49,7 @@ export default function QuoteToolPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await apiFetch("/api/sales/customers?limit=200");
-        const d = await res.json();
+        const d = await apiJson<{ customers?: typeof customers }>("/api/sales/customers?limit=200");
         setCustomers((d.customers ?? []) as typeof customers);
       } catch { /* ignore */ }
     })();
@@ -58,8 +57,7 @@ export default function QuoteToolPage() {
 
   useEffect(() => {
     if (!customerId) { setOpportunities([]); setOpportunityId(""); return; }
-    apiFetch(`/api/sales/customers/${customerId}/opportunities`)
-      .then((r) => r.json())
+    apiJson<{ opportunities?: typeof opportunities }>(`/api/sales/customers/${customerId}/opportunities`)
       .then((d) => {
         const opps = d.opportunities ?? [];
         setOpportunities(opps);

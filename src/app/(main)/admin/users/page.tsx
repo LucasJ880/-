@@ -15,7 +15,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { canViewAdminPages } from "@/lib/permissions-client";
 
@@ -125,8 +125,7 @@ function UsersContent() {
     setSelectedUser(user);
     setDetailLoading(true);
     try {
-      const res = await apiFetch(`/api/users/${user.id}`);
-      const d = await res.json();
+      const d = await apiJson<Record<string, unknown>>(`/api/users/${user.id}`);
       setUserDetail(d.user ?? d);
     } catch {
       setUserDetail(null);

@@ -18,7 +18,7 @@ function ok(data: unknown): ToolExecutionResult {
 // ── secretary.get_briefing ──────────────────────────────────────
 
 registry.register({
-  name: "secretary.get_briefing",
+  name: "secretary_get_briefing",
   description: "生成今日 AI 工作简报：扫描外贸客户动态、待办事项、跟进提醒，并汇总为自然语言摘要",
   domain: "secretary",
   parameters: { type: "object", properties: {}, required: [] },
@@ -45,7 +45,7 @@ registry.register({
 // ── secretary.scan_followups ────────────────────────────────────
 
 registry.register({
-  name: "secretary.scan_followups",
+  name: "secretary_scan_followups",
   description: "扫描需要跟进的外贸客户：到期跟进、未回复阶梯、未处理回复、谈判停滞",
   domain: "secretary",
   parameters: { type: "object", properties: {}, required: [] },
@@ -67,7 +67,7 @@ registry.register({
 // ── secretary.generate_followup_draft ───────────────────────────
 
 registry.register({
-  name: "secretary.generate_followup_draft",
+  name: "secretary_generate_followup_draft",
   description: "为指定客户生成 AI 跟进邮件草稿",
   domain: "secretary",
   parameters: {
@@ -92,7 +92,7 @@ registry.register({
 // ── secretary.execute_action ────────────────────────────────────
 
 registry.register({
-  name: "secretary.execute_action",
+  name: "secretary_execute_action",
   description: "执行一键动作：延期报价（quote_extend）、批准客户（prospect_approve）、跳过客户（prospect_skip）",
   domain: "secretary",
   parameters: {

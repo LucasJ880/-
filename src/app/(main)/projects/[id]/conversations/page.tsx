@@ -11,7 +11,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import {
@@ -85,11 +85,9 @@ export default function ProjectConversationsPage() {
 
   const loadInit = useCallback(() => {
     return Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      apiFetch(`/api/projects/${projectId}/environments`).then((r) =>
-        r.json()
-      ),
-    ]).then(([p, e]) => {
+      apiJson(`/api/projects/${projectId}`),
+      apiJson(`/api/projects/${projectId}/environments`),
+    ]).then(([p, e]: [Record<string, unknown>, Record<string, unknown>]) => {
       if (p.project) {
         setProjectName(p.project.name);
         setCanManage(!!p.canManage);
@@ -117,10 +115,9 @@ export default function ProjectConversationsPage() {
       if (status) qs.set("status", status);
       if (channel) qs.set("channel", channel);
 
-      return apiFetch(
+      return apiJson<{ conversations?: ConvRow[]; total?: number; totalPages?: number }>(
         `/api/projects/${projectId}/conversations?${qs.toString()}`
       )
-        .then((r) => r.json())
         .then((d) => {
           setList(d.conversations ?? []);
           setTotal(d.total ?? 0);
@@ -133,10 +130,9 @@ export default function ProjectConversationsPage() {
   const loadContextOptions = useCallback(
     (envIdVal: string) => {
       if (!envIdVal) return;
-      apiFetch(
+      apiJson<{ prompts?: { id: string; name: string; key: string }[] }>(
         `/api/projects/${projectId}/prompts?environmentId=${envIdVal}&pageSize=100`
       )
-        .then((r) => r.json())
         .then((d) =>
           setPrompts(
             (d.prompts ?? []).map(
@@ -150,10 +146,9 @@ export default function ProjectConversationsPage() {
         )
         .catch(() => setPrompts([]));
 
-      apiFetch(
+      apiJson<{ knowledgeBases?: { id: string; name: string; key: string }[] }>(
         `/api/projects/${projectId}/knowledge-bases?environmentId=${envIdVal}&pageSize=100`
       )
-        .then((r) => r.json())
         .then((d) =>
           setKbs(
             (d.knowledgeBases ?? []).map(

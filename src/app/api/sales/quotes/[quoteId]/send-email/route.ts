@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { sendMailAs } from "@/lib/email/sender";
 import { quoteEmailHtml } from "@/lib/email/templates";
 import { randomBytes } from "crypto";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
@@ -20,11 +21,15 @@ export const POST = withAuth(async (request, ctx, user) => {
       customer: true,
       items: { orderBy: { sortOrder: "asc" } },
       addons: true,
-      createdBy: { select: { name: true } },
+      createdBy: { select: { id: true, name: true } },
     },
   });
 
   if (!quote) return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
+
+  if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
+    return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
+  }
 
   let shareToken = quote.shareToken;
   if (!shareToken) {

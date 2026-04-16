@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PROMPT_TYPE_LABELS, RESOURCE_STATUS_LABELS, label } from "@/lib/i18n/labels";
 import { PromptTypeBadge, PromptEnvStatus } from "@/components/prompt";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -85,9 +85,9 @@ export default function ProjectPromptsListPage() {
 
   const loadEnvsAndProject = useCallback(() => {
     return Promise.all([
-      apiFetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      apiFetch(`/api/projects/${projectId}/environments`).then((r) => r.json()),
-    ]).then(([p, e]) => {
+      apiJson(`/api/projects/${projectId}`),
+      apiJson(`/api/projects/${projectId}/environments`),
+    ]).then(([p, e]: [Record<string, unknown>, Record<string, unknown>]) => {
       if (p.project) {
         setProjectName(p.project.name);
         setCanManage(!!p.canManage);
@@ -114,10 +114,9 @@ export default function ProjectPromptsListPage() {
       qs.set("page", String(pg));
       qs.set("pageSize", String(PAGE_SIZE));
 
-      return apiFetch(
+      return apiJson<{ error?: string; prompts?: PromptRow[]; total?: number; totalPages?: number }>(
         `/api/projects/${projectId}/prompts?${qs.toString()}`
       )
-        .then((r) => r.json())
         .then((d) => {
           if (d.error) {
             setListError(d.error);

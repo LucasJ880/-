@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
@@ -113,8 +113,7 @@ export default function MeasurePage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await apiFetch("/api/sales/customers?limit=200");
-        const d = await res.json();
+        const d = await apiJson<{ customers?: typeof customers }>("/api/sales/customers?limit=200");
         setCustomers((d.customers ?? []) as typeof customers);
       } catch { /* ignore */ }
     })();

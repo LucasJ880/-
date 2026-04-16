@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import {
@@ -96,8 +96,7 @@ export default function SalesCockpitPage() {
   const [reportResult, setReportResult] = useState("");
 
   useEffect(() => {
-    apiFetch("/api/sales/cockpit")
-      .then((r) => r.json())
+    apiJson<CockpitData>("/api/sales/cockpit")
       .then(setData)
       .finally(() => setLoading(false));
   }, []);
@@ -106,7 +105,7 @@ export default function SalesCockpitPage() {
     setGenerating(true);
     setReportResult("");
     try {
-      const res = await apiFetch("/api/sales/cockpit/weekly-report", { method: "POST" }).then((r) => r.json());
+      const res = await apiJson<{ report?: string; error?: string }>("/api/sales/cockpit/weekly-report", { method: "POST" });
       setReportResult(res.report || res.error || "生成完成");
     } finally {
       setGenerating(false);

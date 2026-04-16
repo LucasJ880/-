@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { extractWorkSuggestion, type WorkSuggestion } from "@/lib/ai";
 import type { SimpleProject } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ThreadSidebar, type AiThread } from "./thread-list";
 import { ChatPanel, type StreamingMsg } from "./chat-panel";
 
@@ -76,8 +76,7 @@ function AssistantPageInner() {
 
   // Load threads
   useEffect(() => {
-    apiFetch("/api/ai/threads")
-      .then((r) => r.json())
+    apiJson<AiThread[]>("/api/ai/threads")
       .then((data) => {
         if (Array.isArray(data)) setThreads(data);
       })
@@ -86,12 +85,11 @@ function AssistantPageInner() {
 
   // Load projects for WorkSuggestionCard
   useEffect(() => {
-    apiFetch("/api/projects")
-      .then((r) => r.json())
+    apiJson<{ id: string; name: string }[]>("/api/projects")
       .then((data) => {
         if (Array.isArray(data)) {
           setProjects(
-            data.map((p: { id: string; name: string }) => ({
+            data.map((p) => ({
               id: p.id,
               name: p.name,
             }))
@@ -116,8 +114,7 @@ function AssistantPageInner() {
       return;
     }
     setLoadingThread(true);
-    apiFetch(`/api/ai/threads/${activeThreadId}/messages`)
-      .then((r) => r.json())
+    apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${activeThreadId}/messages`)
       .then((data) => {
         if (data.messages) {
           setMessages(
@@ -136,12 +133,11 @@ function AssistantPageInner() {
 
   const createThread = async (projectId?: string) => {
     try {
-      const res = await apiFetch("/api/ai/threads", {
+      const thread = await apiJson<AiThread>("/api/ai/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: projectId || null }),
       });
-      const thread = await res.json();
       setThreads((prev) => [thread, ...prev]);
       setActiveThreadId(thread.id);
       router.replace(`/assistant?thread=${thread.id}`);

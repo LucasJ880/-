@@ -24,8 +24,40 @@ import type {
 import "./tools";
 
 const MAX_TOOL_ROUNDS_DEFAULT = 5;
+const PER_ROUND_TIMEOUT_MS = 30_000;
+const TOTAL_TIMEOUT_MS = 90_000;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+class AgentTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentTimeoutError";
+  }
+}
+
+async function llmCallWithTimeout(
+  client: ReturnType<typeof getClient>,
+  params: any,
+  timeoutMs: number,
+): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await client.chat.completions.create(params, {
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (err?.name === "AbortError" || controller.signal.aborted) {
+      throw new AgentTimeoutError(
+        `AI 响应超时（${Math.round(timeoutMs / 1000)}s），请稍后重试`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
   const {
@@ -42,6 +74,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const preset = getTaskPreset(mode);
   const client = getClient();
   const model = preset.model;
+  const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
 
   // 构建可用工具列表
   const openaiTools = registry.toOpenAITools({
@@ -64,102 +97,124 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const toolCallLog: AgentRunResult["toolCalls"] = [];
   let rounds = 0;
 
-  while (rounds < maxToolRounds) {
-    rounds++;
+  try {
+    while (rounds < maxToolRounds) {
+      rounds++;
 
-    const createParams: any = {
-      model,
-      messages,
-      temperature: temperature ?? preset.temperature,
-      max_tokens: preset.maxTokens,
-    };
-    if (openaiTools.length > 0) {
-      createParams.tools = openaiTools;
+      const remaining = totalDeadline - Date.now();
+      if (remaining <= 0) {
+        throw new AgentTimeoutError("AI 处理总时间超限，请稍后重试");
+      }
+
+      const createParams: any = {
+        model,
+        messages,
+        temperature: temperature ?? preset.temperature,
+        max_completion_tokens: preset.maxTokens,
+      };
+      if (openaiTools.length > 0) {
+        createParams.tools = openaiTools;
+      }
+
+      const response = await llmCallWithTimeout(
+        client,
+        createParams,
+        Math.min(PER_ROUND_TIMEOUT_MS, remaining),
+      );
+
+      const choice = response.choices[0];
+      if (!choice) break;
+
+      const assistantMessage: any = choice.message;
+
+      if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
+        return {
+          content: assistantMessage.content ?? "",
+          toolCalls: toolCallLog,
+          model,
+          rounds,
+        };
+      }
+
+      messages.push({
+        role: "assistant",
+        content: assistantMessage.content,
+        tool_calls: assistantMessage.tool_calls.map((tc: any) => ({
+          id: tc.id,
+          type: "function",
+          function: { name: tc.function.name, arguments: tc.function.arguments },
+        })),
+      });
+
+      const toolResults = await Promise.all(
+        assistantMessage.tool_calls.map(async (tc: any) => {
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(tc.function.arguments);
+          } catch {
+            args = {};
+          }
+
+          const result = await registry.execute(tc.function.name, {
+            args,
+            userId,
+            orgId,
+            sessionId,
+          });
+
+          toolCallLog.push({
+            name: tc.function.name,
+            args,
+            result,
+          });
+
+          return { id: tc.id, name: tc.function.name, result };
+        }),
+      );
+
+      for (const tr of toolResults) {
+        messages.push({
+          role: "tool",
+          content: JSON.stringify(tr.result.data),
+          tool_call_id: tr.id,
+          name: tr.name,
+        });
+      }
     }
 
-    const response = await client.chat.completions.create(createParams);
+    // 超过最大轮数，做一次最终总结
+    const remaining = totalDeadline - Date.now();
+    const finalResponse = await llmCallWithTimeout(
+      client,
+      {
+        model,
+        messages: [
+          ...messages,
+          { role: "user", content: "请基于以上工具返回的数据，给出最终回复。" },
+        ],
+        temperature: temperature ?? preset.temperature,
+        max_completion_tokens: preset.maxTokens,
+      },
+      Math.max(remaining, 5000),
+    );
 
-    const choice = response.choices[0];
-    if (!choice) break;
-
-    const assistantMessage: any = choice.message;
-
-    // 如果没有工具调用，返回最终回复
-    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
+    return {
+      content: (finalResponse.choices[0]?.message as any)?.content ?? "",
+      toolCalls: toolCallLog,
+      model,
+      rounds,
+    };
+  } catch (err) {
+    if (err instanceof AgentTimeoutError) {
       return {
-        content: assistantMessage.content ?? "",
+        content: err.message,
         toolCalls: toolCallLog,
         model,
         rounds,
       };
     }
-
-    // 有工具调用 — 将 assistant 消息加入历史
-    messages.push({
-      role: "assistant",
-      content: assistantMessage.content,
-      tool_calls: assistantMessage.tool_calls.map((tc: any) => ({
-        id: tc.id,
-        type: "function",
-        function: { name: tc.function.name, arguments: tc.function.arguments },
-      })),
-    });
-
-    // 并行执行所有工具调用
-    const toolResults = await Promise.all(
-      assistantMessage.tool_calls.map(async (tc: any) => {
-        let args: Record<string, unknown> = {};
-        try {
-          args = JSON.parse(tc.function.arguments);
-        } catch {
-          args = {};
-        }
-
-        const result = await registry.execute(tc.function.name, {
-          args,
-          userId,
-          orgId,
-          sessionId,
-        });
-
-        toolCallLog.push({
-          name: tc.function.name,
-          args,
-          result,
-        });
-
-        return { id: tc.id, name: tc.function.name, result };
-      }),
-    );
-
-    // 将工具结果回填
-    for (const tr of toolResults) {
-      messages.push({
-        role: "tool",
-        content: JSON.stringify(tr.result.data),
-        tool_call_id: tr.id,
-        name: tr.name,
-      });
-    }
+    throw err;
   }
-
-  // 超过最大轮数，做一次最终总结
-  const finalResponse = await client.chat.completions.create({
-    model,
-    messages: [
-      ...messages,
-      { role: "user", content: "请基于以上工具返回的数据，给出最终回复。" },
-    ],
-    temperature: temperature ?? preset.temperature,
-    max_tokens: preset.maxTokens,
-  } as any);
-
-  return {
-    content: (finalResponse.choices[0]?.message as any)?.content ?? "",
-    toolCalls: toolCallLog,
-    model,
-    rounds,
-  };
 }
 
 /* eslint-enable @typescript-eslint/no-explicit-any */

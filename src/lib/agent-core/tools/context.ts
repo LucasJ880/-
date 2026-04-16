@@ -8,7 +8,7 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
 registry.register({
-  name: "context.search_history",
+  name: "context_search_history",
   description: "搜索用户的历史对话记录，按语义相关性匹配。可用于回忆之前讨论过的内容。",
   domain: "system",
   parameters: {
@@ -67,7 +67,7 @@ registry.register({
 });
 
 registry.register({
-  name: "context.get_summaries",
+  name: "context_get_summaries",
   description: "获取用户最近对话的摘要列表，了解近期讨论了哪些主题",
   domain: "system",
   parameters: {
@@ -110,7 +110,7 @@ registry.register({
 });
 
 registry.register({
-  name: "context.index_messages",
+  name: "context_index_messages",
   description: "为用户的历史消息建立搜索索引（首次使用或手动刷新时调用）",
   domain: "system",
   parameters: {
