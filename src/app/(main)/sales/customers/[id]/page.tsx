@@ -28,6 +28,7 @@ import { CoachingPanel } from "./coaching-panel";
 import { AddInteractionDialog } from "./add-interaction-dialog";
 import { ImportConversationDialog } from "./import-conversation-dialog";
 import { CreateQuoteDialog } from "./create-quote-dialog";
+import { useSwipeable } from "@/lib/hooks/use-swipeable";
 
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,6 +42,22 @@ export default function CustomerDetailPage() {
   const [activeTab, setActiveTab] = useState<"timeline" | "quotes" | "orders" | "coaching">(
     "timeline"
   );
+  const TAB_ORDER: ("timeline" | "quotes" | "orders" | "coaching")[] = [
+    "timeline",
+    "quotes",
+    "orders",
+    "coaching",
+  ];
+  const swipeHandlers = useSwipeable({
+    onSwipeLeft: () => {
+      const idx = TAB_ORDER.indexOf(activeTab);
+      if (idx < TAB_ORDER.length - 1) setActiveTab(TAB_ORDER[idx + 1]);
+    },
+    onSwipeRight: () => {
+      const idx = TAB_ORDER.indexOf(activeTab);
+      if (idx > 0) setActiveTab(TAB_ORDER[idx - 1]);
+    },
+  });
 
   const loadCustomer = useCallback(async () => {
     try {
@@ -221,26 +238,27 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-border">
+      <div className="-mx-4 md:mx-0 flex items-center gap-1 overflow-x-auto border-b border-border px-4 md:px-0 scrollbar-hide">
         {(
           [
-            { key: "timeline" as const, label: "互动时间线", count: customer.interactions.length },
-            { key: "quotes" as const, label: "报价记录", count: customer.quotes.length },
-            { key: "orders" as const, label: "工艺单", count: customer.blindsOrders.length },
-            { key: "coaching" as const, label: "AI 建议", count: 0 },
+            { key: "timeline" as const, label: "互动时间线", shortLabel: "互动", count: customer.interactions.length },
+            { key: "quotes" as const, label: "报价记录", shortLabel: "报价", count: customer.quotes.length },
+            { key: "orders" as const, label: "工艺单", shortLabel: "工艺单", count: customer.blindsOrders.length },
+            { key: "coaching" as const, label: "AI 建议", shortLabel: "AI", count: 0 },
           ]
         ).map((tab) => (
           <button
             key={tab.key}
             className={cn(
-              "border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+              "shrink-0 border-b-2 px-3 md:px-4 py-2.5 text-sm font-medium transition-colors",
               activeTab === tab.key
                 ? "border-foreground text-foreground"
                 : "border-transparent text-muted hover:text-foreground"
             )}
             onClick={() => setActiveTab(tab.key)}
           >
-            {tab.label}
+            <span className="hidden md:inline">{tab.label}</span>
+            <span className="md:hidden">{tab.shortLabel}</span>
             {tab.count > 0 && (
               <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px]">
                 {tab.count}
@@ -249,7 +267,8 @@ export default function CustomerDetailPage() {
           </button>
         ))}
 
-        <div className="ml-auto flex items-center gap-2">
+        {/* Desktop action buttons */}
+        <div className="ml-auto hidden md:flex items-center gap-2">
           {activeTab === "timeline" && (
             <>
               <button
@@ -280,18 +299,42 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
+      {/* Mobile FAB */}
       {activeTab === "timeline" && (
-        <InteractionTimeline interactions={customer.interactions} />
+        <button
+          type="button"
+          onClick={() => setShowAddInteraction(true)}
+          className="fab md:hidden"
+          aria-label="新建互动"
+        >
+          <Plus size={24} strokeWidth={2.2} />
+        </button>
       )}
       {activeTab === "quotes" && (
-        <QuotesList
-          quotes={customer.quotes}
-          customerEmail={customer.email}
-          onSendEmail={handleSendEmail}
-        />
+        <button
+          type="button"
+          onClick={() => setShowCreateQuote(true)}
+          className="fab md:hidden"
+          aria-label="新建报价"
+        >
+          <Plus size={24} strokeWidth={2.2} />
+        </button>
       )}
-      {activeTab === "orders" && <OrdersList orders={customer.blindsOrders} />}
-      {activeTab === "coaching" && <CoachingPanel customerId={customer.id} />}
+
+      <div {...swipeHandlers}>
+        {activeTab === "timeline" && (
+          <InteractionTimeline interactions={customer.interactions} />
+        )}
+        {activeTab === "quotes" && (
+          <QuotesList
+            quotes={customer.quotes}
+            customerEmail={customer.email}
+            onSendEmail={handleSendEmail}
+          />
+        )}
+        {activeTab === "orders" && <OrdersList orders={customer.blindsOrders} />}
+        {activeTab === "coaching" && <CoachingPanel customerId={customer.id} />}
+      </div>
 
       <AddInteractionDialog
         open={showAddInteraction}

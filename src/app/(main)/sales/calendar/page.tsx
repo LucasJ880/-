@@ -14,6 +14,7 @@ import {
 import { CalendarMonthView, CalendarListView } from "./calendar-grid";
 import { CalendarSidebar } from "./calendar-sidebar";
 import { AppointmentDetailDialog, CreateAppointmentDialog } from "./appointment-dialog";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 
 interface GoogleCalendarInfo {
   id: string;
@@ -61,9 +62,14 @@ function isSameDay(d1: Date, d2: Date) {
 }
 
 export default function SalesCalendarPage() {
+  const { isMobile, mounted } = useIsMobile();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("month");
+
+  useEffect(() => {
+    if (mounted && isMobile) setViewMode("list");
+  }, [mounted, isMobile]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showCreate, setShowCreate] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
@@ -175,7 +181,7 @@ export default function SalesCalendarPage() {
         actions={
           <button
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+            className="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
           >
             <Plus size={16} />
             新建预约
@@ -210,7 +216,7 @@ export default function SalesCalendarPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
         {[
           { label: "今日日程", value: todayAppts.length + todayGEvents.length, color: "text-blue-600" },
           { label: "本月预约", value: appointments.length, color: "text-emerald-600" },
@@ -260,7 +266,7 @@ export default function SalesCalendarPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_300px] gap-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_300px] md:gap-6">
         {/* Calendar grid */}
         <div className="rounded-xl border border-border bg-white/60 overflow-hidden">
           {viewMode === "month" ? (
@@ -285,19 +291,31 @@ export default function SalesCalendarPage() {
           )}
         </div>
 
-        {/* Side panel */}
-        <CalendarSidebar
-          todayAppts={todayAppts}
-          todayGEvents={todayGEvents}
-          upcomingAppts={upcomingAppts}
-          gcalConnected={gcalConnected}
-          gcalList={gcalList}
-          googleEventsCount={googleEvents.length}
-          savingCals={savingCals}
-          onToggleCalendar={toggleCalendar}
-          onSelectAppt={setSelectedAppt}
-        />
+        {/* Side panel — hidden on mobile to keep layout clean */}
+        <div className="hidden md:block">
+          <CalendarSidebar
+            todayAppts={todayAppts}
+            todayGEvents={todayGEvents}
+            upcomingAppts={upcomingAppts}
+            gcalConnected={gcalConnected}
+            gcalList={gcalList}
+            googleEventsCount={googleEvents.length}
+            savingCals={savingCals}
+            onToggleCalendar={toggleCalendar}
+            onSelectAppt={setSelectedAppt}
+          />
+        </div>
       </div>
+
+      {/* Mobile FAB — new appointment */}
+      <button
+        type="button"
+        onClick={() => setShowCreate(true)}
+        className="fab md:hidden"
+        aria-label="新建预约"
+      >
+        <Plus size={24} strokeWidth={2.2} />
+      </button>
 
       {/* Detail dialog */}
       <AppointmentDetailDialog

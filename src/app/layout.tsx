@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast";
+import { ServiceWorkerRegister } from "@/components/service-worker-register";
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: "cover",
   themeColor: "#0F766E",
 };
@@ -45,6 +47,7 @@ export default function RootLayout({
       </head>
       <body className="h-full">
         <ToastProvider>{children}</ToastProvider>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

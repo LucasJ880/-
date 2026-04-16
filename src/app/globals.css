@@ -490,3 +490,93 @@ select {
 .pwa-safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
+
+/* ── Mobile layout utilities ── */
+:root {
+  --mobile-tabbar-height: 56px;
+  --mobile-header-height: 52px;
+}
+
+@utility h-screen-safe {
+  height: 100dvh;
+  height: 100vh;
+}
+
+@utility min-h-screen-safe {
+  min-height: 100dvh;
+  min-height: 100vh;
+}
+
+@utility pb-tabbar {
+  padding-bottom: calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0));
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+
+/* ── Mobile-first touch targets ── */
+@media (max-width: 767px) {
+  button, a.btn, [role="button"] {
+    min-height: 44px;
+  }
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+  body {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  h1 { font-size: 1.35rem; }
+  h2 { font-size: 1.125rem; }
+  h3 { font-size: 0.975rem; }
+  /* iOS tap highlight — 去除闪烁 */
+  a, button { -webkit-tap-highlight-color: transparent; }
+  /* 防止 iOS Safari 过度弹性 */
+  html { -webkit-text-size-adjust: 100%; }
+}
+
+/* ── FAB (Floating Action Button) ── */
+@utility fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0) + 16px);
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 8px 24px rgba(43, 96, 85, 0.28), 0 2px 6px rgba(0, 0, 0, 0.08);
+  transition: transform 150ms, box-shadow 150ms;
+}
+@utility fab:active {
+  transform: scale(0.96);
+}
+
+/* ── iOS-style scrollbar hide on mobile ── */
+@media (max-width: 767px) {
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { scrollbar-width: none; }
+}
+
+/* ── Pull-to-refresh indicator ── */
+@keyframes ptr-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.ptr-spin {
+  animation: ptr-spin 0.6s linear infinite;
+}

@@ -461,6 +461,87 @@
     .addon-row .addon-qty{padding:6px 6px;font-size:13px}
   }
 
+  /* ──────────── 青砚 Mobile Enhancements (iOS-first) ──────────── */
+  @media (max-width: 640px){
+    body{
+      padding:12px 10px 96px !important;
+      font-size:15px;
+      -webkit-text-size-adjust:100%;
+    }
+    .wrap{max-width:100%;padding-bottom:24px}
+    .card{border-radius:12px;padding:14px !important}
+    h1{font-size:18px !important;line-height:1.3}
+    h2{font-size:16px !important}
+
+    /* 防止 iOS 自动放大 input/select/textarea */
+    input,select,textarea,button{font-size:16px !important}
+
+    /* 主录入行 — 单列流式 */
+    .row{grid-template-columns:1fr !important;gap:10px !important}
+    .field-inline{grid-template-columns:1fr 88px !important}
+
+    /* 工具栏多列 -> 双列 */
+    .toolbar{grid-template-columns:1fr 1fr !important;gap:8px !important}
+
+    /* AI 网格 -> 单列 */
+    .ai-grid{grid-template-columns:1fr !important}
+
+    /* AI 语音按钮行 */
+    .ai-voice-row{grid-template-columns:1fr 1fr !important;gap:8px !important}
+
+    /* Grid-2 表单 -> 单列 */
+    .grid-2{grid-template-columns:1fr !important;gap:10px !important}
+
+    /* 弹窗 — 全屏感，边缘留 8px */
+    .modal .panel{
+      max-width:calc(100vw - 16px) !important;
+      max-height:calc(100dvh - 32px) !important;
+      border-radius:14px;
+      padding:14px !important;
+    }
+    #ocrModal .panel{
+      max-width:calc(100vw - 16px) !important;
+      max-height:calc(100dvh - 24px) !important;
+    }
+    .addon-picker-panel{
+      max-width:calc(100vw - 16px) !important;
+      width:calc(100vw - 16px) !important;
+    }
+
+    /* 表格 -> 可横向滚动 + 减小 padding */
+    table{font-size:13px}
+    table th,table td{padding:6px 6px !important}
+    .quote-shell, .card{overflow-x:auto}
+
+    /* 汇总页面在手机上的关键 grid */
+    .page{max-width:100% !important;margin:8px 0 !important}
+    .hero, .summary-grid, .totals-layout, .contact-list,
+    .sheet-grid, .sheet-two, .mini-list{
+      grid-template-columns:1fr !important;
+    }
+
+    /* 预览图限制高度 */
+    .ai-preview{max-height:140px}
+
+    /* 底部保存按钮悬浮 */
+    .mobile-sticky-save{
+      position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);
+      z-index:120;
+      padding:14px 16px;border-radius:14px;
+      background:linear-gradient(135deg,#f58220,#d96a0b);color:#fff;
+      font-weight:650;font-size:15px;letter-spacing:.02em;
+      border:none;box-shadow:0 10px 28px rgba(245,130,32,.35);
+      display:flex;align-items:center;justify-content:center;gap:8px;
+    }
+    .mobile-sticky-save:active{transform:scale(.98)}
+  }
+
+  /* 平板 — 保证主列宽度不溢出 */
+  @media (min-width: 641px) and (max-width: 900px){
+    body{padding:16px !important}
+    .wrap{max-width:100%}
+    .hero, .summary-grid, .totals-layout{grid-template-columns:1fr !important}
+  }
 </style>
 </head>
 <body>

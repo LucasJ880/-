@@ -3,6 +3,7 @@
 import { useState, useCallback, createContext, useContext } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
+import { MobileTabBar } from "./mobile-tab-bar";
 import { X } from "lucide-react";
 import { LocaleProvider } from "@/lib/i18n/context";
 
@@ -33,7 +34,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <AppShellContext.Provider
       value={{ mobileOpen, openMobileSidebar, closeMobileSidebar }}
     >
-      <div className="flex h-screen overflow-hidden bg-app-mesh pwa-safe-top pwa-safe-bottom">
+      <div className="flex h-screen-safe overflow-hidden bg-app-mesh pwa-safe-top">
         {/* Desktop sidebar — hidden on mobile */}
         <div className="hidden md:flex">
           <Sidebar />
@@ -64,12 +65,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm">
           <Header />
-          <main className="flex-1 overflow-y-auto">
+          <main className="flex-1 overflow-y-auto pb-tabbar md:pb-0">
             <div className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6 md:py-5">
               {children}
             </div>
           </main>
         </div>
+
+        <MobileTabBar />
       </div>
     </AppShellContext.Provider>
     </LocaleProvider>
