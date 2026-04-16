@@ -1737,7 +1737,9 @@ function updateSubheading(){
 
 function loadSettings(){
   try{
-    const rawD = localStorage.getItem('sunny_quote_discounts_v1');
+    // v2 默认折扣率 30% 基线；老版本 v1 (Zebra/Roller 45% 默认) 主动丢弃，避免覆盖新默认值
+    try{ localStorage.removeItem('sunny_quote_discounts_v1'); }catch(e){}
+    const rawD = localStorage.getItem('sunny_quote_discounts_v2');
     if(rawD){ DISCOUNTS = { ...DEFAULT_DISCOUNTS, ...JSON.parse(rawD) }; }
 
     const rawA = localStorage.getItem('sunny_quote_addons_v1');
@@ -1829,7 +1831,7 @@ function saveSettingsFromUI(){
   CORDLESS_MULTIPLIER = Math.round(parsedCordlessMultiplier * 1000) / 1000;
   try{ localStorage.setItem(CORDLESS_MULTIPLIER_LS_KEY, String(CORDLESS_MULTIPLIER)); }catch(e){}
 
-  try{ localStorage.setItem('sunny_quote_discounts_v1', JSON.stringify(DISCOUNTS)); }catch(e){}
+  try{ localStorage.setItem('sunny_quote_discounts_v2', JSON.stringify(DISCOUNTS)); }catch(e){}
   try{ localStorage.setItem('sunny_quote_addons_v1', JSON.stringify({ delivery: ADDONS.delivery })); }catch(e){}
   try{ aiSaveSettingsLocal(); }catch(e){}
 
@@ -1844,6 +1846,7 @@ function resetSettings(){
   CORDLESS_MULTIPLIER = DEFAULT_CORDLESS_MULTIPLIER;
   try{
     localStorage.removeItem('sunny_quote_discounts_v1');
+    localStorage.removeItem('sunny_quote_discounts_v2');
     localStorage.removeItem('sunny_quote_addons_v1');
     localStorage.removeItem('sunny_quote_install_mode_v1');
     localStorage.removeItem(CORDLESS_MULTIPLIER_LS_KEY);
