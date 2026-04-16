@@ -1,6 +1,18 @@
-import type { ProductName } from "@/lib/blinds/pricing-types";
+import type { ProductName, InstallMode } from "@/lib/blinds/pricing-types";
 
-export type { ProductName };
+export type { ProductName, InstallMode };
+
+/**
+ * 把整数英寸 + 分数（0-15，单位 1/16）合并为小数英寸
+ * 例：fractionToInches("36", "8") → 36.5
+ */
+export function fractionToInches(whole: string, frac: string): number {
+  const w = parseFloat(whole);
+  const f = parseFloat(frac);
+  const wv = Number.isFinite(w) ? w : 0;
+  const fv = Number.isFinite(f) ? f : 0;
+  return wv + fv / 16;
+}
 
 // ── Part A: Product line with full detail fields ──
 
@@ -104,6 +116,7 @@ export interface ShadeOrderLine {
   widthFrac: string;
   heightWhole: string;
   heightFrac: string;
+  product: ProductName;
   sku: string;
   mount: "I" | "O" | "";
   lift: "L" | "R" | "M" | "";
@@ -182,6 +195,7 @@ export interface QuoteFormState {
   shutterLouverSize: string;
   shadeValanceType: string;
   shadeBracketType: string;
+  installMode: InstallMode;
 }
 
 // ── Order number generation ──

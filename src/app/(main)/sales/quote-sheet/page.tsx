@@ -11,6 +11,8 @@ import {
   ClipboardList,
   Package,
   Wrench,
+  Wrench as InstallIcon,
+  Truck,
   Blinds,
   PanelTopOpen,
   Columns3,
@@ -36,6 +38,7 @@ import type {
   ShutterOrderLine,
   DrapeOrderLine,
   QuoteFormState,
+  InstallMode,
 } from "./types";
 import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, DELIVERY_FEE, HST_RATE, generateOrderNumber } from "./types";
 
@@ -88,7 +91,7 @@ function makeDefaultAddOns(): PartCAddOn[] {
 function makeShadeLines(count: number): ShadeOrderLine[] {
   return Array.from({ length: count }, () => ({
     id: crypto.randomUUID(), location: "", widthWhole: "", widthFrac: "0",
-    heightWhole: "", heightFrac: "0", sku: "", mount: "" as const,
+    heightWhole: "", heightFrac: "0", product: "Zebra" as const, sku: "", mount: "" as const,
     lift: "" as const, bracket: "" as const, valance: "", note: "",
   }));
 }
@@ -168,6 +171,9 @@ export default function QuoteSheetPage() {
   const [shadeValanceType, setShadeValanceType] = useState("");
   const [shadeBracketType, setShadeBracketType] = useState("");
 
+  // Install mode (default = installation, pickup = no install fee)
+  const [installMode, setInstallMode] = useState<InstallMode>("default");
+
   // Signatures
   const sigPartBRef = useRef<PencilCanvasRef>(null);
   const sigPartCRef = useRef<PencilCanvasRef>(null);
@@ -218,8 +224,8 @@ export default function QuoteSheetPage() {
     [partALines]
   );
   const subtotalC = useMemo(
-    () => calcSubtotalC(partCServices, partCAddOns),
-    [partCServices, partCAddOns]
+    () => (installMode === "pickup" ? 0 : calcSubtotalC(partCServices, partCAddOns)),
+    [partCServices, partCAddOns, installMode]
   );
   const subtotalB = useMemo(
     () => partBAddons.reduce((s, a) => s + a.total, 0),
@@ -273,6 +279,7 @@ export default function QuoteSheetPage() {
         shutterOrders: shutterOrders.filter((l) => l.location),
         drapeOrders: drapeOrders.filter((l) => l.location),
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
+        installMode,
       };
 
       const res = await apiFetch("/api/sales/quotes", {
@@ -281,6 +288,7 @@ export default function QuoteSheetPage() {
           customerId,
           opportunityId: opportunityId || undefined,
           items,
+          installMode,
           orderNumber,
           formDataJson: JSON.stringify(fullFormData),
         }),
@@ -301,6 +309,7 @@ export default function QuoteSheetPage() {
   }, [
     orderNumber, date, customerId, opportunityId, customerName, customerPhone,
     customerEmail, customerAddress, heardUsOn, salesRep, measureSequence,
+    installMode,
     partALines, partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
     financeEligible, financeApproved, financeDifference, partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
@@ -591,6 +600,46 @@ export default function QuoteSheetPage() {
           </div>
         </div>
 
+        {/* Delivery Method */}
+        <div className="rounded-lg border border-border bg-muted/10 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs font-semibold">Delivery Method</Label>
+              <span className="text-[10px] text-muted-foreground">
+                Pickup = no install fee · Installation = full service
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setInstallMode("default")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all",
+                  installMode === "default"
+                    ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                    : "bg-white text-muted-foreground border-border hover:bg-teal-50"
+                )}
+              >
+                <InstallIcon className="h-3.5 w-3.5" />
+                Installation
+              </button>
+              <button
+                type="button"
+                onClick={() => setInstallMode("pickup")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all",
+                  installMode === "pickup"
+                    ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                    : "bg-white text-muted-foreground border-border hover:bg-amber-50"
+                )}
+              >
+                <Truck className="h-3.5 w-3.5" />
+                Pickup
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Order Number */}
         {orderNumber && (
           <div className="flex items-center gap-3 rounded-lg bg-teal-50 border border-teal-200 px-4 py-2.5">
@@ -629,7 +678,7 @@ export default function QuoteSheetPage() {
       {/* Tab content — mobile 下可横向滚动防止表格溢出 */}
       <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-3 md:p-5 overflow-x-auto">
         {activeTab === "partA" && (
-          <PartAForm lines={partALines} onChange={setPartALines} />
+          <PartAForm lines={partALines} onChange={setPartALines} installMode={installMode} />
         )}
         {activeTab === "partB" && (
           <PartBForm
@@ -645,14 +694,26 @@ export default function QuoteSheetPage() {
           />
         )}
         {activeTab === "partC" && (
-          <PartCForm services={partCServices} onServicesChange={setPartCServices}
-            addOns={partCAddOns} onAddOnsChange={setPartCAddOns} signatureRef={sigPartCRef} />
+          <>
+            {installMode === "pickup" && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <span className="font-semibold">Pickup mode active.</span> Installation services
+                  in Part C are waived (subtotal = $0). Switch Delivery Method to &ldquo;Installation&rdquo;
+                  above to include install charges.
+                </div>
+              </div>
+            )}
+            <PartCForm services={partCServices} onServicesChange={setPartCServices}
+              addOns={partCAddOns} onAddOnsChange={setPartCAddOns} signatureRef={sigPartCRef} />
+          </>
         )}
         {activeTab === "shades" && (
           <OrderShadesForm lines={shadeOrders} onChange={setShadeOrders}
             valanceType={shadeValanceType} onValanceTypeChange={setShadeValanceType}
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
-            signatureRef={sigShadesRef} />
+            signatureRef={sigShadesRef} installMode={installMode} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
@@ -662,7 +723,7 @@ export default function QuoteSheetPage() {
         )}
         {activeTab === "drapes" && (
           <OrderDrapesForm lines={drapeOrders} onChange={setDrapeOrders}
-            signatureRef={sigDrapesRef} />
+            signatureRef={sigDrapesRef} installMode={installMode} />
         )}
       </div>
 

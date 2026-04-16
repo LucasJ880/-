@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { PartALine, ProductName, ProductCategory } from "./types";
+import type { PartALine, ProductName, ProductCategory, InstallMode } from "./types";
 import { getProductCategory } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2, AlertCircle, Lock, Unlock, Settings2 } from "lucide-react";
@@ -298,9 +298,11 @@ function DrapeFields({ line, onUpdate }: { line: PartALine; onUpdate: (u: Partia
 export function PartAForm({
   lines,
   onChange,
+  installMode = "default",
 }: {
   lines: PartALine[];
   onChange: (lines: PartALine[]) => void;
+  installMode?: InstallMode;
 }) {
   const [discountUnlocked, setDiscountUnlocked] = useState(false);
 
@@ -340,7 +342,8 @@ export function PartAForm({
 
   const filledLines = lines.filter((l) => l.product);
   const subtotal = lines.reduce((s, l) => s + (l.price ?? 0), 0);
-  const installTotal = lines.reduce((s, l) => s + (l.installFee ?? 0), 0);
+  const isPickup = installMode === "pickup";
+  const installTotal = isPickup ? 0 : lines.reduce((s, l) => s + (l.installFee ?? 0), 0);
   const msrpTotal = lines.reduce((s, l) => s + ((l.msrp ?? 0) * Math.max(1, l.panelCount)), 0);
   const discountTotal = lines.reduce((s, l) => s + (l.discountValue ?? 0), 0);
 
@@ -483,7 +486,11 @@ export function PartAForm({
                         </span>
                       </div>
                       <div className="ml-auto text-[10px] text-muted-foreground">
-                        Install: {formatCAD(line.installFee ?? 0)}
+                        {isPickup ? (
+                          <span className="text-amber-600 font-medium">Pickup · no install</span>
+                        ) : (
+                          <>Install: {formatCAD(line.installFee ?? 0)}</>
+                        )}
                       </div>
                     </>
                   )}
@@ -504,9 +511,14 @@ export function PartAForm({
           <span className="text-muted-foreground mr-1">Discount:</span>
           <span className="font-mono text-red-600">−{formatCAD(discountTotal)}</span>
         </div>
-        <div className="rounded-lg border border-border bg-muted/10 px-4 py-2 text-right text-xs">
+        <div className={cn(
+          "rounded-lg border px-4 py-2 text-right text-xs",
+          isPickup ? "border-amber-300 bg-amber-50" : "border-border bg-muted/10"
+        )}>
           <span className="text-muted-foreground mr-1">Install:</span>
-          <span className="font-mono">{formatCAD(installTotal)}</span>
+          <span className={cn("font-mono", isPickup && "text-amber-700 font-semibold")}>
+            {isPickup ? "Pickup · $0" : formatCAD(installTotal)}
+          </span>
         </div>
         <div className="rounded-lg border-2 border-teal-300 bg-teal-50 px-6 py-3 text-right">
           <span className="text-sm text-muted-foreground mr-3">SUBTOTAL (A):</span>

@@ -1,19 +1,24 @@
 "use client";
 
-import { useCallback } from "react";
-import type { ShadeOrderLine } from "./types";
-import { FRACTION_OPTIONS } from "./types";
+import { useCallback, useMemo } from "react";
+import type { ShadeOrderLine, InstallMode } from "./types";
+import { FRACTION_OPTIONS, fractionToInches } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
-import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName } from "@/lib/blinds/pricing-types";
+import { priceFor, formatCAD } from "@/lib/blinds/pricing-engine";
+import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
+import { SkuSelect } from "./sku-select";
 
-const SHADE_PRODUCTS: ProductName[] = ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb"];
-const ALL_SHADE_FABRICS = SHADE_PRODUCTS.flatMap((p) =>
-  getAvailableFabrics(p).map((f) => ({ product: p, fabric: f, label: `${p} — ${f}` }))
-);
+const SHADE_PRODUCTS: ProductName[] = [
+  "Zebra",
+  "Roller",
+  "SHANGRILA",
+  "Cordless Cellular",
+  "SkylightHoneycomb",
+];
 
 function RadioGroup({
   value,
@@ -53,6 +58,7 @@ interface Props {
   bracketType: string;
   onBracketTypeChange: (v: string) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
+  installMode: InstallMode;
 }
 
 function emptyLine(): ShadeOrderLine {
@@ -63,6 +69,7 @@ function emptyLine(): ShadeOrderLine {
     widthFrac: "0",
     heightWhole: "",
     heightFrac: "0",
+    product: "Zebra",
     sku: "",
     mount: "",
     lift: "",
@@ -70,6 +77,29 @@ function emptyLine(): ShadeOrderLine {
     valance: "",
     note: "",
   };
+}
+
+interface LinePrice {
+  merch: number;
+  install: number;
+  total: number;
+  error: string | null;
+}
+
+function computePrice(line: ShadeOrderLine, installMode: InstallMode): LinePrice | null {
+  if (!line.sku || !line.widthWhole || !line.heightWhole) return null;
+  const w = fractionToInches(line.widthWhole, line.widthFrac);
+  const h = fractionToInches(line.heightWhole, line.heightFrac);
+  if (!w || !h) return null;
+
+  const fabric = skuToPricingFabric(line.sku, line.product);
+  const result = priceFor(line.product, fabric, w, h);
+  if ("error" in result) {
+    return { merch: 0, install: 0, total: 0, error: result.error };
+  }
+  const merch = result.price;
+  const install = installMode === "pickup" ? 0 : result.install;
+  return { merch, install, total: merch + install, error: null };
 }
 
 export function OrderShadesForm({
@@ -80,6 +110,7 @@ export function OrderShadesForm({
   bracketType,
   onBracketTypeChange,
   signatureRef,
+  installMode,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShadeOrderLine, value: unknown) => {
@@ -93,6 +124,13 @@ export function OrderShadesForm({
   const removeLine = (id: string) => {
     onChange(removeLineById(lines, id));
   };
+
+  const pricings = useMemo(
+    () => lines.map((l) => computePrice(l, installMode)),
+    [lines, installMode]
+  );
+  const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
+  const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -112,137 +150,201 @@ export function OrderShadesForm({
       </div>
 
       <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-xs min-w-[900px]">
+        <table className="w-full text-xs min-w-[1120px]">
           <thead>
             <tr className="bg-muted/30">
               <th className="px-2 py-2 text-left w-8">#</th>
               <th className="px-2 py-2 text-left min-w-[100px]">Location</th>
               <th className="px-2 py-2 text-center w-24">Width</th>
               <th className="px-2 py-2 text-center w-24">Height</th>
-              <th className="px-2 py-2 text-left min-w-[80px]">SKU</th>
+              <th className="px-2 py-2 text-left w-28">Product</th>
+              <th className="px-2 py-2 text-left min-w-[180px]">SKU</th>
               <th className="px-2 py-2 text-center w-16">Mount</th>
               <th className="px-2 py-2 text-center w-24">Lift</th>
               <th className="px-2 py-2 text-center w-16">Bracket</th>
               <th className="px-2 py-2 text-left min-w-[70px]">Valance</th>
               <th className="px-2 py-2 text-left min-w-[80px]">Note</th>
+              <th className="px-2 py-2 text-right w-28">Price</th>
               <th className="px-2 py-2 w-8" />
             </tr>
           </thead>
           <tbody>
-            {lines.map((line, i) => (
-              <tr key={line.id} className="border-t border-border/50">
-                <td className="px-2 py-0.5 text-muted-foreground font-mono">{i + 1}</td>
-                <td className="px-1 py-0.5">
-                  <input
-                    type="text"
-                    value={line.location}
-                    onChange={(e) => updateLine(line.id, "location", e.target.value)}
-                    className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
-                    placeholder="Room"
-                  />
-                </td>
-                <td className="px-1 py-0.5">
-                  <div className="flex items-center gap-0.5">
+            {lines.map((line, i) => {
+              const p = pricings[i];
+              return (
+                <tr key={line.id} className="border-t border-border/50">
+                  <td className="px-2 py-0.5 text-muted-foreground font-mono">{i + 1}</td>
+                  <td className="px-1 py-0.5">
                     <input
                       type="text"
-                      value={line.widthWhole}
-                      onChange={(e) => updateLine(line.id, "widthWhole", e.target.value)}
-                      className="w-10 bg-transparent border-0 outline-none text-xs text-center min-h-[44px]"
-                      placeholder="in"
+                      value={line.location}
+                      onChange={(e) => updateLine(line.id, "location", e.target.value)}
+                      className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
+                      placeholder="Room"
                     />
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        type="text"
+                        value={line.widthWhole}
+                        onChange={(e) => updateLine(line.id, "widthWhole", e.target.value)}
+                        className="w-10 bg-transparent border-0 outline-none text-xs text-center min-h-[44px]"
+                        placeholder="in"
+                      />
+                      <select
+                        value={line.widthFrac}
+                        onChange={(e) => updateLine(line.id, "widthFrac", e.target.value)}
+                        className="bg-transparent border-0 outline-none text-[10px]"
+                      >
+                        {FRACTION_OPTIONS.map((f) => (
+                          <option key={f.value} value={f.value}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        type="text"
+                        value={line.heightWhole}
+                        onChange={(e) => updateLine(line.id, "heightWhole", e.target.value)}
+                        className="w-10 bg-transparent border-0 outline-none text-xs text-center min-h-[44px]"
+                        placeholder="in"
+                      />
+                      <select
+                        value={line.heightFrac}
+                        onChange={(e) => updateLine(line.id, "heightFrac", e.target.value)}
+                        className="bg-transparent border-0 outline-none text-[10px]"
+                      >
+                        {FRACTION_OPTIONS.map((f) => (
+                          <option key={f.value} value={f.value}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </td>
+                  <td className="px-1 py-0.5">
                     <select
-                      value={line.widthFrac}
-                      onChange={(e) => updateLine(line.id, "widthFrac", e.target.value)}
-                      className="bg-transparent border-0 outline-none text-[10px]"
+                      value={line.product}
+                      onChange={(e) => {
+                        const newProduct = e.target.value as ProductName;
+                        onChange(
+                          lines.map((l) =>
+                            l.id === line.id ? { ...l, product: newProduct, sku: "" } : l
+                          )
+                        );
+                      }}
+                      className="w-full bg-transparent border-0 outline-none text-[10px] min-h-[44px]"
                     >
-                      {FRACTION_OPTIONS.map((f) => (
-                        <option key={f.value} value={f.value}>{f.label}</option>
+                      {SHADE_PRODUCTS.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
                       ))}
                     </select>
-                  </div>
-                </td>
-                <td className="px-1 py-0.5">
-                  <div className="flex items-center gap-0.5">
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <SkuSelect
+                      product={line.product}
+                      value={line.sku}
+                      onChange={(v) => updateLine(line.id, "sku", v)}
+                      className="w-full"
+                    />
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <RadioGroup
+                      value={line.mount}
+                      options={["I", "O"]}
+                      onChange={(v) => updateLine(line.id, "mount", v)}
+                    />
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <RadioGroup
+                      value={line.lift}
+                      options={["L", "R", "M"]}
+                      onChange={(v) => updateLine(line.id, "lift", v)}
+                    />
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <RadioGroup
+                      value={line.bracket}
+                      options={["C", "W"]}
+                      onChange={(v) => updateLine(line.id, "bracket", v)}
+                    />
+                  </td>
+                  <td className="px-1 py-0.5">
                     <input
                       type="text"
-                      value={line.heightWhole}
-                      onChange={(e) => updateLine(line.id, "heightWhole", e.target.value)}
-                      className="w-10 bg-transparent border-0 outline-none text-xs text-center min-h-[44px]"
-                      placeholder="in"
+                      value={line.valance}
+                      onChange={(e) => updateLine(line.id, "valance", e.target.value)}
+                      className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
                     />
-                    <select
-                      value={line.heightFrac}
-                      onChange={(e) => updateLine(line.id, "heightFrac", e.target.value)}
-                      className="bg-transparent border-0 outline-none text-[10px]"
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <input
+                      type="text"
+                      value={line.note}
+                      onChange={(e) => updateLine(line.id, "note", e.target.value)}
+                      className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
+                    />
+                  </td>
+                  <td className="px-2 py-0.5 text-right align-middle">
+                    {p?.error ? (
+                      <span className="text-[9px] text-red-500" title={p.error}>
+                        —
+                      </span>
+                    ) : p ? (
+                      <div className="leading-tight">
+                        <div className="font-mono text-[11px] font-semibold text-teal-700">
+                          {formatCAD(p.merch)}
+                        </div>
+                        {installMode === "pickup" ? (
+                          <div className="text-[9px] text-amber-600">Pickup</div>
+                        ) : (
+                          <div className="text-[9px] text-muted-foreground">
+                            +Install {formatCAD(p.install)}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[9px] text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-1 py-0.5">
+                    <button
+                      onClick={() => removeLine(line.id)}
+                      className="p-1 text-muted-foreground hover:text-red-500"
                     >
-                      {FRACTION_OPTIONS.map((f) => (
-                        <option key={f.value} value={f.value}>{f.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </td>
-                <td className="px-1 py-0.5">
-                  <select
-                    value={line.sku}
-                    onChange={(e) => updateLine(line.id, "sku", e.target.value)}
-                    className="w-full bg-transparent border-0 outline-none text-[10px] min-h-[44px]"
-                  >
-                    <option value="">— Fabric —</option>
-                    {ALL_SHADE_FABRICS.map((sf) => (
-                      <option key={sf.label} value={sf.label}>
-                        {sf.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-1 py-0.5">
-                  <RadioGroup
-                    value={line.mount}
-                    options={["I", "O"]}
-                    onChange={(v) => updateLine(line.id, "mount", v)}
-                  />
-                </td>
-                <td className="px-1 py-0.5">
-                  <RadioGroup
-                    value={line.lift}
-                    options={["L", "R", "M"]}
-                    onChange={(v) => updateLine(line.id, "lift", v)}
-                  />
-                </td>
-                <td className="px-1 py-0.5">
-                  <RadioGroup
-                    value={line.bracket}
-                    options={["C", "W"]}
-                    onChange={(v) => updateLine(line.id, "bracket", v)}
-                  />
-                </td>
-                <td className="px-1 py-0.5">
-                  <input
-                    type="text"
-                    value={line.valance}
-                    onChange={(e) => updateLine(line.id, "valance", e.target.value)}
-                    className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
-                  />
-                </td>
-                <td className="px-1 py-0.5">
-                  <input
-                    type="text"
-                    value={line.note}
-                    onChange={(e) => updateLine(line.id, "note", e.target.value)}
-                    className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
-                  />
-                </td>
-                <td className="px-1 py-0.5">
-                  <button
-                    onClick={() => removeLine(line.id)}
-                    className="p-1 text-muted-foreground hover:text-red-500"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-teal-200 bg-teal-50/30">
+              <td colSpan={11} className="px-2 py-2 text-right text-xs font-medium">
+                Merch Subtotal
+                {installMode === "pickup" ? (
+                  <span className="ml-2 text-[10px] text-amber-600">· Pickup · no install</span>
+                ) : (
+                  <span className="ml-2 text-[10px] text-muted-foreground">
+                    · Install {formatCAD(totalInstall)}
+                  </span>
+                )}
+                :
+              </td>
+              <td className="px-2 py-2 text-right font-mono text-sm font-bold text-teal-700">
+                {formatCAD(totalMerch)}
+              </td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
       </div>
 
@@ -291,9 +393,7 @@ export function OrderShadesForm({
       </div>
 
       <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" />
-      <p className="text-[9px] text-muted-foreground leading-snug">
-        {SIGNATURE_DISCLAIMER}
-      </p>
+      <p className="text-[9px] text-muted-foreground leading-snug">{SIGNATURE_DISCLAIMER}</p>
     </div>
   );
 }

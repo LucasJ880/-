@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback } from "react";
-import type { DrapeOrderLine } from "./types";
-import { FRACTION_OPTIONS } from "./types";
+import { useCallback, useMemo } from "react";
+import type { DrapeOrderLine, InstallMode } from "./types";
+import { FRACTION_OPTIONS, fractionToInches } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
+import { priceFor, formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
 
 const DRAPERY_FABRICS = getAvailableFabrics("Drapery");
@@ -41,6 +42,69 @@ interface Props {
   lines: DrapeOrderLine[];
   onChange: (lines: DrapeOrderLine[]) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
+  installMode: InstallMode;
+}
+
+interface DrapeLinePrice {
+  drapeMerch: number;
+  drapeInstall: number;
+  sheerMerch: number;
+  sheerInstall: number;
+  total: number;
+  error: string | null;
+}
+
+function computeDrapeLinePrice(
+  line: DrapeOrderLine,
+  installMode: InstallMode
+): DrapeLinePrice | null {
+  const isPickup = installMode === "pickup";
+  let drapeMerch = 0;
+  let drapeInstall = 0;
+  let sheerMerch = 0;
+  let sheerInstall = 0;
+  let error: string | null = null;
+  let any = false;
+
+  if (line.drapeFabricSku && line.drapeWidthWhole && line.drapeHeightWhole) {
+    const w = fractionToInches(line.drapeWidthWhole, line.drapeWidthFrac);
+    const h = fractionToInches(line.drapeHeightWhole, line.drapeHeightFrac);
+    if (w && h) {
+      const r = priceFor("Drapery", line.drapeFabricSku, w, h);
+      if ("error" in r) {
+        error = `Drape: ${r.error}`;
+      } else {
+        drapeMerch = r.price;
+        drapeInstall = isPickup ? 0 : r.install;
+        any = true;
+      }
+    }
+  }
+
+  if (line.sheerFabricSku && line.sheerWidthWhole && line.sheerHeightWhole) {
+    const w = fractionToInches(line.sheerWidthWhole, line.sheerWidthFrac);
+    const h = fractionToInches(line.sheerHeightWhole, line.sheerHeightFrac);
+    if (w && h) {
+      const r = priceFor("Sheer", line.sheerFabricSku, w, h);
+      if ("error" in r) {
+        error = error ? `${error}; Sheer: ${r.error}` : `Sheer: ${r.error}`;
+      } else {
+        sheerMerch = r.price;
+        sheerInstall = isPickup ? 0 : r.install;
+        any = true;
+      }
+    }
+  }
+
+  if (!any && !error) return null;
+  return {
+    drapeMerch,
+    drapeInstall,
+    sheerMerch,
+    sheerInstall,
+    total: drapeMerch + drapeInstall + sheerMerch + sheerInstall,
+    error,
+  };
 }
 
 function emptyLine(): DrapeOrderLine {
@@ -104,7 +168,7 @@ function DimInput({
   );
 }
 
-export function OrderDrapesForm({ lines, onChange, signatureRef }: Props) {
+export function OrderDrapesForm({ lines, onChange, signatureRef, installMode }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof DrapeOrderLine, value: unknown) => {
       onChange(updateLineField(lines, id, field, value));
@@ -116,6 +180,12 @@ export function OrderDrapesForm({ lines, onChange, signatureRef }: Props) {
   const removeLine = (id: string) => {
     onChange(removeLineById(lines, id));
   };
+
+  const pricings = useMemo(
+    () => lines.map((l) => computeDrapeLinePrice(l, installMode)),
+    [lines, installMode]
+  );
+  const grandTotal = pricings.reduce((s, p) => s + (p?.total ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -135,7 +205,9 @@ export function OrderDrapesForm({ lines, onChange, signatureRef }: Props) {
       </div>
 
       <div className="space-y-3">
-        {lines.map((line, i) => (
+        {lines.map((line, i) => {
+          const p = pricings[i];
+          return (
           <div key={line.id} className="border border-border rounded-lg p-3 space-y-2 bg-white/40">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -148,12 +220,32 @@ export function OrderDrapesForm({ lines, onChange, signatureRef }: Props) {
                   placeholder="Location / Room"
                 />
               </div>
-              <button
-                onClick={() => removeLine(line.id)}
-                className="p-1 text-muted-foreground hover:text-red-500"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-3">
+                {p?.error ? (
+                  <span className="text-[10px] text-red-500" title={p.error}>
+                    Err
+                  </span>
+                ) : p ? (
+                  <div className="text-right leading-tight">
+                    <div className="font-mono text-xs font-semibold text-teal-700">
+                      {formatCAD(p.total)}
+                    </div>
+                    <div className="text-[9px] text-muted-foreground">
+                      {installMode === "pickup" ? (
+                        <span className="text-amber-600">Pickup · no install</span>
+                      ) : (
+                        <>Install {formatCAD(p.drapeInstall + p.sheerInstall)}</>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+                <button
+                  onClick={() => removeLine(line.id)}
+                  className="p-1 text-muted-foreground hover:text-red-500"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
 
             {/* Drape row */}
@@ -308,7 +400,23 @@ export function OrderDrapesForm({ lines, onChange, signatureRef }: Props) {
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
+      </div>
+
+      <div className="flex justify-end">
+        <div className="rounded-lg border-2 border-teal-200 bg-teal-50/40 px-4 py-2 text-right">
+          <span className="text-xs text-muted-foreground">
+            Drapes + Sheers Subtotal
+            {installMode === "pickup" && (
+              <span className="ml-1 text-amber-600">· Pickup · no install</span>
+            )}
+            :
+          </span>
+          <span className="ml-3 font-mono text-base font-bold text-teal-700">
+            {formatCAD(grandTotal)}
+          </span>
+        </div>
       </div>
 
       <div className="text-xs text-muted-foreground space-y-0.5 bg-muted/10 rounded-lg p-3">
