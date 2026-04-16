@@ -16,7 +16,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { WorkSuggestion } from "@/lib/ai";
+import type { WorkSuggestion } from "@/lib/ai/schemas";
 import {
   WorkSuggestionCard,
   type SimpleProject,

@@ -12,7 +12,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { extractWorkSuggestion, type WorkSuggestion } from "@/lib/ai";
+import { extractWorkSuggestion } from "@/lib/ai/parser";
+import type { WorkSuggestion } from "@/lib/ai/schemas";
 import {
   WorkSuggestionCard,
   type SimpleProject,

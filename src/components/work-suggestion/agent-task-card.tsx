@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
-import type { AgentTaskSuggestion } from "@/lib/ai";
+import type { AgentTaskSuggestion } from "@/lib/ai/schemas";
 import { Bot } from "lucide-react";
 
 export function AgentTaskCard({ suggestion, onCreated }: { suggestion: AgentTaskSuggestion; onCreated?: () => void }) {

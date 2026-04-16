@@ -5,7 +5,7 @@ import {
   FolderKanban,
   MapPin,
 } from "lucide-react";
-import type { QuestionEmailSuggestion } from "@/lib/ai";
+import type { QuestionEmailSuggestion } from "@/lib/ai/schemas";
 import { FileQuestion, Mail } from "lucide-react";
 import { ProjectQuestionDialog, type QuestionPrefill } from "@/components/project-question/project-question-dialog";
 

@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
-import type { StageAdvanceSuggestion } from "@/lib/ai";
+import type { StageAdvanceSuggestion } from "@/lib/ai/schemas";
 import { ArrowRight, ShieldCheck, AlertTriangle } from "lucide-react";
 
 const STAGE_LABELS: Record<string, string> = {

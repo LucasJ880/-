@@ -561,9 +561,10 @@ select {
   color: white;
   box-shadow: 0 8px 24px rgba(43, 96, 85, 0.28), 0 2px 6px rgba(0, 0, 0, 0.08);
   transition: transform 150ms, box-shadow 150ms;
-}
-@utility fab:active {
-  transform: scale(0.96);
+
+  &:active {
+    transform: scale(0.96);
+  }
 }
 
 /* ── iOS-style scrollbar hide on mobile ── */

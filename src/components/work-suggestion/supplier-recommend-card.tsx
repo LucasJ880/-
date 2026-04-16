@@ -6,7 +6,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import type { SupplierRecommendSuggestion } from "@/lib/ai";
+import type { SupplierRecommendSuggestion } from "@/lib/ai/schemas";
 import { ShoppingCart, Plus } from "lucide-react";
 
 export function SupplierRecommendCard({

@@ -3,7 +3,8 @@
 import { Suspense, useState, useRef, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { extractWorkSuggestion, type WorkSuggestion } from "@/lib/ai";
+import { extractWorkSuggestion } from "@/lib/ai/parser";
+import type { WorkSuggestion } from "@/lib/ai/schemas";
 import type { SimpleProject } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch, apiJson } from "@/lib/api-fetch";

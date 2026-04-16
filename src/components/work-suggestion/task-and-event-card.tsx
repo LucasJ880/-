@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn, TASK_PRIORITY, type TaskPriority } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
-import type { TaskSuggestion, EventSuggestion } from "@/lib/ai";
+import type { TaskSuggestion, EventSuggestion } from "@/lib/ai/schemas";
 import { PRIORITY_STYLES, type SimpleProject } from "./types";
 import { formatTime, formatDateLabel } from "./utils";
 

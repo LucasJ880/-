@@ -1,4 +1,4 @@
-import type { WorkSuggestion } from "@/lib/ai";
+import type { WorkSuggestion } from "@/lib/ai/schemas";
 
 export interface SimpleProject {
   id: string;

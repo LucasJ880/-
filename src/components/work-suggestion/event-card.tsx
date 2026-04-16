@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
-import type { EventSuggestion } from "@/lib/ai";
+import type { EventSuggestion } from "@/lib/ai/schemas";
 import { formatTime, formatDateLabel } from "./utils";
 
 export function EventCard({
