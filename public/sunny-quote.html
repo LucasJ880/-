@@ -550,10 +550,10 @@
     <div class="flex-between shell-header">
       <div>
         <h1>SUNNY SHUTTER INC — ROUGH QUOTE</h1>
-        <p class="sub">Blinds reflect 45% OFF from MSRP. Drapery &amp; Sheer 35% OFF. Shutters 35% OFF. Sizes rounded up to nearest bracket.</p>
+        <p class="sub">Default 30% OFF from MSRP for all categories. Sizes rounded up to nearest bracket.</p>
       </div>
       <div class="toolbar toolbar-main no-print">
-        <button class="btn-secondary admin-only" id="settingsBtn">Pricing Settings</button>
+        <button class="btn-secondary" id="settingsBtn" title="需访问码 / Code required">Pricing Settings</button>
         <button class="btn" id="generate">Generate Rough Quote</button>
         <button class="btn-secondary" id="resetAll">Reset All</button>
       </div>
@@ -1173,7 +1173,7 @@ const DATA = {
 
 const MAX_ITEMS = 60;
 const TAX_RATE = 0.13;
-const DEFAULT_DISCOUNTS = { Zebra: 0.45, SHANGRILA: 0.35, 'Cordless Cellular': 0.35, Roller: 0.45, Drapery: 0.35, Sheer: 0.35, Shutters: 0.35, SkylightHoneycomb: 0.35 };
+const DEFAULT_DISCOUNTS = { Zebra: 0.30, SHANGRILA: 0.30, 'Cordless Cellular': 0.30, Roller: 0.30, Drapery: 0.30, Sheer: 0.30, Shutters: 0.30, SkylightHoneycomb: 0.30 };
 const DEFAULT_ADDONS = { delivery:50 };
 const ADDON_CSV_URL = 'ADDONS.csv';
 const LS_ADDON_CSV_OVERRIDE = 'sunny_quote_addon_csv_override_v1';
@@ -1624,7 +1624,24 @@ function initAddonCsvControls(){
 }
 
 // -------- Admin (hidden) --------
-const ADMIN_PIN = 'sunny2025';
+const ADMIN_PIN = 'sunny2026';
+const SETTINGS_AUTH_LS = 'sunny_quote_settings_auth_until_v1';
+const SETTINGS_AUTH_TTL_MS = 30 * 60 * 1000;
+function isSettingsAuthed(){
+  try{
+    const t = parseInt(localStorage.getItem(SETTINGS_AUTH_LS) || '0', 10);
+    return Number.isFinite(t) && Date.now() < t;
+  }catch(e){ return false; }
+}
+function grantSettingsAuth(){
+  try{ localStorage.setItem(SETTINGS_AUTH_LS, String(Date.now() + SETTINGS_AUTH_TTL_MS)); }catch(e){}
+}
+function requireSettingsAuth(onOk){
+  if(isSettingsAuthed()){ onOk(); return; }
+  const pin = prompt('修改折扣率需要访问码 / Enter code to edit pricing:');
+  if(pin === ADMIN_PIN){ grantSettingsAuth(); onOk(); }
+  else if(pin !== null){ alert('访问码错误 / Incorrect code'); }
+}
 function setAdmin(show){
   document.body.classList.toggle('admin-show', !!show);
   try{ localStorage.setItem('sunny_quote_admin', show ? '1' : '0'); }catch(e){}
@@ -1846,12 +1863,42 @@ const modal = document.getElementById('settingsModal');
 const saveBtn = document.getElementById('saveSettings');
 const cancelBtn = document.getElementById('cancelSettings');
 const resetBtn = document.getElementById('resetSettings');
+let __DISCOUNTS_BEFORE__ = null;
+function snapshotDiscounts(){
+  try{ return JSON.parse(JSON.stringify(DISCOUNTS)); }catch(e){ return null; }
+}
+function discountsChanged(before, after){
+  if(!before || !after) return false;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for(const k of keys){ if(Number(before[k]) !== Number(after[k])) return true; }
+  return false;
+}
+function postDiscountAudit(before, after){
+  try{
+    if(!window.parent || window.parent === window) return;
+    window.parent.postMessage({
+      type: 'QINGYAN_DISCOUNT_LOG',
+      payload: { before, after, code: ADMIN_PIN, at: Date.now() }
+    }, '*');
+  }catch(e){}
+}
 if(settingsBtn){
-  settingsBtn.addEventListener('click', ()=> modal.classList.add('show'));
+  settingsBtn.addEventListener('click', ()=>{
+    requireSettingsAuth(()=>{
+      __DISCOUNTS_BEFORE__ = snapshotDiscounts();
+      modal.classList.add('show');
+    });
+  });
   cancelBtn.addEventListener('click', ()=> modal.classList.remove('show'));
   saveBtn.addEventListener('click', (e)=> {
     if(e){ e.preventDefault(); e.stopPropagation(); }
+    const before = __DISCOUNTS_BEFORE__;
     saveSettingsFromUI();
+    const after = snapshotDiscounts();
+    if(discountsChanged(before, after)){
+      postDiscountAudit(before, after);
+    }
+    __DISCOUNTS_BEFORE__ = null;
     saveUiSnapshotForReload();
     modal.classList.remove('show');
     showMiniToast('Pricing settings saved. Refreshing quote…');
@@ -1859,7 +1906,16 @@ if(settingsBtn){
       hardReloadQuotePage();
     }, 180);
   });
-  resetBtn.addEventListener('click', ()=> resetSettings());
+  resetBtn.addEventListener('click', ()=> {
+    requireSettingsAuth(()=>{
+      const before = __DISCOUNTS_BEFORE__ || snapshotDiscounts();
+      resetSettings();
+      const after = snapshotDiscounts();
+      if(discountsChanged(before, after)){
+        postDiscountAudit(before, after);
+      }
+    });
+  });
 }
 // init settings now (ensures hints & discounts seeded)
 loadSettings();

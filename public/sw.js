@@ -7,7 +7,7 @@
  * 目标：保障弱网进入应用不白屏；不影响实时业务数据正确性。
  */
 
-const VERSION = "qingyan-v1";
+const VERSION = "qingyan-v2";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 
@@ -17,6 +17,12 @@ const PRECACHE_URLS = [
   "/icons/icon-192x192.png",
   "/icons/icon-512x512.png",
 ];
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

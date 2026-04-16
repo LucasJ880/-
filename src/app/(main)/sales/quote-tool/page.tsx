@@ -11,8 +11,11 @@ import {
   AlertTriangle,
   User,
   X,
+  History,
 } from "lucide-react";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { canViewAdminPages } from "@/lib/permissions-client";
 
 interface SavePayload {
   items: {
@@ -33,6 +36,8 @@ export default function QuoteToolPage() {
   const router = useRouter();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { isMobile } = useIsMobile();
+  const { user: currentUser } = useCurrentUser();
+  const canViewAudit = canViewAdminPages(currentUser?.role);
   const [customers, setCustomers] = useState<
     { id: string; name: string; phone?: string; email?: string }[]
   >([]);
@@ -79,6 +84,25 @@ export default function QuoteToolPage() {
       );
     }
   }, [isMobile]);
+
+  useEffect(() => {
+    const logHandler = (e: MessageEvent) => {
+      if (e.data?.type !== "QINGYAN_DISCOUNT_LOG") return;
+      const payload = e.data.payload as {
+        before: Record<string, number> | null;
+        after: Record<string, number> | null;
+        code?: string;
+      };
+      apiFetch("/api/sales/quote-settings/log", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }).catch(() => {
+        /* 记录失败不影响主流程，控制台已有错误 */
+      });
+    };
+    window.addEventListener("message", logHandler);
+    return () => window.removeEventListener("message", logHandler);
+  }, []);
 
   useEffect(() => {
     const handler = async (e: MessageEvent) => {
@@ -239,8 +263,19 @@ export default function QuoteToolPage() {
 
         {saving && <span className="text-xs text-muted-foreground animate-pulse">保存中...</span>}
 
+        {canViewAudit && (
+          <button
+            onClick={() => router.push("/sales/quote-tool/audit")}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+            title="查看折扣率修改记录"
+          >
+            <History size={12} />
+            折扣修改记录
+          </button>
+        )}
+
         {lastSaved && (
-          <div className="ml-auto flex items-center gap-3">
+          <div className={`${canViewAudit ? "" : "ml-auto"} flex items-center gap-3`}>
             <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
               <CheckCircle size={14} />
               {`已保存 · $${lastSaved.grandTotal.toLocaleString("en-CA", { minimumFractionDigits: 2 })}`}
@@ -294,10 +329,25 @@ export default function QuoteToolPage() {
           </span>
           {selectedOpp && <span className="text-muted-foreground">· {selectedOpp.title}</span>}
         </button>
-        {saving && <span className="text-[11px] text-muted-foreground animate-pulse">保存中...</span>}
+        <div className="flex items-center gap-1.5">
+          {saving && (
+            <span className="text-[11px] text-muted-foreground animate-pulse">保存中...</span>
+          )}
+          {canViewAudit && (
+            <button
+              type="button"
+              onClick={() => router.push("/sales/quote-tool/audit")}
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-white text-muted-foreground active:bg-muted/50"
+              aria-label="折扣修改记录"
+              title="折扣修改记录"
+            >
+              <History size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* iframe — cache bust via build timestamp */}
+      {/* iframe — cache bust via build timestamp；折扣率调整需在 iframe 内输入访问码，走后端审计 */}
       <iframe
         ref={iframeRef}
         src={`/sunny-quote.html?v=${Date.now()}${isMobile ? "&m=1" : ""}`}
@@ -405,6 +455,28 @@ export default function QuoteToolPage() {
               >
                 完成
               </button>
+
+              {canViewAudit && (
+                <div className="border-t border-border pt-3">
+                  <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                    管理
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileSelectorOpen(false);
+                      router.push("/sales/quote-tool/audit");
+                    }}
+                    className="flex w-full items-center justify-between rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-foreground active:bg-muted/50"
+                  >
+                    <span className="flex items-center gap-2">
+                      <History size={14} className="text-muted-foreground" />
+                      折扣修改记录
+                    </span>
+                    <ChevronDown size={14} className="-rotate-90 text-muted-foreground" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
