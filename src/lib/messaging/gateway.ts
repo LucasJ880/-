@@ -32,6 +32,38 @@ export function listAdapters(): MessagingAdapter[] {
 }
 
 /**
+ * 获取可用于发送的 adapter（Serverless 多实例安全）
+ *
+ * 优先使用已注册的内存 adapter；若不存在，则根据 orgId 按需实例化
+ * 并仅加载凭证（不启动长轮询），避免 Vercel 多实例下推送静默失败。
+ */
+async function ensureSendAdapter(
+  channel: ChannelType,
+  orgId: string | null,
+): Promise<MessagingAdapter | null> {
+  const cached = adapters.get(channel);
+  if (cached) return cached;
+
+  if (!orgId) return null;
+
+  if (channel === "personal_wechat") {
+    const { PersonalWeChatAdapter } = await import("./adapters/personal-wechat");
+    const adapter = new PersonalWeChatAdapter(orgId);
+    const ok = await adapter.loadCredentials();
+    return ok ? adapter : null;
+  }
+
+  if (channel === "wecom") {
+    const { WeComAdapter } = await import("./adapters/wecom");
+    const adapter = new WeComAdapter(orgId);
+    await adapter.start();
+    return adapter.getStatus() === "connected" ? adapter : null;
+  }
+
+  return null;
+}
+
+/**
  * 处理入站消息 — 所有 Adapter 的 onMessage 都调用此函数
  */
 export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
@@ -73,8 +105,8 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     aiResponse = `抱歉，处理出错: ${e instanceof Error ? e.message : "未知错误"}`;
   }
 
-  // 6. 发送回复
-  const adapter = getAdapter(msg.channel);
+  // 6. 发送回复（Serverless 多实例下按需加载 adapter）
+  const adapter = await ensureSendAdapter(msg.channel, binding.orgId);
   if (adapter) {
     try {
       await adapter.sendText(msg.externalUserId, aiResponse);
@@ -126,8 +158,14 @@ export async function pushMessage(
       continue;
     }
 
-    const adapter = getAdapter(binding.channel as ChannelType);
-    if (!adapter) continue;
+    const adapter = await ensureSendAdapter(
+      binding.channel as ChannelType,
+      binding.orgId,
+    );
+    if (!adapter) {
+      failed++;
+      continue;
+    }
 
     try {
       await adapter.sendText(binding.externalId, content);

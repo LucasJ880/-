@@ -120,6 +120,11 @@ export interface AgentRunOptions {
   userId: string;
   orgId: string;
   sessionId?: string;
+  /**
+   * 外部 AbortSignal（通常传入 NextRequest.signal）
+   * 客户端断开时，正在进行的 OpenAI 调用会被立即中止，避免继续扣费。
+   */
+  abortSignal?: AbortSignal;
 }
 
 export interface AgentRunResult {

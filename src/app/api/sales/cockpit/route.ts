@@ -38,22 +38,34 @@ export const GET = withAuth(async (_request, _ctx, user) => {
   const twoWeeksAgo = new Date(now.getTime() - 14 * DAY_MS);
 
   // ── 1. 漏斗分析 ──
-  const funnelData = await Promise.all(
-    FUNNEL_STAGES.map(async (stage) => {
-      const where: Record<string, unknown> = { stage };
-      if (!isAdmin) where.assignedToId = user.id;
-      const [count, value] = await Promise.all([
-        db.salesOpportunity.count({ where }),
-        db.salesOpportunity.aggregate({ where, _sum: { estimatedValue: true } }),
-      ]);
-      return {
-        stage,
-        label: STAGE_LABELS[stage] || stage,
-        count,
-        value: value._sum.estimatedValue || 0,
-      };
-    }),
+  // 原实现：FUNNEL_STAGES.length × 2 次独立查询（14 次 DB 往返）
+  // 优化：单次 groupBy 一次拿齐所有 stage 的 count + sum
+  const funnelGroup = await db.salesOpportunity.groupBy({
+    by: ["stage"],
+    where: {
+      stage: { in: [...FUNNEL_STAGES] },
+      ...(isAdmin ? {} : { assignedToId: user.id }),
+    },
+    _count: true,
+    _sum: { estimatedValue: true },
+  });
+
+  const funnelMap = new Map(
+    funnelGroup.map((g) => [
+      g.stage,
+      { count: g._count ?? 0, value: g._sum.estimatedValue ?? 0 },
+    ]),
   );
+
+  const funnelData = FUNNEL_STAGES.map((stage) => {
+    const agg = funnelMap.get(stage) ?? { count: 0, value: 0 };
+    return {
+      stage,
+      label: STAGE_LABELS[stage] || stage,
+      count: agg.count,
+      value: agg.value,
+    };
+  });
 
   // ── 2. 团队业绩排行（本月签约额）──
   const teamPerformance = isAdmin

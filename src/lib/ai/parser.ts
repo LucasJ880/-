@@ -193,16 +193,29 @@ function postProcessDates(suggestion: WorkSuggestion): void {
 
 // ── 公开 API ──────────────────────────────────────────────────
 
+export interface ExtractResult {
+  cleanText: string;
+  suggestion: WorkSuggestion | null;
+  /**
+   * 当 [WORK_JSON] / [TASK_JSON] 块存在但解析失败或字段不完整时填充。
+   * 用于前端显式提示用户（避免"幻觉却无人察觉"），不会阻塞流式文本显示。
+   */
+  parseError?: {
+    reason: string;
+    /** 被丢弃的原始 JSON 字符串（截断至 300 字符，便于排查） */
+    rawJson?: string;
+  };
+}
+
 /**
  * 从 AI 回复中提取 WorkSuggestion。
  * 优先识别 [WORK_JSON]，回退兼容旧 [TASK_JSON]。
  */
-export function extractWorkSuggestion(
-  text: string
-): { cleanText: string; suggestion: WorkSuggestion | null } {
+export function extractWorkSuggestion(text: string): ExtractResult {
   // 1. WORK_JSON
   const work = stripBlock(text, WORK_JSON_START, WORK_JSON_END);
   if (work.jsonStr) {
+    const rawSnippet = work.jsonStr.slice(0, 300);
     try {
       const parsed = JSON.parse(work.jsonStr);
       let suggestion: WorkSuggestion | null = null;
@@ -258,12 +271,35 @@ export function extractWorkSuggestion(
         postProcessDates(suggestion);
         return { cleanText: work.cleanText, suggestion };
       }
-    } catch { /* fall through */ }
+
+      // JSON 合法但结构/字段不满足任何已知分类
+      logWorkJsonFailure("content_invalid", parsed?.type, rawSnippet);
+      return {
+        cleanText: work.cleanText,
+        suggestion: null,
+        parseError: {
+          reason: `AI 返回的建议结构不完整（type=${String(parsed?.type ?? "unknown")}），已忽略`,
+          rawJson: rawSnippet,
+        },
+      };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "JSON 解析失败";
+      logWorkJsonFailure("json_parse_error", reason, rawSnippet);
+      return {
+        cleanText: work.cleanText,
+        suggestion: null,
+        parseError: {
+          reason: `AI 返回的建议 JSON 无法解析：${reason}`,
+          rawJson: rawSnippet,
+        },
+      };
+    }
   }
 
   // 2. Legacy TASK_JSON
   const legacy = stripBlock(text, TASK_JSON_START, TASK_JSON_END);
   if (legacy.jsonStr) {
+    const rawSnippet = legacy.jsonStr.slice(0, 300);
     try {
       const parsed = JSON.parse(legacy.jsonStr);
       const suggestion: WorkSuggestion = {
@@ -277,10 +313,37 @@ export function extractWorkSuggestion(
       };
       postProcessDates(suggestion);
       return { cleanText: legacy.cleanText, suggestion };
-    } catch { /* fall through */ }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "JSON 解析失败";
+      logWorkJsonFailure("legacy_parse_error", reason, rawSnippet);
+      return {
+        cleanText: legacy.cleanText,
+        suggestion: null,
+        parseError: {
+          reason: `AI 返回的建议 JSON 无法解析：${reason}`,
+          rawJson: rawSnippet,
+        },
+      };
+    }
   }
 
   return { cleanText: text.trim(), suggestion: null };
+}
+
+/**
+ * 记录 WORK_JSON 解析失败，便于观测。
+ * 会被 Sentry（如启用）或 Vercel 日志自动采集。
+ */
+function logWorkJsonFailure(
+  kind: "json_parse_error" | "content_invalid" | "legacy_parse_error",
+  detail: string | undefined,
+  rawSnippet: string,
+): void {
+  console.error("[ai.parser] WORK_JSON 解析失败", {
+    kind,
+    detail,
+    rawSnippet,
+  });
 }
 
 /** @deprecated Use extractWorkSuggestion instead */

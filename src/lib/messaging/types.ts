@@ -68,6 +68,7 @@ export type PushDomain = "trade" | "sales" | "project" | "all";
 export interface BindingInfo {
   id: string;
   userId: string;
+  orgId: string | null;
   channel: ChannelType;
   externalId: string;
   displayName: string | null;

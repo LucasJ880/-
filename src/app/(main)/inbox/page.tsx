@@ -124,12 +124,15 @@ export default function InboxPage() {
         }
       }
 
-      const { cleanText, suggestion } = extractWorkSuggestion(fullText);
+      const { cleanText, suggestion, parseError } = extractWorkSuggestion(fullText);
+      const finalText = parseError
+        ? `${cleanText}\n\n> [AI 建议解析异常] ${parseError.reason}`
+        : cleanText;
 
       setItems((prev) =>
         prev.map((it) =>
           it.id === itemId
-            ? { ...it, aiText: cleanText, suggestion, status: "ready" as const }
+            ? { ...it, aiText: finalText, suggestion, status: "ready" as const }
             : it
         )
       );

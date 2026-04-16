@@ -8,6 +8,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const stage = searchParams.get('stage') || '';
   const priority = searchParams.get('priority') || '';
   const customerId = searchParams.get('customerId') || '';
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+  const pageSize = Math.min(
+    100,
+    Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10)),
+  );
 
   const where: Record<string, unknown> = {};
   if (!isSuperAdmin(user.role)) {
@@ -17,19 +22,24 @@ export const GET = withAuth(async (request, _ctx, user) => {
   if (priority) where.priority = priority;
   if (customerId) where.customerId = customerId;
 
-  const opportunities = await db.salesOpportunity.findMany({
-    where,
-    include: {
-      customer: { select: { id: true, name: true, phone: true } },
-      quotes: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { grandTotal: true, status: true, createdAt: true },
+  const [opportunities, total] = await Promise.all([
+    db.salesOpportunity.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        quotes: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { grandTotal: true, status: true, createdAt: true },
+        },
+        _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
       },
-      _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
+      orderBy: { updatedAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.salesOpportunity.count({ where }),
+  ]);
 
   const enriched = opportunities.map((o) => ({
     ...o,
@@ -38,7 +48,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     quotes: undefined,
   }));
 
-  return NextResponse.json({ opportunities: enriched });
+  return NextResponse.json({ opportunities: enriched, total, page, pageSize });
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {

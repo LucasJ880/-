@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
 
-export default function MainError({
+export default function AssistantError({
   error,
   reset,
 }: {
@@ -12,8 +12,8 @@ export default function MainError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[MainLayout] Render error:", error);
-    Sentry.captureException(error, { tags: { boundary: "main" } });
+    console.error("[Assistant] Render error:", error);
+    Sentry.captureException(error, { tags: { boundary: "assistant" } });
   }, [error]);
 
   return (
@@ -21,9 +21,9 @@ export default function MainError({
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-100">
         <AlertTriangle className="h-7 w-7 text-red-600" />
       </div>
-      <h2 className="text-lg font-semibold text-foreground">页面加载出错</h2>
+      <h2 className="text-lg font-semibold text-foreground">AI 助手暂不可用</h2>
       <p className="max-w-sm text-sm text-muted">
-        当前页面加载时遇到了问题，请尝试重试或返回首页。
+        AI 服务加载时遇到问题。请稍后重试，若问题持续请联系管理员。
       </p>
       {(error.message || error.digest) && (
         <pre className="max-w-lg overflow-auto rounded-lg bg-gray-100 px-4 py-2 text-left text-xs text-red-700">
@@ -34,14 +34,14 @@ export default function MainError({
       <div className="flex gap-3">
         <button
           onClick={reset}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white hover:bg-foreground/90 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-foreground/90"
         >
           <RefreshCw className="h-4 w-4" />
           重试
         </button>
         <a
           href="/"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-4 py-2 text-sm font-medium text-foreground hover:bg-white transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white"
         >
           <Home className="h-4 w-4" />
           返回首页

@@ -112,16 +112,20 @@ export default function KnowledgeBaseDetailPage() {
   const [publishOpen, setPublishOpen] = useState(false);
 
   const loadDetail = useCallback(() => {
-    return apiJson(`/api/projects/${projectId}/knowledge-bases/${kbId}`)
-      .then((d: Record<string, unknown>) => {
+    return apiJson<{
+      error?: string;
+      knowledgeBase?: KbDetail;
+      recentKbVersions?: KbVersionRow[];
+    }>(`/api/projects/${projectId}/knowledge-bases/${kbId}`)
+      .then((d) => {
         if (d.error) {
           setError(d.error);
           setKb(null);
         } else {
-          setKb(d.knowledgeBase);
+          setKb(d.knowledgeBase ?? null);
           setVersions(d.recentKbVersions ?? []);
-          setKbName(d.knowledgeBase.name);
-          setKbDesc(d.knowledgeBase.description ?? "");
+          setKbName(d.knowledgeBase?.name ?? "");
+          setKbDesc(d.knowledgeBase?.description ?? "");
           setError("");
         }
       });

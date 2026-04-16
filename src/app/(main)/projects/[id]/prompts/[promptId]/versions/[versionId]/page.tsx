@@ -22,14 +22,22 @@ export default function PromptVersionViewPage() {
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
-    apiJson(
+    apiJson<{
+      error?: string;
+      version?: {
+        version: number;
+        note: string | null;
+        createdAt: string;
+        content: string;
+      };
+    }>(
       `/api/projects/${projectId}/prompts/${promptId}/versions/${versionId}`
     )
-      .then((d: Record<string, unknown>) => {
+      .then((d) => {
         if (d.error) {
           setError(d.error);
           setContent(null);
-        } else {
+        } else if (d.version) {
           setContent(d.version.content);
           setMeta({
             version: d.version.version,

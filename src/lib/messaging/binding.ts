@@ -114,6 +114,7 @@ export async function touchBinding(channel: ChannelType, externalId: string): Pr
 function toBindingInfo(row: {
   id: string;
   userId: string;
+  orgId: string | null;
   channel: string;
   externalId: string;
   displayName: string | null;
@@ -129,6 +130,7 @@ function toBindingInfo(row: {
   return {
     id: row.id,
     userId: row.userId,
+    orgId: row.orgId,
     channel: row.channel as ChannelType,
     externalId: row.externalId,
     displayName: row.displayName,

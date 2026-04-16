@@ -181,7 +181,7 @@ export default function ConversationDetailPage() {
           setError(d.error);
           setConv(null);
         } else {
-          setConv(d.conversation);
+          setConv(d.conversation ?? null);
           setPromptInfo(d.prompt ?? null);
           setKbInfo(d.knowledgeBase ?? null);
           setContextSnapshot(d.contextSnapshot ?? null);

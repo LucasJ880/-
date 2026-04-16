@@ -60,13 +60,25 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
   }
 
   async start(): Promise<void> {
+    const loaded = await this.loadCredentials();
+    if (loaded) {
+      this.startPolling();
+    }
+  }
+
+  /**
+   * 仅加载凭证（不启动长轮询）— 用于 Serverless 多实例下的按需发送
+   *
+   * 返回值：true 表示成功加载到有效凭证并可发送；false 表示该 org 未登录
+   */
+  async loadCredentials(): Promise<boolean> {
     const gateway = await db.weChatGateway.findUnique({
       where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
     });
 
     if (!gateway) {
       this.status = "disconnected";
-      return;
+      return false;
     }
 
     if (gateway.status === "active" && gateway.botToken) {
@@ -76,8 +88,10 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         getUpdatesBuf: gateway.getUpdatesBuf || "",
       };
       this.status = "connected";
-      this.startPolling();
+      return true;
     }
+
+    return false;
   }
 
   async stop(): Promise<void> {

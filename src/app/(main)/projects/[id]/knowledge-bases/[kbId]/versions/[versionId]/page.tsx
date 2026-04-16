@@ -42,23 +42,49 @@ export default function KnowledgeBaseVersionDetailPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    apiJson(
+    apiJson<{
+      error?: string;
+      knowledgeBaseVersion?: {
+        version: number;
+        note: string | null;
+        createdAt: string;
+        key: string;
+        name: string;
+      };
+      documents?: {
+        document: {
+          id: string;
+          title: string;
+          sourceType: string;
+          sourceUrl: string | null;
+          status: string;
+        };
+        snapshot: {
+          version: number;
+          content: string;
+          summary: string | null;
+          note: string | null;
+        };
+      }[];
+    }>(
       `/api/projects/${projectId}/knowledge-bases/${kbId}/versions/${versionId}`
     )
-      .then((d: Record<string, unknown>) => {
+      .then((d) => {
         if (d.error) {
           setError(d.error);
           setMeta(null);
         } else {
           setError("");
           const k = d.knowledgeBaseVersion;
-          setMeta({
-            version: k.version,
-            note: k.note,
-            createdAt: k.createdAt,
-            key: k.key,
-            name: k.name,
-          });
+          if (k) {
+            setMeta({
+              version: k.version,
+              note: k.note,
+              createdAt: k.createdAt,
+              key: k.key,
+              name: k.name,
+            });
+          }
           setDocuments(d.documents ?? []);
         }
       })

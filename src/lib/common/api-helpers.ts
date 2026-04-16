@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUser, type AuthUser } from "@/lib/auth";
+import { logger } from "./logger";
+import {
+  generateRequestId,
+  runWithRequestContext,
+} from "./request-context";
 
 // ============================================================
 // API 路由通用辅助工具
@@ -51,29 +56,60 @@ type AuthHandler = (
   user: AuthUser
 ) => Promise<NextResponse>;
 
-/** 认证 + try/catch，handler 收到已验证的 user */
+/**
+ * 认证 + try/catch + 请求上下文
+ *
+ * 每个请求自动：
+ * - 生成 requestId（入 X-Request-Id 响应头，便于前后端对齐排查）
+ * - 注入 AsyncLocalStorage，logger 自动带上 requestId / userId / route
+ * - 异常结构化日志（event=api.error，带 pathname/method/err）
+ */
 export function withAuth(handler: AuthHandler) {
   return async (
     request: NextRequest,
     ctx: { params: Promise<Record<string, string>> }
   ) => {
-    try {
-      const user = await getCurrentUser(request);
-      if (!user) {
-        return NextResponse.json({ error: "未登录" }, { status: 401 });
-      }
-      if (user.status !== "active") {
-        return NextResponse.json({ error: "账号已停用" }, { status: 403 });
-      }
-      return await handler(request, ctx, user);
-    } catch (err) {
-      console.error(
-        "[API Error]",
-        request.method,
-        request.nextUrl.pathname,
-        err
-      );
-      return NextResponse.json({ error: "服务器内部错误" }, { status: 500 });
-    }
+    const requestId =
+      request.headers.get("x-request-id") || generateRequestId();
+    const route = request.nextUrl.pathname;
+    const method = request.method;
+    const startedAt = Date.now();
+
+    return runWithRequestContext(
+      { requestId, route, method },
+      async () => {
+        let response: NextResponse;
+        try {
+          const user = await getCurrentUser(request);
+          if (!user) {
+            response = NextResponse.json({ error: "未登录" }, { status: 401 });
+          } else if (user.status !== "active") {
+            response = NextResponse.json(
+              { error: "账号已停用" },
+              { status: 403 },
+            );
+          } else {
+            // 更新上下文加上 userId
+            const store = (await import("./request-context")).getRequestContext();
+            if (store) store.userId = user.id;
+            response = await handler(request, ctx, user);
+          }
+        } catch (err) {
+          logger.error("api.error", {
+            route,
+            method,
+            err,
+            durationMs: Date.now() - startedAt,
+          });
+          response = NextResponse.json(
+            { error: "服务器内部错误", requestId },
+            { status: 500 },
+          );
+        }
+
+        response.headers.set("x-request-id", requestId);
+        return response;
+      },
+    ) as Promise<NextResponse>;
   };
 }

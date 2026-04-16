@@ -85,14 +85,18 @@ export default function ProjectConversationsPage() {
 
   const loadInit = useCallback(() => {
     return Promise.all([
-      apiJson(`/api/projects/${projectId}`),
-      apiJson(`/api/projects/${projectId}/environments`),
-    ]).then(([p, e]: [Record<string, unknown>, Record<string, unknown>]) => {
+      apiJson<{ project?: { name: string }; canManage?: boolean }>(
+        `/api/projects/${projectId}`
+      ),
+      apiJson<{ environments?: { id: string; status: string }[] }>(
+        `/api/projects/${projectId}/environments`
+      ),
+    ]).then(([p, e]) => {
       if (p.project) {
         setProjectName(p.project.name);
         setCanManage(!!p.canManage);
       }
-      const envs = (e.environments ?? []) as { id: string; status: string }[];
+      const envs = e.environments ?? [];
       const first = envs.find((x) => x.status === "active");
       return first?.id ?? "";
     });

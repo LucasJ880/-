@@ -126,7 +126,8 @@ function UsersContent() {
     setDetailLoading(true);
     try {
       const d = await apiJson<Record<string, unknown>>(`/api/users/${user.id}`);
-      setUserDetail(d.user ?? d);
+      const detail = (d.user as Record<string, unknown> | undefined) ?? d;
+      setUserDetail(detail);
     } catch {
       setUserDetail(null);
     } finally {

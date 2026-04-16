@@ -85,16 +85,20 @@ export default function ProjectPromptsListPage() {
 
   const loadEnvsAndProject = useCallback(() => {
     return Promise.all([
-      apiJson(`/api/projects/${projectId}`),
-      apiJson(`/api/projects/${projectId}/environments`),
-    ]).then(([p, e]: [Record<string, unknown>, Record<string, unknown>]) => {
+      apiJson<{ project?: { name: string }; canManage?: boolean }>(
+        `/api/projects/${projectId}`
+      ),
+      apiJson<{ environments?: EnvRow[] }>(
+        `/api/projects/${projectId}/environments`
+      ),
+    ]).then(([p, e]) => {
       if (p.project) {
         setProjectName(p.project.name);
         setCanManage(!!p.canManage);
       }
       const envs = e.environments ?? [];
       setEnvironments(envs);
-      return envs as EnvRow[];
+      return envs;
     });
   }, [projectId]);
 

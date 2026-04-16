@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { isAIConfigured } from "@/lib/ai/config";
 import { generateProgressSummary } from "@/lib/progress/generate-summary";
 
+export const maxDuration = 60;
+
 /**
  * GET /api/cron/progress-summary
  *

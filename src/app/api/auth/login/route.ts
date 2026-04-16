@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession, setSessionCookie } from "@/lib/auth/session";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
-import { checkRateLimit } from "@/lib/common/rate-limit";
+import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 
 const LOGIN_RATE_LIMIT = {
   name: "auth-login",
@@ -13,7 +13,7 @@ const LOGIN_RATE_LIMIT = {
 
 export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const rl = checkRateLimit(LOGIN_RATE_LIMIT, ip);
+  const rl = await checkRateLimitAsync(LOGIN_RATE_LIMIT, ip);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "请求过于频繁，请稍后再试" },

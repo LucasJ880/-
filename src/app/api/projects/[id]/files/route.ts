@@ -3,44 +3,45 @@ import { put } from "@vercel/blob";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { canParseFileType } from "@/lib/files/parse-content";
+import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-const ALLOWED_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "text/plain",
-  "text/csv",
-  "application/zip",
-  "application/x-rar-compressed",
-]);
-
-function getFileExtension(name: string): string {
-  const parts = name.split(".");
-  return parts.length > 1 ? parts.pop()!.toLowerCase() : "file";
-}
+const ALLOWED_EXTENSIONS = [
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "jpg", "jpeg", "png", "webp", "gif",
+  "txt", "csv", "zip", "rar", "7z",
+  "dwg", "dxf", "msg", "eml",
+];
 
 /**
  * GET /api/projects/:id/files
  * 获取项目文件列表
+ *
+ * Query:
+ *   take (default 100, max 500)
+ *   skip (default 0)
  */
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx) => {
   const { id } = await ctx.params;
 
-  const documents = await db.projectDocument.findMany({
-    where: { projectId: id },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-  });
+  const url = new URL(request.url);
+  const take = Math.min(
+    Math.max(parseInt(url.searchParams.get("take") ?? "100", 10) || 100, 1),
+    500
+  );
+  const skip = Math.max(parseInt(url.searchParams.get("skip") ?? "0", 10) || 0, 0);
 
-  return NextResponse.json({ documents });
+  const [documents, total] = await Promise.all([
+    db.projectDocument.findMany({
+      where: { projectId: id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      take,
+      skip,
+    }),
+    db.projectDocument.count({ where: { projectId: id } }),
+  ]);
+
+  return NextResponse.json({ documents, total, take, skip });
 });
 
 /**
@@ -89,32 +90,25 @@ export const POST = withAuth(async (request, ctx, user) => {
 
     const file = entry;
 
-    const ext = getFileExtension(file.name);
-    const ALLOWED_EXTENSIONS = new Set([
-      "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-      "jpg", "jpeg", "png", "webp", "gif",
-      "txt", "csv", "zip", "rar", "7z",
-      "dwg", "dxf", "msg", "eml",
-    ]);
-    if (!ALLOWED_EXTENSIONS.has(ext) && (!file.type || !ALLOWED_TYPES.has(file.type))) {
-      errors.push({ name: file.name, reason: `不支持的文件类型: ${file.type || ext}` });
+    const check = await validateUploadedFileAsync(file, {
+      maxSize: MAX_FILE_SIZE,
+      allowedExtensions: ALLOWED_EXTENSIONS,
+      checkMagicBytes: true,
+    });
+    if (!check.ok) {
+      errors.push({ name: file.name, reason: check.reason });
       continue;
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      errors.push({ name: file.name, reason: `文件过大，最大支持 20MB` });
-      continue;
-    }
+    const { ext, safeName, buffer, mime } = check;
 
     try {
-      const buffer = Buffer.from(await file.arrayBuffer());
       const timestamp = Date.now();
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const pathname = `projects/${projectId}/${timestamp}_${safeName}`;
 
       const blob = await put(pathname, buffer, {
         access: "public",
-        contentType: file.type || "application/octet-stream",
+        contentType: mime,
       });
 
       const parsable = canParseFileType(ext);

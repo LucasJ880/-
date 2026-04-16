@@ -14,6 +14,7 @@
 
 import { getClient } from "@/lib/ai/client";
 import { getTaskPreset } from "@/lib/ai/config";
+import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { registry } from "./tool-registry";
 import type {
   AgentRunOptions,
@@ -40,15 +41,45 @@ async function llmCallWithTimeout(
   client: ReturnType<typeof getClient>,
   params: any,
   timeoutMs: number,
+  externalSignal?: AbortSignal,
 ): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  const t0 = Date.now();
+  const model = params?.model ?? "unknown";
   try {
-    return await client.chat.completions.create(params, {
+    const res = await client.chat.completions.create(params, {
       signal: controller.signal,
     });
+    const usage = extractUsage(res);
+    recordAiCall({
+      model,
+      success: true,
+      elapsedMs: Date.now() - t0,
+      source: "agent-core",
+      ...usage,
+    });
+    return res;
   } catch (err: any) {
-    if (err?.name === "AbortError" || controller.signal.aborted) {
+    const aborted = externalSignal?.aborted || controller.signal.aborted;
+    recordAiCall({
+      model,
+      success: false,
+      elapsedMs: Date.now() - t0,
+      source: "agent-core",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    if (externalSignal?.aborted) {
+      const e = new Error("Client aborted");
+      (e as any).name = "AbortError";
+      throw e;
+    }
+    if (err?.name === "AbortError" || aborted) {
       throw new AgentTimeoutError(
         `AI 响应超时（${Math.round(timeoutMs / 1000)}s），请稍后重试`,
       );
@@ -56,6 +87,7 @@ async function llmCallWithTimeout(
     throw err;
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -75,6 +107,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const client = getClient();
   const model = preset.model;
   const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
+  const externalSignal = options.abortSignal;
 
   // 构建可用工具列表
   const openaiTools = registry.toOpenAITools({
@@ -120,6 +153,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         client,
         createParams,
         Math.min(PER_ROUND_TIMEOUT_MS, remaining),
+        externalSignal,
       );
 
       const choice = response.choices[0];
@@ -196,6 +230,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         max_completion_tokens: preset.maxTokens,
       },
       Math.max(remaining, 5000),
+      externalSignal,
     );
 
     return {

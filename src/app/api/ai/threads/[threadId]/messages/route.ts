@@ -25,6 +25,16 @@ import {
   type ChatMessage,
 } from "@/lib/ai";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
+import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
+import { checkRateLimitAsync } from "@/lib/common/rate-limit";
+
+export const maxDuration = 60;
+
+const AI_THREAD_RATE_LIMIT = {
+  name: "ai-thread-messages",
+  windowMs: 60_000,
+  maxRequests: 30,
+} as const;
 
 export const GET = withAuth(async (request, ctx, user) => {
   const { threadId } = await ctx.params;
@@ -63,6 +73,17 @@ export const GET = withAuth(async (request, ctx, user) => {
 });
 
 export const POST = withAuth(async (request, ctx, user) => {
+  const rl = await checkRateLimitAsync(AI_THREAD_RATE_LIMIT, user.id);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+      }
+    );
+  }
+
   if (!isAIConfigured()) {
     return NextResponse.json(
       { error: "未配置 AI API 密钥" },
@@ -200,15 +221,19 @@ export const POST = withAuth(async (request, ctx, user) => {
     systemPrompt,
     messages: prepared.messages,
     mode: effectiveMode,
+    signal: request.signal,
   });
 
   const encoder = new TextEncoder();
   let fullText = "";
+  const streamStartedAt = Date.now();
 
   const readable = new ReadableStream({
     async start(controller) {
+      let lastChunk: unknown = null;
       try {
         for await (const chunk of stream) {
+          lastChunk = chunk;
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
             fullText += delta;
@@ -220,14 +245,26 @@ export const POST = withAuth(async (request, ctx, user) => {
           }
         }
 
-        const { cleanText, suggestion } = extractWorkSuggestion(fullText);
+        const usage = extractUsage(lastChunk);
+        recordAiCall({
+          model: `thread-${effectiveMode ?? "chat"}`,
+          success: true,
+          elapsedMs: Date.now() - streamStartedAt,
+          source: "ai-thread-stream",
+          ...usage,
+        });
+
+        const { cleanText, suggestion, parseError } = extractWorkSuggestion(fullText);
+        const finalContent = parseError
+          ? `${cleanText}\n\n> [AI 建议解析异常] ${parseError.reason}`
+          : cleanText;
 
         await db.$transaction([
           db.aiMessage.create({
             data: {
               threadId,
               role: "assistant",
-              content: cleanText,
+              content: finalContent,
               workSuggestion: suggestion ? (suggestion as object) : undefined,
             },
           }),

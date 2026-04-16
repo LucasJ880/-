@@ -173,16 +173,22 @@ function ProjectDetailContent() {
     if (!id) return;
     setLoading(true);
     Promise.all([
-      apiJson(`/api/projects/${id}`),
-      apiJson(`/api/projects/${id}/members`),
-      apiJson(`/api/projects/${id}/overview`).catch(() => null),
+      apiJson<{
+        error?: string;
+        project?: ProjectDetail;
+        canManage?: boolean;
+      }>(`/api/projects/${id}`),
+      apiJson<{ members?: MemberRow[] }>(`/api/projects/${id}/members`),
+      apiJson<{ progress?: ProjectProgress }>(
+        `/api/projects/${id}/overview`
+      ).catch(() => null),
     ])
       .then(([p, m, ov]) => {
         if (p.error) {
           setError(p.error);
           setProject(null);
         } else {
-          setProject(p.project);
+          setProject(p.project ?? null);
           setCanManage(!!p.canManage);
           setError("");
         }

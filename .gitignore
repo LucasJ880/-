@@ -54,6 +54,9 @@ next-env.d.ts
 # eval artifacts
 /artifacts/
 
+# 本地工具（如 k6 二进制，勿入库）
+/.local/
+
 # mempalace
 mempalace.yaml
 entities.json

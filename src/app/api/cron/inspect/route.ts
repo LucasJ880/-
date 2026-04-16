@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { generatePlan } from "@/lib/agent/orchestrator";
 import { executeTask } from "@/lib/agent/executor";
 
+export const maxDuration = 60;
+
 /**
  * GET /api/cron/inspect
  *

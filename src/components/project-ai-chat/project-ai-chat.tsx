@@ -235,13 +235,16 @@ export function ProjectAiChat({
         }
       }
 
-      const { cleanText, suggestion } = extractWorkSuggestion(fullText);
+      const { cleanText, suggestion, parseError } = extractWorkSuggestion(fullText);
+      const finalContent = parseError
+        ? `${cleanText}\n\n> [AI 建议解析异常] ${parseError.reason}`
+        : cleanText;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
             ? {
                 ...m,
-                content: cleanText,
+                content: finalContent,
                 workSuggestion: suggestion,
                 isStreaming: false,
               }

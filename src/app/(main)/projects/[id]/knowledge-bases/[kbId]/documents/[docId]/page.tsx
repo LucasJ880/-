@@ -89,18 +89,23 @@ export default function KnowledgeDocumentDetailPage() {
   const [viewLoading, setViewLoading] = useState(false);
 
   const loadDoc = useCallback(() => {
-    return apiJson(
+    return apiJson<{
+      error?: string;
+      document?: DocDetail;
+      activeSnapshot?: SnapshotData | null;
+      recentVersions?: DocVersionItem[];
+    }>(
       `/api/projects/${projectId}/knowledge-bases/${kbId}/documents/${docId}`
     )
-      .then((d: Record<string, unknown>) => {
+      .then((d) => {
         if (d.error) {
           setError(d.error);
           setDoc(null);
         } else {
-          setDoc(d.document);
+          setDoc(d.document ?? null);
           setSnapshot(d.activeSnapshot ?? null);
           setVersions(d.recentVersions ?? []);
-          setEditTitle(d.document.title);
+          setEditTitle(d.document?.title ?? "");
           setEditContent(d.activeSnapshot?.content ?? "");
           setEditNote("");
           setHasChanges(false);

@@ -14,14 +14,34 @@
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { runAgent } from "@/lib/agent-core";
 import type { CoreMessage, ToolDomain, AgentRunOptions } from "@/lib/agent-core";
+
+export const maxDuration = 60;
 
 const DEFAULT_SYSTEM_PROMPT = `你是「青砚」AI 工作助理，帮助用户管理工作、外贸获客、项目跟进。
 用简洁中文回复。如果需要数据，直接调用工具查询。
 给出具体可执行的建议。`;
 
+const AGENT_CHAT_RATE_LIMIT = {
+  name: "agent-core-chat",
+  windowMs: 60_000,
+  maxRequests: 20,
+} as const;
+
 export const POST = withAuth(async (request, _ctx, user) => {
+  const rl = await checkRateLimitAsync(AGENT_CHAT_RATE_LIMIT, user.id);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+      }
+    );
+  }
+
   const body = await request.json().catch(() => null);
   if (!body?.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
     return NextResponse.json({ error: "messages 为必填数组" }, { status: 400 });
@@ -45,6 +65,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       mode,
       userId: user.id,
       orgId,
+      abortSignal: request.signal,
     });
 
     return NextResponse.json({

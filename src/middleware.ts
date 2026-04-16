@@ -7,6 +7,8 @@ const PUBLIC_PATHS = [
   "/api/auth/register",
   "/api/auth/login",
   "/api/auth/logout",
+  "/api/auth/wechat",
+  "/api/health",
   "/api/v1",
   "/api/cron",
   "/api/sales/quotes/share",

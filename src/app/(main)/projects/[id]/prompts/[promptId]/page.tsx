@@ -123,28 +123,36 @@ export default function PromptDetailPage() {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      apiJson(`/api/projects/${projectId}`),
-      apiJson(`/api/projects/${projectId}/prompts/${promptId}`),
-      apiJson(`/api/projects/${projectId}/prompts/${promptId}/versions`),
-      apiJson(`/api/projects/${projectId}/environments`),
+      apiJson<{ canManage?: boolean }>(`/api/projects/${projectId}`),
+      apiJson<{ error?: string; prompt?: PromptPayload }>(
+        `/api/projects/${projectId}/prompts/${promptId}`
+      ),
+      apiJson<{ versions?: VersionItem[] }>(
+        `/api/projects/${projectId}/prompts/${promptId}/versions`
+      ),
+      apiJson<{ environments?: EnvInfo[] }>(
+        `/api/projects/${projectId}/environments`
+      ),
     ])
       .then(([proj, detail, vers, envs]) => {
         setCanManage(!!proj.canManage);
-        const envList: EnvInfo[] = envs.environments ?? [];
+        const envList = envs.environments ?? [];
         setEnvironments(envList);
         if (detail.error) {
           setError(detail.error);
           setPrompt(null);
         } else {
-          const p = detail.prompt as PromptPayload;
-          setPrompt(p);
-          setEditName(p.name);
-          setEditType(p.type);
-          setEditContent(p.activeVersion?.content ?? "");
-          setChangeNote("");
-          setError("");
+          const p = detail.prompt;
+          if (p) {
+            setPrompt(p);
+            setEditName(p.name);
+            setEditType(p.type);
+            setEditContent(p.activeVersion?.content ?? "");
+            setChangeNote("");
+            setError("");
 
-          loadCrossEnvVersions(p.key);
+            loadCrossEnvVersions(p.key);
+          }
         }
         setAllVersions(vers.versions ?? []);
       })

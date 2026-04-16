@@ -57,10 +57,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // 仅查询当前导入行可能重复的公司名，避免拉取活动下全部数据。
+  const incomingNames = Array.from(
+    new Set(rows.map((r) => r.companyName).filter(Boolean)),
+  );
   const existingNames = new Set(
     (
       await db.tradeProspect.findMany({
-        where: { campaignId },
+        where: { campaignId, companyName: { in: incomingNames } },
         select: { companyName: true },
       })
     ).map((p) => p.companyName.toLowerCase()),

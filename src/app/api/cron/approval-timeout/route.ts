@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { escalateApproval } from "@/lib/agent/approval";
 
+export const maxDuration = 60;
+
 /**
  * GET /api/cron/approval-timeout
  *
@@ -20,6 +22,8 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
+  const APPROVAL_BATCH_SIZE = 200;
+
   // 1) 有明确 deadline 且已超时的
   const expiredApprovals = await db.approvalRequest.findMany({
     where: {
@@ -30,6 +34,8 @@ export async function GET(request: NextRequest) {
       task: { select: { intent: true, createdById: true, projectId: true } },
       step: { select: { title: true } },
     },
+    orderBy: { deadlineAt: "asc" },
+    take: APPROVAL_BATCH_SIZE,
   });
 
   // 2) 没有 deadline 但超过 48 小时未处理的
@@ -43,6 +49,8 @@ export async function GET(request: NextRequest) {
       task: { select: { intent: true, createdById: true, projectId: true } },
       step: { select: { title: true } },
     },
+    orderBy: { createdAt: "asc" },
+    take: APPROVAL_BATCH_SIZE,
   });
 
   let escalatedCount = 0;

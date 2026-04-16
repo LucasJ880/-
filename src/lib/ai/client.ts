@@ -7,7 +7,7 @@
 
 import OpenAI from "openai";
 import { getAIConfig, getTaskPreset, type TaskMode } from "./config";
-import { recordAiCall } from "./monitor";
+import { recordAiCall, extractUsage } from "./monitor";
 
 // ── 单例客户端 ────────────────────────────────────────────────
 
@@ -26,22 +26,32 @@ export interface ChatStreamOptions {
   systemPrompt: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
   mode?: TaskMode;
+  /**
+   * 外部 AbortSignal（通常传入 NextRequest.signal）
+   * 客户端断开连接时会自动中止上游 OpenAI 请求，避免继续计费。
+   */
+  signal?: AbortSignal;
 }
 
 export async function createChatStream(opts: ChatStreamOptions) {
   const preset = getTaskPreset(opts.mode ?? "chat");
   const client = getClient();
 
-  return client.chat.completions.create({
-    model: preset.model,
-    messages: [
-      { role: "developer", content: opts.systemPrompt },
-      ...opts.messages,
-    ],
-    stream: true,
-    temperature: preset.temperature,
-    max_completion_tokens: preset.maxTokens,
-  });
+  return client.chat.completions.create(
+    {
+      model: preset.model,
+      messages: [
+        { role: "developer", content: opts.systemPrompt },
+        ...opts.messages,
+      ],
+      stream: true,
+      // 请求最终 usage 块；不支持的提供商会忽略，不影响流本身
+      stream_options: { include_usage: true },
+      temperature: preset.temperature,
+      max_completion_tokens: preset.maxTokens,
+    },
+    opts.signal ? { signal: opts.signal } : undefined,
+  );
 }
 
 // ── 非流式结构化调用 ──────────────────────────────────────────
@@ -98,7 +108,14 @@ export async function createCompletionDetailed(
     );
 
     const elapsedMs = Date.now() - t0;
-    recordAiCall({ model: actualModel, success: true, elapsedMs });
+    const usage = extractUsage(res);
+    recordAiCall({
+      model: actualModel,
+      success: true,
+      elapsedMs,
+      source: "completion",
+      ...usage,
+    });
 
     return {
       content: res.choices[0]?.message?.content ?? "",
@@ -111,6 +128,7 @@ export async function createCompletionDetailed(
       model: actualModel,
       success: false,
       elapsedMs: Date.now() - t0,
+      source: "completion",
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;

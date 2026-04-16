@@ -269,8 +269,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             <span className="text-[15px] font-semibold tracking-[0.08em] text-brand-gradient">
               {m.app_name}
             </span>
-            <span className="ml-0.5 rounded-full border border-[rgba(80,160,140,0.2)] bg-[rgba(43,96,85,0.15)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-emerald-300/60">
-              MVP
+            <span
+              className="ml-0.5 rounded-full border border-[rgba(80,160,140,0.2)] bg-[rgba(43,96,85,0.15)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-emerald-300/60"
+              title="当前为早期版本，欢迎反馈"
+            >
+              Beta
             </span>
           </>
         )}

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AlertTriangle, RefreshCw, Trash2 } from "lucide-react";
+import * as Sentry from "@sentry/nextjs";
 
 export default function SalesError({
   error,
@@ -12,6 +13,7 @@ export default function SalesError({
 }) {
   useEffect(() => {
     console.error("[SalesPage] Render error:", error);
+    Sentry.captureException(error, { tags: { boundary: "sales" } });
   }, [error]);
 
   const clearAllAndReload = async () => {

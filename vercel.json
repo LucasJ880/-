@@ -9,6 +9,18 @@
       "schedule": "0 9 * * *"
     },
     {
+      "path": "/api/cron/followup",
+      "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/followup",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/wechat-push",
+      "schedule": "40 9 * * *"
+    },
+    {
       "path": "/api/cron/progress-summary",
       "schedule": "0 10 * * *"
     }

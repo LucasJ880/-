@@ -86,7 +86,10 @@ export default function FeedbacksPage() {
           apiJson<{ items?: Record<string, unknown>[]; total?: number }>(`/api/projects/${projectId}/conversation-feedbacks?${qs.toString()}`)
             .then((d) => {
               setConvFeedbacks(
-                (d.items ?? []).map((i: Record<string, unknown>) => ({ ...i, type: "conversation" }))
+                (d.items ?? []).map(
+                  (i: Record<string, unknown>) =>
+                    ({ ...i, type: "conversation" }) as unknown as FeedbackRow,
+                )
               );
               setConvTotal(d.total ?? 0);
             })
@@ -101,7 +104,10 @@ export default function FeedbacksPage() {
           apiJson<{ items?: Record<string, unknown>[]; total?: number }>(`/api/projects/${projectId}/message-feedbacks?${qs.toString()}`)
             .then((d) => {
               setMsgFeedbacks(
-                (d.items ?? []).map((i: Record<string, unknown>) => ({ ...i, type: "message" }))
+                (d.items ?? []).map(
+                  (i: Record<string, unknown>) =>
+                    ({ ...i, type: "message" }) as unknown as FeedbackRow,
+                )
               );
               setMsgTotal(d.total ?? 0);
             })

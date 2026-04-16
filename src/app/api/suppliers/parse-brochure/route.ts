@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { requireAuth } from "@/lib/auth/guards";
 import { parseBrochure } from "@/lib/supplier/brochure-parser";
+import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
 import {
   MAX_BROCHURE_SIZE,
   ALLOWED_BROCHURE_TYPE,
@@ -30,20 +31,19 @@ export async function POST(request: NextRequest) {
     return errorJson("未上传文件", 400);
   }
 
-  if (file.type !== ALLOWED_BROCHURE_TYPE) {
-    return errorJson("仅支持 PDF 文件", 400);
-  }
+  const check = await validateUploadedFileAsync(file, {
+    maxSize: MAX_BROCHURE_SIZE,
+    allowedExtensions: ["pdf"],
+    allowedMimeTypes: [ALLOWED_BROCHURE_TYPE],
+    checkMagicBytes: true,
+  });
+  if (!check.ok) return errorJson(check.reason, 400);
 
-  if (file.size > MAX_BROCHURE_SIZE) {
-    return errorJson(`文件过大，最大支持 ${MAX_BROCHURE_SIZE / 1024 / 1024}MB`, 400);
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
+  const { buffer, safeName } = check;
 
   let brochureUrl: string | null = null;
   try {
     const timestamp = Date.now();
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const pathname = `${TEMP_BLOB_PREFIX}${timestamp}_${safeName}`;
 
     const blob = await put(pathname, buffer, {
