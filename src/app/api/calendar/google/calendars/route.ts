@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import {
   listGoogleCalendars,
   GoogleTokenExpiredError,
+  GoogleCalendarApiError,
 } from "@/lib/google-calendar";
 import { withAuth } from "@/lib/common/api-helpers";
 
@@ -42,6 +43,17 @@ export const GET = withAuth(async (request, ctx, user) => {
   } catch (err) {
     if (err instanceof GoogleTokenExpiredError) {
       return NextResponse.json({ error: "token_expired" }, { status: 401 });
+    }
+    if (err instanceof GoogleCalendarApiError) {
+      return NextResponse.json(
+        {
+          error: "google_api_error",
+          status: err.status,
+          reason: err.reason,
+          message: err.message,
+        },
+        { status: 500 },
+      );
     }
     throw err;
   }

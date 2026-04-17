@@ -136,6 +136,21 @@ export class GoogleTokenExpiredError extends Error {
   }
 }
 
+/**
+ * 其他 Google API 错误（scope 不足 / 403 / 500 等）。API route 据此返回 500
+ * 并把原始错误信息回传给前端，避免"静默空列表"无法诊断。
+ */
+export class GoogleCalendarApiError extends Error {
+  status: number;
+  reason: string;
+  constructor(status: number, reason: string, originalMessage?: string) {
+    super(originalMessage || `Google API error ${status}: ${reason}`);
+    this.name = "GoogleCalendarApiError";
+    this.status = status;
+    this.reason = reason;
+  }
+}
+
 function isGoogleTokenError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as {
@@ -217,7 +232,21 @@ export async function listGoogleCalendars(
       await markGoogleProviderDisabled(provider.id);
       throw new GoogleTokenExpiredError();
     }
-    return [];
+    // 非 token 错误（403 scope 不足 / 管理员限制 / 500 等）：
+    // 不再静默返回 []，而是抛出详细错误以便前端诊断
+    const e = err as {
+      code?: number | string;
+      response?: { status?: number; data?: { error?: { message?: string } | string } };
+      message?: string;
+    };
+    const status =
+      typeof e.code === "number" ? e.code : e.response?.status ?? 500;
+    const rawData = e.response?.data?.error;
+    const reason =
+      typeof rawData === "string"
+        ? rawData
+        : rawData?.message || e.message || "unknown";
+    throw new GoogleCalendarApiError(status, reason, e.message);
   }
 }
 
