@@ -125,6 +125,44 @@ export async function getGoogleProvider(userId: string) {
   });
 }
 
+/**
+ * Google OAuth token 失效（invalid_grant / invalid_token / 401）时抛出此错误。
+ * API route 可据此返回 401 + { error: "token_expired" }，前端显示重连提示。
+ */
+export class GoogleTokenExpiredError extends Error {
+  constructor() {
+    super("GOOGLE_TOKEN_EXPIRED");
+    this.name = "GoogleTokenExpiredError";
+  }
+}
+
+function isGoogleTokenError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as {
+    code?: number | string;
+    response?: { status?: number; data?: { error?: string } };
+    data?: { error?: string };
+    message?: string;
+  };
+  const status = typeof e.code === "number" ? e.code : e.response?.status;
+  const errCode = e.response?.data?.error || e.data?.error;
+  if (status === 401) return true;
+  if (errCode === "invalid_grant" || errCode === "invalid_token") return true;
+  if (typeof e.message === "string" && /invalid_grant|invalid_token/i.test(e.message)) return true;
+  return false;
+}
+
+async function markGoogleProviderDisabled(providerId: string) {
+  try {
+    await db.calendarProvider.update({
+      where: { id: providerId },
+      data: { enabled: false },
+    });
+  } catch {
+    /* best-effort, ignore */
+  }
+}
+
 export interface GoogleCalendarInfo {
   id: string;
   summary: string;
@@ -175,6 +213,10 @@ export async function listGoogleCalendars(
     }));
   } catch (err) {
     console.error("Google Calendar list error:", err);
+    if (isGoogleTokenError(err)) {
+      await markGoogleProviderDisabled(provider.id);
+      throw new GoogleTokenExpiredError();
+    }
     return [];
   }
 }
@@ -278,6 +320,12 @@ export async function fetchGoogleEventsRange(
       }
     } catch (err) {
       console.error(`Google Calendar fetch error for ${calId}:`, err);
+      // token 失效是致命错，无需继续遍历其他日历，直接停用并上抛
+      if (isGoogleTokenError(err)) {
+        await markGoogleProviderDisabled(provider.id);
+        throw new GoogleTokenExpiredError();
+      }
+      // 非 token 错：该日历可能被删 / 权限变更等，跳过继续其他日历
     }
   }
 

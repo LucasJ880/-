@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { listGoogleCalendars } from "@/lib/google-calendar";
+import {
+  listGoogleCalendars,
+  GoogleTokenExpiredError,
+} from "@/lib/google-calendar";
 import { withAuth } from "@/lib/common/api-helpers";
 
 /**
@@ -9,24 +12,31 @@ import { withAuth } from "@/lib/common/api-helpers";
  */
 
 export const GET = withAuth(async (request, ctx, user) => {
-  const calendars = await listGoogleCalendars(user.id);
+  try {
+    const calendars = await listGoogleCalendars(user.id);
 
-  const provider = await db.calendarProvider.findFirst({
-    where: { userId: user.id, type: "google", enabled: true },
-    select: { calendarId: true },
-  });
+    const provider = await db.calendarProvider.findFirst({
+      where: { userId: user.id, type: "google", enabled: true },
+      select: { calendarId: true },
+    });
 
-  const selectedIds = (provider?.calendarId || "primary")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+    const selectedIds = (provider?.calendarId || "primary")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-  const result = calendars.map((c) => ({
-    ...c,
-    selected: selectedIds.includes(c.id),
-  }));
+    const result = calendars.map((c) => ({
+      ...c,
+      selected: selectedIds.includes(c.id),
+    }));
 
-  return NextResponse.json({ calendars: result, selectedIds });
+    return NextResponse.json({ calendars: result, selectedIds });
+  } catch (err) {
+    if (err instanceof GoogleTokenExpiredError) {
+      return NextResponse.json({ error: "token_expired" }, { status: 401 });
+    }
+    throw err;
+  }
 });
 
 export const POST = withAuth(async (request, ctx, user) => {

@@ -10,6 +10,7 @@ import {
   Plus,
   CalendarDays,
   ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
 import { CalendarMonthView, CalendarListView } from "./calendar-grid";
 import { CalendarSidebar } from "./calendar-sidebar";
@@ -80,6 +81,7 @@ export default function SalesCalendarPage() {
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
   const [gcalList, setGcalList] = useState<GoogleCalendarInfo[]>([]);
   const [savingCals, setSavingCals] = useState(false);
+  const [gcalTokenExpired, setGcalTokenExpired] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -89,12 +91,23 @@ export default function SalesCalendarPage() {
     const start = new Date(year, month, 1).toISOString();
     const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
     try {
-      const [apptRes, gcalRes] = await Promise.all([
-        apiJson<{ appointments?: Appointment[] }>(`/api/sales/appointments?start=${start}&end=${end}`),
-        apiJson<GoogleEvent[]>(`/api/calendar/google?timeMin=${start}&timeMax=${end}`).catch(() => []),
-      ]);
+      const apptRes = await apiJson<{ appointments?: Appointment[] }>(
+        `/api/sales/appointments?start=${start}&end=${end}`,
+      );
       setAppointments(apptRes.appointments ?? []);
-      setGoogleEvents(Array.isArray(gcalRes) ? gcalRes : []);
+
+      try {
+        const gcalRes = await apiJson<GoogleEvent[]>(
+          `/api/calendar/google?timeMin=${start}&timeMax=${end}`,
+        );
+        setGoogleEvents(Array.isArray(gcalRes) ? gcalRes : []);
+        setGcalTokenExpired(false);
+      } catch (err) {
+        setGoogleEvents([]);
+        if (err instanceof Error && err.message === "token_expired") {
+          setGcalTokenExpired(true);
+        }
+      }
     } catch {
       setAppointments([]);
       setGoogleEvents([]);
@@ -110,9 +123,16 @@ export default function SalesCalendarPage() {
       setGcalConnected(d.connected);
       setGcalEmail(d.email ?? null);
       if (d.connected) {
-        apiJson<{ calendars?: GoogleCalendarInfo[] }>("/api/calendar/google/calendars").then((cal) => {
-          setGcalList(cal.calendars ?? []);
-        }).catch(() => {});
+        apiJson<{ calendars?: GoogleCalendarInfo[] }>("/api/calendar/google/calendars")
+          .then((cal) => {
+            setGcalList(cal.calendars ?? []);
+            setGcalTokenExpired(false);
+          })
+          .catch((err) => {
+            if (err instanceof Error && err.message === "token_expired") {
+              setGcalTokenExpired(true);
+            }
+          });
       }
     }).catch(() => {});
   }, []);
@@ -189,6 +209,26 @@ export default function SalesCalendarPage() {
           </button>
         }
       />
+
+      {/* Google Calendar token expired — 强提示，优先显示 */}
+      {gcalTokenExpired && (
+        <div className="flex items-center gap-3 rounded-xl border border-red-300 bg-red-50/70 p-3 text-sm">
+          <AlertTriangle size={18} className="text-red-600 shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium text-red-800">Google 日历连接已失效</p>
+            <p className="text-xs text-red-700/80 mt-0.5">
+              授权令牌过期或被撤销，无法拉取事件。请到设置页重新连接。
+            </p>
+          </div>
+          <a
+            href="/settings"
+            className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow-sm border border-red-200 hover:bg-red-50 transition-colors"
+          >
+            <ExternalLink size={12} />
+            去重新连接
+          </a>
+        </div>
+      )}
 
       {/* Google Calendar connection status */}
       <div className={cn(
@@ -303,6 +343,7 @@ export default function SalesCalendarPage() {
             googleEventsCount={googleEvents.length}
             savingCals={savingCals}
             onToggleCalendar={toggleCalendar}
+            onBulkSelectCalendars={saveCalendarSelection}
             onSelectAppt={setSelectedAppt}
           />
         </div>

@@ -74,6 +74,7 @@ export function CalendarSidebar({
   googleEventsCount,
   savingCals,
   onToggleCalendar,
+  onBulkSelectCalendars,
   onSelectAppt,
 }: {
   todayAppts: Appointment[];
@@ -84,6 +85,7 @@ export function CalendarSidebar({
   googleEventsCount: number;
   savingCals: boolean;
   onToggleCalendar: (calId: string) => void;
+  onBulkSelectCalendars: (ids: string[]) => void;
   onSelectAppt: (appt: Appointment) => void;
 }) {
   const [showCalPicker, setShowCalPicker] = useState(false);
@@ -189,6 +191,30 @@ export function CalendarSidebar({
             </div>
           ) : (
             <div className="space-y-1">
+              {gcalList.length > 1 && (
+                <div className="flex items-center gap-1.5 pb-1.5 mb-1 border-b border-border/60">
+                  <button
+                    onClick={() => onBulkSelectCalendars(gcalList.map((c) => c.id))}
+                    disabled={savingCals}
+                    className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-primary/5 hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    onClick={() => {
+                      const primary = gcalList.find((c) => c.primary);
+                      onBulkSelectCalendars(primary ? [primary.id] : ["primary"]);
+                    }}
+                    disabled={savingCals}
+                    className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-primary/5 hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50"
+                  >
+                    仅主日历
+                  </button>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {gcalList.filter((c) => c.selected).length}/{gcalList.length}
+                  </span>
+                </div>
+              )}
               {gcalList.map((c) => (
                 <button
                   key={c.id}
