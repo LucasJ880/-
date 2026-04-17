@@ -53,25 +53,40 @@ export async function handleCallback(code: string, userId: string) {
     where: { userId, type: "google" },
   });
 
-  const providerData = {
-    type: "google",
-    name: "Google Calendar",
-    enabled: true,
-    accessToken: tokens.access_token ? encryptField(tokens.access_token) : null,
-    refreshToken: tokens.refresh_token ? encryptField(tokens.refresh_token) : null,
-    tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-    accountEmail: userInfo.email ?? null,
-    calendarId: "primary",
-  };
+  const encryptedAccess = tokens.access_token
+    ? encryptField(tokens.access_token)
+    : null;
+  const encryptedRefresh = tokens.refresh_token
+    ? encryptField(tokens.refresh_token)
+    : null;
 
   if (existing) {
+    // 重连：保留用户之前勾选的 calendarId（可能是多个共享日历，逗号分隔），
+    // 并在 Google 未返回新 refresh_token 时保留旧的（避免下次续期失败）。
     await db.calendarProvider.update({
       where: { id: existing.id },
-      data: providerData,
+      data: {
+        enabled: true,
+        accessToken: encryptedAccess,
+        refreshToken: encryptedRefresh ?? existing.refreshToken,
+        tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        accountEmail: userInfo.email ?? null,
+        // calendarId 故意不更新，保留用户之前的选择
+      },
     });
   } else {
     await db.calendarProvider.create({
-      data: { ...providerData, userId },
+      data: {
+        userId,
+        type: "google",
+        name: "Google Calendar",
+        enabled: true,
+        accessToken: encryptedAccess,
+        refreshToken: encryptedRefresh,
+        tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        accountEmail: userInfo.email ?? null,
+        calendarId: "primary",
+      },
     });
   }
 
