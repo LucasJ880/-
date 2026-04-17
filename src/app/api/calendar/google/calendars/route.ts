@@ -20,10 +20,18 @@ export const GET = withAuth(async (request, ctx, user) => {
       select: { calendarId: true },
     });
 
-    const selectedIds = (provider?.calendarId || "primary")
+    const rawIds = (provider?.calendarId || "primary")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+
+    // Google calendarList 里 primary 日历的 id 是邮箱而不是字面量 "primary"，
+    // 存储层遗留的 "primary" 别名在此展开为真实 id，否则前端 UI 会匹配不上
+    // 导致显示"未选择日历"但后端实际又用 "primary" 别名正常拉数据，用户困惑。
+    const primaryCal = calendars.find((c) => c.primary);
+    const selectedIds = rawIds.map((id) =>
+      id === "primary" && primaryCal ? primaryCal.id : id,
+    );
 
     const result = calendars.map((c) => ({
       ...c,
