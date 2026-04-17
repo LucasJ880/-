@@ -221,26 +221,82 @@ function AppointmentRow({ appt, onClick }: { appt: Appointment; onClick: () => v
   );
 }
 
+function GoogleEventRow({ event }: { event: GoogleEvent }) {
+  const color = event.color || "#4285f4";
+  return (
+    <div
+      className="flex w-full items-center gap-4 p-4 text-left"
+      style={{ borderLeft: `3px solid ${color}` }}
+    >
+      <div
+        className="flex h-10 w-10 items-center justify-center rounded-lg shrink-0"
+        style={{ backgroundColor: color }}
+      >
+        <CalendarDays size={18} className="text-white" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{event.title}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {event.calendarName || "Google"} ·{" "}
+          {event.allDay
+            ? `${formatDate(event.startTime)} 全天`
+            : `${formatDate(event.startTime)} ${formatTime(event.startTime)}`}
+          {event.location ? ` · ${event.location}` : ""}
+        </p>
+      </div>
+      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+        Google
+      </span>
+    </div>
+  );
+}
+
 export function CalendarListView({
   appointments,
+  googleEvents = [],
   loading,
   onSelectAppt,
 }: {
   appointments: Appointment[];
+  googleEvents?: GoogleEvent[];
   loading: boolean;
   onSelectAppt: (appt: Appointment) => void;
 }) {
+  // 合并两个来源，按时间升序展示
+  const merged = [
+    ...appointments.map((a) => ({
+      kind: "appt" as const,
+      time: new Date(a.startAt).getTime(),
+      appt: a,
+    })),
+    ...googleEvents.map((g) => ({
+      kind: "google" as const,
+      time: new Date(g.startTime).getTime(),
+      event: g,
+    })),
+  ].sort((a, b) => a.time - b.time);
+
   return (
     <div className="divide-y divide-border/50">
       {loading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">加载中...</div>
-      ) : appointments.length === 0 ? (
+      ) : merged.length === 0 ? (
         <div className="py-20 text-center text-sm text-muted-foreground">
           <CalendarDays size={40} className="mx-auto mb-3 opacity-30" />
-          暂无预约
+          暂无日程
         </div>
       ) : (
-        appointments.map((a) => <AppointmentRow key={a.id} appt={a} onClick={() => onSelectAppt(a)} />)
+        merged.map((item) =>
+          item.kind === "appt" ? (
+            <AppointmentRow
+              key={`a-${item.appt.id}`}
+              appt={item.appt}
+              onClick={() => onSelectAppt(item.appt)}
+            />
+          ) : (
+            <GoogleEventRow key={`g-${item.event.id}`} event={item.event} />
+          ),
+        )
       )}
     </div>
   );

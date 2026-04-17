@@ -320,7 +320,8 @@ export default function SalesCalendarPage() {
             />
           ) : viewMode === "list" ? (
             <CalendarListView
-              appointments={upcomingAppts}
+              appointments={appointments}
+              googleEvents={googleEvents}
               loading={loading}
               onSelectAppt={setSelectedAppt}
             />
