@@ -13,8 +13,10 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { CalendarMonthView, CalendarListView } from "./calendar-grid";
+import { CalendarTimeGrid, startOfWeek } from "./calendar-time-grid";
 import { CalendarSidebar } from "./calendar-sidebar";
 import { AppointmentDetailDialog, CreateAppointmentDialog } from "./appointment-dialog";
+import { GoogleEventDialog, type EditableGoogleEvent } from "./google-event-dialog";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 
@@ -36,6 +38,10 @@ interface GoogleEvent {
   calendarId?: string;
   calendarName?: string;
   color?: string;
+  description?: string | null;
+  htmlLink?: string | null;
+  recurringEventId?: string | null;
+  accessRole?: string;
 }
 
 interface Appointment {
@@ -57,7 +63,7 @@ interface Appointment {
   googleSyncedAt?: string | null;
 }
 
-type ViewMode = "month" | "week" | "list";
+type ViewMode = "month" | "week" | "day" | "list";
 
 function isSameDay(d1: Date, d2: Date) {
   return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
@@ -82,14 +88,37 @@ export default function SalesCalendarPage() {
   const [gcalList, setGcalList] = useState<GoogleCalendarInfo[]>([]);
   const [savingCals, setSavingCals] = useState(false);
   const [gcalTokenExpired, setGcalTokenExpired] = useState(false);
+  const [selectedGoogleEvent, setSelectedGoogleEvent] =
+    useState<EditableGoogleEvent | null>(null);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
+  // 根据视图计算本次拉取的时间窗口
+  const { rangeStart, rangeEnd } = (() => {
+    if (viewMode === "week") {
+      const ws = startOfWeek(currentDate);
+      const we = new Date(ws);
+      we.setDate(ws.getDate() + 7);
+      return { rangeStart: ws, rangeEnd: we };
+    }
+    if (viewMode === "day") {
+      const s = new Date(currentDate);
+      s.setHours(0, 0, 0, 0);
+      const e = new Date(s);
+      e.setDate(s.getDate() + 1);
+      return { rangeStart: s, rangeEnd: e };
+    }
+    // month / list
+    const s = new Date(year, month, 1);
+    const e = new Date(year, month + 1, 0, 23, 59, 59);
+    return { rangeStart: s, rangeEnd: e };
+  })();
+
   const loadAppointments = useCallback(async () => {
     setLoading(true);
-    const start = new Date(year, month, 1).toISOString();
-    const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+    const start = rangeStart.toISOString();
+    const end = rangeEnd.toISOString();
     try {
       const apptRes = await apiJson<{ appointments?: Appointment[] }>(
         `/api/sales/appointments?start=${start}&end=${end}`,
@@ -114,7 +143,8 @@ export default function SalesCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeStart.getTime(), rangeEnd.getTime()]);
 
   useEffect(() => { loadAppointments(); }, [loadAppointments]);
 
@@ -182,9 +212,51 @@ export default function SalesCalendarPage() {
     loadAppointments();
   };
 
-  const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
-  const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+  const goPrev = () => {
+    if (viewMode === "week") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - 7);
+      setCurrentDate(d);
+    } else if (viewMode === "day") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - 1);
+      setCurrentDate(d);
+    } else {
+      setCurrentDate(new Date(year, month - 1, 1));
+    }
+  };
+  const goNext = () => {
+    if (viewMode === "week") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + 7);
+      setCurrentDate(d);
+    } else if (viewMode === "day") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + 1);
+      setCurrentDate(d);
+    } else {
+      setCurrentDate(new Date(year, month + 1, 1));
+    }
+  };
   const goToday = () => setCurrentDate(new Date());
+
+  // 顶部标题：根据视图显示不同粒度
+  const titleText = (() => {
+    if (viewMode === "week") {
+      const ws = startOfWeek(currentDate);
+      const we = new Date(ws);
+      we.setDate(ws.getDate() + 6);
+      const sameMonth = ws.getMonth() === we.getMonth();
+      const y = ws.getFullYear();
+      const m = ws.getMonth() + 1;
+      if (sameMonth) return `${y}年${m}月 ${ws.getDate()} - ${we.getDate()} 日`;
+      return `${y}年${m}月${ws.getDate()}日 - ${we.getMonth() + 1}月${we.getDate()}日`;
+    }
+    if (viewMode === "day") {
+      return `${currentDate.getFullYear()}年${currentDate.getMonth() + 1}月${currentDate.getDate()}日`;
+    }
+    return `${year}年${month + 1}月`;
+  })();
 
   const today = new Date();
   const todayAppts = appointments.filter((a) => isSameDay(new Date(a.startAt), today));
@@ -275,13 +347,13 @@ export default function SalesCalendarPage() {
       {/* View controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <button onClick={prevMonth} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
+          <button onClick={goPrev} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
             <ChevronLeft size={18} />
           </button>
-          <h2 className="text-lg font-semibold min-w-[140px] text-center">
-            {year}年{month + 1}月
+          <h2 className="text-base md:text-lg font-semibold min-w-[180px] text-center">
+            {titleText}
           </h2>
-          <button onClick={nextMonth} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
+          <button onClick={goNext} className="rounded-lg p-1.5 hover:bg-muted transition-colors">
             <ChevronRight size={18} />
           </button>
           <button
@@ -292,7 +364,7 @@ export default function SalesCalendarPage() {
           </button>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-border bg-white/60 p-0.5">
-          {(["month", "week", "list"] as const).map((v) => (
+          {(["month", "week", "day", "list"] as const).map((v) => (
             <button
               key={v}
               onClick={() => setViewMode(v)}
@@ -301,7 +373,7 @@ export default function SalesCalendarPage() {
                 viewMode === v ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {v === "month" ? "月" : v === "week" ? "周" : "列表"}
+              {v === "month" ? "月" : v === "week" ? "周" : v === "day" ? "日" : "列表"}
             </button>
           ))}
         </div>
@@ -317,6 +389,7 @@ export default function SalesCalendarPage() {
               appointments={appointments}
               googleEvents={googleEvents}
               onSelectAppt={setSelectedAppt}
+              onSelectGoogleEvent={setSelectedGoogleEvent}
             />
           ) : viewMode === "list" ? (
             <CalendarListView
@@ -324,12 +397,30 @@ export default function SalesCalendarPage() {
               googleEvents={googleEvents}
               loading={loading}
               onSelectAppt={setSelectedAppt}
+              onSelectGoogleEvent={setSelectedGoogleEvent}
+            />
+          ) : viewMode === "week" ? (
+            <CalendarTimeGrid
+              startDate={startOfWeek(currentDate)}
+              days={7}
+              appointments={appointments}
+              googleEvents={googleEvents}
+              onSelectAppt={setSelectedAppt}
+              onSelectGoogleEvent={setSelectedGoogleEvent}
             />
           ) : (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              <CalendarDays size={40} className="mx-auto mb-3 opacity-30" />
-              周视图开发中
-            </div>
+            <CalendarTimeGrid
+              startDate={(() => {
+                const d = new Date(currentDate);
+                d.setHours(0, 0, 0, 0);
+                return d;
+              })()}
+              days={1}
+              appointments={appointments}
+              googleEvents={googleEvents}
+              onSelectAppt={setSelectedAppt}
+              onSelectGoogleEvent={setSelectedGoogleEvent}
+            />
           )}
         </div>
 
@@ -365,9 +456,17 @@ export default function SalesCalendarPage() {
         appointment={selectedAppt}
         onClose={() => setSelectedAppt(null)}
         onMarkComplete={handleMarkComplete}
+        onChanged={loadAppointments}
         gcalConnected={gcalConnected}
         syncing={syncing}
         onSyncToGoogle={handleSyncToGoogle}
+      />
+
+      {/* Google event dialog (view/edit/delete) */}
+      <GoogleEventDialog
+        event={selectedGoogleEvent}
+        onClose={() => setSelectedGoogleEvent(null)}
+        onChanged={loadAppointments}
       />
 
       {/* Create dialog */}

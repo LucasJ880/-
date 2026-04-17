@@ -14,6 +14,10 @@ import {
   Wrench,
   RotateCcw,
   MessageSquare,
+  Pencil,
+  Save,
+  X,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -24,6 +28,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+
+function toDatetimeLocal(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 interface Appointment {
   id: string;
@@ -68,11 +79,12 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
 }
 
-/* ── Detail Dialog ── */
+/* ── Detail Dialog（含编辑模式） ── */
 export function AppointmentDetailDialog({
   appointment,
   onClose,
   onMarkComplete,
+  onChanged,
   gcalConnected,
   syncing,
   onSyncToGoogle,
@@ -80,17 +92,110 @@ export function AppointmentDetailDialog({
   appointment: Appointment | null;
   onClose: () => void;
   onMarkComplete: (id: string) => void;
+  onChanged?: () => void;
   gcalConnected: boolean;
   syncing: string | null;
   onSyncToGoogle: (id: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    title: "",
+    type: "measure",
+    startAt: "",
+    endAt: "",
+    address: "",
+    contactPhone: "",
+    description: "",
+  });
+
+  useEffect(() => {
+    if (appointment) {
+      setForm({
+        title: appointment.title,
+        type: appointment.type,
+        startAt: toDatetimeLocal(appointment.startAt),
+        endAt: toDatetimeLocal(appointment.endAt),
+        address: appointment.address || "",
+        contactPhone: appointment.contactPhone || "",
+        description: appointment.description || "",
+      });
+      setEditing(false);
+      setError(null);
+    }
+  }, [appointment]);
+
+  const handleSave = async () => {
+    if (!appointment) return;
+    if (!form.title.trim()) {
+      setError("标题不能为空");
+      return;
+    }
+    if (new Date(form.endAt) <= new Date(form.startAt)) {
+      setError("结束时间必须晚于开始时间");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/sales/appointments/${appointment.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: form.title,
+          type: form.type,
+          startAt: new Date(form.startAt).toISOString(),
+          endAt: new Date(form.endAt).toISOString(),
+          address: form.address || null,
+          contactPhone: form.contactPhone || null,
+          description: form.description || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || "保存失败");
+        return;
+      }
+      onChanged?.();
+      onClose();
+    } catch {
+      setError("网络错误，请重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!appointment) return;
+    if (!window.confirm("确定删除此预约吗？如果已同步到 Google 日历也会一并删除。")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/sales/appointments/${appointment.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || "删除失败");
+        return;
+      }
+      onChanged?.();
+      onClose();
+    } catch {
+      setError("网络错误，请重试");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Dialog open={!!appointment} onOpenChange={() => onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{appointment?.title}</DialogTitle>
+          <DialogTitle>{editing ? "编辑预约" : appointment?.title}</DialogTitle>
         </DialogHeader>
-        {appointment && (
+        {appointment && !editing && (
           <div className="space-y-3 text-sm">
             <div className="flex items-center gap-2">
               <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", TYPE_CONFIG[appointment.type]?.color, "text-white")}>
@@ -99,6 +204,12 @@ export function AppointmentDetailDialog({
               <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_CONFIG[appointment.status]?.color)}>
                 {STATUS_CONFIG[appointment.status]?.label}
               </span>
+              <button
+                onClick={() => setEditing(true)}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium hover:bg-muted/50 transition-colors"
+              >
+                <Pencil size={10} /> 编辑
+              </button>
             </div>
             <div className="space-y-2 text-muted-foreground">
               <p className="flex items-center gap-2"><User size={14} /> 客户：{appointment.customer?.name}</p>
@@ -139,20 +250,124 @@ export function AppointmentDetailDialog({
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              {appointment.status === "scheduled" && (
-                <button
-                  onClick={() => onMarkComplete(appointment.id)}
-                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-                >
-                  标记完成
-                </button>
-              )}
+            <div className="flex justify-between gap-2 pt-2 border-t border-border/60">
               <button
-                onClick={onClose}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
               >
-                关闭
+                {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                删除
+              </button>
+              <div className="flex gap-2">
+                {appointment.status === "scheduled" && (
+                  <button
+                    onClick={() => onMarkComplete(appointment.id)}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                  >
+                    标记完成
+                  </button>
+                )}
+                <button
+                  onClick={onClose}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {appointment && editing && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>类型</Label>
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm({ ...form, type: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                >
+                  {Object.entries(TYPE_CONFIG).map(([k, v]) => (
+                    <option key={k} value={k}>{v.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>标题</Label>
+                <input
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1"><Clock size={12} /> 开始</Label>
+                <input
+                  type="datetime-local"
+                  value={form.startAt}
+                  onChange={(e) => setForm({ ...form, startAt: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1"><Clock size={12} /> 结束</Label>
+                <input
+                  type="datetime-local"
+                  value={form.endAt}
+                  onChange={(e) => setForm({ ...form, endAt: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1"><MapPin size={12} /> 地址</Label>
+              <input
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1"><Phone size={12} /> 联系电话</Label>
+              <input
+                value={form.contactPhone}
+                onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
+                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>备注</Label>
+              <textarea
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                rows={2}
+                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              />
+            </div>
+            {error && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+                {error}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+              <button
+                onClick={() => setEditing(false)}
+                disabled={saving}
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                <X size={12} /> 取消编辑
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                保存
               </button>
             </div>
           </div>

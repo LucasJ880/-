@@ -200,6 +200,11 @@ export interface GoogleEvent {
   calendarId?: string;
   calendarName?: string;
   color?: string;
+  description?: string | null;
+  htmlLink?: string | null;
+  recurringEventId?: string | null;
+  /** 来源日历对当前用户的访问权限：owner / writer / reader / freeBusyReader */
+  accessRole?: string;
 }
 
 /**
@@ -301,20 +306,19 @@ export async function fetchGoogleEventsRange(
 
   const allEvents: GoogleEvent[] = [];
 
-  // 先拿一次日历列表做 ID → 名称+颜色 的映射
-  let calMap: Map<string, { name: string; color: string }> | null = null;
-  if (calendarIds.length > 1) {
-    try {
-      const listRes = await calendar.calendarList.list({ showHidden: false });
-      calMap = new Map();
-      for (const item of listRes.data.items || []) {
-        calMap.set(item.id || "", {
-          name: item.summary || "",
-          color: item.backgroundColor || "#4285f4",
-        });
-      }
-    } catch { /* ignore */ }
-  }
+  // 先拿一次日历列表做 ID → 名称+颜色+accessRole 的映射
+  let calMap: Map<string, { name: string; color: string; accessRole: string }> | null = null;
+  try {
+    const listRes = await calendar.calendarList.list({ showHidden: false });
+    calMap = new Map();
+    for (const item of listRes.data.items || []) {
+      calMap.set(item.id || "", {
+        name: item.summary || "",
+        color: item.backgroundColor || "#4285f4",
+        accessRole: item.accessRole || "reader",
+      });
+    }
+  } catch { /* ignore */ }
 
   for (const calId of calendarIds) {
     try {
@@ -345,6 +349,10 @@ export async function fetchGoogleEventsRange(
           calendarId: calId,
           calendarName: info?.name || (calId === "primary" ? "主日历" : calId),
           color: item.colorId ? undefined : info?.color,
+          description: item.description || null,
+          htmlLink: item.htmlLink || null,
+          recurringEventId: item.recurringEventId || null,
+          accessRole: info?.accessRole || "reader",
         });
       }
     } catch (err) {
@@ -403,18 +411,48 @@ export async function pushEventToGoogle(
   }
 }
 
+/**
+ * 更新 Google 事件。
+ * - scope="single"：仅改当前实例（默认）。对重复事件的单次 instance 也适用。
+ * - scope="series"：改整个重复系列（patch recurringEventId 指向的母事件）。
+ *   注意：母事件修改会波及所有未来实例，但不修改 recurrence 规则本身。
+ */
 export async function updateGoogleEvent(
   userId: string,
-  googleEventId: string,
-  event: { title: string; startTime: string; endTime: string; allDay: boolean; location?: string | null; description?: string | null },
-): Promise<boolean> {
+  opts: {
+    eventId: string;
+    calendarId?: string;
+    scope?: "single" | "series";
+    data: {
+      title: string;
+      startTime: string;
+      endTime: string;
+      allDay: boolean;
+      location?: string | null;
+      description?: string | null;
+    };
+  },
+): Promise<{ ok: boolean; error?: string }> {
   const provider = await getGoogleProvider(userId);
-  if (!provider || !provider.accessToken) return false;
+  if (!provider || !provider.accessToken) return { ok: false, error: "未连接 Google 日历" };
 
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
+  const calId = opts.calendarId || provider.calendarId?.split(",")[0] || "primary";
+  const scope = opts.scope || "single";
+  const { data: event } = opts;
+
   try {
+    let targetEventId = opts.eventId;
+
+    // 修改整个系列：先拿当前事件的 recurringEventId（母事件 ID），再 patch 母事件
+    if (scope === "series") {
+      const detail = await calendar.events.get({ calendarId: calId, eventId: opts.eventId });
+      const motherId = detail.data.recurringEventId || opts.eventId;
+      targetEventId = motherId;
+    }
+
     const body: Record<string, unknown> = {
       summary: event.title,
       location: event.location || undefined,
@@ -433,36 +471,119 @@ export async function updateGoogleEvent(
       body.end = { dateTime: new Date(event.endTime).toISOString() };
     }
 
-    await calendar.events.update({
-      calendarId: provider.calendarId || "primary",
-      eventId: googleEventId,
-      requestBody: body as Parameters<typeof calendar.events.update>[0] extends { requestBody?: infer R } ? R : never,
+    await calendar.events.patch({
+      calendarId: calId,
+      eventId: targetEventId,
+      requestBody: body as Parameters<typeof calendar.events.patch>[0] extends { requestBody?: infer R } ? R : never,
     });
-    return true;
+    return { ok: true };
   } catch (err) {
     console.error("Google Calendar update error:", err);
-    return false;
+    if (isGoogleTokenError(err)) {
+      await markGoogleProviderDisabled(provider.id);
+      throw new GoogleTokenExpiredError();
+    }
+    const e = err as { response?: { data?: { error?: { message?: string } } }; message?: string };
+    return {
+      ok: false,
+      error: e.response?.data?.error?.message || e.message || "更新失败",
+    };
   }
 }
 
+/**
+ * 删除 Google 事件。
+ * - scope="single"：仅删当前实例
+ * - scope="series"：删除整个重复系列
+ */
 export async function deleteGoogleEvent(
   userId: string,
-  googleEventId: string,
-): Promise<boolean> {
+  opts: {
+    eventId: string;
+    calendarId?: string;
+    scope?: "single" | "series";
+  },
+): Promise<{ ok: boolean; error?: string }> {
   const provider = await getGoogleProvider(userId);
-  if (!provider || !provider.accessToken) return false;
+  if (!provider || !provider.accessToken) return { ok: false, error: "未连接 Google 日历" };
 
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
+  const calId = opts.calendarId || provider.calendarId?.split(",")[0] || "primary";
+  const scope = opts.scope || "single";
+
   try {
+    let targetEventId = opts.eventId;
+
+    if (scope === "series") {
+      const detail = await calendar.events.get({ calendarId: calId, eventId: opts.eventId });
+      targetEventId = detail.data.recurringEventId || opts.eventId;
+    }
+
     await calendar.events.delete({
-      calendarId: provider.calendarId || "primary",
-      eventId: googleEventId,
+      calendarId: calId,
+      eventId: targetEventId,
     });
-    return true;
+    return { ok: true };
   } catch (err) {
     console.error("Google Calendar delete error:", err);
-    return false;
+    if (isGoogleTokenError(err)) {
+      await markGoogleProviderDisabled(provider.id);
+      throw new GoogleTokenExpiredError();
+    }
+    const e = err as { response?: { data?: { error?: { message?: string } } }; message?: string };
+    return {
+      ok: false,
+      error: e.response?.data?.error?.message || e.message || "删除失败",
+    };
+  }
+}
+
+/**
+ * 获取单个事件详情（含 recurringEventId / htmlLink / description 等）。
+ */
+export async function getGoogleEventDetail(
+  userId: string,
+  opts: { eventId: string; calendarId?: string },
+): Promise<GoogleEvent | null> {
+  const provider = await getGoogleProvider(userId);
+  if (!provider || !provider.accessToken) return null;
+
+  const client = await getAuthedClient(provider);
+  const calendar = google.calendar({ version: "v3", auth: client });
+
+  const calId = opts.calendarId || provider.calendarId?.split(",")[0] || "primary";
+
+  try {
+    const { data: item } = await calendar.events.get({
+      calendarId: calId,
+      eventId: opts.eventId,
+    });
+    const allDay = Boolean(item.start?.date);
+    return {
+      id: item.id || "",
+      title: item.summary || "(无标题)",
+      startTime: allDay
+        ? `${item.start!.date}T00:00:00`
+        : item.start?.dateTime || "",
+      endTime: allDay
+        ? `${item.end!.date}T23:59:59`
+        : item.end?.dateTime || "",
+      allDay,
+      location: item.location || null,
+      source: "google",
+      calendarId: calId,
+      description: item.description || null,
+      htmlLink: item.htmlLink || null,
+      recurringEventId: item.recurringEventId || null,
+    };
+  } catch (err) {
+    if (isGoogleTokenError(err)) {
+      await markGoogleProviderDisabled(provider.id);
+      throw new GoogleTokenExpiredError();
+    }
+    console.error("Google Calendar getDetail error:", err);
+    return null;
   }
 }

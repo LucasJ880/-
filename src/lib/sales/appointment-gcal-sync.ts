@@ -61,7 +61,10 @@ export async function syncAppointmentToGoogle(
   };
 
   if (appointment.googleEventId) {
-    const ok = await updateGoogleEvent(userId, appointment.googleEventId, eventData);
+    const { ok } = await updateGoogleEvent(userId, {
+      eventId: appointment.googleEventId,
+      data: eventData,
+    });
     if (ok) {
       await db.appointment.update({
         where: { id: appointmentId },
@@ -93,7 +96,9 @@ export async function unsyncAppointmentFromGoogle(
   });
   if (!appointment?.googleEventId) return true;
 
-  const ok = await deleteGoogleEvent(userId, appointment.googleEventId);
+  const { ok } = await deleteGoogleEvent(userId, {
+    eventId: appointment.googleEventId,
+  });
   if (ok) {
     await db.appointment.update({
       where: { id: appointmentId },

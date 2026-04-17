@@ -21,6 +21,10 @@ interface GoogleEvent {
   calendarId?: string;
   calendarName?: string;
   color?: string;
+  description?: string | null;
+  htmlLink?: string | null;
+  recurringEventId?: string | null;
+  accessRole?: string;
 }
 
 interface Appointment {
@@ -85,12 +89,14 @@ export function CalendarMonthView({
   appointments,
   googleEvents,
   onSelectAppt,
+  onSelectGoogleEvent,
 }: {
   year: number;
   month: number;
   appointments: Appointment[];
   googleEvents: GoogleEvent[];
   onSelectAppt: (appt: Appointment) => void;
+  onSelectGoogleEvent?: (event: GoogleEvent) => void;
 }) {
   const today = new Date();
   const daysInMonth = getDaysInMonth(year, month);
@@ -177,9 +183,10 @@ export function CalendarMonthView({
                       );
                     })}
                     {dayGEvents.slice(0, Math.max(0, maxShow - dayAppts.length)).map((ge) => (
-                      <div
+                      <button
                         key={`g-${ge.id}`}
-                        className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] truncate"
+                        onClick={() => onSelectGoogleEvent?.(ge)}
+                        className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] truncate hover:brightness-110"
                         style={{
                           backgroundColor: ge.color || "#4285f4",
                           color: "#fff",
@@ -187,7 +194,7 @@ export function CalendarMonthView({
                         title={`${ge.calendarName || "Google"}: ${ge.title}`}
                       >
                         {ge.allDay ? "全天" : formatTime(ge.startTime)} {ge.title}
-                      </div>
+                      </button>
                     ))}
                     {totalItems > maxShow && (
                       <p className="text-[10px] text-muted-foreground px-1">+{totalItems - maxShow} more</p>
@@ -221,11 +228,18 @@ function AppointmentRow({ appt, onClick }: { appt: Appointment; onClick: () => v
   );
 }
 
-function GoogleEventRow({ event }: { event: GoogleEvent }) {
+function GoogleEventRow({
+  event,
+  onClick,
+}: {
+  event: GoogleEvent;
+  onClick?: () => void;
+}) {
   const color = event.color || "#4285f4";
   return (
-    <div
-      className="flex w-full items-center gap-4 p-4 text-left"
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-4 p-4 text-left hover:bg-muted/20 transition-colors"
       style={{ borderLeft: `3px solid ${color}` }}
     >
       <div
@@ -247,7 +261,7 @@ function GoogleEventRow({ event }: { event: GoogleEvent }) {
       <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
         Google
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -256,11 +270,13 @@ export function CalendarListView({
   googleEvents = [],
   loading,
   onSelectAppt,
+  onSelectGoogleEvent,
 }: {
   appointments: Appointment[];
   googleEvents?: GoogleEvent[];
   loading: boolean;
   onSelectAppt: (appt: Appointment) => void;
+  onSelectGoogleEvent?: (event: GoogleEvent) => void;
 }) {
   // 合并两个来源，按时间升序展示
   const merged = [
@@ -294,7 +310,11 @@ export function CalendarListView({
               onClick={() => onSelectAppt(item.appt)}
             />
           ) : (
-            <GoogleEventRow key={`g-${item.event.id}`} event={item.event} />
+            <GoogleEventRow
+              key={`g-${item.event.id}`}
+              event={item.event}
+              onClick={() => onSelectGoogleEvent?.(item.event)}
+            />
           ),
         )
       )}
