@@ -63,6 +63,144 @@ export const COMPANY_INFO = {
   addressLines: ["680 Progress Avenue, Unit 2,", "Scarborough, ON, M1H 3A5"],
 };
 
+// ── 各产品规范条款（对应原纸质 Order Form 第 2 页） ───────────────────
+//
+// 触发规则：报价单里该产品至少有 1 行有效 line，就在该产品小计后面渲染
+// 这部分内容对应 Sunny Shutter 官方 Order Form (Shades/Shutters/Drapes) 第 2 页，
+// 是产品工艺、尺寸、公差、硬件等标准条款，客户签字即视为已阅读并同意。
+
+export interface SpecBlock {
+  heading: string;
+  bullets: string[];
+}
+
+export interface ProductSpec {
+  title: string;
+  intro?: string;
+  blocks: SpecBlock[];
+  acknowledgement?: string;
+}
+
+export const PRODUCT_SPECS: {
+  shades: ProductSpec;
+  shutters: ProductSpec;
+  drapes: ProductSpec;
+} = {
+  shades: {
+    title: "Shades — Workmanship & Specifications",
+    intro: "Warranty: 1 year labour · 5 years fabric · 15 years components.",
+    blocks: [
+      {
+        heading: "1. Gaps and Clearances",
+        bullets: [
+          "Gap between cassette and wall: total gap should not exceed 1/4 inch, ensuring minimal light leakage and aesthetic uniformity.",
+          "Gap between cassette and fabric: kept within 7/8 inch to ensure smooth operation and appearance.",
+          "Gap between cassette and bottom bar: kept within 3/8 inch so the bottom bar aligns properly with the cassette, maintaining a streamlined appearance and preventing excessive light from filtering through. A deviation of up to 1/8 inch above or below this measurement is acceptable to account for installation tolerances.",
+        ],
+      },
+      {
+        heading: "2. Cord Length",
+        bullets: [
+          "For blinds mounted inside the window frame, the cord length ranges between 60% and 80% of the window height to ensure safety and functionality.",
+        ],
+      },
+      {
+        heading: "3. Motorized Blinds",
+        bullets: [
+          "The charging port for motorized blinds is typically located on the left side of the roller for ease of access during charging and maintenance. Custom placement may be available upon request.",
+        ],
+      },
+    ],
+    acknowledgement:
+      "I have read and acknowledged the Sunny Shutter Inc policy and agree to the terms and conditions set forth for Shades products.",
+  },
+  shutters: {
+    title: "Shutters — Material & Structural Specifications",
+    intro:
+      "Wooden shutters: American Yellow Poplar. Vinyl shutters: virgin powder compound. All shutters proudly made in Canada. Warranty: 1 year labour / 5 years components.",
+    blocks: [
+      {
+        heading: "1. Panel Size & Structure",
+        bullets: [
+          "Maximum panel width: Wood 35\", Vinyl 32\".",
+          "Maximum panel width for bi-fold: Wood 52\", Vinyl 40\".",
+          "All panel heights over 60\" require a mid-rail for structural support.",
+        ],
+      },
+      {
+        heading: "2. Gaps and Clearances",
+        bullets: [
+          "The gap tolerance between shutter louvers and the frame is kept within industry standards to ensure functionality while allowing minimal light seepage.",
+          "Visible gaps are uniform and do not exceed 1/4 inch, in line with typical manufacturing variances. These gaps allow for material expansion and contraction due to temperature and humidity changes without compromising overall aesthetic or performance.",
+        ],
+      },
+      {
+        heading: "3. Frame Options",
+        bullets: [
+          "L Frame — suitable for inside mount or outside mount.",
+          "Z Frame — inside mount only.",
+          "Casing Frame — outside mount only.",
+          "Available frame sizes: 2\" S Frame · 2\" Z Frame · 3 1/4\" M Frame · 2 3/4\" S Frame · 2 1/2\" Z Frame · 2 3/8\" G Frame.",
+        ],
+      },
+      {
+        heading: "4. Fit",
+        bullets: [
+          "Our products are designed to fit standard, straight window frames. Sunny Shutter Inc. is not responsible for issues with fit or alignment caused by uneven or slanted window frames at the customer's location.",
+        ],
+      },
+    ],
+    acknowledgement:
+      "I have read and acknowledged the Sunny Shutter Inc policy and agree to the terms and conditions set forth for Shutters products.",
+  },
+  drapes: {
+    title: "Drapes & Sheers — Workmanship Specifications",
+    intro: "Warranty: 1 year labour · 5 years fabric · 15 years components.",
+    blocks: [
+      {
+        heading: "1.1 Drapery Workmanship",
+        bullets: [
+          "Joining seams: all joining seams shall be serged with a single stitched seam.",
+          "Stitching: first quality with triple-strand washable polyester or mono-filament thread, colour-matched to the fabric. Tension adjusted to eliminate puckering and allow for sagging and stretching.",
+          "Heading: 4\" (102 mm) wide double fold with washable Buckrum lining, complete with pinch pleats using Kirsch Architrac Collection #94003 plastic sewn-in hooks. Pleats divided equally at approximately 4\" (102 mm) centres.",
+          "Hems: bottom hems 4\" (102 mm) double fold, machine blind stitched. 1\" × 3/4\" covered plastic-coated weights installed in corners of each panel. Side hems 1\" (25 mm) double fold, lock stitched.",
+          "Fullness: standard draperies shall have a fullness of 180%.",
+        ],
+      },
+      {
+        heading: "1.2 Hardware & Track",
+        bullets: [
+          "Base specification: STW Aluminum Alloy Silent Track (White), wall bracket — extruded 0.050\" 6063-T5 aluminum alloy, etched and anodized.",
+          "25 mm ball-bearing spaced carriers provide 180% drapery fullness.",
+          "Heavy-duty wheeled or ball-bearing carriers. Fibreglass, steel, or PVC baton attached to the lead master carrier is recommended for traversing the draperies.",
+        ],
+      },
+      {
+        heading: "1.2.1 Length",
+        bullets: [
+          "Standard distance between the bottom of the finished curtain and the floor is 2\", with an acceptable tolerance of ±1/2\" (13 mm).",
+          "Standard installation height is 2\" above the window, with an acceptable tolerance of ±2\" (51 mm).",
+          "Final installation details are confirmed with the sales representative prior to fabrication.",
+        ],
+      },
+      {
+        heading: "1.2.2 Width",
+        bullets: [
+          "Finished curtains are fabricated to cover the window and extend 10\" (254 mm) on each side, with an acceptable tolerance of ±2\" (51 mm).",
+        ],
+      },
+      {
+        heading: "Fit",
+        bullets: [
+          "Our products are designed to fit standard, straight window frames. Sunny Shutter Inc. is not responsible for issues with fit or alignment caused by uneven or slanted window frames at the customer's location.",
+        ],
+      },
+    ],
+    acknowledgement:
+      "I have read and acknowledged the Sunny Shutter Inc policy and agree to the terms and conditions set forth for Drapes & Sheers products.",
+  },
+};
+
 // ── 输入数据 ─────────────────────────────────────────────────────────
 
 export interface QuotePdfInput {
@@ -572,6 +710,70 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     }
   };
 
+  // 渲染产品规范条款（对应原纸质 Order Form 第 2 页）
+  // 仅当该产品有有效 line 时才调用；放在小计之后、下一个产品之前
+  const renderSpecsSection = (spec: ProductSpec) => {
+    maybePageBreak(35);
+    drawSectionBanner(ctx, spec.title);
+
+    if (spec.intro) {
+      setText(doc, PDF_TOKENS.textMuted);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      const introLines = doc.splitTextToSize(spec.intro, pageW - MARGIN * 2 - 4);
+      doc.text(introLines, MARGIN, ctx.y + 3);
+      ctx.y += introLines.length * 4 + 3;
+    }
+
+    spec.blocks.forEach((block) => {
+      // 预估空间：标题 6mm + 每条 bullet 大约 2 行 × 4mm + 间距
+      maybePageBreak(10 + block.bullets.length * 10);
+
+      setText(doc, PDF_TOKENS.primaryDark);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.text(block.heading, MARGIN, ctx.y + 4);
+      ctx.y += 6;
+
+      setText(doc, PDF_TOKENS.textMain);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      block.bullets.forEach((b) => {
+        const lines = doc.splitTextToSize(b, pageW - MARGIN * 2 - 8);
+        // 若空间不够放整条 bullet，先翻页再画（避免一条 bullet 被撕开太丑）
+        if (ctx.y + lines.length * 4 + 2 > pageH - 20) {
+          drawPageFooter(ctx, doc.getNumberOfPages(), 4);
+          doc.addPage();
+          ctx.y = MARGIN;
+        }
+        // 小橙点
+        setFill(doc, PDF_TOKENS.primary);
+        doc.circle(MARGIN + 2, ctx.y + 2.5, 0.7, "F");
+        setText(doc, PDF_TOKENS.textMain);
+        doc.text(lines, MARGIN + 5, ctx.y + 3);
+        ctx.y += lines.length * 4 + 2;
+      });
+      ctx.y += 2;
+    });
+
+    if (spec.acknowledgement) {
+      maybePageBreak(14);
+      setFill(doc, PDF_TOKENS.primaryLight);
+      const ackLines = doc.splitTextToSize(spec.acknowledgement, pageW - MARGIN * 2 - 8);
+      const boxH = ackLines.length * 4 + 6;
+      doc.rect(MARGIN, ctx.y, pageW - MARGIN * 2, boxH, "F");
+      setFill(doc, PDF_TOKENS.primary);
+      doc.rect(MARGIN, ctx.y, 2, boxH, "F");
+      setText(doc, PDF_TOKENS.primaryDark);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text(ackLines, MARGIN + 5, ctx.y + 4);
+      ctx.y += boxH + 4;
+    }
+
+    ctx.y += 2;
+  };
+
   // Shades
   if (filledShades.length > 0) {
     maybePageBreak(30);
@@ -604,6 +806,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     doc.setFontSize(9);
     doc.text(`Shades Subtotal: ${formatCAD(input.shadeTotals.total)}`, pageW - MARGIN, ctx.y + 4, { align: "right" });
     ctx.y += 10;
+    renderSpecsSection(PRODUCT_SPECS.shades);
   }
 
   // Shutters
@@ -641,6 +844,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     doc.setFontSize(9);
     doc.text(`Shutters Subtotal: ${formatCAD(input.shutterTotals.total)}`, pageW - MARGIN, ctx.y + 4, { align: "right" });
     ctx.y += 10;
+    renderSpecsSection(PRODUCT_SPECS.shutters);
   }
 
   // Drapes
@@ -691,6 +895,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     doc.setFontSize(9);
     doc.text(`Drapes Subtotal: ${formatCAD(input.drapeTotals.total)}`, pageW - MARGIN, ctx.y + 4, { align: "right" });
     ctx.y += 10;
+    renderSpecsSection(PRODUCT_SPECS.drapes);
   }
 
   // Part B
