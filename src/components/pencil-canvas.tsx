@@ -44,6 +44,8 @@ interface PencilCanvasProps {
   height?: number;
   className?: string;
   label?: string;
+  /** 每次笔画数量变化时回调，父组件可用于判定"是否已签名" */
+  onStrokesChange?: (strokeCount: number) => void;
 }
 
 const COLORS = [
@@ -55,7 +57,10 @@ const COLORS = [
 const LINE_WIDTHS = [2, 4, 6];
 
 export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
-  function PencilCanvas({ width = 800, height = 400, className, label }, ref) {
+  function PencilCanvas(
+    { width = 800, height = 400, className, label, onStrokesChange },
+    ref,
+  ) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [tool, setTool] = useState<"pen" | "eraser" | "line">("pen");
     const [color, setColor] = useState(COLORS[0].value);
@@ -108,6 +113,10 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
     useEffect(() => {
       redrawAll(strokes);
     }, [strokes, redrawAll]);
+
+    useEffect(() => {
+      onStrokesChange?.(strokes.length);
+    }, [strokes.length, onStrokesChange]);
 
     const getCoords = useCallback(
       (e: React.PointerEvent): Point => {

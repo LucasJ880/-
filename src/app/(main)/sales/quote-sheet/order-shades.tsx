@@ -59,6 +59,7 @@ interface Props {
   onBracketTypeChange: (v: string) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
+  onSignatureChange?: (strokeCount: number) => void;
 }
 
 function emptyLine(): ShadeOrderLine {
@@ -88,6 +89,7 @@ export function OrderShadesForm({
   onBracketTypeChange,
   signatureRef,
   installMode,
+  onSignatureChange,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShadeOrderLine, value: unknown) => {
@@ -369,7 +371,7 @@ export function OrderShadesForm({
         </div>
       </div>
 
-      <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" />
+      <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" onStrokesChange={onSignatureChange} />
       <p className="text-[9px] text-muted-foreground leading-snug">{SIGNATURE_DISCLAIMER}</p>
     </div>
   );

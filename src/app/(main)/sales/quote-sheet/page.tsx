@@ -20,6 +20,7 @@ import {
   CheckCircle,
   RefreshCw,
   Send,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
@@ -130,6 +131,8 @@ export default function QuoteSheetPage() {
   const [activeTab, setActiveTab] = useState<TabId>("shades");
   const [saving, setSaving] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generatedFlash, setGeneratedFlash] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean; quoteId?: string } | null>(null);
 
   // Customer selector
@@ -190,11 +193,34 @@ export default function QuoteSheetPage() {
   const sigShuttersRef = useRef<PencilCanvasRef>(null);
   const sigDrapesRef = useRef<PencilCanvasRef>(null);
 
+  // 每个 tab 的"是否已签名"状态（任一有笔画即可解锁"生成报价单"）
+  const [sigPartBCount, setSigPartBCount] = useState(0);
+  const [sigPartCCount, setSigPartCCount] = useState(0);
+  const [sigShadesCount, setSigShadesCount] = useState(0);
+  const [sigShuttersCount, setSigShuttersCount] = useState(0);
+  const [sigDrapesCount, setSigDrapesCount] = useState(0);
+  const hasAnySignature =
+    sigPartBCount + sigPartCCount + sigShadesCount + sigShuttersCount + sigDrapesCount > 0;
+
   useEffect(() => {
     (async () => {
       try {
         const d = await apiJson<{ customers?: CustomerOption[] }>("/api/sales/customers?limit=200");
         setCustomers((d.customers ?? []) as CustomerOption[]);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // 自动带入销售个人设置里的 Sales Rep 代号（在驾驶舱填写）
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiJson<{ salesRepInitials?: string }>(
+          "/api/users/me/sales-settings"
+        );
+        if (d.salesRepInitials) {
+          setSalesRep((prev) => (prev ? prev : d.salesRepInitials!));
+        }
       } catch { /* ignore */ }
     })();
   }, []);
@@ -264,8 +290,8 @@ export default function QuoteSheetPage() {
     });
   }, [date, measureSequence, partALines, salesRep]);
 
-  const handleSave = useCallback(async () => {
-    if (!customerId) return;
+  const handleSave = useCallback(async (): Promise<{ quoteId: string } | null> => {
+    if (!customerId) return null;
     setSaving(true);
     try {
       // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）
@@ -341,7 +367,7 @@ export default function QuoteSheetPage() {
       if (items.length === 0) {
         console.error("Save failed: please fill at least one Shade / Shutter / Drape line");
         alert("请至少在 Shades / Shutters / Drapes 中填写一行完整的尺寸和 SKU/材质");
-        return;
+        return null;
       }
 
       const fullFormData: QuoteFormState = {
@@ -371,14 +397,17 @@ export default function QuoteSheetPage() {
       }).then((r) => r.json());
 
       const statusAdvanced = res.lifecycle?.autoAdvanced ?? false;
+      const quoteId: string | undefined = res.quote?.id;
       setLastSaved({
         time: new Date().toLocaleTimeString("en-CA"),
         orderNum: orderNumber,
         statusAdvanced,
-        quoteId: res.quote?.id,
+        quoteId,
       });
+      return quoteId ? { quoteId } : null;
     } catch (err) {
       console.error("Save failed:", err);
+      return null;
     } finally {
       setSaving(false);
     }
@@ -724,6 +753,64 @@ export default function QuoteSheetPage() {
     installMode, productsSubtotal, shadeTotals.total, shutterTotals.total, drapeTotals.total,
   ]);
 
+  /**
+   * 客户签完名后 → 一键"生成报价单"
+   *
+   * 1) 保存报价单到后端（若尚未保存 / 有新改动）
+   * 2) 调 /mark-signed：把 quote.status 改成 signed，把 opportunity.stage 推进到 signed（已成单）
+   * 3) 导出 PDF 到本地
+   *
+   * 任一签字框有笔画即可触发（由父组件 hasAnySignature 控制 disabled 态）。
+   */
+  const handleGenerateQuote = useCallback(async () => {
+    if (!customerId) {
+      alert("请先选择客户");
+      return;
+    }
+    if (!hasAnySignature) {
+      alert("请让客户在任一签字框完成签名后再生成报价单");
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      // 1) 保存报价单
+      const saved = await handleSave();
+      if (!saved?.quoteId) {
+        setGenerating(false);
+        return;
+      }
+
+      // 2) 标记为已签名 + 推进 opportunity.stage=signed
+      let stageAdvanced = false;
+      try {
+        const res = await apiFetch(
+          `/api/sales/quotes/${saved.quoteId}/mark-signed`,
+          { method: "POST" },
+        );
+        const data = await res.json();
+        if (res.ok) stageAdvanced = Boolean(data.stageAdvanced);
+        else console.error("mark-signed failed:", data);
+      } catch (err) {
+        console.error("mark-signed error:", err);
+      }
+
+      // 3) 导出 PDF
+      await handleExportPDF();
+
+      setGeneratedFlash(
+        stageAdvanced
+          ? "报价单已生成 · 客户状态已更新为「已成单」"
+          : "报价单已生成 · PDF 已导出"
+      );
+      setTimeout(() => setGeneratedFlash(null), 5000);
+    } catch (err) {
+      console.error("Generate quote failed:", err);
+    } finally {
+      setGenerating(false);
+    }
+  }, [customerId, hasAnySignature, handleSave, handleExportPDF]);
+
   const preTax = productsSubtotal + subtotalB + subtotalC;
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const grandTotal = preTax + hst;
@@ -981,6 +1068,7 @@ export default function QuoteSheetPage() {
             financeApproved={financeApproved} onFinanceApprovedChange={setFinanceApproved}
             financeDifference={financeDifference} onFinanceDifferenceChange={setFinanceDifference}
             subtotalA={productsSubtotal} subtotalC={subtotalC} signatureRef={sigPartBRef}
+            onSignatureChange={setSigPartBCount}
           />
         )}
         {activeTab === "partC" && (
@@ -996,24 +1084,28 @@ export default function QuoteSheetPage() {
               </div>
             )}
             <PartCForm services={partCServices} onServicesChange={setPartCServices}
-              addOns={partCAddOns} onAddOnsChange={setPartCAddOns} signatureRef={sigPartCRef} />
+              addOns={partCAddOns} onAddOnsChange={setPartCAddOns} signatureRef={sigPartCRef}
+              onSignatureChange={setSigPartCCount} />
           </>
         )}
         {activeTab === "shades" && (
           <OrderShadesForm lines={shadeOrders} onChange={setShadeOrders}
             valanceType={shadeValanceType} onValanceTypeChange={setShadeValanceType}
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
-            signatureRef={sigShadesRef} installMode={installMode} />
+            signatureRef={sigShadesRef} installMode={installMode}
+            onSignatureChange={setSigShadesCount} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
             material={shutterMaterial} onMaterialChange={setShutterMaterial}
             louverSize={shutterLouverSize} onLouverSizeChange={setShutterLouverSize}
-            signatureRef={sigShuttersRef} installMode={installMode} />
+            signatureRef={sigShuttersRef} installMode={installMode}
+            onSignatureChange={setSigShuttersCount} />
         )}
         {activeTab === "drapes" && (
           <OrderDrapesForm lines={drapeOrders} onChange={setDrapeOrders}
-            signatureRef={sigDrapesRef} installMode={installMode} />
+            signatureRef={sigDrapesRef} installMode={installMode}
+            onSignatureChange={setSigDrapesCount} />
         )}
       </div>
 
@@ -1060,17 +1152,50 @@ export default function QuoteSheetPage() {
             </Button>
           )}
           <Button
+            variant="outline"
             size="sm"
             onClick={handleSave}
             disabled={saving || !customerId}
-            className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+            className="gap-1.5 px-2 md:px-3"
+            aria-label="Save"
           >
             {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            <span className="hidden md:inline">{saving ? "Saving..." : "Save & Update Status"}</span>
-            <span className="md:hidden">{saving ? "..." : "Save"}</span>
+            <span className="hidden md:inline">{saving ? "Saving..." : "Save"}</span>
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleGenerateQuote}
+            disabled={generating || saving || !customerId || !hasAnySignature}
+            className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+            aria-label={hasAnySignature ? "生成报价单（已签名）" : "请先让客户签名"}
+            title={
+              !hasAnySignature
+                ? "请让客户在任一签字框完成签名后再生成报价单"
+                : "保存 + 导出 PDF + 将客户状态改为已成单"
+            }
+          >
+            {generating ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            <span className="hidden md:inline">
+              {generating ? "生成中..." : "生成报价单"}
+            </span>
+            <span className="md:hidden">{generating ? "..." : "生成"}</span>
           </Button>
         </div>
       </div>
+
+      {/* 生成后的提示条 */}
+      {generatedFlash && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--mobile-tabbar-height)+4.5rem)] md:bottom-20 z-50 rounded-full bg-emerald-600 text-white text-sm px-4 py-2 shadow-lg flex items-center gap-2"
+        >
+          <CheckCircle className="h-4 w-4" />
+          {generatedFlash}
+        </div>
+      )}
     </div>
   );
 }

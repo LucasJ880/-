@@ -19,6 +19,7 @@ interface Props {
   onLouverSizeChange: (v: string) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
+  onSignatureChange?: (strokeCount: number) => void;
 }
 
 function emptyLine(): ShutterOrderLine {
@@ -47,6 +48,7 @@ export function OrderShuttersForm({
   onLouverSizeChange,
   signatureRef,
   installMode,
+  onSignatureChange,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShutterOrderLine, value: unknown) => {
@@ -328,7 +330,7 @@ export function OrderShuttersForm({
         </div>
       )}
 
-      <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" />
+      <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" onStrokesChange={onSignatureChange} />
       <p className="text-[9px] text-muted-foreground leading-snug">
         {SIGNATURE_DISCLAIMER}
       </p>

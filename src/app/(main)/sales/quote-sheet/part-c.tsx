@@ -11,9 +11,10 @@ interface PartCProps {
   addOns: PartCAddOn[];
   onAddOnsChange: (a: PartCAddOn[]) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
+  onSignatureChange?: (strokeCount: number) => void;
 }
 
-export function PartCForm({ services, onServicesChange, addOns, onAddOnsChange, signatureRef }: PartCProps) {
+export function PartCForm({ services, onServicesChange, addOns, onAddOnsChange, signatureRef, onSignatureChange }: PartCProps) {
   const updateService = useCallback(
     (idx: number, qty: number) => {
       const updated = services.map((s, i) => {
@@ -164,7 +165,7 @@ export function PartCForm({ services, onServicesChange, addOns, onAddOnsChange, 
 
       {/* Signature */}
       <div className="space-y-2 pt-2">
-        <PencilCanvas ref={signatureRef} width={500} height={120} label="Customer Signature (Part C)" />
+        <PencilCanvas ref={signatureRef} width={500} height={120} label="Customer Signature (Part C)" onStrokesChange={onSignatureChange} />
         <p className="text-[9px] text-muted-foreground leading-snug max-w-lg">
           By signing, I confirm that I have reviewed and understood all details as presented. I acknowledge that any discrepancies not reported prior to signing may not be the responsibility of Sunny Shutter Inc.
         </p>

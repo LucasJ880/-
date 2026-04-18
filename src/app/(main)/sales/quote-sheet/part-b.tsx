@@ -29,6 +29,7 @@ interface PartBProps {
   subtotalA: number;
   subtotalC: number;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
+  onSignatureChange?: (strokeCount: number) => void;
 }
 
 export function PartBForm({
@@ -51,6 +52,7 @@ export function PartBForm({
   subtotalA,
   subtotalC,
   signatureRef,
+  onSignatureChange,
 }: PartBProps) {
   const catalogByKey = useMemo(
     () => Object.fromEntries(ADDON_CATALOG.map((a) => [a.key, a])),
@@ -351,6 +353,7 @@ export function PartBForm({
               width={500}
               height={120}
               label="Signature"
+              onStrokesChange={onSignatureChange}
             />
             <p className="text-[9px] text-muted-foreground leading-snug">
               By signing, I confirm all details are correct and acknowledge that Sunny Shutter Inc. is not liable for inaccuracies. Custom-made items, returns or exchanges are only accepted if the product is defective.

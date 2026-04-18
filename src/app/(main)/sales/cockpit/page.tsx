@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Loader2,
 } from "lucide-react";
+import { SalesRepSettingsCard } from "./sales-rep-settings-card";
 
 interface FunnelItem {
   stage: string;
@@ -148,6 +149,9 @@ export default function SalesCockpitPage() {
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">{reportResult}</p>
         </div>
       )}
+
+      {/* 销售个人设置 — 首次进入会高亮提示未填写 */}
+      <SalesRepSettingsCard />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
