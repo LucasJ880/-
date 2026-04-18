@@ -76,32 +76,129 @@ export default function QuoteToolPage() {
       .catch(() => setOpportunities([]));
   }, [customerId]);
 
-  const handleIframeLoad = useCallback(() => {
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        { type: "QINGYAN_INIT", mobile: isMobile },
-        "*",
-      );
+  const handleIframeLoad = useCallback(async () => {
+    if (!iframeRef.current?.contentWindow) return;
+
+    // 先读一次全局折扣率，随 INIT 一起 push 给 iframe，iframe 用它替换本地 DISCOUNTS
+    let discounts: Record<string, number> | null = null;
+    try {
+      const d = await apiJson<{
+        zebra: number; shangrila: number; cellular: number; roller: number;
+        drapery: number; sheer: number; shutters: number; honeycomb: number;
+      }>("/api/sales/quote-settings/discounts");
+      discounts = {
+        Zebra: d.zebra,
+        SHANGRILA: d.shangrila,
+        "Cordless Cellular": d.cellular,
+        Roller: d.roller,
+        Drapery: d.drapery,
+        Sheer: d.sheer,
+        Shutters: d.shutters,
+        SkylightHoneycomb: d.honeycomb,
+      };
+    } catch {
+      /* 拉不到时 iframe 将继续用本地默认，等后台恢复后下次刷新生效 */
     }
+
+    iframeRef.current.contentWindow.postMessage(
+      { type: "QINGYAN_INIT", mobile: isMobile, discounts },
+      "*",
+    );
   }, [isMobile]);
 
   useEffect(() => {
-    const logHandler = (e: MessageEvent) => {
-      if (e.data?.type !== "QINGYAN_DISCOUNT_LOG") return;
-      const payload = e.data.payload as {
-        before: Record<string, number> | null;
-        after: Record<string, number> | null;
-        code?: string;
-      };
-      apiFetch("/api/sales/quote-settings/log", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }).catch(() => {
-        /* 记录失败不影响主流程，控制台已有错误 */
-      });
+    // AI 工具里保存折扣率时，通过 postMessage 走统一 API（RBAC + 审计）
+    const handler = async (e: MessageEvent) => {
+      // iframe 主动请求重新拉取折扣率（用于"保存失败回滚"等场景）
+      if (e.data?.type === "QINGYAN_DISCOUNT_REQUEST") {
+        try {
+          const d = await apiJson<{
+            zebra: number; shangrila: number; cellular: number; roller: number;
+            drapery: number; sheer: number; shutters: number; honeycomb: number;
+          }>("/api/sales/quote-settings/discounts");
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: "QINGYAN_DISCOUNT_PUSH",
+              discounts: {
+                Zebra: d.zebra,
+                SHANGRILA: d.shangrila,
+                "Cordless Cellular": d.cellular,
+                Roller: d.roller,
+                Drapery: d.drapery,
+                Sheer: d.sheer,
+                Shutters: d.shutters,
+                SkylightHoneycomb: d.honeycomb,
+              },
+            },
+            "*",
+          );
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+
+      if (e.data?.type === "QINGYAN_DISCOUNT_SAVE") {
+        const after = e.data.payload?.after as Record<string, number> | null;
+        if (!after || typeof after !== "object") return;
+        try {
+          const res = await apiFetch("/api/sales/quote-settings/discounts", {
+            method: "PUT",
+            body: JSON.stringify({
+              zebra: after.Zebra,
+              shangrila: after.SHANGRILA,
+              cellular: after["Cordless Cellular"],
+              roller: after.Roller,
+              drapery: after.Drapery,
+              sheer: after.Sheer,
+              shutters: after.Shutters,
+              honeycomb: after.SkylightHoneycomb,
+            }),
+          });
+          const body = await res.json().catch(() => null);
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: "QINGYAN_DISCOUNT_SAVE_RESULT",
+              success: res.ok,
+              error: res.ok ? null : body?.error || "保存失败",
+            },
+            "*",
+          );
+        } catch (err) {
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "QINGYAN_DISCOUNT_SAVE_RESULT", success: false, error: String(err) },
+            "*",
+          );
+        }
+        return;
+      }
+
+      // 兼容：旧版 iframe 仍会发 DISCOUNT_LOG；现在把它也当作"保存"请求
+      if (e.data?.type === "QINGYAN_DISCOUNT_LOG") {
+        const payload = e.data.payload as {
+          before: Record<string, number> | null;
+          after: Record<string, number> | null;
+        };
+        if (!payload?.after) return;
+        apiFetch("/api/sales/quote-settings/discounts", {
+          method: "PUT",
+          body: JSON.stringify({
+            zebra: payload.after.Zebra,
+            shangrila: payload.after.SHANGRILA,
+            cellular: payload.after["Cordless Cellular"],
+            roller: payload.after.Roller,
+            drapery: payload.after.Drapery,
+            sheer: payload.after.Sheer,
+            shutters: payload.after.Shutters,
+            honeycomb: payload.after.SkylightHoneycomb,
+          }),
+        }).catch(() => {
+          /* 失败 toast 由 iframe 本地控制 */
+        });
+      }
     };
-    window.addEventListener("message", logHandler);
-    return () => window.removeEventListener("message", logHandler);
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
   }, []);
 
   useEffect(() => {

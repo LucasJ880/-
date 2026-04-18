@@ -1992,9 +1992,11 @@ function discountsChanged(before, after){
 function postDiscountAudit(before, after){
   try{
     if(!window.parent || window.parent === window) return;
+    // 新语义：QINGYAN_DISCOUNT_SAVE → 父窗口 PUT /api/sales/quote-settings/discounts
+    // （服务端会 RBAC 校验 + 审计日志；非 admin 保存失败时父窗口会回 SAVE_RESULT 并触发回滚）
     window.parent.postMessage({
-      type: 'QINGYAN_DISCOUNT_LOG',
-      payload: { before, after, code: ADMIN_PIN, at: Date.now() }
+      type: 'QINGYAN_DISCOUNT_SAVE',
+      payload: { before, after, at: Date.now() }
     }, '*');
   }catch(e){}
 }
@@ -6249,6 +6251,59 @@ window._qy_collectPayload = function(){
     if(e.data.type === 'QINGYAN_INIT'){
       window.__qingyanReady = true;
       try{ showMiniToast('Connected to Qingyan ✓'); }catch(err){}
+
+      // 父窗口下发的全局折扣率优先于 localStorage（方案 B 统一数据源）
+      try{
+        if(e.data.discounts && typeof e.data.discounts === 'object'){
+          DISCOUNTS = { ...DEFAULT_DISCOUNTS, ...e.data.discounts };
+          try{ localStorage.setItem('sunny_quote_discounts_v2', JSON.stringify(DISCOUNTS)); }catch(_e){}
+          try{ applyDiscountsToData(); }catch(_e){}
+          try{ updateSubheading(); }catch(_e){}
+          try{
+            const ids = {
+              discZebra:'Zebra', discRoller:'Roller', discDrapery:'Drapery',
+              discSheer:'Sheer', discShutters:'Shutters', discSHANGRILA:'SHANGRILA',
+              discCordlessCellular:'Cordless Cellular', discSkylightHoneycomb:'SkylightHoneycomb'
+            };
+            Object.keys(ids).forEach(id => {
+              const el = document.getElementById(id);
+              if(el) el.value = Math.round((DISCOUNTS[ids[id]]||0)*100);
+            });
+          }catch(_e){}
+          try{ forceFullQuoteRecalc(); }catch(_e){}
+        }
+      }catch(err){}
+    }
+
+    // 父窗口主动推送最新折扣率（例如保存失败回滚、或热更新）
+    if(e.data.type === 'QINGYAN_DISCOUNT_PUSH' && e.data.discounts && typeof e.data.discounts === 'object'){
+      try{
+        DISCOUNTS = { ...DEFAULT_DISCOUNTS, ...e.data.discounts };
+        try{ localStorage.setItem('sunny_quote_discounts_v2', JSON.stringify(DISCOUNTS)); }catch(_e){}
+        try{ applyDiscountsToData(); }catch(_e){}
+        try{ updateSubheading(); }catch(_e){}
+        const ids = {
+          discZebra:'Zebra', discRoller:'Roller', discDrapery:'Drapery',
+          discSheer:'Sheer', discShutters:'Shutters', discSHANGRILA:'SHANGRILA',
+          discCordlessCellular:'Cordless Cellular', discSkylightHoneycomb:'SkylightHoneycomb'
+        };
+        Object.keys(ids).forEach(id => {
+          const el = document.getElementById(id);
+          if(el) el.value = Math.round((DISCOUNTS[ids[id]]||0)*100);
+        });
+        try{ forceFullQuoteRecalc(); }catch(_e){}
+      }catch(err){}
+    }
+
+    // 父窗口保存折扣率的结果回执
+    if(e.data.type === 'QINGYAN_DISCOUNT_SAVE_RESULT'){
+      if(!e.data.success){
+        try{ alert('无权修改折扣率：' + (e.data.error || '请联系管理员')); }catch(_e){}
+        // 保存失败时回滚：从父窗口重新请求一次
+        try{
+          window.parent && window.parent.postMessage({ type:'QINGYAN_DISCOUNT_REQUEST' }, '*');
+        }catch(_e){}
+      }
     }
 
     if(e.data.type === 'SAVE_RESULT'){
