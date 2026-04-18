@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { SalesRepSettingsCard } from "./sales-rep-settings-card";
 import { DiscountSettingsCard } from "./discount-settings-card";
+import { DiscountStatsCard } from "./discount-stats-card";
 
 interface FunnelItem {
   stage: string;
@@ -156,6 +157,9 @@ export default function SalesCockpitPage() {
 
       {/* 全局折扣率设置 — 销售只读，admin/super_admin 可编辑 */}
       <DiscountSettingsCard />
+
+      {/* 折扣率数统 — 按时间区间、按销售、三档平均 */}
+      <DiscountStatsCard />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">

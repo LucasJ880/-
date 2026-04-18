@@ -66,9 +66,19 @@ export function QuotesList({
                   发送邮件
                 </button>
               )}
-              <span className="text-sm font-semibold text-foreground">
-                ${q.grandTotal.toFixed(2)}
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="text-sm font-semibold text-foreground">
+                  ${q.grandTotal.toFixed(2)}
+                </span>
+                {typeof q.finalDiscountPct === "number" && q.finalDiscountPct > 0 && (
+                  <span className="text-[10px] text-orange-700 font-medium">
+                    折扣 {(q.finalDiscountPct * 100).toFixed(1)}%
+                    {typeof q.specialPromotion === "number" && q.specialPromotion > 0
+                      ? ` · 让利 $${q.specialPromotion.toFixed(0)}`
+                      : ""}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="mt-1.5 flex items-center justify-between">
