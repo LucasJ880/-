@@ -291,10 +291,10 @@ function drawHero(
   const x = MARGIN;
   let y = MARGIN;
 
-  // Logo（横版 SUNNY 原图宽高比约 2.14:1，用 34×16mm 格子）
+  // Logo（SUNNY Home Decor 官方 logo，原图 592×296，比例 2:1）
   // 若 /logo.png 缺失则此块跳过，标题区仍然好看
-  const logoW = 34;
-  const logoH = 16;
+  const logoW = 36;
+  const logoH = 18;
   if (opts.logoDataUrl) {
     try {
       doc.addImage(opts.logoDataUrl, "PNG", pageW - MARGIN - logoW, y, logoW, logoH);
