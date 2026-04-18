@@ -2266,6 +2266,24 @@ model SalesQuote {
   @@index([createdAt])
 }
 
+/// 全局报价折扣率设置（单行配置 id="singleton"）
+/// - Order Form / AI 报价工具 / 驾驶舱统一读取
+/// - 仅 admin/super_admin 可写，走 RBAC + 审计日志
+/// - 每个字段为 0~1 之间的小数，代表默认百分比折扣
+model QuoteDiscountSettings {
+  id        String   @id @default("singleton")
+  zebra     Float    @default(0.45)
+  shangrila Float    @default(0.35)
+  cellular  Float    @default(0.35)
+  roller    Float    @default(0.45)
+  drapery   Float    @default(0.35)
+  sheer     Float    @default(0.35)
+  shutters  Float    @default(0.35)
+  honeycomb Float    @default(0.35)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
 model SalesQuoteItem {
   id             String  @id @default(cuid())
   quoteId        String

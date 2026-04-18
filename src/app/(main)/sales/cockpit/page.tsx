@@ -19,6 +19,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { SalesRepSettingsCard } from "./sales-rep-settings-card";
+import { DiscountSettingsCard } from "./discount-settings-card";
 
 interface FunnelItem {
   stage: string;
@@ -152,6 +153,9 @@ export default function SalesCockpitPage() {
 
       {/* 销售个人设置 — 首次进入会高亮提示未填写 */}
       <SalesRepSettingsCard />
+
+      {/* 全局折扣率设置 — 销售只读，admin/super_admin 可编辑 */}
+      <DiscountSettingsCard />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
