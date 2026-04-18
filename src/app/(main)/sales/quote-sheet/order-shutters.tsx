@@ -8,7 +8,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
-import { computeShutterLinePrice } from "./pricing-helpers";
+import { computeShutterLinePrice, type DiscountsOverride } from "./pricing-helpers";
 
 interface Props {
   lines: ShutterOrderLine[];
@@ -20,6 +20,7 @@ interface Props {
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
   onSignatureChange?: (strokeCount: number) => void;
+  discounts?: DiscountsOverride;
 }
 
 function emptyLine(): ShutterOrderLine {
@@ -49,6 +50,7 @@ export function OrderShuttersForm({
   signatureRef,
   installMode,
   onSignatureChange,
+  discounts,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShutterOrderLine, value: unknown) => {
@@ -63,8 +65,8 @@ export function OrderShuttersForm({
   };
 
   const pricings = useMemo(
-    () => lines.map((l) => computeShutterLinePrice(l, material, installMode)),
-    [lines, material, installMode]
+    () => lines.map((l) => computeShutterLinePrice(l, material, installMode, discounts)),
+    [lines, material, installMode, discounts]
   );
   const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
   const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);

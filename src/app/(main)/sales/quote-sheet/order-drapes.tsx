@@ -9,7 +9,7 @@ import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
-import { computeDrapeLinePrice } from "./pricing-helpers";
+import { computeDrapeLinePrice, type DiscountsOverride } from "./pricing-helpers";
 
 const DRAPERY_FABRICS = getAvailableFabrics("Drapery");
 const SHEER_FABRICS = getAvailableFabrics("Sheer");
@@ -45,6 +45,7 @@ interface Props {
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
   onSignatureChange?: (strokeCount: number) => void;
+  discounts?: DiscountsOverride;
 }
 
 function emptyLine(): DrapeOrderLine {
@@ -108,7 +109,7 @@ function DimInput({
   );
 }
 
-export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, onSignatureChange }: Props) {
+export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, onSignatureChange, discounts }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof DrapeOrderLine, value: unknown) => {
       onChange(updateLineField(lines, id, field, value));
@@ -122,8 +123,8 @@ export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, on
   };
 
   const pricings = useMemo(
-    () => lines.map((l) => computeDrapeLinePrice(l, installMode)),
-    [lines, installMode]
+    () => lines.map((l) => computeDrapeLinePrice(l, installMode, discounts)),
+    [lines, installMode, discounts]
   );
   const grandTotal = pricings.reduce((s, p) => s + (p?.total ?? 0), 0);
 

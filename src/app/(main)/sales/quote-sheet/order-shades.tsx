@@ -9,7 +9,7 @@ import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
-import { computeShadeLinePrice } from "./pricing-helpers";
+import { computeShadeLinePrice, type DiscountsOverride } from "./pricing-helpers";
 import { SkuSelect } from "./sku-select";
 
 const SHADE_PRODUCTS: ProductName[] = [
@@ -60,6 +60,7 @@ interface Props {
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
   onSignatureChange?: (strokeCount: number) => void;
+  discounts?: DiscountsOverride;
 }
 
 function emptyLine(): ShadeOrderLine {
@@ -90,6 +91,7 @@ export function OrderShadesForm({
   signatureRef,
   installMode,
   onSignatureChange,
+  discounts,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShadeOrderLine, value: unknown) => {
@@ -105,8 +107,8 @@ export function OrderShadesForm({
   };
 
   const pricings = useMemo(
-    () => lines.map((l) => computeShadeLinePrice(l, installMode)),
-    [lines, installMode]
+    () => lines.map((l) => computeShadeLinePrice(l, installMode, discounts)),
+    [lines, installMode, discounts]
   );
   const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
   const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);

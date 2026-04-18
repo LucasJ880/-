@@ -54,6 +54,7 @@ import {
   sumShadeTotals,
   sumShutterTotals,
   sumDrapeTotals,
+  type DiscountsOverride,
 } from "./pricing-helpers";
 import { fractionToInches } from "./types";
 import { exportQuotePdf, loadLogoAsDataUrl } from "./quote-pdf";
@@ -247,6 +248,31 @@ export default function QuoteSheetPage() {
     })();
   }, []);
 
+  // 拉取全局折扣率（Order Form / AI 工具 共用数据源）
+  const [discounts, setDiscounts] = useState<DiscountsOverride | undefined>(undefined);
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiJson<{
+          zebra: number; shangrila: number; cellular: number; roller: number;
+          drapery: number; sheer: number; shutters: number; honeycomb: number;
+        }>("/api/sales/quote-settings/discounts");
+        setDiscounts({
+          Zebra: d.zebra,
+          SHANGRILA: d.shangrila,
+          "Cordless Cellular": d.cellular,
+          Roller: d.roller,
+          Drapery: d.drapery,
+          Sheer: d.sheer,
+          Shutters: d.shutters,
+          SkylightHoneycomb: d.honeycomb,
+        });
+      } catch {
+        // 拉取失败时 undefined，pricing-helpers 会 fallback 到内置 DEFAULT_DISCOUNTS
+      }
+    })();
+  }, []);
+
   const handleCustomerSelect = useCallback(async (id: string) => {
     setCustomerId(id);
     setLastSaved(null);
@@ -287,16 +313,16 @@ export default function QuoteSheetPage() {
   );
   // 新主档：三个电子订单表的小计
   const shadeTotals = useMemo(
-    () => sumShadeTotals(shadeOrders, installMode),
-    [shadeOrders, installMode]
+    () => sumShadeTotals(shadeOrders, installMode, discounts),
+    [shadeOrders, installMode, discounts]
   );
   const shutterTotals = useMemo(
-    () => sumShutterTotals(shutterOrders, shutterMaterial, installMode),
-    [shutterOrders, shutterMaterial, installMode]
+    () => sumShutterTotals(shutterOrders, shutterMaterial, installMode, discounts),
+    [shutterOrders, shutterMaterial, installMode, discounts]
   );
   const drapeTotals = useMemo(
-    () => sumDrapeTotals(drapeOrders, installMode),
-    [drapeOrders, installMode]
+    () => sumDrapeTotals(drapeOrders, installMode, discounts),
+    [drapeOrders, installMode, discounts]
   );
   const productsSubtotal =
     shadeTotals.total + shutterTotals.total + drapeTotals.total;
@@ -576,6 +602,7 @@ export default function QuoteSheetPage() {
       financeApproved,
       signatureDataUrl,
       logoDataUrl,
+      discounts,
     });
   }, [
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
@@ -583,6 +610,7 @@ export default function QuoteSheetPage() {
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
+    discounts,
   ]);
 
   /**
@@ -956,19 +984,22 @@ export default function QuoteSheetPage() {
             valanceType={shadeValanceType} onValanceTypeChange={setShadeValanceType}
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
             signatureRef={sigShadesRef} installMode={installMode}
-            onSignatureChange={setSigShadesCount} />
+            onSignatureChange={setSigShadesCount}
+            discounts={discounts} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
             material={shutterMaterial} onMaterialChange={setShutterMaterial}
             louverSize={shutterLouverSize} onLouverSizeChange={setShutterLouverSize}
             signatureRef={sigShuttersRef} installMode={installMode}
-            onSignatureChange={setSigShuttersCount} />
+            onSignatureChange={setSigShuttersCount}
+            discounts={discounts} />
         )}
         {activeTab === "drapes" && (
           <OrderDrapesForm lines={drapeOrders} onChange={setDrapeOrders}
             signatureRef={sigDrapesRef} installMode={installMode}
-            onSignatureChange={setSigDrapesCount} />
+            onSignatureChange={setSigDrapesCount}
+            discounts={discounts} />
         )}
       </div>
 

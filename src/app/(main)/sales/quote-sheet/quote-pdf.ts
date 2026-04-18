@@ -34,6 +34,7 @@ import {
   computeShutterLinePrice,
   computeDrapeLinePrice,
   type SectionTotals,
+  type DiscountsOverride,
 } from "./pricing-helpers";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 
@@ -233,6 +234,7 @@ export interface QuotePdfInput {
   financeApproved: string;
   signatureDataUrl?: string | null; // Part B 签名（可选）
   logoDataUrl?: string | null; // 公司 Logo（可选，加载失败时用文字 logo 降级）
+  discounts?: DiscountsOverride; // 来自全局折扣率设置（缺省使用 pricing-data.ts 内置默认）
 }
 
 // ── 工具：加载 /logo.png（客户端调用，失败时返回 null） ───────────────
@@ -592,15 +594,15 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
 
   // 计算线项数量
   const filledShades = input.shadeOrders.filter((l) => {
-    const p = computeShadeLinePrice(l, input.installMode);
+    const p = computeShadeLinePrice(l, input.installMode, input.discounts);
     return p && !p.error && (l.location || l.sku);
   });
   const filledShutters = input.shutterOrders.filter((l) => {
-    const p = computeShutterLinePrice(l, input.shutterMaterial, input.installMode);
+    const p = computeShutterLinePrice(l, input.shutterMaterial, input.installMode, input.discounts);
     return p && !p.error && (l.location || l.widthWhole);
   });
   const filledDrapes = input.drapeOrders.filter((l) => {
-    const p = computeDrapeLinePrice(l, input.installMode);
+    const p = computeDrapeLinePrice(l, input.installMode, input.discounts);
     return p && !p.error && (l.location || l.drapeFabricSku || l.sheerFabricSku);
   });
   const lineItemCount =
@@ -790,7 +792,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
       startY: ctx.y,
       head: [["#", "Room", "Product", "SKU", "W\"", "H\"", "Mount/Lift", "Merch", "Install", "Line"]],
       body: filledShades.map((l, i) => {
-        const p = computeShadeLinePrice(l, input.installMode);
+        const p = computeShadeLinePrice(l, input.installMode, input.discounts);
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
         return [
@@ -828,7 +830,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
       startY: ctx.y,
       head: [["#", "Room", "W\"", "H\"", "Frame", "Mount", "Panels", "Merch", "Install", "Line"]],
       body: filledShutters.map((l, i) => {
-        const p = computeShutterLinePrice(l, input.shutterMaterial, input.installMode);
+        const p = computeShutterLinePrice(l, input.shutterMaterial, input.installMode, input.discounts);
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
         return [
@@ -860,7 +862,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     drawSectionBanner(ctx, "Drapes & Sheers");
     const drapeRows: (string | number)[][] = [];
     filledDrapes.forEach((l, i) => {
-      const p = computeDrapeLinePrice(l, input.installMode)!;
+      const p = computeDrapeLinePrice(l, input.installMode, input.discounts)!;
       if (p.drapeMerch > 0 || (l.drapeFabricSku && l.drapeWidthWhole)) {
         const w = fractionToInches(l.drapeWidthWhole, l.drapeWidthFrac);
         const h = fractionToInches(l.drapeHeightWhole, l.drapeHeightFrac);
