@@ -52,11 +52,9 @@ import {
   sumShadeTotals,
   sumShutterTotals,
   sumDrapeTotals,
-  computeShadeLinePrice,
-  computeShutterLinePrice,
-  computeDrapeLinePrice,
 } from "./pricing-helpers";
 import { fractionToInches } from "./types";
+import { exportQuotePdf, loadLogoAsDataUrl } from "./quote-pdf";
 
 // Part A 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含 Part A。
@@ -439,318 +437,53 @@ export default function QuoteSheetPage() {
     }
   }, [lastSaved?.quoteId, customerEmail]);
 
-  // PDF export
+  // PDF export — 委托给 ./quote-pdf 模块（橙色品牌四页式设计）
   const handleExportPDF = useCallback(async () => {
-    const { default: jsPDF } = await import("jspdf");
-    const { default: autoTable } = await import("jspdf-autotable");
-
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
-    const pageW = doc.internal.pageSize.getWidth();
-    const margin = 12;
-    let y = 15;
-
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("SUNNY SHUTTER INC.", margin, y);
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text("2-680 Progress Avenue, Scarborough, ON, M1H 3A5", margin, y + 5);
-    doc.text("Tel: 647-85-SUNNY(78669) | www.sunnyshutter.ca", margin, y + 9);
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Order: ${orderNumber}`, pageW - margin - 60, y);
-    doc.text(`Date: ${date}`, pageW - margin - 60, y + 5);
-    doc.text(`Customer: ${customerName}`, pageW - margin - 60, y + 10);
-    if (salesRep) doc.text(`Sales Rep: ${salesRep}`, pageW - margin - 60, y + 15);
-    y += 22;
-
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Address: ${customerAddress}`, margin, y);
-    doc.text(`Phone: ${customerPhone}   Email: ${customerEmail}`, margin, y + 4);
-    y += 10;
-
-    // 每段如果空间不够会自动 addPage；这里统一通过 lastAutoTable.finalY 跟踪
-    const getLastY = () =>
-      (doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y;
-
-    const maybePageBreak = (needed: number) => {
-      const pageH = doc.internal.pageSize.getHeight();
-      if (y + needed > pageH - 20) {
-        doc.addPage();
-        y = 15;
-      }
-    };
-
-    // ── Shades ──
-    const filledShades = shadeOrders
-      .map((l) => {
-        const p = computeShadeLinePrice(l, installMode);
-        return { l, p };
-      })
-      .filter(({ l, p }) => p && !p.error && (l.location || l.sku));
-
-    if (filledShades.length > 0) {
-      maybePageBreak(30);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text("SHADES", margin, y);
-      y += 2;
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        headStyles: { fillColor: [0, 128, 128], fontSize: 6 },
-        bodyStyles: { fontSize: 6 },
-        head: [["#", "Room", "Product", "SKU", "W\"", "H\"", "Mount/Lift/Brk", "Valance", "Merch", "Install", "Line"]],
-        body: filledShades.map(({ l, p }, i) => {
-          const w = fractionToInches(l.widthWhole, l.widthFrac);
-          const h = fractionToInches(l.heightWhole, l.heightFrac);
-          return [
-            i + 1,
-            l.location,
-            l.product,
-            l.sku,
-            w.toFixed(2),
-            h.toFixed(2),
-            [l.mount, l.lift, l.bracket].filter(Boolean).join("/"),
-            l.valance,
-            `$${p!.merch.toFixed(2)}`,
-            `$${p!.install.toFixed(2)}`,
-            `$${p!.total.toFixed(2)}`,
-          ];
-        }),
-      });
-      y = getLastY();
-      y += 2;
-      doc.setFontSize(9);
-      doc.text(`SHADES SUBTOTAL: ${formatCAD(shadeTotals.total)}`, pageW - margin - 60, y);
-      y += 8;
-    }
-
-    // ── Shutters ──
-    const filledShutters = shutterOrders
-      .map((l) => {
-        const p = computeShutterLinePrice(l, shutterMaterial, installMode);
-        return { l, p };
-      })
-      .filter(({ l, p }) => p && !p.error && (l.location || l.widthWhole));
-
-    if (filledShutters.length > 0) {
-      maybePageBreak(30);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text(`SHUTTERS (${shutterMaterial}, Louver ${shutterLouverSize})`, margin, y);
-      y += 2;
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        headStyles: { fillColor: [0, 128, 128], fontSize: 6 },
-        bodyStyles: { fontSize: 6 },
-        head: [["#", "Room", "W\"", "H\"", "Frame", "Open", "Mount", "Panels", "Mid", "Merch", "Install", "Line"]],
-        body: filledShutters.map(({ l, p }, i) => {
-          const w = fractionToInches(l.widthWhole, l.widthFrac);
-          const h = fractionToInches(l.heightWhole, l.heightFrac);
-          return [
-            i + 1,
-            l.location,
-            w.toFixed(2),
-            h.toFixed(2),
-            l.frame,
-            l.openDirection,
-            l.mountType,
-            l.panelCount ?? "",
-            l.midRail ? "Y" : "",
-            `$${p!.merch.toFixed(2)}`,
-            `$${p!.install.toFixed(2)}`,
-            `$${p!.total.toFixed(2)}`,
-          ];
-        }),
-      });
-      y = getLastY();
-      y += 2;
-      doc.setFontSize(9);
-      doc.text(`SHUTTERS SUBTOTAL: ${formatCAD(shutterTotals.total)}`, pageW - margin - 60, y);
-      y += 8;
-    }
-
-    // ── Drapes ──
-    const filledDrapes = drapeOrders
-      .map((l) => {
-        const p = computeDrapeLinePrice(l, installMode);
-        return { l, p };
-      })
-      .filter(({ l, p }) => p && !p.error && (l.location || l.drapeFabricSku || l.sheerFabricSku));
-
-    if (filledDrapes.length > 0) {
-      maybePageBreak(30);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text("DRAPES & SHEERS", margin, y);
-      y += 2;
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        headStyles: { fillColor: [0, 128, 128], fontSize: 6 },
-        bodyStyles: { fontSize: 6 },
-        head: [["#", "Room", "Type", "SKU", "W\"", "H\"", "Pleat/Fullness", "Merch", "Install"]],
-        body: filledDrapes.flatMap(({ l, p }, i) => {
-          const rows: (string | number)[][] = [];
-          if (p!.drapeMerch > 0 || (l.drapeFabricSku && l.drapeWidthWhole)) {
-            const w = fractionToInches(l.drapeWidthWhole, l.drapeWidthFrac);
-            const h = fractionToInches(l.drapeHeightWhole, l.drapeHeightFrac);
-            rows.push([
-              i + 1,
-              l.location,
-              "Drape",
-              l.drapeFabricSku,
-              w.toFixed(2),
-              h.toFixed(2),
-              `${l.drapePleatStyle}/${l.drapeFullness}% ${l.drapePanels === "D" ? "Double" : "Single"}`,
-              `$${p!.drapeMerch.toFixed(2)}`,
-              `$${p!.drapeInstall.toFixed(2)}`,
-            ]);
-          }
-          if (p!.sheerMerch > 0 || (l.sheerFabricSku && l.sheerWidthWhole)) {
-            const w = fractionToInches(l.sheerWidthWhole, l.sheerWidthFrac);
-            const h = fractionToInches(l.sheerHeightWhole, l.sheerHeightFrac);
-            rows.push([
-              i + 1,
-              l.location,
-              "Sheer",
-              l.sheerFabricSku,
-              w.toFixed(2),
-              h.toFixed(2),
-              `${l.sheerPleatStyle}/${l.sheerFullness}% ${l.sheerPanels === "D" ? "Double" : "Single"}`,
-              `$${p!.sheerMerch.toFixed(2)}`,
-              `$${p!.sheerInstall.toFixed(2)}`,
-            ]);
-          }
-          return rows;
-        }),
-      });
-      y = getLastY();
-      y += 2;
-      doc.setFontSize(9);
-      doc.text(`DRAPES SUBTOTAL: ${formatCAD(drapeTotals.total)}`, pageW - margin - 60, y);
-      y += 8;
-    }
-
-    // Part B
-    if (partBAddons.length > 0) {
-      maybePageBreak(30);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text("PART B — Add-ons", margin, y);
-      y += 2;
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        headStyles: { fillColor: [0, 128, 128], fontSize: 7 },
-        bodyStyles: { fontSize: 7 },
-        head: [["SKU / Item", "QTY", "Price", "Total"]],
-        body: partBAddons.map((a) => [a.skuItem, a.qty, `$${a.price.toFixed(2)}`, `$${a.total.toFixed(2)}`]),
-      });
-      y = getLastY();
-      y += 2;
-      doc.setFontSize(9);
-      doc.text(`SUBTOTAL (B): ${formatCAD(subtotalB)}`, pageW - margin - 60, y);
-      y += 8;
-    }
-
-    // Part C — Installation
-    const activeServices = partCServices.filter((s) => s.qty > 0);
-    const activeAddOns = partCAddOns.filter((a) => a.qty > 0);
-    if (installMode !== "pickup" && (activeServices.length > 0 || activeAddOns.length > 0)) {
-      maybePageBreak(30);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text("PART C — Installation Services", margin, y);
-      y += 2;
-      const rows: (string | number)[][] = [];
-      activeServices.forEach((s) =>
-        rows.push([s.type, s.qty, `$${s.unitPrice.toFixed(2)}`, `$${s.total.toFixed(2)}`]),
-      );
-      activeAddOns.forEach((a) =>
-        rows.push([a.type, a.qty, `$${a.unitPrice.toFixed(2)}`, `$${a.total.toFixed(2)}`]),
-      );
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        headStyles: { fillColor: [0, 128, 128], fontSize: 7 },
-        bodyStyles: { fontSize: 7 },
-        head: [["Service", "QTY", "Unit Price", "Total"]],
-        body: rows,
-      });
-      y = getLastY();
-      y += 2;
-      doc.setFontSize(9);
-      doc.text(`SUBTOTAL (C): ${formatCAD(subtotalC)}`, pageW - margin - 60, y);
-      y += 8;
-    }
-
-    // Totals
-    const pdfPreTax = productsSubtotal + subtotalB + subtotalC;
-    const pdfHst = Math.round(pdfPreTax * HST_RATE * 100) / 100;
-    const pdfTotal = pdfPreTax + pdfHst;
-
-    maybePageBreak(40);
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.text(`PRODUCTS (Shades+Shutters+Drapes): ${formatCAD(productsSubtotal)}`, margin, y); y += 5;
-    doc.text(`SUBTOTAL (B): ${formatCAD(subtotalB)}`, margin, y); y += 5;
-    doc.text(`SUBTOTAL (C): ${formatCAD(subtotalC)}`, margin, y); y += 5;
-    doc.text(`HST (13%): ${formatCAD(pdfHst)}`, margin, y); y += 5;
-    doc.setFontSize(12);
-    doc.text(`TOTAL: ${formatCAD(pdfTotal)}`, margin, y); y += 8;
-
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    if (paymentMethod === "direct") {
-      doc.text(`Payment: Direct — Deposit: ${depositAmount} / Balance: ${balanceAmount}`, margin, y);
-    } else {
-      doc.text(`Payment: Financeit — Eligible: ${financeEligible} / Approved: ${financeApproved}`, margin, y);
-    }
-    y += 6;
-
+    const logoDataUrl = await loadLogoAsDataUrl("/logo.png");
+    let signatureDataUrl: string | null = null;
     try {
-      const sigData = sigPartBRef.current?.toDataURL();
-      if (sigData) {
-        doc.text("Signature:", margin, y);
-        doc.addImage(sigData, "PNG", margin, y + 1, 60, 15);
-      }
-    } catch { /* no sig */ }
+      signatureDataUrl = sigPartBRef.current?.toDataURL() ?? null;
+    } catch {
+      signatureDataUrl = null;
+    }
 
-    // Terms page
-    doc.addPage();
-    y = 15;
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text("Sunny Shutter Inc. - Key Terms of Service Agreement", margin, y);
-    y += 7;
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "normal");
-    const terms = [
-      "Validity of this quote: 15 days from the date of issuance.",
-      "2-hour delivery window will be provided 2 days before the scheduled date.",
-      "Rescheduling must be requested at least 3 business days before the scheduled date.",
-      "The normal lead time for custom items is approximately 3-4 weeks.",
-      "Installation will only be scheduled after the entire balance is received.",
-      "Custom-made items, returns or exchanges are only accepted if the product is defective.",
-      "Our products are designed to fit standard, straight window frames.",
-    ];
-    terms.forEach((t) => {
-      doc.text(`• ${t}`, margin, y, { maxWidth: pageW - margin * 2 });
-      y += 5;
+    await exportQuotePdf({
+      orderNumber,
+      date,
+      customerName,
+      customerPhone,
+      customerEmail,
+      customerAddress,
+      salesRep,
+      installMode,
+      shadeOrders,
+      shutterOrders,
+      shutterMaterial,
+      shutterLouverSize,
+      drapeOrders,
+      partBAddons,
+      partCServices,
+      partCAddOns,
+      subtotalB,
+      subtotalC,
+      shadeTotals,
+      shutterTotals,
+      drapeTotals,
+      productsSubtotal,
+      paymentMethod,
+      depositAmount,
+      balanceAmount,
+      financeEligible,
+      financeApproved,
+      signatureDataUrl,
+      logoDataUrl,
     });
-
-    doc.save(`Quote_${orderNumber || "draft"}_${date}.pdf`);
   }, [
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
     salesRep, partBAddons, subtotalB, paymentMethod, depositAmount,
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
-    installMode, productsSubtotal, shadeTotals.total, shutterTotals.total, drapeTotals.total,
+    installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
   ]);
 
   /**
