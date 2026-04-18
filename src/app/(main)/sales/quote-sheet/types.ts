@@ -135,7 +135,11 @@ export interface ShutterOrderLine {
   frame: string;
   openDirection: string;
   mountType: string;
-  midRail: boolean;
+  /**
+   * Mid Rail —— 自由输入（高度/数量/备注等），空串表示无
+   * 变更前为 boolean 勾选，现改为字符串以支持描述具体位置/数量
+   */
+  midRail: string;
   panelCount: number | null;
   draft: string;
 }

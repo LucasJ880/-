@@ -120,7 +120,7 @@ function makeShutterLines(count: number): ShutterOrderLine[] {
   return Array.from({ length: count }, () => ({
     id: crypto.randomUUID(), location: "", widthWhole: "", widthFrac: "0",
     heightWhole: "", heightFrac: "0", frame: "", openDirection: "",
-    mountType: "", midRail: false, panelCount: null, draft: "",
+    mountType: "", midRail: "", panelCount: null, draft: "",
   }));
 }
 
@@ -409,7 +409,18 @@ export default function QuoteSheetPage() {
     setPartCServices(d.partCServices);
     setPartCAddOns(d.partCAddOns);
     setShadeOrders(d.shadeOrders);
-    setShutterOrders(d.shutterOrders);
+    // midRail 历史为 boolean，现统一为 string；兼容老草稿
+    setShutterOrders(
+      d.shutterOrders.map((l) => ({
+        ...l,
+        midRail:
+          typeof l.midRail === "string"
+            ? l.midRail
+            : l.midRail
+              ? "Yes"
+              : "",
+      })),
+    );
     setDrapeOrders(d.drapeOrders);
     setShutterMaterial(d.shutterMaterial);
     setShutterLouverSize(d.shutterLouverSize);

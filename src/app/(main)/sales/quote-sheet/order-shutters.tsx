@@ -34,7 +34,7 @@ function emptyLine(): ShutterOrderLine {
     frame: "",
     openDirection: "",
     mountType: "",
-    midRail: false,
+    midRail: "",
     panelCount: null,
     draft: "",
   };
@@ -145,7 +145,7 @@ export function OrderShuttersForm({
               <th className="px-2 py-2 text-left w-20">Frame</th>
               <th className="px-2 py-2 text-left w-20">Open Dir</th>
               <th className="px-2 py-2 text-center w-16">Mount</th>
-              <th className="px-2 py-2 text-center w-16">Mid Rail</th>
+              <th className="px-2 py-2 text-center w-24">Mid Rail</th>
               <th className="px-2 py-2 text-center w-16"># Panels</th>
               <th className="px-2 py-2 text-left min-w-[80px]">Draft</th>
               <th className="px-2 py-2 text-right w-28">Price</th>
@@ -245,12 +245,13 @@ export function OrderShuttersForm({
                     <option value="O">Outside</option>
                   </select>
                 </td>
-                <td className="px-1 py-0.5 text-center">
+                <td className="px-1 py-0.5">
                   <input
-                    type="checkbox"
-                    checked={line.midRail}
-                    onChange={(e) => updateLine(line.id, "midRail", e.target.checked)}
-                    className="h-5 w-5 rounded border-muted-foreground"
+                    type="text"
+                    value={line.midRail}
+                    onChange={(e) => updateLine(line.id, "midRail", e.target.value)}
+                    className="w-full bg-transparent border-0 outline-none text-xs text-center min-h-[44px]"
+                    placeholder="—"
                   />
                 </td>
                 <td className="px-1 py-0.5">
