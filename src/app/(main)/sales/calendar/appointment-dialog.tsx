@@ -56,11 +56,15 @@ interface Appointment {
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof Ruler }> = {
+  // measure 保留以正确渲染历史记录；新建入口已从下拉选项中剔除（见 CREATE_TYPE_OPTIONS）
   measure: { label: "量房", color: "bg-blue-500", icon: Ruler },
   install: { label: "安装", color: "bg-emerald-500", icon: Wrench },
   revisit: { label: "回访", color: "bg-purple-500", icon: RotateCcw },
   consultation: { label: "咨询", color: "bg-orange-500", icon: MessageSquare },
 };
+
+// 新建预约可选类型（不含 measure —— 现场量房已下线，统一走『电子报价单』）
+const CREATE_TYPE_KEYS: string[] = ["install", "revisit", "consultation"];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   scheduled: { label: "已排期", color: "bg-blue-100 text-blue-700" },
@@ -395,7 +399,7 @@ export function CreateAppointmentDialog({
   const [form, setForm] = useState({
     customerId: "",
     title: "",
-    type: "measure",
+    type: "install",
     startAt: "",
     endAt: "",
     address: "",
@@ -431,7 +435,7 @@ export function CreateAppointmentDialog({
       customerId: cid,
       address: c?.address || f.address,
       contactPhone: c?.phone || f.contactPhone,
-      title: f.title || `${c?.name ?? ""} 量房`,
+      title: f.title || `${c?.name ?? ""} 预约`,
     }));
   };
 
@@ -444,7 +448,7 @@ export function CreateAppointmentDialog({
         body: JSON.stringify(form),
       });
       onCreated();
-      setForm({ customerId: "", title: "", type: "measure", startAt: "", endAt: "", address: "", contactPhone: "", description: "" });
+      setForm({ customerId: "", title: "", type: "install", startAt: "", endAt: "", address: "", contactPhone: "", description: "" });
     } finally {
       setSaving(false);
     }
@@ -478,8 +482,8 @@ export function CreateAppointmentDialog({
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
                 className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
               >
-                {Object.entries(TYPE_CONFIG).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
+                {CREATE_TYPE_KEYS.map((k) => (
+                  <option key={k} value={k}>{TYPE_CONFIG[k].label}</option>
                 ))}
               </select>
             </div>
@@ -489,7 +493,7 @@ export function CreateAppointmentDialog({
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
-                placeholder="如：张先生 量房"
+                placeholder="如：张先生 安装"
               />
             </div>
           </div>

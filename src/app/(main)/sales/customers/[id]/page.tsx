@@ -12,7 +12,6 @@ import {
   Plus,
   Upload,
   Loader2,
-  Ruler,
   CalendarDays,
   ChevronDown,
   Sparkles,
@@ -235,13 +234,7 @@ export default function CustomerDetailPage() {
             </div>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link
-              href={`/sales/calendar?customerId=${customer.id}&action=new&type=measure`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
-            >
-              <Ruler size={13} />
-              预约量房
-            </Link>
+            {/* 现场量房入口已下线，统一走『电子报价单』 */}
             <Link
               href={`/sales/calendar?customerId=${customer.id}&action=new&type=install`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"

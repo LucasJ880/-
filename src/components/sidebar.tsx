@@ -76,7 +76,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/sales/quote-sheet", labelKey: "nav_quote_sheet", icon: FileText, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/quotes", labelKey: "nav_all_quotes", icon: ScrollText, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/calendar", labelKey: "nav_appointment_calendar", icon: CalendarDays, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/measure", labelKey: "nav_field_measure", icon: ClipboardList, roles: ["admin", "super_admin", "sales"] },
+      // 现场量房入口已下线（功能被电子报价单取代），保留页面 & API 供历史数据访问
+      // { href: "/sales/measure", labelKey: "nav_field_measure", icon: ClipboardList, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/cockpit", labelKey: "nav_cockpit", icon: BarChart3, roles: ["admin", "super_admin", "sales"] },
       { href: "/blinds-orders", labelKey: "nav_work_orders", icon: ClipboardList, roles: ["admin", "super_admin", "sales"], badgeKey: "sidebar_badge_industry" },
       { href: "/inventory", labelKey: "nav_fabric_inventory", icon: Package, roles: ["admin", "super_admin"] },

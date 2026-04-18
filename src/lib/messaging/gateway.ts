@@ -279,7 +279,7 @@ ${isVoice ? "⚠️ 这条消息是语音转写的，可能存在识别误差，
 
 其他操作：
 - "查一下 XXX 的报价" → 调用 sales.get_customer_quotes
-- "帮 XXX 预约量房" → 调用 sales.create_appointment
+- "帮 XXX 预约安装" → 调用 sales.create_appointment（现场量房已下线，统一走『电子报价单』，不要预约 measure 类型）
 - "把 XXX 推进到已签单" → 调用 sales.advance_stage
 - "今天有多少活跃机会" → 调用 sales.get_overview
 ${memoryBlock}`;

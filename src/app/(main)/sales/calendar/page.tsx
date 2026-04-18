@@ -330,12 +330,11 @@ export default function SalesCalendarPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         {[
           { label: "今日日程", value: todayAppts.length + todayGEvents.length, color: "text-blue-600" },
           { label: "本月预约", value: appointments.length, color: "text-emerald-600" },
           { label: "Google 事件", value: googleEvents.length, color: "text-indigo-600" },
-          { label: "待量房", value: appointments.filter((a) => a.type === "measure" && a.status === "scheduled").length, color: "text-orange-600" },
           { label: "待安装", value: appointments.filter((a) => a.type === "install" && a.status === "scheduled").length, color: "text-purple-600" },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-white/60 p-4">

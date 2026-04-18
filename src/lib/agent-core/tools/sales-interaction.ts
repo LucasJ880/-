@@ -228,7 +228,7 @@ registry.register({
 registry.register({
   name: "sales_create_appointment",
   description:
-    "为客户创建预约（量房、安装、回访、咨询）。支持通过客户姓名搜索。",
+    "为客户创建预约（安装、回访、咨询）。支持通过客户姓名搜索。",
   domain: "sales",
   parameters: {
     type: "object",
@@ -237,7 +237,7 @@ registry.register({
       customerId: { type: "string", description: "客户ID" },
       type: {
         type: "string",
-        description: "预约类型：measure / install / revisit / consultation",
+        description: "预约类型：install / revisit / consultation（量房已下线，不要使用 measure）",
       },
       startAt: { type: "string", description: "开始时间，ISO 8601 格式" },
       endAt: { type: "string", description: "结束时间（可选）" },
