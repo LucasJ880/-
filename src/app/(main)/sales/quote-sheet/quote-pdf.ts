@@ -291,11 +291,13 @@ function drawHero(
   const x = MARGIN;
   let y = MARGIN;
 
-  // Logo 或文字 logo
-  const logoSize = 18;
+  // Logo（横版 SUNNY 原图宽高比约 2.14:1，用 34×16mm 格子）
+  // 若 /logo.png 缺失则此块跳过，标题区仍然好看
+  const logoW = 34;
+  const logoH = 16;
   if (opts.logoDataUrl) {
     try {
-      doc.addImage(opts.logoDataUrl, "PNG", pageW - MARGIN - logoSize, y, logoSize, logoSize);
+      doc.addImage(opts.logoDataUrl, "PNG", pageW - MARGIN - logoW, y, logoW, logoH);
     } catch {
       /* ignore logo fail */
     }
@@ -312,11 +314,12 @@ function drawHero(
   doc.setFontSize(13);
   doc.text(opts.subtitle.toUpperCase(), x, y + 17);
 
-  // Description
+  // Description（避开右上 logo 区域）
   setText(doc, PDF_TOKENS.textMuted);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  const descLines = doc.splitTextToSize(opts.description, pageW - MARGIN * 2 - logoSize - 4);
+  const descMaxW = pageW - MARGIN * 2 - logoW - 4;
+  const descLines = doc.splitTextToSize(opts.description, descMaxW);
   doc.text(descLines, x, y + 24);
 
   ctx.y = y + 24 + descLines.length * 3.5 + 4;
@@ -711,9 +714,13 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   };
 
   // 渲染产品规范条款（对应原纸质 Order Form 第 2 页）
-  // 仅当该产品有有效 line 时才调用；放在小计之后、下一个产品之前
+  // 仅当该产品有有效 line 时才调用；每段规范强制另起一页（对齐纸质订单第 2 页的视觉节奏）
   const renderSpecsSection = (spec: ProductSpec) => {
-    maybePageBreak(35);
+    // 规范始终从新页开始：先结束当前页的页脚，再换页
+    drawPageFooter(ctx, doc.getNumberOfPages(), 4);
+    doc.addPage();
+    ctx.y = MARGIN;
+
     drawSectionBanner(ctx, spec.title);
 
     if (spec.intro) {
