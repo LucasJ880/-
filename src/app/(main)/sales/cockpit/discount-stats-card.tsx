@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
-import { Percent, Calendar, Users, Loader2, TrendingDown } from "lucide-react";
+import { Percent, Calendar, Users, Loader2, TrendingDown, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 /**
@@ -42,9 +42,65 @@ interface DiscountStatsDto {
   salesRepId: string | null;
   isAdmin: boolean;
   total: { count: number; avgDiscountPct: number; totalSignedValue: number };
+  prev: {
+    from: string;
+    to: string;
+    count: number;
+    avgDiscountPct: number;
+    totalSignedValue: number;
+  };
   tiers: TierStats[];
   salesReps: RepStats[];
   repOptions: RepOption[];
+}
+
+/**
+ * 环比角标
+ * direction: "higher-is-better"（成单额/成单数 —— ↑ 绿 ↓ 红）
+ *            "lower-is-better" （折扣率 —— ↑ 红 ↓ 绿）
+ */
+function DeltaBadge({
+  current,
+  prev,
+  isPct,
+  direction,
+}: {
+  current: number;
+  prev: number;
+  isPct?: boolean;
+  direction: "higher-is-better" | "lower-is-better";
+}) {
+  if (prev === 0) {
+    return current === 0 ? (
+      <span className="text-[10px] text-muted-foreground">—</span>
+    ) : (
+      <span className="text-[10px] font-medium text-emerald-600">新</span>
+    );
+  }
+
+  const diff = isPct ? (current - prev) * 100 : ((current - prev) / Math.abs(prev)) * 100;
+  const abs = Math.abs(diff);
+  if (abs < 0.05) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+        <Minus size={10} /> 持平
+      </span>
+    );
+  }
+  const up = diff > 0;
+  const good = direction === "higher-is-better" ? up : !up;
+  const Icon = up ? ArrowUp : ArrowDown;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 text-[10px] font-semibold",
+        good ? "text-emerald-600" : "text-red-600",
+      )}
+    >
+      <Icon size={10} />
+      {isPct ? `${abs.toFixed(1)}pp` : `${abs.toFixed(1)}%`}
+    </span>
+  );
 }
 
 function formatDate(d: Date): string {
@@ -151,17 +207,39 @@ export function DiscountStatsCard() {
           {/* 总览 */}
           <div className="mb-4 grid grid-cols-3 gap-3">
             <div className="rounded-lg bg-orange-50 p-3">
-              <div className="text-[10px] text-orange-700 font-medium">区间成单数</div>
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-orange-700 font-medium">区间成单数</div>
+                <DeltaBadge
+                  current={data.total.count}
+                  prev={data.prev.count}
+                  direction="higher-is-better"
+                />
+              </div>
               <div className="text-lg font-bold text-orange-700">{data.total.count}</div>
             </div>
             <div className="rounded-lg bg-emerald-50 p-3">
-              <div className="text-[10px] text-emerald-700 font-medium">累计成交额（含税）</div>
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-emerald-700 font-medium">累计成交额（含税）</div>
+                <DeltaBadge
+                  current={data.total.totalSignedValue}
+                  prev={data.prev.totalSignedValue}
+                  direction="higher-is-better"
+                />
+              </div>
               <div className="text-lg font-bold text-emerald-700">
                 ${data.total.totalSignedValue.toLocaleString()}
               </div>
             </div>
             <div className="rounded-lg bg-slate-50 p-3">
-              <div className="text-[10px] text-slate-700 font-medium">整体平均折扣率</div>
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-slate-700 font-medium">整体平均折扣率</div>
+                <DeltaBadge
+                  current={data.total.avgDiscountPct}
+                  prev={data.prev.avgDiscountPct}
+                  isPct
+                  direction="lower-is-better"
+                />
+              </div>
               <div className="text-lg font-bold text-slate-700">
                 <Percent size={14} className="inline -mt-0.5" />
                 {(data.total.avgDiscountPct * 100).toFixed(1)}
@@ -228,6 +306,11 @@ export function DiscountStatsCard() {
 
       <p className="mt-4 text-[10px] text-muted-foreground">
         折扣率 = 1 − (产品实付 − Special Promotion) / 产品 MSRP；分档按含税成交额。
+        {data && (
+          <span className="ml-1">
+            环比区间：{data.prev.from.slice(0, 10)} ~ {data.prev.to.slice(0, 10)}
+          </span>
+        )}
       </p>
     </div>
   );

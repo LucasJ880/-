@@ -4,7 +4,7 @@ import { useCallback, useMemo } from "react";
 import type { PartBAddon, PaymentMethod } from "./types";
 import { HST_RATE } from "./types";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
@@ -409,8 +409,17 @@ function SpecialPromotionRow({
   const amount = Math.max(0, parseFloat(value) || 0);
   const afterDiscount = Math.max(0, productsPreTax - amount);
   const pct = totalMsrp > 0 ? Math.max(0, 1 - afterDiscount / totalMsrp) : 0;
+  // 让利占产品税前比例；超过 15% 飘黄，超过 25% 强警告
+  const ratio = productsPreTax > 0 ? amount / productsPreTax : 0;
+  const warning = ratio > 0.15 && ratio <= 0.25;
+  const danger = ratio > 0.25;
+  const accent = danger
+    ? "border-amber-500 bg-amber-100/80"
+    : warning
+      ? "border-amber-300 bg-amber-50"
+      : "border-orange-200 bg-orange-50/60";
   return (
-    <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+    <div className={cn("rounded-lg border p-3 transition-colors", accent)}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex-1">
           <label className="text-sm font-semibold text-orange-800 block">
@@ -430,7 +439,14 @@ function SpecialPromotionRow({
               value={value}
               onChange={(e) => onChange(e.target.value)}
               placeholder="0.00"
-              className="w-28 rounded-md border border-orange-300 bg-white px-2 py-1.5 pl-6 text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
+              className={cn(
+                "w-28 rounded-md border bg-white px-2 py-1.5 pl-6 text-sm font-semibold outline-none focus:ring-2",
+                danger
+                  ? "border-amber-500 focus:ring-amber-500"
+                  : warning
+                    ? "border-amber-400 focus:ring-amber-400"
+                    : "border-orange-300 focus:ring-orange-500",
+              )}
             />
           </div>
           {totalMsrp > 0 && (
@@ -443,6 +459,24 @@ function SpecialPromotionRow({
           )}
         </div>
       </div>
+      {(warning || danger) && (
+        <div
+          className={cn(
+            "mt-2 flex items-start gap-1.5 text-[11px] font-medium",
+            danger ? "text-amber-900" : "text-amber-800",
+          )}
+        >
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          <span>
+            Special Promotion 已达产品税前小计的{" "}
+            <strong>{(ratio * 100).toFixed(1)}%</strong>
+            {danger
+              ? "（>25%），让利过高，建议经理审核后再签单"
+              : "（>15%），请确认是否符合公司让利政策"}
+            。
+          </span>
+        </div>
+      )}
     </div>
   );
 }

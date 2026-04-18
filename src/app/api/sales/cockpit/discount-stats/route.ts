@@ -54,24 +54,36 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const salesRepIdParam = searchParams.get("salesRepId");
   const salesRepId = isAdmin ? salesRepIdParam || undefined : user.id;
 
+  // 环比口径：与当前区间等时长、紧邻其前的窗口
+  //   e.g. 当前 4/1 ~ 4/16 (16 天) → 上一区间 3/16 ~ 3/31
+  const durationMs = to.getTime() - from.getTime();
+  const prevTo = new Date(from.getTime() - 1);
+  const prevFrom = new Date(prevTo.getTime() - durationMs);
+
   // 只统计「已成单」的报价（有 signedAt 或 status=signed）
   // 使用 signedAt 做时间筛选 —— 更贴合"这段时间成交多少"的语义
-  const quotes = await db.salesQuote.findMany({
-    where: {
-      signedAt: { gte: from, lte: to, not: null },
-      ...(salesRepId ? { createdById: salesRepId } : {}),
-      // 避免脏数据：finalDiscountPct 未知时不纳入平均
-      finalDiscountPct: { not: null },
-    },
-    select: {
-      id: true,
-      grandTotal: true,
-      finalDiscountPct: true,
-      signedAt: true,
-      specialPromotion: true,
-      createdBy: { select: { id: true, name: true } },
-    },
-  });
+  const baseWhere = {
+    ...(salesRepId ? { createdById: salesRepId } : {}),
+    finalDiscountPct: { not: null },
+  } as const;
+
+  const [quotes, prevQuotes] = await Promise.all([
+    db.salesQuote.findMany({
+      where: { ...baseWhere, signedAt: { gte: from, lte: to, not: null } },
+      select: {
+        id: true,
+        grandTotal: true,
+        finalDiscountPct: true,
+        signedAt: true,
+        specialPromotion: true,
+        createdBy: { select: { id: true, name: true } },
+      },
+    }),
+    db.salesQuote.findMany({
+      where: { ...baseWhere, signedAt: { gte: prevFrom, lte: prevTo, not: null } },
+      select: { grandTotal: true, finalDiscountPct: true },
+    }),
+  ]);
 
   // 初始化三档
   const bucket: Record<Tier, { sumPct: number; count: number; sumValue: number }> = {
@@ -141,6 +153,17 @@ export const GET = withAuth(async (request, _ctx, user) => {
       })
     : [];
 
+  // 上一区间聚合（仅总览）
+  let prevCount = 0;
+  let prevValue = 0;
+  let prevSumPct = 0;
+  for (const q of prevQuotes) {
+    if (q.finalDiscountPct == null) continue;
+    prevCount += 1;
+    prevValue += q.grandTotal;
+    prevSumPct += q.finalDiscountPct;
+  }
+
   return NextResponse.json({
     from: from.toISOString(),
     to: to.toISOString(),
@@ -150,6 +173,13 @@ export const GET = withAuth(async (request, _ctx, user) => {
       count: totalCount,
       avgDiscountPct: totalCount > 0 ? totalSumPct / totalCount : 0,
       totalSignedValue: totalValue,
+    },
+    prev: {
+      from: prevFrom.toISOString(),
+      to: prevTo.toISOString(),
+      count: prevCount,
+      avgDiscountPct: prevCount > 0 ? prevSumPct / prevCount : 0,
+      totalSignedValue: prevValue,
     },
     tiers,
     salesReps,
