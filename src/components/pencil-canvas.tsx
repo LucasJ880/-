@@ -126,7 +126,6 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
 
     const handlePointerDown = useCallback(
       (e: React.PointerEvent) => {
-        if (e.pointerType === "touch") return;
         e.preventDefault();
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         const pt = getCoords(e);
@@ -150,7 +149,6 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
     const handlePointerMove = useCallback(
       (e: React.PointerEvent) => {
         if (!isDrawing) return;
-        if (e.pointerType === "touch") return;
         e.preventDefault();
         const pt = getCoords(e);
 
@@ -194,7 +192,6 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
     const handlePointerUp = useCallback(
       (e: React.PointerEvent) => {
         if (!isDrawing) return;
-        if (e.pointerType === "touch") return;
         setIsDrawing(false);
 
         if (tool === "line" && lineStart.current) {
