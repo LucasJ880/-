@@ -76,6 +76,7 @@ export function CalendarSidebar({
   onToggleCalendar,
   onBulkSelectCalendars,
   onSelectAppt,
+  onSelectGoogleEvent,
 }: {
   todayAppts: Appointment[];
   todayGEvents: GoogleEvent[];
@@ -87,6 +88,7 @@ export function CalendarSidebar({
   onToggleCalendar: (calId: string) => void;
   onBulkSelectCalendars: (ids: string[]) => void;
   onSelectAppt: (appt: Appointment) => void;
+  onSelectGoogleEvent?: (event: GoogleEvent) => void;
 }) {
   const [showCalPicker, setShowCalPicker] = useState(false);
 
@@ -119,9 +121,11 @@ export function CalendarSidebar({
               </button>
             ))}
             {todayGEvents.map((ge) => (
-              <div
+              <button
                 key={`g-${ge.id}`}
-                className="w-full rounded-lg border p-2.5 text-left"
+                onClick={() => onSelectGoogleEvent?.(ge)}
+                disabled={!onSelectGoogleEvent}
+                className="w-full rounded-lg border p-2.5 text-left hover:bg-muted/30 transition-colors disabled:cursor-default"
                 style={{ borderColor: ge.color || "#4285f4", borderLeftWidth: 3 }}
               >
                 <div className="flex items-center gap-2">
@@ -135,7 +139,7 @@ export function CalendarSidebar({
                     <MapPin size={10} /> {ge.location}
                   </p>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         )}

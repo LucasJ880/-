@@ -382,10 +382,15 @@ export function CreateAppointmentDialog({
   open,
   onClose,
   onCreated,
+  defaultStart,
+  defaultEnd,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  /** 可选：由日历空白处点击传入的预填开始时间（ISO 或 datetime-local） */
+  defaultStart?: string;
+  defaultEnd?: string;
 }) {
   const [form, setForm] = useState({
     customerId: "",
@@ -405,7 +410,19 @@ export function CreateAppointmentDialog({
     apiFetch("/api/sales/customers?limit=100")
       .then((r) => r.json())
       .then((d) => setCustomers(d.customers ?? []));
-  }, [open]);
+    if (defaultStart) {
+      setForm((f) => ({
+        ...f,
+        startAt: toDatetimeLocal(defaultStart),
+        endAt: defaultEnd
+          ? toDatetimeLocal(defaultEnd)
+          : toDatetimeLocal(
+              new Date(new Date(defaultStart).getTime() + 2 * 3600000).toISOString(),
+            ),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultStart, defaultEnd]);
 
   const handleCustomerChange = (cid: string) => {
     const c = customers.find((x) => x.id === cid);

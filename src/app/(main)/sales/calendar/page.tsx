@@ -80,6 +80,7 @@ export default function SalesCalendarPage() {
   }, [mounted, isMobile]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showCreate, setShowCreate] = useState(false);
+  const [createDefaults, setCreateDefaults] = useState<{ start?: string; end?: string }>({});
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
   const [gcalConnected, setGcalConnected] = useState(false);
   const [gcalEmail, setGcalEmail] = useState<string | null>(null);
@@ -407,6 +408,11 @@ export default function SalesCalendarPage() {
               googleEvents={googleEvents}
               onSelectAppt={setSelectedAppt}
               onSelectGoogleEvent={setSelectedGoogleEvent}
+              onCreateAt={(start, end) => {
+                setCreateDefaults({ start, end });
+                setShowCreate(true);
+              }}
+              onChanged={loadAppointments}
             />
           ) : (
             <CalendarTimeGrid
@@ -420,6 +426,11 @@ export default function SalesCalendarPage() {
               googleEvents={googleEvents}
               onSelectAppt={setSelectedAppt}
               onSelectGoogleEvent={setSelectedGoogleEvent}
+              onCreateAt={(start, end) => {
+                setCreateDefaults({ start, end });
+                setShowCreate(true);
+              }}
+              onChanged={loadAppointments}
             />
           )}
         </div>
@@ -437,6 +448,7 @@ export default function SalesCalendarPage() {
             onToggleCalendar={toggleCalendar}
             onBulkSelectCalendars={saveCalendarSelection}
             onSelectAppt={setSelectedAppt}
+            onSelectGoogleEvent={setSelectedGoogleEvent}
           />
         </div>
       </div>
@@ -472,8 +484,10 @@ export default function SalesCalendarPage() {
       {/* Create dialog */}
       <CreateAppointmentDialog
         open={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={() => { setShowCreate(false); loadAppointments(); }}
+        onClose={() => { setShowCreate(false); setCreateDefaults({}); }}
+        onCreated={() => { setShowCreate(false); setCreateDefaults({}); loadAppointments(); }}
+        defaultStart={createDefaults.start}
+        defaultEnd={createDefaults.end}
       />
     </PullToRefresh>
   );
