@@ -107,7 +107,7 @@ function SearchPanel({
       id="global-search-results"
       role="region"
       aria-label={m.header_search_tasks}
-      className="absolute left-0 top-full z-50 mt-1.5 w-full min-w-[360px] rounded-xl border border-border bg-card-bg shadow-xl"
+      className="absolute left-0 top-full z-[60] mt-1.5 w-full min-w-[360px] rounded-xl border border-border bg-card-bg shadow-xl"
     >
       {loading ? (
         <div className="flex items-center justify-center gap-2 px-4 py-6 text-sm text-muted">
@@ -270,7 +270,7 @@ function NotificationPanel({
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-2 w-[400px] rounded-xl border border-border bg-card-bg shadow-xl"
+      className="absolute right-0 top-full z-[60] mt-2 w-[400px] rounded-xl border border-border bg-card-bg shadow-xl"
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold">{m.header_notif_title}</h3>
@@ -436,7 +436,7 @@ function LanguageSwitcher() {
         <Globe size={18} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-32 rounded-xl border border-border bg-card-bg shadow-xl">
+        <div className="absolute right-0 top-full z-[60] mt-1.5 w-32 rounded-xl border border-border bg-card-bg shadow-xl">
           <div className="py-1">
             {locales.map(([key, label]) => (
               <button
@@ -537,7 +537,7 @@ export function Header() {
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
 
   return (
-    <header className="flex h-13 items-center justify-between border-b border-[rgba(26,36,32,0.05)] bg-[rgba(250,248,244,0.6)] px-4 md:px-6 backdrop-blur-xl supports-[backdrop-filter]:bg-[rgba(250,248,244,0.5)]">
+    <header className="relative z-50 flex h-13 items-center justify-between border-b border-[rgba(26,36,32,0.05)] bg-[rgba(250,248,244,0.6)] px-4 md:px-6 backdrop-blur-xl supports-[backdrop-filter]:bg-[rgba(250,248,244,0.5)]">
       <div className="flex items-center gap-3 md:gap-4">
         {/* Mobile hamburger */}
         <button
@@ -640,7 +640,7 @@ export function Header() {
           </button>
 
           {userMenuOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-xl border border-border bg-card-bg shadow-xl">
+            <div className="absolute right-0 top-full z-[60] mt-1.5 w-56 rounded-xl border border-border bg-card-bg shadow-xl">
               <div className="border-b border-border px-4 py-3">
                 <p className="text-sm font-medium">{currentUser?.name}</p>
                 <p className="mt-0.5 text-xs text-muted">{currentUser?.email}</p>
