@@ -21,6 +21,8 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  FileClock,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
@@ -55,6 +57,14 @@ import {
 } from "./pricing-helpers";
 import { fractionToInches } from "./types";
 import { exportQuotePdf, loadLogoAsDataUrl } from "./quote-pdf";
+import {
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  isDraftMeaningful,
+  formatDraftAge,
+  type QuoteDraftV1,
+} from "./quote-draft";
 
 // Part A 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含 Part A。
@@ -200,6 +210,20 @@ export default function QuoteSheetPage() {
   const hasAnySignature =
     sigPartBCount + sigPartCCount + sigShadesCount + sigShuttersCount + sigDrapesCount > 0;
 
+  // ── localStorage 草稿（防丢失）───────────────────────────────────
+  // 发现待恢复草稿时，在页面顶部显示横幅由用户决定"恢复 / 丢弃"
+  const [pendingDraft, setPendingDraft] = useState<QuoteDraftV1 | null>(null);
+  // 首屏检查完成前不允许自动保存，避免把刚挂载的空表覆盖掉尚未恢复的草稿
+  const [draftReady, setDraftReady] = useState(false);
+
+  useEffect(() => {
+    const d = loadDraft();
+    if (d && isDraftMeaningful(d)) {
+      setPendingDraft(d);
+    }
+    setDraftReady(true);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -287,6 +311,79 @@ export default function QuoteSheetPage() {
       salesRepInitials: salesRep,
     });
   }, [date, measureSequence, partALines, salesRep]);
+
+  // 自动保存草稿到 localStorage（debounce 1s），首屏检查完成后才启用
+  useEffect(() => {
+    if (!draftReady) return;
+    if (pendingDraft) return; // 用户还没决定恢复/丢弃前，不要覆盖草稿
+    const timer = setTimeout(() => {
+      saveDraft({
+        customerId, customerName, customerPhone, customerEmail, customerAddress,
+        heardUsOn, opportunityId,
+        date, salesRep, measureSequence,
+        partALines,
+        partBAddons, partBNotes, paymentMethod,
+        depositAmount, balanceAmount, financeEligible, financeApproved, financeDifference,
+        partCServices, partCAddOns,
+        shadeOrders, shutterOrders, drapeOrders,
+        shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
+        installMode,
+      });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [
+    draftReady, pendingDraft,
+    customerId, customerName, customerPhone, customerEmail, customerAddress,
+    heardUsOn, opportunityId,
+    date, salesRep, measureSequence,
+    partALines,
+    partBAddons, partBNotes, paymentMethod,
+    depositAmount, balanceAmount, financeEligible, financeApproved, financeDifference,
+    partCServices, partCAddOns,
+    shadeOrders, shutterOrders, drapeOrders,
+    shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
+    installMode,
+  ]);
+
+  const handleRestoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    const d = pendingDraft;
+    setCustomerId(d.customerId);
+    setCustomerName(d.customerName);
+    setCustomerPhone(d.customerPhone);
+    setCustomerEmail(d.customerEmail);
+    setCustomerAddress(d.customerAddress);
+    setHeardUsOn(d.heardUsOn);
+    setOpportunityId(d.opportunityId);
+    setDate(d.date);
+    setSalesRep(d.salesRep);
+    setMeasureSequence(d.measureSequence);
+    setPartALines(d.partALines);
+    setPartBAddons(d.partBAddons);
+    setPartBNotes(d.partBNotes);
+    setPaymentMethod(d.paymentMethod);
+    setDepositAmount(d.depositAmount);
+    setBalanceAmount(d.balanceAmount);
+    setFinanceEligible(d.financeEligible);
+    setFinanceApproved(d.financeApproved);
+    setFinanceDifference(d.financeDifference);
+    setPartCServices(d.partCServices);
+    setPartCAddOns(d.partCAddOns);
+    setShadeOrders(d.shadeOrders);
+    setShutterOrders(d.shutterOrders);
+    setDrapeOrders(d.drapeOrders);
+    setShutterMaterial(d.shutterMaterial);
+    setShutterLouverSize(d.shutterLouverSize);
+    setShadeValanceType(d.shadeValanceType);
+    setShadeBracketType(d.shadeBracketType);
+    setInstallMode(d.installMode);
+    setPendingDraft(null);
+  }, [pendingDraft]);
+
+  const handleDiscardDraft = useCallback(() => {
+    clearDraft();
+    setPendingDraft(null);
+  }, []);
 
   const handleSave = useCallback(async (): Promise<{ quoteId: string } | null> => {
     if (!customerId) return null;
@@ -402,6 +499,8 @@ export default function QuoteSheetPage() {
         statusAdvanced,
         quoteId,
       });
+      // 后端已持久化，本地草稿使命完成
+      clearDraft();
       return quoteId ? { quoteId } : null;
     } catch (err) {
       console.error("Save failed:", err);
@@ -554,6 +653,37 @@ export default function QuoteSheetPage() {
         title="Quote Sheet"
         description="Sunny Shutter Inc. — Digital Quote & Order Form"
       />
+
+      {/* 草稿恢复横幅：检测到未保存的草稿时提示用户 */}
+      {pendingDraft && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+          <FileClock className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <div className="font-semibold text-amber-900">
+              检测到未保存的报价单草稿
+            </div>
+            <div className="mt-0.5 text-xs text-amber-800">
+              上次编辑于 {formatDraftAge(pendingDraft.savedAt)}
+              {pendingDraft.customerName ? ` · 客户：${pendingDraft.customerName}` : ""}
+              。签字图像不包含在草稿中，需要客户重新签名。
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button size="sm" onClick={handleRestoreDraft} className="h-7 text-xs">
+                恢复草稿
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDiscardDraft}
+                className="h-7 text-xs"
+              >
+                <X className="mr-1 h-3 w-3" />
+                丢弃草稿
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Customer selector + Order info */}
       <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
