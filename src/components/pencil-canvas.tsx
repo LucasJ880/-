@@ -82,7 +82,8 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
         ctx.clearRect(0, 0, width, height);
 
         for (const s of strokeList) {
-          if (s.points.length < 2) continue;
+          // 防御：任何 null/缺字段的坏元素直接跳过，避免整个签名板崩溃
+          if (!s || !Array.isArray(s.points) || s.points.length < 2) continue;
           ctx.beginPath();
           ctx.strokeStyle = s.tool === "eraser" ? "#faf8f4" : s.color;
           ctx.lineWidth = s.tool === "eraser" ? s.lineWidth * 4 : s.lineWidth;
@@ -217,11 +218,15 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
           return;
         }
 
-        if (currentStroke.current && currentStroke.current.points.length > 1) {
-          setStrokes((prev) => [...prev, currentStroke.current!]);
+        // 关键修复：把 stroke 从 ref 里提出来保存到局部常量
+        // 否则 React 延迟执行 updater 时 ref 已被清空为 null，导致 strokes 数组中混入 null，
+        // 下次 redrawAll 遍历读 s.points 就会崩溃（"Cannot read properties of null (reading 'points')"）
+        const finishedStroke = currentStroke.current;
+        currentStroke.current = null;
+        if (finishedStroke && finishedStroke.points.length > 1) {
+          setStrokes((prev) => [...prev, finishedStroke]);
           setRedoStack([]);
         }
-        currentStroke.current = null;
       },
       [isDrawing, tool, getCoords, color, lineWidth]
     );
@@ -230,7 +235,7 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
       setStrokes((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        setRedoStack((r) => [...r, last]);
+        if (last) setRedoStack((r) => [...r, last]);
         return prev.slice(0, -1);
       });
     }, []);
@@ -239,7 +244,7 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
       setRedoStack((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        setStrokes((s) => [...s, last]);
+        if (last) setStrokes((s) => [...s, last]);
         return prev.slice(0, -1);
       });
     }, []);
