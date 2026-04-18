@@ -1,0 +1,4 @@
+-- 折扣率追踪字段（Step 4）
+ALTER TABLE "SalesQuote" ADD COLUMN "totalMsrp" DOUBLE PRECISION;
+ALTER TABLE "SalesQuote" ADD COLUMN "specialPromotion" DOUBLE PRECISION DEFAULT 0;
+ALTER TABLE "SalesQuote" ADD COLUMN "finalDiscountPct" DOUBLE PRECISION;

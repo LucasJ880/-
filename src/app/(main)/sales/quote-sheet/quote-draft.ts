@@ -77,6 +77,9 @@ export interface QuoteDraftV1 {
   shadeValanceType: string;
   shadeBracketType: string;
   installMode: InstallMode;
+
+  // Step 4：销售手填的 Special Promotion
+  specialPromotion?: string;
 }
 
 export function loadDraft(): QuoteDraftV1 | null {

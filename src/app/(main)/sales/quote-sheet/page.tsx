@@ -54,6 +54,7 @@ import {
   sumShadeTotals,
   sumShutterTotals,
   sumDrapeTotals,
+  sumAllMsrp,
   type DiscountsOverride,
 } from "./pricing-helpers";
 import { fractionToInches } from "./types";
@@ -176,6 +177,7 @@ export default function QuoteSheetPage() {
   const [financeEligible, setFinanceEligible] = useState("");
   const [financeApproved, setFinanceApproved] = useState("");
   const [financeDifference, setFinanceDifference] = useState("");
+  const [specialPromotion, setSpecialPromotion] = useState(""); // Step 4：销售手填让利金额（税前直减）
 
   // Part C
   const [partCServices, setPartCServices] = useState<PartCService[]>(makeDefaultServices);
@@ -327,6 +329,16 @@ export default function QuoteSheetPage() {
   const productsSubtotal =
     shadeTotals.total + shutterTotals.total + drapeTotals.total;
 
+  // Step 4：折扣率追踪 —— 提前计算，供 handleSave 引用
+  const specialPromotionNum = Math.max(0, parseFloat(specialPromotion) || 0);
+  const totalMsrp = useMemo(
+    () => sumAllMsrp(shadeOrders, shutterOrders, shutterMaterial, drapeOrders),
+    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders],
+  );
+  const finalDiscountPct = totalMsrp > 0
+    ? Math.max(0, Math.min(1, 1 - Math.max(0, productsSubtotal - specialPromotionNum) / totalMsrp))
+    : 0;
+
   // Auto-generate order number
   const orderNumber = useMemo(() => {
     if (!salesRep) return "";
@@ -354,6 +366,7 @@ export default function QuoteSheetPage() {
         shadeOrders, shutterOrders, drapeOrders,
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
         installMode,
+        specialPromotion,
       });
     }, 1000);
     return () => clearTimeout(timer);
@@ -368,7 +381,7 @@ export default function QuoteSheetPage() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode,
+    installMode, specialPromotion,
   ]);
 
   const handleRestoreDraft = useCallback(() => {
@@ -403,6 +416,7 @@ export default function QuoteSheetPage() {
     setShadeValanceType(d.shadeValanceType);
     setShadeBracketType(d.shadeBracketType);
     setInstallMode(d.installMode);
+    if (typeof d.specialPromotion === "string") setSpecialPromotion(d.specialPromotion);
     setPendingDraft(null);
   }, [pendingDraft]);
 
@@ -514,6 +528,10 @@ export default function QuoteSheetPage() {
           installMode,
           orderNumber,
           formDataJson: JSON.stringify(fullFormData),
+          // Step 4：折扣率追踪
+          totalMsrp,
+          specialPromotion: specialPromotionNum,
+          finalDiscountPct,
         }),
       }).then((r) => r.json());
 
@@ -542,6 +560,7 @@ export default function QuoteSheetPage() {
     financeEligible, financeApproved, financeDifference, partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     shadeValanceType, shadeBracketType,
+    totalMsrp, specialPromotionNum, finalDiscountPct,
   ]);
 
   const handleSendEmail = useCallback(async () => {
@@ -603,6 +622,9 @@ export default function QuoteSheetPage() {
       signatureDataUrl,
       logoDataUrl,
       discounts,
+      specialPromotion: specialPromotionNum,
+      totalMsrp,
+      finalDiscountPct,
     });
   }, [
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
@@ -611,6 +633,7 @@ export default function QuoteSheetPage() {
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
     discounts,
+    specialPromotionNum, totalMsrp, finalDiscountPct,
   ]);
 
   /**
@@ -671,7 +694,7 @@ export default function QuoteSheetPage() {
     }
   }, [customerId, hasAnySignature, handleSave, handleExportPDF]);
 
-  const preTax = productsSubtotal + subtotalB + subtotalC;
+  const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const grandTotal = preTax + hst;
 
@@ -960,6 +983,10 @@ export default function QuoteSheetPage() {
             financeDifference={financeDifference} onFinanceDifferenceChange={setFinanceDifference}
             subtotalA={productsSubtotal} subtotalC={subtotalC} signatureRef={sigPartBRef}
             onSignatureChange={setSigPartBCount}
+            specialPromotion={specialPromotion}
+            onSpecialPromotionChange={setSpecialPromotion}
+            totalMsrp={totalMsrp}
+            productsPreTax={productsSubtotal + subtotalC}
           />
         )}
         {activeTab === "partC" && (

@@ -235,6 +235,9 @@ export interface QuotePdfInput {
   signatureDataUrl?: string | null; // Part B 签名（可选）
   logoDataUrl?: string | null; // 公司 Logo（可选，加载失败时用文字 logo 降级）
   discounts?: DiscountsOverride; // 来自全局折扣率设置（缺省使用 pricing-data.ts 内置默认）
+  specialPromotion?: number; // Step 4：销售手填让利（税前直减）
+  totalMsrp?: number; // Step 4：产品 MSRP 合计，用于展示折扣率
+  finalDiscountPct?: number; // Step 4：实际成交折扣率（0~1）
 }
 
 // ── 工具：加载 /logo.png（客户端调用，失败时返回 null） ───────────────
@@ -610,9 +613,14 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     filledShutters.reduce((s, l) => s + Math.max(1, l.panelCount ?? 1), 0) +
     filledDrapes.length;
 
-  const preTax = input.productsSubtotal + input.subtotalB + input.subtotalC;
+  const promoAmount = Math.max(0, input.specialPromotion ?? 0);
+  const preTax = Math.max(
+    0,
+    input.productsSubtotal + input.subtotalB + input.subtotalC - promoAmount,
+  );
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const grandTotal = preTax + hst;
+  const discountPct = Math.max(0, Math.min(1, input.finalDiscountPct ?? 0));
 
   // ────────────────────────────────────────────────────
   // PAGE 1 — QUOTE 概览
@@ -964,9 +972,19 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
           ? "Pickup mode — installation waived"
           : "Includes labour. Minimum $200 applies per project.",
     },
+    ...(promoAmount > 0
+      ? [{ label: "Special Promotion", value: `− ${formatCAD(promoAmount)}`, hint: "Pre-tax discount applied" }]
+      : []),
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
     { label: "HST 13%", value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
+    ...(discountPct > 0
+      ? [{
+          label: "Effective Discount vs. MSRP",
+          value: `${(discountPct * 100).toFixed(1)}%`,
+          hint: "Products only; based on list price",
+        }]
+      : []),
   ]);
 
   // 签名（保持现有行为：只放 Part B 签名）

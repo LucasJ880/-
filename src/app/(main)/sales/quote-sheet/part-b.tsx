@@ -30,6 +30,11 @@ interface PartBProps {
   subtotalC: number;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   onSignatureChange?: (strokeCount: number) => void;
+  // Special Promotion（税前直减，销售可手填）
+  specialPromotion: string;
+  onSpecialPromotionChange: (v: string) => void;
+  totalMsrp: number; // 用于预览"相对 MSRP 的折扣率"
+  productsPreTax: number; // = productsSubtotal + subtotalC（不含 Part B 自身）用于校验上限
 }
 
 export function PartBForm({
@@ -53,6 +58,10 @@ export function PartBForm({
   subtotalC,
   signatureRef,
   onSignatureChange,
+  specialPromotion,
+  onSpecialPromotionChange,
+  totalMsrp,
+  productsPreTax,
 }: PartBProps) {
   const catalogByKey = useMemo(
     () => Object.fromEntries(ADDON_CATALOG.map((a) => [a.key, a])),
@@ -96,7 +105,8 @@ export function PartBForm({
   const subtotalB = addons.reduce((s, a) => s + a.total, 0);
   const grandSubtotal = subtotalA + subtotalB;
   const optionalC = subtotalC;
-  const preTax = grandSubtotal + optionalC;
+  const promoNum = Math.max(0, parseFloat(specialPromotion) || 0);
+  const preTax = Math.max(0, grandSubtotal + optionalC - promoNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const total = preTax + hst;
 
@@ -195,6 +205,14 @@ export function PartBForm({
           <span className="font-bold">{formatCAD(subtotalB)}</span>
         </div>
       </div>
+
+      {/* Special Promotion（销售手填让利，税前直减） */}
+      <SpecialPromotionRow
+        value={specialPromotion}
+        onChange={onSpecialPromotionChange}
+        totalMsrp={totalMsrp}
+        productsPreTax={productsPreTax}
+      />
 
       {/* Notes */}
       <div>
@@ -332,6 +350,12 @@ export function PartBForm({
               <span className="text-muted-foreground">Optional — SUBTOTAL (C):</span>
               <span>{formatCAD(optionalC)}</span>
             </div>
+            {promoNum > 0 && (
+              <div className="flex justify-between text-orange-700">
+                <span>Special Promotion:</span>
+                <span>− {formatCAD(promoNum)}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t border-teal-200 pt-2">
               <span className="text-muted-foreground">
                 HST (13%):
@@ -359,6 +383,64 @@ export function PartBForm({
               By signing, I confirm all details are correct and acknowledge that Sunny Shutter Inc. is not liable for inaccuracies. Custom-made items, returns or exchanges are only accepted if the product is defective.
             </p>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Special Promotion 输入行 —— 销售在现场可手填的额外让利（税前直减）
+ * - 不走折扣率系统，就是从 pre-tax 里直接扣钱
+ * - 提示上限：不能超过 (productsPreTax + subtotalB)
+ * - 右侧小字显示：让利后相对 MSRP 的总折扣率（近似值，实际服务端会重算）
+ */
+function SpecialPromotionRow({
+  value,
+  onChange,
+  totalMsrp,
+  productsPreTax,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  totalMsrp: number;
+  productsPreTax: number;
+}) {
+  const amount = Math.max(0, parseFloat(value) || 0);
+  const afterDiscount = Math.max(0, productsPreTax - amount);
+  const pct = totalMsrp > 0 ? Math.max(0, 1 - afterDiscount / totalMsrp) : 0;
+  return (
+    <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex-1">
+          <label className="text-sm font-semibold text-orange-800 block">
+            Special Promotion
+          </label>
+          <p className="text-[11px] text-orange-700/80">
+            现场额外让利（税前直减）。此金额将从总价中直接扣除，HST 按扣除后金额计算。
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-orange-700">$</span>
+            <input
+              type="number"
+              min={0}
+              step={10}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="0.00"
+              className="w-28 rounded-md border border-orange-300 bg-white px-2 py-1.5 pl-6 text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+          {totalMsrp > 0 && (
+            <div className="text-right">
+              <div className="text-[10px] text-orange-700/80">相对 MSRP</div>
+              <div className="text-sm font-bold text-orange-700">
+                {(pct * 100).toFixed(1)}%
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -2250,6 +2250,11 @@ model SalesQuote {
   aiSource         String?            // voice / text / image / manual
   viewedAt         DateTime?          // 客户查看时间
 
+  // 折扣率追踪（Step 4）
+  totalMsrp        Float?             // 所有产品行的 MSRP 之和（Part B/C 不计入分母）
+  specialPromotion Float?   @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
+  finalDiscountPct Float?             // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

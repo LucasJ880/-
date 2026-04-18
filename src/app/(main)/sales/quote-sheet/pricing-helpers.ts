@@ -20,6 +20,33 @@ function pick(discounts: DiscountsOverride | undefined, p: ProductName): number 
 }
 
 /**
+ * 把全部产品折扣强制设为 0，用于求 MSRP 之和（成交折扣率的分母）
+ * 不含 Part B/C（抉择 C1）；不含安装费（installMode="pickup" 归零）
+ */
+const ZERO_DISCOUNTS: DiscountsOverride = {
+  Zebra: 0,
+  SHANGRILA: 0,
+  "Cordless Cellular": 0,
+  Roller: 0,
+  Drapery: 0,
+  Sheer: 0,
+  Shutters: 0,
+  SkylightHoneycomb: 0,
+};
+
+export function sumAllMsrp(
+  shadeOrders: ShadeOrderLine[],
+  shutterOrders: ShutterOrderLine[],
+  shutterMaterial: "Wooden" | "Vinyl",
+  drapeOrders: DrapeOrderLine[],
+): number {
+  const shades = sumShadeTotals(shadeOrders, "pickup", ZERO_DISCOUNTS).merch;
+  const shutters = sumShutterTotals(shutterOrders, shutterMaterial, "pickup", ZERO_DISCOUNTS).merch;
+  const drapes = sumDrapeTotals(drapeOrders, "pickup", ZERO_DISCOUNTS).merch;
+  return shades + shutters + drapes;
+}
+
+/**
  * 共享：三类订单表的逐行价格 + 小计
  *
  * 目的：page.tsx 和各个 order-xxx.tsx 都能复用，避免小计拼凑漂移。

@@ -20,6 +20,9 @@ export const POST = withAuth(async (request, _ctx, user) => {
     notes,
     orderNumber,
     formDataJson,
+    totalMsrp,
+    specialPromotion,
+    finalDiscountPct,
   } = body as {
     customerId: string;
     opportunityId?: string;
@@ -31,6 +34,9 @@ export const POST = withAuth(async (request, _ctx, user) => {
     notes?: string;
     orderNumber?: string;
     formDataJson?: string;
+    totalMsrp?: number;
+    specialPromotion?: number;
+    finalDiscountPct?: number;
   };
 
   if (!customerId || !items?.length) {
@@ -68,6 +74,16 @@ export const POST = withAuth(async (request, _ctx, user) => {
       grandTotal: calc.grandTotal,
       notes: notes || null,
       formDataJson: formDataJson || null,
+      // Step 4：折扣率追踪
+      totalMsrp: typeof totalMsrp === "number" && Number.isFinite(totalMsrp) ? totalMsrp : null,
+      specialPromotion:
+        typeof specialPromotion === "number" && Number.isFinite(specialPromotion)
+          ? Math.max(0, specialPromotion)
+          : 0,
+      finalDiscountPct:
+        typeof finalDiscountPct === "number" && Number.isFinite(finalDiscountPct)
+          ? Math.max(0, Math.min(1, finalDiscountPct))
+          : null,
       createdById: user.id,
       items: {
         create: calc.itemResults.map((r, idx) => ({
