@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback } from "react";
-import type { ShutterOrderLine } from "./types";
+import { useCallback, useMemo } from "react";
+import type { ShutterOrderLine, InstallMode } from "./types";
 import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
+import { computeShutterLinePrice } from "./pricing-helpers";
 
 interface Props {
   lines: ShutterOrderLine[];
@@ -16,6 +18,7 @@ interface Props {
   louverSize: string;
   onLouverSizeChange: (v: string) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
+  installMode: InstallMode;
 }
 
 function emptyLine(): ShutterOrderLine {
@@ -43,6 +46,7 @@ export function OrderShuttersForm({
   louverSize,
   onLouverSizeChange,
   signatureRef,
+  installMode,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShutterOrderLine, value: unknown) => {
@@ -55,6 +59,13 @@ export function OrderShuttersForm({
   const removeLine = (id: string) => {
     onChange(removeLineById(lines, id));
   };
+
+  const pricings = useMemo(
+    () => lines.map((l) => computeShutterLinePrice(l, material, installMode)),
+    [lines, material, installMode]
+  );
+  const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
+  const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -120,7 +131,7 @@ export function OrderShuttersForm({
       </div>
 
       <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-xs min-w-[950px]">
+        <table className="w-full text-xs min-w-[1050px]">
           <thead>
             <tr className="bg-muted/30">
               <th className="px-2 py-2 text-left w-8">#</th>
@@ -133,11 +144,14 @@ export function OrderShuttersForm({
               <th className="px-2 py-2 text-center w-16">Mid Rail</th>
               <th className="px-2 py-2 text-center w-16"># Panels</th>
               <th className="px-2 py-2 text-left min-w-[80px]">Draft</th>
+              <th className="px-2 py-2 text-right w-28">Price</th>
               <th className="px-2 py-2 w-8" />
             </tr>
           </thead>
           <tbody>
-            {lines.map((line, i) => (
+            {lines.map((line, i) => {
+              const p = pricings[i];
+              return (
               <tr key={line.id} className="border-t border-border/50">
                 <td className="px-2 py-0.5 text-muted-foreground font-mono">{i + 1}</td>
                 <td className="px-1 py-0.5">
@@ -254,6 +268,26 @@ export function OrderShuttersForm({
                     className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
                   />
                 </td>
+                <td className="px-2 py-0.5 text-right align-middle">
+                  {p?.error ? (
+                    <span className="text-[9px] text-red-500" title={p.error}>—</span>
+                  ) : p ? (
+                    <div className="leading-tight">
+                      <div className="font-mono text-[11px] font-semibold text-teal-700">
+                        {formatCAD(p.merch)}
+                      </div>
+                      {installMode === "pickup" ? (
+                        <div className="text-[9px] text-amber-600">Pickup</div>
+                      ) : (
+                        <div className="text-[9px] text-muted-foreground">
+                          +Install {formatCAD(p.install)}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[9px] text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="px-1 py-0.5">
                   <button
                     onClick={() => removeLine(line.id)}
@@ -263,10 +297,36 @@ export function OrderShuttersForm({
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-teal-200 bg-teal-50/30">
+              <td colSpan={10} className="px-2 py-2 text-right text-xs font-medium">
+                Merch Subtotal
+                {installMode === "pickup" ? (
+                  <span className="ml-2 text-[10px] text-amber-600">· Pickup · no install</span>
+                ) : (
+                  <span className="ml-2 text-[10px] text-muted-foreground">
+                    · Install {formatCAD(totalInstall)}
+                  </span>
+                )}
+                :
+              </td>
+              <td className="px-2 py-2 text-right font-mono text-sm font-bold text-teal-700">
+                {formatCAD(totalMerch)}
+              </td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
       </div>
+
+      {material === "Wooden" && pricings.some((p) => p?.error) && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          Wooden shutters pricing data is not available in current catalog. Switch to Vinyl for automatic pricing, or set price manually in Part B.
+        </div>
+      )}
 
       <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" />
       <p className="text-[9px] text-muted-foreground leading-snug">

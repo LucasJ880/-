@@ -2,13 +2,14 @@
 
 import { useCallback, useMemo } from "react";
 import type { DrapeOrderLine, InstallMode } from "./types";
-import { FRACTION_OPTIONS, fractionToInches } from "./types";
+import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
-import { priceFor, formatCAD } from "@/lib/blinds/pricing-engine";
+import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
+import { computeDrapeLinePrice } from "./pricing-helpers";
 
 const DRAPERY_FABRICS = getAvailableFabrics("Drapery");
 const SHEER_FABRICS = getAvailableFabrics("Sheer");
@@ -43,68 +44,6 @@ interface Props {
   onChange: (lines: DrapeOrderLine[]) => void;
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
-}
-
-interface DrapeLinePrice {
-  drapeMerch: number;
-  drapeInstall: number;
-  sheerMerch: number;
-  sheerInstall: number;
-  total: number;
-  error: string | null;
-}
-
-function computeDrapeLinePrice(
-  line: DrapeOrderLine,
-  installMode: InstallMode
-): DrapeLinePrice | null {
-  const isPickup = installMode === "pickup";
-  let drapeMerch = 0;
-  let drapeInstall = 0;
-  let sheerMerch = 0;
-  let sheerInstall = 0;
-  let error: string | null = null;
-  let any = false;
-
-  if (line.drapeFabricSku && line.drapeWidthWhole && line.drapeHeightWhole) {
-    const w = fractionToInches(line.drapeWidthWhole, line.drapeWidthFrac);
-    const h = fractionToInches(line.drapeHeightWhole, line.drapeHeightFrac);
-    if (w && h) {
-      const r = priceFor("Drapery", line.drapeFabricSku, w, h);
-      if ("error" in r) {
-        error = `Drape: ${r.error}`;
-      } else {
-        drapeMerch = r.price;
-        drapeInstall = isPickup ? 0 : r.install;
-        any = true;
-      }
-    }
-  }
-
-  if (line.sheerFabricSku && line.sheerWidthWhole && line.sheerHeightWhole) {
-    const w = fractionToInches(line.sheerWidthWhole, line.sheerWidthFrac);
-    const h = fractionToInches(line.sheerHeightWhole, line.sheerHeightFrac);
-    if (w && h) {
-      const r = priceFor("Sheer", line.sheerFabricSku, w, h);
-      if ("error" in r) {
-        error = error ? `${error}; Sheer: ${r.error}` : `Sheer: ${r.error}`;
-      } else {
-        sheerMerch = r.price;
-        sheerInstall = isPickup ? 0 : r.install;
-        any = true;
-      }
-    }
-  }
-
-  if (!any && !error) return null;
-  return {
-    drapeMerch,
-    drapeInstall,
-    sheerMerch,
-    sheerInstall,
-    total: drapeMerch + drapeInstall + sheerMerch + sheerInstall,
-    error,
-  };
 }
 
 function emptyLine(): DrapeOrderLine {

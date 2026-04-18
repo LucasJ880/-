@@ -2,14 +2,14 @@
 
 import { useCallback, useMemo } from "react";
 import type { ShadeOrderLine, InstallMode } from "./types";
-import { FRACTION_OPTIONS, fractionToInches } from "./types";
+import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
-import { priceFor, formatCAD } from "@/lib/blinds/pricing-engine";
-import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
+import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
+import { computeShadeLinePrice } from "./pricing-helpers";
 import { SkuSelect } from "./sku-select";
 
 const SHADE_PRODUCTS: ProductName[] = [
@@ -79,29 +79,6 @@ function emptyLine(): ShadeOrderLine {
   };
 }
 
-interface LinePrice {
-  merch: number;
-  install: number;
-  total: number;
-  error: string | null;
-}
-
-function computePrice(line: ShadeOrderLine, installMode: InstallMode): LinePrice | null {
-  if (!line.sku || !line.widthWhole || !line.heightWhole) return null;
-  const w = fractionToInches(line.widthWhole, line.widthFrac);
-  const h = fractionToInches(line.heightWhole, line.heightFrac);
-  if (!w || !h) return null;
-
-  const fabric = skuToPricingFabric(line.sku, line.product);
-  const result = priceFor(line.product, fabric, w, h);
-  if ("error" in result) {
-    return { merch: 0, install: 0, total: 0, error: result.error };
-  }
-  const merch = result.price;
-  const install = installMode === "pickup" ? 0 : result.install;
-  return { merch, install, total: merch + install, error: null };
-}
-
 export function OrderShadesForm({
   lines,
   onChange,
@@ -126,7 +103,7 @@ export function OrderShadesForm({
   };
 
   const pricings = useMemo(
-    () => lines.map((l) => computePrice(l, installMode)),
+    () => lines.map((l) => computeShadeLinePrice(l, installMode)),
     [lines, installMode]
   );
   const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);

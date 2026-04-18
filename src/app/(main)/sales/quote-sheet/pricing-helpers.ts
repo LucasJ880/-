@@ -1,0 +1,179 @@
+import type { ShadeOrderLine, ShutterOrderLine, DrapeOrderLine, InstallMode } from "./types";
+import { fractionToInches } from "./types";
+import { priceFor } from "@/lib/blinds/pricing-engine";
+import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
+
+/**
+ * 共享：三类订单表的逐行价格 + 小计
+ *
+ * 目的：page.tsx 和各个 order-xxx.tsx 都能复用，避免小计拼凑漂移。
+ */
+
+export interface LinePrice {
+  merch: number;
+  install: number;
+  total: number;
+  error: string | null;
+}
+
+export interface SectionTotals {
+  merch: number;
+  install: number;
+  total: number;
+}
+
+export function emptyTotals(): SectionTotals {
+  return { merch: 0, install: 0, total: 0 };
+}
+
+// ── Shades ──
+export function computeShadeLinePrice(
+  line: ShadeOrderLine,
+  installMode: InstallMode,
+): LinePrice | null {
+  if (!line.sku || !line.widthWhole || !line.heightWhole) return null;
+  const w = fractionToInches(line.widthWhole, line.widthFrac);
+  const h = fractionToInches(line.heightWhole, line.heightFrac);
+  if (!w || !h) return null;
+
+  const fabric = skuToPricingFabric(line.sku, line.product);
+  const result = priceFor(line.product, fabric, w, h);
+  if ("error" in result) {
+    return { merch: 0, install: 0, total: 0, error: result.error };
+  }
+  const merch = result.price;
+  const install = installMode === "pickup" ? 0 : result.install;
+  return { merch, install, total: merch + install, error: null };
+}
+
+export function sumShadeTotals(
+  lines: ShadeOrderLine[],
+  installMode: InstallMode,
+): SectionTotals {
+  const totals = emptyTotals();
+  for (const line of lines) {
+    const p = computeShadeLinePrice(line, installMode);
+    if (!p || p.error) continue;
+    totals.merch += p.merch;
+    totals.install += p.install;
+    totals.total += p.total;
+  }
+  return totals;
+}
+
+// ── Shutters ──
+// 约束：MSRP_SHUTTERS 目前只有 "Vinyl" 数据，"Wooden" 会 priceFor 报 error。
+//        这属于定价库的约束（不在本次改动范围），UI 会显示"—"并在 tooltip 说明 error。
+export function computeShutterLinePrice(
+  line: ShutterOrderLine,
+  material: "Wooden" | "Vinyl",
+  installMode: InstallMode,
+): LinePrice | null {
+  if (!line.widthWhole || !line.heightWhole) return null;
+  const w = fractionToInches(line.widthWhole, line.widthFrac);
+  const h = fractionToInches(line.heightWhole, line.heightFrac);
+  if (!w || !h) return null;
+
+  const result = priceFor("Shutters", material, w, h);
+  if ("error" in result) {
+    return { merch: 0, install: 0, total: 0, error: result.error };
+  }
+  const panelQty = Math.max(1, line.panelCount ?? 1);
+  const merch = result.price * panelQty;
+  const install = installMode === "pickup" ? 0 : result.install * panelQty;
+  return { merch, install, total: merch + install, error: null };
+}
+
+export function sumShutterTotals(
+  lines: ShutterOrderLine[],
+  material: "Wooden" | "Vinyl",
+  installMode: InstallMode,
+): SectionTotals {
+  const totals = emptyTotals();
+  for (const line of lines) {
+    const p = computeShutterLinePrice(line, material, installMode);
+    if (!p || p.error) continue;
+    totals.merch += p.merch;
+    totals.install += p.install;
+    totals.total += p.total;
+  }
+  return totals;
+}
+
+// ── Drapes（含 Drape 和 Sheer 两块）──
+export interface DrapeLinePrice {
+  drapeMerch: number;
+  drapeInstall: number;
+  sheerMerch: number;
+  sheerInstall: number;
+  total: number;
+  error: string | null;
+}
+
+export function computeDrapeLinePrice(
+  line: DrapeOrderLine,
+  installMode: InstallMode,
+): DrapeLinePrice | null {
+  const isPickup = installMode === "pickup";
+  let drapeMerch = 0;
+  let drapeInstall = 0;
+  let sheerMerch = 0;
+  let sheerInstall = 0;
+  let error: string | null = null;
+  let any = false;
+
+  if (line.drapeFabricSku && line.drapeWidthWhole && line.drapeHeightWhole) {
+    const w = fractionToInches(line.drapeWidthWhole, line.drapeWidthFrac);
+    const h = fractionToInches(line.drapeHeightWhole, line.drapeHeightFrac);
+    if (w && h) {
+      const r = priceFor("Drapery", line.drapeFabricSku, w, h);
+      if ("error" in r) {
+        error = `Drape: ${r.error}`;
+      } else {
+        drapeMerch = r.price;
+        drapeInstall = isPickup ? 0 : r.install;
+        any = true;
+      }
+    }
+  }
+
+  if (line.sheerFabricSku && line.sheerWidthWhole && line.sheerHeightWhole) {
+    const w = fractionToInches(line.sheerWidthWhole, line.sheerWidthFrac);
+    const h = fractionToInches(line.sheerHeightWhole, line.sheerHeightFrac);
+    if (w && h) {
+      const r = priceFor("Sheer", line.sheerFabricSku, w, h);
+      if ("error" in r) {
+        error = error ? `${error}; Sheer: ${r.error}` : `Sheer: ${r.error}`;
+      } else {
+        sheerMerch = r.price;
+        sheerInstall = isPickup ? 0 : r.install;
+        any = true;
+      }
+    }
+  }
+
+  if (!any && !error) return null;
+  return {
+    drapeMerch,
+    drapeInstall,
+    sheerMerch,
+    sheerInstall,
+    total: drapeMerch + drapeInstall + sheerMerch + sheerInstall,
+    error,
+  };
+}
+
+export function sumDrapeTotals(
+  lines: DrapeOrderLine[],
+  installMode: InstallMode,
+): SectionTotals {
+  const totals = emptyTotals();
+  for (const line of lines) {
+    const p = computeDrapeLinePrice(line, installMode);
+    if (!p || p.error) continue;
+    totals.merch += p.drapeMerch + p.sheerMerch;
+    totals.install += p.drapeInstall + p.sheerInstall;
+    totals.total += p.total;
+  }
+  return totals;
+}
