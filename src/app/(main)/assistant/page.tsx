@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useRef, useEffect } from "react";
+import { Suspense, useState, useRef, useEffect, type ComponentProps } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { extractWorkSuggestion } from "@/lib/ai/parser";
@@ -322,6 +322,31 @@ function AssistantPageInner() {
 
           if (parsed.type === "mode") continue;
 
+          // PR4：AI 生成了待审批草稿 → 挂到当前 assistant 消息下
+          if (parsed.type === "approval_required" && parsed.actionId) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId) return m;
+                const existing = m.pendingApprovals ?? [];
+                if (existing.some((p) => p.actionId === parsed.actionId)) return m;
+                return {
+                  ...m,
+                  pendingApprovals: [
+                    ...existing,
+                    {
+                      actionId: String(parsed.actionId),
+                      draftType: String(parsed.draftType ?? ""),
+                      title: String(parsed.title ?? "待确认动作"),
+                      preview: String(parsed.preview ?? ""),
+                      status: "pending" as const,
+                    },
+                  ],
+                };
+              })
+            );
+            continue;
+          }
+
           if (parsed.content) {
             fullText += parsed.content;
             const displayText = cleanStreamingText(fullText);
@@ -388,6 +413,24 @@ function AssistantPageInner() {
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
 
+  // PR4：审批卡片状态更新（approve / reject 的结果回流）
+  const handleApprovalChange: NonNullable<
+    ComponentProps<typeof ChatPanel>["onApprovalChange"]
+  > = (messageId, next) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? {
+              ...m,
+              pendingApprovals: (m.pendingApprovals ?? []).map((p) =>
+                p.actionId === next.actionId ? next : p,
+              ),
+            }
+          : m,
+      ),
+    );
+  };
+
   return (
     <div className="flex h-full">
       <ThreadSidebar
@@ -422,6 +465,7 @@ function AssistantPageInner() {
         onChannelModeChange={setChannelMode}
         onShowMobileSidebar={() => setShowMobileSidebar(true)}
         inputRef={inputRef}
+        onApprovalChange={handleApprovalChange}
       />
     </div>
   );

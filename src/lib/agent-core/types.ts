@@ -157,6 +157,14 @@ export interface AgentRunOptions {
    */
   role?: PlatformRole | string;
   /**
+   * PR4：工具风险上限（透传至 registry.list）。
+   * 用于让主入口只暴露特定风险等级以下的工具：
+   * - "l0_read"  只允许只读
+   * - "l2_soft"  允许草稿（但挡住 l3_strong 的直写动作）
+   * 不传表示无上限。
+   */
+  maxRisk?: ToolRisk;
+  /**
    * 外部 AbortSignal（通常传入 NextRequest.signal）
    * 客户端断开时，正在进行的 OpenAI 调用会被立即中止，避免继续扣费。
    */

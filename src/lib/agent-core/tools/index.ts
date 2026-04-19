@@ -10,6 +10,7 @@
 
 import "./trade";
 import "./sales";
+import "./sales-drafts"; // PR4: 草稿型写工具
 import "./secretary";
 import "./skills";
 import "./context";

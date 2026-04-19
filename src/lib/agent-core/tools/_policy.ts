@@ -29,7 +29,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   sales_get_pipeline:         { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_list_opportunities:   { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_get_overview:         { risk: "l0_read",           allowRoles: ["admin", "sales"] },
-  sales_advance_stage:        { risk: "l2_soft",           allowRoles: ["admin", "sales"] },
+  // PR4：sales 推进阶段改走 sales_update_stage 草稿流，老的 advance 保留给 admin 直写
+  sales_advance_stage:        { risk: "l2_soft",           allowRoles: ["admin"] },
   sales_compose_email:        { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_refine_email:         { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_send_quote_email:     { risk: "l3_strong",         allowRoles: ["admin", "sales"] },
@@ -40,6 +41,11 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   sales_get_deal_health:      { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_record_coaching:      { risk: "l1_internal_write", allowRoles: ["admin", "sales"] },
   sales_coaching_feedback:    { risk: "l1_internal_write", allowRoles: ["admin", "sales"] },
+
+  // ── PR4 草稿型写工具（所有副作用都经 PendingAction 审批）──────
+  sales_update_followup:       { risk: "l2_soft", allowRoles: ["admin", "sales"] },
+  sales_update_stage:          { risk: "l2_soft", allowRoles: ["admin", "sales"] },
+  calendar_create_event_draft: { risk: "l2_soft", allowRoles: ["admin", "sales"] },
 
   // ── trade 域（7 个） ─────────────────────────────────────────
   trade_get_overview:         { risk: "l0_read", allowRoles: ["admin", "trade"] },

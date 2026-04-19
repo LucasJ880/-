@@ -24,6 +24,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AiThread } from "./thread-list";
+import { ApprovalCard, type PendingApproval } from "./approval-card";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -130,6 +131,8 @@ export interface StreamingMsg {
   isError?: boolean;
   /** PR3：当前正在调用的工具状态，如"正在查询销售管道…"；null 表示无 */
   toolStatus?: string | null;
+  /** PR4：该消息带出的待审批草稿 */
+  pendingApprovals?: PendingApproval[];
 }
 
 // ── 常量 ──────────────────────────────────────────────────────
@@ -168,6 +171,8 @@ export interface ChatPanelProps {
   onChannelModeChange: (mode: string | null) => void;
   onShowMobileSidebar: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
+  /** PR4：审批卡片更新回调 */
+  onApprovalChange?: (messageId: string, next: PendingApproval) => void;
 }
 
 // ── ChatPanel ─────────────────────────────────────────────────
@@ -190,6 +195,7 @@ export function ChatPanel({
   onChannelModeChange,
   onShowMobileSidebar,
   inputRef,
+  onApprovalChange,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -417,6 +423,18 @@ export function ChatPanel({
                     projects={projects}
                     projectId={activeThread?.projectId || undefined}
                   />
+                </div>
+              )}
+
+              {msg.pendingApprovals && msg.pendingApprovals.length > 0 && (
+                <div className="ml-11 mt-2 flex max-w-[80%] flex-col gap-2">
+                  {msg.pendingApprovals.map((pa) => (
+                    <ApprovalCard
+                      key={pa.actionId}
+                      approval={pa}
+                      onChange={(next) => onApprovalChange?.(msg.id, next)}
+                    />
+                  ))}
                 </div>
               )}
             </div>

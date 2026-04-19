@@ -12,7 +12,13 @@
 export type AgentStreamEvent =
   | { type: "text"; delta: string }
   | { type: "tool_start"; name: string; label: string }
-  | { type: "tool_result"; name: string; ok: boolean }
+  | {
+      type: "tool_result";
+      name: string;
+      ok: boolean;
+      /** PR4：工具返回的数据 payload（透给上层识别 pending_approval 等） */
+      data?: unknown;
+    }
   | {
       type: "done";
       firstTokenMs?: number;

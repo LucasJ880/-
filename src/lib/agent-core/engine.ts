@@ -111,11 +111,12 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
   const externalSignal = options.abortSignal;
 
-  // 构建可用工具列表（PR1：按角色过滤）
+  // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤）
   const openaiTools = registry.toOpenAITools({
     domains: options.domains,
     names: options.tools,
     role,
+    maxRisk: options.maxRisk,
   });
 
   // 构建初始消息（使用 any 绕过 SDK 严格类型）
@@ -298,6 +299,7 @@ export async function* runAgentStream(
     domains: options.domains,
     names: options.tools,
     role,
+    maxRisk: options.maxRisk,
   });
 
   const messages: any[] = [
@@ -501,7 +503,12 @@ export async function* runAgentStream(
           role,
         });
 
-        yield { type: "tool_result", name, ok: result.success };
+        yield {
+          type: "tool_result",
+          name,
+          ok: result.success,
+          data: result.data,
+        };
 
         messages.push({
           role: "tool",

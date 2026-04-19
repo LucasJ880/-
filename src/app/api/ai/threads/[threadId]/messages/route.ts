@@ -333,6 +333,24 @@ async function indexThreadMessages(userId: string, threadId: string) {
   await indexAiThreadMessages(userId, threadId);
 }
 
+/** PR4：识别工具结果里是否带 pending_approval 草稿 */
+function detectPendingApproval(data: unknown): {
+  actionId: string;
+  type: string;
+  title: string;
+  preview: string;
+} | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if (d.status !== "pending_approval") return null;
+  const actionId = typeof d.actionId === "string" ? d.actionId : null;
+  const type = typeof d.type === "string" ? d.type : null;
+  const title = typeof d.title === "string" ? d.title : null;
+  const preview = typeof d.preview === "string" ? d.preview : null;
+  if (!actionId || !type || !title || !preview) return null;
+  return { actionId, type, title, preview };
+}
+
 // ─────────────────────────────────────────────────────────────
 // PR3 — Operator 分支（真正的流式 + 工具可感知 + 免工具直答）
 // ─────────────────────────────────────────────────────────────
@@ -380,6 +398,8 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
 
         if (withTools) {
           // ── 走完整 agent 流程 ──
+          // PR4：maxRisk=l2_soft 把 l3_strong（如 send_quote_email 直发）挡在外面，
+          // 强制所有不可逆动作先过 PendingAction 审批流。
           for await (const ev of runAgentStream({
             systemPrompt,
             messages: chatMessages,
@@ -389,16 +409,28 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             sessionId: threadId,
             role: user.role,
             domains: [...caps.aiDomains],
+            maxRisk: "l2_soft",
             abortSignal,
           })) {
             if (ev.type === "text") {
               fullText += ev.delta;
-              // content 字段给旧前端；type/delta 给新前端
               emit({ type: "text", content: ev.delta });
             } else if (ev.type === "tool_start") {
               emit({ type: "tool_start", name: ev.name, label: ev.label });
             } else if (ev.type === "tool_result") {
               emit({ type: "tool_result", name: ev.name, ok: ev.ok });
+              // PR4：若工具返回 pending_approval，额外推一个 approval_required
+              // 前端收到后在消息下方渲染审批卡片
+              const approval = detectPendingApproval(ev.data);
+              if (approval) {
+                emit({
+                  type: "approval_required",
+                  actionId: approval.actionId,
+                  draftType: approval.type,
+                  title: approval.title,
+                  preview: approval.preview,
+                });
+              }
             } else if (ev.type === "done") {
               firstTokenMs = ev.firstTokenMs;
               rounds = ev.rounds;
