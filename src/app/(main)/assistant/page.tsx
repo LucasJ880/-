@@ -287,13 +287,48 @@ function AssistantPageInner() {
 
           if (parsed.error) throw new Error(parsed.error);
 
+          // PR3：新事件协议（type=text/tool_start/tool_result/done/mode）
+          // 旧协议兼容：parsed.content 仍然追加
+          if (parsed.type === "tool_start") {
+            const label: string = parsed.label || "处理中";
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, toolStatus: `正在${label}…`, isStreaming: true }
+                  : m
+              )
+            );
+            continue;
+          }
+
+          if (parsed.type === "tool_result") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, toolStatus: null, isStreaming: true }
+                  : m
+              )
+            );
+            continue;
+          }
+
+          if (parsed.type === "done") {
+            if (typeof window !== "undefined") {
+              // 开发时方便观察 —— 生产也无伤
+              console.debug("[ai.operator.done]", parsed);
+            }
+            continue;
+          }
+
+          if (parsed.type === "mode") continue;
+
           if (parsed.content) {
             fullText += parsed.content;
             const displayText = cleanStreamingText(fullText);
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: displayText, isStreaming: true }
+                  ? { ...m, content: displayText, isStreaming: true, toolStatus: null }
                   : m
               )
             );
@@ -314,6 +349,7 @@ function AssistantPageInner() {
                 content: finalContent,
                 workSuggestion: suggestion,
                 isStreaming: false,
+                toolStatus: null,
               }
             : m
         )

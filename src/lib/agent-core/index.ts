@@ -7,8 +7,10 @@
  * 工具注册在 import 时自动完成（side-effect imports in tools/index.ts）。
  */
 
-export { runAgent, runSimple } from "./engine";
+export { runAgent, runSimple, runAgentStream } from "./engine";
 export { registry } from "./tool-registry";
+export { toolLabel, needsTools } from "./streaming";
+export type { AgentStreamEvent } from "./streaming";
 export type {
   ToolDefinition,
   ToolDomain,

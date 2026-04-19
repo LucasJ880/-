@@ -128,6 +128,8 @@ export interface StreamingMsg {
   workSuggestion?: WorkSuggestion | null;
   isStreaming?: boolean;
   isError?: boolean;
+  /** PR3：当前正在调用的工具状态，如"正在查询销售管道…"；null 表示无 */
+  toolStatus?: string | null;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────
@@ -390,13 +392,19 @@ export function ChatPanel({
                         </p>
                       ))
                     )
-                  ) : msg.isStreaming ? (
+                  ) : msg.isStreaming && !msg.toolStatus ? (
                     <div className="flex items-center gap-2 text-muted">
                       <Loader2 size={14} className="animate-spin" />
                       <span className="text-xs">思考中...</span>
                     </div>
                   ) : null}
-                  {msg.isStreaming && msg.content && (
+                  {msg.isStreaming && msg.toolStatus && (
+                    <div className="mt-1.5 flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent w-fit">
+                      <Loader2 size={11} className="animate-spin" />
+                      <span>{msg.toolStatus}</span>
+                    </div>
+                  )}
+                  {msg.isStreaming && msg.content && !msg.toolStatus && (
                     <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent/60" />
                   )}
                 </div>

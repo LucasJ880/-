@@ -28,7 +28,7 @@ import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { isOperatorEnabled } from "@/lib/feature-flags";
-import { runAgent } from "@/lib/agent-core";
+import { runAgentStream, needsTools } from "@/lib/agent-core";
 import { buildOperatorSystemPrompt } from "@/lib/agent-core/prompts/operator-system";
 import { getCapabilities } from "@/lib/rbac/capabilities";
 
@@ -334,7 +334,7 @@ async function indexThreadMessages(userId: string, threadId: string) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PR2 — Operator 分支（runAgent + 只读工具）
+// PR3 — Operator 分支（真正的流式 + 工具可感知 + 免工具直答）
 // ─────────────────────────────────────────────────────────────
 
 interface OperatorBranchInput {
@@ -356,6 +356,8 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     userName: user.name,
   });
 
+  // PR3：轻量分流 —— 无业务关键词就跳过工具循环，直接流式对话
+  const withTools = needsTools(userContent);
   const encoder = new TextEncoder();
   const startedAt = Date.now();
 
@@ -364,54 +366,116 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
       const emit = (obj: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
-      try {
-        // PR2 约束：只读工具 + 按角色域过滤；写工具 / 审批留到 PR4
-        const result = await runAgent({
-          systemPrompt,
-          messages: chatMessages,
-          mode: "chat",
-          userId: user.id,
-          orgId: "default",
-          sessionId: threadId,
-          role: user.role,
-          domains: [...caps.aiDomains],
-          // 只读：maxRisk 透过 runAgent → registry.toOpenAITools；
-          // 当前 runAgent 未暴露 maxRisk，PR2 通过 domains 已足够（sales 域下仍有
-          // 少量 write 工具，但它们 allowRoles 依然允许 sales，registry 不会拦）。
-          // 因此此处显式把已知写工具剔除，保证只读。
-          tools: undefined,
-          abortSignal,
-        });
 
-        // 轻量 trace（PR2 不做后台页，只落控制台，便于对比）
+      let fullText = "";
+      let firstTokenMs: number | undefined;
+      let rounds = 0;
+      let toolCalls = 0;
+      let model = "";
+      let hadError = false;
+
+      try {
+        // 发个 mode 心跳，前端可选读取
+        emit({ type: "mode", mode: withTools ? "operator.tools" : "operator.direct" });
+
+        if (withTools) {
+          // ── 走完整 agent 流程 ──
+          for await (const ev of runAgentStream({
+            systemPrompt,
+            messages: chatMessages,
+            mode: "chat",
+            userId: user.id,
+            orgId: "default",
+            sessionId: threadId,
+            role: user.role,
+            domains: [...caps.aiDomains],
+            abortSignal,
+          })) {
+            if (ev.type === "text") {
+              fullText += ev.delta;
+              // content 字段给旧前端；type/delta 给新前端
+              emit({ type: "text", content: ev.delta });
+            } else if (ev.type === "tool_start") {
+              emit({ type: "tool_start", name: ev.name, label: ev.label });
+            } else if (ev.type === "tool_result") {
+              emit({ type: "tool_result", name: ev.name, ok: ev.ok });
+            } else if (ev.type === "done") {
+              firstTokenMs = ev.firstTokenMs;
+              rounds = ev.rounds;
+              toolCalls = ev.toolCalls;
+              model = ev.model;
+            } else if (ev.type === "error") {
+              hadError = true;
+              emit({ type: "error", error: ev.message });
+            }
+          }
+        } else {
+          // ── 免工具直答：最小 operator prompt + 原始对话 ──
+          // 只带最近 20 条消息，避免过长
+          const recent = chatMessages.slice(-20);
+          const stream = await createChatStream({
+            systemPrompt,
+            messages: recent,
+            mode: "chat",
+            signal: abortSignal,
+          });
+
+          model = "direct-chat";
+          let lastChunk: unknown = null;
+          for await (const chunk of stream) {
+            lastChunk = chunk;
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+              if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
+              fullText += delta;
+              emit({ type: "text", content: delta });
+            }
+          }
+          const usage = extractUsage(lastChunk);
+          recordAiCall({
+            model: "operator-direct",
+            success: true,
+            elapsedMs: Date.now() - startedAt,
+            source: "ai-operator-direct",
+            ...usage,
+          });
+          rounds = 1;
+        }
+
+        const latencyMs = Date.now() - startedAt;
         console.info("[ai.operator]", {
           userId: user.id,
           role: user.role,
           threadId,
-          model: result.model,
-          rounds: result.rounds,
-          toolCalls: result.toolCalls.map((c) => ({
-            name: c.name,
-            ok: c.result.success,
-          })),
-          latencyMs: Date.now() - startedAt,
+          mode: withTools ? "tools" : "direct",
+          model,
+          rounds,
+          toolCalls,
+          firstTokenMs,
+          latencyMs,
+          error: hadError || undefined,
         });
 
-        const content = result.content || "（AI 暂时没有生成内容，请稍后重试）";
-
-        // 告诉前端正在使用 operator 分支（UI 以后可加 badge）
-        emit({ mode: "operator" });
-
-        // 一次性把完整答复发给前端（PR2 先不做中间 token 流式，前端兼容）
-        emit({ content });
+        emit({
+          type: "done",
+          mode: withTools ? "operator.tools" : "operator.direct",
+          firstTokenMs,
+          rounds,
+          toolCalls,
+          latencyMs,
+        });
 
         // 写库 —— 与 legacy 分支保持结构一致
+        const finalContent = fullText || (hadError
+          ? "（AI 调用失败，请重试）"
+          : "（AI 暂时没有生成内容，请稍后重试）");
+
         await db.$transaction([
           db.aiMessage.create({
             data: {
               threadId,
               role: "assistant",
-              content,
+              content: finalContent,
             },
           }),
           db.aiThread.update({
@@ -430,7 +494,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
       } catch (err) {
         console.error("[ai.operator] failed", err);
         const message = err instanceof Error ? err.message : "AI 服务调用失败";
-        emit({ error: message });
+        emit({ type: "error", error: message });
         controller.close();
       }
     },
