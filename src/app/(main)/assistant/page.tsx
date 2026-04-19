@@ -13,12 +13,25 @@ import { ChatPanel, type StreamingMsg } from "./chat-panel";
 
 // ── 类型 ──────────────────────────────────────────────────────
 
+interface ApiPendingAction {
+  id: string;
+  type: string;
+  title: string;
+  preview: string;
+  status: "pending" | "approved" | "rejected" | "executed" | "failed";
+  messageId?: string | null;
+  expiresAt: string;
+  failureReason?: string | null;
+  resultRef?: string | null;
+}
+
 interface AiMsg {
   id: string;
   role: "user" | "assistant";
   content: string;
   workSuggestion?: WorkSuggestion | null;
   createdAt: string;
+  pendingActions?: ApiPendingAction[];
 }
 
 function cleanStreamingText(raw: string): string {
@@ -118,12 +131,34 @@ function AssistantPageInner() {
     apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${activeThreadId}/messages`)
       .then((data) => {
         if (data.messages) {
+          const now = Date.now();
           setMessages(
             data.messages.map((m: AiMsg) => ({
               id: m.id,
               role: m.role as "user" | "assistant",
               content: m.content,
               workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+              pendingApprovals: (m.pendingActions ?? []).map((a) => {
+                // PR4 回看：pending 但已过期的降级为 expired，不给点击
+                const expired =
+                  a.status === "pending" &&
+                  new Date(a.expiresAt).getTime() < now;
+                return {
+                  actionId: a.id,
+                  draftType: a.type,
+                  title: a.title,
+                  preview: a.preview,
+                  status: expired
+                    ? ("expired" as const)
+                    : (a.status as
+                        | "pending"
+                        | "executed"
+                        | "rejected"
+                        | "failed"
+                        | "expired"),
+                  failureReason: a.failureReason ?? undefined,
+                };
+              }),
             }))
           );
         }

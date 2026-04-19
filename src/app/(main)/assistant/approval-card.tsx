@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { Check, X, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Check, X, Loader2, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 
 export interface PendingApproval {
@@ -16,7 +16,7 @@ export interface PendingApproval {
   draftType: string;
   title: string;
   preview: string;
-  status: "pending" | "executed" | "rejected" | "failed";
+  status: "pending" | "executed" | "rejected" | "failed" | "expired";
   failureReason?: string;
 }
 
@@ -99,6 +99,18 @@ export function ApprovalCard({ approval, onChange }: Props) {
         <div className="text-xs text-[#a63d3d]/80">
           {approval.failureReason ?? "未知错误"}
         </div>
+      </div>
+    );
+  }
+
+  if (approval.status === "expired") {
+    return (
+      <div className="rounded-xl border border-border bg-foreground/5 px-3 py-2">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted">
+          <Clock size={13} />
+          已过期，未执行
+        </div>
+        <div className="text-xs text-muted/80">{approval.title}</div>
       </div>
     );
   }

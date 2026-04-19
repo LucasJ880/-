@@ -69,8 +69,46 @@ export const GET = withAuth(async (request, ctx, user) => {
     },
   });
 
+  // PR4 回看：把该会话中已回填 messageId 的 pendingAction 一并返回
+  // 只返回非最终态（pending）+ 已终态（executed/rejected/failed）用于历史展示
+  const messageIds = messages.map((m) => m.id);
+  const pendingActions =
+    messageIds.length > 0
+      ? await db.pendingAction.findMany({
+          where: {
+            createdById: user.id,
+            messageId: { in: messageIds },
+          },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            type: true,
+            title: true,
+            preview: true,
+            status: true,
+            messageId: true,
+            expiresAt: true,
+            failureReason: true,
+            resultRef: true,
+          },
+        })
+      : [];
+
+  const actionsByMessage = new Map<string, typeof pendingActions>();
+  for (const a of pendingActions) {
+    if (!a.messageId) continue;
+    const bucket = actionsByMessage.get(a.messageId) ?? [];
+    bucket.push(a);
+    actionsByMessage.set(a.messageId, bucket);
+  }
+
+  const messagesWithActions = messages.map((m) => ({
+    ...m,
+    pendingActions: actionsByMessage.get(m.id) ?? [],
+  }));
+
   return NextResponse.json({
-    messages,
+    messages: messagesWithActions,
     hasMore: messages.length === take,
     nextCursor: messages.length > 0 ? messages[messages.length - 1].id : null,
   });
@@ -391,6 +429,8 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
       let toolCalls = 0;
       let model = "";
       let hadError = false;
+      // PR4 回看：本次流中生成的待审批 actionId，稍后回填 messageId
+      const createdActionIds: string[] = [];
 
       try {
         // 发个 mode 心跳，前端可选读取
@@ -423,6 +463,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
               // 前端收到后在消息下方渲染审批卡片
               const approval = detectPendingApproval(ev.data);
               if (approval) {
+                createdActionIds.push(approval.actionId);
                 emit({
                   type: "approval_required",
                   actionId: approval.actionId,
@@ -502,24 +543,36 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           ? "（AI 调用失败，请重试）"
           : "（AI 暂时没有生成内容，请稍后重试）");
 
-        await db.$transaction([
-          db.aiMessage.create({
-            data: {
-              threadId,
-              role: "assistant",
-              content: finalContent,
+        const assistantMsg = await db.aiMessage.create({
+          data: {
+            threadId,
+            role: "assistant",
+            content: finalContent,
+          },
+          select: { id: true },
+        });
+
+        await db.aiThread.update({
+          where: { id: threadId },
+          data: {
+            lastMessageAt: new Date(),
+            ...(isFirstMessage && threadTitle === "新对话"
+              ? { title: userContent.slice(0, 60) }
+              : {}),
+          },
+        });
+
+        // PR4 回看：把本次流中生成的草稿回填 messageId，方便历史会话重新打开时找回卡片
+        if (createdActionIds.length > 0) {
+          await db.pendingAction.updateMany({
+            where: {
+              id: { in: createdActionIds },
+              createdById: user.id,
+              messageId: null,
             },
-          }),
-          db.aiThread.update({
-            where: { id: threadId },
-            data: {
-              lastMessageAt: new Date(),
-              ...(isFirstMessage && threadTitle === "新对话"
-                ? { title: userContent.slice(0, 60) }
-                : {}),
-            },
-          }),
-        ]);
+            data: { messageId: assistantMsg.id },
+          });
+        }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
