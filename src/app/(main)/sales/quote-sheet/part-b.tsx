@@ -409,10 +409,10 @@ function SpecialPromotionRow({
   const amount = Math.max(0, parseFloat(value) || 0);
   const afterDiscount = Math.max(0, productsPreTax - amount);
   const pct = totalMsrp > 0 ? Math.max(0, 1 - afterDiscount / totalMsrp) : 0;
-  // 让利占产品税前比例；超过 15% 飘黄，超过 25% 强警告
+  // 让利占产品税前比例；超过 6% 飘黄，超过 15% 强警告
   const ratio = productsPreTax > 0 ? amount / productsPreTax : 0;
-  const warning = ratio > 0.15 && ratio <= 0.25;
-  const danger = ratio > 0.25;
+  const warning = ratio > 0.06 && ratio <= 0.15;
+  const danger = ratio > 0.15;
   const accent = danger
     ? "border-amber-500 bg-amber-100/80"
     : warning
@@ -425,9 +425,6 @@ function SpecialPromotionRow({
           <label className="text-sm font-semibold text-orange-800 block">
             Special Promotion
           </label>
-          <p className="text-[11px] text-orange-700/80">
-            现场额外让利（税前直减）。此金额将从总价中直接扣除，HST 按扣除后金额计算。
-          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -471,8 +468,8 @@ function SpecialPromotionRow({
             Special Promotion 已达产品税前小计的{" "}
             <strong>{(ratio * 100).toFixed(1)}%</strong>
             {danger
-              ? "（>25%），让利过高，建议经理审核后再签单"
-              : "（>15%），请确认是否符合公司让利政策"}
+              ? "（>15%），让利过高，建议经理审核后再签单"
+              : "（>6%），请确认是否符合公司让利政策"}
             。
           </span>
         </div>
