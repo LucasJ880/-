@@ -215,16 +215,19 @@ export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, on
                 </div>
                 <div>
                   <span className="text-muted-foreground">Fabric:</span>
-                  <select
+                  <input
+                    type="text"
                     value={line.drapeFabricSku}
                     onChange={(e) => updateLine(line.id, "drapeFabricSku", e.target.value)}
-                    className="bg-transparent border-b border-dashed border-border outline-none text-[10px] px-1 min-h-[44px]"
-                  >
-                    <option value="">—</option>
+                    list={`drape-fabric-${line.id}`}
+                    placeholder="fabric name"
+                    className="bg-transparent border-b border-dashed border-border outline-none text-[10px] px-1 min-h-[44px] min-w-[120px]"
+                  />
+                  <datalist id={`drape-fabric-${line.id}`}>
                     {DRAPERY_FABRICS.map((f) => (
-                      <option key={f} value={f}>{f}</option>
+                      <option key={f} value={f} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">Full:</span>
@@ -282,16 +285,19 @@ export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, on
                 </div>
                 <div>
                   <span className="text-muted-foreground">Fabric:</span>
-                  <select
+                  <input
+                    type="text"
                     value={line.sheerFabricSku}
                     onChange={(e) => updateLine(line.id, "sheerFabricSku", e.target.value)}
-                    className="bg-transparent border-b border-dashed border-border outline-none text-[10px] px-1 min-h-[44px]"
-                  >
-                    <option value="">—</option>
+                    list={`sheer-fabric-${line.id}`}
+                    placeholder="fabric name"
+                    className="bg-transparent border-b border-dashed border-border outline-none text-[10px] px-1 min-h-[44px] min-w-[120px]"
+                  />
+                  <datalist id={`sheer-fabric-${line.id}`}>
                     {SHEER_FABRICS.map((f) => (
-                      <option key={f} value={f}>{f}</option>
+                      <option key={f} value={f} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">Full:</span>
