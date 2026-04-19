@@ -355,16 +355,57 @@ export default function QuoteSheetPage() {
   const promoRatio = productsPreTax > 0 ? specialPromotionNum / productsPreTax : 0;
   const promoBlocked = !isSuperAdmin && promoRatio > promoMaxPct;
 
-  // Auto-generate order number
+  // 客户当日序号（由后端按「该销售今日接触的 distinct 客户顺序」分配）
+  // - 选中客户 + date 变化时拉取
+  // - 未选客户或 API 未返回时 = 0（order# 用 ?? 占位）
+  const [customerDailySeq, setCustomerDailySeq] = useState(0);
+  useEffect(() => {
+    if (!customerId) {
+      setCustomerDailySeq(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const d = await apiJson<{ seq: number }>(
+          `/api/sales/quote-sheet/customer-daily-seq?customerId=${encodeURIComponent(customerId)}&date=${encodeURIComponent(date)}`
+        );
+        if (!cancelled && typeof d?.seq === "number") {
+          setCustomerDailySeq(d.seq);
+        }
+      } catch {
+        if (!cancelled) setCustomerDailySeq(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, date]);
+
+  // Auto-generate order number（新规则：基于 Shades/Shutters/Drapes/PartB + 客户当日序号）
   const orderNumber = useMemo(() => {
-    if (!salesRep) return "";
     return generateOrderNumber({
       date: new Date(date),
-      measureSequence,
-      lines: partALines,
+      customerSeq: customerDailySeq,
+      shadeOrders,
+      shutterOrders,
+      drapeOrders,
+      partBAddons,
+      shutterMaterial,
       salesRepInitials: salesRep,
+      installMode,
     });
-  }, [date, measureSequence, partALines, salesRep]);
+  }, [
+    date,
+    customerDailySeq,
+    shadeOrders,
+    shutterOrders,
+    drapeOrders,
+    partBAddons,
+    shutterMaterial,
+    salesRep,
+    installMode,
+  ]);
 
   // 自动保存草稿到 localStorage（debounce 1s），首屏检查完成后才启用
   useEffect(() => {
@@ -870,11 +911,16 @@ export default function QuoteSheetPage() {
               <Input value={salesRep} onChange={(e) => setSalesRep(e.target.value)}
                 className="mt-1" placeholder="e.g. Alex" />
             </div>
-            <div className="w-16">
-              <Label className="text-xs">Meas #</Label>
-              <Input type="number" min={1} value={measureSequence}
-                onChange={(e) => setMeasureSequence(parseInt(e.target.value) || 1)}
-                className="mt-1 text-center" />
+            <div className="w-20">
+              <Label className="text-xs" title="系统按今日该销售接触的独立客户顺序自动分配">
+                Cust #
+              </Label>
+              <Input
+                value={customerDailySeq > 0 ? String(customerDailySeq).padStart(2, "0") : "--"}
+                readOnly
+                className="mt-1 text-center bg-muted/40 cursor-not-allowed"
+                title={customerId ? "系统自动分配" : "请先选择客户"}
+              />
             </div>
           </div>
         </div>

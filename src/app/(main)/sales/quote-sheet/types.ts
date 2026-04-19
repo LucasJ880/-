@@ -76,13 +76,16 @@ export function getProductCategory(product: ProductName | ""): ProductCategory |
 export const PRODUCT_CODE_MAP: Record<string, string> = {
   Zebra: "Z",
   Roller: "R",
-  SHANGRILA: "Z",
-  "Cordless Cellular": "Z",
-  SkylightHoneycomb: "Z",
+  SHANGRILA: "T",
+  "Cordless Cellular": "C",
+  SkylightHoneycomb: "H",
   Drapery: "D",
   Sheer: "S",
   Shutters: "V",
 };
+
+// Shades 产品代号枚举顺序（Z→R→T→C→H）用于 order# 字符串拼接
+const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H"];
 
 export interface PartBAddon {
   id: string;
@@ -212,45 +215,151 @@ const YEAR_CODES: Record<number, string> = {
   2030: "K",
 };
 
+/**
+ * Order# 生成 — 新规则（2026-04 版）
+ *
+ * 结构：
+ *   [YearCode][MMDD]-[CustomerSeq]-[Shades][Shutters][Drapes][PartB][SalesInitial][ShadeSQF]-[ShutterSQF]-[DrapeSQF](P)?
+ *
+ * 示例：G0418-01-Z3R2V4D2S1M1RM1L67-89-90(P)
+ *
+ * 段说明：
+ * - YearCode：2026=G / 2027=H / ...
+ * - MMDD：报价日期 0418
+ * - CustomerSeq：当前销售当日接触的「独立客户」序号（同客户同日复用），0 表示未知
+ * - Shades：Z/R/T/C/H + 对应窗户行数
+ * - Shutters：W/V（由全局 shutterMaterial 决定）+ 所有 panel 总数
+ * - Drapes：D + 所有 drape 行 panel 数之和（S=1/D=2），S + 所有 sheer 行 panel 数之和
+ * - PartB：关键词匹配 addon.skuItem：motor/电机→M；hub→HUB；remote/遥控→RM，后接数量
+ * - SalesInitial：销售首字母（大写，最多 2 位）
+ * - SQF 三段：Shade-Shutter-Drape；W×H/144 每行 Math.ceil；Drape 加乘 fullness%
+ * - installMode === "pickup" 末尾加 (P)
+ */
 export function generateOrderNumber(opts: {
   date: Date;
-  measureSequence: number;
-  lines: PartALine[];
+  customerSeq: number;
+  shadeOrders: ShadeOrderLine[];
+  shutterOrders: ShutterOrderLine[];
+  drapeOrders: DrapeOrderLine[];
+  partBAddons: PartBAddon[];
+  shutterMaterial: "Wooden" | "Vinyl";
   salesRepInitials: string;
+  installMode: InstallMode;
 }): string {
-  const { date, measureSequence, lines, salesRepInitials } = opts;
+  const {
+    date,
+    customerSeq,
+    shadeOrders,
+    shutterOrders,
+    drapeOrders,
+    partBAddons,
+    shutterMaterial,
+    salesRepInitials,
+    installMode,
+  } = opts;
+
   const yearCode = YEAR_CODES[date.getFullYear()] ?? "X";
   const mmdd = `${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
-  const seq = String(measureSequence).padStart(2, "0");
+  const seq = customerSeq > 0 ? String(customerSeq).padStart(2, "0") : "??";
 
-  const filled = lines.filter((l) => l.product && l.price);
-
-  const codeCounts: Record<string, number> = {};
-  for (const l of filled) {
-    let code = PRODUCT_CODE_MAP[l.product] ?? "X";
-    if (l.product === "Shutters") {
-      code = l.shutterMaterial === "Wooden" ? "W" : "V";
-    }
-    codeCounts[code] = (codeCounts[code] ?? 0) + l.panelCount;
+  // ── Shades：按窗户行数
+  const shadeCounts: Record<string, number> = {};
+  for (const l of shadeOrders) {
+    if (!l.product) continue;
+    const code = PRODUCT_CODE_MAP[l.product];
+    if (!code || !SHADE_CODE_ORDER.includes(code)) continue;
+    shadeCounts[code] = (shadeCounts[code] ?? 0) + 1;
   }
-
-  // Build product string: Z3R4 etc
-  const productStr = Object.entries(codeCounts)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([code, count]) => `${code}${count}`)
+  const shadeStr = SHADE_CODE_ORDER
+    .filter((c) => shadeCounts[c])
+    .map((c) => `${c}${shadeCounts[c]}`)
     .join("");
 
-  const calcSqf = (lines: PartALine[]) =>
-    lines.reduce((sum, l) => sum + ((l.widthIn ?? 0) * (l.heightIn ?? 0) * l.panelCount) / 144, 0);
+  // ── Shutters：panelCount 累加
+  const shutterMatCode = shutterMaterial === "Wooden" ? "W" : "V";
+  let shutterPanels = 0;
+  for (const l of shutterOrders) {
+    shutterPanels += Number(l.panelCount) || 0;
+  }
+  const shutterStr = shutterPanels > 0 ? `${shutterMatCode}${shutterPanels}` : "";
 
-  const sqfShade = calcSqf(filled.filter((l) =>
-    ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb"].includes(l.product)));
-  const sqfDrape = calcSqf(filled.filter((l) => ["Drapery", "Sheer"].includes(l.product)));
-  const sqfShutter = calcSqf(filled.filter((l) => l.product === "Shutters"));
-  const totalSqf = Math.round(sqfShade + sqfDrape + sqfShutter);
+  // ── Drapes：drape 行贡献 D（S=1,D=2），sheer 行贡献 S（S=1,D=2）
+  const panelVal = (p: "S" | "D") => (p === "D" ? 2 : 1);
+  let drapePanels = 0;
+  let sheerPanels = 0;
+  for (const l of drapeOrders) {
+    if (l.drapeFabricSku?.trim()) drapePanels += panelVal(l.drapePanels);
+    if (l.sheerFabricSku?.trim()) sheerPanels += panelVal(l.sheerPanels);
+  }
+  const drapeStr =
+    (drapePanels > 0 ? `D${drapePanels}` : "") +
+    (sheerPanels > 0 ? `S${sheerPanels}` : "");
 
-  const rep = salesRepInitials.toUpperCase().slice(0, 2);
-  return `${yearCode}${mmdd}-${seq}-${productStr}${rep}${totalSqf || ""}`;
+  // ── Part B：关键词匹配
+  let motorQty = 0;
+  let hubQty = 0;
+  let remoteQty = 0;
+  for (const a of partBAddons) {
+    const name = (a.skuItem || "").toLowerCase();
+    const qty = Number(a.qty) || 0;
+    if (!name || qty <= 0) continue;
+    if (name.includes("motor") || name.includes("电机") || name.includes("管状")) {
+      motorQty += qty;
+    } else if (name.includes("hub")) {
+      hubQty += qty;
+    } else if (name.includes("remote") || name.includes("遥控")) {
+      remoteQty += qty;
+    }
+  }
+  const partBStr =
+    (motorQty > 0 ? `M${motorQty}` : "") +
+    (hubQty > 0 ? `HUB${hubQty}` : "") +
+    (remoteQty > 0 ? `RM${remoteQty}` : "");
+
+  // ── Sales Initial
+  const rep = (salesRepInitials || "").toUpperCase().slice(0, 2);
+
+  // ── SQF（每行 ceil 后累加）
+  const ceilArea = (w: number, h: number, mult = 1) =>
+    w > 0 && h > 0 ? Math.ceil((w * h * mult) / 144) : 0;
+
+  let sqfShade = 0;
+  for (const l of shadeOrders) {
+    if (!l.product) continue;
+    const w = fractionToInches(l.widthWhole, l.widthFrac);
+    const h = fractionToInches(l.heightWhole, l.heightFrac);
+    sqfShade += ceilArea(w, h);
+  }
+
+  let sqfShutter = 0;
+  for (const l of shutterOrders) {
+    const w = fractionToInches(l.widthWhole, l.widthFrac);
+    const h = fractionToInches(l.heightWhole, l.heightFrac);
+    sqfShutter += ceilArea(w, h);
+  }
+
+  let sqfDrape = 0;
+  for (const l of drapeOrders) {
+    if (l.drapeFabricSku?.trim()) {
+      const w = fractionToInches(l.drapeWidthWhole, l.drapeWidthFrac);
+      const h = fractionToInches(l.drapeHeightWhole, l.drapeHeightFrac);
+      const mult = (parseInt(l.drapeFullness, 10) || 180) / 100;
+      sqfDrape += ceilArea(w, h, mult);
+    }
+    if (l.sheerFabricSku?.trim()) {
+      const w = fractionToInches(l.sheerWidthWhole, l.sheerWidthFrac);
+      const h = fractionToInches(l.sheerHeightWhole, l.sheerHeightFrac);
+      const mult = (parseInt(l.sheerFullness, 10) || 180) / 100;
+      sqfDrape += ceilArea(w, h, mult);
+    }
+  }
+
+  const hasAnySqf = sqfShade > 0 || sqfShutter > 0 || sqfDrape > 0;
+  const sqfStr = hasAnySqf ? `${sqfShade}-${sqfShutter}-${sqfDrape}` : "";
+
+  const pickup = installMode === "pickup" ? "(P)" : "";
+
+  return `${yearCode}${mmdd}-${seq}-${shadeStr}${shutterStr}${drapeStr}${partBStr}${rep}${sqfStr}${pickup}`;
 }
 
 export const INSTALL_PRICES = {
