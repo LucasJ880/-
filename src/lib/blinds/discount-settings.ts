@@ -60,9 +60,20 @@ export interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
+  // Special Promotion 阈值（0~1 小数）
+  promoWarnPct: number;
+  promoDangerPct: number;
+  promoMaxPct: number;
   updatedAt: string;
   updatedBy: string | null;
 }
+
+const PRODUCT_KEYS = [
+  "zebra", "shangrila", "cellular", "roller",
+  "drapery", "sheer", "shutters", "honeycomb",
+] as const;
+const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
+export const DTO_NUMERIC_KEYS = [...PRODUCT_KEYS, ...THRESHOLD_KEYS] as const;
 
 export async function loadDiscountsDto(): Promise<DiscountsDto> {
   const row = await db.quoteDiscountSettings.upsert({
@@ -79,24 +90,43 @@ export async function loadDiscountsDto(): Promise<DiscountsDto> {
     sheer: row.sheer,
     shutters: row.shutters,
     honeycomb: row.honeycomb,
+    promoWarnPct: row.promoWarnPct,
+    promoDangerPct: row.promoDangerPct,
+    promoMaxPct: row.promoMaxPct,
     updatedAt: row.updatedAt.toISOString(),
     updatedBy: row.updatedBy,
   };
 }
 
-/** 校验入参合法性：所有字段必须在 [0, 1] 之间 */
+/**
+ * 校验入参合法性：
+ * - 所有产品折扣字段 0~1
+ * - 阈值字段 0~1
+ * - 如果三个阈值都传，要求 warn <= danger <= max（防止顺序乱）
+ */
 export function validateDiscountsInput(
   input: Record<string, unknown>,
-): { ok: true; value: Partial<Omit<DiscountsDto, "updatedAt" | "updatedBy">> } | { ok: false; error: string } {
-  const keys = ["zebra", "shangrila", "cellular", "roller", "drapery", "sheer", "shutters", "honeycomb"] as const;
+): { ok: true; value: Partial<Pick<DiscountsDto, (typeof DTO_NUMERIC_KEYS)[number]>> } | { ok: false; error: string } {
   const out: Record<string, number> = {};
-  for (const k of keys) {
+  for (const k of DTO_NUMERIC_KEYS) {
     if (input[k] === undefined) continue;
     const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 1) {
-      return { ok: false, error: `字段 ${k} 必须为 0~1 之间的数字（0.45 表示 45%）` };
+      return { ok: false, error: `字段 ${k} 必须为 0~1 之间的数字（0.06 表示 6%）` };
     }
     out[k] = Math.round(n * 10000) / 10000;
+  }
+  const w = out.promoWarnPct;
+  const d = out.promoDangerPct;
+  const m = out.promoMaxPct;
+  if (w !== undefined && d !== undefined && w > d) {
+    return { ok: false, error: "黄色预警阈值不能大于红色强警告阈值" };
+  }
+  if (d !== undefined && m !== undefined && d > m) {
+    return { ok: false, error: "红色强警告阈值不能大于最高让利上限" };
+  }
+  if (w !== undefined && m !== undefined && w > m) {
+    return { ok: false, error: "黄色预警阈值不能大于最高让利上限" };
   }
   return { ok: true, value: out };
 }

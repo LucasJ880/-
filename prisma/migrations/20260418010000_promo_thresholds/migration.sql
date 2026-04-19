@@ -1,0 +1,5 @@
+-- Special Promotion 阈值：预警 / 强警告 / 上限
+ALTER TABLE "QuoteDiscountSettings"
+  ADD COLUMN "promoWarnPct"   DOUBLE PRECISION NOT NULL DEFAULT 0.06,
+  ADD COLUMN "promoDangerPct" DOUBLE PRECISION NOT NULL DEFAULT 0.15,
+  ADD COLUMN "promoMaxPct"    DOUBLE PRECISION NOT NULL DEFAULT 0.25;

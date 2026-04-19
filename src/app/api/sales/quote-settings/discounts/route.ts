@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import {
   loadDiscountsDto,
   validateDiscountsInput,
+  DTO_NUMERIC_KEYS,
   type DiscountsDto,
 } from "@/lib/blinds/discount-settings";
 
@@ -62,13 +63,16 @@ export const PUT = withAuth(async (request, _ctx, user) => {
     sheer: updated.sheer,
     shutters: updated.shutters,
     honeycomb: updated.honeycomb,
+    promoWarnPct: updated.promoWarnPct,
+    promoDangerPct: updated.promoDangerPct,
+    promoMaxPct: updated.promoMaxPct,
     updatedAt: updated.updatedAt.toISOString(),
     updatedBy: updated.updatedBy,
   };
 
   // 审计：记录字段级 diff
   const diff: Record<string, { from: number; to: number }> = {};
-  for (const k of ["zebra","shangrila","cellular","roller","drapery","sheer","shutters","honeycomb"] as const) {
+  for (const k of DTO_NUMERIC_KEYS) {
     if (before[k] !== after[k]) {
       diff[k] = { from: before[k], to: after[k] };
     }

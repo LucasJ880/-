@@ -67,6 +67,7 @@ import {
   formatDraftAge,
   type QuoteDraftV1,
 } from "./quote-draft";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 // Part A 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含 Part A。
@@ -250,14 +251,18 @@ export default function QuoteSheetPage() {
     })();
   }, []);
 
-  // 拉取全局折扣率（Order Form / AI 工具 共用数据源）
+  // 拉取全局折扣率 & Special Promotion 阈值（Order Form / AI 工具 共用数据源）
   const [discounts, setDiscounts] = useState<DiscountsOverride | undefined>(undefined);
+  const [promoWarnPct, setPromoWarnPct] = useState(0.06);
+  const [promoDangerPct, setPromoDangerPct] = useState(0.15);
+  const [promoMaxPct, setPromoMaxPct] = useState(0.25);
   useEffect(() => {
     (async () => {
       try {
         const d = await apiJson<{
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
+          promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
         }>("/api/sales/quote-settings/discounts");
         setDiscounts({
           Zebra: d.zebra,
@@ -269,11 +274,17 @@ export default function QuoteSheetPage() {
           Shutters: d.shutters,
           SkylightHoneycomb: d.honeycomb,
         });
+        if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
+        if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
+        if (typeof d.promoMaxPct === "number") setPromoMaxPct(d.promoMaxPct);
       } catch {
-        // 拉取失败时 undefined，pricing-helpers 会 fallback 到内置 DEFAULT_DISCOUNTS
+        // 拉取失败时保留默认值
       }
     })();
   }, []);
+
+  // 当前用户角色 —— admin/super_admin 不受 promoMaxPct 约束
+  const { isSuperAdmin } = useCurrentUser();
 
   const handleCustomerSelect = useCallback(async (id: string) => {
     setCustomerId(id);
@@ -338,6 +349,11 @@ export default function QuoteSheetPage() {
   const finalDiscountPct = totalMsrp > 0
     ? Math.max(0, Math.min(1, 1 - Math.max(0, productsSubtotal - specialPromotionNum) / totalMsrp))
     : 0;
+
+  // Special Promotion 硬门槛：ratio > promoMaxPct 时，非 admin 禁止保存/生成
+  const productsPreTax = productsSubtotal + subtotalC;
+  const promoRatio = productsPreTax > 0 ? specialPromotionNum / productsPreTax : 0;
+  const promoBlocked = !isSuperAdmin && promoRatio > promoMaxPct;
 
   // Auto-generate order number
   const orderNumber = useMemo(() => {
@@ -438,6 +454,13 @@ export default function QuoteSheetPage() {
 
   const handleSave = useCallback(async (): Promise<{ quoteId: string } | null> => {
     if (!customerId) return null;
+    // 硬门槛：Special Promotion 超过公司上限，非 admin 禁止提交
+    if (promoBlocked) {
+      alert(
+        `Special Promotion 已达产品税前小计的 ${(promoRatio * 100).toFixed(1)}%，超过公司设定的最高让利上限 ${Math.round(promoMaxPct * 100)}%。\n\n请降低让利金额，或由管理员账号登录后提交。`,
+      );
+      return null;
+    }
     setSaving(true);
     try {
       // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）
@@ -572,6 +595,7 @@ export default function QuoteSheetPage() {
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     shadeValanceType, shadeBracketType,
     totalMsrp, specialPromotionNum, finalDiscountPct,
+    promoBlocked, promoRatio, promoMaxPct,
   ]);
 
   const handleSendEmail = useCallback(async () => {
@@ -997,7 +1021,11 @@ export default function QuoteSheetPage() {
             specialPromotion={specialPromotion}
             onSpecialPromotionChange={setSpecialPromotion}
             totalMsrp={totalMsrp}
-            productsPreTax={productsSubtotal + subtotalC}
+            productsPreTax={productsPreTax}
+            promoWarnPct={promoWarnPct}
+            promoDangerPct={promoDangerPct}
+            promoMaxPct={promoMaxPct}
+            isAdmin={isSuperAdmin}
           />
         )}
         {activeTab === "partC" && (
@@ -1087,9 +1115,14 @@ export default function QuoteSheetPage() {
             variant="outline"
             size="sm"
             onClick={handleSave}
-            disabled={saving || !customerId}
+            disabled={saving || !customerId || promoBlocked}
             className="gap-1.5 px-2 md:px-3"
             aria-label="Save"
+            title={
+              promoBlocked
+                ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
+                : undefined
+            }
           >
             {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             <span className="hidden md:inline">{saving ? "Saving..." : "Save"}</span>
@@ -1097,13 +1130,15 @@ export default function QuoteSheetPage() {
           <Button
             size="sm"
             onClick={handleGenerateQuote}
-            disabled={generating || saving || !customerId || !hasAnySignature}
+            disabled={generating || saving || !customerId || !hasAnySignature || promoBlocked}
             className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
             aria-label={hasAnySignature ? "生成报价单（已签名）" : "请先让客户签名"}
             title={
-              !hasAnySignature
-                ? "请让客户在任一签字框完成签名后再生成报价单"
-                : "保存 + 导出 PDF + 将客户状态改为已成单"
+              promoBlocked
+                ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
+                : !hasAnySignature
+                  ? "请让客户在任一签字框完成签名后再生成报价单"
+                  : "保存 + 导出 PDF + 将客户状态改为已成单"
             }
           >
             {generating ? (

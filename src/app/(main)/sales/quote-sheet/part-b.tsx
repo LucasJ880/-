@@ -35,6 +35,12 @@ interface PartBProps {
   onSpecialPromotionChange: (v: string) => void;
   totalMsrp: number; // 用于预览"相对 MSRP 的折扣率"
   productsPreTax: number; // = productsSubtotal + subtotalC（不含 Part B 自身）用于校验上限
+  // Special Promotion 阈值（0~1 小数，从全局折扣设置拉取）
+  promoWarnPct?: number;
+  promoDangerPct?: number;
+  promoMaxPct?: number;
+  // 当前用户是否为管理员（admin/super_admin）；admin 不受 max 上限约束
+  isAdmin?: boolean;
 }
 
 export function PartBForm({
@@ -62,6 +68,10 @@ export function PartBForm({
   onSpecialPromotionChange,
   totalMsrp,
   productsPreTax,
+  promoWarnPct,
+  promoDangerPct,
+  promoMaxPct,
+  isAdmin = false,
 }: PartBProps) {
   const catalogByKey = useMemo(
     () => Object.fromEntries(ADDON_CATALOG.map((a) => [a.key, a])),
@@ -212,6 +222,10 @@ export function PartBForm({
         onChange={onSpecialPromotionChange}
         totalMsrp={totalMsrp}
         productsPreTax={productsPreTax}
+        warnPct={promoWarnPct}
+        dangerPct={promoDangerPct}
+        maxPct={promoMaxPct}
+        isAdmin={isAdmin}
       />
 
       {/* Notes */}
@@ -400,24 +414,36 @@ function SpecialPromotionRow({
   onChange,
   totalMsrp,
   productsPreTax,
+  warnPct = 0.06,
+  dangerPct = 0.15,
+  maxPct = 0.25,
+  isAdmin = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   totalMsrp: number;
   productsPreTax: number;
+  warnPct?: number;
+  dangerPct?: number;
+  maxPct?: number;
+  isAdmin?: boolean;
 }) {
   const amount = Math.max(0, parseFloat(value) || 0);
   const afterDiscount = Math.max(0, productsPreTax - amount);
   const pct = totalMsrp > 0 ? Math.max(0, 1 - afterDiscount / totalMsrp) : 0;
-  // 让利占产品税前比例；超过 6% 飘黄，超过 15% 强警告
+  // 让利占产品税前比例
   const ratio = productsPreTax > 0 ? amount / productsPreTax : 0;
-  const warning = ratio > 0.06 && ratio <= 0.15;
-  const danger = ratio > 0.15;
-  const accent = danger
-    ? "border-amber-500 bg-amber-100/80"
-    : warning
-      ? "border-amber-300 bg-amber-50"
-      : "border-orange-200 bg-orange-50/60";
+  // 分级：warn < danger < over（超过上限）
+  const overMax = ratio > maxPct;
+  const danger = !overMax && ratio > dangerPct;
+  const warning = !overMax && !danger && ratio > warnPct;
+  const accent = overMax
+    ? "border-red-500 bg-red-50"
+    : danger
+      ? "border-amber-500 bg-amber-100/80"
+      : warning
+        ? "border-amber-300 bg-amber-50"
+        : "border-orange-200 bg-orange-50/60";
   return (
     <div className={cn("rounded-lg border p-3 transition-colors", accent)}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -438,11 +464,13 @@ function SpecialPromotionRow({
               placeholder="0.00"
               className={cn(
                 "w-28 rounded-md border bg-white px-2 py-1.5 pl-6 text-sm font-semibold outline-none focus:ring-2",
-                danger
-                  ? "border-amber-500 focus:ring-amber-500"
-                  : warning
-                    ? "border-amber-400 focus:ring-amber-400"
-                    : "border-orange-300 focus:ring-orange-500",
+                overMax
+                  ? "border-red-500 focus:ring-red-500"
+                  : danger
+                    ? "border-amber-500 focus:ring-amber-500"
+                    : warning
+                      ? "border-amber-400 focus:ring-amber-400"
+                      : "border-orange-300 focus:ring-orange-500",
               )}
             />
           </div>
@@ -456,7 +484,21 @@ function SpecialPromotionRow({
           )}
         </div>
       </div>
-      {(warning || danger) && (
+      {overMax && (
+        <div className="mt-2 flex items-start gap-1.5 text-[11px] font-medium text-red-800">
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          <span>
+            Special Promotion 已达产品税前小计的{" "}
+            <strong>{(ratio * 100).toFixed(1)}%</strong>
+            （&gt;{Math.round(maxPct * 100)}%），
+            {isAdmin
+              ? "已超过公司设定的最高让利上限，请确认是否继续"
+              : "已超过公司设定的最高让利上限，请联系管理员审核，或由管理员账号登录提交"}
+            。
+          </span>
+        </div>
+      )}
+      {(warning || danger) && !overMax && (
         <div
           className={cn(
             "mt-2 flex items-start gap-1.5 text-[11px] font-medium",
@@ -468,8 +510,8 @@ function SpecialPromotionRow({
             Special Promotion 已达产品税前小计的{" "}
             <strong>{(ratio * 100).toFixed(1)}%</strong>
             {danger
-              ? "（>15%），让利过高，建议经理审核后再签单"
-              : "（>6%），请确认是否符合公司让利政策"}
+              ? `（>${Math.round(dangerPct * 100)}%），让利过高，建议经理审核后再签单`
+              : `（>${Math.round(warnPct * 100)}%），请确认是否符合公司让利政策`}
             。
           </span>
         </div>

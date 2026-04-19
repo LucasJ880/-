@@ -2285,6 +2285,13 @@ model QuoteDiscountSettings {
   sheer     Float    @default(0.35)
   shutters  Float    @default(0.35)
   honeycomb Float    @default(0.35)
+  // Special Promotion 预警 & 上限阈值（0~1 小数，如 0.06 表示 6%）
+  // - warn:   >= 此比例开始黄色提醒
+  // - danger: >= 此比例红色强警告
+  // - max:    销售不得超过；admin/super_admin 不受限
+  promoWarnPct   Float @default(0.06)
+  promoDangerPct Float @default(0.15)
+  promoMaxPct    Float @default(0.25)
   updatedAt DateTime @updatedAt
   updatedBy String?
 }
