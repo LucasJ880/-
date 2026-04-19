@@ -227,12 +227,13 @@ const YEAR_CODES: Record<number, string> = {
  * - YearCode：2026=G / 2027=H / ...
  * - MMDD：报价日期 0418
  * - CustomerSeq：当前销售当日接触的「独立客户」序号（同客户同日复用），0 表示未知
- * - Shades：Z/R/T/C/H + 对应窗户行数
- * - Shutters：W/V（由全局 shutterMaterial 决定）+ 所有 panel 总数
- * - Drapes：D + 所有 drape 行 panel 数之和（S=1/D=2），S + 所有 sheer 行 panel 数之和
+ * - Shades：Z/R/T/C/H + 对应窗户行数（**仅计入同时填了宽和高的行**）
+ * - Shutters：W/V（由全局 shutterMaterial 决定）+ 所有 panel 总数（**仅计入同时填了宽和高的行**）
+ * - Drapes：D + drape 行 panel 数之和（S=1/D=2），S + sheer 行 panel 数之和；**仅计入同时填了宽高的行**
  * - PartB：关键词匹配 addon.skuItem：motor/电机→M；hub→HUB；remote/遥控→RM，后接数量
  * - SalesInitial：销售首字母（大写，最多 2 位）
- * - SQF 三段：Shade-Shutter-Drape；W×H/144 每行 Math.ceil；Drape 加乘 fullness%
+ * - SQF 三段：Shade-Shutter-Drape；W×H/144 每行 Math.ceil；Drape 加乘 fullness%；
+ *            **哪一段为 0 就省略哪一段**（例：shutters 没填 → `L67-90`；全空 → 整段省略）
  * - installMode === "pickup" 末尾加 (P)
  */
 export function generateOrderNumber(opts: {
@@ -262,10 +263,19 @@ export function generateOrderNumber(opts: {
   const mmdd = `${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
   const seq = customerSeq > 0 ? String(customerSeq).padStart(2, "0") : "??";
 
-  // ── Shades：按窗户行数
+  // ── 行是否有有效尺寸（宽 > 0 且 高 > 0 才计入）
+  const hasValidDims = (
+    wWhole: string,
+    wFrac: string,
+    hWhole: string,
+    hFrac: string,
+  ) => fractionToInches(wWhole, wFrac) > 0 && fractionToInches(hWhole, hFrac) > 0;
+
+  // ── Shades：按窗户行数（仅计入同时填了宽高的行）
   const shadeCounts: Record<string, number> = {};
   for (const l of shadeOrders) {
     if (!l.product) continue;
+    if (!hasValidDims(l.widthWhole, l.widthFrac, l.heightWhole, l.heightFrac)) continue;
     const code = PRODUCT_CODE_MAP[l.product];
     if (!code || !SHADE_CODE_ORDER.includes(code)) continue;
     shadeCounts[code] = (shadeCounts[code] ?? 0) + 1;
@@ -275,21 +285,33 @@ export function generateOrderNumber(opts: {
     .map((c) => `${c}${shadeCounts[c]}`)
     .join("");
 
-  // ── Shutters：panelCount 累加
+  // ── Shutters：panelCount 累加（仅计入同时填了宽高的行）
   const shutterMatCode = shutterMaterial === "Wooden" ? "W" : "V";
   let shutterPanels = 0;
   for (const l of shutterOrders) {
+    if (!hasValidDims(l.widthWhole, l.widthFrac, l.heightWhole, l.heightFrac)) continue;
     shutterPanels += Number(l.panelCount) || 0;
   }
   const shutterStr = shutterPanels > 0 ? `${shutterMatCode}${shutterPanels}` : "";
 
   // ── Drapes：drape 行贡献 D（S=1,D=2），sheer 行贡献 S（S=1,D=2）
+  //   仅计入同时填了对应宽高且 SKU 非空的行
   const panelVal = (p: "S" | "D") => (p === "D" ? 2 : 1);
   let drapePanels = 0;
   let sheerPanels = 0;
   for (const l of drapeOrders) {
-    if (l.drapeFabricSku?.trim()) drapePanels += panelVal(l.drapePanels);
-    if (l.sheerFabricSku?.trim()) sheerPanels += panelVal(l.sheerPanels);
+    if (
+      l.drapeFabricSku?.trim() &&
+      hasValidDims(l.drapeWidthWhole, l.drapeWidthFrac, l.drapeHeightWhole, l.drapeHeightFrac)
+    ) {
+      drapePanels += panelVal(l.drapePanels);
+    }
+    if (
+      l.sheerFabricSku?.trim() &&
+      hasValidDims(l.sheerWidthWhole, l.sheerWidthFrac, l.sheerHeightWhole, l.sheerHeightFrac)
+    ) {
+      sheerPanels += panelVal(l.sheerPanels);
+    }
   }
   const drapeStr =
     (drapePanels > 0 ? `D${drapePanels}` : "") +
@@ -354,8 +376,12 @@ export function generateOrderNumber(opts: {
     }
   }
 
-  const hasAnySqf = sqfShade > 0 || sqfShutter > 0 || sqfDrape > 0;
-  const sqfStr = hasAnySqf ? `${sqfShade}-${sqfShutter}-${sqfDrape}` : "";
+  // 只显示非 0 的 SQF 段，用 `-` 拼接
+  // 例：shade=67, shutter=0, drape=90 → "67-90"
+  //     shade=67, shutter=0, drape=0  → "67"
+  //     全 0                         → ""
+  const sqfSegments = [sqfShade, sqfShutter, sqfDrape].filter((v) => v > 0);
+  const sqfStr = sqfSegments.length > 0 ? sqfSegments.join("-") : "";
 
   const pickup = installMode === "pickup" ? "(P)" : "";
 
