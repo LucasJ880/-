@@ -6,6 +6,41 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
+import { salesCreatedScope } from "@/lib/rbac/data-scope";
+
+/** PR1：归一化客户归属检查（admin 跳过；sales 必须是自己的客户） */
+async function resolveOwnedCustomerId(
+  ctx: ToolExecutionContext,
+  customerIdArg: string | undefined,
+  customerNameArg: string | undefined,
+): Promise<{ customerId: string } | { error: string }> {
+  const custScope = salesCreatedScope(ctx.userId, ctx.role);
+  let customerId = customerIdArg;
+
+  if (!customerId && customerNameArg) {
+    const found = await db.salesCustomer.findFirst({
+      where: {
+        name: { contains: customerNameArg, mode: "insensitive" },
+        ...(custScope ?? {}),
+      },
+      select: { id: true },
+    });
+    if (!found) return { error: `未找到客户 "${customerNameArg}"` };
+    customerId = found.id;
+  }
+
+  if (!customerId) return { error: "请提供客户ID或姓名" };
+
+  if (custScope) {
+    const owned = await db.salesCustomer.findFirst({
+      where: { id: customerId, ...custScope },
+      select: { id: true },
+    });
+    if (!owned) return { error: "无权访问该客户" };
+  }
+
+  return { customerId };
+}
 
 // ── sales.compose_email ───────────────────────────────────────
 
@@ -29,19 +64,13 @@ registry.register({
   execute: async (ctx: ToolExecutionContext) => {
     const { composeEmail } = await import("@/lib/sales/email-composer");
 
-    let customerId = ctx.args.customerId as string | undefined;
-    const customerName = ctx.args.customerName as string | undefined;
-
-    if (!customerId && customerName) {
-      const found = await db.salesCustomer.findFirst({
-        where: { name: { contains: customerName, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (!found) return { success: false, data: { error: `未找到客户 "${customerName}"` } };
-      customerId = found.id;
-    }
-
-    if (!customerId) return { success: false, data: { error: "请提供客户ID或姓名" } };
+    const resolved = await resolveOwnedCustomerId(
+      ctx,
+      ctx.args.customerId as string | undefined,
+      ctx.args.customerName as string | undefined,
+    );
+    if ("error" in resolved) return { success: false, data: { error: resolved.error } };
+    const { customerId } = resolved;
 
     try {
       const email = await composeEmail({
@@ -91,18 +120,13 @@ registry.register({
   execute: async (ctx: ToolExecutionContext) => {
     const { composeEmail } = await import("@/lib/sales/email-composer");
 
-    let customerId = ctx.args.customerId as string | undefined;
-    const customerName = ctx.args.customerName as string | undefined;
-
-    if (!customerId && customerName) {
-      const found = await db.salesCustomer.findFirst({
-        where: { name: { contains: customerName, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (found) customerId = found.id;
-    }
-
-    if (!customerId) return { success: false, data: { error: "请提供客户ID或姓名" } };
+    const resolved = await resolveOwnedCustomerId(
+      ctx,
+      ctx.args.customerId as string | undefined,
+      ctx.args.customerName as string | undefined,
+    );
+    if ("error" in resolved) return { success: false, data: { error: resolved.error } };
+    const { customerId } = resolved;
 
     try {
       const email = await composeEmail({
@@ -156,21 +180,13 @@ registry.register({
   execute: async (ctx: ToolExecutionContext) => {
     const { composeEmail, sendSalesEmail } = await import("@/lib/sales/email-composer");
 
-    let customerId = ctx.args.customerId as string | undefined;
-    const customerName = ctx.args.customerName as string | undefined;
-
-    if (!customerId && customerName) {
-      const found = await db.salesCustomer.findFirst({
-        where: { name: { contains: customerName, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (!found)
-        return { success: false, data: { error: `未找到名为 "${customerName}" 的客户` } };
-      customerId = found.id;
-    }
-
-    if (!customerId)
-      return { success: false, data: { error: "请提供客户ID或客户姓名" } };
+    const resolved = await resolveOwnedCustomerId(
+      ctx,
+      ctx.args.customerId as string | undefined,
+      ctx.args.customerName as string | undefined,
+    );
+    if ("error" in resolved) return { success: false, data: { error: resolved.error } };
+    const { customerId } = resolved;
 
     const scene = (ctx.args.scene as string) || "quote_initial";
 
@@ -247,21 +263,13 @@ registry.register({
     required: ["type", "startAt"],
   },
   execute: async (ctx: ToolExecutionContext) => {
-    let customerId = ctx.args.customerId as string | undefined;
-    const customerName = ctx.args.customerName as string | undefined;
-
-    if (!customerId && customerName) {
-      const found = await db.salesCustomer.findFirst({
-        where: { name: { contains: customerName, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (!found)
-        return { success: false, data: { error: `未找到客户 "${customerName}"` } };
-      customerId = found.id;
-    }
-
-    if (!customerId)
-      return { success: false, data: { error: "请提供客户ID或客户姓名" } };
+    const resolved = await resolveOwnedCustomerId(
+      ctx,
+      ctx.args.customerId as string | undefined,
+      ctx.args.customerName as string | undefined,
+    );
+    if ("error" in resolved) return { success: false, data: { error: resolved.error } };
+    const { customerId } = resolved;
 
     const startAt = new Date(ctx.args.startAt as string);
     const endAt = ctx.args.endAt

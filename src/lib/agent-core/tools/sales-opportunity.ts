@@ -6,6 +6,11 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
+import {
+  salesAssignableScope,
+  salesCreatedScope,
+  canSeeResource,
+} from "@/lib/rbac/data-scope";
 
 // ── sales.get_pipeline ──────────────────────────────────────────
 
@@ -21,15 +26,14 @@ registry.register({
       "installing", "completed", "lost",
     ];
 
+    const ownerScope = salesAssignableScope(ctx.userId, ctx.role);
+
     const pipeline = await Promise.all(
       stages.map(async (stage) => {
         const count = await db.salesOpportunity.count({
           where: {
             stage,
-            OR: [
-              { assignedToId: ctx.userId },
-              { createdById: ctx.userId },
-            ],
+            ...(ownerScope ?? {}),
           },
         });
         return { stage, count };
@@ -56,12 +60,8 @@ registry.register({
     required: [],
   },
   execute: async (ctx: ToolExecutionContext) => {
-    const where: Record<string, unknown> = {
-      OR: [
-        { assignedToId: ctx.userId },
-        { createdById: ctx.userId },
-      ],
-    };
+    const ownerScope = salesAssignableScope(ctx.userId, ctx.role);
+    const where: Record<string, unknown> = { ...(ownerScope ?? {}) };
     if (ctx.args.stage) where.stage = String(ctx.args.stage);
     if (ctx.args.priority) where.priority = String(ctx.args.priority);
 
@@ -89,30 +89,28 @@ registry.register({
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const ownerFilter = {
-      OR: [
-        { assignedToId: ctx.userId },
-        { createdById: ctx.userId },
-      ],
-    };
+    const assignableScope = salesAssignableScope(ctx.userId, ctx.role);
+    const createdScope = salesCreatedScope(ctx.userId, ctx.role);
+    const oppWhere = assignableScope ?? {};
+    const custWhere = createdScope ?? {};
 
     const [active, wonThisMonth, pendingFollowup, totalCustomers] = await Promise.all([
       db.salesOpportunity.count({
         where: {
-          ...ownerFilter,
+          ...oppWhere,
           stage: {
             in: ["new_lead", "needs_confirmed", "measure_booked", "quoted", "negotiation"],
           },
         },
       }),
       db.salesOpportunity.count({
-        where: { ...ownerFilter, stage: { in: ["signed", "completed"] }, wonAt: { gte: monthStart } },
+        where: { ...oppWhere, stage: { in: ["signed", "completed"] }, wonAt: { gte: monthStart } },
       }),
       db.salesOpportunity.count({
-        where: { ...ownerFilter, nextFollowupAt: { lte: now } },
+        where: { ...oppWhere, nextFollowupAt: { lte: now } },
       }),
       db.salesCustomer.count({
-        where: { createdById: ctx.userId },
+        where: custWhere,
       }),
     ]);
 
@@ -151,17 +149,24 @@ registry.register({
     const targetStage = String(ctx.args.targetStage);
 
     if (!opportunityId && customerName) {
+      // PR1：按角色把客户查询也限制住，防止 sales 通过别人的客户名推进别人的商机
+      const custScope = salesCreatedScope(ctx.userId, ctx.role);
       const customer = await db.salesCustomer.findFirst({
-        where: { name: { contains: customerName, mode: "insensitive" } },
+        where: {
+          name: { contains: customerName, mode: "insensitive" },
+          ...(custScope ?? {}),
+        },
         select: { id: true },
       });
       if (!customer)
         return { success: false, data: { error: `未找到客户 "${customerName}"` } };
 
+      const oppScope = salesAssignableScope(ctx.userId, ctx.role);
       const opp = await db.salesOpportunity.findFirst({
         where: {
           customerId: customer.id,
           stage: { notIn: ["lost", "completed", "on_hold"] },
+          ...(oppScope ?? {}),
         },
         orderBy: { updatedAt: "desc" },
         select: { id: true, title: true, stage: true },
@@ -179,6 +184,16 @@ registry.register({
       include: { customer: { select: { name: true } } },
     });
     if (!opp) return { success: false, data: { error: "商机不存在" } };
+
+    // PR1：防止 sales 通过已知 opportunityId 直接绕过推进别人的商机
+    if (
+      !canSeeResource(ctx.role, ctx.userId, {
+        createdById: opp.createdById,
+        assignedToId: opp.assignedToId,
+      })
+    ) {
+      return { success: false, data: { error: "无权推进该商机" } };
+    }
 
     const previousStage = opp.stage;
     await db.salesOpportunity.update({

@@ -101,6 +101,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
     mode = "chat",
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
+    role,
   } = options;
 
   const preset = getTaskPreset(mode);
@@ -109,10 +110,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
   const externalSignal = options.abortSignal;
 
-  // 构建可用工具列表
+  // 构建可用工具列表（PR1：按角色过滤）
   const openaiTools = registry.toOpenAITools({
     domains: options.domains,
     names: options.tools,
+    role,
   });
 
   // 构建初始消息（使用 any 绕过 SDK 严格类型）
@@ -194,6 +196,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
             userId,
             orgId,
             sessionId,
+            role,
           });
 
           toolCallLog.push({

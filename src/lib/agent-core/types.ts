@@ -5,6 +5,25 @@
  * 兼容 OpenAI function calling 格式，同时支持现有的伪协议。
  */
 
+import type { PlatformRole } from "@/lib/rbac/roles";
+
+// ── 工具风险分级 & 角色授权 ──────────────────────────────────────
+
+/**
+ * 工具风险分级（RBAC / 审批依据）
+ * - l0_read           只读，无副作用
+ * - l1_internal_write 内部写（对用户无感知，如写索引、写内部日志）
+ * - l2_soft           软写（可撤回；草稿、状态推进等）
+ * - l3_strong         强写（不可撤回；对外发邮件、支付等）
+ */
+export type ToolRisk = "l0_read" | "l1_internal_write" | "l2_soft" | "l3_strong";
+
+/**
+ * 允许调用该工具的平台角色列表，"*" 表示所有已认证用户。
+ * 未声明 allowRoles 的工具在 registry 层默认视为 admin-only（安全默认）。
+ */
+export type ToolAllowRoles = readonly PlatformRole[] | "*";
+
 // ── 工具定义 ─────────────────────────────────────────────────────
 
 export interface ToolDefinition {
@@ -18,9 +37,17 @@ export interface ToolDefinition {
   parameters: ToolParameterSchema;
   /** 执行函数 */
   execute: (ctx: ToolExecutionContext) => Promise<ToolExecutionResult>;
-  /** 风险等级 — high 需用户确认 */
+
+  // —— RBAC 扩展（PR1）——
+  /** 风险等级（写工具 / 审批判定依据） */
+  risk?: ToolRisk;
+  /** 允许调用该工具的角色白名单；未声明视为 admin-only */
+  allowRoles?: ToolAllowRoles;
+
+  // —— 遗留字段（已废弃，保留兼容，不再被 registry 读取）——
+  /** @deprecated 使用 risk 字段 */
   riskLevel?: "low" | "medium" | "high";
-  /** 需要的权限 */
+  /** @deprecated 使用 allowRoles 字段 */
   requiredRole?: string[];
 }
 
@@ -59,6 +86,8 @@ export interface ToolExecutionContext {
   orgId: string;
   /** 会话 ID（可选） */
   sessionId?: string;
+  /** 当前用户的平台角色（PR1：用于数据隔离 + 防御性权限校验） */
+  role?: PlatformRole | string;
 }
 
 export interface ToolExecutionResult {
@@ -120,6 +149,13 @@ export interface AgentRunOptions {
   userId: string;
   orgId: string;
   sessionId?: string;
+  /**
+   * 当前用户平台角色（PR1 新增）
+   * - 决定工具可见性（ToolRegistry.list 过滤）
+   * - 决定数据可见范围（透传至 ToolExecutionContext）
+   * - 未提供时默认按 "user" 处理（最低权限）
+   */
+  role?: PlatformRole | string;
   /**
    * 外部 AbortSignal（通常传入 NextRequest.signal）
    * 客户端断开时，正在进行的 OpenAI 调用会被立即中止，避免继续扣费。

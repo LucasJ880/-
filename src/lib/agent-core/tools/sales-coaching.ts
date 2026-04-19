@@ -7,6 +7,10 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
+import {
+  salesAssignableScope,
+  salesCreatedScope,
+} from "@/lib/rbac/data-scope";
 
 // ── sales.search_knowledge ──────────────────────────────────────
 
@@ -135,9 +139,11 @@ registry.register({
     let customerId = ctx.args.customerId as string | undefined;
 
     if (!customerId && ctx.args.customerName) {
+      const custScope = salesCreatedScope(ctx.userId, ctx.role);
       const customer = await db.salesCustomer.findFirst({
         where: {
           name: { contains: ctx.args.customerName as string, mode: "insensitive" },
+          ...(custScope ?? {}),
         },
         select: { id: true },
       });
@@ -223,18 +229,32 @@ registry.register({
     );
 
     let customerId = ctx.args.customerId as string | undefined;
+    const custScope = salesCreatedScope(ctx.userId, ctx.role);
     if (!customerId && ctx.args.customerName) {
       const c = await db.salesCustomer.findFirst({
-        where: { name: { contains: ctx.args.customerName as string, mode: "insensitive" } },
+        where: {
+          name: { contains: ctx.args.customerName as string, mode: "insensitive" },
+          ...(custScope ?? {}),
+        },
         select: { id: true },
       });
       customerId = c?.id;
     }
     if (!customerId) return { success: false, data: { error: "未找到客户" } };
 
-    const oppWhere = ctx.args.opportunityId
-      ? { id: ctx.args.opportunityId as string }
-      : { customerId };
+    // PR1：通过 customerId 直接查询时也要做归属校验（admin 跳过）
+    if (custScope) {
+      const owned = await db.salesCustomer.findFirst({
+        where: { id: customerId, ...custScope },
+        select: { id: true },
+      });
+      if (!owned) return { success: false, data: { error: "未找到客户" } };
+    }
+
+    const oppScope = salesAssignableScope(ctx.userId, ctx.role);
+    const oppWhere: Record<string, unknown> = ctx.args.opportunityId
+      ? { id: ctx.args.opportunityId as string, ...(oppScope ?? {}) }
+      : { customerId, ...(oppScope ?? {}) };
 
     const opps = await db.salesOpportunity.findMany({
       where: oppWhere,
@@ -320,14 +340,27 @@ registry.register({
     );
 
     let customerId = ctx.args.customerId as string | undefined;
+    const custScope = salesCreatedScope(ctx.userId, ctx.role);
     if (!customerId && ctx.args.customerName) {
       const c = await db.salesCustomer.findFirst({
-        where: { name: { contains: ctx.args.customerName as string, mode: "insensitive" } },
+        where: {
+          name: { contains: ctx.args.customerName as string, mode: "insensitive" },
+          ...(custScope ?? {}),
+        },
         select: { id: true },
       });
       customerId = c?.id;
     }
     if (!customerId) return { success: false, data: { error: "未找到客户" } };
+
+    // PR1：通过 customerId 直接访问时也做归属校验
+    if (custScope) {
+      const owned = await db.salesCustomer.findFirst({
+        where: { id: customerId, ...custScope },
+        select: { id: true },
+      });
+      if (!owned) return { success: false, data: { error: "未找到客户" } };
+    }
 
     try {
       const record = await createCoachingRecord({
@@ -370,9 +403,22 @@ registry.register({
   execute: async (ctx: ToolExecutionContext) => {
     const { recordAdoption } = await import("@/lib/sales/coaching-service");
 
+    // PR1：确认该 coaching 记录属于当前销售（admin 跳过）
+    const recordId = ctx.args.recordId as string;
+    const custScope = salesCreatedScope(ctx.userId, ctx.role);
+    if (custScope) {
+      const rec = await db.coachingRecord.findUnique({
+        where: { id: recordId },
+        select: { userId: true },
+      });
+      if (!rec || rec.userId !== ctx.userId) {
+        return { success: false, data: { error: "无权操作该建议记录" } };
+      }
+    }
+
     try {
       await recordAdoption(
-        ctx.args.recordId as string,
+        recordId,
         ctx.args.adopted as boolean,
       );
       return ok({

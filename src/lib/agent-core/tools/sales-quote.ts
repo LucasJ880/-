@@ -10,6 +10,7 @@ import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { onQuoteCreated } from "@/lib/sales/opportunity-lifecycle";
 import { ok } from "./sales-helpers";
+import { canSeeResource } from "@/lib/rbac/data-scope";
 
 // ── sales.ai_quote ──────────────────────────────────────────
 
@@ -213,6 +214,18 @@ registry.register({
 
     if (!customerId) {
       return { success: false, data: { error: "请提供客户ID或客户姓名" } };
+    }
+
+    // PR1：先验证当前角色对该客户的可见性（admin 跳过）
+    const customer = await db.salesCustomer.findUnique({
+      where: { id: customerId },
+      select: { id: true, createdById: true, name: true, email: true },
+    });
+    if (!customer) {
+      return { success: false, data: { error: "客户不存在" } };
+    }
+    if (!canSeeResource(ctx.role, ctx.userId, { createdById: customer.createdById })) {
+      return { success: false, data: { error: "无权访问该客户的报价" } };
     }
 
     const quotes = await db.salesQuote.findMany({

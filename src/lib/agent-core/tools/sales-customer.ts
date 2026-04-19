@@ -6,6 +6,7 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
+import { salesCreatedScope, canSeeResource } from "@/lib/rbac/data-scope";
 
 // ── sales.search_customers ──────────────────────────────────────
 
@@ -25,14 +26,18 @@ registry.register({
     const query = String(ctx.args.query ?? "");
     const limit = Number(ctx.args.limit ?? 10);
 
+    const ownerScope = salesCreatedScope(ctx.userId, ctx.role);
+    const where: Record<string, unknown> = {
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { phone: { contains: query } },
+        { email: { contains: query, mode: "insensitive" } },
+      ],
+      ...(ownerScope ?? {}),
+    };
+
     const customers = await db.salesCustomer.findMany({
-      where: {
-        OR: [
-          { name: { contains: query, mode: "insensitive" } },
-          { phone: { contains: query } },
-          { email: { contains: query, mode: "insensitive" } },
-        ],
-      },
+      where,
       select: {
         id: true,
         name: true,
@@ -102,6 +107,12 @@ registry.register({
     });
 
     if (!customer) return { success: false, data: { error: "客户不存在" } };
+
+    // PR1：防止跨销售窥探他人客户
+    if (!canSeeResource(ctx.role, ctx.userId, { createdById: customer.createdById })) {
+      return { success: false, data: { error: "无权访问该客户" } };
+    }
+
     return ok(customer);
   },
 });
