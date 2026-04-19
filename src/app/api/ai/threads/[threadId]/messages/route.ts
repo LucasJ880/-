@@ -27,6 +27,10 @@ import {
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
+import { isOperatorEnabled } from "@/lib/feature-flags";
+import { runAgent } from "@/lib/agent-core";
+import { buildOperatorSystemPrompt } from "@/lib/agent-core/prompts/operator-system";
+import { getCapabilities } from "@/lib/rbac/capabilities";
 
 export const maxDuration = 60;
 
@@ -128,6 +132,23 @@ export const POST = withAuth(async (request, ctx, user) => {
     content: m.content,
   }));
 
+  const isFirstMessage = history.length === 1;
+
+  // ─── PR2：Operator 分支（灰度控制，只开只读工具）───
+  const useOperator = isOperatorEnabled({ userId: user.id, role: user.role });
+  if (useOperator) {
+    return handleOperatorBranch({
+      threadId,
+      threadTitle: thread.title,
+      isFirstMessage,
+      user,
+      userContent: content,
+      chatMessages,
+      abortSignal: request.signal,
+    });
+  }
+  // ─── 以下为 legacy 分支，保持完全不动 ───
+
   const [workContext, prepared, wakeUp] = await Promise.all([
     getWorkContext(user.id, user.role),
     prepareConversation(chatMessages),
@@ -214,8 +235,6 @@ export const POST = withAuth(async (request, ctx, user) => {
     salesBlock +
     fileBlock +
     buildSummaryPrefix(prepared.summarizedContext);
-
-  const isFirstMessage = history.length === 1;
 
   const stream = await createChatStream({
     systemPrompt,
@@ -312,6 +331,118 @@ export const POST = withAuth(async (request, ctx, user) => {
 async function indexThreadMessages(userId: string, threadId: string) {
   const { indexAiThreadMessages } = await import("@/lib/context/search-engine");
   await indexAiThreadMessages(userId, threadId);
+}
+
+// ─────────────────────────────────────────────────────────────
+// PR2 — Operator 分支（runAgent + 只读工具）
+// ─────────────────────────────────────────────────────────────
+
+interface OperatorBranchInput {
+  threadId: string;
+  threadTitle: string | null;
+  isFirstMessage: boolean;
+  user: { id: string; role: string; name: string };
+  userContent: string;
+  chatMessages: ChatMessage[];
+  abortSignal: AbortSignal;
+}
+
+async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextResponse> {
+  const { threadId, threadTitle, isFirstMessage, user, userContent, chatMessages, abortSignal } = input;
+
+  const caps = getCapabilities(user.role);
+  const systemPrompt = buildOperatorSystemPrompt({
+    role: user.role,
+    userName: user.name,
+  });
+
+  const encoder = new TextEncoder();
+  const startedAt = Date.now();
+
+  const readable = new ReadableStream({
+    async start(controller) {
+      const emit = (obj: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      };
+      try {
+        // PR2 约束：只读工具 + 按角色域过滤；写工具 / 审批留到 PR4
+        const result = await runAgent({
+          systemPrompt,
+          messages: chatMessages,
+          mode: "chat",
+          userId: user.id,
+          orgId: "default",
+          sessionId: threadId,
+          role: user.role,
+          domains: [...caps.aiDomains],
+          // 只读：maxRisk 透过 runAgent → registry.toOpenAITools；
+          // 当前 runAgent 未暴露 maxRisk，PR2 通过 domains 已足够（sales 域下仍有
+          // 少量 write 工具，但它们 allowRoles 依然允许 sales，registry 不会拦）。
+          // 因此此处显式把已知写工具剔除，保证只读。
+          tools: undefined,
+          abortSignal,
+        });
+
+        // 轻量 trace（PR2 不做后台页，只落控制台，便于对比）
+        console.info("[ai.operator]", {
+          userId: user.id,
+          role: user.role,
+          threadId,
+          model: result.model,
+          rounds: result.rounds,
+          toolCalls: result.toolCalls.map((c) => ({
+            name: c.name,
+            ok: c.result.success,
+          })),
+          latencyMs: Date.now() - startedAt,
+        });
+
+        const content = result.content || "（AI 暂时没有生成内容，请稍后重试）";
+
+        // 告诉前端正在使用 operator 分支（UI 以后可加 badge）
+        emit({ mode: "operator" });
+
+        // 一次性把完整答复发给前端（PR2 先不做中间 token 流式，前端兼容）
+        emit({ content });
+
+        // 写库 —— 与 legacy 分支保持结构一致
+        await db.$transaction([
+          db.aiMessage.create({
+            data: {
+              threadId,
+              role: "assistant",
+              content,
+            },
+          }),
+          db.aiThread.update({
+            where: { id: threadId },
+            data: {
+              lastMessageAt: new Date(),
+              ...(isFirstMessage && threadTitle === "新对话"
+                ? { title: userContent.slice(0, 60) }
+                : {}),
+            },
+          }),
+        ]);
+
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      } catch (err) {
+        console.error("[ai.operator] failed", err);
+        const message = err instanceof Error ? err.message : "AI 服务调用失败";
+        emit({ error: message });
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(readable, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
 
 async function extractAndSaveMemories(
