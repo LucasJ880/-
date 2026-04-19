@@ -37,6 +37,7 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
+import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { canViewAdminPages, canAccessModule, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -255,6 +256,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { organizations } = useOrganizations();
   const isAdmin = canViewAdminPages(user?.role);
   const userRole = user?.role || "user";
+  const { count: pendingCount } = usePendingApprovalsBadge();
 
   return (
     <aside
@@ -324,11 +326,30 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                       collapsed && "justify-center px-0"
                     )}
                   >
-                    <item.icon size={16} className="shrink-0" />
+                    <span className="relative shrink-0">
+                      <item.icon size={16} />
+                      {/* 折叠态下直接在图标上挂红点 */}
+                      {collapsed &&
+                        item.href === "/assistant" &&
+                        pendingCount > 0 && (
+                          <span className="absolute -right-1 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[#c85a3a] px-0.5 text-[9px] font-semibold leading-none text-white">
+                            {pendingCount > 9 ? "9+" : pendingCount}
+                          </span>
+                        )}
+                    </span>
                     {!collapsed && (
                       <>
                         <span className="min-w-0 flex-1 truncate">{m[item.labelKey]}</span>
-                        {item.badgeKey && (
+                        {/* PR4.5：展开态 /assistant 项显示待确认数字徽章 */}
+                        {item.href === "/assistant" && pendingCount > 0 && (
+                          <span
+                            className="ml-auto shrink-0 rounded-full bg-[#c85a3a] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white"
+                            title={`${pendingCount} 条待我确认`}
+                          >
+                            {pendingCount > 99 ? "99+" : pendingCount}
+                          </span>
+                        )}
+                        {item.badgeKey && !(item.href === "/assistant" && pendingCount > 0) && (
                           <span className="ml-auto shrink-0 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/60">
                             {m[item.badgeKey]}
                           </span>

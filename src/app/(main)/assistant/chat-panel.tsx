@@ -25,6 +25,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AiThread } from "./thread-list";
 import { ApprovalCard, type PendingApproval } from "./approval-card";
+import { PendingInbox } from "./pending-inbox";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -173,6 +174,8 @@ export interface ChatPanelProps {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** PR4：审批卡片更新回调 */
   onApprovalChange?: (messageId: string, next: PendingApproval) => void;
+  /** PR4.5：PendingInbox 打开对话的回调 */
+  onOpenThread?: (threadId: string) => void;
 }
 
 // ── ChatPanel ─────────────────────────────────────────────────
@@ -196,6 +199,7 @@ export function ChatPanel({
   onShowMobileSidebar,
   inputRef,
   onApprovalChange,
+  onOpenThread,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -272,16 +276,18 @@ export function ChatPanel({
           <ChevronLeft size={18} />
         </button>
         <Bot size={18} className="text-accent" />
-        <div className="flex-1">
-          <h1 className="text-sm font-semibold">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold">
             {activeThread?.title || "AI 助手"}
           </h1>
           {activeThread?.project && (
-            <p className="text-[11px] text-muted">
+            <p className="truncate text-[11px] text-muted">
               关联项目：{activeThread.project.name}
             </p>
           )}
         </div>
+        {/* PR4.5：待我确认 Inbox 入口 */}
+        <PendingInbox onOpenThread={onOpenThread} />
       </div>
 
       {/* Messages */}

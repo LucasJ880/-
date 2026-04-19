@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { Check, X, Loader2, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 
 export interface PendingApproval {
   actionId: string;
@@ -66,6 +67,8 @@ export function ApprovalCard({ approval, onChange }: Props) {
       });
     } finally {
       setBusy(null);
+      // 不论结果如何，这条草稿都离开了 pending 池，通知全局徽章刷新
+      notifyPendingActionsChanged();
     }
   };
 

@@ -8,6 +8,7 @@ import type { WorkSuggestion } from "@/lib/ai/schemas";
 import type { SimpleProject } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import { ThreadSidebar, type AiThread } from "./thread-list";
 import { ChatPanel, type StreamingMsg } from "./chat-panel";
 
@@ -379,6 +380,8 @@ function AssistantPageInner() {
                 };
               })
             );
+            // PR4.5：新草稿生成，通知 Sidebar 徽章和 PendingInbox 刷新
+            notifyPendingActionsChanged();
             continue;
           }
 
@@ -501,6 +504,10 @@ function AssistantPageInner() {
         onShowMobileSidebar={() => setShowMobileSidebar(true)}
         inputRef={inputRef}
         onApprovalChange={handleApprovalChange}
+        onOpenThread={(id) => {
+          setActiveThreadId(id);
+          router.replace(`/assistant?thread=${id}`);
+        }}
       />
     </div>
   );
