@@ -433,7 +433,6 @@ export function PartBForm({
 function SpecialPromotionRow({
   value,
   onChange,
-  totalMsrp,
   productsPreTax,
   warnPct = 0.06,
   dangerPct = 0.15,
@@ -442,7 +441,8 @@ function SpecialPromotionRow({
 }: {
   value: string;
   onChange: (v: string) => void;
-  totalMsrp: number;
+  /** 仅为 API 兼容保留；已不再用于展示（销售端统一看税前口径）*/
+  totalMsrp?: number;
   productsPreTax: number;
   warnPct?: number;
   dangerPct?: number;
@@ -450,9 +450,7 @@ function SpecialPromotionRow({
   isAdmin?: boolean;
 }) {
   const amount = Math.max(0, parseFloat(value) || 0);
-  const afterDiscount = Math.max(0, productsPreTax - amount);
-  const pct = totalMsrp > 0 ? Math.max(0, 1 - afterDiscount / totalMsrp) : 0;
-  // 让利占产品税前比例
+  // 让利占产品税前比例（销售端统一看这一口径，不再与 MSRP 比较）
   const ratio = productsPreTax > 0 ? amount / productsPreTax : 0;
   // 分级：warn < danger < over（超过上限）
   const overMax = ratio > maxPct;
@@ -495,11 +493,11 @@ function SpecialPromotionRow({
               )}
             />
           </div>
-          {totalMsrp > 0 && (
+          {productsPreTax > 0 && (
             <div className="text-right">
-              <div className="text-[10px] text-orange-700/80">相对 MSRP</div>
+              <div className="text-[10px] text-orange-700/80">相对税前价</div>
               <div className="text-sm font-bold text-orange-700">
-                {(pct * 100).toFixed(1)}%
+                {(ratio * 100).toFixed(1)}%
               </div>
             </div>
           )}

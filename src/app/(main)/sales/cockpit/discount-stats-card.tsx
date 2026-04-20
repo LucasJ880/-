@@ -261,7 +261,7 @@ export function DiscountStatsCard() {
                       <span
                         className={cn(
                           "font-bold",
-                          t.avgDiscountPct > 0.4 ? "text-red-600" : "text-emerald-600",
+                          t.avgDiscountPct > 0.15 ? "text-red-600" : "text-emerald-600",
                         )}
                       >
                         {(t.avgDiscountPct * 100).toFixed(1)}%
@@ -305,7 +305,7 @@ export function DiscountStatsCard() {
       )}
 
       <p className="mt-4 text-[10px] text-muted-foreground">
-        折扣率 = 1 − (产品实付 − Special Promotion) / 产品 MSRP；分档按含税成交额。
+        折扣率 = Special Promotion ÷ 产品税前价（不含 Part B）；分档按含税成交额。
         {data && (
           <span className="ml-1">
             环比区间：{data.prev.from.slice(0, 10)} ~ {data.prev.to.slice(0, 10)}

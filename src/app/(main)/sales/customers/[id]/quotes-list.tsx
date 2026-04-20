@@ -112,9 +112,9 @@ export function QuotesList({
                 </span>
                 {typeof q.finalDiscountPct === "number" && q.finalDiscountPct > 0 && (
                   <span className="text-[10px] text-orange-700 font-medium">
-                    折扣 {(q.finalDiscountPct * 100).toFixed(1)}%
+                    让利率 {(q.finalDiscountPct * 100).toFixed(1)}%
                     {typeof q.specialPromotion === "number" && q.specialPromotion > 0
-                      ? ` · 让利 $${q.specialPromotion.toFixed(0)}`
+                      ? ` · $${q.specialPromotion.toFixed(0)}`
                       : ""}
                   </span>
                 )}

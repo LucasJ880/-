@@ -621,7 +621,6 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   );
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const grandTotal = preTax + hst;
-  const discountPct = Math.max(0, Math.min(1, input.finalDiscountPct ?? 0));
 
   // ────────────────────────────────────────────────────
   // PAGE 1 — QUOTE 概览
@@ -988,13 +987,6 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
     { label: "HST 13%", value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
-    ...(discountPct > 0
-      ? [{
-          label: "Effective Discount vs. MSRP",
-          value: `${(discountPct * 100).toFixed(1)}%`,
-          hint: "Products only; based on list price",
-        }]
-      : []),
   ]);
 
   // 签名（保持现有行为：只放 Part B 签名）

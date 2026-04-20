@@ -371,13 +371,17 @@ function QuoteSheetPageInner() {
     () => sumAllMsrp(shadeOrders, shutterOrders, shutterMaterial, drapeOrders),
     [shadeOrders, shutterOrders, shutterMaterial, drapeOrders],
   );
-  const finalDiscountPct = totalMsrp > 0
-    ? Math.max(0, Math.min(1, 1 - Math.max(0, productsSubtotal - specialPromotionNum) / totalMsrp))
-    : 0;
 
   // Special Promotion 硬门槛：ratio > promoMaxPct 时，非 admin 禁止保存/生成
   const productsPreTax = productsSubtotal + subtotalC;
   const promoRatio = productsPreTax > 0 ? specialPromotionNum / productsPreTax : 0;
+
+  // 新口径：finalDiscountPct = Special Promotion ÷ 产品税前价（不再与 MSRP 比较）
+  // 旧报价单里存的是"相对 MSRP"的折扣率，改口径后新数据为"让利率"，二者过渡期
+  // 并存可接受（统计数字会随着新单逐步迁移到新口径）。
+  const finalDiscountPct = productsPreTax > 0
+    ? Math.max(0, Math.min(1, specialPromotionNum / productsPreTax))
+    : 0;
   const promoBlocked = !isSuperAdmin && promoRatio > promoMaxPct;
 
   // 客户当日序号（由后端按「该销售今日接触的 distinct 客户顺序」分配）
