@@ -6,7 +6,8 @@ export type ProductName =
   | 'Roller'
   | 'Drapery'
   | 'Sheer'
-  | 'Shutters';
+  | 'Shutters'
+  | 'Allusion';
 
 export type InstallMode = 'default' | 'pickup';
 
@@ -34,6 +35,11 @@ export interface QuoteItemInput {
   discountOverridePct?: number | null;
   location?: string;
   sku?: string;
+  /**
+   * 销售手填单价（CAD，税前），仅对 Allusion 等"非价格表"产品生效。
+   * 给定时跳过 priceFor 的 MSRP 查表，直接按 manualPrice 成交。
+   */
+  manualPrice?: number;
 }
 
 export interface QuoteAddonInput {

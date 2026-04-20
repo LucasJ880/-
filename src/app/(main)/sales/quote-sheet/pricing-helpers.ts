@@ -1,6 +1,7 @@
 import type { ShadeOrderLine, ShutterOrderLine, DrapeOrderLine, InstallMode } from "./types";
 import { fractionToInches } from "./types";
 import { priceFor } from "@/lib/blinds/pricing-engine";
+import { INSTALL_RULES } from "@/lib/blinds/pricing-data";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 
@@ -32,6 +33,7 @@ const ZERO_DISCOUNTS: DiscountsOverride = {
   Sheer: 0,
   Shutters: 0,
   SkylightHoneycomb: 0,
+  Allusion: 0,
 };
 
 export function sumAllMsrp(
@@ -75,6 +77,24 @@ export function computeShadeLinePrice(
   installMode: InstallMode,
   discounts?: DiscountsOverride,
 ): LinePrice | null {
+  // Allusion：销售手填单价，跳过 MSRP 表
+  if (line.product === "Allusion") {
+    if (!line.widthWhole || !line.heightWhole) return null;
+    const w = fractionToInches(line.widthWhole, line.widthFrac);
+    const h = fractionToInches(line.heightWhole, line.heightFrac);
+    if (!w || !h) return null;
+    const manual = parseFloat(line.manualPrice ?? "");
+    if (!Number.isFinite(manual) || manual <= 0) {
+      return { merch: 0, install: 0, total: 0, error: "请手填 Allusion 单价" };
+    }
+    // install 规则：宽度超过阈值用 wide，否则 regular（与 Shade 其他产品一致）
+    const install =
+      installMode === "pickup"
+        ? 0
+        : (w > INSTALL_RULES.wideThresholdIn ? INSTALL_RULES.wide : INSTALL_RULES.regular);
+    return { merch: manual, install, total: manual + install, error: null };
+  }
+
   if (!line.sku || !line.widthWhole || !line.heightWhole) return null;
   const w = fractionToInches(line.widthWhole, line.widthFrac);
   const h = fractionToInches(line.heightWhole, line.heightFrac);

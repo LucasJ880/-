@@ -29,6 +29,7 @@ import type {
   InstallMode,
 } from "./types";
 import { fractionToInches, HST_RATE } from "./types";
+import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
 import {
   computeShadeLinePrice,
   computeShutterLinePrice,
@@ -598,7 +599,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   // 计算线项数量
   const filledShades = input.shadeOrders.filter((l) => {
     const p = computeShadeLinePrice(l, input.installMode, input.discounts);
-    return p && !p.error && (l.location || l.sku);
+    return p && !p.error && (l.location || l.sku || (l.product === "Allusion" && l.manualPrice));
   });
   const filledShutters = input.shutterOrders.filter((l) => {
     const p = computeShutterLinePrice(l, input.shutterMaterial, input.installMode, input.discounts);
@@ -803,11 +804,13 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
         const p = computeShadeLinePrice(l, input.installMode, input.discounts);
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
+        const skuLabel =
+          l.product === "Allusion" ? (l.sku || "Custom") : l.sku;
         return [
           i + 1,
           l.location || "—",
           l.product,
-          l.sku,
+          skuLabel,
           w.toFixed(2),
           h.toFixed(2),
           [l.mount, l.lift].filter(Boolean).join("/"),
@@ -923,7 +926,14 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
       ...sharedTable,
       startY: ctx.y,
       head: [["SKU / Item", "QTY", "Unit Price", "Total"]],
-      body: input.partBAddons.map((a) => [a.skuItem, a.qty, `$${a.price.toFixed(2)}`, `$${a.total.toFixed(2)}`]),
+      body: input.partBAddons.map((a) => {
+        const def = ADDON_CATALOG.find((d) => d.key === a.skuItem);
+        const label =
+          a.skuItem === "__custom" || !def
+            ? (a.customName?.trim() || a.skuItem || "Custom item")
+            : def.displayName;
+        return [label, a.qty, `$${a.price.toFixed(2)}`, `$${a.total.toFixed(2)}`];
+      }),
     });
     ctx.y = getLastY() + 2;
     setText(doc, PDF_TOKENS.primaryDark);

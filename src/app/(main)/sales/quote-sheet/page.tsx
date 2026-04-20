@@ -536,6 +536,25 @@ export default function QuoteSheetPage() {
 
       // Shades
       for (const l of shadeOrders) {
+        // Allusion 走手填价分支：不要求有 SKU，只要宽高 + manualPrice
+        if (l.product === "Allusion") {
+          if (!l.widthWhole || !l.heightWhole) continue;
+          const w = fractionToInches(l.widthWhole, l.widthFrac);
+          const h = fractionToInches(l.heightWhole, l.heightFrac);
+          if (!w || !h) continue;
+          const manual = parseFloat(l.manualPrice ?? "");
+          if (!Number.isFinite(manual) || manual <= 0) continue;
+          items.push({
+            product: "Allusion",
+            fabric: l.sku || "Allusion",
+            widthIn: w,
+            heightIn: h,
+            location: l.location,
+            sku: l.sku || "Allusion",
+            manualPrice: manual,
+          });
+          continue;
+        }
         if (!l.sku || !l.widthWhole || !l.heightWhole) continue;
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);

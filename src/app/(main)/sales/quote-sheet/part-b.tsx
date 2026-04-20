@@ -142,7 +142,27 @@ export function PartBForm({
                 <td className="px-2 py-1">
                   <select
                     value={a.skuItem}
-                    onChange={(e) => updateAddon(a.id, "skuItem", e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      onAddonsChange(
+                        addons.map((x) => {
+                          if (x.id !== a.id) return x;
+                          // 切换回预设项时，重置 customName 并应用 catalog 价格
+                          if (next !== "__custom") {
+                            const def = catalogByKey[next];
+                            return {
+                              ...x,
+                              skuItem: next,
+                              customName: "",
+                              price: def ? def.unitPrice : x.price,
+                              total: (x.qty || 1) * (def ? def.unitPrice : x.price || 0),
+                            };
+                          }
+                          // 进入 custom 模式：不动 price / customName
+                          return { ...x, skuItem: "__custom" };
+                        }),
+                      );
+                    }}
                     className="w-full bg-transparent border-0 outline-none text-sm min-h-[44px] px-1"
                   >
                     <option value="">Select add-on...</option>
@@ -156,7 +176,8 @@ export function PartBForm({
                   {a.skuItem === "__custom" && (
                     <input
                       type="text"
-                      onChange={(e) => updateAddon(a.id, "skuItem", e.target.value)}
+                      value={a.customName ?? ""}
+                      onChange={(e) => updateAddon(a.id, "customName", e.target.value)}
                       className="mt-1 w-full bg-transparent border-b border-dashed border-border outline-none text-xs px-1 min-h-[44px]"
                       placeholder="Enter custom item name"
                       autoFocus

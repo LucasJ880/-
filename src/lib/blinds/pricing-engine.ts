@@ -211,6 +211,38 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   let installSubtotal = 0;
 
   input.items.forEach((item, idx) => {
+    // Allusion：暂不走 MSRP 表，销售现场手填单价
+    if (item.product === 'Allusion') {
+      const manual = item.manualPrice;
+      if (typeof manual !== 'number' || !Number.isFinite(manual) || manual <= 0) {
+        errors.push({
+          index: idx,
+          input: item,
+          error: 'Allusion 需要销售在报价单上手填单价',
+        });
+        return;
+      }
+      const install =
+        item.widthIn > INSTALL_RULES.wideThresholdIn
+          ? INSTALL_RULES.wide
+          : INSTALL_RULES.regular;
+      const result: PriceResult = {
+        msrp: manual,
+        discountPct: 0,
+        discountValue: 0,
+        price: manual,
+        install,
+        cordless: false,
+        bracketWidth: 0,
+        bracketHeight: 0,
+      };
+      const effectiveInstall = installMode === 'pickup' ? 0 : install;
+      merchSubtotal += manual;
+      installSubtotal += effectiveInstall;
+      itemResults.push({ ...result, input: item });
+      return;
+    }
+
     const result = priceFor(
       item.product,
       item.fabric,

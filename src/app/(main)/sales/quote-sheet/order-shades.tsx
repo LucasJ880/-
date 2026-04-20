@@ -18,6 +18,7 @@ const SHADE_PRODUCTS: ProductName[] = [
   "SHANGRILA",
   "Cordless Cellular",
   "SkylightHoneycomb",
+  "Allusion",
 ];
 
 function RadioGroup({
@@ -78,6 +79,7 @@ function emptyLine(): ShadeOrderLine {
     bracket: "",
     valance: "",
     note: "",
+    manualPrice: "",
   };
 }
 
@@ -229,12 +231,22 @@ export function OrderShadesForm({
                     </select>
                   </td>
                   <td className="px-1 py-0.5">
-                    <SkuSelect
-                      product={line.product}
-                      value={line.sku}
-                      onChange={(v) => updateLine(line.id, "sku", v)}
-                      className="w-full"
-                    />
+                    {line.product === "Allusion" ? (
+                      <input
+                        type="text"
+                        value={line.sku}
+                        onChange={(e) => updateLine(line.id, "sku", e.target.value)}
+                        className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
+                        placeholder="SKU"
+                      />
+                    ) : (
+                      <SkuSelect
+                        product={line.product}
+                        value={line.sku}
+                        onChange={(v) => updateLine(line.id, "sku", v)}
+                        className="w-full"
+                      />
+                    )}
                   </td>
                   <td className="px-1 py-0.5">
                     <RadioGroup
@@ -274,7 +286,35 @@ export function OrderShadesForm({
                     />
                   </td>
                   <td className="px-2 py-0.5 text-right align-middle">
-                    {p?.error ? (
+                    {line.product === "Allusion" ? (
+                      <div className="leading-tight space-y-0.5">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <span className="text-[10px] text-muted-foreground">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={line.manualPrice ?? ""}
+                            onChange={(e) => updateLine(line.id, "manualPrice", e.target.value)}
+                            className="w-20 bg-white/60 border border-amber-300 rounded px-1 py-0.5 text-xs text-right font-mono min-h-[44px] outline-none focus:ring-1 focus:ring-amber-400"
+                            placeholder="Price"
+                          />
+                        </div>
+                        {p?.error ? (
+                          <div className="text-[9px] text-red-500" title={p.error}>
+                            {p.error}
+                          </div>
+                        ) : p ? (
+                          installMode === "pickup" ? (
+                            <div className="text-[9px] text-amber-600">Pickup</div>
+                          ) : (
+                            <div className="text-[9px] text-muted-foreground">
+                              +Install {formatCAD(p.install)}
+                            </div>
+                          )
+                        ) : null}
+                      </div>
+                    ) : p?.error ? (
                       <span className="text-[9px] text-red-500" title={p.error}>
                         —
                       </span>

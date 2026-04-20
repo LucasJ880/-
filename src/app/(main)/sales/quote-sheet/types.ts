@@ -62,6 +62,7 @@ export function getProductCategory(product: ProductName | ""): ProductCategory |
     case "SHANGRILA":
     case "Cordless Cellular":
     case "SkylightHoneycomb":
+    case "Allusion":
       return "shade";
     case "Shutters":
       return "shutter";
@@ -79,17 +80,21 @@ export const PRODUCT_CODE_MAP: Record<string, string> = {
   SHANGRILA: "T",
   "Cordless Cellular": "C",
   SkylightHoneycomb: "H",
+  Allusion: "A",
   Drapery: "D",
   Sheer: "S",
   Shutters: "V",
 };
 
-// Shades 产品代号枚举顺序（Z→R→T→C→H）用于 order# 字符串拼接
-const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H"];
+// Shades 产品代号枚举顺序（Z→R→T→C→H→A）用于 order# 字符串拼接
+const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H", "A"];
 
 export interface PartBAddon {
   id: string;
+  /** 预设品类 key；选 "__custom" 时表示使用 customName 字段 */
   skuItem: string;
+  /** 自定义项名称（仅当 skuItem === "__custom" 时有意义） */
+  customName?: string;
   qty: number;
   price: number;
   total: number;
@@ -126,6 +131,11 @@ export interface ShadeOrderLine {
   bracket: "C" | "W" | "";
   valance: string;
   note: string;
+  /**
+   * 销售手填单价（字符串，便于 input 绑定；CAD，税前）。
+   * 仅对 Allusion 等"非价格表"产品有效。
+   */
+  manualPrice?: string;
 }
 
 export interface ShutterOrderLine {
@@ -322,7 +332,7 @@ export function generateOrderNumber(opts: {
   let hubQty = 0;
   let remoteQty = 0;
   for (const a of partBAddons) {
-    const name = (a.skuItem || "").toLowerCase();
+    const name = (a.skuItem === "__custom" ? (a.customName || "") : (a.skuItem || "")).toLowerCase();
     const qty = Number(a.qty) || 0;
     if (!name || qty <= 0) continue;
     if (name.includes("motor") || name.includes("电机") || name.includes("管状")) {

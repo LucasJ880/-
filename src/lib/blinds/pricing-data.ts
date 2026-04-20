@@ -39,6 +39,11 @@ export const BRACKETS: Record<ProductName, ProductBrackets> = {
     widths: [10,24,30,36,42,48,54,60,66,72,78,84,90,96,102,108,114,120,126],
     heights: [24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92,96,100,104,108,112,116,120],
   },
+  // Allusion 暂无 MSRP 表，占位 brackets 仅用于类型完备（实际 calculateQuoteTotal 会走 manualPrice 分支）
+  Allusion: {
+    widths: [24,30,36,42,48,54,60,66,72,78,84,90,96,102,108],
+    heights: [36,42,48,54,60,66,72,78,84,90,96,102,108,114,120],
+  },
 };
 
 // ─── Default Discounts ─────────────────────────────────────
@@ -52,6 +57,8 @@ export const DEFAULT_DISCOUNTS: Record<ProductName, number> = {
   Drapery: 0.35,
   Sheer: 0.35,
   Shutters: 0.35,
+  // Allusion 暂不走价格表；销售手填单价，折扣按 0 处理
+  Allusion: 0,
 };
 
 // Price floor per product (minimum price after discount)
@@ -64,6 +71,7 @@ export const PRICE_FLOOR: Record<ProductName, number> = {
   Drapery: 100,
   Sheer: 100,
   Shutters: 100,
+  Allusion: 0,
 };
 
 // ─── Install rules ─────────────────────────────────────────
