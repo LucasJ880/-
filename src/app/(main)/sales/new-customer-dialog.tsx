@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   Dialog,
@@ -23,6 +23,21 @@ import {
 } from "@/components/ui/select";
 import { useFormDialog } from "@/lib/hooks/use-form-dialog";
 
+interface ExistingCustomer {
+  id: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+}
+
+const INITIAL_FORM = {
+  name: "",
+  phone: "",
+  email: "",
+  address: "",
+  source: "",
+};
+
 export function NewCustomerDialog({
   open,
   onOpenChange,
@@ -32,16 +47,21 @@ export function NewCustomerDialog({
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }) {
-  const [form, setForm] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    address: "",
-    source: "",
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [conflict, setConflict] = useState<ExistingCustomer | null>(null);
+  const [merging, setMerging] = useState(false);
   const { loading: saving, error, setError, handleSubmit } = useFormDialog();
 
-  async function handleSave() {
+  // 每次打开都回到空白模版，避免看到上一条客户的残留
+  useEffect(() => {
+    if (open) {
+      setForm(INITIAL_FORM);
+      setConflict(null);
+      setError(null);
+    }
+  }, [open, setError]);
+
+  async function handleSave(mergeToCustomerId?: string) {
     if (!form.name.trim()) {
       setError("客户名称不能为空");
       return;
@@ -50,13 +70,36 @@ export function NewCustomerDialog({
       const res = await apiFetch("/api/sales/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          ...(mergeToCustomerId ? { mergeToCustomerId } : {}),
+        }),
       });
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.existingCustomer) {
+          setConflict(data.existingCustomer as ExistingCustomer);
+          // 抛错阻断 handleSubmit 的 onSuccess / close
+          throw new Error(
+            `该电话号码已绑定到 "${data.existingCustomer.name}"`,
+          );
+        }
+      }
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "创建失败");
       }
     }, { onSuccess });
+  }
+
+  async function handleMerge() {
+    if (!conflict) return;
+    setMerging(true);
+    try {
+      await handleSave(conflict.id);
+    } finally {
+      setMerging(false);
+    }
   }
 
   return (
@@ -84,7 +127,11 @@ export function NewCustomerDialog({
                 id="phone"
                 placeholder="416-xxx-xxxx"
                 value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, phone: e.target.value });
+                  // 改了电话号码就清掉冲突提示，重新校验
+                  if (conflict) setConflict(null);
+                }}
               />
             </div>
             <div className="space-y-1.5">
@@ -127,7 +174,49 @@ export function NewCustomerDialog({
           </div>
         </div>
 
-        {error && (
+        {/* 电话重复时的合并提示 */}
+        {conflict && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+            <div className="mb-1.5 flex items-center gap-1.5 font-medium text-amber-800">
+              <AlertTriangle size={14} />
+              该电话已存在客户：{conflict.name}
+            </div>
+            <div className="mb-2 space-y-0.5 text-xs text-amber-900/80">
+              {conflict.phone && <div>电话：{conflict.phone}</div>}
+              {conflict.address && (
+                <div className="whitespace-pre-wrap">
+                  已有地址：{conflict.address}
+                </div>
+              )}
+            </div>
+            <p className="mb-2 text-xs text-amber-900/70">
+              老客户在新地址二次购买？可以把下面输入的新地址追加到这位客户：
+              <span className="ml-1 font-medium text-amber-900">
+                {form.address || "（未填写新地址）"}
+              </span>
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={handleMerge}
+                disabled={merging || saving || !form.address.trim()}
+              >
+                {merging && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                追加新地址到此客户
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConflict(null)}
+                disabled={merging}
+              >
+                修改电话，创建新客户
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {error && !conflict && (
           <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
           </p>
@@ -137,7 +226,10 @@ export function NewCustomerDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button
+            onClick={() => handleSave()}
+            disabled={saving || merging || !!conflict}
+          >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             创建
           </Button>
