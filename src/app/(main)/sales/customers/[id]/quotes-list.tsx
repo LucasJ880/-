@@ -1,8 +1,13 @@
 "use client";
 
-import { FileText, Send, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { FileText, Send, AlertTriangle, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Quote } from "./types";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
+
+// 销售可直接编辑的状态；signed/accepted 状态销售锁定，admin 可覆盖
+const SALES_EDITABLE_STATUSES = new Set(["draft", "sent", "viewed", "rejected"]);
 
 const QUOTE_STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -33,6 +38,7 @@ export function QuotesList({
   customerEmail: string | null;
   onSendEmail: (quoteId: string) => void;
 }) {
+  const { isSuperAdmin } = useCurrentUser();
   if (quotes.length === 0) {
     return (
       <div className="flex flex-col items-center py-12 text-muted">
@@ -77,6 +83,20 @@ export function QuotesList({
               )}
             </div>
             <div className="flex items-center gap-2">
+              {(SALES_EDITABLE_STATUSES.has(q.status) || isSuperAdmin) && (
+                <Link
+                  href={`/sales/quote-sheet?quoteId=${q.id}`}
+                  className="inline-flex items-center gap-1 rounded-lg border border-teal-300 bg-teal-50/60 px-2.5 py-1 text-[11px] font-medium text-teal-700 hover:bg-teal-100 transition-colors"
+                  title={
+                    SALES_EDITABLE_STATUSES.has(q.status)
+                      ? "编辑此报价单"
+                      : "管理员强制编辑（已签单/已接受）"
+                  }
+                >
+                  <Pencil className="h-3 w-3" />
+                  编辑
+                </Link>
+              )}
               {q.status === "draft" && customerEmail && (
                 <button
                   onClick={() => onSendEmail(q.id)}

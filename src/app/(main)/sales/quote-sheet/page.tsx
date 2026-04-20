@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useMemo, useCallback, useEffect } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -139,7 +140,22 @@ function makeDrapeLines(count: number): DrapeOrderLine[] {
 }
 
 export default function QuoteSheetPage() {
+  return (
+    <Suspense fallback={null}>
+      <QuoteSheetPageInner />
+    </Suspense>
+  );
+}
+
+function QuoteSheetPageInner() {
+  const searchParams = useSearchParams();
+  const editingQuoteIdFromUrl = searchParams.get("quoteId");
+
   const [activeTab, setActiveTab] = useState<TabId>("shades");
+  // 编辑模式：当 URL 带 ?quoteId=xxx 时，加载已有报价单并切换到 PUT 保存
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [editingQuoteVersion, setEditingQuoteVersion] = useState<number | null>(null);
+  const [editingLoading, setEditingLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -466,16 +482,16 @@ export default function QuoteSheetPage() {
     setCustomerAddressOptions(addrs);
   }, [customerId, customers]);
 
-  const handleRestoreDraft = useCallback(() => {
-    if (!pendingDraft) return;
-    const d = pendingDraft;
+  // 把 QuoteFormState / QuoteDraftV1 的字段统一灌入各个表单 state，
+  // 让「恢复草稿」和「编辑已保存报价单」走同一条代码路径。
+  const applyFormState = useCallback((d: QuoteDraftV1 | QuoteFormState) => {
     setCustomerId(d.customerId);
     setCustomerName(d.customerName);
     setCustomerPhone(d.customerPhone);
     setCustomerEmail(d.customerEmail);
     setCustomerAddress(d.customerAddress);
     setHeardUsOn(d.heardUsOn);
-    setOpportunityId(d.opportunityId);
+    setOpportunityId((d as QuoteDraftV1).opportunityId ?? "");
     setDate(d.date);
     setSalesRep(d.salesRep);
     setMeasureSequence(d.measureSequence);
@@ -491,7 +507,7 @@ export default function QuoteSheetPage() {
     setPartCServices(d.partCServices);
     setPartCAddOns(d.partCAddOns);
     setShadeOrders(d.shadeOrders);
-    // midRail 历史为 boolean，现统一为 string；兼容老草稿
+    // midRail 历史为 boolean，现统一为 string；兼容老草稿 / 老报价单
     setShutterOrders(
       d.shutterOrders.map((l) => ({
         ...l,
@@ -509,14 +525,75 @@ export default function QuoteSheetPage() {
     setShadeValanceType(d.shadeValanceType);
     setShadeBracketType(d.shadeBracketType);
     setInstallMode(d.installMode);
-    if (typeof d.specialPromotion === "string") setSpecialPromotion(d.specialPromotion);
+    if (typeof (d as QuoteDraftV1).specialPromotion === "string") {
+      setSpecialPromotion((d as QuoteDraftV1).specialPromotion as string);
+    }
+  }, []);
+
+  const handleRestoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    applyFormState(pendingDraft);
     setPendingDraft(null);
-  }, [pendingDraft]);
+  }, [pendingDraft, applyFormState]);
 
   const handleDiscardDraft = useCallback(() => {
     clearDraft();
     setPendingDraft(null);
   }, []);
+
+  // ── 编辑已有报价单：加载 formDataJson 并填表 ─────────────────────
+  useEffect(() => {
+    if (!editingQuoteIdFromUrl || !draftReady) return;
+    // 进入编辑模式时屏蔽"恢复草稿"横幅（否则会和已有 quote 内容叠加）
+    setPendingDraft(null);
+    setEditingLoading(true);
+    (async () => {
+      try {
+        type QuoteResp = {
+          quote: {
+            id: string;
+            version: number;
+            formDataJson: string | null;
+            notes: string | null;
+            specialPromotion: number | null;
+          };
+        };
+        const res = await apiJson<QuoteResp>(
+          `/api/sales/quotes/${editingQuoteIdFromUrl}`,
+        );
+        const raw = res.quote.formDataJson;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as QuoteFormState;
+            applyFormState(parsed);
+          } catch (err) {
+            console.error("formDataJson 解析失败", err);
+            alert("该报价单的表单数据已损坏，无法完全恢复。可重新填写后再保存。");
+          }
+        } else {
+          alert(
+            "该报价单未保存完整表单数据（老版本），无法回填到编辑界面。\n" +
+              "您仍可在此基础上新填内容后点击保存以更新。",
+          );
+        }
+        // 即便 formDataJson 缺失也进编辑模式：销售可以重新填，保存时覆盖原 quote
+        setEditingQuoteId(res.quote.id);
+        setEditingQuoteVersion(res.quote.version);
+        if (
+          typeof res.quote.specialPromotion === "number" &&
+          res.quote.specialPromotion > 0
+        ) {
+          setSpecialPromotion(String(res.quote.specialPromotion));
+        }
+      } catch (err) {
+        console.error("Load quote for editing failed:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        alert(`加载报价单失败：${msg}\n\n请返回客户详情页重试。`);
+      } finally {
+        setEditingLoading(false);
+      }
+    })();
+  }, [editingQuoteIdFromUrl, draftReady, applyFormState]);
 
   const handleSave = useCallback(async (): Promise<
     { quoteId: string; saveMode: "full" | "partial" | "shell" } | null
@@ -644,9 +721,16 @@ export default function QuoteSheetPage() {
         installMode,
       };
 
+      // 编辑模式下走 PUT /api/sales/quotes/[quoteId]，否则 POST 新建
+      const isEditing = !!editingQuoteId;
+      const endpoint = isEditing
+        ? `/api/sales/quotes/${editingQuoteId}`
+        : "/api/sales/quotes";
+      const method = isEditing ? "PUT" : "POST";
+
       // 先拿 Response，检查 HTTP 状态，防止"保存失败却把草稿清掉"
-      const apiResponse = await apiFetch("/api/sales/quotes", {
-        method: "POST",
+      const apiResponse = await apiFetch(endpoint, {
+        method,
         body: JSON.stringify({
           customerId,
           opportunityId: opportunityId || undefined,
@@ -737,6 +821,7 @@ export default function QuoteSheetPage() {
     shadeValanceType, shadeBracketType,
     totalMsrp, specialPromotionNum, finalDiscountPct,
     promoBlocked, promoRatio, promoMaxPct,
+    editingQuoteId,
   ]);
 
   const handleSendEmail = useCallback(async () => {
@@ -909,9 +994,22 @@ export default function QuoteSheetPage() {
   return (
     <div className="space-y-4 md:space-y-6 pb-44 md:pb-32">
       <PageHeader
-        title="Quote Sheet"
-        description="Sunny Shutter Inc. — Digital Quote & Order Form"
+        title={
+          editingQuoteId
+            ? `编辑报价单${editingQuoteVersion ? ` · v${editingQuoteVersion}` : ""}`
+            : "Quote Sheet"
+        }
+        description={
+          editingQuoteId
+            ? "正在修改已保存的报价单；保存后会覆盖原报价单（不会新建版本）"
+            : "Sunny Shutter Inc. — Digital Quote & Order Form"
+        }
       />
+      {editingLoading && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-xs text-teal-700">
+          正在加载已保存的报价单内容…
+        </div>
+      )}
 
       {/* 草稿恢复横幅：检测到未保存的草稿时提示用户 */}
       {pendingDraft && (
