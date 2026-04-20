@@ -41,22 +41,23 @@ interface WindowEntry {
   notes: string;
 }
 
+// 工厂下单统一 16 分制，不做约分展示
 const FRACTION_OPTIONS = [
   { label: "0", value: "0" },
   { label: "1/16", value: "0.0625" },
-  { label: "1/8", value: "0.125" },
+  { label: "2/16", value: "0.125" },
   { label: "3/16", value: "0.1875" },
-  { label: "1/4", value: "0.25" },
+  { label: "4/16", value: "0.25" },
   { label: "5/16", value: "0.3125" },
-  { label: "3/8", value: "0.375" },
+  { label: "6/16", value: "0.375" },
   { label: "7/16", value: "0.4375" },
-  { label: "1/2", value: "0.5" },
+  { label: "8/16", value: "0.5" },
   { label: "9/16", value: "0.5625" },
-  { label: "5/8", value: "0.625" },
+  { label: "10/16", value: "0.625" },
   { label: "11/16", value: "0.6875" },
-  { label: "3/4", value: "0.75" },
+  { label: "12/16", value: "0.75" },
   { label: "13/16", value: "0.8125" },
-  { label: "7/8", value: "0.875" },
+  { label: "14/16", value: "0.875" },
   { label: "15/16", value: "0.9375" },
 ];
 

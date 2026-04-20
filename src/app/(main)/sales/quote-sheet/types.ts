@@ -14,6 +14,23 @@ export function fractionToInches(whole: string, frac: string): number {
   return wv + fv / 16;
 }
 
+/**
+ * 把小数英寸以 16 分制展示（不约分），符合工厂下单规范。
+ *   46     → "46"
+ *   46.5   → "46 8/16"
+ *   46.625 → "46 10/16"
+ *   0 或非正数 → "—"
+ * 采用最近邻取整到 1/16，避免浮点误差导致 7.999/16 之类。
+ */
+export function formatInches16(inches: number): string {
+  if (!Number.isFinite(inches) || inches <= 0) return "—";
+  const sixteenths = Math.round(inches * 16);
+  const whole = Math.floor(sixteenths / 16);
+  const frac = sixteenths % 16;
+  if (frac === 0) return `${whole}`;
+  return `${whole} ${frac}/16`;
+}
+
 // ── Part A: Product line with full detail fields ──
 
 export interface PartALine {
@@ -417,21 +434,22 @@ export const MIN_INSTALL_CHARGE = 200;
 export const DELIVERY_FEE = 50;
 export const HST_RATE = 0.13;
 
+// 工厂下单统一 16 分制，不做约分展示（8/16 不显示为 1/2）
 export const FRACTION_OPTIONS = [
   { label: "0", value: "0" },
   { label: "1/16", value: "1" },
-  { label: "1/8", value: "2" },
+  { label: "2/16", value: "2" },
   { label: "3/16", value: "3" },
-  { label: "1/4", value: "4" },
+  { label: "4/16", value: "4" },
   { label: "5/16", value: "5" },
-  { label: "3/8", value: "6" },
+  { label: "6/16", value: "6" },
   { label: "7/16", value: "7" },
-  { label: "1/2", value: "8" },
+  { label: "8/16", value: "8" },
   { label: "9/16", value: "9" },
-  { label: "5/8", value: "10" },
+  { label: "10/16", value: "10" },
   { label: "11/16", value: "11" },
-  { label: "3/4", value: "12" },
+  { label: "12/16", value: "12" },
   { label: "13/16", value: "13" },
-  { label: "7/8", value: "14" },
+  { label: "14/16", value: "14" },
   { label: "15/16", value: "15" },
 ];

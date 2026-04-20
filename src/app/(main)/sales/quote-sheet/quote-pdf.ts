@@ -28,7 +28,7 @@ import type {
   DrapeOrderLine,
   InstallMode,
 } from "./types";
-import { fractionToInches, HST_RATE } from "./types";
+import { fractionToInches, formatInches16, HST_RATE } from "./types";
 import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
 import {
   computeShadeLinePrice,
@@ -623,19 +623,19 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   const grandTotal = preTax + hst;
 
   // ────────────────────────────────────────────────────
-  // PAGE 1 — QUOTE 概览
+  // PAGE 1 — ORDER 概览（签字即成单，正式 Order Form）
   // ────────────────────────────────────────────────────
 
   drawHero(ctx, {
-    title: "QUOTE",
+    title: "ORDER",
     subtitle: COMPANY_INFO.name,
     description:
-      "Formal quote prepared from confirmed sizes and selections. Pricing is valid 15 days from the generation date; final charges may adjust after measurement confirmation and site review.",
+      "Signed order confirmed from measured sizes and final selections. Lead time begins from the order confirmation date; any changes after confirmation may affect schedule and pricing.",
     logoDataUrl: input.logoDataUrl,
   });
 
   drawMetaBar(ctx, [
-    { label: "Quote Reference", value: input.orderNumber || "—" },
+    { label: "Order Reference", value: input.orderNumber || "—" },
     { label: "Generated", value: input.date || "—" },
     { label: "Sales Rep", value: input.salesRep || "—" },
   ]);
@@ -666,8 +666,8 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     2,
   );
 
-  // Quote Summary KPI
-  drawSectionBanner(ctx, "Quote Summary");
+  // Order Summary KPI
+  drawSectionBanner(ctx, "Order Summary");
   drawKpiGrid(ctx, [
     { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
@@ -691,9 +691,9 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   ctx.y = MARGIN;
 
   drawHero(ctx, {
-    title: "Quoted Items",
+    title: "Order Items",
     subtitle: "Detailed line items",
-    description: "All prices shown in CAD. Item-level merchandise and installation are listed separately.",
+    description: "All prices shown in CAD. Item-level merchandise and installation are listed separately. Widths and heights shown in 16ths of an inch (unsimplified).",
     logoDataUrl: input.logoDataUrl,
   });
 
@@ -810,8 +810,8 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
           l.location || "—",
           l.product,
           skuLabel,
-          w.toFixed(2),
-          h.toFixed(2),
+          formatInches16(w),
+          formatInches16(h),
           [l.mount, l.lift].filter(Boolean).join("/"),
           `$${p!.merch.toFixed(2)}`,
           `$${p!.install.toFixed(2)}`,
@@ -846,8 +846,8 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
         return [
           i + 1,
           l.location || "—",
-          w.toFixed(2),
-          h.toFixed(2),
+          formatInches16(w),
+          formatInches16(h),
           l.frame || "",
           l.mountType || "",
           l.panelCount ?? "",
@@ -881,8 +881,8 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
           l.location || "—",
           "Drape",
           l.drapeFabricSku,
-          w.toFixed(2),
-          h.toFixed(2),
+          formatInches16(w),
+          formatInches16(h),
           `$${p.drapeMerch.toFixed(2)}`,
           `$${p.drapeInstall.toFixed(2)}`,
         ]);
@@ -895,8 +895,8 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
           l.location || "—",
           "Sheer",
           l.sheerFabricSku,
-          w.toFixed(2),
-          h.toFixed(2),
+          formatInches16(w),
+          formatInches16(h),
           `$${p.sheerMerch.toFixed(2)}`,
           `$${p.sheerInstall.toFixed(2)}`,
         ]);
@@ -965,9 +965,9 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     ctx.y += 10;
   }
 
-  // QUOTE TOTALS
+  // ORDER TOTALS
   maybePageBreak(80);
-  drawSectionBanner(ctx, "Quote Totals");
+  drawSectionBanner(ctx, "Order Totals");
   drawTotalsTable(ctx, [
     { label: "Shades Subtotal", value: formatCAD(input.shadeTotals.total) },
     { label: "Shutters Subtotal", value: formatCAD(input.shutterTotals.total) },
@@ -997,7 +997,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.text(
-      "Customer signature captured at quote confirmation. By signing, the customer acknowledges the scope, pricing, and terms of this quote.",
+      "Customer signature captured at order confirmation. By signing, the customer acknowledges the scope, pricing, and terms of this order.",
       MARGIN,
       ctx.y + 3,
       { maxWidth: pageW - MARGIN * 2 },
@@ -1039,12 +1039,12 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     title: "Quick Share Summary",
     subtitle: COMPANY_INFO.name,
     description:
-      "A one-page condensed summary for easy screenshot sharing or light-ink printing. The detailed quoted items and full calculation breakdown are on the earlier pages.",
+      "A one-page condensed summary for easy screenshot sharing or light-ink printing. The detailed order items and full calculation breakdown are on the earlier pages.",
     logoDataUrl: input.logoDataUrl,
   });
 
   drawMetaBar(ctx, [
-    { label: "Quote Reference", value: input.orderNumber || "—" },
+    { label: "Order Reference", value: input.orderNumber || "—" },
     { label: "Generated", value: input.date || "—" },
     { label: "Sales Rep", value: input.salesRep || "—" },
   ]);
@@ -1082,7 +1082,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   ctx.y += 18;
 
   // Totals snapshot
-  drawSectionBanner(ctx, "Quote Totals");
+  drawSectionBanner(ctx, "Order Totals");
   drawTotalsTable(ctx, [
     { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
@@ -1115,20 +1115,19 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   drawHero(ctx, {
     title: "Key Terms",
     subtitle: "Terms of Service Agreement",
-    description: "Please read these terms carefully. Your confirmation of this quote constitutes acceptance.",
+    description: "Please read these terms carefully. Your confirmation of this order constitutes acceptance.",
     logoDataUrl: input.logoDataUrl,
   });
 
   drawSectionBanner(ctx, "Terms");
   const terms = [
-    "Validity of this quote: 15 days from the date of issuance.",
+    "Lead time for custom-made items is approximately 3-4 weeks from order confirmation.",
     "A 2-hour delivery window will be provided 2 days before the scheduled installation date.",
     "Rescheduling must be requested at least 3 business days before the scheduled date.",
-    "The normal lead time for custom-made items is approximately 3-4 weeks.",
     "Installation will only be scheduled after the entire balance is received.",
     "Custom-made items: returns or exchanges are only accepted if the product is defective.",
     "Our products are designed to fit standard, straight window frames.",
-    "Delivery is quoted for GTA only; long-distance surcharges may apply based on final site conditions.",
+    "Delivery covers GTA only; long-distance surcharges may apply based on final site conditions.",
   ];
   setText(doc, PDF_TOKENS.textMain);
   doc.setFont("helvetica", "normal");
@@ -1158,5 +1157,5 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     doc.text(`${p} / ${realTotal}`, pageW - MARGIN, pageH - 6, { align: "right" });
   }
 
-  doc.save(`Quote_${input.orderNumber || "draft"}_${input.date}.pdf`);
+  doc.save(`Order_${input.orderNumber || "draft"}_${input.date}.pdf`);
 }
