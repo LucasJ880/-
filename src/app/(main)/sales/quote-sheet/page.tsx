@@ -619,7 +619,8 @@ export default function QuoteSheetPage() {
         installMode,
       };
 
-      const res = await apiFetch("/api/sales/quotes", {
+      // 先拿 Response，检查 HTTP 状态，防止"保存失败却把草稿清掉"
+      const apiResponse = await apiFetch("/api/sales/quotes", {
         method: "POST",
         body: JSON.stringify({
           customerId,
@@ -633,21 +634,44 @@ export default function QuoteSheetPage() {
           specialPromotion: specialPromotionNum,
           finalDiscountPct,
         }),
-      }).then((r) => r.json());
+      });
+
+      if (!apiResponse.ok) {
+        const errBody = (await apiResponse.json().catch(() => null)) as
+          | { error?: string; message?: string; details?: unknown }
+          | null;
+        const serverMsg =
+          errBody?.error || errBody?.message || `HTTP ${apiResponse.status}`;
+        throw new Error(serverMsg);
+      }
+
+      const res = await apiResponse.json();
+      const quoteId: string | undefined = res.quote?.id;
+      if (!quoteId) {
+        // 2xx 但没返回 quoteId：异常情况，坚决不要清草稿
+        throw new Error(
+          "保存未成功：后端未返回报价单 ID（可能是数据校验问题）。",
+        );
+      }
 
       const statusAdvanced = res.lifecycle?.autoAdvanced ?? false;
-      const quoteId: string | undefined = res.quote?.id;
       setLastSaved({
         time: new Date().toLocaleTimeString("en-CA"),
         orderNum: orderNumber,
         statusAdvanced,
         quoteId,
       });
-      // 后端已持久化，本地草稿使命完成
+      // 真正保存成功 → 本地草稿使命完成
       clearDraft();
-      return quoteId ? { quoteId } : null;
+      return { quoteId };
     } catch (err) {
-      console.error("Save failed:", err);
+      console.error("Save quote failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(
+        `保存报价单失败：${msg}\n\n` +
+          `您填写的内容仍保留在本地草稿中。` +
+          `刷新页面后可通过顶部的"恢复草稿"按钮找回，不会丢失。`,
+      );
       return null;
     } finally {
       setSaving(false);
@@ -758,7 +782,7 @@ export default function QuoteSheetPage() {
 
     setGenerating(true);
     try {
-      // 1) 保存报价单
+      // 1) 保存报价单 —— 失败时 handleSave 内部已弹窗并保留草稿
       const saved = await handleSave();
       if (!saved?.quoteId) {
         setGenerating(false);
@@ -766,34 +790,61 @@ export default function QuoteSheetPage() {
       }
 
       // 2) 标记为已签名 + 推进 opportunity.stage=signed
+      //    这一步失败不会让报价单消失（主表已入库），但要明确提示销售
       let stageAdvanced = false;
+      let markSignedWarning: string | null = null;
       try {
         const res = await apiFetch(
           `/api/sales/quotes/${saved.quoteId}/mark-signed`,
           { method: "POST" },
         );
-        const data = await res.json();
-        if (res.ok) stageAdvanced = Boolean(data.stageAdvanced);
-        else console.error("mark-signed failed:", data);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          stageAdvanced = Boolean(data.stageAdvanced);
+        } else {
+          const msg = data?.error || `HTTP ${res.status}`;
+          console.error("mark-signed failed:", data);
+          markSignedWarning = `签单状态推进失败：${msg}（报价单已保存，稍后可到客户详情页手动推进）`;
+        }
       } catch (err) {
         console.error("mark-signed error:", err);
+        markSignedWarning = `签单状态推进失败：网络错误（报价单已保存，稍后可到客户详情页手动推进）`;
       }
 
-      // 3) 导出 PDF
-      await handleExportPDF();
+      // 3) 导出 PDF —— 失败也不影响已入库的数据
+      let pdfWarning: string | null = null;
+      try {
+        await handleExportPDF();
+      } catch (err) {
+        console.error("Export PDF failed:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        pdfWarning = `PDF 导出失败：${msg}（报价单已保存，可到客户详情页重试导出）`;
+      }
+
+      if (markSignedWarning || pdfWarning) {
+        alert(
+          `报价单已保存成功（订单号 ${lastSaved?.orderNum || saved.quoteId}），但有部分后续步骤未完成：\n\n` +
+            [markSignedWarning, pdfWarning].filter(Boolean).join("\n") +
+            `\n\n数据不会丢失，可到"客户详情"页继续处理。`,
+        );
+      }
 
       setGeneratedFlash(
         stageAdvanced
           ? "报价单已生成 · 客户状态已更新为「已成单」"
-          : "报价单已生成 · PDF 已导出"
+          : "报价单已生成 · PDF 已导出",
       );
       setTimeout(() => setGeneratedFlash(null), 5000);
     } catch (err) {
       console.error("Generate quote failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(
+        `生成报价单失败：${msg}\n\n请检查网络后重试。您填写的内容仍保留在本地草稿中。`,
+      );
     } finally {
       setGenerating(false);
     }
-  }, [customerId, hasAnySignature, handleSave, handleExportPDF]);
+  }, [customerId, hasAnySignature, handleSave, handleExportPDF, lastSaved?.orderNum]);
 
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
