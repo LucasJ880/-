@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Shield } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { MultiSelectCombobox } from "@/components/ui/multi-select-combobox";
 
 interface CellStats {
   total: number;
@@ -234,30 +235,23 @@ export default function SalesAnalyticsPage() {
               ))}
             </div>
           </div>
-          <div className="space-y-1 min-w-[240px]">
+          <div className="space-y-1 min-w-[280px] flex-1 max-w-md">
             <label className="text-xs text-muted">
               销售筛选（不选＝全部）
             </label>
-            <select
-              multiple
+            <MultiSelectCombobox
+              options={reps.map((r) => ({
+                id: r.id,
+                label: r.name,
+                sublabel: r.email,
+                count: r.customerCount,
+              }))}
               value={selectedReps}
-              onChange={(e) =>
-                setSelectedReps(
-                  Array.from(e.target.selectedOptions, (o) => o.value),
-                )
-              }
-              className="w-full rounded-lg border border-border bg-white/80 px-2 py-1.5 text-sm"
-              size={Math.min(4, Math.max(2, reps.length))}
-            >
-              {reps.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} ({r.customerCount})
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-muted">
-              按住 Cmd/Ctrl 可多选
-            </p>
+              onChange={setSelectedReps}
+              placeholder="全部销售"
+              searchPlaceholder="搜索销售姓名或邮箱…"
+              emptyText="无匹配销售"
+            />
           </div>
           <button
             type="button"
