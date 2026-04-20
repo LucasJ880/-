@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Upload, Search, Loader2 } from "lucide-react";
+import { Plus, Upload, Search, Loader2, BarChart3 } from "lucide-react";
+import Link from "next/link";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -17,6 +19,7 @@ import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 
 export default function SalesPage() {
   const { isMobile } = useIsMobile();
+  const { isSuperAdmin } = useCurrentUser();
   const [viewMode, setViewMode] = useState<ViewMode>("pipeline");
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -72,6 +75,16 @@ export default function SalesPage() {
         description="Sunny Shutter 销售 Pipeline · 客户 · 报价"
         actions={
           <div className="flex items-center gap-2">
+            {isSuperAdmin && (
+              <Link
+                href="/sales/analytics"
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150"
+                title="销售 × 时段复盘交叉表"
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                复盘分析
+              </Link>
+            )}
             <button
               onClick={() => setShowImport(true)}
               className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150"
