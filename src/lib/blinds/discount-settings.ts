@@ -64,6 +64,12 @@ export interface DiscountsDto {
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
+  // 定金阈值（0~1 小数，按 Grand Total 含税总价的比例）
+  depositWarnPct: number;
+  depositMinPct: number;
+  // 仅 admin 可见明文 code；非 admin 通过 hasDepositOverrideCode 判断是否已配置
+  depositOverrideCode?: string | null;
+  hasDepositOverrideCode: boolean;
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -73,14 +79,20 @@ const PRODUCT_KEYS = [
   "drapery", "sheer", "shutters", "honeycomb",
 ] as const;
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
-export const DTO_NUMERIC_KEYS = [...PRODUCT_KEYS, ...THRESHOLD_KEYS] as const;
+const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
+export const DTO_NUMERIC_KEYS = [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS] as const;
 
-export async function loadDiscountsDto(): Promise<DiscountsDto> {
+/**
+ * 加载折扣 DTO；isAdmin=true 时返回 depositOverrideCode 明文，
+ * 否则仅返回 hasDepositOverrideCode 布尔。
+ */
+export async function loadDiscountsDto(opts: { isAdmin?: boolean } = {}): Promise<DiscountsDto> {
   const row = await db.quoteDiscountSettings.upsert({
     where: { id: "singleton" },
     update: {},
     create: { id: "singleton" },
   });
+  const hasCode = !!(row.depositOverrideCode && row.depositOverrideCode.length > 0);
   return {
     zebra: row.zebra,
     shangrila: row.shangrila,
@@ -93,6 +105,10 @@ export async function loadDiscountsDto(): Promise<DiscountsDto> {
     promoWarnPct: row.promoWarnPct,
     promoDangerPct: row.promoDangerPct,
     promoMaxPct: row.promoMaxPct,
+    depositWarnPct: row.depositWarnPct,
+    depositMinPct: row.depositMinPct,
+    depositOverrideCode: opts.isAdmin ? row.depositOverrideCode : undefined,
+    hasDepositOverrideCode: hasCode,
     updatedAt: row.updatedAt.toISOString(),
     updatedBy: row.updatedBy,
   };
@@ -127,6 +143,12 @@ export function validateDiscountsInput(
   }
   if (w !== undefined && m !== undefined && w > m) {
     return { ok: false, error: "黄色预警阈值不能大于最高让利上限" };
+  }
+  // 定金阈值校验：warn >= min（警告阈值必须 ≥ 强制阈值）
+  const dw = out.depositWarnPct;
+  const dm = out.depositMinPct;
+  if (dw !== undefined && dm !== undefined && dw < dm) {
+    return { ok: false, error: "定金黄色提醒阈值不能低于定金最低阈值" };
   }
   return { ok: true, value: out };
 }

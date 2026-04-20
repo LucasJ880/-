@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { PartBAddon, PaymentMethod } from "./types";
 import { HST_RATE } from "./types";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Lock, Unlock, ShieldCheck, Loader2 } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface PartBProps {
   addons: PartBAddon[];
@@ -41,6 +42,16 @@ interface PartBProps {
   promoMaxPct?: number;
   // 当前用户是否为管理员（admin/super_admin）；admin 不受 max 上限约束
   isAdmin?: boolean;
+  // 含税总价（Direct Payment 下计算定金百分比的分母）
+  grandTotal?: number;
+  // 定金阈值（0~1 小数）
+  depositWarnPct?: number;
+  depositMinPct?: number;
+  // 老板是否已配置解锁码（未配置时 < 最低阈值直接阻止且无法解锁）
+  hasDepositOverrideCode?: boolean;
+  // 本单定金"低于最低阈值"是否已通过 code 解锁
+  depositUnlocked?: boolean;
+  onDepositUnlockedChange?: (v: boolean) => void;
 }
 
 export function PartBForm({
@@ -72,6 +83,12 @@ export function PartBForm({
   promoDangerPct,
   promoMaxPct,
   isAdmin = false,
+  grandTotal = 0,
+  depositWarnPct = 0.4,
+  depositMinPct = 0.3,
+  hasDepositOverrideCode = false,
+  depositUnlocked = false,
+  onDepositUnlockedChange,
 }: PartBProps) {
   const catalogByKey = useMemo(
     () => Object.fromEntries(ADDON_CATALOG.map((a) => [a.key, a])),
@@ -283,28 +300,19 @@ export function PartBForm({
             />
             <div className="flex-1 space-y-2">
               <span className="text-sm font-medium">Method 1 — Direct Payment</span>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Deposit (40%):</span>
-                  <input
-                    type="text"
-                    value={depositAmount}
-                    onChange={(e) => onDepositChange(e.target.value)}
-                    className="mt-0.5 w-full rounded border border-border px-2 py-1 text-xs min-h-[44px]"
-                    placeholder="$"
-                  />
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Balance (60%):</span>
-                  <input
-                    type="text"
-                    value={balanceAmount}
-                    onChange={(e) => onBalanceChange(e.target.value)}
-                    className="mt-0.5 w-full rounded border border-border px-2 py-1 text-xs min-h-[44px]"
-                    placeholder="$"
-                  />
-                </div>
-              </div>
+              <DirectPaymentBlock
+                depositAmount={depositAmount}
+                onDepositChange={onDepositChange}
+                onBalanceChange={onBalanceChange}
+                grandTotal={grandTotal}
+                depositWarnPct={depositWarnPct}
+                depositMinPct={depositMinPct}
+                hasDepositOverrideCode={hasDepositOverrideCode}
+                depositUnlocked={depositUnlocked}
+                onDepositUnlockedChange={onDepositUnlockedChange}
+                isAdmin={isAdmin}
+                active={paymentMethod === "direct"}
+              />
             </div>
           </label>
 
@@ -532,6 +540,278 @@ function SpecialPromotionRow({
               ? `（>${Math.round(dangerPct * 100)}%），让利过高，建议经理审核后再签单`
               : `（>${Math.round(warnPct * 100)}%），请确认是否符合公司让利政策`}
             。
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Method 1 — Direct Payment 子块
+ * - Deposit 销售自己填（支持切换「$ 金额」/「% 百分比」两种输入模式）
+ * - Balance 永远只读，= Grand Total − Deposit
+ * - Deposit / Balance 标签旁实时显示百分比
+ * - 低于 warnPct：黄色提醒
+ * - 低于 minPct 且未解锁：红色阻止 + 解锁码输入框（admin 跳过）
+ */
+function DirectPaymentBlock({
+  depositAmount,
+  onDepositChange,
+  onBalanceChange,
+  grandTotal,
+  depositWarnPct,
+  depositMinPct,
+  hasDepositOverrideCode,
+  depositUnlocked,
+  onDepositUnlockedChange,
+  isAdmin,
+  active,
+}: {
+  depositAmount: string;
+  onDepositChange: (v: string) => void;
+  onBalanceChange: (v: string) => void;
+  grandTotal: number;
+  depositWarnPct: number;
+  depositMinPct: number;
+  hasDepositOverrideCode: boolean;
+  depositUnlocked: boolean;
+  onDepositUnlockedChange?: (v: boolean) => void;
+  isAdmin: boolean;
+  active: boolean;
+}) {
+  const [mode, setMode] = useState<"amount" | "percent">("amount");
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyErr, setVerifyErr] = useState<string | null>(null);
+
+  const depositNum = Math.max(0, parseFloat(depositAmount) || 0);
+  const balanceNum = Math.max(0, grandTotal - depositNum);
+  const depositPct = grandTotal > 0 ? depositNum / grandTotal : 0;
+  const balancePct = grandTotal > 0 ? balanceNum / grandTotal : 0;
+
+  const below = grandTotal > 0 && depositPct < depositMinPct;
+  const warn = grandTotal > 0 && !below && depositPct < depositWarnPct;
+
+  const verifyCode = useCallback(async () => {
+    if (!code.trim()) return;
+    setVerifying(true);
+    setVerifyErr(null);
+    try {
+      const res = await apiFetch("/api/sales/quote-settings/verify-deposit-code", {
+        method: "POST",
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!res.ok || !data?.ok) {
+        setVerifyErr(data?.error || "解锁码不正确");
+        return;
+      }
+      onDepositUnlockedChange?.(true);
+      setCode("");
+    } catch {
+      setVerifyErr("网络异常，请稍后重试");
+    } finally {
+      setVerifying(false);
+    }
+  }, [code, onDepositUnlockedChange]);
+
+  const handlePercentChange = useCallback(
+    (v: string) => {
+      const pct = Math.max(0, Math.min(100, parseFloat(v) || 0));
+      if (grandTotal <= 0) {
+        onDepositChange("");
+        return;
+      }
+      const amount = (grandTotal * pct) / 100;
+      onDepositChange(amount.toFixed(2));
+    },
+    [grandTotal, onDepositChange],
+  );
+
+  // 切换 mode 不重置 deposit 值：amount 和 percent 展示同一数据的不同视图
+  const currentPercentInput = grandTotal > 0 ? (depositPct * 100).toFixed(1) : "";
+
+  // 视觉 accent
+  const accent = below
+    ? "border-red-400 bg-red-50/70"
+    : warn
+      ? "border-amber-400 bg-amber-50/70"
+      : "border-transparent";
+
+  return (
+    <div className={cn("rounded-md border p-2 transition-colors", accent)}>
+      <div className="mb-1.5 flex items-center justify-between">
+        <div className="flex items-center gap-1 text-[10px]">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setMode("amount");
+            }}
+            className={cn(
+              "rounded px-1.5 py-0.5 font-medium transition-colors",
+              mode === "amount" ? "bg-teal-600 text-white" : "text-muted-foreground hover:bg-slate-100",
+            )}
+          >
+            $ 金额
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setMode("percent");
+            }}
+            className={cn(
+              "rounded px-1.5 py-0.5 font-medium transition-colors",
+              mode === "percent" ? "bg-teal-600 text-white" : "text-muted-foreground hover:bg-slate-100",
+            )}
+          >
+            % 比例
+          </button>
+        </div>
+        <span className="text-[10px] text-muted-foreground">
+          含税总价 <span className="font-mono text-foreground">{formatCAD(grandTotal)}</span>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">
+              Deposit{" "}
+              <span className={cn(
+                "ml-0.5 font-semibold",
+                below ? "text-red-600" : warn ? "text-amber-700" : "text-teal-700",
+              )}>
+                ({(depositPct * 100).toFixed(1)}%)
+              </span>
+            </span>
+          </div>
+          {mode === "amount" ? (
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={depositAmount}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onDepositChange(e.target.value)}
+              className={cn(
+                "mt-0.5 w-full rounded border px-2 py-1 text-xs min-h-[44px] bg-white",
+                below ? "border-red-400" : warn ? "border-amber-400" : "border-border",
+              )}
+              placeholder="$"
+            />
+          ) : (
+            <div className="relative mt-0.5">
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step="0.1"
+                value={currentPercentInput}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => handlePercentChange(e.target.value)}
+                className={cn(
+                  "w-full rounded border px-2 py-1 pr-6 text-xs min-h-[44px] bg-white",
+                  below ? "border-red-400" : warn ? "border-amber-400" : "border-border",
+                )}
+                placeholder="%"
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                %
+              </span>
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">
+              Balance{" "}
+              <span className="ml-0.5 font-semibold text-teal-700">
+                ({(balancePct * 100).toFixed(1)}%)
+              </span>
+            </span>
+          </div>
+          <input
+            type="text"
+            readOnly
+            value={balanceNum > 0 ? `$${balanceNum.toFixed(2)}` : ""}
+            onClick={(e) => {
+              e.stopPropagation();
+              // 读只字段也同步到父状态（防止老浏览器拦截）
+              onBalanceChange(balanceNum > 0 ? balanceNum.toFixed(2) : "");
+            }}
+            tabIndex={-1}
+            className="mt-0.5 w-full rounded border border-dashed border-border bg-slate-50 px-2 py-1 text-xs min-h-[44px] text-muted-foreground"
+            placeholder="$"
+            title="Balance 自动 = 含税总价 − Deposit"
+          />
+        </div>
+      </div>
+
+      {/* 状态提示条（仅当用户选中 Method 1 时高亮） */}
+      {active && below && !isAdmin && !depositUnlocked && (
+        <div className="mt-2 rounded-md border border-red-300 bg-white p-2">
+          <div className="flex items-start gap-1.5 text-[11px] font-medium text-red-800">
+            <Lock size={12} className="mt-0.5 shrink-0" />
+            <span>
+              定金低于公司最低比例 <strong>{Math.round(depositMinPct * 100)}%</strong>
+              （当前 {(depositPct * 100).toFixed(1)}%），
+              {hasDepositOverrideCode
+                ? "请输入老板提供的解锁码才能保存。"
+                : "且公司尚未配置解锁码，请提高定金或联系管理员。"}
+            </span>
+          </div>
+          {hasDepositOverrideCode && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="password"
+                value={code}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="输入解锁码"
+                className="flex-1 rounded border border-red-300 bg-white px-2 py-1 text-xs min-h-[36px]"
+              />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  void verifyCode();
+                }}
+                disabled={verifying || !code.trim()}
+                className="inline-flex items-center gap-1 rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {verifying ? <Loader2 className="animate-spin" size={12} /> : <Unlock size={12} />}
+                解锁
+              </button>
+            </div>
+          )}
+          {verifyErr && <p className="mt-1 text-[10px] text-red-600">{verifyErr}</p>}
+        </div>
+      )}
+      {active && below && (isAdmin || depositUnlocked) && (
+        <div className="mt-2 flex items-start gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 p-2 text-[11px] font-medium text-emerald-800">
+          <ShieldCheck size={12} className="mt-0.5 shrink-0" />
+          <span>
+            定金 {(depositPct * 100).toFixed(1)}% 低于最低比例{" "}
+            {Math.round(depositMinPct * 100)}%，
+            {isAdmin ? "已由管理员权限放行" : "已通过解锁码放行"}
+            。
+          </span>
+        </div>
+      )}
+      {active && warn && (
+        <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] font-medium text-amber-800">
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          <span>
+            定金 {(depositPct * 100).toFixed(1)}% 低于建议比例{" "}
+            {Math.round(depositWarnPct * 100)}%，建议向客户争取提高定金以降低违约风险。
           </span>
         </div>
       )}

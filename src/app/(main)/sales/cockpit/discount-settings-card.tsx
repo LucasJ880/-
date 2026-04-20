@@ -26,6 +26,10 @@ interface DiscountsDto {
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
+  depositWarnPct: number;
+  depositMinPct: number;
+  depositOverrideCode?: string | null;
+  hasDepositOverrideCode: boolean;
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -47,9 +51,34 @@ const THRESHOLD_FIELDS: { key: "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
   { key: "promoMaxPct", label: "销售最高让利上限", hint: "销售不得超过；admin 不受限" },
 ];
 
-type DraftKey =
-  | keyof Omit<DiscountsDto, "updatedAt" | "updatedBy">;
-type DraftMap = Record<DraftKey, string>;
+const DEPOSIT_FIELDS: { key: "depositWarnPct" | "depositMinPct"; label: string; hint: string }[] = [
+  { key: "depositWarnPct", label: "定金黄色提醒阈值", hint: "低于此比例黄色提醒（默认 40%）" },
+  { key: "depositMinPct", label: "定金最低阈值", hint: "低于此比例销售需输入解锁码；可设为 0 表示不限制" },
+];
+
+type NumericDraftKey =
+  | "zebra" | "shangrila" | "cellular" | "roller"
+  | "drapery" | "sheer" | "shutters" | "honeycomb"
+  | "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
+  | "depositWarnPct" | "depositMinPct";
+
+interface DraftMap {
+  zebra: string;
+  shangrila: string;
+  cellular: string;
+  roller: string;
+  drapery: string;
+  sheer: string;
+  shutters: string;
+  honeycomb: string;
+  promoWarnPct: string;
+  promoDangerPct: string;
+  promoMaxPct: string;
+  depositWarnPct: string;
+  depositMinPct: string;
+  // 解锁码：空串表示"清空"；undefined 表示"不改动"（保存时不发送）
+  depositOverrideCode?: string;
+}
 
 function toDraftMap(d: DiscountsDto): DraftMap {
   return {
@@ -64,6 +93,10 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     promoWarnPct: Math.round(d.promoWarnPct * 100).toString(),
     promoDangerPct: Math.round(d.promoDangerPct * 100).toString(),
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),
+    depositWarnPct: Math.round(d.depositWarnPct * 100).toString(),
+    depositMinPct: Math.round(d.depositMinPct * 100).toString(),
+    // 明文 code：admin 才会拿到，其它角色为 undefined；初始为"不改动"
+    depositOverrideCode: undefined,
   };
 }
 
@@ -99,10 +132,11 @@ export function DiscountSettingsCard() {
     if (!draft) return;
     setError(null);
 
-    const payload: Record<string, number> = {};
-    const allFields: { key: DraftKey; label: string }[] = [
-      ...FIELDS.map((f) => ({ key: f.key as DraftKey, label: f.label })),
-      ...THRESHOLD_FIELDS.map((f) => ({ key: f.key as DraftKey, label: f.label })),
+    const payload: Record<string, number | string | null> = {};
+    const allFields: { key: NumericDraftKey; label: string }[] = [
+      ...FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
+      ...THRESHOLD_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
+      ...DEPOSIT_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
     ];
     for (const f of allFields) {
       const n = Number(draft[f.key]);
@@ -113,9 +147,9 @@ export function DiscountSettingsCard() {
       payload[f.key as string] = Math.round(n) / 100;
     }
     // 顺序校验：warn <= danger <= max
-    const w = payload.promoWarnPct;
-    const d2 = payload.promoDangerPct;
-    const m = payload.promoMaxPct;
+    const w = payload.promoWarnPct as number | undefined;
+    const d2 = payload.promoDangerPct as number | undefined;
+    const m = payload.promoMaxPct as number | undefined;
     if (w !== undefined && d2 !== undefined && w > d2) {
       setError("黄色预警阈值不能大于红色强警告阈值");
       return;
@@ -123,6 +157,24 @@ export function DiscountSettingsCard() {
     if (d2 !== undefined && m !== undefined && d2 > m) {
       setError("红色强警告阈值不能大于最高让利上限");
       return;
+    }
+    const dw = payload.depositWarnPct as number | undefined;
+    const dmLocal = payload.depositMinPct as number | undefined;
+    if (dw !== undefined && dmLocal !== undefined && dw < dmLocal) {
+      setError("定金黄色提醒阈值不能低于定金最低阈值");
+      return;
+    }
+    // 解锁码：undefined 表示"不改动"，其它（含空串）都提交
+    if (draft.depositOverrideCode !== undefined) {
+      const raw = draft.depositOverrideCode;
+      if (raw === "") {
+        payload.depositOverrideCode = null;
+      } else if (raw.length < 3 || raw.length > 64) {
+        setError("解锁码长度需为 3~64 个字符（留空表示清除）");
+        return;
+      } else {
+        payload.depositOverrideCode = raw;
+      }
     }
 
     setSaving(true);
@@ -231,6 +283,76 @@ export function DiscountSettingsCard() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* 定金阈值与解锁码 */}
+      <div className="mt-5 pt-4 border-t border-border">
+        <h4 className="text-xs font-semibold text-foreground mb-1">定金比例阈值</h4>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          按 Grand Total（含税总价）的比例控制销售的定金收取。低于「最低阈值」时销售
+          需要输入下方的解锁码才能保存报价单。最低阈值可设为 0 表示不限制。
+        </p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {DEPOSIT_FIELDS.map((f) => (
+            <div key={f.key} className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground block">
+                {f.label}
+              </label>
+              {editing && draft && canEdit ? (
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={draft[f.key]}
+                    onChange={(e) =>
+                      setDraft({ ...draft, [f.key]: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-input bg-white px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                    %
+                  </span>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+                  {current ? `${Math.round((current[f.key] as number) * 100)}%` : "—"}
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground">{f.hint}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 space-y-1">
+          <label className="text-[11px] font-medium text-muted-foreground block">
+            定金解锁码
+          </label>
+          {editing && draft && canEdit ? (
+            <>
+              <input
+                type="text"
+                placeholder={
+                  current?.hasDepositOverrideCode
+                    ? "已配置；留空保存将清除，输入新值以覆盖"
+                    : "尚未配置；输入 3~64 个字符"
+                }
+                value={draft.depositOverrideCode ?? ""}
+                onChange={(e) =>
+                  setDraft({ ...draft, depositOverrideCode: e.target.value })
+                }
+                className="w-full rounded-lg border border-input bg-white px-2 py-1.5 text-sm font-medium font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                销售低于最低阈值时需凭此码解锁。变更会立即对全公司生效。
+              </p>
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+              {current?.hasDepositOverrideCode ? "已配置（已隐藏）" : "未配置"}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Special Promotion 阈值区 */}

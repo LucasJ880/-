@@ -274,6 +274,12 @@ function QuoteSheetPageInner() {
   const [promoWarnPct, setPromoWarnPct] = useState(0.06);
   const [promoDangerPct, setPromoDangerPct] = useState(0.15);
   const [promoMaxPct, setPromoMaxPct] = useState(0.25);
+  // 定金阈值
+  const [depositWarnPct, setDepositWarnPct] = useState(0.4);
+  const [depositMinPct, setDepositMinPct] = useState(0.3);
+  const [hasDepositOverrideCode, setHasDepositOverrideCode] = useState(false);
+  // 本单定金解锁状态（输入 code 成功后置 true；仅当前页面 session 内有效）
+  const [depositUnlocked, setDepositUnlocked] = useState(false);
   useEffect(() => {
     (async () => {
       try {
@@ -281,6 +287,8 @@ function QuoteSheetPageInner() {
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
+          depositWarnPct?: number; depositMinPct?: number;
+          hasDepositOverrideCode?: boolean;
         }>("/api/sales/quote-settings/discounts");
         setDiscounts({
           Zebra: d.zebra,
@@ -295,6 +303,9 @@ function QuoteSheetPageInner() {
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
         if (typeof d.promoMaxPct === "number") setPromoMaxPct(d.promoMaxPct);
+        if (typeof d.depositWarnPct === "number") setDepositWarnPct(d.depositWarnPct);
+        if (typeof d.depositMinPct === "number") setDepositMinPct(d.depositMinPct);
+        if (typeof d.hasDepositOverrideCode === "boolean") setHasDepositOverrideCode(d.hasDepositOverrideCode);
       } catch {
         // 拉取失败时保留默认值
       }
@@ -610,6 +621,24 @@ function QuoteSheetPageInner() {
       );
       return null;
     }
+    // 硬门槛：定金低于最低阈值，需 code 解锁（非 admin 且未在本单解锁）
+    // 仅 paymentMethod === "direct" 时校验；Finance 模式的 deposit 语义不同
+    if (paymentMethod === "direct" && !isSuperAdmin && !depositUnlocked) {
+      const _preTax = Math.max(
+        0,
+        productsSubtotal + subtotalB + subtotalC - specialPromotionNum,
+      );
+      const _grandTotal = _preTax + Math.round(_preTax * HST_RATE * 100) / 100;
+      const _deposit = Math.max(0, parseFloat(depositAmount) || 0);
+      const _depositPct = _grandTotal > 0 ? _deposit / _grandTotal : 0;
+      if (_grandTotal > 0 && _depositPct < depositMinPct) {
+        alert(
+          `当前定金仅占总价的 ${(_depositPct * 100).toFixed(1)}%，低于公司设定的最低定金比例 ${Math.round(depositMinPct * 100)}%。\n\n` +
+            `请提高定金金额，或在 Part B 中输入老板提供的解锁码后重试。`,
+        );
+        return null;
+      }
+    }
     setSaving(true);
     try {
       // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）
@@ -825,6 +854,8 @@ function QuoteSheetPageInner() {
     shadeValanceType, shadeBracketType,
     totalMsrp, specialPromotionNum, finalDiscountPct,
     promoBlocked, promoRatio, promoMaxPct,
+    depositMinPct, depositUnlocked, isSuperAdmin,
+    productsSubtotal, subtotalB, subtotalC,
     editingQuoteId,
   ]);
 
@@ -994,6 +1025,17 @@ function QuoteSheetPageInner() {
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const grandTotal = preTax + hst;
+
+  // Direct Payment 模式：balance 总是派生 = Grand Total − Deposit（只读）
+  // 销售修改 deposit 或总价变化时自动同步 balance 状态，
+  // 便于 draft / PDF / 后端持久化沿用现有 pipeline。
+  useEffect(() => {
+    if (paymentMethod !== "direct") return;
+    const deposit = Math.max(0, parseFloat(depositAmount) || 0);
+    const computed = Math.max(0, grandTotal - deposit);
+    const target = computed > 0 ? computed.toFixed(2) : "";
+    setBalanceAmount((prev) => (prev === target ? prev : target));
+  }, [depositAmount, grandTotal, paymentMethod]);
 
   return (
     <div className="space-y-4 md:space-y-6 pb-44 md:pb-32">
@@ -1334,6 +1376,12 @@ function QuoteSheetPageInner() {
             promoDangerPct={promoDangerPct}
             promoMaxPct={promoMaxPct}
             isAdmin={isSuperAdmin}
+            grandTotal={grandTotal}
+            depositWarnPct={depositWarnPct}
+            depositMinPct={depositMinPct}
+            hasDepositOverrideCode={hasDepositOverrideCode}
+            depositUnlocked={depositUnlocked}
+            onDepositUnlockedChange={setDepositUnlocked}
           />
         )}
         {activeTab === "partC" && (

@@ -2359,6 +2359,13 @@ model QuoteDiscountSettings {
   promoWarnPct   Float @default(0.06)
   promoDangerPct Float @default(0.15)
   promoMaxPct    Float @default(0.25)
+  // 定金 (deposit) 阈值（按 Grand Total 含税总价的比例，0~1 小数）
+  // - depositWarnPct:         低于此比例，销售端黄色提醒（默认 40%）
+  // - depositMinPct:          低于此比例，销售需输入解锁码才能保存（默认 30%）
+  // - depositOverrideCode:    老板设置的解锁码（明文存；MVP 简化方案）
+  depositWarnPct      Float   @default(0.40)
+  depositMinPct       Float   @default(0.30)
+  depositOverrideCode String?
   updatedAt DateTime @updatedAt
   updatedBy String?
 }
