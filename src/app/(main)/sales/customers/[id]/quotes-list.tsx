@@ -1,21 +1,28 @@
 "use client";
 
-import { FileText, Send } from "lucide-react";
+import { FileText, Send, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Quote } from "./types";
 
 const QUOTE_STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
   sent: "已发送",
+  signed: "已成单",
   accepted: "已接受",
   rejected: "已拒绝",
 };
 const QUOTE_STATUS_COLOR: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
   sent: "bg-blue-100 text-blue-800",
+  signed: "bg-emerald-100 text-emerald-800",
   accepted: "bg-emerald-100 text-emerald-800",
   rejected: "bg-red-100 text-red-800",
 };
+
+/** 粗粒度判断：notes 里带 Pricing Warnings ⇒ 说明有待补全的定价 */
+function hasPricingWarnings(notes: string | null | undefined): boolean {
+  return !!notes && notes.includes("[Pricing Warnings");
+}
 
 export function QuotesList({
   quotes,
@@ -37,10 +44,17 @@ export function QuotesList({
 
   return (
     <div className="space-y-2">
-      {quotes.map((q) => (
+      {quotes.map((q) => {
+        const warn = hasPricingWarnings(q.notes) || q.items.length === 0;
+        return (
         <div
           key={q.id}
-          className="rounded-lg border border-border/50 bg-white/60 px-4 py-3"
+          className={cn(
+            "rounded-lg border px-4 py-3",
+            warn
+              ? "border-amber-300 bg-amber-50/60"
+              : "border-border/50 bg-white/60",
+          )}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -55,6 +69,12 @@ export function QuotesList({
               >
                 {QUOTE_STATUS_LABEL[q.status] || q.status}
               </span>
+              {warn && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                  <AlertTriangle className="h-3 w-3" />
+                  待补定价
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {q.status === "draft" && customerEmail && (
@@ -97,8 +117,19 @@ export function QuotesList({
               )}
             </div>
           </div>
+          {warn && q.notes && (
+            <details className="mt-2 rounded border border-amber-200 bg-white/60 px-2 py-1">
+              <summary className="cursor-pointer text-[11px] font-medium text-amber-800">
+                查看定价警告（需管理员补全）
+              </summary>
+              <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] text-amber-900">
+                {q.notes.split("[Pricing Warnings").slice(1).map((s) => `[Pricing Warnings${s}`).join("")}
+              </pre>
+            </details>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

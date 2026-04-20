@@ -518,7 +518,9 @@ export default function QuoteSheetPage() {
     setPendingDraft(null);
   }, []);
 
-  const handleSave = useCallback(async (): Promise<{ quoteId: string } | null> => {
+  const handleSave = useCallback(async (): Promise<
+    { quoteId: string; saveMode: "full" | "partial" | "shell" } | null
+  > => {
     if (!customerId) return null;
     // 硬门槛：Special Promotion 超过公司上限，非 admin 禁止提交
     if (promoBlocked) {
@@ -599,10 +601,14 @@ export default function QuoteSheetPage() {
         }
       }
 
+      // 注意：items 为空也允许提交，由后端以 shell 模式保存（仅存 formDataJson）
+      // 这样即使 pricing 全部对不上，销售填写的内容也绝不会丢。
       if (items.length === 0) {
-        console.error("Save failed: please fill at least one Shade / Shutter / Drape line");
-        alert("请至少在 Shades / Shutters / Drapes 中填写一行完整的尺寸和 SKU/材质");
-        return null;
+        const proceed = confirm(
+          "未能从当前表单算出任何可计价的产品行（可能是尺寸未填全或 SKU 对不上价格表）。\n\n" +
+            "是否依然保存一份草稿？（所有填写内容会保留，后续可由管理员补全定价）",
+        );
+        if (!proceed) return null;
       }
 
       const fullFormData: QuoteFormState = {
@@ -663,7 +669,33 @@ export default function QuoteSheetPage() {
       });
       // 真正保存成功 → 本地草稿使命完成
       clearDraft();
-      return { quoteId };
+
+      // 兜底模式（partial / shell）时提示销售："数据已保存，但定价未完全算出"
+      const saveMode: "full" | "partial" | "shell" | undefined = res.saveMode;
+      const pricing = res.pricing as
+        | { requestedItems: number; succeededItems: number; errors: Array<{ index: number; error: string; input?: { product?: string; fabric?: string } }> }
+        | undefined;
+      if (saveMode && saveMode !== "full" && pricing) {
+        const errLines = (pricing.errors || [])
+          .slice(0, 5)
+          .map(
+            (e, i) =>
+              `  ${i + 1}. ${e.input?.product || "?"} ${e.input?.fabric || ""} — ${e.error}`,
+          )
+          .join("\n");
+        const more =
+          pricing.errors.length > 5 ? `\n  …还有 ${pricing.errors.length - 5} 条` : "";
+        const headline =
+          saveMode === "shell"
+            ? "报价单已以「草稿」方式保存（暂无可计价的产品行）"
+            : `报价单已保存（${pricing.succeededItems}/${pricing.requestedItems} 行成功计价，其余以草稿形式保留）`;
+        alert(
+          `${headline}\n\n以下产品行未能计算价格：\n${errLines}${more}\n\n` +
+            `请到「客户详情 → 报价单」页面由管理员补全定价后再发给客户。`,
+        );
+      }
+
+      return { quoteId, saveMode: saveMode ?? "full" };
     } catch (err) {
       console.error("Save quote failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -790,25 +822,30 @@ export default function QuoteSheetPage() {
       }
 
       // 2) 标记为已签名 + 推进 opportunity.stage=signed
-      //    这一步失败不会让报价单消失（主表已入库），但要明确提示销售
+      //    shell 模式（无可计价的产品行）跳过此步 —— 没有有效订单内容就谈不上"签单"
       let stageAdvanced = false;
       let markSignedWarning: string | null = null;
-      try {
-        const res = await apiFetch(
-          `/api/sales/quotes/${saved.quoteId}/mark-signed`,
-          { method: "POST" },
-        );
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          stageAdvanced = Boolean(data.stageAdvanced);
-        } else {
-          const msg = data?.error || `HTTP ${res.status}`;
-          console.error("mark-signed failed:", data);
-          markSignedWarning = `签单状态推进失败：${msg}（报价单已保存，稍后可到客户详情页手动推进）`;
+      if (saved.saveMode === "shell") {
+        markSignedWarning =
+          "由于当前没有可计价的产品行，签单状态未自动推进。请让管理员补全定价后再标记为已成单。";
+      } else {
+        try {
+          const res = await apiFetch(
+            `/api/sales/quotes/${saved.quoteId}/mark-signed`,
+            { method: "POST" },
+          );
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            stageAdvanced = Boolean(data.stageAdvanced);
+          } else {
+            const msg = data?.error || `HTTP ${res.status}`;
+            console.error("mark-signed failed:", data);
+            markSignedWarning = `签单状态推进失败：${msg}（报价单已保存，稍后可到客户详情页手动推进）`;
+          }
+        } catch (err) {
+          console.error("mark-signed error:", err);
+          markSignedWarning = `签单状态推进失败：网络错误（报价单已保存，稍后可到客户详情页手动推进）`;
         }
-      } catch (err) {
-        console.error("mark-signed error:", err);
-        markSignedWarning = `签单状态推进失败：网络错误（报价单已保存，稍后可到客户详情页手动推进）`;
       }
 
       // 3) 导出 PDF —— 失败也不影响已入库的数据

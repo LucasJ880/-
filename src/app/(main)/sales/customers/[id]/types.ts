@@ -45,10 +45,12 @@ export interface Quote {
   grandTotal: number;
   createdAt: string;
   items: { id: string; product: string; fabric: string; price: number }[];
-  // Step 4：折扣率追踪字段（历史报价可能为 null）
+  /** Step 4：折扣率追踪字段（历史报价可能为 null） */
   finalDiscountPct: number | null;
   specialPromotion: number | null;
   totalMsrp: number | null;
+  /** 兜底保存时的 pricing warnings 会 append 到这里 */
+  notes?: string | null;
 }
 
 export interface BlindsOrder {
