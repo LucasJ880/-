@@ -18,6 +18,15 @@ export const PRIORITIES = {
   cold: { label: "冷", class: "bg-blue-400 text-white" },
 };
 
+export type FunnelStatus = "new" | "quoted" | "signed" | "lost";
+
+export const FUNNEL_STATUS_META: Record<FunnelStatus, { label: string; color: string }> = {
+  new: { label: "新线索", color: "bg-blue-100 text-blue-700 border-blue-200" },
+  quoted: { label: "已报价", color: "bg-orange-100 text-orange-700 border-orange-200" },
+  signed: { label: "已成单", color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  lost: { label: "流失", color: "bg-red-100 text-red-700 border-red-200" },
+};
+
 export interface Customer {
   id: string;
   name: string;
@@ -31,6 +40,10 @@ export interface Customer {
   createdAt: string;
   updatedAt?: string;
   opportunities?: Opportunity[];
+  /** admin 视角下的客户归属销售 */
+  createdBy?: { id: string; name: string; email: string };
+  /** 后端根据机会和报价推导的漏斗状态 */
+  funnelStatus?: FunnelStatus;
   _count?: { interactions: number; quotes: number; blindsOrders: number };
   _offlinePending?: boolean;
 }

@@ -3,6 +3,17 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 
+// 漏斗状态定义（需与 /api/sales/analytics/customer-matrix 保持一致）
+const SIGNED_STAGES = new Set(['signed', 'producing', 'installing', 'completed']);
+type FunnelStatus = 'new' | 'quoted' | 'signed' | 'lost';
+
+function deriveFunnelStatus(stages: string[], quoteCount: number): FunnelStatus {
+  if (stages.some((s) => SIGNED_STAGES.has(s))) return 'signed';
+  if (quoteCount > 0 || stages.includes('quoted')) return 'quoted';
+  if (stages.length > 0 && stages.every((s) => s === 'lost') && quoteCount === 0) return 'lost';
+  return 'new';
+}
+
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search') || '';
@@ -12,9 +23,17 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const includeArchived = searchParams.get('includeArchived') === '1';
 
+  // —— admin 专用筛选 ——
+  const createdByIdParam = searchParams.get('createdById'); // 指定归属销售
+  const startDateStr = searchParams.get('startDate');       // 按创建时间过滤
+  const endDateStr = searchParams.get('endDate');
+  const funnelStatusFilter = searchParams.get('funnelStatus') as FunnelStatus | null;
+
   const where: Record<string, unknown> = {};
   if (!isSuperAdmin(user.role)) {
     where.createdById = user.id;
+  } else if (createdByIdParam) {
+    where.createdById = createdByIdParam;
   }
   // 默认过滤归档；仅 admin 且显式要求 ?includeArchived=1 时才返回
   if (!(isSuperAdmin(user.role) && includeArchived)) {
@@ -30,11 +49,60 @@ export const GET = withAuth(async (request, _ctx, user) => {
     ];
   }
 
+  // 时间区间（按 createdAt）
+  if (startDateStr || endDateStr) {
+    const range: Record<string, Date> = {};
+    if (startDateStr) {
+      const d = new Date(startDateStr);
+      if (!Number.isNaN(d.getTime())) range.gte = d;
+    }
+    if (endDateStr) {
+      const d = new Date(endDateStr);
+      if (!Number.isNaN(d.getTime())) {
+        // 包含结束日当天：转成次日 00:00 的开区间
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + 1);
+        range.lt = d;
+      }
+    }
+    if (Object.keys(range).length > 0) {
+      where.createdAt = range;
+    }
+  }
+
+  // funnelStatus 过滤无法直接下沉到 Prisma where（需要先聚合机会 + 报价数），
+  // 所以先查出候选集、再在内存里过滤 + 重新分页。
+  // 在 funnelStatus 无值时走原来的分页路径，性能最佳。
+  if (funnelStatusFilter && isSuperAdmin(user.role)) {
+    const all = await db.salesCustomer.findMany({
+      where,
+      include: {
+        opportunities: { select: { id: true, title: true, stage: true, estimatedValue: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
+        _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const filtered = all
+      .map((c) => ({
+        ...c,
+        funnelStatus: deriveFunnelStatus(
+          c.opportunities.map((o) => o.stage),
+          c._count.quotes,
+        ),
+      }))
+      .filter((c) => c.funnelStatus === funnelStatusFilter);
+    const total = filtered.length;
+    const sliced = filtered.slice((page - 1) * pageSize, page * pageSize);
+    return NextResponse.json({ customers: sliced, total, page, pageSize });
+  }
+
   const [customers, total] = await Promise.all([
     db.salesCustomer.findMany({
       where,
       include: {
         opportunities: { select: { id: true, title: true, stage: true, estimatedValue: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
         _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -44,7 +112,15 @@ export const GET = withAuth(async (request, _ctx, user) => {
     db.salesCustomer.count({ where }),
   ]);
 
-  return NextResponse.json({ customers, total, page, pageSize });
+  const customersWithFunnel = customers.map((c) => ({
+    ...c,
+    funnelStatus: deriveFunnelStatus(
+      c.opportunities.map((o) => o.stage),
+      c._count.quotes,
+    ),
+  }));
+
+  return NextResponse.json({ customers: customersWithFunnel, total, page, pageSize });
 });
 
 /** 归一化电话（只保留数字），用于唯一性比对 */

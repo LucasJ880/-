@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Plus, Upload, Search, Loader2, BarChart3 } from "lucide-react";
+import { Suspense, useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Plus, Upload, Search, Loader2, BarChart3, X } from "lucide-react";
 import Link from "next/link";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
-import type { Opportunity, Customer, ViewMode } from "./types";
+import type { Opportunity, Customer, ViewMode, FunnelStatus } from "./types";
+import { FUNNEL_STATUS_META } from "./types";
 import { StatsCards } from "./stats-cards";
 import { AiAlertPanel } from "./ai-alert-panel";
 import { PipelineBoard } from "./pipeline-board";
@@ -18,9 +20,38 @@ import { PullToRefresh } from "@/components/pull-to-refresh";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 
 export default function SalesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-40 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted" />
+        </div>
+      }
+    >
+      <SalesPageInner />
+    </Suspense>
+  );
+}
+
+function SalesPageInner() {
   const { isMobile } = useIsMobile();
   const { isSuperAdmin } = useCurrentUser();
-  const [viewMode, setViewMode] = useState<ViewMode>("pipeline");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // 从 URL 读取"从交叉表钻取过来"的筛选参数
+  const urlCreatedById = searchParams.get("createdById") || "";
+  const urlStartDate = searchParams.get("startDate") || "";
+  const urlEndDate = searchParams.get("endDate") || "";
+  const urlFunnelStatus = (searchParams.get("funnelStatus") || "") as FunnelStatus | "";
+  const urlViewMode = searchParams.get("view") as ViewMode | null;
+  const hasDrillFilters = Boolean(
+    urlCreatedById || urlStartDate || urlEndDate || urlFunnelStatus,
+  );
+
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    urlViewMode === "customers" || hasDrillFilters ? "customers" : "pipeline",
+  );
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +60,22 @@ export default function SalesPage() {
   const [showNewCustomer, setShowNewCustomer] = useState(false);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // 被钻取时锁定的销售名字（用于 chip 显示）
+  const [lockedRepName, setLockedRepName] = useState<string>("");
+  useEffect(() => {
+    if (!urlCreatedById || !isSuperAdmin) {
+      setLockedRepName("");
+      return;
+    }
+    apiFetch("/api/sales/reps")
+      .then((r) => (r.ok ? r.json() : { reps: [] }))
+      .then((d: { reps: Array<{ id: string; name: string }> }) => {
+        const found = d.reps?.find((r) => r.id === urlCreatedById);
+        setLockedRepName(found?.name || "");
+      })
+      .catch(() => setLockedRepName(""));
+  }, [urlCreatedById, isSuperAdmin]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -49,8 +96,17 @@ export default function SalesPage() {
           : [];
         setOpportunities(list);
       } else {
-        const qs = search ? `?search=${encodeURIComponent(search)}` : "";
-        const data = await apiJson<{ customers?: Customer[] }>(`/api/sales/customers${qs}`);
+        const params = new URLSearchParams();
+        if (search) params.set("search", search);
+        if (urlCreatedById) params.set("createdById", urlCreatedById);
+        if (urlStartDate) params.set("startDate", urlStartDate);
+        if (urlEndDate) params.set("endDate", urlEndDate);
+        if (urlFunnelStatus) params.set("funnelStatus", urlFunnelStatus);
+        params.set("pageSize", "50");
+        const qs = params.toString() ? `?${params}` : "";
+        const data = await apiJson<{ customers?: Customer[] }>(
+          `/api/sales/customers${qs}`,
+        );
         const serverCustomers = Array.isArray(data?.customers)
           ? data.customers
           : [];
@@ -62,7 +118,34 @@ export default function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, [viewMode, search]);
+  }, [viewMode, search, urlCreatedById, urlStartDate, urlEndDate, urlFunnelStatus]);
+
+  const clearDrillFilters = useCallback(() => {
+    router.replace("/sales?view=customers");
+  }, [router]);
+
+  const drillChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string }> = [];
+    if (urlCreatedById) {
+      chips.push({
+        key: "rep",
+        label: `销售：${lockedRepName || urlCreatedById}`,
+      });
+    }
+    if (urlStartDate || urlEndDate) {
+      chips.push({
+        key: "date",
+        label: `时间：${urlStartDate || "不限"} ~ ${urlEndDate || "不限"}`,
+      });
+    }
+    if (urlFunnelStatus) {
+      chips.push({
+        key: "funnel",
+        label: `状态：${FUNNEL_STATUS_META[urlFunnelStatus].label}`,
+      });
+    }
+    return chips;
+  }, [urlCreatedById, urlStartDate, urlEndDate, urlFunnelStatus, lockedRepName]);
 
   useEffect(() => {
     loadData();
@@ -164,7 +247,29 @@ export default function SalesPage() {
       ) : viewMode === "pipeline" ? (
         <PipelineBoard opportunities={opportunities} onRefresh={loadData} />
       ) : (
-        <CustomerList customers={customers} />
+        <>
+          {drillChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-accent/30 bg-accent/5 px-3 py-2">
+              <span className="text-xs text-muted">来自复盘分析的筛选：</span>
+              {drillChips.map((c) => (
+                <span
+                  key={c.key}
+                  className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs border border-border"
+                >
+                  {c.label}
+                </span>
+              ))}
+              <button
+                onClick={clearDrillFilters}
+                className="ml-auto inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-border bg-white px-2 py-0.5 text-xs text-muted hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+                清除筛选
+              </button>
+            </div>
+          )}
+          <CustomerList customers={customers} showOwnerColumn={isSuperAdmin} />
+        </>
       )}
 
       <CsvImportDialog

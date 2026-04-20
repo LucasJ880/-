@@ -254,7 +254,7 @@ export default function SalesAnalyticsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-accent" />
         </div>
       ) : data ? (
-        <MatrixTable data={data} />
+        <MatrixTable data={data} dateRange={{ start: startDate, end: endDate }} />
       ) : null}
     </div>
   );
@@ -288,7 +288,13 @@ function StatTile({
 }
 
 // ── 交叉表 ─────────────────────────────────────────────────
-function MatrixTable({ data }: { data: MatrixResponse }) {
+function MatrixTable({
+  data,
+  dateRange,
+}: {
+  data: MatrixResponse;
+  dateRange: { start: string; end: string };
+}) {
   const metricRows: Array<{
     key: keyof CellStats;
     label: string;
@@ -330,7 +336,13 @@ function MatrixTable({ data }: { data: MatrixResponse }) {
         </thead>
         <tbody>
           {data.reps.map((rep) => (
-            <RepBlock key={rep.id} rep={rep} periods={data.periods} metricRows={metricRows} />
+            <RepBlock
+              key={rep.id}
+              rep={rep}
+              periods={data.periods}
+              metricRows={metricRows}
+              dateRange={dateRange}
+            />
           ))}
 
           {/* 列合计 */}
@@ -385,10 +397,45 @@ function MatrixTable({ data }: { data: MatrixResponse }) {
   );
 }
 
+// total → 不带 funnelStatus；quoted/signed → 对应 funnel 过滤
+function buildDrillUrl(params: {
+  repId: string;
+  periodStart?: string; // ISO
+  periodEnd?: string;
+  overallStart?: string; // YYYY-MM-DD fallback（合计列用）
+  overallEnd?: string;
+  metric: keyof CellStats;
+}): string {
+  const sp = new URLSearchParams();
+  sp.set("view", "customers");
+  sp.set("createdById", params.repId);
+
+  let sd: string | undefined;
+  let ed: string | undefined;
+  if (params.periodStart && params.periodEnd) {
+    sd = params.periodStart.slice(0, 10);
+    // period.end 是 exclusive 的次段开始，-1 天作为 inclusive 结束
+    const endD = new Date(params.periodEnd);
+    endD.setDate(endD.getDate() - 1);
+    ed = endD.toISOString().slice(0, 10);
+  } else if (params.overallStart && params.overallEnd) {
+    sd = params.overallStart;
+    ed = params.overallEnd;
+  }
+  if (sd) sp.set("startDate", sd);
+  if (ed) sp.set("endDate", ed);
+
+  if (params.metric === "quoted" || params.metric === "signed") {
+    sp.set("funnelStatus", params.metric);
+  }
+  return `/sales?${sp.toString()}`;
+}
+
 function RepBlock({
   rep,
   periods,
   metricRows,
+  dateRange,
 }: {
   rep: RepRow;
   periods: PeriodMeta[];
@@ -397,6 +444,7 @@ function RepBlock({
     label: string;
     className: string;
   }>;
+  dateRange: { start: string; end: string };
 }) {
   return (
     <>
@@ -423,20 +471,57 @@ function RepBlock({
           {periods.map((p) => {
             const cell = rep.cells[p.key];
             const value = cell ? cell[m.key] : 0;
+            if (!value) {
+              return (
+                <td
+                  key={p.key}
+                  className={`px-3 py-1.5 text-right tabular-nums ${m.className}`}
+                >
+                  –
+                </td>
+              );
+            }
+            const href = buildDrillUrl({
+              repId: rep.id,
+              periodStart: p.start,
+              periodEnd: p.end,
+              metric: m.key,
+            });
             return (
               <td
                 key={p.key}
-                className={`px-3 py-1.5 text-right tabular-nums ${m.className}`}
+                className={`px-0 py-0 text-right tabular-nums ${m.className}`}
               >
-                {value || "–"}
+                <Link
+                  href={href}
+                  className="block px-3 py-1.5 hover:bg-accent/10 hover:underline"
+                  title={`查看该销售在 ${p.label} 内的客户`}
+                >
+                  {value}
+                </Link>
               </td>
             );
           })}
+          {/* 合计列：钻取"整个时间区间"的该销售该状态 */}
           <td
-            className={`px-3 py-1.5 text-right tabular-nums ${m.className} bg-muted/10`}
+            className={`px-0 py-0 text-right tabular-nums ${m.className} bg-muted/10`}
           >
-            <span className="font-semibold">{rep.rowTotal[m.key] || "–"}</span>
-            {idx === 0 && metricRows.length > 1 && " "}
+            {rep.rowTotal[m.key] ? (
+              <Link
+                href={buildDrillUrl({
+                  repId: rep.id,
+                  overallStart: dateRange.start,
+                  overallEnd: dateRange.end,
+                  metric: m.key,
+                })}
+                className="block px-3 py-1.5 font-semibold hover:bg-accent/10 hover:underline"
+                title="查看整个区间的该销售客户"
+              >
+                {rep.rowTotal[m.key]}
+              </Link>
+            ) : (
+              <span className="block px-3 py-1.5 font-semibold">–</span>
+            )}
           </td>
         </tr>
       ))}
