@@ -14,8 +14,8 @@ const LANG_LABELS: Record<Lang, string> = { en: "EN", cn: "中文", fr: "FR" };
 
 const T: Record<Lang, Record<string, string>> = {
   en: {
-    brand: "SUNNY BLINDS",
-    tagline: "Custom Window Covering",
+    brand: "SUNNY HOME & DECO",
+    tagline: "Custom Window Coverings & Interior Decor",
     quoteV: "Quote V",
     preparedFor: "Prepared for",
     date: "Date",
@@ -40,23 +40,25 @@ const T: Record<Lang, Record<string, string>> = {
     tax: "Tax",
     total: "Total",
     notes: "Notes",
-    footer1: "Powered by Qingyan AI — Custom Quote System",
-    footer2: "This quote is valid for 30 days",
     notFound: "Quote not found",
     checkLink: "Please check if the link is correct",
     networkError: "Network error",
     loading: "Loading...",
-    signTitle: "Accept & Sign",
-    signHint: "Draw your signature below to accept this quote",
-    signBtn: "Confirm & Sign",
+    signTitle: "Sign & Confirm Order",
+    signHint: "Please draw your signature below. Your signature here confirms the order.",
+    signBtn: "Sign & Place Order",
     signClear: "Clear",
-    signed: "Signed",
-    signedMsg: "This quote has been accepted and signed.",
+    signed: "Order Confirmed",
+    signedMsg: "Thank you. Your order has been placed. Our team will be in touch shortly to confirm deposit and arrange installation.",
     signing: "Submitting...",
+    signCaption: "By signing below, I confirm this order and agree to the pricing shown above. Installation schedule and deposit will be arranged separately by our team.",
+    footer1: "SUNNY HOME & DECO · Custom Window Coverings & Interior Decor",
+    footer2: "This quote is valid for 30 days from the date of issue. All prices in CAD.",
+    web: "www.sunnyshutter.ca",
   },
   cn: {
-    brand: "SUNNY BLINDS",
-    tagline: "定制窗饰",
+    brand: "SUNNY HOME & DECO",
+    tagline: "定制窗饰与家居软装",
     quoteV: "报价 V",
     preparedFor: "客户",
     date: "日期",
@@ -81,23 +83,25 @@ const T: Record<Lang, Record<string, string>> = {
     tax: "税",
     total: "合计",
     notes: "备注",
-    footer1: "由青砚 AI 驱动 — 定制报价系统",
-    footer2: "本报价有效期 30 天",
     notFound: "报价不存在",
     checkLink: "请检查链接是否正确",
     networkError: "网络错误",
     loading: "加载中...",
-    signTitle: "确认并签名",
-    signHint: "请在下方手写签名以确认此报价",
-    signBtn: "确认签约",
+    signTitle: "签字确认下单",
+    signHint: "请在下方手写签名以确认此订单。",
+    signBtn: "签字并确认订单",
     signClear: "清除",
-    signed: "已签约",
-    signedMsg: "此报价已被确认并签署。",
+    signed: "订单已确认",
+    signedMsg: "感谢您的信任，订单已成立。我们将尽快与您联系，确认定金并安排安装。",
     signing: "提交中...",
+    signCaption: "在下方签字即代表您确认本订单并同意上述价格，定金与安装档期将由我们的顾问另行与您沟通。",
+    footer1: "SUNNY HOME & DECO · 定制窗饰与家居软装",
+    footer2: "本报价自签发之日起 30 日内有效，所有价格均为加元 (CAD)。",
+    web: "www.sunnyshutter.ca",
   },
   fr: {
-    brand: "SUNNY BLINDS",
-    tagline: "Habillage de fenêtres sur mesure",
+    brand: "SUNNY HOME & DECO",
+    tagline: "Habillages de fenêtres et décor intérieur sur mesure",
     quoteV: "Devis V",
     preparedFor: "Préparé pour",
     date: "Date",
@@ -122,19 +126,21 @@ const T: Record<Lang, Record<string, string>> = {
     tax: "Taxe",
     total: "Total",
     notes: "Notes",
-    footer1: "Propulsé par Qingyan AI — Système de devis personnalisé",
-    footer2: "Ce devis est valable 30 jours",
     notFound: "Devis introuvable",
     checkLink: "Veuillez vérifier le lien",
     networkError: "Erreur réseau",
     loading: "Chargement...",
-    signTitle: "Accepter et signer",
-    signHint: "Dessinez votre signature ci-dessous pour accepter ce devis",
-    signBtn: "Confirmer et signer",
+    signTitle: "Signer et confirmer la commande",
+    signHint: "Veuillez dessiner votre signature ci-dessous. Votre signature confirme la commande.",
+    signBtn: "Signer et confirmer",
     signClear: "Effacer",
-    signed: "Signé",
-    signedMsg: "Ce devis a été accepté et signé.",
+    signed: "Commande confirmée",
+    signedMsg: "Merci. Votre commande est passée. Notre équipe vous contactera sous peu pour confirmer l’acompte et organiser l’installation.",
     signing: "Soumission...",
+    signCaption: "En signant ci-dessous, je confirme cette commande et accepte le prix affiché ci-dessus. L’acompte et la date d’installation seront organisés séparément par notre équipe.",
+    footer1: "SUNNY HOME & DECO · Habillages de fenêtres et décor intérieur sur mesure",
+    footer2: "Ce devis est valable 30 jours à compter de la date d’émission. Tous les prix sont en CAD.",
+    web: "www.sunnyshutter.ca",
   },
 };
 
@@ -305,7 +311,7 @@ function LangSwitcher({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => voi
           onClick={() => setLang(l)}
           className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all ${
             lang === l
-              ? "bg-white text-blue-700 shadow-sm"
+              ? "bg-white text-orange-700 shadow-sm"
               : "text-white/80 hover:text-white hover:bg-white/10"
           }`}
         >
@@ -374,21 +380,21 @@ export default function PublicQuotePage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
-        <div className="text-sm text-slate-400">{t.loading}</div>
+      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+        <div className="text-sm text-stone-400">{t.loading}</div>
       </div>
     );
   }
 
   if (error || !quote) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
+      <div className="flex min-h-screen items-center justify-center bg-stone-50">
         <div className="text-center">
-          <FileText size={48} className="mx-auto mb-4 text-slate-300" />
-          <h2 className="text-lg font-semibold text-slate-700 mb-1">
+          <FileText size={48} className="mx-auto mb-4 text-stone-300" />
+          <h2 className="text-lg font-semibold text-stone-700 mb-1">
             {error || t.notFound}
           </h2>
-          <p className="text-sm text-slate-400">{t.checkLink}</p>
+          <p className="text-sm text-stone-400">{t.checkLink}</p>
         </div>
       </div>
     );
@@ -406,15 +412,16 @@ export default function PublicQuotePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 py-8 px-4">
+    <div className="min-h-screen bg-stone-50 py-8 px-4">
       <div className="mx-auto max-w-3xl">
         {/* Header */}
-        <div className="mb-6 rounded-2xl bg-white shadow-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5">
+        <div className="mb-6 rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-700 px-6 py-6">
             <div className="flex items-start justify-between">
               <div className="text-white">
-                <h1 className="text-xl font-bold tracking-tight">{t.brand}</h1>
-                <p className="text-blue-100 text-sm mt-0.5">{t.tagline}</p>
+                <p className="text-[10px] tracking-[0.25em] uppercase text-white/70">Est. Sunny Shutter Inc.</p>
+                <h1 className="text-2xl font-bold tracking-wide mt-1">{t.brand}</h1>
+                <p className="text-orange-100 text-sm italic mt-0.5">{t.tagline}</p>
               </div>
               <div className="flex flex-col items-end gap-2">
                 <LangSwitcher lang={lang} setLang={handleSetLang} />
@@ -424,12 +431,12 @@ export default function PublicQuotePage() {
               </div>
             </div>
           </div>
-          <div className="px-6 py-4 flex items-center justify-between border-b border-slate-100">
+          <div className="px-6 py-4 flex items-center justify-between border-b border-stone-100">
             <div>
-              <p className="text-sm text-slate-500">{t.preparedFor}</p>
-              <p className="text-lg font-semibold text-slate-800">{quote.customerName}</p>
+              <p className="text-[11px] uppercase tracking-wider text-stone-400">{t.preparedFor}</p>
+              <p className="text-lg font-semibold text-stone-800">{quote.customerName}</p>
             </div>
-            <div className="text-right text-sm text-slate-400">
+            <div className="text-right text-sm text-stone-400">
               <p>{t.date}: {fmtDate(quote.createdAt)}</p>
               <p>{t.by}: {quote.createdBy}</p>
             </div>
@@ -437,14 +444,14 @@ export default function PublicQuotePage() {
         </div>
 
         {/* Items by room */}
-        <div className="rounded-2xl bg-white shadow-lg overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-700">{t.products}</h2>
+        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-stone-100">
+            <h2 className="text-sm font-semibold text-stone-700">{t.products}</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                <tr className="bg-orange-50 text-left text-[11px] font-medium text-orange-800 uppercase tracking-wider">
                   <th className="px-6 py-2.5">{t.room}</th>
                   <th className="px-4 py-2.5">{t.product}</th>
                   <th className="px-4 py-2.5">{t.fabric}</th>
@@ -454,22 +461,22 @@ export default function PublicQuotePage() {
                   <th className="px-4 py-2.5 text-right">{t.install}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-stone-100">
                 {allItems.map((item, i) => (
-                  <tr key={i} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-6 py-2.5 font-medium text-slate-700">{item.room}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{item.product}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{item.fabric || "—"}</td>
-                    <td className="px-4 py-2.5 text-center text-slate-500">
-                      {item.widthIn}" × {item.heightIn}"
+                  <tr key={i} className="hover:bg-orange-50/40 transition-colors">
+                    <td className="px-6 py-2.5 font-medium text-stone-700">{item.room}</td>
+                    <td className="px-4 py-2.5 text-stone-600">{item.product}</td>
+                    <td className="px-4 py-2.5 text-stone-500">{item.fabric || "—"}</td>
+                    <td className="px-4 py-2.5 text-center text-stone-500">
+                      {item.widthIn}&quot; × {item.heightIn}&quot;
                     </td>
-                    <td className="px-4 py-2.5 text-right text-slate-400 line-through">
+                    <td className="px-4 py-2.5 text-right text-stone-400 line-through">
                       ${item.msrp?.toFixed(2)}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-slate-700">
+                    <td className="px-4 py-2.5 text-right font-semibold text-stone-800">
                       ${item.price?.toFixed(2)}
                     </td>
-                    <td className="px-4 py-2.5 text-right text-slate-500">
+                    <td className="px-4 py-2.5 text-right text-stone-500">
                       ${item.installFee?.toFixed(2)}
                     </td>
                   </tr>
@@ -481,27 +488,27 @@ export default function PublicQuotePage() {
 
         {/* Addons */}
         {quote.addons.length > 0 && (
-          <div className="rounded-2xl bg-white shadow-lg overflow-hidden mb-6">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h2 className="text-sm font-semibold text-slate-700">{t.addons}</h2>
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
+            <div className="px-6 py-4 border-b border-stone-100">
+              <h2 className="text-sm font-semibold text-stone-700">{t.addons}</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-slate-50 text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                  <tr className="bg-orange-50 text-left text-[11px] font-medium text-orange-800 uppercase tracking-wider">
                     <th className="px-6 py-2.5">{t.item}</th>
                     <th className="px-4 py-2.5 text-center">{t.qty}</th>
                     <th className="px-4 py-2.5 text-right">{t.unitPrice}</th>
                     <th className="px-4 py-2.5 text-right">{t.subtotal}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-stone-100">
                   {quote.addons.map((a, i) => (
                     <tr key={i}>
-                      <td className="px-6 py-2.5 text-slate-700">{a.displayName}</td>
-                      <td className="px-4 py-2.5 text-center text-slate-500">{a.qty}</td>
-                      <td className="px-4 py-2.5 text-right text-slate-500">${a.unitPrice.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-right font-medium text-slate-700">${a.subtotal.toFixed(2)}</td>
+                      <td className="px-6 py-2.5 text-stone-700">{a.displayName}</td>
+                      <td className="px-4 py-2.5 text-center text-stone-500">{a.qty}</td>
+                      <td className="px-4 py-2.5 text-right text-stone-500">${a.unitPrice.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 text-right font-medium text-stone-700">${a.subtotal.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -511,35 +518,35 @@ export default function PublicQuotePage() {
         )}
 
         {/* Summary */}
-        <div className="rounded-2xl bg-white shadow-lg overflow-hidden mb-6">
+        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
           <div className="px-6 py-4 space-y-2">
-            <div className="flex justify-between text-sm text-slate-500">
+            <div className="flex justify-between text-sm text-stone-500">
               <span>{t.productSubtotal}</span>
               <span>${quote.merchSubtotal?.toFixed(2)}</span>
             </div>
             {(quote.addonsSubtotal ?? 0) > 0 && (
-              <div className="flex justify-between text-sm text-slate-500">
+              <div className="flex justify-between text-sm text-stone-500">
                 <span>{t.addonsLabel}</span>
                 <span>${quote.addonsSubtotal?.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between text-sm text-slate-500">
+            <div className="flex justify-between text-sm text-stone-500">
               <span>{t.installation}</span>
               <span>${quote.installApplied?.toFixed(2)}</span>
             </div>
             {(quote.deliveryFee ?? 0) > 0 && (
-              <div className="flex justify-between text-sm text-slate-500">
+              <div className="flex justify-between text-sm text-stone-500">
                 <span>{t.delivery}</span>
                 <span>${quote.deliveryFee?.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between text-sm text-slate-500">
+            <div className="flex justify-between text-sm text-stone-500">
               <span>{t.tax} ({((quote.taxRate ?? 0) * 100).toFixed(1)}%)</span>
               <span>${quote.taxAmount?.toFixed(2)}</span>
             </div>
-            <div className="border-t border-slate-200 pt-3 flex justify-between">
-              <span className="text-base font-bold text-slate-800">{t.total}</span>
-              <span className="text-xl font-bold text-blue-600">
+            <div className="border-t border-stone-200 pt-3 flex justify-between items-baseline">
+              <span className="text-base font-bold text-stone-800">{t.total}</span>
+              <span className="text-2xl font-bold text-orange-700">
                 ${quote.grandTotal?.toFixed(2)}
               </span>
             </div>
@@ -548,35 +555,36 @@ export default function PublicQuotePage() {
 
         {/* Notes */}
         {quote.notes && (
-          <div className="rounded-2xl bg-white shadow-lg overflow-hidden mb-6 px-6 py-4">
-            <h3 className="text-sm font-semibold text-slate-700 mb-1">{t.notes}</h3>
-            <p className="text-sm text-slate-500 whitespace-pre-wrap">{quote.notes}</p>
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6 px-6 py-4">
+            <h3 className="text-sm font-semibold text-stone-700 mb-1">{t.notes}</h3>
+            <p className="text-sm text-stone-500 whitespace-pre-wrap">{quote.notes}</p>
           </div>
         )}
 
         {/* Signature section */}
-        <div className="rounded-2xl bg-white shadow-lg overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-            <PenLine size={16} className="text-slate-500" />
-            <h2 className="text-sm font-semibold text-slate-700">{t.signTitle}</h2>
+        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-orange-200 overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-orange-100 flex items-center gap-2 bg-orange-50/40">
+            <PenLine size={16} className="text-orange-600" />
+            <h2 className="text-sm font-semibold text-stone-800">{t.signTitle}</h2>
           </div>
           <div className="px-6 py-5">
             {quote.signedAt || signSuccess ? (
-              <div className="flex flex-col items-center py-4">
+              <div className="flex flex-col items-center py-4 text-center">
                 <div className="rounded-full bg-emerald-100 p-3 mb-3">
                   <Check size={28} className="text-emerald-600" />
                 </div>
-                <p className="text-sm font-semibold text-emerald-700">{t.signed}</p>
-                <p className="text-xs text-slate-400 mt-1">{t.signedMsg}</p>
+                <p className="text-base font-semibold text-emerald-700">{t.signed}</p>
+                <p className="text-xs text-stone-500 mt-2 max-w-md leading-relaxed">{t.signedMsg}</p>
                 {quote.signedAt && (
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-stone-400 mt-2">
                     {fmtDate(quote.signedAt)}
                   </p>
                 )}
               </div>
             ) : (
               <div>
-                <p className="text-xs text-slate-500 mb-3">{t.signHint}</p>
+                <p className="text-xs text-stone-600 leading-relaxed mb-4">{t.signCaption}</p>
+                <p className="text-xs text-stone-500 mb-3">{t.signHint}</p>
                 <SignaturePad
                   onSign={(dataUrl) => setSignatureData(dataUrl)}
                   onClear={() => setSignatureData(null)}
@@ -586,7 +594,7 @@ export default function PublicQuotePage() {
                   <button
                     onClick={handleSign}
                     disabled={signing}
-                    className="mt-4 w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3 text-sm font-semibold text-white hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition-all"
+                    className="mt-4 w-full rounded-xl bg-gradient-to-r from-orange-600 to-orange-700 py-3 text-sm font-semibold text-white shadow-sm hover:from-orange-700 hover:to-orange-800 disabled:opacity-50 transition-all"
                   >
                     {signing ? t.signing : t.signBtn}
                   </button>
@@ -597,9 +605,10 @@ export default function PublicQuotePage() {
         </div>
 
         {/* Footer */}
-        <div className="text-center text-xs text-slate-400 mt-8 pb-8">
-          <p>{t.footer1}</p>
-          <p className="mt-1">{t.footer2}</p>
+        <div className="text-center text-xs text-stone-400 mt-8 pb-8 space-y-1">
+          <p className="text-orange-700/70 font-semibold tracking-wider">{t.footer1}</p>
+          <p>{t.web}</p>
+          <p>{t.footer2}</p>
         </div>
       </div>
     </div>

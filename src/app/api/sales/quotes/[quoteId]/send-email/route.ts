@@ -45,10 +45,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   const protocol = origin.startsWith("http") ? "" : "https://";
   const quoteUrl = `${protocol}${origin}/quote/${shareToken}?lang=${emailLang}`;
 
+  const total = `CA$${quote.grandTotal.toFixed(2)}`;
   const subjectMap: Record<string, string> = {
-    en: `Your Quote from SUNNY BLINDS — $${quote.grandTotal.toFixed(2)}`,
-    cn: `SUNNY BLINDS 报价单 — $${quote.grandTotal.toFixed(2)}`,
-    fr: `Votre devis SUNNY BLINDS — $${quote.grandTotal.toFixed(2)}`,
+    en: `Your Personalized Quote — SUNNY HOME & DECO · ${total}`,
+    cn: `您的定制报价 — SUNNY HOME & DECO · ${total}`,
+    fr: `Votre devis personnalisé — SUNNY HOME & DECO · ${total}`,
   };
 
   const html = quoteEmailHtml({

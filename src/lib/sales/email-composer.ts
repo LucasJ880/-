@@ -269,15 +269,17 @@ function wrapEmailLayout(body: string): string {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:20px 0;">
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-<tr><td style="background:linear-gradient(135deg,#1a1a1a,#333);padding:24px 32px;">
-  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">SUNNY BLINDS</h1>
-  <p style="margin:4px 0 0;color:rgba(255,255,255,0.7);font-size:12px;">Custom Window Coverings</p>
+<tr><td style="background:linear-gradient(135deg,#ea580c,#c2410c);padding:28px 32px;">
+  <p style="margin:0;color:rgba(255,255,255,0.75);font-size:10px;letter-spacing:3px;text-transform:uppercase;">Est. Sunny Shutter Inc.</p>
+  <h1 style="margin:6px 0 4px;color:#fff;font-size:22px;font-weight:700;letter-spacing:1px;">SUNNY HOME &amp; DECO</h1>
+  <p style="margin:0;color:rgba(255,255,255,0.88);font-size:12px;font-style:italic;">Custom Window Coverings &amp; Interior Decor</p>
 </td></tr>
 <tr><td style="padding:32px;">
   ${body}
 </td></tr>
-<tr><td style="background:#f8fafc;padding:16px 32px;text-align:center;">
-  <p style="margin:0;color:#94a3b8;font-size:11px;">Powered by Sunny Blinds · Made with ♥</p>
+<tr><td style="background:#fff7ed;padding:18px 32px;text-align:center;border-top:1px solid #fed7aa;">
+  <p style="margin:0;color:#c2410c;font-size:11px;font-weight:600;letter-spacing:1px;">SUNNY HOME &amp; DECO · www.sunnyshutter.ca</p>
+  <p style="margin:4px 0 0;color:#a8a29e;font-size:10px;">Delivered securely by Qingyan AI</p>
 </td></tr>
 </table>
 </td></tr>
