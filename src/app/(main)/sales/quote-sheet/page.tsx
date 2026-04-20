@@ -153,6 +153,8 @@ export default function QuoteSheetPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
+  // 同一客户可能有多个历史地址（老客户新地址），这里存候选列表供选择
+  const [customerAddressOptions, setCustomerAddressOptions] = useState<string[]>([]);
   const [heardUsOn, setHeardUsOn] = useState("");
 
   // Opportunity selector
@@ -296,7 +298,13 @@ export default function QuoteSheetPage() {
       setCustomerName(c.name);
       setCustomerPhone(c.phone ?? "");
       setCustomerEmail(c.email ?? "");
-      setCustomerAddress(c.address ?? "");
+      // 老客户多地址：切成数组，默认第一条，剩下的放候选
+      const addrs = (c.address ?? "")
+        .split(/\r?\n|;/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      setCustomerAddressOptions(addrs);
+      setCustomerAddress(addrs[0] ?? "");
       setHeardUsOn(c.source ?? "");
 
       try {
@@ -310,6 +318,7 @@ export default function QuoteSheetPage() {
       setCustomerPhone("");
       setCustomerEmail("");
       setCustomerAddress("");
+      setCustomerAddressOptions([]);
       setHeardUsOn("");
     }
   }, [customers]);
@@ -440,6 +449,22 @@ export default function QuoteSheetPage() {
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
     installMode, specialPromotion,
   ]);
+
+  // 当 customerId 或 customers 变化时派生候选地址列表
+  // （handleRestoreDraft 或外部 query 串设置 customerId 时会触发）
+  useEffect(() => {
+    if (!customerId) {
+      setCustomerAddressOptions([]);
+      return;
+    }
+    const c = customers.find((x) => x.id === customerId);
+    if (!c) return;
+    const addrs = (c.address ?? "")
+      .split(/\r?\n|;/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setCustomerAddressOptions(addrs);
+  }, [customerId, customers]);
 
   const handleRestoreDraft = useCallback(() => {
     if (!pendingDraft) return;
@@ -897,7 +922,35 @@ export default function QuoteSheetPage() {
               className="mt-1" placeholder="Referral" />
           </div>
           <div className="md:col-span-2">
-            <Label className="text-xs">Address</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Address</Label>
+              {customerAddressOptions.length > 1 && (
+                <span className="text-[10px] text-muted-foreground">
+                  该客户共有 {customerAddressOptions.length} 个历史地址
+                </span>
+              )}
+            </div>
+            {customerAddressOptions.length > 1 && (
+              <div className="relative mt-1">
+                <select
+                  value={
+                    customerAddressOptions.includes(customerAddress)
+                      ? customerAddress
+                      : ""
+                  }
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 pr-8 text-xs appearance-none"
+                >
+                  <option value="">— 选择历史地址或在下方自定义 —</option>
+                  {customerAddressOptions.map((addr, i) => (
+                    <option key={`${i}-${addr}`} value={addr}>
+                      {addr}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              </div>
+            )}
             <Input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)}
               className="mt-1" placeholder="Full address" />
           </div>
