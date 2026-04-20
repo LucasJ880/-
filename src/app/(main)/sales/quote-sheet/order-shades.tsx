@@ -5,10 +5,10 @@ import type { ShadeOrderLine, InstallMode } from "./types";
 import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
-import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
-import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
+import { updateLineField, removeLineById } from "./order-helpers";
 import { computeShadeLinePrice, type DiscountsOverride } from "./pricing-helpers";
 import { SkuSelect } from "./sku-select";
 
@@ -58,7 +58,7 @@ interface Props {
   onValanceTypeChange: (v: string) => void;
   bracketType: string;
   onBracketTypeChange: (v: string) => void;
-  signatureRef: React.RefObject<PencilCanvasRef | null>;
+  signatureRef?: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
   onSignatureChange?: (strokeCount: number) => void;
   discounts?: DiscountsOverride;
@@ -90,9 +90,7 @@ export function OrderShadesForm({
   onValanceTypeChange,
   bracketType,
   onBracketTypeChange,
-  signatureRef,
   installMode,
-  onSignatureChange,
   discounts,
 }: Props) {
   const updateLine = useCallback(
@@ -413,8 +411,6 @@ export function OrderShadesForm({
         </div>
       </div>
 
-      <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" onStrokesChange={onSignatureChange} />
-      <p className="text-[9px] text-muted-foreground leading-snug">{SIGNATURE_DISCLAIMER}</p>
     </div>
   );
 }

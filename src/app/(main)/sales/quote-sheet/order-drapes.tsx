@@ -5,10 +5,10 @@ import type { DrapeOrderLine, InstallMode } from "./types";
 import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
-import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
-import { updateLineField, removeLineById, SIGNATURE_DISCLAIMER } from "./order-helpers";
+import { updateLineField, removeLineById } from "./order-helpers";
 import { computeDrapeLinePrice, type DiscountsOverride } from "./pricing-helpers";
 
 const DRAPERY_FABRICS = getAvailableFabrics("Drapery");
@@ -42,7 +42,7 @@ function ToggleBtn({
 interface Props {
   lines: DrapeOrderLine[];
   onChange: (lines: DrapeOrderLine[]) => void;
-  signatureRef: React.RefObject<PencilCanvasRef | null>;
+  signatureRef?: React.RefObject<PencilCanvasRef | null>;
   installMode: InstallMode;
   onSignatureChange?: (strokeCount: number) => void;
   discounts?: DiscountsOverride;
@@ -109,7 +109,7 @@ function DimInput({
   );
 }
 
-export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, onSignatureChange, discounts }: Props) {
+export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof DrapeOrderLine, value: unknown) => {
       onChange(updateLineField(lines, id, field, value));
@@ -372,10 +372,6 @@ export function OrderDrapesForm({ lines, onChange, signatureRef, installMode, on
         <p><strong>Fullness:</strong> Standard 180%, Premium 230%</p>
       </div>
 
-      <PencilCanvas ref={signatureRef} width={500} height={120} label="Signature" onStrokesChange={onSignatureChange} />
-      <p className="text-[9px] text-muted-foreground leading-snug">
-        {SIGNATURE_DISCLAIMER}
-      </p>
     </div>
   );
 }

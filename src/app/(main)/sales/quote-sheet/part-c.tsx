@@ -3,18 +3,18 @@
 import { useCallback } from "react";
 import type { PartCService, PartCAddOn } from "./types";
 import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, DELIVERY_FEE } from "./types";
-import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { type PencilCanvasRef } from "@/components/pencil-canvas";
 
 interface PartCProps {
   services: PartCService[];
   onServicesChange: (s: PartCService[]) => void;
   addOns: PartCAddOn[];
   onAddOnsChange: (a: PartCAddOn[]) => void;
-  signatureRef: React.RefObject<PencilCanvasRef | null>;
+  signatureRef?: React.RefObject<PencilCanvasRef | null>;
   onSignatureChange?: (strokeCount: number) => void;
 }
 
-export function PartCForm({ services, onServicesChange, addOns, onAddOnsChange, signatureRef, onSignatureChange }: PartCProps) {
+export function PartCForm({ services, onServicesChange, addOns, onAddOnsChange }: PartCProps) {
   const updateService = useCallback(
     (idx: number, qty: number) => {
       const updated = services.map((s, i) => {
@@ -163,13 +163,6 @@ export function PartCForm({ services, onServicesChange, addOns, onAddOnsChange, 
         </div>
       </div>
 
-      {/* Signature */}
-      <div className="space-y-2 pt-2">
-        <PencilCanvas ref={signatureRef} width={500} height={120} label="Customer Signature (Part C)" onStrokesChange={onSignatureChange} />
-        <p className="text-[9px] text-muted-foreground leading-snug max-w-lg">
-          By signing, I confirm that I have reviewed and understood all details as presented. I acknowledge that any discrepancies not reported prior to signing may not be the responsibility of Sunny Shutter Inc.
-        </p>
-      </div>
     </div>
   );
 }

@@ -21,12 +21,13 @@ import {
   CheckCircle,
   RefreshCw,
   Send,
+  Mail,
   Sparkles,
   FileClock,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
@@ -157,9 +158,11 @@ function QuoteSheetPageInner() {
   const [editingQuoteVersion, setEditingQuoteVersion] = useState<number | null>(null);
   const [editingLoading, setEditingLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sendingEmail, setSendingEmail] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generatedFlash, setGeneratedFlash] = useState<string | null>(null);
+  // 发送 Quote 弹窗（让销售选择：发邮件 / 本地保存 PDF）
+  const [sendQuoteOpen, setSendQuoteOpen] = useState(false);
+  const [sendQuoteBusy, setSendQuoteBusy] = useState<null | "email" | "local">(null);
   const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean; quoteId?: string } | null>(null);
 
   // Customer selector
@@ -216,21 +219,12 @@ function QuoteSheetPageInner() {
   // Install mode (default = installation, pickup = no install fee)
   const [installMode, setInstallMode] = useState<InstallMode>("default");
 
-  // Signatures
+  // Signatures — 签名统一收敛到 Part B，其它 tab 不再展示签名框
   const sigPartBRef = useRef<PencilCanvasRef>(null);
-  const sigPartCRef = useRef<PencilCanvasRef>(null);
-  const sigShadesRef = useRef<PencilCanvasRef>(null);
-  const sigShuttersRef = useRef<PencilCanvasRef>(null);
-  const sigDrapesRef = useRef<PencilCanvasRef>(null);
 
-  // 每个 tab 的"是否已签名"状态（任一有笔画即可解锁"生成报价单"）
+  // Part B 签字笔画数（>0 即视为客户已签名，可解锁"生成订单"）
   const [sigPartBCount, setSigPartBCount] = useState(0);
-  const [sigPartCCount, setSigPartCCount] = useState(0);
-  const [sigShadesCount, setSigShadesCount] = useState(0);
-  const [sigShuttersCount, setSigShuttersCount] = useState(0);
-  const [sigDrapesCount, setSigDrapesCount] = useState(0);
-  const hasAnySignature =
-    sigPartBCount + sigPartCCount + sigShadesCount + sigShuttersCount + sigDrapesCount > 0;
+  const hasAnySignature = sigPartBCount > 0;
 
   // ── localStorage 草稿（防丢失）───────────────────────────────────
   // 发现待恢复草稿时，在页面顶部显示横幅由用户决定"恢复 / 丢弃"
@@ -859,23 +853,20 @@ function QuoteSheetPageInner() {
     editingQuoteId,
   ]);
 
-  const handleSendEmail = useCallback(async () => {
-    if (!lastSaved?.quoteId || !customerEmail) return;
-    setSendingEmail(true);
-    try {
-      const res = await apiFetch(`/api/sales/quotes/${lastSaved.quoteId}/send-email`, {
-        method: "POST",
-        body: JSON.stringify({ to: customerEmail, lang: "en" }),
-      }).then((r) => r.json());
-      if (res.messageId || res.status === "sent") {
-        setLastSaved((prev) => prev ? { ...prev, emailSent: true } as typeof prev : prev);
-      }
-    } catch (err) {
-      console.error("Email send failed:", err);
-    } finally {
-      setSendingEmail(false);
+  /**
+   * 打开"发送 Quote"弹窗：
+   *   弹窗内销售可以选择"发送到客户邮箱"或"下载到本地"。
+   *   任一方式成功后，报价单状态会被推进到「已报价」（sent），
+   *   对应的商机已在创建时自动推进到 stage=quoted，进入跟单环节。
+   *   允许未签字时发送 Quote。
+   */
+  const handleOpenSendQuote = useCallback(() => {
+    if (!customerId) {
+      alert("请先选择客户");
+      return;
     }
-  }, [lastSaved?.quoteId, customerEmail]);
+    setSendQuoteOpen(true);
+  }, [customerId]);
 
   // PDF export — 委托给 ./quote-pdf 模块（橙色品牌四页式设计）
   const handleExportPDF = useCallback(async () => {
@@ -933,13 +924,13 @@ function QuoteSheetPageInner() {
   ]);
 
   /**
-   * 客户签完名后 → 一键"生成报价单"
+   * 客户 Part B 签完名后 → 一键"生成订单"
    *
    * 1) 保存报价单到后端（若尚未保存 / 有新改动）
    * 2) 调 /mark-signed：把 quote.status 改成 signed，把 opportunity.stage 推进到 signed（已成单）
-   * 3) 导出 PDF 到本地
+   * 3) 导出 Order Form PDF 到本地
    *
-   * 任一签字框有笔画即可触发（由父组件 hasAnySignature 控制 disabled 态）。
+   * 只看 Part B 签字框是否有笔画（由父组件 hasAnySignature 控制 disabled 态）。
    */
   const handleGenerateQuote = useCallback(async () => {
     if (!customerId) {
@@ -947,26 +938,23 @@ function QuoteSheetPageInner() {
       return;
     }
     if (!hasAnySignature) {
-      alert("请让客户在任一签字框完成签名后再生成报价单");
+      alert("请让客户在 Part B 底部签字后再生成订单");
       return;
     }
 
     setGenerating(true);
     try {
-      // 1) 保存报价单 —— 失败时 handleSave 内部已弹窗并保留草稿
       const saved = await handleSave();
       if (!saved?.quoteId) {
         setGenerating(false);
         return;
       }
 
-      // 2) 标记为已签名 + 推进 opportunity.stage=signed
-      //    shell 模式（无可计价的产品行）跳过此步 —— 没有有效订单内容就谈不上"签单"
       let stageAdvanced = false;
       let markSignedWarning: string | null = null;
       if (saved.saveMode === "shell") {
         markSignedWarning =
-          "由于当前没有可计价的产品行，签单状态未自动推进。请让管理员补全定价后再标记为已成单。";
+          "由于当前没有可计价的产品行，订单状态未自动推进。请让管理员补全定价后再标记为已成单。";
       } else {
         try {
           const res = await apiFetch(
@@ -979,27 +967,26 @@ function QuoteSheetPageInner() {
           } else {
             const msg = data?.error || `HTTP ${res.status}`;
             console.error("mark-signed failed:", data);
-            markSignedWarning = `签单状态推进失败：${msg}（报价单已保存，稍后可到客户详情页手动推进）`;
+            markSignedWarning = `订单状态推进失败：${msg}（订单已保存，稍后可到客户详情页手动推进）`;
           }
         } catch (err) {
           console.error("mark-signed error:", err);
-          markSignedWarning = `签单状态推进失败：网络错误（报价单已保存，稍后可到客户详情页手动推进）`;
+          markSignedWarning = `订单状态推进失败：网络错误（订单已保存，稍后可到客户详情页手动推进）`;
         }
       }
 
-      // 3) 导出 PDF —— 失败也不影响已入库的数据
       let pdfWarning: string | null = null;
       try {
         await handleExportPDF();
       } catch (err) {
         console.error("Export PDF failed:", err);
         const msg = err instanceof Error ? err.message : String(err);
-        pdfWarning = `PDF 导出失败：${msg}（报价单已保存，可到客户详情页重试导出）`;
+        pdfWarning = `Order Form PDF 导出失败：${msg}（订单已保存，可到客户详情页重试导出）`;
       }
 
       if (markSignedWarning || pdfWarning) {
         alert(
-          `报价单已保存成功（订单号 ${lastSaved?.orderNum || saved.quoteId}），但有部分后续步骤未完成：\n\n` +
+          `订单已保存成功（订单号 ${lastSaved?.orderNum || saved.quoteId}），但有部分后续步骤未完成：\n\n` +
             [markSignedWarning, pdfWarning].filter(Boolean).join("\n") +
             `\n\n数据不会丢失，可到"客户详情"页继续处理。`,
         );
@@ -1007,20 +994,88 @@ function QuoteSheetPageInner() {
 
       setGeneratedFlash(
         stageAdvanced
-          ? "报价单已生成 · 客户状态已更新为「已成单」"
-          : "报价单已生成 · PDF 已导出",
+          ? "订单已生成 · 客户状态已更新为「已成单」"
+          : "订单已生成 · Order Form PDF 已导出",
       );
       setTimeout(() => setGeneratedFlash(null), 5000);
     } catch (err) {
-      console.error("Generate quote failed:", err);
+      console.error("Generate order failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
       alert(
-        `生成报价单失败：${msg}\n\n请检查网络后重试。您填写的内容仍保留在本地草稿中。`,
+        `生成订单失败：${msg}\n\n请检查网络后重试。您填写的内容仍保留在本地草稿中。`,
       );
     } finally {
       setGenerating(false);
     }
   }, [customerId, hasAnySignature, handleSave, handleExportPDF, lastSaved?.orderNum]);
+
+  /**
+   * 发送 Quote —— 弹窗二选一落地：
+   *   mode = "email"：确保已保存 → 调用 /send-email（API 内部会把 quote.status 置为 sent）
+   *   mode = "local"：确保已保存 → 导出 PDF 到本地 → 调用 /mark-sent 标记已报价
+   *
+   * 不要求签名。发送成功后统一显示"已进入跟单环节"的提示条。
+   */
+  const handleSendQuote = useCallback(async (mode: "email" | "local") => {
+    if (!customerId) {
+      alert("请先选择客户");
+      return;
+    }
+    if (mode === "email" && !customerEmail) {
+      alert("该客户没有填写邮箱，请先在客户信息中补充邮箱，或改为下载到本地。");
+      return;
+    }
+
+    setSendQuoteBusy(mode);
+    try {
+      const saved = await handleSave();
+      if (!saved?.quoteId) {
+        setSendQuoteBusy(null);
+        return;
+      }
+
+      if (mode === "email") {
+        try {
+          const res = await apiFetch(`/api/sales/quotes/${saved.quoteId}/send-email`, {
+            method: "POST",
+            body: JSON.stringify({ to: customerEmail, lang: "en" }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data?.error || `HTTP ${res.status}`);
+          }
+          setLastSaved((prev) => (prev ? { ...prev, emailSent: true } as typeof prev : prev));
+          setGeneratedFlash(`Quote 已发送到 ${customerEmail} · 客户状态「已报价 · 跟单中」`);
+        } catch (err) {
+          console.error("send-email failed:", err);
+          const msg = err instanceof Error ? err.message : String(err);
+          alert(`邮件发送失败：${msg}\n\n报价单已保存，可稍后在客户详情页重试发送。`);
+          return;
+        }
+      } else {
+        try {
+          await handleExportPDF();
+        } catch (err) {
+          console.error("Export PDF failed:", err);
+          const msg = err instanceof Error ? err.message : String(err);
+          alert(`PDF 下载失败：${msg}\n\n报价单已保存，可稍后在客户详情页重试导出。`);
+          return;
+        }
+        try {
+          await apiFetch(`/api/sales/quotes/${saved.quoteId}/mark-sent`, { method: "POST" });
+        } catch (err) {
+          console.error("mark-sent failed:", err);
+          // 状态推进失败不影响 PDF 已下载的事实，仅记录
+        }
+        setGeneratedFlash("Quote PDF 已下载到本地 · 客户状态「已报价 · 跟单中」");
+      }
+
+      setTimeout(() => setGeneratedFlash(null), 5000);
+      setSendQuoteOpen(false);
+    } finally {
+      setSendQuoteBusy(null);
+    }
+  }, [customerId, customerEmail, handleSave, handleExportPDF]);
 
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
@@ -1397,30 +1452,26 @@ function QuoteSheetPageInner() {
               </div>
             )}
             <PartCForm services={partCServices} onServicesChange={setPartCServices}
-              addOns={partCAddOns} onAddOnsChange={setPartCAddOns} signatureRef={sigPartCRef}
-              onSignatureChange={setSigPartCCount} />
+              addOns={partCAddOns} onAddOnsChange={setPartCAddOns} />
           </>
         )}
         {activeTab === "shades" && (
           <OrderShadesForm lines={shadeOrders} onChange={setShadeOrders}
             valanceType={shadeValanceType} onValanceTypeChange={setShadeValanceType}
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
-            signatureRef={sigShadesRef} installMode={installMode}
-            onSignatureChange={setSigShadesCount}
+            installMode={installMode}
             discounts={discounts} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
             material={shutterMaterial} onMaterialChange={setShutterMaterial}
             louverSize={shutterLouverSize} onLouverSizeChange={setShutterLouverSize}
-            signatureRef={sigShuttersRef} installMode={installMode}
-            onSignatureChange={setSigShuttersCount}
+            installMode={installMode}
             discounts={discounts} />
         )}
         {activeTab === "drapes" && (
           <OrderDrapesForm lines={drapeOrders} onChange={setDrapeOrders}
-            signatureRef={sigDrapesRef} installMode={installMode}
-            onSignatureChange={setSigDrapesCount}
+            installMode={installMode}
             discounts={discounts} />
         )}
       </div>
@@ -1445,28 +1496,20 @@ function QuoteSheetPageInner() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportPDF}
+            onClick={handleOpenSendQuote}
+            disabled={!customerId || promoBlocked}
             className="gap-1.5 px-2 md:px-3"
-            aria-label="Export PDF"
+            aria-label="发送 Quote"
+            title={
+              promoBlocked
+                ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
+                : "保存 + 选择发送邮件或下载到本地（客户进入「已报价 · 跟单中」）"
+            }
           >
-            <FileDown className="h-4 w-4" />
-            <span className="hidden md:inline">Export PDF</span>
+            <Send className="h-4 w-4" />
+            <span className="hidden md:inline">发送 Quote</span>
+            <span className="md:hidden">发送</span>
           </Button>
-          {lastSaved?.quoteId && customerEmail && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSendEmail}
-              disabled={sendingEmail}
-              className="gap-1.5 px-2 md:px-3"
-              aria-label="Email to Customer"
-            >
-              {sendingEmail ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              <span className="hidden md:inline">
-                {sendingEmail ? "Sending..." : "Email to Customer"}
-              </span>
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"
@@ -1488,13 +1531,13 @@ function QuoteSheetPageInner() {
             onClick={handleGenerateQuote}
             disabled={generating || saving || !customerId || !hasAnySignature || promoBlocked}
             className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
-            aria-label={hasAnySignature ? "生成报价单（已签名）" : "请先让客户签名"}
+            aria-label={hasAnySignature ? "生成订单（客户已在 Part B 签字）" : "请先让客户在 Part B 签字"}
             title={
               promoBlocked
                 ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
                 : !hasAnySignature
-                  ? "请让客户在任一签字框完成签名后再生成报价单"
-                  : "保存 + 导出 PDF + 将客户状态改为已成单"
+                  ? "请让客户在 Part B 底部签字后再生成订单"
+                  : "保存 + 导出 Order Form PDF + 将客户状态改为「已成单」"
             }
           >
             {generating ? (
@@ -1503,9 +1546,9 @@ function QuoteSheetPageInner() {
               <Sparkles className="h-4 w-4" />
             )}
             <span className="hidden md:inline">
-              {generating ? "生成中..." : "生成报价单"}
+              {generating ? "生成中..." : "生成订单"}
             </span>
-            <span className="md:hidden">{generating ? "..." : "生成"}</span>
+            <span className="md:hidden">{generating ? "..." : "订单"}</span>
           </Button>
         </div>
       </div>
@@ -1517,6 +1560,90 @@ function QuoteSheetPageInner() {
         >
           <CheckCircle className="h-4 w-4" />
           {generatedFlash}
+        </div>
+      )}
+
+      {/* 发送 Quote 弹窗 —— 选择邮件 / 本地 */}
+      {sendQuoteOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+          onClick={() => {
+            if (!sendQuoteBusy) setSendQuoteOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white shadow-xl border border-border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between px-5 pt-5 pb-2">
+              <div>
+                <h3 className="text-base font-semibold">发送 Quote</h3>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  选择发送方式后，系统会先保存一次最新内容，再将客户状态推进到「已报价 · 跟单中」。
+                  {!hasAnySignature && (
+                    <span className="block mt-1 text-amber-700">
+                      ⓘ 客户尚未签字，允许以 Quote 形式先发给客户。签字后请点击&ldquo;生成订单&rdquo;。
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { if (!sendQuoteBusy) setSendQuoteOpen(false); }}
+                className="text-muted-foreground hover:text-foreground p-1 -m-1"
+                aria-label="关闭"
+                disabled={!!sendQuoteBusy}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="px-5 pb-5 pt-2 space-y-2.5">
+              <button
+                type="button"
+                onClick={() => handleSendQuote("email")}
+                disabled={!!sendQuoteBusy || !customerEmail}
+                className="w-full text-left rounded-lg border border-border hover:border-teal-500 hover:bg-teal-50/60 px-4 py-3 flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed transition"
+              >
+                <div className="shrink-0 h-9 w-9 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center">
+                  {sendQuoteBusy === "email" ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Mail className="h-4 w-4" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">发送到客户邮箱</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {customerEmail
+                      ? <>收件人：{customerEmail}</>
+                      : <span className="text-amber-700">该客户未填写邮箱，请选择下载到本地</span>}
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSendQuote("local")}
+                disabled={!!sendQuoteBusy}
+                className="w-full text-left rounded-lg border border-border hover:border-teal-500 hover:bg-teal-50/60 px-4 py-3 flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed transition"
+              >
+                <div className="shrink-0 h-9 w-9 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center">
+                  {sendQuoteBusy === "local" ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileDown className="h-4 w-4" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">下载到本地 PDF</div>
+                  <div className="text-xs text-muted-foreground">
+                    保存 Quote PDF 到本机，便于微信/打印转发；客户状态同步更新为「已报价」。
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
