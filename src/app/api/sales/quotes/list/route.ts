@@ -19,6 +19,9 @@ export const GET = withAuth(async (_request, _ctx, user) => {
       viewedAt: true,
       createdAt: true,
       updatedAt: true,
+      depositAmount: true,
+      depositMethod: true,
+      depositCollectedAt: true,
       customer: {
         select: { id: true, name: true, phone: true, email: true },
       },

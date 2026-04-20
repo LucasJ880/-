@@ -16,10 +16,11 @@ import {
   XCircle,
   Eye,
   Share2,
-  Copy,
   Mail,
   X,
+  Wallet,
 } from "lucide-react";
+import { RecordDepositDialog } from "@/components/sales/record-deposit-dialog";
 
 interface QuoteItem {
   id: string;
@@ -37,6 +38,19 @@ interface QuoteItem {
   createdBy?: { name?: string };
   shareToken?: string | null;
   viewedAt?: string | null;
+  depositAmount?: number | null;
+  depositMethod?: string | null;
+  depositCollectedAt?: string | null;
+}
+
+const DEPOSIT_METHOD_LABEL: Record<string, string> = {
+  cash: "现金",
+  check: "支票",
+  etransfer: "E-Transfer",
+};
+
+function isSignedLike(status: string): boolean {
+  return status === "signed" || status === "accepted";
 }
 
 const STATUS_MAP: Record<string, { label: string; icon: typeof Clock; color: string }> = {
@@ -69,6 +83,7 @@ export default function SalesQuotesPage() {
   const [emailLang, setEmailLang] = useState("en");
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState("");
+  const [depositTarget, setDepositTarget] = useState<QuoteItem | null>(null);
 
   const copyShareLink = (q: QuoteItem, lang: string = "en") => {
     if (!q.shareToken) return;
@@ -142,7 +157,9 @@ export default function SalesQuotesPage() {
 
   const totalValue = filtered.reduce((s, q) => s + (q.grandTotal || 0), 0);
   const draftCount = quotes.filter((q) => q.status === "draft").length;
-  const sentCount = quotes.filter((q) => q.status === "sent").length;
+  const pendingDepositCount = quotes.filter(
+    (q) => isSignedLike(q.status) && !q.depositCollectedAt,
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -165,7 +182,7 @@ export default function SalesQuotesPage() {
           { label: "总报价", value: quotes.length, icon: ScrollText, color: "text-blue-600" },
           { label: "报价总额", value: `$${(totalValue / 1000).toFixed(1)}k`, icon: DollarSign, color: "text-emerald-600" },
           { label: "草稿", value: draftCount, icon: FileText, color: "text-gray-600" },
-          { label: "已发送", value: sentCount, icon: Clock, color: "text-orange-600" },
+          { label: "待登记定金", value: pendingDepositCount, icon: Wallet, color: "text-orange-600" },
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl border border-border bg-white/60 p-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -264,10 +281,29 @@ export default function SalesQuotesPage() {
                       ${q.grandTotal?.toLocaleString("en-CA", { minimumFractionDigits: 2 })}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", st.color)}>
-                        <st.icon size={12} />
-                        {st.label}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", st.color)}>
+                          <st.icon size={12} />
+                          {st.label}
+                        </span>
+                        {isSignedLike(q.status) && !q.depositCollectedAt && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDepositTarget(q); }}
+                            className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-orange-600 transition-colors"
+                            title="客户已签字，请登记定金"
+                          >
+                            <Wallet size={10} />
+                            待登记定金
+                          </button>
+                        )}
+                        {isSignedLike(q.status) && q.depositCollectedAt && typeof q.depositAmount === "number" && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            <CheckCircle size={10} />
+                            定金 ${q.depositAmount.toFixed(0)}
+                            {q.depositMethod ? ` · ${DEPOSIT_METHOD_LABEL[q.depositMethod] || q.depositMethod}` : ""}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {new Date(q.createdAt).toLocaleDateString("zh-CN")}
@@ -333,6 +369,31 @@ export default function SalesQuotesPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Record deposit dialog */}
+      {depositTarget && (
+        <RecordDepositDialog
+          open={!!depositTarget}
+          onOpenChange={(open) => { if (!open) setDepositTarget(null); }}
+          quoteId={depositTarget.id}
+          grandTotal={depositTarget.grandTotal}
+          onSaved={(payload) => {
+            setQuotes((prev) =>
+              prev.map((x) =>
+                x.id === depositTarget.id
+                  ? {
+                      ...x,
+                      depositAmount: payload.depositAmount,
+                      depositMethod: payload.depositMethod,
+                      depositCollectedAt: payload.depositCollectedAt,
+                    }
+                  : x,
+              ),
+            );
+            setDepositTarget(null);
+          }}
+        />
       )}
 
       {/* Email send dialog */}

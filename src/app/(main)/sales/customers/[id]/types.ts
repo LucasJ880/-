@@ -51,6 +51,11 @@ export interface Quote {
   totalMsrp: number | null;
   /** 兜底保存时的 pricing warnings 会 append 到这里 */
   notes?: string | null;
+  /** 签约后销售补录的定金信息（为 null 表示尚未登记）*/
+  depositAmount: number | null;
+  depositMethod: string | null;
+  depositCollectedAt: string | null;
+  depositNote: string | null;
 }
 
 export interface BlindsOrder {

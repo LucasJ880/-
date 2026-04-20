@@ -2322,6 +2322,16 @@ model SalesQuote {
   specialPromotion Float?   @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
   finalDiscountPct Float?             // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
 
+  // 定金登记（线上签字 → 销售补录收款情况）
+  //   - depositAmount / depositMethod / depositCollectedAt 三者同时写入，空表示未登记
+  //   - method 取值：cash | check | etransfer（前端下拉固定）
+  //   - 线下签字时销售可以不登记，UI 会在 signed && 无 depositCollectedAt 时提示
+  depositAmount       Float?
+  depositMethod       String?
+  depositCollectedAt  DateTime?
+  depositCollectedById String?
+  depositNote         String?   @db.Text
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
