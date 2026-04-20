@@ -13,7 +13,8 @@ const QUOTE_STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
   sent: "已发送",
   signed: "已成单",
-  accepted: "已接受",
+  // 历史 accepted（早期公开签字通道）语义等同于 signed
+  accepted: "已成单",
   rejected: "已拒绝",
 };
 const QUOTE_STATUS_COLOR: Record<string, string> = {

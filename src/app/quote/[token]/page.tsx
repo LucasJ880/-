@@ -354,7 +354,7 @@ export default function PublicQuotePage() {
       }).then((r) => r.json());
       if (res.signed) {
         setSignSuccess(true);
-        setQuote((q) => q ? { ...q, signedAt: res.signedAt, status: "accepted" } : q);
+        setQuote((q) => q ? { ...q, signedAt: res.signedAt, status: "signed" } : q);
       }
     } finally {
       setSigning(false);

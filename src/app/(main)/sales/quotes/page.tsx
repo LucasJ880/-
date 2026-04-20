@@ -43,13 +43,19 @@ const STATUS_MAP: Record<string, { label: string; icon: typeof Clock; color: str
   draft: { label: "草稿", icon: FileText, color: "bg-gray-100 text-gray-700" },
   sent: { label: "已发送", icon: Clock, color: "bg-blue-100 text-blue-700" },
   viewed: { label: "已查看", icon: Eye, color: "bg-cyan-100 text-cyan-700" },
-  accepted: { label: "已接受", icon: CheckCircle, color: "bg-emerald-100 text-emerald-700" },
+  // 历史 accepted（早期公开签字通道写入）与 signed 语义一致，统一显示为"已签约"
+  accepted: { label: "已签约", icon: CheckCircle, color: "bg-green-100 text-green-700" },
   signed: { label: "已签约", icon: CheckCircle, color: "bg-green-100 text-green-700" },
   rejected: { label: "已拒绝", icon: XCircle, color: "bg-red-100 text-red-700" },
   expired: { label: "已过期", icon: XCircle, color: "bg-gray-100 text-gray-500" },
 };
 
-const STATUS_FILTERS = ["all", "draft", "sent", "viewed", "accepted", "signed", "rejected"] as const;
+// 签约状态的别名：筛选"已签约"时同时匹配 signed 和历史的 accepted
+const STATUS_ALIASES: Record<string, string[]> = {
+  signed: ["signed", "accepted"],
+};
+
+const STATUS_FILTERS = ["all", "draft", "sent", "viewed", "signed", "rejected"] as const;
 
 export default function SalesQuotesPage() {
   const [quotes, setQuotes] = useState<QuoteItem[]>([]);
@@ -119,7 +125,10 @@ export default function SalesQuotesPage() {
   }, [loadQuotes]);
 
   const filtered = quotes.filter((q) => {
-    if (statusFilter !== "all" && q.status !== statusFilter) return false;
+    if (statusFilter !== "all") {
+      const allowed = STATUS_ALIASES[statusFilter] ?? [statusFilter];
+      if (!allowed.includes(q.status)) return false;
+    }
     if (search) {
       const s = search.toLowerCase();
       const nameMatch = q.customer?.name?.toLowerCase().includes(s);

@@ -46,7 +46,9 @@ export async function POST(
     data: {
       signatureUrl: signatureDataUrl,
       signedAt: now,
-      status: "accepted",
+      // 公开页签字 = 销售端"生成订单" → 统一写 signed，避免"已签约"筛选
+      // 与驾驶舱统计看不到这种单（历史 accepted 数据在前端和 metrics 里兼容）
+      status: "signed",
     },
   });
 
