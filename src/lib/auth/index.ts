@@ -14,6 +14,8 @@ export interface AuthUser {
   avatar: string | null;
   role: string;
   status: string;
+  /** admin 可开关的"是否允许修改客户信息"权限；admin 视为 true */
+  canEditCustomers: boolean;
 }
 
 /**
@@ -49,6 +51,7 @@ export async function getCurrentUser(
       avatar: user.avatar,
       role: user.role,
       status: user.status,
+      canEditCustomers: user.canEditCustomers ?? true,
     };
   } catch (err) {
     console.error("[auth] DB lookup failed for user", payload.sub, err);

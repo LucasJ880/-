@@ -11,6 +11,8 @@ export interface CurrentUser {
   avatar: string | null;
   role: string;
   status: string;
+  /** 管理员控制的"是否可修改客户信息"开关；admin 永远视为 true */
+  canEditCustomers?: boolean;
 }
 
 interface UseCurrentUserReturn {

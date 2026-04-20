@@ -15,7 +15,9 @@ import {
   CalendarDays,
   ChevronDown,
   Sparkles,
+  Trash2,
 } from "lucide-react";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
@@ -34,12 +36,14 @@ import { useSwipeable } from "@/lib/hooks/use-swipeable";
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { isSuperAdmin: canDeleteCustomer } = useCurrentUser();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddInteraction, setShowAddInteraction] = useState(false);
   const [showCreateQuote, setShowCreateQuote] = useState(false);
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState<"timeline" | "quotes" | "orders" | "coaching">(
     "timeline"
   );
@@ -80,6 +84,48 @@ export default function CustomerDetailPage() {
   useEffect(() => {
     loadCustomer();
   }, [loadCustomer]);
+
+  const handleDeleteCustomer = async () => {
+    if (!customer || deleting) return;
+    const counts = [
+      customer.opportunities?.length
+        ? `${customer.opportunities.length} 个销售机会`
+        : null,
+      customer.quotes?.length ? `${customer.quotes.length} 份报价` : null,
+      customer.blindsOrders?.length
+        ? `${customer.blindsOrders.length} 个订单`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("、");
+    const countsHint = counts
+      ? `\n该客户关联 ${counts}，删除后将一并归档、不再出现在列表中（数据不会物理删除）。`
+      : "";
+    if (
+      !window.confirm(
+        `确定删除客户 "${customer.name}" 吗？${countsHint}\n\n此操作会将客户标记为已归档，销售和 AI 都将看不到该客户。`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await apiFetch(`/api/sales/customers/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "删除失败");
+        return;
+      }
+      router.push("/sales");
+    } catch (err) {
+      console.error("Delete customer failed:", err);
+      alert("删除失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleSendEmail = async (quoteId: string) => {
     if (!customer?.email || sendingEmailFor) return;
@@ -123,10 +169,28 @@ export default function CustomerDetailPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <PageHeader
-          title={customer.name}
-          description={`客户 · ${customer.source || "未知来源"} · ${new Date(customer.createdAt).toLocaleDateString("zh-CN")} 创建`}
-        />
+        <div className="min-w-0 flex-1">
+          <PageHeader
+            title={customer.name}
+            description={`客户 · ${customer.source || "未知来源"} · ${new Date(customer.createdAt).toLocaleDateString("zh-CN")} 创建`}
+          />
+        </div>
+        {canDeleteCustomer && (
+          <button
+            type="button"
+            onClick={handleDeleteCustomer}
+            disabled={deleting}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+            title="管理员可删除客户（软删，客户将被归档）"
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            删除客户
+          </button>
+        )}
       </div>
 
       {/* ───────── Mobile summary bar (默认收起) ───────── */}

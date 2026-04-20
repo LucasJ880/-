@@ -31,6 +31,10 @@ model User {
   // 销售个人配置 — 在驾驶舱"销售个人设置"里一次性填写
   salesRepInitials String? // 如 "LJ"，用于自动生成报价单编号
 
+  // admin 可在用户管理页对每个销售单独开关"是否允许修改客户信息"
+  // 仅对 sales/trade/user 生效；admin/super_admin 永远可改
+  canEditCustomers Boolean @default(true)
+
   projects           Project[]
   tasks              Task[]             @relation("TaskAssignee")
   createdTasks       Task[]             @relation("TaskCreator")
@@ -2173,6 +2177,8 @@ model SalesCustomer {
   notes         String?  @db.Text
   jdyDataId     String?  @unique // 简道云 record ID for future sync
   lastSyncAt    DateTime?
+  // 软删字段：管理员"删除客户"时设置此时间戳；列表默认过滤掉已归档
+  archivedAt    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

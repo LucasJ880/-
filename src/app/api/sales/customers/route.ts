@@ -10,9 +10,15 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
   const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20')));
 
+  const includeArchived = searchParams.get('includeArchived') === '1';
+
   const where: Record<string, unknown> = {};
   if (!isSuperAdmin(user.role)) {
     where.createdById = user.id;
+  }
+  // 默认过滤归档；仅 admin 且显式要求 ?includeArchived=1 时才返回
+  if (!(isSuperAdmin(user.role) && includeArchived)) {
+    where.archivedAt = null;
   }
   if (status) where.status = status;
   if (search) {

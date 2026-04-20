@@ -76,6 +76,7 @@ function UsersContent() {
   const [editingRole, setEditingRole] = useState(false);
   const [newRole, setNewRole] = useState("");
   const [roleUpdating, setRoleUpdating] = useState(false);
+  const [permUpdating, setPermUpdating] = useState(false);
 
   const loadUsers = useCallback(() => {
     setLoading(true);
@@ -132,6 +133,28 @@ function UsersContent() {
       setUserDetail(null);
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function handleCanEditCustomersToggle(nextValue: boolean) {
+    if (!selectedUser || permUpdating) return;
+    setPermUpdating(true);
+    try {
+      const res = await apiFetch(`/api/users/${selectedUser.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ canEditCustomers: nextValue }),
+      });
+      if (res.ok) {
+        if (userDetail) {
+          setUserDetail({ ...userDetail, canEditCustomers: nextValue });
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "更新权限失败");
+      }
+    } finally {
+      setPermUpdating(false);
     }
   }
 
@@ -399,6 +422,35 @@ function UsersContent() {
                     </div>
                   )}
                 </div>
+
+                {/* 客户权限开关 —— 仅对非 admin 角色有意义 */}
+                {String(userDetail.role) !== "admin" &&
+                  String(userDetail.role) !== "super_admin" && (
+                    <div className="rounded-lg border border-border p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">允许修改客户信息</p>
+                          <p className="mt-1 text-xs text-muted leading-relaxed">
+                            关闭后，该销售无法修改自己名下客户的基本信息（姓名、电话、地址等）。
+                            admin 始终可改，删除客户仅 admin 可做。
+                          </p>
+                        </div>
+                        <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+                          <input
+                            type="checkbox"
+                            className="peer sr-only"
+                            checked={Boolean(userDetail.canEditCustomers ?? true)}
+                            onChange={(e) =>
+                              handleCanEditCustomersToggle(e.target.checked)
+                            }
+                            disabled={permUpdating}
+                          />
+                          <div className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-accent peer-disabled:opacity-50" />
+                          <div className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                        </label>
+                      </div>
+                    </div>
+                  )}
               </div>
             ) : (
               <p className="mt-4 text-sm text-[#a63d3d]">加载失败</p>

@@ -4,6 +4,7 @@ import { isSuperAdmin } from "@/lib/rbac/roles";
 import { getUserById, updateUserProfile, updateUserStatus, updateUserRole } from "@/lib/users/service";
 import { validateUserProfile, isValidUserStatus } from "@/lib/users/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { db } from "@/lib/db";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -145,6 +146,20 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
       { error: "仅管理员可修改用户角色" },
       { status: 403 }
     );
+  }
+
+  // 老板开关"允许该销售修改客户信息" —— 仅 admin 可改
+  if (body.canEditCustomers !== undefined) {
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: "仅管理员可修改客户编辑权限" },
+        { status: 403 },
+      );
+    }
+    const nextValue = Boolean(body.canEditCustomers);
+    beforeData.canEditCustomers = (targetUser as { canEditCustomers?: boolean }).canEditCustomers ?? true;
+    afterData.canEditCustomers = nextValue;
+    await db.user.update({ where: { id }, data: { canEditCustomers: nextValue } });
   }
 
   if (Object.keys(afterData).length === 0) {

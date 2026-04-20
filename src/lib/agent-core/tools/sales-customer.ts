@@ -33,6 +33,8 @@ registry.register({
         { phone: { contains: query } },
         { email: { contains: query, mode: "insensitive" } },
       ],
+      // 不让 AI 把已归档的客户列出来
+      archivedAt: null,
       ...(ownerScope ?? {}),
     };
 
@@ -107,6 +109,11 @@ registry.register({
     });
 
     if (!customer) return { success: false, data: { error: "客户不存在" } };
+
+    // 已归档客户：AI 无法继续操作
+    if ((customer as { archivedAt?: Date | null }).archivedAt) {
+      return { success: false, data: { error: "客户已归档，无法访问" } };
+    }
 
     // PR1：防止跨销售窥探他人客户
     if (!canSeeResource(ctx.role, ctx.userId, { createdById: customer.createdById })) {

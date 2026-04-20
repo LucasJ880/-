@@ -137,4 +137,5 @@ export const AUDIT_TARGETS = {
   PROJECT_QUESTION: "project_question",
   REPORT: "report",
   QUOTE_ANALYSIS: "quote_analysis",
+  SALES_CUSTOMER: "sales_customer",
 } as const;

@@ -45,6 +45,7 @@ const USER_DETAIL_SELECT = {
   ...USER_LIST_SELECT,
   phone: true,
   updatedAt: true,
+  canEditCustomers: true,
   _count: {
     select: {
       orgMemberships: true,
