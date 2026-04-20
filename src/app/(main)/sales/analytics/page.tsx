@@ -31,12 +31,15 @@ interface RepRow {
 }
 
 interface MatrixResponse {
+  viewType: ViewType;
   granularity: "week" | "month" | "quarter";
   periods: PeriodMeta[];
   reps: RepRow[];
   colTotals: Record<string, CellStats>;
   grandTotal: CellStats;
 }
+
+type ViewType = "customer" | "activity";
 
 interface SalesRep {
   id: string;
@@ -70,6 +73,7 @@ export default function SalesAnalyticsPage() {
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
   const [granularity, setGranularity] = useState<Granularity>("month");
+  const [viewType, setViewType] = useState<ViewType>("customer");
   const [selectedReps, setSelectedReps] = useState<string[]>([]);
 
   const [reps, setReps] = useState<SalesRep[]>([]);
@@ -95,6 +99,7 @@ export default function SalesAnalyticsPage() {
         startDate,
         endDate,
         granularity,
+        viewType,
       });
       if (selectedReps.length > 0) {
         params.set("salesRepIds", selectedReps.join(","));
@@ -111,7 +116,7 @@ export default function SalesAnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isSuperAdmin, startDate, endDate, granularity, selectedReps]);
+  }, [isSuperAdmin, startDate, endDate, granularity, selectedReps, viewType]);
 
   useEffect(() => {
     loadMatrix();
@@ -147,10 +152,46 @@ export default function SalesAnalyticsPage() {
         </Link>
         <div className="flex-1">
           <PageHeader
-            title="销售复盘 · 客户交叉表"
-            description="按销售 × 时段查看客户数与漏斗状态。数据按『客户创建时间』切段，状态取客户当前状态。"
+            title="销售复盘 · 交叉表"
+            description={
+              viewType === "customer"
+                ? "按销售 × 时段查看客户数与漏斗状态。数据按『客户创建时间』切段，状态取客户当前状态。"
+                : "按销售 × 时段查看业务活动。数据按『事件发生时间』切段：新客户按创建时间、报价/签单按发生时间分别计入。"
+            }
           />
         </div>
+      </div>
+
+      {/* ── 视角切换 ── */}
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-white/70 p-2">
+        <span className="pl-2 text-xs text-muted">视角：</span>
+        <button
+          type="button"
+          onClick={() => setViewType("customer")}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            viewType === "customer"
+              ? "bg-accent text-white"
+              : "text-muted hover:text-foreground"
+          }`}
+        >
+          客户时间（建档期）
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewType("activity")}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            viewType === "activity"
+              ? "bg-accent text-white"
+              : "text-muted hover:text-foreground"
+          }`}
+        >
+          业务活动时间（发生期）
+        </button>
+        <span className="ml-auto pr-2 text-[10px] text-muted">
+          {viewType === "customer"
+            ? "看这批新客户后来转化得怎么样"
+            : "看销售在这个时段实际做成了多少事"}
+        </span>
       </div>
 
       {/* ── 筛选器 ── */}
@@ -235,12 +276,27 @@ export default function SalesAnalyticsPage() {
 
       {/* ── 总计卡片 ── */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <StatTile label="总客户" value={data.grandTotal.total} tone="default" />
-          <StatTile label="新线索" value={data.grandTotal.new} tone="blue" />
-          <StatTile label="已报价" value={data.grandTotal.quoted} tone="orange" />
-          <StatTile label="已成单" value={data.grandTotal.signed} tone="emerald" />
-          <StatTile label="流失" value={data.grandTotal.lost} tone="red" />
+        <div
+          className={`grid grid-cols-2 gap-3 md:grid-cols-${
+            viewType === "customer" ? 5 : 4
+          }`}
+        >
+          {viewType === "customer" ? (
+            <>
+              <StatTile label="总客户" value={data.grandTotal.total} tone="default" />
+              <StatTile label="新线索" value={data.grandTotal.new} tone="blue" />
+              <StatTile label="已报价" value={data.grandTotal.quoted} tone="orange" />
+              <StatTile label="已成单" value={data.grandTotal.signed} tone="emerald" />
+              <StatTile label="流失" value={data.grandTotal.lost} tone="red" />
+            </>
+          ) : (
+            <>
+              <StatTile label="总活动数" value={data.grandTotal.total} tone="default" />
+              <StatTile label="新客户" value={data.grandTotal.new} tone="blue" />
+              <StatTile label="创建报价" value={data.grandTotal.quoted} tone="orange" />
+              <StatTile label="签单数" value={data.grandTotal.signed} tone="emerald" />
+            </>
+          )}
         </div>
       )}
 
@@ -299,11 +355,18 @@ function MatrixTable({
     key: keyof CellStats;
     label: string;
     className: string;
-  }> = [
-    { key: "total", label: "总数", className: "text-foreground font-medium" },
-    { key: "quoted", label: "已报价", className: "text-orange-600" },
-    { key: "signed", label: "已成单", className: "text-emerald-600" },
-  ];
+  }> =
+    data.viewType === "customer"
+      ? [
+          { key: "total", label: "总数", className: "text-foreground font-medium" },
+          { key: "quoted", label: "已报价", className: "text-orange-600" },
+          { key: "signed", label: "已成单", className: "text-emerald-600" },
+        ]
+      : [
+          { key: "new", label: "新客户", className: "text-blue-600" },
+          { key: "quoted", label: "报价", className: "text-orange-600" },
+          { key: "signed", label: "签单", className: "text-emerald-600 font-medium" },
+        ];
 
   if (data.reps.length === 0) {
     return (
@@ -342,55 +405,43 @@ function MatrixTable({
               periods={data.periods}
               metricRows={metricRows}
               dateRange={dateRange}
+              drillEnabled={data.viewType === "customer"}
             />
           ))}
 
           {/* 列合计 */}
-          <tr className="border-t-2 border-border bg-muted/10">
-            <td
-              className="sticky left-0 bg-muted/10 px-4 py-2 text-xs font-semibold text-foreground"
-              rowSpan={metricRows.length}
+          {metricRows.map((m, idx) => (
+            <tr
+              key={`total-${m.key}`}
+              className={`bg-muted/10 ${idx === 0 ? "border-t-2 border-border" : ""} ${
+                idx === metricRows.length - 1 ? "border-b-0" : ""
+              }`}
             >
-              全体合计
-            </td>
-            {data.periods.map((p) => (
+              {idx === 0 && (
+                <td
+                  className="sticky left-0 bg-muted/10 px-4 py-2 text-xs font-semibold text-foreground"
+                  rowSpan={metricRows.length}
+                >
+                  全体合计
+                </td>
+              )}
+              {data.periods.map((p) => (
+                <td
+                  key={p.key}
+                  className={`px-3 py-1.5 text-right tabular-nums ${m.className}`}
+                >
+                  {data.colTotals[p.key]?.[m.key] || "–"}
+                </td>
+              ))}
               <td
-                key={p.key}
-                className="px-3 py-1.5 text-right text-sm font-semibold tabular-nums"
+                className={`px-3 py-1.5 text-right tabular-nums ${m.className} bg-muted/20`}
               >
-                {data.colTotals[p.key]?.total ?? 0}
+                <span className="font-semibold">
+                  {data.grandTotal[m.key] || "–"}
+                </span>
               </td>
-            ))}
-            <td className="px-3 py-1.5 text-right text-sm font-semibold tabular-nums bg-muted/20">
-              {data.grandTotal.total}
-            </td>
-          </tr>
-          <tr className="bg-muted/10">
-            {data.periods.map((p) => (
-              <td
-                key={p.key}
-                className="px-3 py-1.5 text-right text-xs text-orange-600 tabular-nums"
-              >
-                {data.colTotals[p.key]?.quoted ?? 0}
-              </td>
-            ))}
-            <td className="px-3 py-1.5 text-right text-xs text-orange-600 tabular-nums bg-muted/20">
-              {data.grandTotal.quoted}
-            </td>
-          </tr>
-          <tr className="bg-muted/10 border-b-0">
-            {data.periods.map((p) => (
-              <td
-                key={p.key}
-                className="px-3 py-1.5 text-right text-xs text-emerald-600 tabular-nums"
-              >
-                {data.colTotals[p.key]?.signed ?? 0}
-              </td>
-            ))}
-            <td className="px-3 py-1.5 text-right text-xs text-emerald-600 tabular-nums bg-muted/20">
-              {data.grandTotal.signed}
-            </td>
-          </tr>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -436,6 +487,7 @@ function RepBlock({
   periods,
   metricRows,
   dateRange,
+  drillEnabled,
 }: {
   rep: RepRow;
   periods: PeriodMeta[];
@@ -445,6 +497,7 @@ function RepBlock({
     className: string;
   }>;
   dateRange: { start: string; end: string };
+  drillEnabled: boolean;
 }) {
   return (
     <>
@@ -481,6 +534,16 @@ function RepBlock({
                 </td>
               );
             }
+            if (!drillEnabled) {
+              return (
+                <td
+                  key={p.key}
+                  className={`px-3 py-1.5 text-right tabular-nums ${m.className}`}
+                >
+                  {value}
+                </td>
+              );
+            }
             const href = buildDrillUrl({
               repId: rep.id,
               periodStart: p.start,
@@ -502,23 +565,29 @@ function RepBlock({
               </td>
             );
           })}
-          {/* 合计列：钻取"整个时间区间"的该销售该状态 */}
+          {/* 合计列：钻取"整个时间区间"的该销售该状态（仅 customer 视角） */}
           <td
             className={`px-0 py-0 text-right tabular-nums ${m.className} bg-muted/10`}
           >
             {rep.rowTotal[m.key] ? (
-              <Link
-                href={buildDrillUrl({
-                  repId: rep.id,
-                  overallStart: dateRange.start,
-                  overallEnd: dateRange.end,
-                  metric: m.key,
-                })}
-                className="block px-3 py-1.5 font-semibold hover:bg-accent/10 hover:underline"
-                title="查看整个区间的该销售客户"
-              >
-                {rep.rowTotal[m.key]}
-              </Link>
+              drillEnabled ? (
+                <Link
+                  href={buildDrillUrl({
+                    repId: rep.id,
+                    overallStart: dateRange.start,
+                    overallEnd: dateRange.end,
+                    metric: m.key,
+                  })}
+                  className="block px-3 py-1.5 font-semibold hover:bg-accent/10 hover:underline"
+                  title="查看整个区间的该销售客户"
+                >
+                  {rep.rowTotal[m.key]}
+                </Link>
+              ) : (
+                <span className="block px-3 py-1.5 font-semibold">
+                  {rep.rowTotal[m.key]}
+                </span>
+              )
             ) : (
               <span className="block px-3 py-1.5 font-semibold">–</span>
             )}

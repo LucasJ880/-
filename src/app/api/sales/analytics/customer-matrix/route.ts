@@ -45,6 +45,8 @@ function addToCell(cell: CellStats, status: FunnelStatus) {
   cell[status] += 1;
 }
 
+type ViewType = "customer" | "activity";
+
 /**
  * GET /api/sales/analytics/customer-matrix
  *
@@ -55,6 +57,10 @@ function addToCell(cell: CellStats, status: FunnelStatus) {
  *  - endDate:   ISO 字符串（必填）
  *  - granularity: week | month | quarter（默认 month）
  *  - salesRepIds: 逗号分隔（可选，筛选特定销售）
+ *  - viewType:   customer | activity（默认 customer）
+ *      customer: 按客户创建时间切段，cell 统计该时段创建的客户当前漏斗状态
+ *      activity: 按业务活动时间切段，cell 分别统计新客户/报价/签单这三类事件
+ *                  发生在该时段内的数量（销售归属取事件的 createdBy / customer.createdBy）
  */
 export const GET = withAuth(async (request, _ctx, user) => {
   if (!isSuperAdmin(user.role)) {
@@ -72,6 +78,9 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const salesRepIds = salesRepIdsParam
     ? salesRepIdsParam.split(",").map((s) => s.trim()).filter(Boolean)
     : null;
+  const viewTypeRaw = (searchParams.get("viewType") || "customer") as ViewType;
+  const viewType: ViewType =
+    viewTypeRaw === "activity" ? "activity" : "customer";
 
   if (!startStr || !endStr) {
     return NextResponse.json(
@@ -94,6 +103,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const periods = buildPeriods(start, end, granularity);
   if (periods.length === 0) {
     return NextResponse.json({
+      viewType,
       granularity,
       periods: [],
       reps: [],
@@ -106,27 +116,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const rangeStart = periods[0].start;
   const rangeEnd = periods[periods.length - 1].end;
 
-  const customerWhere: Record<string, unknown> = {
-    archivedAt: null,
-    createdAt: { gte: rangeStart, lt: rangeEnd },
-  };
-  if (salesRepIds && salesRepIds.length > 0) {
-    customerWhere.createdById = { in: salesRepIds };
-  }
-
-  const customers = await db.salesCustomer.findMany({
-    where: customerWhere,
-    select: {
-      id: true,
-      createdAt: true,
-      createdById: true,
-      createdBy: { select: { id: true, name: true, email: true } },
-      opportunities: { select: { stage: true } },
-      _count: { select: { quotes: true } },
-    },
-  });
-
-  // —— 逐行聚合：rep × period -> CellStats ——
+  // —— 公共工具：rep 行容器 ——
   const repMap = new Map<
     string,
     {
@@ -139,59 +129,171 @@ export const GET = withAuth(async (request, _ctx, user) => {
   >();
   const colTotals: Record<string, CellStats> = {};
   const grandTotal = emptyCell();
-
   for (const p of periods) {
     colTotals[p.key] = emptyCell();
   }
 
-  for (const c of customers) {
-    // 推导漏斗状态
-    const stages = c.opportunities.map((o) => o.stage);
-    const hasSigned = stages.some((s) => SIGNED_STAGES.has(s));
-    const hasLost =
-      stages.length > 0 && stages.every((s) => s === "lost") && c._count.quotes === 0;
-    const hasQuoted = c._count.quotes > 0 || stages.includes("quoted");
-    const status: FunnelStatus = hasSigned
-      ? "signed"
-      : hasQuoted
-      ? "quoted"
-      : hasLost
-      ? "lost"
-      : "new";
-
-    const periodKey = findPeriodKey(periods, c.createdAt);
-    if (!periodKey) continue;
-
-    const repId = c.createdById;
-    const repName = c.createdBy?.name || "（已删除）";
-    const repEmail = c.createdBy?.email || "";
-
-    let rep = repMap.get(repId);
+  const ensureRep = (
+    id: string,
+    name: string | null | undefined,
+    email: string | null | undefined,
+  ) => {
+    let rep = repMap.get(id);
     if (!rep) {
       rep = {
-        id: repId,
-        name: repName,
-        email: repEmail,
-        cells: Object.fromEntries(
-          periods.map((p) => [p.key, emptyCell()]),
-        ) as Record<string, CellStats>,
+        id,
+        name: name || "（已删除）",
+        email: email || "",
+        cells: Object.fromEntries(periods.map((p) => [p.key, emptyCell()])) as Record<
+          string,
+          CellStats
+        >,
         rowTotal: emptyCell(),
       };
-      repMap.set(repId, rep);
+      repMap.set(id, rep);
+    }
+    return rep;
+  };
+
+  if (viewType === "customer") {
+    // ── 客户时间视角：沿用原有逻辑 ──
+    const customerWhere: Record<string, unknown> = {
+      archivedAt: null,
+      createdAt: { gte: rangeStart, lt: rangeEnd },
+    };
+    if (salesRepIds && salesRepIds.length > 0) {
+      customerWhere.createdById = { in: salesRepIds };
     }
 
-    addToCell(rep.cells[periodKey], status);
-    addToCell(rep.rowTotal, status);
-    addToCell(colTotals[periodKey], status);
-    addToCell(grandTotal, status);
+    const customers = await db.salesCustomer.findMany({
+      where: customerWhere,
+      select: {
+        id: true,
+        createdAt: true,
+        createdById: true,
+        createdBy: { select: { id: true, name: true, email: true } },
+        opportunities: { select: { stage: true } },
+        _count: { select: { quotes: true } },
+      },
+    });
+
+    for (const c of customers) {
+      const stages = c.opportunities.map((o) => o.stage);
+      const hasSigned = stages.some((s) => SIGNED_STAGES.has(s));
+      const hasLost =
+        stages.length > 0 && stages.every((s) => s === "lost") && c._count.quotes === 0;
+      const hasQuoted = c._count.quotes > 0 || stages.includes("quoted");
+      const status: FunnelStatus = hasSigned
+        ? "signed"
+        : hasQuoted
+        ? "quoted"
+        : hasLost
+        ? "lost"
+        : "new";
+
+      const periodKey = findPeriodKey(periods, c.createdAt);
+      if (!periodKey) continue;
+
+      const rep = ensureRep(c.createdById, c.createdBy?.name, c.createdBy?.email);
+      addToCell(rep.cells[periodKey], status);
+      addToCell(rep.rowTotal, status);
+      addToCell(colTotals[periodKey], status);
+      addToCell(grandTotal, status);
+    }
+  } else {
+    // ── 业务活动时间视角 ──
+    // 新客户：SalesCustomer.createdAt 落段，归属 customer.createdById
+    // 报价：  SalesQuote.createdAt    落段，归属 quote.createdById
+    // 签单：  SalesQuote.signedAt     落段，归属 quote.createdById
+    //
+    // 三种事件累计到同一 cell 的 new / quoted / signed 字段；
+    // total = new + quoted + signed（仅作为行排序依据）。
+
+    const repFilterScope =
+      salesRepIds && salesRepIds.length > 0 ? { in: salesRepIds } : undefined;
+
+    const customerWhere: Record<string, unknown> = {
+      archivedAt: null,
+      createdAt: { gte: rangeStart, lt: rangeEnd },
+    };
+    if (repFilterScope) customerWhere.createdById = repFilterScope;
+
+    const quoteWhereCreated: Record<string, unknown> = {
+      createdAt: { gte: rangeStart, lt: rangeEnd },
+    };
+    if (repFilterScope) quoteWhereCreated.createdById = repFilterScope;
+
+    const quoteWhereSigned: Record<string, unknown> = {
+      signedAt: { gte: rangeStart, lt: rangeEnd },
+    };
+    if (repFilterScope) quoteWhereSigned.createdById = repFilterScope;
+
+    const [newCustomers, createdQuotes, signedQuotes] = await Promise.all([
+      db.salesCustomer.findMany({
+        where: customerWhere,
+        select: {
+          createdAt: true,
+          createdById: true,
+          createdBy: { select: { name: true, email: true } },
+        },
+      }),
+      db.salesQuote.findMany({
+        where: quoteWhereCreated,
+        select: {
+          createdAt: true,
+          createdById: true,
+          createdBy: { select: { name: true, email: true } },
+        },
+      }),
+      db.salesQuote.findMany({
+        where: quoteWhereSigned,
+        select: {
+          signedAt: true,
+          createdById: true,
+          createdBy: { select: { name: true, email: true } },
+        },
+      }),
+    ]);
+
+    const bump = (
+      repId: string,
+      name: string | null | undefined,
+      email: string | null | undefined,
+      at: Date,
+      field: "new" | "quoted" | "signed",
+    ) => {
+      const periodKey = findPeriodKey(periods, at);
+      if (!periodKey) return;
+      const rep = ensureRep(repId, name, email);
+      rep.cells[periodKey][field] += 1;
+      rep.cells[periodKey].total += 1;
+      rep.rowTotal[field] += 1;
+      rep.rowTotal.total += 1;
+      colTotals[periodKey][field] += 1;
+      colTotals[periodKey].total += 1;
+      grandTotal[field] += 1;
+      grandTotal.total += 1;
+    };
+
+    for (const c of newCustomers) {
+      bump(c.createdById, c.createdBy?.name, c.createdBy?.email, c.createdAt, "new");
+    }
+    for (const q of createdQuotes) {
+      bump(q.createdById, q.createdBy?.name, q.createdBy?.email, q.createdAt, "quoted");
+    }
+    for (const q of signedQuotes) {
+      if (!q.signedAt) continue;
+      bump(q.createdById, q.createdBy?.name, q.createdBy?.email, q.signedAt, "signed");
+    }
   }
 
-  // —— 行按 rowTotal.total 降序排（无客户的销售不展示）——
+  // —— 行按 rowTotal.total 降序排（无数据的销售不展示）——
   const reps = Array.from(repMap.values()).sort(
     (a, b) => b.rowTotal.total - a.rowTotal.total,
   );
 
   return NextResponse.json({
+    viewType,
     granularity,
     periods: periods.map((p) => ({
       key: p.key,
