@@ -53,7 +53,7 @@ function getOAuth2Client() {
 
 // ── 授权 URL ────────────────────────────────────────────────
 
-export function getEmailAuthUrl(): string {
+export function getEmailAuthUrl(state?: string): string {
   const client = getOAuth2Client();
   return client.generateAuthUrl({
     access_type: "offline",
@@ -61,6 +61,7 @@ export function getEmailAuthUrl(): string {
     scope: EMAIL_SCOPES,
     // 见文件顶部注释：独立 flow，不合并已有 scope
     include_granted_scopes: false,
+    ...(state ? { state } : {}),
   });
 }
 

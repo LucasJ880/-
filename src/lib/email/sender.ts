@@ -9,6 +9,7 @@ import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { db } from "@/lib/db";
 import { decryptField } from "@/lib/crypto";
+import { getEmailProvider, sendGmail } from "@/lib/google-email";
 
 export interface SendMailOptions {
   to: string | string[];
@@ -82,6 +83,59 @@ export async function sendMailAs(userId: string, opts: SendMailOptions): Promise
 
     return { success: false, error: errorMsg };
   }
+}
+
+/**
+ * 用销售账号的邮箱发信 —— 统一入口
+ *
+ * 渠道优先级：
+ *  1. Gmail OAuth（EmailProvider, type=gmail）—— 一键授权，用 Gmail API 发
+ *  2. SMTP 绑定（EmailBinding）—— 老的 App Password 模式，非 Gmail 账号的兜底
+ *
+ * 两者都没绑定时返回明确错误，提示用户去设置页绑定。
+ */
+export async function sendSalesEmail(
+  userId: string,
+  opts: SendMailOptions,
+): Promise<SendResult & { channel?: "gmail_oauth" | "smtp" }> {
+  // —— 1. 优先使用 Gmail OAuth 一键授权通道 ——
+  const provider = await getEmailProvider(userId);
+  if (provider && provider.accessToken) {
+    try {
+      const user = await db.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+      const fromName = user?.name?.trim() || provider.accountEmail;
+      const fromEmail = provider.accountEmail;
+      const { messageId } = await sendGmail(userId, {
+        to: Array.isArray(opts.to) ? opts.to.join(", ") : opts.to,
+        from: `"${fromName}" <${fromEmail}>`,
+        subject: opts.subject,
+        body: opts.html,
+        replyTo: opts.replyTo || fromEmail,
+      });
+      return { success: true, messageId, channel: "gmail_oauth" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Gmail 发送失败";
+      // Gmail 授权失效 / token 过期等情况：回落到 SMTP（若有绑定）
+      console.error("[sendSalesEmail] Gmail OAuth failed, falling back to SMTP:", msg);
+    }
+  }
+
+  // —— 2. 回落到 SMTP 绑定 ——
+  const binding = await db.emailBinding.findUnique({ where: { userId } });
+  if (binding && binding.verified) {
+    const result = await sendMailAs(userId, opts);
+    return { ...result, channel: "smtp" };
+  }
+
+  return {
+    success: false,
+    error: provider
+      ? "Gmail 授权已失效且未配置 SMTP 兜底，请到设置页重新连接 Google 邮箱"
+      : "尚未绑定发信邮箱，请先到『设置 → 邮箱绑定』连接 Google 或配置 SMTP",
+  };
 }
 
 /**

@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getEmailAuthUrl } from "@/lib/google-email";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const id = process.env.GOOGLE_CLIENT_ID?.trim();
   const secret = process.env.GOOGLE_CLIENT_SECRET?.trim();
   const redirect = process.env.GOOGLE_EMAIL_REDIRECT_URI?.trim();
@@ -15,6 +15,10 @@ export async function GET() {
     );
   }
 
-  const url = getEmailAuthUrl();
+  // 把 return_to 塞进 OAuth state，回调完成后跳回原页面
+  const { searchParams } = new URL(request.url);
+  const returnTo = searchParams.get("return_to") || "";
+  const state = returnTo ? encodeURIComponent(returnTo) : undefined;
+  const url = getEmailAuthUrl(state);
   return NextResponse.redirect(url);
 }

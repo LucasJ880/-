@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { sendMailAs } from "@/lib/email/sender";
+import { sendSalesEmail } from "@/lib/email/sender";
 import { quoteEmailHtml } from "@/lib/email/templates";
 import { randomBytes } from "crypto";
 import { isSuperAdmin } from "@/lib/rbac/roles";
@@ -59,7 +59,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     senderName: quote.createdBy?.name || user.name,
   });
 
-  const result = await sendMailAs(user.id, {
+  const result = await sendSalesEmail(user.id, {
     to,
     subject: subjectMap[emailLang],
     html,
