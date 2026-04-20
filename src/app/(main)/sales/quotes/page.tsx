@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
@@ -72,10 +73,24 @@ const STATUS_ALIASES: Record<string, string[]> = {
 const STATUS_FILTERS = ["all", "draft", "sent", "viewed", "signed", "rejected"] as const;
 
 export default function SalesQuotesPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-20 text-sm text-muted-foreground">加载中...</div>}>
+      <SalesQuotesPageInner />
+    </Suspense>
+  );
+}
+
+function SalesQuotesPageInner() {
+  const searchParams = useSearchParams();
+  const initialStatus = (() => {
+    const s = (searchParams.get("status") || "").toLowerCase();
+    return (STATUS_FILTERS as readonly string[]).includes(s) ? s : "all";
+  })();
+
   const [quotes, setQuotes] = useState<QuoteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [shareLangMenu, setShareLangMenu] = useState<string | null>(null);
   const [emailDialog, setEmailDialog] = useState<QuoteItem | null>(null);

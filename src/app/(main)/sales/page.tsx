@@ -18,6 +18,7 @@ import { CsvImportDialog } from "./csv-import-dialog";
 import { NewCustomerDialog } from "./new-customer-dialog";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
+import { PendingDepositBanner } from "@/components/sales/pending-deposit-banner";
 
 export default function SalesPage() {
   return (
@@ -187,6 +188,8 @@ function SalesPageInner() {
       />
 
       <StatsCards opportunities={opportunities} customers={customers} viewMode={viewMode} />
+
+      <PendingDepositBanner />
 
       <AiAlertPanel />
 
