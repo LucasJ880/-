@@ -31,6 +31,7 @@ import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
+import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 
 import type {
   PartALine,
@@ -663,9 +664,13 @@ function QuoteSheetPageInner() {
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
         if (!w || !h) continue;
+        // 把具体 SKU（例如 RL-AQUAWIDE3-BEIGE-LF）映射为定价表认的 fabric key
+        // （例如 "Light Filtering (Open Roll)"），否则后端 priceFor 会报
+        // "Pricing for this Roller fabric is not set yet"，导致整行价格丢失。
+        const pricingFabric = skuToPricingFabric(l.sku, l.product);
         items.push({
           product: l.product,
-          fabric: l.sku,
+          fabric: pricingFabric,
           widthIn: w,
           heightIn: h,
           cordless: l.lift === "L" || l.lift === "R",

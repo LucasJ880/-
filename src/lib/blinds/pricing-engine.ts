@@ -46,6 +46,39 @@ function isCordlessEligible(product: ProductName): boolean {
   return product === 'Zebra' || product === 'Roller';
 }
 
+/**
+ * 后端兜底：如果前端误把具体 SKU（如 RL-AQUAWIDE3-BEIGE-LF）当作 fabric
+ * 发过来，这里按后缀 -LF / -SC / -BO / -DO 粗略映射到类别 key，避免整张报价
+ * 因为对不上 fabric 就丢失大头金额。
+ *
+ * 只做保守兜底：
+ *   - Roller：返回 ROLLER_FABRICS 里匹配的类别 key
+ *   - 标准产品：返回 getMsrpTable 能识别的 fabric key
+ *
+ * 前端理想路径是先走 skuToPricingFabric 再发请求，这里是双保险。
+ */
+function fallbackFabricKey(product: ProductName, rawSku: string): string | null {
+  const upper = String(rawSku || '').toUpperCase();
+  const wantBlackout = /-(BO|DO)$/.test(upper);
+  const wantLight = /-(LF|SC)$/.test(upper);
+  if (!wantBlackout && !wantLight) return null;
+
+  if (product === 'Roller') {
+    const keys = Object.keys(ROLLER_FABRICS);
+    if (wantBlackout) {
+      const hit = keys.find((k) => /blackout/i.test(k) && !/cassette/i.test(k));
+      if (hit) return hit;
+    }
+    if (wantLight) {
+      const hit = keys.find((k) => /light\s*filtering/i.test(k) && !/cassette/i.test(k));
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  return null;
+}
+
 // ─── Core: priceFor ────────────────────────────────────────
 
 export function priceFor(
@@ -113,7 +146,11 @@ export function priceFor(
 
   // ── Roller (separate MSRP tables + cassette surcharge) ──
   if (product === 'Roller') {
-    const fCfg = ROLLER_FABRICS[fabric];
+    let fCfg = ROLLER_FABRICS[fabric];
+    if (!fCfg) {
+      const mapped = fallbackFabricKey('Roller', fabric);
+      if (mapped) fCfg = ROLLER_FABRICS[mapped];
+    }
     if (!fCfg) return { error: 'Pricing for this Roller fabric is not set yet.' };
 
     const msrpTable = MSRP_ROLLER[fCfg.msrpRef];
