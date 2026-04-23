@@ -16,6 +16,7 @@ import {
   recallMemories,
   buildUserMemoryBlock,
 } from "@/lib/ai/user-memory";
+import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
 
 // ── Tool Definitions ────────────────────────────────────────
 
@@ -341,7 +342,7 @@ async function toolGetProspect(orgId: string, args: Record<string, string>): Pro
   if (!prospect) return { text: "未找到该线索" };
 
   const p = prospect;
-  const report = p.researchReport as Record<string, unknown> | null;
+  const reportBody = getResearchReportForAgents(p.researchReport);
 
   let text = `【${p.companyName}】
 国家: ${p.country ?? "未知"} | 联系人: ${p.contactName ?? "未知"} | 邮箱: ${p.contactEmail ?? "无"}
@@ -349,8 +350,8 @@ async function toolGetProspect(orgId: string, args: Record<string, string>): Pro
 上次联系: ${p.lastContactAt ? new Date(p.lastContactAt).toLocaleDateString("zh-CN") : "无"}
 下次跟进: ${p.nextFollowUpAt ? new Date(p.nextFollowUpAt).toLocaleDateString("zh-CN") : "未设置"}`;
 
-  if (report) {
-    text += `\n研究摘要: ${(report.summary as string)?.slice(0, 200) ?? "无"}`;
+  if (reportBody?.companyOverview) {
+    text += `\n研究摘要: ${reportBody.companyOverview.slice(0, 200)}`;
   }
   if (p.scoreReason) {
     text += `\n评分理由: ${p.scoreReason.slice(0, 150)}`;

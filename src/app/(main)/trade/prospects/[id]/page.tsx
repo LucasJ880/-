@@ -26,8 +26,17 @@ import {
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import {
+  parseResearchBundle,
+  type ResearchReport,
+} from "@/lib/trade/research-bundle";
 
 // ── Types ───────────────────────────────────────────────────
+
+function hasResearchContent(report: ResearchReport | null): boolean {
+  if (!report) return false;
+  return Object.values(report).some((v) => String(v ?? "").trim().length > 0);
+}
 
 interface Prospect {
   id: string;
@@ -256,7 +265,11 @@ export default function ProspectDetailPage() {
   }
 
   const p = prospect;
-  const report = p.researchReport;
+  const parsed = parseResearchBundle(p.researchReport);
+  const report = parsed.report;
+  const researchSources = parsed.sources;
+  const fieldSourceIds = parsed.fieldSourceIds;
+  const hasResearch = hasResearchContent(report);
 
   return (
     <div className="space-y-6">
@@ -308,10 +321,10 @@ export default function ProspectDetailPage() {
           className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-blue-500/50 disabled:opacity-50"
         >
           {researching ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-          {researching ? "研究中..." : report ? "重新研究" : "AI 研究"}
+          {researching ? "研究中..." : hasResearch ? "重新研究" : "AI 研究"}
         </button>
 
-        {report && (
+        {hasResearch && (
           <button
             onClick={handleGenerateOutreach}
             disabled={generating}
@@ -447,7 +460,7 @@ export default function ProspectDetailPage() {
       )}
 
       {/* Research Report */}
-      {report && (
+      {hasResearch && report && (
         <div className="rounded-xl border border-border/60 bg-card-bg p-4">
           <div className="mb-3 flex items-center gap-2">
             <FileText size={14} className="text-blue-400" />
@@ -455,16 +468,53 @@ export default function ProspectDetailPage() {
           </div>
           <div className="space-y-3">
             {Object.entries(REPORT_LABELS).map(([key, label]) => {
-              const value = report[key];
+              const value = report[key as keyof ResearchReport];
               if (!value) return null;
+              const refs = fieldSourceIds?.[key as keyof ResearchReport];
               return (
                 <div key={key}>
                   <h4 className="mb-0.5 text-xs font-medium text-muted">{label}</h4>
+                  {refs && refs.length > 0 && (
+                    <p className="mb-0.5 text-[10px] text-muted">引用：{refs.join(", ")}</p>
+                  )}
                   <p className="whitespace-pre-wrap text-sm text-foreground">{value}</p>
                 </div>
               );
             })}
           </div>
+        </div>
+      )}
+
+      {researchSources.length > 0 && (
+        <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <Globe size={14} className="text-amber-500" />
+            <h3 className="text-sm font-medium text-foreground">参考来源</h3>
+            <span className="text-[10px] text-muted">（Serper / 官网摘录）</span>
+          </div>
+          <ul className="space-y-2">
+            {researchSources.map((s) => (
+              <li key={s.id} className="rounded-lg border border-border/50 bg-background/80 px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="font-mono text-[10px] text-muted">{s.id}</span>
+                  <span className="rounded bg-zinc-500/15 px-1 py-0.5 text-[10px] text-muted">
+                    {s.kind === "homepage" ? "官网" : "搜索"}
+                  </span>
+                  <a
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-w-0 flex-1 font-medium text-blue-400 hover:underline break-all"
+                  >
+                    {s.title}
+                  </a>
+                </div>
+                {s.snippet && (
+                  <p className="mt-1 line-clamp-2 text-[11px] text-muted">{s.snippet}</p>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -647,7 +697,7 @@ export default function ProspectDetailPage() {
       )}
 
       {/* Empty State for no report */}
-      {!report && (
+      {!hasResearch && (
         <div className="rounded-xl border border-dashed border-border bg-card-bg px-8 py-12 text-center">
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted" />
           <p className="text-sm text-muted">点击「AI 研究」按钮，AI 将自动搜索该公司信息并生成研究报告和评分</p>

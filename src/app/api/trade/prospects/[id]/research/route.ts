@@ -4,7 +4,7 @@
  * 对单个线索执行 AI 研究 + 打分流水线：
  * 1. 搜索公司信息（Serper）
  * 2. 抓取官网内容
- * 3. AI 生成研究报告
+ * 3. AI 生成研究报告（含 sources / fieldSourceIds）
  * 4. AI 资格打分
  * 5. 更新线索状态
  */
@@ -14,6 +14,10 @@ import { requireRole } from "@/lib/auth/guards";
 import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
 import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
 import { searchGoogle, fetchPageContent } from "@/lib/trade/tools";
+import {
+  buildSourcesFromSerpAndPage,
+  mergeResearchBundle,
+} from "@/lib/trade/research-bundle";
 
 export async function POST(
   request: NextRequest,
@@ -47,15 +51,23 @@ export async function POST(
 
   // Step 2: Fetch website content
   const website = prospect.website ?? searchResults[0]?.link;
+  let homepagePage: Awaited<ReturnType<typeof fetchPageContent>> | null = null;
   if (website) {
     const page = await fetchPageContent(website);
     if (page.ok) {
+      homepagePage = page;
       rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
     }
   }
 
-  // Step 3: Generate research report
-  const report = await generateResearchReport(
+  const sources = buildSourcesFromSerpAndPage(
+    searchResults,
+    homepagePage,
+    website && homepagePage?.ok ? website : null,
+  );
+
+  // Step 3: Generate research report (+ fieldSourceIds)
+  const { report, fieldSourceIds } = await generateResearchReport(
     {
       name: prospect.companyName,
       website: prospect.website,
@@ -64,7 +76,10 @@ export async function POST(
     },
     campaign.productDesc,
     campaign.targetMarket,
+    sources,
   );
+
+  const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds);
 
   // Step 4: Score the prospect
   const scoreResult = await scoreProspect(
@@ -78,7 +93,7 @@ export async function POST(
     scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
   const updated = await updateProspect(id, {
-    researchReport: report,
+    researchReport: researchBundle,
     score: scoreResult.score,
     scoreReason: scoreResult.reason,
     stage: newStage,
@@ -96,6 +111,7 @@ export async function POST(
 
   return NextResponse.json({
     prospect: updated,
+    researchBundle,
     report,
     score: scoreResult,
   });

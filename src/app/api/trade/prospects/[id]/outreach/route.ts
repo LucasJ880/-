@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
 import { generateOutreachEmail } from "@/lib/trade/agents";
-import type { ResearchReport } from "@/lib/trade/agents";
+import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
 
 export async function POST(
   request: NextRequest,
@@ -23,7 +23,8 @@ export async function POST(
     return NextResponse.json({ error: "线索不存在" }, { status: 404 });
   }
 
-  if (!prospect.researchReport) {
+  const reportForEmail = getResearchReportForAgents(prospect.researchReport);
+  if (!reportForEmail) {
     return NextResponse.json(
       { error: "请先完成客户研究再生成开发信" },
       { status: 400 },
@@ -44,7 +45,7 @@ export async function POST(
       contactTitle: prospect.contactTitle,
       country: prospect.country,
     },
-    prospect.researchReport as unknown as ResearchReport,
+    reportForEmail,
     campaign.productDesc,
     {
       companyName: body.senderCompany ?? "Our Company",

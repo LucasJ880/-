@@ -8,6 +8,7 @@
 import { db } from "@/lib/db";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
+import { parseResearchBundle, getResearchReportForAgents } from "@/lib/trade/research-bundle";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -154,6 +155,9 @@ registry.register({
 
     if (!prospect) return { success: false, data: null, error: "未找到该线索" };
 
+    const reportBody = getResearchReportForAgents(prospect.researchReport);
+    const parsed = parseResearchBundle(prospect.researchReport);
+
     return ok({
       id: prospect.id,
       companyName: prospect.companyName,
@@ -167,7 +171,8 @@ registry.register({
       lastContactAt: prospect.lastContactAt,
       nextFollowUpAt: prospect.nextFollowUpAt,
       followUpCount: prospect.followUpCount,
-      researchSummary: (prospect.researchReport as Record<string, unknown>)?.summary,
+      researchSummary: reportBody?.companyOverview?.slice(0, 400) ?? null,
+      researchSources: parsed.sources.slice(0, 10),
       recentMessages: prospect.messages.slice(0, 3).map((m) => ({
         direction: m.direction,
         content: m.content.slice(0, 200),

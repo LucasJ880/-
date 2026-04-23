@@ -10,6 +10,13 @@
 
 import { createCompletion } from "@/lib/ai/client";
 import { searchKnowledge } from "@/lib/trade/knowledge-service";
+import type {
+  ResearchReport,
+  ResearchSource,
+} from "@/lib/trade/research-bundle";
+import { RESEARCH_REPORT_KEYS } from "@/lib/trade/research-bundle";
+
+export type { ResearchReport, ResearchSource, ResearchBundleV1 } from "@/lib/trade/research-bundle";
 
 // ── Search Keyword Agent ────────────────────────────────────
 
@@ -42,59 +49,105 @@ export async function generateSearchKeywords(
   }
 }
 
-// ── Research Agent ──────────────────────────────────────────
+// ── Research Agent（带 sources，输出 report + fieldSourceIds）────────
 
-export interface ResearchReport {
-  companyOverview: string;
-  products: string;
-  marketPosition: string;
-  importHistory: string;
-  contactInfo: string;
-  matchAnalysis: string;
-  recommendations: string;
+export interface ResearchLlmResult {
+  report: ResearchReport;
+  fieldSourceIds?: Partial<Record<keyof ResearchReport, string[]>>;
 }
 
+function emptyReport(fallbackOverview: string): ResearchReport {
+  return {
+    companyOverview: fallbackOverview,
+    products: "",
+    marketPosition: "",
+    importHistory: "",
+    contactInfo: "",
+    matchAnalysis: "",
+    recommendations: "",
+  };
+}
+
+/**
+ * 根据已结构化的 sources + 原始摘录生成研究报告。
+ * 必须输出合法 source id（仅允许来自 sources 列表）；否则 fieldSourceIds 会被调用方校验剔除。
+ */
 export async function generateResearchReport(
   companyInfo: { name: string; website?: string | null; country?: string | null; rawData?: string },
   productDesc: string,
   targetMarket: string,
-): Promise<ResearchReport> {
+  sources: ResearchSource[],
+): Promise<ResearchLlmResult> {
+  const sourcesJson = JSON.stringify(sources, null, 2);
+  const keysList = RESEARCH_REPORT_KEYS.join(", ");
+
   const raw = await createCompletion({
-    systemPrompt: `你是外贸客户研究分析师。根据提供的公司信息，生成详细的客户研究报告。
-用 JSON 格式输出，包含以下字段：
-- companyOverview: 公司概况（100-200字）
-- products: 主营产品和业务范围
-- marketPosition: 市场地位和规模评估
-- importHistory: 进口历史和采购特征（如有信息）
-- contactInfo: 已知联系方式汇总
-- matchAnalysis: 与我方产品的匹配度分析
-- recommendations: 接触策略建议`,
+    systemPrompt: `你是外贸客户研究分析师。根据提供的公司信息与「已验证来源列表」生成客户研究报告。
+
+硬性规则：
+1. 只输出一个 JSON 对象，不要 markdown 代码围栏。
+2. 顶层结构必须为：
+   { "report": { ...七字段... }, "fieldSourceIds": { ...可选... } }
+3. report 内字段与含义：
+   - companyOverview: 公司概况（100-200字）
+   - products: 主营产品和业务范围
+   - marketPosition: 市场地位和规模评估
+   - importHistory: 进口历史和采购特征（无依据可写「公开信息不足」）
+   - contactInfo: 已知联系方式汇总
+   - matchAnalysis: 与我方产品的匹配度分析
+   - recommendations: 接触策略建议
+4. fieldSourceIds：每个键对应 report 中的同名字段，值为来源 id 数组。id **必须**来自下方 sources 列表中的 id，不得编造。
+5. 若某段内容无法由给定来源支持，该段 fieldSourceIds 可省略或为空数组；不得虚构事实。
+6. 若 sources 为空，fieldSourceIds 应为 {} 或省略。`,
     userPrompt: `目标公司：${companyInfo.name}
 官网：${companyInfo.website || "未知"}
 国家：${companyInfo.country || "未知"}
-采集到的信息：${companyInfo.rawData || "仅有公司名"}
+
+【已验证来源列表 sources】（id 必须原样引用）：
+${sourcesJson}
+
+【采集摘录（供理解上下文，引用仍须用 sources 中的 id）】
+${companyInfo.rawData || "仅有公司名"}
 
 我方产品：${productDesc}
-目标市场：${targetMarket}`,
+目标市场：${targetMarket}
+
+请输出 JSON：{ "report": { ${keysList} }, "fieldSourceIds": { 可选，键名仅限上述七字段 } }`,
     mode: "normal",
     temperature: 0.2,
   });
 
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    return JSON.parse(raw);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Record<string, unknown>;
+    const reportObj = parsed.report;
+    const report =
+      reportObj && typeof reportObj === "object"
+        ? coerceResearchReport(reportObj as Record<string, unknown>)
+        : emptyReport(raw);
+
+    const fieldRaw = parsed.fieldSourceIds;
+    let fieldSourceIds: Partial<Record<keyof ResearchReport, string[]>> | undefined;
+    if (fieldRaw && typeof fieldRaw === "object" && !Array.isArray(fieldRaw)) {
+      fieldSourceIds = fieldRaw as Partial<Record<keyof ResearchReport, string[]>>;
+    }
+
+    return { report, fieldSourceIds };
   } catch {
-    return {
-      companyOverview: raw,
-      products: "",
-      marketPosition: "",
-      importHistory: "",
-      contactInfo: "",
-      matchAnalysis: "",
-      recommendations: "",
-    };
+    return { report: emptyReport(raw) };
   }
+}
+
+function coerceResearchReport(obj: Record<string, unknown>): ResearchReport {
+  return {
+    companyOverview: String(obj.companyOverview ?? ""),
+    products: String(obj.products ?? ""),
+    marketPosition: String(obj.marketPosition ?? ""),
+    importHistory: String(obj.importHistory ?? ""),
+    contactInfo: String(obj.contactInfo ?? ""),
+    matchAnalysis: String(obj.matchAnalysis ?? ""),
+    recommendations: String(obj.recommendations ?? ""),
+  };
 }
 
 // ── Score Agent ─────────────────────────────────────────────

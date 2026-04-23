@@ -14,6 +14,11 @@ import { db } from "@/lib/db";
 import { getCampaign, updateCampaign, createProspect, updateProspect } from "./service";
 import { generateSearchKeywords, generateResearchReport, scoreProspect, generateOutreachEmail } from "./agents";
 import { discoverProspects, searchGoogle, fetchPageContent } from "./tools";
+import {
+  buildSourcesFromSerpAndPage,
+  getResearchReportForAgents,
+  mergeResearchBundle,
+} from "./research-bundle";
 import { logActivity } from "./activity-log";
 
 export interface PipelineStep {
@@ -160,22 +165,35 @@ export async function runFullPipeline(
         }
 
         const website = p.website ?? searchResults[0]?.link;
+        let homepagePage: Awaited<ReturnType<typeof fetchPageContent>> | null = null;
         if (website) {
           const page = await fetchPageContent(website);
-          if (page.ok) rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
+          if (page.ok) {
+            homepagePage = page;
+            rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
+          }
         }
 
-        const report = await generateResearchReport(
+        const sources = buildSourcesFromSerpAndPage(
+          searchResults,
+          homepagePage,
+          website && homepagePage?.ok ? website : null,
+        );
+
+        const { report, fieldSourceIds } = await generateResearchReport(
           { name: p.companyName, website: p.website, country: p.country, rawData: rawData || undefined },
           campaign.productDesc,
           campaign.targetMarket,
+          sources,
         );
+
+        const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds);
 
         const scoreResult = await scoreProspect(report, campaign.productDesc, campaign.targetMarket);
         const newStage = scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
         await updateProspect(p.id, {
-          researchReport: report,
+          researchReport: researchBundle,
           score: scoreResult.score,
           scoreReason: scoreResult.reason,
           stage: newStage,
@@ -232,12 +250,12 @@ export async function runFullPipeline(
     let generated = 0;
     for (const p of qualifiedProspects) {
       try {
-        const report = p.researchReport as Record<string, string>;
+        const report = getResearchReportForAgents(p.researchReport);
         if (!report) continue;
 
         const draft = await generateOutreachEmail(
           { companyName: p.companyName, contactName: p.contactName, contactTitle: p.contactTitle, country: p.country },
-          report as unknown as Parameters<typeof generateOutreachEmail>[1],
+          report,
           campaign.productDesc,
           { companyName: "Our Company", senderName: "Sales Team" },
         );

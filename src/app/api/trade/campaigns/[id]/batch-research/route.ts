@@ -9,6 +9,10 @@ import { requireRole } from "@/lib/auth/guards";
 import { getCampaign, updateProspect } from "@/lib/trade/service";
 import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
 import { searchGoogle, fetchPageContent } from "@/lib/trade/tools";
+import {
+  buildSourcesFromSerpAndPage,
+  mergeResearchBundle,
+} from "@/lib/trade/research-bundle";
 import { db } from "@/lib/db";
 
 export async function POST(
@@ -54,24 +58,35 @@ export async function POST(
       }
 
       const website = p.website ?? searchResults[0]?.link;
+      let homepagePage: Awaited<ReturnType<typeof fetchPageContent>> | null = null;
       if (website) {
         const page = await fetchPageContent(website);
         if (page.ok) {
+          homepagePage = page;
           rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
         }
       }
 
-      const report = await generateResearchReport(
+      const sources = buildSourcesFromSerpAndPage(
+        searchResults,
+        homepagePage,
+        website && homepagePage?.ok ? website : null,
+      );
+
+      const { report, fieldSourceIds } = await generateResearchReport(
         { name: p.companyName, website: p.website, country: p.country, rawData: rawData || undefined },
         campaign.productDesc,
         campaign.targetMarket,
+        sources,
       );
+
+      const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds);
 
       const scoreResult = await scoreProspect(report, campaign.productDesc, campaign.targetMarket);
       const newStage = scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
       await updateProspect(p.id, {
-        researchReport: report,
+        researchReport: researchBundle,
         score: scoreResult.score,
         scoreReason: scoreResult.reason,
         stage: newStage,
