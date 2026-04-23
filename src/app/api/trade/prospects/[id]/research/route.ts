@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { isAdmin } from "@/lib/rbac/roles";
 import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
 import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
 import { searchGoogle, fetchPageContent } from "@/lib/trade/tools";
@@ -25,6 +26,10 @@ export async function POST(
 ) {
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
+
+  const includeDebug =
+    new URL(request.url).searchParams.get("debugScore") === "1" &&
+    isAdmin(auth.user.role);
 
   const { id } = await params;
   const prospect = await getProspect(id);
@@ -85,6 +90,7 @@ export async function POST(
     report,
     campaign.productDesc,
     campaign.targetMarket,
+    { includeDebug },
   );
 
   const researchBundle = mergeResearchBundle(
@@ -94,13 +100,16 @@ export async function POST(
     scoreResult.scoring,
   );
 
+  const finalScore =
+    researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
+
   // Step 5: Update prospect
   const newStage =
-    scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
+    finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
   const updated = await updateProspect(id, {
     researchReport: researchBundle,
-    score: scoreResult.score,
+    score: finalScore,
     scoreReason: scoreResult.reason,
     stage: newStage,
     website: website ?? prospect.website,
@@ -119,6 +128,6 @@ export async function POST(
     prospect: updated,
     researchBundle,
     report,
-    score: scoreResult,
+    score: { ...scoreResult, score: finalScore },
   });
 }

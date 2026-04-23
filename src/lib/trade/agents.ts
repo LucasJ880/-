@@ -159,26 +159,40 @@ export interface ScoreResult {
   reason: string;
 }
 
+function extractCitationIds(text: string): string[] {
+  return [...text.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]);
+}
+
+/** P2-beta：营销/绝对化套话 → 退回骨架 */
+const REASON_MARKETING_BLOCK =
+  /首选合作伙伴|行业领先|必然成交|独家保证|保证成交|100%|百分百|不二之选|遥遥领先|最专业|最强/i;
+
 async function refineScoreReasonWithLLM(
   skeleton: string,
   sources: ResearchSource[],
 ): Promise<string> {
   const allowed = new Set(sources.map((s) => s.id));
+  const skeletonCitationIds = [
+    ...new Set(extractCitationIds(skeleton).filter((id) => allowed.has(id))),
+  ];
+  const skeletonSet = new Set(skeletonCitationIds);
   const allowedList = sources
     .map((s) => `${s.id}: ${String(s.title).slice(0, 80)}`)
     .join("\n");
 
   const raw = await createCompletion({
-    systemPrompt: `你是外贸 CRM 评分说明助手。根据给定的「规则层骨架」写一条不超过 110 字的中文评分理由。
+    systemPrompt: `你是外贸 CRM 评分说明助手。根据给定的「规则层骨架」写一条简短中文评分理由（陈述事实，语气克制）。
 硬性规则：
 1. 只输出一个 JSON 对象：{"reason":"..."}，不要 markdown。
-2. 不得编造事实；不得新增未在骨架中出现的来源 id。
-3. 若引用来源，只能使用方括号形式如 [s1]、[s2]，且 id 必须来自用户给出的允许列表。
-4. 禁止使用「已确认」「必然」「即将签单」「预测」等绝对化或预测性表述。
-5. 若无法 100% 满足上述格式，reason 请直接复制骨架全文（可截断至 110 字）。`,
-    userPrompt: `规则层骨架：\n${skeleton}\n\n允许的来源 id：\n${allowedList || "(无来源)"}`,
+2. 若骨架中已出现方括号来源 id（如 [s1]），你的 reason 中引用的 id **必须完全来自骨架里已出现的 id**，不得新增其它 id。
+3. 若骨架中没有任何 [sid]，则 reason 中也不要出现方括号来源。
+4. 所有出现的 [sid] 必须同时属于用户给出的「允许来源 id」列表。
+5. 禁止使用「已确认」「必然」「即将签单」「预测」「首选」「行业领先」等绝对化或营销套话。
+6. 若无法同时满足以上约束，reason 请直接复制骨架全文（系统会再截断）。
+7. reason 正文建议不超过 100 个汉字等效长度。`,
+    userPrompt: `规则层骨架：\n${skeleton}\n\n骨架中已出现的引用 id（须为子集）：${skeletonCitationIds.join(", ") || "(无)"}\n\n允许的来源 id：\n${allowedList || "(无来源)"}`,
     mode: "fast",
-    temperature: 0.1,
+    temperature: 0.08,
   });
 
   try {
@@ -186,9 +200,17 @@ async function refineScoreReasonWithLLM(
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as { reason?: string };
     const reason = String(parsed.reason ?? "").trim();
     if (reason.length < 12) return skeleton;
-    const cites = [...reason.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]);
+    if (REASON_MARKETING_BLOCK.test(reason)) return skeleton;
+
+    const cites = extractCitationIds(reason);
     if (cites.some((c) => !allowed.has(c))) return skeleton;
-    return reason.length > 220 ? reason.slice(0, 220) : reason;
+    if (skeletonSet.size > 0) {
+      if (cites.length === 0) return skeleton;
+      if (cites.some((c) => !skeletonSet.has(c))) return skeleton;
+    }
+
+    const maxLen = skeletonSet.size > 0 ? 140 : 110;
+    return reason.length > maxLen ? reason.slice(0, maxLen) : reason;
   } catch {
     return skeleton;
   }
@@ -202,8 +224,9 @@ export async function scoreProspect(
   _report: ResearchReport,
   productDesc: string,
   targetMarket: string,
+  opts?: { includeDebug?: boolean },
 ): Promise<ScoreResult & { scoring: ScoringProfileV1 }> {
-  const scoring = computeScoringProfile(sources, productDesc, targetMarket);
+  const scoring = computeScoringProfile(sources, productDesc, targetMarket, opts);
   const skeleton = buildScoreReasonSkeleton(scoring);
   const reason =
     sources.length > 0 ? await refineScoreReasonWithLLM(skeleton, sources) : skeleton;

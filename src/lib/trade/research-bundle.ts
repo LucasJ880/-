@@ -8,6 +8,7 @@
 
 import type { SearchResult } from "./tools";
 import type { PageContent } from "./tools";
+import { totalScoreFromDimensionScores } from "@/lib/trade/scoring-config";
 
 /** 研究报告正文（与 legacy 平铺 Json 字段一致） */
 export interface ResearchReport {
@@ -85,18 +86,31 @@ export interface LaunchIntentSignalV1 {
   evidenceIds: string[];
 }
 
+/** P2-beta：内部调试快照（可选；仅 admin 单条研究等场景写入） */
+export interface ScoringDebugV1 {
+  ruleSetVersion: string;
+  /** 人类可读的换算说明 */
+  formula: string;
+  /** 每维命中摘要（不含大段原文） */
+  dimensionLines: { key: ScoreDimensionKey; line: string }[];
+  /** 权重与加权和（复核总分用） */
+  weightNotes: string;
+}
+
 export interface ScoringProfileV1 {
   version: 1;
   computedAt: string;
-  model: "rules+p2alpha_v1";
+  model: "rules+p2alpha_v1" | "rules+p2beta_v1";
   dimensions: ScoreDimensionV1[];
   researchScoreSignals: ResearchScoreSignalV1[];
   unknowns?: ScoringUnknownV1[];
   launchIntent?: LaunchIntentSignalV1;
   /** 四维度原始分之和 0–8 */
   dimensionSum: number;
-  /** 映射到 0–10（一位小数） */
+  /** 加权映射到 0–10（一位小数）；p2beta 起与权重配置一致 */
   totalFromDimensions: number;
+  /** 可选调试块 */
+  debug?: ScoringDebugV1;
 }
 
 export interface ResearchBundleV1 {
@@ -272,18 +286,43 @@ export function sanitizeScoringProfile(
   }));
 
   const dimensionSum = dimensions.reduce((a, d) => a + d.score, 0);
-  const totalFromDimensions = Math.round(((dimensionSum / 8) * 10) * 10) / 10;
+  const totalFromDimensions = totalScoreFromDimensionScores(dimensions);
 
   return {
     version: 1,
     computedAt: scoring.computedAt,
-    model: "rules+p2alpha_v1",
+    model: scoring.model === "rules+p2beta_v1" ? "rules+p2beta_v1" : "rules+p2alpha_v1",
     dimensions,
     researchScoreSignals,
     unknowns: unknowns?.length ? unknowns : undefined,
     launchIntent,
     dimensionSum,
     totalFromDimensions,
+    debug: scoring.debug,
+  };
+}
+
+function parseDebugBlock(raw: unknown): ScoringDebugV1 | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (String(raw.ruleSetVersion ?? "") !== "p2beta_v1") return undefined;
+  const formula = String(raw.formula ?? "");
+  const weightNotes = String(raw.weightNotes ?? "");
+  const dimensionLines: { key: ScoreDimensionKey; line: string }[] = [];
+  const dimLinesRaw = raw.dimensionLines;
+  if (Array.isArray(dimLinesRaw)) {
+    for (const row of dimLinesRaw) {
+      if (!isRecord(row)) continue;
+      const key = String(row.key ?? "");
+      if (!isDimKey(key)) continue;
+      dimensionLines.push({ key, line: String(row.line ?? "") });
+    }
+  }
+  if (!formula && dimensionLines.length === 0 && !weightNotes) return undefined;
+  return {
+    ruleSetVersion: "p2beta_v1",
+    formula,
+    weightNotes,
+    dimensionLines,
   };
 }
 
@@ -390,19 +429,22 @@ function parseScoringProfile(raw: unknown, validIds: Set<string>): ScoringProfil
   }
 
   const dimensionSum = dimensions.reduce((a, d) => a + d.score, 0);
-  const totalFromDimensions = Math.round(((dimensionSum / 8) * 10) * 10) / 10;
+  const model =
+    raw.model === "rules+p2beta_v1" ? "rules+p2beta_v1" : "rules+p2alpha_v1";
+  const debug = parseDebugBlock(raw.debug);
 
   return sanitizeScoringProfile(
     {
       version: 1,
       computedAt: typeof raw.computedAt === "string" ? raw.computedAt : new Date().toISOString(),
-      model: "rules+p2alpha_v1",
+      model,
       dimensions,
       researchScoreSignals,
       unknowns,
       launchIntent,
       dimensionSum,
-      totalFromDimensions,
+      totalFromDimensions: 0,
+      debug,
     },
     validIds,
   );

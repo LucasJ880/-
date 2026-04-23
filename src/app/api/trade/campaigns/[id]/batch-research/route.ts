@@ -92,18 +92,26 @@ export async function POST(
         fieldSourceIds,
         scoreResult.scoring,
       );
-      const newStage = scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
+      const finalScore =
+        researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
+      const newStage =
+        finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
       await updateProspect(p.id, {
         researchReport: researchBundle,
-        score: scoreResult.score,
+        score: finalScore,
         scoreReason: scoreResult.reason,
         stage: newStage,
         website: website ?? p.website,
       });
 
       if (newStage === "qualified") qualifiedCount++;
-      results.push({ id: p.id, companyName: p.companyName, score: scoreResult.score, stage: newStage });
+      results.push({
+        id: p.id,
+        companyName: p.companyName,
+        score: finalScore,
+        stage: newStage,
+      });
     } catch (err) {
       results.push({
         id: p.id,

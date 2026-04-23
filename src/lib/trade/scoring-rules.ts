@@ -1,5 +1,5 @@
 /**
- * P2-alpha：规则打底维度分 + 研究评分 signals（与页面监控 TradeSignal 无关）
+ * P2-alpha / P2-beta：规则打底维度分 + 研究评分 signals（与页面监控 TradeSignal 无关）
  * 仅使用 sources 可复核文本；无证据则维度为 0、不产出对外 signal。
  */
 
@@ -9,9 +9,27 @@ import type {
   ResearchScoreSignalV1,
   ScoreDimensionKey,
   ScoreDimensionV1,
+  ScoringDebugV1,
   ScoringProfileV1,
   ScoringUnknownV1,
 } from "@/lib/trade/research-bundle";
+import {
+  CHANNEL_B2B_STRONG_MIN_SOURCES,
+  CHANNEL_B2B_TERMS,
+  CHANNEL_RETAIL_TERMS,
+  COMPLIANCE_CORE_TERMS,
+  COMPLIANCE_EU_HINT_TERMS,
+  COMPLIANCE_SIZE_CHILD_TERMS,
+  COMPLIANCE_US_HINT_TERMS,
+  detectMarketRegionHint,
+  SCORE_DIMENSION_KEYS,
+  SCORE_DIMENSION_WEIGHTS,
+  SOURCING_TERMS,
+  termsToRegex,
+  totalScoreFromDimensionScores,
+  totalScoreWeighted,
+  VERTICAL_TERMS,
+} from "@/lib/trade/scoring-config";
 
 function sourceText(s: ResearchSource): string {
   return `${s.title} ${s.snippet ?? ""} ${s.url}`.toLowerCase();
@@ -33,25 +51,29 @@ function idsWhere(map: Map<string, string>, test: (text: string) => boolean): st
   return [...new Set(out)];
 }
 
-const RE_VERTICAL =
-  /blanket|throws?|fleece|sherpa|flannel|quilt|duvet|\bgsm\b|sleepwear|pajama|pyjamas?|loungewear|nightwear|bedding|bed linen|home textile|毯|毛毯|家纺|睡衣|盖毯|珊瑚绒|法兰绒|夏尔巴/i;
-
-const RE_CHANNEL =
-  /wholesale|b2b|distributor|distribution|importer|import\b|oem|odm|\bmoq\b|bulk|trade supplier|fob|exw|factory direct|manufacturer\b/i;
-
-const RE_COMPLIANCE =
-  /oeko[\s-]*tex|oekotex|\bgots\b|cpsia|\bcpc\b|flame\s*retardant|gpsr|reach compliance|ukca|prop\s*65|certified\s+organic|organic\s+cotton|safety\s+standard/i;
-
-const RE_SOURCING = /\bmoq\b|oem|odm|fob|exw|private label|custom label/i;
+const RE_VERTICAL = termsToRegex(VERTICAL_TERMS, false);
+const RE_B2B = termsToRegex(CHANNEL_B2B_TERMS, false);
+const RE_RETAIL = termsToRegex(CHANNEL_RETAIL_TERMS, false);
+const RE_SOURCING = termsToRegex(SOURCING_TERMS, false);
 
 const RE_EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
-
 const RE_PHONE = /\+?\d[\d\s\-().]{8,}\d/;
-
-const RE_CONTACT = /contact\s+us|get\s+in\s+touch|inquir|sales@|info@|hello@|customer\s+service/i;
+const RE_CONTACT =
+  /contact\s+us|get\s+in\s+touch|inquir|sales@|info@|hello@|customer\s+service/i;
 
 const RE_LAUNCH_WEAK =
   /coming\s+soon|new\s+collection|new\s+arrival|pre[\s-]*order|drop\s+soon|ss\d{2}|fw\d{2}|just\s+dropped|launching\s+soon/i;
+
+function buildComplianceRegex(productDesc: string, targetMarket: string): RegExp {
+  const terms = [
+    ...COMPLIANCE_CORE_TERMS,
+    ...COMPLIANCE_SIZE_CHILD_TERMS,
+  ];
+  const hint = detectMarketRegionHint(`${targetMarket}\n${productDesc}`);
+  if (hint === "us") terms.push(...COMPLIANCE_US_HINT_TERMS);
+  if (hint === "eu") terms.push(...COMPLIANCE_EU_HINT_TERMS);
+  return termsToRegex(terms, false);
+}
 
 function tokenizeProductDesc(productDesc: string): string[] {
   return productDesc
@@ -106,37 +128,63 @@ function scoreProductFit(
 }
 
 function scoreChannelFit(map: Map<string, string>): ScoreDimensionV1 {
-  const ids = idsWhere(map, (t) => RE_CHANNEL.test(t));
-  if (ids.length === 0) {
+  const b2bIds = idsWhere(map, (t) => RE_B2B.test(t));
+  const retailIds = idsWhere(map, (t) => RE_RETAIL.test(t));
+  const evidenceIds = [...new Set([...b2bIds, ...retailIds])];
+
+  if (evidenceIds.length === 0) {
     return dim(
       "channelFit",
       0,
       [],
-      "在所检索的公开摘录中，未明显看到批发、OEM/ODM、MOQ、FOB 等 B2B 渠道表述。",
+      "在所检索的公开摘录中，未明显看到批发、OEM/ODM、MOQ、FOB 或零售平台等渠道表述。",
     );
   }
-  let score = 1;
-  let rationale = "摘录中出现与批发、贸易或 OEM/ODM 相关的表述之一。";
-  if (ids.length >= 2) {
-    score = 2;
-    rationale = "多条公开摘录中出现 B2B/批发或贸易条款类表述，渠道契合度相对较高。";
+
+  if (b2bIds.length === 0 && retailIds.length > 0) {
+    return dim(
+      "channelFit",
+      1,
+      retailIds,
+      "摘录主要为零售/电商平台向表述，B2B 批发或贴牌信号较弱（弱信号，非否定合作可能）。",
+    );
   }
-  return dim("channelFit", score, ids, rationale);
+
+  if (b2bIds.length >= CHANNEL_B2B_STRONG_MIN_SOURCES) {
+    return dim(
+      "channelFit",
+      2,
+      b2bIds,
+      "多条公开摘录中出现批发、贸易或 OEM/ODM 等 B2B 渠道表述。",
+    );
+  }
+
+  const rationale =
+    retailIds.length > 0
+      ? "同时出现 B2B 与零售/平台向表述，渠道信号混合，以保守分档。"
+      : "摘录中出现与批发、贸易或 OEM/ODM 相关的表述之一。";
+  return dim("channelFit", 1, [...new Set([...b2bIds, ...retailIds])], rationale);
 }
 
-function scoreCompliance(map: Map<string, string>): ScoreDimensionV1 {
-  const ids = idsWhere(map, (t) => RE_COMPLIANCE.test(t));
+function scoreCompliance(
+  map: Map<string, string>,
+  productDesc: string,
+  targetMarket: string,
+): ScoreDimensionV1 {
+  const re = buildComplianceRegex(productDesc, targetMarket);
+  const ids = idsWhere(map, (t) => re.test(t));
   if (ids.length === 0) {
     return dim(
       "complianceVisibility",
       0,
       [],
-      "在所检索的公开摘录中，未明显看到 OEKO-TEX、GOTS、阻燃、GPSR 等合规相关字样（仅表示可见度，非证书真伪判断）。",
+      "在所检索的公开摘录中，未明显看到 OEKO-TEX、GOTS、阻燃、GPSR、尺码/儿童睡衣相关字样（仅表示可见度，非证书真伪判断）。",
     );
   }
   const joined = ids.map((id) => map.get(id) ?? "").join(" ");
   let score = 1;
-  let rationale = "摘录中出现合规或认证相关字样，属「可见度」弱信号，需人工核对原件。";
+  let rationale =
+    "摘录中出现合规、认证、尺码或安全相关字样，属「可见度」弱信号，需人工核对原件。";
   if (ids.length >= 2 || /oeko|gots/i.test(joined)) {
     score = 2;
     rationale = "多条摘录或较明确出现常见合规关键词，可见度较高，仍需人工核实。";
@@ -176,23 +224,30 @@ function scoreReachability(map: Map<string, string>): ScoreDimensionV1 {
   return dim("reachability", score, evidenceIds, rationale);
 }
 
-function buildSignals(
-  map: Map<string, string>,
-): ResearchScoreSignalV1[] {
+function buildSignals(map: Map<string, string>): ResearchScoreSignalV1[] {
   const out: ResearchScoreSignalV1[] = [];
 
-  const chIds = idsWhere(map, (t) => RE_CHANNEL.test(t));
+  const b2bIds = idsWhere(map, (t) => RE_B2B.test(t));
+  const retailIds = idsWhere(map, (t) => RE_RETAIL.test(t));
+  const chIds = [...new Set([...b2bIds, ...retailIds])];
   if (chIds.length) {
     out.push({
       type: "channelsObserved",
       label: "渠道表述",
-      strength: chIds.length >= 2 ? "med" : "low",
-      detail: "公开摘录中出现批发、贸易或 OEM/ODM 等渠道相关措辞（弱信号）。",
+      strength: b2bIds.length >= CHANNEL_B2B_STRONG_MIN_SOURCES ? "med" : "low",
+      detail:
+        retailIds.length > 0 && b2bIds.length === 0
+          ? "主要为零售/平台向渠道措辞（弱信号）。"
+          : "公开摘录中出现批发、贸易或 OEM/ODM 等渠道相关措辞（弱信号）。",
       evidenceIds: chIds,
     });
   }
 
-  const coIds = idsWhere(map, (t) => RE_COMPLIANCE.test(t));
+  const re = termsToRegex(
+    [...COMPLIANCE_CORE_TERMS, ...COMPLIANCE_SIZE_CHILD_TERMS],
+    false,
+  );
+  const coIds = idsWhere(map, (t) => re.test(t));
   if (coIds.length) {
     out.push({
       type: "complianceSignals",
@@ -271,10 +326,37 @@ function buildUnknowns(
   return unknowns.slice(0, 3);
 }
 
+function buildScoringDebug(dimensions: ScoreDimensionV1[]): ScoringDebugV1 {
+  const weights = SCORE_DIMENSION_WEIGHTS;
+  const parts: string[] = [];
+  let wsum = 0;
+  let maxW = 0;
+  for (const k of SCORE_DIMENSION_KEYS) {
+    const d = dimensions.find((x) => x.key === k)!;
+    const w = weights[k];
+    parts.push(`${w}×${d.score}`);
+    wsum += w * d.score;
+    maxW += w * 2;
+  }
+  const total = totalScoreFromDimensionScores(dimensions, weights);
+  const formula = `round((${parts.join("+")}) / ${maxW} × 10, 1) = ${total}`;
+  const weightNotes = `权重: ${SCORE_DIMENSION_KEYS.map((k) => `${k}=${weights[k]}`).join(", ")} · 加权和=${wsum} / 满分加权=${maxW}`;
+
+  const dimensionLines = dimensions.map((d) => ({
+    key: d.key,
+    line: `${d.key} ${d.score}/2 · 证据 [${d.evidenceIds.join(", ") || "无"}]`,
+  }));
+
+  return {
+    ruleSetVersion: "p2beta_v1",
+    formula,
+    dimensionLines,
+    weightNotes,
+  };
+}
+
 export function totalScoreFromDimensions(dimensions: ScoreDimensionV1[]): number {
-  const sum = dimensions.reduce((a, d) => a + d.score, 0);
-  const raw = (sum / 8) * 10;
-  return Math.round(raw * 10) / 10;
+  return totalScoreFromDimensionScores(dimensions, SCORE_DIMENSION_WEIGHTS);
 }
 
 /** 规则层评分理由骨架（供 LLM 润色或直接使用），含来源 id 便于复核 */
@@ -285,40 +367,53 @@ export function buildScoreReasonSkeleton(
     const ev = d.evidenceIds.length ? d.evidenceIds.map((id) => `[${id}]`).join("") : "";
     return `${d.key}=${d.score}/${d.max}${ev}：${d.rationale}`;
   });
-  return `总分 ${scoring.totalFromDimensions.toFixed(1)}/10（由四维度 0–2 分合计换算）。${parts.join(" ")}`;
+  return `总分 ${scoring.totalFromDimensions.toFixed(1)}/10（四维度加权换算）。${parts.join(" ")}`;
 }
 
 export function computeScoringProfile(
   sources: ResearchSource[],
   productDesc: string,
   targetMarket: string,
+  opts?: { includeDebug?: boolean },
 ): ScoringProfileV1 {
   const map = textById(sources);
   const campaignText = `${productDesc}\n${targetMarket}`;
   const dimensions: ScoreDimensionV1[] = [
     scoreProductFit(map, campaignText),
     scoreChannelFit(map),
-    scoreCompliance(map),
+    scoreCompliance(map, productDesc, targetMarket),
     scoreReachability(map),
   ];
 
   const dimensionSum = dimensions.reduce((a, d) => a + d.score, 0);
-  const totalFromDimensions = totalScoreFromDimensions(dimensions);
+  const scoresByKey = Object.fromEntries(dimensions.map((d) => [d.key, d.score])) as Record<
+    ScoreDimensionKey,
+    number
+  >;
+  const totalFromDimensions = totalScoreWeighted(
+    scoresByKey,
+    SCORE_DIMENSION_WEIGHTS,
+  );
+
   const allSourceIds = sources.map((s) => s.id);
 
   const researchScoreSignals = buildSignals(map);
   const launchIntent = buildLaunchIntent(map);
   const unknowns = buildUnknowns(dimensions, allSourceIds);
 
+  const debug =
+    opts?.includeDebug === true ? buildScoringDebug(dimensions) : undefined;
+
   return {
     version: 1,
     computedAt: new Date().toISOString(),
-    model: "rules+p2alpha_v1",
+    model: "rules+p2beta_v1",
     dimensions,
     researchScoreSignals,
     unknowns: unknowns.length ? unknowns : undefined,
     launchIntent,
     dimensionSum,
     totalFromDimensions,
+    debug,
   };
 }

@@ -29,6 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import {
   parseResearchBundle,
   type ResearchReport,
@@ -167,6 +168,7 @@ const REPORT_LABELS: Record<string, string> = {
 export default function ProspectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { isSuperAdmin } = useCurrentUser();
   const [prospect, setProspect] = useState<Prospect | null>(null);
   const [loading, setLoading] = useState(true);
   const [researching, setResearching] = useState(false);
@@ -332,7 +334,10 @@ export default function ProspectDetailPage() {
   const handleResearch = async () => {
     setResearching(true);
     try {
-      await apiFetch(`/api/trade/prospects/${id}/research`, { method: "POST" });
+      const researchUrl =
+        `/api/trade/prospects/${id}/research` +
+        (isSuperAdmin ? "?debugScore=1" : "");
+      await apiFetch(researchUrl, { method: "POST" });
       await loadProspect();
     } finally {
       setResearching(false);
@@ -447,6 +452,12 @@ export default function ProspectDetailPage() {
   const fieldSourceIds = parsed.fieldSourceIds;
   const scoring: ScoringProfileV1 | undefined = parsed.scoring;
   const hasResearch = hasResearchContent(report);
+  const displayScore =
+    scoring != null ? scoring.totalFromDimensions : p.score ?? null;
+  const scoreOutOfSync =
+    p.score != null &&
+    scoring != null &&
+    Math.abs(p.score - scoring.totalFromDimensions) > 0.05;
 
   return (
     <div className="space-y-6">
@@ -479,14 +490,19 @@ export default function ProspectDetailPage() {
           </div>
         </div>
 
-        {p.score !== null && (
+        {displayScore !== null && (
           <div className="flex flex-col items-center rounded-xl border border-border/60 bg-card-bg px-4 py-2">
             <div className="flex items-center gap-1">
-              <Star size={14} className={p.score >= 7 ? "text-amber-400" : "text-zinc-500"} />
-              <span className={cn("text-xl font-bold", p.score >= 7 ? "text-amber-400" : "text-muted")}>{p.score.toFixed(1)}</span>
+              <Star size={14} className={displayScore >= 7 ? "text-amber-400" : "text-zinc-500"} />
+              <span className={cn("text-xl font-bold", displayScore >= 7 ? "text-amber-400" : "text-muted")}>{displayScore.toFixed(1)}</span>
             </div>
             <span className="text-[10px] text-muted">综合评分</span>
             <span className="text-[9px] text-muted/80">规则维度换算</span>
+            {scoreOutOfSync && (
+              <span className="mt-1 max-w-[140px] text-center text-[9px] leading-tight text-amber-600">
+                存库分与 bundle 不一致，请重新研究同步
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -637,7 +653,7 @@ export default function ProspectDetailPage() {
               <h3 className="mb-1 text-xs font-medium text-muted">评分说明</h3>
               <p className="text-xs leading-relaxed text-foreground">{p.scoreReason}</p>
               <p className="mt-2 text-[10px] text-muted">
-                总分为四维度规则结果换算，非预测结论；方括号内为可复核的来源 id。
+                总分为四维度加权规则换算，非预测结论；方括号内为可复核的来源 id。
               </p>
             </div>
           )}
@@ -749,6 +765,26 @@ export default function ProspectDetailPage() {
                 ))}
               </ul>
             </div>
+          )}
+
+          {isSuperAdmin && scoring?.debug && (
+            <details className="rounded-xl border border-amber-500/25 bg-zinc-950/40 p-3 text-[10px] text-muted">
+              <summary className="cursor-pointer font-medium text-amber-200/90">
+                评分调试（内部）
+              </summary>
+              <p className="mt-2 font-mono leading-relaxed text-foreground/80">
+                {scoring.debug.formula}
+              </p>
+              <p className="mt-1.5 text-foreground/70">{scoring.debug.weightNotes}</p>
+              <ul className="mt-2 space-y-1 border-t border-border/30 pt-2">
+                {scoring.debug.dimensionLines.map((row) => (
+                  <li key={row.key}>
+                    <span className="text-amber-200/80">{row.key}</span>
+                    <span className="text-foreground/75"> · {row.line}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}

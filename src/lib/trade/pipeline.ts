@@ -199,11 +199,14 @@ export async function runFullPipeline(
           fieldSourceIds,
           scoreResult.scoring,
         );
-        const newStage = scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
+        const finalScore =
+          researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
+        const newStage =
+          finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
         await updateProspect(p.id, {
           researchReport: researchBundle,
-          score: scoreResult.score,
+          score: finalScore,
           scoreReason: scoreResult.reason,
           stage: newStage,
           website: website ?? p.website,
@@ -216,8 +219,8 @@ export async function runFullPipeline(
           campaignId,
           prospectId: p.id,
           action: "research",
-          detail: `${p.companyName}: ${scoreResult.score.toFixed(1)}分 → ${newStage}`,
-          meta: { score: scoreResult.score, stage: newStage },
+          detail: `${p.companyName}: ${finalScore.toFixed(1)}分 → ${newStage}`,
+          meta: { score: finalScore, stage: newStage },
         });
       } catch (err) {
         console.error(`[pipeline] Research failed for ${p.companyName}:`, err);
