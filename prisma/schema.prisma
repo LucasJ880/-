@@ -1976,11 +1976,53 @@ model TradeProspect {
 
   messages        TradeMessage[]
   quotes          TradeQuote[]
+  watchTargets    TradeWatchTarget[]
 
   @@index([campaignId, stage])
   @@index([orgId, stage])
   @@index([nextFollowUpAt])
   @@index([score])
+}
+
+// P1-alpha：少量 URL 文本指纹监控（与 researchReport / bundle 无关）
+model TradeWatchTarget {
+  id               String    @id @default(cuid())
+  orgId            String
+  prospectId       String?
+  prospect         TradeProspect? @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  url              String    @db.Text
+  pageType         String // products | collections | news | blog | about | careers | custom
+  isActive         Boolean   @default(true)
+  lastContentHash  String?
+  lastCheckedAt    DateTime?
+  lastChangedAt    DateTime?
+  lastFetchError   String?   @db.VarChar(500)
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  signals          TradeSignal[]
+
+  @@index([orgId, isActive])
+  @@index([prospectId])
+}
+
+model TradeSignal {
+  id             String           @id @default(cuid())
+  orgId          String
+  watchTargetId  String
+  watchTarget    TradeWatchTarget @relation(fields: [watchTargetId], references: [id], onDelete: Cascade)
+  prospectId     String?
+  signalType     String           @default("page_text_changed")
+  strength       String           @default("low") // P1-alpha 固定 low
+  title          String
+  description    String           @db.Text
+  evidenceJson   Json?
+  createdAt      DateTime         @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([prospectId, createdAt])
+  @@index([watchTargetId, createdAt])
 }
 
 model TradeMessage {

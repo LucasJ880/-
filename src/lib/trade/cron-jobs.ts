@@ -10,11 +10,15 @@
 
 import { db } from "@/lib/db";
 import { logActivity } from "./activity-log";
+import { runWatchTargetsCron } from "./watch-service";
 
 export interface CronResult {
   overdueFollowUps: number;
   expiredQuotes: number;
   noResponseProspects: number;
+  watchChecked: number;
+  watchSignalsCreated: number;
+  watchFetchErrors: number;
   timestamp: string;
 }
 
@@ -24,6 +28,9 @@ export async function runDailyCron(): Promise<CronResult> {
     overdueFollowUps: 0,
     expiredQuotes: 0,
     noResponseProspects: 0,
+    watchChecked: 0,
+    watchSignalsCreated: 0,
+    watchFetchErrors: 0,
     timestamp: now.toISOString(),
   };
 
@@ -85,6 +92,16 @@ export async function runDailyCron(): Promise<CronResult> {
       data: { stage: "no_response" },
     });
     result.noResponseProspects = noResponseProspects.length;
+  }
+
+  // ── 4. P1-alpha：页面监控（低频批量，与 research 无关）──
+  try {
+    const w = await runWatchTargetsCron();
+    result.watchChecked = w.checked;
+    result.watchSignalsCreated = w.signalsCreated;
+    result.watchFetchErrors = w.fetchErrors;
+  } catch (e) {
+    console.error("[cron] watch targets:", e);
   }
 
   return result;

@@ -22,6 +22,8 @@ import {
   History,
   Calendar,
   Edit3,
+  Trash2,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -87,6 +89,37 @@ const STAGE_LABELS: Record<string, string> = {
   no_response: "未回复",
 };
 
+const TRADE_ORG_ID = "default";
+
+const WATCH_PAGE_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "products", label: "产品页" },
+  { value: "collections", label: "集合页" },
+  { value: "news", label: "新闻/公告" },
+  { value: "blog", label: "博客" },
+  { value: "about", label: "公司介绍" },
+  { value: "careers", label: "招聘" },
+  { value: "custom", label: "自定义" },
+];
+
+interface WatchTargetRow {
+  id: string;
+  url: string;
+  pageType: string;
+  isActive: boolean;
+  lastContentHash: string | null;
+  lastCheckedAt: string | null;
+  lastChangedAt: string | null;
+  lastFetchError: string | null;
+}
+
+interface SignalRow {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  evidenceJson: unknown;
+}
+
 const STAGE_COLORS: Record<string, string> = {
   new: "bg-zinc-500/15 text-zinc-400",
   qualified: "bg-emerald-500/15 text-emerald-400",
@@ -142,6 +175,12 @@ export default function ProspectDetailPage() {
   const [editingStage, setEditingStage] = useState(false);
   const [editingFollowUp, setEditingFollowUp] = useState(false);
   const [newFollowUpDate, setNewFollowUpDate] = useState("");
+  const [watchTargets, setWatchTargets] = useState<WatchTargetRow[]>([]);
+  const [signals, setSignals] = useState<SignalRow[]>([]);
+  const [watchUrl, setWatchUrl] = useState("");
+  const [watchPageType, setWatchPageType] = useState("custom");
+  const [watchBusy, setWatchBusy] = useState(false);
+  const [checkingWatchId, setCheckingWatchId] = useState<string | null>(null);
 
   const loadProspect = useCallback(async () => {
     const res = await apiFetch(`/api/trade/prospects/${id}`);
@@ -152,6 +191,85 @@ export default function ProspectDetailPage() {
   useEffect(() => {
     loadProspect();
   }, [loadProspect]);
+
+  const loadWatchData = useCallback(async () => {
+    const [r1, r2] = await Promise.all([
+      apiFetch(`/api/trade/watch-targets?orgId=${encodeURIComponent(TRADE_ORG_ID)}&prospectId=${encodeURIComponent(id)}`),
+      apiFetch(`/api/trade/signals?orgId=${encodeURIComponent(TRADE_ORG_ID)}&prospectId=${encodeURIComponent(id)}&limit=20`),
+    ]);
+    if (r1.ok) {
+      const d = (await r1.json()) as { items?: WatchTargetRow[] };
+      setWatchTargets(d.items ?? []);
+    }
+    if (r2.ok) {
+      const d = (await r2.json()) as { items?: SignalRow[] };
+      setSignals(d.items ?? []);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void loadWatchData();
+  }, [loadWatchData]);
+
+  const handleAddWatch = async () => {
+    if (!watchUrl.trim()) return;
+    setWatchBusy(true);
+    try {
+      const res = await apiFetch("/api/trade/watch-targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orgId: TRADE_ORG_ID,
+          prospectId: id,
+          url: watchUrl.trim(),
+          pageType: watchPageType,
+        }),
+      });
+      if (res.ok) {
+        setWatchUrl("");
+        await loadWatchData();
+      } else {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        alert(err?.error ?? "添加失败");
+      }
+    } finally {
+      setWatchBusy(false);
+    }
+  };
+
+  const handleCheckWatch = async (targetId: string) => {
+    setCheckingWatchId(targetId);
+    try {
+      const res = await apiFetch(
+        `/api/trade/watch-targets/${targetId}/check?orgId=${encodeURIComponent(TRADE_ORG_ID)}`,
+        { method: "POST" },
+      );
+      if (res.ok) await loadWatchData();
+      else {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        alert(err?.error ?? "检查失败");
+      }
+    } finally {
+      setCheckingWatchId(null);
+    }
+  };
+
+  const handleToggleWatch = async (targetId: string, isActive: boolean) => {
+    await apiFetch(`/api/trade/watch-targets/${targetId}?orgId=${encodeURIComponent(TRADE_ORG_ID)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive }),
+    });
+    await loadWatchData();
+  };
+
+  const handleDeleteWatch = async (targetId: string) => {
+    if (!confirm("确定删除该监控 URL？")) return;
+    await apiFetch(`/api/trade/watch-targets/${targetId}?orgId=${encodeURIComponent(TRADE_ORG_ID)}`, {
+      method: "DELETE",
+    });
+    await loadWatchData();
+  };
 
   const handleResearch = async () => {
     setResearching(true);
@@ -458,6 +576,130 @@ export default function ProspectDetailPage() {
           <p className="text-sm text-foreground">{p.scoreReason}</p>
         </div>
       )}
+
+      {/* P1-alpha：页面监控试点（与研究报告独立） */}
+      <div className="rounded-xl border border-amber-500/30 bg-card-bg p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <Eye size={14} className="text-amber-500" />
+          <h3 className="text-sm font-medium text-foreground">页面监控（试点）</h3>
+          <span className="text-[10px] text-muted">低频文本指纹 · 弱信号需人工核对</span>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <input
+            type="url"
+            value={watchUrl}
+            onChange={(e) => setWatchUrl(e.target.value)}
+            placeholder="https://…"
+            className="min-w-[200px] flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+          />
+          <select
+            value={watchPageType}
+            onChange={(e) => setWatchPageType(e.target.value)}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+          >
+            {WATCH_PAGE_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void handleAddWatch()}
+            disabled={watchBusy || !watchUrl.trim()}
+            className="flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+          >
+            {watchBusy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+            添加
+          </button>
+        </div>
+        {watchTargets.length > 0 && (
+          <ul className="space-y-2 border-t border-border/40 pt-3">
+            {watchTargets.map((w) => (
+              <li
+                key={w.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-background/60 px-2 py-2 text-xs"
+              >
+                <label className="flex items-center gap-1 text-muted">
+                  <input
+                    type="checkbox"
+                    checked={w.isActive}
+                    onChange={(e) => void handleToggleWatch(w.id, e.target.checked)}
+                  />
+                  启用
+                </label>
+                <span className="rounded bg-zinc-500/15 px-1 py-0.5 text-[10px]">{w.pageType}</span>
+                <a href={w.url} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-blue-400 hover:underline">
+                  {w.url}
+                </a>
+                <span className="text-[10px] text-muted">
+                  {w.lastCheckedAt
+                    ? `查 ${new Date(w.lastCheckedAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+                    : "未检查"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleCheckWatch(w.id)}
+                  disabled={checkingWatchId === w.id}
+                  className="rounded border border-border px-2 py-0.5 text-[10px] hover:border-amber-500/50 disabled:opacity-50"
+                >
+                  {checkingWatchId === w.id ? <Loader2 size={10} className="animate-spin inline" /> : null}
+                  检查
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteWatch(w.id)}
+                  className="p-0.5 text-muted hover:text-red-400"
+                  title="删除"
+                >
+                  <Trash2 size={14} />
+                </button>
+                {w.lastFetchError && (
+                  <p className="w-full text-[10px] text-amber-600">{w.lastFetchError}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {signals.length > 0 && (
+          <div className="border-t border-border/40 pt-3">
+            <h4 className="mb-2 text-xs font-medium text-muted">最近变化信号</h4>
+            <ul className="space-y-2">
+              {signals.map((s) => {
+                const ev = s.evidenceJson;
+                const evUrl =
+                  ev &&
+                  typeof ev === "object" &&
+                  "url" in ev &&
+                  typeof (ev as { url?: unknown }).url === "string"
+                    ? (ev as { url: string }).url
+                    : null;
+                return (
+                <li key={s.id} className="rounded-lg border border-border/40 bg-background/50 px-2 py-2 text-xs">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-medium text-foreground">{s.title}</span>
+                    <span className="text-[10px] text-muted">
+                      {new Date(s.createdAt).toLocaleString("zh-CN")}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-foreground/90">{s.description}</p>
+                  {evUrl ? (
+                    <a
+                      href={evUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-[10px] text-blue-400 hover:underline"
+                    >
+                      打开监测 URL
+                    </a>
+                  ) : null}
+                </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
 
       {/* Research Report */}
       {hasResearch && report && (
