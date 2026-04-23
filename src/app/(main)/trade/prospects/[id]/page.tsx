@@ -32,6 +32,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import {
   parseResearchBundle,
   type ResearchReport,
+  type ScoringProfileV1,
 } from "@/lib/trade/research-bundle";
 
 // ── Types ───────────────────────────────────────────────────
@@ -91,6 +92,13 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const TRADE_ORG_ID = "default";
+
+const SCORE_DIM_LABELS: Record<string, string> = {
+  productFit: "产品契合",
+  channelFit: "渠道契合",
+  complianceVisibility: "合规可见度",
+  reachability: "可触达性",
+};
 
 const WATCH_PAGE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "products", label: "产品页" },
@@ -437,6 +445,7 @@ export default function ProspectDetailPage() {
   const report = parsed.report;
   const researchSources = parsed.sources;
   const fieldSourceIds = parsed.fieldSourceIds;
+  const scoring: ScoringProfileV1 | undefined = parsed.scoring;
   const hasResearch = hasResearchContent(report);
 
   return (
@@ -476,7 +485,8 @@ export default function ProspectDetailPage() {
               <Star size={14} className={p.score >= 7 ? "text-amber-400" : "text-zinc-500"} />
               <span className={cn("text-xl font-bold", p.score >= 7 ? "text-amber-400" : "text-muted")}>{p.score.toFixed(1)}</span>
             </div>
-            <span className="text-[10px] text-muted">AI 评分</span>
+            <span className="text-[10px] text-muted">综合评分</span>
+            <span className="text-[9px] text-muted/80">规则维度换算</span>
           </div>
         )}
       </div>
@@ -619,11 +629,127 @@ export default function ProspectDetailPage() {
         </div>
       )}
 
-      {/* Score Reason */}
-      {p.scoreReason && (
-        <div className="rounded-xl border border-border/60 bg-card-bg p-4">
-          <h3 className="mb-1 text-xs font-medium text-muted">评分理由</h3>
-          <p className="text-sm text-foreground">{p.scoreReason}</p>
+      {/* Score Reason + P2-alpha 维度 */}
+      {(p.scoreReason || scoring) && (
+        <div className="space-y-3">
+          {p.scoreReason && (
+            <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+              <h3 className="mb-1 text-xs font-medium text-muted">评分说明</h3>
+              <p className="text-xs leading-relaxed text-foreground">{p.scoreReason}</p>
+              <p className="mt-2 text-[10px] text-muted">
+                总分为四维度规则结果换算，非预测结论；方括号内为可复核的来源 id。
+              </p>
+            </div>
+          )}
+
+          {scoring && scoring.dimensions.length > 0 && (
+            <div className="rounded-xl border border-emerald-500/25 bg-card-bg p-4">
+              <h3 className="mb-2 text-xs font-medium text-muted">四维度（规则打底）</h3>
+              <ul className="space-y-2">
+                {scoring.dimensions.map((d) => (
+                  <li key={d.key} className="rounded-lg border border-border/50 bg-background/50 text-xs">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 px-2 py-1.5">
+                      <span className="font-medium text-foreground">
+                        {SCORE_DIM_LABELS[d.key] ?? d.key}
+                      </span>
+                      <span className="text-[10px] text-muted">
+                        {d.score}/{d.max} 分
+                      </span>
+                    </div>
+                    <p className="border-t border-border/40 px-2 py-1.5 text-[11px] leading-snug text-foreground/90">
+                      {d.rationale}
+                    </p>
+                    <details className="border-t border-border/40 px-2 py-1">
+                      <summary className="cursor-pointer text-[10px] text-blue-400 hover:underline">
+                        查看依据链接（{d.evidenceIds.length} 条来源）
+                      </summary>
+                      {d.evidenceIds.length === 0 ? (
+                        <p className="mt-1 text-[10px] text-muted">本维度无绑定来源片段。</p>
+                      ) : (
+                        <ul className="mt-1 space-y-1">
+                          {d.evidenceIds.map((eid) => {
+                            const src = researchSources.find((s) => s.id === eid);
+                            if (!src) {
+                              return (
+                                <li key={eid} className="text-[10px] text-muted">
+                                  {eid}（来源列表中未找到，可能为旧数据）
+                                </li>
+                              );
+                            }
+                            return (
+                              <li key={eid}>
+                                <span className="font-mono text-[10px] text-zinc-500">{eid}</span>
+                                {" · "}
+                                <a
+                                  href={src.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="break-all text-[10px] text-blue-400 hover:underline"
+                                >
+                                  {src.title || src.url}
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </details>
+                  </li>
+                ))}
+              </ul>
+
+              {scoring.researchScoreSignals.length > 0 && (
+                <div className="mt-3 border-t border-border/40 pt-3">
+                  <h4 className="mb-1 text-[10px] font-medium text-muted">公开摘录中的弱信号（非预测）</h4>
+                  <ul className="space-y-1.5">
+                    {scoring.researchScoreSignals.map((sig, idx) => (
+                      <li key={`${sig.type}-${idx}`} className="text-[11px] text-foreground/90">
+                        <span className="text-muted">[{sig.strength}]</span> {sig.label}：{sig.detail}
+                        <details className="mt-0.5">
+                          <summary className="cursor-pointer text-[10px] text-blue-400">来源</summary>
+                          <ul className="mt-0.5 space-y-0.5">
+                            {sig.evidenceIds.map((eid) => {
+                              const src = researchSources.find((s) => s.id === eid);
+                              if (!src) return null;
+                              return (
+                                <li key={eid}>
+                                  <a
+                                    href={src.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-blue-400 hover:underline"
+                                  >
+                                    {eid} — {src.title || src.url}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {scoring?.unknowns && scoring.unknowns.length > 0 && (
+            <div className="rounded-xl border border-zinc-500/30 bg-card-bg p-4">
+              <h3 className="mb-2 text-xs font-medium text-muted">信息缺口（保守表述）</h3>
+              <p className="mb-2 text-[10px] leading-relaxed text-muted">
+                以下仅表示在当前检索到的公开网页与摘要片段中<strong className="text-foreground/80">未明显看到</strong>相关内容，不代表对方一定不具备或不存在。
+              </p>
+              <ul className="space-y-2">
+                {scoring.unknowns.map((u) => (
+                  <li key={u.id} className="rounded-lg border border-border/40 bg-background/40 px-2 py-2 text-[11px]">
+                    <span className="font-medium text-foreground">{u.topic}</span>
+                    <p className="mt-1 leading-snug text-foreground/85">{u.note}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

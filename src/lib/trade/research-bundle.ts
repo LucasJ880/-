@@ -40,12 +40,73 @@ export const RESEARCH_REPORT_KEYS: (keyof ResearchReport)[] = [
   "recommendations",
 ];
 
+// ── P2-alpha：研究评分结构化（与 TradeSignal 页面监控无关）────────────────
+
+export type ScoreDimensionKey =
+  | "productFit"
+  | "channelFit"
+  | "complianceVisibility"
+  | "reachability";
+
+export interface ScoreDimensionV1 {
+  key: ScoreDimensionKey;
+  score: number;
+  max: 2;
+  evidenceIds: string[];
+  rationale: string;
+}
+
+export type ResearchScoreSignalType =
+  | "channelsObserved"
+  | "complianceSignals"
+  | "sourcingSignals"
+  | "launchIntentSignal";
+
+export interface ResearchScoreSignalV1 {
+  type: ResearchScoreSignalType;
+  label: string;
+  strength: "low" | "med" | "high";
+  detail: string;
+  evidenceIds: string[];
+}
+
+export interface ScoringUnknownV1 {
+  id: string;
+  topic: string;
+  /** 对用户：仅表示当前公开摘录中未明显看到，非「已确认缺失」 */
+  note: string;
+  scopeEvidenceIds?: string[];
+}
+
+/** 可选；第一轮 UI 可不展示 */
+export interface LaunchIntentSignalV1 {
+  strength: "low" | "med" | "high";
+  detail: string;
+  evidenceIds: string[];
+}
+
+export interface ScoringProfileV1 {
+  version: 1;
+  computedAt: string;
+  model: "rules+p2alpha_v1";
+  dimensions: ScoreDimensionV1[];
+  researchScoreSignals: ResearchScoreSignalV1[];
+  unknowns?: ScoringUnknownV1[];
+  launchIntent?: LaunchIntentSignalV1;
+  /** 四维度原始分之和 0–8 */
+  dimensionSum: number;
+  /** 映射到 0–10（一位小数） */
+  totalFromDimensions: number;
+}
+
 export interface ResearchBundleV1 {
   v: 1;
   generatedAt: string;
   sources: ResearchSource[];
   report: ResearchReport;
   fieldSourceIds?: Partial<Record<keyof ResearchReport, string[]>>;
+  /** P2-alpha：与本次 sources 对齐的规则评分快照 */
+  scoring?: ScoringProfileV1;
 }
 
 export type StoredResearchReport = ResearchBundleV1 | ResearchReport;
@@ -128,6 +189,7 @@ export function mergeResearchBundle(
   sources: ResearchSource[],
   report: ResearchReport,
   fieldSourceIds: Partial<Record<keyof ResearchReport, string[]>> | undefined,
+  scoring?: ScoringProfileV1,
 ): ResearchBundleV1 {
   const valid = new Set(sources.map((s) => s.id));
   const cleaned = sanitizeFieldSourceIds(fieldSourceIds, valid);
@@ -140,7 +202,210 @@ export function mergeResearchBundle(
   if (cleaned && Object.keys(cleaned).length > 0) {
     bundle.fieldSourceIds = cleaned;
   }
+  if (scoring) {
+    bundle.scoring = sanitizeScoringProfile(scoring, valid);
+  }
   return bundle;
+}
+
+function isDimKey(x: string): x is ScoreDimensionKey {
+  return (
+    x === "productFit" ||
+    x === "channelFit" ||
+    x === "complianceVisibility" ||
+    x === "reachability"
+  );
+}
+
+function isSignalType(x: string): x is ResearchScoreSignalType {
+  return (
+    x === "channelsObserved" ||
+    x === "complianceSignals" ||
+    x === "sourcingSignals" ||
+    x === "launchIntentSignal"
+  );
+}
+
+function isStrength(x: string): x is "low" | "med" | "high" {
+  return x === "low" || x === "med" || x === "high";
+}
+
+/** 剔除非法 source id、无证据的 signal；launchIntent 无证据则删除 */
+export function sanitizeScoringProfile(
+  scoring: ScoringProfileV1,
+  validIds: Set<string>,
+): ScoringProfileV1 {
+  const filterIds = (ids: string[]) =>
+    [...new Set(ids.filter((id) => validIds.has(id)))];
+
+  const dimensions = scoring.dimensions.map((d) => {
+    const evidenceIds = filterIds(d.evidenceIds);
+    let score = Math.min(2, Math.max(0, Math.round(Number(d.score)) || 0));
+    if (evidenceIds.length === 0) score = 0;
+    return {
+      ...d,
+      score,
+      max: 2 as const,
+      evidenceIds,
+    };
+  });
+
+  const researchScoreSignals = scoring.researchScoreSignals
+    .map((s) => ({
+      ...s,
+      evidenceIds: filterIds(s.evidenceIds),
+    }))
+    .filter((s) => s.evidenceIds.length > 0);
+
+  let launchIntent = scoring.launchIntent;
+  if (launchIntent) {
+    const ids = filterIds(launchIntent.evidenceIds);
+    launchIntent =
+      ids.length > 0 ? { ...launchIntent, evidenceIds: ids } : undefined;
+  }
+
+  const unknowns = scoring.unknowns?.map((u) => ({
+    ...u,
+    scopeEvidenceIds: u.scopeEvidenceIds
+      ? filterIds(u.scopeEvidenceIds)
+      : undefined,
+  }));
+
+  const dimensionSum = dimensions.reduce((a, d) => a + d.score, 0);
+  const totalFromDimensions = Math.round(((dimensionSum / 8) * 10) * 10) / 10;
+
+  return {
+    version: 1,
+    computedAt: scoring.computedAt,
+    model: "rules+p2alpha_v1",
+    dimensions,
+    researchScoreSignals,
+    unknowns: unknowns?.length ? unknowns : undefined,
+    launchIntent,
+    dimensionSum,
+    totalFromDimensions,
+  };
+}
+
+function parseScoringProfile(raw: unknown, validIds: Set<string>): ScoringProfileV1 | undefined {
+  if (!isRecord(raw) || raw.version !== 1) return undefined;
+
+  const dimsIn = Array.isArray(raw.dimensions) ? raw.dimensions : [];
+  const dimensions: ScoreDimensionV1[] = [];
+  const seen = new Set<ScoreDimensionKey>();
+  for (const row of dimsIn) {
+    if (!isRecord(row)) continue;
+    const key = String(row.key ?? "");
+    if (!isDimKey(key) || seen.has(key)) continue;
+    seen.add(key);
+    const evidenceIds = Array.isArray(row.evidenceIds)
+      ? row.evidenceIds.filter((x): x is string => typeof x === "string" && validIds.has(x))
+      : [];
+    dimensions.push({
+      key,
+      score: Math.min(2, Math.max(0, Number(row.score) || 0)),
+      max: 2 as const,
+      evidenceIds: [...new Set(evidenceIds)],
+      rationale: String(row.rationale ?? ""),
+    });
+  }
+
+  const required: ScoreDimensionKey[] = [
+    "productFit",
+    "channelFit",
+    "complianceVisibility",
+    "reachability",
+  ];
+  for (const k of required) {
+    if (!dimensions.some((d) => d.key === k)) {
+      dimensions.push({
+        key: k,
+        score: 0,
+        max: 2 as const,
+        evidenceIds: [],
+        rationale: "缺少结构化评分数据。",
+      });
+    }
+  }
+  dimensions.sort(
+    (a, b) => required.indexOf(a.key) - required.indexOf(b.key),
+  );
+
+  const sigRaw = Array.isArray(raw.researchScoreSignals) ? raw.researchScoreSignals : [];
+  const researchScoreSignals: ResearchScoreSignalV1[] = [];
+  for (const row of sigRaw) {
+    if (!isRecord(row)) continue;
+    const type = String(row.type ?? "");
+    if (!isSignalType(type)) continue;
+    const evidenceIds = Array.isArray(row.evidenceIds)
+      ? row.evidenceIds.filter((x): x is string => typeof x === "string" && validIds.has(x))
+      : [];
+    if (evidenceIds.length === 0) continue;
+    const st = String(row.strength ?? "low");
+    researchScoreSignals.push({
+      type,
+      label: String(row.label ?? type),
+      strength: isStrength(st) ? st : "low",
+      detail: String(row.detail ?? ""),
+      evidenceIds: [...new Set(evidenceIds)],
+    });
+  }
+
+  let launchIntent: LaunchIntentSignalV1 | undefined;
+  const li = raw.launchIntent;
+  if (isRecord(li)) {
+    const evidenceIds = Array.isArray(li.evidenceIds)
+      ? li.evidenceIds.filter((x): x is string => typeof x === "string" && validIds.has(x))
+      : [];
+    if (evidenceIds.length > 0) {
+      const st = String(li.strength ?? "low");
+      launchIntent = {
+        strength: isStrength(st) ? st : "low",
+        detail: String(li.detail ?? ""),
+        evidenceIds: [...new Set(evidenceIds)],
+      };
+    }
+  }
+
+  let unknowns: ScoringUnknownV1[] | undefined;
+  const unkRaw = raw.unknowns;
+  if (Array.isArray(unkRaw)) {
+    unknowns = unkRaw
+      .map((row, i): ScoringUnknownV1 | null => {
+        if (!isRecord(row)) return null;
+        const scope = Array.isArray(row.scopeEvidenceIds)
+          ? row.scopeEvidenceIds.filter(
+              (x): x is string => typeof x === "string" && validIds.has(x),
+            )
+          : undefined;
+        return {
+          id: String(row.id ?? `u${i}`),
+          topic: String(row.topic ?? ""),
+          note: String(row.note ?? ""),
+          scopeEvidenceIds: scope?.length ? [...new Set(scope)] : undefined,
+        };
+      })
+      .filter((x): x is ScoringUnknownV1 => x !== null);
+    if (unknowns.length === 0) unknowns = undefined;
+  }
+
+  const dimensionSum = dimensions.reduce((a, d) => a + d.score, 0);
+  const totalFromDimensions = Math.round(((dimensionSum / 8) * 10) * 10) / 10;
+
+  return sanitizeScoringProfile(
+    {
+      version: 1,
+      computedAt: typeof raw.computedAt === "string" ? raw.computedAt : new Date().toISOString(),
+      model: "rules+p2alpha_v1",
+      dimensions,
+      researchScoreSignals,
+      unknowns,
+      launchIntent,
+      dimensionSum,
+      totalFromDimensions,
+    },
+    validIds,
+  );
 }
 
 export interface ParsedResearchBundle {
@@ -150,6 +415,7 @@ export interface ParsedResearchBundle {
   report: ResearchReport | null;
   fieldSourceIds?: Partial<Record<keyof ResearchReport, string[]>>;
   generatedAt?: string;
+  scoring?: ScoringProfileV1;
 }
 
 /**
@@ -203,12 +469,19 @@ export function parseResearchBundle(json: unknown): ParsedResearchBundle {
         ? sanitizeFieldSourceIds(rawField as Partial<Record<string, string[]>>, valid)
         : undefined;
 
+    const scoringRaw = json.scoring;
+    const scoring =
+      scoringRaw !== undefined && sources.length > 0
+        ? parseScoringProfile(scoringRaw, valid)
+        : undefined;
+
     return {
       isBundle: true,
       sources,
       report,
       fieldSourceIds: fieldSourceIds ?? undefined,
       generatedAt: typeof json.generatedAt === "string" ? json.generatedAt : undefined,
+      scoring: scoring ?? undefined,
     };
   }
 

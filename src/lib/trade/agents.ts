@@ -13,8 +13,10 @@ import { searchKnowledge } from "@/lib/trade/knowledge-service";
 import type {
   ResearchReport,
   ResearchSource,
+  ScoringProfileV1,
 } from "@/lib/trade/research-bundle";
 import { RESEARCH_REPORT_KEYS } from "@/lib/trade/research-bundle";
+import { buildScoreReasonSkeleton, computeScoringProfile } from "@/lib/trade/scoring-rules";
 
 export type { ResearchReport, ResearchSource, ResearchBundleV1 } from "@/lib/trade/research-bundle";
 
@@ -157,40 +159,59 @@ export interface ScoreResult {
   reason: string;
 }
 
-export async function scoreProspect(
-  report: ResearchReport,
-  productDesc: string,
-  targetMarket: string,
-): Promise<ScoreResult> {
+async function refineScoreReasonWithLLM(
+  skeleton: string,
+  sources: ResearchSource[],
+): Promise<string> {
+  const allowed = new Set(sources.map((s) => s.id));
+  const allowedList = sources
+    .map((s) => `${s.id}: ${String(s.title).slice(0, 80)}`)
+    .join("\n");
+
   const raw = await createCompletion({
-    systemPrompt: `你是外贸客户资格评估专家。根据客户研究报告，对该客户的合作潜力打分。
-
-评分维度（每项 0-2 分，总分 0-10）：
-1. 产品匹配度：客户需求与我方产品的契合程度
-2. 采购规模：预估采购量和金额
-3. 市场匹配：客户所在市场与我方目标市场的一致性
-4. 可触达性：是否有有效联系方式，能否建立联系
-5. 合作意愿信号：是否有近期采购需求、展会参与等积极信号
-
-用 JSON 格式返回：{"score": 数字(0-10), "reason": "评分理由（100字内）"}`,
-    userPrompt: `客户研究报告：${JSON.stringify(report)}
-
-我方产品：${productDesc}
-目标市场：${targetMarket}`,
+    systemPrompt: `你是外贸 CRM 评分说明助手。根据给定的「规则层骨架」写一条不超过 110 字的中文评分理由。
+硬性规则：
+1. 只输出一个 JSON 对象：{"reason":"..."}，不要 markdown。
+2. 不得编造事实；不得新增未在骨架中出现的来源 id。
+3. 若引用来源，只能使用方括号形式如 [s1]、[s2]，且 id 必须来自用户给出的允许列表。
+4. 禁止使用「已确认」「必然」「即将签单」「预测」等绝对化或预测性表述。
+5. 若无法 100% 满足上述格式，reason 请直接复制骨架全文（可截断至 110 字）。`,
+    userPrompt: `规则层骨架：\n${skeleton}\n\n允许的来源 id：\n${allowedList || "(无来源)"}`,
     mode: "fast",
     temperature: 0.1,
   });
 
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
-    return {
-      score: Math.min(10, Math.max(0, Number(parsed.score) || 0)),
-      reason: String(parsed.reason || ""),
-    };
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as { reason?: string };
+    const reason = String(parsed.reason ?? "").trim();
+    if (reason.length < 12) return skeleton;
+    const cites = [...reason.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]);
+    if (cites.some((c) => !allowed.has(c))) return skeleton;
+    return reason.length > 220 ? reason.slice(0, 220) : reason;
   } catch {
-    return { score: 0, reason: "评分解析失败" };
+    return skeleton;
   }
+}
+
+/**
+ * P2-alpha：总分由 sources 上规则维度分换算；LLM 仅润色 scoreReason，不得单独改分。
+ */
+export async function scoreProspect(
+  sources: ResearchSource[],
+  _report: ResearchReport,
+  productDesc: string,
+  targetMarket: string,
+): Promise<ScoreResult & { scoring: ScoringProfileV1 }> {
+  const scoring = computeScoringProfile(sources, productDesc, targetMarket);
+  const skeleton = buildScoreReasonSkeleton(scoring);
+  const reason =
+    sources.length > 0 ? await refineScoreReasonWithLLM(skeleton, sources) : skeleton;
+  return {
+    score: Math.min(10, Math.max(0, scoring.totalFromDimensions)),
+    reason: reason || skeleton,
+    scoring,
+  };
 }
 
 // ── Outreach Agent ──────────────────────────────────────────

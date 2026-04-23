@@ -79,13 +79,19 @@ export async function POST(
     sources,
   );
 
-  const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds);
-
-  // Step 4: Score the prospect
+  // Step 4: Score the prospect（规则维度 + LLM 润色理由）
   const scoreResult = await scoreProspect(
+    sources,
     report,
     campaign.productDesc,
     campaign.targetMarket,
+  );
+
+  const researchBundle = mergeResearchBundle(
+    sources,
+    report,
+    fieldSourceIds,
+    scoreResult.scoring,
   );
 
   // Step 5: Update prospect

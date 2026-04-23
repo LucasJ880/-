@@ -187,9 +187,18 @@ export async function runFullPipeline(
           sources,
         );
 
-        const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds);
-
-        const scoreResult = await scoreProspect(report, campaign.productDesc, campaign.targetMarket);
+        const scoreResult = await scoreProspect(
+          sources,
+          report,
+          campaign.productDesc,
+          campaign.targetMarket,
+        );
+        const researchBundle = mergeResearchBundle(
+          sources,
+          report,
+          fieldSourceIds,
+          scoreResult.scoring,
+        );
         const newStage = scoreResult.score >= campaign.scoreThreshold ? "qualified" : "unqualified";
 
         await updateProspect(p.id, {
