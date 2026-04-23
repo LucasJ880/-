@@ -1,10 +1,11 @@
 /**
- * GET /api/trade/signals?orgId=&prospectId=&limit=
+ * GET /api/trade/signals?orgId= 必填
+ *     &prospectId= &pageType= &limit= 可选
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { listSignals } from "@/lib/trade/watch-service";
+import { listSignalsForOrg } from "@/lib/trade/watch-service";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
@@ -12,15 +13,15 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const orgId = url.searchParams.get("orgId");
-  const prospectId = url.searchParams.get("prospectId");
-  if (!orgId || !prospectId) {
-    return NextResponse.json(
-      { error: "缺少 orgId 或 prospectId" },
-      { status: 400 },
-    );
+  if (!orgId) {
+    return NextResponse.json({ error: "缺少 orgId" }, { status: 400 });
   }
 
-  const limit = parseInt(url.searchParams.get("limit") ?? "20", 10) || 20;
-  const items = await listSignals(orgId, prospectId, limit);
+  const prospectId = url.searchParams.get("prospectId") ?? undefined;
+  const pageType = url.searchParams.get("pageType") ?? undefined;
+  const limitRaw = url.searchParams.get("limit");
+  const limit = limitRaw ? parseInt(limitRaw, 10) || 50 : 50;
+
+  const items = await listSignalsForOrg(orgId, { prospectId, pageType, limit });
   return NextResponse.json({ items });
 }

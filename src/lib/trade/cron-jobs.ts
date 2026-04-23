@@ -18,6 +18,8 @@ export interface CronResult {
   noResponseProspects: number;
   watchChecked: number;
   watchSignalsCreated: number;
+  /** 同 target + signalType 在 24h 冷却内已存在信号，本次未新建 */
+  watchSignalsSuppressed: number;
   watchFetchErrors: number;
   timestamp: string;
 }
@@ -30,6 +32,7 @@ export async function runDailyCron(): Promise<CronResult> {
     noResponseProspects: 0,
     watchChecked: 0,
     watchSignalsCreated: 0,
+    watchSignalsSuppressed: 0,
     watchFetchErrors: 0,
     timestamp: now.toISOString(),
   };
@@ -99,6 +102,7 @@ export async function runDailyCron(): Promise<CronResult> {
     const w = await runWatchTargetsCron();
     result.watchChecked = w.checked;
     result.watchSignalsCreated = w.signalsCreated;
+    result.watchSignalsSuppressed = w.signalsSuppressed;
     result.watchFetchErrors = w.fetchErrors;
   } catch (e) {
     console.error("[cron] watch targets:", e);

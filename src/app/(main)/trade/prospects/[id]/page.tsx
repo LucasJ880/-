@@ -24,6 +24,7 @@ import {
   Edit3,
   Trash2,
   Eye,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -181,6 +182,7 @@ export default function ProspectDetailPage() {
   const [watchPageType, setWatchPageType] = useState("custom");
   const [watchBusy, setWatchBusy] = useState(false);
   const [checkingWatchId, setCheckingWatchId] = useState<string | null>(null);
+  const [rebaselineWatchId, setRebaselineWatchId] = useState<string | null>(null);
 
   const loadProspect = useCallback(async () => {
     const res = await apiFetch(`/api/trade/prospects/${id}`);
@@ -237,6 +239,26 @@ export default function ProspectDetailPage() {
     }
   };
 
+  function messageForWatchCheckResult(
+    result: { kind: string; message?: string; signalId?: string } | null,
+  ): string {
+    if (!result) return "检查完成";
+    switch (result.kind) {
+      case "fetch_error":
+        return `抓取失败：${result.message ?? "未知错误"}`;
+      case "baseline_set":
+        return "已建立首次基线（未生成信号）。";
+      case "no_change":
+        return "页面文本与上次一致，无新信号。";
+      case "changed":
+        return `已检测到变化并生成弱信号（signalId: ${result.signalId ?? "—"}）。`;
+      case "changed_suppressed":
+        return "页面已变化，但在 24 小时冷却期内未重复创建同类型信号；基线与检查时间已更新。";
+      default:
+        return `检查完成（${result.kind}）`;
+    }
+  }
+
   const handleCheckWatch = async (targetId: string) => {
     setCheckingWatchId(targetId);
     try {
@@ -244,13 +266,41 @@ export default function ProspectDetailPage() {
         `/api/trade/watch-targets/${targetId}/check?orgId=${encodeURIComponent(TRADE_ORG_ID)}`,
         { method: "POST" },
       );
-      if (res.ok) await loadWatchData();
-      else {
+      if (res.ok) {
+        const data = (await res.json()) as {
+          result?: { kind: string; message?: string; signalId?: string };
+        };
+        await loadWatchData();
+        alert(messageForWatchCheckResult(data.result ?? null));
+      } else {
         const err = (await res.json().catch(() => null)) as { error?: string } | null;
         alert(err?.error ?? "检查失败");
       }
     } finally {
       setCheckingWatchId(null);
+    }
+  };
+
+  const handleRebaselineWatch = async (targetId: string) => {
+    setRebaselineWatchId(targetId);
+    try {
+      const res = await apiFetch(
+        `/api/trade/watch-targets/${targetId}/rebaseline?orgId=${encodeURIComponent(TRADE_ORG_ID)}`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => null)) as {
+        rebaseline?: { ok: boolean; message?: string };
+        error?: string;
+      } | null;
+      if (res.ok && data?.rebaseline?.ok) {
+        await loadWatchData();
+        alert("已重置基线：当前页面为新的对比快照（未改动「上次变化」时间）。");
+      } else {
+        alert(data?.rebaseline?.message ?? data?.error ?? "重置基线失败");
+        await loadWatchData();
+      }
+    } finally {
+      setRebaselineWatchId(null);
     }
   };
 
@@ -637,6 +687,18 @@ export default function ProspectDetailPage() {
                     ? `查 ${new Date(w.lastCheckedAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`
                     : "未检查"}
                 </span>
+                <span className="text-[10px] text-muted">
+                  {w.lastFetchError
+                    ? `上次抓取：失败（${w.lastFetchError}）`
+                    : w.lastCheckedAt
+                      ? "上次抓取：成功"
+                      : "尚未成功抓取"}
+                </span>
+                {w.lastChangedAt && (
+                  <span className="text-[10px] text-muted">
+                    上次内容变化：{new Date(w.lastChangedAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => void handleCheckWatch(w.id)}
@@ -648,15 +710,22 @@ export default function ProspectDetailPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void handleRebaselineWatch(w.id)}
+                  disabled={rebaselineWatchId === w.id}
+                  className="flex items-center gap-0.5 rounded border border-border px-2 py-0.5 text-[10px] hover:border-emerald-500/50 disabled:opacity-50"
+                  title="以当前页面内容为新基线，不产生信号"
+                >
+                  {rebaselineWatchId === w.id ? <Loader2 size={10} className="animate-spin" /> : <RotateCcw size={10} />}
+                  重置基线
+                </button>
+                <button
+                  type="button"
                   onClick={() => void handleDeleteWatch(w.id)}
                   className="p-0.5 text-muted hover:text-red-400"
                   title="删除"
                 >
                   <Trash2 size={14} />
                 </button>
-                {w.lastFetchError && (
-                  <p className="w-full text-[10px] text-amber-600">{w.lastFetchError}</p>
-                )}
               </li>
             ))}
           </ul>

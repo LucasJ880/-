@@ -27,6 +27,7 @@ import {
   Handshake,
   BookOpen,
   Upload,
+  Eye,
   MessageSquare,
   MessageCircle,
   Brain,
@@ -97,6 +98,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/trade/templates", labelKey: "nav_email_templates", icon: FileText, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/channels", labelKey: "nav_message_channels", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/knowledge", labelKey: "nav_trade_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/signals", labelKey: "nav_trade_watch_signals", icon: Eye, roles: ["admin", "super_admin", "trade"] },
     ],
   },
   {

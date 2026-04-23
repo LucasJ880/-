@@ -55,6 +55,7 @@ export const zh: Messages = {
   nav_email_templates: "邮件模板",
   nav_message_channels: "消息通道",
   nav_trade_knowledge: "外贸知识库",
+  nav_trade_watch_signals: "页面监控信号",
   nav_organizations: "组织",
   nav_projects: "项目",
   nav_suppliers: "供应商",

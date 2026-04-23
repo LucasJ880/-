@@ -170,6 +170,14 @@ export default function TradeDashboardPage() {
         description="AI 驱动的海外买家发现、研究和外联自动化"
       />
 
+      <p className="text-[11px] text-muted">
+        <Link href="/trade/signals" className="text-blue-400 hover:text-blue-300 hover:underline">
+          页面监控信号
+        </Link>
+        <span className="mx-1.5 text-border">·</span>
+        低频文本指纹弱信号列表
+      </p>
+
       {/* ── Overview Cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <OverviewCard icon={Target} label="活动" value={d?.overview.activeCampaigns ?? 0} sub={`/ ${d?.overview.totalCampaigns ?? 0}`} />
