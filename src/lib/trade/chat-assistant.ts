@@ -206,7 +206,7 @@ export async function processChatV2(
 你了解外贸全流程：找客户→研究→评分→开发信→跟进→报价→成交
 你的角色是老板的外贸 AI 参谋。
 
-当用户明确要求「研究 / 背调 / 评估 / 重新跑研究」某家**已有线索**的公司时，应调用工具 \`trade_run_prospect_research\`（传 prospectId 或 companyName；可选 website）。该工具会真实抓取与打分并写回 CRM，不是仅从库里读旧字段。
+当用户明确要求「研究 / 背调 / 评估 / 重新跑研究」某家**已有线索**的公司时，应调用 \`trade_run_prospect_research\`（**优先 prospectId**；若用户只说了公司名且不确定是哪条，先 \`trade_search_prospects\` 列出再研究）。仅传 companyName 时若命中多条，工具会返回 \`candidates\`，须请用户选一条或你代选后再用 **prospectId** 调一次。该工具会真实抓取与打分并写回 CRM。
 工具返回后，请用「研究型」结构回复（避免长篇散文）：
 - 研究对象（公司名、国家、官网）
 - 关键来源列表（类型 + 标题，可提来源 id）

@@ -49,6 +49,15 @@ export type RunProspectResearchInput =
   | { prospectId: string; orgId?: string; websiteOverride?: string | null }
   | { orgId: string; companyName: string; websiteHint?: string | null };
 
+/** 按公司名解析到多条线索时返回，供对话层让用户选或再传 prospectId */
+export interface ResearchProspectCandidate {
+  id: string;
+  companyName: string;
+  country: string | null;
+  website: string | null;
+  campaignName: string;
+}
+
 export type RunProspectResearchResult =
   | {
       success: true;
@@ -62,7 +71,13 @@ export type RunProspectResearchResult =
       scoreForApi: { score: number; reason: string; scoring: NonNullable<ResearchBundleV1["scoring"]> };
       chatSummary: ResearchChatSummary;
     }
-  | { success: false; error: string; code: "not_found" | "forbidden" | "no_prospect" };
+  | {
+      success: false;
+      error: string;
+      code: "not_found" | "forbidden" | "no_prospect" | "ambiguous_prospect";
+      /** 仅当 code === ambiguous_prospect */
+      candidates?: ResearchProspectCandidate[];
+    };
 
 function truncate(s: string, n: number): string {
   const t = s.replace(/\s+/g, " ").trim();
@@ -172,21 +187,52 @@ async function loadProspectWithCampaign(
     };
   }
 
-  const row = await db.tradeProspect.findFirst({
-    where: { orgId: input.orgId, companyName: { contains: input.companyName } },
+  const needle = input.companyName.trim();
+  const matches = await db.tradeProspect.findMany({
+    where: { orgId: input.orgId, companyName: { contains: needle } },
     include: { campaign: true },
     orderBy: { updatedAt: "desc" },
+    take: 15,
   });
-  if (!row) {
+  if (matches.length === 0) {
     return {
       ok: false,
       result: {
         success: false,
-        error: `本组织下未找到与「${input.companyName}」匹配的线索，请先创建线索或提供 prospectId`,
+        error: `本组织下未找到与「${needle}」匹配的线索，可先创建线索或调用 trade_search_prospects 再传 prospectId`,
         code: "no_prospect",
       },
     };
   }
+
+  const norm = (s: string) => s.trim().toLowerCase();
+  const exactHits = matches.filter((r) => norm(r.companyName) === norm(needle));
+  const chosen = exactHits.length === 1 ? exactHits[0] : matches.length === 1 ? matches[0] : null;
+
+  if (!chosen) {
+    const pool = exactHits.length > 1 ? exactHits : matches;
+    const candidates: ResearchProspectCandidate[] = pool.slice(0, 8).map((r) => ({
+      id: r.id,
+      companyName: r.companyName,
+      country: r.country,
+      website: r.website,
+      campaignName: r.campaign.name,
+    }));
+    return {
+      ok: false,
+      result: {
+        success: false,
+        error:
+          exactHits.length > 1
+            ? `有多条线索公司名完全一致「${needle}」，请指定 prospectId 再研究`
+            : `有多条线索名称包含「${needle}」，请用 trade_search_prospects 缩小范围或指定 prospectId`,
+        code: "ambiguous_prospect",
+        candidates,
+      },
+    };
+  }
+
+  const row = chosen;
   return {
     ok: true,
     prospect: {

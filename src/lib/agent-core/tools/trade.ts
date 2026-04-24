@@ -279,13 +279,16 @@ registry.register({
 registry.register({
   name: "trade_run_prospect_research",
   description:
-    "对线索执行完整一轮研究：检索与站内关键页（含 Firecrawl 增强）、生成研究报告（带来源 id）、四维度规则打分并写回线索的 researchReport/score/scoreReason/stage。用户说「研究这家公司」「背调」「重新评估线索」「跑一遍研究」时使用。需 CRM 中已有线索：传 prospectId；或传 companyName（在本组织内按名称包含匹配最近更新的一条）。可选 website 指定本轮抓取用的官网。",
+    "对线索执行完整一轮研究：检索与站内关键页（含 Firecrawl 增强）、生成研究报告（带来源 id）、四维度规则打分并写回 CRM。用户说「研究/背调/评估/跑研究」时使用。优先传 prospectId（最稳）；若只有公司名，可先 trade_search_prospects 再研究。仅传 companyName 时：唯一包含匹配或唯一全名精确匹配才会执行；多条匹配会返回 candidates，须再带 prospectId 调用一次。可选 website 覆盖本轮抓取官网。",
   domain: "trade",
   parameters: {
     type: "object",
     properties: {
       prospectId: { type: "string", description: "线索 ID（优先）" },
-      companyName: { type: "string", description: "公司名称（与组织内线索 contains 匹配）" },
+      companyName: {
+        type: "string",
+        description: "公司名称；多匹配时工具会返回 candidates，需改传 prospectId",
+      },
       website: { type: "string", description: "可选，本轮临时使用的官网 URL" },
     },
   },
@@ -306,7 +309,16 @@ registry.register({
     );
 
     if (!result.success) {
-      return { success: false, data: { code: result.code }, error: result.error };
+      return {
+        success: false,
+        data: {
+          code: result.code,
+          ...(result.code === "ambiguous_prospect" && result.candidates?.length
+            ? { candidates: result.candidates }
+            : {}),
+        },
+        error: result.error,
+      };
     }
 
     return ok({
