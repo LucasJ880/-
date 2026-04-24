@@ -81,6 +81,93 @@ export async function validateCustomerAccessForCreate(
  * - 必须存在
  * - 必须属于同一个 customerId（防止跨客户挂载）
  */
+/**
+ * 统一 select：子资源权限判断时，只拿够用的字段
+ */
+export const SESSION_ACCESS_SELECT = {
+  id: true,
+  createdById: true,
+  salesOwnerId: true,
+  customerId: true,
+  customer: { select: { createdById: true } },
+} as const;
+
+export type SessionAccessShape = {
+  id: string;
+  createdById: string;
+  salesOwnerId: string | null;
+  customerId: string;
+  customer: { createdById: string | null };
+};
+
+/** 通过 sourceImageId 反查 session（用于图片/region 权限校验） */
+export async function loadSessionBySourceImage(
+  sourceImageId: string,
+): Promise<SessionAccessShape | null> {
+  const img = await db.visualizerSourceImage.findUnique({
+    where: { id: sourceImageId },
+    select: { session: { select: SESSION_ACCESS_SELECT } },
+  });
+  return img?.session ?? null;
+}
+
+/** 通过 regionId 反查 session */
+export async function loadSessionByRegion(
+  regionId: string,
+): Promise<{
+  session: SessionAccessShape;
+  sourceImageId: string;
+} | null> {
+  const region = await db.visualizerWindowRegion.findUnique({
+    where: { id: regionId },
+    select: {
+      sourceImageId: true,
+      sourceImage: { select: { session: { select: SESSION_ACCESS_SELECT } } },
+    },
+  });
+  if (!region?.sourceImage?.session) return null;
+  return { session: region.sourceImage.session, sourceImageId: region.sourceImageId };
+}
+
+/** 通过 variantId 反查 session */
+export async function loadSessionByVariant(
+  variantId: string,
+): Promise<{ session: SessionAccessShape; sessionId: string } | null> {
+  const v = await db.visualizerVariant.findUnique({
+    where: { id: variantId },
+    select: {
+      sessionId: true,
+      session: { select: SESSION_ACCESS_SELECT },
+    },
+  });
+  if (!v?.session) return null;
+  return { session: v.session, sessionId: v.sessionId };
+}
+
+/** 通过 productOptionId 反查 session + 其 variant/region */
+export async function loadSessionByProductOption(
+  productOptionId: string,
+): Promise<{
+  session: SessionAccessShape;
+  variantId: string;
+  regionId: string;
+} | null> {
+  const po = await db.visualizerProductOption.findUnique({
+    where: { id: productOptionId },
+    select: {
+      variantId: true,
+      regionId: true,
+      variant: { select: { session: { select: SESSION_ACCESS_SELECT } } },
+    },
+  });
+  if (!po?.variant?.session) return null;
+  return {
+    session: po.variant.session,
+    variantId: po.variantId,
+    regionId: po.regionId,
+  };
+}
+
 export async function validateSessionLinks(
   customerId: string,
   links: {

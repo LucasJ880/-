@@ -7,9 +7,45 @@ import {
 } from "@/lib/visualizer/access";
 import type {
   UpdateVisualizerSessionRequest,
+  VisualizerProductOptionDetail,
+  VisualizerProductOptionTransform,
+  VisualizerRegionShape,
   VisualizerSessionDetail,
   VisualizerSessionStatus,
+  VisualizerWindowRegionDetail,
 } from "@/lib/visualizer/types";
+
+/** 解析 pointsJson，异常时返回空数组（避免坏数据导致页面 500） */
+function parsePoints(raw: unknown): Array<[number, number]> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<[number, number]> = [];
+  for (const pt of raw) {
+    if (
+      Array.isArray(pt) &&
+      pt.length === 2 &&
+      typeof pt[0] === "number" &&
+      typeof pt[1] === "number" &&
+      Number.isFinite(pt[0]) &&
+      Number.isFinite(pt[1])
+    ) {
+      out.push([pt[0], pt[1]]);
+    }
+  }
+  return out;
+}
+
+function parseTransform(raw: unknown): VisualizerProductOptionTransform | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Record<string, unknown>;
+  const keys = ["offsetX", "offsetY", "scaleX", "scaleY", "rotation"] as const;
+  const out = {} as VisualizerProductOptionTransform;
+  for (const k of keys) {
+    const v = t[k];
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    out[k] = v;
+  }
+  return out;
+}
 
 const ALLOWED_STATUS: VisualizerSessionStatus[] = ["draft", "active", "archived"];
 
@@ -28,13 +64,17 @@ export const GET = withAuth(async (_request, ctx, user) => {
       quote: { select: { id: true, version: true, status: true } },
       sourceImages: {
         orderBy: { createdAt: "asc" },
-        include: { _count: { select: { regions: true } } },
+        include: {
+          _count: { select: { regions: true } },
+          regions: { orderBy: { createdAt: "asc" } },
+        },
       },
       variants: {
         orderBy: { sortOrder: "asc" },
         include: {
           _count: { select: { productOptions: true } },
           selections: { select: { selectedBy: true } },
+          productOptions: { orderBy: { createdAt: "asc" } },
         },
       },
     },
@@ -83,29 +123,61 @@ export const GET = withAuth(async (_request, ctx, user) => {
           status: session.quote.status,
         }
       : null,
-    sourceImages: session.sourceImages.map((img) => ({
-      id: img.id,
-      fileUrl: img.fileUrl,
-      fileName: img.fileName,
-      mimeType: img.mimeType,
-      width: img.width,
-      height: img.height,
-      roomLabel: img.roomLabel,
-      createdAt: img.createdAt.toISOString(),
-      regionCount: img._count.regions,
-    })),
-    variants: session.variants.map((v) => ({
-      id: v.id,
-      name: v.name,
-      notes: v.notes,
-      exportImageUrl: v.exportImageUrl,
-      sortOrder: v.sortOrder,
-      productOptionCount: v._count.productOptions,
-      hasSalesSelection: v.selections.some((s) => s.selectedBy === "sales"),
-      hasCustomerSelection: v.selections.some((s) => s.selectedBy === "customer"),
-      createdAt: v.createdAt.toISOString(),
-      updatedAt: v.updatedAt.toISOString(),
-    })),
+    sourceImages: session.sourceImages.map((img) => {
+      const regions: VisualizerWindowRegionDetail[] = img.regions.map((r) => ({
+        id: r.id,
+        sourceImageId: r.sourceImageId,
+        measurementWindowId: r.measurementWindowId,
+        label: r.label,
+        shape: (r.shape === "rect" ? "rect" : "polygon") as VisualizerRegionShape,
+        points: parsePoints(r.pointsJson),
+        widthIn: r.widthIn,
+        heightIn: r.heightIn,
+        createdAt: r.createdAt.toISOString(),
+      }));
+      return {
+        id: img.id,
+        fileUrl: img.fileUrl,
+        fileName: img.fileName,
+        mimeType: img.mimeType,
+        width: img.width,
+        height: img.height,
+        roomLabel: img.roomLabel,
+        createdAt: img.createdAt.toISOString(),
+        regionCount: img._count.regions,
+        regions,
+      };
+    }),
+    variants: session.variants.map((v) => {
+      const productOptions: VisualizerProductOptionDetail[] = v.productOptions.map((po) => ({
+        id: po.id,
+        variantId: po.variantId,
+        regionId: po.regionId,
+        productCatalogId: po.productCatalogId,
+        productName: po.productName,
+        productCategory: po.productCategory,
+        color: po.color,
+        colorHex: po.colorHex,
+        opacity: po.opacity,
+        mountingType: po.mountingType,
+        transform: parseTransform(po.transformJson),
+        notes: po.notes,
+        createdAt: po.createdAt.toISOString(),
+      }));
+      return {
+        id: v.id,
+        name: v.name,
+        notes: v.notes,
+        exportImageUrl: v.exportImageUrl,
+        sortOrder: v.sortOrder,
+        productOptionCount: v._count.productOptions,
+        hasSalesSelection: v.selections.some((s) => s.selectedBy === "sales"),
+        hasCustomerSelection: v.selections.some((s) => s.selectedBy === "customer"),
+        createdAt: v.createdAt.toISOString(),
+        updatedAt: v.updatedAt.toISOString(),
+        productOptions,
+      };
+    }),
   };
 
   return NextResponse.json(detail);

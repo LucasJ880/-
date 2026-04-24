@@ -50,6 +50,46 @@ export interface VisualizerSourceImageSummary {
   roomLabel: string | null;
   createdAt: string;
   regionCount: number;
+  regions: VisualizerWindowRegionDetail[];
+}
+
+export type VisualizerRegionShape = "rect" | "polygon";
+
+export interface VisualizerWindowRegionDetail {
+  id: string;
+  sourceImageId: string;
+  measurementWindowId: string | null;
+  label: string | null;
+  shape: VisualizerRegionShape;
+  /** 原图像素坐标：rect = [[x1,y1],[x2,y2]]；polygon = [[x,y], ...] */
+  points: Array<[number, number]>;
+  widthIn: number | null;
+  heightIn: number | null;
+  createdAt: string;
+}
+
+export interface VisualizerProductOptionTransform {
+  offsetX: number;
+  offsetY: number;
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+}
+
+export interface VisualizerProductOptionDetail {
+  id: string;
+  variantId: string;
+  regionId: string;
+  productCatalogId: string;
+  productName: string;
+  productCategory: string;
+  color: string | null;
+  colorHex: string | null;
+  opacity: number;
+  mountingType: string | null;
+  transform: VisualizerProductOptionTransform | null;
+  notes: string | null;
+  createdAt: string;
 }
 
 export interface VisualizerVariantSummary {
@@ -63,6 +103,64 @@ export interface VisualizerVariantSummary {
   hasCustomerSelection: boolean;
   createdAt: string;
   updatedAt: string;
+  productOptions: VisualizerProductOptionDetail[];
+}
+
+/** POST /api/visualizer/images/[imageId]/regions */
+export interface CreateRegionRequest {
+  shape: VisualizerRegionShape;
+  points: Array<[number, number]>;
+  label?: string | null;
+  widthIn?: number | null;
+  heightIn?: number | null;
+  measurementWindowId?: string | null;
+}
+
+/** PATCH /api/visualizer/regions/[regionId] */
+export interface UpdateRegionRequest {
+  shape?: VisualizerRegionShape;
+  points?: Array<[number, number]>;
+  label?: string | null;
+  widthIn?: number | null;
+  heightIn?: number | null;
+  measurementWindowId?: string | null;
+}
+
+/** POST /api/visualizer/sessions/[id]/variants */
+export interface CreateVariantRequest {
+  name?: string;
+  notes?: string | null;
+}
+
+/** PATCH /api/visualizer/variants/[variantId] */
+export interface UpdateVariantRequest {
+  name?: string;
+  notes?: string | null;
+  sortOrder?: number;
+  exportImageUrl?: string | null;
+}
+
+/** POST /api/visualizer/variants/[variantId]/product-options */
+export interface CreateProductOptionRequest {
+  regionId: string;
+  productCatalogId: string;
+  color?: string | null;
+  colorHex?: string | null;
+  opacity?: number;
+  mountingType?: string | null;
+  transform?: VisualizerProductOptionTransform | null;
+  notes?: string | null;
+}
+
+/** PATCH /api/visualizer/product-options/[id] */
+export interface UpdateProductOptionRequest {
+  color?: string | null;
+  colorHex?: string | null;
+  opacity?: number;
+  mountingType?: string | null;
+  transform?: VisualizerProductOptionTransform | null;
+  notes?: string | null;
+  productCatalogId?: string;
 }
 
 /** POST /api/visualizer/sessions 请求体 */
