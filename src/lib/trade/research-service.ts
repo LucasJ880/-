@@ -47,7 +47,15 @@ export interface RunProspectResearchOptions {
 
 export type RunProspectResearchInput =
   | { prospectId: string; orgId?: string; websiteOverride?: string | null }
-  | { orgId: string; companyName: string; websiteHint?: string | null };
+  | {
+      orgId: string;
+      companyName: string;
+      websiteHint?: string | null;
+      /** 限定在某获客活动内解析公司名 */
+      campaignId?: string | null;
+      /** 国家/地区关键词，与 country 字段 contains 匹配 */
+      countryHint?: string | null;
+    };
 
 /** 按公司名解析到多条线索时返回，供对话层让用户选或再传 prospectId */
 export interface ResearchProspectCandidate {
@@ -55,6 +63,7 @@ export interface ResearchProspectCandidate {
   companyName: string;
   country: string | null;
   website: string | null;
+  campaignId: string;
   campaignName: string;
 }
 
@@ -74,7 +83,7 @@ export type RunProspectResearchResult =
   | {
       success: false;
       error: string;
-      code: "not_found" | "forbidden" | "no_prospect" | "ambiguous_prospect";
+      code: "not_found" | "forbidden" | "no_prospect" | "ambiguous_prospect" | "invalid_campaign";
       /** 仅当 code === ambiguous_prospect */
       candidates?: ResearchProspectCandidate[];
     };
@@ -188,18 +197,47 @@ async function loadProspectWithCampaign(
   }
 
   const needle = input.companyName.trim();
+  const cid = input.campaignId?.trim();
+  const ctry = input.countryHint?.trim();
+
+  if (cid) {
+    const campOk = await db.tradeCampaign.findFirst({
+      where: { id: cid, orgId: input.orgId },
+      select: { id: true },
+    });
+    if (!campOk) {
+      return {
+        ok: false,
+        result: {
+          success: false,
+          error: "campaignId 不存在或不属于当前组织，请核对后再试",
+          code: "invalid_campaign",
+        },
+      };
+    }
+  }
+
   const matches = await db.tradeProspect.findMany({
-    where: { orgId: input.orgId, companyName: { contains: needle } },
+    where: {
+      orgId: input.orgId,
+      companyName: { contains: needle },
+      ...(cid ? { campaignId: cid } : {}),
+      ...(ctry ? { country: { contains: ctry } } : {}),
+    },
     include: { campaign: true },
     orderBy: { updatedAt: "desc" },
     take: 15,
   });
   if (matches.length === 0) {
+    const hint =
+      cid || ctry
+        ? `在 campaignId / countryHint 筛选下未找到与「${needle}」匹配的线索；可去掉筛选再试，或先 trade_search_prospects 再传 prospectId`
+        : `本组织下未找到与「${needle}」匹配的线索，可先创建线索或 trade_search_prospects 再传 prospectId`;
     return {
       ok: false,
       result: {
         success: false,
-        error: `本组织下未找到与「${needle}」匹配的线索，可先创建线索或调用 trade_search_prospects 再传 prospectId`,
+        error: hint,
         code: "no_prospect",
       },
     };
@@ -216,6 +254,7 @@ async function loadProspectWithCampaign(
       companyName: r.companyName,
       country: r.country,
       website: r.website,
+      campaignId: r.campaignId,
       campaignName: r.campaign.name,
     }));
     return {
@@ -224,8 +263,8 @@ async function loadProspectWithCampaign(
         success: false,
         error:
           exactHits.length > 1
-            ? `有多条线索公司名完全一致「${needle}」，请指定 prospectId 再研究`
-            : `有多条线索名称包含「${needle}」，请用 trade_search_prospects 缩小范围或指定 prospectId`,
+            ? `有多条线索公司名完全一致「${needle}」，请指定 prospectId；或补充 campaignId / countryHint 再试`
+            : `有多条线索名称包含「${needle}」，请 trade_search_prospects（可加 campaignId）缩小范围，或指定 prospectId`,
         code: "ambiguous_prospect",
         candidates,
       },

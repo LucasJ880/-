@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   Loader2,
@@ -188,6 +189,7 @@ export default function ProspectDetailPage() {
   const [prospect, setProspect] = useState<Prospect | null>(null);
   const [loading, setLoading] = useState(true);
   const [researching, setResearching] = useState(false);
+  const [idCopied, setIdCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -449,6 +451,16 @@ export default function ProspectDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyProspectId = async () => {
+    try {
+      await navigator.clipboard.writeText(String(id));
+      setIdCopied(true);
+      setTimeout(() => setIdCopied(false), 2000);
+    } catch {
+      alert("复制失败，请手动复制");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -554,6 +566,30 @@ export default function ProspectDetailPage() {
             创建报价单
           </button>
         )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/50 bg-background/60 px-3 py-2 text-[11px] text-muted">
+        <span className="flex items-center gap-1.5">
+          <MessageSquare size={12} className="shrink-0" />
+          对话里研究请带
+          <code className="max-w-[200px] truncate rounded bg-zinc-500/10 px-1 font-mono text-[10px] text-foreground">{id}</code>
+        </span>
+        <button
+          type="button"
+          onClick={handleCopyProspectId}
+          className="flex items-center gap-0.5 text-blue-400 hover:underline"
+        >
+          {idCopied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+          {idCopied ? "已复制" : "复制 ID"}
+        </button>
+        <Link
+          href={`/trade/chat?draft=${encodeURIComponent(
+            `请用 trade_run_prospect_research 研究本条线索：prospectId 为 ${id}（${p.companyName}）。`,
+          )}`}
+          className="text-blue-400 hover:underline"
+        >
+          打开外贸对话（已预填）
+        </Link>
       </div>
 
       {/* Quick Actions: Stage + Follow-up */}

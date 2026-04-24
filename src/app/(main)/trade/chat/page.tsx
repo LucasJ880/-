@@ -31,11 +31,13 @@ const QUICK_COMMANDS = [
   { label: "待跟进", text: "有哪些线索需要跟进？" },
   { label: "建议", text: "给我一些下一步行动建议" },
   { label: "活动列表", text: "列出所有获客活动" },
+  { label: "列待研究", text: "请列出阶段为 new 的外贸线索，每条给出 prospectId、公司名、国家、所属活动名" },
   { label: "报价统计", text: "目前报价单情况怎么样？" },
   { label: "高分线索", text: "评分最高的线索有哪些？" },
 ];
 
 export default function TradeChatPage() {
+  const draftAppliedRef = useRef(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,6 +45,19 @@ export default function TradeChatPage() {
   const [sending, setSending] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  /** 线索详情「对话里研究」等入口：/trade/chat?draft=... */
+  useEffect(() => {
+    if (typeof window === "undefined" || draftAppliedRef.current) return;
+    const raw = new URLSearchParams(window.location.search).get("draft");
+    if (!raw?.trim()) return;
+    draftAppliedRef.current = true;
+    try {
+      setInput(decodeURIComponent(raw));
+    } catch {
+      setInput(raw);
+    }
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

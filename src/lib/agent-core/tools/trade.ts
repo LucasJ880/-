@@ -86,22 +86,36 @@ registry.register({
 
 registry.register({
   name: "trade_search_prospects",
-  description: "搜索外贸线索，可按公司名/国家/阶段筛选",
+  description:
+    "搜索外贸线索（公司名/国家/联系人）。在调用 trade_run_prospect_research 之前，若用户只给了公司名或可能重名，**优先用本工具列出 id**，再带 prospectId 研究。可选 campaignId 限定某一获客活动。",
   domain: "trade",
   parameters: {
     type: "object",
     properties: {
       query: { type: "string", description: "搜索关键词（公司名、国家、联系人）" },
       stage: { type: "string", description: "阶段筛选", enum: ["new", "researched", "qualified", "outreach_sent", "replied", "interested", "negotiating", "won", "lost", "no_response"] },
+      campaignId: { type: "string", description: "可选，仅返回该活动下的线索" },
     },
   },
   execute: async (ctx: ToolExecutionContext) => {
     const query = ctx.args.query as string | undefined;
     const stage = ctx.args.stage as string | undefined;
+    const campaignId = (ctx.args.campaignId as string | undefined)?.trim();
+
+    if (campaignId) {
+      const camp = await db.tradeCampaign.findFirst({
+        where: { id: campaignId, orgId: ctx.orgId },
+        select: { id: true },
+      });
+      if (!camp) {
+        return { success: false, data: { code: "invalid_campaign" }, error: "活动不存在或不属于当前组织" };
+      }
+    }
 
     const prospects = await db.tradeProspect.findMany({
       where: {
         orgId: ctx.orgId,
+        ...(campaignId ? { campaignId } : {}),
         ...(stage ? { stage } : {}),
         ...(query ? {
           OR: [
@@ -115,7 +129,7 @@ registry.register({
       take: 15,
       select: {
         id: true, companyName: true, contactName: true, country: true,
-        score: true, stage: true, lastContactAt: true,
+        score: true, stage: true, lastContactAt: true, campaignId: true,
         campaign: { select: { name: true } },
       },
     });
@@ -279,7 +293,7 @@ registry.register({
 registry.register({
   name: "trade_run_prospect_research",
   description:
-    "对线索执行完整一轮研究：检索与站内关键页（含 Firecrawl 增强）、生成研究报告（带来源 id）、四维度规则打分并写回 CRM。用户说「研究/背调/评估/跑研究」时使用。优先传 prospectId（最稳）；若只有公司名，可先 trade_search_prospects 再研究。仅传 companyName 时：唯一包含匹配或唯一全名精确匹配才会执行；多条匹配会返回 candidates，须再带 prospectId 调用一次。可选 website 覆盖本轮抓取官网。",
+    "对线索执行完整一轮研究：检索与站内关键页（含 Firecrawl 增强）、生成研究报告（带来源 id）、四维度规则打分并写回 CRM。用户说「研究/背调/评估/跑研究」时使用。建议流程：① trade_search_prospects（可选 campaignId）列候选 id → ② 本工具带 **prospectId**（最稳）。仅 companyName 时：唯一匹配才执行；否则返回 candidates。可用 **campaignId + countryHint** 与公司名组合消歧。可选 website 覆盖本轮抓取官网。",
   domain: "trade",
   parameters: {
     type: "object",
@@ -290,12 +304,26 @@ registry.register({
         description: "公司名称；多匹配时工具会返回 candidates，需改传 prospectId",
       },
       website: { type: "string", description: "可选，本轮临时使用的官网 URL" },
+      campaignId: { type: "string", description: "与 companyName 联用：仅在该活动内解析线索" },
+      countryHint: { type: "string", description: "与 companyName 联用：国家/地区关键词（匹配 country 字段）" },
     },
   },
   execute: async (ctx: ToolExecutionContext) => {
     const prospectId = ctx.args.prospectId as string | undefined;
     const companyName = ctx.args.companyName as string | undefined;
     const website = (ctx.args.website as string | undefined)?.trim();
+    const campaignId = (ctx.args.campaignId as string | undefined)?.trim();
+    const countryHint = (ctx.args.countryHint as string | undefined)?.trim();
+
+    if (campaignId) {
+      const camp = await db.tradeCampaign.findFirst({
+        where: { id: campaignId, orgId: ctx.orgId },
+        select: { id: true },
+      });
+      if (!camp) {
+        return { success: false, data: { code: "invalid_campaign" }, error: "活动不存在或不属于当前组织" };
+      }
+    }
 
     if (!prospectId && !companyName?.trim()) {
       return { success: false, data: null, error: "请提供 prospectId 或 companyName" };
@@ -304,7 +332,13 @@ registry.register({
     const result = await runProspectResearch(
       prospectId
         ? { prospectId, orgId: ctx.orgId, websiteOverride: website || null }
-        : { orgId: ctx.orgId, companyName: companyName!.trim(), websiteHint: website || null },
+        : {
+            orgId: ctx.orgId,
+            companyName: companyName!.trim(),
+            websiteHint: website || null,
+            campaignId: campaignId || null,
+            countryHint: countryHint || null,
+          },
       { incrementCampaignQualifiedIfQualified: true },
     );
 
