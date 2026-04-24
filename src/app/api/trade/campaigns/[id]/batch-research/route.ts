@@ -1,15 +1,13 @@
 /**
  * POST /api/trade/campaigns/[id]/batch-research
  *
- * 批量研究 + 打分未研究的线索
+ * 批量研究 + 打分未研究的线索（统一走 research-service）
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getCampaign, updateProspect } from "@/lib/trade/service";
-import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
-import { mergeResearchBundle } from "@/lib/trade/research-bundle";
-import { gatherTradeResearchInputs } from "@/lib/trade/research-input";
+import { getCampaign } from "@/lib/trade/service";
+import { runProspectResearch } from "@/lib/trade/research-service";
 import { db } from "@/lib/db";
 
 export async function POST(
@@ -43,50 +41,20 @@ export async function POST(
 
   for (const p of prospects) {
     try {
-      const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
-        companyName: p.companyName,
-        country: p.country,
-        website: p.website,
-      });
-
-      const { report, fieldSourceIds } = await generateResearchReport(
-        { name: p.companyName, website: p.website, country: p.country, rawData: rawData || undefined },
-        campaign.productDesc,
-        campaign.targetMarket,
-        sources,
+      const result = await runProspectResearch(
+        { prospectId: p.id },
+        { incrementCampaignQualifiedIfQualified: false },
       );
-
-      const scoreResult = await scoreProspect(
-        sources,
-        report,
-        campaign.productDesc,
-        campaign.targetMarket,
-      );
-      const researchBundle = mergeResearchBundle(
-        sources,
-        report,
-        fieldSourceIds,
-        scoreResult.scoring,
-      );
-      const finalScore =
-        researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
-      const newStage =
-        finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
-
-      await updateProspect(p.id, {
-        researchReport: researchBundle,
-        score: finalScore,
-        scoreReason: scoreResult.reason,
-        stage: newStage,
-        website: resolvedWebsite ?? p.website,
-      });
-
-      if (newStage === "qualified") qualifiedCount++;
+      if (!result.success) {
+        results.push({ id: p.id, companyName: p.companyName, score: 0, stage: "new" });
+        continue;
+      }
+      if (result.newStage === "qualified") qualifiedCount++;
       results.push({
         id: p.id,
         companyName: p.companyName,
-        score: finalScore,
-        stage: newStage,
+        score: result.finalScore,
+        stage: result.newStage,
       });
     } catch (err) {
       results.push({

@@ -62,6 +62,7 @@ const TOOL_LABELS: Record<string, string> = {
   trade_get_follow_ups: "查询待跟进线索",
   trade_list_quotes: "查询外贸报价",
   trade_get_suggestions: "生成下一步建议",
+  trade_run_prospect_research: "执行线索研究与打分",
 
   // cockpit
   cockpit_get_metrics: "查询驾驶舱指标",
@@ -108,7 +109,7 @@ const BUSINESS_TRIGGERS: readonly string[] = [
   "多少", "几个", "几单", "多少钱", "排行", "top", "排名",
   "统计", "汇总", "概览", "总览",
   // 外贸
-  "外贸", "获客", "研究报告",
+  "外贸", "获客", "研究报告", "背调", "调研这家公司", "研究一下", "重新研究", "评估这家",
   // 动词 + 指代
   "查一下", "看一下", "帮我查", "帮我看", "给我列",
   "有哪些", "哪些客户", "哪些报价",

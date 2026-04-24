@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 import { parseResearchBundle, getResearchReportForAgents } from "@/lib/trade/research-bundle";
+import { runProspectResearch } from "@/lib/trade/research-service";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -270,5 +271,48 @@ registry.register({
     if (suggestions.length === 0) suggestions.push("当前暂无紧急事项");
 
     return ok({ suggestions });
+  },
+});
+
+// ── trade.run_prospect_research（写 CRM + 真研究）────────────────
+
+registry.register({
+  name: "trade_run_prospect_research",
+  description:
+    "对线索执行完整一轮研究：检索与站内关键页（含 Firecrawl 增强）、生成研究报告（带来源 id）、四维度规则打分并写回线索的 researchReport/score/scoreReason/stage。用户说「研究这家公司」「背调」「重新评估线索」「跑一遍研究」时使用。需 CRM 中已有线索：传 prospectId；或传 companyName（在本组织内按名称包含匹配最近更新的一条）。可选 website 指定本轮抓取用的官网。",
+  domain: "trade",
+  parameters: {
+    type: "object",
+    properties: {
+      prospectId: { type: "string", description: "线索 ID（优先）" },
+      companyName: { type: "string", description: "公司名称（与组织内线索 contains 匹配）" },
+      website: { type: "string", description: "可选，本轮临时使用的官网 URL" },
+    },
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const prospectId = ctx.args.prospectId as string | undefined;
+    const companyName = ctx.args.companyName as string | undefined;
+    const website = (ctx.args.website as string | undefined)?.trim();
+
+    if (!prospectId && !companyName?.trim()) {
+      return { success: false, data: null, error: "请提供 prospectId 或 companyName" };
+    }
+
+    const result = await runProspectResearch(
+      prospectId
+        ? { prospectId, orgId: ctx.orgId, websiteOverride: website || null }
+        : { orgId: ctx.orgId, companyName: companyName!.trim(), websiteHint: website || null },
+      { incrementCampaignQualifiedIfQualified: true },
+    );
+
+    if (!result.success) {
+      return { success: false, data: { code: result.code }, error: result.error };
+    }
+
+    return ok({
+      persisted: true,
+      prospectId: result.prospectId,
+      ...result.chatSummary,
+    });
   },
 });

@@ -1,21 +1,14 @@
 /**
  * POST /api/trade/prospects/[id]/research
  *
- * 对单个线索执行 AI 研究 + 打分流水线：
- * 1. 搜索公司信息（Serper）
- * 2. 抓取官网内容
- * 3. AI 生成研究报告（含 sources / fieldSourceIds）
- * 4. AI 资格打分
- * 5. 更新线索状态
+ * 对单个线索执行 AI 研究 + 打分；逻辑委托 trade research-service。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { isAdmin } from "@/lib/rbac/roles";
-import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
-import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
-import { mergeResearchBundle } from "@/lib/trade/research-bundle";
-import { gatherTradeResearchInputs } from "@/lib/trade/research-input";
+import { getProspect } from "@/lib/trade/service";
+import { runProspectResearch } from "@/lib/trade/research-service";
 
 export async function POST(
   request: NextRequest,
@@ -34,74 +27,22 @@ export async function POST(
     return NextResponse.json({ error: "线索不存在" }, { status: 404 });
   }
 
-  const campaign = await getCampaign(prospect.campaignId);
-  if (!campaign) {
-    return NextResponse.json({ error: "活动不存在" }, { status: 404 });
+  const result = await runProspectResearch(
+    { prospectId: id },
+    { includeScoringDebug: includeDebug, incrementCampaignQualifiedIfQualified: true },
+  );
+
+  if (!result.success) {
+    const status = result.code === "forbidden" ? 403 : 404;
+    return NextResponse.json({ error: result.error }, { status });
   }
 
-  const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
-    companyName: prospect.companyName,
-    country: prospect.country,
-    website: prospect.website,
-  });
-
-  // Step 3: Generate research report (+ fieldSourceIds)
-  const { report, fieldSourceIds } = await generateResearchReport(
-    {
-      name: prospect.companyName,
-      website: prospect.website,
-      country: prospect.country,
-      rawData: rawData || undefined,
-    },
-    campaign.productDesc,
-    campaign.targetMarket,
-    sources,
-  );
-
-  // Step 4: Score the prospect（规则维度 + LLM 润色理由）
-  const scoreResult = await scoreProspect(
-    sources,
-    report,
-    campaign.productDesc,
-    campaign.targetMarket,
-    { includeDebug },
-  );
-
-  const researchBundle = mergeResearchBundle(
-    sources,
-    report,
-    fieldSourceIds,
-    scoreResult.scoring,
-  );
-
-  const finalScore =
-    researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
-
-  // Step 5: Update prospect
-  const newStage =
-    finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
-
-  const updated = await updateProspect(id, {
-    researchReport: researchBundle,
-    score: finalScore,
-    scoreReason: scoreResult.reason,
-    stage: newStage,
-    website: resolvedWebsite ?? prospect.website,
-  });
-
-  // Update campaign stats
-  if (newStage === "qualified") {
-    const { db } = await import("@/lib/db");
-    await db.tradeCampaign.update({
-      where: { id: campaign.id },
-      data: { qualified: { increment: 1 } },
-    });
-  }
+  const updated = await getProspect(id);
 
   return NextResponse.json({
     prospect: updated,
-    researchBundle,
-    report,
-    score: { ...scoreResult, score: finalScore },
+    researchBundle: result.researchBundle,
+    report: result.researchBundle.report,
+    score: { ...result.scoreForApi, score: result.finalScore },
   });
 }

@@ -47,14 +47,15 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   sales_update_stage:          { risk: "l2_soft", allowRoles: ["admin", "sales"] },
   calendar_create_event_draft: { risk: "l2_soft", allowRoles: ["admin", "sales"] },
 
-  // ── trade 域（7 个） ─────────────────────────────────────────
-  trade_get_overview:         { risk: "l0_read", allowRoles: ["admin", "trade"] },
-  trade_list_campaigns:       { risk: "l0_read", allowRoles: ["admin", "trade"] },
-  trade_search_prospects:     { risk: "l0_read", allowRoles: ["admin", "trade"] },
-  trade_get_prospect:         { risk: "l0_read", allowRoles: ["admin", "trade"] },
-  trade_get_follow_ups:       { risk: "l0_read", allowRoles: ["admin", "trade"] },
-  trade_list_quotes:          { risk: "l0_read", allowRoles: ["admin", "trade"] },
-  trade_get_suggestions:      { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  // ── trade 域（8 个） ─────────────────────────────────────────
+  trade_get_overview:             { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_list_campaigns:           { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_search_prospects:         { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_get_prospect:             { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_get_follow_ups:           { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_list_quotes:              { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_get_suggestions:          { risk: "l0_read", allowRoles: ["admin", "trade"] },
+  trade_run_prospect_research:    { risk: "l2_soft", allowRoles: ["admin", "trade"] },
 
   // ── cockpit（当前 domain 标为 trade，仅 admin 可调） ──────────
   cockpit_get_metrics:        { risk: "l0_read", allowRoles: ["admin"] },

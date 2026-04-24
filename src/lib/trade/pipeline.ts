@@ -12,10 +12,10 @@
 
 import { db } from "@/lib/db";
 import { getCampaign, updateCampaign, createProspect, updateProspect } from "./service";
-import { generateSearchKeywords, generateResearchReport, scoreProspect, generateOutreachEmail } from "./agents";
+import { generateSearchKeywords, generateOutreachEmail } from "./agents";
 import { discoverProspects } from "./tools";
-import { getResearchReportForAgents, mergeResearchBundle } from "./research-bundle";
-import { gatherTradeResearchInputs } from "./research-input";
+import { getResearchReportForAgents } from "./research-bundle";
+import { runProspectResearch } from "./research-service";
 import { logActivity } from "./activity-log";
 
 export interface PipelineStep {
@@ -152,43 +152,15 @@ export async function runFullPipeline(
     let qualifiedCount = 0;
     for (const p of newProspects) {
       try {
-        const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
-          companyName: p.companyName,
-          country: p.country,
-          website: p.website,
-        });
-
-        const { report, fieldSourceIds } = await generateResearchReport(
-          { name: p.companyName, website: p.website, country: p.country, rawData: rawData || undefined },
-          campaign.productDesc,
-          campaign.targetMarket,
-          sources,
+        const researchResult = await runProspectResearch(
+          { prospectId: p.id },
+          { incrementCampaignQualifiedIfQualified: false },
         );
-
-        const scoreResult = await scoreProspect(
-          sources,
-          report,
-          campaign.productDesc,
-          campaign.targetMarket,
-        );
-        const researchBundle = mergeResearchBundle(
-          sources,
-          report,
-          fieldSourceIds,
-          scoreResult.scoring,
-        );
-        const finalScore =
-          researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
-        const newStage =
-          finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
-
-        await updateProspect(p.id, {
-          researchReport: researchBundle,
-          score: finalScore,
-          scoreReason: scoreResult.reason,
-          stage: newStage,
-          website: resolvedWebsite ?? p.website,
-        });
+        if (!researchResult.success) {
+          console.error(`[pipeline] Research failed for ${p.companyName}:`, researchResult.error);
+          continue;
+        }
+        const { finalScore, newStage } = researchResult;
 
         if (newStage === "qualified") qualifiedCount++;
 
