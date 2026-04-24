@@ -202,7 +202,27 @@ export function QuotesList({
           </div>
           {depositPending && (
             <p className="mt-2 text-[11px] text-orange-800 bg-white/70 rounded border border-orange-200 px-2 py-1.5 leading-relaxed">
-              客户已签字成单。请在收到定金后点击「登记定金」，记录金额与支付方式，便于后续安排生产。
+              客户已签字成单。请在收到定金后点击「登记定金」，记录
+              <span className="font-medium">本次实收</span>
+              金额与支付方式，便于后续安排生产。
+              {q.agreedDepositAmount != null &&
+              Number.isFinite(q.agreedDepositAmount) &&
+              q.agreedDepositAmount >= 0 ? (
+                <>
+                  {" "}
+                  签单约定定金约{" "}
+                  <span className="font-semibold">${q.agreedDepositAmount.toFixed(2)}</span>
+                  {q.agreedBalanceAmount != null &&
+                  Number.isFinite(q.agreedBalanceAmount) &&
+                  q.agreedBalanceAmount >= 0 ? (
+                    <>
+                      ，约定余款{" "}
+                      <span className="font-semibold">${q.agreedBalanceAmount.toFixed(2)}</span>
+                    </>
+                  ) : null}
+                  （登记弹窗会优先按此预填）。
+                </>
+              ) : null}
             </p>
           )}
           {warn && q.notes && (
@@ -225,6 +245,8 @@ export function QuotesList({
           onOpenChange={(open) => { if (!open) setDepositTarget(null); }}
           quoteId={depositTarget.id}
           grandTotal={depositTarget.grandTotal}
+          agreedDepositAmount={depositTarget.agreedDepositAmount}
+          agreedBalanceAmount={depositTarget.agreedBalanceAmount}
           onSaved={(payload) => {
             handleDepositSaved(depositTarget.id, payload);
             setDepositTarget(null);

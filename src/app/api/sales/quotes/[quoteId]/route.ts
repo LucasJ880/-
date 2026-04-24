@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
+import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import type {
   QuoteItemInput,
   QuoteAddonInput,
@@ -192,6 +193,12 @@ export const PUT = withAuth(async (request, ctx, user) => {
   const mergedNotes =
     [notes || "", pricingErrorNotes].filter(Boolean).join("").trim() || null;
 
+  /** 未传 formDataJson 时不要清空历史约定（兼容非报价编辑端调用） */
+  const agreedPatch =
+    formDataJson !== undefined
+      ? parseAgreedPaymentFromFormDataJson(formDataJson, calc.grandTotal)
+      : null;
+
   // 事务：清空旧 items/addons，写入新数据，更新主表
   const updated = await db.$transaction(async (tx) => {
     await tx.salesQuoteItem.deleteMany({ where: { quoteId } });
@@ -227,6 +234,12 @@ export const PUT = withAuth(async (request, ctx, user) => {
           typeof finalDiscountPct === "number" && Number.isFinite(finalDiscountPct)
             ? Math.max(0, Math.min(1, finalDiscountPct))
             : null,
+        ...(agreedPatch
+          ? {
+              agreedDepositAmount: agreedPatch.agreedDepositAmount,
+              agreedBalanceAmount: agreedPatch.agreedBalanceAmount,
+            }
+          : {}),
         items:
           succeededItems > 0
             ? {

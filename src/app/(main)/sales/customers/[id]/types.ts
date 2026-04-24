@@ -56,6 +56,9 @@ export interface Quote {
   depositMethod: string | null;
   depositCollectedAt: string | null;
   depositNote: string | null;
+  /** Part B 签单约定（与登记实收可不同） */
+  agreedDepositAmount: number | null;
+  agreedBalanceAmount: number | null;
 }
 
 export interface BlindsOrder {

@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 
 /**
  * POST /api/sales/quotes/[quoteId]/mark-signed
@@ -16,7 +17,14 @@ export const POST = withAuth(async (_request, ctx, user) => {
 
   const quote = await db.salesQuote.findUnique({
     where: { id: quoteId },
-    select: { id: true, createdById: true, opportunityId: true, status: true },
+    select: {
+      id: true,
+      createdById: true,
+      opportunityId: true,
+      status: true,
+      formDataJson: true,
+      grandTotal: true,
+    },
   });
 
   if (!quote) {
@@ -28,11 +36,18 @@ export const POST = withAuth(async (_request, ctx, user) => {
     return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
   }
 
+  const agreed = parseAgreedPaymentFromFormDataJson(
+    quote.formDataJson,
+    quote.grandTotal,
+  );
+
   await db.salesQuote.update({
     where: { id: quoteId },
     data: {
       status: "signed",
       signedAt: new Date(),
+      agreedDepositAmount: agreed.agreedDepositAmount,
+      agreedBalanceAmount: agreed.agreedBalanceAmount,
     },
   });
 

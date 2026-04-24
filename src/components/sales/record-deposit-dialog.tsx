@@ -35,12 +35,17 @@ export function RecordDepositDialog({
   onOpenChange,
   quoteId,
   grandTotal,
+  /** Part B 签单时写入的约定定金（含税）；有则优先预填，无则 30% */
+  agreedDepositAmount = null,
+  agreedBalanceAmount = null,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   quoteId: string;
   grandTotal: number;
+  agreedDepositAmount?: number | null;
+  agreedBalanceAmount?: number | null;
   onSaved: (payload: {
     depositAmount: number;
     depositMethod: string;
@@ -48,10 +53,21 @@ export function RecordDepositDialog({
     depositNote: string | null;
   }) => void;
 }) {
-  const defaultDeposit = useMemo(
-    () => Number((grandTotal * 0.3).toFixed(2)),
-    [grandTotal],
-  );
+  const defaultDeposit = useMemo(() => {
+    if (
+      agreedDepositAmount != null &&
+      Number.isFinite(agreedDepositAmount) &&
+      agreedDepositAmount >= 0
+    ) {
+      return Number(agreedDepositAmount.toFixed(2));
+    }
+    return Number((grandTotal * 0.3).toFixed(2));
+  }, [grandTotal, agreedDepositAmount]);
+
+  const hasAgreed =
+    agreedDepositAmount != null &&
+    Number.isFinite(agreedDepositAmount) &&
+    agreedDepositAmount >= 0;
 
   const [amount, setAmount] = useState<string>("");
   const [method, setMethod] = useState<PaymentMethod>("etransfer");
@@ -118,23 +134,43 @@ export function RecordDepositDialog({
             登记定金收款
           </DialogTitle>
           <DialogDescription>
-            客户已签字成单（订单总额 ${grandTotal.toFixed(2)}），请确认本次收到的定金金额与支付方式，系统会记入客户档案，便于后续生产排期与结算。
+            客户已签字成单（订单总额 ${grandTotal.toFixed(2)}）。请登记
+            <span className="font-medium">本次实际收到</span>
+            的定金金额与支付方式（可与签单约定略有不同，如客户分笔支付）。系统会记入客户档案。
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="rounded-lg bg-orange-50 border border-orange-200 px-3 py-2.5 text-xs text-orange-900 leading-relaxed">
-            订单总额 <span className="font-semibold">${grandTotal.toFixed(2)}</span>
-            {amountValid && (
-              <>
-                {" "}· 定金 <span className="font-semibold">${amountNum.toFixed(2)}</span>
-                {" "}（{pct.toFixed(1)}%）· 余款 <span className="font-semibold">${balance.toFixed(2)}</span>
-              </>
+          <div className="rounded-lg bg-orange-50 border border-orange-200 px-3 py-2.5 text-xs text-orange-900 leading-relaxed space-y-1.5">
+            <p>
+              订单总额 <span className="font-semibold">${grandTotal.toFixed(2)}</span>
+              {amountValid && (
+                <>
+                  {" "}· 本次登记定金{" "}
+                  <span className="font-semibold">${amountNum.toFixed(2)}</span>
+                  {" "}（{pct.toFixed(1)}%）· 对应余款{" "}
+                  <span className="font-semibold">${balance.toFixed(2)}</span>
+                </>
+              )}
+            </p>
+            {hasAgreed && agreedDepositAmount != null && (
+              <p className="text-orange-950/90 border-t border-orange-200/80 pt-1.5">
+                签单约定（Part B）：定金{" "}
+                <span className="font-semibold">${agreedDepositAmount.toFixed(2)}</span>
+                {agreedBalanceAmount != null &&
+                Number.isFinite(agreedBalanceAmount) &&
+                agreedBalanceAmount >= 0 ? (
+                  <>
+                    {" "}· 约定余款{" "}
+                    <span className="font-semibold">${agreedBalanceAmount.toFixed(2)}</span>
+                  </>
+                ) : null}
+              </p>
             )}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="deposit-amount">定金金额 (CAD)</Label>
+            <Label htmlFor="deposit-amount">本次实收定金 (CAD)</Label>
             <Input
               id="deposit-amount"
               type="number"
@@ -143,7 +179,11 @@ export function RecordDepositDialog({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={saving}
-              placeholder={`建议 ${defaultDeposit.toFixed(2)}（30%）`}
+              placeholder={
+                hasAgreed
+                  ? `默认 ${defaultDeposit.toFixed(2)}（签单约定）`
+                  : `默认 ${defaultDeposit.toFixed(2)}（约 30%）`
+              }
             />
           </div>
 

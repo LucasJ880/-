@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { sendMailAs } from "@/lib/email/sender";
 import { signedNotifyHtml } from "@/lib/email/templates";
 import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
+import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 
 export async function POST(
   request: NextRequest,
@@ -40,6 +41,10 @@ export async function POST(
   }
 
   const now = new Date();
+  const agreed = parseAgreedPaymentFromFormDataJson(
+    quote.formDataJson,
+    quote.grandTotal,
+  );
 
   await db.salesQuote.update({
     where: { id: quote.id },
@@ -49,6 +54,8 @@ export async function POST(
       // 公开页签字 = 销售端"生成订单" → 统一写 signed，避免"已签约"筛选
       // 与驾驶舱统计看不到这种单（历史 accepted 数据在前端和 metrics 里兼容）
       status: "signed",
+      agreedDepositAmount: agreed.agreedDepositAmount,
+      agreedBalanceAmount: agreed.agreedBalanceAmount,
     },
   });
 

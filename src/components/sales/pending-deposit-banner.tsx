@@ -12,6 +12,8 @@ interface PendingQuote {
   customerName: string;
   grandTotal: number;
   signedAt: string;
+  agreedDepositAmount?: number | null;
+  agreedBalanceAmount?: number | null;
 }
 
 interface SummaryResp {
@@ -112,6 +114,18 @@ export function PendingDepositBanner() {
                 </Link>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   ${q.grandTotal.toLocaleString("en-CA", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  {q.agreedDepositAmount != null &&
+                  Number.isFinite(q.agreedDepositAmount) &&
+                  q.agreedDepositAmount >= 0 ? (
+                    <>
+                      {" "}
+                      · 约定定金 $
+                      {q.agreedDepositAmount.toLocaleString("en-CA", {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0,
+                      })}
+                    </>
+                  ) : null}
                   {" · 签约于 "}{formatSigned(q.signedAt)}
                 </p>
               </div>
@@ -144,6 +158,8 @@ export function PendingDepositBanner() {
           onOpenChange={(open) => { if (!open) setTarget(null); }}
           quoteId={target.id}
           grandTotal={target.grandTotal}
+          agreedDepositAmount={target.agreedDepositAmount}
+          agreedBalanceAmount={target.agreedBalanceAmount}
           onSaved={() => {
             setTarget(null);
             load();

@@ -6,6 +6,7 @@ import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/pricing-types';
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
+import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
 
 /**
  * POST /api/sales/quotes
@@ -130,6 +131,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const existingCount = await db.salesQuote.count({ where: { customerId } });
   const shareToken = randomBytes(16).toString('hex');
+  const agreed = parseAgreedPaymentFromFormDataJson(formDataJson, calc.grandTotal);
 
   const quote = await db.salesQuote.create({
     data: {
@@ -160,6 +162,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
         typeof finalDiscountPct === 'number' && Number.isFinite(finalDiscountPct)
           ? Math.max(0, Math.min(1, finalDiscountPct))
           : null,
+      agreedDepositAmount: agreed.agreedDepositAmount,
+      agreedBalanceAmount: agreed.agreedBalanceAmount,
       createdById: user.id,
       // 只有算成功的 item 才入表；shell / 全失败情况下不建 item
       items:

@@ -2374,6 +2374,10 @@ model SalesQuote {
   depositCollectedById String?
   depositNote         String?   @db.Text
 
+  /// Part B 签单时手填的约定定金/余款（含税口径，与 formDataJson 同步；登记定金时优先预填）
+  agreedDepositAmount Float?
+  agreedBalanceAmount Float?
+
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

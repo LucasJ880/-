@@ -42,6 +42,8 @@ interface QuoteItem {
   depositAmount?: number | null;
   depositMethod?: string | null;
   depositCollectedAt?: string | null;
+  agreedDepositAmount?: number | null;
+  agreedBalanceAmount?: number | null;
 }
 
 const DEPOSIT_METHOD_LABEL: Record<string, string> = {
@@ -393,6 +395,8 @@ function SalesQuotesPageInner() {
           onOpenChange={(open) => { if (!open) setDepositTarget(null); }}
           quoteId={depositTarget.id}
           grandTotal={depositTarget.grandTotal}
+          agreedDepositAmount={depositTarget.agreedDepositAmount}
+          agreedBalanceAmount={depositTarget.agreedBalanceAmount}
           onSaved={(payload) => {
             setQuotes((prev) =>
               prev.map((x) =>

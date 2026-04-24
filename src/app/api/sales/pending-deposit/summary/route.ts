@@ -32,6 +32,8 @@ export const GET = withAuth(async (_request, _ctx, user) => {
         signedAt: true,
         updatedAt: true,
         customerId: true,
+        agreedDepositAmount: true,
+        agreedBalanceAmount: true,
         customer: { select: { name: true } },
       },
     }),
@@ -44,6 +46,8 @@ export const GET = withAuth(async (_request, _ctx, user) => {
       customerId: q.customerId,
       customerName: q.customer?.name ?? "—",
       grandTotal: q.grandTotal,
+      agreedDepositAmount: q.agreedDepositAmount,
+      agreedBalanceAmount: q.agreedBalanceAmount,
       signedAt: (q.signedAt ?? q.updatedAt).toISOString(),
     })),
   });
