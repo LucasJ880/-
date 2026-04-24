@@ -14,11 +14,8 @@ import { requireRole } from "@/lib/auth/guards";
 import { isAdmin } from "@/lib/rbac/roles";
 import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
 import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
-import { searchGoogle, fetchPageContent } from "@/lib/trade/tools";
-import {
-  buildSourcesFromSerpAndPage,
-  mergeResearchBundle,
-} from "@/lib/trade/research-bundle";
+import { mergeResearchBundle } from "@/lib/trade/research-bundle";
+import { gatherTradeResearchInputs } from "@/lib/trade/research-input";
 
 export async function POST(
   request: NextRequest,
@@ -42,34 +39,11 @@ export async function POST(
     return NextResponse.json({ error: "活动不存在" }, { status: 404 });
   }
 
-  // Step 1: Search for company info
-  let rawData = "";
-  const searchResults = await searchGoogle(
-    `"${prospect.companyName}" ${prospect.country ?? ""} company products`,
-    { num: 5 },
-  );
-  if (searchResults.length > 0) {
-    rawData = searchResults
-      .map((r) => `[${r.title}](${r.link})\n${r.snippet}`)
-      .join("\n\n");
-  }
-
-  // Step 2: Fetch website content
-  const website = prospect.website ?? searchResults[0]?.link;
-  let homepagePage: Awaited<ReturnType<typeof fetchPageContent>> | null = null;
-  if (website) {
-    const page = await fetchPageContent(website);
-    if (page.ok) {
-      homepagePage = page;
-      rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
-    }
-  }
-
-  const sources = buildSourcesFromSerpAndPage(
-    searchResults,
-    homepagePage,
-    website && homepagePage?.ok ? website : null,
-  );
+  const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
+    companyName: prospect.companyName,
+    country: prospect.country,
+    website: prospect.website,
+  });
 
   // Step 3: Generate research report (+ fieldSourceIds)
   const { report, fieldSourceIds } = await generateResearchReport(
@@ -112,7 +86,7 @@ export async function POST(
     score: finalScore,
     scoreReason: scoreResult.reason,
     stage: newStage,
-    website: website ?? prospect.website,
+    website: resolvedWebsite ?? prospect.website,
   });
 
   // Update campaign stats

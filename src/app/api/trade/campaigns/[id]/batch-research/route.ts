@@ -8,11 +8,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { getCampaign, updateProspect } from "@/lib/trade/service";
 import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
-import { searchGoogle, fetchPageContent } from "@/lib/trade/tools";
-import {
-  buildSourcesFromSerpAndPage,
-  mergeResearchBundle,
-} from "@/lib/trade/research-bundle";
+import { mergeResearchBundle } from "@/lib/trade/research-bundle";
+import { gatherTradeResearchInputs } from "@/lib/trade/research-input";
 import { db } from "@/lib/db";
 
 export async function POST(
@@ -46,32 +43,11 @@ export async function POST(
 
   for (const p of prospects) {
     try {
-      let rawData = "";
-      const searchResults = await searchGoogle(
-        `"${p.companyName}" ${p.country ?? ""} company products`,
-        { num: 5 },
-      );
-      if (searchResults.length > 0) {
-        rawData = searchResults
-          .map((r) => `[${r.title}](${r.link})\n${r.snippet}`)
-          .join("\n\n");
-      }
-
-      const website = p.website ?? searchResults[0]?.link;
-      let homepagePage: Awaited<ReturnType<typeof fetchPageContent>> | null = null;
-      if (website) {
-        const page = await fetchPageContent(website);
-        if (page.ok) {
-          homepagePage = page;
-          rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
-        }
-      }
-
-      const sources = buildSourcesFromSerpAndPage(
-        searchResults,
-        homepagePage,
-        website && homepagePage?.ok ? website : null,
-      );
+      const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
+        companyName: p.companyName,
+        country: p.country,
+        website: p.website,
+      });
 
       const { report, fieldSourceIds } = await generateResearchReport(
         { name: p.companyName, website: p.website, country: p.country, rawData: rawData || undefined },
@@ -102,7 +78,7 @@ export async function POST(
         score: finalScore,
         scoreReason: scoreResult.reason,
         stage: newStage,
-        website: website ?? p.website,
+        website: resolvedWebsite ?? p.website,
       });
 
       if (newStage === "qualified") qualifiedCount++;

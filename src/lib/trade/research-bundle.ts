@@ -21,7 +21,39 @@ export interface ResearchReport {
   recommendations: string;
 }
 
-export type ResearchSourceKind = "search" | "homepage";
+export type ResearchSourceKind =
+  | "search"
+  | "homepage"
+  | "about"
+  | "products"
+  | "collections"
+  | "contact"
+  | "compliance"
+  | "news"
+  | "blog"
+  | "site_page";
+
+const RESEARCH_SOURCE_KINDS = new Set<ResearchSourceKind>([
+  "search",
+  "homepage",
+  "about",
+  "products",
+  "collections",
+  "contact",
+  "compliance",
+  "news",
+  "blog",
+  "site_page",
+]);
+
+export function parseResearchSourceKind(raw: unknown): ResearchSourceKind {
+  if (typeof raw === "string" && RESEARCH_SOURCE_KINDS.has(raw as ResearchSourceKind)) {
+    return raw as ResearchSourceKind;
+  }
+  /** 历史 bundle 若缺省 kind，按 Serper 来源处理 */
+  if (raw == null || raw === "") return "search";
+  return "site_page";
+}
 
 export interface ResearchSource {
   id: string;
@@ -157,6 +189,31 @@ export function buildSourcesFromSerpAndPage(
     });
   }
   return sources;
+}
+
+/** Serper + 首页之后的 Firecrawl 深度页，统一续 id（s{n}） */
+export function mergeSourcesWithFirecrawlPages(
+  base: ResearchSource[],
+  pages: { url: string; title: string; markdown: string; kind: ResearchSourceKind }[],
+  opts?: { maxSnippetChars?: number },
+): ResearchSource[] {
+  const maxSnippet = opts?.maxSnippetChars ?? 3500;
+  const out = [...base];
+  let n = base.length;
+  for (const p of pages) {
+    if (!p.url || !p.markdown.trim()) continue;
+    if (out.some((s) => s.url === p.url)) continue;
+    n++;
+    const excerpt = p.markdown.replace(/\s+/g, " ").trim().slice(0, maxSnippet);
+    out.push({
+      id: `s${n}`,
+      url: p.url,
+      title: p.title || p.url,
+      kind: p.kind,
+      snippet: excerpt || undefined,
+    });
+  }
+  return out;
 }
 
 function isRecord(x: unknown): x is Record<string, unknown> {
@@ -492,7 +549,7 @@ export function parseResearchBundle(json: unknown): ParsedResearchBundle {
             const id = String(row.id ?? `s${i + 1}`);
             const url = String(row.url ?? "");
             if (!url) return null;
-            const kind = row.kind === "homepage" ? "homepage" : "search";
+            const kind = parseResearchSourceKind(row.kind);
             return {
               id,
               url,

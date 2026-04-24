@@ -13,12 +13,9 @@
 import { db } from "@/lib/db";
 import { getCampaign, updateCampaign, createProspect, updateProspect } from "./service";
 import { generateSearchKeywords, generateResearchReport, scoreProspect, generateOutreachEmail } from "./agents";
-import { discoverProspects, searchGoogle, fetchPageContent } from "./tools";
-import {
-  buildSourcesFromSerpAndPage,
-  getResearchReportForAgents,
-  mergeResearchBundle,
-} from "./research-bundle";
+import { discoverProspects } from "./tools";
+import { getResearchReportForAgents, mergeResearchBundle } from "./research-bundle";
+import { gatherTradeResearchInputs } from "./research-input";
 import { logActivity } from "./activity-log";
 
 export interface PipelineStep {
@@ -155,30 +152,11 @@ export async function runFullPipeline(
     let qualifiedCount = 0;
     for (const p of newProspects) {
       try {
-        let rawData = "";
-        const searchResults = await searchGoogle(
-          `"${p.companyName}" ${p.country ?? ""} company products`,
-          { num: 5 },
-        );
-        if (searchResults.length > 0) {
-          rawData = searchResults.map((r) => `[${r.title}](${r.link})\n${r.snippet}`).join("\n\n");
-        }
-
-        const website = p.website ?? searchResults[0]?.link;
-        let homepagePage: Awaited<ReturnType<typeof fetchPageContent>> | null = null;
-        if (website) {
-          const page = await fetchPageContent(website);
-          if (page.ok) {
-            homepagePage = page;
-            rawData += `\n\n--- 官网内容 ---\n${page.title}\n${page.text.slice(0, 3000)}`;
-          }
-        }
-
-        const sources = buildSourcesFromSerpAndPage(
-          searchResults,
-          homepagePage,
-          website && homepagePage?.ok ? website : null,
-        );
+        const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
+          companyName: p.companyName,
+          country: p.country,
+          website: p.website,
+        });
 
         const { report, fieldSourceIds } = await generateResearchReport(
           { name: p.companyName, website: p.website, country: p.country, rawData: rawData || undefined },
@@ -209,7 +187,7 @@ export async function runFullPipeline(
           score: finalScore,
           scoreReason: scoreResult.reason,
           stage: newStage,
-          website: website ?? p.website,
+          website: resolvedWebsite ?? p.website,
         });
 
         if (newStage === "qualified") qualifiedCount++;

@@ -36,6 +36,22 @@ import {
   type ScoringProfileV1,
 } from "@/lib/trade/research-bundle";
 
+function researchSourceKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    search: "搜索",
+    homepage: "官网",
+    about: "关于我们",
+    products: "产品",
+    collections: "系列",
+    contact: "联系",
+    compliance: "合规/认证",
+    news: "资讯",
+    blog: "博客",
+    site_page: "站内页",
+  };
+  return labels[kind] ?? kind;
+}
+
 // ── Types ───────────────────────────────────────────────────
 
 function hasResearchContent(report: ResearchReport | null): boolean {
@@ -963,7 +979,7 @@ export default function ProspectDetailPage() {
           <div className="mb-2 flex items-center gap-2">
             <Globe size={14} className="text-amber-500" />
             <h3 className="text-sm font-medium text-foreground">参考来源</h3>
-            <span className="text-[10px] text-muted">（Serper / 官网摘录）</span>
+            <span className="text-[10px] text-muted">（搜索 / 官网 / 关键站内页）</span>
           </div>
           <ul className="space-y-2">
             {researchSources.map((s) => (
@@ -971,7 +987,7 @@ export default function ProspectDetailPage() {
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="font-mono text-[10px] text-muted">{s.id}</span>
                   <span className="rounded bg-zinc-500/15 px-1 py-0.5 text-[10px] text-muted">
-                    {s.kind === "homepage" ? "官网" : "搜索"}
+                    {researchSourceKindLabel(s.kind)}
                   </span>
                   <a
                     href={s.url}
