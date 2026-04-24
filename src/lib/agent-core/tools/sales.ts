@@ -10,5 +10,6 @@ import "./sales-quote";
 import "./sales-opportunity";
 import "./sales-interaction";
 import "./sales-coaching";
+import "./sales-visualizer";
 
 export { ok } from "./sales-helpers";

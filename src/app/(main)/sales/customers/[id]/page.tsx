@@ -17,6 +17,7 @@ import {
   Sparkles,
   Trash2,
   Pencil,
+  ImageIcon,
 } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
@@ -110,6 +111,9 @@ export default function CustomerDetailPage() {
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [openingVisualizerFor, setOpeningVisualizerFor] = useState<string | null>(
+    null,
+  );
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicDraft, setBasicDraft] = useState<BasicInfoDraft | null>(null);
   const [basicSaving, setBasicSaving] = useState(false);
@@ -195,6 +199,49 @@ export default function CustomerDetailPage() {
       alert("删除失败");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  /**
+   * 在客户/机会上下文下幂等打开 Visualizer：
+   * - 有同 (customerId, opportunityId?) 的活跃 session → 复用最新
+   * - 没有则创建并跳转
+   * opportunityId 传 null 时等价于客户级方案（不挂任何机会）
+   */
+  const handleOpenVisualizer = async (opportunityId: string | null) => {
+    if (!customer) return;
+    const key = opportunityId ?? "__customer__";
+    if (openingVisualizerFor) return;
+    setOpeningVisualizerFor(key);
+    try {
+      const res = await apiFetch("/api/visualizer/sessions/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: customer.id,
+          opportunityId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(
+          typeof (data as { error?: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : "打开失败",
+        );
+        return;
+      }
+      const sessionId = (data as { session?: { id?: string } }).session?.id;
+      if (!sessionId) {
+        alert("后端未返回 session id");
+        return;
+      }
+      router.push(`/sales/visualizer/${sessionId}`);
+    } catch (err) {
+      console.error("Open visualizer failed:", err);
+      alert("网络错误，无法打开方案");
+    } finally {
+      setOpeningVisualizerFor(null);
     }
   };
 
@@ -703,6 +750,20 @@ export default function CustomerDetailPage() {
                   <div className="flex items-center gap-2 text-xs text-muted">
                     <span>{opp._count.quotes} 报价</span>
                     <span>{opp._count.blindsOrders} 订单</span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenVisualizer(opp.id)}
+                      disabled={openingVisualizerFor === opp.id}
+                      className="inline-flex items-center gap-1 rounded-md border border-purple-200 bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-60"
+                      title="为该销售机会打开可视化方案"
+                    >
+                      {openingVisualizerFor === opp.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <ImageIcon className="h-3 w-3" />
+                      )}
+                      可视化方案
+                    </button>
                   </div>
                 </div>
               ))}

@@ -41,6 +41,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   sales_get_deal_health:      { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_record_coaching:      { risk: "l1_internal_write", allowRoles: ["admin", "sales"] },
   sales_coaching_feedback:    { risk: "l1_internal_write", allowRoles: ["admin", "sales"] },
+  // Visualizer（窗饰可视化）— 幂等打开方案，有则复用不会重复建
+  sales_visualizer_open:      { risk: "l2_soft",           allowRoles: ["admin", "sales"] },
 
   // ── PR4 草稿型写工具（所有副作用都经 PendingAction 审批）──────
   sales_update_followup:       { risk: "l2_soft", allowRoles: ["admin", "sales"] },
