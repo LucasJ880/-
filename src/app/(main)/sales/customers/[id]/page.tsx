@@ -39,6 +39,7 @@ import { InteractionTimeline } from "./interaction-timeline";
 import { QuotesList } from "./quotes-list";
 import { OrdersList } from "./orders-list";
 import { CoachingPanel } from "./coaching-panel";
+import { VisualizerList } from "./visualizer-list";
 import { AddInteractionDialog } from "./add-interaction-dialog";
 import { ImportConversationDialog } from "./import-conversation-dialog";
 import { CreateQuoteDialog } from "./create-quote-dialog";
@@ -113,16 +114,17 @@ export default function CustomerDetailPage() {
   const [basicDraft, setBasicDraft] = useState<BasicInfoDraft | null>(null);
   const [basicSaving, setBasicSaving] = useState(false);
   const [basicError, setBasicError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"timeline" | "quotes" | "orders" | "coaching">(
-    "timeline"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "timeline" | "quotes" | "orders" | "visualizer" | "coaching"
+  >("timeline");
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
-  const TAB_ORDER: ("timeline" | "quotes" | "orders" | "coaching")[] = [
-    "timeline",
-    "quotes",
-    "orders",
-    "coaching",
-  ];
+  const TAB_ORDER: (
+    | "timeline"
+    | "quotes"
+    | "orders"
+    | "visualizer"
+    | "coaching"
+  )[] = ["timeline", "quotes", "orders", "visualizer", "coaching"];
   const swipeHandlers = useSwipeable({
     onSwipeLeft: () => {
       const idx = TAB_ORDER.indexOf(activeTab);
@@ -716,6 +718,7 @@ export default function CustomerDetailPage() {
             { key: "timeline" as const, label: "互动时间线", shortLabel: "互动", count: customer.interactions.length },
             { key: "quotes" as const, label: "报价记录", shortLabel: "报价", count: customer.quotes.length },
             { key: "orders" as const, label: "工艺单", shortLabel: "工艺单", count: customer.blindsOrders.length },
+            { key: "visualizer" as const, label: "可视化方案", shortLabel: "方案", count: 0 },
             { key: "coaching" as const, label: "AI 建议", shortLabel: "AI", count: 0 },
           ]
         ).map((tab) => (
@@ -805,6 +808,16 @@ export default function CustomerDetailPage() {
           />
         )}
         {activeTab === "orders" && <OrdersList orders={customer.blindsOrders} />}
+        {activeTab === "visualizer" && (
+          <VisualizerList
+            customerId={customer.id}
+            opportunities={customer.opportunities.map((o) => ({
+              id: o.id,
+              title: o.title,
+              stage: o.stage,
+            }))}
+          />
+        )}
         {activeTab === "coaching" && <CoachingPanel customerId={customer.id} />}
       </div>
 

@@ -12,7 +12,6 @@ datasource db {
   extensions = [vector]
 }
 
-
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -35,82 +34,87 @@ model User {
   // 仅对 sales/trade/user 生效；admin/super_admin 永远可改
   canEditCustomers Boolean @default(true)
 
-  projects           Project[]
-  tasks              Task[]             @relation("TaskAssignee")
-  createdTasks       Task[]             @relation("TaskCreator")
-  comments           TaskComment[]
-  activities         TaskActivity[]
-  calendarEvents     CalendarEvent[]
-  calendarProviders  CalendarProvider[]
-  blindsOrders       BlindsOrder[]
-  reminders          Reminder[]
-  notifications               Notification[] @relation("UserNotifications")
-  notificationPreference      UserNotificationPreference?
-  projectNotificationRules    ProjectNotificationRule[]
-  ownedOrgs          Organization[]
-  orgMemberships     OrganizationMember[]
-  projectMemberships ProjectMember[]
-  auditLogs          AuditLog[]
-  promptsCreated     Prompt[]           @relation("PromptCreatedBy")
-  promptsUpdated     Prompt[]           @relation("PromptUpdatedBy")
-  promptVersions     PromptVersion[]    @relation("PromptVersionCreatedBy")
-  promptPublishLogs  PromptPublishLog[] @relation("PromptPublishBy")
+  projects                 Project[]
+  tasks                    Task[]                      @relation("TaskAssignee")
+  createdTasks             Task[]                      @relation("TaskCreator")
+  comments                 TaskComment[]
+  activities               TaskActivity[]
+  calendarEvents           CalendarEvent[]
+  calendarProviders        CalendarProvider[]
+  blindsOrders             BlindsOrder[]
+  reminders                Reminder[]
+  notifications            Notification[]              @relation("UserNotifications")
+  notificationPreference   UserNotificationPreference?
+  projectNotificationRules ProjectNotificationRule[]
+  ownedOrgs                Organization[]
+  orgMemberships           OrganizationMember[]
+  projectMemberships       ProjectMember[]
+  auditLogs                AuditLog[]
+  promptsCreated           Prompt[]                    @relation("PromptCreatedBy")
+  promptsUpdated           Prompt[]                    @relation("PromptUpdatedBy")
+  promptVersions           PromptVersion[]             @relation("PromptVersionCreatedBy")
+  promptPublishLogs        PromptPublishLog[]          @relation("PromptPublishBy")
 
-  knowledgeBasesCreated            KnowledgeBase[]              @relation("KnowledgeBaseCreatedBy")
-  knowledgeBasesUpdated            KnowledgeBase[]              @relation("KnowledgeBaseUpdatedBy")
-  knowledgeBaseVersionsCreated     KnowledgeBaseVersion[]       @relation("KBVersionCreatedBy")
-  knowledgeDocumentsCreated        KnowledgeDocument[]          @relation("KnowledgeDocumentCreatedBy")
-  knowledgeDocumentsUpdated        KnowledgeDocument[]          @relation("KnowledgeDocumentUpdatedBy")
-  projectMessages                  ProjectMessage[]             @relation("ProjectMessageSender")
-  knowledgeDocumentVersionsCreated KnowledgeDocumentVersion[]   @relation("KDVersionCreatedBy")
-  knowledgePublishLogs             KnowledgePublishLog[]        @relation("KBPublishedBy")
+  knowledgeBasesCreated            KnowledgeBase[]            @relation("KnowledgeBaseCreatedBy")
+  knowledgeBasesUpdated            KnowledgeBase[]            @relation("KnowledgeBaseUpdatedBy")
+  knowledgeBaseVersionsCreated     KnowledgeBaseVersion[]     @relation("KBVersionCreatedBy")
+  knowledgeDocumentsCreated        KnowledgeDocument[]        @relation("KnowledgeDocumentCreatedBy")
+  knowledgeDocumentsUpdated        KnowledgeDocument[]        @relation("KnowledgeDocumentUpdatedBy")
+  projectMessages                  ProjectMessage[]           @relation("ProjectMessageSender")
+  knowledgeDocumentVersionsCreated KnowledgeDocumentVersion[] @relation("KDVersionCreatedBy")
+  knowledgePublishLogs             KnowledgePublishLog[]      @relation("KBPublishedBy")
 
-  conversations                    Conversation[]               @relation("ConversationUser")
-  aiThreads                        AiThread[]
+  conversations Conversation[] @relation("ConversationUser")
+  aiThreads     AiThread[]
 
-  agentsCreated                    Agent[]                      @relation("AgentCreatedBy")
-  agentsUpdated                    Agent[]                      @relation("AgentUpdatedBy")
-  agentVersionsCreated             AgentVersion[]               @relation("AgentVersionCreatedBy")
-  toolsCreated                     ToolRegistry[]               @relation("ToolCreatedBy")
-  toolsUpdated                     ToolRegistry[]               @relation("ToolUpdatedBy")
-  agentTasksCreated                AgentTask[]                  @relation("AgentTaskCreatedBy")
-  customFlowTemplates              CustomFlowTemplate[]         @relation("CustomFlowTemplateCreatedBy")
+  agentsCreated        Agent[]              @relation("AgentCreatedBy")
+  agentsUpdated        Agent[]              @relation("AgentUpdatedBy")
+  agentVersionsCreated AgentVersion[]       @relation("AgentVersionCreatedBy")
+  toolsCreated         ToolRegistry[]       @relation("ToolCreatedBy")
+  toolsUpdated         ToolRegistry[]       @relation("ToolUpdatedBy")
+  agentTasksCreated    AgentTask[]          @relation("AgentTaskCreatedBy")
+  customFlowTemplates  CustomFlowTemplate[] @relation("CustomFlowTemplateCreatedBy")
 
   // AI Memory
-  memories                         UserMemory[]
+  memories UserMemory[]
 
   // Dynamic Skills
-  agentSkillsCreated               AgentSkill[]                 @relation("AgentSkillCreatedBy")
+  agentSkillsCreated AgentSkill[] @relation("AgentSkillCreatedBy")
 
   // WeChat Bindings
-  wechatBindings                   WeChatBinding[]              @relation("UserWeChatBindings")
+  wechatBindings WeChatBinding[] @relation("UserWeChatBindings")
 
   // Sales CRM relations
-  salesCustomersCreated            SalesCustomer[]              @relation("SalesCustomerCreatedBy")
-  salesOpportunitiesAssigned       SalesOpportunity[]           @relation("SalesOpportunityAssignee")
-  salesOpportunitiesCreated        SalesOpportunity[]           @relation("SalesOpportunityCreatedBy")
-  customerInteractionsCreated      CustomerInteraction[]        @relation("CustomerInteractionCreatedBy")
-  salesQuotesCreated               SalesQuote[]                 @relation("SalesQuoteCreatedBy")
+  salesCustomersCreated       SalesCustomer[]       @relation("SalesCustomerCreatedBy")
+  salesOpportunitiesAssigned  SalesOpportunity[]    @relation("SalesOpportunityAssignee")
+  salesOpportunitiesCreated   SalesOpportunity[]    @relation("SalesOpportunityCreatedBy")
+  customerInteractionsCreated CustomerInteraction[] @relation("CustomerInteractionCreatedBy")
+  salesQuotesCreated          SalesQuote[]          @relation("SalesQuoteCreatedBy")
 
   // Appointments
-  appointmentsAssigned             Appointment[]                @relation("AppointmentAssignee")
-  appointmentsCreated              Appointment[]                @relation("AppointmentCreatedBy")
+  appointmentsAssigned Appointment[] @relation("AppointmentAssignee")
+  appointmentsCreated  Appointment[] @relation("AppointmentCreatedBy")
 
   // Email Binding
-  emailBinding                     EmailBinding?
+  emailBinding EmailBinding?
 
   // Sales RAG
-  salesInsights                    SalesInsight[]           @relation("SalesInsightUser")
-  coachingRecords                  CoachingRecord[]         @relation("CoachingRecordUser")
+  salesInsights   SalesInsight[]   @relation("SalesInsightUser")
+  coachingRecords CoachingRecord[] @relation("CoachingRecordUser")
 
   // PR4 — AI 待审批动作
-  pendingActionsCreated            PendingAction[]          @relation("PendingActionCreatedBy")
+  pendingActionsCreated PendingAction[] @relation("PendingActionCreatedBy")
+
+  // Visualizer 窗饰可视化
+  visualizerSessionsCreated VisualizerSession[]   @relation("VisualizerSessionCreatedBy")
+  visualizerSessionsOwned   VisualizerSession[]   @relation("VisualizerSessionSalesOwner")
+  visualizerSelectionsMade  VisualizerSelection[] @relation("VisualizerSelectionBy")
 
   // 微信开放平台 OpenID（网站应用扫码登录）
-  wechatOpenId  String?   @unique
+  wechatOpenId String? @unique
 
   // 邀请码溯源
-  inviteCodeId  String?
+  inviteCodeId String?
 
   @@index([status])
   @@index([authProvider])
@@ -122,26 +126,26 @@ model User {
 // ============================================================
 
 model EmailBinding {
-  id            String    @id @default(cuid())
-  userId        String    @unique
-  user          User      @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
-  email         String    // 发信邮箱地址 (e.g. sales@sunny.com)
-  displayName   String    // 发件人显示名 (e.g. "Kevin @ Sunny Blinds")
-  provider      String    @default("smtp") // smtp / gmail / outlook
-  smtpHost      String?   // smtp.gmail.com / smtp.office365.com
-  smtpPort      Int?      @default(587)
-  smtpUser      String?   // 通常是邮箱地址
-  smtpPass      String?   // App Password（加密存储）
-  useTls        Boolean   @default(true)
+  email       String // 发信邮箱地址 (e.g. sales@sunny.com)
+  displayName String // 发件人显示名 (e.g. "Kevin @ Sunny Blinds")
+  provider    String  @default("smtp") // smtp / gmail / outlook
+  smtpHost    String? // smtp.gmail.com / smtp.office365.com
+  smtpPort    Int?    @default(587)
+  smtpUser    String? // 通常是邮箱地址
+  smtpPass    String? // App Password（加密存储）
+  useTls      Boolean @default(true)
 
-  verified      Boolean   @default(false)
-  verifiedAt    DateTime?
-  lastSentAt    DateTime?
-  lastError     String?
+  verified   Boolean   @default(false)
+  verifiedAt DateTime?
+  lastSentAt DateTime?
+  lastError  String?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([email])
 }
@@ -167,80 +171,80 @@ model InviteCode {
 }
 
 model Project {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   orgId       String?
   org         Organization? @relation(fields: [orgId], references: [id])
   name        String
-  code        String?  @unique
+  code        String?       @unique
   description String?
-  color       String   @default("#3B82F6")
-  status      String   @default("active")
+  color       String        @default("#3B82F6")
+  status      String        @default("active")
   startDate   DateTime?
   dueDate     DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   // BidToGo / 外部集成字段
-  category             String?
-  priority             String   @default("medium")
-  tenderStatus         String?
-  sourceSystem         String?
-  sourcePlatform       String?
-  clientOrganization   String?
-  location             String?
-  estimatedValue       Float?
-  currency             String?
-  solicitationNumber   String?
-  workflowTemplate     String?
-  sourceMetadataJson   String?
+  category           String?
+  priority           String  @default("medium")
+  tenderStatus       String?
+  sourceSystem       String?
+  sourcePlatform     String?
+  clientOrganization String?
+  location           String?
+  estimatedValue     Float?
+  currency           String?
+  solicitationNumber String?
+  workflowTemplate   String?
+  sourceMetadataJson String?
 
   // 招投标流程日期
-  publicDate           DateTime?
-  questionCloseDate    DateTime?
-  closeDate            DateTime?
-  distributedAt        DateTime?
-  interpretedAt        DateTime?
-  supplierInquiredAt   DateTime?
-  supplierQuotedAt     DateTime?
-  submittedAt          DateTime?
-  awardDate            DateTime?
+  publicDate         DateTime?
+  questionCloseDate  DateTime?
+  closeDate          DateTime?
+  distributedAt      DateTime?
+  interpretedAt      DateTime?
+  supplierInquiredAt DateTime?
+  supplierQuotedAt   DateTime?
+  submittedAt        DateTime?
+  awardDate          DateTime?
 
   // 项目放弃
-  abandonedAt          DateTime?
-  abandonedStage       String?
-  abandonedById        String?
-  abandonedReason      String?
+  abandonedAt     DateTime?
+  abandonedStage  String?
+  abandonedById   String?
+  abandonedReason String?
 
   // 项目分发 (Bid to Go intake)
-  intakeStatus         String   @default("dispatched")
-  dispatchedAt         DateTime?
-  dispatchedById       String?
+  intakeStatus   String    @default("dispatched")
+  dispatchedAt   DateTime?
+  dispatchedById String?
 
-  ownerId      String
-  owner        User     @relation(fields: [ownerId], references: [id])
-  tasks        Task[]
-  blindsOrders BlindsOrder[]
-  members      ProjectMember[]
-  environments Environment[]
-  auditLogs    AuditLog[]
-  prompts      Prompt[]
-  promptPublishLogs PromptPublishLog[]
-  knowledgeBases KnowledgeBase[]
+  ownerId              String
+  owner                User                      @relation(fields: [ownerId], references: [id])
+  tasks                Task[]
+  blindsOrders         BlindsOrder[]
+  members              ProjectMember[]
+  environments         Environment[]
+  auditLogs            AuditLog[]
+  prompts              Prompt[]
+  promptPublishLogs    PromptPublishLog[]
+  knowledgeBases       KnowledgeBase[]
   knowledgePublishLogs KnowledgePublishLog[]
-  conversations Conversation[]
-  agents        Agent[]
-  tools         ToolRegistry[]
-  notificationRules ProjectNotificationRule[]
+  conversations        Conversation[]
+  agents               Agent[]
+  tools                ToolRegistry[]
+  notificationRules    ProjectNotificationRule[]
 
-  externalRef         ExternalReference?
-  intelligence        ProjectIntelligence?
-  progressSummaries   ProjectProgressSummary[]
-  documents           ProjectDocument[]
-  discussion    ProjectConversation?
-  aiThreads     AiThread[]
-  inquiries     ProjectInquiry[]
-  quotes        ProjectQuote[]
-  agentTasks    AgentTask[]
+  externalRef       ExternalReference?
+  intelligence      ProjectIntelligence?
+  progressSummaries ProjectProgressSummary[]
+  documents         ProjectDocument[]
+  discussion        ProjectConversation?
+  aiThreads         AiThread[]
+  inquiries         ProjectInquiry[]
+  quotes            ProjectQuote[]
+  agentTasks        AgentTask[]
 
   @@index([orgId])
   @@index([sourceSystem])
@@ -250,32 +254,32 @@ model Project {
 }
 
 model Task {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   title        String
   description  String?
-  status       String   @default("todo")
-  priority     String   @default("medium")
+  status       String    @default("todo")
+  priority     String    @default("medium")
   dueDate      DateTime?
-  needReminder Boolean  @default(false)
+  needReminder Boolean   @default(false)
   followupAt   DateTime?
   completedAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  projectId   String?
-  project     Project? @relation(fields: [projectId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
 
-  assigneeId  String?
-  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId String?
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
 
-  creatorId   String
-  creator     User     @relation("TaskCreator", fields: [creatorId], references: [id])
+  creatorId String
+  creator   User   @relation("TaskCreator", fields: [creatorId], references: [id])
 
-  tags            TagOnTask[]
-  comments        TaskComment[]
-  activities      TaskActivity[]
-  calendarEvents  CalendarEvent[]
-  reminders       Reminder[]
+  tags           TagOnTask[]
+  comments       TaskComment[]
+  activities     TaskActivity[]
+  calendarEvents CalendarEvent[]
+  reminders      Reminder[]
 
   @@index([projectId, status])
   @@index([projectId, createdAt])
@@ -290,11 +294,11 @@ model TaskComment {
   content   String
   createdAt DateTime @default(now())
 
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
 }
 
 model TaskActivity {
@@ -303,11 +307,11 @@ model TaskActivity {
   detail    String?
   createdAt DateTime @default(now())
 
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  actorId   String
-  actor     User     @relation(fields: [actorId], references: [id])
+  actorId String
+  actor   User   @relation(fields: [actorId], references: [id])
 }
 
 model Tag {
@@ -316,7 +320,7 @@ model Tag {
   color     String   @default("#6B7280")
   createdAt DateTime @default(now())
 
-  tasks     TagOnTask[]
+  tasks TagOnTask[]
 }
 
 model TagOnTask {
@@ -329,40 +333,40 @@ model TagOnTask {
 }
 
 model CalendarEvent {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  startTime   DateTime
-  endTime     DateTime
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  startTime       DateTime
+  endTime         DateTime
   allDay          Boolean  @default(false)
   location        String?
   reminderMinutes Int      @default(15)
   source          String   @default("qingyan")
-  externalId  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  externalId      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  taskId      String?
-  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskId String?
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  reminders   Reminder[]
+  reminders Reminder[]
 }
 
 model BlindsOrder {
-  id            String   @id @default(cuid())
-  code          String   @unique
-  status        String   @default("draft")
+  id          String @id @default(cuid())
+  code        String @unique
+  status      String @default("draft")
   // draft → confirmed → in_production → ready → scheduled → installed → completed → cancelled
-  ruleVersion   String   @default("blinds_20251024_v1")
+  ruleVersion String @default("blinds_20251024_v1")
 
-  customerName  String
-  phone         String?
-  address       String?
-  installDate   String?
-  remarks       String?
+  customerName String
+  phone        String?
+  address      String?
+  installDate  String?
+  remarks      String?
 
   confirmedAt       DateTime?
   productionStartAt DateTime?
@@ -376,23 +380,23 @@ model BlindsOrder {
   expectedInstallDate DateTime?
   appointmentId       String?
 
-  priority      String   @default("normal") // urgent / normal / low
+  priority String @default("normal") // urgent / normal / low
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  creatorId     String
-  creator       User     @relation(fields: [creatorId], references: [id])
-  projectId     String?
-  project       Project? @relation(fields: [projectId], references: [id])
+  creatorId String
+  creator   User     @relation(fields: [creatorId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
 
   customerId    String?
-  customer      SalesCustomer? @relation(fields: [customerId], references: [id])
+  customer      SalesCustomer?    @relation(fields: [customerId], references: [id])
   opportunityId String?
   opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
 
-  items         BlindsOrderItem[]
-  statusLogs    OrderStatusLog[]
+  items      BlindsOrderItem[]
+  statusLogs OrderStatusLog[]
 
   @@index([customerId])
   @@index([opportunityId])
@@ -402,36 +406,36 @@ model BlindsOrder {
 
 /// 工单状态变更日志
 model OrderStatusLog {
-  id        String   @id @default(cuid())
-  orderId   String
-  order     BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id         String      @id @default(cuid())
+  orderId    String
+  order      BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   fromStatus String
   toStatus   String
   note       String?
   operatorId String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime    @default(now())
 
   @@index([orderId, createdAt])
 }
 
 model BlindsOrderItem {
-  id            String   @id @default(cuid())
-  itemNumber    Int
+  id         String @id @default(cuid())
+  itemNumber Int
 
-  location      String
-  width         Float
-  height        Float
-  fabricSku     String
-  productType   String
-  measureType   String
-  controlType   String
-  controlSide   String
-  headrailType  String
-  mountType     String
-  fabricRatio   Float?
-  silkRatio     Float?
+  location       String
+  width          Float
+  height         Float
+  fabricSku      String
+  productType    String
+  measureType    String
+  controlType    String
+  controlSide    String
+  headrailType   String
+  mountType      String
+  fabricRatio    Float?
+  silkRatio      Float?
   bottomBarWidth Float?
-  itemRemark    String?
+  itemRemark     String?
 
   cutHeadrail     Float?
   cutTube38       Float?
@@ -446,10 +450,10 @@ model BlindsOrderItem {
   cordSleeveLen   Float?
   squareFeet      Float?
 
-  sortOrder     Int      @default(0)
+  sortOrder Int @default(0)
 
-  orderId       String
-  order         BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId String
+  order   BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 // ============================================================
@@ -457,24 +461,24 @@ model BlindsOrderItem {
 // ============================================================
 
 model FabricInventory {
-  id            String    @id @default(cuid())
-  sku           String    @unique
-  productType   String    // Zebra / Roller / Drapery / ...
-  fabricName    String    // Light Filtering / Blackout / ...
-  color         String?
-  supplier      String?
+  id          String  @id @default(cuid())
+  sku         String  @unique
+  productType String // Zebra / Roller / Drapery / ...
+  fabricName  String // Light Filtering / Blackout / ...
+  color       String?
+  supplier    String?
 
-  totalYards    Float     @default(0)  // 总库存（码数）
-  reservedYards Float     @default(0)  // 已预留（在产工单占用）
-  minYards      Float     @default(10) // 安全库存线
-  unitCost      Float     @default(0)  // 单位成本（$/yard）
+  totalYards    Float @default(0) // 总库存（码数）
+  reservedYards Float @default(0) // 已预留（在产工单占用）
+  minYards      Float @default(10) // 安全库存线
+  unitCost      Float @default(0) // 单位成本（$/yard）
 
   status        String    @default("in_stock") // in_stock / low / out_of_stock
   lastRestockAt DateTime?
   notes         String?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([productType])
   @@index([status])
@@ -483,55 +487,55 @@ model FabricInventory {
 
 /// 库存变动日志
 model FabricStockLog {
-  id            String    @id @default(cuid())
-  fabricId      String
-  type          String    // restock / reserve / consume / release / adjust
-  yards         Float     // 变动数量（正=入库，负=出库）
-  reason        String?   // 工单号 / 手动调整说明
-  operatorId    String
-  createdAt     DateTime  @default(now())
+  id         String   @id @default(cuid())
+  fabricId   String
+  type       String // restock / reserve / consume / release / adjust
+  yards      Float // 变动数量（正=入库，负=出库）
+  reason     String? // 工单号 / 手动调整说明
+  operatorId String
+  createdAt  DateTime @default(now())
 
   @@index([fabricId, createdAt])
   @@index([type])
 }
 
 model Reminder {
-  id          String   @id @default(cuid())
-  type        String
-  status      String   @default("pending")
-  sourceKey   String   @unique
+  id        String @id @default(cuid())
+  type      String
+  status    String @default("pending")
+  sourceKey String @unique
 
-  title       String
-  message     String?
-  triggerAt   DateTime
-  readAt      DateTime?
+  title     String
+  message   String?
+  triggerAt DateTime
+  readAt    DateTime?
 
-  taskId      String?
-  task        Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  eventId     String?
-  event       CalendarEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  taskId  String?
+  task    Task?          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  eventId String?
+  event   CalendarEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 }
 
 model CalendarProvider {
-  id            String   @id @default(cuid())
-  type          String
-  name          String
-  enabled       Boolean  @default(true)
-  accessToken   String?
-  refreshToken  String?
-  tokenExpiry   DateTime?
-  accountEmail  String?
-  calendarId    String?   // 逗号分隔的已选日历 ID 列表（primary,xxx@group.calendar.google.com,...）
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(cuid())
+  type         String
+  name         String
+  enabled      Boolean   @default(true)
+  accessToken  String?
+  refreshToken String?
+  tokenExpiry  DateTime?
+  accountEmail String?
+  calendarId   String? // 逗号分隔的已选日历 ID 列表（primary,xxx@group.calendar.google.com,...）
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 }
 
 // ============================================================
@@ -549,24 +553,24 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members   OrganizationMember[]
-  projects  Project[]
-  auditLogs AuditLog[]
-  suppliers Supplier[]
+  members     OrganizationMember[]
+  projects    Project[]
+  auditLogs   AuditLog[]
+  suppliers   Supplier[]
   agentSkills AgentSkill[]
 }
 
 model OrganizationMember {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   orgId     String
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      String   @default("org_member")
-  status    String   @default("active")
-  joinedAt  DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String       @default("org_member")
+  status    String       @default("active")
+  joinedAt  DateTime     @default(now())
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
   @@unique([orgId, userId])
   @@index([orgId])
@@ -599,40 +603,40 @@ model Environment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  prompts            Prompt[]
+  publishLogsFrom    PromptPublishLog[]    @relation("PublishLogFromEnv")
+  publishLogsTo      PromptPublishLog[]    @relation("PublishLogToEnv")
+  knowledgeBases     KnowledgeBase[]
+  knowledgeDocuments KnowledgeDocument[]
+  kbPublishLogsFrom  KnowledgePublishLog[] @relation("KbPublishFromEnv")
+  kbPublishLogsTo    KnowledgePublishLog[] @relation("KbPublishToEnv")
+  conversations      Conversation[]
+  agents             Agent[]
+
   @@unique([projectId, code])
   @@index([projectId])
-
-  prompts           Prompt[]
-  publishLogsFrom   PromptPublishLog[] @relation("PublishLogFromEnv")
-  publishLogsTo     PromptPublishLog[] @relation("PublishLogToEnv")
-  knowledgeBases    KnowledgeBase[]
-  knowledgeDocuments KnowledgeDocument[]
-  kbPublishLogsFrom KnowledgePublishLog[] @relation("KbPublishFromEnv")
-  kbPublishLogsTo   KnowledgePublishLog[] @relation("KbPublishToEnv")
-  conversations     Conversation[]
-  agents            Agent[]
 }
 
 model Prompt {
-  id              String   @id @default(cuid())
+  id              String         @id @default(cuid())
   projectId       String
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   environmentId   String
-  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  environment     Environment    @relation(fields: [environmentId], references: [id], onDelete: Cascade)
   key             String
   name            String
-  type            String   @default("system")
-  status          String   @default("active")
-  activeVersionId String?  @unique
+  type            String         @default("system")
+  status          String         @default("active")
+  activeVersionId String?        @unique
   activeVersion   PromptVersion? @relation("PromptActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
   createdById     String
-  createdBy       User     @relation("PromptCreatedBy", fields: [createdById], references: [id])
+  createdBy       User           @relation("PromptCreatedBy", fields: [createdById], references: [id])
   updatedById     String
-  updatedBy       User     @relation("PromptUpdatedBy", fields: [updatedById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedBy       User           @relation("PromptUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  versions        PromptVersion[] @relation("PromptVersions")
+  versions PromptVersion[] @relation("PromptVersions")
 
   @@unique([projectId, environmentId, key])
   @@index([projectId, environmentId])
@@ -640,20 +644,20 @@ model Prompt {
 }
 
 model PromptVersion {
-  id              String   @id @default(cuid())
+  id              String          @id @default(cuid())
   promptId        String
-  prompt          Prompt   @relation("PromptVersions", fields: [promptId], references: [id], onDelete: Cascade)
+  prompt          Prompt          @relation("PromptVersions", fields: [promptId], references: [id], onDelete: Cascade)
   version         Int
   content         String
   note            String?
   sourceVersionId String?
-  sourceVersion   PromptVersion? @relation("VersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  sourceVersion   PromptVersion?  @relation("VersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
   derivedVersions PromptVersion[] @relation("VersionLineage")
   createdById     String
-  createdBy       User     @relation("PromptVersionCreatedBy", fields: [createdById], references: [id])
-  createdAt       DateTime @default(now())
+  createdBy       User            @relation("PromptVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime        @default(now())
 
-  activeForPrompt Prompt?  @relation("PromptActiveVersion")
+  activeForPrompt Prompt? @relation("PromptActiveVersion")
 
   @@unique([promptId, version])
   @@index([promptId])
@@ -661,20 +665,20 @@ model PromptVersion {
 
 // [C7审计] 低频使用，仅在 Prompt 发布时记录。后续可考虑归档到 AuditLog
 model PromptPublishLog {
-  id                String        @id @default(cuid())
+  id                String      @id @default(cuid())
   projectId         String
-  project           Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   promptKey         String
   fromEnvironmentId String
-  fromEnvironment   Environment   @relation("PublishLogFromEnv", fields: [fromEnvironmentId], references: [id])
+  fromEnvironment   Environment @relation("PublishLogFromEnv", fields: [fromEnvironmentId], references: [id])
   toEnvironmentId   String
-  toEnvironment     Environment   @relation("PublishLogToEnv", fields: [toEnvironmentId], references: [id])
+  toEnvironment     Environment @relation("PublishLogToEnv", fields: [toEnvironmentId], references: [id])
   fromVersionId     String
   toVersionId       String
   publishedById     String
-  publishedBy       User          @relation("PromptPublishBy", fields: [publishedById], references: [id])
+  publishedBy       User        @relation("PromptPublishBy", fields: [publishedById], references: [id])
   note              String?
-  createdAt         DateTime      @default(now())
+  createdAt         DateTime    @default(now())
 
   @@index([projectId])
   @@index([promptKey])
@@ -685,26 +689,26 @@ model PromptPublishLog {
 // ============================================================
 
 model KnowledgeBase {
-  id              String   @id @default(cuid())
+  id              String                @id @default(cuid())
   projectId       String
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
   environmentId   String
-  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  environment     Environment           @relation(fields: [environmentId], references: [id], onDelete: Cascade)
   key             String
   name            String
   description     String?
-  status          String   @default("active")
-  activeVersionId String?  @unique
+  status          String                @default("active")
+  activeVersionId String?               @unique
   activeVersion   KnowledgeBaseVersion? @relation("KBActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
   createdById     String
-  createdBy       User     @relation("KnowledgeBaseCreatedBy", fields: [createdById], references: [id])
+  createdBy       User                  @relation("KnowledgeBaseCreatedBy", fields: [createdById], references: [id])
   updatedById     String
-  updatedBy       User     @relation("KnowledgeBaseUpdatedBy", fields: [updatedById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedBy       User                  @relation("KnowledgeBaseUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
-  versions        KnowledgeBaseVersion[] @relation("KBVersions")
-  documents       KnowledgeDocument[]
+  versions  KnowledgeBaseVersion[] @relation("KBVersions")
+  documents KnowledgeDocument[]
 
   @@unique([projectId, environmentId, key])
   @@index([projectId, environmentId])
@@ -712,65 +716,65 @@ model KnowledgeBase {
 }
 
 model KnowledgeBaseVersion {
-  id                String   @id @default(cuid())
+  id                String                 @id @default(cuid())
   knowledgeBaseId   String
-  knowledgeBase     KnowledgeBase @relation("KBVersions", fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  knowledgeBase     KnowledgeBase          @relation("KBVersions", fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   version           Int
   note              String?
   sourceVersionId   String?
-  sourceVersion     KnowledgeBaseVersion? @relation("KBVersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  sourceVersion     KnowledgeBaseVersion?  @relation("KBVersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
   derivedKbVersions KnowledgeBaseVersion[] @relation("KBVersionLineage")
   createdById       String
-  createdBy         User     @relation("KBVersionCreatedBy", fields: [createdById], references: [id])
-  createdAt         DateTime @default(now())
+  createdBy         User                   @relation("KBVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime               @default(now())
 
   documentSnapshots KnowledgeDocumentVersion[]
-  activeForKb       KnowledgeBase? @relation("KBActiveVersion")
+  activeForKb       KnowledgeBase?             @relation("KBActiveVersion")
 
   @@unique([knowledgeBaseId, version])
   @@index([knowledgeBaseId])
 }
 
 model KnowledgeDocument {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   knowledgeBaseId String
   knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
   environmentId   String
-  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  environment     Environment   @relation(fields: [environmentId], references: [id], onDelete: Cascade)
   title           String
   sourceType      String
   sourceUrl       String?
-  status          String   @default("active")
-  sortOrder       Int      @default(0)
+  status          String        @default("active")
+  sortOrder       Int           @default(0)
   createdById     String
-  createdBy       User     @relation("KnowledgeDocumentCreatedBy", fields: [createdById], references: [id])
+  createdBy       User          @relation("KnowledgeDocumentCreatedBy", fields: [createdById], references: [id])
   updatedById     String
-  updatedBy       User     @relation("KnowledgeDocumentUpdatedBy", fields: [updatedById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedBy       User          @relation("KnowledgeDocumentUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  versions        KnowledgeDocumentVersion[]
+  versions KnowledgeDocumentVersion[]
 
   @@index([knowledgeBaseId])
   @@index([environmentId])
 }
 
 model KnowledgeDocumentVersion {
-  id                     String   @id @default(cuid())
+  id                     String                     @id @default(cuid())
   documentId             String
-  document               KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document               KnowledgeDocument          @relation(fields: [documentId], references: [id], onDelete: Cascade)
   knowledgeBaseVersionId String
-  knowledgeBaseVersion   KnowledgeBaseVersion @relation(fields: [knowledgeBaseVersionId], references: [id], onDelete: Cascade)
+  knowledgeBaseVersion   KnowledgeBaseVersion       @relation(fields: [knowledgeBaseVersionId], references: [id], onDelete: Cascade)
   version                Int
-  content                String   @default("")
+  content                String                     @default("")
   summary                String?
   note                   String?
   sourceVersionId        String?
-  sourceVersion          KnowledgeDocumentVersion? @relation("DocVersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  sourceVersion          KnowledgeDocumentVersion?  @relation("DocVersionLineage", fields: [sourceVersionId], references: [id], onDelete: SetNull)
   derivedDocVersions     KnowledgeDocumentVersion[] @relation("DocVersionLineage")
   createdById            String
-  createdBy              User     @relation("KDVersionCreatedBy", fields: [createdById], references: [id])
-  createdAt              DateTime @default(now())
+  createdBy              User                       @relation("KDVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt              DateTime                   @default(now())
 
   @@unique([documentId, knowledgeBaseVersionId])
   @@unique([documentId, version])
@@ -779,20 +783,20 @@ model KnowledgeDocumentVersion {
 
 // [C7审计] 低频使用，仅在知识库发布时记录。后续可考虑归档到 AuditLog
 model KnowledgePublishLog {
-  id                         String        @id @default(cuid())
+  id                         String      @id @default(cuid())
   projectId                  String
-  project                    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project                    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   knowledgeBaseKey           String
   fromEnvironmentId          String
-  fromEnvironment            Environment   @relation("KbPublishFromEnv", fields: [fromEnvironmentId], references: [id])
+  fromEnvironment            Environment @relation("KbPublishFromEnv", fields: [fromEnvironmentId], references: [id])
   toEnvironmentId            String
-  toEnvironment              Environment   @relation("KbPublishToEnv", fields: [toEnvironmentId], references: [id])
+  toEnvironment              Environment @relation("KbPublishToEnv", fields: [toEnvironmentId], references: [id])
   fromKnowledgeBaseVersionId String
   toKnowledgeBaseVersionId   String
   publishedById              String
-  publishedBy                User          @relation("KBPublishedBy", fields: [publishedById], references: [id])
+  publishedBy                User        @relation("KBPublishedBy", fields: [publishedById], references: [id])
   note                       String?
-  createdAt                  DateTime      @default(now())
+  createdAt                  DateTime    @default(now())
 
   @@index([projectId])
   @@index([knowledgeBaseKey])
@@ -803,43 +807,43 @@ model KnowledgePublishLog {
 // ============================================================
 
 model Conversation {
-  id              String    @id @default(cuid())
-  projectId       String
-  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  environmentId   String
-  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
-  userId          String?
-  user            User?     @relation("ConversationUser", fields: [userId], references: [id], onDelete: SetNull)
-  title           String    @default("")
-  channel         String    @default("web")
-  status          String    @default("active")
+  id            String      @id @default(cuid())
+  projectId     String
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId String
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?       @relation("ConversationUser", fields: [userId], references: [id], onDelete: SetNull)
+  title         String      @default("")
+  channel       String      @default("web")
+  status        String      @default("active")
 
-  messageCount    Int       @default(0)
-  inputTokens     Int       @default(0)
-  outputTokens    Int       @default(0)
-  totalTokens     Int       @default(0)
-  estimatedCost   Float     @default(0)
-  avgLatencyMs    Int       @default(0)
+  messageCount  Int   @default(0)
+  inputTokens   Int   @default(0)
+  outputTokens  Int   @default(0)
+  totalTokens   Int   @default(0)
+  estimatedCost Float @default(0)
+  avgLatencyMs  Int   @default(0)
 
   promptId               String?
   promptVersionId        String?
   knowledgeBaseId        String?
   knowledgeBaseVersionId String?
 
-  agentId         String?
-  runtimeStatus   String    @default("idle")
+  agentId          String?
+  runtimeStatus    String  @default("idle")
   lastErrorMessage String?
-  runCount        Int       @default(0)
+  runCount         Int     @default(0)
 
-  startedAt       DateTime  @default(now())
-  lastMessageAt   DateTime?
-  endedAt         DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  startedAt     DateTime  @default(now())
+  lastMessageAt DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  messages           Message[]
-  contextSnapshots   ConversationContextSnapshot[]
-  toolCallTraces     ToolCallTrace[]
+  messages         Message[]
+  contextSnapshots ConversationContextSnapshot[]
+  toolCallTraces   ToolCallTrace[]
 
   @@index([projectId, environmentId])
   @@index([projectId])
@@ -851,27 +855,27 @@ model Conversation {
 }
 
 model Message {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   conversationId  String
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role            String
-  content         String   @default("")
-  contentType     String   @default("text")
+  content         String       @default("")
+  contentType     String       @default("text")
   sequence        Int
   modelName       String?
-  inputTokens     Int      @default(0)
-  outputTokens    Int      @default(0)
-  latencyMs       Int      @default(0)
-  status          String   @default("success")
+  inputTokens     Int          @default(0)
+  outputTokens    Int          @default(0)
+  latencyMs       Int          @default(0)
+  status          String       @default("success")
   errorMessage    String?
   finishReason    String?
   toolName        String?
   toolCallId      String?
   parentMessageId String?
   metadataJson    String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime     @default(now())
 
-  toolCallTraces  ToolCallTrace[]
+  toolCallTraces ToolCallTrace[]
 
   @@unique([conversationId, sequence])
   @@index([conversationId])
@@ -879,7 +883,7 @@ model Message {
 
 // [C7审计] 低频使用，会话上下文快照。后续可考虑按需懒加载或归档
 model ConversationContextSnapshot {
-  id                     String   @id @default(cuid())
+  id                     String       @id @default(cuid())
   conversationId         String
   conversation           Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   promptId               String?
@@ -892,7 +896,7 @@ model ConversationContextSnapshot {
   systemPromptSnapshot   String?
   retrievalConfigJson    String?
   extraConfigJson        String?
-  createdAt              DateTime @default(now())
+  createdAt              DateTime     @default(now())
 
   @@index([conversationId])
 }
@@ -927,40 +931,40 @@ model AuditLog {
 // ============================================================
 
 model Agent {
-  id              String   @id @default(cuid())
-  projectId       String
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  environmentId   String
-  environment     Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
-  key             String
-  name            String
-  description     String?
-  type            String   @default("chat")
-  status          String   @default("active")
+  id            String      @id @default(cuid())
+  projectId     String
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId String
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  key           String
+  name          String
+  description   String?
+  type          String      @default("chat")
+  status        String      @default("active")
 
   promptId               String?
   promptVersionId        String?
   knowledgeBaseId        String?
   knowledgeBaseVersionId String?
-  modelProvider          String   @default("openai")
-  modelName              String   @default("gpt-5.2")
-  temperature            Float    @default(0.7)
-  maxTokens              Int      @default(4096)
+  modelProvider          String  @default("openai")
+  modelName              String  @default("gpt-5.2")
+  temperature            Float   @default(0.7)
+  maxTokens              Int     @default(4096)
   systemBehaviorNote     String?
   extraConfigJson        String?
 
-  activeVersionId String?  @unique
+  activeVersionId String?       @unique
   activeVersion   AgentVersion? @relation("AgentActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
 
-  createdById     String
-  createdBy       User     @relation("AgentCreatedBy", fields: [createdById], references: [id])
-  updatedById     String
-  updatedBy       User     @relation("AgentUpdatedBy", fields: [updatedById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("AgentCreatedBy", fields: [createdById], references: [id])
+  updatedById String
+  updatedBy   User     @relation("AgentUpdatedBy", fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  versions        AgentVersion[] @relation("AgentVersions")
-  toolBindings    AgentToolBinding[]
+  versions     AgentVersion[]     @relation("AgentVersions")
+  toolBindings AgentToolBinding[]
 
   @@unique([projectId, environmentId, key])
   @@index([projectId, environmentId])
@@ -968,59 +972,59 @@ model Agent {
 }
 
 model AgentVersion {
-  id                  String   @id @default(cuid())
-  agentId             String
-  agent               Agent    @relation("AgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
-  version             Int
-  configSnapshotJson  String
-  changeNote          String?
-  createdById         String
-  createdBy           User     @relation("AgentVersionCreatedBy", fields: [createdById], references: [id])
-  createdAt           DateTime @default(now())
+  id                 String   @id @default(cuid())
+  agentId            String
+  agent              Agent    @relation("AgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
+  version            Int
+  configSnapshotJson String
+  changeNote         String?
+  createdById        String
+  createdBy          User     @relation("AgentVersionCreatedBy", fields: [createdById], references: [id])
+  createdAt          DateTime @default(now())
 
-  activeForAgent      Agent?   @relation("AgentActiveVersion")
+  activeForAgent Agent? @relation("AgentActiveVersion")
 
   @@unique([agentId, version])
   @@index([agentId])
 }
 
 model ToolRegistry {
-  id              String   @id @default(cuid())
-  projectId       String
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  key             String
-  name            String
-  description     String?
-  category        String   @default("builtin")
-  type            String   @default("function")
-  status          String   @default("active")
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key              String
+  name             String
+  description      String?
+  category         String   @default("builtin")
+  type             String   @default("function")
+  status           String   @default("active")
   inputSchemaJson  String?
   outputSchemaJson String?
-  configJson      String?
-  createdById     String
-  createdBy       User     @relation("ToolCreatedBy", fields: [createdById], references: [id])
-  updatedById     String
-  updatedBy       User     @relation("ToolUpdatedBy", fields: [updatedById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  configJson       String?
+  createdById      String
+  createdBy        User     @relation("ToolCreatedBy", fields: [createdById], references: [id])
+  updatedById      String
+  updatedBy        User     @relation("ToolUpdatedBy", fields: [updatedById], references: [id])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  agentBindings   AgentToolBinding[]
+  agentBindings AgentToolBinding[]
 
   @@unique([projectId, key])
   @@index([projectId])
 }
 
 model AgentToolBinding {
-  id                String   @id @default(cuid())
-  agentId           String
-  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  toolId            String
-  tool              ToolRegistry @relation(fields: [toolId], references: [id], onDelete: Cascade)
-  enabled           Boolean  @default(true)
-  sortOrder         Int      @default(0)
+  id                 String       @id @default(cuid())
+  agentId            String
+  agent              Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  toolId             String
+  tool               ToolRegistry @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  enabled            Boolean      @default(true)
+  sortOrder          Int          @default(0)
   configOverrideJson String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   @@unique([agentId, toolId])
   @@index([agentId])
@@ -1032,24 +1036,24 @@ model AgentToolBinding {
 // ============================================================
 
 model ToolCallTrace {
-  id              String   @id @default(cuid())
-  projectId       String
-  environmentId   String
-  conversationId  String
-  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  messageId       String
-  message         Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  agentId         String?
-  toolId          String?
-  toolKey         String
-  toolName        String
-  toolCallId      String?
-  inputJson       String?
-  outputJson      String?
-  status          String   @default("success")
-  errorMessage    String?
-  durationMs      Int      @default(0)
-  createdAt       DateTime @default(now())
+  id             String       @id @default(cuid())
+  projectId      String
+  environmentId  String
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  agentId        String?
+  toolId         String?
+  toolKey        String
+  toolName       String
+  toolCallId     String?
+  inputJson      String?
+  outputJson     String?
+  status         String       @default("success")
+  errorMessage   String?
+  durationMs     Int          @default(0)
+  createdAt      DateTime     @default(now())
 
   @@index([conversationId])
   @@index([messageId])
@@ -1061,7 +1065,7 @@ model ToolCallTrace {
 // ============================================================
 
 model ConversationFeedback {
-  id                     String   @id @default(cuid())
+  id                     String  @id @default(cuid())
   projectId              String
   environmentId          String
   conversationId         String
@@ -1072,20 +1076,20 @@ model ConversationFeedback {
   knowledgeBaseVersionId String?
   createdById            String
 
-  rating                 Int      @default(0)
-  scoreAccuracy          Int?
-  scoreHelpfulness       Int?
-  scoreSafety            Int?
-  scoreCompleteness      Int?
-  sentiment              String   @default("neutral")
-  issueType              String?
-  note                   String?
-  status                 String   @default("open")
+  rating            Int     @default(0)
+  scoreAccuracy     Int?
+  scoreHelpfulness  Int?
+  scoreSafety       Int?
+  scoreCompleteness Int?
+  sentiment         String  @default("neutral")
+  issueType         String?
+  note              String?
+  status            String  @default("open")
 
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  tags                   ConversationFeedbackTag[]
+  tags ConversationFeedbackTag[]
 
   @@index([projectId, environmentId])
   @@index([conversationId])
@@ -1095,23 +1099,23 @@ model ConversationFeedback {
 }
 
 model MessageFeedback {
-  id              String   @id @default(cuid())
-  projectId       String
-  environmentId   String
-  conversationId  String
-  messageId       String
-  agentId         String?
-  createdById     String
+  id             String  @id @default(cuid())
+  projectId      String
+  environmentId  String
+  conversationId String
+  messageId      String
+  agentId        String?
+  createdById    String
 
-  rating          Int      @default(0)
-  issueType       String?
-  note            String?
-  status          String   @default("open")
+  rating    Int     @default(0)
+  issueType String?
+  note      String?
+  status    String  @default("open")
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  tags            MessageFeedbackTag[]
+  tags MessageFeedbackTag[]
 
   @@index([projectId, environmentId])
   @@index([conversationId])
@@ -1140,12 +1144,12 @@ model EvaluationTag {
 }
 
 model ConversationFeedbackTag {
-  id         String   @id @default(cuid())
+  id         String               @id @default(cuid())
   feedbackId String
   feedback   ConversationFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
   tagId      String
-  tag        EvaluationTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
+  tag        EvaluationTag        @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime             @default(now())
 
   @@unique([feedbackId, tagId])
   @@index([feedbackId])
@@ -1153,12 +1157,12 @@ model ConversationFeedbackTag {
 }
 
 model MessageFeedbackTag {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   feedbackId String
   feedback   MessageFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
   tagId      String
-  tag        EvaluationTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
+  tag        EvaluationTag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime        @default(now())
 
   @@unique([feedbackId, tagId])
   @@index([feedbackId])
@@ -1166,47 +1170,47 @@ model MessageFeedbackTag {
 }
 
 model EvaluationRun {
-  id              String   @id @default(cuid())
-  projectId       String
-  environmentId   String
-  conversationId  String?
-  messageId       String?
-  type            String   @default("manual")
-  judgeModel      String?
-  judgeVersion    String?
-  criteriaJson    String?
-  resultJson      String?
-  score           Float?
-  createdById     String
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  projectId      String
+  environmentId  String
+  conversationId String?
+  messageId      String?
+  type           String   @default("manual")
+  judgeModel     String?
+  judgeVersion   String?
+  criteriaJson   String?
+  resultJson     String?
+  score          Float?
+  createdById    String
+  createdAt      DateTime @default(now())
 
   @@index([projectId, environmentId])
   @@index([conversationId])
 }
 
 model Notification {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation("UserNotifications", fields: [userId], references: [id])
-  orgId         String?
-  projectId     String?
-  type          String    @default("update")
-  category      String    @default("update")
-  title         String
-  summary       String?
-  entityType    String?
-  entityId      String?
-  activityId    String?
-  status        String    @default("unread")
-  priority      String    @default("medium")
-  dueAt         DateTime?
-  snoozeUntil   DateTime?
-  readAt        DateTime?
-  doneAt        DateTime?
-  sourceKey     String?   @unique
-  metadata      String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation("UserNotifications", fields: [userId], references: [id])
+  orgId       String?
+  projectId   String?
+  type        String    @default("update")
+  category    String    @default("update")
+  title       String
+  summary     String?
+  entityType  String?
+  entityId    String?
+  activityId  String?
+  status      String    @default("unread")
+  priority    String    @default("medium")
+  dueAt       DateTime?
+  snoozeUntil DateTime?
+  readAt      DateTime?
+  doneAt      DateTime?
+  sourceKey   String?   @unique
+  metadata    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([userId, status])
   @@index([userId, createdAt])
@@ -1275,82 +1279,82 @@ model ExternalReference {
 }
 
 model ProjectIntelligence {
-  id              String   @id @default(cuid())
-  projectId       String   @unique
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  recommendation  String
-  riskLevel       String
-  fitScore        Int      @default(0)
-  summary         String?
-  fullReportUrl   String?
-  fullReportJson  String?
-  reportMarkdown  String?
+  id             String  @id @default(cuid())
+  projectId      String  @unique
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recommendation String
+  riskLevel      String
+  fitScore       Int     @default(0)
+  summary        String?
+  fullReportUrl  String?
+  fullReportJson String?
+  reportMarkdown String?
 
   // 审核工作流
-  reportStatus    String   @default("ai_generated")  // draft | ai_generated | in_review | approved | needs_revision | delivered
-  reviewedBy      String?
-  reviewedAt      DateTime?
-  reviewNotes     String?
-  reviewScore     Int?     // 1-5 人工评分（可选）
+  reportStatus String    @default("ai_generated") // draft | ai_generated | in_review | approved | needs_revision | delivered
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  reviewNotes  String?
+  reviewScore  Int? // 1-5 人工评分（可选）
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ProjectProgressSummary {
-  id              String   @id @default(cuid())
-  projectId       String
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   // 输出内容
-  overallStatus   String                  // green | yellow | red
-  statusLabel     String
-  outputJson      String   @db.Text       // 完整 ProgressSummaryOutput JSON
+  overallStatus    String // green | yellow | red
+  statusLabel      String
+  outputJson       String  @db.Text // 完整 ProgressSummaryOutput JSON
   executiveSummary String?
 
   // 生成元数据
-  docType         String   @default("project_progress_summary")
-  promptVersion   String
-  modelUsed       String
-  usedFallback    Boolean  @default(false)
+  docType          String  @default("project_progress_summary")
+  promptVersion    String
+  modelUsed        String
+  usedFallback     Boolean @default(false)
   generationTimeMs Int     @default(0)
-  metaJson        String?  @db.Text       // 完整 ProgressSummaryMeta JSON
+  metaJson         String? @db.Text // 完整 ProgressSummaryMeta JSON
 
   // 审核工作流
-  reportStatus    String   @default("ai_generated")  // ai_generated | in_review | approved | needs_revision
-  reviewedBy      String?
-  reviewedAt      DateTime?
-  reviewNotes     String?
-  reviewScore     Int?     // 1-5
+  reportStatus String    @default("ai_generated") // ai_generated | in_review | approved | needs_revision
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  reviewNotes  String?
+  reviewScore  Int? // 1-5
 
   // 触发方式
-  triggerType     String   @default("manual")  // manual | cron | agent
+  triggerType String @default("manual") // manual | cron | agent
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([projectId])
   @@index([projectId, createdAt])
 }
 
 model ProjectDocument {
-  id             String    @id @default(cuid())
-  projectId      String
-  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title          String
-  url            String
-  blobUrl        String?
-  fileType       String
-  fileSize       Int?
-  contentText    String?   @db.Text
-  parseStatus    String    @default("pending") // pending | parsing | done | failed
-  parseError     String?
-  aiSummaryJson  String?   @db.Text            // AI 结构化摘要 JSON
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  url             String
+  blobUrl         String?
+  fileType        String
+  fileSize        Int?
+  contentText     String?  @db.Text
+  parseStatus     String   @default("pending") // pending | parsing | done | failed
+  parseError      String?
+  aiSummaryJson   String?  @db.Text // AI 结构化摘要 JSON
   aiSummaryStatus String   @default("pending") // pending | generating | done | failed
-  source         String    @default("external_link")
-  uploadedById   String?
-  sortOrder      Int       @default(0)
-  createdAt      DateTime  @default(now())
+  source          String   @default("external_link")
+  uploadedById    String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
 
   @@index([projectId])
   @@index([source])
@@ -1392,32 +1396,32 @@ model WebhookEndpoint {
 // ─────────────────────────────────────────
 
 model ProjectConversation {
-  id         String    @id @default(cuid())
-  projectId  String    @unique
-  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  kind       String    @default("MAIN")
-  title      String    @default("项目讨论")
+  id         String           @id @default(cuid())
+  projectId  String           @unique
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind       String           @default("MAIN")
+  title      String           @default("项目讨论")
   archivedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
   messages   ProjectMessage[]
 }
 
 model ProjectMessage {
-  id             String   @id @default(cuid())
+  id             String              @id @default(cuid())
   conversationId String
   conversation   ProjectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   projectId      String
   senderId       String?
-  sender         User?    @relation("ProjectMessageSender", fields: [senderId], references: [id], onDelete: SetNull)
-  type           String   @default("TEXT")
+  sender         User?               @relation("ProjectMessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  type           String              @default("TEXT")
   body           String
   metadata       Json?
   replyToId      String?
   editedAt       DateTime?
   deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([conversationId, createdAt, id])
   @@index([projectId, createdAt, id])
@@ -1428,17 +1432,17 @@ model ProjectMessage {
 // ── AI 助手持久对话 ──────────────────────────────────────────
 
 model AiThread {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectId     String?
-  project       Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  title         String    @default("新对话")
-  pinned        Boolean   @default(false)
-  archived      Boolean   @default(false)
-  lastMessageAt DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  project       Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title         String      @default("新对话")
+  pinned        Boolean     @default(false)
+  archived      Boolean     @default(false)
+  lastMessageAt DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   messages      AiMessage[]
 
   @@index([userId, pinned, lastMessageAt])
@@ -1466,50 +1470,76 @@ model AiMessage {
 //            pending -> rejected
 
 model PendingAction {
-  id             String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  /** 动作类型，如 sales.update_followup、sales.update_stage、calendar.create_event */
-  type           String
+  /**
+   * 动作类型，如 sales.update_followup、sales.update_stage、calendar.create_event
+   */
+  type String
 
-  /** 用户可读的标题 —— 一句话说明这个动作 */
-  title          String
+  /**
+   * 用户可读的标题 —— 一句话说明这个动作
+   */
+  title String
 
-  /** 用户可读的预览 —— 更详细的描述 */
-  preview        String   @db.Text
+  /**
+   * 用户可读的预览 —— 更详细的描述
+   */
+  preview String @db.Text
 
-  /** 执行动作所需的完整参数（含资源 ID、新值等），JSON 结构 */
-  payload        Json
+  /**
+   * 执行动作所需的完整参数（含资源 ID、新值等），JSON 结构
+   */
+  payload Json
 
-  /** pending / approved / rejected / executed / failed */
-  status         String   @default("pending")
+  /**
+   * pending / approved / rejected / executed / failed
+   */
+  status String @default("pending")
 
-  /** 生成草稿的用户（也是有权批准的人） */
-  createdById    String
-  createdBy      User     @relation("PendingActionCreatedBy", fields: [createdById], references: [id])
+  /**
+   * 生成草稿的用户（也是有权批准的人）
+   */
+  createdById String
+  createdBy   User   @relation("PendingActionCreatedBy", fields: [createdById], references: [id])
 
-  /** 触发生成的 AI 会话（用于回查上下文） */
-  threadId       String?
+  /**
+   * 触发生成的 AI 会话（用于回查上下文）
+   */
+  threadId String?
 
-  /** 触发生成的消息 ID（用于回查上下文） */
-  messageId      String?
+  /**
+   * 触发生成的消息 ID（用于回查上下文）
+   */
+  messageId String?
 
-  /** 过期时间（默认创建时 +24h） */
-  expiresAt      DateTime
+  /**
+   * 过期时间（默认创建时 +24h）
+   */
+  expiresAt DateTime
 
-  /** 批准 / 拒绝时间 */
-  decidedAt      DateTime?
+  /**
+   * 批准 / 拒绝时间
+   */
+  decidedAt DateTime?
 
-  /** 实际执行完成时间 */
-  executedAt     DateTime?
+  /**
+   * 实际执行完成时间
+   */
+  executedAt DateTime?
 
-  /** 失败时的错误信息 */
-  failureReason  String?   @db.Text
+  /**
+   * 失败时的错误信息
+   */
+  failureReason String? @db.Text
 
-  /** 执行后产生的资源 ID，供前端跳转（可选） */
-  resultRef      String?
+  /**
+   * 执行后产生的资源 ID，供前端跳转（可选）
+   */
+  resultRef String?
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([createdById, status, createdAt])
   @@index([threadId])
@@ -1520,34 +1550,34 @@ model PendingAction {
 // ============================================================
 
 model Supplier {
-  id            String   @id @default(cuid())
-  orgId         String
-  org           Organization @relation(fields: [orgId], references: [id])
-  name          String
-  contactName   String?
-  contactEmail  String?
-  contactPhone  String?
-  category      String?
-  region        String?
-  notes         String?  @db.Text
-  status        String   @default("active")
-  createdById   String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String       @id @default(cuid())
+  orgId        String
+  org          Organization @relation(fields: [orgId], references: [id])
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  category     String?
+  region       String?
+  notes        String?      @db.Text
+  status       String       @default("active")
+  createdById  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   // 来源追踪
-  source        String?  // exhibition / referral / online / xiaohongshu / 1688 / cold_call / other
-  sourceDetail  String?  // "2026广交会-3号馆-B12展位"
-  website       String?
+  source       String? // exhibition / referral / online / xiaohongshu / 1688 / cold_call / other
+  sourceDetail String? // "2026广交会-3号馆-B12展位"
+  website      String?
 
   // AI 自动分类
-  tags              String?  @db.Text  // comma-separated: "阻燃面料,窗帘,工业布,出口"
-  capabilities      String?  @db.Text  // AI 能力画像文本
-  aiClassification  Json?    // {mainCategory, subCategories[], confidence, classifiedAt}
+  tags             String? @db.Text // comma-separated: "阻燃面料,窗帘,工业布,出口"
+  capabilities     String? @db.Text // AI 能力画像文本
+  aiClassification Json? // {mainCategory, subCategories[], confidence, classifiedAt}
 
   // 评分
-  rating        Float?   @default(0) // 0-5
-  ratingDetail  Json?    // {quality, response, price, delivery}
+  rating       Float? @default(0) // 0-5
+  ratingDetail Json? // {quality, response, price, delivery}
 
   // 时间追踪
   lastContactAt DateTime?
@@ -1558,7 +1588,7 @@ model Supplier {
   brochureParseResult  Json?
   brochureParseWarning String?
 
-  inquiryItems  InquiryItem[]
+  inquiryItems InquiryItem[]
 
   @@index([orgId, status])
   @@index([orgId, name])
@@ -1567,57 +1597,57 @@ model Supplier {
 }
 
 model ProjectInquiry {
-  id            String    @id @default(cuid())
-  projectId     String
-  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  roundNumber   Int       @default(1)
-  title         String?
-  scope         String?
-  status        String    @default("draft")
-  dueDate       DateTime?
-  token         String?   @unique
-  createdById   String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roundNumber Int       @default(1)
+  title       String?
+  scope       String?
+  status      String    @default("draft")
+  dueDate     DateTime?
+  token       String?   @unique
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  items         InquiryItem[]
+  items InquiryItem[]
 
   @@unique([projectId, roundNumber])
   @@index([projectId, status])
 }
 
 model InquiryItem {
-  id            String    @id @default(cuid())
-  inquiryId     String
-  inquiry       ProjectInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
-  supplierId    String
-  supplier      Supplier  @relation(fields: [supplierId], references: [id])
+  id         String         @id @default(cuid())
+  inquiryId  String
+  inquiry    ProjectInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  supplierId String
+  supplier   Supplier       @relation(fields: [supplierId], references: [id])
 
   // ── 流程状态 ──
-  status        String    @default("pending")
-  sentVia       String?
-  sentAt        DateTime?
-  repliedAt     DateTime?
-  declinedAt    DateTime?
+  status     String    @default("pending")
+  sentVia    String?
+  sentAt     DateTime?
+  repliedAt  DateTime?
+  declinedAt DateTime?
 
   // ── 报价内容 ──
-  unitPrice     Decimal?  @db.Decimal(18, 2)
-  totalPrice    Decimal?  @db.Decimal(18, 2)
-  currency      String    @default("CAD")
-  deliveryDays  Int?
-  validUntil    DateTime?
-  quoteNotes    String?
+  unitPrice    Decimal?  @db.Decimal(18, 2)
+  totalPrice   Decimal?  @db.Decimal(18, 2)
+  currency     String    @default("CAD")
+  deliveryDays Int?
+  validUntil   DateTime?
+  quoteNotes   String?
 
   // ── 选定 ──
-  isSelected    Boolean   @default(false)
+  isSelected Boolean @default(false)
 
   // ── 沟通备注 ──
-  contactNotes  String?
+  contactNotes String?
 
   // ── 元数据 ──
-  createdById   String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([inquiryId, supplierId])
   @@index([inquiryId, status])
@@ -1630,40 +1660,40 @@ model InquiryItem {
 
 /// 项目报价单 — AI 辅助生成 + 人工编辑确认
 model ProjectQuote {
-  id              String    @id @default(cuid())
-  projectId       String
-  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  templateType    String    @default("export_standard")
-  version         Int       @default(1)
-  status          String    @default("draft")
+  templateType String @default("export_standard")
+  version      Int    @default(1)
+  status       String @default("draft")
 
-  title           String?
-  currency        String    @default("CAD")
-  tradeTerms      String?
-  paymentTerms    String?
-  deliveryDays    Int?
-  validUntil      DateTime?
-  moq             Int?
-  originCountry   String?
+  title         String?
+  currency      String    @default("CAD")
+  tradeTerms    String?
+  paymentTerms  String?
+  deliveryDays  Int?
+  validUntil    DateTime?
+  moq           Int?
+  originCountry String?
 
-  subtotal        Decimal?  @db.Decimal(18, 2)
-  totalAmount     Decimal?  @db.Decimal(18, 2)
+  subtotal    Decimal? @db.Decimal(18, 2)
+  totalAmount Decimal? @db.Decimal(18, 2)
 
-  internalCost    Decimal?  @db.Decimal(18, 2)
-  profitMargin    Decimal?  @db.Decimal(5, 2)
-  internalNotes   String?
+  internalCost  Decimal? @db.Decimal(18, 2)
+  profitMargin  Decimal? @db.Decimal(5, 2)
+  internalNotes String?
 
-  aiGenerated     Boolean   @default(false)
-  aiDraftJson     String?   @db.Text
-  aiReviewJson    String?   @db.Text
+  aiGenerated  Boolean @default(false)
+  aiDraftJson  String? @db.Text
+  aiReviewJson String? @db.Text
 
-  inquiryId       String?
-  createdById     String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  inquiryId   String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  lineItems       QuoteLineItem[]
+  lineItems QuoteLineItem[]
 
   @@index([projectId, status])
   @@index([projectId, version])
@@ -1671,25 +1701,25 @@ model ProjectQuote {
 
 /// 报价行项目
 model QuoteLineItem {
-  id              String    @id @default(cuid())
-  quoteId         String
-  quote           ProjectQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id      String       @id @default(cuid())
+  quoteId String
+  quote   ProjectQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
-  sortOrder       Int       @default(0)
-  category        String    @default("product")
-  itemName        String
-  specification   String?
-  unit            String?
-  quantity        Decimal?  @db.Decimal(18, 2)
-  unitPrice       Decimal?  @db.Decimal(18, 2)
-  totalPrice      Decimal?  @db.Decimal(18, 2)
-  remarks         String?
+  sortOrder     Int      @default(0)
+  category      String   @default("product")
+  itemName      String
+  specification String?
+  unit          String?
+  quantity      Decimal? @db.Decimal(18, 2)
+  unitPrice     Decimal? @db.Decimal(18, 2)
+  totalPrice    Decimal? @db.Decimal(18, 2)
+  remarks       String?
 
-  costPrice       Decimal?  @db.Decimal(18, 2)
-  isInternal      Boolean   @default(false)
+  costPrice  Decimal? @db.Decimal(18, 2)
+  isInternal Boolean  @default(false)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([quoteId, sortOrder])
 }
@@ -1700,19 +1730,19 @@ model QuoteLineItem {
 
 /// 用户绑定的 Gmail OAuth 凭据（独立于 CalendarProvider）
 model EmailProvider {
-  id            String    @id @default(cuid())
-  userId        String
-  type          String    @default("gmail")
-  accessToken   String    @db.Text
-  refreshToken  String?   @db.Text
-  tokenExpiry   DateTime?
-  accountEmail  String
+  id           String    @id @default(cuid())
+  userId       String
+  type         String    @default("gmail")
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  tokenExpiry  DateTime?
+  accountEmail String
 
   /// 记录本次授权实际获得的 scope 列表（空格分隔），用于权限审查与增量授权诊断
-  grantedScopes String?   @db.Text
+  grantedScopes String? @db.Text
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, type])
   @@index([userId])
@@ -1720,28 +1750,28 @@ model EmailProvider {
 
 /// 项目内发出的邮件记录
 model ProjectEmail {
-  id                String    @id @default(cuid())
-  orgId             String
-  projectId         String
-  inquiryId         String?
-  inquiryItemId     String?
+  id            String  @id @default(cuid())
+  orgId         String
+  projectId     String
+  inquiryId     String?
+  inquiryItemId String?
 
-  toEmail           String
-  toName            String?
-  fromEmail         String
-  subject           String
-  body              String    @db.Text
+  toEmail   String
+  toName    String?
+  fromEmail String
+  subject   String
+  body      String  @db.Text
 
-  status            String    @default("draft")   // draft | sending | sent | failed
-  provider          String    @default("gmail")
+  status            String  @default("draft") // draft | sending | sent | failed
+  provider          String  @default("gmail")
   externalMessageId String?
   errorMessage      String?
 
-  createdById       String
-  sentById          String?
-  createdAt         DateTime  @default(now())
-  sentAt            DateTime?
-  updatedAt         DateTime  @updatedAt
+  createdById String
+  sentById    String?
+  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+  updatedAt   DateTime  @updatedAt
 
   @@index([projectId])
   @@index([inquiryItemId])
@@ -1750,31 +1780,31 @@ model ProjectEmail {
 
 /// 项目问题 / RFI — 向业主/GC/顾问发送的澄清确认邮件
 model ProjectQuestion {
-  id                  String    @id @default(cuid())
-  projectId           String
-  orgId               String?
+  id        String  @id @default(cuid())
+  projectId String
+  orgId     String?
 
   // ── 问题内容 ──
   title               String
-  description         String    @db.Text
+  description         String  @db.Text
   locationOrReference String?
-  clarificationNeeded String?   @db.Text
-  impactNote          String?   @db.Text
+  clarificationNeeded String? @db.Text
+  impactNote          String? @db.Text
 
   // ── 生成的邮件 ──
-  generatedSubject    String?
-  generatedBody       String?   @db.Text
-  toRecipients        String?
-  ccRecipients        String?
+  generatedSubject String?
+  generatedBody    String? @db.Text
+  toRecipients     String?
+  ccRecipients     String?
 
   // ── 流程状态 ──
-  status              String    @default("draft") // draft | generated | sent | replied | closed
-  emailId             String?
+  status  String  @default("draft") // draft | generated | sent | replied | closed
+  emailId String?
 
   // ── 元数据 ──
-  createdById         String
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([projectId, status])
   @@index([projectId, createdAt])
@@ -1789,7 +1819,7 @@ model AgentTask {
   projectId        String
   project          Project   @relation(fields: [projectId], references: [id])
   taskType         String    @default("custom")
-  triggerType       String    @default("manual")
+  triggerType      String    @default("manual")
   intent           String    @db.Text
   riskLevel        String    @default("low")
   status           String    @default("draft")
@@ -1848,65 +1878,65 @@ model AgentTaskStep {
 }
 
 model ApprovalRequest {
-  id               String    @id @default(cuid())
+  id               String        @id @default(cuid())
   taskId           String
-  task             AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task             AgentTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   stepId           String
   step             AgentTaskStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
   actionType       String
   riskLevel        String
-  riskReason       String?   @db.Text
-  previewJson      String?   @db.Text
+  riskReason       String?       @db.Text
+  previewJson      String?       @db.Text
   approverUserId   String?
-  status           String    @default("pending")
+  status           String        @default("pending")
   deadlineAt       DateTime?
   decidedAt        DateTime?
   decidedBy        String?
-  decisionNote     String?   @db.Text
-  acceptedWithRisk Boolean   @default(false)
-  createdAt        DateTime  @default(now())
+  decisionNote     String?       @db.Text
+  acceptedWithRisk Boolean       @default(false)
+  createdAt        DateTime      @default(now())
 
   @@index([taskId])
   @@index([approverUserId, status])
 }
 
 model ToolExecution {
-  id               String    @id @default(cuid())
-  taskId           String?
-  task             AgentTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  stepId           String?
-  step             AgentTaskStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
-  toolName         String
-  toolInput        String?   @db.Text
-  toolOutput       String?   @db.Text
-  status           String    @default("pending")
-  retryCount       Int       @default(0)
-  maxRetries       Int       @default(2)
-  idempotencyKey   String    @unique
-  error            String?   @db.Text
-  executedBy       String
-  executedAt       DateTime?
-  duration         Int?
-  createdAt        DateTime  @default(now())
+  id             String         @id @default(cuid())
+  taskId         String?
+  task           AgentTask?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  stepId         String?
+  step           AgentTaskStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  toolName       String
+  toolInput      String?        @db.Text
+  toolOutput     String?        @db.Text
+  status         String         @default("pending")
+  retryCount     Int            @default(0)
+  maxRetries     Int            @default(2)
+  idempotencyKey String         @unique
+  error          String?        @db.Text
+  executedBy     String
+  executedAt     DateTime?
+  duration       Int?
+  createdAt      DateTime       @default(now())
 
   @@index([taskId])
   @@index([idempotencyKey])
 }
 
 model CustomFlowTemplate {
-  id               String    @id @default(cuid())
-  name             String
-  description      String?   @db.Text
-  icon             String?
-  category         String    @default("custom")
-  stepsJson        String    @db.Text
-  createdById      String
-  createdBy        User      @relation("CustomFlowTemplateCreatedBy", fields: [createdById], references: [id])
-  isPublic         Boolean   @default(false)
-  enabled          Boolean   @default(true)
-  usageCount       Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  icon        String?
+  category    String   @default("custom")
+  stepsJson   String   @db.Text
+  createdById String
+  createdBy   User     @relation("CustomFlowTemplateCreatedBy", fields: [createdById], references: [id])
+  isPublic    Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  usageCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([createdById])
   @@index([category])
@@ -1917,47 +1947,47 @@ model CustomFlowTemplate {
 // ============================================================
 
 model TradeCampaign {
-  id              String    @id @default(cuid())
-  orgId           String
-  name            String
-  productDesc     String    @db.Text
-  targetMarket    String    @db.Text
-  searchKeywords  Json?
-  status          String    @default("active") // active / paused / completed
-  scoreThreshold  Float     @default(7)
-  totalProspects  Int       @default(0)
-  qualified       Int       @default(0)
-  contacted       Int       @default(0)
+  id             String @id @default(cuid())
+  orgId          String
+  name           String
+  productDesc    String @db.Text
+  targetMarket   String @db.Text
+  searchKeywords Json?
+  status         String @default("active") // active / paused / completed
+  scoreThreshold Float  @default(7)
+  totalProspects Int    @default(0)
+  qualified      Int    @default(0)
+  contacted      Int    @default(0)
 
-  createdById     String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  prospects       TradeProspect[]
+  prospects TradeProspect[]
 
   @@index([orgId, status])
   @@index([createdById])
 }
 
 model TradeProspect {
-  id              String    @id @default(cuid())
-  campaignId      String
-  campaign        TradeCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  orgId           String
+  id         String        @id @default(cuid())
+  campaignId String
+  campaign   TradeCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  orgId      String
 
-  companyName     String
-  contactName     String?
-  contactEmail    String?
-  contactTitle    String?
-  website         String?
-  country         String?
-  source          String    @default("google") // google / exhibition / 1688 / linkedin / manual
+  companyName  String
+  contactName  String?
+  contactEmail String?
+  contactTitle String?
+  website      String?
+  country      String?
+  source       String  @default("google") // google / exhibition / 1688 / linkedin / manual
 
-  researchReport  Json?
-  score           Float?
-  scoreReason     String?   @db.Text
+  researchReport Json?
+  score          Float?
+  scoreReason    String? @db.Text
 
-  stage           String    @default("new")
+  stage String @default("new")
   // new → researched → qualified → outreach_draft → outreach_sent
   // → replied → interested → negotiating → won / lost
   // → unqualified / no_response
@@ -1967,16 +1997,16 @@ model TradeProspect {
   outreachLang    String?   @default("en")
   outreachSentAt  DateTime?
 
-  lastContactAt   DateTime?
-  nextFollowUpAt  DateTime?
-  followUpCount   Int       @default(0)
+  lastContactAt  DateTime?
+  nextFollowUpAt DateTime?
+  followUpCount  Int       @default(0)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  messages        TradeMessage[]
-  quotes          TradeQuote[]
-  watchTargets    TradeWatchTarget[]
+  messages     TradeMessage[]
+  quotes       TradeQuote[]
+  watchTargets TradeWatchTarget[]
 
   @@index([campaignId, stage])
   @@index([orgId, stage])
@@ -1986,39 +2016,39 @@ model TradeProspect {
 
 // P1-alpha：少量 URL 文本指纹监控（与 researchReport / bundle 无关）
 model TradeWatchTarget {
-  id               String    @id @default(cuid())
-  orgId            String
-  prospectId       String?
-  prospect         TradeProspect? @relation(fields: [prospectId], references: [id], onDelete: Cascade)
-  url              String    @db.Text
-  pageType         String // products | collections | news | blog | about | careers | custom
-  isActive         Boolean   @default(true)
-  lastContentHash  String?
-  lastCheckedAt    DateTime?
-  lastChangedAt    DateTime?
-  lastFetchError   String?   @db.VarChar(500)
-  createdById      String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id              String         @id @default(cuid())
+  orgId           String
+  prospectId      String?
+  prospect        TradeProspect? @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  url             String         @db.Text
+  pageType        String // products | collections | news | blog | about | careers | custom
+  isActive        Boolean        @default(true)
+  lastContentHash String?
+  lastCheckedAt   DateTime?
+  lastChangedAt   DateTime?
+  lastFetchError  String?        @db.VarChar(500)
+  createdById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  signals          TradeSignal[]
+  signals TradeSignal[]
 
   @@index([orgId, isActive])
   @@index([prospectId])
 }
 
 model TradeSignal {
-  id             String           @id @default(cuid())
-  orgId          String
-  watchTargetId  String
-  watchTarget    TradeWatchTarget @relation(fields: [watchTargetId], references: [id], onDelete: Cascade)
-  prospectId     String?
-  signalType     String           @default("page_text_changed")
-  strength       String           @default("low") // P1-alpha 固定 low
-  title          String
-  description    String           @db.Text
-  evidenceJson   Json?
-  createdAt      DateTime         @default(now())
+  id            String           @id @default(cuid())
+  orgId         String
+  watchTargetId String
+  watchTarget   TradeWatchTarget @relation(fields: [watchTargetId], references: [id], onDelete: Cascade)
+  prospectId    String?
+  signalType    String           @default("page_text_changed")
+  strength      String           @default("low") // P1-alpha 固定 low
+  title         String
+  description   String           @db.Text
+  evidenceJson  Json?
+  createdAt     DateTime         @default(now())
 
   @@index([orgId, createdAt])
   @@index([prospectId, createdAt])
@@ -2026,51 +2056,51 @@ model TradeSignal {
 }
 
 model TradeMessage {
-  id          String   @id @default(cuid())
-  prospectId  String
-  prospect    TradeProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  id         String        @id @default(cuid())
+  prospectId String
+  prospect   TradeProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
 
-  direction   String   // inbound / outbound
-  channel     String   @default("email") // email / whatsapp / wechat
-  subject     String?
-  content     String   @db.Text
+  direction String // inbound / outbound
+  channel   String  @default("email") // email / whatsapp / wechat
+  subject   String?
+  content   String  @db.Text
 
-  intent      String?  // interested / objection / not_interested / ooo / question / request_sample / unclear
-  sentiment   String?  // positive / neutral / negative
-  aiDraft     Boolean  @default(false)
-  approvedAt  DateTime?
+  intent     String? // interested / objection / not_interested / ooo / question / request_sample / unclear
+  sentiment  String? // positive / neutral / negative
+  aiDraft    Boolean   @default(false)
+  approvedAt DateTime?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([prospectId, createdAt])
   @@index([prospectId, direction])
 }
 
 model TradeChatSession {
-  id          String    @id @default(cuid())
-  orgId       String
-  userId      String
-  title       String    @default("新对话")
-  status      String    @default("active") // active / archived
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  title     String   @default("新对话")
+  status    String   @default("active") // active / archived
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  messages    TradeChatMessage[]
+  messages TradeChatMessage[]
 
   @@index([userId, updatedAt])
   @@index([orgId])
 }
 
 model TradeChatMessage {
-  id          String   @id @default(cuid())
-  sessionId   String
-  session     TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role        String   // user / assistant / system / tool
-  content     String   @db.Text
-  toolName    String?
-  toolInput   Json?
-  toolOutput  Json?
-  createdAt   DateTime @default(now())
+  id         String           @id @default(cuid())
+  sessionId  String
+  session    TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role       String // user / assistant / system / tool
+  content    String           @db.Text
+  toolName   String?
+  toolInput  Json?
+  toolOutput Json?
+  createdAt  DateTime         @default(now())
 
   @@index([sessionId, createdAt])
 }
@@ -2078,10 +2108,10 @@ model TradeChatMessage {
 model TradeChannel {
   id            String    @id @default(cuid())
   orgId         String
-  channel       String    // whatsapp / wechat / wechat_work
-  name          String    // display name
+  channel       String // whatsapp / wechat / wechat_work
+  name          String // display name
   status        String    @default("active") // active / inactive / error
-  config        Json      // encrypted config: apiKey, phoneNumberId, accessToken, etc.
+  config        Json // encrypted config: apiKey, phoneNumberId, accessToken, etc.
   webhookSecret String?
   lastSyncAt    DateTime?
   createdAt     DateTime  @default(now())
@@ -2092,14 +2122,14 @@ model TradeChannel {
 }
 
 model TradeActivityLog {
-  id          String   @id @default(cuid())
-  orgId       String
-  campaignId  String?
-  prospectId  String?
-  action      String   // discover / research / score / outreach / send / reply / stage_change / import / pipeline
-  detail      String?  @db.Text
-  meta        Json?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  orgId      String
+  campaignId String?
+  prospectId String?
+  action     String // discover / research / score / outreach / send / reply / stage_change / import / pipeline
+  detail     String?  @db.Text
+  meta       Json?
+  createdAt  DateTime @default(now())
 
   @@index([campaignId, createdAt])
   @@index([prospectId, createdAt])
@@ -2107,62 +2137,62 @@ model TradeActivityLog {
 }
 
 model TradeQuote {
-  id              String    @id @default(cuid())
-  orgId           String
-  prospectId      String?
-  prospect        TradeProspect? @relation(fields: [prospectId], references: [id])
-  campaignId      String?
+  id         String         @id @default(cuid())
+  orgId      String
+  prospectId String?
+  prospect   TradeProspect? @relation(fields: [prospectId], references: [id])
+  campaignId String?
 
-  quoteNumber     String    @unique
-  companyName     String
-  contactName     String?
-  contactEmail    String?
-  country         String?
+  quoteNumber  String  @unique
+  companyName  String
+  contactName  String?
+  contactEmail String?
+  country      String?
 
-  status          String    @default("draft") // draft / sent / negotiating / accepted / rejected / expired
-  currency        String    @default("USD")
-  incoterm        String    @default("FOB") // FOB / CIF / EXW / DDP / CFR
-  paymentTerms    String?   // T/T 30%, L/C, etc.
-  validDays       Int       @default(30)
-  leadTimeDays    Int?
-  moq             String?
-  shippingPort    String?
+  status       String  @default("draft") // draft / sent / negotiating / accepted / rejected / expired
+  currency     String  @default("USD")
+  incoterm     String  @default("FOB") // FOB / CIF / EXW / DDP / CFR
+  paymentTerms String? // T/T 30%, L/C, etc.
+  validDays    Int     @default(30)
+  leadTimeDays Int?
+  moq          String?
+  shippingPort String?
 
-  subtotal        Float     @default(0)
-  discount        Float     @default(0)
-  shippingCost    Float     @default(0)
-  totalAmount     Float     @default(0)
+  subtotal     Float @default(0)
+  discount     Float @default(0)
+  shippingCost Float @default(0)
+  totalAmount  Float @default(0)
 
-  notes           String?   @db.Text
-  internalNotes   String?   @db.Text
+  notes         String? @db.Text
+  internalNotes String? @db.Text
 
-  sentAt          DateTime?
-  acceptedAt      DateTime?
-  expiresAt       DateTime?
+  sentAt     DateTime?
+  acceptedAt DateTime?
+  expiresAt  DateTime?
 
-  createdById     String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  items           TradeQuoteItem[]
+  items TradeQuoteItem[]
 
   @@index([orgId, status])
   @@index([prospectId])
 }
 
 model TradeQuoteItem {
-  id              String    @id @default(cuid())
-  quoteId         String
-  quote           TradeQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id      String     @id @default(cuid())
+  quoteId String
+  quote   TradeQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
-  sortOrder       Int       @default(0)
-  productName     String
-  specification   String?
-  unit            String    @default("pcs")
-  quantity        Float     @default(0)
-  unitPrice       Float     @default(0)
-  totalPrice      Float     @default(0)
-  remarks         String?
+  sortOrder     Int     @default(0)
+  productName   String
+  specification String?
+  unit          String  @default("pcs")
+  quantity      Float   @default(0)
+  unitPrice     Float   @default(0)
+  totalPrice    Float   @default(0)
+  remarks       String?
 
   @@index([quoteId, sortOrder])
 }
@@ -2170,10 +2200,10 @@ model TradeQuoteItem {
 model TradeKnowledge {
   id          String   @id @default(cuid())
   orgId       String
-  category    String   // product / faq / case_study / certification / process
+  category    String // product / faq / case_study / certification / process
   title       String
   content     String   @db.Text
-  tags        String?  // comma-separated
+  tags        String? // comma-separated
   language    String   @default("zh")
   isActive    Boolean  @default(true)
   createdById String?
@@ -2188,11 +2218,11 @@ model TradeEmailTemplate {
   id          String   @id @default(cuid())
   orgId       String
   name        String
-  category    String   // first_touch / follow_up / after_quote / after_sample / re_engage / exhibition
+  category    String // first_touch / follow_up / after_quote / after_sample / re_engage / exhibition
   language    String   @default("en") // en / zh / es / fr / de / auto
   subject     String
   body        String   @db.Text
-  variables   Json?    // ["companyName", "contactName", "productDesc", ...]
+  variables   Json? // ["companyName", "contactName", "productDesc", ...]
   isDefault   Boolean  @default(false)
   usageCount  Int      @default(0)
   createdById String?
@@ -2207,37 +2237,40 @@ model TradeEmailTemplate {
 // ============================================================
 
 model SalesCustomer {
-  id            String   @id @default(cuid())
-  name          String
-  phone         String?
-  email         String?
-  address       String?
-  source        String?  // referral / google_ads / walk_in / wechat / other
-  wechatNote    String?
-  status        String   @default("active") // active / completed / dormant
-  tags          String?  // comma-separated tags
-  notes         String?  @db.Text
-  jdyDataId     String?  @unique // 简道云 record ID for future sync
-  lastSyncAt    DateTime?
+  id         String    @id @default(cuid())
+  name       String
+  phone      String?
+  email      String?
+  address    String?
+  source     String? // referral / google_ads / walk_in / wechat / other
+  wechatNote String?
+  status     String    @default("active") // active / completed / dormant
+  tags       String? // comma-separated tags
+  notes      String?   @db.Text
+  jdyDataId  String?   @unique // 简道云 record ID for future sync
+  lastSyncAt DateTime?
   // 软删字段：管理员"删除客户"时设置此时间戳；列表默认过滤掉已归档
-  archivedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  createdById   String
-  createdBy     User     @relation("SalesCustomerCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  createdBy   User   @relation("SalesCustomerCreatedBy", fields: [createdById], references: [id])
 
-  opportunities  SalesOpportunity[]
-  interactions   CustomerInteraction[]
-  quotes         SalesQuote[]       @relation("SalesQuoteCustomer")
-  blindsOrders   BlindsOrder[]
-  appointments   Appointment[]
-  measurements   MeasurementRecord[]
+  opportunities SalesOpportunity[]
+  interactions  CustomerInteraction[]
+  quotes        SalesQuote[]          @relation("SalesQuoteCustomer")
+  blindsOrders  BlindsOrder[]
+  appointments  Appointment[]
+  measurements  MeasurementRecord[]
 
   // RAG
-  profile            CustomerProfile?
-  knowledgeChunks    SalesKnowledgeChunk[]
-  coachingRecords    CoachingRecord[]
+  profile         CustomerProfile?
+  knowledgeChunks SalesKnowledgeChunk[]
+  coachingRecords CoachingRecord[]
+
+  // Visualizer
+  visualizerSessions VisualizerSession[]
 
   @@index([status])
   @@index([phone])
@@ -2246,40 +2279,43 @@ model SalesCustomer {
 }
 
 model SalesOpportunity {
-  id              String    @id @default(cuid())
-  customerId      String
-  customer        SalesCustomer @relation(fields: [customerId], references: [id])
-  title           String
-  stage           String    @default("new_lead") // Pipeline stage
-  estimatedValue  Float?
-  windowCount     Int?
-  productTypes    String?   // comma-separated: Zebra,Roller,Drapery,...
-  source          String?   // lead source
-  priority        String    @default("warm") // hot / warm / cold
-  lostReason      String?   @db.Text
-  wonAt           DateTime?
-  lostAt          DateTime?
-  nextFollowupAt  DateTime?
-  measureDate     DateTime?
-  installDate     DateTime?
-  jdyDataId       String?   @unique
-  lastSyncAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String        @id @default(cuid())
+  customerId     String
+  customer       SalesCustomer @relation(fields: [customerId], references: [id])
+  title          String
+  stage          String        @default("new_lead") // Pipeline stage
+  estimatedValue Float?
+  windowCount    Int?
+  productTypes   String? // comma-separated: Zebra,Roller,Drapery,...
+  source         String? // lead source
+  priority       String        @default("warm") // hot / warm / cold
+  lostReason     String?       @db.Text
+  wonAt          DateTime?
+  lostAt         DateTime?
+  nextFollowupAt DateTime?
+  measureDate    DateTime?
+  installDate    DateTime?
+  jdyDataId      String?       @unique
+  lastSyncAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  assignedToId    String?
-  assignedTo      User?     @relation("SalesOpportunityAssignee", fields: [assignedToId], references: [id])
-  createdById     String
-  createdBy       User      @relation("SalesOpportunityCreatedBy", fields: [createdById], references: [id])
+  assignedToId String?
+  assignedTo   User?   @relation("SalesOpportunityAssignee", fields: [assignedToId], references: [id])
+  createdById  String
+  createdBy    User    @relation("SalesOpportunityCreatedBy", fields: [createdById], references: [id])
 
-  interactions    CustomerInteraction[]
-  quotes          SalesQuote[]
-  blindsOrders    BlindsOrder[]
-  appointments    Appointment[]
+  interactions CustomerInteraction[]
+  quotes       SalesQuote[]
+  blindsOrders BlindsOrder[]
+  appointments Appointment[]
 
   // RAG
   knowledgeChunks SalesKnowledgeChunk[]
   coachingRecords CoachingRecord[]
+
+  // Visualizer
+  visualizerSessions VisualizerSession[]
 
   @@index([customerId])
   @@index([stage])
@@ -2289,34 +2325,34 @@ model SalesOpportunity {
 }
 
 model CustomerInteraction {
-  id              String   @id @default(cuid())
-  customerId      String
-  customer        SalesCustomer @relation(fields: [customerId], references: [id])
-  opportunityId   String?
-  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
-  type            String   // phone_call / wechat / email / in_person / note
-  direction       String?  // inbound / outbound
-  summary         String   @db.Text
-  content         String?  @db.Text
-  emailMessageId  String?
-  attachments     String?  @db.Text // JSON array of file URLs
+  id             String            @id @default(cuid())
+  customerId     String
+  customer       SalesCustomer     @relation(fields: [customerId], references: [id])
+  opportunityId  String?
+  opportunity    SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  type           String // phone_call / wechat / email / in_person / note
+  direction      String? // inbound / outbound
+  summary        String            @db.Text
+  content        String?           @db.Text
+  emailMessageId String?
+  attachments    String?           @db.Text // JSON array of file URLs
 
   // 多渠道 + 多语言扩展
-  channel         String?  // wechat / xiaohongshu / facebook / email / phone / in_person / other
-  language        String?  // zh / en / mixed
-  rawMessages     String?  @db.Text // JSON: [{role:"customer"|"staff", content:string, time?:string}]
-  sentiment       String?  // positive / neutral / negative
-  outcome         String?  // converted / lost / pending / info_request / follow_up
-  topicTags       String?  // comma-separated: "pricing,zebra,installation"
+  channel     String? // wechat / xiaohongshu / facebook / email / phone / in_person / other
+  language    String? // zh / en / mixed
+  rawMessages String? @db.Text // JSON: [{role:"customer"|"staff", content:string, time?:string}]
+  sentiment   String? // positive / neutral / negative
+  outcome     String? // converted / lost / pending / info_request / follow_up
+  topicTags   String? // comma-separated: "pricing,zebra,installation"
 
   // RAG 分析状态
-  analysisStatus  String?  // pending / analyzed / failed
-  analysisResult  Json?    // AI 结构化分析输出
+  analysisStatus String? // pending / analyzed / failed
+  analysisResult Json? // AI 结构化分析输出
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  createdById     String
-  createdBy       User     @relation("CustomerInteractionCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  createdBy   User   @relation("CustomerInteractionCreatedBy", fields: [createdById], references: [id])
 
   knowledgeChunks SalesKnowledgeChunk[]
 
@@ -2328,65 +2364,68 @@ model CustomerInteraction {
 }
 
 model SalesQuote {
-  id               String    @id @default(cuid())
-  opportunityId    String?
-  opportunity      SalesOpportunity? @relation(fields: [opportunityId], references: [id])
-  customerId       String
-  customer         SalesCustomer @relation("SalesQuoteCustomer", fields: [customerId], references: [id])
-  version          Int       @default(1)
-  status           String    @default("draft") // draft / sent / viewed / accepted / signed / rejected / expired
-  installMode      String    @default("default") // default / pickup
-  merchSubtotal    Float     @default(0)
-  addonsSubtotal   Float     @default(0)
-  installSubtotal  Float     @default(0)
-  installApplied   Float     @default(0)
-  deliveryFee      Float     @default(50)
-  preTaxTotal      Float     @default(0)
-  taxRate          Float     @default(0.13)
-  taxAmount        Float     @default(0)
-  grandTotal       Float     @default(0)
-  currency         String    @default("CAD")
-  sentAt           DateTime?
-  emailMessageId   String?
-  orderNumber      String?
-  notes            String?   @db.Text
-  formDataJson     String?   @db.Text
+  id              String            @id @default(cuid())
+  opportunityId   String?
+  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  customerId      String
+  customer        SalesCustomer     @relation("SalesQuoteCustomer", fields: [customerId], references: [id])
+  version         Int               @default(1)
+  status          String            @default("draft") // draft / sent / viewed / accepted / signed / rejected / expired
+  installMode     String            @default("default") // default / pickup
+  merchSubtotal   Float             @default(0)
+  addonsSubtotal  Float             @default(0)
+  installSubtotal Float             @default(0)
+  installApplied  Float             @default(0)
+  deliveryFee     Float             @default(50)
+  preTaxTotal     Float             @default(0)
+  taxRate         Float             @default(0.13)
+  taxAmount       Float             @default(0)
+  grandTotal      Float             @default(0)
+  currency        String            @default("CAD")
+  sentAt          DateTime?
+  emailMessageId  String?
+  orderNumber     String?
+  notes           String?           @db.Text
+  formDataJson    String?           @db.Text
 
   // Sprint 21 新增字段
-  shareToken       String?   @unique  // 报价分享链接 token
-  signatureUrl     String?            // 电子签名图片 URL
-  signedAt         DateTime?          // 签名时间
-  aiSource         String?            // voice / text / image / manual
-  viewedAt         DateTime?          // 客户查看时间
+  shareToken   String?   @unique // 报价分享链接 token
+  signatureUrl String? // 电子签名图片 URL
+  signedAt     DateTime? // 签名时间
+  aiSource     String? // voice / text / image / manual
+  viewedAt     DateTime? // 客户查看时间
 
   // 折扣率追踪（Step 4）
-  totalMsrp        Float?             // 所有产品行的 MSRP 之和（Part B/C 不计入分母）
-  specialPromotion Float?   @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
-  finalDiscountPct Float?             // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
+  totalMsrp        Float? // 所有产品行的 MSRP 之和（Part B/C 不计入分母）
+  specialPromotion Float? @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
+  finalDiscountPct Float? // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
 
   // 定金登记（线上签字 → 销售补录收款情况）
   //   - depositAmount / depositMethod / depositCollectedAt 三者同时写入，空表示未登记
   //   - method 取值：cash | check | etransfer（前端下拉固定）
   //   - 线下签字时销售可以不登记，UI 会在 signed && 无 depositCollectedAt 时提示
-  depositAmount       Float?
-  depositMethod       String?
-  depositCollectedAt  DateTime?
+  depositAmount        Float?
+  depositMethod        String?
+  depositCollectedAt   DateTime?
   depositCollectedById String?
-  depositNote         String?   @db.Text
+  depositNote          String?   @db.Text
 
   /// Part B 签单时手填的约定定金/余款（含税口径，与 formDataJson 同步；登记定金时优先预填）
   agreedDepositAmount Float?
   agreedBalanceAmount Float?
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  createdById      String
-  createdBy        User      @relation("SalesQuoteCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  createdBy   User   @relation("SalesQuoteCreatedBy", fields: [createdById], references: [id])
 
-  items            SalesQuoteItem[]
-  addons           SalesQuoteAddon[]
-  rooms            QuoteRoom[]
+  items  SalesQuoteItem[]
+  addons SalesQuoteAddon[]
+  rooms  QuoteRoom[]
+
+  // Visualizer
+  visualizerSessions VisualizerSession[]
 
   @@index([customerId])
   @@index([opportunityId])
@@ -2399,82 +2438,82 @@ model SalesQuote {
 /// - 仅 admin/super_admin 可写，走 RBAC + 审计日志
 /// - 每个字段为 0~1 之间的小数，代表默认百分比折扣
 model QuoteDiscountSettings {
-  id        String   @id @default("singleton")
-  zebra     Float    @default(0.45)
-  shangrila Float    @default(0.35)
-  cellular  Float    @default(0.35)
-  roller    Float    @default(0.45)
-  drapery   Float    @default(0.35)
-  sheer     Float    @default(0.35)
-  shutters  Float    @default(0.35)
-  honeycomb Float    @default(0.35)
+  id                  String   @id @default("singleton")
+  zebra               Float    @default(0.45)
+  shangrila           Float    @default(0.35)
+  cellular            Float    @default(0.35)
+  roller              Float    @default(0.45)
+  drapery             Float    @default(0.35)
+  sheer               Float    @default(0.35)
+  shutters            Float    @default(0.35)
+  honeycomb           Float    @default(0.35)
   // Special Promotion 预警 & 上限阈值（0~1 小数，如 0.06 表示 6%）
   // - warn:   >= 此比例开始黄色提醒
   // - danger: >= 此比例红色强警告
   // - max:    销售不得超过；admin/super_admin 不受限
-  promoWarnPct   Float @default(0.06)
-  promoDangerPct Float @default(0.15)
-  promoMaxPct    Float @default(0.25)
+  promoWarnPct        Float    @default(0.06)
+  promoDangerPct      Float    @default(0.15)
+  promoMaxPct         Float    @default(0.25)
   // 定金 (deposit) 阈值（按 Grand Total 含税总价的比例，0~1 小数）
   // - depositWarnPct:         低于此比例，销售端黄色提醒（默认 40%）
   // - depositMinPct:          低于此比例，销售需输入解锁码才能保存（默认 30%）
   // - depositOverrideCode:    老板设置的解锁码（明文存；MVP 简化方案）
-  depositWarnPct      Float   @default(0.40)
-  depositMinPct       Float   @default(0.30)
+  depositWarnPct      Float    @default(0.40)
+  depositMinPct       Float    @default(0.30)
   depositOverrideCode String?
-  updatedAt DateTime @updatedAt
-  updatedBy String?
+  updatedAt           DateTime @updatedAt
+  updatedBy           String?
 }
 
 model SalesQuoteItem {
-  id             String  @id @default(cuid())
-  quoteId        String
-  quote          SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  roomId         String?
-  room           QuoteRoom? @relation(fields: [roomId], references: [id])
-  sortOrder      Int     @default(0)
-  product        String  // Zebra / Roller / Drapery / ...
-  fabric         String  // Light Filtering / Blackout / ...
-  sku            String? // fabric SKU
-  widthIn        Float   // raw width in inches
-  heightIn       Float   // raw height in inches
-  bracketWidth   Float?  // bracket-aligned width
-  bracketHeight  Float?  // bracket-aligned height
-  cordless       Boolean @default(false)
-  msrp           Float   @default(0)
-  discountPct    Float   @default(0)
-  discountValue  Float   @default(0)
-  price          Float   @default(0)
-  installFee     Float   @default(0)
-  location       String? // room location note
+  id            String     @id @default(cuid())
+  quoteId       String
+  quote         SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  roomId        String?
+  room          QuoteRoom? @relation(fields: [roomId], references: [id])
+  sortOrder     Int        @default(0)
+  product       String // Zebra / Roller / Drapery / ...
+  fabric        String // Light Filtering / Blackout / ...
+  sku           String? // fabric SKU
+  widthIn       Float // raw width in inches
+  heightIn      Float // raw height in inches
+  bracketWidth  Float? // bracket-aligned width
+  bracketHeight Float? // bracket-aligned height
+  cordless      Boolean    @default(false)
+  msrp          Float      @default(0)
+  discountPct   Float      @default(0)
+  discountValue Float      @default(0)
+  price         Float      @default(0)
+  installFee    Float      @default(0)
+  location      String? // room location note
 
   @@index([quoteId, sortOrder])
   @@index([roomId])
 }
 
 model SalesQuoteAddon {
-  id          String  @id @default(cuid())
+  id          String     @id @default(cuid())
   quoteId     String
   quote       SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  addonKey    String  // motor / hub / remote / track6 / track8 / track10 / track12
+  addonKey    String // motor / hub / remote / track6 / track8 / track10 / track12
   displayName String
   unitPrice   Float
-  qty         Int     @default(1)
-  subtotal    Float   @default(0)
+  qty         Int        @default(1)
+  subtotal    Float      @default(0)
 
   @@index([quoteId])
 }
 
 /// 报价房间维度 — 按房间组织报价项
 model QuoteRoom {
-  id          String  @id @default(cuid())
-  quoteId     String
-  quote       SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  roomName    String  // Living Room / Master Bedroom / ...
-  windowWidth Float?  // 窗户整体宽度（参考）
+  id           String     @id @default(cuid())
+  quoteId      String
+  quote        SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  roomName     String // Living Room / Master Bedroom / ...
+  windowWidth  Float? // 窗户整体宽度（参考）
   windowHeight Float? // 窗户整体高度（参考）
-  remarks     String? @db.Text
-  sortOrder   Int     @default(0)
+  remarks      String?    @db.Text
+  sortOrder    Int        @default(0)
 
   items       SalesQuoteItem[]
   attachments RoomAttachment[]
@@ -2485,13 +2524,13 @@ model QuoteRoom {
 /// 房间级附件（量房照片/视频）
 // TODO: 量房附件功能预留，API 尚未接入
 model RoomAttachment {
-  id         String   @id @default(cuid())
-  roomId     String
-  room       QuoteRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  fileName   String
-  fileUrl    String
-  fileType   String   @default("image") // image / video
-  createdAt  DateTime @default(now())
+  id        String    @id @default(cuid())
+  roomId    String
+  room      QuoteRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileUrl   String
+  fileType  String    @default("image") // image / video
+  createdAt DateTime  @default(now())
 
   @@index([roomId])
 }
@@ -2502,41 +2541,41 @@ model RoomAttachment {
 
 /// 预约记录 — 量房/安装/回访等上门服务
 model Appointment {
-  id              String    @id @default(cuid())
-  customerId      String
-  customer        SalesCustomer @relation(fields: [customerId], references: [id])
-  opportunityId   String?
-  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  id            String            @id @default(cuid())
+  customerId    String
+  customer      SalesCustomer     @relation(fields: [customerId], references: [id])
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
 
-  type            String    @default("measure") // measure / install / revisit / consultation
-  title           String
-  description     String?   @db.Text
+  type        String  @default("measure") // measure / install / revisit / consultation
+  title       String
+  description String? @db.Text
 
-  startAt         DateTime
-  endAt           DateTime
-  allDay          Boolean   @default(false)
+  startAt DateTime
+  endAt   DateTime
+  allDay  Boolean  @default(false)
 
-  address         String?   @db.Text
-  contactPhone    String?
+  address      String? @db.Text
+  contactPhone String?
 
-  status          String    @default("scheduled") // scheduled / confirmed / in_progress / completed / cancelled / no_show
-  cancelReason    String?
+  status       String  @default("scheduled") // scheduled / confirmed / in_progress / completed / cancelled / no_show
+  cancelReason String?
 
-  assignedToId    String
-  assignedTo      User      @relation("AppointmentAssignee", fields: [assignedToId], references: [id])
-  createdById     String
-  createdBy       User      @relation("AppointmentCreatedBy", fields: [createdById], references: [id])
+  assignedToId String
+  assignedTo   User   @relation("AppointmentAssignee", fields: [assignedToId], references: [id])
+  createdById  String
+  createdBy    User   @relation("AppointmentCreatedBy", fields: [createdById], references: [id])
 
-  notifiedAt      DateTime? // 微信/站内通知发送时间
-  reminderSentAt  DateTime? // 提前提醒发送时间
-  completedAt     DateTime?
-  notes           String?   @db.Text
+  notifiedAt     DateTime? // 微信/站内通知发送时间
+  reminderSentAt DateTime? // 提前提醒发送时间
+  completedAt    DateTime?
+  notes          String?   @db.Text
 
-  googleEventId   String?   // 同步到 Google Calendar 后的事件 ID
-  googleSyncedAt  DateTime? // 最后一次成功同步时间
+  googleEventId  String? // 同步到 Google Calendar 后的事件 ID
+  googleSyncedAt DateTime? // 最后一次成功同步时间
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([assignedToId, startAt])
   @@index([customerId])
@@ -2552,21 +2591,24 @@ model Appointment {
 
 /// 量房记录 — 一次上门量房产生一条记录，关联客户/机会/预约
 model MeasurementRecord {
-  id              String   @id @default(cuid())
-  customerId      String
-  customer        SalesCustomer @relation(fields: [customerId], references: [id])
-  opportunityId   String?
-  appointmentId   String?
+  id            String        @id @default(cuid())
+  customerId    String
+  customer      SalesCustomer @relation(fields: [customerId], references: [id])
+  opportunityId String?
+  appointmentId String?
 
-  status          String   @default("draft") // draft / completed / quoted
-  overallNotes    String?  @db.Text
-  measuredById    String
-  measuredAt      DateTime @default(now())
+  status       String   @default("draft") // draft / completed / quoted
+  overallNotes String?  @db.Text
+  measuredById String
+  measuredAt   DateTime @default(now())
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  windows         MeasurementWindow[]
+  windows MeasurementWindow[]
+
+  // Visualizer（可选：一次量房可对应多个可视化方案）
+  visualizerSessions VisualizerSession[]
 
   @@index([customerId])
   @@index([opportunityId])
@@ -2575,34 +2617,34 @@ model MeasurementRecord {
 
 /// 量房窗位 — 每扇窗的尺寸和产品选择
 model MeasurementWindow {
-  id              String   @id @default(cuid())
-  recordId        String
-  record          MeasurementRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  id       String            @id @default(cuid())
+  recordId String
+  record   MeasurementRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
 
-  roomName        String   // Living Room / Master Bedroom / ...
-  windowLabel     String?  // W1 / W2 / Bay Window Left / ...
-  widthIn         Float    // 宽度（英寸）
-  heightIn        Float    // 高度（英寸）
-  measureType     String   @default("IN") // IN / OUT / Tight
-  product         String?  // Zebra / Roller / ...
-  fabric          String?  // Light Filtering / Blackout / ...
-  cordless        Boolean  @default(false)
-  notes           String?
+  roomName    String // Living Room / Master Bedroom / ...
+  windowLabel String? // W1 / W2 / Bay Window Left / ...
+  widthIn     Float // 宽度（英寸）
+  heightIn    Float // 高度（英寸）
+  measureType String  @default("IN") // IN / OUT / Tight
+  product     String? // Zebra / Roller / ...
+  fabric      String? // Light Filtering / Blackout / ...
+  cordless    Boolean @default(false)
+  notes       String?
 
-  sortOrder       Int      @default(0)
-  photos          MeasurementPhoto[]
+  sortOrder Int                @default(0)
+  photos    MeasurementPhoto[]
 
   @@index([recordId, sortOrder])
 }
 
 /// 量房照片 — 关联到具体窗位
 model MeasurementPhoto {
-  id          String   @id @default(cuid())
-  windowId    String
-  window      MeasurementWindow @relation(fields: [windowId], references: [id], onDelete: Cascade)
-  fileName    String
-  fileUrl     String
-  createdAt   DateTime @default(now())
+  id        String            @id @default(cuid())
+  windowId  String
+  window    MeasurementWindow @relation(fields: [windowId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileUrl   String
+  createdAt DateTime          @default(now())
 
   @@index([windowId])
 }
@@ -2613,26 +2655,26 @@ model MeasurementPhoto {
 
 /// 销售话术模板 — 按渠道 + 场景组织
 model SalesPlaybook {
-  id            String    @id @default(cuid())
-  userId        String
+  id     String @id @default(cuid())
+  userId String
 
-  channel       String    // wechat / xiaohongshu / facebook / email / phone
-  language      String    // zh / en / mixed
-  scene         String    // first_contact / follow_up / price_objection / closing / after_sale / ...
-  sceneLabel    String    // 场景中文名
-  content       String    @db.Text
-  example       String?   @db.Text  // 实际使用范例
-  effectiveness Int       @default(0) // 0-5 有效性评分
+  channel             String // wechat / xiaohongshu / facebook / email / phone
+  language            String // zh / en / mixed
+  scene               String // first_contact / follow_up / price_objection / closing / after_sale / ...
+  sceneLabel          String // 场景中文名
+  content             String                       @db.Text
+  example             String?                      @db.Text // 实际使用范例
+  effectiveness       Int                          @default(0) // 0-5 有效性评分
   sourceInteractionId String? // 提取来源互动 ID
-  embedding     Unsupported("vector(1536)")?
+  embedding           Unsupported("vector(1536)")?
 
-  tags          String?   // comma-separated
-  status        String    @default("active") // active / archived
-  usageCount    Int       @default(0)
-  sourceType    String?   // manual / ai_extracted / battle_tested
+  tags       String? // comma-separated
+  status     String  @default("active") // active / archived
+  usageCount Int     @default(0)
+  sourceType String? // manual / ai_extracted / battle_tested
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, channel])
   @@index([userId, scene])
@@ -2641,23 +2683,23 @@ model SalesPlaybook {
 
 /// 销售 FAQ — 客户常见问题 + 最佳回答
 model SalesFAQ {
-  id            String    @id @default(cuid())
-  userId        String
+  id     String @id @default(cuid())
+  userId String
 
-  question      String    @db.Text
-  answer        String    @db.Text
-  language      String    // zh / en / mixed
-  category      String    // product / pricing / installation / warranty / delivery / process / other
+  question      String @db.Text
+  answer        String @db.Text
+  language      String // zh / en / mixed
+  category      String // product / pricing / installation / warranty / delivery / process / other
   categoryLabel String
 
-  productTags   String?   // comma-separated: "zebra,roller"
-  frequency     Int       @default(1) // 被问到的频次
+  productTags         String? // comma-separated: "zebra,roller"
+  frequency           Int                          @default(1) // 被问到的频次
   sourceInteractionId String?
-  embedding     Unsupported("vector(1536)")?
+  embedding           Unsupported("vector(1536)")?
 
-  status        String    @default("active") // active / archived
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  status    String   @default("active") // active / archived
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, category])
   @@index([userId, language])
@@ -2670,37 +2712,37 @@ model SalesFAQ {
 
 /// 用户级 AI 记忆条目 — 跨对话、跨项目的持久知识
 model UserMemory {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // 记忆分类（借鉴 MemPalace 的 5 类提取）
-  memoryType    String    // decision / preference / milestone / problem / insight / fact
+  memoryType String // decision / preference / milestone / problem / insight / fact
   // 记忆层级：L0=身份偏好(始终加载) L1=核心(高频加载) L2=按需(话题匹配)
-  layer         Int       @default(1)
+  layer      Int    @default(1)
 
-  content       String    @db.Text
+  content        String  @db.Text
   // 结构化标签，用于按需检索
-  tags          String?   // comma-separated: "sales,pricing,customer:张三"
+  tags           String? // comma-separated: "sales,pricing,customer:张三"
   // 来源对话 ID，便于溯源
   sourceThreadId String?
   // 关联的客户/项目（可选，便于分域检索）
-  customerId    String?
-  projectId     String?
+  customerId     String?
+  projectId      String?
 
   // 重要度 1-5，高的优先加载
-  importance    Int       @default(3)
+  importance     Int       @default(3)
   // 被引用/激活次数，用于衰减排序
-  accessCount   Int       @default(0)
+  accessCount    Int       @default(0)
   lastAccessedAt DateTime?
 
   // 向量嵌入 (text-embedding-3-small, 1536维)
-  embedding     Json?
+  embedding      Json?
   // 被此记忆取代的旧记忆 ID（冲突覆盖时记录）
   supersededById String?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, layer])
   @@index([userId, memoryType])
@@ -2716,45 +2758,45 @@ model UserMemory {
 
 /// AI 动态技能 — 可在运行时创建、修改、自我优化的能力单元
 model AgentSkill {
-  id              String   @id @default(cuid())
-  orgId           String
-  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  name            String           // 技能名，如 "外贸开发信优化"
-  slug            String           // 唯一标识，如 "trade-outreach-optimizer"
-  description     String   @db.Text // 技能用途描述
-  domain          String           // trade / sales / project / secretary
-  tier            String   @default("foundation") // foundation / analysis / execution
+  name        String // 技能名，如 "外贸开发信优化"
+  slug        String // 唯一标识，如 "trade-outreach-optimizer"
+  description String @db.Text // 技能用途描述
+  domain      String // trade / sales / project / secretary
+  tier        String @default("foundation") // foundation / analysis / execution
 
   // AI 执行配置
-  systemPrompt    String   @db.Text // 执行此技能时的系统 prompt
+  systemPrompt       String @db.Text // 执行此技能时的系统 prompt
   userPromptTemplate String @db.Text // 用户 prompt 模板，支持 {{变量}} 占位
-  outputFormat    String   @default("text") // text / json / markdown
-  temperature     Float    @default(0.3)
-  maxTokens       Int      @default(2000)
+  outputFormat       String @default("text") // text / json / markdown
+  temperature        Float  @default(0.3)
+  maxTokens          Int    @default(2000)
 
   // 参数定义（JSON Schema 格式）
-  inputSchema     Json?            // { type: "object", properties: { ... } }
-  outputSchema    Json?            // 期望输出结构
+  inputSchema  Json? // { type: "object", properties: { ... } }
+  outputSchema Json? // 期望输出结构
 
   // 所需工具（可选，执行时自动挂载这些 Agent Core tools）
-  requiredTools   String?          // comma-separated: "trade.get_prospect,secretary.execute_action"
+  requiredTools String? // comma-separated: "trade.get_prospect,secretary.execute_action"
 
   // 元信息
-  version         Int      @default(1)
-  isBuiltin       Boolean  @default(false) // 内置技能不可删除
-  isActive        Boolean  @default(true)
-  createdById     String?
-  createdBy       User?    @relation("AgentSkillCreatedBy", fields: [createdById], references: [id])
+  version     Int     @default(1)
+  isBuiltin   Boolean @default(false) // 内置技能不可删除
+  isActive    Boolean @default(true)
+  createdById String?
+  createdBy   User?   @relation("AgentSkillCreatedBy", fields: [createdById], references: [id])
 
   // 自我改进
-  lastOptimizedAt DateTime?
-  optimizationCount Int    @default(0)
+  lastOptimizedAt   DateTime?
+  optimizationCount Int       @default(0)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  executions      SkillExecution[]
+  executions SkillExecution[]
 
   @@unique([orgId, slug])
   @@index([orgId, domain])
@@ -2763,30 +2805,30 @@ model AgentSkill {
 
 /// 技能执行记录 — 每次 AgentSkill 运行的输入/输出/评分
 model SkillExecution {
-  id            String   @id @default(cuid())
-  skillId       String
-  skill         AgentSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
-  userId        String
+  id      String     @id @default(cuid())
+  skillId String
+  skill   AgentSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  userId  String
 
   // 执行上下文
-  inputJson     String   @db.Text  // 传入参数 JSON
-  outputJson    String?  @db.Text  // AI 输出 JSON
-  toolCalls     Json?              // 执行过程中的工具调用记录
+  inputJson  String  @db.Text // 传入参数 JSON
+  outputJson String? @db.Text // AI 输出 JSON
+  toolCalls  Json? // 执行过程中的工具调用记录
 
   // 结果评估
-  success       Boolean  @default(true)
-  durationMs    Int?
-  tokenCount    Int?
+  success    Boolean @default(true)
+  durationMs Int?
+  tokenCount Int?
 
   // 用户反馈（核心改进信号）
-  userRating    Int?              // 1-5 星
-  userFeedback  String?  @db.Text // 用户文字反馈
-  wasEdited     Boolean  @default(false) // 用户是否编辑了输出
+  userRating   Int? // 1-5 星
+  userFeedback String? @db.Text // 用户文字反馈
+  wasEdited    Boolean @default(false) // 用户是否编辑了输出
 
   // prompt 快照（用于回溯对比）
   promptSnapshot String? @db.Text // 执行时使用的完整 prompt
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([skillId, createdAt])
   @@index([skillId, success])
@@ -2799,21 +2841,21 @@ model SkillExecution {
 
 /// 统一消息嵌入索引 — 跨所有会话类型的语义搜索
 model MessageEmbedding {
-  id            String   @id @default(cuid())
-  userId        String
-  orgId         String?
+  id     String  @id @default(cuid())
+  userId String
+  orgId  String?
 
   // 消息来源（多态引用）
-  sourceType    String   // ai_message / trade_chat / project_conversation / project_discussion
-  sourceId      String   // 原始消息 ID
-  sessionId     String   // 所属会话/线程 ID
-  sessionTitle  String?  // 会话标题（冗余存储，加速搜索结果展示）
+  sourceType   String // ai_message / trade_chat / project_conversation / project_discussion
+  sourceId     String // 原始消息 ID
+  sessionId    String // 所属会话/线程 ID
+  sessionTitle String? // 会话标题（冗余存储，加速搜索结果展示）
 
-  role          String   // user / assistant
-  content       String   @db.Text
-  embedding     Json     // 1536 维向量
+  role      String // user / assistant
+  content   String @db.Text
+  embedding Json // 1536 维向量
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([sourceType, sourceId])
   @@index([userId, sourceType])
@@ -2823,27 +2865,27 @@ model MessageEmbedding {
 
 /// 会话摘要 — 长对话压缩后的持久化摘要
 model ConversationSummary {
-  id            String   @id @default(cuid())
-  userId        String
+  id     String @id @default(cuid())
+  userId String
 
   // 会话来源
-  sourceType    String   // ai_thread / trade_chat_session / conversation
-  sessionId     String   // 原始会话 ID
-  sessionTitle  String?
+  sourceType   String // ai_thread / trade_chat_session / conversation
+  sessionId    String // 原始会话 ID
+  sessionTitle String?
 
   // 摘要内容
-  summary       String   @db.Text  // AI 生成的结构化摘要
-  keyTopics     String?  @db.Text  // 逗号分隔的关键主题
-  keyDecisions  String?  @db.Text  // 重要决策摘要
-  messageCount  Int                // 被摘要的消息数
-  tokenEstimate Int?               // 原始消息的估算 token 数
+  summary       String  @db.Text // AI 生成的结构化摘要
+  keyTopics     String? @db.Text // 逗号分隔的关键主题
+  keyDecisions  String? @db.Text // 重要决策摘要
+  messageCount  Int // 被摘要的消息数
+  tokenEstimate Int? // 原始消息的估算 token 数
 
   // 向量（用于搜索摘要本身）
-  embedding     Json?
+  embedding Json?
 
-  version       Int      @default(1)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([sourceType, sessionId])
   @@index([userId, sourceType])
@@ -2856,37 +2898,37 @@ model ConversationSummary {
 
 /// 微信绑定 — 微信用户 ID 与青砚用户的映射
 model WeChatBinding {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation("UserWeChatBindings", fields: [userId], references: [id], onDelete: Cascade)
-  orgId         String?
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation("UserWeChatBindings", fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
 
-  channel       String   // personal_wechat / wecom
-  externalId    String   // 微信openid / 企微userid
-  displayName   String?  // 微信昵称
-  avatarUrl     String?
+  channel     String // personal_wechat / wecom
+  externalId  String // 微信openid / 企微userid
+  displayName String? // 微信昵称
+  avatarUrl   String?
 
   // 连接状态
-  status        String   @default("active") // active / disconnected / expired
-  lastActiveAt  DateTime?
+  status       String    @default("active") // active / disconnected / expired
+  lastActiveAt DateTime?
 
   // 推送偏好
-  pushBriefing  Boolean  @default(true)
-  pushFollowup  Boolean  @default(true)
-  pushReport    Boolean  @default(true)
-  pushSales     Boolean  @default(false)  // 销售域推送
-  silentStart   String?  // "22:00"
-  silentEnd     String?  // "08:00"
+  pushBriefing Boolean @default(true)
+  pushFollowup Boolean @default(true)
+  pushReport   Boolean @default(true)
+  pushSales    Boolean @default(false) // 销售域推送
+  silentStart  String? // "22:00"
+  silentEnd    String? // "08:00"
 
   // 业务域权限（逗号分隔，如 "trade,sales"）—— 绑定时根据用户角色自动设置
-  pushDomains   String   @default("trade") // trade / sales / project / all
+  pushDomains String @default("trade") // trade / sales / project / all
 
   // 消息过滤
-  filterMode    String   @default("all") // all / keyword / whitelist
-  filterKeyword String?  // 触发关键词，如"青砚"
+  filterMode    String  @default("all") // all / keyword / whitelist
+  filterKeyword String? // 触发关键词，如"青砚"
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([channel, externalId])
   @@index([userId])
@@ -2895,53 +2937,53 @@ model WeChatBinding {
 
 /// 微信网关连接 — 个人微信 Bot / 企业微信应用的连接实例
 model WeChatGateway {
-  id            String   @id @default(cuid())
-  orgId         String
-  channel       String   // personal_wechat / wecom
+  id      String @id @default(cuid())
+  orgId   String
+  channel String // personal_wechat / wecom
 
   // 个人微信 iLink 字段
   botNickname   String?
-  botToken      String?  @db.Text
+  botToken      String? @db.Text
   botBaseUrl    String?
-  getUpdatesBuf String?  @db.Text
-  loginStatus   String   @default("disconnected") // qr_pending / scanning / connected / disconnected
+  getUpdatesBuf String? @db.Text
+  loginStatus   String  @default("disconnected") // qr_pending / scanning / connected / disconnected
 
   // 企业微信字段
   corpId        String?
   agentId       String?
-  secret        String?  // 加密存储
+  secret        String? // 加密存储
   callbackToken String?
   encodingKey   String?
 
-  status        String   @default("inactive") // active / inactive / error
+  status        String    @default("inactive") // active / inactive / error
   lastHeartbeat DateTime?
   errorMessage  String?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([orgId, channel])
 }
 
 /// 微信消息记录
 model WeChatMessage {
-  id            String   @id @default(cuid())
-  bindingId     String   // 关联的 WeChatBinding
-  userId        String
-  orgId         String?
+  id        String  @id @default(cuid())
+  bindingId String // 关联的 WeChatBinding
+  userId    String
+  orgId     String?
 
-  direction     String   // inbound / outbound
-  channel       String   // personal_wechat / wecom
-  externalUserId String  // 对方微信ID
-  content       String   @db.Text
-  messageType   String   @default("text") // text / image / file / voice
-  externalMsgId String?  // 微信侧消息ID
+  direction      String // inbound / outbound
+  channel        String // personal_wechat / wecom
+  externalUserId String // 对方微信ID
+  content        String  @db.Text
+  messageType    String  @default("text") // text / image / file / voice
+  externalMsgId  String? // 微信侧消息ID
 
   // AI 处理
   agentProcessed Boolean @default(false)
   agentResponse  String? @db.Text
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([bindingId, createdAt])
   @@index([userId, createdAt])
@@ -2954,34 +2996,34 @@ model WeChatMessage {
 
 /// 销售知识分块 — 沟通内容经 AI 分析后的语义分块
 model SalesKnowledgeChunk {
-  id              String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // 来源关联
-  sourceType      String   // email / wechat / call_transcript / note / bulk_upload
-  sourceId        String?  // CustomerInteraction.id 或上传批次 ID
-  customerId      String?
-  customer        SalesCustomer?    @relation(fields: [customerId], references: [id])
-  opportunityId   String?
-  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
-  interactionId   String?
-  interaction     CustomerInteraction? @relation(fields: [interactionId], references: [id])
+  sourceType    String // email / wechat / call_transcript / note / bulk_upload
+  sourceId      String? // CustomerInteraction.id 或上传批次 ID
+  customerId    String?
+  customer      SalesCustomer?       @relation(fields: [customerId], references: [id])
+  opportunityId String?
+  opportunity   SalesOpportunity?    @relation(fields: [opportunityId], references: [id])
+  interactionId String?
+  interaction   CustomerInteraction? @relation(fields: [interactionId], references: [id])
 
   // 内容
-  content         String   @db.Text
-  embedding       Unsupported("vector(1536)")?
+  content   String                       @db.Text
+  embedding Unsupported("vector(1536)")?
   // 元数据
-  metadata        Json?    // { speaker, direction, timestamp, dealStage, dealOutcome }
-  tags            String[] // AI 提取的标签
-  language        String   @default("en")
+  metadata  Json? // { speaker, direction, timestamp, dealStage, dealOutcome }
+  tags      String[] // AI 提取的标签
+  language  String                       @default("en")
 
   // AI 分析结果
-  sentiment       String?  // positive / negative / neutral
-  intent          String?  // objection / inquiry / negotiation / closing / smalltalk
-  objectionType   String?  // price / timing / competition / authority / need
-  isWinPattern    Boolean  @default(false)
-  isLossSignal    Boolean  @default(false)
+  sentiment     String? // positive / negative / neutral
+  intent        String? // objection / inquiry / negotiation / closing / smalltalk
+  objectionType String? // price / timing / competition / authority / need
+  isWinPattern  Boolean @default(false)
+  isLossSignal  Boolean @default(false)
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([customerId])
   @@index([opportunityId])
@@ -2994,34 +3036,34 @@ model SalesKnowledgeChunk {
 
 /// 销售洞察 — AI 提炼的赢单/丢单模式与最佳实践
 model SalesInsight {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation("SalesInsightUser", fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("SalesInsightUser", fields: [userId], references: [id])
 
   // 洞察类型
-  insightType     String   // win_pattern / loss_signal / objection_response / best_practice / stage_tactic
+  insightType String // win_pattern / loss_signal / objection_response / best_practice / stage_tactic
   // 内容
-  title           String
-  description     String   @db.Text
-  embedding       Unsupported("vector(1536)")?
+  title       String
+  description String                       @db.Text
+  embedding   Unsupported("vector(1536)")?
 
   // 适用条件
-  dealStage       String?  // 适用的商机阶段
-  productType     String?  // 适用的产品类型
-  customerTags    String[] // 适用客户标签
-  objectionType   String?  // 针对的异议类型
+  dealStage     String? // 适用的商机阶段
+  productType   String? // 适用的产品类型
+  customerTags  String[] // 适用客户标签
+  objectionType String? // 针对的异议类型
 
   // 效果追踪
-  effectiveness   Float    @default(0) // 0-1 有效性权重
-  usageCount      Int      @default(0)
-  successCount    Int      @default(0)
+  effectiveness Float @default(0) // 0-1 有效性权重
+  usageCount    Int   @default(0)
+  successCount  Int   @default(0)
 
   // 来源
-  sourceChunkIds  String[]
-  status          String   @default("active") // active / deprecated
+  sourceChunkIds String[]
+  status         String   @default("active") // active / deprecated
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   coachingRecords CoachingRecord[]
 
@@ -3033,48 +3075,48 @@ model SalesInsight {
 
 /// 客户画像 — AI 自动生成的结构化画像（销售 + Marketing 预留）
 model CustomerProfile {
-  id                  String   @id @default(cuid())
-  customerId          String   @unique
-  customer            SalesCustomer @relation(fields: [customerId], references: [id])
+  id         String        @id @default(cuid())
+  customerId String        @unique
+  customer   SalesCustomer @relation(fields: [customerId], references: [id])
 
   // 基础画像
-  customerType        String?  // residential / commercial / designer / contractor / developer
-  decisionRole        String?  // owner / spouse / property_manager / designer / committee
-  budgetRange         String?  // economy / mid_range / premium / luxury
-  priceSensitivity    Float?   // 0-1
+  customerType     String? // residential / commercial / designer / contractor / developer
+  decisionRole     String? // owner / spouse / property_manager / designer / committee
+  budgetRange      String? // economy / mid_range / premium / luxury
+  priceSensitivity Float? // 0-1
 
   // 行为画像
-  communicationStyle  String?  // direct / detail_oriented / relationship_focused / price_driven
-  preferredChannel    String?  // wechat / email / phone / in_person
-  responseSpeed       String?  // fast_responder / slow_deliberate / ghost_risk
-  decisionSpeed       String?  // impulse / moderate / slow_researcher
+  communicationStyle String? // direct / detail_oriented / relationship_focused / price_driven
+  preferredChannel   String? // wechat / email / phone / in_person
+  responseSpeed      String? // fast_responder / slow_deliberate / ghost_risk
+  decisionSpeed      String? // impulse / moderate / slow_researcher
 
   // 需求画像
-  productPreferences  String[] // motorized / blackout / sheer / zebra ...
-  roomTypes           String[] // bedroom / living_room / office / bathroom ...
-  keyNeeds            String[] // child_safety / energy_efficiency / smart_home ...
-  objectionHistory    String[] // price / timing / competition ...
+  productPreferences String[] // motorized / blackout / sheer / zebra ...
+  roomTypes          String[] // bedroom / living_room / office / bathroom ...
+  keyNeeds           String[] // child_safety / energy_efficiency / smart_home ...
+  objectionHistory   String[] // price / timing / competition ...
 
   // 成交预测
-  winProbability          Float?   // 0-1
-  estimatedLifetimeValue  Float?
-  churnRisk               Float?   // 0-1
+  winProbability         Float? // 0-1
+  estimatedLifetimeValue Float?
+  churnRisk              Float? // 0-1
 
   // Marketing 预留字段
-  acquisitionChannel  String?  // referral / google_ads / social_media / walk_in / website
-  referralSource      String?
-  contentEngagement   Json?    // { emailOpenRate, clickRate, lastEngagedAt, interestedTopics[] }
-  segment             String?  // high_value_repeat / new_lead / at_risk
-  campaignIds         String[]
+  acquisitionChannel String? // referral / google_ads / social_media / walk_in / website
+  referralSource     String?
+  contentEngagement  Json? // { emailOpenRate, clickRate, lastEngagedAt, interestedTopics[] }
+  segment            String? // high_value_repeat / new_lead / at_risk
+  campaignIds        String[]
 
   // 元数据
-  confidence          Float    @default(0) // 画像置信度 0-1
-  lastAnalyzedAt      DateTime?
-  analysisVersion     Int      @default(1)
-  embedding           Unsupported("vector(1536)")?
+  confidence      Float                        @default(0) // 画像置信度 0-1
+  lastAnalyzedAt  DateTime?
+  analysisVersion Int                          @default(1)
+  embedding       Unsupported("vector(1536)")?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([customerType])
   @@index([segment])
@@ -3084,33 +3126,33 @@ model CustomerProfile {
 
 /// 教练记录 — 记录每次 AI 建议及后续效果，用于自我训练
 model CoachingRecord {
-  id              String    @id @default(cuid())
-  userId          String
-  user            User      @relation("CoachingRecordUser", fields: [userId], references: [id])
-  customerId      String
-  customer        SalesCustomer @relation(fields: [customerId], references: [id])
-  opportunityId   String?
-  opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation("CoachingRecordUser", fields: [userId], references: [id])
+  customerId    String
+  customer      SalesCustomer     @relation(fields: [customerId], references: [id])
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
 
   // AI 推荐内容
-  insightId       String?
-  insight         SalesInsight? @relation(fields: [insightId], references: [id])
-  coachingType    String   // tactic / objection_response / email_draft / next_action
-  recommendation  String   @db.Text
-  context         Json?    // { dealStage, customerTags, triggerEvent }
+  insightId      String?
+  insight        SalesInsight? @relation(fields: [insightId], references: [id])
+  coachingType   String // tactic / objection_response / email_draft / next_action
+  recommendation String        @db.Text
+  context        Json? // { dealStage, customerTags, triggerEvent }
 
   // 销售行为
-  adopted         Boolean?
-  adoptedAt       DateTime?
+  adopted   Boolean?
+  adoptedAt DateTime?
 
   // 结果归因
-  outcome         String?  // won / lost / still_open / ignored
-  outcomeAt       DateTime?
-  daysToOutcome   Int?
-  dealValue       Float?
+  outcome           String? // won / lost / still_open / ignored
+  outcomeAt         DateTime?
+  daysToOutcome     Int?
+  dealValue         Float?
   contributionScore Float? // 0-1
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([customerId])
@@ -3118,4 +3160,171 @@ model CoachingRecord {
   @@index([insightId])
   @@index([outcome])
   @@index([coachingType])
+}
+
+// ============================================================
+// AI Window Covering Visualizer — 窗饰可视化（PR #1：schema + 基础 API + 客户页 tab）
+// ============================================================
+// 设计约束（摘要）：
+// - 所有 session 强制挂 customerId；opportunityId / quoteId / measurementRecordId 可选
+// - 权限：sales 只看自己创建/负责/或 customer 属于自己的 session；admin 全见
+// - measurementWindowId / measurementPhotoId 用 String 弱耦合（MVP 不加 FK，避免级联改动）
+// - shareToken 预留 Phase 6，MVP 不暴露对外访问
+// - 对现有销售/报价/量房模型无字段改动，仅新增反向关系
+// ============================================================
+
+/// 一次客户/机会下的可视化方案工作区
+model VisualizerSession {
+  id     String @id @default(cuid())
+  title  String @default("可视化方案")
+  status String @default("draft") // draft / active / archived
+
+  customerId String
+  customer   SalesCustomer @relation(fields: [customerId], references: [id])
+
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+
+  quoteId String?
+  quote   SalesQuote? @relation(fields: [quoteId], references: [id])
+
+  measurementRecordId String?
+  measurementRecord   MeasurementRecord? @relation(fields: [measurementRecordId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("VisualizerSessionCreatedBy", fields: [createdById], references: [id])
+
+  // 允许销售负责人与创建人解耦（转交客户场景）
+  salesOwnerId String?
+  salesOwner   User?   @relation("VisualizerSessionSalesOwner", fields: [salesOwnerId], references: [id])
+
+  // Phase 6 预留：客户分享链接 token
+  shareToken     String?   @unique
+  shareExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sourceImages VisualizerSourceImage[]
+  variants     VisualizerVariant[]
+
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([quoteId])
+  @@index([salesOwnerId])
+  @@index([createdById, createdAt])
+}
+
+/// 客户/销售上传的现场原始照片
+model VisualizerSourceImage {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   VisualizerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// 弱耦合：可回链到 MeasurementPhoto.id，避免重复上传；不做 FK
+  measurementPhotoId String?
+
+  fileUrl   String
+  fileName  String
+  mimeType  String
+  width     Int?
+  height    Int?
+  bytes     Int?
+  roomLabel String? // 客厅 / Master Bedroom
+  note      String?
+
+  createdAt DateTime @default(now())
+
+  regions VisualizerWindowRegion[]
+
+  @@index([sessionId])
+}
+
+/// 一张原图上标记的窗户区域（1 张图可标多个窗）
+model VisualizerWindowRegion {
+  id            String                @id @default(cuid())
+  sourceImageId String
+  sourceImage   VisualizerSourceImage @relation(fields: [sourceImageId], references: [id], onDelete: Cascade)
+
+  /// 弱耦合：可与 MeasurementWindow.id 绑定，自动带入尺寸
+  measurementWindowId String?
+
+  label      String? // W1 / Living Room Left
+  shape      String  @default("polygon") // polygon / rect
+  /// polygon: [[x,y], ...]; rect: [[x,y],[x2,y2]]; 坐标系=原图像素
+  pointsJson Json
+  widthIn    Float?
+  heightIn   Float?
+
+  createdAt DateTime @default(now())
+
+  productOptions VisualizerProductOption[]
+
+  @@index([sourceImageId])
+}
+
+/// 方案（Option A / Option B / Blackout Version ...）
+model VisualizerVariant {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   VisualizerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  name           String
+  notes          String? @db.Text
+  /// 导出的 PNG URL（快照/分享/邮件用）
+  exportImageUrl String?
+  sortOrder      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  productOptions VisualizerProductOption[]
+  selections     VisualizerSelection[]
+
+  @@index([sessionId, sortOrder])
+}
+
+/// 方案中某扇窗使用的产品（颜色/透明度/叠加变换）
+model VisualizerProductOption {
+  id        String            @id @default(cuid())
+  variantId String
+  variant   VisualizerVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  regionId String
+  region   VisualizerWindowRegion @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  /// Mock 阶段：指向 src/lib/visualizer/mock-products.ts 里的 id
+  /// 升级到真产品表后：指向 Product.id，迁移不改 schema
+  productCatalogId String
+  productName      String
+  productCategory  String // roller / zebra / drapery / ...
+  color            String?
+  colorHex         String?
+  opacity          Float   @default(0.85)
+  mountingType     String? // inside / outside
+
+  /// Konva Transform 参数：{ offsetX, offsetY, scaleX, scaleY, rotation }
+  transformJson Json?
+  notes         String?
+
+  createdAt DateTime @default(now())
+
+  @@index([variantId])
+  @@index([regionId])
+}
+
+/// 销售推荐 / 客户最终选择
+model VisualizerSelection {
+  id        String            @id @default(cuid())
+  variantId String
+  variant   VisualizerVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  selectedBy     String // "customer" / "sales"
+  selectedById   String?
+  selectedByUser User?   @relation("VisualizerSelectionBy", fields: [selectedById], references: [id])
+  note           String?
+
+  createdAt DateTime @default(now())
+
+  @@index([variantId])
 }
