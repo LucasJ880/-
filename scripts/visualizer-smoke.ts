@@ -347,7 +347,9 @@ async function testDbRoundtrip() {
 
 // ---------- C) PR #3 能力覆盖 ----------
 async function testPr3() {
-  console.log("\n[C] PR#3 能力覆盖（幂等打开 + 量房导入 + agent 工具注册）");
+  console.log(
+    "\n[C] PR#3 能力覆盖（幂等打开 + 跨 session 照片复用 + agent 工具注册）",
+  );
 
   // C1) agent 工具 policy 已登记（tsx 不解析 @/* 别名，直接跑 registry 会拿不到工具；
   // 这里退化为检查 TOOL_POLICY 纯导出 + sales.ts barrel 是否 import 了 sales-visualizer）
@@ -457,111 +459,152 @@ async function testPr3() {
         hitNullAgain?.id !== sOpp.id,
       );
 
-      // —— 量房导入 —— //
-      const rec = await tx.measurementRecord.create({
+      // —— 跨 session 照片复用（方案 C） —— //
+      // 给 s1 造两张图，s2 造一张**相同 fileUrl** 的图（模拟已被导入过一次）
+      const imgA1 = await tx.visualizerSourceImage.create({
         data: {
+          sessionId: s1.id,
+          fileUrl: "https://example.com/living.jpg",
+          fileName: "living.jpg",
+          mimeType: "image/jpeg",
+          roomLabel: "Living Room",
+        },
+      });
+      const imgA2 = await tx.visualizerSourceImage.create({
+        data: {
+          sessionId: s1.id,
+          fileUrl: "https://example.com/bedroom.jpg",
+          fileName: "bedroom.jpg",
+          mimeType: "image/jpeg",
+          roomLabel: "Master Bedroom",
+        },
+      });
+      await tx.visualizerSourceImage.create({
+        data: {
+          sessionId: s2.id,
+          fileUrl: "https://example.com/living.jpg", // 与 imgA1 同 URL
+          fileName: "living.jpg",
+          mimeType: "image/jpeg",
+          roomLabel: "Living Room (copied)",
+        },
+      });
+
+      // 目标：从 s2 视角查候选，应看到 s1 的两张图
+      const candidates = await tx.visualizerSession.findMany({
+        where: {
           customerId: customer.id,
-          measuredById: customer.createdById!,
-          windows: {
-            create: [
-              {
-                roomName: "__smoke_room__",
-                windowLabel: "W1",
-                widthIn: 48,
-                heightIn: 36,
-                sortOrder: 0,
-                photos: {
-                  create: [
-                    { fileName: "a.jpg", fileUrl: "https://ex.com/a.jpg" },
-                    { fileName: "b.jpg", fileUrl: "https://ex.com/b.jpg" },
-                  ],
-                },
-              },
-              {
-                roomName: "__smoke_room_empty__",
-                widthIn: 24,
-                heightIn: 24,
-                sortOrder: 1,
-                // 这一窗没照片，不应被拉进来
-              },
-            ],
+          id: { not: s2.id },
+          status: { not: "archived" },
+        },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          sourceImages: {
+            select: { id: true, fileUrl: true, fileName: true },
           },
         },
-        include: { windows: { include: { photos: true } } },
       });
+      const flatImgs = candidates.flatMap((c) => c.sourceImages);
       check(
-        "造量房记录：2 窗 / 2 照片",
-        rec.windows.length === 2 &&
-          rec.windows[0].photos.length === 2 &&
-          rec.windows[1].photos.length === 0,
+        "候选列表含 s1 的 2 张图",
+        flatImgs.some((i) => i.id === imgA1.id) &&
+          flatImgs.some((i) => i.id === imgA2.id),
       );
 
-      // 造一个 session 挂到这个 record
-      const sImport = await tx.visualizerSession.create({
-        data: {
-          customerId: customer.id,
-          measurementRecordId: rec.id,
-          title: "__smoke_pr3_sImport__",
-          createdById: customer.createdById!,
-          salesOwnerId: customer.createdById,
-        },
+      // 模拟 clone 路由核心逻辑：把 imgA1+imgA2 克隆到 s2
+      const requestedIds = [imgA1.id, imgA2.id];
+      const srcRows = await tx.visualizerSourceImage.findMany({
+        where: { id: { in: requestedIds } },
       });
-
-      // 模拟 import-from-measurement 路由的核心写入
-      const allPhotos = rec.windows.flatMap((w) =>
-        w.photos.map((p) => ({
-          id: p.id,
-          fileName: p.fileName,
-          fileUrl: p.fileUrl,
-          roomLabel: w.windowLabel
-            ? `${w.roomName} · ${w.windowLabel}`
-            : w.roomName,
-        })),
+      const existingUrls = new Set(
+        (
+          await tx.visualizerSourceImage.findMany({
+            where: {
+              sessionId: s2.id,
+              fileUrl: { in: srcRows.map((r) => r.fileUrl) },
+            },
+            select: { fileUrl: true },
+          })
+        ).map((r) => r.fileUrl),
       );
-      const existing = await tx.visualizerSourceImage.findMany({
-        where: {
-          sessionId: sImport.id,
-          measurementPhotoId: { in: allPhotos.map((p) => p.id) },
-        },
-        select: { measurementPhotoId: true },
-      });
-      const existingSet = new Set(
-        existing.map((e) => e.measurementPhotoId).filter(Boolean) as string[],
+      const toClone = srcRows.filter((r) => !existingUrls.has(r.fileUrl));
+      check(
+        "克隆去重：已有同 URL 的 living.jpg 被跳过",
+        toClone.length === 1 && toClone[0].id === imgA2.id,
       );
-      const toCreate = allPhotos.filter((p) => !existingSet.has(p.id));
-      const created = await Promise.all(
-        toCreate.map((p) =>
+      const cloned = await Promise.all(
+        toClone.map((r) =>
           tx.visualizerSourceImage.create({
             data: {
-              sessionId: sImport.id,
-              measurementPhotoId: p.id,
-              fileUrl: p.fileUrl,
-              fileName: p.fileName,
-              mimeType: "image/jpeg",
-              roomLabel: p.roomLabel,
+              sessionId: s2.id,
+              fileUrl: r.fileUrl,
+              fileName: r.fileName,
+              mimeType: r.mimeType,
+              width: r.width,
+              height: r.height,
+              roomLabel: r.roomLabel,
+              measurementPhotoId: r.measurementPhotoId,
             },
           }),
         ),
       );
-      check("首次导入：2 张照片被写入", created.length === 2);
+      check("首次克隆：1 张被写入", cloned.length === 1);
       check(
-        "首次导入：两张都挂了 measurementPhotoId",
-        created.every((c) => !!c.measurementPhotoId),
+        "克隆后 s2 的图数 = 2（原 1 + 新增 1）",
+        (await tx.visualizerSourceImage.count({ where: { sessionId: s2.id } })) === 2,
       );
 
-      // 第二次导入：应全部跳过（去重）
-      const existing2 = await tx.visualizerSourceImage.findMany({
-        where: {
-          sessionId: sImport.id,
-          measurementPhotoId: { in: allPhotos.map((p) => p.id) },
-        },
-        select: { measurementPhotoId: true },
-      });
-      const set2 = new Set(
-        existing2.map((e) => e.measurementPhotoId).filter(Boolean) as string[],
+      // 再次克隆同一批：应全部被去重跳过
+      const existingUrls2 = new Set(
+        (
+          await tx.visualizerSourceImage.findMany({
+            where: {
+              sessionId: s2.id,
+              fileUrl: { in: srcRows.map((r) => r.fileUrl) },
+            },
+            select: { fileUrl: true },
+          })
+        ).map((r) => r.fileUrl),
       );
-      const toCreate2 = allPhotos.filter((p) => !set2.has(p.id));
-      check("二次导入：无新增（measurementPhotoId 去重）", toCreate2.length === 0);
+      const toClone2 = srcRows.filter((r) => !existingUrls2.has(r.fileUrl));
+      check("二次克隆：无新增（fileUrl 去重）", toClone2.length === 0);
+
+      // 跨客户防护：另一个客户下的 session 不应能被当作候选
+      const otherCustomer = await tx.salesCustomer.create({
+        data: {
+          name: "__smoke_other_customer__",
+          createdById: customer.createdById!,
+        },
+      });
+      const sOther = await tx.visualizerSession.create({
+        data: {
+          customerId: otherCustomer.id,
+          title: "__smoke_other_session__",
+          createdById: customer.createdById!,
+          salesOwnerId: customer.createdById,
+        },
+      });
+      await tx.visualizerSourceImage.create({
+        data: {
+          sessionId: sOther.id,
+          fileUrl: "https://example.com/other.jpg",
+          fileName: "other.jpg",
+          mimeType: "image/jpeg",
+        },
+      });
+      const candidates2 = await tx.visualizerSession.findMany({
+        where: {
+          customerId: customer.id,
+          id: { not: s2.id },
+          status: { not: "archived" },
+        },
+        select: { id: true },
+      });
+      check(
+        "跨客户防护：另一个客户的 session 不在候选列表",
+        candidates2.every((c) => c.id !== sOther.id),
+      );
 
       // 强制回滚
       throw new Error(ROLLBACK_TOKEN);
@@ -582,11 +625,16 @@ async function testPr3() {
     select: { id: true },
   });
   check("无残留 __smoke_pr3_opp__", leakedOpp === null);
-  const leakedRec = await db.measurementRecord.findFirst({
-    where: { windows: { some: { roomName: "__smoke_room__" } } },
+  const leakedOtherCustomer = await db.salesCustomer.findFirst({
+    where: { name: "__smoke_other_customer__" },
     select: { id: true },
   });
-  check("无残留 __smoke_room__ 量房记录", leakedRec === null);
+  check("无残留 __smoke_other_customer__", leakedOtherCustomer === null);
+  const leakedCloneImg = await db.visualizerSourceImage.findFirst({
+    where: { fileUrl: "https://example.com/living.jpg" },
+    select: { id: true },
+  });
+  check("无残留克隆测试图片", leakedCloneImg === null);
 }
 
 async function main() {

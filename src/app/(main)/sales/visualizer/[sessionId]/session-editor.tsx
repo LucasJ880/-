@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
-  Download,
+  Copy,
   ImagePlus,
   Images,
   Layers,
@@ -46,7 +46,7 @@ import {
   type VisualizerMockProduct,
 } from "@/lib/visualizer/mock-products";
 import type { VisualizerTool } from "./visualizer-stage";
-import MeasurementImportDialog from "./measurement-import-dialog";
+import ReusePhotosDialog from "./reuse-photos-dialog";
 
 const VisualizerStage = dynamic(() => import("./visualizer-stage"), {
   ssr: false,
@@ -94,7 +94,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
 
   const [uploading, setUploading] = useState(false);
   const [mutating, setMutating] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [reuseDialogOpen, setReuseDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -721,13 +721,13 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                   上传照片
                 </button>
                 <button
-                  onClick={() => setImportDialogOpen(true)}
+                  onClick={() => setReuseDialogOpen(true)}
                   disabled={uploading || mutating}
                   className="flex items-center justify-center gap-1 rounded-md border border-dashed border-emerald-200 bg-emerald-50/60 px-2 py-2 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
-                  title="从该客户的量房记录复用已有照片"
+                  title="从该客户的其他可视化方案复用已有现场照片"
                 >
-                  <Download className="h-3.5 w-3.5" />
-                  从量房导入
+                  <Copy className="h-3.5 w-3.5" />
+                  复用已有照片
                 </button>
               </div>
               <input
@@ -930,22 +930,20 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             </div>,
           )}
 
-          <MeasurementImportDialog
-            open={importDialogOpen}
+          <ReusePhotosDialog
+            open={reuseDialogOpen}
             sessionId={session.id}
-            customerId={session.customer.id}
-            defaultRecordId={session.measurementRecordId}
-            onClose={() => setImportDialogOpen(false)}
+            onClose={() => setReuseDialogOpen(false)}
             onImported={(summary) => {
-              setImportDialogOpen(false);
+              setReuseDialogOpen(false);
               if (summary.imported === 0 && summary.skipped === 0) {
-                alert("当前窗位没有照片可导入");
+                alert("没有可复用的照片");
                 return;
               }
               const msg =
                 summary.skipped > 0
-                  ? `成功导入 ${summary.imported} 张，跳过 ${summary.skipped} 张已存在。`
-                  : `成功导入 ${summary.imported} 张照片。`;
+                  ? `成功复用 ${summary.imported} 张，跳过 ${summary.skipped} 张重复。`
+                  : `成功复用 ${summary.imported} 张照片。`;
               void load().then(() => alert(msg));
             }}
           />
