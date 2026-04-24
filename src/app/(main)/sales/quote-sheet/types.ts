@@ -80,6 +80,7 @@ export function getProductCategory(product: ProductName | ""): ProductCategory |
     case "Cordless Cellular":
     case "SkylightHoneycomb":
     case "Allusion":
+    case "Roman":
       return "shade";
     case "Shutters":
       return "shutter";
@@ -98,13 +99,14 @@ export const PRODUCT_CODE_MAP: Record<string, string> = {
   "Cordless Cellular": "C",
   SkylightHoneycomb: "H",
   Allusion: "A",
+  Roman: "N",
   Drapery: "D",
   Sheer: "S",
   Shutters: "V",
 };
 
-// Shades 产品代号枚举顺序（Z→R→T→C→H→A）用于 order# 字符串拼接
-const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H", "A"];
+// Shades 产品代号枚举顺序（Z→R→T→C→H→A→N）用于 order# 字符串拼接
+const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H", "A", "N"];
 
 export interface PartBAddon {
   id: string;
@@ -150,7 +152,7 @@ export interface ShadeOrderLine {
   note: string;
   /**
    * 销售手填单价（字符串，便于 input 绑定；CAD，税前）。
-   * 仅对 Allusion 等"非价格表"产品有效。
+   * 仅对 Allusion / Roman 等"非价格表"产品有效。
    */
   manualPrice?: string;
 }
@@ -254,7 +256,7 @@ const YEAR_CODES: Record<number, string> = {
  * - YearCode：2026=G / 2027=H / ...
  * - MMDD：报价日期 0418
  * - CustomerSeq：当前销售当日接触的「独立客户」序号（同客户同日复用），0 表示未知
- * - Shades：Z/R/T/C/H + 对应窗户行数（**仅计入同时填了宽和高的行**）
+ * - Shades：Z/R/T/C/H/A/N + 对应窗户行数（**仅计入同时填了宽和高的行**）
  * - Shutters：W/V（由全局 shutterMaterial 决定）+ 所有 panel 总数（**仅计入同时填了宽和高的行**）
  * - Drapes：D + drape 行 panel 数之和（S=1/D=2），S + sheer 行 panel 数之和；**仅计入同时填了宽高的行**
  * - PartB：关键词匹配 addon.skuItem：motor/电机→M；hub→HUB；remote/遥控→RM，后接数量
@@ -263,8 +265,34 @@ const YEAR_CODES: Record<number, string> = {
  *            **哪一段为 0 就省略哪一段**（例：shutters 没填 → `L67-90`；全空 → 整段省略）
  * - installMode === "pickup" 末尾加 (P)
  */
+
+/**
+ * 解析报价单「日期」字段（通常为 en-CA 的 YYYY-MM-DD）。
+ * 勿用 `new Date("YYYY-MM-DD")`：规范按 UTC 午夜解析，在北美傍晚会落到「前一天」本地日历，
+ * 导致订单号 MMDD 与界面日期差一天。
+ */
+export function parseQuoteSheetDate(dateStr: string): Date {
+  const trimmed = dateStr.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (Number.isFinite(y) && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      const dt = new Date(y, mo - 1, d);
+      if (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) {
+        return dt;
+      }
+    }
+  }
+  const t = Date.parse(trimmed);
+  if (Number.isFinite(t)) return new Date(t);
+  return new Date();
+}
+
 export function generateOrderNumber(opts: {
-  date: Date;
+  /** 界面日期；传 `YYYY-MM-DD` 字符串时按本地日历解析 */
+  date: Date | string;
   customerSeq: number;
   shadeOrders: ShadeOrderLine[];
   shutterOrders: ShutterOrderLine[];
@@ -274,8 +302,9 @@ export function generateOrderNumber(opts: {
   salesRepInitials: string;
   installMode: InstallMode;
 }): string {
+  const date =
+    opts.date instanceof Date ? opts.date : parseQuoteSheetDate(String(opts.date));
   const {
-    date,
     customerSeq,
     shadeOrders,
     shutterOrders,

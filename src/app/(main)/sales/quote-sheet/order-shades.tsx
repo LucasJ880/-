@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
+import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById } from "./order-helpers";
 import { computeShadeLinePrice, type DiscountsOverride } from "./pricing-helpers";
@@ -19,6 +20,7 @@ const SHADE_PRODUCTS: ProductName[] = [
   "Cordless Cellular",
   "SkylightHoneycomb",
   "Allusion",
+  "Roman",
 ];
 
 function RadioGroup({
@@ -229,7 +231,7 @@ export function OrderShadesForm({
                     </select>
                   </td>
                   <td className="px-1 py-0.5">
-                    {line.product === "Allusion" ? (
+                    {isManualPriceShadeProduct(line.product) ? (
                       <input
                         type="text"
                         value={line.sku}
@@ -284,7 +286,7 @@ export function OrderShadesForm({
                     />
                   </td>
                   <td className="px-2 py-0.5 text-right align-middle">
-                    {line.product === "Allusion" ? (
+                    {isManualPriceShadeProduct(line.product) ? (
                       <div className="leading-tight space-y-0.5">
                         <div className="flex items-center justify-end gap-0.5">
                           <span className="text-[10px] text-muted-foreground">$</span>

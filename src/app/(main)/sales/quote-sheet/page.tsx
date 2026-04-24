@@ -31,6 +31,7 @@ import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
+import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 
 import type {
@@ -420,7 +421,7 @@ function QuoteSheetPageInner() {
   // Auto-generate order number（新规则：基于 Shades/Shutters/Drapes/PartB + 客户当日序号）
   const orderNumber = useMemo(() => {
     return generateOrderNumber({
-      date: new Date(date),
+      date,
       customerSeq: customerDailySeq,
       shadeOrders,
       shutterOrders,
@@ -641,8 +642,8 @@ function QuoteSheetPageInner() {
 
       // Shades
       for (const l of shadeOrders) {
-        // Allusion 走手填价分支：不要求有 SKU，只要宽高 + manualPrice
-        if (l.product === "Allusion") {
+        // Allusion / Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice
+        if (isManualPriceShadeProduct(l.product)) {
           if (!l.widthWhole || !l.heightWhole) continue;
           const w = fractionToInches(l.widthWhole, l.widthFrac);
           const h = fractionToInches(l.heightWhole, l.heightFrac);
@@ -650,12 +651,12 @@ function QuoteSheetPageInner() {
           const manual = parseFloat(l.manualPrice ?? "");
           if (!Number.isFinite(manual) || manual <= 0) continue;
           items.push({
-            product: "Allusion",
-            fabric: l.sku || "Allusion",
+            product: l.product,
+            fabric: l.sku || l.product,
             widthIn: w,
             heightIn: h,
             location: l.location,
-            sku: l.sku || "Allusion",
+            sku: l.sku || l.product,
             manualPrice: manual,
           });
           continue;
@@ -746,7 +747,13 @@ function QuoteSheetPageInner() {
         partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
         financeEligible, financeApproved, financeDifference,
         partCServices, partCAddOns,
-        shadeOrders: shadeOrders.filter((l) => l.location || l.sku),
+        shadeOrders: shadeOrders.filter(
+          (l) =>
+            l.location ||
+            l.sku ||
+            l.widthWhole ||
+            (isManualPriceShadeProduct(l.product) && !!String(l.manualPrice ?? "").trim()),
+        ),
         shutterOrders: shutterOrders.filter((l) => l.location || l.widthWhole),
         drapeOrders: drapeOrders.filter((l) => l.location || l.drapeFabricSku || l.sheerFabricSku),
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,

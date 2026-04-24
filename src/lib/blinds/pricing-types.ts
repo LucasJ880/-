@@ -7,7 +7,13 @@ export type ProductName =
   | 'Drapery'
   | 'Sheer'
   | 'Shutters'
-  | 'Allusion';
+  | 'Allusion'
+  | 'Roman';
+
+/** Shades 中不走 MSRP、销售手填单价的产品（与 Order Form 一致） */
+export function isManualPriceShadeProduct(product: ProductName): boolean {
+  return product === 'Allusion' || product === 'Roman';
+}
 
 export type InstallMode = 'default' | 'pickup';
 
@@ -36,7 +42,7 @@ export interface QuoteItemInput {
   location?: string;
   sku?: string;
   /**
-   * 销售手填单价（CAD，税前），仅对 Allusion 等"非价格表"产品生效。
+   * 销售手填单价（CAD，税前），仅对 Allusion / Roman 等"非价格表"产品生效。
    * 给定时跳过 priceFor 的 MSRP 查表，直接按 manualPrice 成交。
    */
   manualPrice?: number;

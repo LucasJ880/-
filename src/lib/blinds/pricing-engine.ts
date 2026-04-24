@@ -14,6 +14,7 @@ import type {
   QuoteTotalResult,
   InstallMode,
 } from './pricing-types';
+import { isManualPriceShadeProduct } from './pricing-types';
 
 import {
   BRACKETS,
@@ -248,14 +249,14 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   let installSubtotal = 0;
 
   input.items.forEach((item, idx) => {
-    // Allusion：暂不走 MSRP 表，销售现场手填单价
-    if (item.product === 'Allusion') {
+    // Allusion / Roman：暂不走 MSRP 表，销售现场手填单价
+    if (isManualPriceShadeProduct(item.product)) {
       const manual = item.manualPrice;
       if (typeof manual !== 'number' || !Number.isFinite(manual) || manual <= 0) {
         errors.push({
           index: idx,
           input: item,
-          error: 'Allusion 需要销售在报价单上手填单价',
+          error: `${item.product} 需要销售在报价单上手填单价`,
         });
         return;
       }

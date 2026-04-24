@@ -17,10 +17,11 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { parseQuoteSheetDate } from "@/app/(main)/sales/quote-sheet/types";
 
 function parseDayRange(dateStr: string | null): { dayStart: Date; dayEnd: Date } {
-  // 允许传入 YYYY-MM-DD；默认使用服务器当前日期
-  const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
+  // 与订单号一致：YYYY-MM-DD 按日历日解析（避免 ISO 日期-only 被当成 UTC 午夜）
+  const base = dateStr?.trim() ? parseQuoteSheetDate(dateStr) : new Date();
   const dayStart = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
   const dayEnd = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999);
   return { dayStart, dayEnd };

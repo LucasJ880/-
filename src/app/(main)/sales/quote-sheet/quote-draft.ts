@@ -27,6 +27,7 @@ import type {
   DrapeOrderLine,
   InstallMode,
 } from "./types";
+import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
 export const DRAFT_KEY = "qingyan:quote-sheet-draft:v1";
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -125,7 +126,16 @@ export function clearDraft(): void {
 export function isDraftMeaningful(d: QuoteDraftV1): boolean {
   if (d.customerId || d.customerName.trim() || d.opportunityId) return true;
   if (d.partBAddons.length > 0) return true;
-  if (d.shadeOrders.some((l) => l.location || l.sku || l.widthWhole)) return true;
+  if (
+    d.shadeOrders.some(
+      (l) =>
+        l.location ||
+        l.sku ||
+        l.widthWhole ||
+        (isManualPriceShadeProduct(l.product) && String(l.manualPrice ?? "").trim()),
+    )
+  )
+    return true;
   if (d.shutterOrders.some((l) => l.location || l.widthWhole)) return true;
   if (d.drapeOrders.some((l) => l.location || l.drapeFabricSku || l.sheerFabricSku)) return true;
   return false;

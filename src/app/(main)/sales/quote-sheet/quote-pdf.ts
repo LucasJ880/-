@@ -38,6 +38,7 @@ import {
   type DiscountsOverride,
 } from "./pricing-helpers";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
 // ── Design tokens ────────────────────────────────────────────────────
 
@@ -599,7 +600,11 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   // 计算线项数量
   const filledShades = input.shadeOrders.filter((l) => {
     const p = computeShadeLinePrice(l, input.installMode, input.discounts);
-    return p && !p.error && (l.location || l.sku || (l.product === "Allusion" && l.manualPrice));
+    return (
+      p &&
+      !p.error &&
+      (l.location || l.sku || (isManualPriceShadeProduct(l.product) && l.manualPrice))
+    );
   });
   const filledShutters = input.shutterOrders.filter((l) => {
     const p = computeShutterLinePrice(l, input.shutterMaterial, input.installMode, input.discounts);
@@ -803,8 +808,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
         const p = computeShadeLinePrice(l, input.installMode, input.discounts);
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
-        const skuLabel =
-          l.product === "Allusion" ? (l.sku || "Custom") : l.sku;
+        const skuLabel = isManualPriceShadeProduct(l.product) ? (l.sku || "Custom") : l.sku;
         return [
           i + 1,
           l.location || "—",
