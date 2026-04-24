@@ -16,12 +16,23 @@ import {
   ChevronDown,
   Sparkles,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select as ShadSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CustomerDetail, STAGE_LABELS, STAGE_COLORS } from "./types";
 import { AiAdvicePanel } from "./ai-advice-panel";
 import { InteractionTimeline } from "./interaction-timeline";
@@ -33,10 +44,64 @@ import { ImportConversationDialog } from "./import-conversation-dialog";
 import { CreateQuoteDialog } from "./create-quote-dialog";
 import { useSwipeable } from "@/lib/hooks/use-swipeable";
 
+const CUSTOMER_SOURCE_OPTIONS: { value: string; label: string }[] = [
+  { value: "referral", label: "转介绍" },
+  { value: "google_ads", label: "Google Ads" },
+  { value: "walk_in", label: "上门" },
+  { value: "wechat", label: "微信" },
+  { value: "phone", label: "电话" },
+  { value: "other", label: "其他" },
+];
+
+const CUSTOMER_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "active", label: "跟进中" },
+  { value: "completed", label: "已完成" },
+  { value: "dormant", label: "休眠" },
+];
+
+type BasicInfoDraft = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  source: string;
+  wechatNote: string;
+  status: string;
+  tags: string;
+  notes: string;
+};
+
+function formatCustomerSourceLabel(source: string | null): string {
+  if (!source) return "—";
+  const hit = CUSTOMER_SOURCE_OPTIONS.find((o) => o.value === source);
+  return hit?.label ?? source;
+}
+
+function formatCustomerStatusLabel(status: string | null): string {
+  if (!status) return "—";
+  const hit = CUSTOMER_STATUS_OPTIONS.find((o) => o.value === status);
+  return hit?.label ?? status;
+}
+
+function customerToDraft(c: CustomerDetail): BasicInfoDraft {
+  return {
+    name: c.name ?? "",
+    phone: c.phone ?? "",
+    email: c.email ?? "",
+    address: c.address ?? "",
+    source: c.source ?? "",
+    wechatNote: c.wechatNote ?? "",
+    status: c.status ?? "active",
+    tags: c.tags ?? "",
+    notes: c.notes ?? "",
+  };
+}
+
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { isSuperAdmin: canDeleteCustomer } = useCurrentUser();
+  const { user, loading: userLoading, isSuperAdmin } = useCurrentUser();
+  const canDeleteCustomer = isSuperAdmin;
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddInteraction, setShowAddInteraction] = useState(false);
@@ -44,6 +109,10 @@ export default function CustomerDetailPage() {
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingBasic, setEditingBasic] = useState(false);
+  const [basicDraft, setBasicDraft] = useState<BasicInfoDraft | null>(null);
+  const [basicSaving, setBasicSaving] = useState(false);
+  const [basicError, setBasicError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"timeline" | "quotes" | "orders" | "coaching">(
     "timeline"
   );
@@ -160,6 +229,92 @@ export default function CustomerDetailPage() {
 
   if (!customer) return null;
 
+  const canEditBasicInfo =
+    !userLoading &&
+    !!user &&
+    (isSuperAdmin ||
+      (!!customer.createdById &&
+        customer.createdById === user.id &&
+        user.canEditCustomers !== false));
+
+  let noEditBasicHint: string | null = null;
+  if (!canEditBasicInfo && !userLoading && user && !isSuperAdmin) {
+    if (!customer.createdById) {
+      noEditBasicHint = "客户档案缺少创建人信息，仅管理员可修改。";
+    } else if (customer.createdById !== user.id) {
+      noEditBasicHint = "你不是该客户的创建人，无法在此修改档案。";
+    } else if (user.canEditCustomers === false) {
+      noEditBasicHint = "管理员暂未授权你修改客户信息。";
+    }
+  }
+
+  const startBasicEdit = () => {
+    setBasicDraft(customerToDraft(customer));
+    setBasicError(null);
+    setEditingBasic(true);
+  };
+
+  const cancelBasicEdit = () => {
+    setEditingBasic(false);
+    setBasicDraft(null);
+    setBasicError(null);
+  };
+
+  const saveBasicEdit = async () => {
+    if (!basicDraft) return;
+    if (!basicDraft.name.trim()) {
+      setBasicError("客户名称不能为空");
+      return;
+    }
+    setBasicSaving(true);
+    setBasicError(null);
+    try {
+      const res = await apiFetch(`/api/sales/customers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: basicDraft.name.trim(),
+          phone: basicDraft.phone.trim() || null,
+          email: basicDraft.email.trim() || null,
+          address: basicDraft.address.trim() || null,
+          source: basicDraft.source.trim() || null,
+          wechatNote: basicDraft.wechatNote.trim() || null,
+          status: basicDraft.status.trim() || "active",
+          tags: basicDraft.tags.trim() || null,
+          notes: basicDraft.notes.trim() || null,
+        }),
+      });
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBasicError(
+          typeof (raw as { error?: unknown }).error === "string"
+            ? (raw as { error: string }).error
+            : "保存失败",
+        );
+        return;
+      }
+      const data = raw as Partial<CustomerDetail>;
+      setCustomer((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...data,
+              opportunities: prev.opportunities,
+              interactions: prev.interactions,
+              quotes: prev.quotes,
+              blindsOrders: prev.blindsOrders,
+            }
+          : null,
+      );
+      setEditingBasic(false);
+      setBasicDraft(null);
+    } catch {
+      setBasicError("网络错误");
+    } finally {
+      setBasicSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
@@ -261,41 +416,233 @@ export default function CustomerDetailPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-border bg-white/70 p-5">
-          <h3 className="text-sm font-semibold text-foreground">基本信息</h3>
-          <div className="mt-3 space-y-2.5 text-sm">
-            {customer.phone && (
-              <div className="flex items-center gap-2 text-muted">
-                <Phone className="h-4 w-4 shrink-0" />
-                <a href={`tel:${customer.phone}`} className="hover:text-foreground">
-                  {customer.phone}
-                </a>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-foreground">基本信息</h3>
+            {canEditBasicInfo && !editingBasic && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={startBasicEdit}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                编辑
+              </Button>
             )}
-            {customer.email && (
-              <div className="flex items-center gap-2 text-muted">
-                <Mail className="h-4 w-4 shrink-0" />
-                <a href={`mailto:${customer.email}`} className="hover:text-foreground">
-                  {customer.email}
-                </a>
-              </div>
-            )}
-            {customer.address && (
-              <div className="flex items-start gap-2 text-muted">
-                <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>{customer.address}</span>
-              </div>
-            )}
-            {customer.wechatNote && (
-              <div className="flex items-center gap-2 text-muted">
-                <MessageSquare className="h-4 w-4 shrink-0" />
-                <span>{customer.wechatNote}</span>
+            {canEditBasicInfo && editingBasic && basicDraft && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={cancelBasicEdit}
+                  disabled={basicSaving}
+                >
+                  取消
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => void saveBasicEdit()}
+                  disabled={basicSaving}
+                >
+                  {basicSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  保存
+                </Button>
               </div>
             )}
           </div>
-          {customer.notes && (
-            <div className="mt-4 rounded-lg bg-white/50 p-3 text-xs text-muted leading-relaxed">
-              {customer.notes}
+
+          {noEditBasicHint && (
+            <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+              {noEditBasicHint}
+            </p>
+          )}
+
+          {editingBasic && basicDraft ? (
+            <div className="mt-3 space-y-3 text-sm">
+              {basicError && (
+                <p className="rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                  {basicError}
+                </p>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-name">客户名称</Label>
+                <Input
+                  id="cust-name"
+                  value={basicDraft.name}
+                  onChange={(e) => setBasicDraft({ ...basicDraft, name: e.target.value })}
+                  disabled={basicSaving}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-phone">电话</Label>
+                  <Input
+                    id="cust-phone"
+                    value={basicDraft.phone}
+                    onChange={(e) => setBasicDraft({ ...basicDraft, phone: e.target.value })}
+                    disabled={basicSaving}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-email">邮箱</Label>
+                  <Input
+                    id="cust-email"
+                    type="email"
+                    value={basicDraft.email}
+                    onChange={(e) => setBasicDraft({ ...basicDraft, email: e.target.value })}
+                    disabled={basicSaving}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-address">地址</Label>
+                <Input
+                  id="cust-address"
+                  value={basicDraft.address}
+                  onChange={(e) => setBasicDraft({ ...basicDraft, address: e.target.value })}
+                  disabled={basicSaving}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>来源</Label>
+                  <ShadSelect
+                    value={!basicDraft.source ? "__empty" : basicDraft.source}
+                    onValueChange={(v) =>
+                      setBasicDraft({ ...basicDraft, source: v === "__empty" ? "" : v })
+                    }
+                    disabled={basicSaving}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="请选择…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__empty">未指定</SelectItem>
+                      {CUSTOMER_SOURCE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                      {basicDraft.source &&
+                        !CUSTOMER_SOURCE_OPTIONS.some((o) => o.value === basicDraft.source) && (
+                          <SelectItem value={basicDraft.source}>
+                            当前值：{basicDraft.source}
+                          </SelectItem>
+                        )}
+                    </SelectContent>
+                  </ShadSelect>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>客户状态</Label>
+                  <ShadSelect
+                    value={basicDraft.status || "active"}
+                    onValueChange={(v) => setBasicDraft({ ...basicDraft, status: v })}
+                    disabled={basicSaving}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CUSTOMER_STATUS_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                      {basicDraft.status &&
+                        !CUSTOMER_STATUS_OPTIONS.some((o) => o.value === basicDraft.status) && (
+                          <SelectItem value={basicDraft.status}>
+                            当前值：{basicDraft.status}
+                          </SelectItem>
+                        )}
+                    </SelectContent>
+                  </ShadSelect>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-wechat">微信 / 备注</Label>
+                <Input
+                  id="cust-wechat"
+                  value={basicDraft.wechatNote}
+                  onChange={(e) => setBasicDraft({ ...basicDraft, wechatNote: e.target.value })}
+                  disabled={basicSaving}
+                  placeholder="微信号或简短说明"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-tags">标签（逗号分隔）</Label>
+                <Input
+                  id="cust-tags"
+                  value={basicDraft.tags}
+                  onChange={(e) => setBasicDraft({ ...basicDraft, tags: e.target.value })}
+                  disabled={basicSaving}
+                  placeholder="如：门店, 高意向"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-notes">内部备注</Label>
+                <textarea
+                  id="cust-notes"
+                  rows={4}
+                  value={basicDraft.notes}
+                  onChange={(e) => setBasicDraft({ ...basicDraft, notes: e.target.value })}
+                  disabled={basicSaving}
+                  className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="仅团队内部可见"
+                />
+              </div>
             </div>
+          ) : (
+            <>
+              <div className="mt-3 space-y-2.5 text-sm">
+                {customer.phone && (
+                  <div className="flex items-center gap-2 text-muted">
+                    <Phone className="h-4 w-4 shrink-0" />
+                    <a href={`tel:${customer.phone}`} className="hover:text-foreground">
+                      {customer.phone}
+                    </a>
+                  </div>
+                )}
+                {customer.email && (
+                  <div className="flex items-center gap-2 text-muted">
+                    <Mail className="h-4 w-4 shrink-0" />
+                    <a href={`mailto:${customer.email}`} className="hover:text-foreground">
+                      {customer.email}
+                    </a>
+                  </div>
+                )}
+                {customer.address && (
+                  <div className="flex items-start gap-2 text-muted">
+                    <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{customer.address}</span>
+                  </div>
+                )}
+                {customer.wechatNote && (
+                  <div className="flex items-center gap-2 text-muted">
+                    <MessageSquare className="h-4 w-4 shrink-0" />
+                    <span>{customer.wechatNote}</span>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  {customer.source && (
+                    <span>来源：{formatCustomerSourceLabel(customer.source)}</span>
+                  )}
+                  {customer.status && (
+                    <span>状态：{formatCustomerStatusLabel(customer.status)}</span>
+                  )}
+                  {customer.tags && <span>标签：{customer.tags}</span>}
+                </div>
+              </div>
+              {customer.notes && (
+                <div className="mt-4 rounded-lg bg-white/50 p-3 text-xs text-muted leading-relaxed">
+                  {customer.notes}
+                </div>
+              )}
+            </>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
             {/* 现场量房入口已下线，统一走『电子报价单』 */}

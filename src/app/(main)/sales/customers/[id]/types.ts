@@ -1,5 +1,7 @@
 export interface CustomerDetail {
   id: string;
+  /** 创建该客户档案的销售；与 PATCH 权限校验一致 */
+  createdById?: string;
   name: string;
   phone: string | null;
   email: string | null;
