@@ -43,6 +43,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   sales_coaching_feedback:    { risk: "l1_internal_write", allowRoles: ["admin", "sales"] },
   // Visualizer（窗饰可视化）— 幂等打开方案，有则复用不会重复建
   sales_visualizer_open:      { risk: "l2_soft",           allowRoles: ["admin", "sales"] },
+  // Visualizer 只读：汇总某客户 / 机会名下已有的方案封面（服务端无法代渲染 canvas）
+  sales_visualizer_list_covers: { risk: "l0_read",         allowRoles: ["admin", "sales"] },
 
   // ── PR4 草稿型写工具（所有副作用都经 PendingAction 审批）──────
   sales_update_followup:       { risk: "l2_soft", allowRoles: ["admin", "sales"] },

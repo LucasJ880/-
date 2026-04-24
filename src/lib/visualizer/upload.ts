@@ -152,3 +152,48 @@ export async function putVisualizerImage(args: {
   });
   return { url: blob.url, pathname };
 }
+
+/** 导出 PNG 的 base64 payload 上限（约 10MB base64 ≈ 7.5MB 原图） */
+export const VISUALIZER_MAX_EXPORT_BASE64 = 10 * 1024 * 1024;
+
+/**
+ * 解析客户端传来的 PNG dataURL，校验格式与体积，返回 buffer。
+ * - 仅接受 image/png（导出统一走 PNG）
+ * - 不合格返回 null（由调用方转为 400）
+ */
+export function parsePngDataUrl(
+  dataUrl: string,
+): { buffer: Buffer } | null {
+  if (typeof dataUrl !== "string") return null;
+  if (!dataUrl.startsWith("data:image/png;base64,")) return null;
+  const base64 = dataUrl.slice("data:image/png;base64,".length);
+  if (!base64 || base64.length > VISUALIZER_MAX_EXPORT_BASE64) return null;
+  try {
+    const buffer = Buffer.from(base64, "base64");
+    if (buffer.length < 8) return null;
+    // PNG 签名校验：89 50 4e 47 0d 0a 1a 0a
+    const sig = buffer.slice(0, 8).toString("hex");
+    if (sig !== "89504e470d0a1a0a") return null;
+    return { buffer };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 上传 variant 导出图（PNG）到 blob。
+ * 路径：visualizer/sessions/{sessionId}/variants/{variantId}/export_{ts}.png
+ */
+export async function putVisualizerExport(args: {
+  sessionId: string;
+  variantId: string;
+  buffer: Buffer;
+}): Promise<{ url: string; pathname: string }> {
+  const ts = Date.now();
+  const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/variants/${args.variantId}/export_${ts}.png`;
+  const blob = await put(pathname, args.buffer, {
+    access: "public",
+    contentType: "image/png",
+  });
+  return { url: blob.url, pathname };
+}

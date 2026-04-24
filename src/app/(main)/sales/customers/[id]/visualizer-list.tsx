@@ -138,12 +138,41 @@ export function VisualizerList({ customerId, opportunities }: VisualizerListProp
         <div className="space-y-2">
           {sessions.map((s) => {
             const status = s.status as VisualizerSessionStatus;
+            const previews = s.previewImages.slice(0, 3);
+            const extraCount = s.counts.variants - previews.length;
             return (
               <Link
                 key={s.id}
                 href={`/sales/visualizer/${s.id}`}
-                className="flex items-start justify-between gap-3 rounded-lg border border-border/50 bg-white/60 px-4 py-3 hover:bg-white/80 transition-colors"
+                className="flex items-start gap-3 rounded-lg border border-border/50 bg-white/60 px-4 py-3 hover:bg-white/80 transition-colors"
               >
+                {/* 缩略图堆叠 */}
+                <div className="shrink-0">
+                  {previews.length > 0 ? (
+                    <div className="flex -space-x-3">
+                      {previews.map((url, idx) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={`${s.id}-preview-${idx}`}
+                          src={url}
+                          alt={`${s.title} 方案封面 ${idx + 1}`}
+                          className="h-14 w-20 rounded border-2 border-white object-cover shadow-sm"
+                          style={{ zIndex: previews.length - idx }}
+                        />
+                      ))}
+                      {extraCount > 0 && (
+                        <div className="flex h-14 w-10 items-center justify-center rounded border-2 border-white bg-slate-100 text-[11px] font-medium text-slate-600 shadow-sm">
+                          +{extraCount}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex h-14 w-20 items-center justify-center rounded border border-dashed border-border bg-slate-50 text-[10px] text-muted">
+                      暂无封面
+                    </div>
+                  )}
+                </div>
+
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-foreground">
@@ -166,6 +195,7 @@ export function VisualizerList({ customerId, opportunities }: VisualizerListProp
                     )}
                   </div>
                 </div>
+
                 <span className="shrink-0 text-xs text-muted">
                   {new Date(s.updatedAt).toLocaleDateString("zh-CN")}
                 </span>

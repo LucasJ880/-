@@ -46,6 +46,8 @@ export interface Quote {
   status: string;
   grandTotal: number;
   createdAt: string;
+  /** 关联的销售机会（可为空；用于关联 Visualizer 封面） */
+  opportunityId?: string | null;
   items: { id: string; product: string; fabric: string; price: number }[];
   /** Step 4：折扣率追踪字段（历史报价可能为 null） */
   finalDiscountPct: number | null;

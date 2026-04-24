@@ -17,7 +17,11 @@ import {
   validateRegionPoints,
   validateTransform,
 } from "../src/lib/visualizer/validators";
-import { parseImageSize } from "../src/lib/visualizer/upload";
+import {
+  parseImageSize,
+  parsePngDataUrl,
+  VISUALIZER_MAX_EXPORT_BASE64,
+} from "../src/lib/visualizer/upload";
 import { VISUALIZER_MOCK_PRODUCTS } from "../src/lib/visualizer/mock-products";
 
 let passed = 0;
@@ -145,6 +149,36 @@ async function testPureLogic() {
   ]);
   const jpegSize = parseImageSize(jpegBuf, "jpeg");
   check("JPEG 1024x512 解析", jpegSize?.width === 1024 && jpegSize?.height === 512);
+
+  console.log("\n  parsePngDataUrl (导出 PNG 上传前端 payload 校验):");
+  {
+    const smallPngBuf = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(16),
+    ]);
+    const okData = `data:image/png;base64,${smallPngBuf.toString("base64")}`;
+    const r = parsePngDataUrl(okData);
+    check("合法 PNG dataURL 通过", r !== null && r.buffer.length > 0);
+  }
+  {
+    const jpegLike = `data:image/jpeg;base64,${Buffer.alloc(16).toString("base64")}`;
+    check("非 PNG MIME 拒绝", parsePngDataUrl(jpegLike) === null);
+  }
+  {
+    check("非 string 拒绝", parsePngDataUrl(null as unknown as string) === null);
+    check("空串拒绝", parsePngDataUrl("") === null);
+  }
+  {
+    const raw = Buffer.alloc(32).toString("base64");
+    const bad = `data:image/png;base64,${raw}`;
+    check("PNG 签名不对拒绝", parsePngDataUrl(bad) === null);
+  }
+  {
+    // 构造 base64 超长（比上限多 100 字节即可触发）
+    const oversize = "A".repeat(VISUALIZER_MAX_EXPORT_BASE64 + 100);
+    const bad = `data:image/png;base64,${oversize}`;
+    check("超出体积上限拒绝", parsePngDataUrl(bad) === null);
+  }
 
   console.log("\n  mock products:");
   check("恰好 10 款产品", VISUALIZER_MOCK_PRODUCTS.length === 10);
@@ -637,12 +671,434 @@ async function testPr3() {
   check("无残留克隆测试图片", leakedCloneImg === null);
 }
 
+// ---------- D) PR#4：导出 PNG + previewImages 序列化 ----------
+async function testPr4() {
+  console.log("\n[D] PR#4 能力覆盖（导出封面 + previewImages 序列化）");
+
+  const customer = await db.salesCustomer.findFirst({
+    where: { archivedAt: null },
+    select: { id: true, createdById: true },
+  });
+  if (!customer || !customer.createdById) {
+    console.log("  ⚠️  跳过：没有可用客户");
+    return;
+  }
+
+  const ROLLBACK_TOKEN = "__visualizer_smoke_rollback_pr4__";
+  try {
+    await db.$transaction(async (tx) => {
+      const s = await tx.visualizerSession.create({
+        data: {
+          customerId: customer.id,
+          title: "__smoke_pr4_session__",
+          createdById: customer.createdById!,
+          salesOwnerId: customer.createdById,
+        },
+      });
+
+      // 造 4 个 variant：2 个有封面，1 个没封面，再 1 个有封面
+      // 预期 previewImages 取前 3 个按 sortOrder 升序的非空 exportImageUrl
+      const v1 = await tx.visualizerVariant.create({
+        data: {
+          sessionId: s.id,
+          name: "方案 A",
+          sortOrder: 0,
+          exportImageUrl: "https://example.com/export/a.png",
+        },
+      });
+      const v2 = await tx.visualizerVariant.create({
+        data: {
+          sessionId: s.id,
+          name: "方案 B",
+          sortOrder: 1,
+          exportImageUrl: "https://example.com/export/b.png",
+        },
+      });
+      await tx.visualizerVariant.create({
+        data: {
+          sessionId: s.id,
+          name: "方案 C（无封面）",
+          sortOrder: 2,
+          exportImageUrl: null,
+        },
+      });
+      await tx.visualizerVariant.create({
+        data: {
+          sessionId: s.id,
+          name: "方案 D",
+          sortOrder: 3,
+          exportImageUrl: "https://example.com/export/d.png",
+        },
+      });
+
+      // 模拟 sessions list API 的 include + 序列化
+      const loaded = await tx.visualizerSession.findUnique({
+        where: { id: s.id },
+        include: {
+          _count: { select: { sourceImages: true, variants: true } },
+          variants: {
+            where: { exportImageUrl: { not: null } },
+            orderBy: { sortOrder: "asc" },
+            take: 3,
+            select: { exportImageUrl: true },
+          },
+        },
+      });
+      const preview = loaded!.variants
+        .map((v) => v.exportImageUrl)
+        .filter((u): u is string => !!u);
+      check(
+        "previewImages：取前 3 个非空 exportImageUrl",
+        preview.length === 3 &&
+          preview[0] === "https://example.com/export/a.png" &&
+          preview[1] === "https://example.com/export/b.png" &&
+          preview[2] === "https://example.com/export/d.png",
+      );
+      check(
+        "previewImages：跳过 exportImageUrl 为 null 的方案 C",
+        !preview.includes(null as unknown as string),
+      );
+
+      // 模拟 POST /variants/[id]/export 的核心回写
+      const newUrl = "https://example.com/export/new.png";
+      const updated = await tx.visualizerVariant.update({
+        where: { id: v1.id },
+        data: { exportImageUrl: newUrl },
+        select: { exportImageUrl: true, updatedAt: true },
+      });
+      check(
+        "variant.exportImageUrl 回写成功",
+        updated.exportImageUrl === newUrl,
+      );
+
+      // 写回后，序列化结果应刷新
+      const reloaded = await tx.visualizerSession.findUnique({
+        where: { id: s.id },
+        include: {
+          variants: {
+            where: { exportImageUrl: { not: null } },
+            orderBy: { sortOrder: "asc" },
+            take: 3,
+            select: { exportImageUrl: true },
+          },
+        },
+      });
+      const preview2 = reloaded!.variants
+        .map((v) => v.exportImageUrl)
+        .filter((u): u is string => !!u);
+      check(
+        "回写后 previewImages[0] 变为新 URL",
+        preview2[0] === newUrl,
+      );
+
+      // detail 路径里的 previewImages 取值逻辑也顺手验证一下（基于全量 variants）
+      const full = await tx.visualizerSession.findUnique({
+        where: { id: s.id },
+        include: {
+          variants: {
+            orderBy: { sortOrder: "asc" },
+            select: { exportImageUrl: true },
+          },
+        },
+      });
+      const detailPreview = full!.variants
+        .map((v) => v.exportImageUrl)
+        .filter((u): u is string => !!u)
+        .slice(0, 3);
+      check(
+        "detail 路径 previewImages 至多 3 个",
+        detailPreview.length === 3 &&
+          detailPreview[0] === newUrl &&
+          detailPreview[1] === "https://example.com/export/b.png" &&
+          detailPreview[2] === "https://example.com/export/d.png",
+      );
+
+      // 保护 v2 引用未被意外更改（避免副作用）
+      const v2After = await tx.visualizerVariant.findUnique({
+        where: { id: v2.id },
+        select: { exportImageUrl: true },
+      });
+      check(
+        "方案 B 的 exportImageUrl 未被 A 的 PATCH 波及",
+        v2After?.exportImageUrl === "https://example.com/export/b.png",
+      );
+
+      throw new Error(ROLLBACK_TOKEN);
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === ROLLBACK_TOKEN) {
+      console.log("  ✓ PR#4 事务已主动回滚（无数据落库）");
+    } else {
+      failed++;
+      failures.push(`PR#4 事务意外失败：${msg}`);
+      console.log(`  ✗ PR#4 事务意外失败：${msg}`);
+    }
+  }
+
+  const leakedPr4 = await db.visualizerSession.findFirst({
+    where: { title: "__smoke_pr4_session__" },
+    select: { id: true },
+  });
+  check("无残留 __smoke_pr4_session__", leakedPr4 === null);
+}
+
+// ---------- E) PR#5：opp/quote 挂封面 + list_covers 工具 ----------
+async function testPr5() {
+  console.log(
+    "\n[E] PR#5 能力覆盖（opp/quote 挂封面 + sales_visualizer_list_covers）",
+  );
+
+  // E1) agent 工具 policy 已登记（同 PR#3，tsx 不跑 registry 副作用）
+  const { TOOL_POLICY } = await import("../src/lib/agent-core/tools/_policy");
+  check(
+    "TOOL_POLICY 已登记 sales_visualizer_list_covers",
+    !!TOOL_POLICY["sales_visualizer_list_covers"],
+  );
+  check(
+    "list_covers 风险等级=l0_read（只读）",
+    TOOL_POLICY["sales_visualizer_list_covers"]?.risk === "l0_read",
+  );
+  check(
+    "list_covers 允许 sales",
+    TOOL_POLICY["sales_visualizer_list_covers"]?.allowRoles.includes("sales"),
+  );
+
+  // E2) DB 层：模拟 list_covers 的查询逻辑 + opp/quote 挂封面的索引
+  const customer = await db.salesCustomer.findFirst({
+    where: { archivedAt: null },
+    select: { id: true, createdById: true },
+  });
+  if (!customer || !customer.createdById) {
+    console.log("  ⚠️  跳过 DB 段：没有可用客户");
+    return;
+  }
+
+  const ROLLBACK_TOKEN = "__visualizer_smoke_rollback_pr5__";
+  try {
+    await db.$transaction(async (tx) => {
+      // 建两个 opp，一个有方案封面一个没有
+      const opp1 = await tx.salesOpportunity.create({
+        data: {
+          customerId: customer.id,
+          title: "__smoke_pr5_opp_with_cover__",
+          stage: "new_lead",
+          createdById: customer.createdById!,
+        },
+      });
+      const opp2 = await tx.salesOpportunity.create({
+        data: {
+          customerId: customer.id,
+          title: "__smoke_pr5_opp_no_cover__",
+          stage: "new_lead",
+          createdById: customer.createdById!,
+        },
+      });
+
+      // 给 opp1 建 2 个 session（都挂 opp1），较新的一个带封面
+      const olderSession = await tx.visualizerSession.create({
+        data: {
+          customerId: customer.id,
+          opportunityId: opp1.id,
+          title: "__smoke_pr5_opp1_older__",
+          createdById: customer.createdById!,
+          salesOwnerId: customer.createdById,
+        },
+      });
+      // 确保 updatedAt 顺序可比
+      await new Promise((r) => setTimeout(r, 5));
+      const newerSession = await tx.visualizerSession.create({
+        data: {
+          customerId: customer.id,
+          opportunityId: opp1.id,
+          title: "__smoke_pr5_opp1_newer__",
+          createdById: customer.createdById!,
+          salesOwnerId: customer.createdById,
+        },
+      });
+      await tx.visualizerVariant.create({
+        data: {
+          sessionId: newerSession.id,
+          name: "封面 A",
+          sortOrder: 0,
+          exportImageUrl: "https://example.com/pr5/a.png",
+        },
+      });
+      await tx.visualizerVariant.create({
+        data: {
+          sessionId: newerSession.id,
+          name: "封面 B",
+          sortOrder: 1,
+          exportImageUrl: "https://example.com/pr5/b.png",
+        },
+      });
+      // 较老 session 不带封面
+      await tx.visualizerVariant.create({
+        data: {
+          sessionId: olderSession.id,
+          name: "无封面",
+          sortOrder: 0,
+          exportImageUrl: null,
+        },
+      });
+
+      // opp2 完全不建 session
+
+      // ---- E2.1 客户页构建 oppIdToCover：同前端逻辑 ----
+      // 前端拿 /api/visualizer/sessions?customerId=X（含 previewImages），按 updatedAt desc，
+      // 遍历时 opp 去重保留首个（即最新）
+      const sessions = await tx.visualizerSession.findMany({
+        where: { customerId: customer.id, status: { not: "archived" } },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          opportunityId: true,
+          variants: {
+            where: { exportImageUrl: { not: null } },
+            orderBy: { sortOrder: "asc" },
+            take: 3,
+            select: { exportImageUrl: true },
+          },
+        },
+      });
+      const oppMap = new Map<string, { sessionId: string; cover: string | null }>();
+      for (const s of sessions) {
+        if (!s.opportunityId) continue;
+        if (oppMap.has(s.opportunityId)) continue;
+        const cover = s.variants[0]?.exportImageUrl ?? null;
+        oppMap.set(s.opportunityId, { sessionId: s.id, cover });
+      }
+      check(
+        "opp1 映射到最新 session（newer）",
+        oppMap.get(opp1.id)?.sessionId === newerSession.id,
+      );
+      check(
+        "opp1 封面 = newer session 的第一个非空 exportImageUrl",
+        oppMap.get(opp1.id)?.cover === "https://example.com/pr5/a.png",
+      );
+      check(
+        "opp2 在 map 中不出现（无 session）",
+        !oppMap.has(opp2.id),
+      );
+
+      // ---- E2.2 模拟 sales_visualizer_list_covers 的查询 ----
+      // onlyWithCover = true：只留有封面的 session，每个 session 返回所有非空 variant
+      const listWithCover = await tx.visualizerSession.findMany({
+        where: { customerId: customer.id, status: { not: "archived" } },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          updatedAt: true,
+          opportunity: { select: { id: true, title: true } },
+          variants: {
+            where: { exportImageUrl: { not: null } },
+            orderBy: { sortOrder: "asc" },
+            select: { id: true, name: true, exportImageUrl: true, sortOrder: true },
+          },
+        },
+      });
+      const filteredWithCover = listWithCover.filter((s) => s.variants.length > 0);
+      const pr5Sessions = filteredWithCover.filter(
+        (s) =>
+          s.title === "__smoke_pr5_opp1_newer__" ||
+          s.title === "__smoke_pr5_opp1_older__",
+      );
+      check(
+        "list_covers（onlyWithCover=true）过滤掉无封面的较老 session",
+        pr5Sessions.length === 1 &&
+          pr5Sessions[0].title === "__smoke_pr5_opp1_newer__",
+      );
+      check(
+        "list_covers 每个 session 内 variants 按 sortOrder 升序",
+        pr5Sessions[0].variants.map((v) => v.sortOrder).join(",") === "0,1",
+      );
+      check(
+        "list_covers variants 包含两个 URL（a + b）",
+        pr5Sessions[0].variants.map((v) => v.exportImageUrl).join(",") ===
+          "https://example.com/pr5/a.png,https://example.com/pr5/b.png",
+      );
+
+      // onlyWithCover = false：应能看到较老 session（带一个 null 的 variant，但此处 where 不过滤）
+      const listAll = await tx.visualizerSession.findMany({
+        where: { customerId: customer.id, status: { not: "archived" } },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          variants: {
+            orderBy: { sortOrder: "asc" },
+            select: { exportImageUrl: true },
+          },
+        },
+      });
+      const allPr5 = listAll.filter(
+        (s) =>
+          s.title === "__smoke_pr5_opp1_newer__" ||
+          s.title === "__smoke_pr5_opp1_older__",
+      );
+      check(
+        "list_covers（onlyWithCover=false）包含较老 session",
+        allPr5.some((s) => s.title === "__smoke_pr5_opp1_older__"),
+      );
+
+      // ---- E2.3 opportunityId 过滤 ----
+      const listOpp2 = await tx.visualizerSession.findMany({
+        where: {
+          customerId: customer.id,
+          opportunityId: opp2.id,
+          status: { not: "archived" },
+        },
+        select: { id: true },
+      });
+      check(
+        "list_covers 指定 opp2 时返回为空",
+        listOpp2.length === 0,
+      );
+
+      throw new Error(ROLLBACK_TOKEN);
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === ROLLBACK_TOKEN) {
+      console.log("  ✓ PR#5 事务已主动回滚（无数据落库）");
+    } else {
+      failed++;
+      failures.push(`PR#5 事务意外失败：${msg}`);
+      console.log(`  ✗ PR#5 事务意外失败：${msg}`);
+    }
+  }
+
+  const leakedPr5Session = await db.visualizerSession.findFirst({
+    where: {
+      OR: [
+        { title: "__smoke_pr5_opp1_newer__" },
+        { title: "__smoke_pr5_opp1_older__" },
+      ],
+    },
+    select: { id: true },
+  });
+  check("无残留 __smoke_pr5_opp1_*__ session", leakedPr5Session === null);
+  const leakedPr5Opp = await db.salesOpportunity.findFirst({
+    where: {
+      OR: [
+        { title: "__smoke_pr5_opp_with_cover__" },
+        { title: "__smoke_pr5_opp_no_cover__" },
+      ],
+    },
+    select: { id: true },
+  });
+  check("无残留 __smoke_pr5_opp_*__ opportunity", leakedPr5Opp === null);
+}
+
 async function main() {
   console.log("===== Visualizer 冒烟测试 =====");
   try {
     await testPureLogic();
     await testDbRoundtrip();
     await testPr3();
+    await testPr4();
+    await testPr5();
   } catch (err) {
     failed++;
     failures.push(String(err));

@@ -37,6 +37,21 @@ import type {
 
 export type VisualizerTool = "move" | "rect" | "polygon";
 
+/**
+ * 暴露给父组件的画布句柄
+ *
+ * 由父组件通过 onStageReady 注入一个 ref；句柄内部封装 Konva Stage 的 toDataURL，
+ * 并在导出时按 "canvas 显示比例 → 原图像素"自动放大 pixelRatio，保证导出 PNG 还原
+ * 原图分辨率（而不是被 canvas 容器尺寸压缩）。
+ */
+export interface VisualizerStageHandle {
+  /**
+   * 生成 PNG dataURL；若底图未就绪或 Konva Stage 尚未渲染，返回 null。
+   * @param opts.pixelRatio 明确指定倍率；不传则根据原图/显示比例自适应（≥1）
+   */
+  toPngDataURL: (opts?: { pixelRatio?: number }) => string | null;
+}
+
 interface VisualizerStageProps {
   image: VisualizerSourceImageSummary;
   variant: VisualizerVariantSummary | null;
@@ -57,6 +72,8 @@ interface VisualizerStageProps {
     id: string;
     transform: VisualizerProductOptionTransform;
   }) => void;
+  /** 画布挂载后，向父组件暴露导出能力（父持有 ref 并赋值） */
+  onStageReady?: (handle: VisualizerStageHandle | null) => void;
 }
 
 function useDomImage(src: string): HTMLImageElement | null {
@@ -126,6 +143,7 @@ export default function VisualizerStage(props: VisualizerStageProps) {
     onSelectProductOption,
     onCreateRegion,
     onUpdateProductOptionTransform,
+    onStageReady,
   } = props;
 
   const domImage = useDomImage(image.fileUrl);
@@ -140,6 +158,45 @@ export default function VisualizerStage(props: VisualizerStageProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const overlayRefs = useRef<Record<string, Konva.Node | null>>({});
+
+  // 向父组件暴露导出句柄（只要 image / scale 变化就重新构造，保证 pixelRatio 始终正确）
+  useEffect(() => {
+    if (!onStageReady) return;
+    const handle: VisualizerStageHandle = {
+      toPngDataURL: (opts) => {
+        const stage = stageRef.current;
+        if (!stage) return null;
+        if (!domImage || !imgW || !imgH || !scale) return null;
+        // 默认倍率：让导出画面回到原图像素。外部可覆盖。
+        const pixelRatio = opts?.pixelRatio ?? Math.max(1, 1 / scale);
+        // 导出时临时解挂 transformer，避免八个控制点被截进 PNG
+        const tr = transformerRef.current;
+        const prev = tr?.nodes() ?? [];
+        tr?.nodes([]);
+        tr?.getLayer()?.batchDraw();
+        try {
+          return stage.toDataURL({
+            mimeType: "image/png",
+            pixelRatio,
+            // 只导出底图范围，不要把 stage 两边的黑色 padding 带进去
+            x: 0,
+            y: 0,
+            width: imgW * scale,
+            height: imgH * scale,
+          });
+        } finally {
+          if (tr && prev.length > 0) {
+            tr.nodes(prev);
+            tr.getLayer()?.batchDraw();
+          }
+        }
+      },
+    };
+    onStageReady(handle);
+    return () => {
+      onStageReady(null);
+    };
+  }, [onStageReady, domImage, imgW, imgH, scale]);
 
   // 挂接 transformer 到当前选中的 productOption
   useEffect(() => {

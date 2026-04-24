@@ -57,6 +57,12 @@ export const POST = withAuth(async (request, _ctx, user) => {
       customer: { select: { id: true, name: true, createdById: true } },
       opportunity: { select: { id: true, title: true } },
       _count: { select: { sourceImages: true, variants: true } },
+      variants: {
+        where: { exportImageUrl: { not: null } },
+        orderBy: { sortOrder: "asc" },
+        take: 3,
+        select: { exportImageUrl: true },
+      },
     },
   });
 
@@ -78,6 +84,9 @@ export const POST = withAuth(async (request, _ctx, user) => {
         sourceImages: existing._count.sourceImages,
         variants: existing._count.variants,
       },
+      previewImages: existing.variants
+        .map((v) => v.exportImageUrl)
+        .filter((u): u is string => !!u),
     };
     return NextResponse.json({ session: summary, created: false });
   }
@@ -129,6 +138,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       sourceImages: created._count.sourceImages,
       variants: created._count.variants,
     },
+    previewImages: [],
   };
   return NextResponse.json({ session: summary, created: true }, { status: 201 });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -41,6 +41,7 @@ import { QuotesList } from "./quotes-list";
 import { OrdersList } from "./orders-list";
 import { CoachingPanel } from "./coaching-panel";
 import { VisualizerList } from "./visualizer-list";
+import type { VisualizerSessionSummary } from "@/lib/visualizer/types";
 import { AddInteractionDialog } from "./add-interaction-dialog";
 import { ImportConversationDialog } from "./import-conversation-dialog";
 import { CreateQuoteDialog } from "./create-quote-dialog";
@@ -106,6 +107,7 @@ export default function CustomerDetailPage() {
   const canDeleteCustomer = isSuperAdmin;
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [visSessions, setVisSessions] = useState<VisualizerSessionSummary[]>([]);
   const [showAddInteraction, setShowAddInteraction] = useState(false);
   const [showCreateQuote, setShowCreateQuote] = useState(false);
   const [showImportConvo, setShowImportConvo] = useState(false);
@@ -156,9 +158,38 @@ export default function CustomerDetailPage() {
     }
   }, [id, router]);
 
+  // 视觉方案 sessions（用于在 opp 行 / quote 行挂封面）
+  const loadVisualizerSessions = useCallback(async () => {
+    try {
+      const res = await apiFetch(
+        `/api/visualizer/sessions?customerId=${encodeURIComponent(id)}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { sessions?: VisualizerSessionSummary[] };
+      setVisSessions(data.sessions ?? []);
+    } catch (err) {
+      console.error("Load visualizer sessions failed:", err);
+    }
+  }, [id]);
+
   useEffect(() => {
     loadCustomer();
-  }, [loadCustomer]);
+    loadVisualizerSessions();
+  }, [loadCustomer, loadVisualizerSessions]);
+
+  // opp → 最新 session 封面（sessions 已按 updatedAt desc）
+  const oppIdToCover = useMemo(() => {
+    const map = new Map<string, { sessionId: string; cover: string | null }>();
+    for (const s of visSessions) {
+      if (!s.opportunityId) continue;
+      if (map.has(s.opportunityId)) continue;
+      map.set(s.opportunityId, {
+        sessionId: s.id,
+        cover: s.previewImages[0] ?? null,
+      });
+    }
+    return map;
+  }, [visSessions]);
 
   const handleDeleteCustomer = async () => {
     if (!customer || deleting) return;
@@ -715,11 +746,27 @@ export default function CustomerDetailPage() {
             <p className="mt-4 text-sm text-muted/60">暂无机会记录</p>
           ) : (
             <div className="mt-3 space-y-2">
-              {customer.opportunities.map((opp) => (
+              {customer.opportunities.map((opp) => {
+                const cover = oppIdToCover.get(opp.id) ?? null;
+                return (
                 <div
                   key={opp.id}
                   className="flex items-center justify-between rounded-lg border border-border/50 bg-white/50 px-4 py-2.5"
                 >
+                  {cover && cover.cover && (
+                    <Link
+                      href={`/sales/visualizer/${cover.sessionId}`}
+                      className="mr-3 shrink-0"
+                      title="打开方案效果图"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={cover.cover}
+                        alt={`${opp.title} 方案封面`}
+                        className="h-10 w-14 rounded border border-border object-cover"
+                      />
+                    </Link>
+                  )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground truncate">
@@ -766,7 +813,8 @@ export default function CustomerDetailPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -866,6 +914,7 @@ export default function CustomerDetailPage() {
             quotes={customer.quotes}
             customerEmail={customer.email}
             onSendEmail={handleSendEmail}
+            oppIdToCover={Object.fromEntries(oppIdToCover)}
           />
         )}
         {activeTab === "orders" && <OrdersList orders={customer.blindsOrders} />}

@@ -26,6 +26,8 @@ export interface VisualizerSessionSummary {
     sourceImages: number;
     variants: number;
   };
+  /** 前 3 个 variant 的封面 URL（按 sortOrder 升序），客户 tab / 机会卡片用作缩略图堆叠 */
+  previewImages: string[];
 }
 
 /** 会话详情（session 编辑页用） */

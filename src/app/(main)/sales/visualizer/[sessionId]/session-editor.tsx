@@ -16,6 +16,8 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Download,
+  Image as ImageCoverIcon,
   ImagePlus,
   Images,
   Layers,
@@ -45,7 +47,7 @@ import {
   findMockProductById,
   type VisualizerMockProduct,
 } from "@/lib/visualizer/mock-products";
-import type { VisualizerTool } from "./visualizer-stage";
+import type { VisualizerStageHandle, VisualizerTool } from "./visualizer-stage";
 import ReusePhotosDialog from "./reuse-photos-dialog";
 
 const VisualizerStage = dynamic(() => import("./visualizer-stage"), {
@@ -99,6 +101,9 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 960, height: 540 });
+
+  const stageHandleRef = useRef<VisualizerStageHandle | null>(null);
+  const [exporting, setExporting] = useState<null | "download" | "cover">(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -473,6 +478,84 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     }
   };
 
+  // ============ 导出 PNG ============
+  /**
+   * 同步捕获画布当前状态为 PNG dataURL。
+   *
+   * 为什么要先 setState(null) + requestAnimationFrame 两帧？
+   *  - transformer 内部由 Stage 根据 selectedProductOptionId 异步挂接
+   *  - 不等两帧直接 toDataURL 会把 transformer 的 8 个控制点烤进 PNG
+   *  - VisualizerStage 内部导出时也会临时解挂 transformer，这里再加一道保险
+   */
+  const captureDataUrl = useCallback(async (): Promise<string | null> => {
+    const clearSel =
+      selectedProductOptionId !== null || selectedRegionId !== null;
+    if (clearSel) {
+      setSelectedProductOptionId(null);
+      setSelectedRegionId(null);
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    }
+    return stageHandleRef.current?.toPngDataURL() ?? null;
+  }, [selectedProductOptionId, selectedRegionId]);
+
+  const handleDownloadPng = useCallback(async () => {
+    if (!selectedImage || !selectedVariant) return;
+    setExporting("download");
+    try {
+      const dataUrl = await captureDataUrl();
+      if (!dataUrl) {
+        alert("画布尚未就绪，请稍候再试");
+        return;
+      }
+      const safeSession = session?.title.replace(/[^\w\u4e00-\u9fa5-]+/g, "_") ?? "visualizer";
+      const safeVariant = selectedVariant.name.replace(/[^\w\u4e00-\u9fa5-]+/g, "_");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `${safeSession}-${safeVariant}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Download PNG failed:", err);
+      alert("导出失败");
+    } finally {
+      setExporting(null);
+    }
+  }, [captureDataUrl, selectedImage, selectedVariant, session?.title]);
+
+  const handleSaveCover = useCallback(async () => {
+    if (!selectedImage || !selectedVariant) return;
+    setExporting("cover");
+    try {
+      const dataUrl = await captureDataUrl();
+      if (!dataUrl) {
+        alert("画布尚未就绪，请稍候再试");
+        return;
+      }
+      const res = await apiFetch(
+        `/api/visualizer/variants/${selectedVariant.id}/export`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl }),
+        },
+      );
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert((j as { error?: string }).error ?? "保存封面失败");
+        return;
+      }
+      await load();
+      alert("已保存为该方案的封面");
+    } catch (err) {
+      console.error("Save cover failed:", err);
+      alert("保存封面失败");
+    } finally {
+      setExporting(null);
+    }
+  }, [captureDataUrl, load, selectedImage, selectedVariant]);
+
   const handleUpdateTransform = useCallback(
     (args: { id: string; transform: VisualizerProductOptionTransform }) => {
       // 乐观更新
@@ -540,6 +623,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       <div className="rounded-xl border border-border/60 bg-white/60 p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
+            {/* 顶部：标题 + 状态 + 导出按钮；导出按钮需要 selectedImage+selectedVariant 才启用 */}
             {editingTitle ? (
               <div className="flex items-center gap-2">
                 <input
@@ -621,6 +705,54 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               )}
             </div>
           </div>
+
+          {/* 导出按钮组 */}
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadPng}
+              disabled={
+                !selectedImage || !selectedVariant || exporting !== null
+              }
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-xs text-foreground hover:bg-slate-50 disabled:opacity-60"
+              title={
+                !selectedImage
+                  ? "请先选择一张照片"
+                  : !selectedVariant
+                  ? "请先选择/创建一个方案"
+                  : "导出当前画布为 PNG 并下载到本地"
+              }
+            >
+              {exporting === "download" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              下载 PNG
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveCover}
+              disabled={
+                !selectedImage || !selectedVariant || exporting !== null
+              }
+              className="inline-flex items-center gap-1 rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-white hover:bg-foreground/90 disabled:opacity-60"
+              title={
+                !selectedImage
+                  ? "请先选择一张照片"
+                  : !selectedVariant
+                  ? "请先选择/创建一个方案"
+                  : "保存当前画布为该方案的封面（在客户 tab 的方案卡片里展示）"
+              }
+            >
+              {exporting === "cover" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ImageCoverIcon className="h-3.5 w-3.5" />
+              )}
+              保存为方案封面
+            </button>
+          </div>
         </div>
       </div>
 
@@ -679,6 +811,9 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                 onSelectProductOption={setSelectedProductOptionId}
                 onCreateRegion={handleCreateRegion}
                 onUpdateProductOptionTransform={handleUpdateTransform}
+                onStageReady={(h) => {
+                  stageHandleRef.current = h;
+                }}
               />
             ) : (
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-center">

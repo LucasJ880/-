@@ -108,6 +108,10 @@ export const GET = withAuth(async (_request, ctx, user) => {
       sourceImages: session.sourceImages.length,
       variants: session.variants.length,
     },
+    previewImages: session.variants
+      .map((v) => v.exportImageUrl)
+      .filter((u): u is string => !!u)
+      .slice(0, 3),
     customer: { id: session.customer.id, name: session.customer.name },
     opportunity: session.opportunity
       ? {

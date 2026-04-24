@@ -2,11 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { FileText, Send, AlertTriangle, Pencil, Wallet, CheckCircle2 } from "lucide-react";
+import { FileText, Send, AlertTriangle, Pencil, Wallet, CheckCircle2, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Quote } from "./types";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { RecordDepositDialog } from "@/components/sales/record-deposit-dialog";
+
+/** 来自 customer 页的 opp→封面映射（展示方案效果图用） */
+export type OppCoverMap = Record<
+  string,
+  { sessionId: string; cover: string | null }
+>;
 
 // 销售可直接编辑的状态；signed/accepted 状态销售锁定，admin 可覆盖
 const SALES_EDITABLE_STATUSES = new Set(["draft", "sent", "viewed", "rejected"]);
@@ -45,10 +51,13 @@ export function QuotesList({
   quotes: initialQuotes,
   customerEmail,
   onSendEmail,
+  oppIdToCover,
 }: {
   quotes: Quote[];
   customerEmail: string | null;
   onSendEmail: (quoteId: string) => void;
+  /** 可选：opp→最新方案封面，使销售能在报价行一眼看到对应效果图 */
+  oppIdToCover?: OppCoverMap;
 }) {
   const { isSuperAdmin } = useCurrentUser();
   const [quotes, setQuotes] = useState<Quote[]>(initialQuotes);
@@ -200,6 +209,32 @@ export function QuotesList({
               )}
             </div>
           </div>
+          {q.opportunityId &&
+            oppIdToCover &&
+            oppIdToCover[q.opportunityId] && (
+              <Link
+                href={`/sales/visualizer/${oppIdToCover[q.opportunityId].sessionId}`}
+                className="mt-2 inline-flex items-center gap-2 rounded-md border border-purple-200 bg-purple-50/60 px-2 py-1.5 text-[11px] font-medium text-purple-800 hover:bg-purple-100"
+                title="查看该机会下的方案效果图"
+              >
+                {oppIdToCover[q.opportunityId].cover ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={oppIdToCover[q.opportunityId].cover!}
+                    alt="方案封面"
+                    className="h-10 w-14 rounded object-cover"
+                  />
+                ) : (
+                  <span className="flex h-10 w-14 items-center justify-center rounded border border-dashed border-purple-300 bg-white/70 text-[10px] text-purple-500">
+                    暂无
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1">
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  方案效果图
+                </span>
+              </Link>
+            )}
           {depositPending && (
             <p className="mt-2 text-[11px] text-orange-800 bg-white/70 rounded border border-orange-200 px-2 py-1.5 leading-relaxed">
               客户已签字成单。请在收到定金后点击「登记定金」，记录
