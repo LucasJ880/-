@@ -21,6 +21,7 @@ export interface TaskPreset {
 const MODEL_PRIMARY = process.env.OPENAI_MODEL || "gpt-5.4";
 const MODEL_MINI = process.env.OPENAI_MODEL_MINI || "gpt-5.4-mini";
 const MODEL_NANO = process.env.OPENAI_MODEL_NANO || "gpt-5.4-nano";
+const MODEL_IMAGE = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
 
 export const TASK_PRESETS: Record<string, TaskPreset> = {
   normal: {
@@ -69,6 +70,7 @@ export interface AIConfig {
   primaryModel: string;
   miniModel: string;
   nanoModel: string;
+  imageModel: string;
 }
 
 export function getAIConfig(): AIConfig {
@@ -78,6 +80,7 @@ export function getAIConfig(): AIConfig {
     primaryModel: MODEL_PRIMARY,
     miniModel: MODEL_MINI,
     nanoModel: MODEL_NANO,
+    imageModel: MODEL_IMAGE,
   };
 }
 

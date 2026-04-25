@@ -25,6 +25,7 @@ import {
   MousePointer2,
   Pencil,
   Plus,
+  Sparkles,
   Square,
   Trash2,
   Spline,
@@ -35,6 +36,7 @@ import { cn } from "@/lib/utils";
 import type {
   VisualizerProductOptionDetail,
   VisualizerProductOptionTransform,
+  VisualizerDetectedRegionDraft,
   VisualizerRegionShape,
   VisualizerSessionDetail,
   VisualizerSessionStatus,
@@ -93,17 +95,23 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     string | null
   >(null);
   const [tool, setTool] = useState<VisualizerTool>("move");
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 
   const [uploading, setUploading] = useState(false);
   const [mutating, setMutating] = useState(false);
   const [reuseDialogOpen, setReuseDialogOpen] = useState(false);
+  const [detectingRegions, setDetectingRegions] = useState(false);
+  const [cleaningRegionId, setCleaningRegionId] = useState<string | null>(null);
+  const [detectedRegions, setDetectedRegions] = useState<
+    VisualizerDetectedRegionDraft[]
+  >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 960, height: 540 });
 
   const stageHandleRef = useRef<VisualizerStageHandle | null>(null);
-  const [exporting, setExporting] = useState<null | "download" | "cover">(null);
+  const [exporting, setExporting] = useState<null | "download" | "cover" | "hd">(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,6 +155,20 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setDetectedRegions([]);
+  }, [selectedImageId]);
+
+  // 手机端配置面板打开时锁住页面滚动，避免抽屉和画布同时跟手滚动。
+  useEffect(() => {
+    if (!mobilePanelOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [mobilePanelOpen]);
 
   // 容器尺寸监听
   useEffect(() => {
@@ -271,8 +293,9 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     async (args: {
       shape: VisualizerRegionShape;
       points: Array<[number, number]>;
+      label?: string | null;
     }) => {
-      if (!selectedImage) return;
+      if (!selectedImage) return false;
       setMutating(true);
       try {
         const res = await apiFetch(
@@ -283,21 +306,66 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             body: JSON.stringify({
               shape: args.shape,
               points: args.points,
+              label: args.label,
             }),
           },
         );
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
           alert((j as { error?: string }).error ?? "保存区域失败");
-          return;
+          return false;
         }
         await load();
         setTool("move");
+        return true;
       } finally {
         setMutating(false);
       }
     },
     [load, selectedImage],
+  );
+
+  const handleDetectRegions = useCallback(async () => {
+    if (!selectedImage || detectingRegions) return;
+    setDetectingRegions(true);
+    try {
+      const res = await apiFetch(
+        `/api/visualizer/images/${selectedImage.id}/detect-regions`,
+        { method: "POST" },
+      );
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert((raw as { error?: string }).error ?? "AI 识别失败");
+        return;
+      }
+      const data = raw as { candidates?: VisualizerDetectedRegionDraft[] };
+      const candidates = data.candidates ?? [];
+      setDetectedRegions(candidates);
+      if (candidates.length === 0) {
+        alert("AI 没有识别到明确的窗户区域，请手动标记。");
+      } else {
+        setTool("move");
+      }
+    } catch (err) {
+      console.error("Detect visualizer regions failed:", err);
+      alert("AI 识别失败");
+    } finally {
+      setDetectingRegions(false);
+    }
+  }, [detectingRegions, selectedImage]);
+
+  const handleAcceptDetectedRegion = useCallback(
+    async (draft: VisualizerDetectedRegionDraft) => {
+      const ok = await handleCreateRegion({
+        shape: draft.shape,
+        points: draft.points,
+        label: draft.label,
+      });
+      if (ok) {
+        setDetectedRegions((prev) => prev.filter((x) => x.id !== draft.id));
+      }
+    },
+    [handleCreateRegion],
   );
 
   const handleDeleteRegion = async (regionId: string) => {
@@ -316,6 +384,48 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       if (selectedRegionId === regionId) setSelectedRegionId(null);
     } finally {
       setMutating(false);
+    }
+  };
+
+  const handleCleanRegion = async (regionId: string) => {
+    if (!selectedImage || cleaningRegionId) return;
+    const ok = confirm(
+      "AI 会尝试清理该窗户区域内的旧窗帘/杂物，并生成一张新的现场照片。原图不会被覆盖。继续吗？",
+    );
+    if (!ok) return;
+    setCleaningRegionId(regionId);
+    try {
+      const res = await apiFetch(
+        `/api/visualizer/images/${selectedImage.id}/clean-region`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ regionId }),
+        },
+      );
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert((raw as { error?: string }).error ?? "AI 清理失败");
+        return;
+      }
+      const data = raw as {
+        image?: VisualizerSourceImageSummary;
+        copiedRegions?: number;
+      };
+      await load();
+      if (data.image?.id) {
+        setSelectedImageId(data.image.id);
+        setSelectedRegionId(null);
+        setSelectedProductOptionId(null);
+      }
+      alert(
+        `AI 清理图已生成${data.copiedRegions ? `，已复制 ${data.copiedRegions} 个窗户区域` : ""}。`,
+      );
+    } catch (err) {
+      console.error("Clean visualizer region failed:", err);
+      alert("AI 清理失败");
+    } finally {
+      setCleaningRegionId(null);
     }
   };
 
@@ -556,6 +666,42 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     }
   }, [captureDataUrl, load, selectedImage, selectedVariant]);
 
+  const handleRenderHdCover = useCallback(async () => {
+    if (!selectedImage || !selectedVariant) return;
+    const ok = confirm(
+      "AI 会基于当前画布生成高清写实封面，并替换该方案封面。原始照片和产品叠加不会被修改。继续吗？",
+    );
+    if (!ok) return;
+    setExporting("hd");
+    try {
+      const dataUrl = await captureDataUrl();
+      if (!dataUrl) {
+        alert("画布尚未就绪，请稍候再试");
+        return;
+      }
+      const res = await apiFetch(
+        `/api/visualizer/variants/${selectedVariant.id}/render-hd`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl }),
+        },
+      );
+      const raw = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert((raw as { error?: string }).error ?? "高清渲染失败");
+        return;
+      }
+      await load();
+      alert("高清渲染封面已生成");
+    } catch (err) {
+      console.error("Render HD cover failed:", err);
+      alert("高清渲染失败");
+    } finally {
+      setExporting(null);
+    }
+  }, [captureDataUrl, load, selectedImage, selectedVariant]);
+
   const handleUpdateTransform = useCallback(
     (args: { id: string; transform: VisualizerProductOptionTransform }) => {
       // 乐观更新
@@ -752,6 +898,28 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               )}
               保存为方案封面
             </button>
+            <button
+              type="button"
+              onClick={handleRenderHdCover}
+              disabled={
+                !selectedImage || !selectedVariant || exporting !== null
+              }
+              className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+              title={
+                !selectedImage
+                  ? "请先选择一张照片"
+                  : !selectedVariant
+                  ? "请先选择/创建一个方案"
+                  : "AI 生成高清写实方案封面"
+              }
+            >
+              {exporting === "hd" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              高清渲染
+            </button>
           </div>
         </div>
       </div>
@@ -782,6 +950,20 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               label="多边形窗"
               disabled={!selectedImage}
             />
+            <button
+              type="button"
+              onClick={handleDetectRegions}
+              disabled={!selectedImage || detectingRegions || mutating}
+              className="inline-flex items-center gap-1 rounded-md border border-purple-200 bg-purple-50 px-2 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
+              title="AI 识别照片中的窗户区域，生成待确认草稿"
+            >
+              {detectingRegions ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              AI识别窗户
+            </button>
             <div className="ml-auto text-[11px] text-muted">
               {selectedImage
                 ? `${selectedImage.fileName}${
@@ -796,7 +978,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
           <div
             ref={canvasContainerRef}
             className="relative overflow-hidden rounded-xl border border-border/60 bg-black"
-            style={{ height: 540 }}
+            style={{ height: "min(70dvh, 540px)", minHeight: 360 }}
           >
             {selectedImage ? (
               <VisualizerStage
@@ -807,6 +989,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                 height={canvasSize.height}
                 selectedRegionId={selectedRegionId}
                 selectedProductOptionId={selectedProductOptionId}
+                aiDraftRegions={detectedRegions}
                 onSelectRegion={setSelectedRegionId}
                 onSelectProductOption={setSelectedProductOptionId}
                 onCreateRegion={handleCreateRegion}
@@ -835,8 +1018,41 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
           </div>
         </div>
 
-        {/* 右：面板 */}
-        <div className="flex flex-col gap-3">
+        {/* 移动端遮罩：右侧面板在手机上变成底部抽屉 */}
+        {mobilePanelOpen && (
+          <button
+            type="button"
+            aria-label="关闭配置面板"
+            onClick={() => setMobilePanelOpen(false)}
+            className="fixed inset-0 z-30 bg-black/35 lg:hidden"
+          />
+        )}
+
+        {/* 右：面板 / 移动端底部抽屉 */}
+        <div
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-40 max-h-[78dvh] overflow-y-auto rounded-t-2xl border border-border/70 bg-white p-3 shadow-2xl transition-transform lg:static lg:z-auto lg:max-h-none lg:translate-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
+            mobilePanelOpen ? "translate-y-0" : "translate-y-full",
+          )}
+        >
+          <div className="mb-3 flex items-center justify-between lg:hidden">
+            <div>
+              <div className="text-sm font-semibold text-foreground">方案配置</div>
+              <div className="text-[11px] text-muted">
+                照片、窗户区域、方案与产品都在这里调整
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobilePanelOpen(false)}
+              className="rounded-full border border-border bg-white p-2 text-muted"
+              aria-label="关闭配置面板"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3">
           {/* 图片列表 */}
           {panelSection(
             "现场照片",
@@ -934,10 +1150,77 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             panelSection(
               "窗户区域",
               <Square className="h-3.5 w-3.5 text-muted" />,
-              <div>
+              <div className="space-y-2">
+                {detectedRegions.length > 0 && (
+                  <div className="rounded-lg border border-purple-200 bg-purple-50/70 p-2">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-800">
+                        <Sparkles className="h-3 w-3" />
+                        AI 识别草稿
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDetectedRegions([])}
+                        className="text-[10px] text-purple-600 hover:text-purple-900"
+                      >
+                        清空
+                      </button>
+                    </div>
+                    <ul className="space-y-1">
+                      {detectedRegions.map((draft) => {
+                        const [[x1, y1], [x2, y2]] = draft.points;
+                        return (
+                          <li
+                            key={draft.id}
+                            className="rounded-md border border-purple-100 bg-white/80 px-2 py-1.5 text-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                                {draft.label}
+                              </span>
+                              <span className="text-[10px] text-purple-600">
+                                {Math.round(draft.confidence * 100)}%
+                              </span>
+                            </div>
+                            <div className="mt-0.5 text-[10px] text-muted">
+                              {Math.round(x2 - x1)}×{Math.round(y2 - y1)} px ·
+                              ({Math.round(x1)}, {Math.round(y1)})
+                            </div>
+                            {draft.reason && (
+                              <div className="mt-0.5 line-clamp-2 text-[10px] text-muted">
+                                {draft.reason}
+                              </div>
+                            )}
+                            <div className="mt-1 flex justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDetectedRegions((prev) =>
+                                    prev.filter((x) => x.id !== draft.id),
+                                  )
+                                }
+                                className="rounded border border-border bg-white px-2 py-1 text-[10px] text-muted hover:text-foreground"
+                              >
+                                忽略
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleAcceptDetectedRegion(draft)}
+                                disabled={mutating}
+                                className="rounded bg-purple-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-purple-700 disabled:opacity-60"
+                              >
+                                添加为窗户
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
                 {selectedImage.regions.length === 0 ? (
                   <div className="text-[11px] text-muted">
-                    使用上方工具栏的矩形/多边形工具标记窗户
+                    使用上方工具栏的矩形/多边形工具标记窗户，或点击 AI 识别生成草稿
                   </div>
                 ) : (
                   <ul className="space-y-1">
@@ -981,10 +1264,26 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              void handleCleanRegion(region.id);
+                            }}
+                            disabled={mutating || cleaningRegionId !== null}
+                            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+                            title="AI 清理该区域内的旧窗帘/杂物，生成新现场图"
+                          >
+                            {cleaningRegionId === region.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3 w-3" />
+                            )}
+                            AI清理
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               void handleDeleteRegion(region.id);
                             }}
                             disabled={mutating}
-                            className="ml-auto rounded p-1 text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                            className="rounded p-1 text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
                             title="删除窗户区域"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1103,8 +1402,18 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               />
             ),
           )}
+          </div>
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setMobilePanelOpen(true)}
+        className="fixed bottom-4 right-4 z-30 inline-flex items-center gap-1 rounded-full bg-foreground px-4 py-3 text-sm font-medium text-white shadow-xl lg:hidden"
+      >
+        <Layers className="h-4 w-4" />
+        配置
+      </button>
     </div>
   );
 }

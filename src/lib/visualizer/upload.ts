@@ -153,6 +153,21 @@ export async function putVisualizerImage(args: {
   return { url: blob.url, pathname };
 }
 
+export async function putVisualizerCleanedImage(args: {
+  sessionId: string;
+  sourceImageId: string;
+  buffer: Buffer;
+  contentType: string;
+}): Promise<{ url: string; pathname: string }> {
+  const ts = Date.now();
+  const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/ai-cleaned/${args.sourceImageId}_${ts}.png`;
+  const blob = await put(pathname, args.buffer, {
+    access: "public",
+    contentType: args.contentType,
+  });
+  return { url: blob.url, pathname };
+}
+
 /** 导出 PNG 的 base64 payload 上限（约 10MB base64 ≈ 7.5MB 原图） */
 export const VISUALIZER_MAX_EXPORT_BASE64 = 10 * 1024 * 1024;
 
@@ -191,6 +206,20 @@ export async function putVisualizerExport(args: {
 }): Promise<{ url: string; pathname: string }> {
   const ts = Date.now();
   const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/variants/${args.variantId}/export_${ts}.png`;
+  const blob = await put(pathname, args.buffer, {
+    access: "public",
+    contentType: "image/png",
+  });
+  return { url: blob.url, pathname };
+}
+
+export async function putVisualizerHdRender(args: {
+  sessionId: string;
+  variantId: string;
+  buffer: Buffer;
+}): Promise<{ url: string; pathname: string }> {
+  const ts = Date.now();
+  const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/variants/${args.variantId}/hd_${ts}.png`;
   const blob = await put(pathname, args.buffer, {
     access: "public",
     contentType: "image/png",

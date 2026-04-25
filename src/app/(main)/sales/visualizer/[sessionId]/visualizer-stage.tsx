@@ -10,7 +10,7 @@
  * 能力：
  * - 展示底图 + 现有 regions（半透明填充）
  * - 展示 selectedVariant 的 productOptions：按颜色/透明度填充对应 region，并支持 transformer
- * - 绘制模式：rect 拖拽 / polygon 点击成点 + 双击/Enter 完成
+ * - 绘制模式：rect 拖拽 / polygon 点击成点 + 双击/双击触控/Enter/按钮 完成
  * - 选中模式：点击 region（在没有 productOption 的情况下）或点击 productOption 以选中；Transformer 仅挂在 productOption 上
  */
 
@@ -27,6 +27,7 @@ import {
   Transformer,
 } from "react-konva";
 import type {
+  VisualizerDetectedRegionDraft,
   VisualizerProductOptionDetail,
   VisualizerProductOptionTransform,
   VisualizerRegionShape,
@@ -60,6 +61,7 @@ interface VisualizerStageProps {
   height: number;
   selectedRegionId: string | null;
   selectedProductOptionId: string | null;
+  aiDraftRegions?: VisualizerDetectedRegionDraft[];
   onSelectRegion: (id: string | null) => void;
   onSelectProductOption: (id: string | null) => void;
   /** region 绘制完成时，上报原图像素坐标 */
@@ -139,6 +141,7 @@ export default function VisualizerStage(props: VisualizerStageProps) {
     height,
     selectedRegionId,
     selectedProductOptionId,
+    aiDraftRegions = [],
     onSelectRegion,
     onSelectProductOption,
     onCreateRegion,
@@ -239,7 +242,12 @@ export default function VisualizerStage(props: VisualizerStageProps) {
     return [px / scale, py / scale];
   };
 
-  const handleStageMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+  const preventTouchScroll = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if ("touches" in e.evt) e.evt.preventDefault();
+  };
+
+  const handleStageMouseDown = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    preventTouchScroll(e);
     if (tool === "move") {
       // 点击空白处取消选中
       if (e.target === e.target.getStage()) {
@@ -259,7 +267,8 @@ export default function VisualizerStage(props: VisualizerStageProps) {
     }
   };
 
-  const handleStageMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+  const handleStageMouseMove = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    preventTouchScroll(e);
     const pos = e.target.getStage()?.getPointerPosition();
     if (!pos) return;
     const [ix, iy] = stagePointToImage(pos.x, pos.y);
@@ -288,12 +297,21 @@ export default function VisualizerStage(props: VisualizerStageProps) {
     }
   };
 
-  const handleStageDblClick = () => {
+  const completePolygon = () => {
     if (tool === "polygon" && polyPoints.length >= 3) {
       onCreateRegion({ shape: "polygon", points: polyPoints });
       setPolyPoints([]);
       setPolyHover(null);
     }
+  };
+
+  const cancelPolygon = () => {
+    setPolyPoints([]);
+    setPolyHover(null);
+  };
+
+  const handleStageDblClick = () => {
+    completePolygon();
   };
 
   // Enter 完成 polygon（键盘监听仅在 polygon 工具激活时）
@@ -338,10 +356,19 @@ export default function VisualizerStage(props: VisualizerStageProps) {
         width={width}
         height={height}
         onMouseDown={handleStageMouseDown}
+        onTouchStart={handleStageMouseDown}
         onMouseMove={handleStageMouseMove}
+        onTouchMove={handleStageMouseMove}
         onMouseUp={handleStageMouseUp}
+        onTouchEnd={handleStageMouseUp}
         onDblClick={handleStageDblClick}
-        style={{ cursor: stageCursor, background: "#0b0d10" }}
+        onDblTap={handleStageDblClick}
+        style={{
+          cursor: stageCursor,
+          background: "#0b0d10",
+          touchAction: "none",
+          userSelect: "none",
+        }}
       >
         {/* Layer 1: 底图 */}
         <Layer listening={false}>
@@ -359,6 +386,29 @@ export default function VisualizerStage(props: VisualizerStageProps) {
         {/* Layer 2: regions + overlays */}
         <Layer>
           <Group scaleX={scale} scaleY={scale}>
+            {/* AI 识别草稿：只作可视化提示，确认后才会创建正式 region */}
+            {aiDraftRegions.map((draft) => {
+              const [[x1, y1], [x2, y2]] = draft.points;
+              const x = Math.min(x1, x2);
+              const y = Math.min(y1, y2);
+              const w = Math.abs(x2 - x1);
+              const h = Math.abs(y2 - y1);
+              return (
+                <Rect
+                  key={draft.id}
+                  x={x}
+                  y={y}
+                  width={w}
+                  height={h}
+                  fill="rgba(168,85,247,0.14)"
+                  stroke="#a855f7"
+                  strokeWidth={2 / scale}
+                  dash={[8 / scale, 5 / scale]}
+                  listening={false}
+                />
+              );
+            })}
+
             {image.regions.map((region) => {
               const hasOverlay = Boolean(optionsByRegion[region.id]);
               const isSelectedRegion = selectedRegionId === region.id;
@@ -540,7 +590,8 @@ export default function VisualizerStage(props: VisualizerStageProps) {
             borderStroke="#fbbf24"
             anchorStroke="#fbbf24"
             anchorFill="#fffbeb"
-            anchorSize={8}
+            anchorSize={18}
+            anchorCornerRadius={6}
             ignoreStroke
           />
         </Layer>
@@ -550,13 +601,32 @@ export default function VisualizerStage(props: VisualizerStageProps) {
       {tool === "polygon" && (
         <div className="pointer-events-none absolute left-2 bottom-2 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
           {polyPoints.length === 0
-            ? "点击画布开始标记多边形"
-            : `已标 ${polyPoints.length} 个点，双击或按 Enter 完成，Esc 取消`}
+            ? "点击/触控画布开始标记多边形"
+            : `已标 ${polyPoints.length} 个点，双击/双击触控或按 Enter 完成，Esc 取消`}
+        </div>
+      )}
+      {tool === "polygon" && polyPoints.length > 0 && (
+        <div className="absolute right-2 bottom-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={cancelPolygon}
+            className="rounded-lg border border-white/20 bg-black/70 px-3 py-2 text-xs font-medium text-white shadow-lg"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={completePolygon}
+            disabled={polyPoints.length < 3}
+            className="rounded-lg bg-amber-400 px-3 py-2 text-xs font-semibold text-black shadow-lg disabled:opacity-50"
+          >
+            完成
+          </button>
         </div>
       )}
       {tool === "rect" && (
         <div className="pointer-events-none absolute left-2 bottom-2 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
-          按住鼠标拖拽画出矩形窗户区域
+          按住鼠标/手指拖拽画出矩形窗户区域
         </div>
       )}
     </div>

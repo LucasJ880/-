@@ -7,6 +7,7 @@ OPENAI_API_KEY="sk-..."
 OPENAI_BASE_URL="https://api.openai.com/v1"
 OPENAI_MODEL="gpt-5.2"
 OPENAI_MODEL_MINI="gpt-5-mini"
+OPENAI_IMAGE_MODEL="gpt-image-2"
 
 # 或 DeepSeek
 OPENAI_API_KEY="sk-..."

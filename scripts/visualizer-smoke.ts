@@ -22,6 +22,11 @@ import {
   parsePngDataUrl,
   VISUALIZER_MAX_EXPORT_BASE64,
 } from "../src/lib/visualizer/upload";
+import {
+  normalizeDetectedRegionCandidates,
+  stripJsonFence,
+} from "../src/lib/visualizer/ai-detect";
+import { createTransparentEditMaskPng } from "../src/lib/visualizer/png-mask";
 import { VISUALIZER_MOCK_PRODUCTS } from "../src/lib/visualizer/mock-products";
 
 let passed = 0;
@@ -178,6 +183,66 @@ async function testPureLogic() {
     const oversize = "A".repeat(VISUALIZER_MAX_EXPORT_BASE64 + 100);
     const bad = `data:image/png;base64,${oversize}`;
     check("超出体积上限拒绝", parsePngDataUrl(bad) === null);
+  }
+
+  console.log("\n  AI detect region candidates:");
+  {
+    const cleaned = stripJsonFence("```json\n{\"windows\":[]}\n```");
+    check("stripJsonFence 去掉 markdown 包裹", cleaned === "{\"windows\":[]}");
+  }
+  {
+    const drafts = normalizeDetectedRegionCandidates(
+      {
+        windows: [
+          {
+            label: "Living Room",
+            x1: -10,
+            y1: 20,
+            x2: 5000,
+            y2: 700,
+            confidence: 1.2,
+            reason: "large opening",
+          },
+          { label: "too small", x1: 1, y1: 1, x2: 5, y2: 5, confidence: 0.9 },
+          { label: "bad", x1: "abc", y1: 1, x2: 20, y2: 20 },
+        ],
+      },
+      { width: 1000, height: 800 },
+    );
+    check("AI 候选框：过滤非法和过小框", drafts.length === 1);
+    check(
+      "AI 候选框：坐标 clamp 到原图范围",
+      drafts[0].points[0][0] === 0 && drafts[0].points[1][0] === 1000,
+    );
+    check("AI 候选框：confidence clamp 到 0~1", drafts[0].confidence === 1);
+  }
+  {
+    const drafts = normalizeDetectedRegionCandidates(
+      [
+        { x1: 0, y1: 0, x2: 100, y2: 100, confidence: 0.1 },
+        { x1: 0, y1: 0, x2: 100, y2: 100, confidence: 0.9 },
+      ],
+      { width: 1000, height: 800 },
+    );
+    check("AI 候选框：按 confidence 降序", drafts[0].confidence === 0.9);
+  }
+
+  console.log("\n  AI cleanup mask PNG:");
+  {
+    const mask = createTransparentEditMaskPng({
+      width: 16,
+      height: 16,
+      shape: "rect",
+      points: [
+        [4, 4],
+        [12, 12],
+      ],
+    });
+    check(
+      "AI 清理 mask：生成 PNG 签名正确",
+      mask.slice(0, 8).toString("hex") === "89504e470d0a1a0a",
+    );
+    check("AI 清理 mask：可解析尺寸", parseImageSize(mask, "png")?.width === 16);
   }
 
   console.log("\n  mock products:");

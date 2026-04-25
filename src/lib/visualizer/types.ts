@@ -70,6 +70,17 @@ export interface VisualizerWindowRegionDetail {
   createdAt: string;
 }
 
+/** AI 自动识别出的窗户区域草稿（不直接落库，需销售确认） */
+export interface VisualizerDetectedRegionDraft {
+  id: string;
+  label: string;
+  shape: "rect";
+  /** 原图像素坐标：rect = [[x1,y1],[x2,y2]] */
+  points: [[number, number], [number, number]];
+  confidence: number;
+  reason?: string | null;
+}
+
 export interface VisualizerProductOptionTransform {
   offsetX: number;
   offsetY: number;
