@@ -28,14 +28,14 @@ interface PartBProps {
   financeDifference: string;
   onFinanceDifferenceChange: (v: string) => void;
   subtotalA: number;
-  subtotalC: number;
+  subtotalC: number; // 独立 Part C 已取消；此处表示最低安装/运费补差
   signatureRef: React.RefObject<PencilCanvasRef | null>;
   onSignatureChange?: (strokeCount: number) => void;
   // Special Promotion（税前直减，销售可手填）
   specialPromotion: string;
   onSpecialPromotionChange: (v: string) => void;
   totalMsrp: number; // 用于预览"相对 MSRP 的折扣率"
-  productsPreTax: number; // = productsSubtotal + subtotalC（不含 Part B 自身）用于校验上限
+  productsPreTax: number; // = productsSubtotal + 安装补差（不含 Part B 自身）用于校验上限
   // Special Promotion 阈值（0~1 小数，从全局折扣设置拉取）
   promoWarnPct?: number;
   promoDangerPct?: number;
@@ -63,7 +63,6 @@ export function PartBForm({
   onPaymentMethodChange,
   depositAmount,
   onDepositChange,
-  balanceAmount,
   onBalanceChange,
   financeEligible,
   onFinanceEligibleChange,
@@ -131,9 +130,9 @@ export function PartBForm({
 
   const subtotalB = addons.reduce((s, a) => s + a.total, 0);
   const grandSubtotal = subtotalA + subtotalB;
-  const optionalC = subtotalC;
+  const installMinimumAdjustment = subtotalC;
   const promoNum = Math.max(0, parseFloat(specialPromotion) || 0);
-  const preTax = Math.max(0, grandSubtotal + optionalC - promoNum);
+  const preTax = Math.max(0, grandSubtotal + installMinimumAdjustment - promoNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
   const total = preTax + hst;
 
@@ -390,8 +389,8 @@ export function PartBForm({
               <span className="font-bold">{formatCAD(grandSubtotal)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Optional — SUBTOTAL (C):</span>
-              <span>{formatCAD(optionalC)}</span>
+              <span className="text-muted-foreground">Install minimum adjustment:</span>
+              <span>{formatCAD(installMinimumAdjustment)}</span>
             </div>
             {promoNum > 0 && (
               <div className="flex justify-between text-orange-700">

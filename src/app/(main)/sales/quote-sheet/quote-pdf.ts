@@ -296,7 +296,7 @@ function drawHero(
 ) {
   const { doc, pageW } = ctx;
   const x = MARGIN;
-  let y = MARGIN;
+  const y = MARGIN;
 
   // Logo（SUNNY Home Decor 官方 logo，原图 592×296，比例 2:1）
   // 若 /logo.png 缺失则此块跳过，标题区仍然好看
@@ -677,7 +677,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
     {
-      label: input.installMode === "pickup" ? "Install (Pickup)" : "Install (C)",
+      label: input.installMode === "pickup" ? "Install (Pickup)" : "Install Min Adj.",
       value: formatCAD(input.subtotalC),
     },
     { label: "HST 13%", value: formatCAD(hst) },
@@ -946,29 +946,6 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     ctx.y += 10;
   }
 
-  // Part C
-  const activeServices = input.partCServices.filter((s) => s.qty > 0);
-  const activeAddOns = input.partCAddOns.filter((a) => a.qty > 0);
-  if (input.installMode !== "pickup" && (activeServices.length > 0 || activeAddOns.length > 0)) {
-    maybePageBreak(30);
-    drawSectionBanner(ctx, "Part C — Installation Services");
-    const rowsC: (string | number)[][] = [];
-    activeServices.forEach((s) => rowsC.push([s.type, s.qty, `$${s.unitPrice.toFixed(2)}`, `$${s.total.toFixed(2)}`]));
-    activeAddOns.forEach((a) => rowsC.push([a.type, a.qty, `$${a.unitPrice.toFixed(2)}`, `$${a.total.toFixed(2)}`]));
-    autoTable(doc, {
-      ...sharedTable,
-      startY: ctx.y,
-      head: [["Service", "QTY", "Unit Price", "Total"]],
-      body: rowsC,
-    });
-    ctx.y = getLastY() + 2;
-    setText(doc, PDF_TOKENS.primaryDark);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(`Installation Subtotal: ${formatCAD(input.subtotalC)}`, pageW - MARGIN, ctx.y + 4, { align: "right" });
-    ctx.y += 10;
-  }
-
   // ORDER TOTALS
   maybePageBreak(80);
   drawSectionBanner(ctx, "Order Totals");
@@ -978,12 +955,12 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     { label: "Drapes & Sheers Subtotal", value: formatCAD(input.drapeTotals.total) },
     { label: "Add-ons (Part B)", value: formatCAD(input.subtotalB) },
     {
-      label: "Installation (Part C)",
+      label: "Install Minimum Adjustment",
       value: formatCAD(input.subtotalC),
       hint:
         input.installMode === "pickup"
           ? "Pickup mode — installation waived"
-          : "Includes labour. Minimum $200 applies per project.",
+          : "Product line installation is included; this only tops up to the $275 minimum.",
     },
     ...(promoAmount > 0
       ? [{ label: "Special Promotion", value: `− ${formatCAD(promoAmount)}`, hint: "Pre-tax discount applied" }]
@@ -1090,7 +1067,7 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
   drawTotalsTable(ctx, [
     { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
-    { label: "Installation (C)", value: formatCAD(input.subtotalC) },
+    { label: "Install Min Adj.", value: formatCAD(input.subtotalC) },
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
     { label: "HST 13%", value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },

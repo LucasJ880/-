@@ -86,14 +86,14 @@ export const INSTALL_RULES = {
   regular: 18,
   wideThresholdIn: 70,
   wide: 26,
-  minimumTotal: 200,
+  minimumTotal: 275,
   draperySheerNarrow: 55,
   draperySheerWide: 90,
   shuttersPanelWidthIn: 35,
   shutterPerPanel: 18,
 } as const;
 
-export const DEFAULT_DELIVERY_FEE = 50;
+export const DEFAULT_DELIVERY_FEE = 0;
 export const DEFAULT_TAX_RATE = 0.13;
 export const DEFAULT_CORDLESS_MULTIPLIER = 1.15;
 export const CORDLESS_MAX_WIDTH = 75;

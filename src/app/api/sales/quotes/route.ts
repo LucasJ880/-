@@ -91,7 +91,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       addonsSubtotal: 0,
       installSubtotal: 0,
       installApplied: 0,
-      deliveryFee: deliveryFee ?? 50,
+      deliveryFee: deliveryFee ?? 0,
       preTaxTotal: 0,
       taxRate: taxRate ?? 0.13,
       taxAmount: 0,

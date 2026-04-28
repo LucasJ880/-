@@ -10,7 +10,6 @@ import {
   FileDown,
   Save,
   Package,
-  Wrench,
   Wrench as InstallIcon,
   Truck,
   Blinds,
@@ -46,11 +45,10 @@ import type {
   QuoteFormState,
   InstallMode,
 } from "./types";
-import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, DELIVERY_FEE, HST_RATE, generateOrderNumber } from "./types";
+import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, HST_RATE, generateOrderNumber } from "./types";
 
-import { PartAForm, makeEmptyLine } from "./part-a";
+import { makeEmptyLine } from "./part-a";
 import { PartBForm } from "./part-b";
-import { PartCForm, calcSubtotalC } from "./part-c";
 import { OrderShadesForm } from "./order-shades";
 import { OrderShuttersForm } from "./order-shutters";
 import { OrderDrapesForm } from "./order-drapes";
@@ -73,16 +71,15 @@ import {
 } from "./quote-draft";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
-// Part A 已从主流程隐藏（保留数据结构以便老单还能打开），
-// Tab、主页显示、总价和 PDF 输出都不再包含 Part A。
-type TabId = "partB" | "partC" | "shades" | "shutters" | "drapes";
+// Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
+// Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
+type TabId = "partB" | "shades" | "shutters" | "drapes";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "shades", label: "Shades", icon: <Blinds className="h-4 w-4" /> },
   { id: "shutters", label: "Shutters", icon: <PanelTopOpen className="h-4 w-4" /> },
   { id: "drapes", label: "Drapes", icon: <Columns3 className="h-4 w-4" /> },
   { id: "partB", label: "Part B", icon: <Package className="h-4 w-4" /> },
-  { id: "partC", label: "Part C", icon: <Wrench className="h-4 w-4" /> },
 ];
 
 interface CustomerOption {
@@ -347,11 +344,8 @@ function QuoteSheetPageInner() {
   }, [customers]);
 
   // Calculations
-  // Part A 已从总价/Tab/PDF 全部隐藏，数据结构暂留以便老单打开
-  const subtotalC = useMemo(
-    () => (installMode === "pickup" ? 0 : calcSubtotalC(partCServices, partCAddOns)),
-    [partCServices, partCAddOns, installMode]
-  );
+  // Part A / Part C 已从总价/Tab/PDF 的独立表单中隐藏，数据结构暂留以便老单打开。
+  // 安装费已内置在 Shades / Shutters / Drapes 行价里；这里只补足最低安装+运费合计。
   const subtotalB = useMemo(
     () => partBAddons.reduce((s, a) => s + a.total, 0),
     [partBAddons]
@@ -371,6 +365,15 @@ function QuoteSheetPageInner() {
   );
   const productsSubtotal =
     shadeTotals.total + shutterTotals.total + drapeTotals.total;
+  const productInstallSubtotal =
+    shadeTotals.install + shutterTotals.install + drapeTotals.install;
+  const subtotalC = useMemo(
+    () =>
+      installMode === "pickup" || productInstallSubtotal <= 0
+        ? 0
+        : Math.max(0, MIN_INSTALL_CHARGE - productInstallSubtotal),
+    [installMode, productInstallSubtotal],
+  );
 
   // Step 4：折扣率追踪 —— 提前计算，供 handleSave 引用
   const specialPromotionNum = Math.max(0, parseFloat(specialPromotion) || 0);
@@ -1405,8 +1408,8 @@ function QuoteSheetPageInner() {
           </span>
           {installMode !== "pickup" && (
             <span className="flex items-center gap-1">
-              <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
-              Part C:{" "}
+              <InstallIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              Install min adj.:{" "}
               <span className="font-mono text-muted-foreground">
                 {formatCAD(subtotalC)}
               </span>
@@ -1450,22 +1453,6 @@ function QuoteSheetPageInner() {
             depositUnlocked={depositUnlocked}
             onDepositUnlockedChange={setDepositUnlocked}
           />
-        )}
-        {activeTab === "partC" && (
-          <>
-            {installMode === "pickup" && (
-              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <Truck className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  <span className="font-semibold">Pickup mode active.</span> Installation services
-                  in Part C are waived (subtotal = $0). Switch Delivery Method to &ldquo;Installation&rdquo;
-                  above to include install charges.
-                </div>
-              </div>
-            )}
-            <PartCForm services={partCServices} onServicesChange={setPartCServices}
-              addOns={partCAddOns} onAddOnsChange={setPartCAddOns} />
-          </>
         )}
         {activeTab === "shades" && (
           <OrderShadesForm lines={shadeOrders} onChange={setShadeOrders}
