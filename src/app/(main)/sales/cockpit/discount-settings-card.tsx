@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  *
  * - admin/super_admin 可编辑所有产品的默认百分比折扣
  * - 其他销售只读
- * - Order Form / AI 报价工具统一从此数据源读取
+ * - 电子报价单统一从此数据源读取
  */
 
 interface DiscountsDto {
@@ -247,7 +247,7 @@ export function DiscountSettingsCard() {
       </div>
 
       <p className="text-xs text-muted-foreground mb-3">
-        Order Form 和 AI 报价工具都使用这套折扣率作为默认值。
+        电子报价单使用这套折扣率作为默认值。
         {canEdit
           ? "修改后立即对全公司生效，每次变更都会记录审计日志。"
           : "如需调整请联系管理员。"}

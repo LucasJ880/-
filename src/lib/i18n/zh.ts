@@ -38,7 +38,6 @@ export const zh: Messages = {
   nav_notifications: "通知中心",
   nav_tasks: "任务管理",
   nav_sales_pipeline: "销售看板",
-  nav_quote_tool: "报价工具",
   nav_all_quotes: "全部报价",
   nav_appointment_calendar: "预约日历",
   nav_field_measure: "现场量房",

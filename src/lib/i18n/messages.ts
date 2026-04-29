@@ -41,7 +41,6 @@ export interface Messages {
   nav_notifications: string;
   nav_tasks: string;
   nav_sales_pipeline: string;
-  nav_quote_tool: string;
   nav_all_quotes: string;
   nav_appointment_calendar: string;
   nav_field_measure: string;

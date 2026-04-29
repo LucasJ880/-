@@ -38,7 +38,6 @@ export const en: Messages = {
   nav_notifications: "Notifications",
   nav_tasks: "Tasks",
   nav_sales_pipeline: "Sales Pipeline",
-  nav_quote_tool: "Quote Tool",
   nav_all_quotes: "All Quotes",
   nav_appointment_calendar: "Appointments",
   nav_field_measure: "Field Measure",

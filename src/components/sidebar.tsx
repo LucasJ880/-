@@ -31,7 +31,6 @@ import {
   MessageSquare,
   MessageCircle,
   Brain,
-  Calculator,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -39,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
-import { canViewAdminPages, canAccessModule, orgRoleLabel } from "@/lib/permissions-client";
+import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
 import type { MessageKey } from "@/lib/i18n/messages";
 
@@ -74,7 +73,6 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ["admin", "super_admin", "sales"],
     items: [
       { href: "/sales", labelKey: "nav_sales_pipeline", icon: Handshake, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/quote-tool", labelKey: "nav_quote_tool", icon: Calculator, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/quote-sheet", labelKey: "nav_quote_sheet", icon: FileText, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/quotes", labelKey: "nav_all_quotes", icon: ScrollText, roles: ["admin", "super_admin", "sales"] },
       { href: "/sales/calendar", labelKey: "nav_appointment_calendar", icon: CalendarDays, roles: ["admin", "super_admin", "sales"] },

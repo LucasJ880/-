@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, CalendarDays, Calculator, Menu } from "lucide-react";
+import { Home, Users, CalendarDays, FileText, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppShell } from "./app-shell";
 
@@ -38,11 +38,11 @@ export function MobileTabBar() {
       match: (p) => p.startsWith("/sales/calendar"),
     },
     {
-      href: "/sales/quote-tool",
+      href: "/sales/quote-sheet",
       label: "报价",
-      icon: Calculator,
+      icon: FileText,
       match: (p) =>
-        p.startsWith("/sales/quote-tool") || p.startsWith("/sales/quotes"),
+        p.startsWith("/sales/quote-sheet") || p.startsWith("/sales/quotes"),
     },
     {
       label: "更多",

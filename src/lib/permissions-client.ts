@@ -42,7 +42,7 @@ export function canAccessModule(role: string | null | undefined, modulePath: str
     "/notifications": undefined,
     "/tasks":         undefined,
     "/sales":           ["admin", "sales"],
-    "/sales/quote-tool": ["admin", "sales"],
+    "/sales/quote-sheet": ["admin", "sales"],
     "/sales/quotes":    ["admin", "sales"],
     "/sales/calendar":  ["admin", "sales"],
     "/sales/measure":   ["admin", "sales"],

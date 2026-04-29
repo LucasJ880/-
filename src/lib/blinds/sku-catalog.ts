@@ -1,7 +1,6 @@
 /**
  * 共享 SKU 目录：读取 `public/sku-catalog.csv`
  * - 给电子报价单（order-shades / order-drapes）提供 SKU 下拉
- * - 给 AI 报价工具 sunny-quote.html 通过同一 URL fetch
  * - 解析为人类可读标签（如 "Aquawide3 · Beige · Light Filtering"）
  * - 提供 skuToPricingFabric 将具体 SKU 映射到 pricing-engine 能识别的面料类别
  */
