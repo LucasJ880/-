@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
-import { ConvertTradeQuoteToSalesQuoteDialog } from "../convert-trade-quote-to-sales-dialog";
+import { ConvertTradeQuoteToSalesQuoteDialog } from "../../convert-trade-quote-to-sales-dialog";
 
 interface QuoteItem {
   id: string;

@@ -48,7 +48,7 @@ import {
   getTradeProspectStageTone,
   normalizeTradeProspectStage,
 } from "@/lib/trade/stage";
-import { ConvertTradeQuoteToSalesQuoteDialog } from "../convert-trade-quote-to-sales-dialog";
+import { ConvertTradeQuoteToSalesQuoteDialog } from "../../convert-trade-quote-to-sales-dialog";
 
 function researchSourceKindLabel(kind: string): string {
   const labels: Record<string, string> = {
