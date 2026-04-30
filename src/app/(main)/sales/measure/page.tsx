@@ -25,6 +25,12 @@ import { getAvailableFabrics, ALL_PRODUCTS } from "@/lib/blinds/pricing-data";
 import type { ProductName, PriceResult } from "@/lib/blinds/pricing-types";
 import { ADDON_CATALOG, getEligibleAddons } from "@/lib/blinds/pricing-addons";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 interface WindowEntry {
   id: string;
@@ -102,6 +108,7 @@ function calcItemPrice(w: WindowEntry): ItemPricing {
 
 export default function MeasurePage() {
   const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
   const [customers, setCustomers] = useState<{ id: string; name: string; address?: string }[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [overallNotes, setOverallNotes] = useState("");
@@ -175,6 +182,10 @@ export default function MeasurePage() {
 
   const handleSaveAndQuote = async () => {
     if (!customerId || !hasValidItems) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法保存");
+      return;
+    }
     setSaving(true);
     try {
       const windowsPayload = windows.map((w) => ({
@@ -190,16 +201,18 @@ export default function MeasurePage() {
         sortOrder: 0,
       }));
 
-      const body = { customerId, overallNotes, windows: windowsPayload };
+      const body = withSalesOrgId(orgId!, { customerId, overallNotes, windows: windowsPayload });
       const res = await apiFetch("/api/sales/measurements", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }).then((r) => r.json());
 
       if (res.record?.id) {
         await apiFetch(`/api/sales/measurements/${res.record.id}/generate-quote`, {
           method: "POST",
-          body: JSON.stringify({ installMode }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(withSalesOrgId(orgId!, { installMode })),
         });
       }
       router.push("/sales/quotes");
@@ -555,6 +568,9 @@ export default function MeasurePage() {
       <div className="sticky bottom-4 z-10">
         <div className="rounded-xl border border-border bg-white/95 shadow-lg backdrop-blur-sm p-4 flex items-center justify-between">
           <div className="text-sm text-muted-foreground">
+            {!orgLoading && ambiguous && (
+              <span className="block text-amber-700 mb-1">{salesOrgCreateBlockedHint(false, true, null)}</span>
+            )}
             {!customerId && <span className="text-amber-600">请先选择客户</span>}
             {customerId && !hasValidItems && <span className="text-amber-600">请至少输入一个有效窗位尺寸</span>}
             {customerId && hasValidItems && quoteSummary && (
@@ -567,7 +583,13 @@ export default function MeasurePage() {
           </div>
           <button
             onClick={handleSaveAndQuote}
-            disabled={saving || !customerId || !hasValidItems}
+            disabled={
+              saving ||
+              !customerId ||
+              !hasValidItems ||
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+            }
+            title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
             {saving ? (

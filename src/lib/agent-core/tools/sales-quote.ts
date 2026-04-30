@@ -11,6 +11,7 @@ import type { ProductName } from "@/lib/blinds/pricing-types";
 import { onQuoteCreated } from "@/lib/sales/opportunity-lifecycle";
 import { ok } from "./sales-helpers";
 import { canSeeResource } from "@/lib/rbac/data-scope";
+import { assertSalesCustomerInOrgOrThrowForConvert } from "@/lib/sales/org-context";
 
 // ── sales.ai_quote ──────────────────────────────────────────
 
@@ -122,10 +123,40 @@ registry.register({
       return { success: false, data: { error: "所有产品项计算失败", details: calc.errors } };
     }
 
+    const customerRow = await db.salesCustomer.findFirst({
+      where: { id: customerId, archivedAt: null },
+      select: { id: true, orgId: true, createdById: true },
+    });
+    if (!customerRow) {
+      return { success: false, data: { error: "客户不存在" } };
+    }
+    try {
+      await assertSalesCustomerInOrgOrThrowForConvert(customerRow, ctx.orgId);
+    } catch (e) {
+      return {
+        success: false,
+        data: { error: e instanceof Error ? e.message : "客户组织校验失败" },
+      };
+    }
+
+    if (opportunityId) {
+      const opp = await db.salesOpportunity.findFirst({
+        where: { id: opportunityId, customerId },
+        select: { id: true, orgId: true },
+      });
+      if (!opp) {
+        return { success: false, data: { error: "商机不存在或不属于该客户" } };
+      }
+      if (opp.orgId && opp.orgId !== ctx.orgId) {
+        return { success: false, data: { error: "商机不属于当前组织" } };
+      }
+    }
+
     const existingCount = await db.salesQuote.count({ where: { customerId } });
 
     const quote = await db.salesQuote.create({
       data: {
+        orgId: ctx.orgId,
         customerId,
         opportunityId: opportunityId || null,
         version: existingCount + 1,

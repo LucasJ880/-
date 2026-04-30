@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Loader2, BookOpen, Trash2, Edit3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface KnowledgeItem {
   id: string;
@@ -33,6 +35,8 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function TradeKnowledgePage() {
+  const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -40,19 +44,49 @@ export default function TradeKnowledgePage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const url = `/api/trade/knowledge?orgId=default${filter ? `&category=${filter}` : ""}`;
+    if (!orgId || ambiguous) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const url = `/api/trade/knowledge?orgId=${encodeURIComponent(orgId)}${filter ? `&category=${filter}` : ""}`;
     const res = await apiFetch(url);
     if (res.ok) setItems(await res.json());
+    else setItems([]);
     setLoading(false);
-  }, [filter]);
+  }, [filter, orgId, ambiguous]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (orgLoading) return;
+    void load();
+  }, [load, orgLoading]);
 
   const handleDelete = async (id: string) => {
+    if (!orgId || ambiguous) return;
     if (!confirm("确定删除？")) return;
-    await apiFetch(`/api/trade/knowledge/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/trade/knowledge/${id}?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
     load();
   };
+
+  if (orgLoading || loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再管理外贸知识库。</p>
+        <button type="button" onClick={() => router.push("/organizations")} className="text-sm text-accent underline-offset-2 hover:underline">
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -73,9 +107,7 @@ export default function TradeKnowledgePage() {
         </button>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted" /></div>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="rounded-xl border border-border/60 bg-card-bg px-8 py-16 text-center">
           <BookOpen className="mx-auto mb-3 h-8 w-8 text-muted" />
           <p className="text-sm text-muted">暂无知识条目</p>
@@ -115,12 +147,21 @@ export default function TradeKnowledgePage() {
         </div>
       )}
 
-      {showCreate && <CreateKnowledgeModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
+      {showCreate && (
+        <CreateKnowledgeModal
+          orgId={orgId}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function CreateKnowledgeModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateKnowledgeModal({ orgId, onClose, onCreated }: { orgId: string; onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("product");
   const [content, setContent] = useState("");
@@ -135,7 +176,7 @@ function CreateKnowledgeModal({ onClose, onCreated }: { onClose: () => void; onC
       const res = await apiFetch("/api/trade/knowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId: "default", title, category, content, tags: tags.trim() || undefined }),
+        body: JSON.stringify({ orgId, title, category, content, tags: tags.trim() || undefined }),
       });
       if (res.ok) onCreated();
     } finally {

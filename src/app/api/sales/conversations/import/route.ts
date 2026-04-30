@@ -9,8 +9,13 @@
  */
 
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from "@/lib/sales/org-context";
 import {
   parseWechatConversation,
   parseGenericConversation,
@@ -44,6 +49,12 @@ const VALID_CHANNELS = new Set([
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body: ImportBody = await request.json();
+  const rawBody = body as unknown as Record<string, unknown>;
+  const orgRes = await resolveSalesOrgIdForRequest(request as NextRequest, user, {
+    bodyOrgId: typeof rawBody.orgId === "string" ? rawBody.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const requestOrgId = orgRes.orgId;
 
   if (!body.customerId) {
     return NextResponse.json({ error: "缺少 customerId" }, { status: 400 });
@@ -63,11 +74,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const customer = await db.salesCustomer.findUnique({
     where: { id: body.customerId },
-    select: { id: true, createdById: true },
+    select: { id: true, createdById: true, orgId: true },
   });
   if (!customer) {
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
+  const denied = await assertSalesCustomerInOrgForMutation(customer, requestOrgId);
+  if (denied) return denied;
 
   let messages: RawMessage[];
   let language: string;
@@ -112,6 +125,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const interaction = await db.customerInteraction.create({
     data: {
+      orgId: requestOrgId,
       customerId: body.customerId,
       opportunityId: body.opportunityId || null,
       type: typeMap[body.channel] || "note",

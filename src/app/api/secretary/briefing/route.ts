@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateDailyBriefing, generateBriefingsForOrg } from "@/lib/secretary/briefing";
 import { withAuth } from "@/lib/common/api-helpers";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 
 export const GET = withAuth(async (request, ctx, user) => {
   const today = new Date().toISOString().slice(0, 10);
@@ -42,7 +43,9 @@ export const GET = withAuth(async (request, ctx, user) => {
 
 export const POST = withAuth(async (request, ctx, user) => {
   const body = await request.json().catch(() => ({}));
-  const orgId = body.orgId ?? "default";
+  const orgRes = await resolveRequestOrgIdForUser(user, body.orgId as string | undefined);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
 
   if (body.action === "cron_all") {
     if (user.role !== "super_admin" && user.role !== "admin") {

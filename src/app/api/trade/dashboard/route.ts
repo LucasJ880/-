@@ -13,13 +13,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { resolveTradeOrgId } from "@/lib/trade/access";
+import { mergeNormalizedProspectStageCounts, type TradeProspectStage } from "@/lib/trade/stage";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { searchParams } = new URL(request.url);
-  const orgId = searchParams.get("orgId") ?? "default";
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const orgId = orgRes.orgId;
 
   const [
     totalProspects,
@@ -73,15 +77,33 @@ export async function GET(request: NextRequest) {
     db.tradeCampaign.count({ where: { orgId } }),
   ]);
 
-  const stageMap = Object.fromEntries(stageGroups.map((g) => [g.stage, g._count]));
+  const stageMap = mergeNormalizedProspectStageCounts(stageGroups);
+
+  const sumStages = (keys: TradeProspectStage[]) => keys.reduce((s, k) => s + (stageMap[k] ?? 0), 0);
 
   const funnel = [
     { stage: "discovered", label: "已发现", count: totalProspects },
-    { stage: "researched", label: "已研究", count: totalProspects - (stageMap["new"] ?? 0) },
-    { stage: "qualified", label: "合格", count: (stageMap["qualified"] ?? 0) + (stageMap["outreach_ready"] ?? 0) + (stageMap["outreach_sent"] ?? 0) + (stageMap["interested"] ?? 0) + (stageMap["negotiating"] ?? 0) + (stageMap["won"] ?? 0) },
-    { stage: "contacted", label: "已联系", count: (stageMap["outreach_sent"] ?? 0) + (stageMap["interested"] ?? 0) + (stageMap["negotiating"] ?? 0) + (stageMap["won"] ?? 0) + (stageMap["no_response"] ?? 0) },
-    { stage: "replied", label: "已回复", count: (stageMap["interested"] ?? 0) + (stageMap["negotiating"] ?? 0) + (stageMap["won"] ?? 0) },
-    { stage: "won", label: "成交", count: stageMap["won"] ?? 0 },
+    {
+      stage: "researched",
+      label: "已研究",
+      count: sumStages(["researched", "qualified", "contacted", "replied", "quoted", "follow_up", "converted", "lost", "archived"]),
+    },
+    {
+      stage: "qualified",
+      label: "合格",
+      count: sumStages(["qualified", "contacted", "replied", "quoted", "follow_up", "converted", "lost", "archived"]),
+    },
+    {
+      stage: "contacted",
+      label: "已联系",
+      count: sumStages(["contacted", "replied", "quoted", "follow_up", "converted", "lost", "archived"]),
+    },
+    {
+      stage: "replied",
+      label: "已回复",
+      count: sumStages(["replied", "quoted", "follow_up", "converted"]),
+    },
+    { stage: "converted", label: "成交", count: stageMap.converted },
   ];
 
   const sourceDistribution = sourceGroups.map((g) => ({

@@ -10,6 +10,12 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 import { parseResearchBundle, getResearchReportForAgents } from "@/lib/trade/research-bundle";
 import { runProspectResearch } from "@/lib/trade/research-service";
+import {
+  getTradeProspectStageLabel,
+  mergeNormalizedProspectStageCounts,
+  TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
+  TRADE_PROSPECT_STAGES,
+} from "@/lib/trade/stage";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -29,7 +35,11 @@ registry.register({
       db.tradeProspect.count({ where: { orgId } }),
       db.tradeQuote.count({ where: { orgId } }),
       db.tradeProspect.count({
-        where: { orgId, nextFollowUpAt: { lt: new Date() }, stage: { notIn: ["won", "lost", "unqualified"] } },
+        where: {
+          orgId,
+          nextFollowUpAt: { lt: new Date() },
+          stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
+        },
       }),
     ]);
 
@@ -38,7 +48,9 @@ registry.register({
       where: { orgId },
       _count: true,
     });
-    const stages = Object.fromEntries(stageGroups.map((g) => [g.stage, g._count]));
+    const stages = mergeNormalizedProspectStageCounts(
+      stageGroups.map((g) => ({ stage: g.stage, _count: g._count })),
+    );
 
     const quoteSum = await db.tradeQuote.aggregate({
       where: { orgId },
@@ -93,7 +105,7 @@ registry.register({
     type: "object",
     properties: {
       query: { type: "string", description: "搜索关键词（公司名、国家、联系人）" },
-      stage: { type: "string", description: "阶段筛选", enum: ["new", "researched", "qualified", "outreach_sent", "replied", "interested", "negotiating", "won", "lost", "no_response"] },
+      stage: { type: "string", description: "阶段筛选（标准值）", enum: [...TRADE_PROSPECT_STAGES] },
       campaignId: { type: "string", description: "可选，仅返回该活动下的线索" },
     },
   },
@@ -182,6 +194,7 @@ registry.register({
       score: prospect.score,
       scoreReason: prospect.scoreReason,
       stage: prospect.stage,
+      stageLabel: getTradeProspectStageLabel(prospect.stage),
       campaign: prospect.campaign.name,
       lastContactAt: prospect.lastContactAt,
       nextFollowUpAt: prospect.nextFollowUpAt,
@@ -210,7 +223,7 @@ registry.register({
       where: {
         orgId: ctx.orgId,
         nextFollowUpAt: { not: null },
-        stage: { notIn: ["won", "lost", "unqualified"] },
+        stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
       },
       orderBy: { nextFollowUpAt: "asc" },
       take: 15,
@@ -270,10 +283,22 @@ registry.register({
     const orgId = ctx.orgId;
     const [overdue, noResponse, qualified, draftQuotes] = await Promise.all([
       db.tradeProspect.count({
-        where: { orgId, nextFollowUpAt: { lt: now }, stage: { notIn: ["won", "lost", "unqualified"] } },
+        where: {
+          orgId,
+          nextFollowUpAt: { lt: now },
+          stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
+        },
       }),
-      db.tradeProspect.count({ where: { orgId, stage: "no_response" } }),
-      db.tradeProspect.count({ where: { orgId, stage: "qualified" } }),
+      db.tradeProspect.count({
+        where: {
+          orgId,
+          outreachSentAt: { not: null },
+          stage: { in: ["follow_up", "no_response"] },
+        },
+      }),
+      db.tradeProspect.count({
+        where: { orgId, stage: "qualified", outreachSentAt: null },
+      }),
       db.tradeQuote.count({ where: { orgId, status: "draft" } }),
     ]);
 

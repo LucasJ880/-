@@ -23,6 +23,12 @@ import {
 } from "@/components/ui/select";
 import { useFormDialog } from "@/lib/hooks/use-form-dialog";
 import { STAGES } from "./types";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 export function NewOpportunityDialog({
   open,
@@ -43,6 +49,7 @@ export function NewOpportunityDialog({
   });
   const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string }[]>([]);
   const { loading: saving, error, setError, handleSubmit } = useFormDialog();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   useEffect(() => {
     if (!open) return;
@@ -64,14 +71,20 @@ export function NewOpportunityDialog({
       setError("请选择客户并填写标题");
       return;
     }
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      setError(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "请稍候…");
+      return;
+    }
     await handleSubmit(async () => {
       const res = await apiFetch("/api/sales/opportunities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          estimatedValue: form.estimatedValue || undefined,
-        }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, {
+            ...form,
+            estimatedValue: form.estimatedValue || undefined,
+          }),
+        ),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -172,9 +185,19 @@ export function NewOpportunityDialog({
           <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
         )}
 
+        {!orgLoading && ambiguous && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {salesOrgCreateBlockedHint(false, true, null)}
+          </p>
+        )}
+
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button
+            onClick={handleSave}
+            disabled={saving || isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)}
+            title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+          >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             创建
           </Button>

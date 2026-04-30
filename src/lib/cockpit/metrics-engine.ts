@@ -6,6 +6,16 @@
  */
 
 import { db } from "@/lib/db";
+import {
+  mergeNormalizedProspectStageCounts,
+  TRADE_COCKPIT_FUNNEL_STAGES,
+  TRADE_DB_STAGES_CONTACTED_OR_LATER,
+  TRADE_DB_STAGES_REPLIED_LIKE,
+  TRADE_DB_STAGES_WON_LIKE,
+  TRADE_PROSPECT_STAGE_LABELS,
+  TRADE_PROSPECT_STAGES,
+  type TradeProspectStage,
+} from "@/lib/trade/stage";
 import type {
   CockpitData,
   MetricCard,
@@ -16,17 +26,15 @@ import type {
   TrendPoint,
 } from "./types";
 
-const FUNNEL_ORDER = [
-  { stage: "new", label: "新发现" },
-  { stage: "researched", label: "已研究" },
-  { stage: "qualified", label: "合格" },
-  { stage: "outreach_draft", label: "开发信草稿" },
-  { stage: "outreach_sent", label: "已发送" },
-  { stage: "replied", label: "已回复" },
-  { stage: "interested", label: "有意向" },
-  { stage: "negotiating", label: "谈判中" },
-  { stage: "won", label: "成交" },
-];
+/** 已触达（含历史 stage 字符串） */
+const CONTACTED_OR_LATER_DB = TRADE_DB_STAGES_CONTACTED_OR_LATER;
+
+/** 视为已回复（含历史） */
+const REPLIED_LIKE_DB = TRADE_DB_STAGES_REPLIED_LIKE;
+
+const FUNNEL_ORDER: { stage: TradeProspectStage; label: string }[] = TRADE_COCKPIT_FUNNEL_STAGES.map(
+  (stage) => ({ stage, label: TRADE_PROSPECT_STAGE_LABELS[stage] }),
+);
 
 function weekAgo(weeks: number): Date {
   const d = new Date();
@@ -82,7 +90,7 @@ export async function computeCockpitData(orgId: string): Promise<CockpitData> {
   ] = await Promise.all([
     // 活跃线索总数
     db.tradeProspect.count({
-      where: { orgId, stage: { notIn: ["unqualified", "lost"] } },
+      where: { orgId, stage: { notIn: ["unqualified", "lost", "archived"] } },
     }),
     // 本周新线索
     db.tradeProspect.count({
@@ -133,38 +141,38 @@ export async function computeCockpitData(orgId: string): Promise<CockpitData> {
   ]);
 
   // ── 回复数据 ─────────────────────────────────────────────
-  const repliedStages = ["replied", "interested", "negotiating", "won"];
   const outreachSent = await db.tradeProspect.count({
-    where: { orgId, stage: { notIn: ["new", "researched", "qualified", "outreach_draft", "unqualified"] } },
+    where: { orgId, OR: [{ outreachSentAt: { not: null } }, { stage: { in: [...CONTACTED_OR_LATER_DB] } }] },
   });
   const repliedCount = await db.tradeProspect.count({
-    where: { orgId, stage: { in: repliedStages } },
+    where: { orgId, stage: { in: [...REPLIED_LIKE_DB] } },
   });
 
   const thisWeekReplied = await db.tradeProspect.count({
     where: {
       orgId,
-      stage: { in: repliedStages },
+      stage: { in: [...REPLIED_LIKE_DB] },
       updatedAt: { gte: thisWeekStart },
     },
   });
   const lastWeekReplied = await db.tradeProspect.count({
     where: {
       orgId,
-      stage: { in: repliedStages },
+      stage: { in: [...REPLIED_LIKE_DB] },
       updatedAt: { gte: lastWeekStart, lt: thisWeekStart },
     },
   });
 
-  // ── 成交数据 ─────────────────────────────────────────────
+  // ── 成交数据（标准 converted + 历史 won） ─────────────────
+  const wonStages = TRADE_DB_STAGES_WON_LIKE;
   const wonCount = await db.tradeProspect.count({
-    where: { orgId, stage: "won" },
+    where: { orgId, stage: { in: [...wonStages] } },
   });
   const thisWeekWon = await db.tradeProspect.count({
-    where: { orgId, stage: "won", updatedAt: { gte: thisWeekStart } },
+    where: { orgId, stage: { in: [...wonStages] }, updatedAt: { gte: thisWeekStart } },
   });
   const lastWeekWon = await db.tradeProspect.count({
-    where: { orgId, stage: "won", updatedAt: { gte: lastWeekStart, lt: thisWeekStart } },
+    where: { orgId, stage: { in: [...wonStages] }, updatedAt: { gte: lastWeekStart, lt: thisWeekStart } },
   });
 
   // ── 构建指标卡 ────────────────────────────────────────────
@@ -173,7 +181,7 @@ export async function computeCockpitData(orgId: string): Promise<CockpitData> {
   const lastWeekOutreachSent = await db.tradeProspect.count({
     where: {
       orgId,
-      stage: { notIn: ["new", "researched", "qualified", "outreach_draft", "unqualified"] },
+      OR: [{ outreachSentAt: { not: null } }, { stage: { in: [...CONTACTED_OR_LATER_DB] } }],
       createdAt: { lt: thisWeekStart },
     },
   });
@@ -202,12 +210,12 @@ export async function computeCockpitData(orgId: string): Promise<CockpitData> {
 
   // ── 构建漏斗 ──────────────────────────────────────────────
 
-  const stageMap = new Map(stageCounts.map((s) => [s.stage, s._count.id]));
-  const totalForFunnel = stageCounts.reduce((s, c) => s + c._count.id, 0);
+  const normalizedCounts = mergeNormalizedProspectStageCounts(stageCounts);
+  const totalForFunnel = TRADE_PROSPECT_STAGES.reduce((s, st) => s + (normalizedCounts[st] ?? 0), 0);
 
   let prevCount = totalForFunnel;
   const funnelStages: FunnelStage[] = FUNNEL_ORDER.map((fo) => {
-    const count = stageMap.get(fo.stage) ?? 0;
+    const count = normalizedCounts[fo.stage] ?? 0;
     const rate = prevCount > 0 ? count / prevCount : null;
     prevCount = count > 0 ? count : prevCount;
     return { stage: fo.stage, label: fo.label, count, conversionRate: rate };
@@ -249,7 +257,7 @@ export async function computeCockpitData(orgId: string): Promise<CockpitData> {
   const topCampaigns = await Promise.all(
     campaigns.slice(0, 5).map(async (c) => {
       const replied = await db.tradeProspect.count({
-        where: { campaignId: c.id, stage: { in: repliedStages } },
+        where: { campaignId: c.id, stage: { in: [...REPLIED_LIKE_DB] } },
       });
       return {
         id: c.id,
@@ -296,7 +304,7 @@ async function buildWeeklyTrend(
         value = await db.tradeProspect.count({
           where: {
             orgId,
-            stage: { in: ["replied", "interested", "negotiating", "won"] },
+            stage: { in: [...REPLIED_LIKE_DB] },
             updatedAt: { gte: from, lt: to },
           },
         });

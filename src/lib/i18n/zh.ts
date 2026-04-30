@@ -47,6 +47,8 @@ export const zh: Messages = {
   nav_sales_knowledge: "销售知识库",
   nav_quote_sheet: "电子报价单",
   nav_trade_dashboard: "外贸看板",
+  nav_trade_prospects: "全部线索",
+  nav_trade_intelligence: "竞品溯源",
   nav_trade_cockpit: "驾驶舱",
   nav_ai_assistant: "AI 助手",
   nav_trade_quotes: "外贸报价",

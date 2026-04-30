@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { sendChannelMessage } from "@/lib/trade/channel-service";
+import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -9,16 +10,22 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { channel } = await params;
   const body = await request.json();
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { channel } = await params;
 
   if (!body.prospectId || !body.to || !body.content) {
     return NextResponse.json({ error: "prospectId, to, content 必填" }, { status: 400 });
   }
 
+  const p = await loadTradeProspectForOrg(String(body.prospectId), orgRes.orgId);
+  if (p instanceof NextResponse) return p;
+
   try {
     const result = await sendChannelMessage({
-      orgId: body.orgId ?? "default",
+      orgId: orgRes.orgId,
       prospectId: body.prospectId,
       channel: channel as "whatsapp" | "wechat" | "wechat_work",
       to: body.to,

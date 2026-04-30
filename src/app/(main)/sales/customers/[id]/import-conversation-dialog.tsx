@@ -15,6 +15,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 export function ImportConversationDialog({
   open,
@@ -38,6 +44,7 @@ export function ImportConversationDialog({
     topicTags: string[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   const CHANNELS = [
     { key: "wechat", label: "微信", hint: "粘贴微信聊天记录导出" },
@@ -51,13 +58,19 @@ export function ImportConversationDialog({
       setError("请粘贴对话内容");
       return;
     }
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      setError(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法导入");
+      return;
+    }
     setImporting(true);
     setError(null);
     try {
       const res = await apiFetch("/api/sales/conversations/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId, channel, rawText }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, { customerId, channel, rawText }),
+        ),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -152,13 +165,24 @@ export function ImportConversationDialog({
               </p>
             )}
 
+            {!orgLoading && ambiguous && (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {salesOrgCreateBlockedHint(false, true, null)}
+              </p>
+            )}
+
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 取消
               </Button>
               <Button
                 onClick={handleImport}
-                disabled={!rawText.trim() || importing}
+                disabled={
+                  !rawText.trim() ||
+                  importing ||
+                  isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                }
+                title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
               >
                 {importing && <Loader2 className="h-4 w-4 animate-spin" />}
                 导入解析

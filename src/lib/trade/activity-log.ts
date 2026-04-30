@@ -24,17 +24,17 @@ export async function logActivity(input: {
   });
 }
 
-export async function getProspectTimeline(prospectId: string, limit = 30) {
+export async function getProspectTimeline(prospectId: string, orgId: string, limit = 30) {
   return db.tradeActivityLog.findMany({
-    where: { prospectId },
+    where: { prospectId, orgId },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
 }
 
-export async function getCampaignLogs(campaignId: string, limit = 50) {
+export async function getCampaignLogs(campaignId: string, orgId: string, limit = 50) {
   return db.tradeActivityLog.findMany({
-    where: { campaignId },
+    where: { campaignId, orgId },
     orderBy: { createdAt: "desc" },
     take: limit,
   });

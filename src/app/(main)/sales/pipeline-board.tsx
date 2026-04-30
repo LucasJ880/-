@@ -15,6 +15,11 @@ import { apiFetch } from "@/lib/api-fetch";
 import { STAGES, PRIORITIES } from "./types";
 import type { Opportunity, HealthInfo } from "./types";
 import { NewOpportunityDialog } from "./new-opportunity-dialog";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+} from "@/lib/sales/sales-client-org";
 
 function healthColor(score: number): string {
   if (score >= 70) return "text-emerald-500";
@@ -149,6 +154,8 @@ export function PipelineBoard({
   opportunities: Opportunity[];
   onRefresh: () => void;
 }) {
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+  const orgCreateBlocked = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [showNewOpp, setShowNewOpp] = useState(false);
@@ -225,7 +232,9 @@ export function PipelineBoard({
           </p>
           <button
             onClick={() => setShowNewOpp(true)}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-foreground px-3.5 py-2 text-[13px] font-medium text-white shadow-xs hover:bg-foreground/90 active:scale-[0.98] transition-all duration-150"
+            disabled={orgCreateBlocked}
+            title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-foreground px-3.5 py-2 text-[13px] font-medium text-white shadow-xs hover:bg-foreground/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-40"
           >
             <Plus className="h-3.5 w-3.5" />
             新建机会
@@ -236,7 +245,9 @@ export function PipelineBoard({
           <div className="flex justify-end">
             <button
               onClick={() => setShowNewOpp(true)}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[12px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150"
+              disabled={orgCreateBlocked}
+              title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[12px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150 disabled:opacity-40"
             >
               <Plus className="h-3 w-3" />
               新建机会

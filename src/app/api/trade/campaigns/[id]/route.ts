@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getCampaign, updateCampaign, deleteCampaign } from "@/lib/trade/service";
+import { updateCampaign, deleteCampaign } from "@/lib/trade/service";
+import { loadTradeCampaignForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(
   request: NextRequest,
@@ -9,12 +10,13 @@ export async function GET(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const campaign = await getCampaign(id);
-  if (!campaign) {
-    return NextResponse.json({ error: "活动不存在" }, { status: 404 });
-  }
-  return NextResponse.json(campaign);
+  const loaded = await loadTradeCampaignForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  return NextResponse.json(loaded.campaign);
 }
 
 export async function PATCH(
@@ -24,9 +26,16 @@ export async function PATCH(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
   const body = await request.json();
-  const campaign = await updateCampaign(id, body);
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
+  const loaded = await loadTradeCampaignForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
+  const { orgId: _o, id: _i, ...safe } = body as Record<string, unknown>;
+  const campaign = await updateCampaign(id, safe);
   return NextResponse.json(campaign);
 }
 
@@ -37,7 +46,13 @@ export async function DELETE(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
+  const loaded = await loadTradeCampaignForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
   await deleteCampaign(id);
   return NextResponse.json({ ok: true });
 }

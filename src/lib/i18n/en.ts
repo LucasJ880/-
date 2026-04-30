@@ -47,6 +47,8 @@ export const en: Messages = {
   nav_sales_knowledge: "Sales Knowledge",
   nav_quote_sheet: "Quote Sheet",
   nav_trade_dashboard: "Trade Dashboard",
+  nav_trade_prospects: "All prospects",
+  nav_trade_intelligence: "Trade intelligence",
   nav_trade_cockpit: "Cockpit",
   nav_ai_assistant: "AI Assistant",
   nav_trade_quotes: "Trade Quotes",

@@ -21,6 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Opportunity } from "./types";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 interface QuoteLineItem {
   product: string;
@@ -70,6 +76,7 @@ export function CreateQuoteDialog({
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   useEffect(() => {
     apiFetch("/api/sales/quotes/preview")
@@ -129,6 +136,10 @@ export function CreateQuoteDialog({
 
   const handleSubmit = async () => {
     if (!canPreview) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法保存");
+      return;
+    }
     setSaving(true);
     try {
       const apiItems = items.map((it) => ({
@@ -142,13 +153,15 @@ export function CreateQuoteDialog({
       const res = await apiFetch("/api/sales/quotes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId,
-          opportunityId: opportunityId || undefined,
-          items: apiItems,
-          installMode,
-          notes: notes || undefined,
-        }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, {
+            customerId,
+            opportunityId: opportunityId || undefined,
+            items: apiItems,
+            installMode,
+            notes: notes || undefined,
+          }),
+        ),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -381,7 +394,16 @@ export function CreateQuoteDialog({
               </Button>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-                <Button variant="accent" onClick={handleSubmit} disabled={saving || !canPreview}>
+                <Button
+                  variant="accent"
+                  onClick={handleSubmit}
+                  disabled={
+                    saving ||
+                    !canPreview ||
+                    isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                  }
+                  title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+                >
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                   创建报价
                 </Button>

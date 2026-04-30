@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { ConvertTradeQuoteToSalesQuoteDialog } from "../convert-trade-quote-to-sales-dialog";
 
 interface QuoteItem {
   id: string;
@@ -59,29 +61,46 @@ const STATUS_LABELS: Record<string, string> = {
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddItem, setShowAddItem] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sqConvOpen, setSqConvOpen] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await apiFetch(`/api/trade/quotes/${id}`);
+    if (orgLoading) return;
+    if (!orgId || ambiguous) {
+      setQuote(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const res = await apiFetch(`/api/trade/quotes/${id}?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) setQuote(await res.json());
+    else setQuote(null);
     setLoading(false);
-  }, [id]);
+  }, [id, orgId, ambiguous, orgLoading]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const handleDeleteItem = async (itemId: string) => {
-    await apiFetch(`/api/trade/quotes/${id}/items?itemId=${itemId}`, { method: "DELETE" });
+    if (!orgId || ambiguous) return;
+    await apiFetch(
+      `/api/trade/quotes/${id}/items?itemId=${itemId}&orgId=${encodeURIComponent(orgId)}`,
+      { method: "DELETE" },
+    );
     load();
   };
 
   const handleStatusChange = async (status: string) => {
+    if (!orgId || ambiguous) return;
     await apiFetch(`/api/trade/quotes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, orgId }),
     });
     load();
   };
@@ -107,6 +126,29 @@ export default function QuoteDetailPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  if (orgLoading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再查看该报价单。</p>
+        <button
+          type="button"
+          onClick={() => router.push("/organizations")}
+          className="text-sm text-accent underline-offset-2 hover:underline"
+        >
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center py-32"><Loader2 className="h-6 w-6 animate-spin text-muted" /></div>;
@@ -174,6 +216,15 @@ export default function QuoteDetailPage() {
           {copied ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
           {copied ? "已复制" : "复制报价"}
         </button>
+        {!orgLoading && orgId && !ambiguous && (
+          <button
+            type="button"
+            onClick={() => setSqConvOpen(true)}
+            className="flex items-center gap-1 rounded-lg border border-violet-500/40 px-3 py-1.5 text-xs text-violet-300 transition hover:bg-violet-500/10"
+          >
+            转为销售报价
+          </button>
+        )}
       </div>
 
       {/* Items Table */}
@@ -247,7 +298,16 @@ export default function QuoteDetailPage() {
             添加产品行
           </button>
           {showAddItem && (
-            <AddItemForm quoteId={q.id} currency={q.currency} onAdded={() => { setShowAddItem(false); load(); }} onCancel={() => setShowAddItem(false)} />
+            <AddItemForm
+              quoteId={q.id}
+              currency={q.currency}
+              orgId={orgId!}
+              onAdded={() => {
+                setShowAddItem(false);
+                load();
+              }}
+              onCancel={() => setShowAddItem(false)}
+            />
           )}
         </>
       )}
@@ -269,11 +329,31 @@ export default function QuoteDetailPage() {
           )}
         </div>
       )}
+      <ConvertTradeQuoteToSalesQuoteDialog
+        quoteId={id}
+        orgId={orgId}
+        ambiguous={ambiguous}
+        open={sqConvOpen}
+        onOpenChange={setSqConvOpen}
+        onConverted={() => void load()}
+      />
     </div>
   );
 }
 
-function AddItemForm({ quoteId, currency, onAdded, onCancel }: { quoteId: string; currency: string; onAdded: () => void; onCancel: () => void }) {
+function AddItemForm({
+  quoteId,
+  currency,
+  orgId,
+  onAdded,
+  onCancel,
+}: {
+  quoteId: string;
+  currency: string;
+  orgId: string;
+  onAdded: () => void;
+  onCancel: () => void;
+}) {
   const [productName, setProductName] = useState("");
   const [specification, setSpecification] = useState("");
   const [unit, setUnit] = useState("pcs");
@@ -290,6 +370,7 @@ function AddItemForm({ quoteId, currency, onAdded, onCancel }: { quoteId: string
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          orgId,
           productName: productName.trim(),
           specification: specification.trim() || undefined,
           unit,

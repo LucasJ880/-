@@ -22,6 +22,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useFormDialog } from "@/lib/hooks/use-form-dialog";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 interface ExistingCustomer {
   id: string;
@@ -51,6 +57,7 @@ export function NewCustomerDialog({
   const [conflict, setConflict] = useState<ExistingCustomer | null>(null);
   const [merging, setMerging] = useState(false);
   const { loading: saving, error, setError, handleSubmit } = useFormDialog();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   // 每次打开都回到空白模版，避免看到上一条客户的残留
   useEffect(() => {
@@ -66,14 +73,21 @@ export function NewCustomerDialog({
       setError("客户名称不能为空");
       return;
     }
+    const orgBlock = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
+    if (orgBlock) {
+      setError(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "请稍候…");
+      return;
+    }
     await handleSubmit(async () => {
       const res = await apiFetch("/api/sales/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          ...(mergeToCustomerId ? { mergeToCustomerId } : {}),
-        }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, {
+            ...form,
+            ...(mergeToCustomerId ? { mergeToCustomerId } : {}),
+          }),
+        ),
       });
       if (res.status === 409) {
         const data = await res.json().catch(() => ({}));
@@ -222,13 +236,20 @@ export function NewCustomerDialog({
           </p>
         )}
 
+        {!orgLoading && ambiguous && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {salesOrgCreateBlockedHint(false, true, null)}
+          </p>
+        )}
+
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
           <Button
             onClick={() => handleSave()}
-            disabled={saving || merging || !!conflict}
+            disabled={saving || merging || !!conflict || isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)}
+            title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             创建

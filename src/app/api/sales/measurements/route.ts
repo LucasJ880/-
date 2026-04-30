@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from "@/lib/sales/org-context";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const url = new URL(request.url);
@@ -41,6 +46,13 @@ interface WindowInput {
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
+  const rawBody = body as Record<string, unknown>;
+  const orgRes = await resolveSalesOrgIdForRequest(request as unknown as NextRequest, user, {
+    bodyOrgId: typeof rawBody.orgId === 'string' ? rawBody.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const requestOrgId = orgRes.orgId;
+
   const { customerId, opportunityId, appointmentId, overallNotes, windows } = body as {
     customerId: string;
     opportunityId?: string;
@@ -52,6 +64,16 @@ export const POST = withAuth(async (request, _ctx, user) => {
   if (!customerId || !windows?.length) {
     return NextResponse.json({ error: "客户和窗位不能为空" }, { status: 400 });
   }
+
+  const customer = await db.salesCustomer.findFirst({
+    where: { id: customerId, archivedAt: null },
+    select: { id: true, orgId: true, createdById: true },
+  });
+  if (!customer) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
+  const denied = await assertSalesCustomerInOrgForMutation(customer, requestOrgId);
+  if (denied) return denied;
 
   const record = await db.measurementRecord.create({
     data: {

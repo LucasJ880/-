@@ -13,8 +13,13 @@
  */
 
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from "@/lib/sales/org-context";
 import {
   composeEmail,
   sendSalesEmail,
@@ -25,8 +30,14 @@ import {
 export const POST = withAuth(async (request, _ctx, user) => {
   const action = new URL(request.url).searchParams.get("action");
   const body = await request.json();
+  const rawBody = body as Record<string, unknown>;
 
   if (action === "refine") {
+    const orgRes = await resolveSalesOrgIdForRequest(request as NextRequest, user, {
+      bodyOrgId: typeof rawBody.orgId === "string" ? rawBody.orgId : null,
+    });
+    if (!orgRes.ok) return orgRes.response;
+
     const { currentSubject, currentHtml, refinement } = body as {
       currentSubject: string;
       currentHtml: string;
@@ -48,6 +59,12 @@ export const POST = withAuth(async (request, _ctx, user) => {
     }
   }
 
+  const orgRes = await resolveSalesOrgIdForRequest(request as NextRequest, user, {
+    bodyOrgId: typeof rawBody.orgId === "string" ? rawBody.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const requestOrgId = orgRes.orgId;
+
   const {
     customerId,
     scene,
@@ -68,6 +85,16 @@ export const POST = withAuth(async (request, _ctx, user) => {
       { status: 400 },
     );
   }
+
+  const customerRow = await db.salesCustomer.findFirst({
+    where: { id: customerId, archivedAt: null },
+    select: { id: true, orgId: true, createdById: true },
+  });
+  if (!customerRow) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
+  const custDenied = await assertSalesCustomerInOrgForMutation(customerRow, requestOrgId);
+  if (custDenied) return custDenied;
 
   try {
     const email = await composeEmail({
@@ -98,6 +125,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
       await db.customerInteraction.create({
         data: {
+          orgId: requestOrgId,
           customerId,
           type: "email",
           direction: "outbound",

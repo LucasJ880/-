@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getTemplate, updateTemplate, deleteTemplate } from "@/lib/trade/templates";
+import { updateTemplate, deleteTemplate } from "@/lib/trade/templates";
+import { loadTradeEmailTemplateForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(
   request: NextRequest,
@@ -9,12 +10,13 @@ export async function GET(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const template = await getTemplate(id);
-  if (!template) {
-    return NextResponse.json({ error: "模板不存在" }, { status: 404 });
-  }
-  return NextResponse.json(template);
+  const loaded = await loadTradeEmailTemplateForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  return NextResponse.json(loaded.template);
 }
 
 export async function PATCH(
@@ -24,8 +26,14 @@ export async function PATCH(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
   const body = await request.json();
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
+  const loaded = await loadTradeEmailTemplateForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
   const template = await updateTemplate(id, body);
   return NextResponse.json(template);
 }
@@ -37,7 +45,13 @@ export async function DELETE(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
+  const loaded = await loadTradeEmailTemplateForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
   await deleteTemplate(id);
   return NextResponse.json({ success: true });
 }

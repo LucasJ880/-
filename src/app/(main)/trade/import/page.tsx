@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Upload, Loader2, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface Campaign {
   id: string;
@@ -11,6 +13,8 @@ interface Campaign {
 }
 
 export default function TradeImportPage() {
+  const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignId, setCampaignId] = useState("");
   const [source, setSource] = useState("exhibition");
@@ -24,27 +28,34 @@ export default function TradeImportPage() {
   } | null>(null);
 
   const loadCampaigns = useCallback(async () => {
-    const res = await apiFetch("/api/trade/campaigns?orgId=default");
-    if (res.ok) {
-      const data = await res.json();
-      setCampaigns(data);
-      if (data.length > 0 && !campaignId) setCampaignId(data[0].id);
+    if (!orgId || ambiguous) {
+      setCampaigns([]);
+      return;
     }
-  }, [campaignId]);
+    const res = await apiFetch(`/api/trade/campaigns?orgId=${encodeURIComponent(orgId)}`);
+    if (res.ok) {
+      const data = (await res.json()) as Campaign[];
+      setCampaigns(data);
+      setCampaignId((prev) => prev || data[0]?.id || "");
+    } else {
+      setCampaigns([]);
+    }
+  }, [orgId, ambiguous]);
 
   useEffect(() => {
-    loadCampaigns();
-  }, [loadCampaigns]);
+    if (orgLoading) return;
+    void loadCampaigns();
+  }, [loadCampaigns, orgLoading]);
 
   const handleUpload = async () => {
-    if (!file || !campaignId) return;
+    if (!file || !campaignId || !orgId || ambiguous) return;
     setUploading(true);
     setResult(null);
 
     const formData = new FormData();
     formData.append("file", file);
     formData.append("campaignId", campaignId);
-    formData.append("orgId", "default");
+    formData.append("orgId", orgId);
     formData.append("source", source);
 
     try {
@@ -71,6 +82,18 @@ export default function TradeImportPage() {
         description="上传 CSV 或 Excel 文件，批量创建线索"
       />
 
+      {orgLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted" />
+        </div>
+      ) : !orgId || ambiguous ? (
+        <div className="space-y-4 py-16 text-center">
+          <p className="text-sm text-muted">请先选择当前组织后再使用导入。</p>
+          <button type="button" onClick={() => router.push("/organizations")} className="text-sm text-accent underline-offset-2 hover:underline">
+            前往组织
+          </button>
+        </div>
+      ) : (
       <div className="mx-auto max-w-lg space-y-4 rounded-xl border border-border/60 bg-card-bg p-6">
         {/* Campaign Select */}
         <div>
@@ -154,6 +177,7 @@ export default function TradeImportPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -12,21 +12,35 @@ import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { ALL_PRODUCTS, getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName, QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { randomBytes } from "crypto";
+import type { NextRequest } from "next/server";
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from "@/lib/sales/org-context";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const installMode = (body.installMode as string) ?? "default";
+  const rawBody = body as Record<string, unknown>;
+  const orgRes = await resolveSalesOrgIdForRequest(request as unknown as NextRequest, user, {
+    bodyOrgId: typeof rawBody.orgId === "string" ? rawBody.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const requestOrgId = orgRes.orgId;
 
   const record = await db.measurementRecord.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true } },
+      customer: { select: { id: true, name: true, orgId: true, createdById: true } },
       windows: { orderBy: { sortOrder: "asc" } },
     },
   });
 
   if (!record) return NextResponse.json({ error: "量房记录不存在" }, { status: 404 });
+
+  const custDenied = await assertSalesCustomerInOrgForMutation(record.customer, requestOrgId);
+  if (custDenied) return custDenied;
 
   const windowsWithProduct = record.windows.filter((w) => w.product && w.widthIn > 0 && w.heightIn > 0);
   if (windowsWithProduct.length === 0) {
@@ -68,6 +82,7 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const quote = await db.salesQuote.create({
     data: {
+      orgId: requestOrgId,
       customerId: record.customerId,
       opportunityId: record.opportunityId,
       version: existingCount + 1,

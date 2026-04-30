@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import {
   Sparkles,
   AlertTriangle,
@@ -378,6 +379,8 @@ function BriefingItemCard({
 // ── 主组件 ───────────────────────────────────────────────────────
 
 export function DashboardDailyBriefing() {
+  const { orgId: actionOrgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
+
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -405,12 +408,16 @@ export function DashboardDailyBriefing() {
   }, []);
 
   const handleGenerate = useCallback(async () => {
+    if (ambiguous || !actionOrgId) {
+      showToast("请先选择当前组织后再生成简报。", false);
+      return;
+    }
     setGenerating(true);
     try {
       const res = await apiFetch("/api/secretary/briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ orgId: actionOrgId }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -426,10 +433,13 @@ export function DashboardDailyBriefing() {
           });
           setCompletedActions(new Set());
         }
+      } else {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(j.error ?? "简报生成失败", false);
       }
     } catch { /* ignore */ }
     finally { setGenerating(false); }
-  }, []);
+  }, [ambiguous, actionOrgId, showToast]);
 
   const handleAction = useCallback(async (item: BriefingItem) => {
     if (!item.action) return;
@@ -448,6 +458,21 @@ export function DashboardDailyBriefing() {
     }
 
     if (!item.entityId) return;
+
+    const secretaryTypes = new Set([
+      "followup_draft",
+      "send_draft",
+      "prospect_approve",
+      "prospect_skip",
+      "quote_extend",
+    ]);
+    if (secretaryTypes.has(actionType) && !actionOrgId) {
+      showToast(
+        "你加入了多个组织，请先进入某个组织页面（路径含 /organizations/组织id），或在侧栏将当前组织写入本地选择后再试。",
+        false,
+      );
+      return;
+    }
 
     // 如果跟进引擎已预生成草稿，直接打开弹窗，无需再调 API
     if (actionType === "followup_draft" && payload?.prefilled) {
@@ -472,6 +497,7 @@ export function DashboardDailyBriefing() {
         body: JSON.stringify({
           type: actionType,
           entityId: item.entityId,
+          orgId: actionOrgId || undefined,
           params: payload,
         }),
       });
@@ -491,10 +517,17 @@ export function DashboardDailyBriefing() {
     } finally {
       setActionLoading(null);
     }
-  }, [showToast]);
+  }, [showToast, actionOrgId]);
 
   const handleSendDraft = useCallback(async (edited: { subject: string; body: string; to: string }) => {
     if (!draftModal) return;
+    if (!actionOrgId) {
+      showToast(
+        "你加入了多个组织，请先进入某个组织页面或完成组织选择后再发送。",
+        false,
+      );
+      return;
+    }
     setSendingDraft(true);
 
     try {
@@ -504,6 +537,7 @@ export function DashboardDailyBriefing() {
         body: JSON.stringify({
           type: "send_draft",
           entityId: draftModal.prospectId,
+          orgId: actionOrgId || undefined,
           params: { subject: edited.subject, body: edited.body, to: edited.to },
         }),
       });
@@ -528,7 +562,7 @@ export function DashboardDailyBriefing() {
     } finally {
       setSendingDraft(false);
     }
-  }, [draftModal, showToast]);
+  }, [draftModal, showToast, actionOrgId]);
 
   useEffect(() => {
     if (didInit.current) return;
@@ -537,7 +571,7 @@ export function DashboardDailyBriefing() {
   }, [fetchBriefing]);
 
   // ── 加载中 ──
-  if (loading) {
+  if (loading || orgLoading) {
     return (
       <div className="rounded-xl border border-accent/20 bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -563,7 +597,7 @@ export function DashboardDailyBriefing() {
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || ambiguous || !actionOrgId}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               "bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50",
@@ -620,13 +654,20 @@ export function DashboardDailyBriefing() {
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || ambiguous || !actionOrgId}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted hover:text-foreground disabled:opacity-50"
           >
             <RefreshCw size={11} className={cn(generating && "animate-spin")} />
             刷新
           </button>
         </div>
+
+        {/* 多组织未选当前 org 时提示 */}
+        {ambiguous && (
+          <div className="border-b border-amber-500/25 bg-amber-500/5 px-4 py-2 text-[12px] text-amber-900 dark:text-amber-100/90">
+            检测到多个组织：外贸与秘书一键操作需要明确的当前组织。请从侧栏进入目标组织的页面（地址中包含该组织的路径），或完成产品内的「当前组织」选择后再试。
+          </div>
+        )}
 
         {/* AI 摘要 */}
         <div className="px-4 py-3 border-b border-border/30">

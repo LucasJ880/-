@@ -6,22 +6,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { createWatchTarget, listWatchTargets } from "@/lib/trade/watch-service";
+import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
   const url = new URL(request.url);
-  const orgId = url.searchParams.get("orgId");
   const prospectId = url.searchParams.get("prospectId");
-  if (!orgId || !prospectId) {
+  if (!prospectId) {
     return NextResponse.json(
-      { error: "缺少 orgId 或 prospectId" },
+      { error: "缺少 prospectId" },
       { status: 400 },
     );
   }
 
-  const items = await listWatchTargets(orgId, prospectId);
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const p = await loadTradeProspectForOrg(prospectId, orgRes.orgId);
+  if (p instanceof NextResponse) return p;
+
+  const items = await listWatchTargets(orgRes.orgId, prospectId);
   return NextResponse.json({ items });
 }
 
@@ -30,16 +36,22 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
-  if (!body?.orgId || !body?.prospectId || !body?.url || !body?.pageType) {
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body?.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  if (!body?.prospectId || !body?.url || !body?.pageType) {
     return NextResponse.json(
-      { error: "orgId、prospectId、url、pageType 为必填" },
+      { error: "prospectId、url、pageType 为必填" },
       { status: 400 },
     );
   }
 
+  const p = await loadTradeProspectForOrg(String(body.prospectId), orgRes.orgId);
+  if (p instanceof NextResponse) return p;
+
   try {
     const row = await createWatchTarget({
-      orgId: String(body.orgId),
+      orgId: orgRes.orgId,
       prospectId: String(body.prospectId),
       url: String(body.url),
       pageType: String(body.pageType),

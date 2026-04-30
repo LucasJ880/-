@@ -22,6 +22,12 @@ import {
   Wallet,
 } from "lucide-react";
 import { RecordDepositDialog } from "@/components/sales/record-deposit-dialog";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 interface QuoteItem {
   id: string;
@@ -84,6 +90,7 @@ export default function SalesQuotesPage() {
 
 function SalesQuotesPageInner() {
   const searchParams = useSearchParams();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
   const initialStatus = (() => {
     const s = (searchParams.get("status") || "").toLowerCase();
     return (STATUS_FILTERS as readonly string[]).includes(s) ? s : "all";
@@ -121,12 +128,16 @@ function SalesQuotesPageInner() {
 
   const handleSendEmail = async () => {
     if (!emailDialog || !emailTo) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      setSendResult(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法发送");
+      return;
+    }
     setSending(true);
     setSendResult("");
     try {
       const res = await apiFetch(`/api/sales/quotes/${emailDialog.id}/send-email`, {
         method: "POST",
-        body: JSON.stringify({ to: emailTo, lang: emailLang }),
+        body: JSON.stringify(withSalesOrgId(orgId!, { to: emailTo, lang: emailLang })),
       }).then((r) => r.json());
       if (res.error) {
         setSendResult(`失败：${res.error}`);
@@ -482,7 +493,12 @@ function SalesQuotesPageInner() {
               </button>
               <button
                 onClick={handleSendEmail}
-                disabled={sending || !emailTo}
+                disabled={
+                  sending ||
+                  !emailTo ||
+                  isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                }
+                title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 <Mail size={15} />

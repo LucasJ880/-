@@ -2,13 +2,15 @@
  * POST /api/trade/prospects/[id]/reply
  *
  * 记录客户回复 → AI 自动分类意图 → 生成建议回复
- * body: { content: string, subject?: string, channel?: string }
+ * body: { content: string, subject?: string, channel?: string, orgId? }
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getProspect, updateProspect, createMessage } from "@/lib/trade/service";
+import { updateProspect, createMessage } from "@/lib/trade/service";
 import { classifyReply } from "@/lib/trade/agents";
+import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import { normalizeTradeProspectStage, type TradeProspectStage } from "@/lib/trade/stage";
 
 export async function POST(
   request: NextRequest,
@@ -17,18 +19,20 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
-  const prospect = await getProspect(id);
-  if (!prospect) {
-    return NextResponse.json({ error: "线索不存在" }, { status: 404 });
-  }
-
   const body = await request.json();
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
+  const loaded = await loadTradeProspectForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  const { prospect } = loaded;
+
   if (!body.content?.trim()) {
     return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
   }
 
-  const conversationHistory = prospect.messages
+  const conversationHistory = (prospect.messages ?? [])
     .slice(-6)
     .map((m) => `[${m.direction}] ${m.subject ?? ""}\n${m.content}`)
     .join("\n---\n");
@@ -45,17 +49,19 @@ export async function POST(
     sentiment: classification.confidence >= 0.7 ? "high_confidence" : "low_confidence",
   });
 
-  const stageMap: Record<string, string> = {
-    interested: "interested",
+  const stageMap: Record<string, TradeProspectStage> = {
+    interested: "follow_up",
     question: "replied",
-    request_sample: "interested",
-    objection: "negotiating",
+    request_sample: "follow_up",
+    objection: "follow_up",
     not_interested: "lost",
-    ooo: prospect.stage,
     unclear: "replied",
   };
 
-  const newStage = stageMap[classification.intent] ?? "replied";
+  const newStage: TradeProspectStage =
+    classification.intent === "ooo"
+      ? normalizeTradeProspectStage(prospect.stage)
+      : stageMap[classification.intent] ?? "replied";
   const now = new Date();
 
   const followUpDays: Record<string, number> = {

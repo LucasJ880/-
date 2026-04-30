@@ -19,6 +19,11 @@ import { NewCustomerDialog } from "./new-customer-dialog";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { PendingDepositBanner } from "@/components/sales/pending-deposit-banner";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+} from "@/lib/sales/sales-client-org";
 
 export default function SalesPage() {
   return (
@@ -37,6 +42,8 @@ export default function SalesPage() {
 function SalesPageInner() {
   const { isMobile } = useIsMobile();
   const { isSuperAdmin } = useCurrentUser();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+  const orgCreateBlocked = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -171,14 +178,18 @@ function SalesPageInner() {
             )}
             <button
               onClick={() => setShowImport(true)}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150"
+              disabled={orgCreateBlocked}
+              title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150 disabled:opacity-40"
             >
               <Upload className="h-3.5 w-3.5" />
               CSV 导入
             </button>
             <button
               onClick={() => setShowNewCustomer(true)}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-foreground px-3 py-1.5 text-[13px] font-medium text-white shadow-xs hover:bg-foreground/90 active:scale-[0.98] transition-all duration-150"
+              disabled={orgCreateBlocked}
+              title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-foreground px-3 py-1.5 text-[13px] font-medium text-white shadow-xs hover:bg-foreground/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-40"
             >
               <Plus className="h-3.5 w-3.5" />
               新客户
@@ -186,6 +197,12 @@ function SalesPageInner() {
           </div>
         }
       />
+
+      {!orgLoading && ambiguous && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {salesOrgCreateBlockedHint(false, true, null)}
+        </div>
+      )}
 
       <StatsCards opportunities={opportunities} customers={customers} viewMode={viewMode} />
 

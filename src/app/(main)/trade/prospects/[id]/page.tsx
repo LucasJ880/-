@@ -31,11 +31,24 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import {
   parseResearchBundle,
   type ResearchReport,
   type ScoringProfileV1,
 } from "@/lib/trade/research-bundle";
+import {
+  effectiveResearchStatusDisplay,
+  isEvidenceWeakDisplay,
+} from "@/lib/trade/research-status-display";
+import type { WebsiteCandidateJson } from "@/lib/trade/website-candidate-scoring";
+import {
+  TRADE_PROSPECT_STAGE_OPTIONS,
+  getTradeProspectStageLabel,
+  getTradeProspectStageTone,
+  normalizeTradeProspectStage,
+} from "@/lib/trade/stage";
+import { ConvertTradeQuoteToSalesQuoteDialog } from "../convert-trade-quote-to-sales-dialog";
 
 function researchSourceKindLabel(kind: string): string {
   const labels: Record<string, string> = {
@@ -74,12 +87,28 @@ interface Prospect {
   score: number | null;
   scoreReason: string | null;
   stage: string;
+  researchStatus: string | null;
+  websiteCandidates: unknown;
+  websiteConfidence: number | null;
+  websiteCandidateSource: string | null;
+  websiteVerifiedAt: string | null;
+  websiteVerifiedBy: string | null;
+  researchWarnings: unknown;
+  crawlStatus: string | null;
+  crawlSourceType: string | null;
+  sourcesCount: number | null;
+  lastResearchError: string | null;
+  lastResearchedAt: string | null;
   outreachSubject: string | null;
   outreachBody: string | null;
   outreachLang: string | null;
   outreachSentAt: string | null;
   followUpCount: number;
   createdAt: string;
+  convertedToSalesCustomerId?: string | null;
+  convertedToSalesOpportunityId?: string | null;
+  convertedAt?: string | null;
+  convertedById?: string | null;
   messages: Message[];
 }
 
@@ -94,22 +123,41 @@ interface Message {
   createdAt: string;
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  new: "新线索",
-  researched: "已研究",
-  qualified: "合格",
-  unqualified: "不合格",
-  outreach_draft: "邮件草稿",
-  outreach_sent: "已发送",
-  replied: "已回复",
-  interested: "感兴趣",
-  negotiating: "谈判中",
-  won: "成交",
-  lost: "丢失",
-  no_response: "未回复",
-};
-
-const TRADE_ORG_ID = "default";
+interface SalesConversionPreview {
+  prospectSummary: {
+    id: string;
+    companyName: string;
+    contactName: string | null;
+    contactEmail: string | null;
+    website: string | null;
+    country: string | null;
+    stage: string;
+    stageNormalized: string;
+    score: number | null;
+    researchStatus: string | null;
+    campaignName: string;
+  };
+  proposedCustomer: {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    notes: string | null;
+  };
+  proposedOpportunity: { title: string; stage: string; estimatedValue: number | null; notes: string };
+  existingCustomerCandidates: { id: string; name: string; email: string | null; matchReason: string }[];
+  existingOpportunityCandidates: { id: string; title: string; stage: string; customerId: string }[];
+  latestTradeQuote: { id: string; quoteNumber: string; status: string; totalAmount: number; currency: string } | null;
+  warnings: string[];
+  canConvert: boolean;
+  alreadyConverted: boolean;
+  converted: {
+    salesCustomerId: string | null;
+    salesOpportunityId: string | null;
+    convertedAt: string | null;
+    convertedById: string | null;
+  } | null;
+}
 
 const SCORE_DIM_LABELS: Record<string, string> = {
   productFit: "产品契合",
@@ -147,19 +195,6 @@ interface SignalRow {
   evidenceJson: unknown;
 }
 
-const STAGE_COLORS: Record<string, string> = {
-  new: "bg-zinc-500/15 text-zinc-400",
-  qualified: "bg-emerald-500/15 text-emerald-400",
-  unqualified: "bg-red-500/15 text-red-400",
-  outreach_draft: "bg-amber-500/15 text-amber-400",
-  outreach_sent: "bg-violet-500/15 text-violet-400",
-  replied: "bg-cyan-500/15 text-cyan-400",
-  interested: "bg-emerald-500/15 text-emerald-400",
-  negotiating: "bg-orange-500/15 text-orange-400",
-  won: "bg-emerald-600/20 text-emerald-300",
-  lost: "bg-red-600/20 text-red-300",
-};
-
 const INTENT_LABELS: Record<string, string> = {
   interested: "感兴趣",
   question: "询问细节",
@@ -185,7 +220,7 @@ const REPORT_LABELS: Record<string, string> = {
 export default function ProspectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { isSuperAdmin } = useCurrentUser();
+  const { user, isSuperAdmin } = useCurrentUser();
   const [prospect, setProspect] = useState<Prospect | null>(null);
   const [loading, setLoading] = useState(true);
   const [researching, setResearching] = useState(false);
@@ -211,21 +246,122 @@ export default function ProspectDetailPage() {
   const [watchBusy, setWatchBusy] = useState(false);
   const [checkingWatchId, setCheckingWatchId] = useState<string | null>(null);
   const [rebaselineWatchId, setRebaselineWatchId] = useState<string | null>(null);
+  const [researchBanner, setResearchBanner] = useState<string | null>(null);
+  const [confirmUrl, setConfirmUrl] = useState("");
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [salesModalOpen, setSalesModalOpen] = useState(false);
+  const [salesPreview, setSalesPreview] = useState<SalesConversionPreview | null>(null);
+  const [salesPreviewLoading, setSalesPreviewLoading] = useState(false);
+  const [salesMode, setSalesMode] = useState<"create_new" | "use_existing_customer">("create_new");
+  const [salesPickCustomerId, setSalesPickCustomerId] = useState("");
+  const [salesCreateOpp, setSalesCreateOpp] = useState(true);
+  const [salesIncludeQuote, setSalesIncludeQuote] = useState(false);
+  const [salesConvertBusy, setSalesConvertBusy] = useState(false);
+  const [salesConvertError, setSalesConvertError] = useState<string | null>(null);
+  const [tradeQuotes, setTradeQuotes] = useState<
+    Array<{ id: string; quoteNumber: string; status: string; totalAmount: number; currency: string }>
+  >([]);
+  const [tradeQuotesLoading, setTradeQuotesLoading] = useState(false);
+  const [sqConvQuoteId, setSqConvQuoteId] = useState<string | null>(null);
+
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
 
   const loadProspect = useCallback(async () => {
-    const res = await apiFetch(`/api/trade/prospects/${id}`);
+    if (!orgId || ambiguous) {
+      setProspect(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const res = await apiFetch(`/api/trade/prospects/${id}?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) setProspect(await res.json());
+    else setProspect(null);
     setLoading(false);
-  }, [id]);
+  }, [id, orgId, ambiguous]);
 
   useEffect(() => {
-    loadProspect();
-  }, [loadProspect]);
+    if (orgLoading) return;
+    if (!orgId || ambiguous) {
+      setProspect(null);
+      setLoading(false);
+      return;
+    }
+    void loadProspect();
+  }, [loadProspect, orgId, ambiguous, orgLoading]);
+
+  const loadTradeQuotes = useCallback(async () => {
+    if (!orgId || ambiguous) {
+      setTradeQuotes([]);
+      return;
+    }
+    setTradeQuotesLoading(true);
+    try {
+      const res = await apiFetch(
+        `/api/trade/quotes?prospectId=${encodeURIComponent(id)}&orgId=${encodeURIComponent(orgId)}`,
+      );
+      if (!res.ok) {
+        setTradeQuotes([]);
+        return;
+      }
+      const raw = (await res.json()) as unknown;
+      const rows = Array.isArray(raw) ? raw : [];
+      setTradeQuotes(
+        rows.map((q: { id: string; quoteNumber: string; status: string; totalAmount: number; currency: string }) => ({
+          id: q.id,
+          quoteNumber: q.quoteNumber,
+          status: q.status,
+          totalAmount: q.totalAmount,
+          currency: q.currency,
+        })),
+      );
+    } finally {
+      setTradeQuotesLoading(false);
+    }
+  }, [id, orgId, ambiguous]);
+
+  useEffect(() => {
+    if (orgLoading) return;
+    if (!orgId || ambiguous) return;
+    void loadTradeQuotes();
+  }, [loadTradeQuotes, orgId, ambiguous, orgLoading]);
+
+  const openSalesModal = useCallback(async () => {
+    if (!orgId || ambiguous) return;
+    setSalesConvertError(null);
+    setSalesModalOpen(true);
+    setSalesPreviewLoading(true);
+    setSalesPreview(null);
+    setSalesMode("create_new");
+    setSalesPickCustomerId("");
+    setSalesCreateOpp(true);
+    setSalesIncludeQuote(false);
+    try {
+      const res = await apiFetch(
+        `/api/trade/prospects/${id}/conversion-preview?orgId=${encodeURIComponent(orgId)}`,
+      );
+      const data = (await res.json()) as SalesConversionPreview & { error?: string };
+      if (!res.ok) {
+        setSalesConvertError(data.error ?? `预览失败（${res.status}）`);
+        return;
+      }
+      setSalesPreview(data);
+      const first = data.existingCustomerCandidates?.[0];
+      if (first) setSalesPickCustomerId(first.id);
+    } finally {
+      setSalesPreviewLoading(false);
+    }
+  }, [id, orgId, ambiguous]);
 
   const loadWatchData = useCallback(async () => {
+    if (!orgId || ambiguous) {
+      setWatchTargets([]);
+      setSignals([]);
+      return;
+    }
+    const q = encodeURIComponent(orgId);
     const [r1, r2] = await Promise.all([
-      apiFetch(`/api/trade/watch-targets?orgId=${encodeURIComponent(TRADE_ORG_ID)}&prospectId=${encodeURIComponent(id)}`),
-      apiFetch(`/api/trade/signals?orgId=${encodeURIComponent(TRADE_ORG_ID)}&prospectId=${encodeURIComponent(id)}&limit=20`),
+      apiFetch(`/api/trade/watch-targets?orgId=${q}&prospectId=${encodeURIComponent(id)}`),
+      apiFetch(`/api/trade/signals?orgId=${q}&prospectId=${encodeURIComponent(id)}&limit=20`),
     ]);
     if (r1.ok) {
       const d = (await r1.json()) as { items?: WatchTargetRow[] };
@@ -235,21 +371,27 @@ export default function ProspectDetailPage() {
       const d = (await r2.json()) as { items?: SignalRow[] };
       setSignals(d.items ?? []);
     }
-  }, [id]);
+  }, [id, orgId, ambiguous]);
 
   useEffect(() => {
+    if (orgLoading) return;
+    if (!orgId || ambiguous) {
+      setWatchTargets([]);
+      setSignals([]);
+      return;
+    }
     void loadWatchData();
-  }, [loadWatchData]);
+  }, [loadWatchData, orgId, ambiguous, orgLoading]);
 
   const handleAddWatch = async () => {
-    if (!watchUrl.trim()) return;
+    if (!watchUrl.trim() || !orgId || ambiguous) return;
     setWatchBusy(true);
     try {
       const res = await apiFetch("/api/trade/watch-targets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orgId: TRADE_ORG_ID,
+          orgId,
           prospectId: id,
           url: watchUrl.trim(),
           pageType: watchPageType,
@@ -291,7 +433,7 @@ export default function ProspectDetailPage() {
     setCheckingWatchId(targetId);
     try {
       const res = await apiFetch(
-        `/api/trade/watch-targets/${targetId}/check?orgId=${encodeURIComponent(TRADE_ORG_ID)}`,
+        `/api/trade/watch-targets/${targetId}/check?orgId=${encodeURIComponent(orgId!)}`,
         { method: "POST" },
       );
       if (res.ok) {
@@ -313,7 +455,7 @@ export default function ProspectDetailPage() {
     setRebaselineWatchId(targetId);
     try {
       const res = await apiFetch(
-        `/api/trade/watch-targets/${targetId}/rebaseline?orgId=${encodeURIComponent(TRADE_ORG_ID)}`,
+        `/api/trade/watch-targets/${targetId}/rebaseline?orgId=${encodeURIComponent(orgId!)}`,
         { method: "POST" },
       );
       const data = (await res.json().catch(() => null)) as {
@@ -333,7 +475,7 @@ export default function ProspectDetailPage() {
   };
 
   const handleToggleWatch = async (targetId: string, isActive: boolean) => {
-    await apiFetch(`/api/trade/watch-targets/${targetId}?orgId=${encodeURIComponent(TRADE_ORG_ID)}`, {
+    await apiFetch(`/api/trade/watch-targets/${targetId}?orgId=${encodeURIComponent(orgId!)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ isActive }),
@@ -343,32 +485,105 @@ export default function ProspectDetailPage() {
 
   const handleDeleteWatch = async (targetId: string) => {
     if (!confirm("确定删除该监控 URL？")) return;
-    await apiFetch(`/api/trade/watch-targets/${targetId}?orgId=${encodeURIComponent(TRADE_ORG_ID)}`, {
+    await apiFetch(`/api/trade/watch-targets/${targetId}?orgId=${encodeURIComponent(orgId!)}`, {
       method: "DELETE",
     });
     await loadWatchData();
   };
 
-  const handleResearch = async () => {
-    setResearching(true);
+  const handleConfirmSalesConvert = async () => {
+    if (!orgId || ambiguous) return;
+    if (salesMode === "use_existing_customer" && !salesPickCustomerId.trim()) {
+      setSalesConvertError("请选择已有销售客户");
+      return;
+    }
+    setSalesConvertBusy(true);
+    setSalesConvertError(null);
     try {
-      const researchUrl =
-        `/api/trade/prospects/${id}/research` +
-        (isSuperAdmin ? "?debugScore=1" : "");
-      await apiFetch(researchUrl, { method: "POST" });
+      const res = await apiFetch(`/api/trade/prospects/${id}/convert-to-sales`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          mode: salesMode,
+          salesCustomerId: salesMode === "use_existing_customer" ? salesPickCustomerId : undefined,
+          createOpportunity: salesCreateOpp,
+          includeLatestTradeQuote: salesIncludeQuote,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!res.ok) {
+        setSalesConvertError(j.error ?? `转换失败（${res.status}）`);
+        return;
+      }
+      setSalesModalOpen(false);
+      setSalesPreview(null);
+      await loadProspect();
+      await loadTradeQuotes();
+    } finally {
+      setSalesConvertBusy(false);
+    }
+  };
+
+  const handleResearch = async () => {
+    if (!orgId || ambiguous) return;
+    setResearching(true);
+    setResearchBanner(null);
+    try {
+      let researchUrl = `/api/trade/prospects/${id}/research?orgId=${encodeURIComponent(orgId)}`;
+      if (isSuperAdmin) researchUrl += "&debugScore=1";
+      const res = await apiFetch(researchUrl, { method: "POST" });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        researchBundle?: unknown;
+      };
+      if (res.ok && j.researchBundle) {
+        await loadProspect();
+        return;
+      }
+      if (res.ok && (j.code === "website_confirmation_needed" || j.code === "website_needed")) {
+        setResearchBanner(j.error ?? "请先确认或补充官网");
+        await loadProspect();
+        return;
+      }
+      setResearchBanner(j.error ?? `研究请求失败（${res.status}）`);
       await loadProspect();
     } finally {
       setResearching(false);
     }
   };
 
+  const handleConfirmWebsite = async () => {
+    if (!orgId || ambiguous || !confirmUrl.trim()) return;
+    setConfirmBusy(true);
+    try {
+      const res = await apiFetch(`/api/trade/prospects/${id}/confirm-website`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, website: confirmUrl.trim() }),
+      });
+      if (res.ok) {
+        setConfirmUrl("");
+        setResearchBanner(null);
+        await loadProspect();
+      } else {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(err.error ?? "确认失败");
+      }
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
+
   const handleGenerateOutreach = async () => {
+    if (!orgId || ambiguous) return;
     setGenerating(true);
     try {
       await apiFetch(`/api/trade/prospects/${id}/outreach`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ orgId }),
       });
       await loadProspect();
     } finally {
@@ -377,12 +592,13 @@ export default function ProspectDetailPage() {
   };
 
   const handleSend = async (mode: "send" | "mark_sent") => {
+    if (!orgId || ambiguous) return;
     setSending(true);
     try {
       const res = await apiFetch(`/api/trade/prospects/${id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, orgId }),
       });
       if (res.ok) await loadProspect();
     } finally {
@@ -391,14 +607,18 @@ export default function ProspectDetailPage() {
   };
 
   const handleSubmitReply = async () => {
-    if (!replyContent.trim()) return;
+    if (!replyContent.trim() || !orgId || ambiguous) return;
     setSubmittingReply(true);
     setReplyResult(null);
     try {
       const res = await apiFetch(`/api/trade/prospects/${id}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: replyContent, subject: replySubject || undefined }),
+        body: JSON.stringify({
+          content: replyContent,
+          subject: replySubject || undefined,
+          orgId,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -417,21 +637,25 @@ export default function ProspectDetailPage() {
   };
 
   const handleStageChange = async (newStage: string) => {
+    if (!orgId || ambiguous) return;
     await apiFetch(`/api/trade/prospects/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage: newStage }),
+      body: JSON.stringify({ stage: newStage, orgId }),
     });
     setEditingStage(false);
     await loadProspect();
   };
 
   const handleFollowUpChange = async () => {
-    if (!newFollowUpDate) return;
+    if (!newFollowUpDate || !orgId || ambiguous) return;
     await apiFetch(`/api/trade/prospects/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nextFollowUpAt: new Date(newFollowUpDate).toISOString() }),
+      body: JSON.stringify({
+        nextFollowUpAt: new Date(newFollowUpDate).toISOString(),
+        orgId,
+      }),
     });
     setEditingFollowUp(false);
     setNewFollowUpDate("");
@@ -439,7 +663,8 @@ export default function ProspectDetailPage() {
   };
 
   const loadTimeline = async () => {
-    const res = await apiFetch(`/api/trade/prospects/${id}/timeline`);
+    if (!orgId || ambiguous) return;
+    const res = await apiFetch(`/api/trade/prospects/${id}/timeline?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) setTimeline(await res.json());
   };
 
@@ -461,6 +686,29 @@ export default function ProspectDetailPage() {
     }
   };
 
+  if (orgLoading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再查看该线索。</p>
+        <button
+          type="button"
+          onClick={() => router.push("/organizations")}
+          className="text-sm text-accent underline-offset-2 hover:underline"
+        >
+          前往组织
+        </button>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -474,6 +722,9 @@ export default function ProspectDetailPage() {
   }
 
   const p = prospect;
+  const stageN = normalizeTradeProspectStage(p.stage);
+  const showFollowUpFlow =
+    ["contacted", "replied", "quoted", "follow_up"].includes(stageN) || !!p.outreachSentAt;
   const parsed = parseResearchBundle(p.researchReport);
   const report = parsed.report;
   const researchSources = parsed.sources;
@@ -486,6 +737,54 @@ export default function ProspectDetailPage() {
     p.score != null &&
     scoring != null &&
     Math.abs(p.score - scoring.totalFromDimensions) > 0.05;
+
+  const researchWarnings: string[] =
+    Array.isArray(p.researchWarnings) && p.researchWarnings.every((x) => typeof x === "string")
+      ? (p.researchWarnings as string[])
+      : [];
+  const researchDisplayStatus = effectiveResearchStatusDisplay({
+    researchStatus: p.researchStatus,
+    stage: p.stage,
+    score: p.score,
+    website: p.website,
+    researchReport: p.researchReport,
+  });
+  const evidenceWeak = isEvidenceWeakDisplay(researchDisplayStatus, researchWarnings);
+  const researchIncomplete =
+    researchDisplayStatus === "website_candidates_found" ||
+    researchDisplayStatus === "low_confidence" ||
+    researchDisplayStatus === "website_needed" ||
+    researchDisplayStatus === "researching";
+  const candidates: WebsiteCandidateJson[] = Array.isArray(p.websiteCandidates)
+    ? (p.websiteCandidates as WebsiteCandidateJson[])
+    : [];
+  const needsConfirm =
+    p.researchStatus === "website_candidates_found" || p.researchStatus === "low_confidence";
+
+  const WEBSITE_SOURCE_LABELS: Record<string, string> = {
+    user_provided: "用户填写",
+    imported: "导入",
+    serper_auto_high_confidence: "搜索自动（高置信）",
+    serper_candidates_pending: "搜索候选（待确认）",
+    manual_confirmed: "人工确认",
+  };
+
+  const RESEARCH_STATUS_LABELS_DETAIL: Record<string, string> = {
+    pending: "待研究",
+    scored: "已打分",
+    unscored: "未打分",
+    researched: "已研究",
+    researched_with_warnings: "已研究（有告警）",
+    research_pending: "待研究",
+    researching: "研究中",
+    website_needed: "需补充官网",
+    website_candidates_found: "待确认官网",
+    website_confirmed: "官网已确认",
+    low_confidence: "官网低置信",
+    failed: "研究失败",
+    new: "新建",
+    unknown: "未知",
+  };
 
   return (
     <div className="space-y-6">
@@ -500,8 +799,8 @@ export default function ProspectDetailPage() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold text-foreground">{p.companyName}</h1>
-            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", STAGE_COLORS[p.stage] ?? STAGE_COLORS.new)}>
-              {STAGE_LABELS[p.stage] ?? p.stage}
+            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", getTradeProspectStageTone(p.stage))}>
+              {getTradeProspectStageLabel(p.stage)}
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted">
@@ -510,11 +809,22 @@ export default function ProspectDetailPage() {
             )}
             {p.country && <span className="flex items-center gap-1"><Globe size={10} />{p.country}</span>}
             {p.contactEmail && <span className="flex items-center gap-1"><Mail size={10} />{p.contactEmail}</span>}
-            {p.website && (
-              <a href={p.website} target="_blank" rel="noopener" className="flex items-center gap-1 text-blue-400 hover:underline">
-                <Building2 size={10} />{new URL(p.website).hostname}
-              </a>
-            )}
+            {p.website && (() => {
+              try {
+                const u = p.website!.startsWith("http") ? p.website! : `https://${p.website}`;
+                return (
+                  <a href={u} target="_blank" rel="noopener" className="flex items-center gap-1 text-blue-400 hover:underline">
+                    <Building2 size={10} />{new URL(u).hostname}
+                  </a>
+                );
+              } catch {
+                return (
+                  <span className="flex items-center gap-1 text-muted">
+                    <Building2 size={10} />{p.website}
+                  </span>
+                );
+              }
+            })()}
           </div>
         </div>
 
@@ -545,6 +855,11 @@ export default function ProspectDetailPage() {
           {researching ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
           {researching ? "研究中..." : hasResearch ? "重新研究" : "AI 研究"}
         </button>
+        {researchIncomplete && (
+          <span className="self-center text-[10px] text-amber-400">
+            当前未完成可采信研究，请先处理官网与证据后再依赖分数/报告。
+          </span>
+        )}
 
         {hasResearch && (
           <button
@@ -557,7 +872,11 @@ export default function ProspectDetailPage() {
           </button>
         )}
 
-        {(p.stage === "interested" || p.stage === "negotiating" || p.stage === "qualified") && (
+        {(stageN === "qualified" ||
+          stageN === "contacted" ||
+          stageN === "replied" ||
+          stageN === "quoted" ||
+          stageN === "follow_up") && (
           <button
             onClick={() => router.push(`/trade/quotes/new?prospectId=${p.id}&companyName=${encodeURIComponent(p.companyName)}&contactName=${encodeURIComponent(p.contactName ?? "")}&contactEmail=${encodeURIComponent(p.contactEmail ?? "")}&country=${encodeURIComponent(p.country ?? "")}&campaignId=${p.campaignId}`)}
             className="flex items-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500/20"
@@ -565,6 +884,101 @@ export default function ProspectDetailPage() {
             <FileText size={12} />
             创建报价单
           </button>
+        )}
+      </div>
+
+      {/* 转入销售 CRM */}
+      <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+        <div className="mb-2 flex items-center gap-2">
+          <Building2 size={14} className="text-violet-400" />
+          <h3 className="text-sm font-medium text-foreground">销售 CRM</h3>
+        </div>
+        {p.convertedToSalesCustomerId || p.convertedAt ? (
+          <div className="space-y-2 text-xs text-muted">
+            <p className="font-medium text-emerald-400">已转销售</p>
+            {p.convertedAt && (
+              <p>
+                转换时间：{new Date(p.convertedAt).toLocaleString("zh-CN")}
+                {p.convertedById && user?.id === p.convertedById ? "（本人）" : p.convertedById ? ` · 操作人 ${p.convertedById.slice(0, 8)}…` : ""}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {p.convertedToSalesCustomerId && (
+                <Link
+                  href={`/sales/customers/${p.convertedToSalesCustomerId}`}
+                  className="inline-flex rounded-lg border border-violet-500/40 px-2 py-1 text-violet-300 hover:bg-violet-500/10"
+                >
+                  打开销售客户
+                </Link>
+              )}
+            </div>
+            {p.convertedToSalesOpportunityId && (
+              <p className="font-mono text-[10px] text-muted/90">
+                商机 ID：{p.convertedToSalesOpportunityId}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted">
+              将成熟线索转为销售客户与商机（需确认，不会自动执行）。
+            </p>
+            <button
+              type="button"
+              onClick={() => void openSalesModal()}
+              className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500"
+            >
+              Convert to Sales CRM
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 外贸报价单 → 销售报价 */}
+      <div className="rounded-xl border border-border/60 bg-card-bg p-4">
+        <div className="mb-2 flex items-center gap-2">
+          <FileText size={14} className="text-emerald-400" />
+          <h3 className="text-sm font-medium text-foreground">外贸报价单</h3>
+        </div>
+        {tradeQuotesLoading ? (
+          <div className="flex py-6 justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted" />
+          </div>
+        ) : tradeQuotes.length === 0 ? (
+          <p className="text-xs text-muted">暂无报价单。可在上方「创建报价单」新建。</p>
+        ) : (
+          <ul className="space-y-2">
+            {tradeQuotes.map((q) => (
+              <li
+                key={q.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/40 px-3 py-2 text-xs"
+              >
+                <div>
+                  <Link href={`/trade/quotes/${q.id}`} className="font-mono text-blue-400 hover:underline">
+                    {q.quoteNumber}
+                  </Link>
+                  <span className="ml-2 text-muted">{q.status}</span>
+                  <span className="ml-2 text-foreground">
+                    {q.currency}{" "}
+                    {q.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {p.convertedToSalesCustomerId ? (
+                    <button
+                      type="button"
+                      className="rounded border border-violet-500/40 px-2 py-1 text-violet-300 hover:bg-violet-500/10"
+                      onClick={() => setSqConvQuoteId(q.id)}
+                    >
+                      转为销售报价
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-muted">请先将该线索转入 Sales CRM，再转换报价。</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
@@ -592,6 +1006,132 @@ export default function ProspectDetailPage() {
         </Link>
       </div>
 
+      {researchBanner && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          {researchBanner}
+        </div>
+      )}
+
+      {/* 研究可信度与官网候选 */}
+      <div className="rounded-xl border border-border/60 bg-card-bg p-4 space-y-3">
+        <h3 className="text-xs font-medium text-muted">研究可信度</h3>
+        <div className="grid gap-2 text-xs sm:grid-cols-2">
+          <div>
+            <span className="text-muted">研究状态：</span>
+            <span className="text-foreground">
+              {RESEARCH_STATUS_LABELS_DETAIL[researchDisplayStatus] ?? researchDisplayStatus}
+            </span>
+            {p.researchStatus == null && (
+              <span className="ml-1 text-[10px] text-muted">（历史推断）</span>
+            )}
+          </div>
+          <div>
+            <span className="text-muted">官网置信度：</span>
+            <span className="text-foreground">
+              {p.websiteConfidence != null ? `${(p.websiteConfidence * 100).toFixed(0)}%` : "—"}
+            </span>
+          </div>
+          <div className="sm:col-span-2">
+            <span className="text-muted">官网来源：</span>
+            <span className="text-foreground">
+              {p.websiteCandidateSource
+                ? WEBSITE_SOURCE_LABELS[p.websiteCandidateSource] ?? p.websiteCandidateSource
+                : "—"}
+            </span>
+            {p.websiteVerifiedAt && (
+              <span className="ml-2 text-[10px] text-muted">
+                确认于 {new Date(p.websiteVerifiedAt).toLocaleString("zh-CN")}
+                {p.websiteVerifiedBy ? ` · ${p.websiteVerifiedBy}` : ""}
+              </span>
+            )}
+          </div>
+          <div>
+            <span className="text-muted">抓取状态：</span>
+            <span className="font-mono text-[11px] text-foreground">{p.crawlStatus ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted">内容来源类型：</span>
+            <span className="font-mono text-[11px] text-foreground">{p.crawlSourceType ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted">来源条数：</span>
+            <span className="text-foreground">{p.sourcesCount ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted">上次研究时间：</span>
+            <span className="text-foreground">
+              {p.lastResearchedAt ? new Date(p.lastResearchedAt).toLocaleString("zh-CN") : "—"}
+            </span>
+          </div>
+        </div>
+        {researchWarnings.length > 0 && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-100">
+            <span className="font-medium text-amber-300">告警 </span>
+            {researchWarnings.join(" · ")}
+          </div>
+        )}
+        {evidenceWeak && hasResearch && (
+          <p className="text-[11px] font-medium text-amber-300">
+            证据不足或抓取受限：以下报告请谨慎采信，建议补充站内页或确认官网后再研究。
+          </p>
+        )}
+        {p.lastResearchError && (
+          <p className="text-[11px] text-red-300">
+            上次错误：{p.lastResearchError}
+          </p>
+        )}
+        {candidates.length > 0 && (
+          <div className="space-y-2 border-t border-border/40 pt-3">
+            <h4 className="text-[11px] font-medium text-muted">搜索引擎候选官网</h4>
+            <ul className="space-y-2">
+              {candidates.map((c, idx) => (
+                <li key={`${c.url}-${idx}`} className="rounded-lg border border-border/50 bg-background/60 p-2 text-[11px]">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-medium text-blue-300">{c.domain}</span>
+                    <span className="text-muted">置信 {(c.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                  <p className="mt-0.5 text-foreground/90">{c.title}</p>
+                  <p className="mt-0.5 line-clamp-2 text-muted">{c.snippet}</p>
+                  <p className="mt-1 text-[10px] text-muted">
+                    {c.reasons.join("；")}
+                    {c.rejectedReason ? ` · 排除：${c.rejectedReason}` : ""}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-1 text-[10px] text-blue-400 hover:underline"
+                    onClick={() => setConfirmUrl(c.url)}
+                  >
+                    填入此 URL
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {needsConfirm && (
+          <div className="flex flex-col gap-2 border-t border-border/40 pt-3 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <label className="mb-1 block text-[10px] text-muted">确认官网 URL</label>
+              <input
+                value={confirmUrl}
+                onChange={(e) => setConfirmUrl(e.target.value)}
+                placeholder="https://…"
+                className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={confirmBusy || !confirmUrl.trim()}
+              onClick={() => void handleConfirmWebsite()}
+              className="shrink-0 rounded-lg bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+            >
+              {confirmBusy ? <Loader2 className="h-3 w-3 animate-spin inline" /> : null}
+              确认官网
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Quick Actions: Stage + Follow-up */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Stage switch */}
@@ -599,14 +1139,14 @@ export default function ProspectDetailPage() {
           <Edit3 size={10} className="text-muted" />
           {editingStage ? (
             <select
-              defaultValue={p.stage}
+              defaultValue={stageN}
               onChange={(e) => handleStageChange(e.target.value)}
               onBlur={() => setEditingStage(false)}
               autoFocus
               className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none"
             >
-              {Object.entries(STAGE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
+              {TRADE_PROSPECT_STAGE_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
               ))}
             </select>
           ) : (
@@ -673,7 +1213,7 @@ export default function ProspectDetailPage() {
 
       {/* Channel Send Panel */}
       {showChannelSend && (
-        <ChannelSendPanel prospectId={p.id} onSent={loadProspect} />
+        <ChannelSendPanel prospectId={p.id} orgId={orgId} onSent={loadProspect} />
       )}
 
       {/* Timeline */}
@@ -989,7 +1529,10 @@ export default function ProspectDetailPage() {
         <div className="rounded-xl border border-border/60 bg-card-bg p-4">
           <div className="mb-3 flex items-center gap-2">
             <FileText size={14} className="text-blue-400" />
-            <h3 className="text-sm font-medium text-foreground">AI 研究报告</h3>
+            <h3 className="text-sm font-medium text-foreground">
+              AI 研究报告
+              {evidenceWeak && <span className="ml-2 text-[10px] font-normal text-amber-400">（证据有限）</span>}
+            </h3>
           </div>
           <div className="space-y-3">
             {Object.entries(REPORT_LABELS).map(([key, label]) => {
@@ -1100,7 +1643,7 @@ export default function ProspectDetailPage() {
       )}
 
       {/* Follow-up Info */}
-      {(p.stage === "outreach_sent" || p.stage === "replied" || p.stage === "interested" || p.stage === "negotiating") && (
+      {showFollowUpFlow && (
         <div className="rounded-xl border border-border/60 bg-card-bg p-4">
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-amber-400" />
@@ -1114,7 +1657,7 @@ export default function ProspectDetailPage() {
       )}
 
       {/* Record Reply Section */}
-      {(p.stage === "outreach_sent" || p.stage === "replied" || p.stage === "interested" || p.stage === "negotiating" || p.stage === "no_response") && (
+      {showFollowUpFlow && (
         <div className="rounded-xl border border-border/60 bg-card-bg p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -1225,14 +1768,184 @@ export default function ProspectDetailPage() {
       {!hasResearch && (
         <div className="rounded-xl border border-dashed border-border bg-card-bg px-8 py-12 text-center">
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-muted" />
-          <p className="text-sm text-muted">点击「AI 研究」按钮，AI 将自动搜索该公司信息并生成研究报告和评分</p>
+          <p className="text-sm text-muted">
+            {researchDisplayStatus === "website_candidates_found" || researchDisplayStatus === "low_confidence"
+              ? "请先在上方确认官网后再执行「AI 研究」。"
+              : researchDisplayStatus === "website_needed"
+                ? "请先补充官网 URL，或在候选列表中确认后再研究。"
+                : "点击「AI 研究」按钮，AI 将基于已确认官网与公开来源生成研究报告和评分"}
+          </p>
         </div>
       )}
+
+      {salesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card-bg p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-foreground">转入销售 CRM</h3>
+              <button
+                type="button"
+                className="text-xs text-muted hover:text-foreground"
+                onClick={() => {
+                  setSalesModalOpen(false);
+                  setSalesPreview(null);
+                }}
+              >
+                关闭
+              </button>
+            </div>
+            {salesPreviewLoading && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted" />
+              </div>
+            )}
+            {salesConvertError && !salesPreviewLoading && (
+              <p className="mb-2 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-300">{salesConvertError}</p>
+            )}
+            {salesPreview && !salesPreviewLoading && (
+              <div className="space-y-3 text-xs">
+                <div>
+                  <p className="font-medium text-foreground">线索摘要</p>
+                  <p className="mt-1 text-muted">
+                    {salesPreview.prospectSummary.companyName}
+                    {salesPreview.prospectSummary.country ? ` · ${salesPreview.prospectSummary.country}` : ""}
+                    <br />
+                    阶段 {salesPreview.prospectSummary.stageNormalized} · 分 {salesPreview.prospectSummary.score ?? "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">将创建的客户</p>
+                  <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-background/80 p-2 text-[10px] text-muted">
+                    {JSON.stringify(salesPreview.proposedCustomer, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">将创建的商机</p>
+                  <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-background/80 p-2 text-[10px] text-muted">
+                    {JSON.stringify(
+                      { title: salesPreview.proposedOpportunity.title, stage: salesPreview.proposedOpportunity.stage },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </div>
+                {salesPreview.latestTradeQuote && (
+                  <p className="text-muted">
+                    最新外贸报价：{salesPreview.latestTradeQuote.quoteNumber}（{salesPreview.latestTradeQuote.status}）
+                  </p>
+                )}
+                {salesPreview.warnings.length > 0 && (
+                  <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
+                    <p className="font-medium text-amber-200">注意</p>
+                    <ul className="mt-1 list-inside list-disc text-amber-100/90">
+                      {salesPreview.warnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-1 font-medium text-foreground">可能重复的销售客户</p>
+                  {salesPreview.existingCustomerCandidates.length === 0 ? (
+                    <p className="text-muted">未发现高置信候选</p>
+                  ) : (
+                    <ul className="max-h-32 space-y-1 overflow-y-auto text-muted">
+                      {salesPreview.existingCustomerCandidates.map((c) => (
+                        <li key={c.id}>
+                          <label className="flex cursor-pointer items-start gap-2">
+                            <input
+                              type="radio"
+                              name="salesPickCust"
+                              checked={salesPickCustomerId === c.id}
+                              onChange={() => {
+                                setSalesPickCustomerId(c.id);
+                                setSalesMode("use_existing_customer");
+                              }}
+                            />
+                            <span>
+                              {c.name} <span className="text-[10px] opacity-70">({c.matchReason})</span>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2 border-t border-border/40 pt-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="salesMode"
+                      checked={salesMode === "create_new"}
+                      onChange={() => setSalesMode("create_new")}
+                    />
+                    创建新客户
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="salesMode"
+                      checked={salesMode === "use_existing_customer"}
+                      onChange={() => setSalesMode("use_existing_customer")}
+                    />
+                    使用已有客户（请在上方选中一条）
+                  </label>
+                </div>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={salesCreateOpp} onChange={(e) => setSalesCreateOpp(e.target.checked)} />
+                  同时创建商机（推荐）
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={salesIncludeQuote}
+                    onChange={(e) => setSalesIncludeQuote(e.target.checked)}
+                  />
+                  在商机备注中附带最新外贸报价 ID
+                </label>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs"
+                    onClick={() => {
+                      setSalesModalOpen(false);
+                      setSalesPreview(null);
+                    }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={salesConvertBusy || salesPreview.alreadyConverted}
+                    onClick={() => void handleConfirmSalesConvert()}
+                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+                  >
+                    {salesConvertBusy ? "处理中…" : "确认转换"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <ConvertTradeQuoteToSalesQuoteDialog
+        quoteId={sqConvQuoteId}
+        orgId={orgId}
+        ambiguous={ambiguous}
+        open={!!sqConvQuoteId}
+        onOpenChange={(open) => {
+          if (!open) setSqConvQuoteId(null);
+        }}
+        onConverted={() => {
+          void loadProspect();
+          void loadTradeQuotes();
+        }}
+      />
     </div>
   );
 }
 
-function ChannelSendPanel({ prospectId, onSent }: { prospectId: string; onSent: () => void }) {
+function ChannelSendPanel({ prospectId, orgId, onSent }: { prospectId: string; orgId: string; onSent: () => void }) {
   const [channel, setChannel] = useState("whatsapp");
   const [to, setTo] = useState("");
   const [content, setContent] = useState("");
@@ -1247,7 +1960,7 @@ function ChannelSendPanel({ prospectId, onSent }: { prospectId: string; onSent: 
       const res = await apiFetch(`/api/trade/channels/${channel}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId: "default", prospectId, to, content }),
+        body: JSON.stringify({ orgId, prospectId, to, content }),
       });
       if (res.ok) {
         setResult("发送成功");

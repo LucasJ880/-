@@ -3,6 +3,7 @@
  */
 
 import { db } from "@/lib/db";
+import { stageAfterQuoteCreated } from "@/lib/trade/stage";
 
 // ── Quote Number Generator ──────────────────────────────────
 
@@ -63,7 +64,7 @@ export async function createQuote(input: CreateQuoteInput, userId: string) {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + (input.validDays ?? 30));
 
-  return db.tradeQuote.create({
+  const quote = await db.tradeQuote.create({
     data: {
       orgId: input.orgId,
       prospectId: input.prospectId,
@@ -90,6 +91,21 @@ export async function createQuote(input: CreateQuoteInput, userId: string) {
     },
     include: { items: true },
   });
+
+  if (input.prospectId) {
+    const p = await db.tradeProspect.findUnique({
+      where: { id: input.prospectId },
+      select: { stage: true },
+    });
+    if (p) {
+      await db.tradeProspect.update({
+        where: { id: input.prospectId },
+        data: { stage: stageAfterQuoteCreated(p.stage) },
+      });
+    }
+  }
+
+  return quote;
 }
 
 export async function listQuotes(orgId: string, opts?: { status?: string; prospectId?: string }) {

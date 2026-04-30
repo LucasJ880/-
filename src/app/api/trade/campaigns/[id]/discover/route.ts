@@ -6,9 +6,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getCampaign, createProspect } from "@/lib/trade/service";
+import { createProspect } from "@/lib/trade/service";
 import { discoverProspects } from "@/lib/trade/tools";
 import { db } from "@/lib/db";
+import { loadTradeCampaignForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -17,11 +18,14 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const body = await request.json().catch(() => ({}));
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const campaign = await getCampaign(id);
-  if (!campaign) {
-    return NextResponse.json({ error: "活动不存在" }, { status: 404 });
-  }
+  const loaded = await loadTradeCampaignForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  const { campaign } = loaded;
 
   const keywords = campaign.searchKeywords as string[] | null;
   if (!keywords || keywords.length === 0) {
@@ -36,7 +40,7 @@ export async function POST(
   const existingNames = new Set(
     (
       await db.tradeProspect.findMany({
-        where: { campaignId: id },
+        where: { campaignId: id, orgId: campaign.orgId },
         select: { companyName: true, website: true },
       })
     ).flatMap((p) => [

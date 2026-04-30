@@ -25,8 +25,15 @@ import { Button } from "@/components/ui/button";
 import { EMAIL_SCENES } from "./types";
 import type { BriefingData, InlineEmail } from "./types";
 import { sanitizeHtml } from "@/lib/common/sanitize";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 export function AiAlertPanel() {
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -62,6 +69,10 @@ export function AiAlertPanel() {
   const prevExpandedRef = useRef(false);
   useEffect(() => {
     if (expanded && !prevExpandedRef.current && briefing) {
+      if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+        prevExpandedRef.current = expanded;
+        return;
+      }
       const safeItems = Array.isArray(briefing.urgentItems) ? briefing.urgentItems : [];
       const emailItems = safeItems.filter(
         (i) => i.action?.payload?.customerId && EMAIL_SCENES[i.category],
@@ -73,7 +84,7 @@ export function AiAlertPanel() {
         setEmailLoadingSet((s) => new Set(s).add(cid));
         apiFetch("/api/sales/email-compose", {
           method: "POST",
-          body: JSON.stringify({ customerId: cid, scene }),
+          body: JSON.stringify(withSalesOrgId(orgId!, { customerId: cid, scene })),
         })
           .then((r) => r.json())
           .then((d) => {
@@ -85,7 +96,7 @@ export function AiAlertPanel() {
     }
     prevExpandedRef.current = expanded;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, briefing]);
+  }, [expanded, briefing, orgId, orgLoading, ambiguous]);
 
   const pushToWechat = async () => {
     setPushing(true);
@@ -97,11 +108,17 @@ export function AiAlertPanel() {
   const handleSendInline = async (customerId: string) => {
     const email = emails[customerId];
     if (!email) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法发送");
+      return;
+    }
     setEmailSendingId(customerId);
     try {
       const res = await apiFetch("/api/sales/email-compose?action=send", {
         method: "POST",
-        body: JSON.stringify({ customerId, scene: email.scene, quoteId: email.quoteId }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, { customerId, scene: email.scene, quoteId: email.quoteId }),
+        ),
       });
       const data = await res.json();
       if (data.sent) {
@@ -115,15 +132,21 @@ export function AiAlertPanel() {
 
   const handleRefine = async () => {
     if (!refineTarget || !refineInput.trim()) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法优化");
+      return;
+    }
     setRefining(true);
     try {
       const res = await apiFetch("/api/sales/email-compose?action=refine", {
         method: "POST",
-        body: JSON.stringify({
-          currentSubject: refineTarget.subject,
-          currentHtml: refineTarget.html,
-          refinement: refineInput.trim(),
-        }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, {
+            currentSubject: refineTarget.subject,
+            currentHtml: refineTarget.html,
+            refinement: refineInput.trim(),
+          }),
+        ),
       });
       const data = await res.json();
       if (data.email) {
@@ -177,6 +200,11 @@ export function AiAlertPanel() {
 
         {expanded && briefing && (
           <div className="mt-4 space-y-3">
+            {!orgLoading && ambiguous && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {salesOrgCreateBlockedHint(false, true, null)}
+              </div>
+            )}
             <div className="rounded-lg bg-white/80 p-3 text-sm whitespace-pre-line text-foreground/80">
               {briefing.aiSummary}
             </div>
@@ -234,7 +262,10 @@ export function AiAlertPanel() {
                               />
                               <button
                                 onClick={() => handleSendInline(customerId!)}
-                                disabled={isSending}
+                                disabled={
+                                  isSending ||
+                                  isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                                }
                                 className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
                               >
                                 {isSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}

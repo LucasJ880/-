@@ -9,6 +9,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { isAdmin } from "@/lib/rbac/roles";
 import { getProspect } from "@/lib/trade/service";
 import { runProspectResearch } from "@/lib/trade/research-service";
+import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -22,19 +23,33 @@ export async function POST(
     isAdmin(auth.user.role);
 
   const { id } = await params;
-  const prospect = await getProspect(id);
-  if (!prospect) {
-    return NextResponse.json({ error: "线索不存在" }, { status: 404 });
-  }
+
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const loaded = await loadTradeProspectForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
 
   const result = await runProspectResearch(
-    { prospectId: id },
+    { prospectId: id, orgId: orgRes.orgId },
     { includeScoringDebug: includeDebug, incrementCampaignQualifiedIfQualified: true },
   );
 
   if (!result.success) {
+    if (
+      result.code === "website_needed" ||
+      result.code === "website_confirmation_needed" ||
+      result.code === "research_failed"
+    ) {
+      const updated = await getProspect(id);
+      const status = result.code === "research_failed" ? 500 : 200;
+      return NextResponse.json(
+        { error: result.error, code: result.code, prospect: updated },
+        { status },
+      );
+    }
     const status = result.code === "forbidden" ? 403 : 404;
-    return NextResponse.json({ error: result.error }, { status });
+    return NextResponse.json({ error: result.error, code: result.code }, { status });
   }
 
   const updated = await getProspect(id);

@@ -13,6 +13,11 @@
 
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
+import {
+  getTradeProspectStageLabel,
+  TRADE_DB_STAGES_CONTACTED_OR_LATER,
+  TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
+} from "@/lib/trade/stage";
 import type { BriefingItem } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -118,7 +123,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
     const noReply = await db.tradeProspect.findMany({
       where: {
         orgId,
-        stage: "outreach_sent",
+        stage: { in: [...TRADE_DB_STAGES_CONTACTED_OR_LATER] },
         followUpCount: ladder.followUpCount,
         lastContactAt: { gt: sinceDate, lt: untilDate },
       },
@@ -142,7 +147,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
   const repliedUnhandled = await db.tradeProspect.findMany({
     where: {
       orgId,
-      stage: { in: ["replied", "interested"] },
+      stage: { in: ["replied", "interested", "follow_up"] },
       messages: {
         some: {
           direction: "inbound",
@@ -182,7 +187,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
   const negotiationStalled = await db.tradeProspect.findMany({
     where: {
       orgId,
-      stage: "negotiating",
+      stage: { in: ["negotiating"] },
       lastContactAt: { lt: sevenDaysAgo },
     },
     select: prospectSelect,
@@ -236,7 +241,7 @@ async function generateSingleSuggestion(
   candidate: FollowupCandidate,
 ): Promise<FollowupSuggestion> {
   const reasonLabel = REASON_LABELS[candidate.reason];
-  const stageLabel = STAGE_LABELS[candidate.stage] ?? candidate.stage;
+  const stageLabel = getTradeProspectStageLabel(candidate.stage);
 
   const prompt = `客户: ${candidate.companyName}
 联系人: ${candidate.contactName || "未知"}
@@ -490,17 +495,3 @@ async function pushFollowupToWeChat(userId: string, s: FollowupSuggestion): Prom
   );
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  new: "新发现",
-  researched: "已研究",
-  qualified: "已评分",
-  outreach_draft: "开发信草稿",
-  outreach_sent: "已发开发信",
-  replied: "已回复",
-  interested: "有意向",
-  negotiating: "谈判中",
-  won: "成交",
-  lost: "失败",
-  unqualified: "不合格",
-  no_response: "无回复",
-};

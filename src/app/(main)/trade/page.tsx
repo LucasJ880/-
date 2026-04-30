@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Plus,
   Loader2,
@@ -21,12 +22,15 @@ import {
   FileText,
   Trophy,
   BarChart3,
+  Radar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { getTradeProspectStageLabel } from "@/lib/trade/stage";
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -104,24 +108,12 @@ const STATUS_COLORS: Record<string, string> = {
   completed: "bg-zinc-500/15 text-zinc-400",
 };
 
-const STAGE_LABELS: Record<string, string> = {
-  new: "新发现",
-  researched: "已研究",
-  qualified: "合格",
-  outreach_ready: "待外联",
-  outreach_sent: "已联系",
-  interested: "有意向",
-  negotiating: "谈判中",
-  won: "成交",
-  lost: "流失",
-  no_response: "无回复",
-  unqualified: "不合格",
-};
-
 // ── Main Page ───────────────────────────────────────────────
 
 export default function TradeDashboardPage() {
+  const router = useRouter();
   const { user } = useCurrentUser();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -129,34 +121,61 @@ export default function TradeDashboardPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
-  const orgId = "default";
-
   const loadAll = useCallback(async () => {
+    if (!orgId || ambiguous) {
+      setCampaigns([]);
+      setFollowUps([]);
+      setDashboard(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const q = encodeURIComponent(orgId);
     try {
       const [campRes, fuRes, dbRes] = await Promise.all([
-        apiFetch(`/api/trade/campaigns?orgId=${orgId}`),
-        apiFetch(`/api/trade/follow-ups?orgId=${orgId}&days=7`),
-        apiFetch(`/api/trade/dashboard?orgId=${orgId}`),
+        apiFetch(`/api/trade/campaigns?orgId=${q}`),
+        apiFetch(`/api/trade/follow-ups?orgId=${q}&days=7`),
+        apiFetch(`/api/trade/dashboard?orgId=${q}`),
       ]);
       if (campRes.ok) setCampaigns(await campRes.json());
+      else setCampaigns([]);
       if (fuRes.ok) {
         const data = await fuRes.json();
         setFollowUps(data.items ?? []);
-      }
+      } else setFollowUps([]);
       if (dbRes.ok) setDashboard(await dbRes.json());
+      else setDashboard(null);
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, ambiguous]);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    if (orgLoading) return;
+    void loadAll();
+  }, [loadAll, orgLoading]);
 
-  if (loading) {
+  if (orgLoading || loading) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">
+          多组织账号需先选择当前组织：请在侧栏选择组织，或从组织页进入后再使用外贸看板。
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push("/organizations")}
+          className="text-sm text-accent underline-offset-2 hover:underline"
+        >
+          前往组织
+        </button>
       </div>
     );
   }
@@ -171,12 +190,36 @@ export default function TradeDashboardPage() {
       />
 
       <p className="text-[11px] text-muted">
+        <Link href="/trade/prospects" className="text-blue-400 hover:text-blue-300 hover:underline">
+          全部线索
+        </Link>
+        <span className="mx-1.5 text-border">·</span>
+        <Link href="/trade/intelligence" className="text-blue-400 hover:text-blue-300 hover:underline">
+          竞品溯源
+        </Link>
+        <span className="mx-1.5 text-border">·</span>
         <Link href="/trade/signals" className="text-blue-400 hover:text-blue-300 hover:underline">
           页面监控信号
         </Link>
         <span className="mx-1.5 text-border">·</span>
         低频文本指纹弱信号列表
       </p>
+
+      <Link
+        href="/trade/intelligence"
+        className="flex items-center gap-3 rounded-xl border border-violet-500/25 bg-violet-500/5 p-4 transition hover:border-violet-500/45"
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-violet-300">
+          <Radar size={20} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">竞品溯源 / 买家发现</p>
+          <p className="mt-0.5 text-xs text-muted">
+            用 UPC、MPN、品牌与产品页等线索自动搜索与归纳候选，确认后一键转为线索。
+          </p>
+        </div>
+        <ChevronRight size={18} className="shrink-0 text-muted" />
+      </Link>
 
       {/* ── Overview Cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -231,6 +274,7 @@ export default function TradeDashboardPage() {
           {campaigns.map((c) => (
             <CampaignCard
               key={c.id}
+              orgId={orgId}
               campaign={c}
               menuOpen={menuOpen === c.id}
               onToggleMenu={() => setMenuOpen(menuOpen === c.id ? null : c.id)}
@@ -362,6 +406,7 @@ function SourceDistribution({ data, total }: { data: DashboardData["sourceDistri
     referral: "转介绍",
     import: "导入",
     manual: "手动添加",
+    trade_intelligence: "竞品溯源",
     unknown: "未知",
   };
   const colors = ["bg-blue-400", "bg-violet-400", "bg-cyan-400", "bg-amber-400", "bg-emerald-400", "bg-rose-400"];
@@ -444,7 +489,7 @@ function TopProspectsCard({ prospects }: { prospects: DashboardData["topProspect
               )}>{i + 1}</span>
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-xs text-foreground">{p.companyName}</span>
-                <span className="text-[10px] text-muted">{p.country ?? ""} · {STAGE_LABELS[p.stage] ?? p.stage}</span>
+                <span className="text-[10px] text-muted">{p.country ?? ""} · {getTradeProspectStageLabel(p.stage)}</span>
               </div>
               <span className="text-xs font-semibold text-foreground">{p.score?.toFixed(1)}</span>
             </a>
@@ -493,7 +538,8 @@ function FollowUpSection({ items }: { items: FollowUpItem[] }) {
 
 // ── Campaign Card ───────────────────────────────────────────
 
-function CampaignCard({ campaign: c, menuOpen, onToggleMenu, onRefresh }: {
+function CampaignCard({ orgId, campaign: c, menuOpen, onToggleMenu, onRefresh }: {
+  orgId: string;
   campaign: Campaign; menuOpen: boolean; onToggleMenu: () => void; onRefresh: () => void;
 }) {
   const [genLoading, setGenLoading] = useState(false);
@@ -501,7 +547,11 @@ function CampaignCard({ campaign: c, menuOpen, onToggleMenu, onRefresh }: {
   const handleGenerateKeywords = async () => {
     setGenLoading(true);
     try {
-      await apiFetch(`/api/trade/campaigns/${c.id}/generate-keywords`, { method: "POST" });
+      await apiFetch(`/api/trade/campaigns/${c.id}/generate-keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
       onRefresh();
     } finally {
       setGenLoading(false);
@@ -513,7 +563,7 @@ function CampaignCard({ campaign: c, menuOpen, onToggleMenu, onRefresh }: {
     await apiFetch(`/api/trade/campaigns/${c.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ orgId, status: newStatus }),
     });
     onRefresh();
     onToggleMenu();
@@ -521,7 +571,7 @@ function CampaignCard({ campaign: c, menuOpen, onToggleMenu, onRefresh }: {
 
   const handleDelete = async () => {
     if (!confirm("确定删除该活动？所有线索数据也会被删除。")) return;
-    await apiFetch(`/api/trade/campaigns/${c.id}`, { method: "DELETE" });
+    await apiFetch(`/api/trade/campaigns/${c.id}?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
     onRefresh();
   };
 

@@ -10,6 +10,7 @@
  */
 
 import { db } from "@/lib/db";
+import { TRADE_DB_STAGES_NO_REPLY_TOUCH, TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE } from "@/lib/trade/stage";
 import type { DomainScanResult, BriefingItem } from "../types";
 
 const DAY_MS = 86_400_000;
@@ -24,7 +25,7 @@ export async function scanTradeDomain(orgId: string): Promise<DomainScanResult> 
     where: {
       orgId,
       nextFollowUpAt: { lt: now },
-      stage: { notIn: ["won", "lost", "unqualified", "new", "no_response"] },
+      stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
     },
     select: {
       id: true,
@@ -102,7 +103,7 @@ export async function scanTradeDomain(orgId: string): Promise<DomainScanResult> 
   const noResponse = await db.tradeProspect.findMany({
     where: {
       orgId,
-      stage: "outreach_sent",
+      stage: { in: [...TRADE_DB_STAGES_NO_REPLY_TOUCH] },
       outreachSentAt: { gt: fourteenDaysAgo, lt: fiveDaysAgo },
     },
     select: { id: true, companyName: true, country: true, outreachSentAt: true },

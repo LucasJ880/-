@@ -70,6 +70,12 @@ import {
   type QuoteDraftV1,
 } from "./quote-draft";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
@@ -307,6 +313,7 @@ function QuoteSheetPageInner() {
 
   // 当前用户角色 —— admin/super_admin 不受 promoMaxPct 约束
   const { isSuperAdmin } = useCurrentUser();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   const handleCustomerSelect = useCallback(async (id: string) => {
     setCustomerId(id);
@@ -613,6 +620,10 @@ function QuoteSheetPageInner() {
     { quoteId: string; saveMode: "full" | "partial" | "shell" } | null
   > => {
     if (!customerId) return null;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法保存");
+      return null;
+    }
     // 硬门槛：Special Promotion 超过公司上限，非 admin 禁止提交
     if (promoBlocked) {
       alert(
@@ -773,18 +784,31 @@ function QuoteSheetPageInner() {
       // 先拿 Response，检查 HTTP 状态，防止"保存失败却把草稿清掉"
       const apiResponse = await apiFetch(endpoint, {
         method,
-        body: JSON.stringify({
-          customerId,
-          opportunityId: opportunityId || undefined,
-          items,
-          installMode,
-          orderNumber,
-          formDataJson: JSON.stringify(fullFormData),
-          // Step 4：折扣率追踪
-          totalMsrp,
-          specialPromotion: specialPromotionNum,
-          finalDiscountPct,
-        }),
+        body: JSON.stringify(
+          isEditing
+            ? {
+                customerId,
+                opportunityId: opportunityId || undefined,
+                items,
+                installMode,
+                orderNumber,
+                formDataJson: JSON.stringify(fullFormData),
+                totalMsrp,
+                specialPromotion: specialPromotionNum,
+                finalDiscountPct,
+              }
+            : withSalesOrgId(orgId!, {
+                customerId,
+                opportunityId: opportunityId || undefined,
+                items,
+                installMode,
+                orderNumber,
+                formDataJson: JSON.stringify(fullFormData),
+                totalMsrp,
+                specialPromotion: specialPromotionNum,
+                finalDiscountPct,
+              }),
+        ),
       });
 
       if (!apiResponse.ok) {
@@ -866,6 +890,7 @@ function QuoteSheetPageInner() {
     depositMinPct, depositUnlocked, isSuperAdmin,
     productsSubtotal, subtotalB, subtotalC,
     editingQuoteId,
+    orgId, orgLoading, ambiguous,
   ]);
 
   /**
@@ -1022,7 +1047,7 @@ function QuoteSheetPageInner() {
     } finally {
       setGenerating(false);
     }
-  }, [customerId, hasAnySignature, handleSave, handleExportPDF, lastSaved?.orderNum]);
+  }, [customerId, hasAnySignature, handleSave, handleExportPDF, lastSaved?.orderNum, orgLoading, ambiguous, orgId]);
 
   /**
    * 发送 Quote —— 弹窗二选一落地：
@@ -1034,6 +1059,10 @@ function QuoteSheetPageInner() {
   const handleSendQuote = useCallback(async (mode: "email" | "local") => {
     if (!customerId) {
       alert("请先选择客户");
+      return;
+    }
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法发送");
       return;
     }
     if (mode === "email" && !customerEmail) {
@@ -1053,7 +1082,9 @@ function QuoteSheetPageInner() {
         try {
           const res = await apiFetch(`/api/sales/quotes/${saved.quoteId}/send-email`, {
             method: "POST",
-            body: JSON.stringify({ to: customerEmail, lang: "en" }),
+            body: JSON.stringify(
+              withSalesOrgId(orgId!, { to: customerEmail, lang: "en" }),
+            ),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
@@ -1090,7 +1121,7 @@ function QuoteSheetPageInner() {
     } finally {
       setSendQuoteBusy(null);
     }
-  }, [customerId, customerEmail, handleSave, handleExportPDF]);
+  }, [customerId, customerEmail, handleSave, handleExportPDF, orgId, orgLoading, ambiguous]);
 
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
@@ -1121,6 +1152,11 @@ function QuoteSheetPageInner() {
             : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />
+      {!orgLoading && ambiguous && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {salesOrgCreateBlockedHint(false, true, null)}
+        </div>
+      )}
       {editingLoading && (
         <div className="rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-xs text-teal-700">
           正在加载已保存的报价单内容…
@@ -1496,11 +1532,17 @@ function QuoteSheetPageInner() {
             variant="outline"
             size="sm"
             onClick={handleOpenSendQuote}
-            disabled={!customerId || promoBlocked}
+            disabled={
+              !customerId ||
+              promoBlocked ||
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+            }
             className="gap-1.5 px-2 md:px-3"
             aria-label="发送 Quote"
             title={
-              promoBlocked
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                ? salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined
+                : promoBlocked
                 ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
                 : "保存 + 选择发送邮件或下载到本地（客户进入「已报价 · 跟单中」）"
             }
@@ -1513,11 +1555,18 @@ function QuoteSheetPageInner() {
             variant="outline"
             size="sm"
             onClick={handleSave}
-            disabled={saving || !customerId || promoBlocked}
+            disabled={
+              saving ||
+              !customerId ||
+              promoBlocked ||
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+            }
             className="gap-1.5 px-2 md:px-3"
             aria-label="Save"
             title={
-              promoBlocked
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                ? salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined
+                : promoBlocked
                 ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
                 : undefined
             }
@@ -1528,11 +1577,20 @@ function QuoteSheetPageInner() {
           <Button
             size="sm"
             onClick={handleGenerateQuote}
-            disabled={generating || saving || !customerId || !hasAnySignature || promoBlocked}
+            disabled={
+              generating ||
+              saving ||
+              !customerId ||
+              !hasAnySignature ||
+              promoBlocked ||
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+            }
             className="gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
             aria-label={hasAnySignature ? "生成订单（客户已在 Part B 签字）" : "请先让客户在 Part B 签字"}
             title={
-              promoBlocked
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+                ? salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined
+                : promoBlocked
                 ? `Special Promotion 超过 ${Math.round(promoMaxPct * 100)}% 上限，需 admin 账号提交`
                 : !hasAnySignature
                   ? "请让客户在 Part B 底部签字后再生成订单"

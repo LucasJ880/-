@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { deleteWatchTarget, setWatchTargetActive } from "@/lib/trade/watch-service";
+import { db } from "@/lib/db";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function PATCH(
   request: NextRequest,
@@ -14,19 +16,25 @@ export async function PATCH(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
-  const orgId = new URL(request.url).searchParams.get("orgId");
-  if (!orgId) {
-    return NextResponse.json({ error: "缺少 orgId" }, { status: 400 });
-  }
-
   const body = await request.json().catch(() => null);
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body?.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
   if (typeof body?.isActive !== "boolean") {
     return NextResponse.json({ error: "需要 isActive: boolean" }, { status: 400 });
   }
 
+  const t = await db.tradeWatchTarget.findFirst({
+    where: { id, orgId: orgRes.orgId },
+    select: { id: true },
+  });
+  if (!t) {
+    return NextResponse.json({ error: "监控目标不存在" }, { status: 404 });
+  }
+
   try {
-    const row = await setWatchTargetActive(orgId, id, body.isActive);
+    const row = await setWatchTargetActive(orgRes.orgId, id, body.isActive);
     return NextResponse.json({ item: row });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "更新失败";
@@ -41,14 +49,21 @@ export async function DELETE(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const orgId = new URL(request.url).searchParams.get("orgId");
-  if (!orgId) {
-    return NextResponse.json({ error: "缺少 orgId" }, { status: 400 });
+
+  const t = await db.tradeWatchTarget.findFirst({
+    where: { id, orgId: orgRes.orgId },
+    select: { id: true },
+  });
+  if (!t) {
+    return NextResponse.json({ error: "监控目标不存在" }, { status: 404 });
   }
 
   try {
-    await deleteWatchTarget(orgId, id);
+    await deleteWatchTarget(orgRes.orgId, id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "删除失败";

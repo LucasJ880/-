@@ -21,6 +21,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 import {
   Dialog,
   DialogContent,
@@ -408,6 +414,8 @@ export function CreateAppointmentDialog({
   });
   const [customers, setCustomers] = useState<{ id: string; name: string; phone?: string; address?: string }[]>([]);
   const [saving, setSaving] = useState(false);
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+  const orgCreateBlocked = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
 
   useEffect(() => {
     if (!open) return;
@@ -556,7 +564,14 @@ export function CreateAppointmentDialog({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={saving || !form.customerId || !form.startAt || !form.endAt}
+              disabled={
+                saving ||
+                orgCreateBlocked ||
+                !form.customerId ||
+                !form.startAt ||
+                !form.endAt
+              }
+              title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
               className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
             >
               {saving ? "创建中..." : "创建预约"}

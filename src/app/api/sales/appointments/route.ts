@@ -3,6 +3,10 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { syncAppointmentToGoogle } from "@/lib/sales/appointment-gcal-sync";
 import { onMeasureBooked } from "@/lib/sales/opportunity-lifecycle";
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from "@/lib/sales/org-context";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const url = new URL(request.url);
@@ -61,10 +65,36 @@ export const POST = withAuth(async (request, _ctx, user) => {
     address?: string;
     contactPhone?: string;
     assignedToId?: string;
+    orgId?: string;
   };
 
   if (!customerId || !title || !startAt || !endAt) {
     return NextResponse.json({ error: "客户、标题、时间不能为空" }, { status: 400 });
+  }
+
+  const orgRes = await resolveSalesOrgIdForRequest(request, user, {
+    bodyOrgId: typeof body.orgId === "string" ? body.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+
+  const customer = await db.salesCustomer.findFirst({
+    where: { id: customerId, archivedAt: null },
+    select: { id: true, orgId: true, createdById: true },
+  });
+  if (!customer) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
+  const denied = await assertSalesCustomerInOrgForMutation(customer, orgRes.orgId);
+  if (denied) return denied;
+
+  if (opportunityId) {
+    const opp = await db.salesOpportunity.findFirst({
+      where: { id: opportunityId, customerId },
+      select: { id: true },
+    });
+    if (!opp) {
+      return NextResponse.json({ error: "商机不存在或不属于该客户" }, { status: 400 });
+    }
   }
 
   const appointment = await db.appointment.create({

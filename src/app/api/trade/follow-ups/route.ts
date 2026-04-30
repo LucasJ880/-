@@ -8,13 +8,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { resolveTradeOrgId } from "@/lib/trade/access";
+import { TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE } from "@/lib/trade/stage";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { searchParams } = new URL(request.url);
-  const orgId = searchParams.get("orgId") ?? "default";
   const days = Number(searchParams.get("days") ?? "7");
 
   const cutoff = new Date();
@@ -22,10 +26,10 @@ export async function GET(request: NextRequest) {
 
   const prospects = await db.tradeProspect.findMany({
     where: {
-      orgId,
+      orgId: orgRes.orgId,
       nextFollowUpAt: { lte: cutoff },
       stage: {
-        notIn: ["won", "lost", "unqualified", "new"],
+        notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE],
       },
     },
     orderBy: { nextFollowUpAt: "asc" },

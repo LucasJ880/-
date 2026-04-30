@@ -11,7 +11,7 @@
  */
 
 import { db } from "@/lib/db";
-import { getCampaign, updateCampaign, createProspect, updateProspect } from "./service";
+import { updateCampaign, createProspect, updateProspect } from "./service";
 import { generateSearchKeywords, generateOutreachEmail } from "./agents";
 import { discoverProspects } from "./tools";
 import { getResearchReportForAgents } from "./research-bundle";
@@ -37,6 +37,7 @@ export interface PipelineResult {
 
 export async function runFullPipeline(
   campaignId: string,
+  orgId: string,
   opts?: { maxDiscover?: number; maxResearch?: number; maxOutreach?: number },
 ): Promise<PipelineResult> {
   const maxDiscover = opts?.maxDiscover ?? 20;
@@ -46,9 +47,12 @@ export async function runFullPipeline(
   const steps: PipelineStep[] = [];
   const summary = { discovered: 0, researched: 0, qualified: 0, outreachGenerated: 0 };
 
-  const campaign = await getCampaign(campaignId);
+  const campaign = await db.tradeCampaign.findFirst({
+    where: { id: campaignId, orgId },
+    include: { _count: { select: { prospects: true } } },
+  });
   if (!campaign) {
-    steps.push({ step: "init", status: "error", detail: "活动不存在" });
+    steps.push({ step: "init", status: "error", detail: "活动不存在或不属于当前组织" });
     return { steps, summary };
   }
 
@@ -111,6 +115,7 @@ export async function runFullPipeline(
         website: company.website,
         country: company.country,
         source: "google",
+        stage: "discovered",
       });
       existingNames.add(company.companyName.toLowerCase());
       created++;
@@ -144,7 +149,7 @@ export async function runFullPipeline(
   steps.push({ step: "research", status: "running", detail: "AI 研究 + 打分..." });
   try {
     const newProspects = await db.tradeProspect.findMany({
-      where: { campaignId, stage: "new" },
+      where: { campaignId, stage: { in: ["new", "discovered"] } },
       take: maxResearch,
       orderBy: { createdAt: "asc" },
     });
@@ -153,7 +158,7 @@ export async function runFullPipeline(
     for (const p of newProspects) {
       try {
         const researchResult = await runProspectResearch(
-          { prospectId: p.id },
+          { prospectId: p.id, orgId: campaign.orgId },
           { incrementCampaignQualifiedIfQualified: false },
         );
         if (!researchResult.success) {
@@ -226,7 +231,6 @@ export async function runFullPipeline(
           outreachSubject: draft.subject,
           outreachBody: draft.body,
           outreachLang: "auto",
-          stage: "outreach_draft",
         });
         generated++;
 

@@ -105,6 +105,12 @@ model User {
   // PR4 — AI 待审批动作
   pendingActionsCreated PendingAction[] @relation("PendingActionCreatedBy")
 
+  /// 外贸线索转入销售 CRM 的操作人
+  tradeProspectsConverted TradeProspect[] @relation("TradeProspectConvertedBy")
+  tradeIntelligenceCasesCreated TradeIntelligenceCase[] @relation("TradeIntelligenceCaseCreatedBy")
+  tradeIntelligenceCasesConverted TradeIntelligenceCase[] @relation("TradeIntelligenceCaseConvertedBy")
+  tradeIntelligenceAssetsCreated TradeIntelligenceAsset[] @relation("TradeIntelligenceAssetCreatedBy")
+
   // Visualizer 窗饰可视化
   visualizerSessionsCreated VisualizerSession[]   @relation("VisualizerSessionCreatedBy")
   visualizerSessionsOwned   VisualizerSession[]   @relation("VisualizerSessionSalesOwner")
@@ -1987,10 +1993,26 @@ model TradeProspect {
   score          Float?
   scoreReason    String? @db.Text
 
+  /// Serper 等得到的候选官网 JSON 数组（见 website-candidate-scoring）
+  websiteCandidates       Json?
+  /// 当前用于研究的官网置信度 0–1
+  websiteConfidence       Float?
+  /// user_provided | imported | serper_auto_high_confidence | serper_candidates_pending | manual_confirmed
+  websiteCandidateSource  String?
+  websiteVerifiedAt       DateTime?
+  websiteVerifiedBy       String?
+
+  /// 研究管线状态（与 stage 独立）；历史数据可为 null
+  researchStatus    String?
+  researchWarnings  Json?
+  crawlStatus         String?
+  crawlSourceType     String?
+  sourcesCount        Int?
+  lastResearchError   String? @db.VarChar(2000)
+  lastResearchedAt    DateTime?
+
+  /// 线索业务生命周期（标准值见 src/lib/trade/stage.ts TRADE_PROSPECT_STAGES）
   stage String @default("new")
-  // new → researched → qualified → outreach_draft → outreach_sent
-  // → replied → interested → negotiating → won / lost
-  // → unqualified / no_response
 
   outreachSubject String?
   outreachBody    String?   @db.Text
@@ -2007,9 +2029,18 @@ model TradeProspect {
   messages     TradeMessage[]
   quotes       TradeQuote[]
   watchTargets TradeWatchTarget[]
+  intelligenceCaseConversions TradeIntelligenceCase[] @relation("TradeIntelligenceCaseProspect")
+
+  /// 转入销售 CRM 后回填（与 stage=converted 配套）
+  convertedToSalesCustomerId    String?
+  convertedToSalesOpportunityId String?
+  convertedAt                     DateTime?
+  convertedById                   String?
+  convertedBy                     User?    @relation("TradeProspectConvertedBy", fields: [convertedById], references: [id])
 
   @@index([campaignId, stage])
   @@index([orgId, stage])
+  @@index([orgId, researchStatus])
   @@index([nextFollowUpAt])
   @@index([score])
 }
@@ -2103,6 +2134,87 @@ model TradeChatMessage {
   createdAt  DateTime         @default(now())
 
   @@index([sessionId, createdAt])
+}
+
+/// 竞品产品溯源 / 买家发现（MVP：JSON 存候选，后续可拆表）
+model TradeIntelligenceCase {
+  id         String @id @default(cuid())
+  orgId      String
+  title      String
+  status     String @default("new") // new | searching | analyzing | needs_review | buyer_identified | converted_to_prospect | failed | archived
+  sourceType String @default("manual") // manual | import | api | image
+
+  productName   String?
+  brand         String?
+  upc           String?
+  gtin          String?
+  sku           String?
+  mpn           String?
+  productUrl    String?
+  retailerName  String?
+  category      String?
+  material      String?
+  size          String?
+  color         String?
+  countryOfOrigin String?
+  notes         String? @db.Text
+
+  structuredProduct   Json?
+  searchQueries       Json?
+  evidence            Json?
+  buyerCandidates     Json?
+  retailerCandidates  Json?
+  importerCandidates  Json?
+  supplierCandidates  Json?
+  contactCandidates     Json?
+  recommendedProspects  Json?
+
+  analysisReport   String? @db.Text
+  confidenceScore  Float?
+  lastRunAt        DateTime?
+  lastError        String? @db.VarChar(2000)
+
+  convertedProspectId String?
+  convertedProspect   TradeProspect? @relation("TradeIntelligenceCaseProspect", fields: [convertedProspectId], references: [id])
+  convertedAt         DateTime?
+  convertedById       String?
+  convertedBy         User?   @relation("TradeIntelligenceCaseConvertedBy", fields: [convertedById], references: [id])
+
+  createdById String
+  createdBy   User   @relation("TradeIntelligenceCaseCreatedBy", fields: [createdById], references: [id])
+
+  assets TradeIntelligenceAsset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, createdAt])
+  @@index([orgId, upc])
+  @@index([orgId, mpn])
+}
+
+/// 竞品溯源 — 吊牌/包装/截图等图片资产（Vision 提取结构化字段）
+model TradeIntelligenceAsset {
+  id               String                 @id @default(cuid())
+  orgId            String
+  caseId           String?
+  case             TradeIntelligenceCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  fileUrl          String
+  fileName         String
+  fileType         String
+  assetType        String // tag_image | carton_label | package_image | screenshot | receipt
+  extractedText    Json?
+  extractedFields  Json?
+  confidence       Float?
+  warnings         Json?
+  createdById      String
+  createdBy        User   @relation("TradeIntelligenceAssetCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime @default(now())
+
+  @@index([orgId])
+  @@index([caseId])
 }
 
 model TradeChannel {
@@ -2238,6 +2350,7 @@ model TradeEmailTemplate {
 
 model SalesCustomer {
   id         String    @id @default(cuid())
+  orgId      String?
   name       String
   phone      String?
   email      String?
@@ -2276,10 +2389,12 @@ model SalesCustomer {
   @@index([phone])
   @@index([email])
   @@index([createdAt])
+  @@index([orgId])
 }
 
 model SalesOpportunity {
   id             String        @id @default(cuid())
+  orgId          String?
   customerId     String
   customer       SalesCustomer @relation(fields: [customerId], references: [id])
   title          String
@@ -2297,6 +2412,8 @@ model SalesOpportunity {
   installDate    DateTime?
   jdyDataId      String?       @unique
   lastSyncAt     DateTime?
+  /// 来源外贸线索（可空；用于去重与审计）
+  sourceTradeProspectId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -2322,10 +2439,13 @@ model SalesOpportunity {
   @@index([assignedToId])
   @@index([nextFollowupAt])
   @@index([stage, updatedAt])
+  @@index([sourceTradeProspectId])
+  @@index([orgId])
 }
 
 model CustomerInteraction {
   id             String            @id @default(cuid())
+  orgId          String?
   customerId     String
   customer       SalesCustomer     @relation(fields: [customerId], references: [id])
   opportunityId  String?
@@ -2361,10 +2481,12 @@ model CustomerInteraction {
   @@index([type])
   @@index([channel])
   @@index([analysisStatus])
+  @@index([orgId])
 }
 
 model SalesQuote {
   id              String            @id @default(cuid())
+  orgId           String?
   opportunityId   String?
   opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
   customerId      String
@@ -2414,6 +2536,9 @@ model SalesQuote {
   agreedDepositAmount Float?
   agreedBalanceAmount Float?
 
+  /// 由外贸 TradeQuote 人工转换而来；唯一约束防止同一外贸报价重复生成销售报价
+  sourceTradeQuoteId String? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2431,6 +2556,7 @@ model SalesQuote {
   @@index([opportunityId])
   @@index([status])
   @@index([createdAt])
+  @@index([orgId])
 }
 
 /// 全局报价折扣率设置（单行配置 id="singleton"）

@@ -17,6 +17,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { runAgent } from "@/lib/agent-core";
 import type { CoreMessage, ToolDomain, AgentRunOptions } from "@/lib/agent-core";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 
 export const maxDuration = 60;
 
@@ -52,7 +53,9 @@ export const POST = withAuth(async (request, _ctx, user) => {
     content: m.content,
   }));
 
-  const orgId = body.orgId ?? "default";
+  const orgRes = await resolveRequestOrgIdForUser(user, body.orgId as string | undefined);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
   const domains = body.domains as ToolDomain[] | undefined;
   const systemPrompt = body.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   const mode = (body.mode ?? "chat") as AgentRunOptions["mode"];

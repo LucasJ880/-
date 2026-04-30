@@ -3,7 +3,7 @@
  *
  * 批量导入线索（展会名片、Excel 客户表等）
  * Content-Type: multipart/form-data
- * Fields: file (CSV/XLSX), campaignId, orgId, source
+ * Fields: file (CSV/XLSX), campaignId, orgId?, source
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -11,6 +11,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { createProspect } from "@/lib/trade/service";
 import { parseExcelBuffer, parseCsvText } from "@/lib/trade/importer";
 import { db } from "@/lib/db";
+import { loadTradeCampaignForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
@@ -19,8 +20,11 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
   const campaignId = formData.get("campaignId") as string;
-  const orgId = (formData.get("orgId") as string) ?? "default";
+  const formOrgId = (formData.get("orgId") as string) || null;
   const source = (formData.get("source") as string) ?? "exhibition";
+
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: formOrgId });
+  if (!orgRes.ok) return orgRes.response;
 
   if (!file) {
     return NextResponse.json({ error: "请上传文件" }, { status: 400 });
@@ -29,10 +33,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "请选择获客活动" }, { status: 400 });
   }
 
-  const campaign = await db.tradeCampaign.findUnique({ where: { id: campaignId } });
-  if (!campaign) {
-    return NextResponse.json({ error: "活动不存在" }, { status: 404 });
-  }
+  const camp = await loadTradeCampaignForOrg(campaignId, orgRes.orgId);
+  if (camp instanceof NextResponse) return camp;
+  const { campaign } = camp;
 
   const fileName = file.name.toLowerCase();
   let rows;
@@ -57,14 +60,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 仅查询当前导入行可能重复的公司名，避免拉取活动下全部数据。
   const incomingNames = Array.from(
     new Set(rows.map((r) => r.companyName).filter(Boolean)),
   );
   const existingNames = new Set(
     (
       await db.tradeProspect.findMany({
-        where: { campaignId, companyName: { in: incomingNames } },
+        where: { campaignId, orgId: campaign.orgId, companyName: { in: incomingNames } },
         select: { companyName: true },
       })
     ).map((p) => p.companyName.toLowerCase()),
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest) {
     try {
       await createProspect({
         campaignId,
-        orgId,
+        orgId: campaign.orgId,
         companyName: row.companyName,
         contactName: row.contactName,
         contactEmail: row.contactEmail,

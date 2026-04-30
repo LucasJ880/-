@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { executeAction } from "@/lib/secretary/actions";
 import type { ActionType } from "@/lib/secretary/actions";
 import { withAuth } from "@/lib/common/api-helpers";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 
 const VALID_TYPES: ActionType[] = [
   "followup_draft",
@@ -17,7 +18,7 @@ const VALID_TYPES: ActionType[] = [
   "send_draft",
 ];
 
-export const POST = withAuth(async (request) => {
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json().catch(() => null);
   if (!body?.type || !body?.entityId) {
     return NextResponse.json(
@@ -33,10 +34,14 @@ export const POST = withAuth(async (request) => {
     );
   }
 
+  const orgRes = await resolveTradeOrgId(request, user, { bodyOrgId: body?.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
   try {
     const result = await executeAction({
       type: body.type,
       entityId: body.entityId,
+      orgId: orgRes.orgId,
       params: body.params,
     });
 

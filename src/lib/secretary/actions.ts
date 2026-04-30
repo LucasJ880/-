@@ -5,14 +5,15 @@
  * 1. followup_draft  — AI 生成跟进邮件草稿（首次/二次触达）
  * 2. quote_extend    — 延期报价有效期
  * 3. prospect_approve — 批准高分客户进入开发信生成流程
- * 4. prospect_skip   — 跳过某客户（标记为 unqualified）
+ * 4. prospect_skip   — 跳过某客户（标记为 lost）
  * 5. send_draft      — 确认并发送 AI 草稿邮件
  */
 
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
-import { getProspect, updateProspect, createMessage } from "@/lib/trade/service";
+import { updateProspect, createMessage } from "@/lib/trade/service";
 import { sendEmail } from "@/lib/trade/email";
+import { normalizeTradeProspectStage, stageAtLeastContacted } from "@/lib/trade/stage";
 
 export type ActionType =
   | "followup_draft"
@@ -25,6 +26,8 @@ export interface ActionRequest {
   type: ActionType;
   /** 目标实体 ID（prospect / quote） */
   entityId: string;
+  /** 当前组织（须与实体 orgId 一致，禁止跨 org 动作） */
+  orgId: string;
   /** 附加参数 */
   params?: Record<string, unknown>;
 }
@@ -52,15 +55,15 @@ export interface EmailDraft {
 export async function executeAction(req: ActionRequest): Promise<ActionResult> {
   switch (req.type) {
     case "followup_draft":
-      return handleFollowupDraft(req.entityId, req.params);
+      return handleFollowupDraft(req.entityId, req.orgId, req.params);
     case "quote_extend":
-      return handleQuoteExtend(req.entityId, req.params);
+      return handleQuoteExtend(req.entityId, req.orgId, req.params);
     case "prospect_approve":
-      return handleProspectApprove(req.entityId);
+      return handleProspectApprove(req.entityId, req.orgId);
     case "prospect_skip":
-      return handleProspectSkip(req.entityId);
+      return handleProspectSkip(req.entityId, req.orgId);
     case "send_draft":
-      return handleSendDraft(req.entityId, req.params);
+      return handleSendDraft(req.entityId, req.orgId, req.params);
     default:
       return { success: false, type: req.type, message: `未知动作类型: ${req.type}` };
   }
@@ -70,9 +73,13 @@ export async function executeAction(req: ActionRequest): Promise<ActionResult> {
 
 async function handleFollowupDraft(
   prospectId: string,
+  orgId: string,
   params?: Record<string, unknown>,
 ): Promise<ActionResult> {
-  const prospect = await getProspect(prospectId);
+  const prospect = await db.tradeProspect.findFirst({
+    where: { id: prospectId, orgId },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
   if (!prospect) {
     return { success: false, type: "followup_draft", message: "未找到该客户" };
   }
@@ -156,9 +163,10 @@ ${contextParts.length > 0 ? `\n历史上下文:\n${contextParts.join("\n")}` : "
 
 async function handleQuoteExtend(
   quoteId: string,
+  orgId: string,
   params?: Record<string, unknown>,
 ): Promise<ActionResult> {
-  const quote = await db.tradeQuote.findUnique({ where: { id: quoteId } });
+  const quote = await db.tradeQuote.findFirst({ where: { id: quoteId, orgId } });
   if (!quote) {
     return { success: false, type: "quote_extend", message: "未找到该报价" };
   }
@@ -192,13 +200,13 @@ async function handleQuoteExtend(
 
 // ── 3. 批准客户 → 生成开发信 ────────────────────────────────────
 
-async function handleProspectApprove(prospectId: string): Promise<ActionResult> {
-  const prospect = await getProspect(prospectId);
+async function handleProspectApprove(prospectId: string, orgId: string): Promise<ActionResult> {
+  const prospect = await db.tradeProspect.findFirst({ where: { id: prospectId, orgId } });
   if (!prospect) {
     return { success: false, type: "prospect_approve", message: "未找到该客户" };
   }
 
-  if (prospect.stage !== "qualified") {
+  if (normalizeTradeProspectStage(prospect.stage) !== "qualified") {
     return {
       success: false,
       type: "prospect_approve",
@@ -207,7 +215,6 @@ async function handleProspectApprove(prospectId: string): Promise<ActionResult> 
   }
 
   await updateProspect(prospectId, {
-    stage: "outreach_draft",
     nextFollowUpAt: new Date(Date.now() + 3 * 86_400_000),
   });
 
@@ -215,25 +222,25 @@ async function handleProspectApprove(prospectId: string): Promise<ActionResult> 
     success: true,
     type: "prospect_approve",
     message: `已批准 ${prospect.companyName}，可前往外贸看板生成开发信`,
-    updatedEntity: { prospectId, companyName: prospect.companyName, newStage: "outreach_draft" },
+    updatedEntity: { prospectId, companyName: prospect.companyName, newStage: "qualified" },
   };
 }
 
 // ── 4. 跳过客户 ─────────────────────────────────────────────────
 
-async function handleProspectSkip(prospectId: string): Promise<ActionResult> {
-  const prospect = await getProspect(prospectId);
+async function handleProspectSkip(prospectId: string, orgId: string): Promise<ActionResult> {
+  const prospect = await db.tradeProspect.findFirst({ where: { id: prospectId, orgId } });
   if (!prospect) {
     return { success: false, type: "prospect_skip", message: "未找到该客户" };
   }
 
-  await updateProspect(prospectId, { stage: "unqualified" });
+  await updateProspect(prospectId, { stage: "lost" });
 
   return {
     success: true,
     type: "prospect_skip",
     message: `已跳过 ${prospect.companyName}`,
-    updatedEntity: { prospectId, companyName: prospect.companyName, newStage: "unqualified" },
+    updatedEntity: { prospectId, companyName: prospect.companyName, newStage: "lost" },
   };
 }
 
@@ -241,9 +248,10 @@ async function handleProspectSkip(prospectId: string): Promise<ActionResult> {
 
 async function handleSendDraft(
   prospectId: string,
+  orgId: string,
   params?: Record<string, unknown>,
 ): Promise<ActionResult> {
-  const prospect = await getProspect(prospectId);
+  const prospect = await db.tradeProspect.findFirst({ where: { id: prospectId, orgId } });
   if (!prospect) {
     return { success: false, type: "send_draft", message: "未找到该客户" };
   }
@@ -271,9 +279,7 @@ async function handleSendDraft(
   await updateProspect(prospectId, {
     lastContactAt: now,
     outreachSentAt: prospect.outreachSentAt ?? now,
-    stage: prospect.stage === "no_response" || prospect.stage === "outreach_sent"
-      ? "outreach_sent"
-      : prospect.stage,
+    stage: stageAtLeastContacted(prospect.stage),
     nextFollowUpAt: new Date(now.getTime() + 5 * 86_400_000),
     followUpCount: (prospect.followUpCount ?? 0) + 1,
   });

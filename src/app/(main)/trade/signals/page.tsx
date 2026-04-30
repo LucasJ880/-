@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2, Radio } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
-
-const ORG_ID = "default";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface SignalListItem {
   id: string;
@@ -21,14 +21,21 @@ interface SignalListItem {
 }
 
 export default function TradeSignalsPage() {
+  const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [items, setItems] = useState<SignalListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    if (!orgId || ambiguous) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await apiFetch(
-        `/api/trade/signals?orgId=${encodeURIComponent(ORG_ID)}&limit=100`,
+        `/api/trade/signals?orgId=${encodeURIComponent(orgId)}&limit=100`,
       );
       if (res.ok) {
         const data = (await res.json()) as { items?: SignalListItem[] };
@@ -39,11 +46,31 @@ export default function TradeSignalsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [orgId, ambiguous]);
 
   useEffect(() => {
+    if (orgLoading) return;
     void load();
-  }, [load]);
+  }, [load, orgLoading]);
+
+  if (orgLoading || loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再查看监控信号。</p>
+        <button type="button" onClick={() => router.push("/organizations")} className="text-sm text-accent underline-offset-2 hover:underline">
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -65,11 +92,7 @@ export default function TradeSignalsPage() {
         </button>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted" />
-        </div>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="rounded-xl border border-border/60 bg-card-bg px-8 py-16 text-center">
           <Radio className="mx-auto mb-3 h-8 w-8 text-muted" />
           <p className="text-sm text-muted">暂无监控信号</p>

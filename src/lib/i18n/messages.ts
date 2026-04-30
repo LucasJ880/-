@@ -50,6 +50,8 @@ export interface Messages {
   nav_sales_knowledge: string;
   nav_quote_sheet: string;
   nav_trade_dashboard: string;
+  nav_trade_prospects: string;
+  nav_trade_intelligence: string;
   nav_trade_cockpit: string;
   nav_ai_assistant: string;
   nav_trade_quotes: string;

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { runCheckForTarget } from "@/lib/trade/watch-service";
 import { db } from "@/lib/db";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -15,14 +16,13 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const orgId = new URL(request.url).searchParams.get("orgId");
-  if (!orgId) {
-    return NextResponse.json({ error: "缺少 orgId" }, { status: 400 });
-  }
 
   const t = await db.tradeWatchTarget.findFirst({
-    where: { id, orgId },
+    where: { id, orgId: orgRes.orgId },
     select: { id: true },
   });
   if (!t) {

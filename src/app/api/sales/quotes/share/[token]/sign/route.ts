@@ -9,6 +9,7 @@ import { sendMailAs } from "@/lib/email/sender";
 import { signedNotifyHtml } from "@/lib/email/templates";
 import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
+import { resolveOrgIdForQuoteLinkedInteraction } from "@/lib/sales/org-context";
 
 export async function POST(
   request: NextRequest,
@@ -27,7 +28,7 @@ export async function POST(
   const quote = await db.salesQuote.findUnique({
     where: { shareToken: token },
     include: {
-      customer: { select: { name: true } },
+      customer: { select: { name: true, orgId: true } },
       createdBy: { select: { id: true, name: true, email: true } },
     },
   });
@@ -59,8 +60,15 @@ export async function POST(
     },
   });
 
+  const interactionOrgId = await resolveOrgIdForQuoteLinkedInteraction({
+    quoteOrgId: quote.orgId,
+    customerId: quote.customerId,
+    createdById: quote.createdBy.id,
+  });
+
   await db.customerInteraction.create({
     data: {
+      orgId: interactionOrgId,
       customerId: quote.customerId,
       type: "signature",
       direction: "inbound",

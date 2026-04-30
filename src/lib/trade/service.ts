@@ -75,10 +75,17 @@ export interface CreateProspectInput {
   website?: string;
   country?: string;
   source?: string;
+  /** 默认 new；discover 流水线传 discovered */
+  stage?: string;
 }
 
 export async function createProspect(input: CreateProspectInput) {
-  const prospect = await db.tradeProspect.create({ data: input });
+  const prospect = await db.tradeProspect.create({
+    data: {
+      ...input,
+      stage: input.stage ?? "new",
+    },
+  });
   await db.tradeCampaign.update({
     where: { id: input.campaignId },
     data: { totalProspects: { increment: 1 } },
@@ -88,6 +95,7 @@ export async function createProspect(input: CreateProspectInput) {
 
 export async function listProspects(
   campaignId: string,
+  orgId: string,
   opts?: { stage?: string; page?: number; pageSize?: number },
 ) {
   const page = opts?.page ?? 1;
@@ -95,6 +103,7 @@ export async function listProspects(
 
   const where = {
     campaignId,
+    orgId,
     ...(opts?.stage ? { stage: opts.stage } : {}),
   };
 

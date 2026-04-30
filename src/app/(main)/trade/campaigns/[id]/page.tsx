@@ -20,6 +20,12 @@ import {
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import {
+  TRADE_PROSPECT_STAGE_OPTIONS,
+  getTradeProspectStageLabel,
+  getTradeProspectStageTone,
+} from "@/lib/trade/stage";
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -50,41 +56,12 @@ interface Prospect {
   createdAt: string;
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  new: "新线索",
-  researched: "已研究",
-  qualified: "合格",
-  unqualified: "不合格",
-  outreach_draft: "邮件草稿",
-  outreach_sent: "已发送",
-  replied: "已回复",
-  interested: "感兴趣",
-  negotiating: "谈判中",
-  won: "成交",
-  lost: "丢失",
-  no_response: "未回复",
-};
-
-const STAGE_COLORS: Record<string, string> = {
-  new: "bg-zinc-500/15 text-zinc-400",
-  researched: "bg-blue-500/15 text-blue-400",
-  qualified: "bg-emerald-500/15 text-emerald-400",
-  unqualified: "bg-red-500/15 text-red-400",
-  outreach_draft: "bg-amber-500/15 text-amber-400",
-  outreach_sent: "bg-violet-500/15 text-violet-400",
-  replied: "bg-cyan-500/15 text-cyan-400",
-  interested: "bg-emerald-500/15 text-emerald-400",
-  negotiating: "bg-orange-500/15 text-orange-400",
-  won: "bg-emerald-600/20 text-emerald-300",
-  lost: "bg-red-600/20 text-red-300",
-  no_response: "bg-zinc-500/15 text-zinc-500",
-};
-
 // ── Page ────────────────────────────────────────────────────
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [total, setTotal] = useState(0);
@@ -102,29 +79,66 @@ export default function CampaignDetailPage() {
   const [showLogs, setShowLogs] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [campRes, prospRes, statsRes] = await Promise.all([
-      apiFetch(`/api/trade/campaigns/${id}`),
-      apiFetch(`/api/trade/prospects?campaignId=${id}${stageFilter ? `&stage=${stageFilter}` : ""}`),
-      apiFetch(`/api/trade/campaigns/${id}/stats`),
-    ]);
-    if (campRes.ok) setCampaign(await campRes.json());
-    if (prospRes.ok) {
-      const data = await prospRes.json();
-      setProspects(data.items ?? []);
-      setTotal(data.total ?? 0);
+    if (!orgId) return;
+    setLoading(true);
+    const q = `orgId=${encodeURIComponent(orgId)}`;
+    try {
+      const [campRes, prospRes, statsRes] = await Promise.all([
+        apiFetch(`/api/trade/campaigns/${id}?${q}`),
+        apiFetch(
+          `/api/trade/prospects?campaignId=${id}&${q}&pageSize=50${stageFilter ? `&stage=${encodeURIComponent(stageFilter)}` : ""}`,
+        ),
+        apiFetch(`/api/trade/campaigns/${id}/stats?${q}`),
+      ]);
+      if (campRes.ok) setCampaign(await campRes.json());
+      else setCampaign(null);
+      if (prospRes.ok) {
+        const data = await prospRes.json();
+        setProspects(data.items ?? []);
+        setTotal(data.total ?? 0);
+      } else {
+        setProspects([]);
+        setTotal(0);
+      }
+      if (statsRes.ok) setStats(await statsRes.json());
+      else setStats(null);
+    } finally {
+      setLoading(false);
     }
-    if (statsRes.ok) setStats(await statsRes.json());
-    setLoading(false);
-  }, [id, stageFilter]);
+  }, [id, stageFilter, orgId]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (orgLoading) return;
+    if (!orgId || ambiguous) {
+      setCampaign(null);
+      setProspects([]);
+      setTotal(0);
+      setStats(null);
+      setLoading(false);
+      return;
+    }
+    void loadData();
+  }, [loadData, orgId, ambiguous, orgLoading]);
 
-  if (loading) {
+  if (orgLoading || loading) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织（侧栏进入某个组织，或完成组织切换）后再查看活动。</p>
+        <button
+          type="button"
+          onClick={() => router.push("/organizations")}
+          className="text-sm text-accent underline-offset-2 hover:underline"
+        >
+          前往组织
+        </button>
       </div>
     );
   }
@@ -206,7 +220,12 @@ export default function CampaignDetailPage() {
                 const res = await apiFetch(`/api/trade/campaigns/${id}/pipeline`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ maxDiscover: 15, maxResearch: 8, maxOutreach: 5 }),
+                  body: JSON.stringify({
+                    orgId,
+                    maxDiscover: 15,
+                    maxResearch: 8,
+                    maxOutreach: 5,
+                  }),
                 });
                 if (res.ok) {
                   setPipelineResult(await res.json());
@@ -252,7 +271,11 @@ export default function CampaignDetailPage() {
             setDiscovering(true);
             setDiscoverResult(null);
             try {
-              const res = await apiFetch(`/api/trade/campaigns/${id}/discover`, { method: "POST" });
+              const res = await apiFetch(`/api/trade/campaigns/${id}/discover`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ orgId }),
+              });
               if (res.ok) {
                 const data = await res.json();
                 setDiscoverResult(`发现 ${data.total} 家公司，新增 ${data.created} 条线索`);
@@ -276,7 +299,7 @@ export default function CampaignDetailPage() {
               const res = await apiFetch(`/api/trade/campaigns/${id}/batch-research`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ limit: 5 }),
+                body: JSON.stringify({ orgId, limit: 5 }),
               });
               if (res.ok) {
                 const data = await res.json();
@@ -317,8 +340,8 @@ export default function CampaignDetailPage() {
             className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none"
           >
             <option value="">全部阶段</option>
-            {Object.entries(STAGE_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
+            {TRADE_PROSPECT_STAGE_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
         </div>
@@ -350,7 +373,9 @@ export default function CampaignDetailPage() {
           onClick={async () => {
             setShowLogs(!showLogs);
             if (!showLogs && logs.length === 0) {
-              const res = await apiFetch(`/api/trade/campaigns/${id}/logs`);
+              const res = await apiFetch(
+                `/api/trade/campaigns/${id}/logs?orgId=${encodeURIComponent(orgId)}`,
+              );
               if (res.ok) setLogs(await res.json());
             }
           }}
@@ -381,7 +406,7 @@ export default function CampaignDetailPage() {
       {showAdd && campaign && (
         <AddProspectModal
           campaignId={campaign.id}
-          orgId="default"
+          orgId={orgId}
           onClose={() => setShowAdd(false)}
           onCreated={() => {
             setShowAdd(false);
@@ -404,8 +429,8 @@ function ProspectRow({ prospect: p }: { prospect: Prospect }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{p.companyName}</span>
-          <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", STAGE_COLORS[p.stage] ?? STAGE_COLORS.new)}>
-            {STAGE_LABELS[p.stage] ?? p.stage}
+          <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", getTradeProspectStageTone(p.stage))}>
+            {getTradeProspectStageLabel(p.stage)}
           </span>
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-xs text-muted">

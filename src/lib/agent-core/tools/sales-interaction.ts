@@ -7,6 +7,7 @@ import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
 import { salesCreatedScope } from "@/lib/rbac/data-scope";
+import { assertSalesCustomerInOrgOrThrowForConvert } from "@/lib/sales/org-context";
 
 /** PR1：归一化客户归属检查（admin 跳过；sales 必须是自己的客户） */
 async function resolveOwnedCustomerId(
@@ -191,6 +192,15 @@ registry.register({
     const scene = (ctx.args.scene as string) || "quote_initial";
 
     try {
+      const cust = await db.salesCustomer.findFirst({
+        where: { id: customerId, archivedAt: null },
+        select: { id: true, orgId: true, createdById: true },
+      });
+      if (!cust) {
+        return { success: false, data: { error: "客户不存在" } };
+      }
+      await assertSalesCustomerInOrgOrThrowForConvert(cust, ctx.orgId);
+
       const email = await composeEmail({
         userId: ctx.userId,
         customerId,
@@ -215,6 +225,7 @@ registry.register({
 
       await db.customerInteraction.create({
         data: {
+          orgId: ctx.orgId,
           customerId,
           type: "email",
           direction: "outbound",

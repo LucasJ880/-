@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, CheckCircle2, XCircle, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface Channel {
   id: string;
@@ -44,23 +46,55 @@ const CHANNEL_INFO: Record<string, { label: string; color: string; fields: { key
 };
 
 export default function TradeChannelsPage() {
+  const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await apiFetch("/api/trade/channels?orgId=default");
+    if (!orgId || ambiguous) {
+      setChannels([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const res = await apiFetch(`/api/trade/channels?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) setChannels(await res.json());
+    else setChannels([]);
     setLoading(false);
-  }, []);
+  }, [orgId, ambiguous]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (orgLoading) return;
+    void load();
+  }, [load, orgLoading]);
 
   const handleDelete = async (channel: string) => {
+    if (!orgId || ambiguous) return;
     if (!confirm("确定删除该通道配置？")) return;
-    await apiFetch(`/api/trade/channels/${channel}?orgId=default`, { method: "DELETE" });
+    await apiFetch(`/api/trade/channels/${channel}?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
     load();
   };
+
+  if (orgLoading || loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再配置消息通道。</p>
+        <button type="button" onClick={() => router.push("/organizations")} className="text-sm text-accent underline-offset-2 hover:underline">
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -73,9 +107,7 @@ export default function TradeChannelsPage() {
         </button>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted" /></div>
-      ) : channels.length === 0 ? (
+      {channels.length === 0 ? (
         <div className="rounded-xl border border-border/60 bg-card-bg px-8 py-16 text-center">
           <MessageSquare className="mx-auto mb-3 h-8 w-8 text-muted" />
           <p className="text-sm text-muted">暂未配置消息通道</p>
@@ -114,12 +146,21 @@ export default function TradeChannelsPage() {
         </div>
       )}
 
-      {showAdd && <AddChannelModal onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); load(); }} />}
+      {showAdd && (
+        <AddChannelModal
+          orgId={orgId}
+          onClose={() => setShowAdd(false)}
+          onAdded={() => {
+            setShowAdd(false);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function AddChannelModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+function AddChannelModal({ orgId, onClose, onAdded }: { orgId: string; onClose: () => void; onAdded: () => void }) {
   const [channel, setChannel] = useState("whatsapp");
   const [name, setName] = useState("");
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -135,7 +176,7 @@ function AddChannelModal({ onClose, onAdded }: { onClose: () => void; onAdded: (
       const res = await apiFetch("/api/trade/channels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId: "default", channel, name, config }),
+        body: JSON.stringify({ orgId, channel, name, config }),
       });
       if (res.ok) onAdded();
     } finally {

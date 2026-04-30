@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getQuote, updateQuote, deleteQuote } from "@/lib/trade/quote-service";
+import { updateQuote, deleteQuote } from "@/lib/trade/quote-service";
+import { loadTradeQuoteForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(
   request: NextRequest,
@@ -9,10 +10,13 @@ export async function GET(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const quote = await getQuote(id);
-  if (!quote) return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
-  return NextResponse.json(quote);
+  const loaded = await loadTradeQuoteForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  return NextResponse.json(loaded.quote);
 }
 
 export async function PATCH(
@@ -22,9 +26,16 @@ export async function PATCH(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
   const body = await request.json();
-  const quote = await updateQuote(id, body);
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
+  const loaded = await loadTradeQuoteForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
+  const { orgId: _o, id: _i, ...safe } = body as Record<string, unknown>;
+  const quote = await updateQuote(id, safe);
   return NextResponse.json(quote);
 }
 
@@ -35,7 +46,13 @@ export async function DELETE(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
+  const loaded = await loadTradeQuoteForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
   await deleteQuote(id);
   return NextResponse.json({ success: true });
 }

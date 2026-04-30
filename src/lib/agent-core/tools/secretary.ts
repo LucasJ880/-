@@ -82,6 +82,7 @@ registry.register({
     const result = await executeAction({
       type: "followup_draft",
       entityId: ctx.args.prospectId as string,
+      orgId: ctx.orgId,
       params: { isSecondTouch: ctx.args.isSecondTouch === "true" },
     });
     return { success: result.success, data: result.draft ?? result.message, error: result.success ? undefined : result.message };
@@ -107,6 +108,7 @@ registry.register({
     const result = await executeAction({
       type: ctx.args.actionType as "quote_extend" | "prospect_approve" | "prospect_skip",
       entityId: ctx.args.entityId as string,
+      orgId: ctx.orgId,
     });
     return { success: result.success, data: result, error: result.success ? undefined : result.message };
   },

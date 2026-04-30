@@ -22,6 +22,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Opportunity } from "./types";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 export function AddInteractionDialog({
   open,
@@ -44,19 +50,23 @@ export function AddInteractionDialog({
     opportunityId: "",
   });
   const [saving, setSaving] = useState(false);
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   async function handleSave() {
     if (!form.summary.trim()) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) return;
     setSaving(true);
     try {
       await apiFetch(`/api/sales/customers/${customerId}/interactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          opportunityId: form.opportunityId || null,
-          direction: form.direction || null,
-        }),
+        body: JSON.stringify(
+          withSalesOrgId(orgId!, {
+            ...form,
+            opportunityId: form.opportunityId || null,
+            direction: form.direction || null,
+          }),
+        ),
       });
       onSuccess();
     } catch (err) {
@@ -152,9 +162,23 @@ export function AddInteractionDialog({
           </div>
         </div>
 
+        {!orgLoading && ambiguous && (
+          <p className="text-xs text-amber-800 bg-amber-50 rounded-md px-2 py-1.5">
+            {salesOrgCreateBlockedHint(false, true, null)}
+          </p>
+        )}
+
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={handleSave} disabled={saving || !form.summary.trim()}>
+          <Button
+            onClick={handleSave}
+            disabled={
+              saving ||
+              !form.summary.trim() ||
+              isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
+            }
+            title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+          >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             保存
           </Button>

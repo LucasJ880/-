@@ -1,14 +1,26 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { sendSalesEmail } from "@/lib/email/sender";
 import { quoteEmailHtml } from "@/lib/email/templates";
 import { randomBytes } from "crypto";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from "@/lib/sales/org-context";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
   const body = await request.json();
+  const rawBody = body as Record<string, unknown>;
+  const orgRes = await resolveSalesOrgIdForRequest(request as NextRequest, user, {
+    bodyOrgId: typeof rawBody.orgId === "string" ? rawBody.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const requestOrgId = orgRes.orgId;
+
   const { to, lang } = body as { to: string; lang?: string };
 
   if (!to) {
@@ -26,6 +38,15 @@ export const POST = withAuth(async (request, ctx, user) => {
   });
 
   if (!quote) return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
+
+  const custDenied = await assertSalesCustomerInOrgForMutation(
+    {
+      orgId: quote.customer.orgId,
+      createdById: quote.customer.createdById,
+    },
+    requestOrgId,
+  );
+  if (custDenied) return custDenied;
 
   if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
     return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
@@ -81,6 +102,7 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   await db.customerInteraction.create({
     data: {
+      orgId: requestOrgId,
       customerId: quote.customerId,
       opportunityId: quote.opportunityId,
       type: "email",

@@ -251,29 +251,42 @@ export function selectResearchUrlsFromMap(
   return urls.slice(0, maxPages);
 }
 
+export interface CollectResearchPagesMeta {
+  usedFirecrawl: boolean;
+  /** Firecrawl /v2/map 抛错或返回非 success */
+  mapFailed: boolean;
+  /** map 失败后仅依赖根 URL 抓取，或 map 返回空链后仅根 URL */
+  homepageFallbackOnly: boolean;
+}
+
 /**
  * 对 canonical 站点执行 map → 选 URL → scrape，失败返回空数组（不抛到 research 外层）。
  */
-export async function collectResearchPages(siteRootUrl: string | null): Promise<{
-  pages: ResearchFetchedPage[];
-  usedFirecrawl: boolean;
-}> {
+export async function collectResearchPages(
+  siteRootUrl: string | null,
+): Promise<{ pages: ResearchFetchedPage[] } & CollectResearchPagesMeta> {
   if (!isFirecrawlConfigured() || !siteRootUrl) {
-    return { pages: [], usedFirecrawl: false };
+    return { pages: [], usedFirecrawl: false, mapFailed: false, homepageFallbackOnly: false };
   }
   const root = normalizeSiteRootUrl(siteRootUrl);
-  if (!root) return { pages: [], usedFirecrawl: false };
+  if (!root) {
+    return { pages: [], usedFirecrawl: false, mapFailed: false, homepageFallbackOnly: false };
+  }
 
   const max = maxResearchPages();
   let urls: string[] = [];
+  let mapFailed = false;
   try {
     const links = await mapSite(root);
     urls = selectResearchUrlsFromMap(root, links, max);
   } catch (e) {
     console.warn("[trade/research-fetch-provider] map failed:", e);
+    mapFailed = true;
     urls = [root];
   }
   if (urls.length === 0) urls = [root];
+
+  const homepageFallbackOnly = mapFailed || urls.length <= 1;
 
   const pages: ResearchFetchedPage[] = [];
   for (const url of urls) {
@@ -300,5 +313,10 @@ export async function collectResearchPages(siteRootUrl: string | null): Promise<
     }
   }
 
-  return { pages, usedFirecrawl: pages.length > 0 };
+  return {
+    pages,
+    usedFirecrawl: pages.length > 0,
+    mapFailed,
+    homepageFallbackOnly,
+  };
 }

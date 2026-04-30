@@ -6,9 +6,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getProspect, updateProspect, getCampaign } from "@/lib/trade/service";
+import { updateProspect } from "@/lib/trade/service";
 import { generateOutreachEmail } from "@/lib/trade/agents";
 import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
+import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -17,11 +18,14 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const body = await request.json().catch(() => ({}));
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const prospect = await getProspect(id);
-  if (!prospect) {
-    return NextResponse.json({ error: "线索不存在" }, { status: 404 });
-  }
+  const loaded = await loadTradeProspectForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  const { prospect } = loaded;
 
   const reportForEmail = getResearchReportForAgents(prospect.researchReport);
   if (!reportForEmail) {
@@ -31,12 +35,10 @@ export async function POST(
     );
   }
 
-  const campaign = await getCampaign(prospect.campaignId);
+  const campaign = prospect.campaign;
   if (!campaign) {
     return NextResponse.json({ error: "活动不存在" }, { status: 404 });
   }
-
-  const body = await request.json().catch(() => ({}));
 
   const draft = await generateOutreachEmail(
     {
@@ -57,7 +59,6 @@ export async function POST(
     outreachSubject: draft.subject,
     outreachBody: draft.body,
     outreachLang: "en",
-    stage: prospect.stage === "qualified" ? "outreach_draft" : prospect.stage,
   });
 
   return NextResponse.json({ draft });

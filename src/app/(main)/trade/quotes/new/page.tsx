@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 export default function NewQuotePage() {
   return (
@@ -16,6 +17,7 @@ export default function NewQuotePage() {
 function NewQuoteForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
 
   const [companyName, setCompanyName] = useState(params.get("companyName") ?? "");
   const [contactName, setContactName] = useState(params.get("contactName") ?? "");
@@ -36,14 +38,14 @@ function NewQuoteForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyName.trim()) return;
+    if (!companyName.trim() || !orgId) return;
     setSaving(true);
     try {
       const res = await apiFetch("/api/trade/quotes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orgId: "default",
+          orgId,
           prospectId,
           campaignId,
           companyName: companyName.trim(),
@@ -68,6 +70,29 @@ function NewQuoteForm() {
       setSaving(false);
     }
   };
+
+  if (orgLoading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再创建报价单。</p>
+        <button
+          type="button"
+          onClick={() => router.push("/organizations")}
+          className="text-sm text-accent underline-offset-2 hover:underline"
+        >
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -153,7 +178,7 @@ function NewQuoteForm() {
         </div>
         <div className="flex items-center justify-end gap-3 pt-2">
           <button type="button" onClick={() => router.back()} className="rounded-lg px-4 py-2 text-sm text-muted hover:text-foreground">取消</button>
-          <button type="submit" disabled={saving || !companyName.trim()} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          <button type="submit" disabled={saving || !companyName.trim() || !orgId} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
             {saving && <Loader2 size={14} className="animate-spin" />}
             创建报价单
           </button>

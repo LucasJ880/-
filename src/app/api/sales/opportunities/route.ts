@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from '@/lib/sales/org-context';
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
@@ -53,12 +57,28 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
+  const orgRes = await resolveSalesOrgIdForRequest(request, user, {
+    bodyOrgId: typeof body.orgId === 'string' ? body.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+
   if (!body.customerId || !body.title?.trim()) {
     return NextResponse.json({ error: '客户 ID 和标题不能为空' }, { status: 400 });
   }
 
+  const customer = await db.salesCustomer.findFirst({
+    where: { id: body.customerId, archivedAt: null },
+    select: { id: true, orgId: true, createdById: true },
+  });
+  if (!customer) {
+    return NextResponse.json({ error: '客户不存在' }, { status: 404 });
+  }
+  const denied = await assertSalesCustomerInOrgForMutation(customer, orgRes.orgId);
+  if (denied) return denied;
+
   const opportunity = await db.salesOpportunity.create({
     data: {
+      orgId: orgRes.orgId,
       customerId: body.customerId,
       title: body.title.trim(),
       stage: body.stage || 'new_lead',

@@ -131,6 +131,7 @@ function mapHeaders(row: Record<string, string>): CsvCustomerRow | null {
 export async function importCustomersCsv(
   csvText: string,
   userId: string,
+  orgId: string,
 ): Promise<ImportResult> {
   const rawRows = parseCsv(csvText);
   const result: ImportResult = {
@@ -152,7 +153,11 @@ export async function importCustomersCsv(
     try {
       const existingByPhone = mapped.phone
         ? await db.salesCustomer.findFirst({
-            where: { phone: mapped.phone, createdById: userId },
+            where: {
+              phone: mapped.phone,
+              createdById: userId,
+              OR: [{ orgId }, { orgId: null }],
+            },
           })
         : null;
 
@@ -160,6 +165,9 @@ export async function importCustomersCsv(
 
       if (existingByPhone) {
         customerId = existingByPhone.id;
+        if (existingByPhone.orgId && existingByPhone.orgId !== orgId) {
+          throw new Error("该电话已绑定到其他组织的客户，无法在当前组织导入");
+        }
         await db.salesCustomer.update({
           where: { id: customerId },
           data: {
@@ -173,6 +181,7 @@ export async function importCustomersCsv(
       } else {
         const customer = await db.salesCustomer.create({
           data: {
+            orgId,
             name: mapped.name,
             phone: mapped.phone || null,
             email: mapped.email || null,
@@ -196,6 +205,7 @@ export async function importCustomersCsv(
 
         await db.salesOpportunity.create({
           data: {
+            orgId,
             customerId,
             title: mapped.opportunityTitle,
             stage,

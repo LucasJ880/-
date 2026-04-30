@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Loader2, FileText, Copy, CheckCircle2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface Template {
   id: string;
@@ -37,6 +39,8 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function TradeTemplatesPage() {
+  const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -45,15 +49,23 @@ export default function TradeTemplatesPage() {
   const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
-    const url = `/api/trade/templates?orgId=default${filter ? `&category=${filter}` : ""}`;
+    if (!orgId || ambiguous) {
+      setTemplates([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const url = `/api/trade/templates?orgId=${encodeURIComponent(orgId)}${filter ? `&category=${filter}` : ""}`;
     const res = await apiFetch(url);
     if (res.ok) setTemplates(await res.json());
+    else setTemplates([]);
     setLoading(false);
-  }, [filter]);
+  }, [filter, orgId, ambiguous]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (orgLoading) return;
+    void load();
+  }, [load, orgLoading]);
 
   const handleCopy = (t: Template) => {
     navigator.clipboard.writeText(`Subject: ${t.subject}\n\n${t.body}`);
@@ -62,10 +74,30 @@ export default function TradeTemplatesPage() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!orgId || ambiguous) return;
     if (!confirm("确定删除该模板？")) return;
-    await apiFetch(`/api/trade/templates/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/trade/templates/${id}?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
     load();
   };
+
+  if (orgLoading || loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再管理邮件模板。</p>
+        <button type="button" onClick={() => router.push("/organizations")} className="text-sm text-accent underline-offset-2 hover:underline">
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -99,11 +131,7 @@ export default function TradeTemplatesPage() {
       </div>
 
       {/* Template List */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted" />
-        </div>
-      ) : templates.length === 0 ? (
+      {templates.length === 0 ? (
         <div className="rounded-xl border border-border/60 bg-card-bg px-8 py-16 text-center">
           <FileText className="mx-auto mb-3 h-8 w-8 text-muted" />
           <p className="text-sm text-muted">暂无模板，系统将自动生成默认模板</p>
@@ -171,15 +199,19 @@ export default function TradeTemplatesPage() {
       {/* Create Modal */}
       {showCreate && (
         <CreateTemplateModal
+          orgId={orgId}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); load(); }}
+          onCreated={() => {
+            setShowCreate(false);
+            load();
+          }}
         />
       )}
     </div>
   );
 }
 
-function CreateTemplateModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateTemplateModal({ orgId, onClose, onCreated }: { orgId: string; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("first_touch");
   const [language, setLanguage] = useState("en");
@@ -195,7 +227,7 @@ function CreateTemplateModal({ onClose, onCreated }: { onClose: () => void; onCr
       const res = await apiFetch("/api/trade/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId: "default", name, category, language, subject, body }),
+        body: JSON.stringify({ orgId, name, category, language, subject, body }),
       });
       if (res.ok) onCreated();
     } finally {

@@ -6,9 +6,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getCampaign } from "@/lib/trade/service";
 import { runProspectResearch } from "@/lib/trade/research-service";
 import { db } from "@/lib/db";
+import { loadTradeCampaignForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -17,17 +17,19 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
-  const campaign = await getCampaign(id);
-  if (!campaign) {
-    return NextResponse.json({ error: "活动不存在" }, { status: 404 });
-  }
-
   const body = await request.json().catch(() => ({}));
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
+  const loaded = await loadTradeCampaignForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  const { campaign } = loaded;
+
   const limit = Math.min(body.limit ?? 5, 10);
 
   const prospects = await db.tradeProspect.findMany({
-    where: { campaignId: id, stage: "new" },
+    where: { campaignId: id, orgId: campaign.orgId, stage: { in: ["new", "discovered"] } },
     take: limit,
     orderBy: { createdAt: "asc" },
   });
@@ -42,7 +44,7 @@ export async function POST(
   for (const p of prospects) {
     try {
       const result = await runProspectResearch(
-        { prospectId: p.id },
+        { prospectId: p.id, orgId: campaign.orgId },
         { incrementCampaignQualifiedIfQualified: false },
       );
       if (!result.success) {

@@ -13,6 +13,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { ImportResult } from "./types";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+} from "@/lib/sales/sales-client-org";
 
 export function CsvImportDialog({
   open,
@@ -28,15 +33,21 @@ export function CsvImportDialog({
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
 
   async function handleImport() {
     if (!file) return;
+    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
+      setError(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法导入");
+      return;
+    }
     setImporting(true);
     setError(null);
 
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("orgId", orgId!);
       const res = await apiFetch("/api/sales/import-csv", {
         method: "POST",
         body: formData,
@@ -87,9 +98,19 @@ export function CsvImportDialog({
               <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{error}</p>
             )}
 
+            {!orgLoading && ambiguous && (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {salesOrgCreateBlockedHint(false, true, null)}
+              </p>
+            )}
+
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-              <Button onClick={handleImport} disabled={!file || importing}>
+              <Button
+                onClick={handleImport}
+                disabled={!file || importing || isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)}
+                title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+              >
                 {importing && <Loader2 className="h-4 w-4 animate-spin" />}
                 开始导入
               </Button>

@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from '@/lib/sales/org-context';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/pricing-types';
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
@@ -26,6 +30,13 @@ import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-pay
  */
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
+  const rawBody = body as Record<string, unknown>;
+  const orgRes = await resolveSalesOrgIdForRequest(request, user, {
+    bodyOrgId: typeof rawBody.orgId === 'string' ? rawBody.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const requestOrgId = orgRes.orgId;
+
   const {
     customerId,
     opportunityId,
@@ -65,6 +76,30 @@ export const POST = withAuth(async (request, _ctx, user) => {
       { error: '需要 items 或 formDataJson 至少之一' },
       { status: 400 },
     );
+  }
+
+  const customerRow = await db.salesCustomer.findFirst({
+    where: { id: customerId, archivedAt: null },
+    select: { id: true, orgId: true, createdById: true },
+  });
+  if (!customerRow) {
+    return NextResponse.json({ error: '客户不存在' }, { status: 404 });
+  }
+  const customerDenied = await assertSalesCustomerInOrgForMutation(customerRow, requestOrgId);
+  if (customerDenied) return customerDenied;
+
+  if (opportunityId) {
+    const opp = await db.salesOpportunity.findFirst({
+      where: { id: opportunityId, customerId },
+      select: { id: true, customerId: true, orgId: true },
+    });
+    if (!opp) {
+      return NextResponse.json({ error: '商机不存在或不属于该客户' }, { status: 404 });
+    }
+    if (opp.orgId && opp.orgId !== requestOrgId) {
+      return NextResponse.json({ error: '商机不属于当前组织' }, { status: 403 });
+    }
+    // TODO remove legacy membership fallback after sales orgId backfill — opp.orgId 为空时仅凭 customer 已通过 org 校验
   }
 
   // —— 尝试 pricing 计算；失败也不抛错 ——
@@ -135,6 +170,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const quote = await db.salesQuote.create({
     data: {
+      orgId: requestOrgId,
       customerId,
       opportunityId: opportunityId || null,
       version: existingCount + 1,

@@ -4,6 +4,8 @@
  * 单条 API、批量、流水线、对话 Agent 共用；内部仍走 gather → report → scoring → bundle。
  */
 
+import type { Prisma } from "@prisma/client";
+import type { TradeCampaign, TradeProspect } from "@prisma/client";
 import { db } from "@/lib/db";
 import { updateProspect } from "@/lib/trade/service";
 import { generateResearchReport, scoreProspect } from "@/lib/trade/agents";
@@ -13,7 +15,15 @@ import {
   type ResearchBundleV1,
   type ScoreDimensionKey,
 } from "@/lib/trade/research-bundle";
-import { gatherTradeResearchInputs } from "@/lib/trade/research-input";
+import { gatherTradeResearchInputs, type TradeResearchGatherMeta } from "@/lib/trade/research-input";
+import { searchGoogle } from "@/lib/trade/tools";
+import {
+  buildSerpWebsiteQuery,
+  extractProductKeywords,
+  scoreWebsiteCandidates,
+  shouldAutoPickCandidate,
+} from "@/lib/trade/website-candidate-scoring";
+import { normalizeTradeProspectStage, stageAfterResearchScore } from "@/lib/trade/stage";
 
 const DIM_ZH: Record<ScoreDimensionKey, string> = {
   productFit: "产品契合",
@@ -46,7 +56,8 @@ export interface RunProspectResearchOptions {
 }
 
 export type RunProspectResearchInput =
-  | { prospectId: string; orgId?: string; websiteOverride?: string | null }
+  /** prospectId 路径必须带 orgId，且须与线索库中 prospect.orgId 一致（禁止仅凭 id 执行研究）。 */
+  | { prospectId: string; orgId: string; websiteOverride?: string | null }
   | {
       orgId: string;
       companyName: string;
@@ -83,7 +94,15 @@ export type RunProspectResearchResult =
   | {
       success: false;
       error: string;
-      code: "not_found" | "forbidden" | "no_prospect" | "ambiguous_prospect" | "invalid_campaign";
+      code:
+        | "not_found"
+        | "forbidden"
+        | "no_prospect"
+        | "ambiguous_prospect"
+        | "invalid_campaign"
+        | "website_needed"
+        | "website_confirmation_needed"
+        | "research_failed";
       /** 仅当 code === ambiguous_prospect */
       candidates?: ResearchProspectCandidate[];
     };
@@ -169,31 +188,34 @@ function buildChatSummary(params: {
 
 async function loadProspectWithCampaign(
   input: RunProspectResearchInput,
-): Promise<
-  | { ok: true; prospect: { id: string; orgId: string; companyName: string; country: string | null; website: string | null; campaignId: string }; campaign: { id: string; productDesc: string; targetMarket: string; scoreThreshold: number; orgId: string } }
-  | { ok: false; result: RunProspectResearchResult }
-> {
+): Promise<{ ok: true; prospect: TradeProspect; campaign: TradeCampaign } | { ok: false; result: RunProspectResearchResult }> {
   if ("prospectId" in input) {
+    if (!input.orgId?.trim()) {
+      return {
+        ok: false,
+        result: {
+          success: false,
+          error: "缺少组织上下文，无法执行研究",
+          code: "forbidden",
+        },
+      };
+    }
     const row = await db.tradeProspect.findUnique({
       where: { id: input.prospectId },
       include: { campaign: true },
     });
     if (!row) return { ok: false, result: { success: false, error: "线索不存在", code: "not_found" } };
-    if (input.orgId && row.orgId !== input.orgId) {
+    if (row.orgId !== input.orgId) {
       return { ok: false, result: { success: false, error: "无权操作该线索", code: "forbidden" } };
     }
-    return {
-      ok: true,
-      prospect: {
-        id: row.id,
-        orgId: row.orgId,
-        companyName: row.companyName,
-        country: row.country,
-        website: row.website,
-        campaignId: row.campaignId,
-      },
-      campaign: row.campaign,
-    };
+    if (row.campaign.orgId !== input.orgId) {
+      return {
+        ok: false,
+        result: { success: false, error: "活动与线索组织不一致", code: "forbidden" },
+      };
+    }
+    const { campaign, ...prospect } = row;
+    return { ok: true, prospect, campaign };
   }
 
   const needle = input.companyName.trim();
@@ -271,19 +293,45 @@ async function loadProspectWithCampaign(
     };
   }
 
-  const row = chosen;
-  return {
-    ok: true,
-    prospect: {
-      id: row.id,
-      orgId: row.orgId,
-      companyName: row.companyName,
-      country: row.country,
-      website: row.website,
-      campaignId: row.campaignId,
-    },
-    campaign: row.campaign,
-  };
+  const { campaign, ...prospect } = chosen;
+  return { ok: true, prospect, campaign };
+}
+
+const INSUFFICIENT_SOURCES_THRESHOLD = 3;
+
+function defaultWebsiteCandidateSourceFromImportFlag(source: string): string {
+  const s = (source || "").toLowerCase();
+  if (s === "1688" || s === "exhibition") return "imported";
+  return "user_provided";
+}
+
+function uniqWarnings(w: string[]): string[] {
+  return [...new Set(w.filter(Boolean))];
+}
+
+function computeCrawlStatus(meta: TradeResearchGatherMeta): string {
+  if (meta.serpOrganicCount === 0) return "serper_no_result";
+  if (meta.mapFailed) return "firecrawl_map_failed";
+  if (meta.homepageFromFetchFallback || meta.homepageFallbackOnly) return "homepage_fallback_used";
+  if (meta.firecrawlPageCount > 0) return "firecrawl_scrape_success";
+  return "firecrawl_map_success";
+}
+
+function computeCrawlSourceType(
+  websiteCandidateSource: string | null,
+  meta: TradeResearchGatherMeta,
+): string {
+  if (websiteCandidateSource === "serper_auto_high_confidence") return "candidate_website";
+  if (websiteCandidateSource === "serper_candidates_pending") return "candidate_website";
+  if (websiteCandidateSource === "manual_confirmed") return "official_website";
+  if (websiteCandidateSource === "user_provided" || websiteCandidateSource === "imported") {
+    return "official_website";
+  }
+  if (meta.homepageFromFetchFallback && meta.firecrawlPageCount === 0) return "homepage_only";
+  if (meta.serpOrganicCount > 0 && meta.firecrawlPageCount === 0 && !meta.homepageFromFetchFallback) {
+    return "search_result_only";
+  }
+  return "unknown";
 }
 
 /**
@@ -296,73 +344,192 @@ export async function runProspectResearch(
   const loaded = await loadProspectWithCampaign(input);
   if (!loaded.ok) return loaded.result;
 
-  const { prospect, campaign } = loaded;
+  let { prospect, campaign } = loaded;
+  const pid = prospect.id;
 
   const websiteOverride =
     "websiteOverride" in input ? input.websiteOverride : "websiteHint" in input ? input.websiteHint : undefined;
 
-  const { rawData, sources, website: resolvedWebsite } = await gatherTradeResearchInputs({
-    companyName: prospect.companyName,
-    country: prospect.country,
-    website: websiteOverride ?? prospect.website,
-  });
+  let canonicalWebsite = (websiteOverride ?? prospect.website)?.trim() || null;
 
-  const { report, fieldSourceIds } = await generateResearchReport(
-    {
-      name: prospect.companyName,
-      website: prospect.website,
-      country: prospect.country,
-      rawData: rawData || undefined,
-    },
-    campaign.productDesc,
-    campaign.targetMarket,
-    sources,
-  );
-
-  const scoreResult = await scoreProspect(sources, report, campaign.productDesc, campaign.targetMarket, {
-    includeDebug: opts?.includeScoringDebug,
-  });
-
-  const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds, scoreResult.scoring);
-  const finalScore = researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
-  const newStage = finalScore >= campaign.scoreThreshold ? "qualified" : "unqualified";
-
-  const updatedProspect = await updateProspect(prospect.id, {
-    researchReport: researchBundle,
-    score: finalScore,
-    scoreReason: scoreResult.reason,
-    stage: newStage,
-    website: resolvedWebsite ?? prospect.website,
-  });
-
-  if (opts?.incrementCampaignQualifiedIfQualified && newStage === "qualified") {
-    await db.tradeCampaign.update({
-      where: { id: campaign.id },
-      data: { qualified: { increment: 1 } },
+  if (canonicalWebsite && !prospect.websiteCandidateSource) {
+    const src =
+      websiteOverride?.trim() && !prospect.website?.trim()
+        ? "user_provided"
+        : defaultWebsiteCandidateSourceFromImportFlag(prospect.source);
+    await updateProspect(pid, {
+      websiteCandidateSource: src,
+      websiteConfidence: prospect.websiteConfidence ?? 0.9,
     });
+    prospect = { ...prospect, websiteCandidateSource: src, websiteConfidence: prospect.websiteConfidence ?? 0.9 };
   }
 
-  const chatSummary = buildChatSummary({
-    companyName: prospect.companyName,
-    country: prospect.country,
-    website: resolvedWebsite ?? prospect.website,
-    bundle: researchBundle,
-    finalScore,
-    newStage,
-    scoreReason: scoreResult.reason,
+  await updateProspect(pid, {
+    researchStatus: "researching",
+    lastResearchError: null,
+    researchWarnings: [] as unknown as Prisma.InputJsonValue,
   });
 
-  const scoringOut = researchBundle.scoring ?? scoreResult.scoring;
+  try {
+    if (!canonicalWebsite) {
+      const q = buildSerpWebsiteQuery(prospect.companyName, prospect.country, campaign.targetMarket);
+      const serp = await searchGoogle(q, { num: 10 });
+      if (serp.length === 0) {
+        await updateProspect(pid, {
+          researchStatus: "website_needed",
+          crawlStatus: "serper_no_result",
+          lastResearchError: "搜索引擎未返回与该公司相关的网页结果，无法推断官网",
+        });
+        return {
+          success: false,
+          code: "website_needed",
+          error: "未找到可用的搜索引擎结果，请人工补充官网后再研究",
+        };
+      }
 
-  return {
-    success: true,
-    prospectId: prospect.id,
-    updatedProspect,
-    researchBundle,
-    finalScore,
-    newStage,
-    scoreReason: scoreResult.reason,
-    scoreForApi: { score: finalScore, reason: scoreResult.reason, scoring: scoringOut },
-    chatSummary,
-  };
+      const kws = extractProductKeywords(campaign.productDesc, campaign.targetMarket);
+      const candidates = scoreWebsiteCandidates(prospect.companyName, prospect.country, kws, serp);
+      await updateProspect(pid, {
+        websiteCandidates: candidates as unknown as Prisma.InputJsonValue,
+        crawlStatus: "serper_success",
+        researchStatus: "website_candidates_found",
+      });
+
+      const top = candidates[0];
+      if (shouldAutoPickCandidate(top)) {
+        await updateProspect(pid, {
+          website: top.url,
+          websiteConfidence: top.confidence,
+          websiteCandidateSource: "serper_auto_high_confidence",
+          researchStatus: "research_pending",
+        });
+        canonicalWebsite = top.url;
+        prospect = {
+          ...prospect,
+          website: top.url,
+          websiteConfidence: top.confidence,
+          websiteCandidateSource: "serper_auto_high_confidence",
+        };
+      } else {
+        const st =
+          top && top.confidence >= 0.45 && !top.rejectedReason ? "low_confidence" : "website_candidates_found";
+        await updateProspect(pid, {
+          researchStatus: st,
+          websiteCandidateSource: "serper_candidates_pending",
+          websiteConfidence: top?.confidence ?? null,
+          researchWarnings: ["website_not_confirmed", "low_website_confidence"] as unknown as Prisma.InputJsonValue,
+        });
+        return {
+          success: false,
+          code: "website_confirmation_needed",
+          error: "无法高置信度自动认定官网，请在详情中确认官网后再执行研究",
+        };
+      }
+    }
+
+    const { rawData, sources, meta } = await gatherTradeResearchInputs({
+      companyName: prospect.companyName,
+      country: prospect.country,
+      website: canonicalWebsite,
+    });
+
+    const gatherWarnings: string[] = [];
+    if (meta.mapFailed) gatherWarnings.push("firecrawl_failed");
+    if (meta.homepageFromFetchFallback || meta.homepageFallbackOnly) {
+      gatherWarnings.push("only_homepage_used");
+    }
+    if (sources.length < INSUFFICIENT_SOURCES_THRESHOLD) {
+      gatherWarnings.push("insufficient_sources");
+    }
+
+    const crawlStatus = computeCrawlStatus(meta);
+    const crawlSourceType = computeCrawlSourceType(prospect.websiteCandidateSource, meta);
+
+    const { report, fieldSourceIds } = await generateResearchReport(
+      {
+        name: prospect.companyName,
+        website: canonicalWebsite,
+        country: prospect.country,
+        rawData: rawData || undefined,
+      },
+      campaign.productDesc,
+      campaign.targetMarket,
+      sources,
+    );
+
+    const scoreResult = await scoreProspect(sources, report, campaign.productDesc, campaign.targetMarket, {
+      includeDebug: opts?.includeScoringDebug,
+    });
+
+    const researchBundle = mergeResearchBundle(sources, report, fieldSourceIds, scoreResult.scoring);
+    const finalScore = researchBundle.scoring?.totalFromDimensions ?? scoreResult.score;
+    const passed = finalScore >= campaign.scoreThreshold;
+    const newStage = stageAfterResearchScore(prospect.stage, passed);
+
+    const researchWarnings = uniqWarnings(gatherWarnings);
+    const researchStatus =
+      researchWarnings.length > 0 ? "researched_with_warnings" : "researched";
+
+    const updatedProspect = await updateProspect(pid, {
+      researchReport: researchBundle,
+      score: finalScore,
+      scoreReason: scoreResult.reason,
+      stage: newStage,
+      website: canonicalWebsite ?? prospect.website,
+      researchStatus,
+      researchWarnings: researchWarnings as unknown as Prisma.InputJsonValue,
+      crawlStatus,
+      crawlSourceType,
+      sourcesCount: sources.length,
+      lastResearchError: null,
+      lastResearchedAt: new Date(),
+    });
+
+    const prevNorm = normalizeTradeProspectStage(prospect.stage);
+    if (
+      opts?.incrementCampaignQualifiedIfQualified &&
+      passed &&
+      (prevNorm === "new" || prevNorm === "discovered")
+    ) {
+      await db.tradeCampaign.update({
+        where: { id: campaign.id },
+        data: { qualified: { increment: 1 } },
+      });
+    }
+
+    const chatSummary = buildChatSummary({
+      companyName: prospect.companyName,
+      country: prospect.country,
+      website: canonicalWebsite ?? prospect.website,
+      bundle: researchBundle,
+      finalScore,
+      newStage,
+      scoreReason: scoreResult.reason,
+    });
+
+    const scoringOut = researchBundle.scoring ?? scoreResult.scoring;
+
+    return {
+      success: true,
+      prospectId: prospect.id,
+      updatedProspect,
+      researchBundle,
+      finalScore,
+      newStage,
+      scoreReason: scoreResult.reason,
+      scoreForApi: { score: finalScore, reason: scoreResult.reason, scoring: scoringOut },
+      chatSummary,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await updateProspect(pid, {
+      researchStatus: "failed",
+      lastResearchError: msg.slice(0, 1990),
+    });
+    return {
+      success: false,
+      code: "research_failed",
+      error: msg,
+    };
+  }
 }

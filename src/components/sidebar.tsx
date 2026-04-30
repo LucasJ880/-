@@ -31,12 +31,14 @@ import {
   MessageSquare,
   MessageCircle,
   Brain,
+  Radar,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
+import { persistSelectedOrgId } from "@/lib/hooks/use-current-org-id";
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
@@ -89,6 +91,8 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ["admin", "super_admin", "trade"],
     items: [
       { href: "/trade", labelKey: "nav_trade_dashboard", icon: Handshake, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/prospects", labelKey: "nav_trade_prospects", icon: Users, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/intelligence", labelKey: "nav_trade_intelligence", icon: Radar, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/cockpit", labelKey: "nav_trade_cockpit", icon: Activity, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/chat", labelKey: "nav_ai_assistant", icon: Bot, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/quotes", labelKey: "nav_trade_quotes", icon: ScrollText, roles: ["admin", "super_admin", "trade"] },
@@ -207,6 +211,7 @@ function OrgSwitcher({
               <button
                 key={org.id}
                 onClick={() => {
+                  persistSelectedOrgId(org.id);
                   router.push(`/organizations/${org.id}`);
                   setOpen(false);
                 }}

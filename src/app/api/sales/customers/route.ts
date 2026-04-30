@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
+import {
+  assertSalesCustomerInOrgForMutation,
+  resolveSalesOrgIdForRequest,
+} from '@/lib/sales/org-context';
 
 // 漏斗状态定义（需与 /api/sales/analytics/customer-matrix 保持一致）
 const SIGNED_STAGES = new Set(['signed', 'producing', 'installing', 'completed']);
@@ -144,6 +148,12 @@ function mergeAddress(current: string | null, incoming: string | null): string |
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
+  const orgRes = await resolveSalesOrgIdForRequest(request, user, {
+    bodyOrgId: typeof body.orgId === 'string' ? body.orgId : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+
   if (!body.name?.trim()) {
     return NextResponse.json({ error: '客户名称不能为空' }, { status: 400 });
   }
@@ -155,8 +165,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   // 电话唯一性校验：仅当提供电话时进行；范围限于当前销售名下
   if (phoneNorm) {
+    // TODO remove legacy OR orgId null after sales orgId backfill（仅同用户跨历史空 orgId 去重）
     const candidates = await db.salesCustomer.findMany({
-      where: { createdById: user.id, phone: { not: null } },
+      where: {
+        createdById: user.id,
+        phone: { not: null },
+        OR: [{ orgId }, { orgId: null }],
+      },
       select: { id: true, name: true, phone: true, address: true },
     });
     const existing = candidates.find((c) => normalizePhone(c.phone) === phoneNorm);
@@ -164,7 +179,16 @@ export const POST = withAuth(async (request, _ctx, user) => {
     if (existing) {
       // 前端确认后传来 mergeToCustomerId，执行"同一客户追加新地址"
       if (mergeToCustomerId && mergeToCustomerId === existing.id) {
-        const merged = mergeAddress(existing.address, incomingAddress);
+        const target = await db.salesCustomer.findFirst({
+          where: { id: existing.id, archivedAt: null },
+          select: { id: true, orgId: true, createdById: true, address: true },
+        });
+        if (!target) {
+          return NextResponse.json({ error: '客户不存在' }, { status: 404 });
+        }
+        const denied = await assertSalesCustomerInOrgForMutation(target, orgId);
+        if (denied) return denied;
+        const merged = mergeAddress(target.address, incomingAddress);
         const updated = await db.salesCustomer.update({
           where: { id: existing.id },
           data: { address: merged },
@@ -193,6 +217,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const customer = await db.salesCustomer.create({
     data: {
+      orgId,
       name: body.name.trim(),
       phone: incomingPhone,
       email: body.email?.trim() || null,

@@ -5,12 +5,13 @@
  * 任务：
  * 1. 跟进提醒 — 标记逾期线索、生成汇总
  * 2. 报价过期 — 自动标记过期报价
- * 3. 无回复检测 — 发出后 7 天无回复的线索标记为 no_response
+ * 3. 无回复检测 — 发出后 7 天无回复的线索标记为 follow_up
  */
 
 import { db } from "@/lib/db";
 import { logActivity } from "./activity-log";
 import { runWatchTargetsCron } from "./watch-service";
+import { TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE } from "./stage";
 
 export interface CronResult {
   overdueFollowUps: number;
@@ -41,7 +42,7 @@ export async function runDailyCron(): Promise<CronResult> {
   const overdueProspects = await db.tradeProspect.findMany({
     where: {
       nextFollowUpAt: { lt: now },
-      stage: { notIn: ["won", "lost", "unqualified", "new", "no_response"] },
+      stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
     },
     select: { id: true, companyName: true, orgId: true, campaignId: true },
   });
@@ -83,7 +84,7 @@ export async function runDailyCron(): Promise<CronResult> {
 
   const noResponseProspects = await db.tradeProspect.findMany({
     where: {
-      stage: "outreach_sent",
+      stage: { in: ["contacted", "outreach_sent"] },
       outreachSentAt: { lt: sevenDaysAgo },
     },
     select: { id: true },
@@ -92,7 +93,7 @@ export async function runDailyCron(): Promise<CronResult> {
   if (noResponseProspects.length > 0) {
     await db.tradeProspect.updateMany({
       where: { id: { in: noResponseProspects.map((p) => p.id) } },
-      data: { stage: "no_response" },
+      data: { stage: "follow_up" },
     });
     result.noResponseProspects = noResponseProspects.length;
   }

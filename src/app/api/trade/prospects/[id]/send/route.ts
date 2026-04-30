@@ -2,13 +2,15 @@
  * POST /api/trade/prospects/[id]/send
  *
  * 发送开发信（Resend）或标记为已发送（手动发送场景）
- * body: { mode: "send" | "mark_sent" }
+ * body: { mode: "send" | "mark_sent", orgId? }
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getProspect, updateProspect, createMessage } from "@/lib/trade/service";
+import { updateProspect, createMessage } from "@/lib/trade/service";
 import { sendEmail } from "@/lib/trade/email";
+import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import { stageAtLeastContacted } from "@/lib/trade/stage";
 
 export async function POST(
   request: NextRequest,
@@ -17,11 +19,14 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const body = await request.json().catch(() => ({}));
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const prospect = await getProspect(id);
-  if (!prospect) {
-    return NextResponse.json({ error: "线索不存在" }, { status: 404 });
-  }
+  const loaded = await loadTradeProspectForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  const { prospect } = loaded;
 
   if (!prospect.outreachSubject || !prospect.outreachBody) {
     return NextResponse.json(
@@ -30,7 +35,6 @@ export async function POST(
     );
   }
 
-  const body = await request.json().catch(() => ({}));
   const mode = body.mode ?? "mark_sent";
   const now = new Date();
 
@@ -62,7 +66,7 @@ export async function POST(
   threeDaysLater.setDate(threeDaysLater.getDate() + 3);
 
   await updateProspect(id, {
-    stage: "outreach_sent",
+    stage: stageAtLeastContacted(prospect.stage),
     outreachSentAt: now,
     lastContactAt: now,
     nextFollowUpAt: threeDaysLater,

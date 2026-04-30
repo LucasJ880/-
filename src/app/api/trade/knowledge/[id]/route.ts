@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { getKnowledge, updateKnowledge, deleteKnowledge } from "@/lib/trade/knowledge-service";
+import { updateKnowledge, deleteKnowledge } from "@/lib/trade/knowledge-service";
+import { loadTradeKnowledgeForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(
   request: NextRequest,
@@ -9,10 +10,13 @@ export async function GET(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
-  const item = await getKnowledge(id);
-  if (!item) return NextResponse.json({ error: "不存在" }, { status: 404 });
-  return NextResponse.json(item);
+  const loaded = await loadTradeKnowledgeForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+  return NextResponse.json(loaded.item);
 }
 
 export async function PATCH(
@@ -22,9 +26,16 @@ export async function PATCH(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
   const body = await request.json();
-  const item = await updateKnowledge(id, body);
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
+
+  const { id } = await params;
+  const loaded = await loadTradeKnowledgeForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
+  const { orgId: _o, id: _i, ...safe } = body as Record<string, unknown>;
+  const item = await updateKnowledge(id, safe);
   return NextResponse.json(item);
 }
 
@@ -35,7 +46,13 @@ export async function DELETE(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await params;
+  const loaded = await loadTradeKnowledgeForOrg(id, orgRes.orgId);
+  if (loaded instanceof NextResponse) return loaded;
+
   await deleteKnowledge(id);
   return NextResponse.json({ success: true });
 }

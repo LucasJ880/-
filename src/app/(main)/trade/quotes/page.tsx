@@ -6,6 +6,7 @@ import { Loader2, Plus, FileText, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface Quote {
   id: string;
@@ -42,20 +43,52 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function TradeQuotesPage() {
   const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
 
   const load = useCallback(async () => {
-    const url = `/api/trade/quotes?orgId=default${filter ? `&status=${filter}` : ""}`;
+    if (!orgId || ambiguous) {
+      setQuotes([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const url = `/api/trade/quotes?orgId=${encodeURIComponent(orgId)}${filter ? `&status=${filter}` : ""}`;
     const res = await apiFetch(url);
     if (res.ok) setQuotes(await res.json());
+    else setQuotes([]);
     setLoading(false);
-  }, [filter]);
+  }, [filter, orgId, ambiguous]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (orgLoading) return;
+    void load();
+  }, [load, orgLoading]);
+
+  if (orgLoading || loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再查看外贸报价。</p>
+        <button
+          type="button"
+          onClick={() => router.push("/organizations")}
+          className="text-sm text-accent underline-offset-2 hover:underline"
+        >
+          前往组织
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

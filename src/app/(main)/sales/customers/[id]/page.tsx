@@ -46,6 +46,12 @@ import { AddInteractionDialog } from "./add-interaction-dialog";
 import { ImportConversationDialog } from "./import-conversation-dialog";
 import { CreateQuoteDialog } from "./create-quote-dialog";
 import { useSwipeable } from "@/lib/hooks/use-swipeable";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import {
+  isSalesOrgCreateBlocked,
+  salesOrgCreateBlockedHint,
+  withSalesOrgId,
+} from "@/lib/sales/sales-client-org";
 
 const CUSTOMER_SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "referral", label: "转介绍" },
@@ -103,6 +109,8 @@ function customerToDraft(c: CustomerDetail): BasicInfoDraft {
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+  const orgCreateBlocked = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
   const { user, loading: userLoading, isSuperAdmin } = useCurrentUser();
   const canDeleteCustomer = isSuperAdmin;
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
@@ -278,12 +286,16 @@ export default function CustomerDetailPage() {
 
   const handleSendEmail = async (quoteId: string) => {
     if (!customer?.email || sendingEmailFor) return;
+    if (orgCreateBlocked) {
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法发送");
+      return;
+    }
     setSendingEmailFor(quoteId);
     try {
       const res = await apiFetch(`/api/sales/quotes/${quoteId}/send-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: customer.email }),
+        body: JSON.stringify(withSalesOrgId(orgId!, { to: customer.email })),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -427,6 +439,12 @@ export default function CustomerDetailPage() {
           </button>
         )}
       </div>
+
+      {!orgLoading && ambiguous && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {salesOrgCreateBlockedHint(false, true, null)}
+        </div>
+      )}
 
       {/* ───────── Mobile summary bar (默认收起) ───────── */}
       <div className="md:hidden -mt-1 space-y-2">
@@ -857,14 +875,18 @@ export default function CustomerDetailPage() {
             <>
               <button
                 onClick={() => setShowImportConvo(true)}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white"
+                disabled={orgCreateBlocked}
+                title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white disabled:opacity-40"
               >
                 <Upload className="h-3.5 w-3.5" />
                 导入对话
               </button>
               <button
                 onClick={() => setShowAddInteraction(true)}
-                className="inline-flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-white hover:bg-foreground/90"
+                disabled={orgCreateBlocked}
+                title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+                className="inline-flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-white hover:bg-foreground/90 disabled:opacity-40"
               >
                 <Plus className="h-3.5 w-3.5" />
                 记录
@@ -874,7 +896,9 @@ export default function CustomerDetailPage() {
           {activeTab === "quotes" && (
             <button
               onClick={() => setShowCreateQuote(true)}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
+              disabled={orgCreateBlocked}
+              title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40"
             >
               <Plus className="h-3.5 w-3.5" />
               新建报价
@@ -888,7 +912,9 @@ export default function CustomerDetailPage() {
         <button
           type="button"
           onClick={() => setShowAddInteraction(true)}
-          className="fab md:hidden"
+          disabled={orgCreateBlocked}
+          title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+          className="fab md:hidden disabled:opacity-40"
           aria-label="新建互动"
         >
           <Plus size={24} strokeWidth={2.2} />
@@ -898,7 +924,9 @@ export default function CustomerDetailPage() {
         <button
           type="button"
           onClick={() => setShowCreateQuote(true)}
-          className="fab md:hidden"
+          disabled={orgCreateBlocked}
+          title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
+          className="fab md:hidden disabled:opacity-40"
           aria-label="新建报价"
         >
           <Plus size={24} strokeWidth={2.2} />

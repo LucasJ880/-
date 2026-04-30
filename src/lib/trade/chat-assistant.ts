@@ -17,6 +17,11 @@ import {
   buildUserMemoryBlock,
 } from "@/lib/ai/user-memory";
 import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
+import {
+  getTradeProspectStageLabel,
+  mergeNormalizedProspectStageCounts,
+  TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
+} from "@/lib/trade/stage";
 
 // ── Tool Definitions ────────────────────────────────────────
 
@@ -268,7 +273,11 @@ async function toolGetOverview(orgId: string): Promise<ToolResult> {
     db.tradeProspect.count({ where: { orgId } }),
     db.tradeQuote.count({ where: { orgId } }),
     db.tradeProspect.count({
-      where: { orgId, nextFollowUpAt: { lt: new Date() }, stage: { notIn: ["won", "lost", "unqualified"] } },
+      where: {
+        orgId,
+        nextFollowUpAt: { lt: new Date() },
+        stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
+      },
     }),
   ]);
 
@@ -277,16 +286,32 @@ async function toolGetOverview(orgId: string): Promise<ToolResult> {
     where: { orgId },
     _count: true,
   });
-  const stages = Object.fromEntries(stageGroups.map((g) => [g.stage, g._count]));
+  const merged = mergeNormalizedProspectStageCounts(
+    stageGroups.map((g) => ({ stage: g.stage, _count: g._count })),
+  );
 
   const quoteSum = await db.tradeQuote.aggregate({
     where: { orgId },
     _sum: { totalAmount: true },
   });
 
+  const dist = [
+    `新线索 ${merged.new}`,
+    `已发现 ${merged.discovered}`,
+    `已研究 ${merged.researched}`,
+    `合格 ${merged.qualified}`,
+    `已触达 ${merged.contacted}`,
+    `已回复 ${merged.replied}`,
+    `已报价 ${merged.quoted}`,
+    `待跟进 ${merged.follow_up}`,
+    `已转化 ${merged.converted}`,
+    `失效 ${merged.lost}`,
+    `归档 ${merged.archived}`,
+  ].join(" / ");
+
   return {
     text: `活动: ${campaigns} | 线索总数: ${prospects} | 报价: ${quotes}份 (总额 $${(quoteSum._sum.totalAmount ?? 0).toLocaleString()}) | 逾期跟进: ${followUps}
-线索分布: 新发现${stages["new"] ?? 0} / 已研究${stages["researched"] ?? 0} / 合格${stages["qualified"] ?? 0} / 已联系${stages["outreach_sent"] ?? 0} / 有意向${stages["interested"] ?? 0} / 谈判中${stages["negotiating"] ?? 0} / 成交${stages["won"] ?? 0} / 无回复${stages["no_response"] ?? 0}`,
+线索分布: ${dist}`,
   };
 }
 
@@ -332,7 +357,7 @@ async function toolSearchProspects(orgId: string, args: Record<string, string>):
   if (prospects.length === 0) return { text: `未找到匹配「${query}」的线索` };
 
   const lines = prospects.map((p) =>
-    `• ${p.companyName} (${p.country ?? "?"}) — 评分${p.score?.toFixed(1) ?? "未评"} [${p.stage}] ${p.contactName ?? ""} [活动:${p.campaign.name}]`
+    `• ${p.companyName} (${p.country ?? "?"}) — 评分${p.score?.toFixed(1) ?? "未评"} [${getTradeProspectStageLabel(p.stage)}] ${p.contactName ?? ""} [活动:${p.campaign.name}]`
   );
   return { text: `找到 ${prospects.length} 条线索:\n${lines.join("\n")}` };
 }
@@ -359,7 +384,7 @@ async function toolGetProspect(orgId: string, args: Record<string, string>): Pro
 
   let text = `【${p.companyName}】
 国家: ${p.country ?? "未知"} | 联系人: ${p.contactName ?? "未知"} | 邮箱: ${p.contactEmail ?? "无"}
-评分: ${p.score?.toFixed(1) ?? "未评"}/10 | 阶段: ${p.stage} | 活动: ${p.campaign.name}
+评分: ${p.score?.toFixed(1) ?? "未评"}/10 | 阶段: ${getTradeProspectStageLabel(p.stage)} | 活动: ${p.campaign.name}
 上次联系: ${p.lastContactAt ? new Date(p.lastContactAt).toLocaleDateString("zh-CN") : "无"}
 下次跟进: ${p.nextFollowUpAt ? new Date(p.nextFollowUpAt).toLocaleDateString("zh-CN") : "未设置"}`;
 
@@ -382,7 +407,7 @@ async function toolGetFollowUps(orgId: string): Promise<ToolResult> {
     where: {
       orgId,
       nextFollowUpAt: { not: null },
-      stage: { notIn: ["won", "lost", "unqualified"] },
+      stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
     },
     orderBy: { nextFollowUpAt: "asc" },
     take: 15,
@@ -400,7 +425,7 @@ async function toolGetFollowUps(orgId: string): Promise<ToolResult> {
     const isOverdue = followUpDate < now;
     const days = Math.ceil(Math.abs(followUpDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     const status = isOverdue ? `⚠️ 逾期${days}天` : days === 0 ? "📌 今天" : `${days}天后`;
-    return `• ${p.companyName} [${p.stage}] — ${status} (已跟进${p.followUpCount}次)`;
+    return `• ${p.companyName} [${getTradeProspectStageLabel(p.stage)}] — ${status} (已跟进${p.followUpCount}次)`;
   });
 
   const overdue = prospects.filter((p) => p.nextFollowUpAt! < now).length;
@@ -438,10 +463,22 @@ async function toolGetSuggestions(orgId: string): Promise<ToolResult> {
 
   const [overdue, noResponse, qualified, draftQuotes] = await Promise.all([
     db.tradeProspect.count({
-      where: { orgId, nextFollowUpAt: { lt: now }, stage: { notIn: ["won", "lost", "unqualified"] } },
+      where: {
+        orgId,
+        nextFollowUpAt: { lt: now },
+        stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
+      },
     }),
-    db.tradeProspect.count({ where: { orgId, stage: "no_response" } }),
-    db.tradeProspect.count({ where: { orgId, stage: "qualified" } }),
+    db.tradeProspect.count({
+      where: {
+        orgId,
+        outreachSentAt: { not: null },
+        stage: { in: ["follow_up", "no_response"] },
+      },
+    }),
+    db.tradeProspect.count({
+      where: { orgId, stage: "qualified", outreachSentAt: null },
+    }),
     db.tradeQuote.count({ where: { orgId, status: "draft" } }),
   ]);
 

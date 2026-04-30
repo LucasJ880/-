@@ -10,20 +10,23 @@ import {
   createTemplate,
   seedDefaultTemplates,
 } from "@/lib/trade/templates";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { searchParams } = new URL(request.url);
-  const orgId = searchParams.get("orgId") ?? "default";
   const category = searchParams.get("category") ?? undefined;
 
-  const templates = await listTemplates(orgId, category);
+  const templates = await listTemplates(orgRes.orgId, category);
 
   if (templates.length === 0) {
-    await seedDefaultTemplates(orgId);
-    const seeded = await listTemplates(orgId, category);
+    await seedDefaultTemplates(orgRes.orgId);
+    const seeded = await listTemplates(orgRes.orgId, category);
     return NextResponse.json(seeded);
   }
 
@@ -35,9 +38,11 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json();
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
 
   if (body.action === "seed") {
-    const result = await seedDefaultTemplates(body.orgId ?? "default");
+    const result = await seedDefaultTemplates(orgRes.orgId);
     return NextResponse.json(result);
   }
 
@@ -49,7 +54,7 @@ export async function POST(request: NextRequest) {
   }
 
   const template = await createTemplate({
-    orgId: body.orgId ?? "default",
+    orgId: orgRes.orgId,
     name: body.name,
     category: body.category,
     language: body.language ?? "en",

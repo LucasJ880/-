@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { useRouter } from "next/navigation";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 interface ChatSession {
   id: string;
@@ -37,6 +39,8 @@ const QUICK_COMMANDS = [
 ];
 
 export default function TradeChatPage() {
+  const router = useRouter();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const draftAppliedRef = useRef(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -68,18 +72,26 @@ export default function TradeChatPage() {
   }, [messages]);
 
   const loadSessions = useCallback(async () => {
-    const res = await apiFetch("/api/trade/chat");
+    if (!orgId || ambiguous) {
+      setSessions([]);
+      setLoadingSessions(false);
+      return;
+    }
+    const res = await apiFetch(`/api/trade/chat?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) setSessions(await res.json());
+    else setSessions([]);
     setLoadingSessions(false);
-  }, []);
+  }, [orgId, ambiguous]);
 
   useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
+    if (orgLoading) return;
+    void loadSessions();
+  }, [loadSessions, orgLoading]);
 
   const loadSession = async (sessionId: string) => {
+    if (!orgId || ambiguous) return;
     setActiveId(sessionId);
-    const res = await apiFetch(`/api/trade/chat/${sessionId}`);
+    const res = await apiFetch(`/api/trade/chat/${sessionId}?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) {
       const data = await res.json();
       setMessages(data.messages.map((m: Message) => ({ role: m.role, content: m.content })));
@@ -87,10 +99,11 @@ export default function TradeChatPage() {
   };
 
   const createSession = async () => {
+    if (!orgId || ambiguous) return;
     const res = await apiFetch("/api/trade/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orgId: "default" }),
+      body: JSON.stringify({ orgId }),
     });
     if (res.ok) {
       const session = await res.json();
@@ -101,7 +114,8 @@ export default function TradeChatPage() {
   };
 
   const deleteSession = async (sessionId: string) => {
-    await apiFetch(`/api/trade/chat/${sessionId}`, { method: "DELETE" });
+    if (!orgId || ambiguous) return;
+    await apiFetch(`/api/trade/chat/${sessionId}?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
     if (activeId === sessionId) {
       setActiveId(null);
       setMessages([]);
@@ -111,7 +125,7 @@ export default function TradeChatPage() {
 
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
-    if (!content || sending) return;
+    if (!content || sending || !orgId || ambiguous) return;
 
     let sessionId = activeId;
 
@@ -119,7 +133,7 @@ export default function TradeChatPage() {
       const res = await apiFetch("/api/trade/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId: "default" }),
+        body: JSON.stringify({ orgId }),
       });
       if (!res.ok) return;
       const session = await res.json();
@@ -135,7 +149,7 @@ export default function TradeChatPage() {
       const res = await apiFetch(`/api/trade/chat/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, orgId }),
       });
 
       if (res.ok) {
@@ -152,6 +166,33 @@ export default function TradeChatPage() {
     }
   };
 
+  if (orgLoading) {
+    return (
+      <div className="flex h-[calc(100vh-8rem)] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  if (!orgId || ambiguous) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-sm text-muted">请先选择当前组织后再使用外贸 AI 对话。</p>
+        <button type="button" onClick={() => router.push("/organizations")} className="text-sm text-accent underline-offset-2 hover:underline">
+          前往组织
+        </button>
+      </div>
+    );
+  }
+
+  if (loadingSessions) {
+    return (
+      <div className="flex h-[calc(100vh-8rem)] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-4">
       {/* Session List */}
@@ -163,11 +204,7 @@ export default function TradeChatPage() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-1.5">
-          {loadingSessions ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 size={14} className="animate-spin text-muted" />
-            </div>
-          ) : sessions.length === 0 ? (
+          {sessions.length === 0 ? (
             <p className="py-8 text-center text-[10px] text-muted">暂无对话</p>
           ) : (
             sessions.map((s) => (

@@ -9,6 +9,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { processChat, processChatV2, type ChatMessage } from "@/lib/trade/chat-assistant";
 import { extractMemoriesFromConversation, saveMemories } from "@/lib/ai/user-memory";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function POST(
   request: NextRequest,
@@ -17,15 +18,19 @@ export async function POST(
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
-  const { sessionId } = await params;
   const body = await request.json();
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
 
   if (!body.content?.trim()) {
     return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
   }
 
-  const session = await db.tradeChatSession.findUnique({ where: { id: sessionId } });
-  if (!session || session.userId !== auth.user.id) {
+  const { sessionId } = await params;
+  const session = await db.tradeChatSession.findFirst({
+    where: { id: sessionId, userId: auth.user.id, orgId: orgRes.orgId },
+  });
+  if (!session) {
     return NextResponse.json({ error: "对话不存在" }, { status: 404 });
   }
 
@@ -57,10 +62,8 @@ export async function POST(
     data: { sessionId, role: "assistant", content: aiResponse },
   });
 
-  // 自动提取记忆（异步，不阻塞响应）
   extractAndSaveMemories(auth.user.id, body.content.trim(), aiResponse).catch(() => {});
 
-  // 异步增量索引（用于跨会话搜索）
   indexNewMessages(auth.user.id, session.orgId, sessionId).catch(() => {});
 
   const isFirstMessage = history.length <= 1;

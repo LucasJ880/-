@@ -7,13 +7,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, ["trade", "admin"]);
   if (auth instanceof NextResponse) return auth;
 
+  const orgRes = await resolveTradeOrgId(request, auth.user);
+  if (!orgRes.ok) return orgRes.response;
+
   const sessions = await db.tradeChatSession.findMany({
-    where: { userId: auth.user.id, status: "active" },
+    where: { userId: auth.user.id, orgId: orgRes.orgId, status: "active" },
     orderBy: { updatedAt: "desc" },
     take: 20,
     include: {
@@ -29,10 +33,12 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => ({}));
+  const orgRes = await resolveTradeOrgId(request, auth.user, { bodyOrgId: body.orgId });
+  if (!orgRes.ok) return orgRes.response;
 
   const session = await db.tradeChatSession.create({
     data: {
-      orgId: body.orgId ?? "default",
+      orgId: orgRes.orgId,
       userId: auth.user.id,
       title: body.title ?? "新对话",
     },
