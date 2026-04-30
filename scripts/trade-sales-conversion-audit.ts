@@ -56,7 +56,7 @@ async function main() {
   }
 
   try {
-    await assertCustomerInOrgOrThrow("nonexistent_customer_id_xxxxxxxx", "audit_placeholder_org");
+    await assertCustomerInOrgOrThrow("nonexistent_customer_id_xxxxxxxx", new Set<string>());
     fail("assertCustomerInOrgOrThrow_should_throw");
   } catch (e) {
     const m = e instanceof Error ? e.message : "";
