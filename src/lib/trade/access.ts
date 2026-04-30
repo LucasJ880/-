@@ -12,11 +12,26 @@ import type { AuthUser } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/rbac/roles";
-import type { TradeCampaign, TradeEmailTemplate, TradeKnowledge, TradeProspect, TradeQuote } from "@prisma/client";
+import type {
+  Prisma,
+  TradeCampaign,
+  TradeEmailTemplate,
+  TradeKnowledge,
+  TradeProspect,
+  TradeQuote,
+} from "@prisma/client";
 
 export type TradeOrgResolution =
   | { ok: true; orgId: string }
   | { ok: false; response: NextResponse };
+
+type TradeProspectWithCampaignAndMessages = Prisma.TradeProspectGetPayload<{
+  include: { campaign: true; messages: true };
+}>;
+
+type TradeQuoteWithItemsAndProspect = Prisma.TradeQuoteGetPayload<{
+  include: { items: true; prospect: true };
+}>;
 
 function orgMissingResponse(): NextResponse {
   return NextResponse.json(
@@ -164,7 +179,7 @@ export async function loadTradeCampaignForOrg(
 export async function loadTradeProspectForOrg(
   prospectId: string,
   orgId: string,
-): Promise<{ prospect: Awaited<ReturnType<typeof db.tradeProspect.findUnique>> } | NextResponse> {
+): Promise<{ prospect: TradeProspectWithCampaignAndMessages } | NextResponse> {
   const prospect = await db.tradeProspect.findFirst({
     where: { id: prospectId, orgId },
     include: { campaign: true, messages: { orderBy: { createdAt: "asc" } } },
@@ -178,7 +193,7 @@ export async function loadTradeProspectForOrg(
 export async function loadTradeQuoteForOrg(
   quoteId: string,
   orgId: string,
-): Promise<{ quote: Awaited<ReturnType<typeof db.tradeQuote.findUnique>> } | NextResponse> {
+): Promise<{ quote: TradeQuoteWithItemsAndProspect } | NextResponse> {
   const quote = await db.tradeQuote.findFirst({
     where: { id: quoteId, orgId },
     include: { items: { orderBy: { sortOrder: "asc" } }, prospect: true },
