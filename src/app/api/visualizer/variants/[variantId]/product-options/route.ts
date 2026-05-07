@@ -6,10 +6,7 @@ import {
   canSeeVisualizerSession,
   loadSessionByVariant,
 } from "@/lib/visualizer/access";
-import {
-  buildDefaultProductOption,
-  findMockProductById,
-} from "@/lib/visualizer/mock-products";
+import { findCatalogProductForUse } from "@/lib/visualizer/catalog";
 import {
   validateOpacity,
   validateTransform,
@@ -45,9 +42,16 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "productCatalogId 必填" }, { status: 400 });
   }
 
-  const product = findMockProductById(body.productCatalogId);
+  // 取该 session 所属客户的 orgId 作为产品库可见性范围
+  const customer = await db.salesCustomer.findUnique({
+    where: { id: found.session.customerId },
+    select: { orgId: true },
+  });
+  const product = await findCatalogProductForUse(body.productCatalogId, {
+    orgId: customer?.orgId ?? null,
+  });
   if (!product) {
-    return NextResponse.json({ error: "产品不存在" }, { status: 400 });
+    return NextResponse.json({ error: "产品不存在或无权访问" }, { status: 400 });
   }
 
   // 确认 region 属于同一个 session
@@ -68,9 +72,10 @@ export const POST = withAuth(async (request, ctx, user) => {
     );
   }
 
-  const base = buildDefaultProductOption(product);
+  const baseColor = product.colors[0] ?? null;
+  const baseMounting = product.mountings[0] ?? null;
 
-  let opacity = base.opacity;
+  let opacity = product.defaultOpacity;
   if (body.opacity !== undefined) {
     const check = validateOpacity(body.opacity);
     if (!check.ok) return NextResponse.json({ error: check.reason }, { status: 400 });
@@ -91,10 +96,10 @@ export const POST = withAuth(async (request, ctx, user) => {
       productCatalogId: product.id,
       productName: product.name,
       productCategory: product.category,
-      color: body.color?.trim() || base.color,
-      colorHex: body.colorHex?.trim() || base.colorHex,
+      color: body.color?.trim() || baseColor?.name || null,
+      colorHex: body.colorHex?.trim() || baseColor?.hex || null,
       opacity,
-      mountingType: body.mountingType?.trim() || base.mountingType,
+      mountingType: body.mountingType?.trim() || baseMounting,
       transformJson: transform
         ? (transform as unknown as Prisma.InputJsonValue)
         : undefined,

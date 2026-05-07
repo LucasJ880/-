@@ -36,7 +36,17 @@ export const POST = withAuth(async (request, ctx, user) => {
   const prompt =
     typeof body.instruction === "string" && body.instruction.trim()
       ? body.instruction.trim().slice(0, 300)
-      : "Enhance this window covering preview into a high-definition photorealistic sales rendering. Preserve the room layout, window position, product shape, product color, opacity, and mounting alignment. Improve lighting, edges, shadows, realism, and image clarity. Do not change the selected window covering style.";
+      : [
+          "Render this composite into a high-definition photorealistic interior photo for a window covering sales preview.",
+          "Strict constraints:",
+          "- Preserve the original room layout, camera angle, perspective, walls, floor, furniture, and lighting direction.",
+          "- Preserve the exact window position, frame, glass area, and the shape of every window covering already shown in the image.",
+          "- Preserve the color, fabric tone, opacity, and mounting alignment of each window covering. Do not change the product type or color.",
+          "- Improve realism: clean edges, soft natural shadows, subtle fabric texture, accurate light bleed through translucent shades.",
+          "- Do not add new windows, new curtains, new furniture, text, watermarks, or people.",
+          "- Do not stylize, paint, cartoonify, or change the time of day.",
+          "Output a single photorealistic image at the same aspect ratio as the input.",
+        ].join(" ");
 
   const rendered = await runImageEdit({
     imageBuffer: parsed.buffer,

@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowLeftRight,
   Check,
   Copy,
   Download,
@@ -25,13 +26,18 @@ import {
   MousePointer2,
   Pencil,
   Plus,
+  Share2,
   Sparkles,
   Square,
   Trash2,
   Spline,
+  Tv,
+  Wand2,
   X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { useToast } from "@/components/ui/toast";
+import { resizeImageForUpload } from "@/lib/visualizer/client-resize";
 import { cn } from "@/lib/utils";
 import type {
   VisualizerProductOptionDetail,
@@ -44,13 +50,21 @@ import type {
   VisualizerVariantSummary,
 } from "@/lib/visualizer/types";
 import { VISUALIZER_SESSION_STATUS_LABEL } from "@/lib/visualizer/types";
-import {
-  VISUALIZER_MOCK_PRODUCTS,
-  findMockProductById,
-  type VisualizerMockProduct,
-} from "@/lib/visualizer/mock-products";
+import type {
+  VisualizerCatalogProductDetail,
+  VisualizerCatalogListResponse,
+} from "@/lib/visualizer/types";
 import type { VisualizerStageHandle, VisualizerTool } from "./visualizer-stage";
 import ReusePhotosDialog from "./reuse-photos-dialog";
+import ShareDialog from "./share-dialog";
+import PresentationMode from "./presentation-mode";
+import ProductPanel from "./product-panel";
+import CatalogProductDialog from "./catalog-product-dialog";
+import ComparisonMode, {
+  type CompareImage,
+  type CompareVariantInput,
+} from "./comparison-mode";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
 
 const VisualizerStage = dynamic(() => import("./visualizer-stage"), {
   ssr: false,
@@ -80,6 +94,7 @@ function panelSection(title: string, icon: React.ReactNode, body: React.ReactNod
 }
 
 export default function SessionEditor({ sessionId }: { sessionId: string }) {
+  const toast = useToast();
   const [session, setSession] = useState<VisualizerSessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,12 +115,29 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
   const [uploading, setUploading] = useState(false);
   const [mutating, setMutating] = useState(false);
   const [reuseDialogOpen, setReuseDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [presentationOpen, setPresentationOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareVariantAId, setCompareVariantAId] = useState<string | null>(null);
+  const [compareVariantBId, setCompareVariantBId] = useState<string | null>(null);
+  const [autoDetecting, setAutoDetecting] = useState(false);
   const [detectingRegions, setDetectingRegions] = useState(false);
   const [cleaningRegionId, setCleaningRegionId] = useState<string | null>(null);
+  const [applyAllBusy, setApplyAllBusy] = useState(false);
   const [detectedRegions, setDetectedRegions] = useState<
     VisualizerDetectedRegionDraft[]
   >([]);
+
+  const { orgId: currentOrgId } = useSalesCurrentOrgId();
+  const [catalog, setCatalog] = useState<VisualizerCatalogProductDetail[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogDialogOpen, setCatalogDialogOpen] = useState(false);
+  const [catalogEditing, setCatalogEditing] =
+    useState<VisualizerCatalogProductDetail | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 960, height: 540 });
@@ -155,6 +187,35 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** 拉取产品库（平台预置 + 本组织私有） */
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const url = currentOrgId
+        ? `/api/visualizer/catalog?orgId=${encodeURIComponent(currentOrgId)}`
+        : "/api/visualizer/catalog";
+      const res = await apiFetch(url);
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setCatalogError(j.error ?? "产品库加载失败");
+        setCatalog([]);
+        return;
+      }
+      const data = (await res.json()) as VisualizerCatalogListResponse;
+      setCatalog([...data.org, ...data.platform]);
+    } catch {
+      setCatalogError("产品库加载失败");
+      setCatalog([]);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [currentOrgId]);
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
 
   useEffect(() => {
     setDetectedRegions([]);
@@ -244,30 +305,91 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     }
   };
 
+  const autoAcceptHighConfidenceForImage = useCallback(
+    async (imageId: string) => {
+      if (!imageId) return;
+      setAutoDetecting(true);
+      try {
+        const res = await apiFetch(
+          `/api/visualizer/images/${imageId}/detect-regions`,
+          { method: "POST" },
+        );
+        const raw = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const data = raw as { candidates?: VisualizerDetectedRegionDraft[] };
+        const candidates = data.candidates ?? [];
+        const auto = candidates.filter((c) => (c.confidence ?? 0) >= 0.7);
+        const drafts = candidates.filter((c) => (c.confidence ?? 0) < 0.7);
+
+        let accepted = 0;
+        for (const c of auto) {
+          const r = await apiFetch(
+            `/api/visualizer/images/${imageId}/regions`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                shape: c.shape,
+                points: c.points,
+                label: c.label,
+              }),
+            },
+          );
+          if (r.ok) accepted += 1;
+        }
+        setDetectedRegions(drafts);
+        if (accepted > 0) {
+          toast.success(
+            `AI 已自动识别并保存 ${accepted} 处窗户${drafts.length ? `，另有 ${drafts.length} 处待确认` : ""}`,
+          );
+          await load();
+        } else if (drafts.length > 0) {
+          toast.info(`AI 识别到 ${drafts.length} 处窗户草稿，请逐个确认`);
+        } else {
+          toast.info("AI 未识别到明显窗户，请手动标记");
+        }
+      } catch (err) {
+        console.error("Auto detect regions failed:", err);
+      } finally {
+        setAutoDetecting(false);
+      }
+    },
+    [load, toast],
+  );
+
   const handleUploadImage = async (file: File) => {
     if (!session) return;
     setUploading(true);
     try {
+      const resized = await resizeImageForUpload(file);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", resized.file);
       const res = await apiFetch(
         `/api/visualizer/sessions/${session.id}/images`,
         { method: "POST", body: fd },
       );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        alert((j as { error?: string }).error ?? "上传失败");
+        toast.error((j as { error?: string }).error ?? "上传失败");
         return;
       }
       const data = (await res.json()) as { image: VisualizerSourceImageSummary };
       await load();
       setSelectedImageId(data.image.id);
+      if (!resized.skipped) {
+        const reduced = Math.round(
+          (1 - resized.resultBytes / resized.originalBytes) * 100,
+        );
+        if (reduced > 5) toast.info(`已自动压缩 ${reduced}% 上传`);
+      }
+      void autoAcceptHighConfidenceForImage(data.image.id);
     } catch (err) {
       console.error("Upload image failed:", err);
-      alert("上传失败");
+      toast.error("上传失败");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
     }
   };
 
@@ -497,7 +619,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
   };
 
   /** 给当前 region 挂一个产品（若该 region 已有，则替换产品目录 ID） */
-  const handlePickProduct = async (product: VisualizerMockProduct) => {
+  const handlePickProduct = async (product: VisualizerCatalogProductDetail) => {
     if (!selectedVariant || !selectedRegionId) return;
     setMutating(true);
     try {
@@ -509,15 +631,15 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               productCatalogId: product.id,
-              color: product.supportedColors[0]?.name ?? null,
-              colorHex: product.supportedColors[0]?.hex ?? null,
+              color: product.colors[0]?.name ?? null,
+              colorHex: product.colors[0]?.hex ?? null,
               opacity: product.defaultOpacity,
             }),
           },
         );
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
-          alert((j as { error?: string }).error ?? "切换产品失败");
+          toast.error((j as { error?: string }).error ?? "切换产品失败");
           return;
         }
       } else {
@@ -534,7 +656,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
         );
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
-          alert((j as { error?: string }).error ?? "添加产品失败");
+          toast.error((j as { error?: string }).error ?? "添加产品失败");
           return;
         }
         const data = (await res.json()) as { productOption: VisualizerProductOptionDetail };
@@ -543,6 +665,28 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       await load();
     } finally {
       setMutating(false);
+    }
+  };
+
+  /** 软删本组织私有产品 */
+  const handleArchiveCatalog = async (product: VisualizerCatalogProductDetail) => {
+    if (!product.isOwn) return;
+    if (!confirm(`确定删除产品「${product.name}」？\n\n已使用该产品的方案不会受影响。`)) {
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/visualizer/catalog/${product.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(j.error ?? "删除失败");
+        return;
+      }
+      toast.success("已删除");
+      await loadCatalog();
+    } catch {
+      toast.error("删除失败");
     }
   };
 
@@ -578,13 +722,88 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        alert((j as { error?: string }).error ?? "删除失败");
+        toast.error((j as { error?: string }).error ?? "删除失败");
         return;
       }
       await load();
       if (selectedProductOptionId === id) setSelectedProductOptionId(null);
     } finally {
       setMutating(false);
+    }
+  };
+
+  /**
+   * 全屋一键套用：把当前选中 region 的产品/颜色/透明度套用到「该照片」中所有 region
+   * - 已有 productOption 的 region：PATCH 覆盖
+   * - 没有 productOption 的 region：POST 新建
+   * - 不动其他照片
+   */
+  const handleApplyToAllRegions = async () => {
+    if (!selectedVariant || !selectedImage || !currentRegionOption) return;
+    if (selectedImage.regions.length <= 1) {
+      toast.info("当前照片只有一个窗户区域，无需批量套用");
+      return;
+    }
+    if (
+      !confirm(
+        `将「${currentRegionOption.productName}」套用到本照片所有 ${selectedImage.regions.length} 处窗户？已有产品的窗户会被覆盖。`,
+      )
+    )
+      return;
+
+    setApplyAllBusy(true);
+    try {
+      const targets = selectedImage.regions.filter(
+        (r) => r.id !== currentRegionOption.regionId,
+      );
+      let updated = 0;
+      let created = 0;
+      for (const region of targets) {
+        const existing = selectedVariant.productOptions.find(
+          (po) => po.regionId === region.id,
+        );
+        if (existing) {
+          const r = await apiFetch(
+            `/api/visualizer/product-options/${existing.id}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                productCatalogId: currentRegionOption.productCatalogId,
+                color: currentRegionOption.color,
+                colorHex: currentRegionOption.colorHex,
+                opacity: currentRegionOption.opacity,
+              }),
+            },
+          );
+          if (r.ok) updated += 1;
+        } else {
+          const r = await apiFetch(
+            `/api/visualizer/variants/${selectedVariant.id}/product-options`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                regionId: region.id,
+                productCatalogId: currentRegionOption.productCatalogId,
+                color: currentRegionOption.color,
+                colorHex: currentRegionOption.colorHex,
+                opacity: currentRegionOption.opacity,
+              }),
+            },
+          );
+          if (r.ok) created += 1;
+        }
+      }
+      await load();
+      toast.success(
+        `全屋套用完成：新增 ${created} 处，更新 ${updated} 处${created + updated < targets.length ? `（失败 ${targets.length - created - updated}）` : ""}`,
+      );
+    } catch (err) {
+      console.error("Apply to all regions failed:", err);
+      toast.error("全屋套用失败");
+    } finally {
+      setApplyAllBusy(false);
     }
   };
 
@@ -615,7 +834,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     try {
       const dataUrl = await captureDataUrl();
       if (!dataUrl) {
-        alert("画布尚未就绪，请稍候再试");
+        toast.error("画布尚未就绪，请稍候再试");
         return;
       }
       const safeSession = session?.title.replace(/[^\w\u4e00-\u9fa5-]+/g, "_") ?? "visualizer";
@@ -626,13 +845,14 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      toast.success("PNG 已下载");
     } catch (err) {
       console.error("Download PNG failed:", err);
-      alert("导出失败");
+      toast.error("导出失败");
     } finally {
       setExporting(null);
     }
-  }, [captureDataUrl, selectedImage, selectedVariant, session?.title]);
+  }, [captureDataUrl, selectedImage, selectedVariant, session?.title, toast]);
 
   const handleSaveCover = useCallback(async () => {
     if (!selectedImage || !selectedVariant) return;
@@ -640,7 +860,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     try {
       const dataUrl = await captureDataUrl();
       if (!dataUrl) {
-        alert("画布尚未就绪，请稍候再试");
+        toast.error("画布尚未就绪，请稍候再试");
         return;
       }
       const res = await apiFetch(
@@ -653,18 +873,18 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        alert((j as { error?: string }).error ?? "保存封面失败");
+        toast.error((j as { error?: string }).error ?? "保存封面失败");
         return;
       }
       await load();
-      alert("已保存为该方案的封面");
+      toast.success("已保存为该方案的封面");
     } catch (err) {
       console.error("Save cover failed:", err);
-      alert("保存封面失败");
+      toast.error("保存封面失败");
     } finally {
       setExporting(null);
     }
-  }, [captureDataUrl, load, selectedImage, selectedVariant]);
+  }, [captureDataUrl, load, selectedImage, selectedVariant, toast]);
 
   const handleRenderHdCover = useCallback(async () => {
     if (!selectedImage || !selectedVariant) return;
@@ -673,10 +893,11 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     );
     if (!ok) return;
     setExporting("hd");
+    toast.info("AI 正在生成高清封面，请稍候…");
     try {
       const dataUrl = await captureDataUrl();
       if (!dataUrl) {
-        alert("画布尚未就绪，请稍候再试");
+        toast.error("画布尚未就绪，请稍候再试");
         return;
       }
       const res = await apiFetch(
@@ -689,18 +910,18 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
       );
       const raw = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert((raw as { error?: string }).error ?? "高清渲染失败");
+        toast.error((raw as { error?: string }).error ?? "高清渲染失败");
         return;
       }
       await load();
-      alert("高清渲染封面已生成");
+      toast.success("高清封面已生成");
     } catch (err) {
       console.error("Render HD cover failed:", err);
-      alert("高清渲染失败");
+      toast.error("高清渲染失败");
     } finally {
       setExporting(null);
     }
-  }, [captureDataUrl, load, selectedImage, selectedVariant]);
+  }, [captureDataUrl, load, selectedImage, selectedVariant, toast]);
 
   const handleUpdateTransform = useCallback(
     (args: { id: string; transform: VisualizerProductOptionTransform }) => {
@@ -849,11 +1070,80 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                   <span>报价 v{session.quote.version}</span>
                 </>
               )}
+              {session.customerSelections.length > 0 && (
+                <>
+                  <span>·</span>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                    客户已标记 {session.customerSelections.length} 套方案
+                  </span>
+                </>
+              )}
+              {session.shareToken && session.shareExpiresAt && (
+                <>
+                  <span>·</span>
+                  <span className="text-emerald-700">
+                    分享中 · 至{" "}
+                    {new Date(session.shareExpiresAt).toLocaleDateString("zh-CN")}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
           {/* 导出按钮组 */}
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPresentationOpen(true)}
+              disabled={!selectedImage || exporting !== null}
+              className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-60"
+              title="进入全屏客户演示模式（隐藏所有面板）"
+            >
+              <Tv className="h-3.5 w-3.5" />
+              客户演示
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedImage || session.variants.length < 2) return;
+                const a =
+                  selectedVariantId && session.variants.some((v) => v.id === selectedVariantId)
+                    ? selectedVariantId
+                    : session.variants[0]?.id ?? null;
+                const b =
+                  session.variants.find((v) => v.id !== a)?.id ?? null;
+                setCompareVariantAId(a);
+                setCompareVariantBId(b);
+                setCompareOpen(true);
+              }}
+              disabled={!selectedImage || session.variants.length < 2}
+              className="inline-flex items-center gap-1 rounded-md border border-purple-300 bg-purple-50 px-2.5 py-1.5 text-xs font-medium text-purple-800 hover:bg-purple-100 disabled:opacity-60"
+              title={
+                session.variants.length < 2
+                  ? "需要至少两个方案才能对比"
+                  : "全屏对比两个方案，帮客户做最终决定"
+              }
+            >
+              <ArrowLeftRight className="h-3.5 w-3.5" />
+              A/B 对比
+            </button>
+            <button
+              type="button"
+              onClick={() => setShareDialogOpen(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+              title="生成只读链接发给客户"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              分享给客户
+              {session.customerSelections.length > 0 && (
+                <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-[10px] font-medium text-amber-800">
+                  {session.customerSelections.reduce(
+                    (n, s) => n + s.customerCount,
+                    0,
+                  )}
+                </span>
+              )}
+            </button>
             <button
               type="button"
               onClick={handleDownloadPng}
@@ -1058,13 +1348,26 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             "现场照片",
             <Images className="h-3.5 w-3.5 text-muted" />,
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={uploading || autoDetecting}
+                  className="flex items-center justify-center gap-1 rounded-md border border-dashed border-blue-200 bg-blue-50/60 px-2 py-2 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                  title="调用手机相机直接拍照（仅移动端有效）"
+                >
+                  {uploading || autoDetecting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  )}
+                  拍照
+                </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
+                  disabled={uploading || autoDetecting}
                   className="flex items-center justify-center gap-1 rounded-md border border-dashed border-border/80 bg-white/40 px-2 py-2 text-xs text-muted hover:text-foreground disabled:opacity-60"
                 >
-                  {uploading ? (
+                  {uploading || autoDetecting ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <ImagePlus className="h-3.5 w-3.5" />
@@ -1078,9 +1381,20 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                   title="从该客户的其他可视化方案复用已有现场照片"
                 >
                   <Copy className="h-3.5 w-3.5" />
-                  复用已有照片
+                  复用
                 </button>
               </div>
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleUploadImage(file);
+                }}
+              />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1384,7 +1698,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
 
           {/* 产品面板 */}
           {panelSection(
-            "产品库 · 10 款 Mock",
+            "产品库",
             <Plus className="h-3.5 w-3.5 text-muted" />,
             !selectedVariant ? (
               <div className="text-[11px] text-muted">请先选择或创建一个方案</div>
@@ -1394,11 +1708,26 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               </div>
             ) : (
               <ProductPanel
+                catalog={catalog}
+                catalogLoading={catalogLoading}
+                catalogError={catalogError}
                 currentOption={currentRegionOption}
                 selectedProductOption={selectedProductOption}
                 onPick={handlePickProduct}
                 onPatch={handlePatchProductOption}
                 onDelete={handleDeleteProductOption}
+                onApplyToAll={handleApplyToAllRegions}
+                applyAllBusy={applyAllBusy}
+                regionsOnImage={selectedImage?.regions.length ?? 0}
+                onCreateRequest={() => {
+                  setCatalogEditing(null);
+                  setCatalogDialogOpen(true);
+                }}
+                onEditRequest={(p) => {
+                  setCatalogEditing(p);
+                  setCatalogDialogOpen(true);
+                }}
+                onArchiveRequest={handleArchiveCatalog}
               />
             ),
           )}
@@ -1414,8 +1743,91 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
         <Layers className="h-4 w-4" />
         配置
       </button>
+
+      <ShareDialog
+        open={shareDialogOpen}
+        session={session}
+        onClose={() => setShareDialogOpen(false)}
+        onChanged={() => {
+          void load();
+        }}
+      />
+
+      <PresentationMode
+        open={presentationOpen}
+        session={session}
+        initialImageId={selectedImageId}
+        initialVariantId={selectedVariantId}
+        onClose={() => setPresentationOpen(false)}
+      />
+
+      <CatalogProductDialog
+        open={catalogDialogOpen}
+        orgId={currentOrgId}
+        editing={catalogEditing}
+        onClose={() => setCatalogDialogOpen(false)}
+        onSaved={() => {
+          setCatalogDialogOpen(false);
+          setCatalogEditing(null);
+          void loadCatalog();
+        }}
+      />
+
+      <ComparisonMode
+        open={compareOpen}
+        title={`${session.title} · A/B 对比`}
+        subtitle={
+          selectedImage ? (selectedImage.roomLabel || selectedImage.fileName) : null
+        }
+        image={mapCompareImage(selectedImage)}
+        variantA={mapCompareVariant(
+          session.variants.find((v) => v.id === compareVariantAId) ?? null,
+        )}
+        variantB={mapCompareVariant(
+          session.variants.find((v) => v.id === compareVariantBId) ?? null,
+        )}
+        variantOptions={session.variants.map((v) => ({ id: v.id, name: v.name }))}
+        onChangeVariantA={setCompareVariantAId}
+        onChangeVariantB={setCompareVariantBId}
+        onClose={() => setCompareOpen(false)}
+      />
     </div>
   );
+}
+
+/** SessionEditor 内部的 image → CompareImage 映射 */
+function mapCompareImage(
+  image: VisualizerSourceImageSummary | null | undefined,
+): CompareImage | null {
+  if (!image) return null;
+  return {
+    id: image.id,
+    fileUrl: image.fileUrl,
+    width: image.width,
+    height: image.height,
+    regions: image.regions.map((r) => ({
+      id: r.id,
+      shape: r.shape,
+      points: r.points,
+    })),
+  };
+}
+
+/** SessionEditor 内部的 variant → CompareVariantInput 映射 */
+function mapCompareVariant(
+  variant: VisualizerVariantSummary | null | undefined,
+): CompareVariantInput | null {
+  if (!variant) return null;
+  return {
+    id: variant.id,
+    name: variant.name,
+    exportImageUrl: variant.exportImageUrl,
+    options: variant.productOptions.map((p) => ({
+      regionId: p.regionId,
+      colorHex: p.colorHex,
+      opacity: p.opacity,
+    })),
+  };
 }
 
 function ToolBtn(props: {
@@ -1443,125 +1855,3 @@ function ToolBtn(props: {
   );
 }
 
-/**
- * ProductPanel：
- * - 10 款 mock 产品网格，点击 = 给当前 region 的 current variant 挂该产品
- * - 当前 region 已有 option 时：显示当前产品信息、颜色切换、opacity 滑块、移除按钮
- */
-function ProductPanel(props: {
-  currentOption: VisualizerProductOptionDetail | null;
-  selectedProductOption: VisualizerProductOptionDetail | null;
-  onPick: (p: VisualizerMockProduct) => void;
-  onPatch: (id: string, patch: Record<string, unknown>) => void;
-  onDelete: (id: string) => void;
-}) {
-  const { currentOption, onPick, onPatch, onDelete } = props;
-  const currentProduct = currentOption
-    ? findMockProductById(currentOption.productCatalogId)
-    : null;
-
-  return (
-    <div className="space-y-3">
-      {currentOption && currentProduct && (
-        <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/60 p-2">
-          <div className="flex items-center gap-2 text-xs">
-            <span
-              className="h-4 w-4 rounded border border-black/10"
-              style={{ background: currentOption.colorHex ?? "#ccc" }}
-            />
-            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-              {currentProduct.name}
-            </span>
-            <span className="text-[10px] text-muted">
-              {currentProduct.categoryLabel}
-            </span>
-            <button
-              onClick={() => onDelete(currentOption.id)}
-              className="rounded p-1 text-muted hover:bg-red-50 hover:text-red-600"
-              title="移除产品叠加"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          {/* 颜色 */}
-          <div className="space-y-1">
-            <div className="text-[10px] font-medium text-muted">颜色</div>
-            <div className="flex flex-wrap gap-1">
-              {currentProduct.supportedColors.map((c) => {
-                const active = currentOption.colorHex === c.hex;
-                return (
-                  <button
-                    key={c.hex}
-                    onClick={() =>
-                      onPatch(currentOption.id, { color: c.name, colorHex: c.hex })
-                    }
-                    className={cn(
-                      "h-6 w-6 rounded border-2",
-                      active ? "border-amber-500" : "border-white/80",
-                    )}
-                    style={{ background: c.hex }}
-                    title={c.name}
-                  />
-                );
-              })}
-            </div>
-          </div>
-
-          {/* opacity */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[10px] text-muted">
-              <span>透明度</span>
-              <span>{Math.round(currentOption.opacity * 100)}%</span>
-            </div>
-            <input
-              type="range"
-              min={0.1}
-              max={1}
-              step={0.05}
-              value={currentOption.opacity}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                onPatch(currentOption.id, { opacity: v });
-              }}
-              className="w-full"
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-1.5">
-        {VISUALIZER_MOCK_PRODUCTS.map((p) => {
-          const isCurrent = currentOption?.productCatalogId === p.id;
-          const firstColor = p.supportedColors[0];
-          return (
-            <button
-              key={p.id}
-              onClick={() => onPick(p)}
-              className={cn(
-                "flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-left text-[11px]",
-                isCurrent
-                  ? "border-amber-400 bg-amber-50/80"
-                  : "border-border/60 bg-white/70 hover:bg-white",
-              )}
-              title={p.notes}
-            >
-              <span
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border border-black/10"
-                style={{ background: firstColor?.hex ?? "#ccc" }}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-foreground">
-                  {p.name}
-                </span>
-                <span className="block truncate text-[10px] text-muted">
-                  {p.categoryLabel}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}

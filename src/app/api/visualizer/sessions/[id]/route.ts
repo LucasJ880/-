@@ -73,7 +73,15 @@ export const GET = withAuth(async (_request, ctx, user) => {
         orderBy: { sortOrder: "asc" },
         include: {
           _count: { select: { productOptions: true } },
-          selections: { select: { selectedBy: true } },
+          selections: {
+            select: {
+              id: true,
+              selectedBy: true,
+              note: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
           productOptions: { orderBy: { createdAt: "asc" } },
         },
       },
@@ -152,6 +160,20 @@ export const GET = withAuth(async (_request, ctx, user) => {
         regions,
       };
     }),
+    customerSelections: session.variants
+      .map((v) => {
+        const customerSels = v.selections.filter((s) => s.selectedBy === "customer");
+        if (customerSels.length === 0) return null;
+        const latest = customerSels[0];
+        return {
+          variantId: v.id,
+          variantName: v.name,
+          customerCount: customerSels.length,
+          latestNote: latest.note,
+          latestAt: latest.createdAt.toISOString(),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null),
     variants: session.variants.map((v) => {
       const productOptions: VisualizerProductOptionDetail[] = v.productOptions.map((po) => ({
         id: po.id,

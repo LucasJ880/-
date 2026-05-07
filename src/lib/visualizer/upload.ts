@@ -226,3 +226,19 @@ export async function putVisualizerHdRender(args: {
   });
   return { url: blob.url, pathname };
 }
+
+/** 产品库预览图（路径：visualizer/catalog/<orgId>/<ts>_<safeName>） */
+export async function putVisualizerCatalogPreview(args: {
+  orgId: string;
+  safeName: string;
+  buffer: Buffer;
+  contentType: string;
+}): Promise<{ url: string; pathname: string }> {
+  const ts = Date.now();
+  const pathname = `${VISUALIZER_BLOB_PREFIX}/catalog/${args.orgId}/${ts}_${args.safeName}`;
+  const blob = await put(pathname, args.buffer, {
+    access: "public",
+    contentType: args.contentType,
+  });
+  return { url: blob.url, pathname };
+}

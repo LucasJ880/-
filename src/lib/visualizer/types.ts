@@ -40,6 +40,14 @@ export interface VisualizerSessionDetail extends VisualizerSessionSummary {
   quote: { id: string; version: number; status: string } | null;
   sourceImages: VisualizerSourceImageSummary[];
   variants: VisualizerVariantSummary[];
+  /** 客户在分享页打勾的方案统计（按 variantId 聚合） */
+  customerSelections: Array<{
+    variantId: string;
+    variantName: string;
+    customerCount: number;
+    latestNote: string | null;
+    latestAt: string | null;
+  }>;
 }
 
 export interface VisualizerSourceImageSummary {
@@ -201,3 +209,145 @@ export const VISUALIZER_SESSION_STATUS_LABEL: Record<VisualizerSessionStatus, st
   active: "进行中",
   archived: "已归档",
 };
+
+/** 客户偏好（VisualizerSelection）摘要：销售侧聚合统计 */
+export interface VisualizerCustomerSelectionSummary {
+  variantId: string;
+  variantName: string;
+  customerCount: number;
+  latestNote: string | null;
+  latestAt: string | null;
+}
+
+/** POST /api/visualizer/sessions/[id]/share */
+export interface CreateVisualizerShareRequest {
+  ttlDays?: number;
+  /** revoke=true 时撤销现有 token（清空 shareToken/shareExpiresAt） */
+  revoke?: boolean;
+}
+
+export interface VisualizerShareInfo {
+  shareToken: string | null;
+  shareExpiresAt: string | null;
+  shareUrl: string | null;
+  customerSelections: VisualizerCustomerSelectionSummary[];
+}
+
+/** 公开分享页面读取的精简类型（剥离 createdById / 内部 notes / 价格） */
+export interface VisualizerSharePublicVariant {
+  id: string;
+  name: string;
+  exportImageUrl: string | null;
+  sortOrder: number;
+  productOptions: Array<{
+    id: string;
+    regionId: string;
+    productCatalogId: string;
+    productName: string;
+    productCategory: string;
+    color: string | null;
+    colorHex: string | null;
+    opacity: number;
+    transform: VisualizerProductOptionTransform | null;
+  }>;
+}
+
+export interface VisualizerSharePublicImage {
+  id: string;
+  fileUrl: string;
+  width: number | null;
+  height: number | null;
+  roomLabel: string | null;
+  regions: Array<{
+    id: string;
+    sourceImageId: string;
+    shape: VisualizerRegionShape;
+    points: Array<[number, number]>;
+  }>;
+}
+
+export interface VisualizerSharePublicDetail {
+  sessionId: string;
+  title: string;
+  customerName: string;
+  expiresAt: string;
+  sourceImages: VisualizerSharePublicImage[];
+  variants: VisualizerSharePublicVariant[];
+  /** 当前来访浏览器已选过的 variantId（基于 anonId 关联） */
+  selectedVariantId: string | null;
+}
+
+/** POST /api/visualizer/share/[token]/select */
+export interface CreateVisualizerSelectionRequest {
+  variantId: string;
+  note?: string | null;
+  /** 浏览器端持久化的匿名标识（localStorage uuid），用于幂等替换同一访问者的偏好 */
+  anonId?: string | null;
+}
+
+/** 产品库 — 与 mock-products.VisualizerProductColor 字段对齐 */
+export interface VisualizerCatalogColor {
+  name: string;
+  hex: string;
+}
+
+export type VisualizerCatalogMounting = "inside" | "outside";
+
+export interface VisualizerCatalogProductDetail {
+  id: string;
+  /** null 表示平台预置（不可改） */
+  orgId: string | null;
+  isPlatform: boolean;
+  isOwn: boolean;
+  name: string;
+  category: string;
+  categoryLabel: string;
+  previewImageUrl: string | null;
+  textureUrl: string | null;
+  defaultOpacity: number;
+  colors: VisualizerCatalogColor[];
+  mountings: VisualizerCatalogMounting[];
+  pricingProductName: string | null;
+  notes: string | null;
+  archived: boolean;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /api/visualizer/catalog 返回的精简结构 */
+export interface VisualizerCatalogListResponse {
+  platform: VisualizerCatalogProductDetail[];
+  org: VisualizerCatalogProductDetail[];
+  orgId: string | null;
+}
+
+/** POST /api/visualizer/catalog */
+export interface CreateVisualizerCatalogRequest {
+  orgId: string;
+  name: string;
+  category: string;
+  categoryLabel?: string;
+  previewImageUrl?: string | null;
+  textureUrl?: string | null;
+  defaultOpacity?: number;
+  colors: VisualizerCatalogColor[];
+  mountings?: VisualizerCatalogMounting[];
+  pricingProductName?: string | null;
+  notes?: string | null;
+}
+
+/** PATCH /api/visualizer/catalog/[id] */
+export interface UpdateVisualizerCatalogRequest {
+  name?: string;
+  category?: string;
+  categoryLabel?: string;
+  previewImageUrl?: string | null;
+  textureUrl?: string | null;
+  defaultOpacity?: number;
+  colors?: VisualizerCatalogColor[];
+  mountings?: VisualizerCatalogMounting[];
+  pricingProductName?: string | null;
+  notes?: string | null;
+  archived?: boolean;
+}

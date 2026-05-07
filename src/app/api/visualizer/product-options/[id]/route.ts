@@ -6,7 +6,7 @@ import {
   canSeeVisualizerSession,
   loadSessionByProductOption,
 } from "@/lib/visualizer/access";
-import { findMockProductById } from "@/lib/visualizer/mock-products";
+import { findCatalogProductForUse } from "@/lib/visualizer/catalog";
 import {
   validateOpacity,
   validateTransform,
@@ -50,9 +50,15 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   const data: Record<string, unknown> = {};
 
   if (body.productCatalogId !== undefined) {
-    const product = findMockProductById(body.productCatalogId);
+    const customer = await db.salesCustomer.findUnique({
+      where: { id: found.session.customerId },
+      select: { orgId: true },
+    });
+    const product = await findCatalogProductForUse(body.productCatalogId, {
+      orgId: customer?.orgId ?? null,
+    });
     if (!product) {
-      return NextResponse.json({ error: "产品不存在" }, { status: 400 });
+      return NextResponse.json({ error: "产品不存在或无权访问" }, { status: 400 });
     }
     data.productCatalogId = product.id;
     data.productName = product.name;

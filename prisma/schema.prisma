@@ -106,15 +106,16 @@ model User {
   pendingActionsCreated PendingAction[] @relation("PendingActionCreatedBy")
 
   /// 外贸线索转入销售 CRM 的操作人
-  tradeProspectsConverted TradeProspect[] @relation("TradeProspectConvertedBy")
-  tradeIntelligenceCasesCreated TradeIntelligenceCase[] @relation("TradeIntelligenceCaseCreatedBy")
-  tradeIntelligenceCasesConverted TradeIntelligenceCase[] @relation("TradeIntelligenceCaseConvertedBy")
-  tradeIntelligenceAssetsCreated TradeIntelligenceAsset[] @relation("TradeIntelligenceAssetCreatedBy")
+  tradeProspectsConverted         TradeProspect[]          @relation("TradeProspectConvertedBy")
+  tradeIntelligenceCasesCreated   TradeIntelligenceCase[]  @relation("TradeIntelligenceCaseCreatedBy")
+  tradeIntelligenceCasesConverted TradeIntelligenceCase[]  @relation("TradeIntelligenceCaseConvertedBy")
+  tradeIntelligenceAssetsCreated  TradeIntelligenceAsset[] @relation("TradeIntelligenceAssetCreatedBy")
 
   // Visualizer 窗饰可视化
-  visualizerSessionsCreated VisualizerSession[]   @relation("VisualizerSessionCreatedBy")
-  visualizerSessionsOwned   VisualizerSession[]   @relation("VisualizerSessionSalesOwner")
-  visualizerSelectionsMade  VisualizerSelection[] @relation("VisualizerSelectionBy")
+  visualizerSessionsCreated VisualizerSession[]        @relation("VisualizerSessionCreatedBy")
+  visualizerSessionsOwned   VisualizerSession[]        @relation("VisualizerSessionSalesOwner")
+  visualizerSelectionsMade  VisualizerSelection[]      @relation("VisualizerSelectionBy")
+  visualizerCatalogCreated  VisualizerCatalogProduct[] @relation("VisualizerCatalogCreatedBy")
 
   // 微信开放平台 OpenID（网站应用扫码登录）
   wechatOpenId String? @unique
@@ -1994,22 +1995,22 @@ model TradeProspect {
   scoreReason    String? @db.Text
 
   /// Serper 等得到的候选官网 JSON 数组（见 website-candidate-scoring）
-  websiteCandidates       Json?
+  websiteCandidates      Json?
   /// 当前用于研究的官网置信度 0–1
-  websiteConfidence       Float?
+  websiteConfidence      Float?
   /// user_provided | imported | serper_auto_high_confidence | serper_candidates_pending | manual_confirmed
-  websiteCandidateSource  String?
-  websiteVerifiedAt       DateTime?
-  websiteVerifiedBy       String?
+  websiteCandidateSource String?
+  websiteVerifiedAt      DateTime?
+  websiteVerifiedBy      String?
 
   /// 研究管线状态（与 stage 独立）；历史数据可为 null
   researchStatus    String?
   researchWarnings  Json?
-  crawlStatus         String?
-  crawlSourceType     String?
-  sourcesCount        Int?
-  lastResearchError   String? @db.VarChar(2000)
-  lastResearchedAt    DateTime?
+  crawlStatus       String?
+  crawlSourceType   String?
+  sourcesCount      Int?
+  lastResearchError String?   @db.VarChar(2000)
+  lastResearchedAt  DateTime?
 
   /// 线索业务生命周期（标准值见 src/lib/trade/stage.ts TRADE_PROSPECT_STAGES）
   stage String @default("new")
@@ -2026,17 +2027,17 @@ model TradeProspect {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  messages     TradeMessage[]
-  quotes       TradeQuote[]
-  watchTargets TradeWatchTarget[]
+  messages                    TradeMessage[]
+  quotes                      TradeQuote[]
+  watchTargets                TradeWatchTarget[]
   intelligenceCaseConversions TradeIntelligenceCase[] @relation("TradeIntelligenceCaseProspect")
 
   /// 转入销售 CRM 后回填（与 stage=converted 配套）
   convertedToSalesCustomerId    String?
   convertedToSalesOpportunityId String?
-  convertedAt                     DateTime?
-  convertedById                   String?
-  convertedBy                     User?    @relation("TradeProspectConvertedBy", fields: [convertedById], references: [id])
+  convertedAt                   DateTime?
+  convertedById                 String?
+  convertedBy                   User?     @relation("TradeProspectConvertedBy", fields: [convertedById], references: [id])
 
   @@index([campaignId, stage])
   @@index([orgId, stage])
@@ -2144,41 +2145,41 @@ model TradeIntelligenceCase {
   status     String @default("new") // new | searching | analyzing | needs_review | buyer_identified | converted_to_prospect | failed | archived
   sourceType String @default("manual") // manual | import | api | image
 
-  productName   String?
-  brand         String?
-  upc           String?
-  gtin          String?
-  sku           String?
-  mpn           String?
-  productUrl    String?
-  retailerName  String?
-  category      String?
-  material      String?
-  size          String?
-  color         String?
+  productName     String?
+  brand           String?
+  upc             String?
+  gtin            String?
+  sku             String?
+  mpn             String?
+  productUrl      String?
+  retailerName    String?
+  category        String?
+  material        String?
+  size            String?
+  color           String?
   countryOfOrigin String?
-  notes         String? @db.Text
+  notes           String? @db.Text
 
-  structuredProduct   Json?
-  searchQueries       Json?
-  evidence            Json?
-  buyerCandidates     Json?
-  retailerCandidates  Json?
-  importerCandidates  Json?
-  supplierCandidates  Json?
-  contactCandidates     Json?
-  recommendedProspects  Json?
+  structuredProduct    Json?
+  searchQueries        Json?
+  evidence             Json?
+  buyerCandidates      Json?
+  retailerCandidates   Json?
+  importerCandidates   Json?
+  supplierCandidates   Json?
+  contactCandidates    Json?
+  recommendedProspects Json?
 
-  analysisReport   String? @db.Text
-  confidenceScore  Float?
-  lastRunAt        DateTime?
-  lastError        String? @db.VarChar(2000)
+  analysisReport  String?   @db.Text
+  confidenceScore Float?
+  lastRunAt       DateTime?
+  lastError       String?   @db.VarChar(2000)
 
   convertedProspectId String?
   convertedProspect   TradeProspect? @relation("TradeIntelligenceCaseProspect", fields: [convertedProspectId], references: [id])
   convertedAt         DateTime?
   convertedById       String?
-  convertedBy         User?   @relation("TradeIntelligenceCaseConvertedBy", fields: [convertedById], references: [id])
+  convertedBy         User?          @relation("TradeIntelligenceCaseConvertedBy", fields: [convertedById], references: [id])
 
   createdById String
   createdBy   User   @relation("TradeIntelligenceCaseCreatedBy", fields: [createdById], references: [id])
@@ -2197,21 +2198,21 @@ model TradeIntelligenceCase {
 
 /// 竞品溯源 — 吊牌/包装/截图等图片资产（Vision 提取结构化字段）
 model TradeIntelligenceAsset {
-  id               String                 @id @default(cuid())
-  orgId            String
-  caseId           String?
-  case             TradeIntelligenceCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
-  fileUrl          String
-  fileName         String
-  fileType         String
-  assetType        String // tag_image | carton_label | package_image | screenshot | receipt
-  extractedText    Json?
-  extractedFields  Json?
-  confidence       Float?
-  warnings         Json?
-  createdById      String
-  createdBy        User   @relation("TradeIntelligenceAssetCreatedBy", fields: [createdById], references: [id])
-  createdAt        DateTime @default(now())
+  id              String                 @id @default(cuid())
+  orgId           String
+  caseId          String?
+  case            TradeIntelligenceCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  fileUrl         String
+  fileName        String
+  fileType        String
+  assetType       String // tag_image | carton_label | package_image | screenshot | receipt
+  extractedText   Json?
+  extractedFields Json?
+  confidence      Float?
+  warnings        Json?
+  createdById     String
+  createdBy       User                   @relation("TradeIntelligenceAssetCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime               @default(now())
 
   @@index([orgId])
   @@index([caseId])
@@ -2393,29 +2394,29 @@ model SalesCustomer {
 }
 
 model SalesOpportunity {
-  id             String        @id @default(cuid())
-  orgId          String?
-  customerId     String
-  customer       SalesCustomer @relation(fields: [customerId], references: [id])
-  title          String
-  stage          String        @default("new_lead") // Pipeline stage
-  estimatedValue Float?
-  windowCount    Int?
-  productTypes   String? // comma-separated: Zebra,Roller,Drapery,...
-  source         String? // lead source
-  priority       String        @default("warm") // hot / warm / cold
-  lostReason     String?       @db.Text
-  wonAt          DateTime?
-  lostAt         DateTime?
-  nextFollowupAt DateTime?
-  measureDate    DateTime?
-  installDate    DateTime?
-  jdyDataId      String?       @unique
-  lastSyncAt     DateTime?
+  id                    String        @id @default(cuid())
+  orgId                 String?
+  customerId            String
+  customer              SalesCustomer @relation(fields: [customerId], references: [id])
+  title                 String
+  stage                 String        @default("new_lead") // Pipeline stage
+  estimatedValue        Float?
+  windowCount           Int?
+  productTypes          String? // comma-separated: Zebra,Roller,Drapery,...
+  source                String? // lead source
+  priority              String        @default("warm") // hot / warm / cold
+  lostReason            String?       @db.Text
+  wonAt                 DateTime?
+  lostAt                DateTime?
+  nextFollowupAt        DateTime?
+  measureDate           DateTime?
+  installDate           DateTime?
+  jdyDataId             String?       @unique
+  lastSyncAt            DateTime?
   /// 来源外贸线索（可空；用于去重与审计）
   sourceTradeProspectId String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
   assignedToId String?
   assignedTo   User?   @relation("SalesOpportunityAssignee", fields: [assignedToId], references: [id])
@@ -3453,4 +3454,45 @@ model VisualizerSelection {
   createdAt DateTime @default(now())
 
   @@index([variantId])
+}
+
+/// 可视化产品库（替代写死的 mock-products）
+/// 兼容性：原 mock_xxx id 通过 seed 持久化进 DB，旧 VisualizerProductOption.productCatalogId 不需要改写。
+/// 范围：
+/// - orgId = null：青砚平台预置（所有组织可见，不可编辑/删除）
+/// - orgId = 某组织：组织私有产品（仅组织成员可见、可编辑/软删）
+model VisualizerCatalogProduct {
+  id String @id @default(cuid())
+
+  /// null 表示平台预置；非空表示该组织私有
+  orgId String?
+
+  name          String
+  category      String // roller / solar / blackout_roller / zebra / sheer / drapery / dual / honeycomb / vertical / motorized / custom
+  categoryLabel String
+
+  previewImageUrl String?
+  textureUrl      String?
+
+  defaultOpacity Float @default(0.85)
+
+  /// [{ name, hex }, ...]
+  colorsJson    Json
+  /// ["inside","outside"]
+  mountingsJson Json
+
+  /// 可选：弱关联到 pricing-data 中的 ProductName，未来 Visualizer→Quote 一键带价
+  pricingProductName String?
+
+  notes    String? @db.Text
+  archived Boolean @default(false)
+
+  createdById String?
+  createdBy   User?   @relation("VisualizerCatalogCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, archived])
+  @@index([category])
 }
