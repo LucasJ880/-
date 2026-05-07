@@ -50,7 +50,7 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) {
-    return NextResponse.json({ error: orgRes.reason }, { status: orgRes.status });
+    return orgRes.response;
   }
   const orgId = orgRes.orgId;
   if (!orgId) {
@@ -145,7 +145,7 @@ export const DELETE = withAuth(async (request, ctx, user) => {
 
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) {
-    return NextResponse.json({ error: orgRes.reason }, { status: orgRes.status });
+    return orgRes.response;
   }
   const orgId = orgRes.orgId;
   if (!orgId) {

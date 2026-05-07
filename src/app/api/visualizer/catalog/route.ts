@@ -35,7 +35,7 @@ const NOTES_MAX = 2000;
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) {
-    return NextResponse.json({ error: orgRes.reason }, { status: orgRes.status });
+    return orgRes.response;
   }
   const orgId = orgRes.orgId;
 
@@ -54,7 +54,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     bodyOrgId: body.orgId,
   });
   if (!orgRes.ok) {
-    return NextResponse.json({ error: orgRes.reason }, { status: orgRes.status });
+    return orgRes.response;
   }
   const orgId = orgRes.orgId;
   if (!orgId) {

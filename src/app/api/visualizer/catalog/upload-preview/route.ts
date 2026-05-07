@@ -24,7 +24,7 @@ import { logger } from "@/lib/common/logger";
 export const POST = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) {
-    return NextResponse.json({ error: orgRes.reason }, { status: orgRes.status });
+    return orgRes.response;
   }
   const orgId = orgRes.orgId;
   if (!orgId) {
