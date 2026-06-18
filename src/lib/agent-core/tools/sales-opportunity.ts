@@ -26,7 +26,7 @@ registry.register({
       "installing", "completed", "lost",
     ];
 
-    const ownerScope = salesAssignableScope(ctx.userId, ctx.role);
+    const ownerScope = salesAssignableScope(ctx.userId, ctx.role, ctx.orgId);
 
     const pipeline = await Promise.all(
       stages.map(async (stage) => {
@@ -60,7 +60,7 @@ registry.register({
     required: [],
   },
   execute: async (ctx: ToolExecutionContext) => {
-    const ownerScope = salesAssignableScope(ctx.userId, ctx.role);
+    const ownerScope = salesAssignableScope(ctx.userId, ctx.role, ctx.orgId);
     const where: Record<string, unknown> = { ...(ownerScope ?? {}) };
     if (ctx.args.stage) where.stage = String(ctx.args.stage);
     if (ctx.args.priority) where.priority = String(ctx.args.priority);
@@ -89,8 +89,8 @@ registry.register({
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const assignableScope = salesAssignableScope(ctx.userId, ctx.role);
-    const createdScope = salesCreatedScope(ctx.userId, ctx.role);
+    const assignableScope = salesAssignableScope(ctx.userId, ctx.role, ctx.orgId);
+    const createdScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
     const oppWhere = assignableScope ?? {};
     const custWhere = createdScope ?? {};
 
@@ -150,7 +150,7 @@ registry.register({
 
     if (!opportunityId && customerName) {
       // PR1：按角色把客户查询也限制住，防止 sales 通过别人的客户名推进别人的商机
-      const custScope = salesCreatedScope(ctx.userId, ctx.role);
+      const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
       const customer = await db.salesCustomer.findFirst({
         where: {
           name: { contains: customerName, mode: "insensitive" },
@@ -161,7 +161,7 @@ registry.register({
       if (!customer)
         return { success: false, data: { error: `未找到客户 "${customerName}"` } };
 
-      const oppScope = salesAssignableScope(ctx.userId, ctx.role);
+      const oppScope = salesAssignableScope(ctx.userId, ctx.role, ctx.orgId);
       const opp = await db.salesOpportunity.findFirst({
         where: {
           customerId: customer.id,
@@ -187,10 +187,16 @@ registry.register({
 
     // PR1：防止 sales 通过已知 opportunityId 直接绕过推进别人的商机
     if (
-      !canSeeResource(ctx.role, ctx.userId, {
-        createdById: opp.createdById,
-        assignedToId: opp.assignedToId,
-      })
+      !canSeeResource(
+        ctx.role,
+        ctx.userId,
+        {
+          orgId: opp.orgId,
+          createdById: opp.createdById,
+          assignedToId: opp.assignedToId,
+        },
+        ctx.orgId,
+      )
     ) {
       return { success: false, data: { error: "无权推进该商机" } };
     }

@@ -3,12 +3,24 @@ import { Prisma } from "@prisma/client";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
-export const GET = withAuth(async (_request, _ctx, user) => {
+export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
+
   const opportunities = await db.salesOpportunity.findMany({
     where: {
+      orgId,
       stage: { notIn: ["completed", "lost"] },
-      OR: [{ assignedToId: user.id }, { createdById: user.id }],
+      ...(ownOnly
+        ? { OR: [{ assignedToId: user.id }, { createdById: user.id }] }
+        : {}),
     },
     select: {
       id: true,

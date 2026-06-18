@@ -66,16 +66,25 @@ export async function POST(
     createdById: quote.createdBy.id,
   });
 
-  await db.customerInteraction.create({
-    data: {
-      orgId: interactionOrgId,
-      customerId: quote.customerId,
-      type: "signature",
-      direction: "inbound",
-      summary: `客户签署报价单 — $${quote.grandTotal.toFixed(2)}`,
-      createdById: quote.createdBy.id,
-    },
-  });
+  // P2 guard：禁止写入 orgId:null 的 CustomerInteraction。
+  // 正常数据 quote.orgId 必然存在；若解析失败属数据异常，记录错误并跳过互动创建，
+  // 不阻断签署主流程（报价已置为 signed）。
+  if (interactionOrgId) {
+    await db.customerInteraction.create({
+      data: {
+        orgId: interactionOrgId,
+        customerId: quote.customerId,
+        type: "signature",
+        direction: "inbound",
+        summary: `客户签署报价单 — $${quote.grandTotal.toFixed(2)}`,
+        createdById: quote.createdBy.id,
+      },
+    });
+  } else {
+    console.error(
+      `[sign] 无法解析 orgId，跳过签署互动创建（防 null orgId）: quote=${quote.id} customer=${quote.customerId}`,
+    );
+  }
 
   // 自动推进商机到 signed
   onQuoteSigned(quote.id).catch((err) =>

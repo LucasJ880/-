@@ -7,6 +7,10 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
 const DAY_MS = 86_400_000;
 
@@ -30,8 +34,17 @@ const STAGE_LABELS: Record<string, string> = {
   completed: "已完工",
 };
 
-export const GET = withAuth(async (_request, _ctx, user) => {
-  const isAdmin = user.role === "admin" || user.role === "super_admin";
+export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
+
+  // 机会归属：ownOnly 时 OR(created/assigned)；否则本组织全部
+  const oppOwnClause = ownOnly
+    ? { OR: [{ createdById: user.id }, { assignedToId: user.id }] }
+    : {};
+
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
@@ -44,7 +57,8 @@ export const GET = withAuth(async (_request, _ctx, user) => {
     by: ["stage"],
     where: {
       stage: { in: [...FUNNEL_STAGES] },
-      ...(isAdmin ? {} : { assignedToId: user.id }),
+      orgId,
+      ...oppOwnClause,
     },
     _count: true,
     _sum: { estimatedValue: true },
@@ -68,7 +82,8 @@ export const GET = withAuth(async (_request, _ctx, user) => {
   });
 
   // ── 2. 团队业绩排行（本月签约额）──
-  const teamPerformance = isAdmin
+  // 仅本组织全部视角（!ownOnly）可见；raw SQL 通过参数化注入 orgId
+  const teamPerformance = !ownOnly
     ? await db.$queryRaw<{ userId: string; userName: string; signedCount: number; signedValue: number }[]>`
         SELECT
           u.id as "userId",
@@ -79,6 +94,7 @@ export const GET = withAuth(async (_request, _ctx, user) => {
         JOIN "User" u ON o."assignedToId" = u.id
         WHERE o.stage IN ('signed', 'completed')
           AND o."wonAt" >= ${monthStart}
+          AND o."orgId" = ${orgId}
         GROUP BY u.id, u.name
         ORDER BY "signedValue" DESC
         LIMIT 10
@@ -86,7 +102,7 @@ export const GET = withAuth(async (_request, _ctx, user) => {
     : [];
 
   // ── 3. 本月 KPI ──
-  const myFilter: Record<string, unknown> = isAdmin ? {} : { assignedToId: user.id };
+  const myFilter: Record<string, unknown> = { orgId, ...oppOwnClause };
 
   const [monthSigned, monthNewLeads, monthQuotes, monthAppointments] = await Promise.all([
     db.salesOpportunity.aggregate({
@@ -98,26 +114,46 @@ export const GET = withAuth(async (_request, _ctx, user) => {
       where: { ...myFilter, createdAt: { gte: monthStart } },
     }),
     db.salesQuote.count({
-      where: isAdmin ? { createdAt: { gte: monthStart } } : { createdById: user.id, createdAt: { gte: monthStart } },
+      where: {
+        orgId,
+        createdAt: { gte: monthStart },
+        ...(ownOnly ? { createdById: user.id } : {}),
+      },
     }),
     db.appointment.count({
       where: {
-        ...(isAdmin ? {} : { assignedToId: user.id }),
+        customer: { orgId },
         startAt: { gte: monthStart },
         status: { not: "cancelled" },
+        ...(ownOnly
+          ? {
+              OR: [
+                { assignedToId: user.id },
+                { createdById: user.id },
+                { customer: { createdById: user.id } },
+              ],
+            }
+          : {}),
       },
     }),
   ]);
 
   // ── 4. 工单状态分布 ──
+  // BlindsOrder 无 orgId，通过 customer.orgId 关系限定（customerId 可空，
+  // 无客户关联的工单将被排除，属可接受的部分限定）
   const ordersByStatus = await db.blindsOrder.groupBy({
     by: ["status"],
     _count: true,
-    where: isAdmin ? {} : { creatorId: user.id },
+    where: {
+      customer: { orgId },
+      ...(ownOnly ? { creatorId: user.id } : {}),
+    },
   });
 
   // ── 5. 库存预警 ──
-  const inventoryAlerts = isAdmin
+  // FabricInventory 无 orgId / 无客户关系，属共享仓储数据，无法按组织限定；
+  // 维持仅本组织全部视角（!ownOnly）可见，作为遗留风险（A2-2c+ / Phase B 处理）
+  const inventoryAlerts = !ownOnly
     ? await db.fabricInventory.findMany({
         where: { status: { in: ["low", "out_of_stock"] } },
         select: { id: true, sku: true, fabricName: true, productType: true, status: true, totalYards: true, reservedYards: true },

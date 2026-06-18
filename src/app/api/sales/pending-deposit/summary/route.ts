@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/rbac/roles";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
 /**
  * GET /api/sales/pending-deposit/summary
@@ -13,11 +16,17 @@ import { isAdmin } from "@/lib/rbac/roles";
  * 统计口径：status IN ('signed', 'accepted') AND depositCollectedAt IS NULL。
  *   accepted 兜底历史公开签字通道留下的旧状态。
  */
-export const GET = withAuth(async (_request, _ctx, user) => {
+export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
+
   const where = {
+    orgId,
     status: { in: ["signed", "accepted"] },
     depositCollectedAt: null,
-    ...(isAdmin(user.role) ? {} : { createdById: user.id }),
+    ...(ownOnly ? { createdById: user.id } : {}),
   };
 
   const [count, quotes] = await Promise.all([

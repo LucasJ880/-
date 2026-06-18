@@ -26,7 +26,7 @@ registry.register({
     const query = String(ctx.args.query ?? "");
     const limit = Number(ctx.args.limit ?? 10);
 
-    const ownerScope = salesCreatedScope(ctx.userId, ctx.role);
+    const ownerScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
     const where: Record<string, unknown> = {
       OR: [
         { name: { contains: query, mode: "insensitive" } },
@@ -115,8 +115,15 @@ registry.register({
       return { success: false, data: { error: "客户已归档，无法访问" } };
     }
 
-    // PR1：防止跨销售窥探他人客户
-    if (!canSeeResource(ctx.role, ctx.userId, { createdById: customer.createdById })) {
+    // PR1：防止跨销售窥探他人客户；P0-1：叠加跨组织边界
+    if (
+      !canSeeResource(
+        ctx.role,
+        ctx.userId,
+        { orgId: customer.orgId, createdById: customer.createdById },
+        ctx.orgId,
+      )
+    ) {
       return { success: false, data: { error: "无权访问该客户" } };
     }
 

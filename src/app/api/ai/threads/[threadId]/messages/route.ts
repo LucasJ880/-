@@ -31,6 +31,7 @@ import { isOperatorEnabled } from "@/lib/feature-flags";
 import { runAgentStream, needsTools } from "@/lib/agent-core";
 import { buildOperatorSystemPrompt } from "@/lib/agent-core/prompts/operator-system";
 import { getCapabilities } from "@/lib/rbac/capabilities";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 
 export const maxDuration = 60;
 
@@ -175,11 +176,17 @@ export const POST = withAuth(async (request, ctx, user) => {
   // ─── PR2：Operator 分支（灰度控制，只开只读工具）───
   const useOperator = isOperatorEnabled({ userId: user.id, role: user.role });
   if (useOperator) {
+    // P0-2：解析真实 orgId（替换原先写死的 "default"）
+    // - 单组织用户自动解析；多组织用户须在 body 传 orgId；非成员 / 未指定 → 4xx
+    const orgRes = await resolveRequestOrgIdForUser(user, body.orgId ?? null);
+    if (!orgRes.ok) return orgRes.response;
+
     return handleOperatorBranch({
       threadId,
       threadTitle: thread.title,
       isFirstMessage,
       user,
+      orgId: orgRes.orgId,
       userContent: content,
       chatMessages,
       abortSignal: request.signal,
@@ -398,13 +405,14 @@ interface OperatorBranchInput {
   threadTitle: string | null;
   isFirstMessage: boolean;
   user: { id: string; role: string; name: string };
+  orgId: string;
   userContent: string;
   chatMessages: ChatMessage[];
   abortSignal: AbortSignal;
 }
 
 async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextResponse> {
-  const { threadId, threadTitle, isFirstMessage, user, userContent, chatMessages, abortSignal } = input;
+  const { threadId, threadTitle, isFirstMessage, user, orgId, userContent, chatMessages, abortSignal } = input;
 
   const caps = getCapabilities(user.role);
   const systemPrompt = buildOperatorSystemPrompt({
@@ -445,7 +453,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             messages: chatMessages,
             mode: "chat",
             userId: user.id,
-            orgId: "default",
+            orgId,
             sessionId: threadId,
             role: user.role,
             domains: [...caps.aiDomains],

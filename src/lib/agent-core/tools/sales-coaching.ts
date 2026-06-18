@@ -10,6 +10,7 @@ import { ok } from "./sales-helpers";
 import {
   salesAssignableScope,
   salesCreatedScope,
+  isGlobalScope,
 } from "@/lib/rbac/data-scope";
 
 // ── sales.search_knowledge ──────────────────────────────────────
@@ -139,7 +140,7 @@ registry.register({
     let customerId = ctx.args.customerId as string | undefined;
 
     if (!customerId && ctx.args.customerName) {
-      const custScope = salesCreatedScope(ctx.userId, ctx.role);
+      const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
       const customer = await db.salesCustomer.findFirst({
         where: {
           name: { contains: ctx.args.customerName as string, mode: "insensitive" },
@@ -229,7 +230,7 @@ registry.register({
     );
 
     let customerId = ctx.args.customerId as string | undefined;
-    const custScope = salesCreatedScope(ctx.userId, ctx.role);
+    const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
     if (!customerId && ctx.args.customerName) {
       const c = await db.salesCustomer.findFirst({
         where: {
@@ -251,7 +252,7 @@ registry.register({
       if (!owned) return { success: false, data: { error: "未找到客户" } };
     }
 
-    const oppScope = salesAssignableScope(ctx.userId, ctx.role);
+    const oppScope = salesAssignableScope(ctx.userId, ctx.role, ctx.orgId);
     const oppWhere: Record<string, unknown> = ctx.args.opportunityId
       ? { id: ctx.args.opportunityId as string, ...(oppScope ?? {}) }
       : { customerId, ...(oppScope ?? {}) };
@@ -340,7 +341,7 @@ registry.register({
     );
 
     let customerId = ctx.args.customerId as string | undefined;
-    const custScope = salesCreatedScope(ctx.userId, ctx.role);
+    const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
     if (!customerId && ctx.args.customerName) {
       const c = await db.salesCustomer.findFirst({
         where: {
@@ -403,10 +404,11 @@ registry.register({
   execute: async (ctx: ToolExecutionContext) => {
     const { recordAdoption } = await import("@/lib/sales/coaching-service");
 
-    // PR1：确认该 coaching 记录属于当前销售（admin 跳过）
+    // PR1：确认该 coaching 记录属于当前销售（admin / super_admin 跳过）
+    // 注：CoachingRecord 无 orgId，归属判定仍按 userId；用 isGlobalScope 保留
+    // 原先「admin 跳过」语义（避免 P0-1 后 salesCreatedScope 对 admin 返回非空导致误拦）
     const recordId = ctx.args.recordId as string;
-    const custScope = salesCreatedScope(ctx.userId, ctx.role);
-    if (custScope) {
+    if (!isGlobalScope(ctx.role)) {
       const rec = await db.coachingRecord.findUnique({
         where: { id: recordId },
         select: { userId: true },

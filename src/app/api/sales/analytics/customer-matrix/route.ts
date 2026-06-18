@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 import {
   buildPeriods,
   findPeriodKey,
@@ -63,9 +66,10 @@ type ViewType = "customer" | "activity";
  *                  发生在该时段内的数量（销售归属取事件的 createdBy / customer.createdBy）
  */
 export const GET = withAuth(async (request, _ctx, user) => {
-  if (!isSuperAdmin(user.role)) {
-    return NextResponse.json({ error: "仅管理员可访问" }, { status: 403 });
-  }
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
 
   const { searchParams } = new URL(request.url);
   const startStr = searchParams.get("startDate");
@@ -158,10 +162,14 @@ export const GET = withAuth(async (request, _ctx, user) => {
   if (viewType === "customer") {
     // ── 客户时间视角：沿用原有逻辑 ──
     const customerWhere: Record<string, unknown> = {
+      orgId,
       archivedAt: null,
       createdAt: { gte: rangeStart, lt: rangeEnd },
     };
-    if (salesRepIds && salesRepIds.length > 0) {
+    // member（ownOnly）只看自己创建的客户；否则可按 salesRepIds 筛选
+    if (ownOnly) {
+      customerWhere.createdById = user.id;
+    } else if (salesRepIds && salesRepIds.length > 0) {
       customerWhere.createdById = { in: salesRepIds };
     }
 
@@ -209,24 +217,31 @@ export const GET = withAuth(async (request, _ctx, user) => {
     // 三种事件累计到同一 cell 的 new / quoted / signed 字段；
     // total = new + quoted + signed（仅作为行排序依据）。
 
-    const repFilterScope =
-      salesRepIds && salesRepIds.length > 0 ? { in: salesRepIds } : undefined;
+    // member（ownOnly）强制只看自己；否则可按 salesRepIds 筛选
+    const effectiveRepFilter: string | { in: string[] } | undefined = ownOnly
+      ? user.id
+      : salesRepIds && salesRepIds.length > 0
+      ? { in: salesRepIds }
+      : undefined;
 
     const customerWhere: Record<string, unknown> = {
+      orgId,
       archivedAt: null,
       createdAt: { gte: rangeStart, lt: rangeEnd },
     };
-    if (repFilterScope) customerWhere.createdById = repFilterScope;
+    if (effectiveRepFilter) customerWhere.createdById = effectiveRepFilter;
 
     const quoteWhereCreated: Record<string, unknown> = {
+      orgId,
       createdAt: { gte: rangeStart, lt: rangeEnd },
     };
-    if (repFilterScope) quoteWhereCreated.createdById = repFilterScope;
+    if (effectiveRepFilter) quoteWhereCreated.createdById = effectiveRepFilter;
 
     const quoteWhereSigned: Record<string, unknown> = {
+      orgId,
       signedAt: { gte: rangeStart, lt: rangeEnd },
     };
-    if (repFilterScope) quoteWhereSigned.createdById = repFilterScope;
+    if (effectiveRepFilter) quoteWhereSigned.createdById = effectiveRepFilter;
 
     const [newCustomers, createdQuotes, signedQuotes] = await Promise.all([
       db.salesCustomer.findMany({

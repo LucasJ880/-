@@ -57,7 +57,7 @@ registry.register({
     // 1) 解析 customer
     let resolvedCustomerId = customerId;
     if (!resolvedCustomerId && customerName) {
-      const ownerScope = salesCreatedScope(ctx.userId, ctx.role);
+      const ownerScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
       const hits = await db.salesCustomer.findMany({
         where: {
           name: { contains: customerName, mode: "insensitive" },
@@ -213,7 +213,7 @@ registry.register({
     // 解析 customer（同 open 工具的路径）
     let resolvedCustomerId = customerId;
     if (!resolvedCustomerId && customerName) {
-      const ownerScope = salesCreatedScope(ctx.userId, ctx.role);
+      const ownerScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
       const hits = await db.salesCustomer.findMany({
         where: {
           name: { contains: customerName, mode: "insensitive" },

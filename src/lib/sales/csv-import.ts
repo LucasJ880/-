@@ -133,6 +133,9 @@ export async function importCustomersCsv(
   userId: string,
   orgId: string,
 ): Promise<ImportResult> {
+  if (!orgId) {
+    throw new Error("缺少 orgId，拒绝执行 CSV 导入（Phase B 后 orgId 为 NOT NULL）");
+  }
   const rawRows = parseCsv(csvText);
   const result: ImportResult = {
     totalRows: rawRows.length,
@@ -156,7 +159,7 @@ export async function importCustomersCsv(
             where: {
               phone: mapped.phone,
               createdById: userId,
-              OR: [{ orgId }, { orgId: null }],
+              orgId,
             },
           })
         : null;

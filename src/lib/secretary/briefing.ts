@@ -83,7 +83,8 @@ export async function generateDailyBriefing(
   // ── 销售域扫描 ──
   if (userDomains.includes("sales")) {
     try {
-      domains.push(await scanSalesDomain(userId, { isAdmin }));
+      // platform admin（同时有 trade+sales 域）看本组织全部；否则只看本人
+      domains.push(await scanSalesDomain(userId, orgId, { ownOnly: !isAdmin }));
     } catch (e) {
       console.error("[secretary] Sales scan failed:", e);
     }

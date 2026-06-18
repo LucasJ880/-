@@ -68,6 +68,20 @@ export function isAdmin(role: string): boolean {
   return role === "admin" || role === "super_admin";
 }
 
+/**
+ * 平台超级管理员（唯一可跨组织读取数据的角色）。
+ *
+ * 与 isAdmin / isSuperAdmin 的区别：
+ * - isAdmin / isSuperAdmin：把平台 `admin` 也视为最高权限（用于功能开关、守卫），
+ *   `admin` 在「当前组织内」拥有全部能力。
+ * - isPlatformSuperAdmin：仅 `super_admin` 为 true。用于数据范围判定时区分
+ *   「组织内全部」(admin) 与「跨组织全部」(super_admin)，防止普通组织 admin
+ *   看到其它组织的数据。
+ */
+export function isPlatformSuperAdmin(role: string | null | undefined): boolean {
+  return role === "super_admin";
+}
+
 export function hasOrgRole(userRole: string, requiredRole: OrgRole): boolean {
   const userLevel = ORG_ROLE_LEVEL[userRole as OrgRole];
   const requiredLevel = ORG_ROLE_LEVEL[requiredRole];

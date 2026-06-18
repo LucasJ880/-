@@ -10,7 +10,7 @@
  * 6. 管道概况统计
  *
  * 与外贸域扫描器 (trade.ts) 接口一致，返回 DomainScanResult。
- * 销售数据按 userId 过滤（非 orgId），因为销售机会有 assignedToId。
+ * 销售数据先按 orgId 限定组织边界，再按 ownOnly 决定看本人还是本组织全部。
  */
 
 import { db } from "@/lib/db";
@@ -48,29 +48,34 @@ const STALE_DAYS: Record<string, number> = {
 };
 
 /**
- * 扫描销售域 — 支持按 userId 或 orgId 扫描
- * admin 用 orgId 看全局，sales 用 userId 看自己的
+ * 扫描销售域 — 组织内待办扫描
+ * @param userId  当前用户
+ * @param orgId   组织边界（必填）；所有 Sales 查询都限定在该组织
+ * @param options.ownOnly  true=只看本人 created/assigned（org_member）；
+ *                         false=看本组织全部（org_admin / platform admin）。默认 true（安全）
  */
 export async function scanSalesDomain(
   userId: string,
-  options?: { isAdmin?: boolean },
+  orgId: string,
+  options?: { ownOnly?: boolean },
 ): Promise<DomainScanResult> {
   const now = new Date();
   const items: BriefingItem[] = [];
   const stats: Record<string, number> = {};
-  const isAdmin = options?.isAdmin ?? false;
+  const ownOnly = options?.ownOnly ?? true;
 
-  const ownerFilter = isAdmin
-    ? {}
-    : {
+  const ownerFilter = ownOnly
+    ? {
         OR: [
           { assignedToId: userId },
           { createdById: userId },
         ],
-      };
+      }
+    : {};
 
   const opportunities = await db.salesOpportunity.findMany({
     where: {
+      orgId,
       stage: { in: ACTIVE_STAGES },
       ...ownerFilter,
     },
@@ -250,6 +255,7 @@ export async function scanSalesDomain(
 
   const upcomingMeasures = await db.salesOpportunity.findMany({
     where: {
+      orgId,
       ...ownerFilter,
       measureDate: { gte: now, lte: threeDaysLater },
       stage: { in: ["needs_confirmed", "measure_booked"] },
@@ -292,6 +298,7 @@ export async function scanSalesDomain(
 
   const upcomingInstalls = await db.salesOpportunity.findMany({
     where: {
+      orgId,
       ...ownerFilter,
       installDate: { gte: now, lte: threeDaysLater },
     },
@@ -335,15 +342,21 @@ export async function scanSalesDomain(
   const tomorrowEnd = new Date(now.getTime() + 2 * DAY_MS);
   tomorrowEnd.setHours(0, 0, 0, 0);
 
-  const appointmentFilter = options?.isAdmin
-    ? {}
-    : { assignedToId: userId };
-
+  // Appointment 无 orgId，通过 customer.orgId 关系限定；ownOnly 时再加 own 维度
   const todayAppointments = await db.appointment.findMany({
     where: {
-      ...appointmentFilter,
+      customer: { orgId },
       startAt: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()), lte: tomorrowEnd },
       status: { in: ["scheduled", "confirmed"] },
+      ...(ownOnly
+        ? {
+            OR: [
+              { assignedToId: userId },
+              { createdById: userId },
+              { customer: { createdById: userId } },
+            ],
+          }
+        : {}),
     },
     include: {
       customer: { select: { id: true, name: true, phone: true, address: true } },
@@ -406,9 +419,11 @@ export async function scanSalesDomain(
   stats.todayAppointments = todayAppointments.length;
 
   // ── 6. 工单超期提醒 ──
+  // BlindsOrder 无 orgId，通过 customer.orgId 关系限定（无客户工单将被排除）
   const overdueOrders = await db.blindsOrder.findMany({
     where: {
-      creatorId: userId,
+      customer: { orgId },
+      ...(ownOnly ? { creatorId: userId } : {}),
       status: { in: ["confirmed", "in_production", "ready"] },
       expectedInstallDate: { lt: now },
     },
@@ -437,7 +452,9 @@ export async function scanSalesDomain(
   }
 
   // ── 6b. 面料库存预警 ──
-  if (isAdmin) {
+  // FabricInventory 无 orgId / 无客户关系，属共享仓储数据，无法按组织限定（遗留风险）；
+  // 仅本组织全部视角（!ownOnly）可见
+  if (!ownOnly) {
     const lowStockFabrics = await db.fabricInventory.findMany({
       where: { status: { in: ["low", "out_of_stock"] } },
       select: { id: true, sku: true, fabricName: true, productType: true, status: true, totalYards: true, reservedYards: true },
@@ -470,10 +487,11 @@ export async function scanSalesDomain(
   // ── 7. 管道统计 ──
   const [totalActive, newInquiries, wonThisMonth] = await Promise.all([
     db.salesOpportunity.count({
-      where: { ...ownerFilter, stage: { in: ACTIVE_STAGES } },
+      where: { orgId, ...ownerFilter, stage: { in: ACTIVE_STAGES } },
     }),
     db.salesOpportunity.count({
       where: {
+        orgId,
         ...ownerFilter,
         stage: "new_lead",
         createdAt: { gt: new Date(now.getTime() - DAY_MS) },
@@ -481,6 +499,7 @@ export async function scanSalesDomain(
     }),
     db.salesOpportunity.count({
       where: {
+        orgId,
         ...ownerFilter,
         stage: { in: ["signed", "completed"] },
         wonAt: {

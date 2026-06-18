@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
-import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 import {
   assertSalesCustomerInOrgForMutation,
   resolveSalesOrgIdForRequest,
+  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 // 漏斗状态定义（需与 /api/sales/analytics/customer-matrix 保持一致）
@@ -19,6 +19,10 @@ function deriveFunnelStatus(stages: string[], quoteCount: number): FunnelStatus 
 }
 
 export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search') || '';
   const status = searchParams.get('status') || '';
@@ -33,14 +37,14 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const endDateStr = searchParams.get('endDate');
   const funnelStatusFilter = searchParams.get('funnelStatus') as FunnelStatus | null;
 
-  const where: Record<string, unknown> = {};
-  if (!isSuperAdmin(user.role)) {
+  const where: Record<string, unknown> = { orgId: orgRes.orgId };
+  if (ownOnly) {
     where.createdById = user.id;
   } else if (createdByIdParam) {
     where.createdById = createdByIdParam;
   }
-  // 默认过滤归档；仅 admin 且显式要求 ?includeArchived=1 时才返回
-  if (!(isSuperAdmin(user.role) && includeArchived)) {
+  // 默认过滤归档；仅本组织 admin 且显式要求 ?includeArchived=1 时才返回
+  if (!(!ownOnly && includeArchived)) {
     where.archivedAt = null;
   }
   if (status) where.status = status;
@@ -77,7 +81,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   // funnelStatus 过滤无法直接下沉到 Prisma where（需要先聚合机会 + 报价数），
   // 所以先查出候选集、再在内存里过滤 + 重新分页。
   // 在 funnelStatus 无值时走原来的分页路径，性能最佳。
-  if (funnelStatusFilter && isSuperAdmin(user.role)) {
+  if (funnelStatusFilter && !ownOnly) {
     const all = await db.salesCustomer.findMany({
       where,
       include: {
@@ -163,14 +167,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
   const mergeToCustomerId: string | null = body.mergeToCustomerId ?? null;
   const phoneNorm = normalizePhone(incomingPhone);
 
-  // 电话唯一性校验：仅当提供电话时进行；范围限于当前销售名下
+  // 电话唯一性校验：仅当提供电话时进行；范围限于当前组织内、当前销售名下
   if (phoneNorm) {
-    // TODO remove legacy OR orgId null after sales orgId backfill（仅同用户跨历史空 orgId 去重）
     const candidates = await db.salesCustomer.findMany({
       where: {
+        orgId,
         createdById: user.id,
         phone: { not: null },
-        OR: [{ orgId }, { orgId: null }],
       },
       select: { id: true, name: true, phone: true, address: true },
     });

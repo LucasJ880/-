@@ -2,7 +2,7 @@
  * TradeProspect → Sales CRM 转换（预览 + 执行）
  *
  * 说明：核心销售表已增加可选 orgId；新写入必须带 orgId。
- * 历史客户 orgId 为空时，仍临时用「创建人 ∈ 目标组织 active 成员」兜底（见 org-context TODO）。
+ * A2-3 起：移除历史 orgId:null 兜底，查找 / 创建一律严格按传入 orgId。
  */
 
 import type { TradeCampaign, TradeProspect, TradeQuote } from "@prisma/client";
@@ -78,9 +78,9 @@ export async function findSalesCustomerCandidates(
 
   const customers = await db.salesCustomer.findMany({
     where: {
+      orgId,
       createdById: { in: memberIds },
       archivedAt: null,
-      OR: [{ orgId }, { orgId: null }],
     },
     select: { id: true, name: true, email: true, phone: true, createdById: true },
     take: 400,
@@ -165,9 +165,9 @@ export async function findOpportunityCandidatesForProspect(
   const opps = await db.salesOpportunity.findMany({
     where: {
       customer: {
+        orgId,
         createdById: { in: memberIds },
         archivedAt: null,
-        OR: [{ orgId }, { orgId: null }],
       },
       OR: [{ title: { contains: q, mode: "insensitive" } }],
     },
@@ -351,6 +351,10 @@ export type ConvertToSalesBody = {
   includeLatestTradeQuote?: boolean;
 };
 
+/**
+ * @deprecated A2-3 起主流程改用 assertSalesCustomerInOrgOrThrowForConvert（严格按 orgId）。
+ * 本函数为基于成员关系的旧校验，仅保留供审计脚本使用，勿在生产路径新增调用。
+ */
 export async function assertCustomerInOrgOrThrow(
   customerId: string,
   orgMemberUserIds: Set<string>,
@@ -375,6 +379,10 @@ export async function executeConvertToSales(params: {
   salesOpportunityId: string | null;
 }> {
   const { orgId, userId, prospect, body } = params;
+  // A2-3：orgId 缺失则拒绝转换，杜绝写入 orgId:null 的 Sales 数据
+  if (!orgId) {
+    throw new Error("缺少 orgId，拒绝执行外贸转销售（防 null orgId）");
+  }
   if (prospect.convertedToSalesCustomerId || prospect.convertedAt) {
     const err = new Error("ALREADY_CONVERTED");
     (err as Error & { code?: string }).code = "ALREADY_CONVERTED";
@@ -394,7 +402,13 @@ export async function executeConvertToSales(params: {
   if (body.mode === "use_existing_customer") {
     const sid = body.salesCustomerId?.trim();
     if (!sid) throw new Error("缺少 salesCustomerId");
-    await assertCustomerInOrgOrThrow(sid, memberSet);
+    // A2-3：严格按 orgId 校验已有客户（不再用 createdBy membership 兜底）
+    const existing = await db.salesCustomer.findFirst({
+      where: { id: sid, archivedAt: null },
+      select: { id: true, orgId: true, createdById: true, notes: true, email: true },
+    });
+    if (!existing) throw new Error("客户不存在或已归档");
+    await assertSalesCustomerInOrgOrThrowForConvert(existing, orgId);
     customerId = sid;
 
     const mergeNotes = [
@@ -405,10 +419,6 @@ export async function executeConvertToSales(params: {
       .filter(Boolean)
       .join("\n");
 
-    const existing = await db.salesCustomer.findUnique({
-      where: { id: customerId },
-      select: { notes: true, email: true },
-    });
     await db.salesCustomer.update({
       where: { id: customerId },
       data: {

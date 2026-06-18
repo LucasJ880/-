@@ -3,12 +3,19 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from '@/lib/audit/logger';
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from '@/lib/sales/org-context';
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
 
-  const customer = await db.salesCustomer.findUnique({
-    where: { id },
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const customer = await db.salesCustomer.findFirst({
+    where: { id, orgId: orgRes.orgId },
     include: {
       opportunities: {
         orderBy: { updatedAt: 'desc' },
@@ -42,14 +49,22 @@ export const GET = withAuth(async (_request, ctx) => {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
   }
 
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (ownOnly && customer.createdById !== user.id) {
+    return NextResponse.json({ error: '无权访问该客户' }, { status: 403 });
+  }
+
   return NextResponse.json(customer);
 });
 
 export const PATCH = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
 
-  const customer = await db.salesCustomer.findUnique({
-    where: { id },
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const customer = await db.salesCustomer.findFirst({
+    where: { id, orgId: orgRes.orgId },
     select: { id: true, createdById: true, archivedAt: true },
   });
   if (!customer) {
@@ -60,10 +75,10 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   }
 
   // 权限检查：
-  //  - admin/super_admin 始终可改
-  //  - 非 admin：必须是自己创建的客户 且 当前账号 canEditCustomers=true
-  const admin = isSuperAdmin(user.role);
-  if (!admin) {
+  //  - 本组织 admin / org_admin / 平台 admin：始终可改本组织客户
+  //  - org_member / org_viewer：必须是自己创建的客户 且 当前账号 canEditCustomers=true
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (ownOnly) {
     if (customer.createdById !== user.id) {
       return NextResponse.json({ error: '无权修改该客户' }, { status: 403 });
     }

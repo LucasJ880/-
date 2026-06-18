@@ -7,16 +7,27 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import OpenAI from "openai";
 import { sendMailAs } from "@/lib/email/sender";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
 const DAY_MS = 86_400_000;
 
-export const POST = withAuth(async (_request, _ctx, user) => {
-  const isAdmin = user.role === "admin" || user.role === "super_admin";
+export const POST = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
+  const isAdmin = !ownOnly;
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
 
-  const myFilter: Record<string, unknown> = isAdmin ? {} : { assignedToId: user.id };
-  const myOrderFilter: Record<string, unknown> = isAdmin ? {} : { creatorId: user.id };
+  // 机会归属：ownOnly 时 OR(created/assigned)；否则本组织全部
+  const oppOwnClause = ownOnly
+    ? { OR: [{ createdById: user.id }, { assignedToId: user.id }] }
+    : {};
+  const myFilter: Record<string, unknown> = { orgId, ...oppOwnClause };
 
   const [
     weekSigned,
@@ -36,15 +47,26 @@ export const POST = withAuth(async (_request, _ctx, user) => {
       where: { ...myFilter, createdAt: { gte: weekAgo } },
     }),
     db.salesQuote.count({
-      where: isAdmin
-        ? { createdAt: { gte: weekAgo } }
-        : { createdById: user.id, createdAt: { gte: weekAgo } },
+      where: {
+        orgId,
+        createdAt: { gte: weekAgo },
+        ...(ownOnly ? { createdById: user.id } : {}),
+      },
     }),
     db.appointment.count({
       where: {
-        ...(isAdmin ? {} : { assignedToId: user.id }),
+        customer: { orgId },
         startAt: { gte: weekAgo },
         status: { not: "cancelled" },
+        ...(ownOnly
+          ? {
+              OR: [
+                { assignedToId: user.id },
+                { createdById: user.id },
+                { customer: { createdById: user.id } },
+              ],
+            }
+          : {}),
       },
     }),
     db.salesOpportunity.count({
@@ -53,13 +75,16 @@ export const POST = withAuth(async (_request, _ctx, user) => {
         stage: { in: ["new_lead", "needs_confirmed", "measure_booked", "quoted", "negotiation"] },
       },
     }),
+    // BlindsOrder 无 orgId，通过 customer.orgId 关系限定（无客户工单将被排除）
     db.blindsOrder.count({
       where: {
-        ...myOrderFilter,
+        customer: { orgId },
+        ...(ownOnly ? { creatorId: user.id } : {}),
         status: { in: ["confirmed", "in_production", "ready"] },
         expectedInstallDate: { lt: now },
       },
     }),
+    // FabricInventory 无 orgId / 无客户关系，无法按组织限定（遗留风险）
     isAdmin
       ? db.fabricInventory.count({ where: { status: { in: ["low", "out_of_stock"] } } })
       : 0,

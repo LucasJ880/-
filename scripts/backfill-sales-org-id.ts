@@ -1,10 +1,11 @@
 /**
- * 销售核心表 orgId 回填（默认 dry-run）
+ * @deprecated Phase B 后已禁用。
  *
- *   pnpm exec tsx scripts/backfill-sales-org-id.ts
- *   pnpm exec tsx scripts/backfill-sales-org-id.ts --write
+ * 销售核心表 orgId 回填（历史一次性脚本）。Phase B 已将四表 orgId 收紧为 NOT NULL，
+ * 不可能再存在 orgId:null 的记录，本脚本的回填逻辑已完成历史使命，禁止再运行。
+ * 保留文件仅作归档；main() 启动即抛错退出，不会执行任何查询或写入。
  *
- * 需 DATABASE_URL。不覆盖已有 orgId；多 active org 或零 org 不自动写入。
+ * 需 DATABASE_URL。
  */
 
 import { db } from "@/lib/db";
@@ -261,20 +262,26 @@ async function applyWrites(
 ) {
   let n = 0;
   for (const { id, orgId } of rows) {
+    // DEPRECATED 死代码：Phase B 后 orgId 为 NOT NULL，orgId:null 不再合法；
+    // 用 orgId: undefined 仅为通过类型检查，本函数已不可达（main 启动即抛错）。
     const r =
       table === "salesCustomer"
-        ? await db.salesCustomer.updateMany({ where: { id, orgId: null }, data: { orgId } })
+        ? await db.salesCustomer.updateMany({ where: { id, orgId: undefined }, data: { orgId } })
         : table === "salesOpportunity"
-          ? await db.salesOpportunity.updateMany({ where: { id, orgId: null }, data: { orgId } })
+          ? await db.salesOpportunity.updateMany({ where: { id, orgId: undefined }, data: { orgId } })
           : table === "salesQuote"
-            ? await db.salesQuote.updateMany({ where: { id, orgId: null }, data: { orgId } })
-            : await db.customerInteraction.updateMany({ where: { id, orgId: null }, data: { orgId } });
+            ? await db.salesQuote.updateMany({ where: { id, orgId: undefined }, data: { orgId } })
+            : await db.customerInteraction.updateMany({ where: { id, orgId: undefined }, data: { orgId } });
     n += r.count;
   }
   console.log(`[write] ${label}: 更新 ${n} 行（仅 orgId 原为空的行）`);
 }
 
 async function main() {
+  throw new Error(
+    "Deprecated: orgId is NOT NULL after Phase B; this backfill script must not run.",
+  );
+
   console.log(
     WRITE ? "MODE: --write（将更新数据库）\n" : "MODE: dry-run（不写库；确认后加 --write）\n",
   );

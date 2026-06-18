@@ -15,7 +15,7 @@ async function resolveOwnedCustomerId(
   customerIdArg: string | undefined,
   customerNameArg: string | undefined,
 ): Promise<{ customerId: string } | { error: string }> {
-  const custScope = salesCreatedScope(ctx.userId, ctx.role);
+  const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
   let customerId = customerIdArg;
 
   if (!customerId && customerNameArg) {

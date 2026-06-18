@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from '@/lib/sales/org-context';
 
-export const GET = withAuth(async (_request, _ctx, user) => {
+export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+
+  const where: Record<string, unknown> = { orgId: orgRes.orgId };
+  if (ownOnly) where.createdById = user.id;
+
   const quotes = await db.salesQuote.findMany({
-    where: user.role === 'admin' || user.role === 'super_admin'
-      ? {}
-      : { createdById: user.id },
+    where,
     select: {
       id: true,
       customerId: true,

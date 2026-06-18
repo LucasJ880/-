@@ -43,7 +43,7 @@ async function resolveOpportunity(
   let opportunityId = args.opportunityId;
 
   if (!opportunityId && args.customerName) {
-    const custScope = salesCreatedScope(ctx.userId, ctx.role);
+    const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
     const customer = await db.salesCustomer.findFirst({
       where: {
         name: { contains: args.customerName, mode: "insensitive" },
@@ -54,7 +54,7 @@ async function resolveOpportunity(
     if (!customer) {
       return { error: `未找到客户 "${args.customerName}"` as const };
     }
-    const oppScope = salesAssignableScope(ctx.userId, ctx.role);
+    const oppScope = salesAssignableScope(ctx.userId, ctx.role, ctx.orgId);
     const opp = await db.salesOpportunity.findFirst({
       where: {
         customerId: customer.id,
@@ -76,10 +76,16 @@ async function resolveOpportunity(
   if (!opp) return { error: "商机不存在" as const };
 
   if (
-    !canSeeResource(ctx.role, ctx.userId, {
-      createdById: opp.createdById,
-      assignedToId: opp.assignedToId,
-    })
+    !canSeeResource(
+      ctx.role,
+      ctx.userId,
+      {
+        orgId: opp.orgId,
+        createdById: opp.createdById,
+        assignedToId: opp.assignedToId,
+      },
+      ctx.orgId,
+    )
   ) {
     return { error: "无权操作该商机" as const };
   }

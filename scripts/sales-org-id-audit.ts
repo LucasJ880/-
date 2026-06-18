@@ -8,7 +8,6 @@
 
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
-import { spawnSync } from "child_process";
 import { db } from "@/lib/db";
 
 const ROOT = process.cwd();
@@ -65,10 +64,11 @@ function extractPrismaModel(schema: string, name: string): string | null {
   return null;
 }
 
-function fileHasModelOrgId(schema: string, model: string): boolean {
+function fileHasModelOrgIdRequired(schema: string, model: string): boolean {
   const block = extractPrismaModel(schema, model);
   if (!block) return false;
-  return /\borgId\s+String\?/.test(block);
+  // Phase B 后要求 orgId 为非空 String：匹配 `orgId String` 且其后不是 `?`
+  return /\borgId\s+String\b(?!\?)/.test(block);
 }
 
 function fileHasIndexOrgId(schema: string, model: string): boolean {
@@ -92,8 +92,39 @@ function sliceAfterIndex(content: string, idx: number, maxLen: number): string {
   return content.slice(idx, Math.min(content.length, idx + maxLen));
 }
 
+/**
+ * 从 `db.x.create(` 匹配处起，按括号配平提取 create() 的完整实参文本。
+ * 用于把 orgId 检测精确限定在该 create 调用内部，避免 1200 字窗口误判。
+ */
+function extractCreateArg(content: string, matchIdx: number): string | null {
+  const parenStart = content.indexOf("(", matchIdx);
+  if (parenStart < 0) return null;
+  let depth = 0;
+  for (let i = parenStart; i < content.length; i++) {
+    const c = content[i];
+    if (c === "(") depth++;
+    else if (c === ")") {
+      depth--;
+      if (depth === 0) return content.slice(parenStart + 1, i);
+    }
+  }
+  return null;
+}
+
+/**
+ * 检测 create 实参中是否写入了 orgId 属性。识别以下安全写法：
+ *  - 显式赋值：orgId: orgRes.orgId / orgId: requestOrgId / orgId: ctx.orgId / orgId: quote.orgId 等
+ *  - 简写属性：{ orgId, ... }（变量同名展开）
+ *  - 结尾无逗号：{ ..., orgId }
+ * 即 orgId 作为对象键出现（其后紧跟 : , } 或空白后的这些符号）。
+ */
+function argHasOrgIdProp(arg: string): boolean {
+  return /\borgId\s*[:,}]/.test(arg);
+}
+
+/** 兜底：旧的 1200 字窗口启发式（仅在无法提取 create 实参时使用）。 */
 function snippetHasOrgId(snippet: string): boolean {
-  return /\borgId\s*:/.test(snippet);
+  return /\borgId\s*[:,}]/.test(snippet);
 }
 
 function classifyPath(rel: string): "api_sales" | "agent" | "lib_trade_conversion" | "warn" {
@@ -121,7 +152,7 @@ async function main() {
 
   const schema = readSchema();
   for (const m of ["SalesCustomer", "SalesOpportunity", "SalesQuote", "CustomerInteraction"]) {
-    assert(`schema_${m}_orgId_optional_string`, fileHasModelOrgId(schema, m), m);
+    assert(`schema_${m}_orgId_required_string`, fileHasModelOrgIdRequired(schema, m), m);
     assert(`schema_${m}_index_orgId`, fileHasIndexOrgId(schema, m), m);
   }
 
@@ -149,8 +180,11 @@ async function main() {
       let m: RegExpExecArray | null;
       while ((m = re.exec(content)) !== null) {
         const idx = m.index;
-        const snippet = sliceAfterIndex(content, idx, 1200);
-        const hasOrg = snippetHasOrgId(snippet);
+        // 优先在 create() 实参范围内精确检测 orgId；提取失败再退回窗口启发式
+        const arg = extractCreateArg(content, idx);
+        const hasOrg = arg !== null
+          ? argHasOrgIdProp(arg)
+          : snippetHasOrgId(sliceAfterIndex(content, idx, 1200));
         if (hasOrg) continue;
 
         if (cls === "warn") {
@@ -198,24 +232,26 @@ async function main() {
     fail("prisma_runtime_orgId_select", e instanceof Error ? e.message : String(e));
   }
 
-  const tsxBin = join(ROOT, "node_modules", ".bin", "tsx");
-  const useLocalTsx = existsSync(tsxBin);
-  const bf = useLocalTsx
-    ? spawnSync(tsxBin, ["scripts/backfill-sales-org-id.ts"], {
-        encoding: "utf8",
-        cwd: ROOT,
-      })
-    : spawnSync("npx", ["tsx", "scripts/backfill-sales-org-id.ts"], {
-        encoding: "utf8",
-        cwd: ROOT,
-        shell: true,
-      });
-  if (bf.status === 0) {
-    ok("backfill_dry_run_spawn");
-    const out = (bf.stdout || "").trim();
-    if (out) console.log("\n--- backfill dry-run stdout（摘要）---\n" + out.slice(0, 2000));
-  } else {
-    warn("backfill_dry_run_spawn", `exit=${bf.status} stderr=${(bf.stderr || "").slice(0, 400)}`);
+  // Phase B 后 orgId 为 NOT NULL：旧 backfill 脚本已 deprecated。
+  // 这里直接用 raw SQL 统计四表 null orgId（Prisma 类型已禁止 orgId:null 查询），断言均为 0。
+  // 表名为固定字面量常量，无外部输入，注入安全。
+  const nullCheckTables = [
+    "SalesCustomer",
+    "SalesOpportunity",
+    "SalesQuote",
+    "CustomerInteraction",
+  ];
+  console.log("\n--- 数据层 missingOrgId 核查（raw SQL）---");
+  for (const t of nullCheckTables) {
+    try {
+      const rows = await db.$queryRawUnsafe<{ c: number }[]>(
+        `SELECT COUNT(*)::int AS c FROM "${t}" WHERE "orgId" IS NULL`,
+      );
+      const c = Number(rows?.[0]?.c ?? 0);
+      assert(`data_${t}_missingOrgId_zero`, c === 0, `null orgId 行数=${c}`);
+    } catch (e) {
+      fail(`data_${t}_missingOrgId_zero`, e instanceof Error ? e.message : String(e));
+    }
   }
 
   console.log("");

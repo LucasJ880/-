@@ -476,11 +476,14 @@ async function testPr3() {
   // C2) 幂等匹配 & 量房导入 DB 逻辑（事务回滚，不落库）
   const customer = await db.salesCustomer.findFirst({
     where: { archivedAt: null },
-    select: { id: true, createdById: true },
+    select: { id: true, createdById: true, orgId: true },
   });
   if (!customer || !customer.createdById) {
     console.log("  ⚠️  跳过：没有可用客户");
     return;
+  }
+  if (!customer.orgId) {
+    throw new Error("visualizer-smoke requires a SalesCustomer with orgId");
   }
 
   const ROLLBACK_TOKEN = "__visualizer_smoke_rollback_pr3__";
@@ -521,6 +524,7 @@ async function testPr3() {
       // 1b) 造 opportunity 并绑到一个 session；查 null 时不应命中这个带 opp 的
       const opp = await tx.salesOpportunity.create({
         data: {
+          orgId: customer.orgId,
           customerId: customer.id,
           title: "__smoke_pr3_opp__",
           stage: "new_lead",
@@ -672,6 +676,7 @@ async function testPr3() {
       // 跨客户防护：另一个客户下的 session 不应能被当作候选
       const otherCustomer = await tx.salesCustomer.create({
         data: {
+          orgId: customer.orgId,
           name: "__smoke_other_customer__",
           createdById: customer.createdById!,
         },
@@ -932,11 +937,14 @@ async function testPr5() {
   // E2) DB 层：模拟 list_covers 的查询逻辑 + opp/quote 挂封面的索引
   const customer = await db.salesCustomer.findFirst({
     where: { archivedAt: null },
-    select: { id: true, createdById: true },
+    select: { id: true, createdById: true, orgId: true },
   });
   if (!customer || !customer.createdById) {
     console.log("  ⚠️  跳过 DB 段：没有可用客户");
     return;
+  }
+  if (!customer.orgId) {
+    throw new Error("visualizer-smoke requires a SalesCustomer with orgId");
   }
 
   const ROLLBACK_TOKEN = "__visualizer_smoke_rollback_pr5__";
@@ -945,6 +953,7 @@ async function testPr5() {
       // 建两个 opp，一个有方案封面一个没有
       const opp1 = await tx.salesOpportunity.create({
         data: {
+          orgId: customer.orgId,
           customerId: customer.id,
           title: "__smoke_pr5_opp_with_cover__",
           stage: "new_lead",
@@ -953,6 +962,7 @@ async function testPr5() {
       });
       const opp2 = await tx.salesOpportunity.create({
         data: {
+          orgId: customer.orgId,
           customerId: customer.id,
           title: "__smoke_pr5_opp_no_cover__",
           stage: "new_lead",

@@ -1,23 +1,30 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
 /**
  * GET /api/sales/reps
  *
- * 返回"有过客户记录"的销售用户列表（admin 专用）——
+ * 返回"在当前组织有过客户记录"的销售用户列表（org_admin / admin 专用）——
  * 用于客户筛选 / 分析页的下拉选择。
  */
-export const GET = withAuth(async (_req, _ctx, user) => {
-  if (!isSuperAdmin(user.role)) {
+export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
+  if (ownOnly) {
     return NextResponse.json({ error: "仅管理员可访问" }, { status: 403 });
   }
 
-  // 拉所有"有客户的"用户，按客户数降序
+  // 拉当前组织内"有客户的"用户，按客户数降序
   const groups = await db.salesCustomer.groupBy({
     by: ["createdById"],
-    where: { archivedAt: null },
+    where: { archivedAt: null, orgId },
     _count: { _all: true },
     orderBy: { _count: { createdById: "desc" } },
   });

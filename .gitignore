@@ -62,3 +62,6 @@ mempalace.yaml
 entities.json
 # Cursor AI Agent Team Framework (submodule)
 cursor-agent-team
+
+# 数据库逻辑备份（含生产客户 PII，禁止入库）
+/backups/

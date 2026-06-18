@@ -10,7 +10,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { AuthUser } from "@/lib/auth";
+import { getOrgMembership } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { isAdmin } from "@/lib/rbac/roles";
 import { resolveTradeOrgId, type TradeOrgResolution } from "@/lib/trade/access";
 
 export type { TradeOrgResolution as SalesOrgResolution } from "@/lib/trade/access";
@@ -23,6 +25,136 @@ export async function resolveSalesOrgIdForRequest(
   return resolveTradeOrgId(request, user, opts);
 }
 
+/**
+ * 解析调用者在指定 org 内的数据可见范围。
+ *
+ * - 平台 admin / super_admin：ownOnly=false（在 orgId 上下文内看本组织全部）
+ * - 目标 org 的 org_admin（active）：ownOnly=false（看本组织全部）
+ * - org_member / org_viewer / 非 active 成员：ownOnly=true（仅看自己 created/assigned）
+ *
+ * 注意：orgId 的访问权限应已由 resolveSalesOrgIdForRequest 校验通过，
+ * 本函数只决定「本组织内看全部还是看自己」，不再重复校验组织准入。
+ */
+export async function resolveSalesScope(
+  user: AuthUser,
+  orgId: string,
+): Promise<{ ownOnly: boolean }> {
+  if (isAdmin(user.role)) return { ownOnly: false };
+  const m = await getOrgMembership(user.id, orgId);
+  const isOrgAdmin = m?.status === "active" && m.role === "org_admin";
+  return { ownOnly: !isOrgAdmin };
+}
+
+/**
+ * 生成销售实体列表/聚合查询的统一 where 片段（含组织边界 + own-scope）。
+ *
+ * - 始终包含 `orgId`。
+ * - ownOnly=true 时：
+ *   - opportunity：用 `OR: [{ createdById }, { assignedToId }]`（包进 AND，避免覆盖调用方已有的顶层 OR）
+ *   - customer / quote：用 `createdById`
+ *
+ * 调用方可把返回对象展开后再叠加自己的过滤键（stage/status/日期等）。
+ */
+export function buildSalesScopeWhere(
+  userId: string,
+  orgId: string,
+  ownOnly: boolean,
+  kind: "customer" | "opportunity" | "quote",
+): Record<string, unknown> {
+  const where: Record<string, unknown> = { orgId };
+  if (!ownOnly) return where;
+  if (kind === "opportunity") {
+    where.AND = [{ OR: [{ createdById: userId }, { assignedToId: userId }] }];
+  } else {
+    where.createdById = userId;
+  }
+  return where;
+}
+
+/**
+ * 校验 opportunity 属于 orgId（可选再校验 own 归属）。
+ * 跨组织/不存在 → 404；同组织但非本人（ownOnly）→ 403。
+ */
+export async function assertSalesOpportunityInOrgForMutation(
+  opportunityId: string,
+  orgId: string,
+  opts?: { userId?: string; ownOnly?: boolean },
+): Promise<
+  | {
+      ok: true;
+      opportunity: {
+        id: string;
+        orgId: string | null;
+        createdById: string;
+        assignedToId: string | null;
+      };
+    }
+  | { ok: false; response: NextResponse }
+> {
+  const opp = await db.salesOpportunity.findFirst({
+    where: { id: opportunityId, orgId },
+    select: { id: true, orgId: true, createdById: true, assignedToId: true },
+  });
+  if (!opp) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "机会不存在" }, { status: 404 }),
+    };
+  }
+  if (
+    opts?.ownOnly &&
+    opts.userId &&
+    opp.createdById !== opts.userId &&
+    opp.assignedToId !== opts.userId
+  ) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "无权访问该机会" }, { status: 403 }),
+    };
+  }
+  return { ok: true, opportunity: opp };
+}
+
+/**
+ * Appointment 表无 orgId，统一通过 customer.orgId 关系过滤后加载。
+ * 返回 null 表示跨组织或不存在（调用方据此返回 404）。
+ */
+export async function loadAppointmentForOrg(
+  appointmentId: string,
+  orgId: string,
+): Promise<{
+  id: string;
+  assignedToId: string;
+  createdById: string;
+  customer: { orgId: string | null; createdById: string };
+} | null> {
+  return db.appointment.findFirst({
+    where: { id: appointmentId, customer: { orgId } },
+    select: {
+      id: true,
+      assignedToId: true,
+      createdById: true,
+      customer: { select: { orgId: true, createdById: true } },
+    },
+  });
+}
+
+/** 判断用户是否为该 appointment 的「own」相关人（assignee / 创建人 / 客户创建人）。 */
+export function isAppointmentOwn(
+  appt: {
+    assignedToId: string;
+    createdById: string;
+    customer: { createdById: string };
+  },
+  userId: string,
+): boolean {
+  return (
+    appt.assignedToId === userId ||
+    appt.createdById === userId ||
+    appt.customer.createdById === userId
+  );
+}
+
 export async function getActiveOrgMemberUserIds(orgId: string): Promise<string[]> {
   const rows = await db.organizationMember.findMany({
     where: { orgId, status: "active" },
@@ -33,43 +165,29 @@ export async function getActiveOrgMemberUserIds(orgId: string): Promise<string[]
 
 /**
  * 创建商机 / 报价 / 互动前：客户必须属于当前 org。
- * - 若 customer.orgId 已设置，必须与 orgId 一致。
- * - TODO remove legacy membership fallback after sales orgId backfill.
- *   若 customer.orgId 为空，则退回校验 createdById 是否为该 org 的 active 成员。
+ * A2-3 起：严格要求 customer.orgId === orgId（orgId 为空不再容忍）。
  */
 export async function assertSalesCustomerInOrgForMutation(
   customer: { orgId: string | null; createdById: string },
   orgId: string,
 ): Promise<NextResponse | null> {
-  if (customer.orgId) {
-    if (customer.orgId !== orgId) {
-      return NextResponse.json({ error: "客户不属于当前组织" }, { status: 403 });
-    }
-    return null;
-  }
-  // TODO remove legacy membership fallback after sales orgId backfill.
-  const memberIds = await getActiveOrgMemberUserIds(orgId);
-  if (!new Set(memberIds).has(customer.createdById)) {
+  if (customer.orgId !== orgId) {
     return NextResponse.json({ error: "客户不属于当前组织" }, { status: 403 });
   }
   return null;
 }
 
-/** convert-to-sales 等内部流程：校验失败时抛 Error（与历史 assertCustomerInOrgOrThrow 行为一致） */
+/**
+ * convert-to-sales 等内部流程：校验失败时抛 Error。
+ * A2-3 起：严格要求 customer.orgId === orgId（orgId 为空不再容忍）。
+ */
 export async function assertSalesCustomerInOrgOrThrowForConvert(
   customer: { id: string; orgId: string | null; createdById: string },
   orgId: string,
 ): Promise<void> {
-  const deny = () => {
+  if (customer.orgId !== orgId) {
     throw new Error("该销售客户不属于当前组织下的销售数据范围");
-  };
-  if (customer.orgId) {
-    if (customer.orgId !== orgId) deny();
-    return;
   }
-  // TODO remove legacy membership fallback after sales orgId backfill.
-  const memberIds = await getActiveOrgMemberUserIds(orgId);
-  if (!new Set(memberIds).has(customer.createdById)) deny();
 }
 
 /**

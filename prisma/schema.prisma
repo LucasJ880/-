@@ -2351,7 +2351,7 @@ model TradeEmailTemplate {
 
 model SalesCustomer {
   id         String    @id @default(cuid())
-  orgId      String?
+  orgId      String
   name       String
   phone      String?
   email      String?
@@ -2395,7 +2395,7 @@ model SalesCustomer {
 
 model SalesOpportunity {
   id                    String        @id @default(cuid())
-  orgId                 String?
+  orgId                 String
   customerId            String
   customer              SalesCustomer @relation(fields: [customerId], references: [id])
   title                 String
@@ -2446,7 +2446,7 @@ model SalesOpportunity {
 
 model CustomerInteraction {
   id             String            @id @default(cuid())
-  orgId          String?
+  orgId          String
   customerId     String
   customer       SalesCustomer     @relation(fields: [customerId], references: [id])
   opportunityId  String?
@@ -2487,7 +2487,7 @@ model CustomerInteraction {
 
 model SalesQuote {
   id              String            @id @default(cuid())
-  orgId           String?
+  orgId           String
   opportunityId   String?
   opportunity     SalesOpportunity? @relation(fields: [opportunityId], references: [id])
   customerId      String

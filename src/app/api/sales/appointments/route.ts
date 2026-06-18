@@ -6,20 +6,30 @@ import { onMeasureBooked } from "@/lib/sales/opportunity-lifecycle";
 import {
   assertSalesCustomerInOrgForMutation,
   resolveSalesOrgIdForRequest,
+  resolveSalesScope,
 } from "@/lib/sales/org-context";
 
 export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+
   const url = new URL(request.url);
   const start = url.searchParams.get("start");
   const end = url.searchParams.get("end");
   const type = url.searchParams.get("type");
   const status = url.searchParams.get("status");
 
-  const isAdmin = user.role === "admin" || user.role === "super_admin";
-
-  const where: Record<string, unknown> = {};
-  if (!isAdmin) {
-    where.OR = [{ assignedToId: user.id }, { createdById: user.id }];
+  // Appointment 表无 orgId，通过 customer.orgId 关系限定当前组织
+  const where: Record<string, unknown> = {
+    customer: { orgId: orgRes.orgId },
+  };
+  if (ownOnly) {
+    where.OR = [
+      { assignedToId: user.id },
+      { createdById: user.id },
+      { customer: { createdById: user.id } },
+    ];
   }
   if (start && end) {
     where.startAt = { gte: new Date(start), lte: new Date(end) };

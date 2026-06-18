@@ -2,9 +2,33 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import { onDealWon, onDealLost } from '@/lib/sales/opportunity-lifecycle';
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from '@/lib/sales/org-context';
 
-export const PATCH = withAuth(async (request, ctx) => {
+export const PATCH = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
+
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const existing = await db.salesOpportunity.findFirst({
+    where: { id, orgId: orgRes.orgId },
+    select: { id: true, createdById: true, assignedToId: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: '机会不存在' }, { status: 404 });
+  }
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (
+    ownOnly &&
+    existing.createdById !== user.id &&
+    existing.assignedToId !== user.id
+  ) {
+    return NextResponse.json({ error: '无权修改该机会' }, { status: 403 });
+  }
+
   const body = await request.json();
 
   const allowedFields = [
@@ -58,11 +82,14 @@ export const PATCH = withAuth(async (request, ctx) => {
   return NextResponse.json(updated);
 });
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
 
-  const opportunity = await db.salesOpportunity.findUnique({
-    where: { id },
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const opportunity = await db.salesOpportunity.findFirst({
+    where: { id, orgId: orgRes.orgId },
     include: {
       customer: { select: { id: true, name: true, phone: true, email: true } },
       quotes: { orderBy: { createdAt: 'desc' }, take: 5 },
@@ -72,6 +99,15 @@ export const GET = withAuth(async (_request, ctx) => {
 
   if (!opportunity) {
     return NextResponse.json({ error: '机会不存在' }, { status: 404 });
+  }
+
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (
+    ownOnly &&
+    opportunity.createdById !== user.id &&
+    opportunity.assignedToId !== user.id
+  ) {
+    return NextResponse.json({ error: '无权访问该机会' }, { status: 403 });
   }
 
   return NextResponse.json(opportunity);

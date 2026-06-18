@@ -15,6 +15,10 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
 type Tier = "under2k" | "mid" | "over5k";
 
@@ -39,7 +43,11 @@ const TIER_LABELS: Record<Tier, string> = {
 };
 
 export const GET = withAuth(async (request, _ctx, user) => {
-  const isAdmin = user.role === "admin" || user.role === "super_admin";
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+  const { ownOnly } = await resolveSalesScope(user, orgId);
+  const isAdmin = !ownOnly;
   const { searchParams } = new URL(request.url);
 
   const now = new Date();
@@ -52,7 +60,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const to = toStr ? new Date(toStr + "T23:59:59") : defaultTo;
 
   const salesRepIdParam = searchParams.get("salesRepId");
-  const salesRepId = isAdmin ? salesRepIdParam || undefined : user.id;
+  const salesRepId = ownOnly ? user.id : salesRepIdParam || undefined;
 
   // 环比口径：与当前区间等时长、紧邻其前的窗口
   //   e.g. 当前 4/1 ~ 4/16 (16 天) → 上一区间 3/16 ~ 3/31
@@ -63,6 +71,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   // 只统计「已成单」的报价（有 signedAt 或 status=signed）
   // 使用 signedAt 做时间筛选 —— 更贴合"这段时间成交多少"的语义
   const baseWhere = {
+    orgId,
     ...(salesRepId ? { createdById: salesRepId } : {}),
     finalDiscountPct: { not: null },
   } as const;
@@ -144,13 +153,29 @@ export const GET = withAuth(async (request, _ctx, user) => {
       .sort((a, b) => b.totalSignedValue - a.totalSignedValue)
     : [];
 
-  // 提供可选 rep 下拉（admin）
-  const repOptions = isAdmin
-    ? await db.user.findMany({
-        where: { role: { notIn: ["customer"] } },
-        select: { id: true, name: true, salesRepInitials: true },
-        orderBy: { name: "asc" },
-      })
+  // 提供可选 rep 下拉（仅 !ownOnly）——限制为当前组织成员 + 在本组织有客户数据的用户
+  const repOptions = !ownOnly
+    ? await (async () => {
+        const [members, custReps] = await Promise.all([
+          db.organizationMember.findMany({
+            where: { orgId, status: "active" },
+            select: { userId: true },
+          }),
+          db.salesCustomer.groupBy({ by: ["createdById"], where: { orgId } }),
+        ]);
+        const ids = Array.from(
+          new Set([
+            ...members.map((m) => m.userId),
+            ...custReps.map((c) => c.createdById),
+          ]),
+        );
+        if (ids.length === 0) return [];
+        return db.user.findMany({
+          where: { id: { in: ids }, role: { notIn: ["customer"] } },
+          select: { id: true, name: true, salesRepInitials: true },
+          orderBy: { name: "asc" },
+        });
+      })()
     : [];
 
   // 上一区间聚合（仅总览）

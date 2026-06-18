@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
-import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 import {
   assertSalesCustomerInOrgForMutation,
   resolveSalesOrgIdForRequest,
+  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+
   const { searchParams } = new URL(request.url);
   const stage = searchParams.get('stage') || '';
   const priority = searchParams.get('priority') || '';
@@ -18,8 +22,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
     Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10)),
   );
 
-  const where: Record<string, unknown> = {};
-  if (!isSuperAdmin(user.role)) {
+  const where: Record<string, unknown> = { orgId: orgRes.orgId };
+  if (ownOnly) {
     where.OR = [{ createdById: user.id }, { assignedToId: user.id }];
   }
   if (stage) where.stage = stage;

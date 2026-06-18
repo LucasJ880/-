@@ -16,6 +16,10 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { scanSalesDomain } from "@/lib/secretary/domains/sales";
 import { runSimple } from "@/lib/agent-core/engine";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 
 interface SalesBriefing {
   date: string;
@@ -25,7 +29,11 @@ interface SalesBriefing {
   generatedAt: string;
 }
 
-export const GET = withAuth(async (_request, _ctx, user) => {
+export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+
   const today = new Date().toISOString().slice(0, 10);
 
   const cached = await db.notification.findFirst({
@@ -41,12 +49,16 @@ export const GET = withAuth(async (_request, _ctx, user) => {
     return NextResponse.json({ briefing: cached.metadata, cached: true });
   }
 
-  const briefing = await generateBriefing(user.id);
+  const briefing = await generateBriefing(user.id, orgRes.orgId, ownOnly);
   return NextResponse.json({ briefing, cached: false });
 });
 
-export const POST = withAuth(async (_request, _ctx, user) => {
-  const briefing = await generateBriefing(user.id);
+export const POST = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+
+  const briefing = await generateBriefing(user.id, orgRes.orgId, ownOnly);
 
   try {
     const { pushNotification } = await import("@/lib/messaging/push-service");
@@ -60,10 +72,14 @@ export const POST = withAuth(async (_request, _ctx, user) => {
   return NextResponse.json({ briefing, pushed: true });
 });
 
-async function generateBriefing(userId: string): Promise<SalesBriefing> {
+async function generateBriefing(
+  userId: string,
+  orgId: string,
+  ownOnly: boolean,
+): Promise<SalesBriefing> {
   const today = new Date().toISOString().slice(0, 10);
 
-  const scan = await scanSalesDomain(userId);
+  const scan = await scanSalesDomain(userId, orgId, { ownOnly });
 
   const urgentItems = scan.items
     .filter((i) => i.severity === "urgent" || i.severity === "warning")

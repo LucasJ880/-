@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import {
+  resolveSalesOrgIdForRequest,
+  resolveSalesScope,
+} from "@/lib/sales/org-context";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
@@ -19,11 +22,14 @@ import type {
  *
  * 权限：销售仅可访问自己创建的 quote；admin/super_admin 可访问全部。
  */
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
 
-  const quote = await db.salesQuote.findUnique({
-    where: { id: quoteId },
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
+  const quote = await db.salesQuote.findFirst({
+    where: { id: quoteId, orgId: orgRes.orgId },
     include: {
       items: { orderBy: { sortOrder: "asc" } },
       addons: true,
@@ -37,7 +43,8 @@ export const GET = withAuth(async (_request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (ownOnly && quote.createdById !== user.id) {
     return NextResponse.json({ error: "无权查看此报价单" }, { status: 403 });
   }
 
@@ -61,6 +68,10 @@ export const GET = withAuth(async (_request, ctx, user) => {
  */
 export const PUT = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
+
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
   const body = await request.json();
   const {
     items,
@@ -90,8 +101,8 @@ export const PUT = withAuth(async (request, ctx, user) => {
     opportunityId?: string;
   };
 
-  const existing = await db.salesQuote.findUnique({
-    where: { id: quoteId },
+  const existing = await db.salesQuote.findFirst({
+    where: { id: quoteId, orgId: orgRes.orgId },
     select: {
       id: true,
       customerId: true,
@@ -104,14 +115,14 @@ export const PUT = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  const isAdmin = isSuperAdmin(user.role);
-  if (existing.createdById !== user.id && !isAdmin) {
+  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (ownOnly && existing.createdById !== user.id) {
     return NextResponse.json({ error: "无权编辑此报价单" }, { status: 403 });
   }
 
-  // 已签单 / 已接受的 quote 对销售锁定，admin 可强制改
+  // 已签单 / 已接受的 quote 对销售锁定，本组织 admin 可强制改
   const lockedStatuses = new Set(["signed", "accepted"]);
-  if (lockedStatuses.has(existing.status) && !isAdmin) {
+  if (lockedStatuses.has(existing.status) && ownOnly) {
     return NextResponse.json(
       {
         error:
