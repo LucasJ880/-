@@ -18,6 +18,7 @@
     "audit:trade-quote-sales-conversion": "tsx scripts/trade-quote-sales-conversion-audit.ts",
     "audit:sales-org": "tsx scripts/sales-org-id-audit.ts",
     "audit:trade-intelligence": "tsx scripts/trade-intelligence-audit.ts",
+    "audit:trade-service": "tsx scripts/trade-service-request-audit.ts",
     "seed:visualizer-catalog": "tsx scripts/seed-visualizer-catalog.ts",
     "seed:visualizer-catalog:write": "tsx scripts/seed-visualizer-catalog.ts --write",
     "deprecated:backfill:sales-org": "tsx scripts/backfill-sales-org-id.ts",

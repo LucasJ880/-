@@ -11,6 +11,10 @@ import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 import { parseResearchBundle, getResearchReportForAgents } from "@/lib/trade/research-bundle";
 import { runProspectResearch } from "@/lib/trade/research-service";
 import {
+  createServiceRequest,
+  type ServiceRequestPriority,
+} from "@/lib/trade/service-request";
+import {
   getTradeProspectStageLabel,
   mergeNormalizedProspectStageCounts,
   TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
@@ -384,6 +388,72 @@ registry.register({
       persisted: true,
       prospectId: result.prospectId,
       ...result.chatSummary,
+    });
+  },
+});
+
+// ── trade.create_service_request（受理外贸客户服务需求）──────────
+
+registry.register({
+  name: "trade_create_service_request",
+  description:
+    "受理外贸客户的服务需求并建单（落到当前组织）。适用于美工/产品图处理（design_image）、文档总结（doc_summary）、会议纪要（meeting_minutes）、聊天群记录总结（group_summary）等。当客户明确表达一个具体可执行的需求时使用；闲聊或信息不足时不要建单。",
+  domain: "trade",
+  parameters: {
+    type: "object",
+    properties: {
+      requestType: {
+        type: "string",
+        description: "需求类型",
+        enum: ["design_image", "doc_summary", "meeting_minutes", "group_summary", "other"],
+      },
+      title: { type: "string", description: "简短中文标题（<=20字）" },
+      description: { type: "string", description: "对需求的客观转述" },
+      priority: {
+        type: "string",
+        description: "优先级，默认 medium",
+        enum: ["low", "medium", "high", "urgent"],
+      },
+      structuredSpec: {
+        type: "object",
+        description:
+          "结构化需求字段（仅填客户明确给到或可合理归纳的，未知省略），如 productName/quantity/background/size/style/deadline/notes",
+        additionalProperties: true,
+      },
+    },
+    required: ["requestType", "title"],
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const orgId = (ctx.orgId ?? "").trim();
+    if (!orgId || orgId === "default") {
+      return { success: false, data: null, error: "缺少合法 orgId，无法建单（租户隔离）" };
+    }
+
+    const title = (ctx.args.title as string | undefined)?.trim();
+    if (!title) {
+      return { success: false, data: null, error: "请提供需求标题" };
+    }
+    const requestType = (ctx.args.requestType as string | undefined) ?? "other";
+    const description = (ctx.args.description as string | undefined) ?? null;
+    const priority = ctx.args.priority as ServiceRequestPriority | undefined;
+    const structuredSpec = ctx.args.structuredSpec as Record<string, unknown> | undefined;
+
+    const request = await createServiceRequest({
+      orgId,
+      requestType,
+      title,
+      description,
+      priority,
+      structuredSpec,
+      createdById: ctx.userId ?? null,
+    });
+
+    return ok({
+      created: true,
+      requestId: request.id,
+      requestType: request.requestType,
+      status: request.status,
+      title: request.title,
     });
   },
 });

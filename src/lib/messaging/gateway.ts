@@ -81,13 +81,13 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   // 3. 更新活跃时间
   await touchBinding(msg.channel, msg.externalUserId);
 
-  // 4. 持久化入站消息（语音消息标记来源）
+  // 4. 持久化入站消息（语音消息标记来源；写入 binding.orgId 保证租户隔离）
   const isVoice = msg.messageType === "voice";
   await db.weChatMessage.create({
     data: {
       bindingId: binding.id,
       userId: binding.userId,
-      orgId: undefined,
+      orgId: binding.orgId,
       direction: "inbound",
       channel: msg.channel,
       externalUserId: msg.externalUserId,
@@ -97,10 +97,10 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     },
   });
 
-  // 5. 调用 Agent Core 处理
+  // 5. 调用 Agent Core 处理（强制传入 binding 解析出的 orgId，禁止 default 兜底）
   let aiResponse: string;
   try {
-    aiResponse = await processWithAgentCore(binding.userId, msg);
+    aiResponse = await processWithAgentCore(binding.userId, msg, binding.orgId);
   } catch (e) {
     aiResponse = `抱歉，处理出错: ${e instanceof Error ? e.message : "未知错误"}`;
   }
@@ -194,6 +194,7 @@ export async function pushMessage(
 async function processWithAgentCore(
   userId: string,
   msg: InboundMessage,
+  bindingOrgId: string | null,
 ): Promise<string> {
   const { runAgent } = await import("@/lib/agent-core");
   const {
@@ -218,17 +219,24 @@ async function processWithAgentCore(
     }));
 
   // 加载用户信息 + 角色
+  // orgId 解析优先级：binding.orgId → 用户活跃组织（唯一）。禁止 default 兜底，
+  // 解析不到组织直接拒绝处理，避免跨租户数据串入 default 桶。
   const [membership, user] = await Promise.all([
-    db.organizationMember.findFirst({
-      where: { userId },
-      select: { orgId: true },
-    }),
+    bindingOrgId
+      ? Promise.resolve({ orgId: bindingOrgId })
+      : db.organizationMember.findFirst({
+          where: { userId, status: "active" },
+          select: { orgId: true },
+        }),
     db.user.findUnique({
       where: { id: userId },
       select: { role: true, name: true },
     }),
   ]);
-  const orgId = membership?.orgId ?? "default";
+  const orgId = membership?.orgId ?? null;
+  if (!orgId) {
+    throw new Error("无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定后重试。");
+  }
   const userRole = user?.role ?? "user";
 
   const [wakeUp, l2] = await Promise.all([

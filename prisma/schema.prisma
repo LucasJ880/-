@@ -2218,6 +2218,68 @@ model TradeIntelligenceAsset {
   @@index([caseId])
 }
 
+/// 外贸客户服务工单 — 微信 AI 助手受理的需求（美工出图 / 文档总结 / 会议纪要 / 群聊总结等）
+/// orgId          = 客户所属组织（受理归属 + 可见性边界，强制隔离）
+/// fulfillmentOrgId = 处理方组织（加拿大团队），仅允许通过 assignToFulfillment relay 写入。
+/// 这是客户 org 与加拿大 org 之间唯一的受控跨组织桥接点；bid 招标数据在不同表中，物理隔离。
+model TradeServiceRequest {
+  id               String  @id @default(cuid())
+  orgId            String // 客户 org（受理归属，强制隔离）
+  fulfillmentOrgId String? // 处理方 org（加拿大团队），仅经 relay 写入
+
+  requestType String @default("other") // design_image | doc_summary | meeting_minutes | group_summary | other
+  title       String
+  description String? @db.Text
+
+  structuredSpec Json? // AI 结构化提取的需求字段（产品、规格、交付要求等）
+
+  status   String @default("new") // new | accepted | in_progress | delivered | closed | cancelled
+  priority String @default("medium") // low | medium | high | urgent
+
+  // 来源（微信受理）
+  sourceChannel  String? // personal_wechat | wecom
+  externalUserId String?
+  bindingId      String?
+
+  createdById String? // 受理触发者（绑定用户 / 系统机器人），可空
+  assigneeId  String? // 处理人（加拿大团队成员 userId），经 relay 指派
+
+  assignedAt  DateTime?
+  deliveredAt DateTime?
+  closedAt    DateTime?
+
+  assets TradeServiceAsset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, status])
+  @@index([orgId, createdAt])
+  @@index([fulfillmentOrgId, status])
+  @@index([assigneeId])
+}
+
+/// 外贸服务工单资产 — 输入（客户上传的图片 / 聊天记录 / 文档）与交付物（加拿大团队出图 / 总结）
+model TradeServiceAsset {
+  id        String              @id @default(cuid())
+  orgId     String // 必须与 request.orgId 一致（客户 org），强制写入
+  requestId String
+  request   TradeServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  kind     String // input | deliverable
+  fileUrl  String
+  fileName String
+  mimeType String?
+  meta     Json?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([requestId])
+  @@index([requestId, kind])
+}
+
 model TradeChannel {
   id            String    @id @default(cuid())
   orgId         String

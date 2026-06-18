@@ -579,7 +579,10 @@ export async function runSimple(options: {
     mode: (options.mode as AgentRunOptions["mode"]) ?? "chat",
     temperature: options.temperature,
     userId: "system",
-    orgId: "default",
+    // 纯文本生成场景：不解析租户 org，并通过不存在的工具名强制零工具暴露，
+    // 避免落到 default org 兜底或意外触发按 org 过滤的数据工具。
+    orgId: "system",
+    tools: ["__system_no_tools__"],
   });
   return result.content;
 }

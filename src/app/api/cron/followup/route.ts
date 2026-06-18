@@ -28,11 +28,10 @@ export async function GET(request: NextRequest) {
   });
 
   if (orgs.length === 0) {
-    // 没有组织时也支持 default orgId
-    const result = await runFollowupEngine("default");
+    // 无活跃组织时直接返回空结果，禁止 default org 兜底（防止跨租户串数据）
     return NextResponse.json({
-      scannedAt: result.scannedAt,
-      orgs: [{ orgId: "default", candidates: result.candidates.length, notifications: result.notificationsCreated }],
+      scannedAt: new Date().toISOString(),
+      orgs: [],
     });
   }
 
