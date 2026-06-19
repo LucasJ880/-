@@ -9,6 +9,7 @@
  * - 落库强制走 service-request.ts 的 createServiceRequest（必带 orgId）。
  */
 
+import { put } from "@vercel/blob";
 import { createCompletion } from "@/lib/ai/client";
 import { logger } from "@/lib/common/logger";
 import {
@@ -18,6 +19,8 @@ import {
 import {
   createServiceRequest,
   assignToFulfillment,
+  addServiceAsset,
+  getOpenRequestForExternalUser,
   type ServiceRequestType,
   type ServiceRequestPriority,
 } from "./service-request";
@@ -203,23 +206,7 @@ export async function handleTradeServiceIntake(
   });
 
   // 自动桥接到处理方组织（加拿大团队）。失败不阻断受理，工单仍留在客户 org 可后续手动指派。
-  const fulfillmentOrgId = (input.autoFulfillmentOrgId ?? "").trim();
-  if (fulfillmentOrgId && fulfillmentOrgId !== orgId) {
-    try {
-      await assignToFulfillment({
-        requestId: request.id,
-        ownerOrgId: orgId,
-        fulfillmentOrgId,
-      });
-    } catch (e) {
-      logger.warn("trade.service_intake.auto_bridge_failed", {
-        orgId,
-        requestId: request.id,
-        fulfillmentOrgId,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
+  await maybeAutoBridge(orgId, request.id, input.autoFulfillmentOrgId);
 
   return {
     reply: extracted.reply,
@@ -227,6 +214,140 @@ export async function handleTradeServiceIntake(
     created: true,
     requestType: extracted.requestType,
   };
+}
+
+/** 自动桥接：建单后把工单经唯一 relay 指派给处理方 org。失败仅告警不抛错。 */
+async function maybeAutoBridge(
+  orgId: string,
+  requestId: string,
+  autoFulfillmentOrgId?: string | null,
+): Promise<void> {
+  const fulfillmentOrgId = (autoFulfillmentOrgId ?? "").trim();
+  if (!fulfillmentOrgId || fulfillmentOrgId === orgId) return;
+  try {
+    await assignToFulfillment({ requestId, ownerOrgId: orgId, fulfillmentOrgId });
+  } catch (e) {
+    logger.warn("trade.service_intake.auto_bridge_failed", {
+      orgId,
+      requestId,
+      fulfillmentOrgId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+// ── 图片受理（落输入素材）─────────────────────────────────────
+
+const INTAKE_BLOB_PREFIX = "trade-service";
+const MAX_INTAKE_IMAGE_BYTES = 15 * 1024 * 1024;
+
+export interface TradeServiceImageIntakeInput {
+  orgId: string;
+  channel: string;
+  externalUserId: string;
+  externalUserName?: string | null;
+  bindingId?: string | null;
+  media: { bytes: Buffer; mimeType: string; fileName?: string };
+  autoFulfillmentOrgId?: string | null;
+}
+
+/**
+ * 受理一条图片消息：上传 Blob → 关联到该客户该用户的开放工单（无则建 design_image 单）→ 落 input 资产。
+ */
+export async function handleTradeServiceImageIntake(
+  input: TradeServiceImageIntakeInput,
+): Promise<TradeServiceIntakeResult> {
+  const orgId = (input.orgId ?? "").trim();
+  if (!orgId || orgId === "default") {
+    throw new Error("[service-intake] 非法 orgId，拒绝受理图片");
+  }
+
+  const { bytes, mimeType } = input.media;
+  if (!bytes || bytes.length === 0) {
+    return { reply: "图片内容为空，请重新发送。", created: false };
+  }
+  if (bytes.length > MAX_INTAKE_IMAGE_BYTES) {
+    return { reply: "图片太大（超过 15MB），请压缩后再发。", created: false };
+  }
+  if (!mimeType.startsWith("image/")) {
+    return { reply: "暂时只能处理图片素材，请发送图片。", created: false };
+  }
+
+  // 1. 上传 Blob
+  const ext = mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
+  const ts = Date.now();
+  const pathname = `${INTAKE_BLOB_PREFIX}/${orgId}/intake/${ts}_${input.externalUserId.replace(
+    /[^a-zA-Z0-9._-]/g,
+    "_",
+  )}.${ext}`;
+  let fileUrl: string;
+  try {
+    const blob = await put(pathname, bytes, { access: "public", contentType: mimeType });
+    fileUrl = blob.url;
+  } catch (e) {
+    logger.error("trade.service_image_intake.upload_failed", {
+      orgId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { reply: "图片暂存失败，请稍后再发一次。", created: false };
+  }
+
+  // 2. 关联开放工单；无则建单
+  let request = await getOpenRequestForExternalUser(orgId, input.externalUserId);
+  let created = false;
+  if (!request) {
+    request = await createServiceRequest({
+      orgId,
+      requestType: "design_image",
+      title: "客户图片需求",
+      description: "客户通过微信发来图片素材，待补充具体处理要求。",
+      structuredSpec: {
+        _intake: {
+          channel: input.channel,
+          externalUserId: input.externalUserId,
+          externalUserName: input.externalUserName ?? null,
+          source: "image",
+        },
+      },
+      sourceChannel: input.channel,
+      externalUserId: input.externalUserId,
+      bindingId: input.bindingId ?? null,
+    });
+    created = true;
+    await maybeAutoBridge(orgId, request.id, input.autoFulfillmentOrgId);
+  }
+
+  // 3. 落 input 资产
+  try {
+    await addServiceAsset({
+      requestId: request.id,
+      orgId,
+      kind: "input",
+      fileUrl,
+      fileName: `intake_${ts}.${ext}`,
+      mimeType,
+      meta: { source: "wechat_intake", externalUserId: input.externalUserId },
+    });
+  } catch (e) {
+    logger.error("trade.service_image_intake.asset_failed", {
+      orgId,
+      requestId: request.id,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { reply: "图片已收到，但关联需求时出错了，请稍后联系我们。", created };
+  }
+
+  logger.info("trade.service_image_intake.attached", {
+    orgId,
+    requestId: request.id,
+    created,
+  });
+
+  const reply = created
+    ? "已收到您的图片并为您建单。请补充一下具体处理要求（用途、底色、尺寸、风格等），我们会尽快出图。"
+    : `已收到图片，已加到需求「${request.title}」里。`;
+
+  return { reply, requestId: request.id, created, requestType: "design_image" };
 }
 
 // ── 通道接线 ───────────────────────────────────────────────────
@@ -237,6 +358,8 @@ export interface TradeIntakeInboundMessage {
   externalUserName?: string | null;
   content: string;
   messageType?: string;
+  externalMsgId?: string;
+  media?: { bytes: Buffer; mimeType: string; fileName?: string };
 }
 
 /**
@@ -251,33 +374,69 @@ export interface TradeIntakeInboundMessage {
  * @param sendReply   通过该通道把回复发回客户的回调（通常封装 adapter.sendText）。
  * @param options.autoFulfillmentOrgId 可选：建单后自动桥接到的处理方组织（加拿大团队 org）。
  */
+export interface TradeIntakeHandlerDeps {
+  handleText?: typeof handleTradeServiceIntake;
+  handleImage?: typeof handleTradeServiceImageIntake;
+}
+
 export function createTradeIntakeMessageHandler(
   clientOrgId: string,
   sendReply: (to: string, content: string) => Promise<void>,
-  options?: { autoFulfillmentOrgId?: string | null },
+  options?: { autoFulfillmentOrgId?: string | null; deps?: TradeIntakeHandlerDeps },
 ): (msg: TradeIntakeInboundMessage) => Promise<void> {
   const orgId = (clientOrgId ?? "").trim();
   if (!orgId || orgId === "default") {
     throw new Error("[service-intake] createTradeIntakeMessageHandler 需要合法 clientOrgId");
   }
   const autoFulfillmentOrgId = options?.autoFulfillmentOrgId ?? null;
+  const handleText = options?.deps?.handleText ?? handleTradeServiceIntake;
+  const handleImage = options?.deps?.handleImage ?? handleTradeServiceImageIntake;
+
+  // 进程内幂等：长轮询游标已防止跨轮重投，这里再兜底防止同批/瞬时重试重复建单。
+  const seen = new Set<string>();
+  const markSeen = (id?: string): boolean => {
+    if (!id) return false;
+    if (seen.has(id)) return true;
+    seen.add(id);
+    if (seen.size > 2000) seen.delete(seen.values().next().value as string);
+    return false;
+  };
 
   return async (msg: TradeIntakeInboundMessage) => {
-    if ((msg.messageType ?? "text") !== "text") return; // 非文本（图片/文件）后续阶段处理
-    const content = (msg.content ?? "").trim();
-    if (!content) return;
+    if (markSeen(msg.externalMsgId)) {
+      logger.info("trade.service_intake.duplicate_skipped", { orgId, msgId: msg.externalMsgId });
+      return;
+    }
 
-    let reply: string;
+    const messageType = msg.messageType ?? "text";
+    let reply: string | null = null;
+
     try {
-      const result = await handleTradeServiceIntake({
-        orgId,
-        channel: msg.channel,
-        externalUserId: msg.externalUserId,
-        externalUserName: msg.externalUserName ?? null,
-        content,
-        autoFulfillmentOrgId,
-      });
-      reply = result.reply;
+      if (messageType === "image" && msg.media) {
+        const result = await handleImage({
+          orgId,
+          channel: msg.channel,
+          externalUserId: msg.externalUserId,
+          externalUserName: msg.externalUserName ?? null,
+          media: msg.media,
+          autoFulfillmentOrgId,
+        });
+        reply = result.reply;
+      } else if (messageType === "text") {
+        const content = (msg.content ?? "").trim();
+        if (!content) return;
+        const result = await handleText({
+          orgId,
+          channel: msg.channel,
+          externalUserId: msg.externalUserId,
+          externalUserName: msg.externalUserName ?? null,
+          content,
+          autoFulfillmentOrgId,
+        });
+        reply = result.reply;
+      } else {
+        return; // 语音/文件等暂不处理
+      }
     } catch (e) {
       logger.error("trade.service_intake.failed", {
         orgId,
@@ -286,6 +445,7 @@ export function createTradeIntakeMessageHandler(
       reply = "抱歉，受理出错了，请稍后再发一次，或换种方式描述需求。";
     }
 
+    if (!reply) return;
     try {
       await sendReply(msg.externalUserId, reply);
     } catch (e) {

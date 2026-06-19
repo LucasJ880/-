@@ -3159,6 +3159,25 @@ model WeChatGateway {
   @@unique([orgId, channel])
 }
 
+/// 微信会话上下文令牌（iLink context_token）
+///
+/// iLink 为被动回复：每条出站消息必须回传入站消息携带的 context_token，否则无法路由到正确会话。
+/// 持久化到 DB，使「常驻 worker 进程」收消息后，「Vercel 控制台进程」也能用最新 token 回传交付物。
+model WeChatContext {
+  id             String @id @default(cuid())
+  orgId          String
+  channel        String // personal_wechat / wecom
+  externalUserId String // 外部联系人（客户微信）ID
+
+  contextToken String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, channel, externalUserId])
+  @@index([orgId, channel])
+}
+
 /// 微信消息记录
 model WeChatMessage {
   id        String  @id @default(cuid())

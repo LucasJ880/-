@@ -1,43 +1,44 @@
 /**
  * 个人微信 Adapter — 基于 iLink Bot API (WeChat ClawBot)
  *
- * 协议文档: https://www.wechatbot.dev/en/protocol
- * 基础 URL: https://ilinkai.weixin.qq.com
+ * 协议文档: https://www.wechatbot.dev/zh/protocol
+ * 基础 URL: https://ilinkai.weixin.qq.com，媒体 CDN: https://novac2c.cdn.weixin.qq.com/c2c
  *
- * 登录流程: GET /ilink/bot/get_bot_qrcode → 轮询 get_qrcode_status → confirmed 获取 bot_token
- * 消息收发: POST /ilink/bot/getupdates (long-poll) → POST /ilink/bot/sendmessage
+ * 登录: GET /ilink/bot/get_bot_qrcode → 轮询 get_qrcode_status → confirmed 拿 bot_token
+ * 收消息: POST /ilink/bot/getupdates (长轮询, msgs[].item_list)
+ * 发消息: POST /ilink/bot/sendmessage (msg.item_list 信封, 必带 context_token)
+ * 媒体: getuploadurl → AES-128-ECB 加密 → CDN upload/download
  */
 
-import crypto from "crypto";
 import { db } from "@/lib/db";
+import {
+  ILINK_BASE_DEFAULT,
+  ILINK_CDN_BASE_DEFAULT,
+  BASE_INFO,
+  MEDIA_TYPE,
+  buildHeaders,
+  parseGetUpdates,
+  buildSendTextPayload,
+  buildSendImagePayload,
+  splitMessage,
+  aesEcbEncrypt,
+  aesEcbDecrypt,
+  decodeAesKey,
+  md5Hex,
+  sniffImageMime,
+  type ParsedImageRef,
+} from "./ilink-media";
 import type {
   MessagingAdapter,
   AdapterStatus,
   MessageHandler,
   InboundMessage,
 } from "../types";
+import crypto from "crypto";
 
-const ILINK_BASE = process.env.ILINK_API_BASE || "https://ilinkai.weixin.qq.com";
-
-function generateWechatUin(): string {
-  const buf = crypto.randomBytes(4);
-  const num = buf.readUInt32BE(0);
-  return Buffer.from(String(num)).toString("base64");
-}
-
-function buildHeaders(botToken?: string): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-WECHAT-UIN": generateWechatUin(),
-  };
-  if (botToken) {
-    h["AuthorizationType"] = "ilink_bot_token";
-    h["Authorization"] = `Bearer ${botToken}`;
-  }
-  return h;
-}
-
-const BASE_INFO = { base_info: { channel_version: "2.0.0" } };
+const ILINK_BASE = process.env.ILINK_API_BASE || ILINK_BASE_DEFAULT;
+const ILINK_CDN_BASE = process.env.ILINK_CDN_BASE || ILINK_CDN_BASE_DEFAULT;
+const CHANNEL = "personal_wechat" as const;
 
 interface ILinkCredentials {
   botToken: string;
@@ -46,7 +47,7 @@ interface ILinkCredentials {
 }
 
 export class PersonalWeChatAdapter implements MessagingAdapter {
-  readonly channel = "personal_wechat" as const;
+  readonly channel = CHANNEL;
 
   private status: AdapterStatus = "disconnected";
   private credentials: ILinkCredentials | null = null;
@@ -68,12 +69,10 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
 
   /**
    * 仅加载凭证（不启动长轮询）— 用于 Serverless 多实例下的按需发送
-   *
-   * 返回值：true 表示成功加载到有效凭证并可发送；false 表示该 org 未登录
    */
   async loadCredentials(): Promise<boolean> {
     const gateway = await db.weChatGateway.findUnique({
-      where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
+      where: { orgId_channel: { orgId: this.orgId, channel: CHANNEL } },
     });
 
     if (!gateway) {
@@ -101,19 +100,26 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     this.status = "disconnected";
 
     await db.weChatGateway.updateMany({
-      where: { orgId: this.orgId, channel: "personal_wechat" },
+      where: { orgId: this.orgId, channel: CHANNEL },
       data: { status: "inactive", loginStatus: "disconnected", botToken: null },
     });
+  }
+
+  /**
+   * 仅停止内存中的长轮询循环，不清除 DB 凭证（供 worker 重启/重扫使用）。
+   * 与 stop() 不同：不会把网关置为 inactive、不清 botToken。
+   */
+  stopPolling(): void {
+    this.pollAbort?.abort();
+    this.pollAbort = null;
+    this.status = "disconnected";
   }
 
   getStatus(): AdapterStatus {
     return this.status;
   }
 
-  /**
-   * 请求 QR 登录码
-   * GET /ilink/bot/get_bot_qrcode?bot_type=3
-   */
+  /** 请求 QR 登录码：GET /ilink/bot/get_bot_qrcode?bot_type=3 */
   async getLoginQR(): Promise<{ qrUrl: string; ticket: string }> {
     this.status = "qr_pending";
 
@@ -129,7 +135,6 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       }
 
       const data = await res.json();
-
       const qrcode = data.qrcode || "";
       const qrImgContent = data.qrcode_img_content || "";
 
@@ -145,56 +150,44 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       if (!qrUrl) {
         throw new Error(
           "iLink API 未返回有效的 QR 码，请检查服务是否可用。" +
-          ` 原始响应字段: ${Object.keys(data).join(", ")}`
+            ` 原始响应字段: ${Object.keys(data).join(", ")}`,
         );
       }
 
       await db.weChatGateway.upsert({
-        where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
+        where: { orgId_channel: { orgId: this.orgId, channel: CHANNEL } },
         create: {
           orgId: this.orgId,
-          channel: "personal_wechat",
+          channel: CHANNEL,
           loginStatus: "qr_pending",
           status: "inactive",
           errorMessage: null,
         },
-        update: {
-          loginStatus: "qr_pending",
-          status: "inactive",
-          errorMessage: null,
-        },
+        update: { loginStatus: "qr_pending", status: "inactive", errorMessage: null },
       });
 
       return { qrUrl, ticket: qrcode };
     } catch (e) {
       this.status = "error";
       const errMsg = e instanceof Error ? e.message : String(e);
-
       await db.weChatGateway.upsert({
-        where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
+        where: { orgId_channel: { orgId: this.orgId, channel: CHANNEL } },
         create: {
           orgId: this.orgId,
-          channel: "personal_wechat",
+          channel: CHANNEL,
           loginStatus: "error",
           status: "inactive",
           errorMessage: errMsg,
         },
-        update: {
-          loginStatus: "error",
-          errorMessage: errMsg,
-        },
+        update: { loginStatus: "error", errorMessage: errMsg },
       });
-
       throw e;
     }
   }
 
   /**
-   * 轮询 QR 扫码状态
-   * GET /ilink/bot/get_qrcode_status?qrcode=...
-   *
-   * 状态机: wait → scaned → confirmed (或 expired)
-   * confirmed 时返回 bot_token 和 baseurl
+   * 轮询 QR 扫码状态：GET /ilink/bot/get_qrcode_status?qrcode=...
+   * 状态机: wait → scaned → confirmed (或 expired)；confirmed 返回 bot_token / baseurl
    */
   async checkQRStatus(qrcode: string): Promise<{
     status: "wait" | "scaned" | "confirmed" | "expired";
@@ -204,7 +197,10 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
   }> {
     const res = await fetch(
       `${ILINK_BASE}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } },
+      {
+        method: "GET",
+        headers: { "Content-Type": "application/json", "iLink-App-ClientVersion": "1" },
+      },
     );
 
     if (!res.ok) {
@@ -218,17 +214,15 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       const botToken = data.bot_token || data.token || "";
       const baseUrl = data.baseurl || data.base_url || ILINK_BASE;
       const nickname = data.nickname || data.bot_nickname || "";
-
       if (botToken) {
         await this.completeLogin(botToken, baseUrl, nickname);
       }
-
       return { status: "confirmed", botToken, baseUrl, nickname };
     }
 
     if (status === "expired") {
       await db.weChatGateway.updateMany({
-        where: { orgId: this.orgId, channel: "personal_wechat" },
+        where: { orgId: this.orgId, channel: CHANNEL },
         data: { loginStatus: "disconnected", errorMessage: "二维码已过期，请重新扫码" },
       });
     }
@@ -238,80 +232,166 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
 
   async checkLoginStatus(): Promise<AdapterStatus> {
     const gateway = await db.weChatGateway.findUnique({
-      where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
+      where: { orgId_channel: { orgId: this.orgId, channel: CHANNEL } },
     });
     this.status = (gateway?.loginStatus as AdapterStatus) ?? "disconnected";
     return this.status;
   }
 
-  /**
-   * 发送文本消息
-   * POST /ilink/bot/sendmessage
-   */
+  // ── 发送 ────────────────────────────────────────────────────
+
+  /** 发送文本：POST /ilink/bot/sendmessage（msg.item_list 信封） */
   async sendText(to: string, content: string): Promise<string | undefined> {
-    if (!this.credentials) {
-      throw new Error("个人微信未登录");
+    if (!this.credentials) throw new Error("个人微信未登录");
+
+    const contextToken = await this.resolveContextToken(to);
+    if (!contextToken) {
+      throw new Error("缺少 context_token（客户需先发消息以建立会话），无法发送");
     }
 
+    const base = this.credentials.baseUrl || ILINK_BASE;
     const segments = splitMessage(content, 2000);
-    let lastMsgId: string | undefined;
+    let lastClientId: string | undefined;
 
     for (const segment of segments) {
-      const contextToken = this.contextTokenCache.get(to) || "";
-      const base = this.credentials.baseUrl || ILINK_BASE;
-
+      const payload = buildSendTextPayload({ toUserId: to, contextToken, text: segment });
       const res = await fetch(`${base}/ilink/bot/sendmessage`, {
         method: "POST",
         headers: buildHeaders(this.credentials.botToken),
-        body: JSON.stringify({
-          ...BASE_INFO,
-          to_user: to,
-          msg_type: 1,
-          content: { text: segment },
-          context_token: contextToken,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`发送失败: ${err}`);
+        const err = await res.text().catch(() => "");
+        throw new Error(`发送失败: ${res.status} ${err}`);
       }
-
-      const data = await res.json();
-      if (data.errcode === -14) {
+      const data = await res.json().catch(() => ({}));
+      if (data.ret === -14 || data.errcode === -14) {
         await this.handleSessionExpired();
         throw new Error("会话已过期，请重新扫码登录");
       }
-
-      lastMsgId = data.msg_id?.toString();
-
-      if (segments.length > 1) {
-        await sleep(500);
-      }
+      lastClientId = payload.msg.client_id;
+      if (segments.length > 1) await sleep(500);
     }
 
-    return lastMsgId;
+    return lastClientId;
+  }
+
+  /**
+   * 发送图片：拉取 URL（或直接字节）→ AES 加密 → CDN 上传 → sendmessage image_item
+   * @param to 接收者用户 ID
+   * @param image 图片 URL（http/https）或 dataURL
+   */
+  async sendImage(to: string, image: string): Promise<string | undefined> {
+    if (!this.credentials) throw new Error("个人微信未登录");
+
+    const contextToken = await this.resolveContextToken(to);
+    if (!contextToken) {
+      throw new Error("缺少 context_token（客户需先发消息以建立会话），无法发送图片");
+    }
+
+    const raw = await loadImageBytes(image);
+    if (!raw) throw new Error("无法读取图片内容");
+
+    const base = this.credentials.baseUrl || ILINK_BASE;
+
+    // 1. 加密
+    const aesKey = crypto.randomBytes(16);
+    const aesKeyHex = aesKey.toString("hex");
+    const ciphertext = aesEcbEncrypt(raw, aesKey);
+    const filekey = crypto.randomBytes(16).toString("hex");
+
+    // 2. 申请上传参数
+    const uploadParamRes = await fetch(`${base}/ilink/bot/getuploadurl`, {
+      method: "POST",
+      headers: buildHeaders(this.credentials.botToken),
+      body: JSON.stringify({
+        filekey,
+        media_type: MEDIA_TYPE.IMAGE,
+        to_user_id: to,
+        rawsize: raw.length,
+        rawfilemd5: md5Hex(raw),
+        filesize: ciphertext.length,
+        no_need_thumb: true,
+        aeskey: aesKeyHex,
+        ...BASE_INFO,
+      }),
+    });
+    if (!uploadParamRes.ok) {
+      throw new Error(`getuploadurl 失败: ${uploadParamRes.status}`);
+    }
+    const uploadParamData = await uploadParamRes.json();
+    if (uploadParamData.ret === -14 || uploadParamData.errcode === -14) {
+      await this.handleSessionExpired();
+      throw new Error("会话已过期，请重新扫码登录");
+    }
+    const uploadParam = uploadParamData.upload_param;
+    if (!uploadParam) throw new Error("getuploadurl 未返回 upload_param");
+
+    // 3. 上传密文到 CDN
+    const uploadUrl =
+      `${ILINK_CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}` +
+      `&filekey=${encodeURIComponent(filekey)}`;
+    const cdnRes = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: new Uint8Array(ciphertext),
+    });
+    if (!cdnRes.ok) {
+      const err = await cdnRes.text().catch(() => "");
+      throw new Error(`CDN 上传失败: ${cdnRes.status} ${err}`);
+    }
+    const encryptedParam = cdnRes.headers.get("x-encrypted-param");
+    if (!encryptedParam) throw new Error("CDN 上传未返回 x-encrypted-param");
+
+    // 4. 发送图片消息
+    const payload = buildSendImagePayload({
+      toUserId: to,
+      contextToken,
+      encryptQueryParam: encryptedParam,
+      aesKeyHex,
+      midSize: ciphertext.length,
+    });
+    const sendRes = await fetch(`${base}/ilink/bot/sendmessage`, {
+      method: "POST",
+      headers: buildHeaders(this.credentials.botToken),
+      body: JSON.stringify(payload),
+    });
+    if (!sendRes.ok) {
+      const err = await sendRes.text().catch(() => "");
+      throw new Error(`发送图片失败: ${sendRes.status} ${err}`);
+    }
+    const sendData = await sendRes.json().catch(() => ({}));
+    if (sendData.ret === -14 || sendData.errcode === -14) {
+      await this.handleSessionExpired();
+      throw new Error("会话已过期，请重新扫码登录");
+    }
+
+    return payload.msg.client_id;
   }
 
   onMessage(handler: MessageHandler): void {
     this.messageHandler = handler;
   }
 
-  // ── 内部方法 ────────────────────────────────────────────
+  // ── 内部方法 ────────────────────────────────────────────────
 
   private startPolling(): void {
     if (this.pollAbort) return;
     this.pollAbort = new AbortController();
 
     const poll = async () => {
+      let consecutiveErrors = 0;
       while (this.status === "connected" && !this.pollAbort?.signal.aborted) {
         try {
           await this.pollOnce();
           await this.updateHeartbeat();
+          consecutiveErrors = 0;
         } catch (e) {
           if (this.pollAbort?.signal.aborted) break;
+          consecutiveErrors++;
           console.error("[PersonalWeChatAdapter] Poll error:", e);
-          await sleep(5000);
+          await sleep(consecutiveErrors >= 3 ? 30000 : 2000);
         }
       }
     };
@@ -319,10 +399,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     poll().catch(() => {});
   }
 
-  /**
-   * 长轮询接收消息
-   * POST /ilink/bot/getupdates
-   */
+  /** 长轮询接收消息：POST /ilink/bot/getupdates */
   private async pollOnce(): Promise<void> {
     if (!this.credentials) return;
 
@@ -331,54 +408,146 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       method: "POST",
       headers: buildHeaders(this.credentials.botToken),
       body: JSON.stringify({
-        ...BASE_INFO,
         get_updates_buf: this.credentials.getUpdatesBuf,
+        ...BASE_INFO,
       }),
       signal: this.pollAbort?.signal,
     });
 
     if (!res.ok) return;
 
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
+    const parsed = parseGetUpdates(data);
 
-    if (data.ret === -14 || data.errcode === -14) {
+    if (parsed.sessionExpired) {
       await this.handleSessionExpired();
       return;
     }
 
-    if (data.get_updates_buf) {
-      this.credentials.getUpdatesBuf = data.get_updates_buf;
-      db.weChatGateway.updateMany({
-        where: { orgId: this.orgId, channel: "personal_wechat" },
-        data: { getUpdatesBuf: data.get_updates_buf },
-      }).catch(() => {});
+    if (parsed.nextBuf && parsed.nextBuf !== this.credentials.getUpdatesBuf) {
+      this.credentials.getUpdatesBuf = parsed.nextBuf;
+      db.weChatGateway
+        .updateMany({
+          where: { orgId: this.orgId, channel: CHANNEL },
+          data: { getUpdatesBuf: parsed.nextBuf },
+        })
+        .catch(() => {});
     }
 
-    const updates = data.updates || data.messages || [];
-    for (const update of updates) {
-      if (update.context_token && update.from_user) {
-        this.contextTokenCache.set(update.from_user, update.context_token);
+    for (const msg of parsed.msgs) {
+      if (msg.contextToken) {
+        await this.cacheContextToken(msg.fromUserId, msg.contextToken);
       }
-
-      const hasText = update.content?.text || update.text;
-      if (!hasText) continue;
-
-      const msg: InboundMessage = {
-        channel: "personal_wechat",
-        externalUserId: update.from_user || update.from || "",
-        externalUserName: update.from_nickname || update.nickname,
-        content: update.content?.text || update.text || "",
-        messageType: "text",
-        externalMsgId: update.msg_id?.toString(),
-        timestamp: new Date(update.timestamp ? update.timestamp * 1000 : Date.now()),
-      };
-
-      if (this.messageHandler && msg.externalUserId && msg.content) {
-        this.messageHandler(msg).catch((e) =>
-          console.error("[PersonalWeChatAdapter] Handler error:", e),
+      for (const item of msg.items) {
+        await this.dispatchItem(msg, item).catch((e) =>
+          console.error("[PersonalWeChatAdapter] dispatch error:", e),
         );
       }
     }
+  }
+
+  private async dispatchItem(
+    msg: { fromUserId: string; messageId?: string; createTimeMs?: number },
+    item: { type: number; text?: string; image?: ParsedImageRef },
+  ): Promise<void> {
+    if (!this.messageHandler) return;
+
+    const timestamp = msg.createTimeMs ? new Date(msg.createTimeMs) : new Date();
+
+    if (item.type === 1 && item.text) {
+      const inbound: InboundMessage = {
+        channel: CHANNEL,
+        externalUserId: msg.fromUserId,
+        content: item.text,
+        messageType: "text",
+        externalMsgId: msg.messageId,
+        timestamp,
+      };
+      await this.messageHandler(inbound);
+      return;
+    }
+
+    if (item.type === 2 && item.image) {
+      const media = await this.downloadImage(item.image);
+      if (!media) {
+        console.warn("[PersonalWeChatAdapter] 图片下载/解密失败，跳过");
+        return;
+      }
+      const inbound: InboundMessage = {
+        channel: CHANNEL,
+        externalUserId: msg.fromUserId,
+        content: "",
+        messageType: "image",
+        externalMsgId: msg.messageId,
+        timestamp,
+        media,
+      };
+      await this.messageHandler(inbound);
+    }
+  }
+
+  /** 下载并解密入站图片 */
+  private async downloadImage(
+    ref: ParsedImageRef,
+  ): Promise<{ bytes: Buffer; mimeType: string } | null> {
+    if (!ref.encryptQueryParam) return null;
+    try {
+      const url = `${ILINK_CDN_BASE}/download?encrypted_query_param=${encodeURIComponent(
+        ref.encryptQueryParam,
+      )}`;
+      const res = await fetch(url, { method: "GET" });
+      if (!res.ok) return null;
+      const ciphertext = Buffer.from(await res.arrayBuffer());
+
+      const key = decodeAesKey({ aesKeyHex: ref.aesKeyHex, aesKeyB64: ref.aesKeyB64 });
+      const plaintext = aesEcbDecrypt(ciphertext, key);
+      const mime = sniffImageMime(plaintext) || "image/png";
+      return { bytes: plaintext, mimeType: mime };
+    } catch (e) {
+      console.error("[PersonalWeChatAdapter] downloadImage error:", e);
+      return null;
+    }
+  }
+
+  // ── context_token：内存 + DB 双写 ───────────────────────────
+
+  private async cacheContextToken(externalUserId: string, token: string): Promise<void> {
+    this.contextTokenCache.set(externalUserId, token);
+    try {
+      await db.weChatContext.upsert({
+        where: {
+          orgId_channel_externalUserId: {
+            orgId: this.orgId,
+            channel: CHANNEL,
+            externalUserId,
+          },
+        },
+        create: { orgId: this.orgId, channel: CHANNEL, externalUserId, contextToken: token },
+        update: { contextToken: token },
+      });
+    } catch {
+      // DB 写失败不阻塞收消息
+    }
+  }
+
+  private async resolveContextToken(externalUserId: string): Promise<string | null> {
+    const cached = this.contextTokenCache.get(externalUserId);
+    if (cached) return cached;
+    const row = await db.weChatContext.findUnique({
+      where: {
+        orgId_channel_externalUserId: {
+          orgId: this.orgId,
+          channel: CHANNEL,
+          externalUserId,
+        },
+      },
+      select: { contextToken: true },
+    });
+    if (row?.contextToken) {
+      this.contextTokenCache.set(externalUserId, row.contextToken);
+      return row.contextToken;
+    }
+    return null;
   }
 
   private async handleSessionExpired(): Promise<void> {
@@ -389,7 +558,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     this.pollAbort = null;
 
     await db.weChatGateway.updateMany({
-      where: { orgId: this.orgId, channel: "personal_wechat" },
+      where: { orgId: this.orgId, channel: CHANNEL },
       data: {
         status: "inactive",
         loginStatus: "disconnected",
@@ -401,7 +570,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
 
   private async updateHeartbeat(): Promise<void> {
     await db.weChatGateway.updateMany({
-      where: { orgId: this.orgId, channel: "personal_wechat" },
+      where: { orgId: this.orgId, channel: CHANNEL },
       data: { lastHeartbeat: new Date() },
     });
   }
@@ -411,10 +580,10 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     this.status = "connected";
 
     await db.weChatGateway.upsert({
-      where: { orgId_channel: { orgId: this.orgId, channel: "personal_wechat" } },
+      where: { orgId_channel: { orgId: this.orgId, channel: CHANNEL } },
       create: {
         orgId: this.orgId,
-        channel: "personal_wechat",
+        channel: CHANNEL,
         loginStatus: "connected",
         status: "active",
         botNickname: nickname,
@@ -439,17 +608,18 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
   }
 }
 
-function splitMessage(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
-  const segments: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    let cut = remaining.lastIndexOf("\n", maxLen);
-    if (cut <= 0) cut = maxLen;
-    segments.push(remaining.slice(0, cut));
-    remaining = remaining.slice(cut).trimStart();
+async function loadImageBytes(image: string): Promise<Buffer | null> {
+  if (image.startsWith("data:")) {
+    const comma = image.indexOf(",");
+    if (comma === -1) return null;
+    return Buffer.from(image.slice(comma + 1), "base64");
   }
-  return segments;
+  if (image.startsWith("http://") || image.startsWith("https://")) {
+    const res = await fetch(image);
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  }
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {

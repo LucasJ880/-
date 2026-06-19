@@ -90,6 +90,8 @@ export async function attachAdapterInbound(
         externalUserName: msg.externalUserName ?? null,
         content: msg.content,
         messageType: msg.messageType,
+        externalMsgId: msg.externalMsgId,
+        media: msg.media,
       });
     });
     return;
@@ -185,16 +187,18 @@ export async function sendToExternalUser(opts: {
   const adapter = await ensureSendAdapter(opts.channel, opts.orgId);
   if (!adapter) return { ok: false, error: "通道未登录或不可用" };
   try {
-    if (opts.imageUrl && typeof adapter.sendImage === "function") {
-      await adapter.sendImage(opts.to, opts.imageUrl);
-    } else if (opts.imageUrl && opts.text) {
-      // 通道不支持图片（如个人微信 iLink），把图片链接并入文本
-      opts.text = `${opts.text}\n图片：${opts.imageUrl}`;
-    } else if (opts.imageUrl) {
-      opts.text = `图片：${opts.imageUrl}`;
+    const canSendImage = opts.imageUrl && typeof adapter.sendImage === "function";
+    // 习惯：先发文字说明，再发图片（iLink 推荐做法，兼容性更好）
+    let text = opts.text;
+    if (opts.imageUrl && !canSendImage) {
+      // 通道不支持图片，把图片链接并入文本
+      text = text ? `${text}\n图片：${opts.imageUrl}` : `图片：${opts.imageUrl}`;
     }
-    if (opts.text) {
-      await adapter.sendText(opts.to, opts.text);
+    if (text) {
+      await adapter.sendText(opts.to, text);
+    }
+    if (canSendImage) {
+      await adapter.sendImage!(opts.to, opts.imageUrl!);
     }
     return { ok: true };
   } catch (e) {

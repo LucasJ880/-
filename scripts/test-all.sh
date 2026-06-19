@@ -50,6 +50,10 @@ run_test "i18n 文案完整性" "npx tsx src/lib/i18n/__tests__/zh.test.ts"
 run_test "报价计算引擎" "npx tsx src/lib/blinds/__tests__/pricing-engine.test.ts"
 run_test "商机生命周期状态机" "npx tsx src/lib/sales/__tests__/opportunity-lifecycle.test.ts"
 run_test "Coaching 归因评分" "npx tsx src/lib/sales/__tests__/coaching-scoring.test.ts"
+run_test "iLink 媒体纯函数" "npx tsx src/lib/messaging/adapters/__tests__/ilink-media.test.ts"
+run_test "iLink 报文解析" "npx tsx src/lib/messaging/adapters/__tests__/ilink-parse.test.ts"
+run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests__/ilink-send-payload.test.ts"
+run_test "外贸受理路由/幂等" "npx tsx src/lib/trade/__tests__/service-intake-correlation.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 

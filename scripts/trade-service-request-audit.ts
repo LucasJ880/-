@@ -73,6 +73,7 @@ function checkServiceLayerGuards() {
     "createServiceRequest",
     "listServiceRequestsForOrg",
     "getServiceRequestForOrg",
+    "getOpenRequestForExternalUser",
     "addServiceAsset",
     "addRequestAsset",
     "assignToFulfillment",
@@ -83,10 +84,14 @@ function checkServiceLayerGuards() {
   ]) {
     assert(`service: ${fn} 存在`, new RegExp(`function ${fn}\\b`).test(s), rel);
   }
+  assert(
+    "service: getOpenRequestForExternalUser 过 assertOrgId",
+    /getOpenRequestForExternalUser[\s\S]{0,200}?assertOrgId\(/.test(s),
+  );
   const assertCount = (s.match(/assertOrgId\(/g) ?? []).length;
   assert(
-    "service: assertOrgId 被多处调用（>=10）",
-    assertCount >= 10,
+    "service: assertOrgId 被多处调用（>=11）",
+    assertCount >= 11,
     `count=${assertCount}`,
   );
 }
@@ -149,11 +154,13 @@ function checkFulfillmentBridgeSingleWriter() {
 function checkNoDefaultOrgFallback() {
   const files = [
     "src/lib/messaging/gateway.ts",
+    "src/lib/messaging/adapters/personal-wechat.ts",
     "src/app/api/cron/followup/route.ts",
     "src/lib/agent-core/engine.ts",
     "src/lib/trade/service-request.ts",
     "src/lib/trade/service-intake.ts",
     "src/lib/trade/fulfillment.ts",
+    "scripts/wechat-worker.ts",
     "src/app/api/trade/service-requests/route.ts",
     "src/app/api/trade/service-requests/[id]/route.ts",
     "src/app/api/trade/service-requests/[id]/assign/route.ts",
@@ -198,6 +205,39 @@ function checkIntakeReusesInboundResolver() {
   assert(
     "intake: handler 工厂拒绝非法 clientOrgId",
     /createTradeIntakeMessageHandler[\s\S]*default/.test(s),
+  );
+}
+
+// ── 4b. WeChatContext（context_token）读写按 orgId 收敛 ───────────
+
+function checkContextStoreOrgScoped() {
+  const rel = "src/lib/messaging/adapters/personal-wechat.ts";
+  const s = read(rel);
+  if (!s) {
+    fail(`file_missing:${rel}`);
+    return;
+  }
+  // 写 / 读 context_token 都必须带 this.orgId（按租户隔离 token）
+  assert(
+    "context: weChatContext upsert 带 orgId",
+    /weChatContext\.upsert\([\s\S]{0,400}?orgId:\s*this\.orgId/.test(s),
+  );
+  assert(
+    "context: weChatContext 查询带 orgId",
+    /weChatContext\.findUnique\([\s\S]{0,400}?orgId:\s*this\.orgId/.test(s),
+  );
+  // 入站图片解密后才落库（不外泄密文 key），且 resolveContextToken 内存未命中回查 DB
+  assert(
+    "context: resolveContextToken 内存未命中回查 DB",
+    /resolveContextToken[\s\S]*?contextTokenCache\.get[\s\S]*?weChatContext\.findUnique/.test(s),
+  );
+
+  // schema 含 WeChatContext，且按 (orgId, channel, externalUserId) 唯一
+  const schema = read("prisma/schema.prisma") ?? "";
+  assert("context: schema 定义 WeChatContext", /model WeChatContext \{/.test(schema));
+  assert(
+    "context: WeChatContext 按 (orgId, channel, externalUserId) 唯一",
+    /@@unique\(\[orgId, channel, externalUserId\]\)/.test(schema),
   );
 }
 
@@ -271,6 +311,28 @@ async function checkRuntimeGuards() {
       threw = true;
     }
     assert('runtime: addRequestAsset 拒绝 "default" callerOrg', threw);
+
+    threw = false;
+    try {
+      await mod.getOpenRequestForExternalUser("default", "u");
+    } catch {
+      threw = true;
+    }
+    assert('runtime: getOpenRequestForExternalUser 拒绝 "default" org', threw);
+
+    const intake = await import("@/lib/trade/service-intake");
+    threw = false;
+    try {
+      await intake.handleTradeServiceImageIntake({
+        orgId: "default",
+        channel: "personal_wechat",
+        externalUserId: "u",
+        media: { bytes: Buffer.from([1]), mimeType: "image/png" },
+      });
+    } catch {
+      threw = true;
+    }
+    assert('runtime: handleTradeServiceImageIntake 拒绝 "default" org', threw);
   } catch (e) {
     console.log(
       "SKIP runtime guards (无法加载模块，通常是缺少环境变量):",
@@ -286,6 +348,7 @@ async function main() {
   checkFulfillmentBridgeSingleWriter();
   checkNoDefaultOrgFallback();
   checkIntakeReusesInboundResolver();
+  checkContextStoreOrgScoped();
   checkAgentToolPolicy();
   await checkRuntimeGuards();
 

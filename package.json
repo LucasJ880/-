@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "wechat:worker": "tsx scripts/wechat-worker.ts",
     "postinstall": "prisma generate",
     "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",

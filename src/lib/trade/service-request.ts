@@ -117,6 +117,24 @@ export async function listServiceRequestsForOrg(input: {
   return { items: rows, nextCursor: hasMore ? rows[rows.length - 1]?.id ?? null : null };
 }
 
+/**
+ * 取某客户某外部联系人的「开放工单」（最近一条非终态：new/accepted/in_progress）。
+ * 用于把后续发来的图片素材关联到刚建的需求上。
+ */
+export async function getOpenRequestForExternalUser(orgId: string, externalUserId: string) {
+  const safeOrgId = assertOrgId(orgId, "getOpenRequestForExternalUser");
+  const uid = (externalUserId ?? "").trim();
+  if (!uid) return null;
+  return db.tradeServiceRequest.findFirst({
+    where: {
+      orgId: safeOrgId,
+      externalUserId: uid,
+      status: { in: ["new", "accepted", "in_progress"] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 /** 单条加载（按客户 org 联合查询，跨 org 访问返回 null） */
 export async function getServiceRequestForOrg(requestId: string, orgId: string) {
   const safeOrgId = assertOrgId(orgId, "getServiceRequestForOrg");
