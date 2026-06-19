@@ -293,6 +293,11 @@ export default function WeChatSettingsPage() {
                     <Loader2 size={12} className="animate-spin" />
                     {qrModal.hint || "等待扫码确认中…"}
                   </div>
+                  <div className="w-full rounded-lg border border-amber-300/40 bg-amber-50/50 p-2.5 text-[11px] leading-relaxed text-amber-700">
+                    <p className="font-medium">扫码前请确认账号已开通 ClawBot（灰度）：</p>
+                    <p>· iOS 微信 8.0.70+；微信「我 → 设置 → 插件」能看到 ClawBot 入口</p>
+                    <p>· 若提示「该账号不支持此功能」，说明未在灰度名单，请换已开通的账号，或改用企业微信通道</p>
+                  </div>
                 </>
               )}
 
