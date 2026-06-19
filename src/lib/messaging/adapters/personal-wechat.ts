@@ -575,6 +575,14 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     });
   }
 
+  /**
+   * QR 确认后持久化登录态（不在本进程启动长轮询）。
+   *
+   * 长轮询统一由常驻 worker（`adapter.start()`）拥有：
+   * - Vercel serverless 进程在请求结束即销毁，进程内轮询无意义；
+   * - 本地若 web 与 worker 同时轮询同一账号会产生游标竞争/重复处理。
+   * 故这里只落库凭证，由 worker 周期重扫接管。
+   */
   async completeLogin(botToken: string, baseUrl: string, nickname?: string): Promise<void> {
     this.credentials = { botToken, baseUrl, getUpdatesBuf: "" };
     this.status = "connected";
@@ -603,8 +611,6 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         errorMessage: null,
       },
     });
-
-    this.startPolling();
   }
 }
 

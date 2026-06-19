@@ -46,7 +46,12 @@ export const POST = withAuth(async (req, _ctx, user) => {
     select: { orgId: true, role: true },
   });
 
-  if (!membership || !["admin", "super_admin"].includes(membership.role)) {
+  // 授权：平台管理员（User.role）或组织管理员（OrganizationMember.role=org_admin）可操作网关。
+  // 兼容历史数据里 membership.role 误写为 admin/super_admin 的情况。
+  const isPlatformAdmin = user.role === "admin" || user.role === "super_admin";
+  const isOrgAdmin =
+    !!membership && ["org_admin", "admin", "super_admin"].includes(membership.role);
+  if (!membership || (!isPlatformAdmin && !isOrgAdmin)) {
     return NextResponse.json({ error: "需要管理员权限" }, { status: 403 });
   }
 
