@@ -88,6 +88,22 @@ async function main() {
     },
   });
 
+  // 客户组织的企业微信网关，预置为外贸受理模式 + 自动桥接（凭证留空，用户在 UI 填 corpId/secret/token/AESKey）
+  await db.weChatGateway.upsert({
+    where: { orgId_channel: { orgId: clientOrg.id, channel: "wecom" } },
+    update: { mode: "trade_intake", fulfillmentOrgId: fulfillOrg.id },
+    create: {
+      orgId: clientOrg.id,
+      channel: "wecom",
+      status: "inactive",
+      loginStatus: "disconnected",
+      mode: "trade_intake",
+      fulfillmentOrgId: fulfillOrg.id,
+    },
+  });
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://<你的域名>";
+
   console.log("已创建/更新：");
   console.table([
     { 角色: "客户(扫码方)", 邮箱: CLIENT.email, 组织: clientOrg.name, orgId: clientOrg.id },
@@ -95,7 +111,9 @@ async function main() {
   ]);
   console.log(`\n登录密码（两账号相同）：${PASSWORD}`);
   console.log(`\n客户网关已预置：mode=trade_intake, fulfillmentOrgId=${fulfillOrg.id}`);
-  console.log("→ 客户账号登录后到 设置/微信集成 直接「扫码登录」即可（无需再配置）。");
+  console.log("个人微信：客户账号登录后到 设置/微信集成 直接「扫码登录」（需 ClawBot 灰度账号）。");
+  console.log("企业微信：客户账号登录后到 设置/微信集成 → 配置企业微信，填入自建应用凭证；");
+  console.log(`  回调 URL：${appUrl}/api/messaging/wecom/callback?org=${clientOrg.id}`);
 
   await db.$disconnect();
 }

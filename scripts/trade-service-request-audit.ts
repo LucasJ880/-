@@ -161,6 +161,8 @@ function checkNoDefaultOrgFallback() {
     "src/lib/trade/service-intake.ts",
     "src/lib/trade/fulfillment.ts",
     "scripts/wechat-worker.ts",
+    "src/lib/messaging/adapters/wecom.ts",
+    "src/app/api/messaging/wecom/callback/route.ts",
     "src/app/api/trade/service-requests/route.ts",
     "src/app/api/trade/service-requests/[id]/route.ts",
     "src/app/api/trade/service-requests/[id]/assign/route.ts",
@@ -238,6 +240,47 @@ function checkContextStoreOrgScoped() {
   assert(
     "context: WeChatContext 按 (orgId, channel, externalUserId) 唯一",
     /@@unique\(\[orgId, channel, externalUserId\]\)/.test(schema),
+  );
+}
+
+// ── 4c. 企业微信回调安全（验签 + 解密 + org 由 query 收敛 + 按 mode 路由）──
+
+function checkWeComCallbackSecurity() {
+  const rel = "src/app/api/messaging/wecom/callback/route.ts";
+  const s = read(rel);
+  if (!s) {
+    fail(`file_missing:${rel}`);
+    return;
+  }
+  // org 必须来自 query 显式传入（不信任 payload 里的归属）
+  assert(
+    "wecom: org 由 query 解析",
+    /searchParams\.get\(["']org["']\)/.test(s),
+  );
+  // POST 必须验签 + 解密后才处理
+  assert(
+    "wecom: POST 走 decryptCallback（验签+解密）",
+    /decryptCallback\(/.test(s),
+  );
+  assert(
+    "wecom: 解密/验签失败直接 return（不处理伪造）",
+    /decryptCallback\([\s\S]{0,200}?if\s*\(!plainXml\)/.test(s),
+  );
+  // 按网关 mode 路由：trade_intake → 受理；否则 → 内部助理
+  assert(
+    "wecom: 按 gateway.mode 路由 trade_intake",
+    /gateway\.mode\s*===\s*["']trade_intake["']/.test(s),
+  );
+
+  // adapter 验签使用时序安全比较，且 callbackToken 来自 DB 配置
+  const adapter = read("src/lib/messaging/adapters/wecom.ts") ?? "";
+  assert(
+    "wecom: 验签使用 timingSafeEqual",
+    /timingSafeEqual\(/.test(adapter),
+  );
+  assert(
+    "wecom: decryptCallback 失败返回 null",
+    /decryptCallback\([\s\S]*?return null/.test(adapter),
   );
 }
 
@@ -349,6 +392,7 @@ async function main() {
   checkNoDefaultOrgFallback();
   checkIntakeReusesInboundResolver();
   checkContextStoreOrgScoped();
+  checkWeComCallbackSecurity();
   checkAgentToolPolicy();
   await checkRuntimeGuards();
 

@@ -53,6 +53,7 @@ run_test "Coaching 归因评分" "npx tsx src/lib/sales/__tests__/coaching-scori
 run_test "iLink 媒体纯函数" "npx tsx src/lib/messaging/adapters/__tests__/ilink-media.test.ts"
 run_test "iLink 报文解析" "npx tsx src/lib/messaging/adapters/__tests__/ilink-parse.test.ts"
 run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests__/ilink-send-payload.test.ts"
+run_test "企业微信回调加解密/验签" "npx tsx src/lib/messaging/adapters/__tests__/wecom-crypto.test.ts"
 run_test "外贸受理路由/幂等" "npx tsx src/lib/trade/__tests__/service-intake-correlation.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──

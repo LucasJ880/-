@@ -29,6 +29,8 @@ interface GatewayInfo {
   botNickname: string | null;
   corpId: string | null;
   agentId: string | null;
+  mode: string | null;
+  fulfillmentOrgId: string | null;
   lastHeartbeat: string | null;
   errorMessage: string | null;
 }
@@ -78,14 +80,24 @@ export default function WeChatSettingsPage() {
     encodingKey: "",
   });
   const [showWecomForm, setShowWecomForm] = useState(false);
+  const [orgId, setOrgId] = useState<string>("");
+  // 企业微信外贸受理模式
+  const [wecomTradeIntake, setWecomTradeIntake] = useState(false);
+  const [wecomFulfillmentOrgId, setWecomFulfillmentOrgId] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
       const [gwRes, bindRes] = await Promise.all([
-        apiJson<{ gateways?: GatewayInfo[] }>("/api/messaging/gateway"),
+        apiJson<{ gateways?: GatewayInfo[]; orgId?: string }>("/api/messaging/gateway"),
         apiJson<{ bindings?: BindingInfo[] }>("/api/messaging/bindings"),
       ]);
       setGateways(gwRes.gateways || []);
+      if (gwRes.orgId) setOrgId(gwRes.orgId);
+      const wc = (gwRes.gateways || []).find((g) => g.channel === "wecom");
+      if (wc) {
+        setWecomTradeIntake(wc.mode === "trade_intake");
+        setWecomFulfillmentOrgId(wc.fulfillmentOrgId ?? "");
+      }
       setBindings(bindRes.bindings || []);
     } catch {
       // 初次可能没有数据
@@ -204,6 +216,19 @@ export default function WeChatSettingsPage() {
         method: "POST",
         body: JSON.stringify({ action: "configure_wecom", ...wecomForm }),
       });
+      // 同步外贸受理模式（trade_intake）+ 处理方组织绑定
+      await apiFetch("/api/messaging/gateway", {
+        method: "POST",
+        body: JSON.stringify(
+          wecomTradeIntake
+            ? {
+                action: "configure_trade_intake",
+                channel: "wecom",
+                fulfillmentOrgId: wecomFulfillmentOrgId.trim(),
+              }
+            : { action: "configure_trade_intake", channel: "wecom", fulfillmentOrgId: "", mode: "assistant" },
+        ),
+      }).catch(() => {});
       setShowWecomForm(false);
       await fetchData();
     } catch (e) {
@@ -416,6 +441,34 @@ export default function WeChatSettingsPage() {
               </div>
             ))}
           </div>
+          {/* 外贸客户受理模式 */}
+          <div className="rounded-lg border border-[#2b6055]/30 bg-[#2b6055]/5 p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={wecomTradeIntake}
+                onChange={(e) => setWecomTradeIntake(e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-[#2b6055]"
+              />
+              启用外贸客户需求受理（trade_intake）
+            </label>
+            <p className="text-[11px] text-muted">
+              开启后，该企业微信通道收到的客户消息将自动建单到本组织，并按需桥接给处理方团队。
+              关闭则作为内部员工 AI 助理通道。
+            </p>
+            {wecomTradeIntake && (
+              <div>
+                <label className="mb-1 block text-xs text-muted">处理方组织 ID（加拿大团队 org，可留空）</label>
+                <input
+                  type="text"
+                  value={wecomFulfillmentOrgId}
+                  onChange={(e) => setWecomFulfillmentOrgId(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted/50 focus:border-accent focus:outline-none"
+                  placeholder="留空则只建单到本组织，需手动指派"
+                />
+              </div>
+            )}
+          </div>
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setShowWecomForm(false)}
@@ -433,8 +486,14 @@ export default function WeChatSettingsPage() {
             </button>
           </div>
           <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-[11px] text-muted space-y-1">
-            <p>回调 URL 设置为：<code className="rounded bg-muted/10 px-1">{typeof window !== "undefined" ? window.location.origin : ""}/api/messaging/wecom/callback?org=YOUR_ORG_ID</code></p>
-            <p>支持消息类型：文本消息</p>
+            <p>
+              回调 URL：
+              <code className="rounded bg-muted/10 px-1 break-all">
+                {(typeof window !== "undefined" ? window.location.origin : "")}/api/messaging/wecom/callback?org={orgId || "YOUR_ORG_ID"}
+              </code>
+            </p>
+            <p>在「应用管理 → 自建应用 → 接收消息」处填入上面的 URL、Token、EncodingAESKey。</p>
+            <p>支持消息类型：文本、图片（出图交付可回传图片）。</p>
           </div>
         </div>
       )}

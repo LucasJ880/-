@@ -39,7 +39,7 @@ export const GET = withAuth(async (_req, _ctx, user) => {
     },
   });
 
-  return NextResponse.json({ gateways });
+  return NextResponse.json({ gateways, orgId: membership.orgId });
 });
 
 export const POST = withAuth(async (req, _ctx, user) => {
@@ -91,9 +91,17 @@ export const POST = withAuth(async (req, _ctx, user) => {
   }
 
   if (action === "configure_trade_intake") {
-    // 把个人微信网关切换为「外贸客户需求受理」模式，并绑定自动桥接的处理方组织（加拿大团队 org）
-    const { fulfillmentOrgId } = body as { fulfillmentOrgId?: string };
-    const targetOrgId = (fulfillmentOrgId ?? "").trim() || null;
+    // 把指定通道网关切换为「外贸客户需求受理」模式，并绑定自动桥接的处理方组织（加拿大团队 org）。
+    // 支持 personal_wechat（默认）与 wecom 两种通道。
+    const { fulfillmentOrgId, channel: rawChannel, mode: rawMode } = body as {
+      fulfillmentOrgId?: string;
+      channel?: string;
+      mode?: string;
+    };
+    const intakeChannel = rawChannel === "wecom" ? "wecom" : "personal_wechat";
+    const intakeMode = rawMode === "assistant" ? "assistant" : "trade_intake";
+    const targetOrgId =
+      intakeMode === "trade_intake" ? (fulfillmentOrgId ?? "").trim() || null : null;
 
     if (targetOrgId) {
       if (targetOrgId === membership.orgId) {
@@ -112,18 +120,23 @@ export const POST = withAuth(async (req, _ctx, user) => {
     }
 
     await db.weChatGateway.upsert({
-      where: { orgId_channel: { orgId: membership.orgId, channel: "personal_wechat" } },
+      where: { orgId_channel: { orgId: membership.orgId, channel: intakeChannel } },
       create: {
         orgId: membership.orgId,
-        channel: "personal_wechat",
+        channel: intakeChannel,
         status: "inactive",
-        mode: "trade_intake",
+        mode: intakeMode,
         fulfillmentOrgId: targetOrgId,
       },
-      update: { mode: "trade_intake", fulfillmentOrgId: targetOrgId },
+      update: { mode: intakeMode, fulfillmentOrgId: targetOrgId },
     });
 
-    return NextResponse.json({ ok: true, mode: "trade_intake", fulfillmentOrgId: targetOrgId });
+    return NextResponse.json({
+      ok: true,
+      channel: intakeChannel,
+      mode: intakeMode,
+      fulfillmentOrgId: targetOrgId,
+    });
   }
 
   if (action === "request_qr") {

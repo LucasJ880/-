@@ -18,10 +18,19 @@ import type {
 } from "../types";
 
 const WECOM_API = "https://qyapi.weixin.qq.com/cgi-bin";
+const MEDIA_TIMEOUT_MS = 20000;
+const MAX_OUTBOUND_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface TokenCache {
   accessToken: string;
   expiresAt: number;
+}
+
+/** 从企业微信 XML 中提取单个标签内容（支持 CDATA）。 */
+function extractTag(xml: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${tag}>`);
+  const m = re.exec(xml);
+  return m ? m[1] : null;
 }
 
 export class WeComAdapter implements MessagingAdapter {
@@ -149,6 +158,111 @@ export class WeComAdapter implements MessagingAdapter {
     return data.msgid?.toString();
   }
 
+  /**
+   * 发送图片（自建应用）：先把图片上传为临时素材拿 media_id，再 message/send。
+   * imageUrl 为可公开访问的图片地址（如 Vercel Blob）。
+   */
+  async sendImage(to: string, imageUrl: string): Promise<string | undefined> {
+    if (!this.config) throw new Error("企业微信未配置");
+
+    // 1. 拉取图片字节
+    const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS) });
+    if (!imgRes.ok) throw new Error(`企业微信图片拉取失败: HTTP ${imgRes.status}`);
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    if (buf.length === 0) throw new Error("企业微信图片为空");
+    if (buf.length > MAX_OUTBOUND_IMAGE_BYTES) {
+      throw new Error(`企业微信图片过大（>${Math.round(MAX_OUTBOUND_IMAGE_BYTES / 1024 / 1024)}MB）`);
+    }
+    const contentType = imgRes.headers.get("content-type") || "image/png";
+    const ext = contentType.includes("jpeg") || contentType.includes("jpg")
+      ? "jpg"
+      : contentType.includes("webp")
+        ? "webp"
+        : "png";
+
+    // 2. 上传临时素材
+    const mediaId = await this.uploadMedia(buf, contentType, `image.${ext}`);
+
+    // 3. 发送图片消息
+    const token = await this.getAccessToken();
+    const send = async (t: string) =>
+      fetch(`${WECOM_API}/message/send?access_token=${t}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          touser: to,
+          msgtype: "image",
+          agentid: Number(this.config!.agentId),
+          image: { media_id: mediaId },
+        }),
+        signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS),
+      });
+    let res = await send(token);
+    let data = await res.json();
+    if (data.errcode === 40014 || data.errcode === 42001) {
+      this.tokenCache = null;
+      res = await send(await this.getAccessToken());
+      data = await res.json();
+    }
+    if (data.errcode && data.errcode !== 0) {
+      throw new Error(`企业微信图片发送失败: ${data.errmsg}`);
+    }
+    return data.msgid?.toString();
+  }
+
+  /**
+   * 上传临时素材，返回 media_id（3 天有效）。
+   */
+  private async uploadMedia(
+    bytes: Buffer,
+    contentType: string,
+    fileName: string,
+  ): Promise<string> {
+    const token = await this.getAccessToken();
+    const form = new FormData();
+    form.append(
+      "media",
+      new Blob([new Uint8Array(bytes)], { type: contentType }),
+      fileName,
+    );
+    const res = await fetch(
+      `${WECOM_API}/media/upload?access_token=${token}&type=image`,
+      { method: "POST", body: form, signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS) },
+    );
+    const data = await res.json();
+    if (!data.media_id) {
+      throw new Error(`企业微信素材上传失败: ${data.errmsg ?? "未知错误"}`);
+    }
+    return data.media_id as string;
+  }
+
+  /**
+   * 下载入站图片素材，返回字节 + MIME。
+   */
+  async downloadMedia(
+    mediaId: string,
+  ): Promise<{ bytes: Buffer; mimeType: string } | null> {
+    if (!this.config) return null;
+    try {
+      const token = await this.getAccessToken();
+      const res = await fetch(
+        `${WECOM_API}/media/get?access_token=${token}&media_id=${encodeURIComponent(mediaId)}`,
+        { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS) },
+      );
+      const contentType = res.headers.get("content-type") || "";
+      // 出错时企业微信返回 JSON
+      if (contentType.includes("application/json")) {
+        return null;
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.length === 0) return null;
+      const mimeType = contentType.split(";")[0].trim() || "image/jpeg";
+      return { bytes, mimeType };
+    } catch {
+      return null;
+    }
+  }
+
   onMessage(handler: MessageHandler): void {
     this.messageHandler = handler;
   }
@@ -170,15 +284,43 @@ export class WeComAdapter implements MessagingAdapter {
     echostr: string,
   ): string | null {
     if (!this.config) return null;
-
-    const token = this.config.callbackToken;
-    const sorted = [token, timestamp, nonce, echostr].sort().join("");
-    const hash = crypto.createHash("sha1").update(sorted).digest("hex");
-
-    if (hash !== msgSignature) return null;
-
-    // 解密 echostr
+    if (!this.signatureMatches(msgSignature, timestamp, nonce, echostr)) return null;
     return this.decryptMessage(echostr);
+  }
+
+  /**
+   * 解密并验签 POST 回调消息体。
+   *
+   * 企业微信 POST 推送的明文 XML 外层只含 <Encrypt>，真正的消息体经 AES 加密。
+   * 必须：1) 取出 <Encrypt> 密文；2) 用 sha1(sort(token,timestamp,nonce,encrypt)) 验签；
+   *       3) 解密得到内层消息 XML。任一步失败返回 null（拒绝处理，防伪造）。
+   */
+  decryptCallback(
+    body: string,
+    msgSignature: string,
+    timestamp: string,
+    nonce: string,
+  ): string | null {
+    if (!this.config) return null;
+    const encrypt = extractTag(body, "Encrypt");
+    if (!encrypt) return null;
+    if (!this.signatureMatches(msgSignature, timestamp, nonce, encrypt)) return null;
+    const plain = this.decryptMessage(encrypt);
+    return plain === encrypt ? null : plain;
+  }
+
+  private signatureMatches(
+    msgSignature: string,
+    timestamp: string,
+    nonce: string,
+    encrypt: string,
+  ): boolean {
+    if (!this.config) return false;
+    const sorted = [this.config.callbackToken, timestamp, nonce, encrypt].sort().join("");
+    const hash = crypto.createHash("sha1").update(sorted).digest("hex");
+    // 时序安全比较
+    if (hash.length !== msgSignature.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(msgSignature));
   }
 
   /**
