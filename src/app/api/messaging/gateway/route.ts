@@ -29,6 +29,8 @@ export const GET = withAuth(async (_req, _ctx, user) => {
       botNickname: true,
       corpId: true,
       agentId: true,
+      mode: true,
+      fulfillmentOrgId: true,
       lastHeartbeat: true,
       errorMessage: true,
       updatedAt: true,
@@ -81,6 +83,42 @@ export const POST = withAuth(async (req, _ctx, user) => {
     return NextResponse.json({ ok: true });
   }
 
+  if (action === "configure_trade_intake") {
+    // 把个人微信网关切换为「外贸客户需求受理」模式，并绑定自动桥接的处理方组织（加拿大团队 org）
+    const { fulfillmentOrgId } = body as { fulfillmentOrgId?: string };
+    const targetOrgId = (fulfillmentOrgId ?? "").trim() || null;
+
+    if (targetOrgId) {
+      if (targetOrgId === membership.orgId) {
+        return NextResponse.json(
+          { error: "处理方组织不能与客户组织相同" },
+          { status: 400 },
+        );
+      }
+      const org = await db.organization.findFirst({
+        where: { id: targetOrgId, status: "active" },
+        select: { id: true },
+      });
+      if (!org) {
+        return NextResponse.json({ error: "处理方组织不存在或未激活" }, { status: 400 });
+      }
+    }
+
+    await db.weChatGateway.upsert({
+      where: { orgId_channel: { orgId: membership.orgId, channel: "personal_wechat" } },
+      create: {
+        orgId: membership.orgId,
+        channel: "personal_wechat",
+        status: "inactive",
+        mode: "trade_intake",
+        fulfillmentOrgId: targetOrgId,
+      },
+      update: { mode: "trade_intake", fulfillmentOrgId: targetOrgId },
+    });
+
+    return NextResponse.json({ ok: true, mode: "trade_intake", fulfillmentOrgId: targetOrgId });
+  }
+
   if (action === "request_qr") {
     try {
       const { PersonalWeChatAdapter } = await import("@/lib/messaging/adapters/personal-wechat");
@@ -109,12 +147,21 @@ export const POST = withAuth(async (req, _ctx, user) => {
     }
     try {
       const { PersonalWeChatAdapter } = await import("@/lib/messaging/adapters/personal-wechat");
-      const { registerAdapter, handleInboundMessage } = await import("@/lib/messaging/gateway");
+      const { registerAdapter, attachAdapterInbound } = await import("@/lib/messaging/gateway");
       const adapter = new PersonalWeChatAdapter(membership.orgId);
       const result = await adapter.checkQRStatus(ticket);
 
       if (result.status === "confirmed") {
-        adapter.onMessage(handleInboundMessage);
+        // 按网关业务模式（assistant / trade_intake）绑定对应入站处理器
+        const gw = await db.weChatGateway.findUnique({
+          where: { orgId_channel: { orgId: membership.orgId, channel: "personal_wechat" } },
+          select: { mode: true, fulfillmentOrgId: true },
+        });
+        await attachAdapterInbound(adapter, {
+          orgId: membership.orgId,
+          mode: gw?.mode,
+          fulfillmentOrgId: gw?.fulfillmentOrgId,
+        });
         registerAdapter(adapter);
       }
 

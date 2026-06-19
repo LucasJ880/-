@@ -13,10 +13,28 @@
  * 静态检查不依赖数据库；少量运行时守卫检查也无需 DB（assertOrgId 在 DB 调用前抛错）。
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
 let failed = 0;
+
+/** 递归收集目录下的 .ts/.tsx 文件（相对 cwd 路径） */
+function walkTs(relDir: string): string[] {
+  const abs = join(process.cwd(), relDir);
+  if (!existsSync(abs)) return [];
+  const out: string[] = [];
+  for (const name of readdirSync(abs)) {
+    const relPath = `${relDir}/${name}`;
+    const absPath = join(process.cwd(), relPath);
+    const st = statSync(absPath);
+    if (st.isDirectory()) {
+      out.push(...walkTs(relPath));
+    } else if (/\.tsx?$/.test(name)) {
+      out.push(relPath);
+    }
+  }
+  return out;
+}
 
 function ok(name: string) {
   console.log(`OK  ${name}`);
@@ -56,15 +74,19 @@ function checkServiceLayerGuards() {
     "listServiceRequestsForOrg",
     "getServiceRequestForOrg",
     "addServiceAsset",
+    "addRequestAsset",
     "assignToFulfillment",
     "listFulfillmentRequests",
+    "getFulfillmentRequest",
+    "addDeliverableForFulfillment",
+    "setFulfillmentStatus",
   ]) {
     assert(`service: ${fn} 存在`, new RegExp(`function ${fn}\\b`).test(s), rel);
   }
   const assertCount = (s.match(/assertOrgId\(/g) ?? []).length;
   assert(
-    "service: assertOrgId 被多处调用（>=6）",
-    assertCount >= 6,
+    "service: assertOrgId 被多处调用（>=10）",
+    assertCount >= 10,
     `count=${assertCount}`,
   );
 }
@@ -72,30 +94,30 @@ function checkServiceLayerGuards() {
 // ── 2. fulfillmentOrgId 写入点收敛（唯一跨 org 桥接）─────────────
 
 function checkFulfillmentBridgeSingleWriter() {
-  // 只允许 service-request.ts 引用 fulfillmentOrgId。任何新文件引用都必须显式加入 allowlist 并经审查。
-  const allow = new Set(["src/lib/trade/service-request.ts"]);
-  const candidates = [
-    "src/lib/trade/service-request.ts",
-    "src/lib/trade/service-intake.ts",
-    "src/lib/messaging/gateway.ts",
+  // 不变式：只有 service-request.ts 能把 TradeServiceRequest.fulfillmentOrgId 写库（即 relay）。
+  // 注意：WeChatGateway.fulfillmentOrgId 是另一张表的通道配置字段，与本桥接无关，不在管控内。
+  // 采用「写操作」级别精确匹配，而非粗粒度字符串引用（受理/配置/参数传递等读引用是合法的）。
+  const writeRe =
+    /tradeServiceRequest\.(update|updateMany|create|upsert|createMany)\([\s\S]{0,500}?fulfillmentOrgId/;
+
+  const scanDirs = [
+    "src/lib/trade",
+    "src/lib/messaging",
+    "src/lib/agent-core",
+    "src/app/api/trade",
+    "src/app/api/messaging",
   ];
-  // 额外：扫描已知可能涉及的目录文件（轻量枚举，避免全仓递归）
-  const extraDirsFiles = [
-    "src/lib/trade/access.ts",
-    "src/lib/trade/inbound-org.ts",
-    "src/lib/trade/channel-service.ts",
-  ];
+  const files = new Set<string>();
+  for (const d of scanDirs) for (const f of walkTs(d)) files.add(f);
 
   const offenders: string[] = [];
-  for (const rel of [...candidates, ...extraDirsFiles]) {
+  for (const rel of files) {
+    if (rel === "src/lib/trade/service-request.ts") continue;
     const s = read(rel);
-    if (!s) continue;
-    if (s.includes("fulfillmentOrgId") && !allow.has(rel)) {
-      offenders.push(rel);
-    }
+    if (s && writeRe.test(s)) offenders.push(rel);
   }
   assert(
-    "bridge: fulfillmentOrgId 仅在 service-request.ts 引用（写入点收敛）",
+    "bridge: 仅 service-request.ts 写 TradeServiceRequest.fulfillmentOrgId",
     offenders.length === 0,
     offenders.join(", "),
   );
@@ -110,6 +132,16 @@ function checkFulfillmentBridgeSingleWriter() {
     "bridge: relay 校验处理方 org 真实存在",
     /organization\.findFirst[\s\S]*status:\s*["']active["']/.test(s),
   );
+
+  // 处理方写交付物 / 改状态时按 fulfillmentOrgId 校验访问（不得越权写他人工单）
+  assert(
+    "bridge: addDeliverableForFulfillment 按 fulfillmentOrgId 校验",
+    /addDeliverableForFulfillment[\s\S]*?fulfillmentOrgId[\s\S]*?findFirst/.test(s),
+  );
+  assert(
+    "bridge: setFulfillmentStatus 按 fulfillmentOrgId 校验",
+    /setFulfillmentStatus[\s\S]*?fulfillmentOrgId[\s\S]*?findFirst/.test(s),
+  );
 }
 
 // ── 3. 关键链路无 default org 兜底 ───────────────────────────────
@@ -121,6 +153,13 @@ function checkNoDefaultOrgFallback() {
     "src/lib/agent-core/engine.ts",
     "src/lib/trade/service-request.ts",
     "src/lib/trade/service-intake.ts",
+    "src/lib/trade/fulfillment.ts",
+    "src/app/api/trade/service-requests/route.ts",
+    "src/app/api/trade/service-requests/[id]/route.ts",
+    "src/app/api/trade/service-requests/[id]/assign/route.ts",
+    "src/app/api/trade/service-requests/[id]/process/route.ts",
+    "src/app/api/trade/service-requests/[id]/deliver/route.ts",
+    "src/app/api/trade/service-requests/[id]/assets/route.ts",
   ];
   for (const rel of files) {
     const s = read(rel);
@@ -210,6 +249,28 @@ async function checkRuntimeGuards() {
       threw = true;
     }
     assert("runtime: listServiceRequestsForOrg 空 orgId 抛错", threw);
+
+    threw = false;
+    try {
+      await mod.getFulfillmentRequest("r", "");
+    } catch {
+      threw = true;
+    }
+    assert("runtime: getFulfillmentRequest 空 fulfillmentOrgId 抛错", threw);
+
+    threw = false;
+    try {
+      await mod.addRequestAsset({
+        requestId: "r",
+        callerOrgId: "default",
+        kind: "input",
+        fileUrl: "u",
+        fileName: "f",
+      });
+    } catch {
+      threw = true;
+    }
+    assert('runtime: addRequestAsset 拒绝 "default" callerOrg', threw);
   } catch (e) {
     console.log(
       "SKIP runtime guards (无法加载模块，通常是缺少环境变量):",

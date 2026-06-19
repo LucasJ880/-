@@ -417,8 +417,7 @@ registry.register({
       structuredSpec: {
         type: "object",
         description:
-          "结构化需求字段（仅填客户明确给到或可合理归纳的，未知省略），如 productName/quantity/background/size/style/deadline/notes",
-        additionalProperties: true,
+          "结构化需求字段对象（仅填客户明确给到或可合理归纳的，未知省略），如 productName/quantity/background/size/style/deadline/notes",
       },
     },
     required: ["requestType", "title"],

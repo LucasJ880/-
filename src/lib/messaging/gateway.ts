@@ -64,7 +64,41 @@ async function ensureSendAdapter(
 }
 
 /**
- * 处理入站消息 — 所有 Adapter 的 onMessage 都调用此函数
+ * 按网关业务模式给适配器绑定入站处理器。
+ *
+ * - assistant（默认）：内部员工 AI 助理，走 handleInboundMessage（绑定 → userId → Agent）。
+ * - trade_intake：外贸客户需求受理 bot，走 trade 受理链路（建单到客户 org，可自动桥接到处理方 org），
+ *   回复直接通过该适配器发回客户，不依赖 WeChatBinding。
+ */
+export async function attachAdapterInbound(
+  adapter: MessagingAdapter,
+  gateway: { orgId: string; mode?: string | null; fulfillmentOrgId?: string | null },
+): Promise<void> {
+  if (gateway.mode === "trade_intake") {
+    const { createTradeIntakeMessageHandler } = await import("@/lib/trade/service-intake");
+    const handler = createTradeIntakeMessageHandler(
+      gateway.orgId,
+      async (to, content) => {
+        await adapter.sendText(to, content);
+      },
+      { autoFulfillmentOrgId: gateway.fulfillmentOrgId ?? null },
+    );
+    adapter.onMessage(async (msg: InboundMessage) => {
+      await handler({
+        channel: msg.channel,
+        externalUserId: msg.externalUserId,
+        externalUserName: msg.externalUserName ?? null,
+        content: msg.content,
+        messageType: msg.messageType,
+      });
+    });
+    return;
+  }
+  adapter.onMessage(handleInboundMessage);
+}
+
+/**
+ * 处理入站消息 — 内部员工 AI 助理通道（assistant 模式）的统一入口
  */
 export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   // 1. 查找绑定
@@ -132,6 +166,40 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
 
   // 8. 异步提取记忆 + 索引（不阻塞）
   extractAndIndex(binding.userId, binding.id, msg.content, aiResponse).catch(() => {});
+}
+
+/**
+ * 给外部联系人（如外贸客户）发送消息。
+ *
+ * 用于外贸受理回复 / 交付物回传：按客户 org + 通道按需重建 adapter 发送。
+ * 注意 iLink 个人微信为被动回复：仅在客户近期发过消息（context_token 仍有效，
+ * 通常是仍在内存中的 polling adapter）时可达；否则会发送失败并返回 ok=false。
+ */
+export async function sendToExternalUser(opts: {
+  channel: ChannelType;
+  orgId: string;
+  to: string;
+  text?: string;
+  imageUrl?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const adapter = await ensureSendAdapter(opts.channel, opts.orgId);
+  if (!adapter) return { ok: false, error: "通道未登录或不可用" };
+  try {
+    if (opts.imageUrl && typeof adapter.sendImage === "function") {
+      await adapter.sendImage(opts.to, opts.imageUrl);
+    } else if (opts.imageUrl && opts.text) {
+      // 通道不支持图片（如个人微信 iLink），把图片链接并入文本
+      opts.text = `${opts.text}\n图片：${opts.imageUrl}`;
+    } else if (opts.imageUrl) {
+      opts.text = `图片：${opts.imageUrl}`;
+    }
+    if (opts.text) {
+      await adapter.sendText(opts.to, opts.text);
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /**

@@ -17,6 +17,7 @@ import {
 } from "./inbound-org";
 import {
   createServiceRequest,
+  assignToFulfillment,
   type ServiceRequestType,
   type ServiceRequestPriority,
 } from "./service-request";
@@ -146,6 +147,8 @@ export interface TradeServiceIntakeInput {
   externalUserName?: string | null;
   bindingId?: string | null;
   content: string;
+  /** 可选：建单成功后自动桥接到的处理方组织（加拿大团队 org），经唯一 relay 写入 */
+  autoFulfillmentOrgId?: string | null;
 }
 
 export interface TradeServiceIntakeResult {
@@ -199,6 +202,25 @@ export async function handleTradeServiceIntake(
     channel: input.channel,
   });
 
+  // 自动桥接到处理方组织（加拿大团队）。失败不阻断受理，工单仍留在客户 org 可后续手动指派。
+  const fulfillmentOrgId = (input.autoFulfillmentOrgId ?? "").trim();
+  if (fulfillmentOrgId && fulfillmentOrgId !== orgId) {
+    try {
+      await assignToFulfillment({
+        requestId: request.id,
+        ownerOrgId: orgId,
+        fulfillmentOrgId,
+      });
+    } catch (e) {
+      logger.warn("trade.service_intake.auto_bridge_failed", {
+        orgId,
+        requestId: request.id,
+        fulfillmentOrgId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   return {
     reply: extracted.reply,
     requestId: request.id,
@@ -227,15 +249,18 @@ export interface TradeIntakeInboundMessage {
  *
  * @param clientOrgId 客户所属组织（由通道配置安全解析得到）。
  * @param sendReply   通过该通道把回复发回客户的回调（通常封装 adapter.sendText）。
+ * @param options.autoFulfillmentOrgId 可选：建单后自动桥接到的处理方组织（加拿大团队 org）。
  */
 export function createTradeIntakeMessageHandler(
   clientOrgId: string,
   sendReply: (to: string, content: string) => Promise<void>,
+  options?: { autoFulfillmentOrgId?: string | null },
 ): (msg: TradeIntakeInboundMessage) => Promise<void> {
   const orgId = (clientOrgId ?? "").trim();
   if (!orgId || orgId === "default") {
     throw new Error("[service-intake] createTradeIntakeMessageHandler 需要合法 clientOrgId");
   }
+  const autoFulfillmentOrgId = options?.autoFulfillmentOrgId ?? null;
 
   return async (msg: TradeIntakeInboundMessage) => {
     if ((msg.messageType ?? "text") !== "text") return; // 非文本（图片/文件）后续阶段处理
@@ -250,6 +275,7 @@ export function createTradeIntakeMessageHandler(
         externalUserId: msg.externalUserId,
         externalUserName: msg.externalUserName ?? null,
         content,
+        autoFulfillmentOrgId,
       });
       reply = result.reply;
     } catch (e) {

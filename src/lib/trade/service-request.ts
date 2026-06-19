@@ -163,6 +163,46 @@ export async function addServiceAsset(input: {
   });
 }
 
+/**
+ * 统一资产写入（供 API 使用）：调用方可以是客户 org（归属方）或处理方 org（fulfillmentOrgId）。
+ * 资产 orgId 始终写客户 org（request.orgId），保证资产归属客户租户。
+ */
+export async function addRequestAsset(input: {
+  requestId: string;
+  callerOrgId: string;
+  kind: "input" | "deliverable";
+  fileUrl: string;
+  fileName: string;
+  mimeType?: string | null;
+  meta?: unknown;
+  createdById?: string | null;
+}) {
+  const callerOrgId = assertOrgId(input.callerOrgId, "addRequestAsset");
+  const request = await db.tradeServiceRequest.findFirst({
+    where: {
+      id: input.requestId,
+      OR: [{ orgId: callerOrgId }, { fulfillmentOrgId: callerOrgId }],
+    },
+    select: { id: true, orgId: true },
+  });
+  if (!request) {
+    throw new Error("[service-request] 工单不存在或无权访问，拒绝写入资产");
+  }
+
+  return db.tradeServiceAsset.create({
+    data: {
+      orgId: request.orgId,
+      requestId: request.id,
+      kind: input.kind,
+      fileUrl: input.fileUrl,
+      fileName: input.fileName,
+      mimeType: input.mimeType ?? null,
+      meta: input.meta === undefined ? undefined : (input.meta as object | null) ?? undefined,
+      createdById: input.createdById ?? null,
+    },
+  });
+}
+
 // ── 跨组织桥接（唯一允许写 fulfillmentOrgId 的入口）──────────────
 
 /**
@@ -232,6 +272,80 @@ export async function assignToFulfillment(input: {
   });
 
   return updated;
+}
+
+/** 处理方视角：按 (id, fulfillmentOrgId) 单条加载被指派工单（跨 org 访问返回 null） */
+export async function getFulfillmentRequest(requestId: string, fulfillmentOrgId: string) {
+  const orgId = assertOrgId(fulfillmentOrgId, "getFulfillmentRequest");
+  return db.tradeServiceRequest.findFirst({
+    where: { id: requestId, fulfillmentOrgId: orgId },
+    include: { assets: true },
+  });
+}
+
+/**
+ * 处理方写入交付物资产。
+ *
+ * 访问控制按 fulfillmentOrgId（处理方）校验，但资产 orgId 写客户 org（request.orgId），
+ * 以便客户侧能看到交付物，且资产始终归属客户租户。属于受控桥接面的一部分。
+ */
+export async function addDeliverableForFulfillment(input: {
+  requestId: string;
+  fulfillmentOrgId: string;
+  fileUrl: string;
+  fileName: string;
+  mimeType?: string | null;
+  meta?: unknown;
+  createdById?: string | null;
+}) {
+  const fulfillmentOrgId = assertOrgId(input.fulfillmentOrgId, "addDeliverableForFulfillment");
+  const request = await db.tradeServiceRequest.findFirst({
+    where: { id: input.requestId, fulfillmentOrgId },
+    select: { id: true, orgId: true },
+  });
+  if (!request) {
+    throw new Error("[service-request] 工单不存在或未指派给该处理方，拒绝写入交付物");
+  }
+
+  return db.tradeServiceAsset.create({
+    data: {
+      orgId: request.orgId, // 资产归属客户 org
+      requestId: request.id,
+      kind: "deliverable",
+      fileUrl: input.fileUrl,
+      fileName: input.fileName,
+      mimeType: input.mimeType ?? null,
+      meta: input.meta === undefined ? undefined : (input.meta as object | null) ?? undefined,
+      createdById: input.createdById ?? null,
+    },
+  });
+}
+
+/** 处理方更新工单状态（按 fulfillmentOrgId 校验）。status=delivered 时写 deliveredAt。 */
+export async function setFulfillmentStatus(input: {
+  requestId: string;
+  fulfillmentOrgId: string;
+  status: ServiceRequestStatus;
+  assigneeId?: string | null;
+}) {
+  const fulfillmentOrgId = assertOrgId(input.fulfillmentOrgId, "setFulfillmentStatus");
+  const request = await db.tradeServiceRequest.findFirst({
+    where: { id: input.requestId, fulfillmentOrgId },
+    select: { id: true },
+  });
+  if (!request) {
+    throw new Error("[service-request] 工单不存在或未指派给该处理方，拒绝更新状态");
+  }
+
+  return db.tradeServiceRequest.update({
+    where: { id: input.requestId },
+    data: {
+      status: input.status,
+      ...(input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : {}),
+      ...(input.status === "delivered" ? { deliveredAt: new Date() } : {}),
+      ...(input.status === "closed" ? { closedAt: new Date() } : {}),
+    },
+  });
 }
 
 /** 处理方视角：按 fulfillmentOrgId 列出被指派的工单（不暴露客户 org 其它数据） */

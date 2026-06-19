@@ -3148,6 +3148,11 @@ model WeChatGateway {
   lastHeartbeat DateTime?
   errorMessage  String?
 
+  // 业务模式：assistant=内部员工 AI 助理（默认）；trade_intake=外贸客户需求受理 bot
+  mode             String  @default("assistant")
+  // trade_intake 模式下，自动桥接到的处理方组织（加拿大团队 org）；仅经 assignToFulfillment relay 使用
+  fulfillmentOrgId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

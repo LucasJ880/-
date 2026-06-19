@@ -50,6 +50,7 @@ export const en: Messages = {
   nav_trade_prospects: "All prospects",
   nav_trade_intelligence: "Trade intelligence",
   nav_trade_cockpit: "Cockpit",
+  nav_trade_fulfillment: "Fulfillment",
   nav_ai_assistant: "AI Assistant",
   nav_trade_quotes: "Trade Quotes",
   nav_trade_import: "Expo Import",
