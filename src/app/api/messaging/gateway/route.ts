@@ -9,6 +9,8 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
+export const maxDuration = 30;
+
 export const GET = withAuth(async (_req, _ctx, user) => {
   const membership = await db.organizationMember.findFirst({
     where: { userId: user.id },

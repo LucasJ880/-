@@ -130,14 +130,30 @@ function normalize(parsed: Partial<ExtractedRequest> | null, fallbackContent: st
 }
 
 export async function classifyAndExtractRequest(content: string): Promise<ExtractedRequest> {
-  const raw = await createCompletion({
-    systemPrompt: INTAKE_SYSTEM_PROMPT,
-    userPrompt: `客户消息：\n${content}`,
-    mode: "structured",
-    temperature: 0.2,
-    timeoutMs: 20000,
-  });
-  return normalize(tryParseExtracted(raw), content);
+  try {
+    const raw = await createCompletion({
+      systemPrompt: INTAKE_SYSTEM_PROMPT,
+      userPrompt: `客户消息：\n${content}`,
+      mode: "structured",
+      temperature: 0.2,
+      timeoutMs: 20000,
+    });
+    return normalize(tryParseExtracted(raw), content);
+  } catch (e) {
+    // AI 不可用时兜底：不丢失客户需求，按 other 建单并提示人工跟进。
+    logger.warn("trade.service_intake.classify_failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return {
+      isActionable: true,
+      requestType: "other",
+      title: content.slice(0, 20) || "外贸服务需求",
+      description: content.trim(),
+      priority: "medium",
+      structuredSpec: { _aiFallback: true },
+      reply: "已收到您的消息，我们会尽快人工跟进确认需求细节。",
+    };
+  }
 }
 
 // ── 受理主入口 ─────────────────────────────────────────────────

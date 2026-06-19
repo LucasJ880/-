@@ -40,6 +40,20 @@ const ILINK_BASE = process.env.ILINK_API_BASE || ILINK_BASE_DEFAULT;
 const ILINK_CDN_BASE = process.env.ILINK_CDN_BASE || ILINK_CDN_BASE_DEFAULT;
 const CHANNEL = "personal_wechat" as const;
 
+/** 一次性请求超时（QR/发送/上传/下载）。QR 状态端点会长轮询，必须设超时避免拖死调用方（Vercel 函数）。 */
+const REQUEST_TIMEOUT_MS = 8000;
+/** 发送/媒体类请求给更长超时 */
+const MEDIA_TIMEOUT_MS = 30000;
+/** getupdates 长轮询安全超时：正常会挂起 ~35s，给 60s 兜底防止连接静默假死 */
+const LONGPOLL_SAFETY_TIMEOUT_MS = 60000;
+/** 出站图片体积上限 */
+const MAX_OUTBOUND_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** AbortSignal.timeout 兼容封装 */
+function timeoutSignal(ms: number): AbortSignal {
+  return AbortSignal.timeout(ms);
+}
+
 interface ILinkCredentials {
   botToken: string;
   baseUrl: string;
@@ -127,6 +141,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       const res = await fetch(`${ILINK_BASE}/ilink/bot/get_bot_qrcode?bot_type=3`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
+        signal: timeoutSignal(REQUEST_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -195,13 +210,24 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     baseUrl?: string;
     nickname?: string;
   }> {
-    const res = await fetch(
-      `${ILINK_BASE}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
-      {
-        method: "GET",
-        headers: { "Content-Type": "application/json", "iLink-App-ClientVersion": "1" },
-      },
-    );
+    // get_qrcode_status 服务端会长轮询挂起；用超时让本次调用尽快返回，UI 会自动再轮询。
+    let res: Response;
+    try {
+      res = await fetch(
+        `${ILINK_BASE}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json", "iLink-App-ClientVersion": "1" },
+          signal: timeoutSignal(REQUEST_TIMEOUT_MS),
+        },
+      );
+    } catch (e) {
+      // 超时/中断：视为「仍在等待」，由前端继续轮询
+      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
+        return { status: "wait" };
+      }
+      throw e;
+    }
 
     if (!res.ok) {
       throw new Error(`QR 状态查询失败: ${res.status}`);
@@ -259,6 +285,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         method: "POST",
         headers: buildHeaders(this.credentials.botToken),
         body: JSON.stringify(payload),
+        signal: timeoutSignal(MEDIA_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -292,6 +319,9 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
 
     const raw = await loadImageBytes(image);
     if (!raw) throw new Error("无法读取图片内容");
+    if (raw.length > MAX_OUTBOUND_IMAGE_BYTES) {
+      throw new Error(`图片过大（${raw.length} 字节，上限 ${MAX_OUTBOUND_IMAGE_BYTES}）`);
+    }
 
     const base = this.credentials.baseUrl || ILINK_BASE;
 
@@ -316,6 +346,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         aeskey: aesKeyHex,
         ...BASE_INFO,
       }),
+      signal: timeoutSignal(MEDIA_TIMEOUT_MS),
     });
     if (!uploadParamRes.ok) {
       throw new Error(`getuploadurl 失败: ${uploadParamRes.status}`);
@@ -336,6 +367,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: new Uint8Array(ciphertext),
+      signal: timeoutSignal(MEDIA_TIMEOUT_MS),
     });
     if (!cdnRes.ok) {
       const err = await cdnRes.text().catch(() => "");
@@ -356,6 +388,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       method: "POST",
       headers: buildHeaders(this.credentials.botToken),
       body: JSON.stringify(payload),
+      signal: timeoutSignal(MEDIA_TIMEOUT_MS),
     });
     if (!sendRes.ok) {
       const err = await sendRes.text().catch(() => "");
@@ -404,20 +437,47 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
     if (!this.credentials) return;
 
     const base = this.credentials.baseUrl || ILINK_BASE;
-    const res = await fetch(`${base}/ilink/bot/getupdates`, {
-      method: "POST",
-      headers: buildHeaders(this.credentials.botToken),
-      body: JSON.stringify({
-        get_updates_buf: this.credentials.getUpdatesBuf,
-        ...BASE_INFO,
-      }),
-      signal: this.pollAbort?.signal,
-    });
+    // 组合：手动 stop 的 pollAbort + 长轮询安全超时（防连接静默假死）
+    const signals: AbortSignal[] = [timeoutSignal(LONGPOLL_SAFETY_TIMEOUT_MS)];
+    if (this.pollAbort?.signal) signals.unshift(this.pollAbort.signal);
+    const combined =
+      signals.length > 1 && typeof AbortSignal.any === "function"
+        ? AbortSignal.any(signals)
+        : signals[0];
+
+    let res: Response;
+    try {
+      res = await fetch(`${base}/ilink/bot/getupdates`, {
+        method: "POST",
+        headers: buildHeaders(this.credentials.botToken),
+        body: JSON.stringify({
+          get_updates_buf: this.credentials.getUpdatesBuf,
+          ...BASE_INFO,
+        }),
+        signal: combined,
+      });
+    } catch (e) {
+      // 主动 stop 时抛 AbortError：静默退出
+      if (this.pollAbort?.signal.aborted) return;
+      // 安全超时：本轮无更新，下轮继续（不算错误，避免触发退避）
+      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return;
+      throw e;
+    }
 
     if (!res.ok) return;
 
     const data = await res.json().catch(() => null);
     const parsed = parseGetUpdates(data);
+
+    if (process.env.ILINK_DEBUG) {
+      const itemCount = parsed.msgs.reduce((n, m) => n + m.items.length, 0);
+      // 若真实端点字段与协议不符，这里能看到「原始返回非空但解析出 0 条」，便于现场对字段
+      if (parsed.msgs.length === 0 && data && Object.keys(data).length > 2) {
+        console.log("[ILINK_DEBUG] getupdates 原始返回(未解析出消息):", JSON.stringify(data));
+      } else if (parsed.msgs.length > 0) {
+        console.log(`[ILINK_DEBUG] 解析到 ${parsed.msgs.length} 条消息 / ${itemCount} 个 item`);
+      }
+    }
 
     if (parsed.sessionExpired) {
       await this.handleSessionExpired();
@@ -495,7 +555,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       const url = `${ILINK_CDN_BASE}/download?encrypted_query_param=${encodeURIComponent(
         ref.encryptQueryParam,
       )}`;
-      const res = await fetch(url, { method: "GET" });
+      const res = await fetch(url, { method: "GET", signal: timeoutSignal(MEDIA_TIMEOUT_MS) });
       if (!res.ok) return null;
       const ciphertext = Buffer.from(await res.arrayBuffer());
 
@@ -621,7 +681,7 @@ async function loadImageBytes(image: string): Promise<Buffer | null> {
     return Buffer.from(image.slice(comma + 1), "base64");
   }
   if (image.startsWith("http://") || image.startsWith("https://")) {
-    const res = await fetch(image);
+    const res = await fetch(image, { signal: timeoutSignal(MEDIA_TIMEOUT_MS) });
     if (!res.ok) return null;
     return Buffer.from(await res.arrayBuffer());
   }

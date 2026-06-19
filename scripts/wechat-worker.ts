@@ -151,21 +151,48 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
-async function main() {
-  log("worker.start", { resyncMs: RESYNC_MS });
+/** 启动自检：缺失关键环境变量时明确告警（不直接退出，便于纯文本链路先测） */
+function preflight() {
   if (!process.env.DATABASE_URL) {
     log("worker.fatal", { error: "DATABASE_URL 未设置（请放入 .env / .env.local 或导出环境变量）" });
     process.exit(1);
   }
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    log("worker.warn", {
+      missing: "BLOB_READ_WRITE_TOKEN",
+      impact: "入站图片无法暂存到 Blob，客户发图会收到「图片暂存失败」；纯文字受理不受影响。",
+      fix: "从 Vercel 项目 Storage → Blob 复制读写令牌写入 .env.local 后重启 worker。",
+    });
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    log("worker.warn", {
+      missing: "OPENAI_API_KEY",
+      impact: "文本需求的 AI 分类/提取会失败，受理会走兜底回复。",
+    });
+  }
+}
+
+async function main() {
+  log("worker.start", { resyncMs: RESYNC_MS });
+  preflight();
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
   await sync();
+  log("worker.ready", {
+    active: active.size,
+    hint: active.size === 0 ? "暂无已登录的个人微信网关，等待扫码登录后自动接管…" : undefined,
+  });
   // 周期重扫，接管新登录 / 下线断开
+  let lastActive = active.size;
   while (!stopping) {
     await sleep(RESYNC_MS);
     await sync();
+    if (active.size !== lastActive) {
+      log("worker.active_changed", { active: active.size });
+      lastActive = active.size;
+    }
   }
 }
 

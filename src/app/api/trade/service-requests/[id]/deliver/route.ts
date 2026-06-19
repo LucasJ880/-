@@ -13,6 +13,8 @@ import { requireRole } from "@/lib/auth/guards";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { deliverRequestToClient } from "@/lib/trade/fulfillment";
 
+export const maxDuration = 60;
+
 export async function POST(
   request: NextRequest,
   ctx: { params: Promise<{ id: string }> },
