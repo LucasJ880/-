@@ -35,6 +35,7 @@ import type {
   InboundMessage,
 } from "../types";
 import crypto from "crypto";
+import QRCode from "qrcode";
 
 const ILINK_BASE = process.env.ILINK_API_BASE || ILINK_BASE_DEFAULT;
 const ILINK_CDN_BASE = process.env.ILINK_CDN_BASE || ILINK_CDN_BASE_DEFAULT;
@@ -52,6 +53,15 @@ const MAX_OUTBOUND_IMAGE_BYTES = 20 * 1024 * 1024;
 /** AbortSignal.timeout 兼容封装 */
 function timeoutSignal(ms: number): AbortSignal {
   return AbortSignal.timeout(ms);
+}
+
+/** 把一段内容（通常是 iLink 深链 URL）编码为可扫描的二维码图片 data URL */
+async function encodeQrDataUrl(content: string): Promise<string> {
+  return QRCode.toDataURL(content, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    width: 320,
+  });
 }
 
 interface ILinkCredentials {
@@ -153,13 +163,23 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
       const qrcode = data.qrcode || "";
       const qrImgContent = data.qrcode_img_content || "";
 
+      // iLink 返回的 qrcode_img_content 是一个 liteapp 深链 URL（text/html），不是图片。
+      // 微信扫码需要扫「编码了该 URL 的二维码」，因此这里在服务端把链接渲染成二维码图片。
       let qrUrl = "";
-      if (qrImgContent) {
-        qrUrl = qrImgContent.startsWith("http")
-          ? qrImgContent
-          : `data:image/png;base64,${qrImgContent}`;
+      if (qrImgContent.startsWith("data:image")) {
+        // 已是图片 data URL，直接用
+        qrUrl = qrImgContent;
+      } else if (qrImgContent.startsWith("http")) {
+        // 深链 URL → 编码为二维码图片
+        qrUrl = await encodeQrDataUrl(qrImgContent);
+      } else if (qrImgContent) {
+        // 纯 base64 图片内容
+        qrUrl = `data:image/png;base64,${qrImgContent}`;
       } else if (qrcode) {
-        qrUrl = `https://login.weixin.qq.com/qrcode/${qrcode}`;
+        // 兜底：用 qrcode token 构造深链再编码
+        qrUrl = await encodeQrDataUrl(
+          `https://liteapp.weixin.qq.com/q/7GiQu1?qrcode=${qrcode}&bot_type=3`,
+        );
       }
 
       if (!qrUrl) {
