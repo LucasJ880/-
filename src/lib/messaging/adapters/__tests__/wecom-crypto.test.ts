@@ -7,7 +7,7 @@
  * 运行：npx tsx src/lib/messaging/adapters/__tests__/wecom-crypto.test.ts
  */
 import crypto from "crypto";
-import { WeComAdapter } from "../wecom";
+import { WeComAdapter, parseWeComMessageXml } from "../wecom";
 
 let pass = 0;
 let fail = 0;
@@ -114,6 +114,32 @@ const innerXml =
     plain === "<xml><Content><![CDATA[echo_test_str]]></Content></xml>",
     "verifyCallback 还原 echostr",
   );
+}
+
+// 内层消息 XML 解析：必须取到叶子标签（不能被最外层 <xml> 吞掉）
+{
+  const xml =
+    "<xml><ToUserName><![CDATA[ww_corp]]></ToUserName>" +
+    "<FromUserName><![CDATA[zhangsan]]></FromUserName>" +
+    "<CreateTime>1700000000</CreateTime>" +
+    "<MsgType><![CDATA[text]]></MsgType>" +
+    "<Content><![CDATA[窗帘白底图出一张]]></Content>" +
+    "<MsgId>1234567890</MsgId><AgentID>1000002</AgentID></xml>";
+  const p = parseWeComMessageXml(xml);
+  ok(p.FromUserName === "zhangsan", "parse: FromUserName");
+  ok(p.Content === "窗帘白底图出一张", "parse: Content(CDATA)");
+  ok(p.MsgType === "text", "parse: MsgType");
+  ok(p.MsgId === "1234567890", "parse: MsgId(纯文本)");
+  ok(p.xml === undefined, "parse: 不把最外层 <xml> 当作字段");
+}
+
+// 图片消息：取 MediaId/PicUrl
+{
+  const xml =
+    "<xml><FromUserName><![CDATA[lisi]]></FromUserName><MsgType><![CDATA[image]]></MsgType>" +
+    "<PicUrl><![CDATA[http://x/y.jpg]]></PicUrl><MediaId><![CDATA[MEDIA_abc]]></MediaId><MsgId>99</MsgId></xml>";
+  const p = parseWeComMessageXml(xml);
+  ok(p.MsgType === "image" && p.MediaId === "MEDIA_abc", "parse: 图片 MediaId");
 }
 
 console.log(`\nwecom-crypto: ${pass} passed, ${fail} failed`);

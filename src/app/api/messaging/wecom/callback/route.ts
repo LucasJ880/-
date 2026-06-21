@@ -14,7 +14,7 @@ import {
   handleInboundMessage,
   attachAdapterInbound,
 } from "@/lib/messaging/gateway";
-import { WeComAdapter } from "@/lib/messaging/adapters/wecom";
+import { WeComAdapter, parseWeComMessageXml } from "@/lib/messaging/adapters/wecom";
 import type { InboundMessage } from "@/lib/messaging/types";
 
 export const maxDuration = 30;
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
       return done("decrypt_failed", { bodyLen: body.length });
     }
 
-    const parsed = parseWeComXML(plainXml);
+    const parsed = parseWeComMessageXml(plainXml);
     const msgType = parsed.MsgType;
     const fromUser = parsed.FromUserName;
     if (!fromUser) return done("no_from_user", { msgType });
@@ -155,12 +155,3 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function parseWeComXML(xml: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const tagRegex = /<(\w+)>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/\1>/g;
-  let match;
-  while ((match = tagRegex.exec(xml)) !== null) {
-    result[match[1]] = match[2];
-  }
-  return result;
-}

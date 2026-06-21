@@ -33,6 +33,23 @@ function extractTag(xml: string, tag: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * 解析企业微信内层消息 XML 的叶子标签 → 扁平对象。
+ *
+ * 关键：只匹配叶子节点。内层消息整体被 <xml>...</xml> 包裹，若用通用惰性
+ * `([\s\S]*?)` 会把最外层 <xml> 当成单个标签、吞掉全部子标签，导致
+ * FromUserName/Content 取不到。这里区分「CDATA 内容」与「无尖括号纯文本」两种叶子。
+ */
+export function parseWeComMessageXml(xml: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const tagRegex = /<(\w+)>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]*))<\/\1>/g;
+  let match;
+  while ((match = tagRegex.exec(xml)) !== null) {
+    result[match[1]] = match[2] !== undefined ? match[2] : match[3];
+  }
+  return result;
+}
+
 export class WeComAdapter implements MessagingAdapter {
   readonly channel = "wecom" as const;
 
