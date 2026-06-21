@@ -19,7 +19,10 @@ import type { InboundMessage } from "@/lib/messaging/types";
 
 export const maxDuration = 30;
 
-const OK = NextResponse.json({ errcode: 0, errmsg: "ok" });
+// 注意：每次都要新建 Response（Response body 是一次性流，复用会在第二个请求返回空体）。
+function ok(): NextResponse {
+  return NextResponse.json({ errcode: 0, errmsg: "ok" });
+}
 
 /**
  * 企业微信回调 URL 验证
@@ -64,9 +67,16 @@ export async function POST(req: NextRequest) {
   const msgSignature = searchParams.get("msg_signature") ?? "";
   const timestamp = searchParams.get("timestamp") ?? "";
   const nonce = searchParams.get("nonce") ?? "";
+  const debug = searchParams.get("debug") === "1";
+
+  let stage = "start";
+  const done = (s: string, extra?: Record<string, unknown>) => {
+    stage = s;
+    return debug ? NextResponse.json({ stage, ...extra }) : ok();
+  };
 
   // 任何情况下都尽量回 ok，避免企业微信重试风暴（幂等由受理层兜底）。
-  if (!orgId) return OK;
+  if (!orgId) return done("no_org");
 
   try {
     const body = await req.text();
@@ -74,23 +84,23 @@ export async function POST(req: NextRequest) {
     const gateway = await db.weChatGateway.findUnique({
       where: { orgId_channel: { orgId, channel: "wecom" } },
     });
-    if (!gateway?.encodingKey || !gateway?.callbackToken) return OK;
+    if (!gateway?.encodingKey || !gateway?.callbackToken) return done("gateway_not_configured");
 
     const adapter = new WeComAdapter(orgId);
     const loaded = await adapter.loadConfig();
-    if (!loaded) return OK;
+    if (!loaded) return done("load_config_failed");
 
     // 验签 + 解密内层消息 XML
     const plainXml = adapter.decryptCallback(body, msgSignature, timestamp, nonce);
     if (!plainXml) {
       console.warn("[WeCom Callback] signature/decrypt failed for org", orgId);
-      return OK;
+      return done("decrypt_failed", { bodyLen: body.length });
     }
 
     const parsed = parseWeComXML(plainXml);
     const msgType = parsed.MsgType;
     const fromUser = parsed.FromUserName;
-    if (!fromUser) return OK;
+    if (!fromUser) return done("no_from_user", { msgType });
 
     // 仅处理文本 / 图片；事件、语音、文件等暂忽略（回 ok）。
     let inbound: InboundMessage | null = null;
@@ -108,7 +118,7 @@ export async function POST(req: NextRequest) {
       const media = await adapter.downloadMedia(parsed.MediaId);
       if (!media) {
         console.warn("[WeCom Callback] media download failed", parsed.MediaId);
-        return OK;
+        return done("media_download_failed");
       }
       inbound = {
         channel: "wecom",
@@ -121,7 +131,7 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    if (!inbound) return OK;
+    if (!inbound) return done("unsupported_msg_type", { msgType });
 
     // 按网关业务模式路由：trade_intake → 外贸受理；否则 → 内部员工助理。
     if (gateway.mode === "trade_intake") {
@@ -136,10 +146,12 @@ export async function POST(req: NextRequest) {
       await handleInboundMessage(inbound);
     }
 
-    return OK;
+    return done("processed", { mode: gateway.mode, msgType });
   } catch (e) {
     console.error("[WeCom Callback] Error:", e);
-    return OK;
+    return debug
+      ? NextResponse.json({ stage: "exception", error: e instanceof Error ? e.message : String(e) })
+      : ok();
   }
 }
 
