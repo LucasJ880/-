@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/api/cron",
   "/api/sales/quotes/share",
   "/api/trade/webhook",
+  "/api/messaging/wecom/callback",
   "/login",
   "/register",
   "/quote",

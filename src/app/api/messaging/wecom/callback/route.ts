@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
   }
 
   const adapter = new WeComAdapter(orgId);
-  await adapter.start();
+  await adapter.loadConfig();
   const plain = adapter.verifyCallback(msgSignature, timestamp, nonce, echostr);
 
   if (plain === null) {
@@ -77,7 +77,8 @@ export async function POST(req: NextRequest) {
     if (!gateway?.encodingKey || !gateway?.callbackToken) return OK;
 
     const adapter = new WeComAdapter(orgId);
-    await adapter.start();
+    const loaded = await adapter.loadConfig();
+    if (!loaded) return OK;
 
     // 验签 + 解密内层消息 XML
     const plainXml = adapter.decryptCallback(body, msgSignature, timestamp, nonce);

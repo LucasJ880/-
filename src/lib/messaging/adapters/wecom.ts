@@ -77,6 +77,27 @@ export class WeComAdapter implements MessagingAdapter {
     }
   }
 
+  /**
+   * 仅从 DB 加载配置（不拉 access_token、不写状态）。
+   * 用于回调 URL 验证等只需 token/encodingKey 的轻量场景，避免额外网络往返拖慢校验。
+   */
+  async loadConfig(): Promise<boolean> {
+    const gateway = await db.weChatGateway.findUnique({
+      where: { orgId_channel: { orgId: this.orgId, channel: "wecom" } },
+    });
+    if (!gateway?.corpId || !gateway?.callbackToken || !gateway?.encodingKey) {
+      return false;
+    }
+    this.config = {
+      corpId: gateway.corpId,
+      agentId: gateway.agentId ?? "",
+      secret: gateway.secret ?? "",
+      callbackToken: gateway.callbackToken,
+      encodingKey: gateway.encodingKey,
+    };
+    return true;
+  }
+
   async stop(): Promise<void> {
     this.status = "disconnected";
     this.tokenCache = null;
