@@ -10,7 +10,34 @@
 export type PendingActionType =
   | "sales.update_followup"
   | "sales.update_stage"
-  | "calendar.create_event";
+  | "calendar.create_event"
+  // ── Grader 内部备注（已接入真实执行器，写入对应业务对象）──
+  | "grader.internal_note"
+  // ── Grader 项目任务（已接入真实执行器，创建 Task）──
+  | "grader.project_task"
+  // ── Grader 邮件草稿（已接入真实执行器，创建 Gmail 草稿，绝不发送）──
+  | "grader.email_draft";
+
+/** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
+export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
+
+export function isUnsupportedPendingActionType(type: string): boolean {
+  return (UNSUPPORTED_PENDING_ACTION_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * Grader 适配器写入 PendingAction.payload.metadata 的统一结构。
+ * 因 PendingAction 表暂无 orgId 列，orgId 通过此 metadata 携带，
+ * 供 executor 做跨组织防护与审计。
+ */
+export interface PendingActionMetadata {
+  orgId: string;
+  channel?: string;
+  targetType?: string;
+  targetId?: string;
+  /** 源 GraderAction.actionType，便于回溯 */
+  graderActionType?: string;
+}
 
 export type PendingActionStatus =
   | "pending"
@@ -49,10 +76,107 @@ export interface CalendarCreateEventPayload {
   reminderMinutes?: number;
 }
 
+// ── 内部备注（grader.internal_note） ──────────────────────────
+
+export type InternalNoteTargetType =
+  | "QUOTE"
+  | "OPPORTUNITY"
+  | "CUSTOMER"
+  | "PROJECT";
+
+/** executor 已接入真实写入的 targetType（白名单；其余安全返回 unsupported） */
+export const SUPPORTED_INTERNAL_NOTE_TARGETS: readonly InternalNoteTargetType[] = [
+  "QUOTE",
+  "OPPORTUNITY",
+  "CUSTOMER",
+  "PROJECT",
+];
+
+export const INTERNAL_NOTE_MAX_LEN = 2000;
+
+export interface InternalNotePayload {
+  targetType: InternalNoteTargetType;
+  targetId: string;
+  /** 备注正文（执行器会截断到 INTERNAL_NOTE_MAX_LEN） */
+  note: string;
+  reason?: string;
+  source?: "GRADER";
+  graderType?: "DAILY_BRIEF" | "CUSTOMER_FOLLOWUP" | "QUOTE_RISK" | "PROJECT_HEALTH";
+  metadata: {
+    orgId: string;
+    issueCategory?: string;
+    issueSeverity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    quoteId?: string;
+    opportunityId?: string;
+    customerId?: string;
+    projectId?: string;
+  };
+}
+
+// ── 项目任务（grader.project_task） ───────────────────────────
+
+export const PROJECT_TASK_TITLE_MAX_LEN = 160;
+export const PROJECT_TASK_DESC_MAX_LEN = 2000;
+
+export type ProjectTaskPriority = "low" | "medium" | "high" | "urgent";
+
+export interface ProjectTaskPayload {
+  projectId: string;
+  title: string;
+  description?: string;
+  reason?: string;
+  priority?: ProjectTaskPriority;
+  /** ISO 8601；缺省则不设截止 */
+  dueAt?: string;
+  /** 指派对象；缺省时 executor 回退到项目 owner / 当前用户 */
+  assigneeId?: string;
+  source?: "GRADER";
+  graderType?: "PROJECT_HEALTH" | "DAILY_BRIEF" | "CUSTOMER_FOLLOWUP" | "QUOTE_RISK";
+  metadata: {
+    orgId: string;
+    issueCategory?: string;
+    issueSeverity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    projectId?: string;
+  };
+}
+
+// ── 邮件草稿（grader.email_draft） ────────────────────────────
+
+export const EMAIL_DRAFT_SUBJECT_MAX_LEN = 200;
+export const EMAIL_DRAFT_BODY_MAX_LEN = 10000;
+
+export type EmailDraftTargetType = "CUSTOMER" | "OPPORTUNITY" | "QUOTE" | "PROJECT";
+
+export interface EmailDraftPayload {
+  to?: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  body: string;
+  replyToMessageId?: string;
+  threadId?: string;
+  targetType?: EmailDraftTargetType;
+  targetId?: string;
+  source?: "GRADER" | "AGENT";
+  graderType?: "DAILY_BRIEF" | "CUSTOMER_FOLLOWUP" | "QUOTE_RISK" | "PROJECT_HEALTH";
+  metadata: {
+    orgId: string;
+    issueCategory?: string;
+    issueSeverity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    customerId?: string;
+    opportunityId?: string;
+    quoteId?: string;
+    projectId?: string;
+  };
+}
+
 export type PendingActionPayload =
   | ({ type: "sales.update_followup" } & SalesUpdateFollowupPayload)
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
-  | ({ type: "calendar.create_event" } & CalendarCreateEventPayload);
+  | ({ type: "calendar.create_event" } & CalendarCreateEventPayload)
+  | ({ type: "grader.internal_note" } & InternalNotePayload)
+  | ({ type: "grader.project_task" } & ProjectTaskPayload)
+  | ({ type: "grader.email_draft" } & EmailDraftPayload);
 
 // ── 工具返回给 AI 的"草稿已创建"结构 ───────────────────────────
 

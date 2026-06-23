@@ -72,6 +72,7 @@ export const SYSTEM_EVENT_TYPES = {
   EVENT_CREATED: "event_created",
   STAGE_ADVANCED: "stage_advanced",
   EMAIL_SENT: "email_sent",
+  AI_INTERNAL_NOTE: "ai_internal_note",
 } as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPES)[keyof typeof SYSTEM_EVENT_TYPES];
@@ -164,6 +165,14 @@ interface EmailSentPayload extends BasePayload {
   subject: string;
 }
 
+interface AiInternalNotePayload extends BasePayload {
+  eventType: "ai_internal_note";
+  graderType?: string;
+  issueCategory?: string;
+  issueSeverity?: string;
+  pendingActionId?: string;
+}
+
 export type SystemEventMetadata =
   | ProjectCreatedPayload
   | MemberJoinedPayload
@@ -176,4 +185,5 @@ export type SystemEventMetadata =
   | TaskCreatedPayload
   | EventCreatedPayload
   | StageAdvancedPayload
-  | EmailSentPayload;
+  | EmailSentPayload
+  | AiInternalNotePayload;

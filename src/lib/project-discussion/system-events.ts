@@ -43,6 +43,39 @@ export async function createProjectSystemMessage(opts: SystemEventOptions) {
   });
 }
 
+/**
+ * AI Grader 内部备注 → 写入项目讨论流（type=SYSTEM 的一条系统消息）。
+ * 复用主讨论会话，metadata 记录来源 / 风险等级，便于回溯。
+ */
+export async function onAiInternalNote(opts: {
+  projectId: string;
+  body: string;
+  actorId: string;
+  graderType?: string;
+  issueCategory?: string;
+  issueSeverity?: string;
+  pendingActionId?: string;
+  tx?: Prisma.TransactionClient;
+}) {
+  const metadata: SystemEventMetadata = {
+    eventType: SYSTEM_EVENT_TYPES.AI_INTERNAL_NOTE,
+    actorId: opts.actorId,
+    source: "system",
+    graderType: opts.graderType,
+    issueCategory: opts.issueCategory,
+    issueSeverity: opts.issueSeverity,
+    pendingActionId: opts.pendingActionId,
+  };
+  return createProjectSystemMessage({
+    projectId: opts.projectId,
+    eventType: SYSTEM_EVENT_TYPES.AI_INTERNAL_NOTE,
+    body: opts.body,
+    metadata,
+    actorId: opts.actorId,
+    tx: opts.tx,
+  });
+}
+
 // ─── 事件写入 helper ───
 
 export async function onProjectCreated(

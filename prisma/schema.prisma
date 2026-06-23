@@ -3178,6 +3178,24 @@ model WeChatContext {
   @@index([orgId, channel])
 }
 
+/// 微信 Grader 短期上下文记忆（按 用户 + 渠道 维度；TTL 30 分钟）
+/// 仅存最近一次 Grader / 目标对象的 id/name，用于解析「这个客户/项目/报价」等指代。
+/// 不存正文；过期不使用；严格按 orgId + userId + channel 隔离。
+model WeChatGraderContext {
+  id             String   @id @default(cuid())
+  orgId          String
+  userId         String
+  channel        String
+  externalUserId String?
+  contextData    Json
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([orgId, userId, channel])
+  @@index([userId])
+}
+
 /// 微信消息记录
 model WeChatMessage {
   id        String  @id @default(cuid())

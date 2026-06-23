@@ -185,6 +185,35 @@ export async function sendGmail(
   return { messageId: res.data.id ?? "" };
 }
 
+/**
+ * 通过 Gmail API 创建草稿（drafts.create）—— 仅创建，不发送。
+ *
+ * 用于 AI Grader / Agent 生成的邮件草稿沉淀：用户后续在 Gmail 草稿箱
+ * 自行检查、修改、发送。本函数绝不调用 messages.send。
+ * 允许 to 为空（草稿可无收件人）。
+ */
+export async function createGmailDraft(
+  userId: string,
+  params: SendEmailParams,
+): Promise<{ draftId: string }> {
+  const provider = await getEmailProvider(userId);
+  if (!provider) {
+    throw new Error("用户未绑定 Gmail 邮件服务");
+  }
+
+  const client = await getAuthedGmailClient(provider);
+  const gmail = google.gmail({ version: "v1", auth: client });
+
+  const rawMessage = buildRawEmail({ ...params, to: params.to ?? "" });
+
+  const res = await gmail.users.drafts.create({
+    userId: "me",
+    requestBody: { message: { raw: rawMessage } },
+  });
+
+  return { draftId: res.data.id ?? "" };
+}
+
 // ── MIME 构建 ───────────────────────────────────────────────
 
 function buildRawEmail(params: SendEmailParams): string {

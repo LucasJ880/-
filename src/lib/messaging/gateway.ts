@@ -133,12 +133,108 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     },
   });
 
-  // 5. 调用 Agent Core 处理（强制传入 binding 解析出的 orgId，禁止 default 兜底）
+  // 5. 优先尝试「数字回复确认」：用户回复 1/2/3 或「取消」时，直接走 PendingAction 审批链路，
+  //    命中则不再进入常规 AI 链路（避免把确认编号当普通问题回答）。
   let aiResponse: string;
-  try {
-    aiResponse = await processWithAgentCore(binding.userId, msg, binding.orgId);
-  } catch (e) {
-    aiResponse = `抱歉，处理出错: ${e instanceof Error ? e.message : "未知错误"}`;
+  const { handleWeChatPendingReply } = await import(
+    "@/lib/ai-grader/actions/wechat-confirm"
+  );
+  const confirm = await handleWeChatPendingReply(msg.content, {
+    userId: binding.userId,
+    orgId: binding.orgId,
+  });
+  if (confirm.handled) {
+    aiResponse = confirm.reply ?? "已处理。";
+  } else {
+    // 6. 统一 Grader 意图分类器（确定性规则；命中即不进入普通 chat）
+    //    优先级：项目 > 报价 > 客户 > 今日体检 > 普通 AI
+    const { classifyWechatGraderIntent } = await import(
+      "@/lib/ai-grader/wechat-intent-classifier"
+    );
+    // 读取该用户的短期 Grader 上下文（30 分钟内、同 org/user/channel），
+    // 让「这个客户/项目/报价/他/刚刚那个」能解析到最近一次目标对象。
+    const { readGraderContext } = await import("@/lib/ai-grader/wechat-context");
+    const graderContext = await readGraderContext({
+      orgId: binding.orgId,
+      userId: binding.userId,
+      channel: msg.channel,
+    });
+    const intent = classifyWechatGraderIntent(msg.content, { context: graderContext });
+
+    if (intent.needsClarification && intent.clarificationMessage) {
+      // 「这个项目/报价/客户」缺上下文 → 直接澄清，不乱猜
+      aiResponse = intent.clarificationMessage;
+    } else {
+      const base = {
+        userId: binding.userId,
+        orgId: binding.orgId,
+        channel: msg.channel,
+        externalUserId: msg.externalUserId,
+      };
+      switch (intent.intent) {
+        case "DAILY_BRIEF": {
+          const m = await import("@/lib/ai-grader/wechat-daily-brief");
+          aiResponse = await m.runDailyBriefForWeChat(base);
+          break;
+        }
+        case "CUSTOMER_FOLLOWUP":
+        case "CHECK_CUSTOMER": {
+          const m = await import("@/lib/ai-grader/wechat-customer-followup");
+          aiResponse = await m.runCustomerFollowupForWeChat({
+            ...base,
+            intent:
+              intent.intent === "CHECK_CUSTOMER"
+                ? {
+                    mode: "CUSTOMER",
+                    customerId: intent.targetType === "CUSTOMER" ? intent.targetId : undefined,
+                    customerName: intent.targetName,
+                  }
+                : { mode: "GLOBAL" },
+          });
+          break;
+        }
+        case "QUOTE_RISK":
+        case "CHECK_QUOTE": {
+          const m = await import("@/lib/ai-grader/wechat-quote-risk");
+          aiResponse = await m.runQuoteRiskForWeChat({
+            ...base,
+            intent:
+              intent.intent === "CHECK_QUOTE"
+                ? {
+                    mode: "QUOTE",
+                    quoteId: intent.targetType === "QUOTE" ? intent.targetId : undefined,
+                    customerName: intent.targetName,
+                  }
+                : { mode: "GLOBAL" },
+          });
+          break;
+        }
+        case "PROJECT_HEALTH":
+        case "CHECK_PROJECT": {
+          const m = await import("@/lib/ai-grader/wechat-project-health");
+          aiResponse = await m.runProjectHealthForWeChat({
+            ...base,
+            intent:
+              intent.intent === "CHECK_PROJECT"
+                ? {
+                    mode: "PROJECT",
+                    projectId: intent.targetType === "PROJECT" ? intent.targetId : undefined,
+                    projectName: intent.targetName,
+                  }
+                : { mode: "GLOBAL" },
+          });
+          break;
+        }
+        default: {
+          // CONFIRM/CANCEL（数字与取消已在第 5 步处理）/ CHAT → 普通 AI
+          try {
+            aiResponse = await processWithAgentCore(binding.userId, msg, binding.orgId);
+          } catch (e) {
+            aiResponse = `抱歉，处理出错: ${e instanceof Error ? e.message : "未知错误"}`;
+          }
+        }
+      }
+    }
   }
 
   // 6. 发送回复（Serverless 多实例下按需加载 adapter）
