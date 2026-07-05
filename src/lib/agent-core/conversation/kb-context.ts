@@ -1,5 +1,7 @@
 /**
- * @deprecated 已迁移至 src/lib/agent-core/conversation/kb-context.ts（A-P1）。
+ * 项目会话 KB 上下文注入（A-P1，自 lib/runtime/kb-context.ts 收敛而来）
+ *
+ * 取知识库 active 版本的最近文档，拼为 prompt 注入片段。
  */
 
 import { db } from "@/lib/db";
@@ -9,7 +11,7 @@ const MAX_CHARS_PER_DOC = 2000;
 const MAX_TOTAL_CHARS = 6000;
 
 export async function buildKBContext(
-  knowledgeBaseId: string | null | undefined
+  knowledgeBaseId: string | null | undefined,
 ): Promise<string | null> {
   if (!knowledgeBaseId) return null;
 

@@ -1,3 +1,10 @@
+/**
+ * @deprecated A-P1（Agent 三栈合并）：项目会话链路已收敛到
+ * src/lib/agent-core/conversation/adapter.ts（runConversationAgent）。
+ * 本模块不再被任何 route 引用，仅保留一个发布周期用于回滚，之后随 A-P4 删除。
+ * 不要在新代码中引用 lib/runtime/*。
+ */
+
 import { db } from "@/lib/db";
 import { getAIConfig } from "@/lib/ai/config";
 import { resolveProvider } from "./provider";

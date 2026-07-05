@@ -171,6 +171,12 @@ export interface AgentRunOptions {
   abortSignal?: AbortSignal;
   /** A-P0：可选观测/持久化 hooks（ToolCallTrace / SkillExecution 等由调用方注入） */
   hooks?: AgentRunHooks;
+  /**
+   * A-P1：本次 run 专属的临时工具（不进全局 registry）。
+   * 用于会话级 DB 动态工具（AgentToolBinding）等场景；
+   * 与 registry 工具同名时优先使用 extraTools。
+   */
+  extraTools?: ToolDefinition[];
 }
 
 export interface AgentRunResult {

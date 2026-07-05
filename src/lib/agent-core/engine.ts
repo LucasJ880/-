@@ -23,6 +23,9 @@ import type {
   AgentRunHooks,
   AgentToolCallInfo,
   AgentRunFinishInfo,
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolExecutionResult,
 } from "./types";
 import { toolLabel, type AgentStreamEvent } from "./streaming";
 
@@ -121,6 +124,34 @@ async function llmCallWithTimeout(
   }
 }
 
+
+// ── A-P1：run 级临时工具（不进全局 registry）─────────────────────
+
+function extraToolsToOpenAI(extraTools: ToolDefinition[] | undefined): any[] {
+  if (!extraTools?.length) return [];
+  return extraTools.map((t) => ({
+    type: "function" as const,
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+}
+
+async function executeToolUnified(
+  name: string,
+  ctx: ToolExecutionContext,
+  extraTools: ToolDefinition[] | undefined,
+): Promise<ToolExecutionResult> {
+  const extra = extraTools?.find((t) => t.name === name);
+  if (extra) {
+    try {
+      return await extra.execute(ctx);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { success: false, data: null, error: msg };
+    }
+  }
+  return registry.execute(name, ctx);
+}
+
 export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
   const {
     systemPrompt,
@@ -142,13 +173,16 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const hooks = options.hooks;
   const runStartedAt = Date.now();
 
-  // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤）
-  const openaiTools = registry.toOpenAITools({
-    domains: options.domains,
-    names: options.tools,
-    role,
-    maxRisk: options.maxRisk,
-  });
+  // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤；A-P1：附加 run 级临时工具）
+  const openaiTools = [
+    ...registry.toOpenAITools({
+      domains: options.domains,
+      names: options.tools,
+      role,
+      maxRisk: options.maxRisk,
+    }),
+    ...extraToolsToOpenAI(options.extraTools),
+  ];
 
   // 构建初始消息（使用 any 绕过 SDK 严格类型）
   const messages: any[] = [
@@ -232,13 +266,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           }
 
           const toolStartedAt = Date.now();
-          const result = await registry.execute(tc.function.name, {
-            args,
-            userId,
-            orgId,
-            sessionId,
-            role,
-          });
+          const result = await executeToolUnified(
+            tc.function.name,
+            { args, userId, orgId, sessionId, role },
+            options.extraTools,
+          );
 
           toolCallLog.push({
             name: tc.function.name,
@@ -368,12 +400,15 @@ export async function* runAgentStream(
   let fullText = "";
   const toolCallLog: AgentRunResult["toolCalls"] = [];
 
-  const openaiTools = registry.toOpenAITools({
-    domains: options.domains,
-    names: options.tools,
-    role,
-    maxRisk: options.maxRisk,
-  });
+  const openaiTools = [
+    ...registry.toOpenAITools({
+      domains: options.domains,
+      names: options.tools,
+      role,
+      maxRisk: options.maxRisk,
+    }),
+    ...extraToolsToOpenAI(options.extraTools),
+  ];
 
   const messages: any[] = [
     { role: "developer", content: systemPrompt },
@@ -591,13 +626,11 @@ export async function* runAgentStream(
         }
 
         const toolStartedAt = Date.now();
-        const result = await registry.execute(name, {
-          args,
-          userId,
-          orgId,
-          sessionId,
-          role,
-        });
+        const result = await executeToolUnified(
+          name,
+          { args, userId, orgId, sessionId, role },
+          options.extraTools,
+        );
 
         toolCallLog.push({ name, args, result });
         fireToolCallHook(hooks, {

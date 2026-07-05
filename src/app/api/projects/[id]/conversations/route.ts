@@ -9,7 +9,7 @@ import {
   isValidChannel,
 } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
-import { runAgentForConversation } from "@/lib/runtime/agent-runtime";
+import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -295,9 +295,10 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ conversation }, { status: 201 });
   }
 
-  const runtimeResult = await runAgentForConversation({
+  const runtimeResult = await runConversationAgent({
     conversationId: conversation.id,
     projectId,
+    userId: user.id,
   });
 
   return NextResponse.json({ conversation, runtime: runtimeResult }, { status: 201 });

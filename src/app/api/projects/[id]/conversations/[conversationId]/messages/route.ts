@@ -10,7 +10,7 @@ import {
   isValidMessageStatus,
 } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
-import { runAgentForConversation } from "@/lib/runtime/agent-runtime";
+import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
 
 type Ctx = { params: Promise<{ id: string; conversationId: string }> };
 
@@ -206,9 +206,10 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ message }, { status: 201 });
   }
 
-  const runtimeResult = await runAgentForConversation({
+  const runtimeResult = await runConversationAgent({
     conversationId,
     projectId,
+    userId: user.id,
   });
 
   if (runtimeResult.error) {

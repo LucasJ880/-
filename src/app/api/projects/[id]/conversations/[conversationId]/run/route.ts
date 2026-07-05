@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireProjectManageAccess } from "@/lib/projects/access";
-import { runAgentForConversation } from "@/lib/runtime/agent-runtime";
+import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 type Ctx = { params: Promise<{ id: string; conversationId: string }> };
@@ -28,10 +28,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     ? Math.min(body.maxToolRounds, 5)
     : undefined;
 
-  const result = await runAgentForConversation({
+  const result = await runConversationAgent({
     conversationId,
     projectId,
     maxToolRounds,
+    userId: user.id,
   });
 
   if (result.error) {
