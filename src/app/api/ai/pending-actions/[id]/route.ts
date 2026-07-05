@@ -10,9 +10,9 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  executePendingAction,
-  rejectPendingAction,
-} from "@/lib/pending-actions/executor";
+  approveApprovalItem,
+  rejectApprovalItem,
+} from "@/lib/approval/port";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -41,7 +41,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   const reason = typeof body.reason === "string" ? body.reason : undefined;
 
   if (decision === "approve") {
-    const result = await executePendingAction(id, {
+    const result = await approveApprovalItem("pending_action", id, {
       userId: user.id,
       role: user.role,
     });
@@ -60,11 +60,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   if (decision === "reject") {
-    const result = await rejectPendingAction(
-      id,
-      { userId: user.id, role: user.role },
-      reason,
-    );
+    const result = await rejectApprovalItem("pending_action", id, {
+      userId: user.id,
+      role: user.role,
+      note: reason,
+    });
     if (!result.ok) {
       return NextResponse.json(
         { ok: false, error: result.error ?? "拒绝失败" },

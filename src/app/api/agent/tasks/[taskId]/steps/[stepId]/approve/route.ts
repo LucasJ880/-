@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { resolveApproval } from "@/lib/agent/approval";
-import { resumeAfterApproval } from "@/lib/agent/executor";
+import { approveApprovalItem } from "@/lib/approval/port";
 
 /**
  * POST /api/agent/tasks/:taskId/steps/:stepId/approve
+ *
+ * A-P3：审批决策统一走 ApprovalPort。
  */
 export const POST = withAuth(async (request, ctx, user) => {
   const { taskId, stepId } = await ctx.params;
@@ -17,21 +18,30 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const approval = await db.approvalRequest.findFirst({
     where: { taskId, stepId, status: "pending" },
+    select: { id: true },
   });
 
   if (!approval) {
     return NextResponse.json({ error: "无待处理的审批请求" }, { status: 404 });
   }
 
-  await resolveApproval({
-    approvalId: approval.id,
-    decision: "approved",
+  const result = await approveApprovalItem("approval_request", approval.id, {
     userId: user.id,
+    role: user.role,
     note,
     acceptedWithRisk,
   });
 
-  // 审批通过后自动恢复执行
-  const result = await resumeAfterApproval(taskId);
-  return NextResponse.json({ ...result, approved: true });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error ?? "审批失败" },
+      { status: 400 },
+    );
+  }
+
+  return NextResponse.json({
+    status: result.status,
+    reason: result.message,
+    approved: true,
+  });
 });

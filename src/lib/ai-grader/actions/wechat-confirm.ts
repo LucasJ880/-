@@ -4,15 +4,15 @@
  * 用户回复纯数字 1/2/3 → 找到该用户最近未过期的 pending actions → 执行对应动作。
  * 用户回复「取消 / cancel / 放弃」→ 拒绝最近一批 pending actions。
  *
- * 复用现有审批链路：executePendingAction / rejectPendingAction（不绕过、不另起一套）。
+ * 复用现有审批链路（A-P3 起统一走 ApprovalPort，不绕过、不另起一套）。
  * 执行时强制传入 orgId，触发 executor 的跨组织防护。
  */
 
 import { db } from "@/lib/db";
 import {
-  executePendingAction,
-  rejectPendingAction,
-} from "@/lib/pending-actions/executor";
+  approveApprovalItem,
+  rejectApprovalItem,
+} from "@/lib/approval/port";
 
 const MAX_BATCH = 3;
 const CANCEL_WORDS = ["取消", "放弃", "cancel", "算了", "不用了"];
@@ -89,7 +89,11 @@ export async function handleWeChatPendingReply(
     const role = await loadRole();
     let rejected = 0;
     for (const a of batch) {
-      const r = await rejectPendingAction(a.id, { userId: ctx.userId, role });
+      const r = await rejectApprovalItem("pending_action", a.id, {
+        userId: ctx.userId,
+        role,
+        orgId: ctx.orgId,
+      });
       if (r.ok) rejected++;
     }
     return { handled: true, reply: `已取消 ${rejected} 个待确认动作。` };
@@ -109,7 +113,7 @@ export async function handleWeChatPendingReply(
 
   const target = batch[n - 1];
   const role = await loadRole();
-  const result = await executePendingAction(target.id, {
+  const result = await approveApprovalItem("pending_action", target.id, {
     userId: ctx.userId,
     role,
     orgId: ctx.orgId,
