@@ -1,6 +1,16 @@
 import { getAIConfig } from "@/lib/ai/config";
+import { isProxyUrl, readBlobBuffer } from "@/lib/files/blob-access";
 
 export async function fetchBuffer(url: string): Promise<Buffer | null> {
+  // 私有 Blob（代理 URL / blob 存储 URL / 纯 pathname）走 SDK 读取；其余外链走 HTTP
+  const isBlobManaged =
+    isProxyUrl(url) ||
+    url.includes(".blob.vercel-storage.com") ||
+    !/^https?:\/\//i.test(url);
+  if (isBlobManaged) {
+    const blob = await readBlobBuffer(url);
+    return blob?.buffer ?? null;
+  }
   const res = await fetch(url);
   if (!res.ok) return null;
   return Buffer.from(await res.arrayBuffer());

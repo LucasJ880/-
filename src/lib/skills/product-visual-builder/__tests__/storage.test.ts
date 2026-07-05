@@ -228,7 +228,7 @@ async function main() {
     ok(res.dryRun === true, "dryRun: dryRun=true");
     ok(res.pathname === "visual-builder/org_abc/2026/06/exec_123/generated-0.png", "dryRun: pathname 正确");
     ok(res.url === "", "dryRun: url 为空（未上传）");
-    ok(res.accessMode === "public", "dryRun: accessMode=public");
+    ok(res.accessMode === "private", "dryRun: accessMode=private");
   }
 
   // 11. dryRun upload：非法 mime 仍拒绝（不上传）

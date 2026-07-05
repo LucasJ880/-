@@ -9,7 +9,7 @@
  * - 落库强制走 service-request.ts 的 createServiceRequest（必带 orgId）。
  */
 
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 import { createCompletion } from "@/lib/ai/client";
 import { logger } from "@/lib/common/logger";
 import {
@@ -298,8 +298,8 @@ export async function handleTradeServiceImageIntake(
   )}.${ext}`;
   let fileUrl: string;
   try {
-    const blob = await put(pathname, bytes, { access: "public", contentType: mimeType });
-    fileUrl = blob.url;
+    const blob = await putPrivateBlob({ pathname, body: bytes, contentType: mimeType });
+    fileUrl = blob.proxyUrl;
   } catch (e) {
     logger.error("trade.service_image_intake.upload_failed", {
       orgId,

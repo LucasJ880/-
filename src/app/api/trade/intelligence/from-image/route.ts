@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 import { requireRole } from "@/lib/auth/guards";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { db } from "@/lib/db";
@@ -81,11 +81,12 @@ export async function POST(request: NextRequest) {
   const pathname = `trade/intelligence/${orgId}/${Date.now()}_${check.safeName}`;
   let fileUrl: string;
   try {
-    const blob = await put(pathname, check.buffer, {
-      access: "public",
+    const blob = await putPrivateBlob({
+      pathname,
+      body: check.buffer,
       contentType: check.mime,
     });
-    fileUrl = blob.url;
+    fileUrl = blob.proxyUrl;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "上传失败";
     return NextResponse.json({ error: msg }, { status: 502 });
@@ -93,8 +94,9 @@ export async function POST(request: NextRequest) {
 
   let vision: Awaited<ReturnType<typeof extractTradeLabelFromImageUrl>>;
   try {
+    // 私有 Blob 后 OpenAI 无法抓取存储 URL，Vision 一律走 base64 data URL
     vision = await extractTradeLabelFromImageUrl({
-      imageUrl: fileUrl,
+      imageUrl: `data:${check.mime};base64,${check.buffer.toString("base64")}`,
       assetType,
       notes: userNotes || null,
     });

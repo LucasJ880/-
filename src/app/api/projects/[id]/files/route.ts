@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { canParseFileType } from "@/lib/files/parse-content";
@@ -106,18 +106,16 @@ export const POST = withAuth(async (request, ctx, user) => {
       const timestamp = Date.now();
       const pathname = `projects/${projectId}/${timestamp}_${safeName}`;
 
-      const blob = await put(pathname, buffer, {
-        access: "public",
-        contentType: mime,
-      });
+      // 私有 Blob；DB 存代理 URL（浏览器经 /api/files 鉴权读取）
+      const blob = await putPrivateBlob({ pathname, body: buffer, contentType: mime });
 
       const parsable = canParseFileType(ext);
       const doc = await db.projectDocument.create({
         data: {
           projectId,
           title: file.name,
-          url: blob.url,
-          blobUrl: blob.url,
+          url: blob.proxyUrl,
+          blobUrl: blob.proxyUrl,
           fileType: ext,
           fileSize: file.size,
           source: "upload",
@@ -130,7 +128,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         id: doc.id,
         title: doc.title,
         url: doc.url,
-        blobUrl: blob.url,
+        blobUrl: blob.proxyUrl,
         fileType: ext,
         fileSize: file.size,
       });

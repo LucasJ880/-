@@ -4,13 +4,13 @@
  * 职责：
  * - 限制 / 校验图片（png / jpg / jpeg / webp，≤ 5MB）
  * - 从 buffer 中直接解析宽高（不引入 sharp 等重依赖）
- * - 写入 @vercel/blob，固定 key 前缀
+ * - 写入 @vercel/blob（私有），固定 key 前缀；返回 /api/files 代理 URL
  *
  * 约束：保存到 DB 的 width/height 就用这里解析出来的值，
  * 前端不再需要上传 dimension 字段（避免被前端伪造）。
  */
 
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 
 export const VISUALIZER_MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 export const VISUALIZER_ALLOWED_IMAGE_EXTS = ["png", "jpg", "jpeg", "webp"] as const;
@@ -146,11 +146,8 @@ export async function putVisualizerImage(args: {
 }): Promise<{ url: string; pathname: string }> {
   const ts = Date.now();
   const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/images/${ts}_${args.safeName}`;
-  const blob = await put(pathname, args.buffer, {
-    access: "public",
-    contentType: args.contentType,
-  });
-  return { url: blob.url, pathname };
+  const blob = await putPrivateBlob({ pathname, body: args.buffer, contentType: args.contentType });
+  return { url: blob.proxyUrl, pathname };
 }
 
 export async function putVisualizerCleanedImage(args: {
@@ -161,11 +158,8 @@ export async function putVisualizerCleanedImage(args: {
 }): Promise<{ url: string; pathname: string }> {
   const ts = Date.now();
   const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/ai-cleaned/${args.sourceImageId}_${ts}.png`;
-  const blob = await put(pathname, args.buffer, {
-    access: "public",
-    contentType: args.contentType,
-  });
-  return { url: blob.url, pathname };
+  const blob = await putPrivateBlob({ pathname, body: args.buffer, contentType: args.contentType });
+  return { url: blob.proxyUrl, pathname };
 }
 
 /** 导出 PNG 的 base64 payload 上限（约 10MB base64 ≈ 7.5MB 原图） */
@@ -206,11 +200,8 @@ export async function putVisualizerExport(args: {
 }): Promise<{ url: string; pathname: string }> {
   const ts = Date.now();
   const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/variants/${args.variantId}/export_${ts}.png`;
-  const blob = await put(pathname, args.buffer, {
-    access: "public",
-    contentType: "image/png",
-  });
-  return { url: blob.url, pathname };
+  const blob = await putPrivateBlob({ pathname, body: args.buffer, contentType: "image/png" });
+  return { url: blob.proxyUrl, pathname };
 }
 
 export async function putVisualizerHdRender(args: {
@@ -220,11 +211,8 @@ export async function putVisualizerHdRender(args: {
 }): Promise<{ url: string; pathname: string }> {
   const ts = Date.now();
   const pathname = `${VISUALIZER_BLOB_PREFIX}/sessions/${args.sessionId}/variants/${args.variantId}/hd_${ts}.png`;
-  const blob = await put(pathname, args.buffer, {
-    access: "public",
-    contentType: "image/png",
-  });
-  return { url: blob.url, pathname };
+  const blob = await putPrivateBlob({ pathname, body: args.buffer, contentType: "image/png" });
+  return { url: blob.proxyUrl, pathname };
 }
 
 /** 产品库预览图（路径：visualizer/catalog/<orgId>/<ts>_<safeName>） */
@@ -236,9 +224,6 @@ export async function putVisualizerCatalogPreview(args: {
 }): Promise<{ url: string; pathname: string }> {
   const ts = Date.now();
   const pathname = `${VISUALIZER_BLOB_PREFIX}/catalog/${args.orgId}/${ts}_${args.safeName}`;
-  const blob = await put(pathname, args.buffer, {
-    access: "public",
-    contentType: args.contentType,
-  });
-  return { url: blob.url, pathname };
+  const blob = await putPrivateBlob({ pathname, body: args.buffer, contentType: args.contentType });
+  return { url: blob.proxyUrl, pathname };
 }

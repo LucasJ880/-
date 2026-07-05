@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 import { requireRole } from "@/lib/auth/guards";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { addRequestAsset } from "@/lib/trade/service-request";
@@ -53,14 +53,14 @@ export async function POST(
   const ts = Date.now();
   const pathname = `trade-service/${orgRes.orgId}/${id}/${kind}/${ts}_${safeName}`;
 
-  const blob = await put(pathname, buffer, { access: "public", contentType: mime });
+  const blob = await putPrivateBlob({ pathname, body: buffer, contentType: mime });
 
   try {
     const asset = await addRequestAsset({
       requestId: id,
       callerOrgId: orgRes.orgId,
       kind,
-      fileUrl: blob.url,
+      fileUrl: blob.proxyUrl,
       fileName: safeName,
       mimeType: mime,
       createdById: auth.user.id,

@@ -189,7 +189,7 @@ async function main() {
           contentType: "image/png",
           sizeBytes: args.buffer?.length,
           dryRun: false,
-          accessMode: "public",
+          accessMode: "private",
         };
       },
       updateExecution: async (id, patch) => {

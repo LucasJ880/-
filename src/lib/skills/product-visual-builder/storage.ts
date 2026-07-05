@@ -7,19 +7,13 @@
  * - 图片 MIME / 文件大小校验
  * - @vercel/blob 上传封装，支持 dryRun（不真正上传）
  *
- * 复用现有约定（参考 src/lib/visualizer/upload.ts，未改动其行为）：
+ * 复用现有约定（参考 src/lib/visualizer/upload.ts）：
  * - 允许扩展名 png / jpg / jpeg / webp
  * - 允许 MIME image/png、image/jpeg、image/webp
- * - 上传走 @vercel/blob put，access: "public"
- *
- * ⚠️ public blob 风险（Phase 1D 默认沿用现有 public blob 模式）：
- * - public URL 一旦泄露即可被任何人访问，无鉴权。
- * - 不建议上传含客户隐私、人物、住址、合同、敏感标签的图片。
- * - 后续 Phase 2 可评估 private bucket / signed URL。
- * - 当前阶段仅用于内部测试与低敏产品素材。
+ * - 上传走统一 blob-access 私有上传，返回 /api/files 代理 URL（B2 私有化）
  */
 
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 
 export const VISUAL_BUILDER_BLOB_PREFIX = "visual-builder";
 
@@ -47,9 +41,9 @@ export type VisualAssetRole = (typeof VISUAL_BUILDER_ASSET_ROLES)[number];
 export const VISUAL_BUILDER_MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 export const VISUAL_BUILDER_MAX_GENERATED_BYTES = 10 * 1024 * 1024;
 
-/** public blob 风险提示常量（供调用方在 UI / 日志中复用）。 */
+/** 存储模式提示常量（供调用方在 UI / 日志中复用）。 */
 export const VISUAL_BUILDER_PUBLIC_BLOB_NOTICE =
-  "图片以 public blob 存储，URL 泄露即可访问；请勿上传客户隐私、人物、住址、合同或敏感标签的图片。";
+  "图片以私有 Blob 存储，仅组织成员可经鉴权代理访问；请仍避免上传客户隐私、合同或敏感标签的图片。";
 
 /** 安全路径段：仅允许字母/数字/下划线/连字符，天然排除空格、中文、/、\\、.、?、..。 */
 const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
@@ -206,11 +200,11 @@ export interface UploadImageResult {
   contentType: string;
   sizeBytes?: number;
   dryRun: boolean;
-  accessMode: "public";
+  accessMode: "private";
 }
 
 /**
- * 上传 visual-builder 图片到 @vercel/blob（public）。
+ * 上传 visual-builder 图片（私有 Blob，返回 /api/files 代理 URL）。
  * - 先构建并校验路径，再校验文件，最后上传。
  * - 不写数据库 / 不写 SkillExecution / 不写 AuditLog / 不调用 AI。
  */
@@ -246,7 +240,7 @@ export async function uploadVisualBuilderImage(
       contentType: params.mimeType,
       sizeBytes,
       dryRun: true,
-      accessMode: "public",
+      accessMode: "private",
     };
   }
 
@@ -254,17 +248,18 @@ export async function uploadVisualBuilderImage(
     throw new Error("缺少图片内容（非 dryRun 时必须提供 buffer）");
   }
 
-  const blob = await put(pathname, params.buffer, {
-    access: "public",
+  const blob = await putPrivateBlob({
+    pathname,
+    body: params.buffer,
     contentType: params.mimeType,
   });
 
   return {
-    url: blob.url,
+    url: blob.proxyUrl,
     pathname,
     contentType: params.mimeType,
     sizeBytes,
     dryRun: false,
-    accessMode: "public",
+    accessMode: "private",
   };
 }

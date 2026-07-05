@@ -134,9 +134,13 @@ export async function GET(
     selectedVariantId = sel?.variantId ?? null;
   }
 
+  // Blob 私有化后，分享页不再输出存储/代理 URL，一律走 shareToken 读图通道
+  const shareAssetUrl = (kind: "source" | "variant", id: string) =>
+    `/api/visualizer/share/${token}/assets/${kind}/${id}`;
+
   const sourceImages: VisualizerSharePublicImage[] = session.sourceImages.map((img) => ({
     id: img.id,
-    fileUrl: img.fileUrl,
+    fileUrl: shareAssetUrl("source", img.id),
     width: img.width,
     height: img.height,
     roomLabel: img.roomLabel,
@@ -151,7 +155,7 @@ export async function GET(
   const variants: VisualizerSharePublicVariant[] = session.variants.map((v) => ({
     id: v.id,
     name: v.name,
-    exportImageUrl: v.exportImageUrl,
+    exportImageUrl: v.exportImageUrl ? shareAssetUrl("variant", v.id) : v.exportImageUrl,
     sortOrder: v.sortOrder,
     productOptions: v.productOptions.map((po) => ({
       id: po.id,

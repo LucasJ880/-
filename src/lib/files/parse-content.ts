@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { readBlobBuffer } from "./blob-access";
 
 const MAX_TEXT_LENGTH = 200_000; // DB 存储上限，约 20 万字符
 
@@ -103,12 +104,11 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
   });
 
   try {
-    const response = await fetch(doc.blobUrl);
-    if (!response.ok) throw new Error(`Blob 下载失败: HTTP ${response.status} ${response.statusText}`);
-
-    const arrayBuf = await response.arrayBuffer();
-    if (arrayBuf.byteLength === 0) throw new Error("下载的文件内容为空");
-    const buffer = Buffer.from(arrayBuf);
+    // 私有 Blob：服务端经 SDK 读取（兼容历史 public URL 与新代理 URL）
+    const blob = await readBlobBuffer(doc.blobUrl);
+    if (!blob) throw new Error("Blob 下载失败：对象不存在或不可读");
+    if (blob.buffer.length === 0) throw new Error("下载的文件内容为空");
+    const buffer = blob.buffer;
     const result = await parser(buffer);
 
     if ("error" in result) {

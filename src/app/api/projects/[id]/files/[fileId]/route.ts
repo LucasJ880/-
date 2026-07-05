@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { del } from "@vercel/blob";
+import { deleteBlob, blobPathnameFromUrl } from "@/lib/files/blob-access";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 
@@ -20,7 +20,8 @@ export const DELETE = withAuth(async (_request, ctx) => {
 
   if (doc.blobUrl) {
     try {
-      await del(doc.blobUrl);
+      // 兼容历史 blob URL 与新代理 URL：统一按 pathname 删除
+      await deleteBlob(blobPathnameFromUrl(doc.blobUrl));
     } catch {
       // Blob 删除失败不阻塞数据库记录删除
     }

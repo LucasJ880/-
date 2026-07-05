@@ -10,7 +10,7 @@
  * 回传时按工单的客户 org + 来源通道发送，处理方接触不到客户 org 的其它数据 / bid 数据。
  */
 
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 import { logger } from "@/lib/common/logger";
 import { runImageEdit, fetchBuffer } from "@/lib/visualizer/image-ai";
 import { sendToExternalUser } from "@/lib/messaging/gateway";
@@ -70,15 +70,16 @@ export async function runDesignImageForRequest(input: {
 
   const ts = Date.now();
   const pathname = `${BLOB_PREFIX}/${request.orgId}/${request.id}/deliverables/${ts}.png`;
-  const blob = await put(pathname, outBuffer, {
-    access: "public",
+  const blob = await putPrivateBlob({
+    pathname,
+    body: outBuffer,
     contentType: "image/png",
   });
 
   const asset = await addDeliverableForFulfillment({
     requestId: request.id,
     fulfillmentOrgId: input.fulfillmentOrgId,
-    fileUrl: blob.url,
+    fileUrl: blob.proxyUrl,
     fileName: `design_${ts}.png`,
     mimeType: "image/png",
     meta: { prompt: input.prompt, sourceAssetId: inputAsset.id, model: "gpt-image-2" },

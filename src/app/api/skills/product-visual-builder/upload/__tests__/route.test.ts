@@ -96,7 +96,7 @@ function makeDeps(over: Partial<UploadRouteDeps> = {}): UploadRouteDeps {
         contentType: params.mimeType,
         sizeBytes: params.buffer?.length,
         dryRun: false,
-        accessMode: "public",
+        accessMode: "private",
       };
     },
     ...over,

@@ -10,7 +10,7 @@
  * + resolveRequestOrgIdForUser 标准 org 解析（多组织/管理员必须显式 orgId，且校验成员归属）。
  * form 的 orgId 仅作为「组织选择」参与解析；路径强制使用解析后的可信 orgId。
  *
- * ⚠️ 上传为 public blob，URL 泄露即可访问；response 带 publicBlobNotice 提醒。
+ * 上传为私有 Blob（B2 私有化），返回 /api/files 代理 URL；response 带 publicBlobNotice 说明存储模式。
  */
 
 import { NextResponse } from "next/server";

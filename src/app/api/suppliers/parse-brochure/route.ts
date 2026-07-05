@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { putPrivateBlob } from "@/lib/files/blob-access";
 import { requireAuth } from "@/lib/auth/guards";
 import { parseBrochure } from "@/lib/supplier/brochure-parser";
 import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
@@ -46,11 +46,12 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const pathname = `${TEMP_BLOB_PREFIX}${timestamp}_${safeName}`;
 
-    const blob = await put(pathname, buffer, {
-      access: "public",
+    const blob = await putPrivateBlob({
+      pathname,
+      body: buffer,
       contentType: ALLOWED_BROCHURE_TYPE,
     });
-    brochureUrl = blob.url;
+    brochureUrl = blob.proxyUrl;
   } catch (err) {
     console.error("[parse-brochure] Blob upload failed:", err);
     return errorJson("文件上传失败，请稍后重试", 500);
