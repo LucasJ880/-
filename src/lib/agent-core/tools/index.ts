@@ -15,6 +15,7 @@ import "./secretary";
 import "./skills";
 import "./context";
 import "./cockpit";
+import "./project-skills"; // A-P2: lib/agent 静态技能桥接
 
 import { applyToolPolicy } from "./_policy";
 

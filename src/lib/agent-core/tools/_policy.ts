@@ -77,6 +77,19 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   context_get_summaries:      { risk: "l0_read",           allowRoles: "*" },
   context_index_messages:     { risk: "l1_internal_write", allowRoles: "*" },
 
+  // ── project 域（A-P2：lib/agent 静态技能桥接，9 个） ──────────
+  // 分析类只读；document_summary 写文档摘要字段（内部写）；
+  // quote / email_draft 只产草稿（软写），与原 requiresApproval 语义对齐
+  project_understanding:          { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_progress_summary:       { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_risk_scan:              { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_intelligence_report:    { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_tender_analysis:        { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_supply_chain_analysis:  { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_document_summary:       { risk: "l1_internal_write", allowRoles: ["admin", "sales", "trade"] },
+  project_bid_quote:              { risk: "l2_soft",           allowRoles: ["admin", "sales"] },
+  project_inquiry_email_draft:    { risk: "l2_soft",           allowRoles: ["admin", "sales", "trade"] },
+
   // ── skill 域（动态技能需 admin 权限执行 / 创建） ──────────────
   skill_list:                   { risk: "l0_read", allowRoles: "*" },
   skill_run:                    { risk: "l2_soft", allowRoles: ["admin"] },

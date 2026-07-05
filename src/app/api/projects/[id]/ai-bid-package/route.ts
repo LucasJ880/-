@@ -6,8 +6,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { generatePlan } from "@/lib/agent/orchestrator";
-import "@/lib/agent/skills/index";
+import { createBidPackageTask } from "@/lib/agent-core/skills/bid-package";
 
 export const POST = withAuth(async (_request, ctx, user) => {
   const { id: projectId } = await ctx.params;
@@ -20,12 +19,9 @@ export const POST = withAuth(async (_request, ctx, user) => {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
 
-  const plan = await generatePlan({
-    intent: "AI 一键生成投标方案",
+  const plan = await createBidPackageTask({
     projectId,
     userId: user.id,
-    triggerType: "manual",
-    templateId: "ai_bid_package",
   });
 
   return NextResponse.json({

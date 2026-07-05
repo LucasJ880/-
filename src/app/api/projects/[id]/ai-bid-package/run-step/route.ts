@@ -8,10 +8,9 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { getSkill } from "@/lib/agent/skills";
-import "@/lib/agent/skills/index";
+import { runStaticSkill, STATIC_SKILL_TOOL_NAMES } from "@/lib/agent-core/skills/static-bridge";
 import { runStepCheck } from "@/lib/agent/checker";
-import type { SkillContext, SkillResult } from "@/lib/agent/types";
+import type { SkillResult } from "@/lib/agent/types";
 import { notifyProjectMembers } from "@/lib/notifications/create";
 
 export const POST = withAuth(async (request, routeCtx, user) => {
@@ -55,8 +54,9 @@ export const POST = withAuth(async (request, routeCtx, user) => {
     });
   }
 
-  const skill = getSkill(nextStep.skillId);
-  if (!skill) {
+  // A-P2：执行统一走 agent-core 静态技能桥接
+  const isKnownSkill = Boolean(STATIC_SKILL_TOOL_NAMES[nextStep.skillId]);
+  if (!isKnownSkill) {
     await db.agentTaskStep.update({
       where: { id: nextStep.id },
       data: { status: "failed", error: `未知技能: ${nextStep.skillId}` },
@@ -86,18 +86,14 @@ export const POST = withAuth(async (request, routeCtx, user) => {
 
   const input = await buildInput(taskId, nextStep.id);
 
-  const ctx: SkillContext = {
-    projectId,
-    userId: user.id,
-    taskId,
-    stepId: nextStep.id,
-    input,
-  };
-
   const t0 = Date.now();
   let result: SkillResult;
   try {
-    result = await skill.execute(ctx);
+    result = await runStaticSkill(nextStep.skillId, {
+      projectId,
+      userId: user.id,
+      input,
+    });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     await db.agentTaskStep.update({
