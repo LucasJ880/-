@@ -1,27 +1,38 @@
 /**
- * B4 — 历史 Blob 数据私有化迁移
+ * B4 — 历史 Blob 数据私有化迁移（双 store 版）
+ *
+ * Vercel Blob 的 store 访问模式创建后不可改，历史 store 是 public，
+ * 因此迁移为「跨 store 搬迁」：
+ *   旧 public store（BLOB_READ_WRITE_TOKEN）→ 新 private store（BLOB_PRIVATE_READ_WRITE_TOKEN）
  *
  * 用法：
  *   npx tsx scripts/migrate-blob-private.ts                 # dry-run（默认，只读，不改任何东西）
  *   MIGRATE_CONFIRM=yes npx tsx scripts/migrate-blob-private.ts --write   # 真实迁移
  *
  * 步骤（write 模式）：
- *   0) 安全门禁：--write 必须搭配 MIGRATE_CONFIRM=yes；生产库指纹需再加 ALLOW_PRODUCTION=yes
+ *   0) 安全门禁：--write 必须搭配 MIGRATE_CONFIRM=yes；生产库指纹需再加 ALLOW_PRODUCTION=yes；
+ *      且必须配置了独立的 BLOB_PRIVATE_READ_WRITE_TOKEN
  *   1) JSON 备份：导出所有含 Blob URL 的表字段到 backups/blob-private-migration/
- *   2) Blob 对象迁移：list() 全部对象 → 已知前缀 + 仍可公开访问的 → 原路径 re-put access:"private"
+ *   2) Blob 对象搬迁：旧 store list() → 已知前缀对象 → 同 pathname 写入新 private store
  *   3) DB URL 重写：把存储的 *.blob.vercel-storage.com URL 改写为 /api/files/ 代理 URL
  *      （含 SkillExecution.inputJson/outputJson 文本内嵌 URL）
- *   4) 校验：抽样确认迁移后对象可经 SDK 读取、未鉴权 HTTP 拉取不再 200
+ *   4) 校验：抽样确认新 store 可经 SDK 读取
+ *   5) 删除旧 store 中已搬迁成功的对象，并确认原公开 URL 不再可访问
  *
  * dry-run 只输出将要做什么，不上传、不写库、不备份文件。
  */
 
-import { list, put, get } from "@vercel/blob";
+import { list, put, get, del } from "@vercel/blob";
 import { db } from "@/lib/db";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const WRITE = process.argv.includes("--write");
+
+/** 旧 public store（读取 + 最终删除） */
+const LEGACY_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+/** 新 private store（写入 + 校验） */
+const PRIVATE_TOKEN = process.env.BLOB_PRIVATE_READ_WRITE_TOKEN;
 
 const KNOWN_PREFIXES = [
   "visualizer/",
@@ -146,7 +157,8 @@ function fieldSpecs(): FieldSpec[] {
 async function main() {
   console.log(`━━━ B4 Blob 私有化迁移（${WRITE ? "WRITE" : "dry-run"}）━━━`);
   console.log("DB:", safeDbId(process.env.DATABASE_URL));
-  console.log("BLOB_READ_WRITE_TOKEN:", process.env.BLOB_READ_WRITE_TOKEN ? "已设置" : "未设置");
+  console.log("旧 store token (BLOB_READ_WRITE_TOKEN):", LEGACY_TOKEN ? "已设置" : "未设置");
+  console.log("新 private store token (BLOB_PRIVATE_READ_WRITE_TOKEN):", PRIVATE_TOKEN ? "已设置" : "未设置");
 
   if (WRITE) {
     if (process.env.MIGRATE_CONFIRM !== "yes") {
@@ -156,6 +168,10 @@ async function main() {
     if (looksLikeProduction(process.env.DATABASE_URL) && process.env.ALLOW_PRODUCTION !== "yes") {
       console.error("✗ 当前 DATABASE_URL 疑似生产库（neondb 且无 branch 标识）。");
       console.error("  请先在 Neon branch 演练；确认要对生产执行时再加 ALLOW_PRODUCTION=yes。");
+      process.exit(1);
+    }
+    if (!PRIVATE_TOKEN || PRIVATE_TOKEN === LEGACY_TOKEN) {
+      console.error("✗ write 模式必须配置独立的 BLOB_PRIVATE_READ_WRITE_TOKEN（新 private store）。");
       process.exit(1);
     }
   }
@@ -222,13 +238,13 @@ async function main() {
   backup["SkillExecution"] = skillExecBackup;
   console.log(`  SkillExecution: ${skillExecs.length} 行，需重写 ${skillExecPlans.length} 行（内嵌 URL ${skillExecHits} 处）`);
 
-  // ── 2) Blob 对象扫描 ────────────────────────────────────
+  // ── 2) 旧 store 对象扫描 ────────────────────────────────
   const blobObjects: Array<{ url: string; pathname: string; size: number }> = [];
   let skippedForeign = 0;
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (LEGACY_TOKEN) {
     let cursor: string | undefined;
     do {
-      const page = await list({ cursor, limit: 1000 });
+      const page = await list({ cursor, limit: 1000, token: LEGACY_TOKEN });
       for (const b of page.blobs) {
         if (isKnownPrefix(b.pathname)) {
           blobObjects.push({ url: b.url, pathname: b.pathname, size: b.size });
@@ -238,12 +254,12 @@ async function main() {
       }
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
-    console.log(`  Blob 存储: 已知前缀对象 ${blobObjects.length} 个（未知前缀跳过 ${skippedForeign} 个）`);
+    console.log(`  旧 store: 已知前缀对象 ${blobObjects.length} 个（未知前缀跳过 ${skippedForeign} 个）`);
   } else {
-    console.log("  Blob 存储: 未设置 BLOB_READ_WRITE_TOKEN，跳过对象扫描（仅 DB 分析）");
+    console.log("  旧 store: 未设置 BLOB_READ_WRITE_TOKEN，跳过对象扫描（仅 DB 分析）");
   }
 
-  // 检测哪些仍是 public
+  // 检测哪些仍是 public（旧 store 全部对象理论上都可公开访问）
   const publicObjects: typeof blobObjects = [];
   for (const b of blobObjects) {
     if (await isPubliclyReadable(b.url)) publicObjects.push(b);
@@ -252,7 +268,7 @@ async function main() {
 
   // ── dry-run 汇总 ────────────────────────────────────────
   console.log("\n━━━ 计划 ━━━");
-  console.log(`  Blob 对象重传为 private: ${publicObjects.length} 个`);
+  console.log(`  搬迁到新 private store: ${publicObjects.length} 个`);
   console.log(`  DB 字段重写: ${dbPlans.length} 行 + SkillExecution ${skillExecPlans.length} 行`);
   if (unknownPrefixUrls.length > 0) {
     console.log(`  ⚠ 未知前缀 URL（保持不动，请人工确认）: ${unknownPrefixUrls.length} 条`);
@@ -278,12 +294,13 @@ async function main() {
   );
   console.log(`\n✓ 备份完成: ${backupPath}`);
 
-  // ── 4) Blob 对象迁移（原路径 re-put private）────────────
+  // ── 4) Blob 对象搬迁（旧 public store → 新 private store，同 pathname）──
   let migrated = 0;
   const failures: string[] = [];
+  const migratedObjects: typeof publicObjects = [];
   for (const b of publicObjects) {
     try {
-      const got = await get(b.url, { access: "public" });
+      const got = await get(b.url, { access: "public", token: LEGACY_TOKEN });
       if (!got || got.statusCode !== 200 || !got.stream) {
         throw new Error("读取失败");
       }
@@ -302,17 +319,19 @@ async function main() {
         access: "private",
         allowOverwrite: true,
         contentType: got.blob.contentType || undefined,
+        token: PRIVATE_TOKEN,
       });
       migrated++;
-      if (migrated % 20 === 0) console.log(`  ...已迁移 ${migrated}/${publicObjects.length}`);
+      migratedObjects.push(b);
+      if (migrated % 20 === 0) console.log(`  ...已搬迁 ${migrated}/${publicObjects.length}`);
     } catch (e) {
       failures.push(`${b.pathname}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  console.log(`✓ Blob 对象迁移完成: ${migrated} 成功, ${failures.length} 失败`);
+  console.log(`✓ Blob 对象搬迁完成: ${migrated} 成功, ${failures.length} 失败`);
   failures.slice(0, 10).forEach((f) => console.log(`  ✗ ${f}`));
   if (failures.length > 0) {
-    console.error("存在迁移失败对象，停止 DB 重写（数据未损坏：对象仍可访问，DB 未改）。");
+    console.error("存在搬迁失败对象，停止 DB 重写（数据未损坏：旧对象仍可访问，DB 未改）。");
     process.exit(1);
   }
 
@@ -329,18 +348,47 @@ async function main() {
   }
   console.log(`✓ DB 重写完成: ${rewritten} 行`);
 
-  // ── 6) 校验 ─────────────────────────────────────────────
-  const samples = publicObjects.slice(0, 5);
+  // ── 6) 校验：全部搬迁对象在新 private store 可经 SDK 读取 ──
   let verifyOk = true;
-  for (const s of samples) {
-    const got = await get(s.pathname, { access: "private" }).catch(() => null);
-    const sdkOk = Boolean(got && got.statusCode === 200);
-    const stillPublic = await isPubliclyReadable(s.url);
-    console.log(`  校验 ${s.pathname}: SDK 读取=${sdkOk ? "✓" : "✗"} 未鉴权访问=${stillPublic ? "仍可(✗)" : "已阻断(✓)"}`);
-    if (!sdkOk || stillPublic) verifyOk = false;
+  for (const s of migratedObjects) {
+    const got = await get(s.pathname, { access: "private", token: PRIVATE_TOKEN }).catch(() => null);
+    const sdkOk = Boolean(got && got.statusCode === 200 && got.blob.size === s.size);
+    if (!sdkOk) {
+      console.log(`  校验 ✗ 新 store 读取失败: ${s.pathname}`);
+      verifyOk = false;
+    }
   }
-  console.log(verifyOk ? "\n✓ 迁移完成，校验通过" : "\n⚠ 迁移完成，但校验存在异常，请人工检查");
-  process.exit(verifyOk ? 0 : 1);
+  console.log(`  校验: 新 private store SDK 读取 ${verifyOk ? `全部通过（${migratedObjects.length} 个）` : "存在失败"}`);
+  if (!verifyOk) {
+    console.error("⚠ 校验未通过，保留旧 store 对象不删除，请人工检查。");
+    process.exit(1);
+  }
+
+  // ── 7) 删除旧 store 中已搬迁对象，阻断公开访问 ──────────
+  let deleted = 0;
+  const deleteFailures: string[] = [];
+  for (const s of migratedObjects) {
+    try {
+      await del(s.url, { token: LEGACY_TOKEN });
+      deleted++;
+    } catch (e) {
+      deleteFailures.push(`${s.pathname}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  console.log(`✓ 旧 store 清理: ${deleted} 删除, ${deleteFailures.length} 失败`);
+  deleteFailures.slice(0, 10).forEach((f) => console.log(`  ✗ ${f}`));
+
+  // 抽样确认原公开 URL 已不可访问
+  let blocked = true;
+  for (const s of migratedObjects.slice(0, 5)) {
+    const stillPublic = await isPubliclyReadable(s.url);
+    console.log(`  公开访问阻断 ${s.pathname}: ${stillPublic ? "仍可(✗)" : "已阻断(✓)"}`);
+    if (stillPublic) blocked = false;
+  }
+
+  const allOk = verifyOk && deleteFailures.length === 0 && blocked;
+  console.log(allOk ? "\n✓ 迁移完成，校验通过" : "\n⚠ 迁移完成，但存在需人工确认项（见上）");
+  process.exit(allOk ? 0 : 1);
 }
 
 main().catch((e) => {

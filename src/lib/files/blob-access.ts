@@ -4,6 +4,11 @@
  * 目标：全库 Blob 读写收敛到这里，上传一律 private，浏览器读图走
  * /api/files/[...path] 代理（按路径前缀鉴权），服务端读字节走 readBlobBuffer。
  *
+ * 双 store 架构（Vercel Blob 的 store 访问模式创建后不可改，历史 store 是 public）：
+ * - 新 private store（BLOB_PRIVATE_READ_WRITE_TOKEN）：所有新上传与私有读取
+ * - 旧 public store（BLOB_READ_WRITE_TOKEN）：仅迁移期兼容读取历史对象，
+ *   B4 迁移完成后回退分支自然不再命中
+ *
  * 路径前缀约定（7 套，历史沿用，不改变既有 pathname 结构）：
  * - visualizer/sessions/{sessionId}/...   → session scope 校验
  * - visualizer/catalog/{orgId}/...        → org 成员校验
@@ -12,14 +17,24 @@
  * - trade-service/{orgId}/...             → org 成员校验
  * - trade/intelligence/{orgId}/...        → org 成员校验
  * - temp/brochures/...                    → 登录即可（临时画册 PDF）
- *
- * 迁移期兼容：历史对象仍是 public，readBlob 先按 private 读，
- * 失败回退 public 读；B4 迁移完成后回退分支自然不再命中。
  */
 
 import { put, get, del } from "@vercel/blob";
 
 export const FILE_PROXY_PREFIX = "/api/files/";
+
+/** private store 的 token；未配置时回退默认 token（本地/测试环境） */
+function privateToken(): string | undefined {
+  return (
+    process.env.BLOB_PRIVATE_READ_WRITE_TOKEN ||
+    process.env.BLOB_READ_WRITE_TOKEN
+  );
+}
+
+/** 旧 public store 的 token（迁移期兼容读取历史对象） */
+function legacyToken(): string | undefined {
+  return process.env.BLOB_READ_WRITE_TOKEN;
+}
 
 export interface PutPrivateBlobArgs {
   pathname: string;
@@ -42,6 +57,7 @@ export async function putPrivateBlob(
   const blob = await put(args.pathname, args.body, {
     access: "private",
     contentType: args.contentType,
+    token: privateToken(),
   });
   return {
     url: blob.url,
@@ -50,9 +66,14 @@ export async function putPrivateBlob(
   };
 }
 
-/** 删除 Blob（按 URL 或 pathname）。 */
+/** 删除 Blob（按 URL 或 pathname）。双 store 各删一次（del 幂等，不存在不报错）。 */
 export async function deleteBlob(urlOrPathname: string): Promise<void> {
-  await del(urlOrPathname);
+  const pathname = blobPathnameFromUrl(urlOrPathname);
+  await del(pathname, { token: privateToken() }).catch(() => undefined);
+  const legacy = legacyToken();
+  if (legacy && legacy !== privateToken()) {
+    await del(pathname, { token: legacy }).catch(() => undefined);
+  }
 }
 
 /**
@@ -107,16 +128,20 @@ export interface BlobStreamResult {
 
 /**
  * 服务端读 Blob（流式）。
- * 先按 private 读；对象不存在或仍是历史 public 对象时回退 public 读。
+ * 先按 private 读新 store（按 pathname）；历史对象未迁移时回退旧 public store。
  */
 export async function readBlobStream(
   urlOrPathname: string,
 ): Promise<BlobStreamResult | null> {
-  const target = urlOrPathname;
+  const pathname = blobPathnameFromUrl(urlOrPathname);
 
-  const tryRead = async (access: "private" | "public") => {
+  const tryRead = async (
+    target: string,
+    access: "private" | "public",
+    token: string | undefined,
+  ) => {
     try {
-      const res = await get(target, { access });
+      const res = await get(target, { access, token });
       if (res && res.statusCode === 200 && res.stream) {
         return {
           stream: res.stream,
@@ -130,7 +155,11 @@ export async function readBlobStream(
     }
   };
 
-  return (await tryRead("private")) ?? (await tryRead("public"));
+  return (
+    (await tryRead(pathname, "private", privateToken())) ??
+    (await tryRead(urlOrPathname, "public", legacyToken())) ??
+    (await tryRead(pathname, "public", legacyToken()))
+  );
 }
 
 /** 服务端读 Blob 全量字节（微信出站 / 文档解析 / Vision base64 用）。 */
