@@ -20,6 +20,7 @@ interface BuiltinSkillSeed {
   temperature: number;
   maxTokens: number;
   inputSchema: Record<string, unknown> | null;
+  outputSchema?: Record<string, unknown> | null;
   requiredTools: string | null;
 }
 
@@ -181,6 +182,95 @@ const BUILTIN_SKILLS: BuiltinSkillSeed[] = [
         context: { type: "string", description: "相关背景" },
       },
       required: ["taskDescription"],
+      },
+      requiredTools: null,
+  },
+  {
+    slug: "product-visual-builder",
+    name: "产品视觉素材生成",
+    description:
+      "基于真实产品照片与产品事实，生成官网/目录/报价/销售用途的产品视觉素材建议与图像生成提示词（仅建议，需人工确认）",
+    domain: "creative",
+    tier: "execution",
+    systemPrompt: `你是产品视觉素材策划助手，服务于家纺产品（毛毯/浴袍/枕头等）的官网图、目录图、报价附图与销售素材。
+
+铁律（不可违反）：
+1. 真实产品照片是唯一事实来源。
+2. 不得改变产品本体，包括结构、材质、版型、颜色、纹理、logo/标签位置、尺寸比例。
+3. 严禁编造任何事实：认证、材质、尺寸、克重(GSM)、MOQ、护理说明、产地。
+4. 未提供的信息必须标注为"未提供 / not provided"，不得脑补。
+5. 认证只能按用户提供内容原样展示，最终以官方证书为准。
+6. 输出内容必须默认 humanReviewRequired=true。
+7. 第一版只生成建议和素材，不自动发布官网或客户资料。`,
+    userPromptTemplate: `请基于以下信息，产出 {{useCase}} 用途、{{style}} 风格的产品视觉素材建议与图像生成提示词。
+产品类型: {{productType}}
+产品名称: {{productName}}
+语言: {{language}}
+产品事实(JSON): {{productFactsJson}}
+认证(仅按原文展示): {{certificationsJson}}
+硬约束(JSON): {{constraintsJson}}
+源图角色(JSON): {{sourceImageRolesJson}}
+仅依据以上事实，不得编造；未提供的标注 not provided。`,
+    outputFormat: "json",
+    temperature: 0.3,
+    maxTokens: 2000,
+    inputSchema: {
+      type: "object",
+      properties: {
+        productType: {
+          type: "string",
+          enum: ["blanket", "bathrobe", "pillow", "other"],
+          description: "产品类型",
+        },
+        productName: { type: "string", description: "产品名称" },
+        useCase: {
+          type: "string",
+          enum: [
+            "website",
+            "catalog",
+            "quote_attachment",
+            "whatsapp_sales",
+            "internal_review",
+          ],
+          description: "用途",
+        },
+        style: {
+          type: "string",
+          enum: [
+            "warm_home",
+            "hotel",
+            "white_background",
+            "spec_sheet",
+            "ecommerce",
+          ],
+          description: "风格",
+        },
+        sourceImageUrls: {
+          type: "array",
+          items: { type: "string" },
+          description: "本 org 本次上传的源图 URL",
+        },
+        productFacts: { type: "object", description: "产品事实（缺失标 not provided）" },
+        language: {
+          type: "string",
+          enum: ["en", "zh", "bilingual"],
+          description: "输出语言",
+        },
+      },
+      required: ["productType", "productName", "useCase", "style", "sourceImageUrls"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        finalPrompt: { type: "string" },
+        warnings: { type: "array", items: { type: "string" } },
+        productFactsUsed: { type: "object" },
+        suggestedUsage: { type: "string" },
+        websitePathSuggestions: { type: "array", items: { type: "string" } },
+        assetNamingSuggestions: { type: "array", items: { type: "string" } },
+        humanReviewRequired: { type: "boolean" },
+      },
+      required: ["finalPrompt", "warnings", "humanReviewRequired"],
     },
     requiredTools: null,
   },
@@ -211,6 +301,7 @@ export async function seedBuiltinSkills(orgId: string): Promise<number> {
         temperature: seed.temperature,
         maxTokens: seed.maxTokens,
         inputSchema: seed.inputSchema ? JSON.parse(JSON.stringify(seed.inputSchema)) : undefined,
+        outputSchema: seed.outputSchema ? JSON.parse(JSON.stringify(seed.outputSchema)) : undefined,
         requiredTools: seed.requiredTools,
         isBuiltin: true,
         isActive: true,

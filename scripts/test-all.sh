@@ -55,6 +55,12 @@ run_test "iLink 报文解析" "npx tsx src/lib/messaging/adapters/__tests__/ilin
 run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests__/ilink-send-payload.test.ts"
 run_test "企业微信回调加解密/验签" "npx tsx src/lib/messaging/adapters/__tests__/wecom-crypto.test.ts"
 run_test "外贸受理路由/幂等" "npx tsx src/lib/trade/__tests__/service-intake-correlation.test.ts"
+run_test "产品视觉素材 prompt 防错" "npx tsx src/lib/skills/product-visual-builder/__tests__/prompt.test.ts"
+run_test "产品视觉素材 dry-run service" "npx tsx src/lib/skills/product-visual-builder/__tests__/service.test.ts"
+run_test "产品视觉素材 API 鉴权壳" "npx tsx src/app/api/skills/product-visual-builder/__tests__/route.test.ts"
+run_test "产品视觉素材 storage 存储约定" "npx tsx src/lib/skills/product-visual-builder/__tests__/storage.test.ts"
+run_test "产品视觉素材 source 上传 API" "npx tsx src/app/api/skills/product-visual-builder/upload/__tests__/route.test.ts"
+run_test "产品视觉素材 image-client 封装" "npx tsx src/lib/skills/product-visual-builder/__tests__/image-client.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 
