@@ -70,6 +70,20 @@ function ok(cond: boolean, name: string) {
   ok(!proxy.includes(" "), "toProxyUrl: 无裸空格");
 }
 
+// 6b. 代理 URL 反解回 pathname（服务端重读代理 URL 时用）
+{
+  ok(
+    blobPathnameFromUrl(`${FILE_PROXY_PREFIX}visual-builder/org1/a.png`) ===
+      "visual-builder/org1/a.png",
+    "proxy→pathname: 相对代理 URL",
+  );
+  ok(
+    blobPathnameFromUrl(`https://qingyan.example.com${FILE_PROXY_PREFIX}projects/p1/16_a.pdf`) ===
+      "projects/p1/16_a.pdf",
+    "proxy→pathname: 绝对代理 URL",
+  );
+}
+
 // 7. isProxyUrl 对外部 URL 返回 false
 {
   ok(!isProxyUrl("https://abc.blob.vercel-storage.com/x.png"), "isProxyUrl: blob URL → false");

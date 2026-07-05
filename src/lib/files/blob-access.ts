@@ -56,18 +56,30 @@ export async function deleteBlob(urlOrPathname: string): Promise<void> {
 }
 
 /**
- * 从 Blob 完整 URL 提取 pathname（去掉 store host 与查询串）。
- * 传入已是 pathname 时原样返回（去掉开头的 /）。
+ * 从「存储的 URL」提取 Blob pathname。
+ * 兼容三种历史/现行形态：
+ * - Blob 完整 URL（https://xxx.blob.vercel-storage.com/{pathname}）
+ * - 代理 URL（/api/files/{pathname}，含带域名的绝对形式）
+ * - 纯 pathname
  */
 export function blobPathnameFromUrl(urlOrPathname: string): string {
-  if (!/^https?:\/\//i.test(urlOrPathname)) {
-    return urlOrPathname.replace(/^\/+/, "");
+  let path = urlOrPathname;
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      // 保底按原字符串处理
+    }
+  }
+  path = path.replace(/^\/+/, "");
+  const proxyPrefix = FILE_PROXY_PREFIX.replace(/^\/+/, ""); // "api/files/"
+  if (path.startsWith(proxyPrefix)) {
+    path = path.slice(proxyPrefix.length);
   }
   try {
-    const u = new URL(urlOrPathname);
-    return decodeURIComponent(u.pathname.replace(/^\/+/, ""));
+    return decodeURIComponent(path);
   } catch {
-    return urlOrPathname.replace(/^\/+/, "");
+    return path;
   }
 }
 
