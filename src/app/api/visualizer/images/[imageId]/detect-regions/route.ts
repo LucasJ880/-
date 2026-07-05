@@ -9,6 +9,7 @@ import {
   normalizeDetectedRegionCandidates,
   stripJsonFence,
 } from "@/lib/visualizer/ai-detect";
+import { readBlobBuffer } from "@/lib/files/blob-access";
 
 /**
  * POST /api/visualizer/images/[imageId]/detect-regions
@@ -88,6 +89,13 @@ Rules:
 - Be conservative. Return at most 8 windows.
 - If unsure, return an empty windows array.`;
 
+  // 私有 Blob 后 OpenAI 无法抓取存储/代理 URL，服务端读字节后走 base64 data URL
+  const imageBytes = await readBlobBuffer(image.fileUrl);
+  if (!imageBytes) {
+    return NextResponse.json({ error: "图片读取失败" }, { status: 502 });
+  }
+  const imageDataUrl = `data:${imageBytes.contentType};base64,${imageBytes.buffer.toString("base64")}`;
+
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -104,7 +112,7 @@ Rules:
               { type: "text", text: prompt },
               {
                 type: "image_url",
-                image_url: { url: image.fileUrl, detail: "high" },
+                image_url: { url: imageDataUrl, detail: "high" },
               },
             ],
           },

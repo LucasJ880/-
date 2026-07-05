@@ -10,6 +10,7 @@
 
 import crypto from "crypto";
 import { db } from "@/lib/db";
+import { isProxyUrl, readBlobBuffer } from "@/lib/files/blob-access";
 import type {
   MessagingAdapter,
   AdapterStatus,
@@ -198,20 +199,29 @@ export class WeComAdapter implements MessagingAdapter {
 
   /**
    * 发送图片（自建应用）：先把图片上传为临时素材拿 media_id，再 message/send。
-   * imageUrl 为可公开访问的图片地址（如 Vercel Blob）。
+   * imageUrl 支持私有 Blob 代理 URL / 存储 URL（服务端经 SDK 读取）或外部公网 URL。
    */
   async sendImage(to: string, imageUrl: string): Promise<string | undefined> {
     if (!this.config) throw new Error("企业微信未配置");
 
-    // 1. 拉取图片字节
-    const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS) });
-    if (!imgRes.ok) throw new Error(`企业微信图片拉取失败: HTTP ${imgRes.status}`);
-    const buf = Buffer.from(await imgRes.arrayBuffer());
+    // 1. 拉取图片字节（私有 Blob 走 SDK；外链走 HTTP）
+    let buf: Buffer;
+    let contentType: string;
+    if (isProxyUrl(imageUrl) || imageUrl.includes(".blob.vercel-storage.com") || !/^https?:\/\//i.test(imageUrl)) {
+      const blob = await readBlobBuffer(imageUrl);
+      if (!blob) throw new Error("企业微信图片拉取失败: Blob 不可读");
+      buf = blob.buffer;
+      contentType = blob.contentType || "image/png";
+    } else {
+      const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS) });
+      if (!imgRes.ok) throw new Error(`企业微信图片拉取失败: HTTP ${imgRes.status}`);
+      buf = Buffer.from(await imgRes.arrayBuffer());
+      contentType = imgRes.headers.get("content-type") || "image/png";
+    }
     if (buf.length === 0) throw new Error("企业微信图片为空");
     if (buf.length > MAX_OUTBOUND_IMAGE_BYTES) {
       throw new Error(`企业微信图片过大（>${Math.round(MAX_OUTBOUND_IMAGE_BYTES / 1024 / 1024)}MB）`);
     }
-    const contentType = imgRes.headers.get("content-type") || "image/png";
     const ext = contentType.includes("jpeg") || contentType.includes("jpg")
       ? "jpg"
       : contentType.includes("webp")

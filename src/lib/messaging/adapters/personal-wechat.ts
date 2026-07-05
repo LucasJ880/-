@@ -11,6 +11,7 @@
  */
 
 import { db } from "@/lib/db";
+import { isProxyUrl, readBlobBuffer } from "@/lib/files/blob-access";
 import {
   ILINK_BASE_DEFAULT,
   ILINK_CDN_BASE_DEFAULT,
@@ -699,6 +700,15 @@ async function loadImageBytes(image: string): Promise<Buffer | null> {
     const comma = image.indexOf(",");
     if (comma === -1) return null;
     return Buffer.from(image.slice(comma + 1), "base64");
+  }
+  // 私有 Blob（代理 URL / 存储 URL / 纯 pathname）走 SDK 服务端读取
+  if (
+    isProxyUrl(image) ||
+    image.includes(".blob.vercel-storage.com") ||
+    !/^https?:\/\//i.test(image)
+  ) {
+    const blob = await readBlobBuffer(image);
+    return blob?.buffer ?? null;
   }
   if (image.startsWith("http://") || image.startsWith("https://")) {
     const res = await fetch(image, { signal: timeoutSignal(MEDIA_TIMEOUT_MS) });
