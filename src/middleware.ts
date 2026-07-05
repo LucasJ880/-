@@ -14,6 +14,9 @@ const PUBLIC_PATHS = [
   "/api/sales/quotes/share",
   "/api/trade/webhook",
   "/api/messaging/wecom/callback",
+  // Visualizer 客户分享（token 鉴权在 route 内部，无登录态）
+  "/api/visualizer/share",
+  "/sales/share/visualizer",
   "/login",
   "/register",
   "/quote",

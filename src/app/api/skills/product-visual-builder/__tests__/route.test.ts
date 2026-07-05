@@ -8,7 +8,7 @@
  *
  * 运行：npx tsx src/app/api/skills/product-visual-builder/__tests__/route.test.ts
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { POST } from "../route";
 import "../route"; // 触发 globalThis 内部函数挂载
 import type { AuthUser } from "@/lib/auth";
@@ -29,8 +29,15 @@ interface RunOptions {
   generateEnabled?: boolean;
   imageSize?: string;
 }
+type OrgResolution =
+  | { ok: true; orgId: string }
+  | { ok: false; response: NextResponse };
+
 interface RouteDeps {
-  resolveOrgId: (userId: string) => Promise<string | null>;
+  resolveOrg: (
+    user: AuthUser,
+    requestedOrgId?: string | null,
+  ) => Promise<OrgResolution>;
   ensureBuiltinSkills: (orgId: string) => Promise<void>;
   customerInOrg: (customerId: string, orgId: string) => Promise<boolean>;
   projectInOrg: (projectId: string, orgId: string) => Promise<boolean>;
@@ -99,7 +106,7 @@ const captured: {
 
 function makeDeps(over: Partial<RouteDeps> = {}): RouteDeps {
   return {
-    resolveOrgId: async () => "org_real",
+    resolveOrg: async () => ({ ok: true, orgId: "org_real" }),
     ensureBuiltinSkills: async () => {},
     customerInOrg: async () => true,
     projectInOrg: async () => true,
@@ -123,7 +130,7 @@ function makeStatefulDeps(
 ): RouteDeps {
   const key = (orgId: string) => `${orgId}:product-visual-builder`;
   return {
-    resolveOrgId: async () => "org_real",
+    resolveOrg: async () => ({ ok: true, orgId: "org_real" }),
     ensureBuiltinSkills: async (orgId) => {
       counters.ensured++;
       if (opts.failSeed) throw new Error("seed 写库失败");
@@ -182,9 +189,53 @@ async function main() {
     const res = await internals.handleVisualBuilder(
       fakeUser,
       validBody(),
-      makeDeps({ resolveOrgId: async () => null }),
+      makeDeps({
+        resolveOrg: async () => ({
+          ok: false,
+          response: NextResponse.json({ error: "未加入任何组织，无法继续" }, { status: 403 }),
+        }),
+      }),
     );
     ok(res.status === 403, "member: 非组织成员 → 403");
+  }
+
+  // 3b. 多组织未指定 orgId → 400（标准 org 解析语义）
+  {
+    const res = await internals.handleVisualBuilder(
+      fakeUser,
+      validBody({ orgId: undefined }),
+      makeDeps({
+        resolveOrg: async (_user, requestedOrgId) => {
+          if (!requestedOrgId) {
+            return {
+              ok: false,
+              response: NextResponse.json(
+                { error: "缺少 orgId，或您属于多个组织请在请求中指定 orgId" },
+                { status: 400 },
+              ),
+            };
+          }
+          return { ok: true, orgId: requestedOrgId };
+        },
+      }),
+    );
+    ok(res.status === 400, "multi-org: 多组织未指定 orgId → 400");
+  }
+
+  // 3c. body.orgId 作为显式选择传给 resolveOrg，归属由其校验
+  {
+    let seen: string | null | undefined = undefined;
+    await internals.handleVisualBuilder(
+      fakeUser,
+      validBody({ orgId: "org_explicit" }),
+      makeDeps({
+        resolveOrg: async (_user, requestedOrgId) => {
+          seen = requestedOrgId;
+          return { ok: true, orgId: "org_real" };
+        },
+      }),
+    );
+    ok(seen === "org_explicit", "multi-org: body.orgId 透传给 resolveOrg 校验");
   }
 
   // 4. orgId/userId 覆盖

@@ -6,8 +6,9 @@
  *
  * 本阶段不接 gpt-image-2、不生成 outputImageUrls、不写 SkillExecution / AuditLog、不做前端。
  *
- * 鉴权复用 Phase 1C：withAuth（401/停用/500 统一处理）+ 取用户首个 active org。
- * orgId 一律来自 server session 解析，绝不信任客户端传入；路径强制使用可信 orgId。
+ * 鉴权复用 Phase 1C：withAuth（401/停用/500 统一处理）
+ * + resolveRequestOrgIdForUser 标准 org 解析（多组织/管理员必须显式 orgId，且校验成员归属）。
+ * form 的 orgId 仅作为「组织选择」参与解析；路径强制使用解析后的可信 orgId。
  *
  * ⚠️ 上传为 public blob，URL 泄露即可访问；response 带 publicBlobNotice 提醒。
  */
@@ -15,7 +16,10 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import type { AuthUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import {
+  resolveRequestOrgIdForUser,
+  type RequestOrgResolution,
+} from "@/lib/auth/resolve-request-org";
 import {
   uploadVisualBuilderImage,
   validateVisualBuilderImageFile,
@@ -43,21 +47,20 @@ interface UploadInputs {
   files: UploadFile[];
   executionId?: string;
   assetRole?: string;
+  /** 显式组织选择（多组织/管理员必填），归属由 resolveOrg 校验。 */
+  orgId?: string;
 }
 
 interface UploadRouteDeps {
-  resolveOrgId: (userId: string) => Promise<string | null>;
+  resolveOrg: (
+    user: AuthUser,
+    requestedOrgId?: string | null,
+  ) => Promise<RequestOrgResolution>;
   uploadImage: (params: UploadImageParams) => Promise<UploadImageResult>;
 }
 
 const realDeps: UploadRouteDeps = {
-  resolveOrgId: async (userId) => {
-    const m = await db.organizationMember.findFirst({
-      where: { userId, status: "active" },
-      select: { orgId: true },
-    });
-    return m?.orgId ?? null;
-  },
+  resolveOrg: resolveRequestOrgIdForUser,
   // 正式 route 真实上传（dryRun 默认 false）。
   uploadImage: (params) => uploadVisualBuilderImage(params),
 };
@@ -82,10 +85,11 @@ async function handleUpload(
   inputs: UploadInputs,
   deps: UploadRouteDeps,
 ): Promise<NextResponse> {
-  const orgId = await deps.resolveOrgId(user.id);
-  if (!orgId) {
-    return bad("无组织：当前账号未加入任何组织", 403);
+  const resolved = await deps.resolveOrg(user, inputs.orgId ?? null);
+  if (!resolved.ok) {
+    return resolved.response;
   }
+  const orgId = resolved.orgId;
 
   // assetRole 固定为 source；显式传非 source 直接拒绝。
   if (inputs.assetRole !== undefined && inputs.assetRole !== ALLOWED_UPLOAD_ROLE) {
@@ -188,8 +192,12 @@ export const POST = withAuth(async (request, _ctx, user) => {
     const v = form.get("assetRole");
     return typeof v === "string" && v.length > 0 ? v : undefined;
   })();
+  const orgId = (() => {
+    const v = form.get("orgId");
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  })();
 
-  return handleUpload(user, { files, executionId, assetRole }, realDeps);
+  return handleUpload(user, { files, executionId, assetRole, orgId }, realDeps);
 });
 
 // 仅非生产环境暴露内部函数给单元测试（生产/构建时 NODE_ENV=production，不挂载，零泄露）。

@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { createSupplier } from "@/lib/supplier/service";
 import { parseSupplierFromText, classifySupplier } from "@/lib/supplier/classifier";
 import type { CreateSupplierInput } from "@/lib/inquiry/types";
@@ -33,6 +34,10 @@ export async function POST(request: NextRequest) {
   if (!body.orgId) {
     return NextResponse.json({ error: "缺少 orgId" }, { status: 400 });
   }
+
+  const resolved = await resolveRequestOrgIdForUser(auth.user, body.orgId);
+  if (!resolved.ok) return resolved.response;
+  body.orgId = resolved.orgId;
 
   let suppliersToCreate: Partial<CreateSupplierInput>[] = [];
 

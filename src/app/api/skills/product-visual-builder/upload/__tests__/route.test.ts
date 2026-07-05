@@ -7,7 +7,7 @@
  *
  * 运行：npx tsx src/app/api/skills/product-visual-builder/upload/__tests__/route.test.ts
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { POST } from "../route";
 import "../route";
 import type { AuthUser } from "@/lib/auth";
@@ -37,9 +37,16 @@ interface UploadInputs {
   files: UploadFile[];
   executionId?: string;
   assetRole?: string;
+  orgId?: string;
 }
+type OrgResolution =
+  | { ok: true; orgId: string }
+  | { ok: false; response: NextResponse };
 interface UploadRouteDeps {
-  resolveOrgId: (userId: string) => Promise<string | null>;
+  resolveOrg: (
+    user: AuthUser,
+    requestedOrgId?: string | null,
+  ) => Promise<OrgResolution>;
   uploadImage: (params: UploadImageParams) => Promise<UploadImageResult>;
 }
 type Internals = {
@@ -72,7 +79,7 @@ const uploadCalls: UploadImageParams[] = [];
 
 function makeDeps(over: Partial<UploadRouteDeps> = {}): UploadRouteDeps {
   return {
-    resolveOrgId: async () => "org_real",
+    resolveOrg: async () => ({ ok: true, orgId: "org_real" }),
     // 假上传：不触网络，路径用真实 buildVisualBuilderBlobPath 生成（验证可信 orgId / index 递增）
     uploadImage: async (params) => {
       uploadCalls.push(params);
@@ -125,9 +132,35 @@ async function main() {
     const res = await internals.handleUpload(
       fakeUser,
       { files: [fakeFile("a.jpg", "image/jpeg", 1024)] },
-      makeDeps({ resolveOrgId: async () => null }),
+      makeDeps({
+        resolveOrg: async () => ({
+          ok: false,
+          response: NextResponse.json({ error: "未加入任何组织，无法继续" }, { status: 403 }),
+        }),
+      }),
     );
     ok(res.status === 403, "member: 非组织成员 → 403");
+  }
+
+  // 2b. 多组织未指定 orgId → 400（标准 org 解析语义）
+  {
+    const res = await internals.handleUpload(
+      fakeUser,
+      { files: [fakeFile("a.jpg", "image/jpeg", 1024)] },
+      makeDeps({
+        resolveOrg: async (_user, requestedOrgId) =>
+          requestedOrgId
+            ? { ok: true, orgId: requestedOrgId }
+            : {
+                ok: false,
+                response: NextResponse.json(
+                  { error: "缺少 orgId，或您属于多个组织请在请求中指定 orgId" },
+                  { status: 400 },
+                ),
+              },
+      }),
+    );
+    ok(res.status === 400, "multi-org: 多组织未指定 orgId → 400");
   }
 
   // 3. 合法 jpg/png/webp 上传 → success + sourceImageUrls + assets
@@ -154,14 +187,14 @@ async function main() {
     ok(typeof out.publicBlobNotice === "string" && out.publicBlobNotice.length > 0, "upload: 含 publicBlobNotice");
   }
 
-  // 4. 路径使用可信 orgId（即便注入 resolveOrgId=org_real，路径必须是 org_real）
+  // 4. 路径使用可信 orgId（客户端 orgId 仅作选择，路径必须用 resolveOrg 校验后的值）
   {
     uploadCalls.length = 0;
     const res = await internals.handleUpload(
       fakeUser,
-      { executionId: "batch_x", files: [fakeFile("a.jpg", "image/jpeg", 1024)] },
-      // 客户端无法传 orgId；即便恶意 resolveOrgId 也只用其返回值
-      makeDeps({ resolveOrgId: async () => "org_real" }),
+      { executionId: "batch_x", orgId: "EVIL_ORG", files: [fakeFile("a.jpg", "image/jpeg", 1024)] },
+      // resolveOrg 校验后只返回可信 orgId；路径必须用该值
+      makeDeps({ resolveOrg: async () => ({ ok: true, orgId: "org_real" }) }),
     );
     const out = (await res.json()) as UploadResponse;
     ok(Boolean(out.assets?.[0]?.pathname.startsWith("visual-builder/org_real/")), "trusted-org: 路径用可信 orgId");

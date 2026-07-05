@@ -7,10 +7,11 @@
  * 默认仍 dry-run（dryRun=true, generateEnabled=false）：model="dry-run"、outputImageUrls=[]。
  * 仅当显式传 generateEnabled=true 且 dryRun=false 时才真实出图（接 image-client + Blob）。
  *
- * 鉴权复用项目统一方式：withAuth（401/停用 403/500 由其统一处理）+ 取用户首个 active org。
+ * 鉴权复用项目统一方式：withAuth（401/停用 403/500 由其统一处理）
+ * + resolveRequestOrgIdForUser 标准 org 解析（多组织/管理员必须显式 orgId，且校验成员归属）。
  *
  * 安全：
- * - 不信任 body.orgId / body.userId；一律用 session 的 user.id 与服务端解析的 orgId 覆盖。
+ * - body.orgId 仅作为「组织选择」参与解析，必须通过成员归属校验；userId 一律用 session 覆盖。
  * - customerId / projectId 必须属于当前 org，否则 403。
  * - AuditLog 由 service 写入，本 route 不重复写事件；错误响应不泄露堆栈 / prompt / key。
  */
@@ -19,6 +20,10 @@ import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import {
+  resolveRequestOrgIdForUser,
+  type RequestOrgResolution,
+} from "@/lib/auth/resolve-request-org";
 import { seedBuiltinSkills } from "@/lib/agent-core/skills/seed";
 import {
   runProductVisualBuilder,
@@ -149,7 +154,11 @@ function parseOptions(raw: unknown): ParsedOptions {
 
 /** 可注入依赖；默认实现绑定真实 db / service。 */
 interface RouteDeps {
-  resolveOrgId: (userId: string) => Promise<string | null>;
+  /** 标准 org 解析：requestedOrgId 来自 body.orgId（显式选择），须通过归属校验。 */
+  resolveOrg: (
+    user: AuthUser,
+    requestedOrgId?: string | null,
+  ) => Promise<RequestOrgResolution>;
   /** 幂等确保本 org 的内置技能已 seed（复用 seedBuiltinSkills，不写第二套数据）。 */
   ensureBuiltinSkills: (orgId: string) => Promise<void>;
   customerInOrg: (customerId: string, orgId: string) => Promise<boolean>;
@@ -163,13 +172,7 @@ interface RouteDeps {
 }
 
 const realDeps: RouteDeps = {
-  resolveOrgId: async (userId) => {
-    const m = await db.organizationMember.findFirst({
-      where: { userId, status: "active" },
-      select: { orgId: true },
-    });
-    return m?.orgId ?? null;
-  },
+  resolveOrg: resolveRequestOrgIdForUser,
   // 幂等：seedBuiltinSkills 内部按 @@unique([orgId, slug]) 逐个 findUnique，
   // 已存在则跳过、只创建缺失项，从不 update，不会覆盖用户改过的 prompt。
   ensureBuiltinSkills: async (orgId) => {
@@ -221,10 +224,16 @@ async function handleVisualBuilder(
   body: unknown,
   deps: RouteDeps,
 ): Promise<NextResponse> {
-  const orgId = await deps.resolveOrgId(user.id);
-  if (!orgId) {
-    return NextResponse.json({ error: "无组织：当前账号未加入任何组织" }, { status: 403 });
+  // body.orgId 仅作为显式组织选择参与解析（多组织/管理员必填），归属由 resolveOrg 校验
+  const requestedOrgId =
+    body && typeof body === "object" && typeof (body as Record<string, unknown>).orgId === "string"
+      ? ((body as Record<string, unknown>).orgId as string)
+      : null;
+  const resolved = await deps.resolveOrg(user, requestedOrgId);
+  if (!resolved.ok) {
+    return resolved.response;
   }
+  const orgId = resolved.orgId;
 
   const v = validateBody(body);
   if (!v.ok) {

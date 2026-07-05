@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
-import {
-  getSupplier,
-  updateSupplier,
-  deleteSupplier,
-} from "@/lib/supplier/service";
+import { requireSupplierOrgAccess } from "@/lib/supplier/access";
+import { updateSupplier, deleteSupplier } from "@/lib/supplier/service";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -13,11 +10,10 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
-  const supplier = await getSupplier(id);
-  if (!supplier) {
-    return NextResponse.json({ error: "供应商不存在" }, { status: 404 });
-  }
-  return NextResponse.json(supplier);
+  const access = await requireSupplierOrgAccess(auth.user, id);
+  if (!access.ok) return access.response;
+
+  return NextResponse.json(access.supplier);
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
@@ -25,6 +21,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
+  const access = await requireSupplierOrgAccess(auth.user, id);
+  if (!access.ok) return access.response;
+
   const body = await request.json();
 
   try {
@@ -41,6 +40,9 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
+  const access = await requireSupplierOrgAccess(auth.user, id);
+  if (!access.ok) return access.response;
+
   try {
     await deleteSupplier(id);
     return NextResponse.json({ success: true });

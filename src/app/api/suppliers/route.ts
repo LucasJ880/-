@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { createSupplier, listSuppliers } from "@/lib/supplier/service";
 import { isNonEmptyString } from "@/lib/common/validation";
 
@@ -8,10 +9,13 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const url = new URL(request.url);
-  const orgId = url.searchParams.get("orgId");
-  if (!orgId) {
-    return NextResponse.json({ error: "缺少 orgId 参数" }, { status: 400 });
-  }
+  // orgId 必须属于当前用户（管理员需显式指定且组织存在）
+  const resolved = await resolveRequestOrgIdForUser(
+    auth.user,
+    url.searchParams.get("orgId"),
+  );
+  if (!resolved.ok) return resolved.response;
+  const orgId = resolved.orgId;
 
   const status = url.searchParams.get("status") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
@@ -35,8 +39,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const resolved = await resolveRequestOrgIdForUser(auth.user, body.orgId);
+  if (!resolved.ok) return resolved.response;
+
   try {
-    const supplier = await createSupplier(body, auth.user.id);
+    const supplier = await createSupplier({ ...body, orgId: resolved.orgId }, auth.user.id);
     return NextResponse.json(supplier, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "创建失败";

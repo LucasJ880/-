@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
+import { requireSupplierOrgAccess } from "@/lib/supplier/access";
 import { classifySupplier } from "@/lib/supplier/classifier";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await ctx.params;
+  const access = await requireSupplierOrgAccess(auth.user, id);
+  if (!access.ok) return access.response;
 
   try {
     const result = await classifySupplier(id);
