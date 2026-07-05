@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { generatePlan } from "@/lib/agent/orchestrator";
+import { generateFlowPlan } from "@/lib/agent-core/skills/flow-runner";
 import { listTemplates } from "@/lib/agent/templates";
 import type { TriggerType } from "@/lib/agent/types";
 
@@ -65,7 +65,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "缺少 intent 或 projectId" }, { status: 400 });
   }
 
-  const result = await generatePlan({
+  const result = await generateFlowPlan({
     intent,
     projectId,
     userId: user.id,

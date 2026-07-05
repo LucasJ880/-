@@ -20,7 +20,7 @@ import {
   getPendingApprovals,
   escalateApproval,
 } from "@/lib/agent/approval";
-import { resumeAfterApproval } from "@/lib/agent/executor";
+import { resumeFlowAfterApproval } from "@/lib/agent-core/skills/flow-runner";
 
 export type ApprovalKind = "pending_action" | "approval_request";
 
@@ -170,7 +170,7 @@ export async function approveApprovalItem(
   });
 
   // 步骤级审批通过后自动恢复任务执行（旧编排栈语义）
-  const resumed = await resumeAfterApproval(approval.taskId);
+  const resumed = await resumeFlowAfterApproval(approval.taskId);
   return {
     ok: true,
     status: resumed.status,
@@ -219,11 +219,16 @@ export async function rejectApprovalItem(
   return { ok: true, status: "rejected", resultRef: approval.taskId };
 }
 
-// ── 超时处理（cron 入口，A-P4 切换 approval-timeout 时调用） ─────
+// ── 超时处理（approval-timeout cron 统一入口） ───────────────────
+
+const APPROVAL_BATCH_SIZE = 200;
+const STALE_APPROVAL_HOURS = 48;
 
 export interface ExpireOverdueResult {
   expiredPendingActions: number;
   escalatedApprovals: number;
+  staleApprovals: number;
+  remindedApprovals: number;
 }
 
 export async function expireOverdueApprovals(
@@ -243,7 +248,7 @@ export async function expireOverdueApprovals(
       task: { select: { createdById: true, projectId: true } },
     },
     orderBy: { deadlineAt: "asc" },
-    take: 50,
+    take: APPROVAL_BATCH_SIZE,
   });
   for (const approval of overdue) {
     await escalateApproval(
@@ -253,8 +258,53 @@ export async function expireOverdueApprovals(
     );
   }
 
+  // 3) 无 deadline 但滞留超过 48h 的步骤级审批：发提醒（不改状态、幂等）
+  const staleSince = new Date(
+    now.getTime() - STALE_APPROVAL_HOURS * 60 * 60 * 1000,
+  );
+  const stale = await db.approvalRequest.findMany({
+    where: {
+      status: "pending",
+      deadlineAt: null,
+      createdAt: { lte: staleSince },
+    },
+    include: {
+      task: { select: { intent: true, createdById: true, projectId: true } },
+      step: { select: { title: true } },
+    },
+    orderBy: { createdAt: "asc" },
+    take: APPROVAL_BATCH_SIZE,
+  });
+
+  let reminded = 0;
+  for (const approval of stale) {
+    const targetUserId = approval.approverUserId ?? approval.task.createdById;
+    const existingReminder = await db.notification.findFirst({
+      where: { sourceKey: `approval_remind_${approval.id}` },
+    });
+    if (existingReminder) continue;
+
+    await db.notification.create({
+      data: {
+        userId: targetUserId,
+        type: "agent_approval",
+        category: "agent",
+        title: `审批提醒：「${approval.step.title}」已等待超过 ${STALE_APPROVAL_HOURS} 小时`,
+        summary: `任务：${approval.task.intent}`,
+        projectId: approval.task.projectId ?? null,
+        entityType: "approval_request",
+        entityId: approval.id,
+        priority: "high",
+        sourceKey: `approval_remind_${approval.id}`,
+      },
+    });
+    reminded++;
+  }
+
   return {
     expiredPendingActions: expired.count,
     escalatedApprovals: overdue.length,
+    staleApprovals: stale.length,
+    remindedApprovals: reminded,
   };
 }

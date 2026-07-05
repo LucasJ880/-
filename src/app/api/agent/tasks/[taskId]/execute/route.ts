@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
-import { executeTask, resumeAfterApproval } from "@/lib/agent/executor";
+import { executeFlowTask, resumeFlowAfterApproval } from "@/lib/agent-core/skills/flow-runner";
 
 /**
  * POST /api/agent/tasks/:taskId/execute
@@ -12,8 +12,8 @@ export const POST = withAuth(async (request, ctx) => {
   const isResume = (body as { resume?: boolean }).resume === true;
 
   const result = isResume
-    ? await resumeAfterApproval(taskId)
-    : await executeTask(taskId);
+    ? await resumeFlowAfterApproval(taskId)
+    : await executeFlowTask(taskId);
 
   return NextResponse.json(result);
 });

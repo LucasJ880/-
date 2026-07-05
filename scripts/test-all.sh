@@ -43,13 +43,9 @@ run_test() {
 echo "━━━ 第一组：纯逻辑单元测试 ━━━"
 echo ""
 
-run_test "阶段推进规则" "npx tsx src/lib/tender/__tests__/stage-transition.test.ts"
-run_test "阶段→任务联动" "npx tsx src/lib/tender/__tests__/stage-tasks.test.ts"
-run_test "AI 调用监控" "npx tsx src/lib/ai/__tests__/monitor.test.ts"
-run_test "i18n 文案完整性" "npx tsx src/lib/i18n/__tests__/zh.test.ts"
-run_test "报价计算引擎" "npx tsx src/lib/blinds/__tests__/pricing-engine.test.ts"
-run_test "商机生命周期状态机" "npx tsx src/lib/sales/__tests__/opportunity-lifecycle.test.ts"
-run_test "Coaching 归因评分" "npx tsx src/lib/sales/__tests__/coaching-scoring.test.ts"
+# A-P4 清理：移除 7 个历史虚挂条目（对应测试文件从未提交，见架构升级计划）
+# 阶段推进规则 / 阶段→任务联动 / AI 调用监控 / i18n 文案完整性 /
+# 报价计算引擎 / 商机生命周期状态机 / Coaching 归因评分
 run_test "iLink 媒体纯函数" "npx tsx src/lib/messaging/adapters/__tests__/ilink-media.test.ts"
 run_test "iLink 报文解析" "npx tsx src/lib/messaging/adapters/__tests__/ilink-parse.test.ts"
 run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests__/ilink-send-payload.test.ts"
@@ -75,7 +71,13 @@ run_test "TypeScript 类型检查" "npx tsc --noEmit"
 if [ -f "scripts/test-work-json.py" ]; then
   echo "━━━ AI 分类基线测试 ━━━"
   echo ""
-  run_test "AI 工作事项分类" "python3 scripts/test-work-json.py"
+  # 需要本地服务在跑（BASE_URL 或 localhost:3000），否则跳过而非误报失败
+  if curl -s -o /dev/null --max-time 2 "${BASE_URL:-http://localhost:3000}"; then
+    run_test "AI 工作事项分类" "python3 scripts/test-work-json.py"
+  else
+    echo "⏭  跳过 AI 工作事项分类（本地服务未运行，启动 dev server 后重跑）"
+    echo ""
+  fi
 fi
 
 # ── 第四组：API 集成测试（需要 --api 参数） ──

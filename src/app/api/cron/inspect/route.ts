@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { generatePlan } from "@/lib/agent/orchestrator";
-import { executeTask } from "@/lib/agent/executor";
+import {
+  generateFlowPlan,
+  executeFlowTask,
+} from "@/lib/agent-core/skills/flow-runner";
 
 export const maxDuration = 60;
 
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest) {
 
   for (const project of projects) {
     try {
-      const plan = await generatePlan({
+      const plan = await generateFlowPlan({
         intent: "定时自动巡检",
         projectId: project.id,
         userId: project.ownerId,
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
         triggerType: "cron",
       });
 
-      const execResult = await executeTask(plan.taskId);
+      const execResult = await executeFlowTask(plan.taskId);
 
       results.push({
         projectId: project.id,
