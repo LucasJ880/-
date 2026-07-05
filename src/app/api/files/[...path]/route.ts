@@ -88,7 +88,7 @@ async function authorizeBlobPath(
   }
 }
 
-export const GET = withAuth(async (request, ctx, user) => {
+export const GET = withAuth<{ path: string[] }>(async (request, ctx, user) => {
   const params = await ctx.params;
   const raw = params.path;
   const segments = (Array.isArray(raw) ? raw : [raw])

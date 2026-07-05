@@ -50,9 +50,9 @@ export async function safeParseBody<T = Record<string, unknown>>(
   }
 }
 
-type AuthHandler = (
+type AuthHandler<P> = (
   request: NextRequest,
-  ctx: { params: Promise<Record<string, string>> },
+  ctx: { params: Promise<P> },
   user: AuthUser
 ) => Promise<NextResponse>;
 
@@ -63,11 +63,14 @@ type AuthHandler = (
  * - 生成 requestId（入 X-Request-Id 响应头，便于前后端对齐排查）
  * - 注入 AsyncLocalStorage，logger 自动带上 requestId / userId / route
  * - 异常结构化日志（event=api.error，带 pathname/method/err）
+ *
+ * 泛型 P：路由参数类型，默认普通动态段；catch-all 路由需显式声明，
+ * 如 withAuth<{ path: string[] }>(...)（Next 16 路由类型校验要求精确匹配）。
  */
-export function withAuth(handler: AuthHandler) {
+export function withAuth<P = Record<string, string>>(handler: AuthHandler<P>) {
   return async (
     request: NextRequest,
-    ctx: { params: Promise<Record<string, string>> }
+    ctx: { params: Promise<P> }
   ) => {
     const requestId =
       request.headers.get("x-request-id") || generateRequestId();
