@@ -15,10 +15,14 @@
 import { getClient } from "@/lib/ai/client";
 import { getTaskPreset } from "@/lib/ai/config";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
+import { logger } from "@/lib/common/logger";
 import { registry } from "./tool-registry";
 import type {
   AgentRunOptions,
   AgentRunResult,
+  AgentRunHooks,
+  AgentToolCallInfo,
+  AgentRunFinishInfo,
 } from "./types";
 import { toolLabel, type AgentStreamEvent } from "./streaming";
 
@@ -36,6 +40,31 @@ class AgentTimeoutError extends Error {
     super(message);
     this.name = "AgentTimeoutError";
   }
+}
+
+// ── A-P0：观测 hooks（fire-and-forget，绝不影响主链路）──────────
+
+function fireToolCallHook(hooks: AgentRunHooks | undefined, info: AgentToolCallInfo): void {
+  if (!hooks?.onToolCall) return;
+  Promise.resolve()
+    .then(() => hooks.onToolCall!(info))
+    .catch((err) => {
+      logger.warn("agent_core.hook.tool_call_failed", {
+        tool: info.name,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
+function fireFinishHook(hooks: AgentRunHooks | undefined, info: AgentRunFinishInfo): void {
+  if (!hooks?.onFinish) return;
+  Promise.resolve()
+    .then(() => hooks.onFinish!(info))
+    .catch((err) => {
+      logger.warn("agent_core.hook.finish_failed", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
 }
 
 async function llmCallWithTimeout(
@@ -110,6 +139,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const model = preset.model;
   const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
   const externalSignal = options.abortSignal;
+  const hooks = options.hooks;
+  const runStartedAt = Date.now();
 
   // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤）
   const openaiTools = registry.toOpenAITools({
@@ -166,12 +197,18 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       const assistantMessage: any = choice.message;
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-        return {
+        const result: AgentRunResult = {
           content: assistantMessage.content ?? "",
           toolCalls: toolCallLog,
           model,
           rounds,
         };
+        fireFinishHook(hooks, {
+          ...result,
+          latencyMs: Date.now() - runStartedAt,
+          success: true,
+        });
+        return result;
       }
 
       messages.push({
@@ -184,6 +221,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         })),
       });
 
+      const currentRound = rounds;
       const toolResults = await Promise.all(
         assistantMessage.tool_calls.map(async (tc: any) => {
           let args: Record<string, unknown> = {};
@@ -193,6 +231,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
             args = {};
           }
 
+          const toolStartedAt = Date.now();
           const result = await registry.execute(tc.function.name, {
             args,
             userId,
@@ -205,6 +244,15 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
             name: tc.function.name,
             args,
             result,
+          });
+
+          fireToolCallHook(hooks, {
+            name: tc.function.name,
+            args,
+            result,
+            durationMs: Date.now() - toolStartedAt,
+            round: currentRound,
+            toolCallId: tc.id,
           });
 
           return { id: tc.id, name: tc.function.name, result };
@@ -238,21 +286,43 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       externalSignal,
     );
 
-    return {
+    const result: AgentRunResult = {
       content: (finalResponse.choices[0]?.message as any)?.content ?? "",
       toolCalls: toolCallLog,
       model,
       rounds,
     };
+    fireFinishHook(hooks, {
+      ...result,
+      latencyMs: Date.now() - runStartedAt,
+      success: true,
+    });
+    return result;
   } catch (err) {
     if (err instanceof AgentTimeoutError) {
-      return {
+      const result: AgentRunResult = {
         content: err.message,
         toolCalls: toolCallLog,
         model,
         rounds,
       };
+      fireFinishHook(hooks, {
+        ...result,
+        latencyMs: Date.now() - runStartedAt,
+        success: false,
+        errorMessage: err.message,
+      });
+      return result;
     }
+    fireFinishHook(hooks, {
+      content: "",
+      toolCalls: toolCallLog,
+      model,
+      rounds,
+      latencyMs: Date.now() - runStartedAt,
+      success: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
     throw err;
   }
 }
@@ -291,9 +361,12 @@ export async function* runAgentStream(
   const model = preset.model;
   const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
   const startedAt = Date.now();
+  const hooks = options.hooks;
   let firstTokenMs: number | undefined;
   let toolCallCount = 0;
   let rounds = 0;
+  let fullText = "";
+  const toolCallLog: AgentRunResult["toolCalls"] = [];
 
   const openaiTools = registry.toOpenAITools({
     domains: options.domains,
@@ -313,14 +386,41 @@ export async function* runAgentStream(
     }),
   ];
 
-  const finish = (): AgentStreamEvent => ({
-    type: "done",
-    firstTokenMs,
-    rounds,
-    toolCalls: toolCallCount,
-    latencyMs: Date.now() - startedAt,
-    model,
-  });
+  const finish = (): AgentStreamEvent => {
+    fireFinishHook(hooks, {
+      content: fullText,
+      toolCalls: toolCallLog,
+      model,
+      rounds,
+      latencyMs: Date.now() - startedAt,
+      success: true,
+    });
+    return {
+      type: "done",
+      firstTokenMs,
+      rounds,
+      toolCalls: toolCallCount,
+      latencyMs: Date.now() - startedAt,
+      model,
+    };
+  };
+
+  const failFinish = (message: string): void => {
+    fireFinishHook(hooks, {
+      content: fullText,
+      toolCalls: toolCallLog,
+      model,
+      rounds,
+      latencyMs: Date.now() - startedAt,
+      success: false,
+      errorMessage: message,
+    });
+  };
+
+  const errorEvent = (message: string): AgentStreamEvent => {
+    failFinish(message);
+    return { type: "error", message };
+  };
 
   try {
     while (rounds < maxToolRounds) {
@@ -328,7 +428,7 @@ export async function* runAgentStream(
 
       const remaining = totalDeadline - Date.now();
       if (remaining <= 0) {
-        yield { type: "error", message: "AI 处理总时间超限，请稍后重试" };
+        yield errorEvent("AI 处理总时间超限，请稍后重试");
         return;
       }
       const perRoundMs = Math.min(PER_ROUND_TIMEOUT_MS, remaining);
@@ -364,17 +464,14 @@ export async function* runAgentStream(
         clearTimeout(perRoundTimer);
         if (abortSignal) abortSignal.removeEventListener("abort", onExternalAbort);
         if (abortSignal?.aborted) {
-          yield { type: "error", message: "客户端已断开" };
+          yield errorEvent("客户端已断开");
           return;
         }
         if (err?.name === "AbortError" || controller.signal.aborted) {
-          yield {
-            type: "error",
-            message: `AI 响应超时（${Math.round(perRoundMs / 1000)}s），请稍后重试`,
-          };
+          yield errorEvent(`AI 响应超时（${Math.round(perRoundMs / 1000)}s），请稍后重试`);
           return;
         }
-        yield { type: "error", message: err?.message || "AI 调用失败" };
+        yield errorEvent(err?.message || "AI 调用失败");
         return;
       }
 
@@ -400,6 +497,7 @@ export async function* runAgentStream(
               firstTokenMs = Date.now() - startedAt;
             }
             accText += delta.content;
+            fullText += delta.content;
             yield { type: "text", delta: delta.content };
           }
 
@@ -448,13 +546,10 @@ export async function* runAgentStream(
 
       if (streamErr) {
         if (abortSignal?.aborted) {
-          yield { type: "error", message: "客户端已断开" };
+          yield errorEvent("客户端已断开");
           return;
         }
-        yield {
-          type: "error",
-          message: streamErr?.message || "流式响应中断",
-        };
+        yield errorEvent(streamErr?.message || "流式响应中断");
         return;
       }
 
@@ -495,12 +590,23 @@ export async function* runAgentStream(
           args = {};
         }
 
+        const toolStartedAt = Date.now();
         const result = await registry.execute(name, {
           args,
           userId,
           orgId,
           sessionId,
           role,
+        });
+
+        toolCallLog.push({ name, args, result });
+        fireToolCallHook(hooks, {
+          name,
+          args,
+          result,
+          durationMs: Date.now() - toolStartedAt,
+          round: rounds,
+          toolCallId: tc.id,
         });
 
         yield {
@@ -540,25 +646,20 @@ export async function* runAgentStream(
         const delta = chunk?.choices?.[0]?.delta?.content;
         if (delta) {
           if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
+          fullText += delta;
           yield { type: "text", delta };
         }
       }
     } catch (err: any) {
       if (finalRemaining > 0) {
-        yield {
-          type: "error",
-          message: err?.message || "最终总结失败",
-        };
+        yield errorEvent(err?.message || "最终总结失败");
         return;
       }
     }
 
     yield finish();
   } catch (err) {
-    yield {
-      type: "error",
-      message: err instanceof Error ? err.message : String(err),
-    };
+    yield errorEvent(err instanceof Error ? err.message : String(err));
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

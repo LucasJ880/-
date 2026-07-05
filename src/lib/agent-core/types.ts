@@ -169,6 +169,8 @@ export interface AgentRunOptions {
    * 客户端断开时，正在进行的 OpenAI 调用会被立即中止，避免继续扣费。
    */
   abortSignal?: AbortSignal;
+  /** A-P0：可选观测/持久化 hooks（ToolCallTrace / SkillExecution 等由调用方注入） */
+  hooks?: AgentRunHooks;
 }
 
 export interface AgentRunResult {
@@ -184,4 +186,41 @@ export interface AgentRunResult {
   model: string;
   /** 总轮数 */
   rounds: number;
+}
+
+// ── 观测 hooks（A-P0：统一观测，不动业务逻辑）────────────────────
+
+/** 单次工具调用的观测信息（engine 在每次 registry.execute 后回调） */
+export interface AgentToolCallInfo {
+  name: string;
+  args: Record<string, unknown>;
+  result: ToolExecutionResult;
+  /** 本次工具执行耗时 */
+  durationMs: number;
+  /** 所在轮次（1-based） */
+  round: number;
+  /** OpenAI tool_call id（有则带上） */
+  toolCallId?: string;
+}
+
+/** 整次 run 结束的观测信息 */
+export interface AgentRunFinishInfo {
+  content: string;
+  model: string;
+  rounds: number;
+  toolCalls: AgentRunResult["toolCalls"];
+  latencyMs: number;
+  /** false 表示以超时/错误文案收尾 */
+  success: boolean;
+  errorMessage?: string;
+}
+
+/**
+ * 可选持久化/观测 hooks。
+ * - 由调用方注入（如项目会话 adapter 写 ToolCallTrace、技能入口写 SkillExecution）
+ * - engine 统一 fire-and-forget：hook 抛错只记日志，绝不影响主链路
+ */
+export interface AgentRunHooks {
+  onToolCall?: (info: AgentToolCallInfo) => void | Promise<void>;
+  onFinish?: (info: AgentRunFinishInfo) => void | Promise<void>;
 }
