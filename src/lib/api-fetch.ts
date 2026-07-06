@@ -7,7 +7,37 @@
  * - 3 次熔断：同一会话 60 秒内连续 3 次 401 跳转 → 停止跳转，留在当前页
  */
 
+import { readStoredOrgId } from "@/lib/org-selection";
+
 const AUTH_PATH_PREFIXES = ["/login", "/register"];
+
+/** 这些前缀的 API 由后端按「当前组织」解析数据边界，多组织用户必须显式带 orgId */
+const ORG_SCOPED_API_PREFIXES = ["/api/sales/", "/api/trade/"];
+
+/**
+ * 多组织支持：请求 org-scoped API 时，若 query 未显式带 orgId，
+ * 自动附加用户在组织切换器里选定的组织（localStorage）。
+ * 后端仍会校验成员关系，此处只负责传递选择，不做信任判断。
+ */
+function withSelectedOrgId(input: RequestInfo | URL): RequestInfo | URL {
+  if (typeof window === "undefined" || input instanceof Request) return input;
+  try {
+    const url = new URL(
+      input instanceof URL ? input.href : String(input),
+      window.location.origin,
+    );
+    if (!ORG_SCOPED_API_PREFIXES.some((p) => url.pathname.startsWith(p))) {
+      return input;
+    }
+    if (url.searchParams.get("orgId")) return input;
+    const stored = readStoredOrgId();
+    if (!stored) return input;
+    url.searchParams.set("orgId", stored);
+    return url.pathname + url.search;
+  } catch {
+    return input;
+  }
+}
 const REDIRECT_COOLDOWN_MS = 10_000;
 const TS_KEY = "qy_401_ts";
 const COUNT_KEY = "qy_401_n";
@@ -75,7 +105,8 @@ export async function apiFetch(
   init?: ApiFetchInit
 ): Promise<Response> {
   const { skipAuthRedirect, ...rest } = init ?? {};
-  const res = await fetch(input, {
+  const target = withSelectedOrgId(input);
+  const res = await fetch(target, {
     ...rest,
     credentials: rest.credentials ?? "include",
   });

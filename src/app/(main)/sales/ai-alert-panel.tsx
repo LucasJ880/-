@@ -31,6 +31,7 @@ import {
   salesOrgCreateBlockedHint,
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
+import { OrgSelectBanner } from "@/components/org-select-banner";
 
 export function AiAlertPanel() {
   const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
@@ -200,11 +201,7 @@ export function AiAlertPanel() {
 
         {expanded && briefing && (
           <div className="mt-4 space-y-3">
-            {!orgLoading && ambiguous && (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                {salesOrgCreateBlockedHint(false, true, null)}
-              </div>
-            )}
+            <OrgSelectBanner />
             <div className="rounded-lg bg-white/80 p-3 text-sm whitespace-pre-line text-foreground/80">
               {briefing.aiSummary}
             </div>

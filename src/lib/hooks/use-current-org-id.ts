@@ -3,29 +3,14 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
+import {
+  SELECTED_ORG_STORAGE_KEY,
+  readStoredOrgId,
+  persistSelectedOrgId,
+} from "@/lib/org-selection";
 
-/** 与外贸 / 秘书等 API 共用的「当前组织」本地记忆（需用户显式写入，见 persistSelectedOrgId） */
-export const SELECTED_ORG_STORAGE_KEY = "qingyan_selected_org_id";
-
-function readStoredOrgId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem(SELECTED_ORG_STORAGE_KEY)?.trim() ?? "";
-  } catch {
-    return "";
-  }
-}
-
-/** 将用户选择的组织写入 localStorage（供非 /organizations/:id 路由下的多组织场景使用） */
-export function persistSelectedOrgId(orgId: string) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgId.trim());
-    window.dispatchEvent(new Event("qingyan-org-storage"));
-  } catch {
-    /* ignore */
-  }
-}
+// 向后兼容 re-export（实现已抽到 org-selection.ts，供 apiFetch 复用）
+export { SELECTED_ORG_STORAGE_KEY, persistSelectedOrgId };
 
 /**
  * 解析当前应使用的 orgId（不信任「列表第一个」为多组织默认值）

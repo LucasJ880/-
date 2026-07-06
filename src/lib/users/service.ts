@@ -134,6 +134,39 @@ export async function updateUserRole(
   });
 }
 
+/**
+ * 软删除用户账号（总经理 / 管理员操作）。
+ *
+ * 业务数据（客户、报价、项目、任务等）大量以该用户为创建人/负责人，
+ * 硬删除会破坏外键与经营历史，故采用软删除：
+ * - status → "deleted"（无法再登录，withAuth/requireAuth 均拦截非 active）
+ * - 邮箱匿名化（释放邮箱，允许同邮箱重新注册）
+ * - 清除密码哈希、退出全部组织/项目、解绑微信
+ */
+export async function softDeleteUser(
+  userId: string
+): Promise<{ originalEmail: string }> {
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { email: true },
+  });
+  const anonymizedEmail = `deleted_${Date.now()}_${user.email}`;
+  await db.$transaction([
+    db.organizationMember.deleteMany({ where: { userId } }),
+    db.projectMember.deleteMany({ where: { userId } }),
+    db.weChatBinding.deleteMany({ where: { userId } }),
+    db.user.update({
+      where: { id: userId },
+      data: {
+        status: "deleted",
+        email: anonymizedEmail,
+        passwordHash: null,
+      },
+    }),
+  ]);
+  return { originalEmail: user.email };
+}
+
 /** 更新用户资料 */
 export async function updateUserProfile(
   userId: string,

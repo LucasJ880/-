@@ -39,7 +39,7 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
-import { persistSelectedOrgId } from "@/lib/hooks/use-current-org-id";
+import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
@@ -125,12 +125,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // 总经理(manager)仅可见「用户管理」；其余仍为平台管理员专属
     titleKey: "nav_group_admin",
-    adminOnly: true,
-    roles: ["admin", "super_admin"],
+    roles: ["admin", "super_admin", "manager"],
     items: [
       { href: "/admin/project-intake", labelKey: "nav_project_intake", icon: ClipboardList, adminOnly: true },
-      { href: "/admin/users", labelKey: "nav_user_management", icon: Users, adminOnly: true },
+      { href: "/admin/users", labelKey: "nav_user_management", icon: Users, roles: ["admin", "super_admin", "manager"] },
       { href: "/admin/invite-codes", labelKey: "nav_invite_codes", icon: Shield, adminOnly: true },
       { href: "/admin/audit-logs", labelKey: "nav_audit_logs", icon: ScrollText, adminOnly: true },
       { href: "/blinds-orders", labelKey: "nav_orders_admin", icon: ClipboardList, adminOnly: true },
@@ -162,7 +162,10 @@ function OrgSwitcher({
   const pathname = usePathname();
 
   const currentOrgId = pathname.match(/\/organizations\/([^/]+)/)?.[1];
-  const currentOrg = organizations.find((o) => o.id === currentOrgId);
+  // 优先级：URL 上的组织 → 用户选定的组织（localStorage）→ 列表第一个
+  const currentOrg =
+    organizations.find((o) => o.id === currentOrgId) ??
+    organizations.find((o) => o.id === readStoredOrgId());
 
   useEffect(() => {
     if (!open) return;

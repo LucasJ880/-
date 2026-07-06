@@ -35,6 +35,14 @@ export const ROLE_CAPABILITIES: Record<PlatformRole, RoleCapabilities> = {
     canWrite: true,
     uiModules: ["dashboard", "sales", "trade", "cockpit", "calendar", "inbox", "assistant", "knowledge", "admin"],
   },
+  manager: {
+    // 总经理：定位是用户账号管理（查看/删除人员账号），
+    // AI 域与数据范围保持保守（同 user），业务数据仍按组织成员关系解析。
+    aiDomains: ["secretary", "system"],
+    dataScope: "own",
+    canWrite: false,
+    uiModules: ["dashboard", "assistant", "admin"],
+  },
   sales: {
     // 注意：当前代码库里 cockpit 工具的 domain 被登记为 "trade"，
     // 所以对 sales 不放开 "trade" 域即可顺带屏蔽 cockpit 工具。

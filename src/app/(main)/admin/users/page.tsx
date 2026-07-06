@@ -17,7 +17,7 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { canViewAdminPages } from "@/lib/permissions-client";
+import { canManageUsers, isAdmin } from "@/lib/permissions-client";
 
 interface UserRow {
   id: string;
@@ -45,6 +45,7 @@ const STATUS_OPTIONS = [
   { value: "active", label: "正常" },
   { value: "inactive", label: "已停用" },
   { value: "suspended", label: "已封禁" },
+  { value: "deleted", label: "已删除" },
 ];
 
 export default function AdminUsersPage() {
@@ -103,7 +104,7 @@ function UsersContent() {
 
   useEffect(() => {
     if (userLoading) return;
-    if (!canViewAdminPages(currentUser?.role)) return;
+    if (!canManageUsers(currentUser?.role)) return;
     loadUsers();
   }, [loadUsers, userLoading, currentUser?.role]);
 
@@ -158,6 +159,36 @@ function UsersContent() {
     }
   }
 
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDeleteUser() {
+    if (!selectedUser || deleting) return;
+    const label = `${selectedUser.name}（${selectedUser.email}）`;
+    if (
+      !window.confirm(
+        `确定删除账号 ${label} 吗？\n\n删除后该账号将无法登录，并退出全部组织；其名下的客户、报价、项目等业务数据会保留。此操作不可撤销。`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await apiFetch(`/api/users/${selectedUser.id}`, {
+        method: "DELETE",
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setSelectedUser(null);
+        setUserDetail(null);
+        loadUsers();
+      } else {
+        alert(d.error || "删除失败");
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleRoleUpdate() {
     if (!selectedUser || !newRole) return;
     setRoleUpdating(true);
@@ -187,13 +218,13 @@ function UsersContent() {
     );
   }
 
-  if (!canViewAdminPages(currentUser?.role)) {
+  if (!canManageUsers(currentUser?.role)) {
     return (
       <div className="mx-auto max-w-2xl">
         <div className="flex flex-col items-center gap-3 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] py-12">
           <Shield className="h-10 w-10 text-[#a63d3d]" />
           <p className="text-sm font-medium text-[#a63d3d]">无权限访问</p>
-          <p className="text-sm text-[#a63d3d]">此页面仅超级管理员可查看</p>
+          <p className="text-sm text-[#a63d3d]">此页面仅管理员或总经理可查看</p>
         </div>
       </div>
     );
@@ -384,7 +415,7 @@ function UsersContent() {
                     <span className="text-sm text-muted">平台角色</span>
                     <div className="flex items-center gap-2">
                       <RoleBadge role={String(userDetail.role)} type="platform" />
-                      {!editingRole && (
+                      {!editingRole && isAdmin(currentUser?.role) && (
                         <button
                           onClick={() => { setEditingRole(true); setNewRole(String(userDetail.role)); }}
                           className="text-xs text-accent hover:underline"
@@ -402,6 +433,7 @@ function UsersContent() {
                         className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
                       >
                         <option value="admin">管理员</option>
+                        <option value="manager">总经理</option>
                         <option value="sales">销售</option>
                         <option value="trade">外贸助手</option>
                         <option value="user">普通用户</option>
@@ -423,8 +455,9 @@ function UsersContent() {
                   )}
                 </div>
 
-                {/* 客户权限开关 —— 仅对非 admin 角色有意义 */}
-                {String(userDetail.role) !== "admin" &&
+                {/* 客户权限开关 —— 仅对非 admin 角色有意义；仅 admin 可改 */}
+                {isAdmin(currentUser?.role) &&
+                  String(userDetail.role) !== "admin" &&
                   String(userDetail.role) !== "super_admin" && (
                     <div className="rounded-lg border border-border p-3">
                       <div className="flex items-start justify-between gap-3">
@@ -448,6 +481,32 @@ function UsersContent() {
                           <div className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-accent peer-disabled:opacity-50" />
                           <div className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
                         </label>
+                      </div>
+                    </div>
+                  )}
+
+                {/* 危险操作：删除账号（管理员 / 总经理；不能删自己 / admin；总经理仅 admin 可删） */}
+                {selectedUser.id !== currentUser?.id &&
+                  String(userDetail.status) !== "deleted" &&
+                  String(userDetail.role) !== "admin" &&
+                  String(userDetail.role) !== "super_admin" &&
+                  (String(userDetail.role) !== "manager" || isAdmin(currentUser?.role)) && (
+                    <div className="rounded-lg border border-[rgba(166,61,61,0.25)] bg-[rgba(166,61,61,0.03)] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[#a63d3d]">删除账号</p>
+                          <p className="mt-1 text-xs text-muted leading-relaxed">
+                            删除后该账号无法登录并退出全部组织，邮箱可重新注册；
+                            其名下客户、报价、项目等业务数据保留。不可撤销。
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleDeleteUser}
+                          disabled={deleting}
+                          className="shrink-0 rounded-lg border border-[rgba(166,61,61,0.4)] px-3 py-1.5 text-xs font-medium text-[#a63d3d] transition-colors hover:bg-[rgba(166,61,61,0.08)] disabled:opacity-50"
+                        >
+                          {deleting ? "删除中..." : "删除账号"}
+                        </button>
                       </div>
                     </div>
                   )}

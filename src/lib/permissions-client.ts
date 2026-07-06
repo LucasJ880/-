@@ -30,6 +30,14 @@ export function canViewAdminPages(platformRole: string | null | undefined): bool
 }
 
 /**
+ * 用户账号管理（用户管理页 / 删除账号）— admin + 总经理(manager)。
+ * SYNC: 与 src/lib/rbac/roles.ts canManageUsers 保持一致。
+ */
+export function canManageUsers(platformRole: string | null | undefined): boolean {
+  return isAdmin(platformRole) || platformRole === "manager";
+}
+
+/**
  * 检查前端模块可见性
  * SYNC: MODULE_ROLES 映射与 src/lib/rbac/role-access.ts MODULE_VISIBILITY 同源。
  */
@@ -84,6 +92,7 @@ const PROJECT_ROLE_LABELS: Record<string, string> = {
 
 const PLATFORM_ROLE_LABELS: Record<string, string> = {
   admin: "管理员",
+  manager: "总经理",
   sales: "销售",
   trade: "外贸助手",
   user: "普通用户",
@@ -107,6 +116,7 @@ const STATUS_MAP: Record<string, { label: string; className: string }> = {
   inactive: { label: "已停用", className: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]" },
   suspended: { label: "已封禁", className: "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]" },
   archived: { label: "已归档", className: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]" },
+  deleted: { label: "已删除", className: "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]" },
 };
 
 export function statusInfo(status: string) {

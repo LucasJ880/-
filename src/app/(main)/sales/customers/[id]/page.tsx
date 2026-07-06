@@ -52,6 +52,7 @@ import {
   salesOrgCreateBlockedHint,
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
+import { OrgSelectBanner } from "@/components/org-select-banner";
 
 const CUSTOMER_SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "referral", label: "转介绍" },
@@ -440,11 +441,7 @@ export default function CustomerDetailPage() {
         )}
       </div>
 
-      {!orgLoading && ambiguous && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {salesOrgCreateBlockedHint(false, true, null)}
-        </div>
-      )}
+      <OrgSelectBanner />
 
       {/* ───────── Mobile summary bar (默认收起) ───────── */}
       <div className="md:hidden -mt-1 space-y-2">

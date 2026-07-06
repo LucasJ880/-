@@ -76,6 +76,7 @@ import {
   salesOrgCreateBlockedHint,
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
+import { OrgSelectBanner } from "@/components/org-select-banner";
 
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
@@ -1152,11 +1153,7 @@ function QuoteSheetPageInner() {
             : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />
-      {!orgLoading && ambiguous && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {salesOrgCreateBlockedHint(false, true, null)}
-        </div>
-      )}
+      <OrgSelectBanner />
       {editingLoading && (
         <div className="rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-xs text-teal-700">
           正在加载已保存的报价单内容…

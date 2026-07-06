@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
-import { isSuperAdmin } from "@/lib/rbac/roles";
-import { getUserById, updateUserProfile, updateUserStatus, updateUserRole } from "@/lib/users/service";
+import { isSuperAdmin, canManageUsers, canDeleteUsers } from "@/lib/rbac/roles";
+import { getUserById, updateUserProfile, updateUserStatus, updateUserRole, softDeleteUser } from "@/lib/users/service";
 import { validateUserProfile, isValidUserStatus } from "@/lib/users/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
@@ -10,7 +10,7 @@ type RouteCtx = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/users/[id]
- * super_admin 可查看任意用户；普通用户只能查看自己
+ * admin / 总经理可查看任意用户；普通用户只能查看自己
  */
 export async function GET(request: NextRequest, ctx: RouteCtx) {
   const { id } = await ctx.params;
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
   if (auth instanceof NextResponse) return auth;
   const { user: currentUser } = auth;
 
-  if (currentUser.id !== id && !isSuperAdmin(currentUser.role)) {
+  if (currentUser.id !== id && !canManageUsers(currentUser.role)) {
     return NextResponse.json({ error: "无权查看该用户信息" }, { status: 403 });
   }
 
@@ -130,7 +130,7 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   }
 
   if (body.role !== undefined && isAdmin) {
-    const validRoles = ["admin", "sales", "trade", "user"];
+    const validRoles = ["admin", "manager", "sales", "trade", "user"];
     const newRole = String(body.role);
     if (!validRoles.includes(newRole)) {
       return NextResponse.json(
@@ -178,4 +178,68 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
 
   const updatedUser = await getUserById(id);
   return NextResponse.json({ user: updatedUser });
+}
+
+/**
+ * DELETE /api/users/[id]
+ * 删除人员账号（软删除）— 管理员 / 总经理
+ *
+ * 规则：
+ * - 不能删除自己
+ * - admin / super_admin 账号不可删除（需先降级角色）
+ * - 总经理不能删除其他总经理（仅 admin 可以）
+ * - 业务数据保留；账号无法登录、邮箱释放、退出全部组织并解绑微信
+ */
+export async function DELETE(request: NextRequest, ctx: RouteCtx) {
+  const { id } = await ctx.params;
+
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+  const { user: currentUser } = auth;
+
+  if (!canDeleteUsers(currentUser.role)) {
+    return NextResponse.json({ error: "需要管理员或总经理权限" }, { status: 403 });
+  }
+  if (currentUser.id === id) {
+    return NextResponse.json({ error: "不能删除自己的账号" }, { status: 400 });
+  }
+
+  const targetUser = await getUserById(id);
+  if (!targetUser) {
+    return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+  }
+  if (targetUser.status === "deleted") {
+    return NextResponse.json({ error: "该账号已删除" }, { status: 400 });
+  }
+  if (isSuperAdmin(targetUser.role)) {
+    return NextResponse.json(
+      { error: "管理员账号不可删除，请先将其角色降级" },
+      { status: 403 },
+    );
+  }
+  if (targetUser.role === "manager" && !isSuperAdmin(currentUser.role)) {
+    return NextResponse.json(
+      { error: "总经理账号仅平台管理员可删除" },
+      { status: 403 },
+    );
+  }
+
+  const { originalEmail } = await softDeleteUser(id);
+
+  await logAudit({
+    userId: currentUser.id,
+    action: AUDIT_ACTIONS.DELETE,
+    targetType: AUDIT_TARGETS.USER,
+    targetId: id,
+    beforeData: {
+      email: originalEmail,
+      name: targetUser.name,
+      role: targetUser.role,
+      status: targetUser.status,
+    },
+    afterData: { status: "deleted" },
+    request,
+  });
+
+  return NextResponse.json({ ok: true });
 }

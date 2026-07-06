@@ -24,6 +24,7 @@ import {
   isSalesOrgCreateBlocked,
   salesOrgCreateBlockedHint,
 } from "@/lib/sales/sales-client-org";
+import { OrgSelectBanner } from "@/components/org-select-banner";
 
 export default function SalesPage() {
   return (
@@ -198,11 +199,7 @@ function SalesPageInner() {
         }
       />
 
-      {!orgLoading && ambiguous && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {salesOrgCreateBlockedHint(false, true, null)}
-        </div>
-      )}
+      <OrgSelectBanner />
 
       <StatsCards opportunities={opportunities} customers={customers} viewMode={viewMode} />
 

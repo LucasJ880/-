@@ -4,6 +4,7 @@ import { orgRoleLabel, projectRoleLabel, platformRoleLabel } from "@/lib/permiss
 const ROLE_STYLES: Record<string, string> = {
   admin: "bg-[rgba(128,80,120,0.08)] text-[#805078]",
   super_admin: "bg-[rgba(128,80,120,0.08)] text-[#805078]",
+  manager: "bg-[rgba(154,106,47,0.08)] text-[#9a6a2f]",
   sales: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]",
   trade: "bg-[rgba(59,130,246,0.08)] text-[#3b82f6]",
   org_admin: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]",
