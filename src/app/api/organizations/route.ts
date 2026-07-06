@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
   const { user } = auth;
 
   if (isSuperAdmin(user.role)) {
+    // 默认隐藏已归档组织（测试/废弃组织不再干扰组织切换器）；?includeArchived=1 可查全部
+    const includeArchived =
+      request.nextUrl.searchParams.get("includeArchived") === "1";
     const orgs = await db.organization.findMany({
+      where: includeArchived ? undefined : { status: { not: "archived" } },
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { members: true } },
@@ -58,7 +62,11 @@ export async function GET(request: NextRequest) {
   }
 
   const memberships = await db.organizationMember.findMany({
-    where: { userId: user.id, status: "active" },
+    where: {
+      userId: user.id,
+      status: "active",
+      org: { status: { not: "archived" } },
+    },
     include: {
       org: {
         include: { _count: { select: { members: true } } },
