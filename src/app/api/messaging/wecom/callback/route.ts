@@ -106,6 +106,7 @@ export async function POST(req: NextRequest) {
         messageType: "text",
         externalMsgId: parsed.MsgId,
         timestamp: new Date(parseInt(parsed.CreateTime || "0", 10) * 1000 || Date.now()),
+        orgId,
       };
     } else if (msgType === "image" && parsed.MediaId) {
       const media = await adapter.downloadMedia(parsed.MediaId);
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
         externalMsgId: parsed.MsgId,
         timestamp: new Date(parseInt(parsed.CreateTime || "0", 10) * 1000 || Date.now()),
         media: { bytes: media.bytes, mimeType: media.mimeType },
+        orgId,
       };
     }
 

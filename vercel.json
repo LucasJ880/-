@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/progress-summary",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/service-inbox-sla",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

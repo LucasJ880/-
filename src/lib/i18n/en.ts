@@ -67,6 +67,7 @@ export const en: Messages = {
   nav_ai_activity: "AI Activity",
   nav_weekly_reports: "Weekly Reports",
   nav_publish_calendar: "Publish Calendar",
+  nav_service_inbox: "Service Inbox",
   nav_project_intake: "Project Intake",
   nav_user_management: "User Management",
   nav_invite_codes: "Invite Codes",

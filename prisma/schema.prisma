@@ -3196,6 +3196,55 @@ model WeChatMessage {
   @@index([channel, createdAt])
 }
 
+/// 客服会话 — 未绑定的外部联系人（客户）发给机器人微信号的会话
+///
+/// 与 WeChatMessage（内部员工 AI 助理通道）分开建模：
+/// 客户没有青砚账号，会话以 orgId + channel + externalUserId 唯一标识。
+/// unansweredSince / reminderLevel 驱动「未回复超时提醒」SLA 扫描。
+model ServiceConversation {
+  id             String  @id @default(cuid())
+  orgId          String
+  channel        String // personal_wechat / wecom
+  externalUserId String
+  displayName    String?
+
+  status                String    @default("open") // open（待处理）/ handled（已处理）
+  lastCustomerMessageAt DateTime?
+  lastReplyAt           DateTime?
+  /// 当前未回复起点（客服回复或标记已处理后清空）
+  unansweredSince DateTime?
+  /// SLA 提醒等级：0 未提醒 / 1 一级已提醒 / 2 升级已提醒
+  reminderLevel Int @default(0)
+
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  messages  ServiceMessage[]
+
+  @@unique([orgId, channel, externalUserId])
+  @@index([orgId, status, unansweredSince])
+  @@index([orgId, lastCustomerMessageAt])
+}
+
+/// 客服会话消息
+model ServiceMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   ServiceConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  orgId          String
+
+  direction     String // inbound（客户）/ outbound（客服经青砚回复）
+  content       String  @db.Text
+  messageType   String  @default("text") // text / image
+  externalMsgId String?
+  /// outbound：在青砚中发送回复的用户
+  sentByUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([orgId, createdAt])
+}
+
 // ============================================================
 // 销售智能 RAG — 知识库 + 客户画像 + 训练闭环
 // ============================================================

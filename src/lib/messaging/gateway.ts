@@ -37,7 +37,7 @@ export function listAdapters(): MessagingAdapter[] {
  * 优先使用已注册的内存 adapter；若不存在，则根据 orgId 按需实例化
  * 并仅加载凭证（不启动长轮询），避免 Vercel 多实例下推送静默失败。
  */
-async function ensureSendAdapter(
+export async function ensureSendAdapter(
   channel: ChannelType,
   orgId: string | null,
 ): Promise<MessagingAdapter | null> {
@@ -106,7 +106,25 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   // 1. 查找绑定
   const binding = await findBindingByExternal(msg.channel, msg.externalUserId);
   if (!binding || binding.status !== "active") {
-    return; // 未绑定用户，忽略
+    // 未绑定 = 外部客户 → 进客服收件箱（不回复、不进 AI 链路；群消息跳过）
+    if (msg.orgId && !msg.externalUserId.includes("@chatroom")) {
+      const { recordCustomerMessage } = await import(
+        "@/lib/service-inbox/service"
+      );
+      await recordCustomerMessage({
+        orgId: msg.orgId,
+        channel: msg.channel,
+        externalUserId: msg.externalUserId,
+        displayName: msg.externalUserName,
+        content: msg.messageType === "image" ? "📷 [图片]" : msg.content,
+        messageType: msg.messageType,
+        externalMsgId: msg.externalMsgId,
+        timestamp: msg.timestamp,
+      }).catch((e) =>
+        console.error("[Gateway] record customer message failed:", e),
+      );
+    }
+    return;
   }
 
   // 2. 消息过滤

@@ -50,6 +50,8 @@ export interface InboundMessage {
   messageType: MessageType;
   externalMsgId?: string;
   timestamp: Date;
+  /** 收到消息的机器人账号所属组织（客服会话等未绑定发件人场景依赖它归属租户） */
+  orgId?: string;
   /** 媒体消息（图片/文件）已下载解密的字节，供受理层落库 */
   media?: { bytes: Buffer; mimeType: string; fileName?: string };
   /** 企业微信可带额外字段 */

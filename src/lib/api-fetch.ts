@@ -12,7 +12,7 @@ import { readStoredOrgId } from "@/lib/org-selection";
 const AUTH_PATH_PREFIXES = ["/login", "/register"];
 
 /** 这些前缀的 API 由后端按「当前组织」解析数据边界，多组织用户必须显式带 orgId */
-const ORG_SCOPED_API_PREFIXES = ["/api/sales/", "/api/trade/"];
+const ORG_SCOPED_API_PREFIXES = ["/api/sales/", "/api/trade/", "/api/service-inbox"];
 
 /**
  * 多组织支持：请求 org-scoped API 时，若 query 未显式带 orgId，

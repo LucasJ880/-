@@ -543,6 +543,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         messageType: "text",
         externalMsgId: msg.messageId,
         timestamp,
+        orgId: this.orgId,
       };
       await this.messageHandler(inbound);
       return;
@@ -562,6 +563,7 @@ export class PersonalWeChatAdapter implements MessagingAdapter {
         externalMsgId: msg.messageId,
         timestamp,
         media,
+        orgId: this.orgId,
       };
       await this.messageHandler(inbound);
     }

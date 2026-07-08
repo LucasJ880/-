@@ -67,6 +67,7 @@ export const zh: Messages = {
   nav_ai_activity: "AI 活动",
   nav_weekly_reports: "项目周报",
   nav_publish_calendar: "发布日历",
+  nav_service_inbox: "客服收件箱",
   nav_project_intake: "待分发项目",
   nav_user_management: "用户管理",
   nav_invite_codes: "邀请码管理",

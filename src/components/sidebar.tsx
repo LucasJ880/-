@@ -34,6 +34,7 @@ import {
   Brain,
   Radar,
   Megaphone,
+  Inbox,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -126,10 +127,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    // 运营模块 M1：统一社媒发布（Postiz），先向管理员和总经理开放
+    // 运营模块：发布日历（管理员/总经理）+ 客服收件箱（全体成员，后端按 org 隔离）
     titleKey: "nav_group_operations",
-    roles: ["admin", "super_admin", "manager"],
+    roles: ["admin", "super_admin", "manager", "sales", "user"],
     items: [
+      { href: "/service-inbox", labelKey: "nav_service_inbox", icon: Inbox, roles: ["admin", "super_admin", "manager", "sales", "user"] },
       { href: "/operations", labelKey: "nav_publish_calendar", icon: Megaphone, roles: ["admin", "super_admin", "manager"] },
     ],
   },
