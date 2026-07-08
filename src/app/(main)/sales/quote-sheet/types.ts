@@ -232,6 +232,8 @@ export interface QuoteFormState {
   shadeValanceType: string;
   shadeBracketType: string;
   installMode: InstallMode;
+  /** 表单实算总价（含税，减让利后）— 对客展示的权威金额，服务端不可重算 */
+  displayGrandTotal?: number;
 }
 
 // ── Order number generation ──

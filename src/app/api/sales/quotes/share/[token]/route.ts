@@ -82,6 +82,7 @@ export async function GET(
         total: amounts.total,
         deposit: amounts.deposit,
         balance: amounts.balance,
+        balanceText: amounts.balanceText,
       },
       createdAt: quote.createdAt,
       createdBy: quote.createdBy?.name,

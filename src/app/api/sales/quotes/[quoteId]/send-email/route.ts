@@ -84,6 +84,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     grandTotal: amounts.total,
     depositDue: amounts.deposit,
     balance: amounts.balance,
+    balanceText: amounts.balanceText,
     lang: emailLang,
     senderName: quote.createdBy?.name || user.name,
   });

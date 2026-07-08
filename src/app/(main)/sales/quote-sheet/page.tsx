@@ -755,9 +755,19 @@ function QuoteSheetPageInner() {
         if (!proceed) return null;
       }
 
+      // 表单实算总价（对客展示权威金额；与页面底部 Grand Total 同一算式）
+      const preTaxForSave = Math.max(
+        0,
+        productsSubtotal + subtotalB + subtotalC - specialPromotionNum,
+      );
+      const displayGrandTotal = Number(
+        (preTaxForSave + Math.round(preTaxForSave * HST_RATE * 100) / 100).toFixed(2),
+      );
+
       const fullFormData: QuoteFormState = {
         orderNumber, date, customerId, customerName, customerPhone,
         customerEmail, customerAddress, heardUsOn, salesRep, measureSequence,
+        displayGrandTotal,
         partALines,
         partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
         financeEligible, financeApproved, financeDifference,

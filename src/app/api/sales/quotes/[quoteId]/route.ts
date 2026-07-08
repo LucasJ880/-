@@ -108,6 +108,8 @@ export const PUT = withAuth(async (request, ctx, user) => {
       customerId: true,
       createdById: true,
       status: true,
+      signedAt: true,
+      signedPdfPath: true,
     },
   });
 
@@ -184,9 +186,15 @@ export const PUT = withAuth(async (request, ctx, user) => {
     saveMode = "shell";
   }
 
-  // status 策略：partial/shell 回到 draft；full 则保留原 status（不降级也不升级）
-  const nextStatus =
-    saveMode === "full"
+  // 已签署的 quote 被（管理员）编辑 = 内容变更，旧签名作废，进入新一轮发送/签署。
+  // 否则客户重开分享链接会看到"已签署"，且签的是修改前的旧内容。
+  const invalidateSignature = Boolean(existing.signedAt);
+
+  // status 策略：partial/shell 回到 draft；full 则保留原 status（不降级也不升级）；
+  // 签名作废时统一回到 draft，由发送流程重新推进到 sent
+  const nextStatus = invalidateSignature
+    ? "draft"
+    : saveMode === "full"
       ? existing.status
       : "draft";
 
@@ -245,6 +253,13 @@ export const PUT = withAuth(async (request, ctx, user) => {
           typeof finalDiscountPct === "number" && Number.isFinite(finalDiscountPct)
             ? Math.max(0, Math.min(1, finalDiscountPct))
             : null,
+        ...(invalidateSignature
+          ? {
+              signatureUrl: null,
+              signedAt: null,
+              signedPdfPath: null,
+            }
+          : {}),
         ...(agreedPatch
           ? {
               agreedDepositAmount: agreedPatch.agreedDepositAmount,
@@ -293,6 +308,12 @@ export const PUT = withAuth(async (request, ctx, user) => {
 
     return q;
   });
+
+  // 签名作废时清理旧的已签署 PDF 存档（失败不阻断）
+  if (invalidateSignature && existing.signedPdfPath) {
+    const { deleteBlob } = await import("@/lib/files/blob-access");
+    await deleteBlob(existing.signedPdfPath).catch(() => undefined);
+  }
 
   return NextResponse.json({
     quote: updated,

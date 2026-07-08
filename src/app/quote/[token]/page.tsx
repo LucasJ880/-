@@ -216,7 +216,12 @@ interface QuoteData {
   signatureUrl: string | null;
   signedAt: string | null;
   hasPdf?: boolean;
-  payment?: { total: number; deposit: number | null; balance: number | null };
+  payment?: {
+    total: number;
+    deposit: number | null;
+    balance: number | null;
+    balanceText: string | null;
+  };
   createdAt: string;
   createdBy: string;
   rooms: QuoteRoom[];
@@ -499,11 +504,13 @@ export default function PublicQuotePage() {
                   </span>
                 </div>
               )}
-              {quote.payment.balance !== null && (
+              {(quote.payment.balance !== null || quote.payment.balanceText) && (
                 <div className="flex justify-between items-baseline">
                   <span className="text-sm text-stone-500">{t.payBalance}</span>
                   <span className="text-base font-semibold text-stone-600">
-                    ${quote.payment.balance.toFixed(2)}
+                    {quote.payment.balance !== null
+                      ? `$${quote.payment.balance.toFixed(2)}`
+                      : quote.payment.balanceText}
                   </span>
                 </div>
               )}

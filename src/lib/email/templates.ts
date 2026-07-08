@@ -221,8 +221,10 @@ export function quoteEmailHtml(opts: {
   grandTotal: number;
   /** 现需支付定金（表单约定值，null 时不渲染定金行） */
   depositDue?: number | null;
-  /** 尾款（null 时不渲染） */
+  /** 尾款（null 时看 balanceText） */
   balance?: number | null;
+  /** 尾款非数字时的原文（如 "N/A"），原样展示 */
+  balanceText?: string | null;
   lang?: Lang;
   senderName?: string;
 }): string {
@@ -230,6 +232,11 @@ export function quoteEmailHtml(opts: {
   const t = T[lang];
   const total = formatCurrency(opts.grandTotal);
   const signer = opts.senderName || `${BRAND.name} ${t.teamSuffix}`;
+
+  const balanceDisplay =
+    opts.balance !== null && opts.balance !== undefined
+      ? formatCurrency(opts.balance)
+      : opts.balanceText || null;
 
   const depositRows =
     opts.depositDue !== null && opts.depositDue !== undefined
@@ -240,12 +247,12 @@ export function quoteEmailHtml(opts: {
           <p style="margin:4px 0 0;color:${BRAND.colorPrimaryDark};font-size:20px;font-weight:700;">${formatCurrency(opts.depositDue)}</p>
         </td>
       </tr>` +
-        (opts.balance !== null && opts.balance !== undefined
+        (balanceDisplay
           ? `
       <tr>
         <td style="padding:12px 24px;border-top:1px solid #fed7aa;">
           <p style="margin:0;color:${BRAND.colorMuted};font-size:11px;letter-spacing:2px;text-transform:uppercase;">${t.balanceLabel}</p>
-          <p style="margin:4px 0 0;color:${BRAND.colorInk};font-size:15px;font-weight:600;">${formatCurrency(opts.balance)}</p>
+          <p style="margin:4px 0 0;color:${BRAND.colorInk};font-size:15px;font-weight:600;">${balanceDisplay}</p>
         </td>
       </tr>`
           : "")

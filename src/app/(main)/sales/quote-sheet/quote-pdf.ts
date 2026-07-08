@@ -811,7 +811,7 @@ export async function exportQuotePdf(
     autoTable(doc, {
       ...sharedTable,
       startY: ctx.y,
-      head: [["#", "Room", "Product", "SKU", "W\"", "H\"", "Mount/Lift", "Merch", "Install", "Line"]],
+      head: [["#", "Room", "Product", "SKU", "W\"", "H\"", "Mount/Lift", "Valance", "Merch", "Install", "Line"]],
       body: filledShades.map((l, i) => {
         const p = computeShadeLinePrice(l, input.installMode, input.discounts);
         const w = fractionToInches(l.widthWhole, l.widthFrac);
@@ -825,6 +825,7 @@ export async function exportQuotePdf(
           formatInches16(w),
           formatInches16(h),
           [l.mount, l.lift].filter(Boolean).join("/"),
+          l.valance || "—",
           `$${p!.merch.toFixed(2)}`,
           `$${p!.install.toFixed(2)}`,
           `$${p!.total.toFixed(2)}`,
