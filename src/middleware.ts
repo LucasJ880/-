@@ -20,6 +20,8 @@ const PUBLIC_PATHS = [
   "/login",
   "/register",
   "/quote",
+  // 大厅展示大屏（纯静态品牌内容，无业务数据）
+  "/display",
 ];
 
 function isPublicPath(pathname: string): boolean {
