@@ -8,8 +8,9 @@
  *   - Yuma 264 款 → 按系列分组 ~48 个产品，色值按颜色名映射（近似）
  *   - 颜色名带 SKU 编号（如 "White · SC-A8-301"），与报价/微信同一编号体系
  *
- * 导入为组织私有产品（Sunny Shutter --Bid Lead）；同名未归档产品已存在时跳过，
- * 可重复运行。
+ * 导入为平台预置产品（orgId=null，全组织可见）：用户账号常同时属于多个组织
+ * （如 Sunny Shutter 与 Lucas Bid），产品面板按「当前选中组织」过滤组织私有产品，
+ * 导入为组织私有会导致换组织后看不到。同名未归档产品已存在时跳过，可重复运行。
  *
  * 用法：
  *   npm run import:visualizer-catalog          # dry-run（默认，只读）
@@ -22,7 +23,6 @@ import { db } from "@/lib/db";
 
 const WRITE = process.argv.includes("--write");
 const DATA_DIR = join(__dirname, "data");
-const TARGET_ORG_CODE = "sunny-shutter-bid-lead";
 
 interface CatalogColor {
   name: string;
@@ -225,15 +225,6 @@ function loadSunnyProducts(): ProductDraft[] {
 async function main() {
   console.log(`模式: ${WRITE ? "WRITE（真实写入）" : "DRY-RUN（只读）"}\n`);
 
-  const org = await db.organization.findFirst({
-    where: { code: TARGET_ORG_CODE, status: "active" },
-    select: { id: true, name: true },
-  });
-  if (!org) {
-    throw new Error(`目标组织不存在或非 active: code=${TARGET_ORG_CODE}`);
-  }
-  console.log(`目标组织: ${org.name} (${org.id})\n`);
-
   const unmatched: string[] = [];
   const drafts = [...loadSunnyProducts(), ...loadYumaProducts(unmatched)];
   console.log(`解析产品: ${drafts.length} 个（Sunny 4 + Yuma ${drafts.length - 4}），颜色合计 ${drafts.reduce((s, d) => s + d.colors.length, 0)} 款`);
@@ -241,14 +232,14 @@ async function main() {
     console.log(`⚠ ${unmatched.length} 个颜色名未匹配到标准色值，使用暖灰兜底: ${unmatched.slice(0, 10).join("; ")}${unmatched.length > 10 ? " ..." : ""}`);
   }
 
-  // 幂等：同组织下同名未归档产品已存在 → 跳过
+  // 幂等：平台预置里同名未归档产品已存在 → 跳过
   const existing = await db.visualizerCatalogProduct.findMany({
-    where: { orgId: org.id, archived: false },
+    where: { orgId: null, archived: false },
     select: { name: true },
   });
   const existingNames = new Set(existing.map((e) => e.name.toLowerCase()));
   const toCreate = drafts.filter((d) => !existingNames.has(d.name.toLowerCase()));
-  console.log(`组织现有产品 ${existing.length} 个；同名跳过 ${drafts.length - toCreate.length} 个；待新增 ${toCreate.length} 个\n`);
+  console.log(`平台预置现有 ${existing.length} 个；同名跳过 ${drafts.length - toCreate.length} 个；待新增 ${toCreate.length} 个\n`);
 
   for (const d of [...toCreate.slice(0, 6), ...toCreate.slice(-2)]) {
     console.log(`  ${d.name}  [${d.categoryLabel}] ${d.colors.length} 色  如: ${d.colors[0].name} ${d.colors[0].hex}`);
@@ -264,7 +255,7 @@ async function main() {
   for (const d of toCreate) {
     await db.visualizerCatalogProduct.create({
       data: {
-        orgId: org.id,
+        orgId: null,
         name: d.name,
         category: d.category,
         categoryLabel: d.categoryLabel,
@@ -283,9 +274,9 @@ async function main() {
   }
 
   const after = await db.visualizerCatalogProduct.count({
-    where: { orgId: org.id, archived: false },
+    where: { orgId: null, archived: false },
   });
-  console.log(`\n✅ 写入完成: 新增 ${created} 个产品；组织现有 ${after} 个`);
+  console.log(`\n✅ 写入完成: 新增 ${created} 个产品；平台预置现有 ${after} 个`);
 }
 
 main()
