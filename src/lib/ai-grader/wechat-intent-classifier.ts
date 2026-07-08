@@ -37,6 +37,22 @@ export type WechatGraderContextState = {
   lastProjectName?: string;
   lastIntent?: string;
   lastGraderType?: "DAILY_BRIEF" | "CUSTOMER_FOLLOWUP" | "QUOTE_RISK" | "PROJECT_HEALTH";
+  /** 微信可视化挂起状态（发图后等待 SKU）；null 表示显式清除 */
+  pendingVisualizer?: {
+    imagePathname: string;
+    mimeType: string;
+    width: number;
+    height: number;
+    windows: Array<{
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      confidence: number;
+    }>;
+    stage: "awaiting_sku" | "generated";
+    lastSku?: string;
+  } | null;
 };
 
 export type WechatIntentResult = {

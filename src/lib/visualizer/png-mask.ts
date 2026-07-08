@@ -59,6 +59,60 @@ function isInsideMask(
   return pointInPolygon(x, y, points);
 }
 
+/**
+ * 多矩形版编辑蒙版：任一矩形内透明（允许编辑），其余不透明（保持原图）。
+ * 用于微信可视化——一张照片多扇窗一次性生成。
+ */
+export function createMultiRectEditMaskPng(args: {
+  width: number;
+  height: number;
+  rects: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+}): Buffer {
+  const { width, height, rects } = args;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error("Invalid image size");
+  }
+  if (rects.length === 0) throw new Error("Mask rects missing");
+
+  const clamped = rects.map((r) => ({
+    x1: Math.max(0, Math.floor(Math.min(r.x1, r.x2))),
+    y1: Math.max(0, Math.floor(Math.min(r.y1, r.y2))),
+    x2: Math.min(width - 1, Math.ceil(Math.max(r.x1, r.x2))),
+    y2: Math.min(height - 1, Math.ceil(Math.max(r.y1, r.y2))),
+  }));
+
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width * 4 + 1);
+    raw[row] = 0;
+    const activeRects = clamped.filter((r) => y >= r.y1 && y <= r.y2);
+    for (let x = 0; x < width; x++) {
+      const off = row + 1 + x * 4;
+      const editable = activeRects.some((r) => x >= r.x1 && x <= r.x2);
+      raw[off] = 0;
+      raw[off + 1] = 0;
+      raw[off + 2] = 0;
+      raw[off + 3] = editable ? 0 : 255;
+    }
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw, { level: 6 })),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 /** OpenAI image edit mask：透明区域允许编辑，不透明区域保持原图。 */
 export function createTransparentEditMaskPng(args: {
   width: number;

@@ -46,7 +46,8 @@ export async function readGraderContext(
 
 /**
  * 合并写入上下文（与未过期的现有上下文合并），刷新 TTL。
- * patch 中为 undefined 的字段会被忽略（不覆盖已有值）。
+ * patch 中为 undefined / 空串的字段会被忽略（不覆盖已有值）；
+ * 显式传 null 表示删除该字段（用于清除挂起状态）。
  */
 export async function writeGraderContext(
   key: GraderContextKey & { externalUserId?: string },
@@ -56,6 +57,9 @@ export async function writeGraderContext(
   try {
     const existing = await readGraderContext(key);
     const merged: WechatGraderContextState = { ...(existing ?? {}), ...clean(patch) };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null) delete (merged as Record<string, unknown>)[k];
+    }
     const expiresAt = new Date(Date.now() + TTL_MS);
     await db.weChatGraderContext.upsert({
       where: {

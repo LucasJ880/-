@@ -119,6 +119,7 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
 
   // 4. 持久化入站消息（语音消息标记来源；写入 binding.orgId 保证租户隔离）
   const isVoice = msg.messageType === "voice";
+  const isImage = msg.messageType === "image";
   await db.weChatMessage.create({
     data: {
       bindingId: binding.id,
@@ -127,15 +128,42 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       direction: "inbound",
       channel: msg.channel,
       externalUserId: msg.externalUserId,
-      content: isVoice ? `🎤 [语音] ${msg.content}` : msg.content,
+      content: isVoice
+        ? `🎤 [语音] ${msg.content}`
+        : isImage
+          ? "📷 [图片]"
+          : msg.content,
       messageType: msg.messageType,
       externalMsgId: msg.externalMsgId,
     },
   });
 
+  const visualizerKey = {
+    orgId: binding.orgId,
+    userId: binding.userId,
+    channel: msg.channel,
+    externalUserId: msg.externalUserId,
+  };
+
+  // 4.5 图片消息 → 微信可视化（检测窗户，等待 SKU），不进入文字 AI 链路
+  let aiResponse: string;
+  let aiResponseImageUrl: string | undefined;
+  if (isImage && msg.media) {
+    const { handleWechatVisualizerImage } = await import(
+      "@/lib/visualizer/wechat-visualizer"
+    );
+    try {
+      aiResponse = await handleWechatVisualizerImage(visualizerKey, msg.media);
+    } catch (e) {
+      console.error("[Gateway] visualizer image failed:", e);
+      aiResponse = "图片处理失败，请稍后重试。";
+    }
+    await deliverAndPersist();
+    return;
+  }
+
   // 5. 优先尝试「数字回复确认」：用户回复 1/2/3 或「取消」时，直接走 PendingAction 审批链路，
   //    命中则不再进入常规 AI 链路（避免把确认编号当普通问题回答）。
-  let aiResponse: string;
   const { handleWeChatPendingReply } = await import(
     "@/lib/ai-grader/actions/wechat-confirm"
   );
@@ -146,6 +174,26 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   if (confirm.handled) {
     aiResponse = confirm.reply ?? "已处理。";
   } else {
+    // 5.5 微信可视化挂起会话：等待 SKU 时优先解析（取消 / SKU / 产品名），
+    //     命中即生成效果图；普通聊天文字不命中，继续走下方链路。
+    const { handleWechatVisualizerReply } = await import(
+      "@/lib/visualizer/wechat-visualizer"
+    );
+    const visualizerReply = await handleWechatVisualizerReply(
+      visualizerKey,
+      msg.content,
+      async (progressText) => {
+        const adapter = await ensureSendAdapter(msg.channel, binding.orgId);
+        if (adapter) await adapter.sendText(msg.externalUserId, progressText);
+      },
+    );
+    if (visualizerReply.handled) {
+      aiResponse = visualizerReply.reply ?? "已处理。";
+      aiResponseImageUrl = visualizerReply.imageUrl;
+      await deliverAndPersist();
+      return;
+    }
+
     // 6. 统一 Grader 意图分类器（确定性规则；命中即不进入普通 chat）
     //    优先级：项目 > 报价 > 客户 > 今日体检 > 普通 AI
     const { classifyWechatGraderIntent } = await import(
@@ -237,33 +285,43 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     }
   }
 
-  // 6. 发送回复（Serverless 多实例下按需加载 adapter）
-  const adapter = await ensureSendAdapter(msg.channel, binding.orgId);
-  if (adapter) {
-    try {
-      await adapter.sendText(msg.externalUserId, aiResponse);
-    } catch {
-      // 发送失败，记录但不阻塞
+  await deliverAndPersist();
+  return;
+
+  // ── 步骤 6–8：发送回复（文字 + 可选图片）→ 持久化 → 记忆索引 ──
+  async function deliverAndPersist(): Promise<void> {
+    const adapter = await ensureSendAdapter(msg.channel, binding!.orgId);
+    if (adapter) {
+      try {
+        await adapter.sendText(msg.externalUserId, aiResponse);
+        if (aiResponseImageUrl && typeof adapter.sendImage === "function") {
+          await adapter.sendImage(msg.externalUserId, aiResponseImageUrl);
+        }
+      } catch {
+        // 发送失败，记录但不阻塞
+      }
     }
+
+    await db.weChatMessage.create({
+      data: {
+        bindingId: binding!.id,
+        userId: binding!.userId,
+        direction: "outbound",
+        channel: msg.channel,
+        externalUserId: msg.externalUserId,
+        content: aiResponseImageUrl
+          ? `${aiResponse}\n🖼 ${aiResponseImageUrl}`
+          : aiResponse,
+        messageType: aiResponseImageUrl ? "image" : "text",
+        agentProcessed: true,
+        agentResponse: aiResponse,
+      },
+    });
+
+    extractAndIndex(binding!.userId, binding!.id, msg.content, aiResponse).catch(
+      () => {},
+    );
   }
-
-  // 7. 持久化出站消息
-  await db.weChatMessage.create({
-    data: {
-      bindingId: binding.id,
-      userId: binding.userId,
-      direction: "outbound",
-      channel: msg.channel,
-      externalUserId: msg.externalUserId,
-      content: aiResponse,
-      messageType: "text",
-      agentProcessed: true,
-      agentResponse: aiResponse,
-    },
-  });
-
-  // 8. 异步提取记忆 + 索引（不阻塞）
-  extractAndIndex(binding.userId, binding.id, msg.content, aiResponse).catch(() => {});
 }
 
 /**
