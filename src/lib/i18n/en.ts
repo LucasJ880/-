@@ -31,6 +31,7 @@ export const en: Messages = {
   nav_group_trade: "Trade",
   nav_group_collaboration: "Collaboration",
   nav_group_intelligence: "Intelligence",
+  nav_group_operations: "Operations",
   nav_group_admin: "Admin",
   nav_group_system: "System",
 
@@ -65,6 +66,7 @@ export const en: Messages = {
   nav_ai_memory: "AI Memory",
   nav_ai_activity: "AI Activity",
   nav_weekly_reports: "Weekly Reports",
+  nav_publish_calendar: "Publish Calendar",
   nav_project_intake: "Project Intake",
   nav_user_management: "User Management",
   nav_invite_codes: "Invite Codes",

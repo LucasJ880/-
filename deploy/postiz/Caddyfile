@@ -1,0 +1,4 @@
+{$POSTIZ_DOMAIN} {
+	reverse_proxy postiz:5000
+	encode gzip
+}

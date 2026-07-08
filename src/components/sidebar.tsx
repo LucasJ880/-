@@ -33,6 +33,7 @@ import {
   MessageCircle,
   Brain,
   Radar,
+  Megaphone,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -122,6 +123,14 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/memory", labelKey: "nav_ai_memory", icon: Brain },
       { href: "/ai-activity", labelKey: "nav_ai_activity", icon: Activity },
       { href: "/reports", labelKey: "nav_weekly_reports", icon: FileText, roles: ["admin", "super_admin", "user"] },
+    ],
+  },
+  {
+    // 运营模块 M1：统一社媒发布（Postiz），先向管理员和总经理开放
+    titleKey: "nav_group_operations",
+    roles: ["admin", "super_admin", "manager"],
+    items: [
+      { href: "/operations", labelKey: "nav_publish_calendar", icon: Megaphone, roles: ["admin", "super_admin", "manager"] },
     ],
   },
   {

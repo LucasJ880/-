@@ -33,6 +33,7 @@ export interface Messages {
   nav_group_trade: string;
   nav_group_collaboration: string;
   nav_group_intelligence: string;
+  nav_group_operations: string;
   nav_group_admin: string;
   nav_group_system: string;
 
@@ -68,6 +69,7 @@ export interface Messages {
   nav_ai_memory: string;
   nav_ai_activity: string;
   nav_weekly_reports: string;
+  nav_publish_calendar: string;
   nav_project_intake: string;
   nav_user_management: string;
   nav_invite_codes: string;
