@@ -6,12 +6,12 @@ import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
-  Package,
   Plus,
   Search,
   AlertTriangle,
   ArrowUpCircle,
   ArrowDownCircle,
+  Pencil,
   X,
 } from "lucide-react";
 
@@ -49,6 +49,15 @@ export default function InventoryPage() {
   const [adjustFabric, setAdjustFabric] = useState<Fabric | null>(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
+
+  const [editFabric, setEditFabric] = useState<Fabric | null>(null);
+  const [editSku, setEditSku] = useState("");
+  const [editProduct, setEditProduct] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("");
+  const [editSupplier, setEditSupplier] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const [newSku, setNewSku] = useState("");
   const [newProduct, setNewProduct] = useState("Zebra");
@@ -98,6 +107,43 @@ export default function InventoryPage() {
     setAdjustQty("");
     setAdjustReason("");
     load();
+  };
+
+  const openEdit = (f: Fabric) => {
+    setEditFabric(f);
+    setEditSku(f.sku);
+    setEditProduct(f.productType);
+    setEditName(f.fabricName);
+    setEditColor(f.color ?? "");
+    setEditSupplier(f.supplier ?? "");
+    setEditError(null);
+  };
+
+  const handleEditSave = async () => {
+    if (!editFabric) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await apiFetch(`/api/inventory/${editFabric.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          sku: editSku,
+          productType: editProduct,
+          fabricName: editName,
+          color: editColor,
+          supplier: editSupplier,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditError(data?.error || `保存失败 (HTTP ${res.status})`);
+        return;
+      }
+      setEditFabric(null);
+      load();
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const filtered = fabrics.filter((f) => {
@@ -194,12 +240,21 @@ export default function InventoryPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => setAdjustFabric(f)}
-                        className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
-                      >
-                        调整
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          onClick={() => setAdjustFabric(f)}
+                          className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                        >
+                          调整
+                        </button>
+                        <button
+                          onClick={() => openEdit(f)}
+                          className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                          title="编辑 SKU / 名称"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -233,6 +288,35 @@ export default function InventoryPage() {
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setShowAdd(false)} className="rounded-lg border border-border px-4 py-2 text-sm">取消</button>
               <button onClick={handleAdd} disabled={!newSku || !newFabric} className="rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-50">新增</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit dialog */}
+      {editFabric && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">编辑面料 — {editFabric.sku}</h3>
+              <button onClick={() => setEditFabric(null)} className="p-1 hover:bg-muted rounded-md"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1"><Label className="text-xs">SKU *</Label><input value={editSku} onChange={(e) => setEditSku(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2 text-sm font-mono" /></div>
+              <div className="space-y-1"><Label className="text-xs">产品类型</Label><input value={editProduct} onChange={(e) => setEditProduct(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2 text-sm" /></div>
+              <div className="space-y-1 col-span-2"><Label className="text-xs">面料名 *</Label><input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2 text-sm" /></div>
+              <div className="space-y-1"><Label className="text-xs">颜色</Label><input value={editColor} onChange={(e) => setEditColor(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2 text-sm" /></div>
+              <div className="space-y-1"><Label className="text-xs">供应商</Label><input value={editSupplier} onChange={(e) => setEditSupplier(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2 text-sm" /></div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              微信 AI 分身按 SKU 精确匹配识别面料；改 SKU 后请告知销售使用新编号，历史报价单不受影响。
+            </p>
+            {editError && <p className="text-xs text-red-600">{editError}</p>}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setEditFabric(null)} className="rounded-lg border border-border px-4 py-2 text-sm">取消</button>
+              <button onClick={handleEditSave} disabled={editSaving || !editSku.trim() || !editName.trim()} className="rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-50">
+                {editSaving ? "保存中..." : "保存"}
+              </button>
             </div>
           </div>
         </div>

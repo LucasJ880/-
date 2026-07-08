@@ -25,6 +25,33 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   if (body.supplier !== undefined) updateData.supplier = body.supplier;
   if (body.notes !== undefined) updateData.notes = body.notes;
 
+  // 基础信息编辑（SKU / 产品类型 / 面料名 / 颜色）
+  if (typeof body.sku === "string") {
+    const newSku = body.sku.trim();
+    if (!newSku) {
+      return NextResponse.json({ error: "SKU 不能为空" }, { status: 400 });
+    }
+    if (newSku.toLowerCase() !== fabric.sku.toLowerCase()) {
+      const clash = await db.fabricInventory.findFirst({
+        where: { sku: { equals: newSku, mode: "insensitive" }, id: { not: id } },
+        select: { id: true },
+      });
+      if (clash) {
+        return NextResponse.json({ error: `SKU "${newSku}" 已存在` }, { status: 409 });
+      }
+    }
+    updateData.sku = newSku;
+  }
+  if (typeof body.productType === "string" && body.productType.trim()) {
+    updateData.productType = body.productType.trim();
+  }
+  if (typeof body.fabricName === "string" && body.fabricName.trim()) {
+    updateData.fabricName = body.fabricName.trim();
+  }
+  if (body.color !== undefined) {
+    updateData.color = typeof body.color === "string" && body.color.trim() ? body.color.trim() : null;
+  }
+
   if (adjustYards !== undefined && adjustYards !== 0) {
     const newTotal = fabric.totalYards + adjustYards;
     const newAvailable = newTotal - fabric.reservedYards;

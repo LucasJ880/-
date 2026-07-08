@@ -29,6 +29,8 @@
     "backup:sales-org-mapping": "tsx scripts/backup-sales-org-mapping.ts",
     "backfill:trade-stage": "tsx scripts/backfill-trade-prospect-stage.ts",
     "backfill:trade-stage:write": "tsx scripts/backfill-trade-prospect-stage.ts --write",
+    "import:fabric-catalog": "tsx scripts/import-fabric-catalog.ts",
+    "import:fabric-catalog:write": "tsx scripts/import-fabric-catalog.ts --write",
     "migrate:blob-private": "tsx scripts/migrate-blob-private.ts",
     "migrate:blob-private:write": "tsx scripts/migrate-blob-private.ts --write",
     "db:migrate:dev": "prisma migrate dev",
