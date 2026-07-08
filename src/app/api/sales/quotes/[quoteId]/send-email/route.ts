@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { sendSalesEmail } from "@/lib/email/sender";
 import { quoteEmailHtml } from "@/lib/email/templates";
+import { deriveQuoteDisplayAmounts } from "@/lib/sales/quote-display-amounts";
 import { randomBytes } from "crypto";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import {
@@ -66,7 +67,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   const protocol = origin.startsWith("http") ? "" : "https://";
   const quoteUrl = `${protocol}${origin}/quote/${shareToken}?lang=${emailLang}`;
 
-  const total = `CA$${quote.grandTotal.toFixed(2)}`;
+  // 对客金额以销售端表单约定的 定金+尾款 为准（DB grandTotal 在 shell/partial
+  // 保存或含 Part B/让利时不可靠，历史上会显示 0）
+  const amounts = deriveQuoteDisplayAmounts(quote.formDataJson, quote.grandTotal);
+
+  const total = `CA$${amounts.total.toFixed(2)}`;
   const subjectMap: Record<string, string> = {
     en: `Your Personalized Quote — SUNNY HOME & DECO · ${total}`,
     cn: `您的定制报价 — SUNNY HOME & DECO · ${total}`,
@@ -76,7 +81,9 @@ export const POST = withAuth(async (request, ctx, user) => {
   const html = quoteEmailHtml({
     customerName: quote.customer.name,
     quoteUrl,
-    grandTotal: quote.grandTotal,
+    grandTotal: amounts.total,
+    depositDue: amounts.deposit,
+    balance: amounts.balance,
     lang: emailLang,
     senderName: quote.createdBy?.name || user.name,
   });
@@ -107,7 +114,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       opportunityId: quote.opportunityId,
       type: "email",
       direction: "outbound",
-      summary: `发送报价邮件 v${quote.version} (${emailLang.toUpperCase()}) — $${quote.grandTotal.toFixed(2)}`,
+      summary: `发送报价邮件 v${quote.version} (${emailLang.toUpperCase()}) — $${amounts.total.toFixed(2)}`,
       emailMessageId: result.messageId || null,
       createdById: user.id,
     },

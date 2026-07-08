@@ -60,6 +60,12 @@ const T: Record<Lang, Record<string, string>> = {
     pdfOpen: "Open PDF",
     pdfDownload: "Download PDF",
     pdfSignedDownload: "Download Signed Copy",
+    pdfMobileHint: "Tap to view the full order document (PDF)",
+    payTitle: "Payment Summary",
+    payTotal: "Order Total",
+    payDeposit: "Deposit Due Now",
+    payBalance: "Balance (on completion)",
+    copySentMsg: "A signed copy has been emailed to you for your records.",
   },
   cn: {
     brand: "SUNNY HOME & DECO",
@@ -108,6 +114,12 @@ const T: Record<Lang, Record<string, string>> = {
     pdfOpen: "打开 PDF",
     pdfDownload: "下载 PDF",
     pdfSignedDownload: "下载已签署版本",
+    pdfMobileHint: "点击查看完整订单文件（PDF）",
+    payTitle: "付款摘要",
+    payTotal: "订单总额",
+    payDeposit: "现需支付定金",
+    payBalance: "尾款（完工时支付）",
+    copySentMsg: "已签署副本已发送至您的邮箱，请注意查收。",
   },
   fr: {
     brand: "SUNNY HOME & DECO",
@@ -156,6 +168,12 @@ const T: Record<Lang, Record<string, string>> = {
     pdfOpen: "Ouvrir le PDF",
     pdfDownload: "Télécharger le PDF",
     pdfSignedDownload: "Télécharger la copie signée",
+    pdfMobileHint: "Touchez pour voir le document complet (PDF)",
+    payTitle: "Résumé de paiement",
+    payTotal: "Total de la commande",
+    payDeposit: "Acompte à verser",
+    payBalance: "Solde (à la fin des travaux)",
+    copySentMsg: "Une copie signée vous a été envoyée par courriel.",
   },
 };
 
@@ -198,6 +216,7 @@ interface QuoteData {
   signatureUrl: string | null;
   signedAt: string | null;
   hasPdf?: boolean;
+  payment?: { total: number; deposit: number | null; balance: number | null };
   createdAt: string;
   createdBy: string;
   rooms: QuoteRoom[];
@@ -372,7 +391,7 @@ export default function PublicQuotePage() {
       const res = await fetch(`/api/sales/quotes/share/${token}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureDataUrl: signatureData }),
+        body: JSON.stringify({ signatureDataUrl: signatureData, lang }),
       }).then((r) => r.json());
       if (res.signed) {
         setSignSuccess(true);
@@ -459,6 +478,39 @@ export default function PublicQuotePage() {
           </div>
         </div>
 
+        {/* 付款摘要 —— 总价 / 现付定金 / 尾款，客户第一眼看到 */}
+        {quote.payment && quote.payment.total > 0 && (
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-orange-200 overflow-hidden mb-6">
+            <div className="px-6 py-3 border-b border-orange-100 bg-orange-50/40">
+              <h2 className="text-sm font-semibold text-stone-800">{t.payTitle}</h2>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <div className="flex justify-between items-baseline">
+                <span className="text-sm text-stone-500">{t.payTotal}</span>
+                <span className="text-2xl font-bold text-stone-800">
+                  ${quote.payment.total.toFixed(2)}
+                </span>
+              </div>
+              {quote.payment.deposit !== null && (
+                <div className="flex justify-between items-baseline rounded-xl bg-orange-50 px-4 py-3 -mx-1">
+                  <span className="text-sm font-semibold text-orange-800">{t.payDeposit}</span>
+                  <span className="text-xl font-bold text-orange-700">
+                    ${quote.payment.deposit.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {quote.payment.balance !== null && (
+                <div className="flex justify-between items-baseline">
+                  <span className="text-sm text-stone-500">{t.payBalance}</span>
+                  <span className="text-base font-semibold text-stone-600">
+                    ${quote.payment.balance.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* 有 PDF 存档时以 PDF 为准展示（与销售发出的版本完全一致），签字对 PDF 生效 */}
         {quote.hasPdf && (
           <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
@@ -484,12 +536,23 @@ export default function PublicQuotePage() {
                 </a>
               </div>
             </div>
+            {/* 手机端 iframe 内嵌 PDF 不可靠（iOS 只显示首页/吞掉滚动），
+                小屏改为跳转卡片，桌面端才内嵌预览 */}
+            <a
+              href={`/api/sales/quotes/share/${token}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex md:hidden items-center gap-3 px-6 py-5 bg-orange-50/50 hover:bg-orange-50 transition-colors"
+            >
+              <FileText size={28} className="text-orange-600 shrink-0" />
+              <span className="text-sm font-medium text-orange-800">{t.pdfMobileHint} →</span>
+            </a>
             <iframe
               key={signSuccess ? "signed" : "original"}
               src={`/api/sales/quotes/share/${token}/pdf?v=${signSuccess ? "signed" : "original"}#toolbar=0`}
               title={t.pdfTitle}
-              className="w-full bg-stone-100"
-              style={{ height: "75vh", border: "none" }}
+              className="hidden md:block w-full bg-stone-100"
+              style={{ height: "70vh", border: "none" }}
             />
           </div>
         )}
@@ -634,6 +697,17 @@ export default function PublicQuotePage() {
                   <p className="text-xs text-stone-400 mt-2">
                     {fmtDate(quote.signedAt)}
                   </p>
+                )}
+                {quote.hasPdf && (
+                  <>
+                    <a
+                      href={`/api/sales/quotes/share/${token}/pdf?download=1`}
+                      className="mt-4 rounded-xl bg-orange-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-700 transition-colors"
+                    >
+                      {t.pdfSignedDownload} ↓
+                    </a>
+                    <p className="text-xs text-stone-400 mt-3">{t.copySentMsg}</p>
+                  </>
                 )}
               </div>
             ) : (

@@ -57,6 +57,13 @@ const T: Record<Lang, Record<string, string>> = {
     viewDetails: "Open Customer Record",
     subjectQuote: "Your Personalized Quote — SUNNY HOME & DECO",
     subjectSigned: "Quote Signed — Order Confirmed",
+    depositDueLabel: "Deposit Due Now",
+    balanceLabel: "Balance (on completion)",
+    downloadSignedPdf: "Download Signed Copy (PDF)",
+    subjectCustomerCopy: "Order Confirmed — Your Signed Copy",
+    copyIntro:
+      "Thank you — your order has been confirmed. Your signed copy is available for download below. Our team will contact you shortly to confirm the deposit and schedule installation.",
+    copyKeep: "Please keep this document for your records.",
   },
   cn: {
     greeting: "尊敬的",
@@ -87,6 +94,13 @@ const T: Record<Lang, Record<string, string>> = {
     viewDetails: "打开客户档案",
     subjectQuote: "您的定制报价 — SUNNY HOME & DECO",
     subjectSigned: "报价已签字 — 订单已确认",
+    depositDueLabel: "现需支付定金",
+    balanceLabel: "尾款（完工时支付）",
+    downloadSignedPdf: "下载已签署副本（PDF）",
+    subjectCustomerCopy: "订单已确认 — 您的签署副本",
+    copyIntro:
+      "感谢您的信任，您的订单已确认。下方可下载您的已签署副本，我们的顾问将尽快与您联系确认定金与安装档期。",
+    copyKeep: "请妥善保存此文件以备查阅。",
   },
   fr: {
     greeting: "Cher(e)",
@@ -121,6 +135,13 @@ const T: Record<Lang, Record<string, string>> = {
     viewDetails: "Ouvrir la fiche client",
     subjectQuote: "Votre devis personnalisé — SUNNY HOME & DECO",
     subjectSigned: "Devis signé — Commande confirmée",
+    depositDueLabel: "Acompte à verser",
+    balanceLabel: "Solde (à la fin des travaux)",
+    downloadSignedPdf: "Télécharger la copie signée (PDF)",
+    subjectCustomerCopy: "Commande confirmée — votre copie signée",
+    copyIntro:
+      "Merci — votre commande est confirmée. Vous pouvez télécharger votre copie signée ci-dessous. Notre équipe vous contactera sous peu pour confirmer l’acompte et planifier l’installation.",
+    copyKeep: "Veuillez conserver ce document pour vos dossiers.",
   },
 };
 
@@ -198,6 +219,10 @@ export function quoteEmailHtml(opts: {
   customerName: string;
   quoteUrl: string;
   grandTotal: number;
+  /** 现需支付定金（表单约定值，null 时不渲染定金行） */
+  depositDue?: number | null;
+  /** 尾款（null 时不渲染） */
+  balance?: number | null;
   lang?: Lang;
   senderName?: string;
 }): string {
@@ -205,6 +230,26 @@ export function quoteEmailHtml(opts: {
   const t = T[lang];
   const total = formatCurrency(opts.grandTotal);
   const signer = opts.senderName || `${BRAND.name} ${t.teamSuffix}`;
+
+  const depositRows =
+    opts.depositDue !== null && opts.depositDue !== undefined
+      ? `
+      <tr>
+        <td style="padding:14px 24px;border-top:1px solid #fed7aa;">
+          <p style="margin:0;color:${BRAND.colorPrimaryDark};font-size:11px;letter-spacing:2px;text-transform:uppercase;">${t.depositDueLabel}</p>
+          <p style="margin:4px 0 0;color:${BRAND.colorPrimaryDark};font-size:20px;font-weight:700;">${formatCurrency(opts.depositDue)}</p>
+        </td>
+      </tr>` +
+        (opts.balance !== null && opts.balance !== undefined
+          ? `
+      <tr>
+        <td style="padding:12px 24px;border-top:1px solid #fed7aa;">
+          <p style="margin:0;color:${BRAND.colorMuted};font-size:11px;letter-spacing:2px;text-transform:uppercase;">${t.balanceLabel}</p>
+          <p style="margin:4px 0 0;color:${BRAND.colorInk};font-size:15px;font-weight:600;">${formatCurrency(opts.balance)}</p>
+        </td>
+      </tr>`
+          : "")
+      : "";
 
   const body = `
 ${brandHeader(lang)}
@@ -214,14 +259,14 @@ ${brandHeader(lang)}
     <p style="margin:0 0 16px;color:${BRAND.colorInk};font-size:14px;line-height:1.7;">${t.quoteIntro}</p>
     <p style="margin:0 0 24px;color:${BRAND.colorMuted};font-size:13px;line-height:1.7;">${t.quoteHighlight}</p>
 
-    <!-- Total card -->
+    <!-- Total + Deposit card -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;background:${BRAND.colorPrimarySoft};border:1px solid #fed7aa;border-radius:4px;">
       <tr>
         <td style="padding:18px 24px;">
           <p style="margin:0;color:${BRAND.colorPrimaryDark};font-size:11px;letter-spacing:2px;text-transform:uppercase;">${t.totalLabel}</p>
           <p style="margin:4px 0 0;color:${BRAND.colorInk};font-size:26px;font-weight:700;letter-spacing:0.5px;">${total}</p>
         </td>
-      </tr>
+      </tr>${depositRows}
     </table>
 
     <!-- CTA -->
@@ -263,12 +308,81 @@ ${brandFooter(lang)}`;
 /**
  * 发给销售的签约通知邮件 —— 客户在公开页签字后触发
  */
+/**
+ * 客户签署后发给客户的确认邮件 —— 附已签署 PDF 下载链接（客户留底 copy）
+ */
+export function customerSignedCopyHtml(opts: {
+  customerName: string;
+  grandTotal: number;
+  depositDue?: number | null;
+  signedAt: string;
+  /** 已签署 PDF 下载链接（公开 token 路由） */
+  downloadUrl: string;
+  lang?: Lang;
+}): string {
+  const lang = opts.lang || "en";
+  const t = T[lang];
+
+  const depositRow =
+    opts.depositDue !== null && opts.depositDue !== undefined
+      ? `
+      <tr>
+        <td style="padding:14px 20px;border-bottom:1px solid #fed7aa;">
+          <p style="margin:0;color:${BRAND.colorMuted};font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">${t.depositDueLabel}</p>
+          <p style="margin:4px 0 0;color:${BRAND.colorPrimaryDark};font-size:18px;font-weight:700;">${formatCurrency(opts.depositDue)}</p>
+        </td>
+      </tr>`
+      : "";
+
+  const body = `
+${brandHeader(lang)}
+<tr>
+  <td style="padding:36px 40px 8px;">
+    <p style="margin:0 0 4px;color:${BRAND.colorPrimaryDark};font-size:11px;letter-spacing:3px;text-transform:uppercase;font-weight:700;">${t.signedSubject}</p>
+    <p style="margin:0 0 20px;color:${BRAND.colorInk};font-size:15px;">${t.greeting} ${opts.customerName},</p>
+    <p style="margin:0 0 24px;color:${BRAND.colorInk};font-size:14px;line-height:1.7;">${t.copyIntro}</p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;background:${BRAND.colorPrimarySoft};border-radius:4px;">
+      <tr>
+        <td style="padding:14px 20px;border-bottom:1px solid #fed7aa;">
+          <p style="margin:0;color:${BRAND.colorMuted};font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">${t.signedTotal}</p>
+          <p style="margin:4px 0 0;color:${BRAND.colorInk};font-size:20px;font-weight:700;">${formatCurrency(opts.grandTotal)}</p>
+        </td>
+      </tr>${depositRow}
+      <tr>
+        <td style="padding:14px 20px;">
+          <p style="margin:0;color:${BRAND.colorMuted};font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">${t.signedTime}</p>
+          <p style="margin:4px 0 0;color:${BRAND.colorInk};font-size:13px;">${opts.signedAt}</p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Download signed copy CTA -->
+    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+      <tr>
+        <td style="background:${BRAND.colorPrimary};border-radius:4px;">
+          <a href="${opts.downloadUrl}" style="display:inline-block;padding:14px 32px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;letter-spacing:0.5px;">${t.downloadSignedPdf} ↓</a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 24px;color:${BRAND.colorMuted};font-size:12px;line-height:1.6;">${t.copyKeep}</p>
+  </td>
+</tr>
+<tr><td style="padding:0 40px 32px;"></td></tr>
+${brandFooter(lang)}`;
+
+  return baseLayout(body);
+}
+
 export function signedNotifyHtml(opts: {
   salesName: string;
   customerName: string;
   grandTotal: number;
   signedAt: string;
   quoteUrl: string;
+  /** 已签署 PDF 下载链接（可选，销售留底 copy） */
+  signedPdfUrl?: string | null;
   lang?: Lang;
 }): string {
   const lang = opts.lang || "cn";
@@ -314,6 +428,7 @@ ${brandHeader(lang)}
         <td style="background:${BRAND.colorPrimary};border-radius:4px;">
           <a href="${opts.quoteUrl}" style="display:inline-block;padding:12px 28px;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;letter-spacing:0.5px;">${t.viewDetails} →</a>
         </td>
+        ${opts.signedPdfUrl ? `<td style="padding-left:12px;"><a href="${opts.signedPdfUrl}" style="display:inline-block;padding:12px 28px;border:1px solid ${BRAND.colorPrimary};border-radius:4px;color:${BRAND.colorPrimaryDark};text-decoration:none;font-size:13px;font-weight:600;letter-spacing:0.5px;">${t.downloadSignedPdf} ↓</a></td>` : ""}
       </tr>
     </table>
   </td>

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { onQuoteViewed } from "@/lib/sales/opportunity-lifecycle";
+import { deriveQuoteDisplayAmounts } from "@/lib/sales/quote-display-amounts";
 
 export async function GET(
   request: NextRequest,
@@ -52,6 +53,9 @@ export async function GET(
     );
   }
 
+  // 对客金额：以销售端表单约定的 定金+尾款 为准（与 PDF/邮件一致）
+  const amounts = deriveQuoteDisplayAmounts(quote.formDataJson, quote.grandTotal);
+
   return NextResponse.json({
     quote: {
       id: quote.id,
@@ -73,6 +77,12 @@ export async function GET(
       signedAt: quote.signedAt,
       // 有 PDF 存档时客户页以 PDF 为准展示（与销售发出的版本完全一致）
       hasPdf: Boolean(quote.signedPdfPath || quote.pdfPath),
+      // 对客付款摘要（总价/现付定金/尾款），客户页醒目展示
+      payment: {
+        total: amounts.total,
+        deposit: amounts.deposit,
+        balance: amounts.balance,
+      },
       createdAt: quote.createdAt,
       createdBy: quote.createdBy?.name,
       rooms: quote.rooms.map((r) => ({

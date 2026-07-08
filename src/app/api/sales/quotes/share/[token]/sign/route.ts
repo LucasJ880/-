@@ -5,8 +5,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { sendMailAs } from "@/lib/email/sender";
-import { signedNotifyHtml } from "@/lib/email/templates";
+import { sendSalesEmail } from "@/lib/email/sender";
+import { signedNotifyHtml, customerSignedCopyHtml } from "@/lib/email/templates";
+import { deriveQuoteDisplayAmounts } from "@/lib/sales/quote-display-amounts";
 import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import { resolveOrgIdForQuoteLinkedInteraction } from "@/lib/sales/org-context";
@@ -28,7 +29,7 @@ export async function POST(
   const quote = await db.salesQuote.findUnique({
     where: { shareToken: token },
     include: {
-      customer: { select: { name: true, orgId: true } },
+      customer: { select: { name: true, email: true, orgId: true } },
       createdBy: { select: { id: true, name: true, email: true } },
     },
   });
@@ -88,6 +89,9 @@ export async function POST(
     createdById: quote.createdBy.id,
   });
 
+  // 对客金额与邮件/PDF 一致（DB grandTotal 在 shell/partial 保存时不可靠）
+  const amounts = deriveQuoteDisplayAmounts(quote.formDataJson, quote.grandTotal);
+
   // P2 guard：禁止写入 orgId:null 的 CustomerInteraction。
   // 正常数据 quote.orgId 必然存在；若解析失败属数据异常，记录错误并跳过互动创建，
   // 不阻断签署主流程（报价已置为 signed）。
@@ -98,7 +102,7 @@ export async function POST(
         customerId: quote.customerId,
         type: "signature",
         direction: "inbound",
-        summary: `客户签署报价单 — $${quote.grandTotal.toFixed(2)}`,
+        summary: `客户签署报价单 — $${amounts.total.toFixed(2)}`,
         createdById: quote.createdBy.id,
       },
     });
@@ -113,10 +117,18 @@ export async function POST(
     console.error("Quote signed lifecycle error:", err),
   );
 
-  // --- 三通道签约通知 ---
+  // --- 签约通知（销售三通道 + 客户签署副本） ---
   const salesUserId = quote.createdBy.id;
   const salesName = quote.createdBy.name || "Sales";
   const customerName = quote.customer.name;
+
+  const origin = request.headers.get("origin") || request.headers.get("host") || "";
+  const protocol = origin.startsWith("http") ? "" : "https://";
+  const quoteUrl = `${protocol}${origin}/sales/customers/${quote.customerId}`;
+  // 已签署 PDF 下载链接（公开 token 路由，签署后返回已盖章版本）
+  const signedPdfUrl = signedPdfPath
+    ? `${protocol}${origin}/api/sales/quotes/share/${token}/pdf?download=1`
+    : null;
 
   // 1) 站内通知
   const { createNotification } = await import("@/lib/notifications/create");
@@ -124,7 +136,7 @@ export async function POST(
     userId: salesUserId,
     type: "quote_signed",
     title: `报价已签约 — ${customerName}`,
-    summary: `${customerName} 签署了报价单，总额 $${quote.grandTotal.toFixed(2)}`,
+    summary: `${customerName} 签署了报价单，总额 $${amounts.total.toFixed(2)}`,
     metadata: { customerId: quote.customerId },
   }).catch(() => {});
 
@@ -134,27 +146,49 @@ export async function POST(
     await pushNotification(
       salesUserId,
       "✅ 报价已签约",
-      `${customerName} 签署了报价单\n总额 $${quote.grandTotal.toFixed(2)}`,
+      `${customerName} 签署了报价单\n总额 $${amounts.total.toFixed(2)}`,
     );
   } catch {}
 
-  // 3) 邮件通知销售
-  const origin = request.headers.get("origin") || request.headers.get("host") || "";
-  const protocol = origin.startsWith("http") ? "" : "https://";
-  const quoteUrl = `${protocol}${origin}/sales/customers/${quote.customerId}`;
-
-  await sendMailAs(salesUserId, {
+  // 3) 邮件通知销售（含已签署 PDF 下载链接 —— 我方留底 copy）
+  await sendSalesEmail(salesUserId, {
     to: quote.createdBy.email || "",
-    subject: `报价已签约 — ${customerName} $${quote.grandTotal.toFixed(2)}`,
+    subject: `报价已签约 — ${customerName} $${amounts.total.toFixed(2)}`,
     html: signedNotifyHtml({
       salesName,
       customerName,
-      grandTotal: quote.grandTotal,
+      grandTotal: amounts.total,
       signedAt: now.toLocaleString("zh-CN"),
       quoteUrl,
+      signedPdfUrl,
       lang: "cn",
     }),
   }).catch(() => {});
+
+  // 4) 客户签署副本邮件（客户留底 copy，用销售的发信通道）
+  const customerEmail = quote.customer.email;
+  if (customerEmail) {
+    const copyLang = (body as { lang?: string }).lang;
+    const lang = copyLang === "cn" || copyLang === "fr" ? copyLang : "en";
+    await sendSalesEmail(salesUserId, {
+      to: customerEmail,
+      subject:
+        lang === "cn"
+          ? `订单已确认 — 您的签署副本 · $${amounts.total.toFixed(2)}`
+          : lang === "fr"
+            ? `Commande confirmée — votre copie signée · $${amounts.total.toFixed(2)}`
+            : `Order Confirmed — Your Signed Copy · $${amounts.total.toFixed(2)}`,
+      html: customerSignedCopyHtml({
+        customerName,
+        grandTotal: amounts.total,
+        depositDue: amounts.deposit,
+        signedAt: now.toLocaleString(lang === "cn" ? "zh-CN" : "en-CA"),
+        downloadUrl:
+          signedPdfUrl ?? `${protocol}${origin}/quote/${token}?lang=${lang}`,
+        lang,
+      }),
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ signed: true, signedAt: now.toISOString() });
 }
