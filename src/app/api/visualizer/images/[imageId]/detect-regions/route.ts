@@ -9,13 +9,21 @@ import {
   normalizeDetectedRegionCandidates,
   stripJsonFence,
 } from "@/lib/visualizer/ai-detect";
+import {
+  detectWindowsWithGroundingDino,
+  isGroundingDinoConfigured,
+} from "@/lib/visualizer/grounding-dino";
 import { readBlobBuffer } from "@/lib/files/blob-access";
 
 /**
  * POST /api/visualizer/images/[imageId]/detect-regions
  *
- * 使用视觉模型识别照片里的窗户区域，只返回草稿，不直接落库。
+ * 识别照片里的窗户区域，只返回草稿，不直接落库。
  * 前端需要销售点击确认后，再调用现有 POST /regions 接口保存。
+ *
+ * 检测路径（按优先级）：
+ * 1. Grounding DINO（Replicate）— 专用检测器，坐标精确，配置 REPLICATE_API_TOKEN 即启用
+ * 2. GPT 视觉回退 — 语言模型报坐标有漂移，仅在 DINO 未配置或调用失败时使用
  */
 export const POST = withAuth(async (_request, ctx, user) => {
   const { imageId } = await ctx.params;
@@ -49,9 +57,9 @@ export const POST = withAuth(async (_request, ctx, user) => {
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey && !isGroundingDinoConfigured()) {
     return NextResponse.json(
-      { error: "未配置 OPENAI_API_KEY，无法使用 AI 识别" },
+      { error: "未配置 AI 检测所需的 API Key，无法使用 AI 识别" },
       { status: 503 },
     );
   }
@@ -89,11 +97,45 @@ Rules:
 - Be conservative. Return at most 8 windows.
 - If unsure, return an empty windows array.`;
 
-  // 私有 Blob 后 OpenAI 无法抓取存储/代理 URL，服务端读字节后走 base64 data URL
+  // 私有 Blob 后外部模型无法抓取存储/代理 URL，服务端先读出字节
   const imageBytes = await readBlobBuffer(image.fileUrl);
   if (!imageBytes) {
     return NextResponse.json({ error: "图片读取失败" }, { status: 502 });
   }
+
+  // ── 主路径：Grounding DINO（专用检测器，坐标精确）──
+  if (isGroundingDinoConfigured()) {
+    try {
+      const detections = await detectWindowsWithGroundingDino({
+        imageBuffer: imageBytes.buffer,
+        contentType: imageBytes.contentType,
+      });
+      const candidates = normalizeDetectedRegionCandidates(
+        { windows: detections },
+        { width: image.width, height: image.height },
+      );
+      return NextResponse.json({
+        candidates,
+        image: { id: image.id, width: image.width, height: image.height },
+        existingRegionCount: image.regions.length,
+        model: "grounding-dino",
+      });
+    } catch (err) {
+      console.error(
+        "Visualizer grounding-dino detect failed, fallback to VLM:",
+        err,
+      );
+      // 继续走下方 GPT 回退路径
+    }
+  }
+
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "AI 识别失败，请稍后重试" },
+      { status: 502 },
+    );
+  }
+
   const imageDataUrl = `data:${imageBytes.contentType};base64,${imageBytes.buffer.toString("base64")}`;
 
   try {
