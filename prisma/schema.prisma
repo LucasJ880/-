@@ -2555,6 +2555,10 @@ model SalesQuote {
   aiSource     String? // voice / text / image / manual
   viewedAt     DateTime? // 客户查看时间
 
+  // 报价 PDF 存档（客户以 PDF 为准查看并签字，解决网页渲染与 PDF 不一致问题）
+  pdfPath       String? // 发送时存档的 Order Form PDF（私有 Blob pathname）
+  signedPdfPath String? // 客户签字后盖章生成的已签署 PDF（私有 Blob pathname）
+
   // 折扣率追踪（Step 4）
   totalMsrp        Float? // 所有产品行的 MSRP 之和（Part B/C 不计入分母）
   specialPromotion Float? @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）

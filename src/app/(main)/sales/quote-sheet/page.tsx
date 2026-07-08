@@ -909,8 +909,8 @@ function QuoteSheetPageInner() {
     setSendQuoteOpen(true);
   }, [customerId]);
 
-  // PDF export — 委托给 ./quote-pdf 模块（橙色品牌四页式设计）
-  const handleExportPDF = useCallback(async () => {
+  // PDF input — 从当前表单状态构建（导出下载与服务器存档共用，保证同一份内容）
+  const buildPdfInput = useCallback(async () => {
     const logoDataUrl = await loadLogoAsDataUrl("/logo.png");
     let signatureDataUrl: string | null = null;
     try {
@@ -919,7 +919,7 @@ function QuoteSheetPageInner() {
       signatureDataUrl = null;
     }
 
-    await exportQuotePdf({
+    return {
       orderNumber,
       date,
       customerName,
@@ -953,7 +953,7 @@ function QuoteSheetPageInner() {
       specialPromotion: specialPromotionNum,
       totalMsrp,
       finalDiscountPct,
-    });
+    };
   }, [
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
     salesRep, partBAddons, subtotalB, paymentMethod, depositAmount,
@@ -963,6 +963,35 @@ function QuoteSheetPageInner() {
     discounts,
     specialPromotionNum, totalMsrp, finalDiscountPct,
   ]);
+
+  // PDF export — 下载到本地（委托给 ./quote-pdf 模块，橙色品牌四页式设计）
+  const handleExportPDF = useCallback(async () => {
+    await exportQuotePdf(await buildPdfInput());
+  }, [buildPdfInput]);
+
+  /**
+   * 把当前表单生成的 Order Form PDF 上传到服务器存档。
+   * 客户打开分享链接看到并签署的就是这份 PDF（与销售发出的完全一致）。
+   * 失败时返回 false，由调用方决定提示文案，不阻断主流程。
+   */
+  const uploadQuotePdf = useCallback(
+    async (quoteId: string): Promise<boolean> => {
+      try {
+        const blob = await exportQuotePdf(await buildPdfInput(), { output: "blob" });
+        if (!blob) return false;
+        const res = await apiFetch(`/api/sales/quotes/${quoteId}/pdf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: blob,
+        });
+        return res.ok;
+      } catch (err) {
+        console.error("Upload quote PDF failed:", err);
+        return false;
+      }
+    },
+    [buildPdfInput],
+  );
 
   /**
    * 客户 Part B 签完名后 → 一键"生成订单"
@@ -1025,6 +1054,9 @@ function QuoteSheetPageInner() {
         pdfWarning = `Order Form PDF 导出失败：${msg}（订单已保存，可到客户详情页重试导出）`;
       }
 
+      // 同一份 Order Form PDF（含 Part B 签名）上传服务器存档，失败不阻断
+      await uploadQuotePdf(saved.quoteId);
+
       if (markSignedWarning || pdfWarning) {
         alert(
           `订单已保存成功（订单号 ${lastSaved?.orderNum || saved.quoteId}），但有部分后续步骤未完成：\n\n` +
@@ -1048,7 +1080,7 @@ function QuoteSheetPageInner() {
     } finally {
       setGenerating(false);
     }
-  }, [customerId, hasAnySignature, handleSave, handleExportPDF, lastSaved?.orderNum, orgLoading, ambiguous, orgId]);
+  }, [customerId, hasAnySignature, handleSave, handleExportPDF, uploadQuotePdf, lastSaved?.orderNum, orgLoading, ambiguous, orgId]);
 
   /**
    * 发送 Quote —— 弹窗二选一落地：
@@ -1077,6 +1109,19 @@ function QuoteSheetPageInner() {
       if (!saved?.quoteId) {
         setSendQuoteBusy(null);
         return;
+      }
+
+      // 先把 Order Form PDF 存档到服务器 —— 客户打开链接看到并签字的就是这份 PDF。
+      // 存档失败时客户页回退旧版网页渲染（可能与 PDF 有出入），因此给出提示。
+      const pdfArchived = await uploadQuotePdf(saved.quoteId);
+      if (!pdfArchived) {
+        const proceed = confirm(
+          "报价 PDF 存档失败：客户打开链接将看到网页版报价（可能与 PDF 排版有出入）。\n\n仍要继续发送吗？",
+        );
+        if (!proceed) {
+          setSendQuoteBusy(null);
+          return;
+        }
       }
 
       if (mode === "email") {
@@ -1122,7 +1167,7 @@ function QuoteSheetPageInner() {
     } finally {
       setSendQuoteBusy(null);
     }
-  }, [customerId, customerEmail, handleSave, handleExportPDF, orgId, orgLoading, ambiguous]);
+  }, [customerId, customerEmail, handleSave, handleExportPDF, uploadQuotePdf, orgId, orgLoading, ambiguous]);
 
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;

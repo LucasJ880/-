@@ -71,6 +71,8 @@ export async function GET(
       notes: quote.notes,
       signatureUrl: quote.signatureUrl,
       signedAt: quote.signedAt,
+      // 有 PDF 存档时客户页以 PDF 为准展示（与销售发出的版本完全一致）
+      hasPdf: Boolean(quote.signedPdfPath || quote.pdfPath),
       createdAt: quote.createdAt,
       createdBy: quote.createdBy?.name,
       rooms: quote.rooms.map((r) => ({

@@ -55,6 +55,11 @@ const T: Record<Lang, Record<string, string>> = {
     footer1: "SUNNY HOME & DECO · Custom Window Coverings & Interior Decor",
     footer2: "This quote is valid for 30 days from the date of issue. All prices in CAD.",
     web: "www.sunnyshutter.ca",
+    pdfTitle: "Order Document",
+    pdfHint: "Please review the full order document below. Your signature applies to this document.",
+    pdfOpen: "Open PDF",
+    pdfDownload: "Download PDF",
+    pdfSignedDownload: "Download Signed Copy",
   },
   cn: {
     brand: "SUNNY HOME & DECO",
@@ -98,6 +103,11 @@ const T: Record<Lang, Record<string, string>> = {
     footer1: "SUNNY HOME & DECO · 定制窗饰与家居软装",
     footer2: "本报价自签发之日起 30 日内有效，所有价格均为加元 (CAD)。",
     web: "www.sunnyshutter.ca",
+    pdfTitle: "订单文件",
+    pdfHint: "请查看下方完整订单文件，您的签字对该文件生效。",
+    pdfOpen: "打开 PDF",
+    pdfDownload: "下载 PDF",
+    pdfSignedDownload: "下载已签署版本",
   },
   fr: {
     brand: "SUNNY HOME & DECO",
@@ -141,6 +151,11 @@ const T: Record<Lang, Record<string, string>> = {
     footer1: "SUNNY HOME & DECO · Habillages de fenêtres et décor intérieur sur mesure",
     footer2: "Ce devis est valable 30 jours à compter de la date d’émission. Tous les prix sont en CAD.",
     web: "www.sunnyshutter.ca",
+    pdfTitle: "Document de commande",
+    pdfHint: "Veuillez consulter le document complet ci-dessous. Votre signature s’applique à ce document.",
+    pdfOpen: "Ouvrir le PDF",
+    pdfDownload: "Télécharger le PDF",
+    pdfSignedDownload: "Télécharger la copie signée",
   },
 };
 
@@ -182,6 +197,7 @@ interface QuoteData {
   notes: string | null;
   signatureUrl: string | null;
   signedAt: string | null;
+  hasPdf?: boolean;
   createdAt: string;
   createdBy: string;
   rooms: QuoteRoom[];
@@ -443,7 +459,43 @@ export default function PublicQuotePage() {
           </div>
         </div>
 
+        {/* 有 PDF 存档时以 PDF 为准展示（与销售发出的版本完全一致），签字对 PDF 生效 */}
+        {quote.hasPdf && (
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
+            <div className="px-6 py-4 border-b border-stone-100 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold text-stone-700">{t.pdfTitle}</h2>
+                <p className="text-xs text-stone-400 mt-0.5">{t.pdfHint}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/sales/quotes/share/${token}/pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+                >
+                  {t.pdfOpen}
+                </a>
+                <a
+                  href={`/api/sales/quotes/share/${token}/pdf?download=1`}
+                  className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 transition-colors"
+                >
+                  {quote.signedAt || signSuccess ? t.pdfSignedDownload : t.pdfDownload}
+                </a>
+              </div>
+            </div>
+            <iframe
+              key={signSuccess ? "signed" : "original"}
+              src={`/api/sales/quotes/share/${token}/pdf?v=${signSuccess ? "signed" : "original"}#toolbar=0`}
+              title={t.pdfTitle}
+              className="w-full bg-stone-100"
+              style={{ height: "75vh", border: "none" }}
+            />
+          </div>
+        )}
+
         {/* Items by room */}
+        {!quote.hasPdf && (
         <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-stone-100">
             <h2 className="text-sm font-semibold text-stone-700">{t.products}</h2>
@@ -485,9 +537,10 @@ export default function PublicQuotePage() {
             </table>
           </div>
         </div>
+        )}
 
         {/* Addons */}
-        {quote.addons.length > 0 && (
+        {!quote.hasPdf && quote.addons.length > 0 && (
           <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
             <div className="px-6 py-4 border-b border-stone-100">
               <h2 className="text-sm font-semibold text-stone-700">{t.addons}</h2>
@@ -518,6 +571,7 @@ export default function PublicQuotePage() {
         )}
 
         {/* Summary */}
+        {!quote.hasPdf && (
         <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6">
           <div className="px-6 py-4 space-y-2">
             <div className="flex justify-between text-sm text-stone-500">
@@ -552,9 +606,10 @@ export default function PublicQuotePage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Notes */}
-        {quote.notes && (
+        {!quote.hasPdf && quote.notes && (
           <div className="rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 overflow-hidden mb-6 px-6 py-4">
             <h3 className="text-sm font-semibold text-stone-700 mb-1">{t.notes}</h3>
             <p className="text-sm text-stone-500 whitespace-pre-wrap">{quote.notes}</p>

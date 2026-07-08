@@ -47,11 +47,33 @@ export async function POST(
     quote.grandTotal,
   );
 
+  // 有 PDF 存档时，把签名盖进 PDF 生成已签署版本（客户签的就是发出去的那份）。
+  // 盖章失败不阻断签署主流程——签名图与时间仍落库，可事后补生成。
+  let signedPdfPath: string | null = null;
+  if (quote.pdfPath) {
+    try {
+      const { stampSignatureIntoQuotePdf } = await import(
+        "@/lib/sales/quote-pdf-stamp"
+      );
+      signedPdfPath = await stampSignatureIntoQuotePdf({
+        quoteId: quote.id,
+        pdfPath: quote.pdfPath,
+        signatureDataUrl,
+        customerName: quote.customer.name,
+        orderNumber: quote.orderNumber,
+        signedAt: now,
+      });
+    } catch (err) {
+      console.error(`[sign] PDF 签名盖章失败 quote=${quote.id}:`, err);
+    }
+  }
+
   await db.salesQuote.update({
     where: { id: quote.id },
     data: {
       signatureUrl: signatureDataUrl,
       signedAt: now,
+      ...(signedPdfPath ? { signedPdfPath } : {}),
       // 公开页签字 = 销售端"生成订单" → 统一写 signed，避免"已签约"筛选
       // 与驾驶舱统计看不到这种单（历史 accepted 数据在前端和 metrics 里兼容）
       status: "signed",

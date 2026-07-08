@@ -588,7 +588,15 @@ function drawFooterHero(ctx: Ctx) {
 
 // ── 主函数 ───────────────────────────────────────────────────────────
 
-export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
+export interface QuotePdfExportOptions {
+  /** save：下载到本地（默认）；blob：返回 PDF Blob（用于上传服务器存档） */
+  output?: "save" | "blob";
+}
+
+export async function exportQuotePdf(
+  input: QuotePdfInput,
+  options?: QuotePdfExportOptions,
+): Promise<Blob | null> {
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
 
@@ -1138,5 +1146,9 @@ export async function exportQuotePdf(input: QuotePdfInput): Promise<void> {
     doc.text(`${p} / ${realTotal}`, pageW - MARGIN, pageH - 6, { align: "right" });
   }
 
+  if (options?.output === "blob") {
+    return doc.output("blob");
+  }
   doc.save(`Order_${input.orderNumber || "draft"}_${input.date}.pdf`);
+  return null;
 }
