@@ -3628,3 +3628,106 @@ model VisualizerCatalogProduct {
   @@index([orgId, archived])
   @@index([category])
 }
+
+// ============================================================
+// 运营矩阵 — 矩阵账号登记 + 视频资产管道（Aivora → 文案变体 → 发布）
+// ============================================================
+
+/// 矩阵账号登记表
+/// 英文社媒（IG/FB/TikTok，Postiz 官方 API 发布）+ 小红书（PostFlow 浏览器自动化发布）
+model MatrixAccount {
+  id    String @id @default(cuid())
+  orgId String
+
+  platform    String // instagram / facebook / tiktok / youtube / xiaohongshu
+  handle      String // 平台账号名 / 唯一标识
+  displayName String?
+
+  /// 账号组：同组共享 persona 模板与内容支柱（如「多伦多华人家居」「EN 智能家居」）
+  groupName    String  @default("默认组")
+  /// 组内差异化说明（昵称口吻、细分定位等）
+  personaNotes String? @db.Text
+
+  /// 发布通道：postiz（官方 API）/ postflow（浏览器自动化，DB 队列由服务器 worker 消费）/ manual
+  publishChannel    String  @default("manual")
+  /// 通道侧账号标识：Postiz integration id 或 PostFlow --account 名
+  externalChannelId String?
+
+  status     String @default("active") // active / limited / banned / paused
+  /// 每日发布配额（防超频限流）
+  dailyQuota Int    @default(3)
+
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  publishJobs PublishJob[]
+
+  @@unique([orgId, platform, handle])
+  @@index([orgId, status])
+  @@index([orgId, groupName])
+}
+
+/// 视频资产 — 只存元数据与外部 URL，视频文件不经过青砚存储（成本与 serverless 限制）
+model VideoAsset {
+  id    String @id @default(cuid())
+  orgId String
+
+  source     String // aivora / manual / visualizer
+  externalId String? // Aivora 成片 ID（定时拉取的幂等键）
+
+  title    String
+  topic    String? // 内容主题，用于匹配账号组
+  language String  @default("en") // en / zh
+
+  videoUrl    String // 外部 CDN / 签名 URL
+  coverUrl    String?
+  durationSec Int?
+
+  /// pending（待配文案）/ ready（可排期）/ scheduled / published / blocked（规则拦截或抽检不过）
+  status      String  @default("pending")
+  blockReason String?
+
+  metadataJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  publishJobs PublishJob[]
+
+  @@unique([source, externalId])
+  @@index([orgId, status, createdAt])
+}
+
+/// 发布任务 — 一条视频 × 一个矩阵账号；文案变体随任务，不随资产（矩阵查重要求每号不同文案）
+model PublishJob {
+  id    String @id @default(cuid())
+  orgId String
+
+  assetId   String
+  asset     VideoAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  accountId String
+  account   MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// 本账号的差异化文案（变体引擎产出）
+  captionText String  @db.Text
+  hashtags    String?
+
+  channel     String // postiz / postflow
+  scheduledAt DateTime?
+
+  /// draft / queued（已派发到通道）/ published / failed / canceled
+  status        String  @default("draft")
+  externalJobId String? // Postiz post id / PostFlow worker 回执
+  errorMessage  String?
+
+  /// 抽检标记：true 表示进入人工抽检队列
+  sampledForReview Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([assetId, accountId])
+  @@index([orgId, status, scheduledAt])
+  @@index([accountId, status])
+}

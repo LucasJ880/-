@@ -1,4 +1,5 @@
-import { ExternalLink, Megaphone } from "lucide-react";
+import Link from "next/link";
+import { Clapperboard, ExternalLink, Megaphone, Users } from "lucide-react";
 
 /**
  * 运营模块 M1 — 统一发布入口
@@ -53,13 +54,40 @@ export default function OperationsPage() {
         </div>
       )}
 
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Link
+          href="/operations/matrix"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <Users className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">矩阵账号</div>
+            <div className="mt-0.5 text-xs text-muted">
+              英文社媒 + 小红书账号台账，按账号组管理通道与配额
+            </div>
+          </div>
+        </Link>
+        <Link
+          href="/operations/assets"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <Clapperboard className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">视频资产</div>
+            <div className="mt-0.5 text-xs text-muted">
+              Aivora 成片自动入库，配文案后扇出派发到矩阵账号
+            </div>
+          </div>
+        </Link>
+      </div>
+
       <div className="space-y-3 rounded-xl border border-border bg-card-bg px-5 py-4 text-sm">
         <h2 className="font-semibold">路线图</h2>
         <ul className="space-y-1.5 leading-relaxed text-muted">
-          <li>M1（当前）：Postiz 统一发布 Facebook / Instagram 矩阵账号</li>
-          <li>M2：青砚素材中心，视频 API 自动拉取 + AI 差异化文案 + 一键分发</li>
-          <li>M3：统一数据看板 + 小红书半自动流程</li>
-          <li>M4：统一客服收件箱</li>
+          <li>M1（当前）：Postiz 统一发布 + 矩阵账号台账 + Aivora 视频管道骨架</li>
+          <li>M2：AI 差异化文案变体 + 视频去重化（FFmpeg）+ 规则拦截与抽检审核</li>
+          <li>M3：统一数据看板 + 小红书 PostFlow worker 半自动发布</li>
+          <li>M4：运营技能包（选题 / 笔记生产 / 评论运营）接入智能体</li>
         </ul>
       </div>
     </div>

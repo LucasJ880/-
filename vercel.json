@@ -27,6 +27,10 @@
     {
       "path": "/api/cron/service-inbox-sla",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/aivora-sync",
+      "schedule": "15 * * * *"
     }
   ]
 }
