@@ -44,7 +44,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
       createdAt: a.createdAt.toISOString(),
       jobStats: {
         total: a.publishJobs.length,
-        queued: a.publishJobs.filter((j) => j.status === "queued").length,
+        queued: a.publishJobs.filter((j) => j.status === "queued" || j.status === "processing").length,
+        held: a.publishJobs.filter((j) => j.status === "review" || j.status === "blocked").length,
         published: a.publishJobs.filter((j) => j.status === "published").length,
         failed: a.publishJobs.filter((j) => j.status === "failed").length,
       },

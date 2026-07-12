@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clapperboard, ExternalLink, Megaphone, Users } from "lucide-react";
+import { BarChart3, Clapperboard, ExternalLink, Megaphone, ShieldCheck, Users } from "lucide-react";
 
 /**
  * 运营模块 M1 — 统一发布入口
@@ -75,7 +75,31 @@ export default function OperationsPage() {
           <div>
             <div className="font-semibold">视频资产</div>
             <div className="mt-0.5 text-xs text-muted">
-              Aivora 成片自动入库，配文案后扇出派发到矩阵账号
+              Aivora 成片自动入库，AI 差异化文案后扇出派发到矩阵账号
+            </div>
+          </div>
+        </Link>
+        <Link
+          href="/operations/review"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <ShieldCheck className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">发布审核队列</div>
+            <div className="mt-0.5 text-xs text-muted">
+              抽检任务与规则拦截任务在此人工通过或驳回
+            </div>
+          </div>
+        </Link>
+        <Link
+          href="/operations/dashboard"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <BarChart3 className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">数据看板</div>
+            <div className="mt-0.5 text-xs text-muted">
+              账号健康、发布任务状态与近 14 天发布趋势
             </div>
           </div>
         </Link>
@@ -84,10 +108,11 @@ export default function OperationsPage() {
       <div className="space-y-3 rounded-xl border border-border bg-card-bg px-5 py-4 text-sm">
         <h2 className="font-semibold">路线图</h2>
         <ul className="space-y-1.5 leading-relaxed text-muted">
-          <li>M1（当前）：Postiz 统一发布 + 矩阵账号台账 + Aivora 视频管道骨架</li>
-          <li>M2：AI 差异化文案变体 + 视频去重化（FFmpeg）+ 规则拦截与抽检审核</li>
-          <li>M3：统一数据看板 + 小红书 PostFlow worker 半自动发布</li>
-          <li>M4：运营技能包（选题 / 笔记生产 / 评论运营）接入智能体</li>
+          <li>M1（完成）：Postiz 统一发布 + 矩阵账号台账 + Aivora 视频管道骨架</li>
+          <li>M2（完成）：AI 差异化文案变体 + 规则拦截与抽检审核队列</li>
+          <li>M3（完成）：小红书 PostFlow worker 半自动发布 + FFmpeg 视频去重化</li>
+          <li>M4（完成）：数据看板 + 运营技能包 22 条（选题 / 笔记 / 评论 / 广告 / 复盘）</li>
+          <li>M5：Postiz Analytics 互动数据回流 + 技能执行入口接入运营助理</li>
         </ul>
       </div>
     </div>

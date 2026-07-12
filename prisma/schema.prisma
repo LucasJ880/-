@@ -3716,7 +3716,8 @@ model PublishJob {
   channel     String // postiz / postflow
   scheduledAt DateTime?
 
-  /// draft / queued（已派发到通道）/ published / failed / canceled
+  /// draft / review（抽检或高敏滞留）/ blocked（规则拦截）/ queued（已派发到通道）/
+  /// processing（postflow worker 已认领）/ published / failed / canceled
   status        String  @default("draft")
   externalJobId String? // Postiz post id / PostFlow worker 回执
   errorMessage  String?

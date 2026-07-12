@@ -22,7 +22,7 @@ interface VideoAssetRow {
   durationSec: number | null;
   status: string;
   createdAt: string;
-  jobStats: { total: number; queued: number; published: number; failed: number };
+  jobStats: { total: number; queued: number; held: number; published: number; failed: number };
 }
 
 interface MatrixAccountLite {
@@ -180,8 +180,13 @@ export default function VideoAssetsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "派发失败");
+      const parts = [`新建 ${data.createdJobs} 个任务`, `入队 ${data.queued}`];
+      if (data.held > 0) parts.push(`待审核 ${data.held}`);
+      if (data.blocked > 0) parts.push(`规则拦截 ${data.blocked}`);
+      if (data.failed > 0) parts.push(`失败 ${data.failed}`);
+      if (data.variantFallback) parts.push("部分文案未差异化（AI 未配置或超时）");
       setNotice(
-        `派发完成：新建 ${data.createdJobs} 个任务，入队 ${data.queued}，失败 ${data.failed}` +
+        `派发完成：${parts.join("，")}` +
           (data.errors.length ? `（${data.errors.slice(0, 3).join("；")}）` : ""),
       );
       setFanoutAssetId(null);
@@ -334,6 +339,7 @@ export default function VideoAssetsPage() {
                     {a.jobStats.total > 0 && (
                       <span>
                         任务 {a.jobStats.total}（队列 {a.jobStats.queued} / 已发 {a.jobStats.published}
+                        {a.jobStats.held > 0 && ` / 待审 ${a.jobStats.held}`}
                         {a.jobStats.failed > 0 && ` / 失败 ${a.jobStats.failed}`}）
                       </span>
                     )}
