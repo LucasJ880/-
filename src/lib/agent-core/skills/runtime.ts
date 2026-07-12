@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { getBrandContext } from "@/lib/operations/brand-context";
 import { runAgent } from "../engine";
 import type { ToolDomain } from "../types";
 import type { DynamicSkillDef, SkillRunInput, SkillRunOutput } from "./types";
@@ -80,7 +81,18 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
   const start = Date.now();
   const skill = await loadSkill(input);
 
-  const userPrompt = compileTemplate(skill.userPromptTemplate, input.variables);
+  // 品牌记忆自动注入：模板声明了 {{brandContext}} 且调用方未显式提供时，
+  // 按当前 orgId 读取品牌档案（严格组织隔离，未配置则明示无语料）
+  const variables = { ...input.variables };
+  if (
+    skill.userPromptTemplate.includes("{{brandContext}}") &&
+    !variables.brandContext?.trim()
+  ) {
+    variables.brandContext =
+      (await getBrandContext(input.orgId)) ?? "（未配置品牌语料，请基于用户输入创作，不要编造品牌信息）";
+  }
+
+  const userPrompt = compileTemplate(skill.userPromptTemplate, variables);
 
   let systemPrompt = skill.systemPrompt;
   if (skill.outputFormat === "json") {

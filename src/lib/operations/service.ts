@@ -10,6 +10,7 @@ import { fetchAivoraVideos, isAivoraConfigured } from "./aivora";
 import { dispatchPublishJob } from "./publishers";
 import { generateCaptionVariants } from "./caption-variants";
 import { checkContentRules } from "./content-rules";
+import { getBrandContext } from "./brand-context";
 
 /** 每 N 条发布任务抽 1 条进人工抽检队列 */
 const SAMPLE_EVERY_N = 20;
@@ -105,10 +106,14 @@ export async function fanoutAndDispatch(input: FanoutInput): Promise<FanoutResul
   });
   if (accounts.length === 0) throw new Error("目标账号组内没有可用账号");
 
+  // 品牌语料按 orgId 严格隔离读取；未配置时为 null，变体引擎按无语料降级
+  const brandContext = await getBrandContext(input.orgId);
+
   const { captions, usedFallback } = await generateCaptionVariants(
     asset,
     input.captionText,
     accounts,
+    brandContext,
   );
 
   let queued = 0;

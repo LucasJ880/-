@@ -3635,6 +3635,36 @@ model VisualizerCatalogProduct {
 
 /// 矩阵账号登记表
 /// 英文社媒（IG/FB/TikTok，Postiz 官方 API 发布）+ 小红书（PostFlow 浏览器自动化发布）
+/// 品牌记忆中枢 — 每组织一份品牌语料，供所有内容生产链路统一引用。
+/// 严格按 orgId 隔离：无平台级预设、无跨组织回退。
+model BrandProfile {
+  id    String @id @default(cuid())
+  orgId String @unique
+
+  brandName String
+  /// 一句话定位 / slogan
+  tagline   String?
+
+  /// 品牌定位与故事（谁、为谁、凭什么）
+  positioning     String? @db.Text
+  /// 核心卖点（一行一条）
+  sellingPoints   String? @db.Text
+  /// 目标客群画像
+  targetAudience  String? @db.Text
+  /// 品牌语气与声音（如：家的温暖、专业不生硬）
+  toneOfVoice     String? @db.Text
+  /// 服务范围（城市/配送/安装覆盖）
+  serviceScope    String? @db.Text
+  /// 代表案例 / 社会证明（一行一条）
+  caseStudies     String? @db.Text
+  /// 内容禁忌（禁用表述、不可承诺项，一行一条）
+  forbiddenClaims String? @db.Text
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 model MatrixAccount {
   id    String @id @default(cuid())
   orgId String

@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = `你是社媒矩阵运营的文案改写引擎。给定一
 - 语言跟随母版（英文母版出英文，中文母版出中文），长度与母版相当
 - 语气贴合各账号的 persona 描述；无描述则用自然、口语化的品牌声音
 - 不添加母版之外的 hashtag
+- 如提供了品牌语料：语气与卖点表述须与之一致，绝不出现「内容禁忌」中列出的表述或承诺
 
 输出严格 JSON 数组，按输入账号顺序，每项：{"accountId": "...", "caption": "..."}，不要输出其他内容。`;
 
@@ -53,6 +54,7 @@ async function generateBatch(
   asset: Pick<VideoAsset, "title" | "topic" | "language">,
   baseCaption: string,
   accounts: Array<Pick<MatrixAccount, "id" | "groupName" | "personaNotes" | "platform">>,
+  brandContext: string | null,
 ): Promise<Map<string, string>> {
   const userPrompt = JSON.stringify(
     {
@@ -70,7 +72,9 @@ async function generateBatch(
   );
 
   const content = await createCompletion({
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: brandContext
+      ? `${SYSTEM_PROMPT}\n\n【品牌语料】\n${brandContext}`
+      : SYSTEM_PROMPT,
     userPrompt,
     mode: "normal",
     timeoutMs: 60_000,
@@ -86,6 +90,7 @@ export async function generateCaptionVariants(
   asset: Pick<VideoAsset, "title" | "topic" | "language">,
   baseCaption: string,
   accounts: Array<Pick<MatrixAccount, "id" | "groupName" | "personaNotes" | "platform">>,
+  brandContext: string | null = null,
 ): Promise<CaptionVariantResult> {
   const captions = new Map<string, string>();
   if (!isAIConfigured() || accounts.length === 0) {
@@ -97,7 +102,7 @@ export async function generateCaptionVariants(
   for (let i = 0; i < accounts.length; i += MAX_VARIANTS_PER_CALL) {
     const batch = accounts.slice(i, i + MAX_VARIANTS_PER_CALL);
     try {
-      const generated = await generateBatch(asset, baseCaption, batch);
+      const generated = await generateBatch(asset, baseCaption, batch, brandContext);
       for (const a of batch) {
         const caption = generated.get(a.id);
         if (caption) {

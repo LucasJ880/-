@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BarChart3, Clapperboard, ExternalLink, Megaphone, ShieldCheck, Users } from "lucide-react";
+import { BarChart3, BookOpen, Clapperboard, ExternalLink, Megaphone, ShieldCheck, Users } from "lucide-react";
 
 /**
  * 运营模块 M1 — 统一发布入口
@@ -100,6 +100,18 @@ export default function OperationsPage() {
             <div className="font-semibold">数据看板</div>
             <div className="mt-0.5 text-xs text-muted">
               账号健康、发布任务状态与近 14 天发布趋势
+            </div>
+          </div>
+        </Link>
+        <Link
+          href="/operations/brand"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <BookOpen className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">品牌记忆</div>
+            <div className="mt-0.5 text-xs text-muted">
+              统一品牌语料，文案变体与内容技能自动引用，口径一致
             </div>
           </div>
         </Link>
