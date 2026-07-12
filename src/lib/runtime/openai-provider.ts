@@ -5,7 +5,7 @@ import type {
   LLMGenerateResult,
   ToolCallRequest,
 } from "./types";
-import { getClient } from "@/lib/ai/client";
+import { getClient, buildTuningParams } from "@/lib/ai/client";
 import { getAIConfig } from "@/lib/ai/config";
 
 export class OpenAIProvider implements LLMProvider {
@@ -21,8 +21,9 @@ export class OpenAIProvider implements LLMProvider {
     const start = Date.now();
     const cfg = getAIConfig();
 
+    const model = req.model || cfg.primaryModel;
     const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model: req.model || cfg.primaryModel,
+      model,
       messages: req.messages.map((m) => {
         if (m.role === "tool") {
           return {
@@ -33,8 +34,8 @@ export class OpenAIProvider implements LLMProvider {
         }
         return { role: m.role, content: m.content };
       }),
-      temperature: req.temperature ?? 0.7,
       max_completion_tokens: req.maxTokens ?? 4096,
+      ...buildTuningParams(model, req.temperature ?? 0.7, "medium"),
     };
 
     if (req.tools && req.tools.length > 0) {

@@ -12,7 +12,7 @@
  * - 对不支持 function calling 的模型，自动降级为文本伪协议
  */
 
-import { getClient } from "@/lib/ai/client";
+import { getClient, buildTuningParams } from "@/lib/ai/client";
 import { getTaskPreset } from "@/lib/ai/config";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { logger } from "@/lib/common/logger";
@@ -211,8 +211,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       const createParams: any = {
         model,
         messages,
-        temperature: temperature ?? preset.temperature,
         max_completion_tokens: preset.maxTokens,
+        ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
       };
       if (openaiTools.length > 0) {
         createParams.tools = openaiTools;
@@ -311,8 +311,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           ...messages,
           { role: "user", content: "请基于以上工具返回的数据，给出最终回复。" },
         ],
-        temperature: temperature ?? preset.temperature,
         max_completion_tokens: preset.maxTokens,
+        ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
       },
       Math.max(remaining, 5000),
       externalSignal,
@@ -471,10 +471,10 @@ export async function* runAgentStream(
       const createParams: any = {
         model,
         messages,
-        temperature: temperature ?? preset.temperature,
         max_completion_tokens: preset.maxTokens,
         stream: true,
         stream_options: { include_usage: true },
+        ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
       };
       if (openaiTools.length > 0) {
         createParams.tools = openaiTools;
@@ -669,9 +669,9 @@ export async function* runAgentStream(
             ...messages,
             { role: "user", content: "请基于以上工具返回的数据，给出最终回复。" },
           ],
-          temperature: temperature ?? preset.temperature,
           max_completion_tokens: preset.maxTokens,
           stream: true,
+          ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
         },
         { signal: abortSignal },
       );

@@ -20,6 +20,26 @@ export function getClient(): OpenAI {
   return _client;
 }
 
+// ── 模型家族参数适配 ──────────────────────────────────────────
+//
+// GPT-5.6 起为纯推理模型：不接受自定义 temperature（仅默认值 1），
+// 但支持 reasoning_effort。旧模型（gpt-4o / gpt-5.4 等）相反。
+// 在这里统一适配，调用方无需感知模型差异。
+
+export function isReasoningModel(model: string): boolean {
+  return /^(gpt-5\.6|o[0-9])/.test(model);
+}
+
+export function buildTuningParams(
+  model: string,
+  temperature: number,
+  reasoningEffort: "low" | "medium" | "high",
+): { temperature?: number; reasoning_effort?: "low" | "medium" | "high" } {
+  return isReasoningModel(model)
+    ? { reasoning_effort: reasoningEffort }
+    : { temperature };
+}
+
 // ── 流式对话 ──────────────────────────────────────────────────
 
 export interface ChatStreamOptions {
@@ -47,8 +67,8 @@ export async function createChatStream(opts: ChatStreamOptions) {
       stream: true,
       // 请求最终 usage 块；不支持的提供商会忽略，不影响流本身
       stream_options: { include_usage: true },
-      temperature: preset.temperature,
       max_completion_tokens: preset.maxTokens,
+      ...buildTuningParams(preset.model, preset.temperature, preset.reasoningEffort),
     },
     opts.signal ? { signal: opts.signal } : undefined,
   );
@@ -64,6 +84,7 @@ export interface CompletionOptions {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export async function createCompletion(opts: CompletionOptions): Promise<string> {
@@ -101,8 +122,12 @@ export async function createCompletionDetailed(
           { role: "developer", content: opts.systemPrompt },
           { role: "user", content: opts.userPrompt },
         ],
-        temperature: opts.temperature ?? preset.temperature,
         max_completion_tokens: opts.maxTokens ?? preset.maxTokens,
+        ...buildTuningParams(
+          actualModel,
+          opts.temperature ?? preset.temperature,
+          opts.reasoningEffort ?? preset.reasoningEffort,
+        ),
       },
       controller ? { signal: controller.signal } : undefined,
     );

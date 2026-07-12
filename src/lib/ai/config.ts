@@ -18,9 +18,10 @@ export interface TaskPreset {
   reasoningEffort: ReasoningEffort;
 }
 
-const MODEL_PRIMARY = process.env.OPENAI_MODEL || "gpt-5.4";
-const MODEL_MINI = process.env.OPENAI_MODEL_MINI || "gpt-5.4-mini";
-const MODEL_NANO = process.env.OPENAI_MODEL_NANO || "gpt-5.4-nano";
+// GPT-5.6 家族（2026-07 GA）：sol 旗舰 / terra 均衡 / luna 高吞吐轻任务
+const MODEL_PRIMARY = process.env.OPENAI_MODEL || "gpt-5.6-sol";
+const MODEL_MINI = process.env.OPENAI_MODEL_MINI || "gpt-5.6-terra";
+const MODEL_NANO = process.env.OPENAI_MODEL_NANO || "gpt-5.6-luna";
 const MODEL_IMAGE = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
 
 export const TASK_PRESETS: Record<string, TaskPreset> = {
