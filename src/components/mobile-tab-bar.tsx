@@ -2,21 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, CalendarDays, FileText, Menu } from "lucide-react";
+import { Home, Users, CalendarDays, FileText, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppShell } from "./app-shell";
 
 interface TabItem {
-  href?: string;
+  href: string;
   label: string;
   icon: typeof Home;
-  match?: (pathname: string) => boolean;
-  onClick?: () => void;
+  match: (pathname: string) => boolean;
+  /** 中央凸起的 AI 对话主按钮 */
+  center?: boolean;
 }
 
 export function MobileTabBar() {
   const pathname = usePathname();
-  const { openMobileSidebar } = useAppShell();
 
   const items: TabItem[] = [
     {
@@ -32,6 +31,13 @@ export function MobileTabBar() {
       match: (p) => p.startsWith("/sales/customers"),
     },
     {
+      href: "/assistant",
+      label: "青砚",
+      icon: Sparkles,
+      match: (p) => p.startsWith("/assistant"),
+      center: true,
+    },
+    {
       href: "/sales/calendar",
       label: "日程",
       icon: CalendarDays,
@@ -43,11 +49,6 @@ export function MobileTabBar() {
       icon: FileText,
       match: (p) =>
         p.startsWith("/sales/quote-sheet") || p.startsWith("/sales/quotes"),
-    },
-    {
-      label: "更多",
-      icon: Menu,
-      onClick: openMobileSidebar,
     },
   ];
 
@@ -61,47 +62,60 @@ export function MobileTabBar() {
       style={{ height: "calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0))" }}
     >
       {items.map((item) => {
-        const isActive = item.href
-          ? item.match
-            ? item.match(pathname)
-            : pathname.startsWith(item.href)
-          : false;
+        const isActive = item.match(pathname);
 
-        const inner = (
-          <div
-            className={cn(
-              "flex h-full w-full flex-col items-center justify-center gap-0.5 transition-colors",
-              isActive ? "text-[var(--accent)]" : "text-[var(--muted)]",
-              "active:opacity-70"
-            )}
-          >
-            <item.icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
-            <span className="text-[10px] font-medium tracking-wide">
-              {item.label}
-            </span>
-          </div>
-        );
-
-        if (item.href) {
+        if (item.center) {
           return (
             <Link
               key={item.label}
               href={item.href}
-              className="flex flex-1 items-stretch"
+              className="relative flex flex-1 items-stretch"
+              aria-label="青砚 AI 对话"
             >
-              {inner}
+              <div className="flex h-full w-full flex-col items-center justify-end gap-0.5 pb-1">
+                {/* 凸起圆钮 */}
+                <div
+                  className={cn(
+                    "absolute -top-4 left-1/2 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full shadow-lg transition-transform active:scale-95",
+                    isActive
+                      ? "bg-gradient-to-br from-teal-600 to-emerald-500 shadow-teal-600/30"
+                      : "bg-gradient-to-br from-teal-700 to-emerald-600 shadow-teal-700/25"
+                  )}
+                >
+                  <Sparkles size={22} className="text-white" strokeWidth={2} />
+                </div>
+                <span
+                  className={cn(
+                    "text-[10px] font-medium tracking-wide",
+                    isActive ? "text-[var(--accent)]" : "text-[var(--muted)]"
+                  )}
+                >
+                  {item.label}
+                </span>
+              </div>
             </Link>
           );
         }
+
         return (
-          <button
+          <Link
             key={item.label}
-            type="button"
-            onClick={item.onClick}
+            href={item.href}
             className="flex flex-1 items-stretch"
           >
-            {inner}
-          </button>
+            <div
+              className={cn(
+                "flex h-full w-full flex-col items-center justify-center gap-0.5 transition-colors",
+                isActive ? "text-[var(--accent)]" : "text-[var(--muted)]",
+                "active:opacity-70"
+              )}
+            >
+              <item.icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
+              <span className="text-[10px] font-medium tracking-wide">
+                {item.label}
+              </span>
+            </div>
+          </Link>
         );
       })}
     </nav>

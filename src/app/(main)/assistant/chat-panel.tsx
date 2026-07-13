@@ -14,7 +14,14 @@ import {
   FileText,
   X,
   MessageSquare,
+  Mic,
+  Square,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
+import { useVoiceInput } from "@/lib/hooks/use-voice-input";
+import { useTts } from "@/lib/hooks/use-tts";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { WorkSuggestion } from "@/lib/ai/schemas";
 import {
@@ -210,6 +217,69 @@ export function ChatPanel({
     onFileUploadRef.current = onFileUpload;
   }, [onFileUpload]);
 
+  // 语音输入：转写结果追加到输入框，用户确认后发送
+  const { error: toastError } = useToast();
+  const inputValueRef = useRef(input);
+  useEffect(() => {
+    inputValueRef.current = input;
+  }, [input]);
+  // 语音播报：单条点播 + 自动播报开关（localStorage 持久化）
+  const { playingId, loadingId, play: playTts, stop: stopTts } = useTts();
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  useEffect(() => {
+    try {
+      setAutoSpeak(localStorage.getItem("qy-auto-speak") === "1");
+    } catch {}
+  }, []);
+  const toggleAutoSpeak = () => {
+    setAutoSpeak((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("qy-auto-speak", next ? "1" : "0");
+      } catch {}
+      if (!next) stopTts();
+      return next;
+    });
+  };
+
+  // 自动播报：流式回复完成的那一刻朗读（只播「本次会话中流过」的消息，历史消息不播）
+  const streamedIdsRef = useRef<Set<string>>(new Set());
+  const autoSpeakRef = useRef(autoSpeak);
+  useEffect(() => {
+    autoSpeakRef.current = autoSpeak;
+  }, [autoSpeak]);
+  useEffect(() => {
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      if (msg.isStreaming) {
+        streamedIdsRef.current.add(msg.id);
+      } else if (streamedIdsRef.current.has(msg.id)) {
+        streamedIdsRef.current.delete(msg.id);
+        if (autoSpeakRef.current && msg.content && !msg.isError) {
+          playTts(msg.id, msg.content);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  const {
+    state: voiceState,
+    supported: voiceSupported,
+    toggle: toggleVoice,
+  } = useVoiceInput(
+    useCallback(
+      (text: string) => {
+        const current = inputValueRef.current;
+        onInputChange(current ? `${current.trimEnd()} ${text}` : text);
+        inputRef.current?.focus();
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [onInputChange],
+    ),
+    useCallback((msg: string) => toastError(msg), [toastError]),
+  );
+
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -286,6 +356,20 @@ export function ChatPanel({
             </p>
           )}
         </div>
+        {/* 语音播报开关：开启后 AI 回复自动朗读 */}
+        <button
+          onClick={toggleAutoSpeak}
+          className={cn(
+            "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+            autoSpeak
+              ? "bg-accent/10 text-accent"
+              : "text-muted hover:bg-foreground/5 hover:text-foreground"
+          )}
+          title={autoSpeak ? "语音播报已开启（点击关闭）" : "开启语音播报"}
+          aria-label={autoSpeak ? "关闭语音播报" : "开启语音播报"}
+        >
+          {autoSpeak ? <Volume2 size={15} /> : <VolumeX size={15} />}
+        </button>
         {/* PR4.5：待我确认 Inbox 入口 */}
         <PendingInbox onOpenThread={onOpenThread} />
       </div>
@@ -299,7 +383,7 @@ export function ChatPanel({
             </div>
             <h2 className="mb-2 text-lg font-semibold">青砚 AI 助手</h2>
             <p className="mb-6 max-w-md text-sm text-muted">
-              选择左侧已有对话继续，或点击下方开始新对话。
+              直接输入即可开始新对话，点击左上角可查看历史对话。
               每个对话独立保存，支持绑定项目获取深度上下文。
             </p>
             <div className="flex flex-wrap justify-center gap-2">
@@ -422,6 +506,34 @@ export function ChatPanel({
                 </div>
               </div>
 
+              {/* 单条播报按钮 */}
+              {msg.role === "assistant" &&
+                !msg.isStreaming &&
+                !msg.isError &&
+                msg.content && (
+                  <div className="ml-11 mt-1">
+                    <button
+                      onClick={() => playTts(msg.id, msg.content)}
+                      className={cn(
+                        "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors",
+                        playingId === msg.id
+                          ? "bg-accent/10 text-accent"
+                          : "text-muted/70 hover:bg-foreground/5 hover:text-foreground"
+                      )}
+                      title={playingId === msg.id ? "停止播放" : "朗读这条回复"}
+                    >
+                      {loadingId === msg.id ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : playingId === msg.id ? (
+                        <Square size={9} fill="currentColor" />
+                      ) : (
+                        <Volume2 size={11} />
+                      )}
+                      {playingId === msg.id ? "停止" : loadingId === msg.id ? "合成中" : "朗读"}
+                    </button>
+                  </div>
+                )}
+
               {msg.workSuggestion && !msg.isStreaming && (
                 <div className="ml-11 mt-2 max-w-[80%]">
                   <WorkSuggestionCard
@@ -542,11 +654,15 @@ export function ChatPanel({
               }
             }}
             placeholder={
-              isLoading
-                ? "AI 正在回复..."
-                : attachedFile
-                  ? "输入你的问题，如「帮我提炼产品细节」..."
-                  : "输入消息，Enter 发送，Shift+Enter 换行..."
+              voiceState === "recording"
+                ? "正在聆听，再点一下麦克风结束..."
+                : voiceState === "transcribing"
+                  ? "正在识别语音..."
+                  : isLoading
+                    ? "AI 正在回复..."
+                    : attachedFile
+                      ? "输入你的问题，如「帮我提炼产品细节」..."
+                      : "输入消息，Enter 发送，Shift+Enter 换行..."
             }
             disabled={isLoading}
             rows={1}
@@ -559,6 +675,28 @@ export function ChatPanel({
                 Math.min(target.scrollHeight, 128) + "px";
             }}
           />
+          {voiceSupported && (
+            <button
+              onClick={toggleVoice}
+              disabled={isLoading || voiceState === "transcribing"}
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40",
+                voiceState === "recording"
+                  ? "bg-red-500 text-white animate-pulse"
+                  : "text-muted hover:bg-accent/10 hover:text-accent"
+              )}
+              title={voiceState === "recording" ? "点击结束录音" : "语音输入"}
+              aria-label={voiceState === "recording" ? "结束录音" : "开始语音输入"}
+            >
+              {voiceState === "transcribing" ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : voiceState === "recording" ? (
+                <Square size={13} fill="currentColor" />
+              ) : (
+                <Mic size={15} />
+              )}
+            </button>
+          )}
           <button
             onClick={() => onSend()}
             disabled={!input.trim() || isLoading}

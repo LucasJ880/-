@@ -5,6 +5,10 @@
       "schedule": "0 8 * * *"
     },
     {
+      "path": "/api/cron/daily-brief",
+      "schedule": "0 11 * * *"
+    },
+    {
       "path": "/api/cron/approval-timeout",
       "schedule": "0 9 * * *"
     },

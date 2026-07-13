@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DashboardDailyBriefing } from "@/components/dashboard/dashboard-daily-briefing";
@@ -24,6 +24,16 @@ import type { ReminderItemData } from "@/components/dashboard/types";
 export default function Dashboard() {
   const router = useRouter();
   const { user } = useCurrentUser();
+
+  // 手机端 AI 主导：每次会话首次打开时直接进入对话页（点底部「首页」Tab 仍可回到工作台）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    if (isMobile && !sessionStorage.getItem("qy-mobile-landed")) {
+      sessionStorage.setItem("qy-mobile-landed", "1");
+      router.replace("/assistant");
+    }
+  }, [router]);
   const userRole = user?.role || "user";
   const showProjectModules = checkIsAdmin(userRole) || userRole === "user";
   const showSalesModules = checkIsAdmin(userRole) || userRole === "sales";

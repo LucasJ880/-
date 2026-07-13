@@ -113,6 +113,14 @@ export async function generateDailyBriefing(
 
   await saveBriefingNotification(userId, briefing);
 
+  // 写入用户的置顶「每日简报」对话线程（手机端打开即见）
+  try {
+    const { writeBriefingToThread } = await import("./briefing-to-thread");
+    await writeBriefingToThread(userId, briefing);
+  } catch (e) {
+    console.error("[secretary] Briefing-to-thread failed:", e);
+  }
+
   // 异步推送到微信（不阻塞简报生成）
   pushBriefingToWeChat(userId, briefing).catch((e) =>
     console.error("[secretary] WeChat push failed:", e),
