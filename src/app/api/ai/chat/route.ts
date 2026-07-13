@@ -72,7 +72,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   const systemPrompt =
-    getChatSystemPrompt() +
+    getChatSystemPrompt(user.role) +
     buildContextBlock(workContext) +
     deepBlock +
     memoryBlock +

@@ -32,6 +32,7 @@ import { runAgentStream, needsTools } from "@/lib/agent-core";
 import { buildOperatorSystemPrompt } from "@/lib/agent-core/prompts/operator-system";
 import { getCapabilities } from "@/lib/rbac/capabilities";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
+import { buildCompanyBlock } from "@/lib/ai/company-context";
 
 export const maxDuration = 60;
 
@@ -192,12 +193,22 @@ export const POST = withAuth(async (request, ctx, user) => {
       abortSignal: request.signal,
     });
   }
-  // ─── 以下为 legacy 分支，保持完全不动 ───
+  // ─── 以下为 legacy 分支 ───
 
-  const [workContext, prepared, wakeUp] = await Promise.all([
+  // 公司画像：orgId best-effort 解析（失败不阻塞对话，只是少一块品牌背景）
+  let legacyOrgId: string | null = null;
+  try {
+    const orgRes = await resolveRequestOrgIdForUser(user, body.orgId ?? null);
+    if (orgRes.ok) legacyOrgId = orgRes.orgId;
+  } catch {
+    // ignore
+  }
+
+  const [workContext, prepared, wakeUp, companyBlock] = await Promise.all([
     getWorkContext(user.id, user.role),
     prepareConversation(chatMessages),
     getWakeUpMemories(user.id),
+    buildCompanyBlock(user.id, legacyOrgId),
   ]);
 
   let deepBlock = "";
@@ -271,7 +282,8 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   const systemPrompt =
-    getChatSystemPrompt() +
+    getChatSystemPrompt(user.role) +
+    companyBlock +
     expertBlock +
     buildContextBlock(workContext) +
     deepBlock +

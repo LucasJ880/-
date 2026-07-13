@@ -100,8 +100,9 @@ const DEEP_KEYWORDS = [...BASE_DEEP_KEYWORDS, ...DOMAIN_DEEP_KEYWORDS];
 function detectMode(lastUserMessage: string): TaskMode {
   if (!lastUserMessage) return "chat";
   const msg = lastUserMessage.toLowerCase();
+  // 命中任一分析类关键词即升 deep（16K 输出 + high 推理），对齐 ChatGPT 的深度回答体感
   const matchCount = DEEP_KEYWORDS.filter((kw) => msg.includes(kw)).length;
-  return matchCount >= 2 ? "deep" : "chat";
+  return matchCount >= 1 ? "deep" : "chat";
 }
 
 // ── 主入口：准备对话 ─────────────────────────────────────────
