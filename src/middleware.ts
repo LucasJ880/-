@@ -11,6 +11,8 @@ const PUBLIC_PATHS = [
   "/api/health",
   "/api/v1",
   "/api/cron",
+  // PostFlow worker（自建服务器 server-to-server，route 内 Bearer token 鉴权）
+  "/api/operations/worker",
   "/api/sales/quotes/share",
   "/api/trade/webhook",
   "/api/messaging/wecom/callback",
