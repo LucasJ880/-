@@ -47,6 +47,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   const publishChannel = CHANNELS.includes(body.publishChannel)
     ? (body.publishChannel as string)
     : "manual";
+  const tier = body.tier === "premium" ? "premium" : "matrix";
 
   const existing = await db.matrixAccount.findUnique({
     where: {
@@ -67,6 +68,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       groupName: body.groupName ? String(body.groupName).trim() : "默认组",
       personaNotes: body.personaNotes ? String(body.personaNotes) : null,
       publishChannel,
+      tier,
       externalChannelId: body.externalChannelId
         ? String(body.externalChannelId).trim()
         : null,

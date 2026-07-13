@@ -11,6 +11,7 @@ import { canManageUsers } from "@/lib/rbac/roles";
 
 const STATUSES = ["active", "limited", "banned", "paused"];
 const CHANNELS = ["postiz", "postflow", "manual"];
+const TIERS = ["matrix", "premium"];
 
 export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
   if (!canManageUsers(user.role)) {
@@ -39,6 +40,7 @@ export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
   if (CHANNELS.includes(body.publishChannel)) data.publishChannel = body.publishChannel;
   if (typeof body.externalChannelId === "string") data.externalChannelId = body.externalChannelId.trim() || null;
   if (STATUSES.includes(body.status)) data.status = body.status;
+  if (TIERS.includes(body.tier)) data.tier = body.tier;
   if (Number.isInteger(body.dailyQuota) && body.dailyQuota > 0) data.dailyQuota = Math.min(body.dailyQuota, 20);
   if (typeof body.notes === "string") data.notes = body.notes || null;
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BarChart3, BookOpen, Clapperboard, ExternalLink, Megaphone, ShieldCheck, Users } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, Clapperboard, ExternalLink, Megaphone, ShieldCheck, Users } from "lucide-react";
 
 /**
  * 运营模块 M1 — 统一发布入口
@@ -115,6 +115,18 @@ export default function OperationsPage() {
             </div>
           </div>
         </Link>
+        <Link
+          href="/operations/calendar"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <CalendarDays className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">内容日历</div>
+            <div className="mt-0.5 text-xs text-muted">
+              AI 按品牌记忆批量出选题，审核后关联视频扇出
+            </div>
+          </div>
+        </Link>
       </div>
 
       <div className="space-y-3 rounded-xl border border-border bg-card-bg px-5 py-4 text-sm">
@@ -124,6 +136,7 @@ export default function OperationsPage() {
           <li>M2（完成）：AI 差异化文案变体 + 规则拦截与抽检审核队列</li>
           <li>M3（完成）：小红书 PostFlow worker 半自动发布 + FFmpeg 视频去重化</li>
           <li>M4（完成）：数据看板 + 运营技能包 22 条（选题 / 笔记 / 评论 / 广告 / 复盘）</li>
+          <li>M4.5（完成）：品牌记忆中枢 + AI 品牌预审 + 内容日历选题规划</li>
           <li>M5：Postiz Analytics 互动数据回流 + 技能执行入口接入运营助理</li>
         </ul>
       </div>

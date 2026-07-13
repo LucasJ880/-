@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Crown, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
@@ -22,6 +22,7 @@ interface MatrixAccount {
   publishChannel: string;
   externalChannelId: string | null;
   status: string;
+  tier: string;
   dailyQuota: number;
 }
 
@@ -133,6 +134,25 @@ export default function MatrixAccountsPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgId, status }),
+      });
+      if (res.ok) await load();
+    } catch {
+      /* 列表刷新时会重新拉取 */
+    }
+  }
+
+  async function handleTierToggle(a: MatrixAccount) {
+    const next = a.tier === "premium" ? "matrix" : "premium";
+    const hint =
+      next === "premium"
+        ? `把 ${a.handle} 升为精品号？之后该账号的每条发布都会进人工审核。`
+        : `把 ${a.handle} 降回矩阵号？恢复自动发布 + 抽检。`;
+    if (!window.confirm(hint)) return;
+    try {
+      const res = await apiFetch(`/api/operations/matrix-accounts/${a.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, tier: next }),
       });
       if (res.ok) await load();
     } catch {
@@ -283,6 +303,12 @@ export default function MatrixAccountsPage() {
                       <span className="ml-2 text-xs text-muted">
                         {PLATFORM_LABELS[a.platform] ?? a.platform}
                       </span>
+                      {a.tier === "premium" && (
+                        <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                          <Crown size={10} />
+                          精品号
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted">
                       {CHANNEL_LABELS[a.publishChannel] ?? a.publishChannel}
@@ -306,6 +332,19 @@ export default function MatrixAccountsPage() {
                       </select>
                     </td>
                     <td className="px-2 py-2.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleTierToggle(a)}
+                        className={cn(
+                          "rounded-md p-1.5 transition-colors",
+                          a.tier === "premium"
+                            ? "text-amber-500 hover:bg-amber-50"
+                            : "text-muted hover:bg-amber-50 hover:text-amber-600",
+                        )}
+                        title={a.tier === "premium" ? "降回矩阵号" : "升为精品号（发布全审）"}
+                      >
+                        <Crown size={14} />
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(a.id, a.handle)}

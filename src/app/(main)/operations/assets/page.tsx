@@ -182,6 +182,7 @@ export default function VideoAssetsPage() {
       if (!res.ok) throw new Error(data.error || "派发失败");
       const parts = [`新建 ${data.createdJobs} 个任务`, `入队 ${data.queued}`];
       if (data.held > 0) parts.push(`待审核 ${data.held}`);
+      if (data.aiFlagged > 0) parts.push(`其中 AI 预审标记 ${data.aiFlagged}`);
       if (data.blocked > 0) parts.push(`规则拦截 ${data.blocked}`);
       if (data.failed > 0) parts.push(`失败 ${data.failed}`);
       if (data.variantFallback) parts.push("部分文案未差异化（AI 未配置或超时）");

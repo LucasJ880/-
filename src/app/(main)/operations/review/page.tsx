@@ -159,7 +159,7 @@ export default function PublishReviewPage() {
               </div>
 
               {j.errorMessage && (
-                <p className="mt-2 text-xs text-red-600">触发规则：{j.errorMessage}</p>
+                <p className="mt-2 text-xs text-red-600">滞留原因：{j.errorMessage}</p>
               )}
 
               <textarea
