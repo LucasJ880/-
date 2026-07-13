@@ -148,6 +148,35 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
     );
   }
 
+  // 公司归属（联合品牌 logo）—— 仅 admin 可改
+  if (body.companyIds !== undefined) {
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: "仅管理员可修改用户公司归属" },
+        { status: 403 },
+      );
+    }
+    const companyIds = Array.isArray(body.companyIds)
+      ? body.companyIds.filter((v): v is string => typeof v === "string")
+      : [];
+    if (companyIds.length > 0) {
+      const validCompanies = await db.company.findMany({
+        where: { id: { in: companyIds }, isActive: true },
+        select: { id: true },
+      });
+      if (validCompanies.length !== companyIds.length) {
+        return NextResponse.json(
+          { error: "包含无效或已停用的公司" },
+          { status: 400 },
+        );
+      }
+    }
+    beforeData.companyIdsJson = targetUser.companyIdsJson;
+    const nextJson = companyIds.length > 0 ? JSON.stringify(companyIds) : null;
+    afterData.companyIdsJson = nextJson;
+    await db.user.update({ where: { id }, data: { companyIdsJson: nextJson } });
+  }
+
   // 老板开关"允许该销售修改客户信息" —— 仅 admin 可改
   if (body.canEditCustomers !== undefined) {
     if (!isAdmin) {

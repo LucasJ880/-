@@ -13,6 +13,8 @@ export interface CurrentUser {
   status: string;
   /** 管理员控制的"是否可修改客户信息"开关；admin 永远视为 true */
   canEditCustomers?: boolean;
+  /** 公司归属（联合品牌）；第一个为主公司，左上角显示「青砚 × 公司logo」 */
+  companies?: { id: string; name: string; slug: string; logoUrl: string }[];
 }
 
 interface UseCurrentUserReturn {

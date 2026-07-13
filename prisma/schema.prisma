@@ -123,6 +123,9 @@ model User {
   // 邀请码溯源
   inviteCodeId String?
 
+  /// 公司归属（JSON 数组的 Company.id）；第一个为主公司，用于左上角联合品牌
+  companyIdsJson String?
+
   @@index([status])
   @@index([authProvider])
   @@index([role])
@@ -158,7 +161,21 @@ model EmailBinding {
 }
 
 // ============================================================
-// 邀请码（注册准入 + 角色绑定）
+// 公司（联合品牌）— 同一公司旗下用户左上角显示「青砚 × 公司logo」
+// ============================================================
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String // 显示名，如 "Sunny"
+  slug      String   @unique // 如 "sunny"
+  logoUrl   String // 公司 logo，如 "/brands/sunny.png"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// 邀请码（注册准入 + 角色绑定 + 公司归属）
 // ============================================================
 
 model InviteCode {
@@ -172,6 +189,9 @@ model InviteCode {
   expiresAt   DateTime?
   createdById String
   createdAt   DateTime  @default(now())
+
+  /// 公司归属（JSON 数组的 Company.id，可多选）；注册时复制到 User.companyIdsJson
+  companyIdsJson String?
 
   @@index([code])
   @@index([role])
@@ -3665,6 +3685,40 @@ model BrandProfile {
   updatedAt       DateTime @updatedAt
 }
 
+/// 内容日历 — 选题规划层：AI 按品牌记忆出选题 → 人工审 → 关联视频资产扇出
+model ContentPlanItem {
+  id    String @id @default(cuid())
+  orgId String
+
+  /// 计划发布日（按天规划，具体时刻在扇出时定）
+  plannedDate DateTime @db.Date
+
+  /// 目标账号组（对应 MatrixAccount.groupName）
+  groupName String
+
+  /// 选题标题
+  topic String
+  /// 切入角度 / 内容要点
+  angle String? @db.Text
+  /// 母版文案草稿（扇出时作为 captionText，AI 再做每账号变体）
+  suggestedCaption String? @db.Text
+  hashtags         String?
+
+  /// proposed（AI 生成待审）/ approved（已通过待配视频）/ dispatched（已扇出）/ skipped
+  status String @default("proposed")
+  source String @default("ai") // ai / manual
+
+  /// 扇出时关联的视频资产
+  assetId String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orgId, plannedDate])
+  @@index([orgId, status])
+}
+
 model MatrixAccount {
   id    String @id @default(cuid())
   orgId String
@@ -3677,6 +3731,9 @@ model MatrixAccount {
   groupName    String  @default("默认组")
   /// 组内差异化说明（昵称口吻、细分定位等）
   personaNotes String? @db.Text
+
+  /// 账号档位：matrix（矩阵号，全自动+抽检）/ premium（精品号，发布 100% 人工审核）
+  tier String @default("matrix")
 
   /// 发布通道：postiz（官方 API）/ postflow（浏览器自动化，DB 队列由服务器 worker 消费）/ manual
   publishChannel    String  @default("manual")

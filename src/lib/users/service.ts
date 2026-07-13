@@ -17,6 +17,8 @@ export interface UserListItem {
   authProvider: string;
   lastLoginAt: Date | null;
   createdAt: Date;
+  /** 公司归属（JSON 数组的 Company.id），联合品牌 logo 用 */
+  companyIdsJson: string | null;
 }
 
 export interface UserDetail extends UserListItem {
@@ -39,6 +41,7 @@ const USER_LIST_SELECT = {
   authProvider: true,
   lastLoginAt: true,
   createdAt: true,
+  companyIdsJson: true,
 } as const;
 
 const USER_DETAIL_SELECT = {

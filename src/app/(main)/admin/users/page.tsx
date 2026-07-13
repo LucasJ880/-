@@ -40,6 +40,23 @@ interface UsersResponse {
   totalPages: number;
 }
 
+interface CompanyOption {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string;
+}
+
+function parseCompanyIds(json: unknown): string[] {
+  if (typeof json !== "string" || !json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 const STATUS_OPTIONS = [
   { value: "", label: "全部状态" },
   { value: "active", label: "正常" },
@@ -78,6 +95,8 @@ function UsersContent() {
   const [newRole, setNewRole] = useState("");
   const [roleUpdating, setRoleUpdating] = useState(false);
   const [permUpdating, setPermUpdating] = useState(false);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [companyUpdating, setCompanyUpdating] = useState(false);
 
   const loadUsers = useCallback(() => {
     setLoading(true);
@@ -107,6 +126,42 @@ function UsersContent() {
     if (!canManageUsers(currentUser?.role)) return;
     loadUsers();
   }, [loadUsers, userLoading, currentUser?.role]);
+
+  // 公司列表（联合品牌分配用，仅 admin 拉取）
+  useEffect(() => {
+    if (userLoading || !isAdmin(currentUser?.role)) return;
+    apiFetch("/api/admin/companies")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCompanies(d?.companies ?? []))
+      .catch(() => {});
+  }, [userLoading, currentUser?.role]);
+
+  async function handleCompanyToggle(companyId: string) {
+    if (!selectedUser || companyUpdating || !userDetail) return;
+    const current = parseCompanyIds(userDetail.companyIdsJson);
+    const next = current.includes(companyId)
+      ? current.filter((id) => id !== companyId)
+      : [...current, companyId];
+    setCompanyUpdating(true);
+    try {
+      const res = await apiFetch(`/api/users/${selectedUser.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyIds: next }),
+      });
+      if (res.ok) {
+        setUserDetail({
+          ...userDetail,
+          companyIdsJson: next.length > 0 ? JSON.stringify(next) : null,
+        });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "更新公司归属失败");
+      }
+    } finally {
+      setCompanyUpdating(false);
+    }
+  }
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -454,6 +509,42 @@ function UsersContent() {
                     </div>
                   )}
                 </div>
+
+                {/* 公司归属（联合品牌）—— 仅 admin 可改 */}
+                {isAdmin(currentUser?.role) && companies.length > 0 && (
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-sm font-medium">公司归属</p>
+                    <p className="mt-1 text-xs text-muted leading-relaxed">
+                      归属公司后，该用户登录左上角显示「青砚 × 公司logo」。可多选，第一个为主公司。
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {companies.map((co) => {
+                        const selected = parseCompanyIds(userDetail.companyIdsJson).includes(co.id);
+                        return (
+                          <button
+                            key={co.id}
+                            type="button"
+                            onClick={() => handleCompanyToggle(co.id)}
+                            disabled={companyUpdating}
+                            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
+                              selected
+                                ? "border-accent/60 bg-accent/10 text-foreground"
+                                : "border-border bg-background text-muted hover:text-foreground"
+                            }`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={co.logoUrl}
+                              alt={co.name}
+                              className="h-4 w-4 rounded-full object-cover"
+                            />
+                            {co.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* 客户权限开关 —— 仅对非 admin 角色有意义；仅 admin 可改 */}
                 {isAdmin(currentUser?.role) &&

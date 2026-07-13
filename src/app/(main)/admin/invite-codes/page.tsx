@@ -26,6 +26,24 @@ interface InviteCode {
   isActive: boolean;
   expiresAt: string | null;
   createdAt: string;
+  companyIdsJson: string | null;
+}
+
+interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string;
+}
+
+function parseCompanyIds(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -53,15 +71,24 @@ export default function InviteCodesPage() {
   const [newRole, setNewRole] = useState("user");
   const [newLabel, setNewLabel] = useState("");
   const [newMaxUses, setNewMaxUses] = useState("");
+  const [newCompanyIds, setNewCompanyIds] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
   const loadCodes = useCallback(async () => {
     try {
-      const res = await apiFetch("/api/admin/invite-codes");
-      if (res.ok) {
-        const data = await res.json();
+      const [codesRes, companiesRes] = await Promise.all([
+        apiFetch("/api/admin/invite-codes"),
+        apiFetch("/api/admin/companies"),
+      ]);
+      if (codesRes.ok) {
+        const data = await codesRes.json();
         setCodes(data.codes);
+      }
+      if (companiesRes.ok) {
+        const data = await companiesRes.json();
+        setCompanies(data.companies);
       }
     } finally {
       setLoading(false);
@@ -92,6 +119,7 @@ export default function InviteCodesPage() {
           role: newRole,
           label: newLabel.trim() || undefined,
           maxUses: newMaxUses ? parseInt(newMaxUses) : null,
+          companyIds: newCompanyIds.length > 0 ? newCompanyIds : undefined,
         }),
       });
       const data = await res.json();
@@ -104,6 +132,7 @@ export default function InviteCodesPage() {
       setNewRole("user");
       setNewLabel("");
       setNewMaxUses("");
+      setNewCompanyIds([]);
       loadCodes();
     } catch {
       setError("网络错误");
@@ -208,6 +237,41 @@ export default function InviteCodesPage() {
                 className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none"
               />
             </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-xs font-medium text-muted">
+                公司归属（可多选，登录后左上角显示「青砚 × 公司logo」）
+              </label>
+              {companies.length === 0 ? (
+                <p className="text-xs text-muted/60">暂无公司，可先运行公司初始化脚本或联系管理员创建</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {companies.map((co) => {
+                    const selected = newCompanyIds.includes(co.id);
+                    return (
+                      <button
+                        key={co.id}
+                        type="button"
+                        onClick={() =>
+                          setNewCompanyIds((prev) =>
+                            selected ? prev.filter((id) => id !== co.id) : [...prev, co.id]
+                          )
+                        }
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                          selected
+                            ? "border-accent/60 bg-accent/10 text-foreground"
+                            : "border-border/60 bg-input-bg text-muted hover:text-foreground"
+                        )}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={co.logoUrl} alt={co.name} className="h-4 w-4 rounded-full object-cover" />
+                        {co.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 pt-2">
@@ -235,6 +299,7 @@ export default function InviteCodesPage() {
             <tr className="border-b border-border/40 text-left text-xs text-muted">
               <th className="px-4 py-3 font-medium">邀请码</th>
               <th className="px-4 py-3 font-medium">角色</th>
+              <th className="px-4 py-3 font-medium">公司</th>
               <th className="px-4 py-3 font-medium">备注</th>
               <th className="px-4 py-3 font-medium text-center">已用/上限</th>
               <th className="px-4 py-3 font-medium text-center">状态</th>
@@ -244,7 +309,7 @@ export default function InviteCodesPage() {
           <tbody>
             {codes.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-muted">
+                <td colSpan={7} className="px-4 py-12 text-center text-muted">
                   暂无邀请码，点击上方按钮创建
                 </td>
               </tr>
@@ -269,6 +334,30 @@ export default function InviteCodesPage() {
                   <span className={cn("inline-flex rounded-md border px-2 py-0.5 text-[10px] font-medium", ROLE_COLORS[c.role] || ROLE_COLORS.user)}>
                     {ROLE_LABELS[c.role] || c.role}
                   </span>
+                </td>
+                <td className="px-4 py-3">
+                  {(() => {
+                    const ids = parseCompanyIds(c.companyIdsJson);
+                    if (ids.length === 0) return <span className="text-muted">—</span>;
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        {ids.map((id) => {
+                          const co = companies.find((x) => x.id === id);
+                          if (!co) return null;
+                          return (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={id}
+                              src={co.logoUrl}
+                              alt={co.name}
+                              title={co.name}
+                              className="h-5 w-5 rounded-full object-cover ring-1 ring-border/40"
+                            />
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3 text-muted">{c.label || "—"}</td>
                 <td className="px-4 py-3 text-center">

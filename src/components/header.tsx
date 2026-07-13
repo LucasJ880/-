@@ -23,6 +23,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import Link from "next/link";
 import type { NotificationItem } from "@/components/notification/types";
 import { useAppShell } from "@/components/app-shell";
+import { CoBrand } from "@/components/co-brand";
 import { useLocale, LOCALE_LABELS } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/messages";
 
@@ -548,9 +549,9 @@ export function Header() {
           <Menu size={18} />
         </button>
 
-        {/* Brand — mobile only */}
-        <span className="text-[14px] font-semibold tracking-[0.06em] text-foreground md:hidden">
-          {m.app_name}
+        {/* Brand — mobile only（有公司归属时显示「青砚 × 公司logo」） */}
+        <span className="md:hidden">
+          <CoBrand size="sm" />
         </span>
 
         <div className="hidden md:flex items-center gap-2 text-[13px] text-muted">

@@ -19,12 +19,13 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json();
-  const { code, role, label, maxUses, expiresAt } = body as {
+  const { code, role, label, maxUses, expiresAt, companyIds } = body as {
     code?: string;
     role?: string;
     label?: string;
     maxUses?: number | null;
     expiresAt?: string | null;
+    companyIds?: string[];
   };
 
   if (!code || !role) {
@@ -49,6 +50,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "邀请码已存在" }, { status: 409 });
   }
 
+  // 公司归属（可多选）：校验公司存在且启用
+  let companyIdsJson: string | null = null;
+  if (companyIds && companyIds.length > 0) {
+    const validCompanies = await db.company.findMany({
+      where: { id: { in: companyIds }, isActive: true },
+      select: { id: true },
+    });
+    if (validCompanies.length !== companyIds.length) {
+      return NextResponse.json(
+        { error: "包含无效或已停用的公司" },
+        { status: 400 },
+      );
+    }
+    companyIdsJson = JSON.stringify(companyIds);
+  }
+
   const inviteCode = await db.inviteCode.create({
     data: {
       code: code.trim().toUpperCase(),
@@ -57,6 +74,7 @@ export async function POST(request: NextRequest) {
       maxUses: maxUses ?? null,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
       createdById: auth.user.id,
+      companyIdsJson,
     },
   });
 

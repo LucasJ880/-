@@ -45,6 +45,7 @@ import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
+import { CoBrand } from "@/components/co-brand";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 interface NavItem {
@@ -286,21 +287,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         collapsed ? "w-[60px]" : "w-56"
       )}
     >
-      {/* Brand */}
+      {/* Brand — 有公司归属时显示「青砚 × 公司logo」 */}
       <div className="flex h-13 items-center gap-2.5 border-b border-white/[0.06] px-4">
-        {!collapsed && (
-          <>
-            <span className="text-[15px] font-semibold tracking-[0.08em] text-brand-gradient">
-              {m.app_name}
-            </span>
-            <span
-              className="ml-0.5 rounded-full border border-[rgba(80,160,140,0.2)] bg-[rgba(43,96,85,0.15)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-emerald-300/60"
-              title="当前为早期版本，欢迎反馈"
-            >
-              Beta
-            </span>
-          </>
-        )}
+        {!collapsed && <CoBrand size="md" />}
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}

@@ -91,6 +91,8 @@ export async function POST(request: NextRequest) {
         name: name || existing.name,
         role: assignedRole,
         inviteCodeId: invite.id,
+        // 公司归属随邀请码带入（联合品牌 logo）
+        companyIdsJson: invite.companyIdsJson,
         lastLoginAt: new Date(),
       },
     });
@@ -102,6 +104,7 @@ export async function POST(request: NextRequest) {
         name: displayName,
         role: assignedRole,
         inviteCodeId: invite.id,
+        companyIdsJson: invite.companyIdsJson,
         status: "active",
       },
     });
