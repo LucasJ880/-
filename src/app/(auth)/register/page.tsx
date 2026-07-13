@@ -65,10 +65,14 @@ export default function RegisterPage() {
   return (
     <div className={authCardClass}>
       <div className="mb-6 text-center">
+        <img
+          src="/icons/icon-192x192.png"
+          alt="青砚"
+          className="mx-auto mb-3 h-14 w-14 rounded-2xl object-cover shadow-sm"
+        />
         <h1 className="text-brand-gradient text-2xl font-bold tracking-tight">
           注册青砚
         </h1>
-        <p className="mt-1 text-sm text-muted">创建你的工作助理账号</p>
       </div>
 
       {error && (

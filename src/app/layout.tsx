@@ -13,8 +13,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "青砚 - AI 工作助理",
-  description: "智能中文 AI 工作助理，助力高效办公",
+  title: "青砚",
+  description: "青砚 — 智能工作平台",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

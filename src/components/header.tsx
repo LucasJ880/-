@@ -549,12 +549,10 @@ export function Header() {
           <Menu size={18} />
         </button>
 
-        {/* Brand — mobile only（有公司归属时显示「青砚 × 公司logo」） */}
-        <span className="md:hidden">
-          <CoBrand size="sm" />
-        </span>
+        {/* Brand — 全端显示「青砚 × 公司logo」 */}
+        <CoBrand size="sm" variant="header" />
 
-        <div className="hidden md:flex items-center gap-2 text-[13px] text-muted">
+        <div className="hidden lg:flex items-center gap-2 text-[13px] text-muted">
           <Calendar size={14} />
           <span>
             {new Date().toLocaleDateString(dateLocale, {

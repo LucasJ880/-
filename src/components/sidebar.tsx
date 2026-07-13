@@ -287,13 +287,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         collapsed ? "w-[60px]" : "w-56"
       )}
     >
-      {/* Brand — 有公司归属时显示「青砚 × 公司logo」 */}
-      <div className="flex h-13 items-center gap-2.5 border-b border-white/[0.06] px-4">
-        {!collapsed && <CoBrand size="md" />}
+      {/* Brand — 收起时显示图标，展开时显示完整联合品牌 */}
+      <div
+        className={cn(
+          "flex h-13 items-center border-b border-white/[0.06]",
+          collapsed ? "flex-col justify-center gap-0.5 px-1" : "gap-2.5 px-4",
+        )}
+      >
+        <CoBrand size="md" collapsed={collapsed} variant="sidebar" />
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="ml-auto rounded-md p-1.5 transition-colors hover:bg-sidebar-hover"
+          className={cn(
+            "rounded-md p-1.5 transition-colors hover:bg-sidebar-hover",
+            collapsed ? "" : "ml-auto",
+          )}
           aria-label={collapsed ? m.sidebar_expand : m.sidebar_collapse}
         >
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
