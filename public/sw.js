@@ -7,7 +7,7 @@
  * 目标：保障弱网进入应用不白屏；不影响实时业务数据正确性。
  */
 
-const VERSION = "qingyan-v2";
+const VERSION = "qingyan-v3";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 
