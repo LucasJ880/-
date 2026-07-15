@@ -22,6 +22,7 @@ export class OpenAIProvider implements LLMProvider {
     const cfg = getAIConfig();
 
     const model = req.model || cfg.primaryModel;
+    const hasFunctionTools = Boolean(req.tools?.length);
     const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
       model,
       messages: req.messages.map((m) => {
@@ -35,10 +36,12 @@ export class OpenAIProvider implements LLMProvider {
         return { role: m.role, content: m.content };
       }),
       max_completion_tokens: req.maxTokens ?? 4096,
-      ...buildTuningParams(model, req.temperature ?? 0.7, "medium"),
+      ...buildTuningParams(model, req.temperature ?? 0.7, "medium", {
+        hasFunctionTools,
+      }),
     };
 
-    if (req.tools && req.tools.length > 0) {
+    if (hasFunctionTools && req.tools) {
       params.tools = req.tools.map((t) => ({
         type: "function" as const,
         function: {

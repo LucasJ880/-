@@ -34,9 +34,17 @@ export function buildTuningParams(
   model: string,
   temperature: number,
   reasoningEffort: "low" | "medium" | "high",
-): { temperature?: number; reasoning_effort?: "low" | "medium" | "high" } {
+  options: { hasFunctionTools?: boolean } = {},
+): {
+  temperature?: number;
+  reasoning_effort?: "none" | "low" | "medium" | "high";
+} {
   return isReasoningModel(model)
-    ? { reasoning_effort: reasoningEffort }
+    ? {
+        // Chat Completions 不支持部分推理模型同时启用 function tools
+        // 和 reasoning_effort；工具轮次关闭推理，普通轮次保留原预设。
+        reasoning_effort: options.hasFunctionTools ? "none" : reasoningEffort,
+      }
     : { temperature };
 }
 

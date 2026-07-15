@@ -212,7 +212,12 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         model,
         messages,
         max_completion_tokens: preset.maxTokens,
-        ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
+        ...buildTuningParams(
+          model,
+          temperature ?? preset.temperature,
+          preset.reasoningEffort,
+          { hasFunctionTools: openaiTools.length > 0 },
+        ),
       };
       if (openaiTools.length > 0) {
         createParams.tools = openaiTools;
@@ -474,7 +479,12 @@ export async function* runAgentStream(
         max_completion_tokens: preset.maxTokens,
         stream: true,
         stream_options: { include_usage: true },
-        ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
+        ...buildTuningParams(
+          model,
+          temperature ?? preset.temperature,
+          preset.reasoningEffort,
+          { hasFunctionTools: openaiTools.length > 0 },
+        ),
       };
       if (openaiTools.length > 0) {
         createParams.tools = openaiTools;

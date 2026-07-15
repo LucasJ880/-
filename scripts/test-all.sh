@@ -64,6 +64,7 @@ run_test "市场情报竞品监听规则" "npx tsx src/lib/market-intelligence/_
 run_test "销售可视化产品参考资产" "npx tsx src/lib/visualizer/__tests__/catalog-assets.test.ts"
 run_test "自动流本地时区调度" "npx tsx src/lib/automation/__tests__/local-time.test.ts"
 run_test "通用对话日历工具权限" "npx tsx src/lib/agent-core/tools/calendar-access.test.ts"
+run_test "工具调用模型参数适配" "npx tsx src/lib/ai/__tests__/client-tuning.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 
