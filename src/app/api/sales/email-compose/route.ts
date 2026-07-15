@@ -4,8 +4,8 @@
  * POST /api/sales/email-compose
  *   → 生成邮件预览
  *
- * POST /api/sales/email-compose?action=send
- *   → 生成 + 立即发送
+ * POST /api/sales/email-compose?action=send-approved
+ *   → 发送销售已审阅的草稿
  *
  * POST /api/sales/email-compose?action=refine
  *   body 额外字段: { currentSubject, currentHtml, refinement }
@@ -24,6 +24,7 @@ import {
   composeEmail,
   sendSalesEmail,
   refineEmail,
+  type ComposedEmail,
   type EmailScene,
 } from "@/lib/sales/email-composer";
 
@@ -71,12 +72,16 @@ export const POST = withAuth(async (request, _ctx, user) => {
     quoteId,
     productFilter,
     extraInstructions,
+    approvedSubject,
+    approvedHtml,
   } = body as {
     customerId: string;
     scene: EmailScene;
     quoteId?: string;
     productFilter?: string;
     extraInstructions?: string;
+    approvedSubject?: string;
+    approvedHtml?: string;
   };
 
   if (!customerId || !scene) {
@@ -88,7 +93,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const customerRow = await db.salesCustomer.findFirst({
     where: { id: customerId, archivedAt: null },
-    select: { id: true, orgId: true, createdById: true },
+    select: { id: true, orgId: true, createdById: true, email: true },
   });
   if (!customerRow) {
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
@@ -97,16 +102,44 @@ export const POST = withAuth(async (request, _ctx, user) => {
   if (custDenied) return custDenied;
 
   try {
-    const email = await composeEmail({
-      userId: user.id,
-      customerId,
-      scene,
-      quoteId,
-      productFilter,
-      extraInstructions,
-    });
+    let email: ComposedEmail;
 
-    if (action === "send") {
+    if (action === "send-approved") {
+      const subject = approvedSubject?.trim();
+      const html = approvedHtml?.trim();
+      if (!customerRow.email) {
+        return NextResponse.json({ error: "客户没有可用的邮箱地址" }, { status: 400 });
+      }
+      if (!subject || !html) {
+        return NextResponse.json({ error: "请先审阅邮件主题和正文" }, { status: 400 });
+      }
+      if (subject.length > 200 || html.length > 100_000) {
+        return NextResponse.json({ error: "邮件内容超出允许长度" }, { status: 400 });
+      }
+      if (/<script\b|javascript:|\son\w+\s*=/i.test(html)) {
+        return NextResponse.json({ error: "邮件正文包含不允许的内容" }, { status: 400 });
+      }
+
+      email = {
+        to: customerRow.email,
+        subject,
+        html,
+        text: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+        scene,
+        quoteId,
+      };
+    } else {
+      email = await composeEmail({
+        userId: user.id,
+        customerId,
+        scene,
+        quoteId,
+        productFilter,
+        extraInstructions,
+      });
+    }
+
+    if (action === "send-approved") {
       const result = await sendSalesEmail(user.id, email);
 
       if (!result.success) {
@@ -129,7 +162,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
           customerId,
           type: "email",
           direction: "outbound",
-          summary: `AI 生成 ${scene} 邮件已发送 — ${email.subject}`,
+          summary: `销售审阅的 ${scene} 邮件已发送 — ${email.subject}`,
           emailMessageId: result.messageId || null,
           createdById: user.id,
         },

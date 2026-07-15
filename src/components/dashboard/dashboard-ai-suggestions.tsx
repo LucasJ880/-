@@ -212,7 +212,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
       <div className="rounded-xl border border-accent/20 bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles size={15} className="text-accent" />
-          AI 智能建议
+          策略建议
         </div>
         <div className="mt-4 flex items-center justify-center py-6">
           <Loader2 size={20} className="animate-spin text-accent/40" />
@@ -230,7 +230,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <Sparkles size={15} className="text-accent" />
-          <h2 className="text-sm font-semibold">AI 智能建议</h2>
+          <h2 className="text-sm font-semibold">策略建议</h2>
           {urgentCount > 0 && (
             <span className="rounded-full bg-[rgba(166,61,61,0.1)] px-2 py-0.5 text-[11px] font-medium text-[#a63d3d]">
               {urgentCount} 项紧急
@@ -266,7 +266,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
         <div className="mx-4 mt-3 rounded-lg border border-accent/20 bg-[rgba(43,96,85,0.04)] px-3 py-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
             <Zap size={12} />
-            AI 已自动执行 {autoActions.length} 项操作
+            自动化已执行 {autoActions.length} 项操作
           </div>
           <div className="mt-1.5 space-y-1">
             {autoActions.map((a, i) => (
@@ -371,10 +371,10 @@ function AutomationToggleButton({ onChanged }: { onChanged: () => void }) {
             <div className="border-b border-border/60 px-3 py-2">
               <div className="flex items-center gap-1.5 text-xs font-medium">
                 <Zap size={12} className="text-accent" />
-                AI 自动化设置
+                自动化设置
               </div>
               <p className="mt-0.5 text-[10px] text-muted">
-                开启后，AI 会自动执行低风险操作
+                开启后，系统会按规则执行低风险操作
               </p>
             </div>
             {prefs ? (

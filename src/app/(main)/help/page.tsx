@@ -6,7 +6,7 @@ const ROUTES = [
   { path: "/tasks", label: "任务", note: "列表、筛选、详情与评论/活动" },
   { path: "/organizations", label: "组织", note: "数据隔离边界；新建项目前需有所属组织" },
   { path: "/projects", label: "项目", note: "卡片列表与详情（成员、环境、Prompt、知识库入口）" },
-  { path: "/assistant", label: "AI 助手", note: "多轮对话与上下文，适合规划与讨论" },
+  { path: "/assistant", label: "协同空间", note: "多轮讨论与业务上下文，适合规划、分析和起草" },
   { path: "/blinds-orders", label: "工艺单", note: "百叶窗订单（行业模块）" },
   { path: "/settings", label: "设置", note: "Google 日历 OAuth 连接与说明" },
   { path: "/help", label: "本页", note: "功能地图与关系说明" },

@@ -14,7 +14,6 @@ import {
   ChevronDown,
   DollarSign,
   Copy,
-  CheckCircle,
   AlertTriangle,
   Truck,
   Calculator,
@@ -23,7 +22,6 @@ import {
 import { priceFor, calculateQuoteTotal, formatCAD } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS } from "@/lib/blinds/pricing-data";
 import type { ProductName, PriceResult } from "@/lib/blinds/pricing-types";
-import { ADDON_CATALOG, getEligibleAddons } from "@/lib/blinds/pricing-addons";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
 import {
@@ -231,8 +229,8 @@ export default function MeasurePage() {
       />
 
       {/* Customer + install mode */}
-      <div className="rounded-xl border border-border bg-white/60 p-5">
-        <div className="grid grid-cols-3 gap-4">
+      <div className="rounded-xl border border-border bg-white/60 p-4 sm:p-5">
+        <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-1.5">
             <Label>客户 *</Label>
             <div className="relative">
@@ -527,7 +525,7 @@ export default function MeasurePage() {
               <div key={i} className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
                   {item.input.product} · {item.input.fabric}
-                  <span className="ml-2 text-xs opacity-60">{item.input.widthIn}" × {item.input.heightIn}"</span>
+                  <span className="ml-2 text-xs opacity-60">{item.input.widthIn}&quot; × {item.input.heightIn}&quot;</span>
                   {item.cordless && <span className="ml-1 text-xs text-blue-600">(Cordless)</span>}
                 </span>
                 <span className="font-medium">{formatCAD(item.price)}</span>

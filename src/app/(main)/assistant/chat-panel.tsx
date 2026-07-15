@@ -348,7 +348,7 @@ export function ChatPanel({
         <Bot size={18} className="text-accent" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">
-            {activeThread?.title || "AI 助手"}
+            {activeThread?.title || "协同空间"}
           </h1>
           {activeThread?.project && (
             <p className="truncate text-[11px] text-muted">
@@ -381,7 +381,7 @@ export function ChatPanel({
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
               <Sparkles size={24} className="text-accent" />
             </div>
-            <h2 className="mb-2 text-lg font-semibold">青砚 AI 助手</h2>
+            <h2 className="mb-2 text-lg font-semibold">青砚协同空间</h2>
             <p className="mb-6 max-w-md text-sm text-muted">
               直接输入即可开始新对话，点击左上角可查看历史对话。
               每个对话独立保存，支持绑定项目获取深度上下文。

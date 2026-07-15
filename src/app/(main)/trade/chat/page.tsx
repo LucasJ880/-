@@ -8,7 +8,6 @@ import {
   MessageCircle,
   Trash2,
   Sparkles,
-  ArrowDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -318,7 +317,7 @@ function EmptyChat({ onQuickCommand }: { onQuickCommand: (text: string) => void 
       <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10">
         <Sparkles className="h-8 w-8 text-blue-400" />
       </div>
-      <h2 className="text-lg font-semibold text-foreground">外贸 AI 助手</h2>
+      <h2 className="text-lg font-semibold text-foreground">海外业务协同</h2>
       <p className="mt-2 max-w-md text-center text-sm text-muted">
         用自然语言管理外贸流程 — 查询线索、跟进状态、报价管理、获取行动建议
       </p>

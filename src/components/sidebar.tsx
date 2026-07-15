@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   CheckSquare,
   FolderKanban,
-  Bot,
   Bell,
   CalendarDays,
   Settings,
@@ -98,7 +97,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/trade/prospects", labelKey: "nav_trade_prospects", icon: Users, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/intelligence", labelKey: "nav_trade_intelligence", icon: Radar, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/cockpit", labelKey: "nav_trade_cockpit", icon: Activity, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/chat", labelKey: "nav_ai_assistant", icon: Bot, roles: ["admin", "super_admin", "trade"] },
+      { href: "/trade/chat", labelKey: "nav_ai_assistant", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/quotes", labelKey: "nav_trade_quotes", icon: ScrollText, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/import", labelKey: "nav_trade_import", icon: Upload, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/templates", labelKey: "nav_email_templates", icon: FileText, roles: ["admin", "super_admin", "trade"] },
@@ -120,7 +119,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     titleKey: "nav_group_intelligence",
     items: [
-      { href: "/assistant", labelKey: "nav_ai_assistant", icon: Bot, badgeKey: "sidebar_badge_beta" },
+      { href: "/assistant", labelKey: "nav_ai_assistant", icon: MessageSquare },
       { href: "/wechat", labelKey: "nav_wechat_messages", icon: MessageCircle },
       { href: "/memory", labelKey: "nav_ai_memory", icon: Brain },
       { href: "/ai-activity", labelKey: "nav_ai_activity", icon: Activity },
@@ -134,6 +133,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/service-inbox", labelKey: "nav_service_inbox", icon: Inbox, roles: ["admin", "super_admin", "manager", "sales", "user"] },
       { href: "/operations", labelKey: "nav_publish_calendar", icon: Megaphone, roles: ["admin", "super_admin", "manager"] },
+      { href: "/operations/intelligence", labelKey: "nav_market_intelligence", icon: Radar, roles: ["admin", "super_admin", "manager"] },
     ],
   },
   {
@@ -283,8 +283,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   return (
     <aside
       className={cn(
-        "flex flex-col border-r border-white/[0.06] bg-sidebar-gradient text-sidebar-text transition-all duration-200 ease-out",
-        collapsed ? "w-[60px]" : "w-56"
+        "flex flex-col border-r border-white/[0.06] bg-[#111b1d] text-sidebar-text transition-all duration-200 ease-out",
+        collapsed ? "w-[60px]" : "w-60"
       )}
     >
       {/* Brand — 收起时显示图标，展开时显示完整联合品牌 */}
@@ -321,7 +321,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               className={cn("space-y-px", gi > 0 && (collapsed ? "mt-2 border-t border-white/[0.06] pt-2" : "mt-3"))}
             >
               {!collapsed && (
-                <p className="flex items-center gap-1 px-3 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">
+                <p className="flex items-center gap-1 px-3 pb-1 pt-1.5 text-[10px] font-medium text-white/30">
                   {m[group.titleKey]}
                   {group.adminOnly && <Shield size={9} className="text-emerald-400/35" />}
                 </p>
@@ -336,9 +336,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                     href={item.disabled ? "#" : item.href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-[13px] font-medium transition-all duration-150",
+                      "flex min-h-9 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
                       isActive
-                        ? "bg-sidebar-active text-white shadow-[0_0_12px_-4px_var(--accent-glow)]"
+                        ? "bg-sidebar-active text-white"
                         : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
                       item.disabled && "cursor-not-allowed opacity-30",
                       collapsed && "justify-center px-0"
@@ -390,7 +390,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       {/* Bottom */}
       <div className="border-t border-white/[0.06] px-2 py-2">
         {!collapsed && (
-          <p className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.1em] text-white/25">
+          <p className="px-2.5 pb-1 text-[10px] font-medium text-white/25">
             {m.nav_group_system}
           </p>
         )}
@@ -403,9 +403,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 href={item.disabled ? "#" : item.href}
                 onClick={onNavigate}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-[13px] font-medium transition-all duration-150",
+                  "flex min-h-9 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
                   isActive
-                    ? "bg-sidebar-active text-white shadow-[0_0_12px_-4px_var(--accent-glow)]"
+                    ? "bg-sidebar-active text-white"
                     : "text-white/50 hover:bg-sidebar-hover hover:text-white/80",
                   item.disabled && "cursor-not-allowed opacity-30",
                   collapsed && "justify-center px-0"

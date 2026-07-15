@@ -175,7 +175,14 @@ export const POST = withAuth(async (request, ctx, user) => {
   const isFirstMessage = history.length === 1;
 
   // ─── PR2：Operator 分支（灰度控制，只开只读工具）───
-  const useOperator = isOperatorEnabled({ userId: user.id, role: user.role });
+  // 显式点名内置动态 Skill 时不受 Operator 灰度影响，保证运营入口能真正执行 Skill，
+  // 而不是在 legacy 聊天分支里只生成一份看似相近的普通回答。
+  const requestedMarketingSkill = content
+    .toLowerCase()
+    .includes("qingyan-marketing-analysis");
+  const useOperator =
+    requestedMarketingSkill ||
+    isOperatorEnabled({ userId: user.id, role: user.role });
   if (useOperator) {
     // P0-2：解析真实 orgId（替换原先写死的 "default"）
     // - 单组织用户自动解析；多组织用户须在 body 传 orgId；非成员 / 未指定 → 4xx

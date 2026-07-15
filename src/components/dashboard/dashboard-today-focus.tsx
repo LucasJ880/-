@@ -15,7 +15,6 @@ import { cn, TASK_PRIORITY, type TaskPriority } from "@/lib/utils";
 import { toToronto, daysRemainingToronto } from "@/lib/time";
 import type {
   TaskItem,
-  CalendarEventItem,
   ReminderSummaryData,
   ScheduleEvent,
 } from "./types";
@@ -293,7 +292,7 @@ export function DashboardTodayFocus({
             href="/assistant"
             className="flex items-center gap-1 font-medium text-muted transition-all duration-150 hover:text-foreground"
           >
-            AI 助手 <ArrowRight size={10} />
+            协同空间 <ArrowRight size={10} />
           </Link>
         </div>
       </div>

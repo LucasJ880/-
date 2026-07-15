@@ -118,9 +118,9 @@ export function CoachingPanel({ customerId }: { customerId: string }) {
       {records.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-white/40 py-12">
           <Brain className="h-8 w-8 text-muted/40" />
-          <p className="mt-3 text-sm text-muted">暂无 AI 建议记录</p>
+          <p className="mt-3 text-sm text-muted">暂无推进建议记录</p>
           <p className="mt-1 text-xs text-muted/60">
-            当 AI 给出跟进建议时，记录将自动显示在这里
+            当系统形成可执行的跟进建议时，记录将显示在这里
           </p>
         </div>
       ) : (

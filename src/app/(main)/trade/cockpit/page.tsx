@@ -320,7 +320,7 @@ export default function CockpitPage() {
       {/* 头部 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-foreground">老板驾驶舱</h1>
+          <h1 className="text-xl font-semibold text-foreground">海外业务分析</h1>
           <p className="text-sm text-muted mt-0.5">{data.periodLabel}</p>
         </div>
         <button

@@ -97,7 +97,7 @@ function OpportunityCard({
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowTip(!showTip); }}
               className="shrink-0 rounded-full p-0.5 hover:bg-accent/10 transition-colors"
-              title="AI 建议"
+              title="推进建议"
             >
               <Zap className="h-3 w-3 text-accent" />
             </button>

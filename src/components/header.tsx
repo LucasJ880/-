@@ -271,7 +271,7 @@ function NotificationPanel({
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full z-[60] mt-2 w-[400px] rounded-xl border border-border bg-card-bg shadow-xl"
+      className="fixed inset-x-3 top-[calc(var(--header-height)+env(safe-area-inset-top,0px)+0.5rem)] z-[60] max-h-[calc(100dvh-var(--header-height)-env(safe-area-inset-top,0px)-1rem)] overflow-hidden rounded-xl border border-border bg-card-bg shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-none sm:w-[400px]"
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold">{m.header_notif_title}</h3>
@@ -319,7 +319,7 @@ function NotificationPanel({
           </p>
         </div>
       ) : (
-        <div className="max-h-[420px] divide-y divide-border/50 overflow-y-auto">
+        <div className="max-h-[calc(100dvh-12rem)] divide-y divide-border/50 overflow-y-auto sm:max-h-[420px]">
           {visibleItems.map((item) => {
             const Icon = NTYPE_ICONS[item.type] ?? Bell;
             const isUnread = item.status === "unread";
@@ -356,7 +356,7 @@ function NotificationPanel({
                     {formatTimeAgo(item.createdAt)}
                   </p>
                 </button>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                <div className="flex shrink-0 items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
                   {isUnread && (
                     <button
                       type="button"
@@ -564,7 +564,7 @@ export function Header() {
           </span>
         </div>
 
-        <div ref={searchRef} className="relative">
+        <div ref={searchRef} className="relative hidden sm:block">
           <div
             className="relative"
             role="combobox"
@@ -603,7 +603,9 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <LanguageSwitcher />
+        <div className="hidden sm:block">
+          <LanguageSwitcher />
+        </div>
 
         <div className="relative">
           <button

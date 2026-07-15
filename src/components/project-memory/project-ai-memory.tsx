@@ -101,7 +101,7 @@ export function ProjectAiMemory({ projectId }: { projectId: string }) {
       >
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-accent" />
-          <span className="text-sm font-medium">AI 记忆</span>
+          <span className="text-sm font-medium">项目知识</span>
           {memory && !isEmpty && (
             <span className="text-xs text-muted ml-1">
               {memory.recentAiActions.length} 条历史
@@ -123,7 +123,7 @@ export function ProjectAiMemory({ projectId }: { projectId: string }) {
           {loading && !memory ? (
             <div className="flex items-center justify-center py-6 text-sm text-muted">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              加载 AI 记忆…
+              加载项目知识…
             </div>
           ) : isEmpty ? (
             <div className="py-6 text-center text-sm text-muted">

@@ -35,7 +35,7 @@ export default function SalesError({
         页面加载出错
       </h2>
       <p className="max-w-sm text-sm text-muted">
-        销售看板加载时遇到了问题。这可能是网络不稳定或缓存数据异常导致的。
+        商机中心加载时遇到了问题。这可能是网络不稳定或缓存数据异常导致的。
       </p>
       {(error.message || error.digest) && (
         <pre className="max-w-lg overflow-auto rounded-lg bg-gray-100 px-4 py-2 text-left text-xs text-red-700">

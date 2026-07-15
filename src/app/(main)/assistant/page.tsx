@@ -71,13 +71,14 @@ function AssistantPageInner() {
   const searchParams = useSearchParams();
   const initialThreadId = searchParams.get("thread");
   const initialProjectId = searchParams.get("project");
+  const initialPrompt = searchParams.get("prompt") ?? "";
 
   const [threads, setThreads] = useState<AiThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
     initialThreadId
   );
   const [messages, setMessages] = useState<StreamingMsg[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialPrompt);
   const [isLoading, setIsLoading] = useState(false);
   const [noApiKey, setNoApiKey] = useState(false);
   const [projects, setProjects] = useState<SimpleProject[]>([]);

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bot,
+  MessagesSquare,
   FolderKanban,
   Inbox,
   Plus,
@@ -67,10 +67,10 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-shadow hover:shadow-md"
         >
           <div className="rounded-lg bg-[rgba(43,96,85,0.04)] p-2 text-[#2b6055]">
-            <Bot size={18} />
+            <MessagesSquare size={18} />
           </div>
           <div>
-            <p className="text-sm font-semibold">AI 助手</p>
+            <p className="text-sm font-semibold">协同空间</p>
             <p className="text-[11px] text-muted">对话式协作</p>
           </div>
         </Link>
@@ -147,7 +147,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
             })
           ) : (
             <div className="px-5 py-8 text-center text-sm text-muted">
-              暂无任务，去收件箱或 AI 助手开始创建
+              暂无任务，可从收件箱或协同空间开始创建
             </div>
           )}
         </div>

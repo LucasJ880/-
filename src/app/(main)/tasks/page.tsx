@@ -464,10 +464,10 @@ function TasksPageContent() {
         <div className="flex flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-border bg-card-bg/80 px-6 py-14 text-center shadow-card">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent"><ListTodo size={28} strokeWidth={1.75} /></div>
           <h3 className="text-base font-semibold">暂无任务</h3>
-          <p className="mt-1 max-w-sm text-sm text-muted">创建任务以跟踪工作进度，或让 AI 助手帮你从自然语言中提取任务。</p>
+          <p className="mt-1 max-w-sm text-sm text-muted">创建任务以跟踪工作进度，也可以在协同空间中用自然语言整理任务。</p>
           <div className="mt-6 flex items-center gap-3">
             <button type="button" onClick={() => { setEditingTask(null); setShowForm(true); }} className="min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-hover active:scale-[0.98]">新建任务</button>
-            <Link href="/assistant" className="min-h-10 rounded-[var(--radius-md)] border border-border px-5 py-2 text-sm font-medium hover:bg-background/80">试试 AI 助手</Link>
+            <Link href="/assistant" className="min-h-10 rounded-[var(--radius-md)] border border-border px-5 py-2 text-sm font-medium hover:bg-background/80">进入协同空间</Link>
           </div>
         </div>
       ) : viewMode === "kanban" ? (

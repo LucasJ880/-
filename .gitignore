@@ -65,3 +65,5 @@ cursor-agent-team
 
 # 数据库逻辑备份（含生产客户 PII，禁止入库）
 /backups/
+# Local design explorations
+prototypes/

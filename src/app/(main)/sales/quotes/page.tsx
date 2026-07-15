@@ -199,32 +199,32 @@ function SalesQuotesPageInner() {
             href="/sales"
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-white transition-colors"
           >
-            返回看板
+            返回商机中心
           </Link>
         }
       />
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         {[
           { label: "总报价", value: quotes.length, icon: ScrollText, color: "text-blue-600" },
           { label: "报价总额", value: `$${(totalValue / 1000).toFixed(1)}k`, icon: DollarSign, color: "text-emerald-600" },
           { label: "草稿", value: draftCount, icon: FileText, color: "text-gray-600" },
           { label: "待登记定金", value: pendingDepositCount, icon: Wallet, color: "text-orange-600" },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-border bg-white/60 p-4">
+          <div key={stat.label} className="rounded-lg border border-border bg-white/60 p-3 sm:p-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <stat.icon size={14} className={stat.color} />
               {stat.label}
             </div>
-            <p className={cn("mt-1 text-2xl font-bold", stat.color)}>{stat.value}</p>
+            <p className={cn("mt-1 text-xl font-bold sm:text-2xl", stat.color)}>{stat.value}</p>
           </div>
         ))}
       </div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-sm sm:flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
@@ -233,14 +233,14 @@ function SalesQuotesPageInner() {
             className="w-full rounded-lg border border-border bg-white/80 py-2 pl-9 pr-3 text-sm outline-none focus:border-primary/30 focus:ring-1 focus:ring-primary/20"
           />
         </div>
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-white/60 p-0.5">
+        <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-white/60 p-0.5">
           <Filter size={14} className="ml-2 text-muted-foreground" />
           {STATUS_FILTERS.map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
               className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                "shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                 statusFilter === s
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:text-foreground",
@@ -263,8 +263,8 @@ function SalesQuotesPageInner() {
           {quotes.length === 0 ? "暂无报价记录" : "没有匹配的报价"}
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-white/60 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-border bg-white/60">
+          <table className="min-w-[920px] w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
                 <th className="px-4 py-3">客户</th>
@@ -428,8 +428,8 @@ function SalesQuotesPageInner() {
 
       {/* Email send dialog */}
       {emailDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+          <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold">邮件发送报价</h3>
               <button onClick={() => setEmailDialog(null)} className="rounded-md p-1 hover:bg-muted transition-colors">

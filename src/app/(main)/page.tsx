@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
+import { ChevronDown, ChevronUp, Loader2, MessagesSquare, Radar } from "lucide-react";
+import Link from "next/link";
 import { DashboardDailyBriefing } from "@/components/dashboard/dashboard-daily-briefing";
 import { DashboardAiSuggestions } from "@/components/dashboard/dashboard-ai-suggestions";
 import { DashboardAutoInspections } from "@/components/dashboard/dashboard-auto-inspections";
@@ -22,18 +22,7 @@ import { isAdmin as checkIsAdmin } from "@/lib/permissions-client";
 import type { ReminderItemData } from "@/components/dashboard/types";
 
 export default function Dashboard() {
-  const router = useRouter();
   const { user } = useCurrentUser();
-
-  // 手机端 AI 主导：每次会话首次打开时直接进入对话页（点底部「首页」Tab 仍可回到工作台）
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const isMobile = window.matchMedia("(max-width: 767px)").matches;
-    if (isMobile && !sessionStorage.getItem("qy-mobile-landed")) {
-      sessionStorage.setItem("qy-mobile-landed", "1");
-      router.replace("/assistant");
-    }
-  }, [router]);
   const userRole = user?.role || "user";
   const showProjectModules = checkIsAdmin(userRole) || userRole === "user";
   const showSalesModules = checkIsAdmin(userRole) || userRole === "sales";
@@ -107,7 +96,53 @@ export default function Dashboard() {
     stats.projectBreakdown.length <= 1;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 sm:px-0">
+    <div className="mx-auto max-w-7xl space-y-5">
+      <section className="border-b border-border pb-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[11px] font-medium text-muted">SUNNY SHUTTER · BUSINESS OPERATIONS</p>
+            <h1 className="mt-1 text-2xl font-semibold">经营总览</h1>
+            <p className="mt-1 text-sm text-muted">
+              {userName ? `${userName}，` : ""}以下是当前业务节奏和需要推进的重点事项。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/operations/intelligence"
+              className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-white/70 px-3 text-sm font-medium text-foreground hover:bg-white"
+            >
+              <Radar size={15} />
+              市场情报
+            </Link>
+            <Link
+              href="/assistant"
+              className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              <MessagesSquare size={15} />
+              协同空间
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 border-y border-border md:grid-cols-4">
+          {[
+            { label: "活跃项目", value: stats.projectBreakdown.length, note: `共 ${stats.totalProjects} 个项目` },
+            { label: "在途事项", value: stats.todoCount + stats.inProgressCount, note: `${stats.inProgressCount} 项推进中` },
+            { label: "本周闭环", value: stats.week.completed, note: `本周新增 ${stats.week.created}` },
+            { label: "待决策", value: reminderSummary?.unreadCount ?? 0, note: stats.week.overdue > 0 ? `${stats.week.overdue} 项已逾期` : "暂无逾期事项" },
+          ].map((item, index) => (
+            <div
+              key={item.label}
+              className={`px-4 py-4 ${index % 2 === 1 ? "border-l border-border" : ""} ${index >= 2 ? "border-t border-border" : ""} md:border-l md:border-t-0 md:first:border-l-0`}
+            >
+              <p className="text-xs font-medium text-muted">{item.label}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{item.value}</p>
+              <p className="mt-1 text-[11px] text-text-quaternary">{item.note}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {isNewUser && (
         <DashboardWelcomeSection stats={stats} userName={userName} />
       )}
@@ -142,7 +177,7 @@ export default function Dashboard() {
           <h3 className="text-sm font-semibold text-foreground mb-3">销售快捷操作</h3>
           <div className="flex flex-wrap gap-3">
             <a href="/sales" className="rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors">
-              进入销售看板
+              进入商机中心
             </a>
             <a href="/sales/knowledge" className="rounded-lg bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors">
               查看知识库
@@ -154,10 +189,10 @@ export default function Dashboard() {
       {/* trade 角色的快捷入口 */}
       {showTradeModules && !checkIsAdmin(userRole) && (
         <div className="rounded-xl border border-border/60 bg-card-bg p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-3">外贸快捷操作</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-3">海外增长快捷操作</h3>
           <div className="flex flex-wrap gap-3">
             <a href="/trade" className="rounded-lg bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
-              进入外贸看板
+              进入海外业务
             </a>
             <a href="/trade/knowledge" className="rounded-lg bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
               查看知识库
@@ -166,10 +201,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ─── AI 每日简报（外贸域扫描汇总 + AI 摘要） ─── */}
+      {/* ─── 经营简报（海外增长与销售域汇总） ─── */}
       {(showTradeModules || showSalesModules) && <DashboardDailyBriefing />}
 
-      {/* ─── 原有 AI 建议（项目/销售域） ─── */}
+      {/* ─── 策略建议（项目/销售域） ─── */}
       {showProjectModules && (
         <DashboardAiSuggestions onProjectClick={openProjectDrawer} />
       )}

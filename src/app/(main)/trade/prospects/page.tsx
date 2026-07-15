@@ -646,7 +646,7 @@ export default function TradeProspectsListPage() {
                 href="/trade/cockpit"
                 className="rounded-lg border border-border px-3 py-1.5 text-foreground transition hover:border-blue-500/40"
               >
-                外贸驾驶舱
+                海外业务分析
               </Link>
             </div>
             <p className="mt-4 text-[10px] text-muted">调整上方筛选条件，或确认当前组织下是否已有数据。</p>

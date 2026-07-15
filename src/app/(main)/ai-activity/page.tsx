@@ -139,7 +139,7 @@ export default function AiActivityPage() {
       <div className="mb-6">
         <div className="flex items-center gap-2.5">
           <Activity size={20} className="text-accent" />
-          <h1 className="text-lg font-bold">AI 活动日志</h1>
+          <h1 className="text-lg font-semibold">自动化记录</h1>
         </div>
         <p className="mt-1 text-sm text-muted">
           青砚 AI 为你执行的所有操作记录 — 生成、发送、分析、自动任务
@@ -153,7 +153,7 @@ export default function AiActivityPage() {
       ) : items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-20 text-center">
           <Sparkles size={32} className="text-accent/20" />
-          <p className="text-sm font-medium text-muted">暂无 AI 活动记录</p>
+          <p className="text-sm font-medium text-muted">暂无自动化运行记录</p>
           <p className="text-xs text-muted/60">
             当 AI 帮你生成邮件、分析项目或自动创建任务时，记录会出现在这里
           </p>

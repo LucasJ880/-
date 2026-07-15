@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Loader2, Brain, Sparkles, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, ScanSearch, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 
@@ -45,7 +45,7 @@ function HealthBar({ score }: { score: number }) {
         <div className="h-2 rounded-full bg-muted/20 overflow-hidden">
           <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${score}%` }} />
         </div>
-        <span className="text-[10px] text-muted">Deal 健康度</span>
+        <span className="text-[10px] text-muted">商机健康度</span>
       </div>
     </div>
   );
@@ -82,11 +82,11 @@ export function AiAdvicePanel({ customerId }: { customerId: string }) {
     <div className="rounded-xl border border-accent/20 bg-accent/[0.02]">
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-semibold text-foreground">AI 销售助手</h3>
+          <Target className="h-4 w-4 text-accent" />
+          <h3 className="text-sm font-semibold text-foreground">客户推进建议</h3>
           {profile && (
             <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-              画像置信度 {((profile.confidence ?? 0) * 100).toFixed(0)}%
+              数据置信度 {((profile.confidence ?? 0) * 100).toFixed(0)}%
             </span>
           )}
         </div>
@@ -109,9 +109,9 @@ export function AiAdvicePanel({ customerId }: { customerId: string }) {
             ) : advice ? (
               <RefreshCw className="h-3 w-3" />
             ) : (
-              <Sparkles className="h-3 w-3" />
+              <ScanSearch className="h-3 w-3" />
             )}
-            {advice ? "重新分析" : "AI 分析"}
+            {advice ? "重新分析" : "生成建议"}
           </button>
         </div>
       </div>
@@ -187,7 +187,7 @@ export function AiAdvicePanel({ customerId }: { customerId: string }) {
       {!advice && !loading && (
         <div className="px-4 pb-3">
           <p className="text-xs text-muted/60">
-            点击"AI 分析"，AI 将综合客户画像、知识库和历史数据给出策略建议
+            基于客户资料、互动记录、报价状态和知识库形成可审阅的推进建议
           </p>
         </div>
       )}

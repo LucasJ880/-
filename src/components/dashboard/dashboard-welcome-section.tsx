@@ -32,7 +32,6 @@ export function DashboardWelcomeSection({
 }) {
   const hasProjects = stats.totalProjects > 0;
   const hasTasks = stats.totalTasks > 0;
-  const hasPrompts = stats.projectBreakdown.length > 0;
 
   const steps: WelcomeStep[] = [
     {
@@ -65,10 +64,10 @@ export function DashboardWelcomeSection({
     {
       id: "assistant",
       icon: <FileText size={20} />,
-      title: "试试 AI 助手",
-      description: "用自然语言描述工作，AI 帮你自动创建任务和日程。",
+      title: "进入协同空间",
+      description: "用自然语言描述工作，快速创建任务、日程和业务草稿。",
       href: "/assistant",
-      linkLabel: "打开 AI 助手",
+      linkLabel: "打开协同空间",
       done: false,
     },
   ];
@@ -79,7 +78,7 @@ export function DashboardWelcomeSection({
   if (allDone) return null;
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-border bg-gradient-to-br from-accent/5 via-card-bg to-card-bg p-6 shadow-card">
+    <div className="rounded-[var(--radius-lg)] border border-border bg-card-bg p-6 shadow-card">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold tracking-[-0.01em]">
@@ -105,7 +104,7 @@ export function DashboardWelcomeSection({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {steps.map((step, idx) => (
+        {steps.map((step) => (
           <Link
             key={step.id}
             href={step.href}

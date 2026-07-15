@@ -576,7 +576,7 @@ export function DashboardDailyBriefing() {
       <div className="rounded-xl border border-accent/20 bg-card-bg p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles size={15} className="text-accent" />
-          AI 每日简报
+          经营简报
         </div>
         <div className="mt-4 flex items-center justify-center py-6">
           <Loader2 size={20} className="animate-spin text-accent/40" />
@@ -592,7 +592,7 @@ export function DashboardDailyBriefing() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <Sparkles size={15} className="text-accent" />
-            AI 每日简报
+            经营简报
           </div>
           <button
             type="button"
@@ -611,7 +611,7 @@ export function DashboardDailyBriefing() {
           <Sparkles size={28} className="text-accent/20" />
           <p className="text-sm text-muted">今日简报尚未生成</p>
           <p className="text-xs text-muted/60">
-            点击上方按钮，AI 秘书将为你扫描外贸客户动态并生成简报
+            点击上方按钮，系统将扫描海外客户动态并生成经营摘要
           </p>
         </div>
       </div>
@@ -634,7 +634,7 @@ export function DashboardDailyBriefing() {
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
           <div className="flex items-center gap-2">
             <Sparkles size={15} className="text-accent" />
-            <h2 className="text-sm font-semibold">AI 每日简报</h2>
+            <h2 className="text-sm font-semibold">经营简报</h2>
             {briefing.totalUrgent > 0 && (
               <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
                 {briefing.totalUrgent} 项紧急

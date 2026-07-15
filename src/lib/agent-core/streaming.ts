@@ -100,6 +100,8 @@ const BUSINESS_TRIGGERS: readonly string[] = [
   "订单", "预约", "日程", "安装", "量房",
   "业绩", "漏斗", "管道", "deal", "deal 健康",
   "微信", "小红书", "facebook",
+  "市场情报", "营销分析", "竞品", "对标", "电商", "网购",
+  "google ads", "meta ads", "instagram", "qingyan-marketing-analysis",
   // 英文业务词
   "pipeline", "opportunity", "prospect", "lead", "quote", "campaign",
   "cockpit", "funnel", "appointment",

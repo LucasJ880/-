@@ -163,8 +163,8 @@ function SalesPageInner() {
   return (
     <PullToRefresh onRefresh={loadData} enabled={isMobile} className="space-y-5">
       <PageHeader
-        title="销售管理"
-        description="Sunny Shutter 销售 Pipeline · 客户 · 报价"
+        title="商机中心"
+        description="客户、商机、报价与跟进动作统一推进"
         actions={
           <div className="flex items-center gap-2">
             {isSuperAdmin && (
@@ -218,7 +218,7 @@ function SalesPageInner() {
             )}
             onClick={() => setViewMode("pipeline")}
           >
-            Pipeline 看板
+            商机看板
           </button>
           <button
             className={cn(

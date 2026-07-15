@@ -1,29 +1,35 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  ClipboardCheck,
+  Clock3,
+  FilePenLine,
   Loader2,
-  Bell,
-  Sparkles,
-  ChevronDown as ChevronDownIcon,
-  AlertTriangle,
-  Send,
   Mail,
-  Zap,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  Smartphone,
+  WandSparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { EMAIL_SCENES } from "./types";
-import type { BriefingData, InlineEmail } from "./types";
+import type { AlertItem, BriefingData, InlineEmail } from "./types";
 import { sanitizeHtml } from "@/lib/common/sanitize";
 import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
 import {
@@ -31,21 +37,34 @@ import {
   salesOrgCreateBlockedHint,
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
-import { OrgSelectBanner } from "@/components/org-select-banner";
+
+const SIGNAL_LABELS: Record<string, string> = {
+  followup_due: "跟进日期已到",
+  quote_pending: "报价发送后未回复",
+  viewed_not_signed: "客户已查看报价",
+  stale_opportunity: "商机长时间无互动",
+  new_lead_stale: "新线索尚未联系",
+};
+
+function formatGeneratedAt(value?: string) {
+  if (!value) return "刚刚同步";
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
 
 export function AiAlertPanel() {
   const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [pushing, setPushing] = useState(false);
-
   const [emails, setEmails] = useState<Record<string, InlineEmail>>({});
-  const [emailLoadingSet, setEmailLoadingSet] = useState<Set<string>>(new Set());
+  const [draftingId, setDraftingId] = useState<string | null>(null);
   const [emailSendingId, setEmailSendingId] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState<Set<string>>(new Set());
-
-  const [refineTarget, setRefineTarget] = useState<InlineEmail | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<InlineEmail | null>(null);
   const [refineInput, setRefineInput] = useState("");
   const [refining, setRefining] = useState(false);
 
@@ -59,283 +78,363 @@ export function AiAlertPanel() {
         setBriefing(data.briefing);
       }
     } catch (err) {
-      console.warn("[AiAlertPanel] loadBriefing failed:", err);
+      console.warn("[SalesActionDesk] loadBriefing failed:", err);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadBriefing(); }, [loadBriefing]);
-
-  const prevExpandedRef = useRef(false);
   useEffect(() => {
-    if (expanded && !prevExpandedRef.current && briefing) {
-      if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
-        prevExpandedRef.current = expanded;
-        return;
-      }
-      const safeItems = Array.isArray(briefing.urgentItems) ? briefing.urgentItems : [];
-      const emailItems = safeItems.filter(
-        (i) => i.action?.payload?.customerId && EMAIL_SCENES[i.category],
-      );
-      for (const item of emailItems) {
-        const cid = item.action!.payload!.customerId!;
-        if (emails[cid] || emailSent.has(cid)) continue;
-        const scene = EMAIL_SCENES[item.category];
-        setEmailLoadingSet((s) => new Set(s).add(cid));
-        apiFetch("/api/sales/email-compose", {
-          method: "POST",
-          body: JSON.stringify(withSalesOrgId(orgId!, { customerId: cid, scene })),
-        })
-          .then((r) => r.json())
-          .then((d) => {
-            if (d.email) setEmails((prev) => ({ ...prev, [cid]: { ...d.email, customerId: cid } }));
-          })
-          .catch(() => {})
-          .finally(() => setEmailLoadingSet((s) => { const n = new Set(s); n.delete(cid); return n; }));
-      }
-    }
-    prevExpandedRef.current = expanded;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, briefing, orgId, orgLoading, ambiguous]);
+    loadBriefing();
+  }, [loadBriefing]);
 
   const pushToWechat = async () => {
     setPushing(true);
-    try { await apiFetch("/api/sales/daily-briefing", { method: "POST" }); }
-    catch {}
-    finally { setPushing(false); }
+    try {
+      await apiFetch("/api/sales/daily-briefing", { method: "POST" });
+    } finally {
+      setPushing(false);
+    }
   };
 
-  const handleSendInline = async (customerId: string) => {
-    const email = emails[customerId];
-    if (!email) return;
+  const openEmailDraft = async (item: AlertItem) => {
+    const customerId = item.action?.payload?.customerId;
+    const scene = EMAIL_SCENES[item.category];
+    if (!customerId || !scene) return;
+
     if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
-      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法发送");
+      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "当前无法生成草稿");
       return;
     }
-    setEmailSendingId(customerId);
+
+    if (emails[customerId]) {
+      setReviewTarget(emails[customerId]);
+      return;
+    }
+
+    setDraftingId(customerId);
     try {
-      const res = await apiFetch("/api/sales/email-compose?action=send", {
+      const res = await apiFetch("/api/sales/email-compose", {
         method: "POST",
-        body: JSON.stringify(
-          withSalesOrgId(orgId!, { customerId, scene: email.scene, quoteId: email.quoteId }),
-        ),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(withSalesOrgId(orgId!, { customerId, scene })),
       });
       const data = await res.json();
-      if (data.sent) {
-        setEmailSent((prev) => new Set(prev).add(customerId));
-      } else {
-        alert(data.error || "发送失败");
-      }
-    } catch { alert("发送请求失败"); }
-    finally { setEmailSendingId(null); }
+      if (!res.ok || !data.email) throw new Error(data.error || "草稿生成失败");
+      const draft: InlineEmail = { ...data.email, customerId };
+      setEmails((current) => ({ ...current, [customerId]: draft }));
+      setReviewTarget(draft);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "草稿生成失败");
+    } finally {
+      setDraftingId(null);
+    }
   };
 
   const handleRefine = async () => {
-    if (!refineTarget || !refineInput.trim()) return;
-    if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) {
-      alert(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "无法优化");
-      return;
-    }
+    if (!reviewTarget || !refineInput.trim() || !orgId) return;
     setRefining(true);
     try {
       const res = await apiFetch("/api/sales/email-compose?action=refine", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          withSalesOrgId(orgId!, {
-            currentSubject: refineTarget.subject,
-            currentHtml: refineTarget.html,
+          withSalesOrgId(orgId, {
+            currentSubject: reviewTarget.subject,
+            currentHtml: reviewTarget.html,
             refinement: refineInput.trim(),
           }),
         ),
       });
       const data = await res.json();
-      if (data.email) {
-        const updated = { ...refineTarget, subject: data.email.subject, html: data.email.html };
-        setEmails((prev) => ({ ...prev, [refineTarget.customerId]: updated }));
-        setRefineTarget(updated);
-        setRefineInput("");
-      }
-    } catch { alert("优化失败"); }
-    finally { setRefining(false); }
+      if (!res.ok || !data.email) throw new Error(data.error || "草稿优化失败");
+      const updated = {
+        ...reviewTarget,
+        subject: data.email.subject,
+        html: data.email.html,
+      };
+      setEmails((current) => ({ ...current, [updated.customerId]: updated }));
+      setReviewTarget(updated);
+      setRefineInput("");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "草稿优化失败");
+    } finally {
+      setRefining(false);
+    }
   };
+
+  const sendReviewedEmail = async () => {
+    if (!reviewTarget || !orgId) return;
+    setEmailSendingId(reviewTarget.customerId);
+    try {
+      const res = await apiFetch("/api/sales/email-compose?action=send-approved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          withSalesOrgId(orgId, {
+            customerId: reviewTarget.customerId,
+            scene: reviewTarget.scene,
+            quoteId: reviewTarget.quoteId,
+            approvedSubject: reviewTarget.subject,
+            approvedHtml: reviewTarget.html,
+          }),
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.sent) throw new Error(data.error || "发送失败");
+      setEmailSent((current) => new Set(current).add(reviewTarget.customerId));
+      setReviewTarget(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "发送失败");
+    } finally {
+      setEmailSendingId(null);
+    }
+  };
+
+  const items = useMemo(
+    () => (Array.isArray(briefing?.urgentItems) ? briefing.urgentItems : []),
+    [briefing],
+  );
+  const urgentCount = items.filter((item) => item.severity === "urgent").length;
+  const warningCount = items.filter((item) => item.severity === "warning").length;
 
   if (!briefing && !loading) return null;
 
-  const items = Array.isArray(briefing?.urgentItems) ? briefing.urgentItems : [];
-  const urgentCount = items.filter((i) => i.severity === "urgent").length;
-  const warningCount = items.filter((i) => i.severity === "warning").length;
-
   return (
     <>
-      <div className="rounded-xl border border-border bg-gradient-to-r from-amber-50/80 to-orange-50/60 p-4">
-        <div className="flex items-center justify-between">
-          <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-left">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100">
-              <Sparkles className="h-4 w-4 text-amber-700" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-foreground">AI 销售助手</span>
-                {loading && <Loader2 className="h-3 w-3 animate-spin text-muted" />}
+      <section className="overflow-hidden rounded-[var(--radius-lg)] border border-border bg-card-bg">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="flex min-w-0 items-center gap-3 text-left"
+            aria-expanded={expanded}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-accent-soft text-accent">
+              <ClipboardCheck size={17} />
+            </span>
+            <span className="min-w-0">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">销售行动台</span>
                 {urgentCount > 0 && (
-                  <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">{urgentCount} 紧急</span>
+                  <span className="rounded-full bg-danger-bg px-2 py-0.5 text-[10px] font-semibold text-danger">
+                    {urgentCount} 项高优先
+                  </span>
                 )}
                 {warningCount > 0 && (
-                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{warningCount} 注意</span>
+                  <span className="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-semibold text-warning">
+                    {warningCount} 项待推进
+                  </span>
                 )}
-              </div>
-              <p className="text-xs text-muted">{briefing ? `今日简报 · ${items.length} 项待处理` : "加载中..."}</p>
-            </div>
-            <ChevronDownIcon className={cn("h-4 w-4 text-muted transition-transform", expanded && "rotate-180")} />
+              </span>
+              <span className="mt-0.5 block text-xs text-muted">
+                基于 CRM 信号整理，所有外发内容均需人工确认
+              </span>
+            </span>
           </button>
+
           <div className="flex items-center gap-2">
-            <button onClick={pushToWechat} disabled={pushing || !briefing} className="inline-flex items-center gap-1 rounded-lg border border-border bg-white/80 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-white transition-colors disabled:opacity-50">
-              <Send className="h-3 w-3" />{pushing ? "推送中..." : "推送微信"}
+            <button
+              type="button"
+              onClick={pushToWechat}
+              disabled={pushing || !briefing}
+              className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-border px-3 text-xs font-medium text-foreground hover:bg-background disabled:opacity-50 sm:flex-none"
+            >
+              {pushing ? <Loader2 size={13} className="animate-spin" /> : <Smartphone size={13} />}
+              推送今日重点
             </button>
-            <button onClick={loadBriefing} disabled={loading} className="inline-flex items-center gap-1 rounded-lg border border-border bg-white/80 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-white transition-colors disabled:opacity-50">
-              <Bell className="h-3 w-3" />刷新
+            <button
+              type="button"
+              onClick={loadBriefing}
+              disabled={loading}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-border text-muted hover:bg-background hover:text-foreground disabled:opacity-50"
+              aria-label="刷新销售行动"
+              title="刷新销售行动"
+            >
+              <RefreshCw size={14} className={cn(loading && "animate-spin")} />
             </button>
           </div>
         </div>
 
         {expanded && briefing && (
-          <div className="mt-4 space-y-3">
-            <OrgSelectBanner />
-            <div className="rounded-lg bg-white/80 p-3 text-sm whitespace-pre-line text-foreground/80">
-              {briefing.aiSummary}
+          <div>
+            <div className="grid grid-cols-3 border-b border-border bg-background/40">
+              {[
+                ["活跃商机", briefing.stats.activeOpportunities ?? 0],
+                ["本月签单", briefing.stats.signedThisMonth ?? 0],
+                ["今日预约", briefing.stats.todayAppointments ?? 0],
+              ].map(([label, value], index) => (
+                <div
+                  key={String(label)}
+                  className={cn("px-3 py-3", index > 0 && "border-l border-border")}
+                >
+                  <p className="text-[10px] text-muted sm:text-xs">{label}</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
+                </div>
+              ))}
             </div>
 
-            {items.length > 0 && (
-              <div className="space-y-3">
-                {items.slice(0, 8).map((item, idx) => {
+            {items.length > 0 ? (
+              <div className="divide-y divide-border">
+                {items.slice(0, 8).map((item, index) => {
                   const customerId = item.action?.payload?.customerId;
-                  const canEmail = customerId && EMAIL_SCENES[item.category];
+                  const canEmail = Boolean(customerId && EMAIL_SCENES[item.category]);
                   const isSent = customerId ? emailSent.has(customerId) : false;
-                  const email = customerId ? emails[customerId] : undefined;
-                  const isLoadingEmail = customerId ? emailLoadingSet.has(customerId) : false;
-                  const isSending = emailSendingId === customerId;
+                  const isDrafting = draftingId === customerId;
 
                   return (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "rounded-lg border overflow-hidden",
-                        item.severity === "urgent" ? "border-red-200 bg-red-50/60" : "border-amber-200 bg-amber-50/60",
-                      )}
-                    >
-                      <div className="p-3 flex items-start gap-2">
-                        <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0", item.severity === "urgent" ? "text-red-500" : "text-amber-500")} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-foreground">{item.title}</p>
-                          {item.description && <p className="mt-0.5 text-[11px] text-muted line-clamp-2">{item.description}</p>}
+                    <article key={`${item.category}-${customerId ?? index}`} className="px-4 py-3.5">
+                      <div className="flex items-start gap-3">
+                        <span
+                          className={cn(
+                            "mt-1 h-2 w-2 shrink-0 rounded-full",
+                            item.severity === "urgent" ? "bg-danger" : "bg-warning",
+                          )}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">{item.title}</p>
+                              {item.description && (
+                                <p className="mt-1 text-xs leading-5 text-muted">{item.description}</p>
+                              )}
+                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-quaternary">
+                                <span className="inline-flex items-center gap-1">
+                                  <AlertCircle size={11} />
+                                  触发依据：{SIGNAL_LABELS[item.category] ?? "业务数据变化"}
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock3 size={11} />
+                                  {formatGeneratedAt(briefing.generatedAt)} 更新
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-2">
+                              {customerId && (
+                                <Link
+                                  href={`/sales/customers/${customerId}`}
+                                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-border px-3 text-xs font-medium text-foreground hover:bg-background"
+                                >
+                                  客户详情
+                                  <ArrowRight size={12} />
+                                </Link>
+                              )}
+                              {canEmail && !isSent && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEmailDraft(item)}
+                                  disabled={isDrafting}
+                                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-foreground px-3 text-xs font-medium text-white hover:bg-foreground/90 disabled:opacity-50"
+                                >
+                                  {isDrafting ? <Loader2 size={13} className="animate-spin" /> : <FilePenLine size={13} />}
+                                  {emails[customerId!] ? "审阅草稿" : "生成跟进草稿"}
+                                </button>
+                              )}
+                              {canEmail && isSent && (
+                                <span className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-md)] bg-success-bg px-3 text-xs font-medium text-success">
+                                  <CheckCircle2 size={13} />
+                                  已发送
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-
-                      {canEmail && !isSent && (
-                        <div className="border-t border-border/50 bg-white/80">
-                          {isLoadingEmail ? (
-                            <div className="p-3 flex items-center gap-2 text-xs text-muted">
-                              <Loader2 className="h-3 w-3 animate-spin" /> AI 正在生成跟进邮件...
-                            </div>
-                          ) : email ? (
-                            <div className="p-3 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <div className="text-[11px] text-muted">
-                                  To: <span className="text-foreground">{email.to}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    onClick={() => { setRefineTarget(email); setRefineInput(""); }}
-                                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium"
-                                  >
-                                    AI 优化
-                                  </button>
-                                </div>
-                              </div>
-                              <p className="text-xs font-medium text-foreground">{email.subject}</p>
-                              <div className="rounded border border-border/50 bg-gray-50/50 p-2 text-[11px] text-foreground/70 max-h-24 overflow-y-auto"
-                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(email.html) }}
-                              />
-                              <button
-                                onClick={() => handleSendInline(customerId!)}
-                                disabled={
-                                  isSending ||
-                                  isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)
-                                }
-                                className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-                              >
-                                {isSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                                {isSending ? "发送中..." : "一键发送"}
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
-                      {canEmail && isSent && (
-                        <div className="border-t border-emerald-200 bg-emerald-50/80 p-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                          <Mail className="h-3.5 w-3.5" /> 跟进邮件已发送
-                        </div>
-                      )}
-                    </div>
+                    </article>
                   );
                 })}
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <ShieldCheck size={22} className="mx-auto text-success" />
+                <p className="mt-2 text-sm font-medium text-foreground">当前没有高优先销售动作</p>
+                <p className="mt-1 text-xs text-muted">系统会持续关注跟进日期、报价状态和客户互动。</p>
               </div>
             )}
           </div>
         )}
-      </div>
+      </section>
 
-      <Dialog open={!!refineTarget} onOpenChange={() => setRefineTarget(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <Dialog open={Boolean(reviewTarget)} onOpenChange={(open) => !open && setReviewTarget(null)}>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5" />
-              AI 邮件优化
+              <Mail size={18} />
+              跟进邮件审阅
             </DialogTitle>
             <DialogDescription>
-              告诉 AI 你想怎么改，和 ChatGPT 一样自然对话
+              发送前请核对收件人、主题和正文。系统不会自动发送。
             </DialogDescription>
           </DialogHeader>
 
-          {refineTarget && (
-            <div className="space-y-4 mt-2">
-              <div className="rounded-lg border border-border p-3 space-y-1">
-                <div className="text-xs text-muted">To: {refineTarget.to}</div>
-                <p className="text-sm font-medium">{refineTarget.subject}</p>
-              </div>
-
-              <div className="rounded-lg border border-border overflow-hidden">
-                <div className="bg-gray-50 px-3 py-1.5 text-xs font-medium text-muted border-b">邮件预览</div>
-                <div className="p-4 text-sm max-h-48 overflow-y-auto" dangerouslySetInnerHTML={{ __html: sanitizeHtml(refineTarget.html) }} />
-              </div>
-
-              <div className="flex gap-2">
+          {reviewTarget && (
+            <div className="mt-2 space-y-4">
+              <div className="grid gap-3 rounded-[var(--radius-md)] border border-border bg-background/50 p-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+                <span className="text-xs text-muted">收件人</span>
+                <span className="break-all text-sm font-medium text-foreground">{reviewTarget.to}</span>
+                <label htmlFor="review-email-subject" className="text-xs text-muted sm:pt-2">邮件主题</label>
                 <input
-                  type="text"
-                  value={refineInput}
-                  onChange={(e) => setRefineInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleRefine(); } }}
-                  placeholder="告诉 AI 怎么改… 如：语气更热情一些 / 加上10%折扣信息 / 更简短"
-                  className="flex-1 rounded-lg border border-border px-3 py-2 text-sm placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  disabled={refining}
+                  id="review-email-subject"
+                  value={reviewTarget.subject}
+                  onChange={(event) =>
+                    setReviewTarget((current) => current ? { ...current, subject: event.target.value } : current)
+                  }
+                  className="min-h-10 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
                 />
-                <Button onClick={handleRefine} disabled={refining || !refineInput.trim()} size="sm">
-                  {refining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                </Button>
+              </div>
+
+              <div className="overflow-hidden rounded-[var(--radius-md)] border border-border">
+                <div className="border-b border-border bg-background/60 px-3 py-2 text-xs font-medium text-muted">
+                  正文预览
+                </div>
+                <div
+                  className="max-h-64 overflow-y-auto bg-white p-4 text-sm leading-6 text-foreground"
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(reviewTarget.html) }}
+                />
+              </div>
+
+              <div className="rounded-[var(--radius-md)] border border-border p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs font-medium text-foreground">
+                  <WandSparkles size={14} className="text-accent" />
+                  智能改写
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    value={refineInput}
+                    onChange={(event) => setRefineInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        handleRefine();
+                      }
+                    }}
+                    placeholder="例如：更简短，加入本周可预约量房"
+                    className="min-h-10 flex-1 rounded-[var(--radius-md)] border border-border px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+                    disabled={refining}
+                  />
+                  <Button onClick={handleRefine} disabled={refining || !refineInput.trim()} variant="outline">
+                    {refining ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-1 h-4 w-4" />}
+                    优化草稿
+                  </Button>
+                </div>
               </div>
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0 mt-4">
-            <Button variant="outline" onClick={() => setRefineTarget(null)}>关闭</Button>
-            <Button onClick={() => {
-              if (refineTarget) {
-                handleSendInline(refineTarget.customerId);
-                setRefineTarget(null);
-              }
-            }} disabled={emailSendingId === refineTarget?.customerId}>
-              <Send className="h-4 w-4 mr-1" /> 确认发送
+          <DialogFooter className="mt-4 gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setReviewTarget(null)}>暂不发送</Button>
+            <Button
+              onClick={sendReviewedEmail}
+              disabled={!reviewTarget?.subject.trim() || emailSendingId === reviewTarget?.customerId}
+            >
+              {emailSendingId === reviewTarget?.customerId ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-1 h-4 w-4" />
+              )}
+              确认并发送
             </Button>
           </DialogFooter>
         </DialogContent>

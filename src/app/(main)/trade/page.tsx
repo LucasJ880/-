@@ -19,9 +19,7 @@ import {
   AlertTriangle,
   ChevronRight,
   TrendingUp,
-  FileText,
   Trophy,
-  BarChart3,
   Radar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -167,7 +165,7 @@ export default function TradeDashboardPage() {
     return (
       <div className="space-y-4 py-16 text-center">
         <p className="text-sm text-muted">
-          多组织账号需先选择当前组织：请在侧栏选择组织，或从组织页进入后再使用外贸看板。
+          多组织账号需先选择当前组织：请在侧栏选择组织，或从组织页进入后再使用海外业务。
         </p>
         <button
           type="button"
@@ -623,7 +621,7 @@ function CampaignCard({ orgId, campaign: c, menuOpen, onToggleMenu, onRefresh }:
         ) : (
           <button onClick={handleGenerateKeywords} disabled={genLoading} className="flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 text-xs text-muted transition hover:border-blue-500/50 hover:text-blue-400">
             {genLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-            {genLoading ? "AI 生成中..." : "生成搜索关键词"}
+            {genLoading ? "生成中..." : "生成搜索关键词"}
           </button>
         )}
       </div>
@@ -646,7 +644,7 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
       </div>
       <h2 className="text-lg font-semibold text-foreground">开始第一个获客活动</h2>
       <p className="mt-2 max-w-md text-sm text-muted">
-        描述你的产品和目标市场，AI 会自动生成搜索关键词、发现潜在买家、生成研究报告和个性化开发信。
+        描述产品和目标市场，系统会生成搜索关键词、整理潜在买家，并形成研究报告与个性化开发信。
       </p>
       <button onClick={onCreateClick} className="mt-6 flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500">
         <Plus size={16} /> 新建获客活动
@@ -657,7 +655,7 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
 
 // ── Create Modal ────────────────────────────────────────────
 
-function CreateCampaignModal({ orgId, userId, onClose, onCreated }: {
+function CreateCampaignModal({ orgId, onClose, onCreated }: {
   orgId: string; userId: string; onClose: () => void; onCreated: () => void;
 }) {
   const [name, setName] = useState("");
@@ -683,18 +681,18 @@ function CreateCampaignModal({ orgId, userId, onClose, onCreated }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-6">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card-bg p-6 shadow-xl">
+      <div className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card-bg p-4 shadow-xl sm:max-h-[calc(100dvh-3rem)] sm:p-6">
         <h2 className="text-lg font-semibold text-foreground">新建获客活动</h2>
-        <p className="mt-1 text-xs text-muted">描述你的产品和理想客户，AI 会帮你找到海外买家</p>
+        <p className="mt-1 text-xs text-muted">描述产品和理想客户，建立海外买家筛选范围</p>
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div>
             <label className="mb-1 block text-xs font-medium text-foreground">活动名称</label>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例：2026 Q2 欧洲窗饰买家开发" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-foreground">产品描述<span className="ml-1 text-muted">（AI 会基于此生成搜索词和开发信）</span></label>
+            <label className="mb-1 block text-xs font-medium text-foreground">产品描述<span className="ml-1 text-muted">（用于生成搜索词和开发信）</span></label>
             <textarea value={productDesc} onChange={(e) => setProductDesc(e.target.value)} rows={3} placeholder="例：我们是中国绍兴的窗帘面料工厂..." className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
           </div>
           <div>

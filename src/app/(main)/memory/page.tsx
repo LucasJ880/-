@@ -130,7 +130,7 @@ export default function MemoryPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="AI 记忆管理"
+        title="组织知识管理"
         description="管理 AI 的长期记忆，让助手更了解你"
       />
 

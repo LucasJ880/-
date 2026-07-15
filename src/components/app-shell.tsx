@@ -93,7 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </main>
         </div>
 
-        <MobileTabBar />
+        <MobileTabBar onMore={openMobileSidebar} />
       </div>
     </AppShellContext.Provider>
     </LocaleProvider>

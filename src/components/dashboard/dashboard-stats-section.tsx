@@ -1,10 +1,6 @@
 "use client";
 
 import {
-  CheckSquare,
-  Clock,
-  ListTodo,
-  FolderKanban,
   TrendingUp,
   Bell,
   ChevronRight,
@@ -33,10 +29,6 @@ function ReminderSummaryCard({
   ];
   const followups = [...data.immediate, ...data.today, ...data.upcoming].filter(
     (i) => i.type === "followup"
-  );
-
-  const nextEvent = [...data.immediate, ...data.today].find(
-    (i) => i.type === "event"
   );
 
   const allItems = [...data.immediate, ...data.today].slice(0, 5);
@@ -86,8 +78,6 @@ function ReminderSummaryCard({
           {allItems.map((item) => {
             const isDeadline = item.type === "deadline";
             const isEvent = item.type === "event";
-            const hasProject = !!(item.projectId || item.project);
-
             return (
               <button
                 key={item.sourceKey}
@@ -137,44 +127,6 @@ interface Props {
 }
 
 export function DashboardStatsSection({ stats, reminderSummary, onReminderClick, onProjectClick }: Props) {
-  const summaryCards = [
-    {
-      label: "全部任务",
-      value: stats.totalTasks,
-      icon: ListTodo,
-      color: "text-[#2b6055] bg-[rgba(43,96,85,0.04)]",
-      href: "/tasks",
-    },
-    {
-      label: "待办",
-      value: stats.todoCount,
-      icon: Clock,
-      color: "text-[#6e7d76] bg-[rgba(110,125,118,0.06)]",
-      href: "/tasks?status=todo",
-    },
-    {
-      label: "进行中",
-      value: stats.inProgressCount,
-      icon: CheckSquare,
-      color: "text-[#9a6a2f] bg-[rgba(154,106,47,0.04)]",
-      href: "/tasks?status=in_progress",
-    },
-    {
-      label: "已完成",
-      value: stats.doneCount,
-      icon: CheckSquare,
-      color: "text-[#2e7a56] bg-[rgba(46,122,86,0.04)]",
-      href: "/tasks?status=done",
-    },
-    {
-      label: "项目数",
-      value: stats.totalProjects,
-      icon: FolderKanban,
-      color: "text-[#805078] bg-[rgba(128,80,120,0.04)]",
-      href: "/projects",
-    },
-  ];
-
   const weekCards = [
     { label: "本周新增", value: stats.week.created, color: "text-[#2b6055]" },
     {
@@ -193,11 +145,6 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
 
   return (
     <>
-      <div>
-        <h1 className="text-2xl font-bold tracking-[-0.01em]">工作台</h1>
-        <p className="mt-1 text-[12px] text-muted tracking-[-0.01em]">欢迎回来，这是您的工作概览</p>
-      </div>
-
       {(stats.pendingDispatchCount ?? 0) > 0 && (
         <Link
           href="/admin/project-intake"
@@ -216,30 +163,10 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
         </Link>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {summaryCards.map((c) => (
-          <Link
-            key={c.label}
-            href={c.href}
-            className="card-hover rounded-[var(--radius-lg)] border border-border bg-card-bg p-4 shadow-card transition-all duration-150"
-          >
-            <div className="flex items-center gap-3">
-              <div className={cn("rounded-[var(--radius-md)] p-2", c.color)}>
-                <c.icon size={18} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold tracking-[-0.01em]">{c.value}</p>
-                <p className="text-[13px] font-medium text-muted tracking-[-0.01em]">{c.label}</p>
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
-
       <div className="rounded-[var(--radius-lg)] border border-border bg-card-bg shadow-card">
         <div className="flex items-center gap-2 border-b border-border px-5 py-3">
           <TrendingUp size={15} className="text-accent" />
-          <h2 className="text-[13px] font-semibold tracking-[-0.01em]">本周进度</h2>
+          <h2 className="text-[13px] font-semibold tracking-[-0.01em]">经营节奏</h2>
         </div>
         <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
           {weekCards.map((w) => (

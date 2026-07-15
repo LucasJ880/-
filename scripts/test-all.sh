@@ -59,6 +59,7 @@ run_test "产品视觉素材 source 上传 API" "npx tsx src/app/api/skills/prod
 run_test "产品视觉素材 image-client 封装" "npx tsx src/lib/skills/product-visual-builder/__tests__/image-client.test.ts"
 run_test "Blob 统一访问层 URL 转换" "npx tsx src/lib/files/__tests__/blob-access.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
+run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 

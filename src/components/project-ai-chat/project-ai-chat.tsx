@@ -279,7 +279,7 @@ export function ProjectAiChat({
           <Bot size={17} className="text-accent" />
         </div>
         <div className="flex-1">
-          <p className="text-sm font-semibold">AI 助手</p>
+          <p className="text-sm font-semibold">项目协同</p>
           <p className="text-xs text-muted">
             与 AI 讨论此项目，对话自动获取项目上下文并永久保存
           </p>

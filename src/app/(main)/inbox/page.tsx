@@ -176,10 +176,10 @@ export default function InboxPage() {
           面向<strong className="text-foreground">单条捕获</strong>：写一句话 → AI 解析 → 一键生成任务或日程，无需多轮对话。
         </p>
         <p className="mt-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted">
-          <span className="font-medium text-foreground">与 AI 助手的区别：</span>
+          <span className="font-medium text-foreground">与协同空间的区别：</span>
           收件箱适合「马上记下来」；若需要补充背景、拆步骤或连续讨论，请使用{" "}
           <Link href="/assistant" className="text-accent hover:underline">
-            AI 助手
+            协同空间
           </Link>
           （保留完整对话上下文）。
         </p>
@@ -247,7 +247,7 @@ export default function InboxPage() {
               className="flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-accent"
             >
               <Bot size={12} />
-              需要多轮讨论或规划？去 AI 助手
+              需要多轮讨论或规划？进入协同空间
             </Link>
           </div>
         )}

@@ -1,5 +1,5 @@
 /**
- * 运营技能包种子导入 — 22 条 AgentSkill（domain=operations）
+ * 运营技能包种子导入 — 23 条 AgentSkill（domain=operations）
  *
  * 技能定义见 src/lib/agent-core/skills/operations-seed.ts
  * （方法论借鉴 xiaohongshu-ops-skill 的 SOP 与 adclaw 的技能分类法）

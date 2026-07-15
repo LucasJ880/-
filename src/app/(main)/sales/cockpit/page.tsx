@@ -133,7 +133,7 @@ export default function SalesCockpitPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="销售驾驶舱"
+        title="销售分析"
         description="全局业绩、漏斗、工单和库存一览"
         actions={
           <button
@@ -142,14 +142,14 @@ export default function SalesCockpitPage() {
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             <FileText size={15} />
-            {generating ? "生成中..." : "生成AI周报"}
+            {generating ? "生成中..." : "生成经营周报"}
           </button>
         }
       />
 
       {reportResult && (
         <div className="rounded-xl border border-border bg-white/60 p-4">
-          <h3 className="text-sm font-semibold mb-2">AI 周报</h3>
+          <h3 className="text-sm font-semibold mb-2">经营周报</h3>
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">{reportResult}</p>
         </div>
       )}

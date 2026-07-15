@@ -14,7 +14,7 @@ import {
   Loader2,
   CalendarDays,
   ChevronDown,
-  Sparkles,
+  Target,
   Trash2,
   Pencil,
   ImageIcon,
@@ -483,11 +483,11 @@ export default function CustomerDetailPage() {
           className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5 text-left active:bg-white"
         >
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
-            <Sparkles size={14} className="shrink-0 text-[var(--accent)]" />
+            <Target size={14} className="shrink-0 text-[var(--accent)]" />
             <span className="truncate">
               {customer.opportunities.length > 0
-                ? `${customer.opportunities.length} 个销售机会 · 点击查看 AI 建议`
-                : "AI 建议与基本信息"}
+                ? `${customer.opportunities.length} 个销售机会 · 点击查看推进建议`
+                : "推进建议与基本信息"}
             </span>
           </div>
           <ChevronDown
@@ -500,7 +500,7 @@ export default function CustomerDetailPage() {
         </button>
       </div>
 
-      {/* ───────── AI 建议 + 基本信息 + 机会（desktop 始终显示，mobile 折叠） ───────── */}
+      {/* 推进建议、基本信息和机会；桌面常显，移动端折叠。 */}
       <div
         className={cn(
           "space-y-5",
@@ -843,7 +843,7 @@ export default function CustomerDetailPage() {
             { key: "quotes" as const, label: "报价记录", shortLabel: "报价", count: customer.quotes.length },
             { key: "orders" as const, label: "工艺单", shortLabel: "工艺单", count: customer.blindsOrders.length },
             { key: "visualizer" as const, label: "可视化方案", shortLabel: "方案", count: 0 },
-            { key: "coaching" as const, label: "AI 建议", shortLabel: "AI", count: 0 },
+            { key: "coaching" as const, label: "建议记录", shortLabel: "建议", count: 0 },
           ]
         ).map((tab) => (
           <button

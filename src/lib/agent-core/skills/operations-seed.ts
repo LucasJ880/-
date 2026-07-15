@@ -1,5 +1,5 @@
 /**
- * 运营技能包种子 — 22 条 AgentSkill（domain=operations）
+ * 运营技能包种子 — 23 条 AgentSkill（domain=operations）
  *
  * 方法论来源（结构级借鉴，非照抄）：
  * - Xiangyu-CAS/xiaohongshu-ops-skill：小红书全链路 SOP（选题打分、结构复刻、评论运营、账号体检）
@@ -39,6 +39,107 @@ const COMPLIANCE_RULES = `合规红线（违反即返工）：
 
 export const OPERATIONS_SKILLS: OperationsSkillSeed[] = [
   // ── A 组 · 策略与研究 ────────────────────────────────────────
+  {
+    slug: "qingyan-marketing-analysis",
+    name: "青砚营销分析",
+    description: "分析竞品、线下转网购、Google Ads、Instagram 与 Facebook 全渠道机会，产出可验证的市场情报和增长实验",
+    tier: "analysis",
+    systemPrompt: `你是青砚的高级市场情报与增长策略分析师，服务于加拿大智能遮阳、定制窗帘及家居服务业务。
+
+你的任务不是泛泛给营销建议，而是帮助管理者做出一个明确决策，并把判断转成可执行、可复盘的增长实验。
+
+工作原则：
+1. 严格区分三类信息：已观察事实、基于事实的推断、待执行建议。不得把推断写成事实。
+2. 只使用用户提供的公开网页、广告样本、第一方数据和品牌资料。缺少证据时明确写"待验证"，不要编造竞品预算、受众、转化率、销量或 ROAS。
+3. Google/Meta 广告资料只能证明创意、文案、落地页或投放存在，不能据此推断实际花费、定向或效果。
+4. 对定制窗帘、智能遮阳等高客单且需要测量/安装的业务，默认评估"内容/广告获客 → 咨询/预约量房 → 报价 → 成交"的询价型混合漏斗；只有证据充分时才建议纯购物车成交。
+5. 第一个实验必须收窄为：一个主推产品、一个目标地区、一个核心优惠、一个主要转化动作。
+6. 建议必须标注影响、投入、置信度和验证方式；优先给 1-2 周能获得信号的实验。
+7. 任何对外发布、预算调整或付费投放都需要人工确认。你只输出分析和草案，不直接执行。
+${COMPLIANCE_RULES}
+
+分析顺序：
+A. 先复述本次要做的决策及成功标准。
+B. 建立证据表，按"已观察 / 推断 / 建议"标记。
+C. 拆解竞品的定位、报价方式、信任证明、内容支柱、渠道角色、落地页路径与转化动作。
+D. 评估青砚当前差距：offer、creative、channel、conversion、measurement、operations。
+E. 比较 Google Search、Instagram、Facebook 在发现需求、建立信任、再营销和收割意图中的角色，不做渠道平均分配。
+F. 输出最多 3 个优先机会和第一个实验合同。
+
+默认输出为中文 Markdown，结论在前，表格优先。`,
+    userPromptTemplate: `本次要做的决策 / 目标：
+{{objective}}
+
+目标市场与地区：
+{{targetGeography}}
+
+主推产品与服务模式：
+{{primaryProduct}}
+{{salesModel}}
+
+对标竞品、网址及已观察到的渠道信号：
+{{competitors}}
+{{marketEvidence}}
+
+青砚现有第一方数据（询盘、报价、成交、客单价、毛利、安装能力等）：
+{{firstPartyData}}
+
+单位经济信息（预算、目标 CPL/CPA、毛利或可承受获客成本）：
+{{unitEconomics}}
+
+品牌语料：
+{{brandContext}}
+
+期望输出类型（competitor-profile / market-brief / channel-plan / workspace-spec / experiment-backlog；未指定则 comprehensive）：
+{{outputType}}
+
+请按以下结构输出：
+## 决策结论
+- 本次建议做什么 / 暂不做什么
+- 结论置信度与关键缺口
+
+## 证据与判断
+| 类型 | 发现 | 证据来源或依据 | 置信度 | 待验证项 |
+|---|---|---|---|---|
+
+## 竞品与渠道拆解
+覆盖定位、offer、创意/内容、Google Ads、Instagram、Facebook、落地页、信任证明、主要转化动作。
+
+## 青砚差距与机会
+按 offer / creative / channel / conversion / measurement / operations 评估，只列最重要差距。
+
+## 优先机会（最多 3 个）
+每个机会写明：为什么现在做、预期影响、投入、风险、验证方式。
+
+## 第一个增长实验
+明确：假设、目标人群、一个产品、一个地区、一个优惠、一个转化动作、渠道、素材、落地页、预算与周期、领先指标、结果指标、停止/继续/扩量规则、负责人、人工审批点。
+
+## 下一步资料清单
+只列会改变决策的缺失数据，不做泛泛的信息收集。`,
+    outputFormat: "markdown",
+    temperature: 0.25,
+    maxTokens: 4500,
+    inputSchema: {
+      type: "object",
+      properties: {
+        objective: { type: "string", description: "本次需要做出的营销决策或目标" },
+        targetGeography: { type: "string", description: "目标国家、城市或服务半径" },
+        primaryProduct: { type: "string", description: "本次主推产品或品类" },
+        salesModel: { type: "string", description: "线上下单、预约量房、询价报价或混合模式" },
+        competitors: { type: "string", description: "竞品名称、网址与对标原因" },
+        marketEvidence: { type: "string", description: "公开网页、广告样本、内容或其他已观察信号" },
+        firstPartyData: { type: "string", description: "青砚现有询盘、报价、成交与运营数据" },
+        unitEconomics: { type: "string", description: "预算、毛利、客单价与可承受获客成本" },
+        outputType: {
+          type: "string",
+          enum: ["comprehensive", "competitor-profile", "market-brief", "channel-plan", "workspace-spec", "experiment-backlog"],
+          description: "期望输出类型",
+        },
+        ...BRAND_CONTEXT_PROP,
+      },
+      required: ["objective"],
+    },
+  },
   {
     slug: "ops-brand-context",
     name: "品牌语料库维护",
