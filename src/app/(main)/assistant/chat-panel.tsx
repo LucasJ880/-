@@ -9,7 +9,8 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
-  ChevronLeft,
+  PanelLeft,
+  ArrowUpRight,
   Paperclip,
   FileText,
   X,
@@ -322,15 +323,15 @@ export function ChatPanel({
 
   return (
     <div
-      className="relative flex flex-1 flex-col overflow-hidden"
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#fbfcfc]"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
       {isDragging && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-accent/40 bg-accent/5 px-12 py-10">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/85 px-5 backdrop-blur-xl">
+          <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-lg border border-dashed border-[#2b6055]/35 bg-[#f0f5f3] px-8 py-10 shadow-float">
             <Paperclip size={32} className="text-accent" />
             <p className="text-sm font-medium text-accent">松开以上传文件</p>
             <p className="text-xs text-muted">支持 PDF、Word、Excel、CSV、TXT</p>
@@ -338,32 +339,37 @@ export function ChatPanel({
         </div>
       )}
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+      <div className="z-20 flex min-h-16 items-center gap-3 border-b border-black/[0.06] bg-white/90 px-3 backdrop-blur-xl sm:px-5">
         <button
-          className="lg:hidden"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[#5f6763] hover:bg-black/[0.04] hover:text-[#171a19] lg:hidden"
           onClick={onShowMobileSidebar}
+          title="打开工作对话"
+          aria-label="打开工作对话"
         >
-          <ChevronLeft size={18} />
+          <PanelLeft size={18} />
         </button>
-        <Bot size={18} className="text-accent" />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#171a19] text-white shadow-xs">
+          <Sparkles size={16} />
+        </span>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">
-            {activeThread?.title || "协同空间"}
+          <h1 className="truncate text-sm font-semibold tracking-normal text-[#171a19]">
+            {activeThread?.title || "青砚"}
           </h1>
-          {activeThread?.project && (
-            <p className="truncate text-[11px] text-muted">
-              关联项目：{activeThread.project.name}
-            </p>
-          )}
+          <p className="flex items-center gap-1.5 truncate text-[11px] text-[#7c8480]">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#3d8a68]" />
+            {activeThread?.project
+              ? `项目 · ${activeThread.project.name}`
+              : "销售协作已就绪"}
+          </p>
         </div>
         {/* 语音播报开关：开启后 AI 回复自动朗读 */}
         <button
           onClick={toggleAutoSpeak}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+            "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
             autoSpeak
-              ? "bg-accent/10 text-accent"
-              : "text-muted hover:bg-foreground/5 hover:text-foreground"
+              ? "bg-[#edf3f1] text-[#2b6055]"
+              : "text-[#6f7773] hover:bg-black/[0.04] hover:text-[#171a19]"
           )}
           title={autoSpeak ? "语音播报已开启（点击关闭）" : "开启语音播报"}
           aria-label={autoSpeak ? "关闭语音播报" : "开启语音播报"}
@@ -375,27 +381,31 @@ export function ChatPanel({
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {!activeThreadId && messages.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
-              <Sparkles size={24} className="text-accent" />
+          <div className="mx-auto flex min-h-full w-full max-w-[840px] flex-col justify-center px-5 py-10 sm:px-10">
+            <div className="mb-6 flex h-11 w-11 items-center justify-center rounded-lg border border-black/[0.06] bg-white text-[#2b6055] shadow-card">
+              <Sparkles size={19} />
             </div>
-            <h2 className="mb-2 text-lg font-semibold">青砚协同空间</h2>
-            <p className="mb-6 max-w-md text-sm text-muted">
-              直接输入即可开始新对话，点击左上角可查看历史对话。
-              每个对话独立保存，支持绑定项目获取深度上下文。
+            <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-[#2b6055]">
+              Qingyan Intelligence
             </p>
-            <div className="flex flex-wrap justify-center gap-2">
+            <h2 className="mb-3 text-2xl font-semibold tracking-normal text-[#171a19] sm:text-[28px]">
+              今天要推进什么？
+            </h2>
+            <p className="mb-7 max-w-xl text-sm leading-6 text-[#68706c]">
+              从客户跟进、项目判断到销售内容，直接告诉青砚你的目标。
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
               {QUICK_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => onSend(prompt)}
                   disabled={isLoading}
-                  className="flex items-center gap-1.5 rounded-full border border-border bg-card-bg px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                  className="group flex min-h-12 items-center justify-between gap-3 rounded-lg border border-black/[0.07] bg-white px-3.5 py-2.5 text-left text-xs font-medium text-[#4b524f] shadow-xs transition-colors hover:border-[#2b6055]/25 hover:bg-[#f5f8f7] hover:text-[#171a19] disabled:opacity-50"
                 >
-                  <Sparkles size={12} />
-                  {prompt}
+                  <span>{prompt}</span>
+                  <ArrowUpRight size={14} className="shrink-0 text-[#9aa19e] group-hover:text-[#2b6055]" />
                 </button>
               ))}
             </div>
@@ -409,47 +419,47 @@ export function ChatPanel({
         )}
 
         {!loadingThread && activeThreadId && messages.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10">
-              <MessageSquare size={20} className="text-accent" />
+          <div className="mx-auto flex min-h-full w-full max-w-[840px] flex-col justify-center px-5 py-10 sm:px-10">
+            <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-lg border border-black/[0.06] bg-white text-[#2b6055] shadow-card">
+              <MessageSquare size={17} />
             </div>
-            <p className="mb-1 text-sm font-medium">开始对话</p>
-            <p className="mb-4 text-xs text-muted">
+            <h2 className="mb-2 text-xl font-semibold tracking-normal text-[#171a19]">开始推进这项工作</h2>
+            <p className="mb-6 text-sm text-[#68706c]">
               {activeThread?.project
-                ? `已关联项目「${activeThread.project.name}」，AI 将自动获取项目上下文`
-                : "在下方输入你的问题或工作需求"}
+                ? `已连接「${activeThread.project.name}」的项目上下文`
+                : "输入目标，或从下面选择一个常用动作"}
             </p>
-            <div className="flex flex-wrap justify-center gap-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {(activeThread?.project ? PROJECT_QUICK_PROMPTS : QUICK_PROMPTS).map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => onSend(prompt)}
                   disabled={isLoading}
-                  className="flex items-center gap-1.5 rounded-full border border-border bg-card-bg px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                  className="group flex min-h-12 items-center justify-between gap-3 rounded-lg border border-black/[0.07] bg-white px-3.5 py-2.5 text-left text-xs font-medium text-[#4b524f] shadow-xs transition-colors hover:border-[#2b6055]/25 hover:bg-[#f5f8f7] hover:text-[#171a19] disabled:opacity-50"
                 >
-                  <Sparkles size={12} />
-                  {prompt}
+                  <span>{prompt}</span>
+                  <ArrowUpRight size={14} className="shrink-0 text-[#9aa19e] group-hover:text-[#2b6055]" />
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        <div className="space-y-4 p-4">
+        <div className="mx-auto w-full max-w-[920px] space-y-7 px-4 py-6 sm:px-8 sm:py-8">
           {messages.map((msg) => (
             <div key={msg.id}>
               <div
                 className={cn(
-                  "flex gap-3",
+                  "flex gap-3 sm:gap-4",
                   msg.role === "user" && "flex-row-reverse"
                 )}
               >
                 <div
                   className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
                     msg.role === "assistant"
-                      ? "bg-gradient-to-br from-[#2b6055] to-[#2b6055] text-white"
-                      : "bg-[rgba(110,125,118,0.15)] text-[#6e7d76]"
+                      ? "border-black/[0.06] bg-[#171a19] text-white shadow-xs"
+                      : "border-black/[0.06] bg-[#eef0ef] text-[#68706c]"
                   )}
                 >
                   {msg.role === "assistant" ? (
@@ -460,12 +470,12 @@ export function ChatPanel({
                 </div>
                 <div
                   className={cn(
-                    "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                    "min-w-0 text-sm leading-7",
                     msg.role === "assistant"
-                      ? "max-w-[90%] bg-background text-foreground"
-                      : "max-w-[80%] bg-accent text-white",
+                      ? "max-w-[calc(100%-44px)] flex-1 py-0.5 text-[#252927]"
+                      : "max-w-[82%] rounded-lg bg-[#202422] px-4 py-2.5 text-white shadow-xs",
                     msg.isError &&
-                      "border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] text-[#a63d3d]"
+                      "rounded-lg border border-[rgba(166,61,61,0.15)] bg-[#fff7f7] px-4 py-2.5 text-[#a63d3d]"
                   )}
                 >
                   {msg.isError && (
@@ -489,13 +499,13 @@ export function ChatPanel({
                       ))
                     )
                   ) : msg.isStreaming && !msg.toolStatus ? (
-                    <div className="flex items-center gap-2 text-muted">
+                    <div className="flex items-center gap-2 text-[#7c8480]">
                       <Loader2 size={14} className="animate-spin" />
                       <span className="text-xs">思考中...</span>
                     </div>
                   ) : null}
                   {msg.isStreaming && msg.toolStatus && (
-                    <div className="mt-1.5 flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent w-fit">
+                    <div className="mt-2 flex w-fit items-center gap-1.5 rounded-md border border-[#2b6055]/10 bg-[#edf3f1] px-2.5 py-1 text-[11px] font-medium text-[#2b6055]">
                       <Loader2 size={11} className="animate-spin" />
                       <span>{msg.toolStatus}</span>
                     </div>
@@ -511,14 +521,14 @@ export function ChatPanel({
                 !msg.isStreaming &&
                 !msg.isError &&
                 msg.content && (
-                  <div className="ml-11 mt-1">
+                  <div className="ml-11 mt-1 sm:ml-12">
                     <button
                       onClick={() => playTts(msg.id, msg.content)}
                       className={cn(
-                        "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors",
+                        "flex min-h-7 items-center gap-1 rounded-md px-2 text-[11px] transition-colors",
                         playingId === msg.id
-                          ? "bg-accent/10 text-accent"
-                          : "text-muted/70 hover:bg-foreground/5 hover:text-foreground"
+                          ? "bg-[#edf3f1] text-[#2b6055]"
+                          : "text-[#7c8480] hover:bg-black/[0.04] hover:text-[#171a19]"
                       )}
                       title={playingId === msg.id ? "停止播放" : "朗读这条回复"}
                     >
@@ -535,7 +545,7 @@ export function ChatPanel({
                 )}
 
               {msg.workSuggestion && !msg.isStreaming && (
-                <div className="ml-11 mt-2 max-w-[80%]">
+                <div className="ml-11 mt-3 max-w-[calc(100%-44px)] sm:ml-12">
                   <WorkSuggestionCard
                     suggestion={msg.workSuggestion}
                     projects={projects}
@@ -545,7 +555,7 @@ export function ChatPanel({
               )}
 
               {msg.pendingApprovals && msg.pendingApprovals.length > 0 && (
-                <div className="ml-11 mt-2 flex max-w-[80%] flex-col gap-2">
+                <div className="ml-11 mt-3 flex max-w-[calc(100%-44px)] flex-col gap-2 sm:ml-12">
                   {msg.pendingApprovals.map((pa) => (
                     <ApprovalCard
                       key={pa.actionId}
@@ -561,10 +571,11 @@ export function ChatPanel({
       </div>
 
       {/* Input */}
-      <div className="border-t border-border p-3">
+      <div className="border-t border-black/[0.06] bg-white/90 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:px-6 sm:pb-4">
+        <div className="mx-auto w-full max-w-[920px]">
         {/* Channel selector */}
-        <div className="mb-2 flex items-center gap-1.5">
-          <span className="text-[11px] text-muted mr-1">话术渠道:</span>
+        <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
+          <span className="mr-1 shrink-0 text-[11px] font-medium text-[#68706c]">输出渠道</span>
           {(["wechat", "xiaohongshu", "facebook", "email"] as const).map(
             (ch) => (
               <button
@@ -573,16 +584,10 @@ export function ChatPanel({
                   onChannelModeChange(channelMode === ch ? null : ch)
                 }
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors border",
+                  "min-h-7 shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
                   channelMode === ch
-                    ? ch === "wechat"
-                      ? "border-green-300 bg-green-50 text-green-700"
-                      : ch === "xiaohongshu"
-                      ? "border-red-300 bg-red-50 text-red-700"
-                      : ch === "facebook"
-                      ? "border-blue-300 bg-blue-50 text-blue-700"
-                      : "border-amber-300 bg-amber-50 text-amber-700"
-                    : "border-transparent bg-foreground/5 text-muted hover:text-foreground hover:bg-foreground/10"
+                    ? "border-[#202422] bg-[#202422] text-white"
+                    : "border-black/[0.07] bg-[#f4f5f5] text-[#68706c] hover:bg-[#e9ebea] hover:text-[#171a19]"
                 )}
               >
                 {ch === "wechat"
@@ -598,7 +603,9 @@ export function ChatPanel({
           {channelMode && (
             <button
               onClick={() => onChannelModeChange(null)}
-              className="ml-1 text-[10px] text-muted hover:text-foreground"
+              className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#7c8480] hover:bg-black/[0.04] hover:text-[#171a19]"
+              title="清除渠道"
+              aria-label="清除渠道"
             >
               <X size={12} />
             </button>
@@ -606,7 +613,7 @@ export function ChatPanel({
         </div>
 
         {attachedFile && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-1.5">
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-[#2b6055]/15 bg-[#f0f5f3] px-3 py-2">
             <FileText size={14} className="shrink-0 text-accent" />
             <span className="flex-1 truncate text-xs font-medium text-foreground">{attachedFile.name}</span>
             <span className="text-[10px] text-muted">{(attachedFile.text.length / 1000).toFixed(0)}k 字符</span>
@@ -615,7 +622,7 @@ export function ChatPanel({
             </button>
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-card-bg p-2">
+        <div className="flex items-end gap-1 rounded-lg border border-black/10 bg-white p-2 shadow-float focus-within:border-[#2b6055]/35 focus-within:shadow-card sm:gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -630,7 +637,7 @@ export function ChatPanel({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading || uploadingFile}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-accent/10 hover:text-accent disabled:opacity-40"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#6f7773] transition-colors hover:bg-[#edf3f1] hover:text-[#2b6055] disabled:opacity-40"
             title="上传文件（PDF/Word/Excel/CSV/TXT）"
           >
             {uploadingFile ? (
@@ -662,12 +669,12 @@ export function ChatPanel({
                     ? "AI 正在回复..."
                     : attachedFile
                       ? "输入你的问题，如「帮我提炼产品细节」..."
-                      : "输入消息，Enter 发送，Shift+Enter 换行..."
+                      : "描述目标、客户情况或需要推进的工作..."
             }
             disabled={isLoading}
             rows={1}
-            className="max-h-32 flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted disabled:opacity-50"
-            style={{ minHeight: "36px" }}
+            className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 text-[#252927] outline-none placeholder:text-[#959c98] disabled:opacity-50"
+            style={{ minHeight: "44px" }}
             onInput={(e) => {
               const target = e.target as HTMLTextAreaElement;
               target.style.height = "auto";
@@ -680,10 +687,10 @@ export function ChatPanel({
               onClick={toggleVoice}
               disabled={isLoading || voiceState === "transcribing"}
               className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40",
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors disabled:opacity-40",
                 voiceState === "recording"
                   ? "bg-red-500 text-white animate-pulse"
-                  : "text-muted hover:bg-accent/10 hover:text-accent"
+                  : "text-[#6f7773] hover:bg-[#edf3f1] hover:text-[#2b6055]"
               )}
               title={voiceState === "recording" ? "点击结束录音" : "语音输入"}
               aria-label={voiceState === "recording" ? "结束录音" : "开始语音输入"}
@@ -700,7 +707,9 @@ export function ChatPanel({
           <button
             onClick={() => onSend()}
             disabled={!input.trim() || isLoading}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#202422] text-white shadow-xs transition-colors hover:bg-[#2b6055] disabled:bg-[#d8dcda] disabled:text-[#8e9591] disabled:shadow-none"
+            title="发送"
+            aria-label="发送"
           >
             {isLoading ? (
               <Loader2 size={15} className="animate-spin" />
@@ -708,6 +717,7 @@ export function ChatPanel({
               <Send size={15} />
             )}
           </button>
+        </div>
         </div>
       </div>
     </div>

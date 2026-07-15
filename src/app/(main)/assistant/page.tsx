@@ -1,6 +1,13 @@
 "use client";
 
-import { Suspense, useState, useRef, useEffect, type ComponentProps } from "react";
+import {
+  Suspense,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  type ComponentProps,
+} from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { extractWorkSuggestion } from "@/lib/ai/parser";
@@ -93,6 +100,23 @@ function AssistantPageInner() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const createThread = useCallback(async (projectId?: string) => {
+    try {
+      const thread = await apiJson<AiThread>("/api/ai/threads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: projectId || null }),
+      });
+      setThreads((prev) => [thread, ...prev]);
+      setActiveThreadId(thread.id);
+      router.replace(`/assistant?thread=${thread.id}`);
+      setMessages([]);
+      return thread.id as string;
+    } catch {
+      return null;
+    }
+  }, [router]);
+
   // Load threads
   useEffect(() => {
     apiJson<AiThread[]>("/api/ai/threads")
@@ -123,8 +147,7 @@ function AssistantPageInner() {
     if (initialProjectId && !initialThreadId) {
       createThread(initialProjectId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialProjectId]);
+  }, [createThread, initialProjectId, initialThreadId]);
 
   // Load messages when active thread changes
   useEffect(() => {
@@ -171,23 +194,6 @@ function AssistantPageInner() {
       .catch(() => {})
       .finally(() => setLoadingThread(false));
   }, [activeThreadId]);
-
-  const createThread = async (projectId?: string) => {
-    try {
-      const thread = await apiJson<AiThread>("/api/ai/threads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: projectId || null }),
-      });
-      setThreads((prev) => [thread, ...prev]);
-      setActiveThreadId(thread.id);
-      router.replace(`/assistant?thread=${thread.id}`);
-      setMessages([]);
-      return thread.id as string;
-    } catch {
-      return null;
-    }
-  };
 
   const handleTogglePin = async (id: string, pinned: boolean) => {
     await apiFetch(`/api/ai/threads/${id}`, {
@@ -475,7 +481,7 @@ function AssistantPageInner() {
   };
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-[#f5f6f6] tracking-normal text-[#171a19]">
       <ThreadSidebar
         threads={threads}
         activeId={activeThreadId}
@@ -490,14 +496,17 @@ function AssistantPageInner() {
         onCloseMobile={() => setShowMobileSidebar(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-white/70">
         {ambiguous && (
-          <div className="border-b border-border px-3 py-2 sm:px-4">
-            <OrgSelectBanner onSelected={() => inputRef.current?.focus()} />
+          <div className="border-b border-black/[0.06] bg-white/90 px-3 py-2 backdrop-blur-xl sm:px-5">
+            <OrgSelectBanner
+              variant="assistant"
+              onSelected={() => inputRef.current?.focus()}
+            />
           </div>
         )}
         {!orgLoading && !ambiguous && !orgId && (
-          <div className="border-b border-warning/30 bg-warning-bg px-4 py-2.5 text-xs text-warning">
+          <div className="border-b border-[#b54747]/15 bg-[#fff7f7] px-4 py-2.5 text-xs text-[#9e3e3e]">
             当前账号尚未关联可用组织，请联系管理员添加组织成员关系。
           </div>
         )}

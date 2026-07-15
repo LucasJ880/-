@@ -1,12 +1,24 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useSyncExternalStore,
+} from "react";
 import { apiFetch } from "@/lib/api-fetch";
 
 export type VoiceInputState = "idle" | "recording" | "transcribing";
 
 const MAX_RECORDING_MS = 90_000; // 超长自动停止，防止忘记关麦
 const MIN_BLOB_BYTES = 2_000; // 过短视为误触，不发转写
+
+const subscribeToBrowserSupport = () => () => {};
+
+const getBrowserSupport = () =>
+  typeof MediaRecorder !== "undefined" &&
+  Boolean(navigator.mediaDevices?.getUserMedia);
 
 /**
  * 语音输入：MediaRecorder 录音 → /api/ai/transcribe（Whisper）→ 文字回调
@@ -17,6 +29,11 @@ export function useVoiceInput(
   onError?: (message: string) => void,
 ) {
   const [state, setState] = useState<VoiceInputState>("idle");
+  const supported = useSyncExternalStore(
+    subscribeToBrowserSupport,
+    getBrowserSupport,
+    () => false,
+  );
   const stateRef = useRef<VoiceInputState>("idle");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -36,11 +53,6 @@ export function useVoiceInput(
       timeoutRef.current = null;
     }
   };
-
-  const supported =
-    typeof window !== "undefined" &&
-    typeof MediaRecorder !== "undefined" &&
-    Boolean(navigator.mediaDevices?.getUserMedia);
 
   const start = useCallback(async () => {
     if (stateRef.current !== "idle") return;

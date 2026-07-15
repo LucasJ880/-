@@ -141,15 +141,15 @@ export function PendingInbox({ onOpenThread }: Props) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+          "flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors",
           count > 0
             ? "border-[#c85a3a]/40 bg-[#c85a3a]/10 text-[#c85a3a] hover:bg-[#c85a3a]/15"
-            : "border-border bg-card-bg text-muted hover:border-accent hover:text-accent",
+            : "border-black/[0.07] bg-white text-[#68706c] hover:bg-black/[0.03] hover:text-[#171a19]",
         )}
         title="待我确认的 AI 草稿"
       >
         <Bell size={13} />
-        <span>待我确认</span>
+        <span className="hidden sm:inline">待我确认</span>
         {count > 0 && (
           <span className="rounded-full bg-[#c85a3a] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white">
             {count > 99 ? "99+" : count}
@@ -158,7 +158,7 @@ export function PendingInbox({ onOpenThread }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-2 w-[360px] overflow-hidden rounded-xl border border-border bg-card-bg shadow-xl">
+        <div className="absolute right-0 top-full z-40 mt-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-lg border border-black/10 bg-white shadow-dialog">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-xs font-medium text-foreground">
               待我确认的草稿
