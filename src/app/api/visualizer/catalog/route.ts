@@ -19,6 +19,7 @@ import {
   categoryLabelFor,
   isValidCategory,
   listCatalogForOrg,
+  sanitizeCatalogAssets,
   sanitizeColors,
   sanitizeMountings,
   sanitizeOpacity,
@@ -86,19 +87,26 @@ export const POST = withAuth(async (request, _ctx, user) => {
     );
   }
   const defaultOpacity = sanitizeOpacity(body.defaultOpacity);
+  const assets = sanitizeCatalogAssets(body.assets, { orgId });
   const categoryLabel =
     typeof body.categoryLabel === "string" && body.categoryLabel.trim()
       ? body.categoryLabel.trim().slice(0, 60)
       : categoryLabelFor(category);
 
+  const primaryInstalled =
+    assets.find((asset) => asset.role === "installed" && asset.isPrimary) ??
+    assets.find((asset) => asset.role === "installed");
+  const primaryTexture =
+    assets.find((asset) => asset.role === "texture" && asset.isPrimary) ??
+    assets.find((asset) => asset.role === "texture");
   const previewImageUrl =
     typeof body.previewImageUrl === "string" && body.previewImageUrl.trim()
       ? body.previewImageUrl.trim().slice(0, 2000)
-      : null;
+      : primaryInstalled?.fileUrl ?? null;
   const textureUrl =
     typeof body.textureUrl === "string" && body.textureUrl.trim()
       ? body.textureUrl.trim().slice(0, 2000)
-      : null;
+      : primaryTexture?.fileUrl ?? null;
   const pricingProductName =
     typeof body.pricingProductName === "string" && body.pricingProductName.trim()
       ? body.pricingProductName.trim().slice(0, 120)
@@ -123,7 +131,23 @@ export const POST = withAuth(async (request, _ctx, user) => {
       notes,
       archived: false,
       createdById: user.id,
+      assets: {
+        create: assets.map((asset) => ({
+          role: asset.role,
+          fileUrl: asset.fileUrl,
+          fileName: asset.fileName,
+          mimeType: asset.mimeType,
+          width: asset.width,
+          height: asset.height,
+          bytes: asset.bytes,
+          sortOrder: asset.sortOrder,
+          isPrimary: asset.isPrimary,
+          sourceType: asset.sourceType,
+          createdById: user.id,
+        })),
+      },
     },
+    include: { assets: { orderBy: [{ role: "asc" }, { sortOrder: "asc" }] } },
   });
 
   return NextResponse.json(

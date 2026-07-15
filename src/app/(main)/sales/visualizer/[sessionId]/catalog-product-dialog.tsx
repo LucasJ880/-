@@ -5,18 +5,20 @@
  *
  * - 创建：必填 name / category / 至少一个颜色 / 至少一种安装方式
  * - 编辑：所有字段可改（仅自家产品；平台预置入口不暴露此弹窗）
- * - 预览图：可选，上传后通过 /api/visualizer/catalog/upload-preview 返回 URL
+ * - 产品资产：按安装效果、材质、结构和风格参考分类上传
  *
  * 父组件保存成功后应自行 reload 产品列表。
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Trash2, Upload, X } from "lucide-react";
+import { Check, ImageIcon, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useToast } from "@/components/ui/toast";
 import { resizeImageForUpload } from "@/lib/visualizer/client-resize";
 import { cn } from "@/lib/utils";
 import type {
+  VisualizerCatalogAssetDetail,
+  VisualizerCatalogAssetRole,
   VisualizerCatalogColor,
   VisualizerCatalogMounting,
   VisualizerCatalogProductDetail,
@@ -45,6 +47,40 @@ const CATEGORY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "custom", label: "自定义 Custom" },
 ];
 
+const ASSET_SECTIONS: Array<{
+  role: VisualizerCatalogAssetRole;
+  label: string;
+  description: string;
+  limit: number;
+  required?: boolean;
+}> = [
+  {
+    role: "installed",
+    label: "安装效果",
+    description: "完整展示产品装在窗户上的形态，AI 生成必需",
+    limit: 3,
+    required: true,
+  },
+  {
+    role: "texture",
+    label: "材质纹理",
+    description: "近距离拍摄面料、透光和表面纹理",
+    limit: 2,
+  },
+  {
+    role: "detail",
+    label: "结构细节",
+    description: "帘头、轨道、褶皱、上下梁或控制结构",
+    limit: 3,
+  },
+  {
+    role: "style_reference",
+    label: "效果参考",
+    description: "ChatGPT 等工具生成的理想效果，只用于风格参考",
+    limit: 2,
+  },
+];
+
 function emptyColors(): VisualizerCatalogColor[] {
   return [{ name: "Default", hex: "#cccccc" }];
 }
@@ -56,7 +92,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
   const isEdit = editing !== null;
   const [name, setName] = useState("");
   const [category, setCategory] = useState<string>("roller");
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [assets, setAssets] = useState<VisualizerCatalogAssetDetail[]>([]);
   const [defaultOpacity, setDefaultOpacity] = useState(0.85);
   const [colors, setColors] = useState<VisualizerCatalogColor[]>(emptyColors());
   const [mountings, setMountings] = useState<VisualizerCatalogMounting[]>([
@@ -66,14 +102,43 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
   const [pricingProductName, setPricingProductName] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingRole, setUploadingRole] = useState<VisualizerCatalogAssetRole | null>(null);
 
   useEffect(() => {
     if (!open) return;
     if (editing) {
       setName(editing.name);
       setCategory(editing.category);
-      setPreviewImageUrl(editing.previewImageUrl);
+      const legacyAssets: VisualizerCatalogAssetDetail[] = [];
+      if (editing.assets.length === 0 && editing.previewImageUrl) {
+        legacyAssets.push({
+          role: "installed",
+          fileUrl: editing.previewImageUrl,
+          fileName: "legacy-preview",
+          mimeType: "image/jpeg",
+          width: null,
+          height: null,
+          bytes: null,
+          sortOrder: 0,
+          isPrimary: true,
+          sourceType: "real",
+        });
+      }
+      if (editing.assets.length === 0 && editing.textureUrl) {
+        legacyAssets.push({
+          role: "texture",
+          fileUrl: editing.textureUrl,
+          fileName: "legacy-texture",
+          mimeType: "image/jpeg",
+          width: null,
+          height: null,
+          bytes: null,
+          sortOrder: 0,
+          isPrimary: true,
+          sourceType: "real",
+        });
+      }
+      setAssets(editing.assets.length > 0 ? editing.assets : legacyAssets);
       setDefaultOpacity(editing.defaultOpacity);
       setColors(editing.colors.length > 0 ? editing.colors : emptyColors());
       setMountings(editing.mountings.length > 0 ? editing.mountings : ["inside", "outside"]);
@@ -82,7 +147,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
     } else {
       setName("");
       setCategory("roller");
-      setPreviewImageUrl(null);
+      setAssets([]);
       setDefaultOpacity(0.85);
       setColors(emptyColors());
       setMountings(["inside", "outside"]);
@@ -97,31 +162,75 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
     if (colors.length === 0) return false;
     if (colors.some((c) => !c.name.trim() || !/^#[0-9a-fA-F]{6}$/.test(c.hex))) return false;
     if (mountings.length === 0) return false;
-    return !busy && !uploading;
-  }, [name, category, colors, mountings, busy, uploading]);
+    if (!assets.some((asset) => asset.role === "installed")) return false;
+    return !busy && !uploadingRole;
+  }, [name, category, colors, mountings, assets, busy, uploadingRole]);
 
-  const handleUpload = async (file: File) => {
-    setUploading(true);
+  const handleUpload = async (role: VisualizerCatalogAssetRole, file: File) => {
+    const config = ASSET_SECTIONS.find((section) => section.role === role);
+    if (!config) return;
+    if (assets.filter((asset) => asset.role === role).length >= config.limit) {
+      toast.error(`${config.label}最多上传 ${config.limit} 张`);
+      return;
+    }
+    setUploadingRole(role);
     try {
-      const resized = await resizeImageForUpload(file, { maxLongEdge: 1200, quality: 0.85 });
+      const resized = await resizeImageForUpload(file, { maxLongEdge: 2048, quality: 0.9 });
       const fd = new FormData();
       fd.append("file", resized.file);
       const res = await apiFetch("/api/visualizer/catalog/upload-preview", {
         method: "POST",
         body: fd,
       });
-      const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        url?: string;
+        fileName?: string;
+        mimeType?: string;
+        width?: number | null;
+        height?: number | null;
+        bytes?: number | null;
+        error?: string;
+      };
       if (!res.ok || !j.url) {
         toast.error(j.error ?? "上传失败");
         return;
       }
-      setPreviewImageUrl(j.url);
-      toast.success("预览图已上传");
+      setAssets((prev) => {
+        const roleAssets = prev.filter((asset) => asset.role === role);
+        return [
+          ...prev,
+          {
+            role,
+            fileUrl: j.url!,
+            fileName: j.fileName ?? resized.file.name,
+            mimeType: j.mimeType ?? resized.file.type,
+            width: j.width ?? null,
+            height: j.height ?? null,
+            bytes: j.bytes ?? resized.file.size,
+            sortOrder: roleAssets.length,
+            isPrimary: roleAssets.length === 0,
+            sourceType: role === "style_reference" ? "ai_generated" : "real",
+          },
+        ];
+      });
+      toast.success(`${config.label}已上传`);
     } catch {
       toast.error("上传失败");
     } finally {
-      setUploading(false);
+      setUploadingRole(null);
     }
+  };
+
+  const removeAsset = (fileUrl: string) => {
+    setAssets((prev) => {
+      const removed = prev.find((asset) => asset.fileUrl === fileUrl);
+      const next = prev.filter((asset) => asset.fileUrl !== fileUrl);
+      if (!removed?.isPrimary) return next;
+      const replacementIndex = next.findIndex((asset) => asset.role === removed.role);
+      return next.map((asset, index) =>
+        index === replacementIndex ? { ...asset, isPrimary: true } : asset,
+      );
+    });
   };
 
   const save = async () => {
@@ -136,7 +245,15 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         orgId,
         name: name.trim(),
         category,
-        previewImageUrl,
+        previewImageUrl:
+          assets.find((asset) => asset.role === "installed" && asset.isPrimary)?.fileUrl ??
+          assets.find((asset) => asset.role === "installed")?.fileUrl ??
+          null,
+        textureUrl:
+          assets.find((asset) => asset.role === "texture" && asset.isPrimary)?.fileUrl ??
+          assets.find((asset) => asset.role === "texture")?.fileUrl ??
+          null,
+        assets,
         defaultOpacity,
         colors,
         mountings,
@@ -178,7 +295,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         className="absolute inset-0 bg-black/40"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-white p-5 shadow-2xl"
+      <div className="relative z-10 w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-white p-5 shadow-2xl"
         style={{ maxHeight: "90vh" }}>
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -247,45 +364,75 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
           </div>
 
           <div>
-            <label className="text-[11px] font-medium text-muted">预览图（可选）</label>
-            <div className="mt-0.5 flex items-center gap-2">
-              {previewImageUrl ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={previewImageUrl}
-                    alt="预览"
-                    className="h-12 w-12 rounded border border-border object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPreviewImageUrl(null)}
-                    className="rounded-md border border-red-200 bg-white px-2 py-1 text-[11px] text-red-700 hover:bg-red-50"
-                  >
-                    移除
-                  </button>
-                </>
-              ) : (
-                <div className="h-12 w-12 rounded border border-dashed border-border/60 bg-slate-50" />
-              )}
-              <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-[11px] text-muted hover:text-foreground">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void handleUpload(file);
-                    if (e.target) e.target.value = "";
-                  }}
-                />
-                {uploading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                {uploading ? "上传中…" : "上传图片"}
-              </label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-[11px] font-medium text-muted">产品参考资产</label>
+              <span className="text-[10px] text-muted">建议横向图片，长边 1600px 以上</span>
+            </div>
+            <div className="divide-y divide-border rounded-md border border-border bg-slate-50/60">
+              {ASSET_SECTIONS.map((section) => {
+                const sectionAssets = assets.filter((asset) => asset.role === section.role);
+                const isUploading = uploadingRole === section.role;
+                return (
+                  <div key={section.role} className="grid gap-2 p-3 sm:grid-cols-[150px_1fr]">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                        {section.label}
+                        {section.required ? (
+                          sectionAssets.length > 0 ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-600" aria-label="已完成" />
+                          ) : (
+                            <span className="text-[10px] text-red-600">必填</span>
+                          )
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 text-[10px] leading-4 text-muted">{section.description}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {sectionAssets.map((asset) => (
+                        <div key={asset.fileUrl} className="group relative h-16 w-20 overflow-hidden rounded border border-border bg-white">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={asset.fileUrl} alt={section.label} className="h-full w-full object-cover" />
+                          {asset.isPrimary ? (
+                            <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1 text-[9px] text-white">主图</span>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => removeAsset(asset.fileUrl)}
+                            className="absolute right-1 top-1 rounded bg-black/60 p-0.5 text-white opacity-0 transition group-hover:opacity-100"
+                            aria-label="移除图片"
+                            title="移除图片"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {sectionAssets.length < section.limit ? (
+                        <label className="flex h-16 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-border bg-white text-[10px] text-muted hover:border-foreground/40 hover:text-foreground">
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            disabled={!!uploadingRole}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void handleUpload(section.role, file);
+                              e.target.value = "";
+                            }}
+                          />
+                          {isUploading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : sectionAssets.length === 0 ? (
+                            <ImageIcon className="h-4 w-4" />
+                          ) : (
+                            <Upload className="h-4 w-4" />
+                          )}
+                          {isUploading ? "上传中" : `${sectionAssets.length}/${section.limit}`}
+                        </label>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

@@ -27,6 +27,12 @@ export async function runImageEdit(args: {
   imageMime: string;
   prompt: string;
   maskBuffer?: Buffer;
+  referenceImages?: Array<{
+    buffer: Buffer;
+    mime: string;
+    fileName?: string;
+  }>;
+  quality?: "low" | "medium" | "high" | "auto";
 }): Promise<Buffer | null> {
   const cfg = getAIConfig();
   if (!cfg.apiKey) throw new Error("OPENAI_API_KEY missing");
@@ -35,12 +41,25 @@ export async function runImageEdit(args: {
   form.append("model", cfg.imageModel);
   form.append("prompt", args.prompt);
   form.append("size", "auto");
+  if (args.quality) form.append("quality", args.quality);
+
+  const references = args.referenceImages?.slice(0, 8) ?? [];
+  const imageField = references.length > 0 ? "image[]" : "image";
   form.append(
-    "image",
+    imageField,
     new File([new Uint8Array(args.imageBuffer)], `source.${extFromMime(args.imageMime)}`, {
       type: args.imageMime,
     }),
   );
+  for (const [index, reference] of references.entries()) {
+    const fallbackName = `reference-${index + 1}.${extFromMime(reference.mime)}`;
+    form.append(
+      "image[]",
+      new File([new Uint8Array(reference.buffer)], reference.fileName || fallbackName, {
+        type: reference.mime,
+      }),
+    );
+  }
   if (args.maskBuffer) {
     form.append(
       "mask",

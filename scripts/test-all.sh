@@ -61,6 +61,7 @@ run_test "Blob 统一访问层 URL 转换" "npx tsx src/lib/files/__tests__/blob
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"
 run_test "市场情报竞品监听规则" "npx tsx src/lib/market-intelligence/__tests__/rules.test.ts"
+run_test "销售可视化产品参考资产" "npx tsx src/lib/visualizer/__tests__/catalog-assets.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 

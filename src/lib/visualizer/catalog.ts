@@ -20,12 +20,27 @@ import {
   type VisualizerProductColor,
 } from "@/lib/visualizer/mock-products";
 import type {
+  VisualizerCatalogAssetDetail,
+  VisualizerCatalogAssetRole,
+  VisualizerCatalogAssetSource,
   VisualizerCatalogColor,
   VisualizerCatalogMounting,
   VisualizerCatalogProductDetail,
 } from "@/lib/visualizer/types";
 
 const VALID_MOUNTINGS = new Set<VisualizerCatalogMounting>(["inside", "outside"]);
+const VALID_ASSET_ROLES = new Set<VisualizerCatalogAssetRole>([
+  "installed",
+  "texture",
+  "detail",
+  "style_reference",
+  "swatch",
+]);
+const VALID_ASSET_SOURCES = new Set<VisualizerCatalogAssetSource>([
+  "real",
+  "ai_generated",
+]);
+const MAX_CATALOG_ASSETS = 12;
 
 export const VISUALIZER_CATALOG_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "roller", label: "卷帘" },
@@ -73,6 +88,50 @@ export function sanitizeOpacity(raw: unknown, fallback = 0.85): number {
   return Math.max(0.1, Math.min(1, raw));
 }
 
+export function sanitizeCatalogAssets(
+  raw: unknown,
+  scope?: { orgId?: string },
+): VisualizerCatalogAssetDetail[] {
+  if (!Array.isArray(raw)) return [];
+  const out: VisualizerCatalogAssetDetail[] = [];
+  for (const [index, item] of raw.slice(0, MAX_CATALOG_ASSETS).entries()) {
+    if (!item || typeof item !== "object") continue;
+    const value = item as Record<string, unknown>;
+    const role = value.role as VisualizerCatalogAssetRole;
+    const sourceType = value.sourceType as VisualizerCatalogAssetSource;
+    const fileUrl = typeof value.fileUrl === "string" ? value.fileUrl.trim().slice(0, 2000) : "";
+    const fileName = typeof value.fileName === "string" ? value.fileName.trim().slice(0, 255) : "";
+    const mimeType = typeof value.mimeType === "string" ? value.mimeType.trim().slice(0, 100) : "";
+    const catalogPrefix = scope?.orgId
+      ? `/api/files/visualizer/catalog/${encodeURIComponent(scope.orgId)}/`
+      : "/api/files/visualizer/catalog/";
+    if (
+      !VALID_ASSET_ROLES.has(role) ||
+      !fileUrl.startsWith(catalogPrefix) ||
+      !fileName ||
+      !mimeType.startsWith("image/")
+    ) {
+      continue;
+    }
+    out.push({
+      role,
+      fileUrl,
+      fileName,
+      mimeType,
+      width: typeof value.width === "number" && value.width > 0 ? Math.round(value.width) : null,
+      height: typeof value.height === "number" && value.height > 0 ? Math.round(value.height) : null,
+      bytes: typeof value.bytes === "number" && value.bytes > 0 ? Math.round(value.bytes) : null,
+      sortOrder:
+        typeof value.sortOrder === "number" && Number.isFinite(value.sortOrder)
+          ? Math.max(0, Math.round(value.sortOrder))
+          : index,
+      isPrimary: value.isPrimary === true,
+      sourceType: VALID_ASSET_SOURCES.has(sourceType) ? sourceType : "real",
+    });
+  }
+  return out;
+}
+
 export function isValidCategory(category: string): boolean {
   return VISUALIZER_CATALOG_CATEGORIES.some((c) => c.value === category);
 }
@@ -92,6 +151,19 @@ export function toCatalogDetail(
     categoryLabel: string;
     previewImageUrl: string | null;
     textureUrl: string | null;
+    assets?: Array<{
+      id: string;
+      role: string;
+      fileUrl: string;
+      fileName: string;
+      mimeType: string;
+      width: number | null;
+      height: number | null;
+      bytes: number | null;
+      sortOrder: number;
+      isPrimary: boolean;
+      sourceType: string;
+    }>;
     defaultOpacity: number;
     colorsJson: unknown;
     mountingsJson: unknown;
@@ -114,6 +186,10 @@ export function toCatalogDetail(
     categoryLabel: row.categoryLabel,
     previewImageUrl: row.previewImageUrl,
     textureUrl: row.textureUrl,
+    assets: sanitizeCatalogAssets(row.assets ?? []).map((asset, index) => ({
+      ...asset,
+      id: row.assets?.[index]?.id,
+    })),
     defaultOpacity: row.defaultOpacity,
     colors: sanitizeColors(row.colorsJson),
     mountings: sanitizeMountings(row.mountingsJson),
@@ -138,6 +214,36 @@ function fromMock(p: VisualizerMockProduct): VisualizerCatalogProductDetail {
     categoryLabel: p.categoryLabel,
     previewImageUrl: p.previewImageUrl,
     textureUrl: p.textureUrl,
+    assets: [
+      ...(p.previewImageUrl
+        ? [{
+            role: "installed" as const,
+            fileUrl: p.previewImageUrl,
+            fileName: "preview",
+            mimeType: "image/jpeg",
+            width: null,
+            height: null,
+            bytes: null,
+            sortOrder: 0,
+            isPrimary: true,
+            sourceType: "real" as const,
+          }]
+        : []),
+      ...(p.textureUrl
+        ? [{
+            role: "texture" as const,
+            fileUrl: p.textureUrl,
+            fileName: "texture",
+            mimeType: "image/jpeg",
+            width: null,
+            height: null,
+            bytes: null,
+            sortOrder: 0,
+            isPrimary: true,
+            sourceType: "real" as const,
+          }]
+        : []),
+    ],
     defaultOpacity: p.defaultOpacity,
     colors: p.supportedColors.map((c: VisualizerProductColor) => ({
       name: c.name,
@@ -165,6 +271,7 @@ export async function findCatalogProductForUse(
 ): Promise<VisualizerCatalogProductDetail | null> {
   const row = await db.visualizerCatalogProduct.findUnique({
     where: { id },
+    include: { assets: { orderBy: [{ role: "asc" }, { sortOrder: "asc" }] } },
   });
   if (row && !row.archived) {
     if (row.orgId !== null && row.orgId !== scope.orgId) {
@@ -189,11 +296,13 @@ export async function listCatalogForOrg(scope: {
     db.visualizerCatalogProduct.findMany({
       where: { orgId: null, archived: false },
       orderBy: [{ category: "asc" }, { name: "asc" }],
+      include: { assets: { orderBy: [{ role: "asc" }, { sortOrder: "asc" }] } },
     }),
     scope.orgId
       ? db.visualizerCatalogProduct.findMany({
           where: { orgId: scope.orgId, archived: false },
           orderBy: [{ updatedAt: "desc" }],
+          include: { assets: { orderBy: [{ role: "asc" }, { sortOrder: "asc" }] } },
         })
       : Promise.resolve([]),
   ]);

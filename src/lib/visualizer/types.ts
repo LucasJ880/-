@@ -35,7 +35,7 @@ export interface VisualizerSessionDetail extends VisualizerSessionSummary {
   measurementRecordId: string | null;
   shareToken: string | null;
   shareExpiresAt: string | null;
-  customer: { id: string; name: string };
+  customer: { id: string; name: string; email: string | null };
   opportunity: { id: string; title: string; stage: string } | null;
   quote: { id: string; version: number; status: string } | null;
   sourceImages: VisualizerSourceImageSummary[];
@@ -293,6 +293,29 @@ export interface VisualizerCatalogColor {
 
 export type VisualizerCatalogMounting = "inside" | "outside";
 
+export type VisualizerCatalogAssetRole =
+  | "installed"
+  | "texture"
+  | "detail"
+  | "style_reference"
+  | "swatch";
+
+export type VisualizerCatalogAssetSource = "real" | "ai_generated";
+
+export interface VisualizerCatalogAssetDetail {
+  id?: string;
+  role: VisualizerCatalogAssetRole;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  sortOrder: number;
+  isPrimary: boolean;
+  sourceType: VisualizerCatalogAssetSource;
+}
+
 export interface VisualizerCatalogProductDetail {
   id: string;
   /** null 表示平台预置（不可改） */
@@ -304,6 +327,7 @@ export interface VisualizerCatalogProductDetail {
   categoryLabel: string;
   previewImageUrl: string | null;
   textureUrl: string | null;
+  assets: VisualizerCatalogAssetDetail[];
   defaultOpacity: number;
   colors: VisualizerCatalogColor[];
   mountings: VisualizerCatalogMounting[];
@@ -330,6 +354,7 @@ export interface CreateVisualizerCatalogRequest {
   categoryLabel?: string;
   previewImageUrl?: string | null;
   textureUrl?: string | null;
+  assets?: VisualizerCatalogAssetDetail[];
   defaultOpacity?: number;
   colors: VisualizerCatalogColor[];
   mountings?: VisualizerCatalogMounting[];
@@ -344,6 +369,7 @@ export interface UpdateVisualizerCatalogRequest {
   categoryLabel?: string;
   previewImageUrl?: string | null;
   textureUrl?: string | null;
+  assets?: VisualizerCatalogAssetDetail[];
   defaultOpacity?: number;
   colors?: VisualizerCatalogColor[];
   mountings?: VisualizerCatalogMounting[];

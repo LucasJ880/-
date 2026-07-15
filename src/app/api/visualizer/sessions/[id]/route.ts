@@ -59,7 +59,7 @@ export const GET = withAuth(async (_request, ctx, user) => {
   const session = await db.visualizerSession.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, createdById: true } },
+      customer: { select: { id: true, name: true, email: true, createdById: true } },
       opportunity: { select: { id: true, title: true, stage: true } },
       quote: { select: { id: true, version: true, status: true } },
       sourceImages: {
@@ -120,7 +120,11 @@ export const GET = withAuth(async (_request, ctx, user) => {
       .map((v) => v.exportImageUrl)
       .filter((u): u is string => !!u)
       .slice(0, 3),
-    customer: { id: session.customer.id, name: session.customer.name },
+    customer: {
+      id: session.customer.id,
+      name: session.customer.name,
+      email: session.customer.email,
+    },
     opportunity: session.opportunity
       ? {
           id: session.opportunity.id,

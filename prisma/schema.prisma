@@ -3774,8 +3774,35 @@ model VisualizerCatalogProduct {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  assets VisualizerCatalogAsset[]
+
   @@index([orgId, archived])
   @@index([category])
+}
+
+/// 产品参考资产。按用途分类，供目录展示和 AI 生成共同使用。
+model VisualizerCatalogAsset {
+  id        String                   @id @default(cuid())
+  productId String
+  product   VisualizerCatalogProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// installed / texture / detail / style_reference / swatch
+  role       String
+  fileUrl    String
+  fileName   String
+  mimeType   String
+  width      Int?
+  height     Int?
+  bytes      Int?
+  sortOrder  Int      @default(0)
+  isPrimary  Boolean  @default(false)
+  /// real / ai_generated
+  sourceType String   @default("real")
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([productId, role, sortOrder])
 }
 
 // ============================================================

@@ -18,6 +18,7 @@ import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 import {
   categoryLabelFor,
   isValidCategory,
+  sanitizeCatalogAssets,
   sanitizeColors,
   sanitizeMountings,
   sanitizeOpacity,
@@ -96,6 +97,33 @@ export const PATCH = withAuth(async (request, ctx, user) => {
         ? body.textureUrl.trim().slice(0, 2000)
         : null;
   }
+  if (body.assets !== undefined) {
+    const assets = sanitizeCatalogAssets(body.assets, { orgId });
+    const primaryInstalled =
+      assets.find((asset) => asset.role === "installed" && asset.isPrimary) ??
+      assets.find((asset) => asset.role === "installed");
+    const primaryTexture =
+      assets.find((asset) => asset.role === "texture" && asset.isPrimary) ??
+      assets.find((asset) => asset.role === "texture");
+    data.assets = {
+      deleteMany: {},
+      create: assets.map((asset) => ({
+        role: asset.role,
+        fileUrl: asset.fileUrl,
+        fileName: asset.fileName,
+        mimeType: asset.mimeType,
+        width: asset.width,
+        height: asset.height,
+        bytes: asset.bytes,
+        sortOrder: asset.sortOrder,
+        isPrimary: asset.isPrimary,
+        sourceType: asset.sourceType,
+        createdById: user.id,
+      })),
+    };
+    if (body.previewImageUrl === undefined) data.previewImageUrl = primaryInstalled?.fileUrl ?? null;
+    if (body.textureUrl === undefined) data.textureUrl = primaryTexture?.fileUrl ?? null;
+  }
   if (body.defaultOpacity !== undefined) {
     data.defaultOpacity = sanitizeOpacity(body.defaultOpacity, guard.row.defaultOpacity);
   }
@@ -136,7 +164,11 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "没有可更新的字段" }, { status: 400 });
   }
 
-  const updated = await db.visualizerCatalogProduct.update({ where: { id }, data });
+  const updated = await db.visualizerCatalogProduct.update({
+    where: { id },
+    data,
+    include: { assets: { orderBy: [{ role: "asc" }, { sortOrder: "asc" }] } },
+  });
   return NextResponse.json({ product: toCatalogDetail(updated, { currentOrgId: orgId }) });
 });
 

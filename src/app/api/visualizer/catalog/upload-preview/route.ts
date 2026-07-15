@@ -4,7 +4,7 @@
  * multipart/form-data
  *   - file: 图片（image/jpeg | image/png | image/webp，≤ 5MB）
  *
- * 返回 { url }，前端拿到后填入「添加产品」弹窗的 previewImageUrl 字段。
+ * 返回文件 URL 与可信元数据，供产品参考资产使用。
  *
  * 权限：登录用户 + 已解析当前组织（任意有权销售模块的用户均可上传，因为预览图只是装饰）。
  */
@@ -18,6 +18,7 @@ import {
   VISUALIZER_ALLOWED_MIME,
   VISUALIZER_MAX_IMAGE_SIZE,
   putVisualizerCatalogPreview,
+  parseImageSize,
 } from "@/lib/visualizer/upload";
 import { logger } from "@/lib/common/logger";
 
@@ -63,7 +64,15 @@ export const POST = withAuth(async (request, _ctx, user) => {
       buffer: check.buffer,
       contentType: check.mime,
     });
-    return NextResponse.json({ url: blob.url });
+    const size = parseImageSize(check.buffer, check.ext);
+    return NextResponse.json({
+      url: blob.url,
+      fileName: check.safeName,
+      mimeType: check.mime,
+      width: size?.width ?? null,
+      height: size?.height ?? null,
+      bytes: check.size,
+    });
   } catch (err) {
     logger.error("visualizer.catalog.upload_failed", { err, orgId });
     return NextResponse.json({ error: "上传失败，请稍后重试" }, { status: 500 });
