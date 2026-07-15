@@ -139,7 +139,12 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const thread = await db.aiThread.findUnique({
     where: { id: threadId },
-    select: { userId: true, projectId: true, title: true },
+    select: {
+      userId: true,
+      projectId: true,
+      title: true,
+      project: { select: { orgId: true } },
+    },
   });
   if (!thread || thread.userId !== user.id) {
     return NextResponse.json({ error: "对话不存在" }, { status: 404 });
@@ -156,6 +161,25 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const fileText = typeof body.fileText === "string" ? body.fileText : "";
   const fileName = typeof body.fileName === "string" ? body.fileName : "";
+
+  // Operator 工具必须有明确组织上下文。项目对话优先使用项目所属组织，
+  // 普通对话使用客户端当前组织；在写入用户消息前校验，避免失败请求留下重复历史。
+  const requestedMarketingSkill = content
+    .toLowerCase()
+    .includes("qingyan-marketing-analysis");
+  const useOperator =
+    requestedMarketingSkill ||
+    isOperatorEnabled({ userId: user.id, role: user.role });
+  const requestedOrgId =
+    (typeof body.orgId === "string" ? body.orgId.trim() : "") ||
+    thread.project?.orgId ||
+    null;
+  let operatorOrgId: string | null = null;
+  if (useOperator) {
+    const orgRes = await resolveRequestOrgIdForUser(user, requestedOrgId);
+    if (!orgRes.ok) return orgRes.response;
+    operatorOrgId = orgRes.orgId;
+  }
 
   await db.aiMessage.create({
     data: { threadId, role: "user", content },
@@ -177,24 +201,13 @@ export const POST = withAuth(async (request, ctx, user) => {
   // ─── PR2：Operator 分支（灰度控制，只开只读工具）───
   // 显式点名内置动态 Skill 时不受 Operator 灰度影响，保证运营入口能真正执行 Skill，
   // 而不是在 legacy 聊天分支里只生成一份看似相近的普通回答。
-  const requestedMarketingSkill = content
-    .toLowerCase()
-    .includes("qingyan-marketing-analysis");
-  const useOperator =
-    requestedMarketingSkill ||
-    isOperatorEnabled({ userId: user.id, role: user.role });
   if (useOperator) {
-    // P0-2：解析真实 orgId（替换原先写死的 "default"）
-    // - 单组织用户自动解析；多组织用户须在 body 传 orgId；非成员 / 未指定 → 4xx
-    const orgRes = await resolveRequestOrgIdForUser(user, body.orgId ?? null);
-    if (!orgRes.ok) return orgRes.response;
-
     return handleOperatorBranch({
       threadId,
       threadTitle: thread.title,
       isFirstMessage,
       user,
-      orgId: orgRes.orgId,
+      orgId: operatorOrgId!,
       userContent: content,
       chatMessages,
       abortSignal: request.signal,
@@ -205,7 +218,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   // 公司画像：orgId best-effort 解析（失败不阻塞对话，只是少一块品牌背景）
   let legacyOrgId: string | null = null;
   try {
-    const orgRes = await resolveRequestOrgIdForUser(user, body.orgId ?? null);
+    const orgRes = await resolveRequestOrgIdForUser(user, requestedOrgId);
     if (orgRes.ok) legacyOrgId = orgRes.orgId;
   } catch {
     // ignore

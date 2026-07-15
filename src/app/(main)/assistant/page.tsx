@@ -9,6 +9,8 @@ import type { SimpleProject } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { OrgSelectBanner } from "@/components/org-select-banner";
 import { ThreadSidebar, type AiThread } from "./thread-list";
 import { ChatPanel, type StreamingMsg } from "./chat-panel";
 
@@ -69,6 +71,7 @@ export default function AssistantPage() {
 function AssistantPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const initialThreadId = searchParams.get("thread");
   const initialProjectId = searchParams.get("project");
   const initialPrompt = searchParams.get("prompt") ?? "";
@@ -234,6 +237,7 @@ function AssistantPageInner() {
   const handleSend = async (text?: string) => {
     let content = (text || input).trim();
     if (!content || isLoading) return;
+    if (orgLoading || !orgId) return;
 
     if (channelMode) {
       const chLabel = CHANNEL_LABELS[channelMode] || channelMode;
@@ -266,7 +270,7 @@ function AssistantPageInner() {
     setIsLoading(true);
 
     try {
-      const payload: Record<string, string> = { content };
+      const payload: Record<string, string> = { content, orgId };
       if (attachedFile) {
         payload.fileText = attachedFile.text;
         payload.fileName = attachedFile.name;
@@ -486,30 +490,42 @@ function AssistantPageInner() {
         onCloseMobile={() => setShowMobileSidebar(false)}
       />
 
-      <ChatPanel
-        messages={messages}
-        activeThreadId={activeThreadId}
-        activeThread={activeThread}
-        isLoading={isLoading}
-        loadingThread={loadingThread}
-        input={input}
-        onInputChange={setInput}
-        onSend={handleSend}
-        projects={projects}
-        attachedFile={attachedFile}
-        onClearAttachedFile={() => setAttachedFile(null)}
-        onFileUpload={handleFileUpload}
-        uploadingFile={uploadingFile}
-        channelMode={channelMode}
-        onChannelModeChange={setChannelMode}
-        onShowMobileSidebar={() => setShowMobileSidebar(true)}
-        inputRef={inputRef}
-        onApprovalChange={handleApprovalChange}
-        onOpenThread={(id) => {
-          setActiveThreadId(id);
-          router.replace(`/assistant?thread=${id}`);
-        }}
-      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        {ambiguous && (
+          <div className="border-b border-border px-3 py-2 sm:px-4">
+            <OrgSelectBanner onSelected={() => inputRef.current?.focus()} />
+          </div>
+        )}
+        {!orgLoading && !ambiguous && !orgId && (
+          <div className="border-b border-warning/30 bg-warning-bg px-4 py-2.5 text-xs text-warning">
+            当前账号尚未关联可用组织，请联系管理员添加组织成员关系。
+          </div>
+        )}
+        <ChatPanel
+          messages={messages}
+          activeThreadId={activeThreadId}
+          activeThread={activeThread}
+          isLoading={isLoading}
+          loadingThread={loadingThread}
+          input={input}
+          onInputChange={setInput}
+          onSend={handleSend}
+          projects={projects}
+          attachedFile={attachedFile}
+          onClearAttachedFile={() => setAttachedFile(null)}
+          onFileUpload={handleFileUpload}
+          uploadingFile={uploadingFile}
+          channelMode={channelMode}
+          onChannelModeChange={setChannelMode}
+          onShowMobileSidebar={() => setShowMobileSidebar(true)}
+          inputRef={inputRef}
+          onApprovalChange={handleApprovalChange}
+          onOpenThread={(id) => {
+            setActiveThreadId(id);
+            router.replace(`/assistant?thread=${id}`);
+          }}
+        />
+      </div>
     </div>
   );
 }

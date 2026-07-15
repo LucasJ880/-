@@ -48,10 +48,12 @@ function dispatchProjectUpdated(projectId: string) {
 export function ProjectAiChat({
   projectId,
   projectName,
+  orgId,
   onProjectUpdate,
 }: {
   projectId: string;
   projectName: string;
+  orgId?: string | null;
   onProjectUpdate?: () => void;
 }) {
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -189,7 +191,7 @@ export function ProjectAiChat({
       const res = await apiFetch(`/api/ai/threads/${tid}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, orgId: orgId || undefined }),
       });
 
       if (!res.ok) {
