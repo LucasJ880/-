@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Crown, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Cloud, Crown, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
@@ -24,6 +24,16 @@ interface MatrixAccount {
   status: string;
   tier: string;
   dailyQuota: number;
+}
+
+interface PostizIntegration {
+  id: string;
+  name: string;
+  identifier: string;
+  picture: string | null;
+  profile: string | null;
+  disabled: boolean;
+  groupName: string;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -68,6 +78,13 @@ export default function MatrixAccountsPage() {
   const [fGroup, setFGroup] = useState("");
   const [fChannel, setFChannel] = useState("postiz");
   const [fChannelId, setFChannelId] = useState("");
+
+  const [showPostiz, setShowPostiz] = useState(false);
+  const [postizLoading, setPostizLoading] = useState(false);
+  const [postizImporting, setPostizImporting] = useState(false);
+  const [postizError, setPostizError] = useState<string | null>(null);
+  const [postizIntegrations, setPostizIntegrations] = useState<PostizIntegration[]>([]);
+  const [selectedPostizIds, setSelectedPostizIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,6 +145,60 @@ export default function MatrixAccountsPage() {
     }
   }
 
+  async function handlePostizSync() {
+    if (!orgId || postizLoading) return;
+    setShowPostiz(true);
+    setPostizLoading(true);
+    setPostizError(null);
+    try {
+      const res = await apiFetch(`/api/operations/postiz/integrations?orgId=${encodeURIComponent(orgId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "读取 Postiz 账号失败");
+      if (!data.configured) {
+        throw new Error("Postiz Cloud 尚未配置。请先在 Vercel 添加 POSTIZ_API_URL 与 POSTIZ_API_KEY。");
+      }
+      const integrations = data.integrations as PostizIntegration[];
+      setPostizIntegrations(integrations);
+      setSelectedPostizIds(new Set(integrations.filter((item) => !item.disabled).map((item) => item.id)));
+    } catch (e) {
+      setPostizIntegrations([]);
+      setSelectedPostizIds(new Set());
+      setPostizError(e instanceof Error ? e.message : "读取 Postiz 账号失败");
+    } finally {
+      setPostizLoading(false);
+    }
+  }
+
+  function togglePostizSelection(id: string) {
+    setSelectedPostizIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handlePostizImport() {
+    if (!orgId || selectedPostizIds.size === 0 || postizImporting) return;
+    setPostizImporting(true);
+    setPostizError(null);
+    try {
+      const res = await apiFetch("/api/operations/postiz/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, integrationIds: [...selectedPostizIds] }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "导入 Postiz 账号失败");
+      setShowPostiz(false);
+      await load();
+    } catch (e) {
+      setPostizError(e instanceof Error ? e.message : "导入 Postiz 账号失败");
+    } finally {
+      setPostizImporting(false);
+    }
+  }
+
   async function handleStatusChange(id: string, status: string) {
     try {
       const res = await apiFetch(`/api/operations/matrix-accounts/${id}`, {
@@ -184,6 +255,15 @@ export default function MatrixAccountsPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={handlePostizSync}
+            disabled={postizLoading}
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background disabled:opacity-50"
+          >
+            <Cloud size={14} className={cn(postizLoading && "animate-pulse")} />
+            同步 Postiz
+          </button>
+          <button
+            type="button"
             onClick={load}
             className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
           >
@@ -202,6 +282,76 @@ export default function MatrixAccountsPage() {
       </div>
 
       <OrgSelectBanner />
+
+      {showPostiz && (
+        <section className="rounded-lg border border-border bg-card-bg">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Cloud size={16} className="text-sky-600" />
+              Postiz Cloud 已连接账号
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPostiz(false)}
+              className="text-xs text-muted hover:text-foreground"
+            >
+              关闭
+            </button>
+          </div>
+          {postizError ? (
+            <p className="px-4 py-3 text-sm text-red-600">{postizError}</p>
+          ) : postizLoading ? (
+            <p className="px-4 py-5 text-sm text-muted">正在读取账号…</p>
+          ) : postizIntegrations.length === 0 ? (
+            <p className="px-4 py-5 text-sm text-muted">未找到可导入的 Instagram 或 Facebook 账号。</p>
+          ) : (
+            <>
+              <div className="divide-y divide-border">
+                {postizIntegrations.map((integration) => (
+                  <label
+                    key={integration.id}
+                    className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-background"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPostizIds.has(integration.id)}
+                      disabled={integration.disabled}
+                      onChange={() => togglePostizSelection(integration.id)}
+                      className="h-4 w-4 accent-accent"
+                    />
+                    {integration.picture ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={integration.picture} alt="" className="h-8 w-8 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-xs text-muted">
+                        {integration.identifier.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{integration.profile || integration.name}</p>
+                      <p className="truncate text-xs text-muted">
+                        {PLATFORM_LABELS[integration.identifier] ?? integration.identifier} · {integration.groupName}
+                      </p>
+                    </div>
+                    {integration.disabled && <span className="text-xs text-amber-700">已停用</span>}
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center justify-between border-t border-border px-4 py-3">
+                <span className="text-xs text-muted">已选 {selectedPostizIds.size} 个账号</span>
+                <button
+                  type="button"
+                  onClick={handlePostizImport}
+                  disabled={selectedPostizIds.size === 0 || postizImporting}
+                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {postizImporting ? "导入中…" : "导入到矩阵账号"}
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -286,7 +436,7 @@ export default function MatrixAccountsPage() {
 
       {accounts.length === 0 && !loading ? (
         <div className="rounded-xl border border-border bg-card-bg px-4 py-10 text-center text-sm text-muted">
-          还没有登记矩阵账号。点「登记账号」逐个录入，或之后用导入脚本批量登记。
+          还没有登记矩阵账号。可同步 Postiz 已授权账号，或手动登记。
         </div>
       ) : (
         groups.map(([groupName, list]) => (

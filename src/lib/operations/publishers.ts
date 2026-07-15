@@ -11,14 +11,18 @@
  */
 
 import type { MatrixAccount, PublishJob, VideoAsset } from "@prisma/client";
+import {
+  buildPostizPostPayload,
+  createPostizPost,
+  isPostizConfigured,
+  uploadPostizMediaFromUrl,
+} from "./postiz";
 
 export type DispatchResult =
   | { ok: true; externalJobId: string | null }
   | { ok: false; error: string };
 
-export function isPostizConfigured(): boolean {
-  return Boolean(process.env.POSTIZ_API_URL && process.env.POSTIZ_API_KEY);
-}
+export { isPostizConfigured } from "./postiz";
 
 /** 派发到 Postiz：创建定时帖（视频由 Postiz 从外部 URL 拉取，不经青砚） */
 async function dispatchToPostiz(
@@ -26,43 +30,27 @@ async function dispatchToPostiz(
   asset: VideoAsset,
   account: MatrixAccount,
 ): Promise<DispatchResult> {
-  const baseUrl = process.env.POSTIZ_API_URL;
-  const apiKey = process.env.POSTIZ_API_KEY;
-  if (!baseUrl || !apiKey) {
+  if (!isPostizConfigured()) {
     return { ok: false, error: "Postiz 未配置（POSTIZ_API_URL / POSTIZ_API_KEY）" };
   }
   if (!account.externalChannelId) {
     return { ok: false, error: `账号 ${account.handle} 未绑定 Postiz integration id` };
   }
 
-  const content = job.hashtags
-    ? `${job.captionText}\n\n${job.hashtags}`
-    : job.captionText;
-
   try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/public/v1/posts`, {
-      method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        type: job.scheduledAt ? "schedule" : "now",
-        date: (job.scheduledAt ?? new Date()).toISOString(),
-        posts: [
-          {
-            integration: { id: account.externalChannelId },
-            value: [{ content, media: [{ url: asset.videoUrl }] }],
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(30_000),
+    const media = await uploadPostizMediaFromUrl(asset.videoUrl);
+    const payload = buildPostizPostPayload({
+      scheduledAt: job.scheduledAt,
+      captionText: job.captionText,
+      hashtags: job.hashtags,
+      platform: account.platform,
+      integrationId: account.externalChannelId,
+      media,
     });
-    if (!res.ok) {
-      return { ok: false, error: `Postiz API ${res.status}: ${await res.text().catch(() => "")}` };
+    if (!payload) {
+      return { ok: false, error: `${account.platform} 暂未配置 Postiz 发布参数` };
     }
-    const data = (await res.json().catch(() => ({}))) as { id?: string };
-    return { ok: true, externalJobId: data.id ?? null };
+    return { ok: true, externalJobId: await createPostizPost(payload) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Postiz 请求失败" };
   }
