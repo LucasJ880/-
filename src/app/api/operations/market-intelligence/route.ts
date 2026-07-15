@@ -3,45 +3,18 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { db } from "@/lib/db";
-import { OPERATIONS_SKILLS } from "@/lib/agent-core/skills/operations-seed";
+import {
+  ensureMarketingSkill,
+  MARKETING_SKILL_SLUG,
+} from "@/lib/market-intelligence/skill";
+import { listMarketIntelligenceWorkspace } from "@/lib/market-intelligence/service";
+import { canManageMarketIntelligence } from "@/lib/market-intelligence/access";
 
-const SKILL_SLUG = "qingyan-marketing-analysis";
 const RATE_LIMIT = {
   name: "market-intelligence-analysis",
   windowMs: 60_000,
   maxRequests: 6,
 } as const;
-
-async function ensureMarketingSkill(orgId: string) {
-  const existing = await db.agentSkill.findUnique({
-    where: { orgId_slug: { orgId, slug: SKILL_SLUG } },
-  });
-  if (existing) return existing;
-
-  const seed = OPERATIONS_SKILLS.find((item) => item.slug === SKILL_SLUG);
-  if (!seed) throw new Error("市场情报技能定义不存在");
-
-  return db.agentSkill.create({
-    data: {
-      orgId,
-      slug: seed.slug,
-      name: seed.name,
-      description: seed.description,
-      domain: "operations",
-      tier: seed.tier,
-      systemPrompt: seed.systemPrompt,
-      userPromptTemplate: seed.userPromptTemplate,
-      outputFormat: seed.outputFormat,
-      temperature: seed.temperature,
-      maxTokens: seed.maxTokens,
-      inputSchema: seed.inputSchema
-        ? JSON.parse(JSON.stringify(seed.inputSchema))
-        : undefined,
-      isBuiltin: true,
-      isActive: true,
-    },
-  });
-}
 
 function parseInputJson(value: string): Record<string, string> {
   try {
@@ -63,18 +36,26 @@ export const GET = withAuth(async (request, _ctx, user) => {
   if (!orgRes.ok) return orgRes.response;
 
   const skill = await ensureMarketingSkill(orgRes.orgId);
-  const executions = await db.skillExecution.findMany({
-    where: { skillId: skill.id, success: true },
-    orderBy: { createdAt: "desc" },
-    take: 8,
-    select: {
-      id: true,
-      inputJson: true,
-      outputJson: true,
-      durationMs: true,
-      createdAt: true,
-    },
-  });
+  const [executions, automation, canManage] = await Promise.all([
+    db.skillExecution.findMany({
+      where: { skillId: skill.id, success: true },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        inputJson: true,
+        outputJson: true,
+        durationMs: true,
+        createdAt: true,
+      },
+    }),
+    listMarketIntelligenceWorkspace(orgRes.orgId),
+    canManageMarketIntelligence({
+      userId: user.id,
+      platformRole: user.role,
+      orgId: orgRes.orgId,
+    }),
+  ]);
 
   return NextResponse.json({
     skill: {
@@ -90,6 +71,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
       durationMs: execution.durationMs,
       createdAt: execution.createdAt,
     })),
+    automation: { ...automation, canManage },
   });
 });
 
@@ -138,7 +120,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const { runSkill } = await import("@/lib/agent-core/skills/runtime");
   const result = await runSkill({
-    slug: SKILL_SLUG,
+    slug: MARKETING_SKILL_SLUG,
     variables,
     userId: user.id,
     orgId: orgRes.orgId,

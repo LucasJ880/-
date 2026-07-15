@@ -580,11 +580,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members     OrganizationMember[]
-  projects    Project[]
-  auditLogs   AuditLog[]
-  suppliers   Supplier[]
-  agentSkills AgentSkill[]
+  members           OrganizationMember[]
+  projects          Project[]
+  auditLogs         AuditLog[]
+  suppliers         Supplier[]
+  agentSkills       AgentSkill[]
+  marketCompetitors MarketCompetitor[]
 }
 
 model OrganizationMember {
@@ -2082,6 +2083,134 @@ model TradeSignal {
   @@index([watchTargetId, createdAt])
 }
 
+// ============================================================
+// 市场情报 — 竞品监听、证据快照与分析审核
+// ============================================================
+
+model MarketCompetitor {
+  id               String       @id @default(cuid())
+  orgId            String
+  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name             String
+  websiteUrl       String       @db.Text
+  normalizedDomain String
+  targetGeography  String?
+  primaryProduct   String?
+  salesModel       String?      @default("询价报价 + 预约量房")
+  watchFocus       Json?
+  status           String       @default("active") // active | paused | setup_error
+  createdById      String
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  monitors     MarketMonitor[]
+  analysisRuns MarketAnalysisRun[]
+
+  @@unique([orgId, normalizedDomain])
+  @@index([orgId, status])
+  @@index([orgId, updatedAt])
+}
+
+model MarketMonitor {
+  id                String           @id @default(cuid())
+  orgId             String
+  competitorId      String
+  competitor        MarketCompetitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  provider          String           @default("firecrawl")
+  providerMonitorId String?          @unique
+  status            String           @default("provisioning") // provisioning | active | paused | error
+  scheduleText      String           @default("weekly")
+  scheduleCron      String?
+  timezone          String           @default("America/Toronto")
+  goal              String           @db.Text
+  targetUrls        Json
+  nextRunAt         DateTime?
+  lastRunAt         DateTime?
+  lastCheckId       String?
+  lastError         String?          @db.VarChar(2000)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  snapshots MarketSnapshot[]
+
+  @@unique([competitorId, provider])
+  @@index([orgId, status])
+  @@index([orgId, nextRunAt])
+}
+
+model MarketSnapshot {
+  id              String        @id @default(cuid())
+  orgId           String
+  monitorId       String
+  monitor         MarketMonitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  providerEventId String?
+  providerCheckId String
+  url             String        @db.Text
+  urlHash         String
+  pageStatus      String
+  isMeaningful    Boolean?
+  diffJson        Json?
+  snapshotJson    Json?
+  judgmentJson    Json?
+  capturedAt      DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  signal MarketSignal?
+
+  @@unique([monitorId, providerCheckId, urlHash])
+  @@index([orgId, capturedAt])
+  @@index([monitorId, capturedAt])
+}
+
+model MarketSignal {
+  id             String         @id @default(cuid())
+  orgId          String
+  competitorId   String
+  snapshotId     String         @unique
+  snapshot       MarketSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  signalType     String
+  severity       String         @default("low") // low | medium | high
+  status         String         @default("pending") // pending | reviewed | dismissed
+  title          String
+  summary        String         @db.Text
+  evidenceJson   Json?
+  analysisStatus String         @default("queued") // queued | running | completed | skipped | failed
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  analysisRuns MarketAnalysisRun[]
+
+  @@index([orgId, status, createdAt])
+  @@index([competitorId, createdAt])
+  @@index([orgId, severity, createdAt])
+}
+
+model MarketAnalysisRun {
+  id               String           @id @default(cuid())
+  orgId            String
+  competitorId     String
+  competitor       MarketCompetitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  signalId         String?
+  signal           MarketSignal?    @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  skillExecutionId String?
+  trigger          String           @default("webhook") // webhook | manual
+  status           String           @default("running") // running | completed | failed
+  inputJson        Json?
+  outputMarkdown   String?          @db.Text
+  error            String?          @db.VarChar(2000)
+  createdById      String
+  startedAt        DateTime         @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime         @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([competitorId, createdAt])
+  @@index([signalId, createdAt])
+}
+
 model TradeMessage {
   id         String        @id @default(cuid())
   prospectId String
@@ -2222,7 +2351,7 @@ model TradeServiceRequest {
   orgId            String // 客户 org（受理归属，强制隔离）
   fulfillmentOrgId String? // 处理方 org（加拿大团队），仅经 relay 写入
 
-  requestType String @default("other") // design_image | doc_summary | meeting_minutes | group_summary | other
+  requestType String  @default("other") // design_image | doc_summary | meeting_minutes | group_summary | other
   title       String
   description String? @db.Text
 
@@ -3236,9 +3365,9 @@ model ServiceConversation {
   lastCustomerMessageAt DateTime?
   lastReplyAt           DateTime?
   /// 当前未回复起点（客服回复或标记已处理后清空）
-  unansweredSince DateTime?
+  unansweredSince       DateTime?
   /// SLA 提醒等级：0 未提醒 / 1 一级已提醒 / 2 升级已提醒
-  reminderLevel Int @default(0)
+  reminderLevel         Int       @default(0)
 
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
@@ -3261,7 +3390,7 @@ model ServiceMessage {
   messageType   String  @default("text") // text / image
   externalMsgId String?
   /// outbound：在青砚中发送回复的用户
-  sentByUserId String?
+  sentByUserId  String?
 
   createdAt DateTime @default(now())
 
@@ -3697,9 +3826,9 @@ model ContentPlanItem {
   groupName String
 
   /// 选题标题
-  topic String
+  topic            String
   /// 切入角度 / 内容要点
-  angle String? @db.Text
+  angle            String? @db.Text
   /// 母版文案草稿（扇出时作为 captionText，AI 再做每账号变体）
   suggestedCaption String? @db.Text
   hashtags         String?
