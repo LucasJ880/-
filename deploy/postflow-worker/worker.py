@@ -143,7 +143,15 @@ def publish(job: dict, video: Path) -> None:
 def process_job(job: dict) -> None:
     job_dir = WORK_DIR / job["id"]
     job_dir.mkdir(parents=True, exist_ok=True)
+    completed_dir = WORK_DIR / ".published"
+    completed_dir.mkdir(parents=True, exist_ok=True)
+    completed_marker = completed_dir / job["id"]
+    report_base = {"jobId": job["id"], "leaseToken": job["leaseToken"]}
     try:
+        if completed_marker.exists():
+            api("/api/operations/worker/report", {**report_base, "ok": True})
+            log("  已发布过，本次仅补回执")
+            return
         raw = job_dir / "raw.mp4"
         log(f"  下载视频: {job['videoTitle']}")
         download(job["videoUrl"], raw)
@@ -156,13 +164,14 @@ def process_job(job: dict) -> None:
 
         log(f"  发布到 @{job['account']['handle']}…")
         publish(job, final)
-        api("/api/operations/worker/report", {"jobId": job["id"], "ok": True})
+        completed_marker.touch()
+        api("/api/operations/worker/report", {**report_base, "ok": True})
         log("  ✅ 完成")
     except Exception as e:  # noqa: BLE001 — 单任务失败回报后继续
         msg = str(e)
         log(f"  ❌ 失败: {msg}")
         try:
-            api("/api/operations/worker/report", {"jobId": job["id"], "ok": False, "error": msg})
+            api("/api/operations/worker/report", {**report_base, "ok": False, "error": msg})
         except Exception as report_err:  # noqa: BLE001
             log(f"  回报失败（任务将在 30 分钟后自动重入队）: {report_err}")
     finally:
@@ -178,7 +187,7 @@ def main() -> None:
     log(f"PostFlow worker 启动，轮询 {API_URL}（间隔 {POLL_INTERVAL}s）")
     while True:
         try:
-            data = api("/api/operations/worker/claim", {"limit": 5})
+            data = api("/api/operations/worker/claim", {"limit": 1})
             jobs = data.get("jobs", [])
             if jobs:
                 log(f"认领 {len(jobs)} 个任务")

@@ -16,7 +16,6 @@ import { createCompletion } from "@/lib/ai/client";
 import {
   getTradeProspectStageLabel,
   TRADE_DB_STAGES_CONTACTED_OR_LATER,
-  TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
 } from "@/lib/trade/stage";
 import type { BriefingItem } from "./types";
 
@@ -24,6 +23,7 @@ const DAY_MS = 86_400_000;
 
 export interface FollowupCandidate {
   prospectId: string;
+  ownerId: string;
   companyName: string;
   contactName: string | null;
   contactEmail: string | null;
@@ -158,18 +158,19 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
     select: {
       ...prospectSelect,
       messages: {
-        where: { direction: "inbound" },
         orderBy: { createdAt: "desc" as const },
-        take: 1,
-        select: { content: true, createdAt: true },
+        take: 10,
+        select: { direction: true, content: true, createdAt: true },
       },
     },
     take: 10,
   });
 
   for (const p of repliedUnhandled) {
-    const lastInbound = p.messages[0];
+    const lastInbound = p.messages.find((message) => message.direction === "inbound");
     if (!lastInbound) continue;
+    const lastOutbound = p.messages.find((message) => message.direction === "outbound");
+    if (lastOutbound && lastOutbound.createdAt >= lastInbound.createdAt) continue;
     const daysSince = calcDaysSilent(lastInbound.createdAt, now);
     if (daysSince < 2) continue;
 
@@ -305,7 +306,7 @@ export async function saveFollowupNotifications(
   let created = 0;
 
   for (const s of suggestions) {
-    const sourceKey = `followup:${s.candidate.prospectId}:${new Date().toISOString().slice(0, 10)}`;
+    const sourceKey = `followup:${s.candidate.prospectId}:${userId}:${new Date().toISOString().slice(0, 10)}`;
 
     const existing = await db.notification.findUnique({ where: { sourceKey } });
     if (existing) continue;
@@ -356,15 +357,30 @@ export async function runFollowupEngine(
     ? await generateFollowupSuggestions(candidates)
     : [];
 
-  // 找组织内所有活跃用户推送通知
-  const members = await db.organizationMember.findMany({
-    where: { orgId, role: { not: "inactive" } },
-    select: { userId: true },
-  });
+  const [members, org] = await Promise.all([
+    db.organizationMember.findMany({
+      where: { orgId, status: "active" },
+      select: { userId: true },
+    }),
+    db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true } }),
+  ]);
+  const activeMemberIds = new Set(members.map((member) => member.userId));
+
+  // 每条线索只推给负责人；负责人失效时回退给组织负责人。
+  const suggestionsByOwner = new Map<string, FollowupSuggestion[]>();
+  for (const suggestion of suggestions) {
+    const ownerId = activeMemberIds.has(suggestion.candidate.ownerId)
+      ? suggestion.candidate.ownerId
+      : org?.ownerId;
+    if (!ownerId) continue;
+    const rows = suggestionsByOwner.get(ownerId) ?? [];
+    rows.push(suggestion);
+    suggestionsByOwner.set(ownerId, rows);
+  }
 
   let totalNotifications = 0;
-  for (const m of members) {
-    totalNotifications += await saveFollowupNotifications(m.userId, suggestions);
+  for (const [userId, ownerSuggestions] of suggestionsByOwner) {
+    totalNotifications += await saveFollowupNotifications(userId, ownerSuggestions);
   }
 
   return {
@@ -421,6 +437,8 @@ export function suggestionsToItems(suggestions: FollowupSuggestion[]): BriefingI
 
 const prospectSelect = {
   id: true,
+  ownerId: true,
+  campaign: { select: { createdById: true } },
   companyName: true,
   contactName: true,
   contactEmail: true,
@@ -434,6 +452,8 @@ const prospectSelect = {
 
 function mapProspect(p: {
   id: string;
+  ownerId: string | null;
+  campaign: { createdById: string };
   companyName: string;
   contactName: string | null;
   contactEmail: string | null;
@@ -446,6 +466,7 @@ function mapProspect(p: {
 }): Omit<FollowupCandidate, "reason" | "daysSilent" | "priorityScore"> {
   return {
     prospectId: p.id,
+    ownerId: p.ownerId ?? p.campaign.createdById,
     companyName: p.companyName,
     contactName: p.contactName,
     contactEmail: p.contactEmail,
@@ -494,4 +515,3 @@ async function pushFollowupToWeChat(userId: string, s: FollowupSuggestion): Prom
     s.candidate.daysSilent,
   );
 }
-

@@ -81,12 +81,12 @@ journalctl -u postflow-worker -f   # 看日志
 
 | 环节 | 说明 |
 |---|---|
-| 认领 | 每 60s 轮询 `POST /api/operations/worker/claim`，任务置为 processing；worker 崩溃后 30 分钟自动重入队 |
+| 认领 | 每 60s 认领一条已到发布时间的任务；租约 30 分钟，worker 崩溃后自动回收 |
 | 去重化 | 随机轻微裁切（2-6px）+ 亮度/对比度/饱和度抖动 + 重编码 + 去元数据，同一视频发不同账号产物各不相同；`UNIQUIFY=0` 可关闭 |
 | 标题拆分 | 小红书标题限 20 字：文案首行截断作标题，其余作正文 |
 | 定时发布 | 任务带 scheduledAt 且在未来时，走 PostFlow `--schedule`（平台原生定时） |
 | 防风控 | 同一轮多个任务之间随机间隔 3-4 分钟（`PUBLISH_GAP_SEC` 可调） |
-| 回报 | 成功 → published；失败 → failed（原因写回 errorMessage，青砚审核队列页可见） |
+| 回报 | 回报必须携带租约令牌；失败按 5/30/120 分钟退避重试，最多 3 次 |
 
 ## 风控建议（30 个号的矩阵）
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { isAIConfigured } from "@/lib/ai/config";
 import { generateProgressSummary } from "@/lib/progress/generate-summary";
+import { runTrackedResponse } from "@/lib/automation/runner";
 
 export const maxDuration = 60;
 
@@ -19,6 +20,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  return runTrackedResponse("progress-summary", runProgressSummary);
+}
+
+async function runProgressSummary() {
   if (!isAIConfigured()) {
     return NextResponse.json({ error: "AI 服务未配置" }, { status: 500 });
   }

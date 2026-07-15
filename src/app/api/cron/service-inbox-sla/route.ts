@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { runServiceInboxSla } from "@/lib/service-inbox/service";
+import { runTrackedAutomation } from "@/lib/automation/runner";
 
 export const maxDuration = 60;
 
@@ -18,7 +19,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await runServiceInboxSla();
+  const result = await runTrackedAutomation("service-inbox-sla", async () => {
+    const outcome = await runServiceInboxSla();
+    return { data: outcome, metadata: { result: JSON.stringify(outcome).slice(0, 4000) } };
+  });
   return NextResponse.json({
     scannedAt: new Date().toISOString(),
     ...result,

@@ -13,6 +13,7 @@
 import { db } from "@/lib/db";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import type { ProactiveSuggestion } from "./types";
+import type { AutomationPrefs } from "./automation-prefs";
 
 // ── 风险分级注册表 ───────────────────────────────────────────────
 
@@ -95,13 +96,15 @@ export interface AutoActionResult {
 
 export async function executeAutoActions(
   userId: string,
-  suggestions: ProactiveSuggestion[]
+  suggestions: ProactiveSuggestion[],
+  prefs: Pick<AutomationPrefs, "autoCreateTasks" | "autoOverdueFollowup">,
 ): Promise<AutoActionResult[]> {
   const results: AutoActionResult[] = [];
 
   for (const suggestion of suggestions) {
     const actionType = mapSuggestionToAutoAction(suggestion);
     if (!actionType || !isAutoExecutable(actionType)) continue;
+    if (!isActionEnabled(actionType, prefs)) continue;
 
     try {
       const result = await executeOne(userId, suggestion, actionType);
@@ -117,6 +120,15 @@ export async function executeAutoActions(
   }
 
   return results;
+}
+
+function isActionEnabled(
+  actionType: string,
+  prefs: Pick<AutomationPrefs, "autoCreateTasks" | "autoOverdueFollowup">,
+): boolean {
+  if (actionType === "create_reminder_task") return prefs.autoCreateTasks;
+  if (actionType === "create_overdue_task") return prefs.autoOverdueFollowup;
+  return false;
 }
 
 function mapSuggestionToAutoAction(s: ProactiveSuggestion): string | null {

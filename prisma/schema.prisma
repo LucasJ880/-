@@ -107,6 +107,7 @@ model User {
 
   /// 外贸线索转入销售 CRM 的操作人
   tradeProspectsConverted         TradeProspect[]          @relation("TradeProspectConvertedBy")
+  tradeProspectsOwned             TradeProspect[]          @relation("TradeProspectOwner")
   tradeIntelligenceCasesCreated   TradeIntelligenceCase[]  @relation("TradeIntelligenceCaseCreatedBy")
   tradeIntelligenceCasesConverted TradeIntelligenceCase[]  @relation("TradeIntelligenceCaseConvertedBy")
   tradeIntelligenceAssetsCreated  TradeIntelligenceAsset[] @relation("TradeIntelligenceAssetCreatedBy")
@@ -1978,6 +1979,10 @@ model TradeProspect {
   campaign   TradeCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   orgId      String
 
+  /// 负责该线索的销售；历史数据由活动创建人回填
+  ownerId String?
+  owner   User?   @relation("TradeProspectOwner", fields: [ownerId], references: [id])
+
   companyName  String
   contactName  String?
   contactEmail String?
@@ -2037,6 +2042,7 @@ model TradeProspect {
 
   @@index([campaignId, stage])
   @@index([orgId, stage])
+  @@index([orgId, ownerId, stage])
   @@index([orgId, researchStatus])
   @@index([nextFollowUpAt])
   @@index([score])
@@ -2163,29 +2169,35 @@ model MarketSnapshot {
 }
 
 model MarketSignal {
-  id             String         @id @default(cuid())
-  orgId          String
-  competitorId   String
-  snapshotId     String         @unique
-  snapshot       MarketSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  signalType     String
-  severity       String         @default("low") // low | medium | high
-  status         String         @default("pending") // pending | reviewed | dismissed
-  title          String
-  summary        String         @db.Text
-  evidenceJson   Json?
-  analysisStatus String         @default("queued") // queued | running | completed | skipped | failed
-  reviewedById   String?
-  reviewedAt     DateTime?
-  reviewNote     String?        @db.Text
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                     String         @id @default(cuid())
+  orgId                  String
+  competitorId           String
+  snapshotId             String         @unique
+  snapshot               MarketSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  signalType             String
+  severity               String         @default("low") // low | medium | high
+  status                 String         @default("pending") // pending | reviewed | dismissed
+  title                  String
+  summary                String         @db.Text
+  evidenceJson           Json?
+  analysisStatus         String         @default("queued") // queued | running | completed | skipped | failed
+  analysisAttempts       Int            @default(0)
+  analysisNextAttemptAt  DateTime?
+  analysisLeaseExpiresAt DateTime?
+  analysisLastError      String?        @db.VarChar(2000)
+  reviewedById           String?
+  reviewedAt             DateTime?
+  reviewNote             String?        @db.Text
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
   analysisRuns MarketAnalysisRun[]
 
   @@index([orgId, status, createdAt])
   @@index([competitorId, createdAt])
   @@index([orgId, severity, createdAt])
+  @@index([analysisStatus, analysisNextAttemptAt])
+  @@index([analysisStatus, analysisLeaseExpiresAt])
 }
 
 model MarketAnalysisRun {
@@ -3794,10 +3806,10 @@ model VisualizerCatalogAsset {
   width      Int?
   height     Int?
   bytes      Int?
-  sortOrder  Int      @default(0)
-  isPrimary  Boolean  @default(false)
+  sortOrder  Int     @default(0)
+  isPrimary  Boolean @default(false)
   /// real / ai_generated
-  sourceType String   @default("real")
+  sourceType String  @default("real")
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -3961,9 +3973,13 @@ model PublishJob {
 
   /// draft / review（抽检或高敏滞留）/ blocked（规则拦截）/ queued（已派发到通道）/
   /// processing（postflow worker 已认领）/ published / failed / canceled
-  status        String  @default("draft")
-  externalJobId String? // Postiz post id / PostFlow worker 回执
-  errorMessage  String?
+  status         String    @default("draft")
+  externalJobId  String? // Postiz post id / PostFlow worker 回执
+  errorMessage   String?
+  attemptCount   Int       @default(0)
+  nextAttemptAt  DateTime?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
 
   /// 抽检标记：true 表示进入人工抽检队列
   sampledForReview Boolean @default(false)
@@ -3972,6 +3988,31 @@ model PublishJob {
   updatedAt DateTime @updatedAt
 
   @@unique([assetId, accountId])
+  @@unique([channel, externalJobId])
   @@index([orgId, status, scheduledAt])
   @@index([accountId, status])
+  @@index([channel, status, nextAttemptAt])
+  @@index([channel, leaseExpiresAt])
+}
+
+/// 自动流统一运行账本。业务数据仍归各自模型所有，此表只记录执行健康度。
+model AutomationRun {
+  id             String    @id @default(cuid())
+  automationKey  String
+  orgId          String?
+  trigger        String    @default("cron")
+  status         String    @default("running") // running | succeeded | partial | skipped | failed
+  processedCount Int       @default(0)
+  succeededCount Int       @default(0)
+  failedCount    Int       @default(0)
+  error          String?   @db.VarChar(2000)
+  metadataJson   Json?
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  durationMs     Int?
+  createdAt      DateTime  @default(now())
+
+  @@index([automationKey, startedAt])
+  @@index([orgId, automationKey, startedAt])
+  @@index([status, startedAt])
 }

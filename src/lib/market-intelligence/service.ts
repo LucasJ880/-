@@ -432,18 +432,63 @@ export async function processFirecrawlMarketWebhook(
   return { accepted, queued };
 }
 
+const MARKET_ANALYSIS_MAX_ATTEMPTS = 3;
+const MARKET_ANALYSIS_LEASE_MS = 20 * 60 * 1000;
+const MARKET_ANALYSIS_BACKOFF_MS = [5, 30, 120].map((minutes) => minutes * 60 * 1000);
+
 export async function processQueuedMarketAnalyses(limit = 3) {
+  const now = new Date();
+  await db.marketSignal.updateMany({
+    where: {
+      analysisStatus: "running",
+      analysisAttempts: { gte: MARKET_ANALYSIS_MAX_ATTEMPTS },
+      analysisLeaseExpiresAt: { lte: now },
+    },
+    data: {
+      analysisStatus: "failed",
+      analysisLeaseExpiresAt: null,
+      analysisLastError: "任务连续执行超时，已达到最大尝试次数",
+    },
+  });
   const queuedSignals = await db.marketSignal.findMany({
-    where: { analysisStatus: "queued" },
+    where: {
+      analysisAttempts: { lt: MARKET_ANALYSIS_MAX_ATTEMPTS },
+      OR: [
+        {
+          analysisStatus: "queued",
+          OR: [{ analysisNextAttemptAt: null }, { analysisNextAttemptAt: { lte: now } }],
+        },
+        {
+          analysisStatus: "running",
+          analysisLeaseExpiresAt: { lte: now },
+        },
+      ],
+    },
     orderBy: { createdAt: "asc" },
     take: Math.max(1, Math.min(limit, 10)),
     select: { id: true },
   });
   const result = { attempted: 0, completed: 0, failed: 0 };
   for (const row of queuedSignals) {
+    const leaseExpiresAt = new Date(Date.now() + MARKET_ANALYSIS_LEASE_MS);
     const claimed = await db.marketSignal.updateMany({
-      where: { id: row.id, analysisStatus: "queued" },
-      data: { analysisStatus: "running" },
+      where: {
+        id: row.id,
+        analysisAttempts: { lt: MARKET_ANALYSIS_MAX_ATTEMPTS },
+        OR: [
+          {
+            analysisStatus: "queued",
+            OR: [{ analysisNextAttemptAt: null }, { analysisNextAttemptAt: { lte: now } }],
+          },
+          { analysisStatus: "running", analysisLeaseExpiresAt: { lte: now } },
+        ],
+      },
+      data: {
+        analysisStatus: "running",
+        analysisAttempts: { increment: 1 },
+        analysisLeaseExpiresAt: leaseExpiresAt,
+        analysisNextAttemptAt: null,
+      },
     });
     if (claimed.count === 0) continue;
     result.attempted++;
@@ -516,12 +561,19 @@ export async function runMarketSignalAnalysis(signalId: string): Promise<boolean
       }),
       db.marketSignal.update({
         where: { id: signal.id },
-        data: { analysisStatus: "completed" },
+        data: {
+          analysisStatus: "completed",
+          analysisLeaseExpiresAt: null,
+          analysisNextAttemptAt: null,
+          analysisLastError: null,
+        },
       }),
     ]);
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "自动分析失败";
+    const exhausted = signal.analysisAttempts >= MARKET_ANALYSIS_MAX_ATTEMPTS;
+    const backoffIndex = Math.max(0, Math.min(signal.analysisAttempts - 1, MARKET_ANALYSIS_BACKOFF_MS.length - 1));
     await db.$transaction([
       db.marketAnalysisRun.update({
         where: { id: run.id },
@@ -529,7 +581,14 @@ export async function runMarketSignalAnalysis(signalId: string): Promise<boolean
       }),
       db.marketSignal.update({
         where: { id: signal.id },
-        data: { analysisStatus: "failed" },
+        data: {
+          analysisStatus: exhausted ? "failed" : "queued",
+          analysisLeaseExpiresAt: null,
+          analysisNextAttemptAt: exhausted
+            ? null
+            : new Date(Date.now() + MARKET_ANALYSIS_BACKOFF_MS[backoffIndex]),
+          analysisLastError: message.slice(0, 2000),
+        },
       }),
     ]);
     return false;

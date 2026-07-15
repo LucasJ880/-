@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { expireOverdueApprovals } from "@/lib/approval/port";
+import { runTrackedAutomation } from "@/lib/automation/runner";
 
 export const maxDuration = 60;
 
@@ -19,14 +20,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const now = new Date();
-  const result = await expireOverdueApprovals(now);
+  const data = await runTrackedAutomation("approval-timeout", async () => {
+    const now = new Date();
+    const result = await expireOverdueApprovals(now);
+    const processedCount = result.expiredPendingActions + result.escalatedApprovals + result.staleApprovals;
 
-  return NextResponse.json({
-    checkedAt: now.toISOString(),
-    expiredPendingActions: result.expiredPendingActions,
-    escalatedCount: result.escalatedApprovals,
-    staleCount: result.staleApprovals,
-    remindedCount: result.remindedApprovals,
+    return {
+      data: {
+        checkedAt: now.toISOString(),
+        expiredPendingActions: result.expiredPendingActions,
+        escalatedCount: result.escalatedApprovals,
+        staleCount: result.staleApprovals,
+        remindedCount: result.remindedApprovals,
+      },
+      processedCount,
+      succeededCount: processedCount,
+    };
   });
+  return NextResponse.json(data);
 }

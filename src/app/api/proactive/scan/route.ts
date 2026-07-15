@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import { scanProjectsForUser } from "@/lib/proactive/scanner";
-import { scanSalesForUser } from "@/lib/proactive/sales-scanner";
-import { syncSuggestionsToNotifications } from "@/lib/proactive/notify";
-import { executeAutoActions } from "@/lib/proactive/auto-actions";
-import { getUserAutomationEnabled } from "@/lib/proactive/automation-prefs";
+import { runProactiveScanForUser } from "@/lib/proactive/run-scan";
 import { withAuth } from "@/lib/common/api-helpers";
 
 /**
@@ -15,36 +11,6 @@ import { withAuth } from "@/lib/common/api-helpers";
  * 前端在工作台加载时调用，也可由定时任务调用。
  */
 export const POST = withAuth(async (request, ctx, user) => {
-  const [projectResult, salesSuggestions] = await Promise.all([
-    scanProjectsForUser(user.id, user.role),
-    scanSalesForUser(user.id),
-  ]);
-
-  const result = {
-    ...projectResult,
-    suggestions: [...projectResult.suggestions, ...salesSuggestions],
-  };
-
-  const [notificationsCreated, autoEnabled] = await Promise.all([
-    syncSuggestionsToNotifications(user.id, result.suggestions),
-    getUserAutomationEnabled(user.id),
-  ]);
-
-  let autoActions: { actionType: string; success: boolean; message: string; createdEntityId?: string }[] = [];
-  if (autoEnabled) {
-    const raw = await executeAutoActions(user.id, result.suggestions);
-    autoActions = raw.map((r) => ({
-      actionType: r.actionType,
-      success: r.success,
-      message: r.message,
-      createdEntityId: r.createdEntityId,
-    }));
-  }
-
-  return NextResponse.json({
-    ...result,
-    notificationsCreated,
-    autoActions,
-    automationEnabled: autoEnabled,
-  });
+  const result = await runProactiveScanForUser(user.id, user.role);
+  return NextResponse.json(result);
 });

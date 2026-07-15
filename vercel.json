@@ -6,23 +6,19 @@
     },
     {
       "path": "/api/cron/daily-brief",
-      "schedule": "0 11 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/approval-timeout",
-      "schedule": "0 9 * * *"
+      "schedule": "0 */2 * * *"
     },
     {
       "path": "/api/cron/followup",
-      "schedule": "30 9 * * *"
-    },
-    {
-      "path": "/api/cron/followup",
-      "schedule": "0 14 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/wechat-push",
-      "schedule": "40 9 * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/progress-summary",
@@ -39,6 +35,14 @@
     {
       "path": "/api/cron/market-intelligence",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/trade/cron",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/proactive-scan",
+      "schedule": "15 * * * *"
     }
   ]
 }

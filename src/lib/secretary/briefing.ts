@@ -252,7 +252,7 @@ async function pushBriefingToWeChat(userId: string, briefing: DailyBriefing): Pr
  */
 export async function generateBriefingsForOrg(orgId: string): Promise<number> {
   const members = await db.organizationMember.findMany({
-    where: { orgId, role: { not: "inactive" } },
+    where: { orgId, status: "active" },
     select: { userId: true },
   });
 

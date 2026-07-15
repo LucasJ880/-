@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { runTrackedResponse } from "@/lib/automation/runner";
 import {
   generateFlowPlan,
   executeFlowTask,
@@ -21,6 +22,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  return runTrackedResponse("project-inspection", runInspection);
+}
+
+async function runInspection() {
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 

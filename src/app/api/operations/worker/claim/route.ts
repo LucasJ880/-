@@ -10,9 +10,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 
 const STALE_PROCESSING_MS = 30 * 60 * 1000;
+const MAX_ATTEMPTS = 3;
 
 function checkWorkerAuth(request: NextRequest): boolean {
   const token = process.env.POSTFLOW_WORKER_TOKEN;
@@ -27,14 +29,35 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const limit = Math.min(Math.max(Number(body.limit) || 5, 1), 20);
-  const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
-
+  const now = new Date();
+  await db.publishJob.updateMany({
+    where: {
+      channel: "postflow",
+      status: "processing",
+      attemptCount: { gte: MAX_ATTEMPTS },
+      leaseExpiresAt: { lte: now },
+    },
+    data: {
+      status: "failed",
+      leaseToken: null,
+      leaseExpiresAt: null,
+      errorMessage: "Worker 连续执行超时，已达到最大尝试次数",
+    },
+  });
   const candidates = await db.publishJob.findMany({
     where: {
       channel: "postflow",
+      attemptCount: { lt: MAX_ATTEMPTS },
+      account: { status: "active" },
       OR: [
-        { status: "queued" },
-        { status: "processing", updatedAt: { lt: staleBefore } },
+        {
+          status: { in: ["queued", "failed"] },
+          AND: [
+            { OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }] },
+            { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
+          ],
+        },
+        { status: "processing", leaseExpiresAt: { lte: now } },
       ],
     },
     orderBy: [{ scheduledAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
@@ -50,22 +73,33 @@ export async function POST(request: NextRequest) {
   });
 
   // 逐条条件更新防止并发 worker 重复认领
-  const claimed: typeof candidates = [];
+  const claimed: Array<(typeof candidates)[number] & { leaseToken: string }> = [];
   for (const job of candidates) {
+    const leaseToken = randomUUID();
+    const leaseExpiresAt = new Date(Date.now() + STALE_PROCESSING_MS);
     const res = await db.publishJob.updateMany({
       where: {
         id: job.id,
         status: job.status,
-        ...(job.status === "processing" ? { updatedAt: { lt: staleBefore } } : {}),
+        attemptCount: { lt: MAX_ATTEMPTS },
+        ...(job.status === "processing" ? { leaseExpiresAt: { lte: now } } : {}),
       },
-      data: { status: "processing" },
+      data: {
+        status: "processing",
+        attemptCount: { increment: 1 },
+        nextAttemptAt: null,
+        leaseToken,
+        leaseExpiresAt,
+      },
     });
-    if (res.count === 1) claimed.push(job);
+    if (res.count === 1) claimed.push({ ...job, leaseToken });
   }
 
   return NextResponse.json({
     jobs: claimed.map((j) => ({
       id: j.id,
+      leaseToken: j.leaseToken,
+      idempotencyKey: `postflow:${j.id}`,
       captionText: j.captionText,
       hashtags: j.hashtags,
       scheduledAt: j.scheduledAt?.toISOString() ?? null,

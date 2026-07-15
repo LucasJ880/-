@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { syncAivoraVideosForOrg } from "@/lib/operations/service";
+import { runTrackedAutomation } from "@/lib/automation/runner";
 
 export const maxDuration = 60;
 
@@ -18,14 +19,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orgId = process.env.AIVORA_ORG_ID;
-  if (!orgId) {
-    return NextResponse.json({ skipped: true, reason: "AIVORA_ORG_ID 未配置" });
-  }
-
   try {
-    const result = await syncAivoraVideosForOrg(orgId);
-    return NextResponse.json({ syncedAt: new Date().toISOString(), ...result });
+    const data = await runTrackedAutomation<Record<string, unknown>>("aivora-sync", async () => {
+      const orgId = process.env.AIVORA_ORG_ID;
+      if (!orgId) {
+        return { data: { skipped: true, reason: "AIVORA_ORG_ID 未配置" }, status: "skipped" } as const;
+      }
+      const result = await syncAivoraVideosForOrg(orgId);
+      return { data: { syncedAt: new Date().toISOString(), ...result } };
+    });
+    return NextResponse.json(data);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "同步失败" },
