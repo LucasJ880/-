@@ -49,7 +49,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   // ── PR4 草稿型写工具（所有副作用都经 PendingAction 审批）──────
   sales_update_followup:       { risk: "l2_soft", allowRoles: ["admin", "sales"] },
   sales_update_stage:          { risk: "l2_soft", allowRoles: ["admin", "sales"] },
-  calendar_create_event_draft: { risk: "l2_soft", allowRoles: ["admin", "sales"] },
+  // 个人日历草稿：所有已登录用户可创建，但实际写入仍必须由本人审批。
+  calendar_create_event_draft: { risk: "l2_soft", allowRoles: "*" },
 
   // ── trade 域（8 个） ─────────────────────────────────────────
   trade_get_overview:             { risk: "l0_read", allowRoles: ["admin", "trade"] },

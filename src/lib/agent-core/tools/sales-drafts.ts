@@ -247,11 +247,11 @@ registry.register({
       description: { type: "string", description: "描述（可选）" },
       startTime: {
         type: "string",
-        description: "开始时间，ISO 8601，如 2026-04-21T10:00:00",
+        description: "开始时间，必须包含时区偏移的 ISO 8601，如 2026-04-21T10:00:00-04:00",
       },
       endTime: {
         type: "string",
-        description: "结束时间，ISO 8601",
+        description: "结束时间，必须包含时区偏移的 ISO 8601",
       },
       allDay: { type: "string", description: "是否全天事件（true/false）" },
       location: { type: "string", description: "地点（可选）" },

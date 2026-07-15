@@ -21,6 +21,7 @@ export interface OperatorPromptContext {
 
 const ROLE_HINT: Record<string, string> = {
   admin: "你当前的用户是管理员，可以查询公司全局数据。",
+  manager: "你当前的用户是总经理，业务数据访问仍按本人和组织权限控制。",
   sales: "你当前的用户是销售，只能看到自己名下的客户、商机、报价。对于不属于 Ta 的数据，工具会返回空或拒绝。",
   trade: "你当前的用户是外贸助手，只能看到自己名下的线索、活动、报价。",
   user: "你当前的用户是普通用户，暂无业务数据访问权限。",
@@ -29,7 +30,16 @@ const ROLE_HINT: Record<string, string> = {
 export function buildOperatorSystemPrompt(ctx: OperatorPromptContext): string {
   const role = ctx.role as PlatformRole;
   const now = ctx.now ?? new Date();
-  const nowStr = now.toISOString().slice(0, 16).replace("T", " ");
+  const timeZone = process.env.APP_TIMEZONE?.trim() || "America/Toronto";
+  const nowStr = new Intl.DateTimeFormat("zh-CN", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
 
   const userLine = ctx.userName
     ? `- 用户姓名：${ctx.userName}`
@@ -45,6 +55,7 @@ export function buildOperatorSystemPrompt(ctx: OperatorPromptContext): string {
     ``,
     `# 当前上下文`,
     `- 当前时间：${nowStr}`,
+    `- 当前时区：${timeZone}（生成日历时间时必须携带 UTC 偏移）`,
     `- 用户角色：${role}`,
     userLine,
     projectLine,
@@ -59,6 +70,7 @@ export function buildOperatorSystemPrompt(ctx: OperatorPromptContext): string {
     `6. 主动帮到底：回答后如有自然的延伸点，主动提出你可以继续帮的事（如「需要的话我可以直接起草跟进邮件」）`,
     `7. 用户点名某个 Skill 时，先调用 skill_list 确认可用技能，再用 skill_run 执行，不要只复述技能说明`,
     `8. 用户询问市场情报、竞品、线下转网购、Google Ads、Instagram 或 Facebook 营销时，优先运行 qingyan-marketing-analysis；资料不足也先执行，并在结果中列出会改变决策的缺口`,
+    `9. 用户要求新增日历、日程、会议或提醒时，调用 calendar_create_event_draft 生成确认卡片，不要声称没有日历权限`,
     ``,
     `# 写入 / 执行类动作（重要）`,
     `- 涉及修改数据（跟进时间、商机阶段、日历事件等）的工具返回 \`status: "pending_approval"\` 时，`,

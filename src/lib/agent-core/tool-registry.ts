@@ -27,7 +27,13 @@ function resolveAllowRoles(tool: ToolDefinition): ToolAllowRoles {
 
 function normalizeRole(role: string | null | undefined): PlatformRole {
   if (role === "super_admin") return "admin";
-  if (role === "admin" || role === "sales" || role === "trade" || role === "user") {
+  if (
+    role === "admin" ||
+    role === "manager" ||
+    role === "sales" ||
+    role === "trade" ||
+    role === "user"
+  ) {
     return role;
   }
   return "user"; // 最低权限回退

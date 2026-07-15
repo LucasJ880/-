@@ -28,7 +28,7 @@ import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { isOperatorEnabled } from "@/lib/feature-flags";
-import { runAgentStream, needsTools } from "@/lib/agent-core";
+import { runAgentStream, needsTools, requestsCalendarWrite } from "@/lib/agent-core";
 import { buildOperatorSystemPrompt } from "@/lib/agent-core/prompts/operator-system";
 import { getCapabilities } from "@/lib/rbac/capabilities";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
@@ -167,8 +167,10 @@ export const POST = withAuth(async (request, ctx, user) => {
   const requestedMarketingSkill = content
     .toLowerCase()
     .includes("qingyan-marketing-analysis");
+  const requestedCalendarAction = requestsCalendarWrite(content);
   const useOperator =
     requestedMarketingSkill ||
+    requestedCalendarAction ||
     isOperatorEnabled({ userId: user.id, role: user.role });
   const requestedOrgId =
     (typeof body.orgId === "string" ? body.orgId.trim() : "") ||
@@ -199,8 +201,8 @@ export const POST = withAuth(async (request, ctx, user) => {
   const isFirstMessage = history.length === 1;
 
   // ─── PR2：Operator 分支（灰度控制，只开只读工具）───
-  // 显式点名内置动态 Skill 时不受 Operator 灰度影响，保证运营入口能真正执行 Skill，
-  // 而不是在 legacy 聊天分支里只生成一份看似相近的普通回答。
+  // 显式技能和个人日历草稿不受 Operator 灰度影响；两者都有独立执行边界，
+  // 日历写入还必须经过当前用户确认。
   if (useOperator) {
     return handleOperatorBranch({
       threadId,

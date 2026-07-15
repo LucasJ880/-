@@ -73,6 +73,7 @@ const TOOL_LABELS: Record<string, string> = {
   secretary_scan_followups: "扫描待跟进",
   secretary_generate_followup_draft: "生成跟进草稿",
   secretary_execute_action: "执行动作",
+  calendar_create_event_draft: "准备日历事件",
 
   // context
   context_search_history: "搜索历史对话",
@@ -97,13 +98,13 @@ export function toolLabel(name: string): string {
 const BUSINESS_TRIGGERS: readonly string[] = [
   // 名词 —— 业务实体
   "客户", "报价", "商机", "线索", "跟进", "销售", "成交",
-  "订单", "预约", "日程", "安装", "量房",
+  "订单", "预约", "日程", "日历", "会议", "提醒", "安装", "量房",
   "业绩", "漏斗", "管道", "deal", "deal 健康",
   "微信", "小红书", "facebook",
   "市场情报", "营销分析", "竞品", "对标", "电商", "网购",
   "google ads", "meta ads", "instagram", "qingyan-marketing-analysis",
   // 英文业务词
-  "pipeline", "opportunity", "prospect", "lead", "quote", "campaign",
+  "pipeline", "opportunity", "prospect", "lead", "quote", "campaign", "calendar", "meeting", "reminder",
   "cockpit", "funnel", "appointment",
   // 时间 + 统计意图
   "本月", "本周", "今日", "今天", "昨天", "上月", "上周", "这个月",
@@ -114,7 +115,7 @@ const BUSINESS_TRIGGERS: readonly string[] = [
   "外贸", "获客", "研究报告", "背调", "调研这家公司", "研究一下", "重新研究", "评估这家",
   "待研究", "列线索", "prospect",
   // 动词 + 指代
-  "查一下", "看一下", "帮我查", "帮我看", "给我列",
+  "查一下", "看一下", "帮我查", "帮我看", "给我列", "加到日历", "加入日历", "创建日程",
   "有哪些", "哪些客户", "哪些报价",
 ];
 
@@ -129,4 +130,20 @@ export function needsTools(text: string): boolean {
     if (lower.includes(kw.toLowerCase())) return true;
   }
   return false;
+}
+
+const CALENDAR_NOUNS = ["日历", "日程", "会议", "calendar", "meeting", "reminder"];
+const CALENDAR_WRITE_ACTIONS = [
+  "加", "添加", "新增", "创建", "安排", "提醒", "记到", "放到", "➕",
+  "add", "create", "schedule", "remind",
+];
+
+/** 明确要求新增个人日历事项；此类请求可安全绕过 Operator 灰度，因为仍需本人审批。 */
+export function requestsCalendarWrite(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return (
+    CALENDAR_NOUNS.some((keyword) => lower.includes(keyword)) &&
+    CALENDAR_WRITE_ACTIONS.some((keyword) => lower.includes(keyword))
+  );
 }

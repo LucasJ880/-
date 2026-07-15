@@ -9,7 +9,7 @@
 
 export { runAgent, runSimple, runAgentStream } from "./engine";
 export { registry } from "./tool-registry";
-export { toolLabel, needsTools } from "./streaming";
+export { toolLabel, needsTools, requestsCalendarWrite } from "./streaming";
 export type { AgentStreamEvent } from "./streaming";
 export type {
   ToolDefinition,

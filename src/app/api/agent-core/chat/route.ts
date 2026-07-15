@@ -68,6 +68,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
       mode,
       userId: user.id,
       orgId,
+      role: user.role,
+      maxRisk: "l2_soft",
       abortSignal: request.signal,
     });
 
