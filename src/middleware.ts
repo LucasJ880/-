@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   "/api/operations/worker",
   "/api/sales/quotes/share",
   "/api/trade/webhook",
+  "/api/webhooks/firecrawl",
   "/api/messaging/wecom/callback",
   // Visualizer 客户分享（token 鉴权在 route 内部，无登录态）
   "/api/visualizer/share",
