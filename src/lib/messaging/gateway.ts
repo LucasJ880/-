@@ -212,7 +212,19 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       return;
     }
 
-    // 6. 统一 Grader 意图分类器（确定性规则；命中即不进入普通 chat）
+    // 6. Growth Center 推广日报（确定性触发，避免普通 AI 猜测营销数据）
+    if (/推广日报|营销日报|增长日报/.test(msg.content)) {
+      if (!binding.orgId) {
+        aiResponse = "无法解析所属组织，请先完成微信与组织绑定。";
+      } else {
+        const m = await import("@/lib/marketing/wechat-daily-brief");
+        aiResponse = await m.buildMarketingDailyBrief(binding.orgId);
+      }
+      await deliverAndPersist();
+      return;
+    }
+
+    // 6.5 统一 Grader 意图分类器（确定性规则；命中即不进入普通 chat）
     //    优先级：项目 > 报价 > 客户 > 今日体检 > 普通 AI
     const { classifyWechatGraderIntent } = await import(
       "@/lib/ai-grader/wechat-intent-classifier"

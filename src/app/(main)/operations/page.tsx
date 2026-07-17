@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BarChart3, BookOpen, CalendarDays, Clapperboard, ExternalLink, Megaphone, Search, ShieldCheck, Users } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, Clapperboard, ExternalLink, Megaphone, Search, ShieldCheck, TrendingUp, Users } from "lucide-react";
 
 /**
  * 内容运营入口
@@ -44,6 +44,18 @@ export default function OperationsPage() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Link
+          href="/operations/growth"
+          className="flex items-center gap-3 rounded-xl border border-accent/40 bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <TrendingUp className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">增长中心</div>
+            <div className="mt-0.5 text-xs text-muted">
+              企业事实、七维体检、增长任务、推广计划与营销实验闭环
+            </div>
+          </div>
+        </Link>
         <Link
           href="/operations/intelligence"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
