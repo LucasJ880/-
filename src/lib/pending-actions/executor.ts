@@ -24,6 +24,7 @@ import type {
   InternalNotePayload,
   ProjectTaskPayload,
   EmailDraftPayload,
+  MarketingActivateCampaignPayload,
 } from "./types";
 import {
   isUnsupportedPendingActionType,
@@ -161,6 +162,12 @@ export async function executePendingAction(
           ctx,
         );
         break;
+      case "marketing.activate_campaign":
+        exec = await execMarketingActivateCampaign(
+          action.payload as unknown as MarketingActivateCampaignPayload,
+          ctx,
+        );
+        break;
       default:
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }
@@ -205,6 +212,41 @@ export async function executePendingAction(
   }
 
   return exec;
+}
+
+async function execMarketingActivateCampaign(
+  payload: MarketingActivateCampaignPayload,
+  ctx: ExecuteContext,
+): Promise<ExecuteResult> {
+  const orgId = payload?.metadata?.orgId;
+  if (!orgId) return { ok: false, error: "缺少组织信息，拒绝执行" };
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const membership = await getOrgMembership(ctx.userId, orgId);
+  if (!isSuperAdmin(ctx.role ?? "") && membership?.status !== "active") {
+    return { ok: false, error: "无权启用该组织的营销活动" };
+  }
+  const campaign = await db.marketingCampaign.findFirst({
+    where: { id: payload.campaignId, orgId },
+    select: { id: true, status: true },
+  });
+  if (!campaign) return { ok: false, error: "营销活动不存在或不属于本组织" };
+  if (campaign.status !== "awaiting_approval" && campaign.status !== "draft") {
+    return { ok: false, error: `活动状态 ${campaign.status} 不允许启用` };
+  }
+  await db.marketingCampaign.update({
+    where: { id: campaign.id },
+    data: { status: "active", approvedById: ctx.userId, approvedAt: new Date(), startsAt: new Date() },
+  });
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "marketing_campaign_activate",
+    targetType: "marketing_campaign",
+    targetId: campaign.id,
+    beforeData: { status: campaign.status },
+    afterData: { status: "active", via: "pending_action" },
+  });
+  return { ok: true, resultRef: campaign.id, message: "营销活动已审批并启用" };
 }
 
 /** 对外入口 —— 用户点"拒绝" */
