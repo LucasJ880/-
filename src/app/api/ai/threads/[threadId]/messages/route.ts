@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
@@ -28,13 +28,23 @@ import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { isOperatorEnabled } from "@/lib/feature-flags";
-import { runAgentStream, needsTools, requestsCalendarWrite } from "@/lib/agent-core";
+import {
+  runAgentStream,
+  needsTools,
+  requestsCalendarWrite,
+  classifyLongRunningMarketingResearch,
+} from "@/lib/agent-core";
 import { buildOperatorSystemPrompt } from "@/lib/agent-core/prompts/operator-system";
 import { getCapabilities } from "@/lib/rbac/capabilities";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { buildCompanyBlock } from "@/lib/ai/company-context";
+import {
+  executeMarketResearchRun,
+  queueMarketResearchRequest,
+} from "@/lib/market-intelligence/research-runtime";
 
-export const maxDuration = 60;
+// 普通对话仍使用 Agent 自身的短超时；只有前置分流的深度研究使用后台预算。
+export const maxDuration = 300;
 
 const AI_THREAD_RATE_LIMIT = {
   name: "ai-thread-messages",
@@ -167,9 +177,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   const requestedMarketingSkill = content
     .toLowerCase()
     .includes("qingyan-marketing-analysis");
+  const longMarketingResearch = classifyLongRunningMarketingResearch(content);
   const requestedCalendarAction = requestsCalendarWrite(content);
   const useOperator =
     requestedMarketingSkill ||
+    Boolean(longMarketingResearch) ||
     requestedCalendarAction ||
     isOperatorEnabled({ userId: user.id, role: user.role });
   const requestedOrgId =
@@ -181,6 +193,54 @@ export const POST = withAuth(async (request, ctx, user) => {
     const orgRes = await resolveRequestOrgIdForUser(user, requestedOrgId);
     if (!orgRes.ok) return orgRes.response;
     operatorOrgId = orgRes.orgId;
+  }
+
+  if (longMarketingResearch) {
+    const run = await queueMarketResearchRequest({
+      orgId: operatorOrgId!,
+      userId: user.id,
+      objective: content,
+      outputType: longMarketingResearch.outputType,
+      marketEvidence: fileText
+        ? `用户上传文件：${fileName || "未命名文件"}\n${fileText.slice(0, 80_000)}`
+        : undefined,
+    });
+    after(async () => {
+      await executeMarketResearchRun(run.id);
+    });
+
+    const assistantContent = [
+      "已将这项工作转为后台深度研究，不需要继续停留在当前页面。",
+      "",
+      `- 任务编号：${run.id}`,
+      "- 当前状态：等待研究",
+      "- 最长单次执行：300 秒；如遇模型超时会自动重试",
+      "- 完成后：站内通知，并在已绑定微信或企业微信时同步提醒",
+      "",
+      "报告会保存在“运营市场部 → 市场情报”中。",
+    ].join("\n");
+
+    await db.$transaction([
+      db.aiMessage.create({
+        data: { threadId, role: "user", content },
+      }),
+      db.aiMessage.create({
+        data: { threadId, role: "assistant", content: assistantContent },
+      }),
+      db.aiThread.update({
+        where: { id: threadId },
+        data: {
+          lastMessageAt: new Date(),
+          ...(thread.title === "新对话" ? { title: content.slice(0, 60) } : {}),
+        },
+      }),
+    ]);
+
+    return createImmediateAssistantStream(assistantContent, {
+      mode: "market_research.background",
+      runId: run.id,
+      status: run.status,
+    });
   }
 
   await db.aiMessage.create({
@@ -406,6 +466,35 @@ export const POST = withAuth(async (request, ctx, user) => {
     },
   });
 });
+
+function createImmediateAssistantStream(
+  content: string,
+  meta: Record<string, unknown>,
+): NextResponse {
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(`data: ${JSON.stringify({ type: "mode", ...meta })}\n\n`),
+      );
+      controller.enqueue(
+        encoder.encode(`data: ${JSON.stringify({ type: "text", content })}\n\n`),
+      );
+      controller.enqueue(
+        encoder.encode(`data: ${JSON.stringify({ type: "done", ...meta, latencyMs: 0 })}\n\n`),
+      );
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new NextResponse(readable, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
 
 async function indexThreadMessages(userId: string, threadId: string) {
   const { indexAiThreadMessages } = await import("@/lib/context/search-engine");

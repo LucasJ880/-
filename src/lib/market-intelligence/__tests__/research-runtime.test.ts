@@ -20,10 +20,14 @@ function expect(condition: boolean, message: string) {
 const defaults = getMarketResearchModelConfig({});
 expect(defaults.primary.model === "gpt-5.6-sol", "默认使用深度研究主模型");
 expect(defaults.primary.maxTokens === 16_000, "主模型默认输出预算为 16K");
-expect(defaults.primary.perRoundTimeoutMs === 120_000, "单轮等待由 30 秒提升至 120 秒");
+expect(defaults.primary.perRoundTimeoutMs === 150_000, "单轮等待由 30 秒提升至 150 秒");
 expect(defaults.primary.totalTimeoutMs === 180_000, "主模型最多使用 3 分钟");
 expect(defaults.fallback?.model === "gpt-5.6-terra", "配置独立备用模型");
 expect(defaults.fallback?.maxTokens === 8_000, "备用模型保留 8K 输出预算");
+expect(
+  defaults.primary.totalTimeoutMs + (defaults.fallback?.totalTimeoutMs ?? 0) <= 270_000,
+  "主备调用为 300 秒部署上限预留至少 30 秒",
+);
 
 const clamped = getMarketResearchModelConfig({
   OPENAI_MODEL_MARKET_INTELLIGENCE: "primary-custom",

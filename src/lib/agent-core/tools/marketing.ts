@@ -1,9 +1,8 @@
 import { db } from "@/lib/db";
 import { runMarketingHealthGrader } from "@/lib/ai-grader/graders/marketing-health-grader";
-import { ensureMarketingSkill } from "@/lib/market-intelligence/skill";
 import { getMarketingDashboard } from "@/lib/marketing/query-dashboard";
 import { dispatchMarketingWorkflow } from "@/lib/marketing/workflows";
-import { queueMarketResearchRun } from "@/lib/market-intelligence/research-runtime";
+import { queueMarketResearchRequest } from "@/lib/market-intelligence/research-runtime";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
@@ -68,29 +67,15 @@ registry.register({
   execute: async (ctx) => {
     const denied = await requireAccess(ctx);
     if (denied) return denied;
-    await ensureMarketingSkill(ctx.orgId);
-    const [dashboard, brandTruth] = await Promise.all([
-      getMarketingDashboard(ctx.orgId),
-      db.marketingBrandProfile.findUnique({
-        where: { orgId: ctx.orgId },
-        select: { serviceAreasJson: true, productsJson: true, competitorsJson: true, industry: true },
-      }),
-    ]);
-    const list = (value: unknown) => Array.isArray(value) ? value.map(String).join("、") : "";
-    const run = await queueMarketResearchRun({
+    const run = await queueMarketResearchRequest({
       orgId: ctx.orgId,
       userId: ctx.userId,
-      variables: {
-        objective: String(ctx.args.objective || ""),
-        targetGeography: String(ctx.args.targetGeography || list(brandTruth?.serviceAreasJson) || "待确认"),
-        primaryProduct: String(ctx.args.primaryProduct || list(brandTruth?.productsJson) || "待确认"),
-        salesModel: "询价型混合漏斗：内容/广告 → 咨询 → 预约量房 → 报价 → 成交",
-        competitors: list(brandTruth?.competitorsJson) || "未确认竞争对手，请标记待验证",
-        marketEvidence: String(ctx.args.marketEvidence || "未提供新的公开证据"),
-        firstPartyData: JSON.stringify(dashboard.summary),
-        unitEconomics: String(ctx.args.unitEconomics || "未提供，禁止编造"),
-        outputType: String(ctx.args.outputType || "comprehensive"),
-      },
+      objective: String(ctx.args.objective || ""),
+      targetGeography: String(ctx.args.targetGeography || ""),
+      primaryProduct: String(ctx.args.primaryProduct || ""),
+      marketEvidence: String(ctx.args.marketEvidence || ""),
+      unitEconomics: String(ctx.args.unitEconomics || ""),
+      outputType: String(ctx.args.outputType || "comprehensive"),
     });
     return {
       success: true,

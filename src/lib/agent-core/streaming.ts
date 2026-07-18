@@ -84,6 +84,13 @@ const TOOL_LABELS: Record<string, string> = {
   skill_list: "查询可用技能",
   skill_run: "执行技能",
   skill_create_from_description: "创建新技能",
+
+  // marketing
+  marketing_get_growth_summary: "读取增长中心摘要",
+  marketing_run_health_scan: "检查营销健康度",
+  marketing_analyze: "提交后台市场研究",
+  marketing_get_mmm_summary: "读取 MMM 分析",
+  marketing_request_data_sync: "同步营销渠道数据",
 };
 
 export function toolLabel(name: string): string {
@@ -130,6 +137,74 @@ export function needsTools(text: string): boolean {
     if (lower.includes(kw.toLowerCase())) return true;
   }
   return false;
+}
+
+export type LongRunningMarketingResearch = {
+  kind: "market" | "competitor" | "mmm" | "channel";
+  outputType:
+    | "comprehensive"
+    | "competitor-profile"
+    | "market-brief"
+    | "channel-plan";
+};
+
+const EXPLICIT_MARKETING_RESEARCH_PHRASES = [
+  "深度市场研究",
+  "市场研究报告",
+  "市场调研报告",
+  "市场情报研究",
+  "帮我做市场情报",
+  "生成市场报告",
+  "竞品研究报告",
+  "竞品分析报告",
+  "深度竞品分析",
+  "竞品监听分析",
+  "qingyan-marketing-analysis",
+];
+
+const RESEARCH_ACTIONS = [
+  "研究", "调研", "分析", "深度研究", "研究报告", "调研报告", "分析报告", "系统分析", "全面分析",
+  "深入分析", "归因分析", "预算优化", "投放复盘", "制定方案",
+  "research", "deep dive", "analysis report",
+];
+
+const MARKET_SUBJECTS = ["市场", "营销", "增长", "market", "marketing", "growth"];
+const COMPETITOR_SUBJECTS = ["竞品", "竞争对手", "对标", "竞品监听", "competitor"];
+const MMM_SUBJECTS = ["mmm", "marketing mix", "营销组合模型", "媒体组合模型"];
+const CHANNEL_SUBJECTS = [
+  "google ads", "meta ads", "facebook", "instagram", "tiktok", "渠道", "广告投放",
+];
+
+function includesAny(text: string, keywords: readonly string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+/**
+ * 识别不应在主 AI 请求内同步等待的深度营销任务。
+ * 普通的“查看竞品/市场概览”不会命中，仍由 Agent 的只读工具即时回答。
+ */
+export function classifyLongRunningMarketingResearch(
+  text: string,
+): LongRunningMarketingResearch | null {
+  const lower = text.trim().toLowerCase();
+  if (!lower) return null;
+
+  const explicit = includesAny(lower, EXPLICIT_MARKETING_RESEARCH_PHRASES);
+  const hasResearchAction = explicit || includesAny(lower, RESEARCH_ACTIONS);
+
+  if (includesAny(lower, MMM_SUBJECTS) && (hasResearchAction || lower.includes("运行"))) {
+    return { kind: "mmm", outputType: "comprehensive" };
+  }
+  if (includesAny(lower, COMPETITOR_SUBJECTS) && hasResearchAction) {
+    return { kind: "competitor", outputType: "competitor-profile" };
+  }
+  if (includesAny(lower, CHANNEL_SUBJECTS) && hasResearchAction) {
+    return { kind: "channel", outputType: "channel-plan" };
+  }
+  if (explicit || (includesAny(lower, MARKET_SUBJECTS) && hasResearchAction)) {
+    return { kind: "market", outputType: "market-brief" };
+  }
+  return null;
 }
 
 const CALENDAR_NOUNS = ["日历", "日程", "会议", "calendar", "meeting", "reminder"];

@@ -2,7 +2,7 @@
  * 青砚营销分析 Skill 接入测试
  * 运行：npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts
  */
-import { needsTools } from "../../streaming";
+import { classifyLongRunningMarketingResearch, needsTools } from "../../streaming";
 import { OPERATIONS_SKILLS } from "../operations-seed";
 
 let total = 0;
@@ -56,6 +56,27 @@ for (const trigger of [
   "使用 qingyan-marketing-analysis Skill",
 ]) {
   expect(needsTools(trigger), `业务分流命中：${trigger}`);
+}
+
+for (const [request, expectedKind] of [
+  ["请做一份多伦多窗饰市场的深度研究报告", "market"],
+  ["帮我做市场情报", "market"],
+  ["分析 Select Blinds，给我完整竞品分析报告", "competitor"],
+  ["分析这个竞品", "competitor"],
+  ["运行 MMM 营销组合模型并做预算优化", "mmm"],
+  ["深入分析 Google Ads 和 Meta Ads，制定方案", "channel"],
+] as const) {
+  expect(
+    classifyLongRunningMarketingResearch(request)?.kind === expectedKind,
+    `深度营销任务后台分流：${expectedKind}`,
+  );
+}
+
+for (const request of ["查看竞品监听", "市场情报概览", "今天有哪些营销任务"]) {
+  expect(
+    classifyLongRunningMarketingResearch(request) === null,
+    `普通只读查询保持即时响应：${request}`,
+  );
 }
 
 console.log(`\n${failed === 0 ? "✅" : "❌"} qingyan-marketing-analysis: ${total - failed}/${total} 通过`);

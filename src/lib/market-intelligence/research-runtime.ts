@@ -6,6 +6,9 @@ import {
 } from "@/lib/agent-core/skills/runtime";
 import type { SkillRunOutput } from "@/lib/agent-core/skills/types";
 import { logAudit } from "@/lib/audit/logger";
+import { getMarketingDashboard } from "@/lib/marketing/query-dashboard";
+import { pushMessage } from "@/lib/messaging/gateway";
+import { createNotification } from "@/lib/notifications/create";
 import { ensureMarketingSkill, MARKETING_SKILL_SLUG } from "./skill";
 
 const MAX_ATTEMPTS = 3;
@@ -48,7 +51,7 @@ export function getMarketResearchModelConfig(
       model: primaryModel,
       maxTokens: safeInt(env.OPENAI_MAX_TOKENS_MARKET_INTELLIGENCE, 16_000, 2_048, 32_768),
       reasoningEffort: "high",
-      perRoundTimeoutMs: safeInt(env.OPENAI_TIMEOUT_MS_MARKET_INTELLIGENCE, 120_000, 30_000, 240_000),
+      perRoundTimeoutMs: safeInt(env.OPENAI_TIMEOUT_MS_MARKET_INTELLIGENCE, 150_000, 30_000, 240_000),
       // 主备总预算控制在 Vercel 单次 300 秒生命周期内，并预留数据库收尾时间。
       totalTimeoutMs: safeInt(env.OPENAI_TOTAL_TIMEOUT_MS_MARKET_INTELLIGENCE, 180_000, 60_000, 180_000),
     },
@@ -58,7 +61,7 @@ export function getMarketResearchModelConfig(
         maxTokens: safeInt(env.OPENAI_MAX_TOKENS_MARKET_INTELLIGENCE_FALLBACK, 8_000, 2_048, 16_384),
         reasoningEffort: "medium",
         perRoundTimeoutMs: safeInt(env.OPENAI_TIMEOUT_MS_MARKET_INTELLIGENCE_FALLBACK, 90_000, 30_000, 180_000),
-        totalTimeoutMs: safeInt(env.OPENAI_TOTAL_TIMEOUT_MS_MARKET_INTELLIGENCE_FALLBACK, 105_000, 60_000, 105_000),
+        totalTimeoutMs: safeInt(env.OPENAI_TOTAL_TIMEOUT_MS_MARKET_INTELLIGENCE_FALLBACK, 90_000, 60_000, 90_000),
       }
       : null,
   };
@@ -144,6 +147,89 @@ export async function queueMarketResearchRun(input: {
   return run;
 }
 
+/**
+ * 从主 Agent 或营销工具提交研究任务时，统一补齐企业事实和一方数据。
+ * 这样所有入口都使用同一套防幻觉边界，不再各自拼装 Prompt。
+ */
+export async function queueMarketResearchRequest(input: {
+  orgId: string;
+  userId: string;
+  objective: string;
+  targetGeography?: string;
+  primaryProduct?: string;
+  marketEvidence?: string;
+  unitEconomics?: string;
+  outputType?: string;
+}) {
+  const [dashboard, brandTruth] = await Promise.all([
+    getMarketingDashboard(input.orgId),
+    db.marketingBrandProfile.findUnique({
+      where: { orgId: input.orgId },
+      select: {
+        serviceAreasJson: true,
+        productsJson: true,
+        competitorsJson: true,
+        industry: true,
+      },
+    }),
+  ]);
+  const list = (value: unknown) =>
+    Array.isArray(value) ? value.map(String).filter(Boolean).join("、") : "";
+
+  return queueMarketResearchRun({
+    orgId: input.orgId,
+    userId: input.userId,
+    variables: {
+      objective: input.objective.trim().slice(0, 20_000),
+      targetGeography: (
+        input.targetGeography?.trim() || list(brandTruth?.serviceAreasJson) || "待确认"
+      ).slice(0, 20_000),
+      primaryProduct: (
+        input.primaryProduct?.trim() || list(brandTruth?.productsJson) || "待确认"
+      ).slice(0, 20_000),
+      salesModel: "询价型混合漏斗：内容/广告 → 咨询 → 预约量房 → 报价 → 成交",
+      competitors: list(brandTruth?.competitorsJson) || "未确认竞争对手，请标记待验证",
+      marketEvidence: (input.marketEvidence?.trim() || "未提供新的公开证据").slice(0, 20_000),
+      firstPartyData: JSON.stringify(dashboard.summary),
+      unitEconomics: (input.unitEconomics?.trim() || "未提供，禁止编造").slice(0, 20_000),
+      outputType: (input.outputType?.trim() || "comprehensive").slice(0, 100),
+      industry: brandTruth?.industry?.trim() || "待确认",
+    },
+  });
+}
+
+async function notifyMarketResearchResult(input: {
+  runId: string;
+  userId: string;
+  status: "completed" | "failed";
+  error?: string | null;
+}) {
+  const completed = input.status === "completed";
+  const title = completed ? "市场研究报告已完成" : "市场研究任务执行失败";
+  const summary = completed
+    ? "报告已生成，可前往“运营市场部 → 市场情报”查看。"
+    : `任务未能完成：${input.error || "AI 研究服务暂时不可用"}`;
+  const wechatText = completed
+    ? `【青砚市场研究】\n报告已完成。\n任务：${input.runId}\n请前往运营市场部 → 市场情报查看。`
+    : `【青砚市场研究】\n任务执行失败。\n任务：${input.runId}\n原因：${input.error || "AI 研究服务暂时不可用"}`;
+
+  await Promise.allSettled([
+    createNotification({
+      userId: input.userId,
+      type: completed ? "market_research_completed" : "market_research_failed",
+      category: "marketing",
+      title,
+      summary,
+      entityType: "market_research_run",
+      entityId: input.runId,
+      priority: completed ? "medium" : "high",
+      sourceKey: `market_research:${input.runId}:${input.status}`,
+      metadata: { route: "/operations/intelligence", status: input.status },
+    }),
+    pushMessage(input.userId, wechatText, { channels: ["personal_wechat", "wecom"] }),
+  ]);
+}
+
 export async function executeMarketResearchRun(runId: string) {
   const now = new Date();
   const claimed = await db.marketResearchRun.updateMany({
@@ -206,6 +292,11 @@ export async function executeMarketResearchRun(runId: string) {
         durationMs: completed.durationMs,
       },
     });
+    await notifyMarketResearchResult({
+      runId: run.id,
+      userId: run.createdById,
+      status: "completed",
+    });
     return completed;
   } catch (error) {
     const code = failureCode(error);
@@ -239,6 +330,14 @@ export async function executeMarketResearchRun(runId: string) {
         nextAttemptAt: updated.nextAttemptAt,
       },
     });
+    if (!shouldRetry) {
+      await notifyMarketResearchResult({
+        runId: run.id,
+        userId: run.createdById,
+        status: "failed",
+        error: updated.error,
+      });
+    }
     return updated;
   }
 }
