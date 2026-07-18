@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/proactive-scan",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/marketing-automation",
+      "schedule": "5 * * * *"
     }
   ]
 }

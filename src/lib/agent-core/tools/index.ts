@@ -16,6 +16,7 @@ import "./skills";
 import "./context";
 import "./cockpit";
 import "./project-skills"; // A-P2: lib/agent 静态技能桥接
+import "./marketing"; // Growth Center：白名单营销工具（内部再校验组织成员）
 
 import { applyToolPolicy } from "./_policy";
 

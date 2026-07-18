@@ -4035,60 +4035,60 @@ model MarketingBrandProfile {
   region      String?
   country     String?
   postalCode  String?
-  timezone    String @default("America/Toronto")
+  timezone    String  @default("America/Toronto")
   industry    String
 
-  productsJson          Json @default("[]")
-  serviceAreasJson      Json @default("[]")
-  targetAudiencesJson   Json @default("[]")
-  competitorsJson       Json @default("[]")
-  forbiddenContextsJson Json @default("[]")
+  productsJson          Json  @default("[]")
+  serviceAreasJson      Json  @default("[]")
+  targetAudiencesJson   Json  @default("[]")
+  competitorsJson       Json  @default("[]")
+  forbiddenContextsJson Json  @default("[]")
   canonicalNapJson      Json?
 
-  validationStatus String @default("draft") // draft / valid / needs_review
-  validationScore  Int    @default(0)
-  validationIssues Json   @default("[]")
+  validationStatus String    @default("draft") // draft / valid / needs_review
+  validationScore  Int       @default(0)
+  validationIssues Json      @default("[]")
   validatedAt      DateTime?
   validatedById    String?
   updatedById      String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([orgId, validationStatus])
 }
 
 /// 渠道账号适配层。Phase 1 可手工录入，providerConfig 为后续 OAuth/API 预留。
 model MarketingChannelAccount {
-  id       String @id @default(cuid())
-  orgId    String
-  provider String // manual / gsc / ga4 / gbp / meta / tiktok / google_ads
-  name     String
+  id                String    @id @default(cuid())
+  orgId             String
+  provider          String // manual / gsc / ga4 / gbp / meta / tiktok / google_ads
+  name              String
   externalAccountId String?
-  status   String @default("manual") // manual / connected / paused / error
-  providerConfig Json?
-  lastSyncedAt DateTime?
-  lastError String? @db.Text
-  createdById String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status            String    @default("manual") // manual / connected / paused / error
+  providerConfig    Json?
+  lastSyncedAt      DateTime?
+  lastError         String?   @db.Text
+  createdById       String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@unique([orgId, provider, name])
   @@index([orgId, status])
 }
 
 model MarketingAuditRun {
-  id       String @id @default(cuid())
-  orgId    String
-  source   String @default("manual")
-  status   String @default("draft") // draft / completed / invalid
-  totalScore Int?
-  confidence Int @default(0)
+  id                        String    @id @default(cuid())
+  orgId                     String
+  source                    String    @default("manual")
+  status                    String    @default("draft") // draft / completed / invalid
+  totalScore                Int?
+  confidence                Int       @default(0)
   profileValidationSnapshot Json
-  invalidReason String? @db.Text
-  startedAt DateTime @default(now())
-  completedAt DateTime?
-  createdById String
-  createdAt DateTime @default(now())
+  invalidReason             String?   @db.Text
+  startedAt                 DateTime  @default(now())
+  completedAt               DateTime?
+  createdById               String
+  createdAt                 DateTime  @default(now())
 
   scores   MarketingDimensionScore[]
   findings MarketingFinding[]
@@ -4098,41 +4098,41 @@ model MarketingAuditRun {
 }
 
 model MarketingDimensionScore {
-  id       String @id @default(cuid())
-  orgId    String
-  auditRunId String
-  auditRun MarketingAuditRun @relation(fields: [auditRunId], references: [id], onDelete: Cascade)
-  dimension String // AI_VISIBILITY / SEO / LISTINGS / REVIEWS / SOCIAL / WEBSITE / ADVERTISING
-  score     Int
-  grade     String
-  confidence Int @default(100)
+  id           String            @id @default(cuid())
+  orgId        String
+  auditRunId   String
+  auditRun     MarketingAuditRun @relation(fields: [auditRunId], references: [id], onDelete: Cascade)
+  dimension    String // AI_VISIBILITY / SEO / LISTINGS / REVIEWS / SOCIAL / WEBSITE / ADVERTISING
+  score        Int
+  grade        String
+  confidence   Int               @default(100)
   evidenceJson Json?
-  createdAt DateTime @default(now())
+  createdAt    DateTime          @default(now())
 
   @@unique([auditRunId, dimension])
   @@index([orgId, dimension])
 }
 
 model MarketingFinding {
-  id       String @id @default(cuid())
-  orgId    String
-  auditRunId String?
-  auditRun MarketingAuditRun? @relation(fields: [auditRunId], references: [id], onDelete: SetNull)
-  dimension String
-  severity  String // critical / high / medium / low
-  title     String
-  description String? @db.Text
-  currentValue String? @db.Text
-  expectedValue String? @db.Text
-  evidenceUrl String?
-  evidenceJson Json?
-  confidence Int @default(100)
-  status String @default("open") // open / tasked / resolved / dismissed / invalid
-  taskId String?
-  createdById String
-  resolvedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String             @id @default(cuid())
+  orgId         String
+  auditRunId    String?
+  auditRun      MarketingAuditRun? @relation(fields: [auditRunId], references: [id], onDelete: SetNull)
+  dimension     String
+  severity      String // critical / high / medium / low
+  title         String
+  description   String?            @db.Text
+  currentValue  String?            @db.Text
+  expectedValue String?            @db.Text
+  evidenceUrl   String?
+  evidenceJson  Json?
+  confidence    Int                @default(100)
+  status        String             @default("open") // open / tasked / resolved / dismissed / invalid
+  taskId        String?
+  createdById   String
+  resolvedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@index([orgId, status, severity])
   @@index([orgId, dimension])
@@ -4140,62 +4140,62 @@ model MarketingFinding {
 }
 
 model MarketingPlan {
-  id       String @id @default(cuid())
-  orgId    String
-  name     String
-  objective String
-  startDate DateTime @db.Date
-  endDate   DateTime @db.Date
-  status    String @default("draft") // draft / active / completed / canceled
-  createdById String
+  id           String              @id @default(cuid())
+  orgId        String
+  name         String
+  objective    String
+  startDate    DateTime            @db.Date
+  endDate      DateTime            @db.Date
+  status       String              @default("draft") // draft / active / completed / canceled
+  createdById  String
   approvedById String?
-  approvedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  items MarketingPlanItem[]
+  approvedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  items        MarketingPlanItem[]
 
   @@index([orgId, status, startDate])
 }
 
 model MarketingPlanItem {
-  id       String @id @default(cuid())
-  orgId    String
-  planId   String
-  plan     MarketingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  dayOffset Int
-  category String // repair / content / growth / experiment
-  title    String
-  description String? @db.Text
-  priority String @default("medium")
-  status   String @default("planned")
-  taskId   String?
-  findingId String?
-  dueDate  DateTime @db.Date
-  createdAt DateTime @default(now())
+  id          String        @id @default(cuid())
+  orgId       String
+  planId      String
+  plan        MarketingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayOffset   Int
+  category    String // repair / content / growth / experiment
+  title       String
+  description String?       @db.Text
+  priority    String        @default("medium")
+  status      String        @default("planned")
+  taskId      String?
+  findingId   String?
+  dueDate     DateTime      @db.Date
+  createdAt   DateTime      @default(now())
 
   @@index([orgId, dueDate])
   @@index([planId, dayOffset])
 }
 
 model MarketingCampaign {
-  id       String @id @default(cuid())
-  orgId    String
-  name     String
-  objective String
-  product  String?
-  geography String?
-  offer     String?
+  id                String    @id @default(cuid())
+  orgId             String
+  name              String
+  objective         String
+  product           String?
+  geography         String?
+  offer             String?
   primaryConversion String
-  status    String @default("draft") // draft / awaiting_approval / active / paused / completed
-  budget    Float?
-  currency  String @default("CAD")
-  startsAt  DateTime?
-  endsAt    DateTime?
-  createdById String
-  approvedById String?
-  approvedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status            String    @default("draft") // draft / awaiting_approval / active / paused / completed
+  budget            Float?
+  currency          String    @default("CAD")
+  startsAt          DateTime?
+  endsAt            DateTime?
+  createdById       String
+  approvedById      String?
+  approvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   assets       MarketingContentAsset[]
   publications MarketingPublication[]
@@ -4207,18 +4207,18 @@ model MarketingCampaign {
 
 /// 对现有 ContentPlanItem / VideoAsset 的非破坏性关联层。
 model MarketingContentAsset {
-  id       String @id @default(cuid())
-  orgId    String
-  campaignId String
-  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id                String            @id @default(cuid())
+  orgId             String
+  campaignId        String
+  campaign          MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contentPlanItemId String?
-  videoAssetId String?
-  assetType String @default("video")
-  variantKey String?
-  approvalStatus String @default("draft")
-  metadataJson Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  videoAssetId      String?
+  assetType         String            @default("video")
+  variantKey        String?
+  approvalStatus    String            @default("draft")
+  metadataJson      Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([orgId, campaignId])
   @@index([contentPlanItemId])
@@ -4227,90 +4227,218 @@ model MarketingContentAsset {
 
 /// 对现有 PublishJob 的非破坏性关联层。
 model MarketingPublication {
-  id       String @id @default(cuid())
-  orgId    String
-  campaignId String
-  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id             String            @id @default(cuid())
+  orgId          String
+  campaignId     String
+  campaign       MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contentAssetId String?
-  publishJobId String?
-  channel String
-  status String @default("draft")
-  publishedAt DateTime?
+  publishJobId   String?
+  channel        String
+  status         String            @default("draft")
+  publishedAt    DateTime?
   externalPostId String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   @@index([orgId, campaignId, status])
   @@index([publishJobId])
 }
 
 model MarketingMetricSnapshot {
-  id       String @id @default(cuid())
-  orgId    String
-  channelAccountId String?
-  campaignId String?
-  publicationId String?
-  source   String @default("manual")
-  capturedAt DateTime
-  impressions Int @default(0)
-  views      Int @default(0)
-  engagements Int @default(0)
-  clicks      Int @default(0)
-  leads       Int @default(0)
-  qualifiedLeads Int @default(0)
-  appointments Int @default(0)
-  quotes      Int @default(0)
-  wins        Int @default(0)
-  spend       Float @default(0)
-  revenue     Float @default(0)
-  currency    String @default("CAD")
-  rawJson     Json?
-  createdById String
-  createdAt DateTime @default(now())
+  id                String    @id @default(cuid())
+  orgId             String
+  channelAccountId  String?
+  campaignId        String?
+  publicationId     String?
+  source            String    @default("manual")
+  capturedAt        DateTime
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  granularity       String    @default("snapshot") // snapshot / daily / weekly / monthly
+  geography         String?
+  productCategory   String?
+  objective         String?
+  impressions       Int       @default(0)
+  views             Int       @default(0)
+  engagements       Int       @default(0)
+  clicks            Int       @default(0)
+  leads             Int       @default(0)
+  qualifiedLeads    Int       @default(0)
+  appointments      Int       @default(0)
+  quotes            Int       @default(0)
+  wins              Int       @default(0)
+  spend             Float     @default(0)
+  revenue           Float     @default(0)
+  currency          String    @default("CAD")
+  baseCurrency      String    @default("CAD")
+  ingestionKey      String?
+  externalEventId   String?
+  dataQualityStatus String    @default("unverified") // unverified / valid / warning / invalid
+  rawJson           Json?
+  createdById       String
+  createdAt         DateTime  @default(now())
 
+  @@unique([orgId, source, ingestionKey])
   @@index([orgId, capturedAt])
   @@index([orgId, campaignId])
+  @@index([orgId, periodStart, granularity])
+}
+
+/// Activepieces 等外部执行层的统一运行账本。业务事实仍保存在青砚模型中。
+model MarketingWorkflowRun {
+  id            String    @id @default(cuid())
+  orgId         String
+  provider      String    @default("activepieces")
+  flowKey       String
+  externalRunId String?
+  requestId     String    @unique
+  status        String    @default("queued") // queued / dispatched / running / completed / skipped / failed
+  inputJson     Json?
+  outputJson    Json?
+  error         String?   @db.Text
+  triggeredById String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([provider, externalRunId])
+  @@index([orgId, flowKey, createdAt])
+  @@index([status, createdAt])
+}
+
+/// 交给 Meridian 的不可变数据集版本。Phase 1 将标准周级数据保存在 dataJson。
+model MmmDatasetVersion {
+  id            String   @id @default(cuid())
+  orgId         String
+  name          String
+  periodStart   DateTime
+  periodEnd     DateTime
+  granularity   String   @default("weekly")
+  targetKpi     String
+  currency      String   @default("CAD")
+  rowCount      Int      @default(0)
+  weekCount     Int      @default(0)
+  status        String   @default("draft") // draft / ready / insufficient_data / archived
+  checksum      String
+  schemaJson    Json
+  dataJson      Json
+  qualityIssues Json     @default("[]")
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  modelRuns MmmModelRun[]
+
+  @@unique([orgId, checksum])
+  @@index([orgId, createdAt])
+}
+
+/// Meridian 模型运行与诊断结果。计算在独立 Worker 中完成，青砚只保存可审计结果。
+model MmmModelRun {
+  id               String            @id @default(cuid())
+  orgId            String
+  datasetVersionId String
+  datasetVersion   MmmDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+  provider         String            @default("meridian")
+  externalRunId    String?
+  status           String            @default("queued") // queued / running / completed / failed / canceled
+  modelVersion     String?
+  configJson       Json?
+  diagnosticsJson  Json?
+  summaryJson      Json?
+  error            String?           @db.Text
+  requestedById    String
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  contributions MmmChannelContribution[]
+  scenarios     MmmBudgetScenario[]
+
+  @@unique([provider, externalRunId])
+  @@index([orgId, createdAt])
+  @@index([datasetVersionId, status])
+}
+
+model MmmChannelContribution {
+  id                String      @id @default(cuid())
+  orgId             String
+  modelRunId        String
+  modelRun          MmmModelRun @relation(fields: [modelRunId], references: [id], onDelete: Cascade)
+  channel           String
+  spend             Float       @default(0)
+  contribution      Float       @default(0)
+  contributionShare Float       @default(0)
+  roi               Float?
+  marginalRoi       Float?
+  confidenceLow     Float?
+  confidenceHigh    Float?
+  createdAt         DateTime    @default(now())
+
+  @@unique([modelRunId, channel])
+  @@index([orgId, channel])
+}
+
+model MmmBudgetScenario {
+  id              String      @id @default(cuid())
+  orgId           String
+  modelRunId      String
+  modelRun        MmmModelRun @relation(fields: [modelRunId], references: [id], onDelete: Cascade)
+  name            String
+  totalBudget     Float
+  currency        String      @default("CAD")
+  allocationsJson Json
+  expectedKpi     Float?
+  confidenceLow   Float?
+  confidenceHigh  Float?
+  status          String      @default("draft") // draft / pending_approval / approved / rejected
+  createdById     String
+  createdAt       DateTime    @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([modelRunId])
 }
 
 model MarketingExperiment {
-  id       String @id @default(cuid())
-  orgId    String
-  campaignId String
-  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  name     String
-  hypothesis String @db.Text
-  primaryMetric String
-  secondaryMetricsJson Json @default("[]")
-  variantsJson Json
+  id                    String            @id @default(cuid())
+  orgId                 String
+  campaignId            String
+  campaign              MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name                  String
+  hypothesis            String            @db.Text
+  primaryMetric         String
+  secondaryMetricsJson  Json              @default("[]")
+  variantsJson          Json
   trafficAllocationJson Json?
-  status   String @default("draft") // draft / running / completed / stopped
-  winnerVariantKey String?
-  learningSummary String? @db.Text
-  stopCondition String? @db.Text
-  startsAt DateTime?
-  endsAt DateTime?
-  createdById String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status                String            @default("draft") // draft / running / completed / stopped
+  winnerVariantKey      String?
+  learningSummary       String?           @db.Text
+  stopCondition         String?           @db.Text
+  startsAt              DateTime?
+  endsAt                DateTime?
+  createdById           String
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   @@index([orgId, status])
   @@index([campaignId])
 }
 
 model MarketingLeadAttribution {
-  id       String @id @default(cuid())
-  orgId    String
-  campaignId String
-  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id                 String            @id @default(cuid())
+  orgId              String
+  campaignId         String
+  campaign           MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   salesOpportunityId String
-  publicationId String?
-  attributionModel String @default("manual")
-  confidence Int @default(100)
-  attributedRevenue Float?
-  currency String @default("CAD")
-  notes String? @db.Text
-  createdById String
-  createdAt DateTime @default(now())
+  publicationId      String?
+  attributionModel   String            @default("manual")
+  confidence         Int               @default(100)
+  attributedRevenue  Float?
+  currency           String            @default("CAD")
+  notes              String?           @db.Text
+  createdById        String
+  createdAt          DateTime          @default(now())
 
   @@unique([orgId, campaignId, salesOpportunityId])
   @@index([orgId, salesOpportunityId])

@@ -95,6 +95,13 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   skill_list:                   { risk: "l0_read", allowRoles: "*" },
   skill_run:                    { risk: "l2_soft", allowRoles: ["admin"] },
   skill_create_from_description:{ risk: "l2_soft", allowRoles: ["admin"] },
+
+  // ── Growth Center（平台角色开放，工具内部再次校验组织成员） ───
+  marketing_get_growth_summary: { risk: "l0_read", allowRoles: "*" },
+  marketing_run_health_scan:    { risk: "l0_read", allowRoles: "*" },
+  marketing_analyze:            { risk: "l1_internal_write", allowRoles: "*" },
+  marketing_request_data_sync:  { risk: "l2_soft", allowRoles: "*" },
+  marketing_get_mmm_summary:    { risk: "l0_read", allowRoles: "*" },
 };
 
 /**
