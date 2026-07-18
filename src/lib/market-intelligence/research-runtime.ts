@@ -45,7 +45,7 @@ export function getMarketResearchModelConfig(
     || "gpt-5.6-sol";
   const fallbackModel = env.OPENAI_MODEL_MARKET_INTELLIGENCE_FALLBACK?.trim()
     || env.OPENAI_MODEL_MINI?.trim()
-    || "gpt-5.6-terra";
+    || "gpt-5.6-luna";
   return {
     primary: {
       model: primaryModel,
