@@ -118,7 +118,7 @@ F. 输出最多 3 个优先机会和第一个实验合同。
 只列会改变决策的缺失数据，不做泛泛的信息收集。`,
     outputFormat: "markdown",
     temperature: 0.25,
-    maxTokens: 4500,
+    maxTokens: 16000,
     inputSchema: {
       type: "object",
       properties: {

@@ -1,14 +1,18 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { db } from "@/lib/db";
-import {
-  ensureMarketingSkill,
-  MARKETING_SKILL_SLUG,
-} from "@/lib/market-intelligence/skill";
+import { ensureMarketingSkill } from "@/lib/market-intelligence/skill";
 import { listMarketIntelligenceWorkspace } from "@/lib/market-intelligence/service";
 import { canManageMarketIntelligence } from "@/lib/market-intelligence/access";
+import {
+  executeMarketResearchRun,
+  listMarketResearchRuns,
+  queueMarketResearchRun,
+} from "@/lib/market-intelligence/research-runtime";
+
+export const maxDuration = 300;
 
 const RATE_LIMIT = {
   name: "market-intelligence-analysis",
@@ -36,7 +40,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   if (!orgRes.ok) return orgRes.response;
 
   const skill = await ensureMarketingSkill(orgRes.orgId);
-  const [executions, automation, canManage] = await Promise.all([
+  const [executions, researchRuns, automation, canManage] = await Promise.all([
     db.skillExecution.findMany({
       where: { skillId: skill.id, success: true },
       orderBy: { createdAt: "desc" },
@@ -49,6 +53,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
         createdAt: true,
       },
     }),
+    listMarketResearchRuns(orgRes.orgId),
     listMarketIntelligenceWorkspace(orgRes.orgId),
     canManageMarketIntelligence({
       userId: user.id,
@@ -64,13 +69,42 @@ export const GET = withAuth(async (request, _ctx, user) => {
       description: skill.description,
       version: skill.version,
     },
-    executions: executions.map((execution) => ({
-      id: execution.id,
-      input: parseInputJson(execution.inputJson),
-      output: execution.outputJson,
-      durationMs: execution.durationMs,
-      createdAt: execution.createdAt,
-    })),
+    executions: [
+      ...researchRuns.map((run) => ({
+        id: run.id,
+        input: run.inputJson,
+        output: run.outputMarkdown,
+        durationMs: run.durationMs,
+        createdAt: run.createdAt,
+        status: run.status,
+        errorCode: run.errorCode,
+        error: run.error,
+        modelUsed: run.modelUsed,
+        fallbackUsed: run.fallbackUsed,
+        attempts: run.attempts,
+      })),
+      ...executions
+        .filter((execution) =>
+          !researchRuns.some((run) => run.skillExecutionId === execution.id)
+          && execution.outputJson !== "AI 处理总时间超限，请稍后重试"
+          && execution.outputJson !== "市场研究处理总时间超限，请稍后重试",
+        )
+        .map((execution) => ({
+          id: execution.id,
+          input: parseInputJson(execution.inputJson),
+          output: execution.outputJson,
+          durationMs: execution.durationMs,
+          createdAt: execution.createdAt,
+          status: "completed",
+          errorCode: null,
+          error: null,
+          modelUsed: null,
+          fallbackUsed: false,
+          attempts: 1,
+        })),
+    ]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 12),
     automation: { ...automation, canManage },
   });
 });
@@ -99,8 +133,6 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "决策目标过长" }, { status: 400 });
   }
 
-  await ensureMarketingSkill(orgRes.orgId);
-
   const keys = [
     "objective",
     "targetGeography",
@@ -118,19 +150,20 @@ export const POST = withAuth(async (request, _ctx, user) => {
     variables[key] = value.slice(0, 20_000);
   }
 
-  const { runSkill } = await import("@/lib/agent-core/skills/runtime");
-  const result = await runSkill({
-    slug: MARKETING_SKILL_SLUG,
-    variables,
-    userId: user.id,
+  const run = await queueMarketResearchRun({
     orgId: orgRes.orgId,
+    userId: user.id,
+    variables,
+  });
+  after(async () => {
+    await executeMarketResearchRun(run.id);
   });
 
   return NextResponse.json({
-    result: {
-      content: result.content,
-      executionId: result.executionId,
-      durationMs: result.durationMs,
+    run: {
+      id: run.id,
+      status: run.status,
+      createdAt: run.createdAt,
     },
-  });
+  }, { status: 202 });
 });

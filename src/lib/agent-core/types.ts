@@ -143,6 +143,18 @@ export interface AgentRunOptions {
   maxToolRounds?: number;
   /** AI 模型模式 */
   mode?: "chat" | "normal" | "deep" | "fast";
+  /** 单次任务覆盖模型（仅内部可信调用方使用） */
+  model?: string;
+  /** 单次任务最大完成 token */
+  maxTokens?: number;
+  /** 单次任务推理强度 */
+  reasoningEffort?: "low" | "medium" | "high";
+  /** 每轮模型调用超时 */
+  perRoundTimeoutMs?: number;
+  /** 整个 Agent 任务超时 */
+  totalTimeoutMs?: number;
+  /** 把超时作为真实失败抛出，供后台任务重试 */
+  throwOnTimeout?: boolean;
   /** 温度 */
   temperature?: number;
   /** 运行上下文 */

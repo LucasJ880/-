@@ -62,6 +62,7 @@ run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/conten
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"
 run_test "市场情报竞品监听规则" "npx tsx src/lib/market-intelligence/__tests__/rules.test.ts"
+run_test "市场情报深度研究模型与超时配置" "npx tsx src/lib/market-intelligence/__tests__/research-runtime.test.ts"
 run_test "销售可视化产品参考资产" "npx tsx src/lib/visualizer/__tests__/catalog-assets.test.ts"
 run_test "自动流本地时区调度" "npx tsx src/lib/automation/__tests__/local-time.test.ts"
 run_test "通用对话日历工具权限" "npx tsx src/lib/agent-core/tools/calendar-access.test.ts"

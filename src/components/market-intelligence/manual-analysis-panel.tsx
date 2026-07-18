@@ -47,9 +47,15 @@ interface AnalysisForm {
 interface ExecutionItem {
   id: string;
   input: Partial<AnalysisForm>;
-  output: string;
-  durationMs: number;
+  output: string | null;
+  durationMs: number | null;
   createdAt: string;
+  status: "queued" | "running" | "completed" | "failed";
+  errorCode: string | null;
+  error: string | null;
+  modelUsed: string | null;
+  fallbackUsed: boolean;
+  attempts: number;
 }
 
 const EMPTY_FORM: AnalysisForm = {
@@ -100,6 +106,7 @@ export default function MarketIntelligencePage() {
   const [tab, setTab] = useState<ResultTab>("analysis");
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -113,7 +120,14 @@ export default function MarketIntelligencePage() {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "加载市场情报工作区失败");
-      setRecent(data.executions ?? []);
+      const items = (data.executions ?? []) as ExecutionItem[];
+      setRecent(items);
+      const pending = items.find((item) => item.status === "queued" || item.status === "running");
+      if (pending) {
+        setActiveRunId((current) => current || pending.id);
+        setExecutionId((current) => current || pending.id);
+        setRunning(true);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
@@ -128,6 +142,44 @@ export default function MarketIntelligencePage() {
     }
     loadWorkspace();
   }, [ambiguous, loadWorkspace, orgId, orgLoading]);
+
+  useEffect(() => {
+    if (!activeRunId || !orgId) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await apiFetch(
+          `/api/operations/market-intelligence?orgId=${encodeURIComponent(orgId)}`,
+        );
+        const data = await res.json();
+        if (!res.ok || cancelled) return;
+        const items = (data.executions ?? []) as ExecutionItem[];
+        setRecent(items);
+        const active = items.find((item) => item.id === activeRunId);
+        if (!active) return;
+        if (active.status === "completed" && active.output) {
+          setResult(active.output);
+          setExecutionId(active.id);
+          setActiveRunId(null);
+          setRunning(false);
+          setError(null);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } else if (active.status === "failed") {
+          setActiveRunId(null);
+          setRunning(false);
+          setError(active.error || "市场研究任务失败");
+        }
+      } catch {
+        // 短暂断网不终止后台任务，下一轮继续轮询。
+      }
+    };
+    void check();
+    const timer = window.setInterval(check, 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeRunId, orgId]);
 
   const evidenceCoverage = useMemo(
     () => [
@@ -158,6 +210,7 @@ export default function MarketIntelligencePage() {
     if (!orgId || !form.objective.trim() || running) return;
     setRunning(true);
     setError(null);
+    setResult("");
     setTab("analysis");
     try {
       const res = await apiFetch("/api/operations/market-intelligence", {
@@ -167,13 +220,10 @@ export default function MarketIntelligencePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "分析失败");
-      setResult(data.result.content);
-      setExecutionId(data.result.executionId);
-      await loadWorkspace();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      setExecutionId(data.run.id);
+      setActiveRunId(data.run.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "分析失败");
-    } finally {
       setRunning(false);
     }
   }
@@ -186,6 +236,7 @@ export default function MarketIntelligencePage() {
   }
 
   function openExecution(item: ExecutionItem) {
+    if (item.status !== "completed" || !item.output) return;
     setForm((current) => ({ ...current, ...item.input }));
     setResult(item.output);
     setExecutionId(item.id);
@@ -316,7 +367,7 @@ export default function MarketIntelligencePage() {
           className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-          {running ? "分析运行中" : "运行市场分析"}
+          {running ? "深度研究运行中" : "运行市场分析"}
         </button>
       </div>
     </div>
@@ -428,8 +479,10 @@ export default function MarketIntelligencePage() {
             {running ? (
               <div className="flex min-h-[300px] flex-col items-center justify-center px-5 text-center sm:min-h-[420px] sm:px-6">
                 <Loader2 className="h-7 w-7 animate-spin text-accent" />
-                <p className="mt-4 text-sm font-medium">正在整理证据与决策链路</p>
-                <p className="mt-1 text-xs text-muted">分析完成后将自动生成优先机会与首个实验合同。</p>
+                <p className="mt-4 text-sm font-medium">后台正在整理证据与决策链路</p>
+                <p className="mt-1 max-w-md text-xs leading-5 text-muted">
+                  深度研究允许使用更长推理时间和最高 16K token。可以离开此页，返回后任务会继续。
+                </p>
               </div>
             ) : result ? (
               <div className="prose-ai max-w-none px-4 py-5 sm:px-6">
@@ -465,7 +518,8 @@ export default function MarketIntelligencePage() {
                 key={item.id}
                 type="button"
                 onClick={() => openExecution(item)}
-                className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left hover:bg-background/70"
+                disabled={item.status !== "completed" || !item.output}
+                className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left hover:bg-background/70 disabled:cursor-default disabled:hover:bg-transparent"
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-accent-soft text-accent">
                   <FileSearch size={15} />
@@ -474,15 +528,28 @@ export default function MarketIntelligencePage() {
                   <span className="block truncate text-sm font-medium text-foreground">
                     {item.input.objective || "未命名市场分析"}
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-muted">
-                    {[item.input.targetGeography, item.input.primaryProduct]
-                      .filter(Boolean)
-                      .join(" · ") || "未设置市场与产品"}
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+                    <span className="truncate">
+                      {[item.input.targetGeography, item.input.primaryProduct]
+                        .filter(Boolean)
+                        .join(" · ") || "未设置市场与产品"}
+                    </span>
+                    {item.status !== "completed" && (
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5",
+                        item.status === "failed" ? "bg-danger-bg text-danger" : "bg-accent-soft text-accent",
+                      )}>
+                        {item.status === "queued" ? "排队中" : item.status === "running" ? "研究中" : "失败"}
+                      </span>
+                    )}
+                    {item.fallbackUsed && <span className="text-warning-text">已使用备用模型</span>}
                   </span>
                 </span>
                 <span className="shrink-0 text-right text-[11px] text-muted">
                   <span className="block">{formatDate(item.createdAt)}</span>
-                  <span className="mt-0.5 block text-text-quaternary">{Math.max(1, Math.round(item.durationMs / 1000))}s</span>
+                  <span className="mt-0.5 block text-text-quaternary">
+                    {item.durationMs ? `${Math.max(1, Math.round(item.durationMs / 1000))}s` : `尝试 ${item.attempts} 次`}
+                  </span>
                 </span>
               </button>
             ))}

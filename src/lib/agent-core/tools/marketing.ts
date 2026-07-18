@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { runMarketingHealthGrader } from "@/lib/ai-grader/graders/marketing-health-grader";
-import { ensureMarketingSkill, MARKETING_SKILL_SLUG } from "@/lib/market-intelligence/skill";
+import { ensureMarketingSkill } from "@/lib/market-intelligence/skill";
 import { getMarketingDashboard } from "@/lib/marketing/query-dashboard";
 import { dispatchMarketingWorkflow } from "@/lib/marketing/workflows";
+import { queueMarketResearchRun } from "@/lib/market-intelligence/research-runtime";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
@@ -47,7 +48,7 @@ registry.register({
 
 registry.register({
   name: "marketing_analyze",
-  description: "使用青砚营销分析技能生成证据、优先机会和增长实验草案；只生成分析，不直接投放或发布",
+  description: "提交青砚深度营销研究任务，后台生成证据、优先机会和增长实验草案；不直接投放或发布",
   domain: "system",
   parameters: {
     type: "object",
@@ -76,9 +77,7 @@ registry.register({
       }),
     ]);
     const list = (value: unknown) => Array.isArray(value) ? value.map(String).join("、") : "";
-    const { runSkill } = await import("../skills/runtime");
-    const result = await runSkill({
-      slug: MARKETING_SKILL_SLUG,
+    const run = await queueMarketResearchRun({
       orgId: ctx.orgId,
       userId: ctx.userId,
       variables: {
@@ -93,7 +92,14 @@ registry.register({
         outputType: String(ctx.args.outputType || "comprehensive"),
       },
     });
-    return { success: true, data: { content: result.content, executionId: result.executionId } };
+    return {
+      success: true,
+      data: {
+        runId: run.id,
+        status: run.status,
+        message: "深度市场研究已进入后台队列，完成后可在市场情报工作区查看。",
+      },
+    };
   },
 });
 

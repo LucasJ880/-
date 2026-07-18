@@ -7,9 +7,46 @@
 
 import { db } from "@/lib/db";
 import { getBrandContext } from "@/lib/operations/brand-context";
-import { runAgent } from "../engine";
+import { AgentTimeoutError, runAgent } from "../engine";
 import type { ToolDomain } from "../types";
 import type { DynamicSkillDef, SkillRunInput, SkillRunOutput } from "./types";
+
+export type SkillRunFailureCode = "timeout" | "permission" | "rate_limit" | "model_error";
+
+export class SkillRunError extends Error {
+  constructor(
+    message: string,
+    public readonly code: SkillRunFailureCode,
+    public readonly executionId: string,
+    public readonly status?: number,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "SkillRunError";
+  }
+}
+
+function errorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object" || !("status" in error)) return undefined;
+  const status = Number(error.status);
+  return Number.isFinite(status) ? status : undefined;
+}
+
+function classifySkillFailure(error: unknown): { code: SkillRunFailureCode; message: string; status?: number } {
+  const status = errorStatus(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  const normalized = raw.toLowerCase();
+  if (error instanceof AgentTimeoutError || normalized.includes("timeout") || normalized.includes("超时")) {
+    return { code: "timeout", message: "AI 研究生成超时，系统将自动重试", status };
+  }
+  if (status === 401 || status === 403 || normalized.includes("insufficient permissions")) {
+    return { code: "permission", message: "AI 模型权限不足，请检查生产 API Key 与模型访问权限", status };
+  }
+  if (status === 429 || normalized.includes("rate limit")) {
+    return { code: "rate_limit", message: "AI 服务当前请求过多，系统将稍后重试", status };
+  }
+  return { code: "model_error", message: "AI 研究服务暂时不可用", status };
+}
 
 function compileTemplate(
   template: string,
@@ -105,17 +142,51 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     if (domain) domains.add(domain as ToolDomain);
   }
 
-  const result = await runAgent({
-    systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-    tools: skill.requiredTools.length > 0 ? skill.requiredTools : undefined,
-    domains: domains.size > 0 ? Array.from(domains) : undefined,
-    mode: "chat",
-    temperature: skill.temperature,
-    userId: input.userId,
-    orgId: input.orgId,
-    maxToolRounds: 3,
-  });
+  let result;
+  try {
+    result = await runAgent({
+      systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+      tools: skill.requiredTools.length > 0 ? skill.requiredTools : undefined,
+      domains: domains.size > 0 ? Array.from(domains) : undefined,
+      mode: "chat",
+      model: input.execution?.model,
+      maxTokens: input.execution?.maxTokens ?? skill.maxTokens,
+      reasoningEffort: input.execution?.reasoningEffort,
+      perRoundTimeoutMs: input.execution?.perRoundTimeoutMs,
+      totalTimeoutMs: input.execution?.totalTimeoutMs,
+      throwOnTimeout: true,
+      temperature: skill.temperature,
+      userId: input.userId,
+      orgId: input.orgId,
+      maxToolRounds: 3,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - start;
+    const failure = classifySkillFailure(error);
+    const execution = await db.skillExecution.create({
+      data: {
+        skillId: skill.id,
+        userId: input.userId,
+        inputJson: JSON.stringify(input.variables),
+        outputJson: JSON.stringify({
+          error: failure.message,
+          code: failure.code,
+          model: input.execution?.model ?? null,
+        }),
+        success: false,
+        durationMs,
+        promptSnapshot: `[SYSTEM]\n${systemPrompt}\n\n[USER]\n${userPrompt}`,
+      },
+    });
+    throw new SkillRunError(
+      failure.message,
+      failure.code,
+      execution.id,
+      failure.status,
+      { cause: error },
+    );
+  }
 
   const durationMs = Date.now() - start;
 
@@ -153,6 +224,7 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     parsed,
     toolCalls: result.toolCalls.map((tc) => ({ name: tc.name, args: tc.args })),
     durationMs,
+    model: result.model,
     executionId: execution.id,
   };
 }

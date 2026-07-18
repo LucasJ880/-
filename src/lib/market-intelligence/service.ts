@@ -15,7 +15,9 @@ import {
   verifyFirecrawlSignature,
   verifySharedWebhookToken,
 } from "./rules";
-import { ensureMarketingSkill, MARKETING_SKILL_SLUG } from "./skill";
+import { ensureMarketingSkill } from "./skill";
+import { runMarketingResearchSkill } from "./research-runtime";
+import { SkillRunError } from "@/lib/agent-core/skills/runtime";
 
 const DEFAULT_TIMEZONE = "America/Toronto";
 const ALLOWED_SCHEDULES = new Set(["daily", "weekly", "daily at 9:00", "weekly at 9:00"]);
@@ -542,9 +544,7 @@ export async function runMarketSignalAnalysis(signalId: string): Promise<boolean
 
   try {
     await ensureMarketingSkill(signal.orgId);
-    const { runSkill } = await import("@/lib/agent-core/skills/runtime");
-    const output = await runSkill({
-      slug: MARKETING_SKILL_SLUG,
+    const output = await runMarketingResearchSkill({
       variables,
       userId: competitor.createdById,
       orgId: signal.orgId,
@@ -572,7 +572,9 @@ export async function runMarketSignalAnalysis(signalId: string): Promise<boolean
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "自动分析失败";
-    const exhausted = signal.analysisAttempts >= MARKET_ANALYSIS_MAX_ATTEMPTS;
+    // 权限/鉴权问题不会通过等待自行恢复，立即停止，避免定时任务反复消耗。
+    const nonRetryable = error instanceof SkillRunError && error.code === "permission";
+    const exhausted = nonRetryable || signal.analysisAttempts >= MARKET_ANALYSIS_MAX_ATTEMPTS;
     const backoffIndex = Math.max(0, Math.min(signal.analysisAttempts - 1, MARKET_ANALYSIS_BACKOFF_MS.length - 1));
     await db.$transaction([
       db.marketAnalysisRun.update({

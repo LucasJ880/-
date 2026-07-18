@@ -28,6 +28,7 @@ expect(uniqueSlugs.size === OPERATIONS_SKILLS.length, "运营技能 slug 无重�
 expect(Boolean(marketingSkill), "存在 qingyan-marketing-analysis");
 expect(marketingSkill?.tier === "analysis", "营销 Skill 属于分析层");
 expect(marketingSkill?.outputFormat === "markdown", "营销 Skill 输出 Markdown");
+expect(marketingSkill?.maxTokens === 16000, "市场深度研究输出预算提升至 16K");
 expect(
   marketingSkill?.systemPrompt.includes("已观察事实") === true &&
     marketingSkill.systemPrompt.includes("基于事实的推断") &&

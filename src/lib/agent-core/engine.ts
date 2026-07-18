@@ -38,7 +38,7 @@ const TOTAL_TIMEOUT_MS = 90_000;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-class AgentTimeoutError extends Error {
+export class AgentTimeoutError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AgentTimeoutError";
@@ -167,8 +167,15 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 
   const preset = getTaskPreset(mode);
   const client = getClient();
-  const model = preset.model;
-  const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
+  const model = options.model?.trim() || preset.model;
+  const maxCompletionTokens = Math.max(256, Math.min(options.maxTokens ?? preset.maxTokens, 32_768));
+  const perRoundTimeoutMs = Math.max(5_000, Math.min(options.perRoundTimeoutMs ?? PER_ROUND_TIMEOUT_MS, 240_000));
+  const totalTimeoutMs = Math.max(
+    perRoundTimeoutMs,
+    Math.min(options.totalTimeoutMs ?? TOTAL_TIMEOUT_MS, 300_000),
+  );
+  const reasoningEffort = options.reasoningEffort ?? preset.reasoningEffort;
+  const totalDeadline = Date.now() + totalTimeoutMs;
   const externalSignal = options.abortSignal;
   const hooks = options.hooks;
   const runStartedAt = Date.now();
@@ -211,11 +218,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       const createParams: any = {
         model,
         messages,
-        max_completion_tokens: preset.maxTokens,
+        max_completion_tokens: maxCompletionTokens,
         ...buildTuningParams(
           model,
           temperature ?? preset.temperature,
-          preset.reasoningEffort,
+          reasoningEffort,
           { hasFunctionTools: openaiTools.length > 0 },
         ),
       };
@@ -226,7 +233,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       const response = await llmCallWithTimeout(
         client,
         createParams,
-        Math.min(PER_ROUND_TIMEOUT_MS, remaining),
+        Math.min(perRoundTimeoutMs, remaining),
         externalSignal,
       );
 
@@ -308,6 +315,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 
     // 超过最大轮数，做一次最终总结
     const remaining = totalDeadline - Date.now();
+    if (remaining <= 0) {
+      throw new AgentTimeoutError("市场研究处理总时间超限，请稍后重试");
+    }
     const finalResponse = await llmCallWithTimeout(
       client,
       {
@@ -316,10 +326,10 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           ...messages,
           { role: "user", content: "请基于以上工具返回的数据，给出最终回复。" },
         ],
-        max_completion_tokens: preset.maxTokens,
-        ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
+        max_completion_tokens: maxCompletionTokens,
+        ...buildTuningParams(model, temperature ?? preset.temperature, reasoningEffort),
       },
-      Math.max(remaining, 5000),
+      Math.min(perRoundTimeoutMs, remaining),
       externalSignal,
     );
 
@@ -349,6 +359,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         success: false,
         errorMessage: err.message,
       });
+      if (options.throwOnTimeout) throw err;
       return result;
     }
     fireFinishHook(hooks, {
@@ -395,8 +406,15 @@ export async function* runAgentStream(
 
   const preset = getTaskPreset(mode);
   const client = getClient();
-  const model = preset.model;
-  const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS;
+  const model = options.model?.trim() || preset.model;
+  const maxCompletionTokens = Math.max(256, Math.min(options.maxTokens ?? preset.maxTokens, 32_768));
+  const perRoundTimeoutMs = Math.max(5_000, Math.min(options.perRoundTimeoutMs ?? PER_ROUND_TIMEOUT_MS, 240_000));
+  const totalTimeoutMs = Math.max(
+    perRoundTimeoutMs,
+    Math.min(options.totalTimeoutMs ?? TOTAL_TIMEOUT_MS, 300_000),
+  );
+  const reasoningEffort = options.reasoningEffort ?? preset.reasoningEffort;
+  const totalDeadline = Date.now() + totalTimeoutMs;
   const startedAt = Date.now();
   const hooks = options.hooks;
   let firstTokenMs: number | undefined;
@@ -471,18 +489,18 @@ export async function* runAgentStream(
         yield errorEvent("AI 处理总时间超限，请稍后重试");
         return;
       }
-      const perRoundMs = Math.min(PER_ROUND_TIMEOUT_MS, remaining);
+      const perRoundMs = Math.min(perRoundTimeoutMs, remaining);
 
       const createParams: any = {
         model,
         messages,
-        max_completion_tokens: preset.maxTokens,
+        max_completion_tokens: maxCompletionTokens,
         stream: true,
         stream_options: { include_usage: true },
         ...buildTuningParams(
           model,
           temperature ?? preset.temperature,
-          preset.reasoningEffort,
+          reasoningEffort,
           { hasFunctionTools: openaiTools.length > 0 },
         ),
       };
@@ -679,9 +697,9 @@ export async function* runAgentStream(
             ...messages,
             { role: "user", content: "请基于以上工具返回的数据，给出最终回复。" },
           ],
-          max_completion_tokens: preset.maxTokens,
+          max_completion_tokens: maxCompletionTokens,
           stream: true,
-          ...buildTuningParams(model, temperature ?? preset.temperature, preset.reasoningEffort),
+          ...buildTuningParams(model, temperature ?? preset.temperature, reasoningEffort),
         },
         { signal: abortSignal },
       );

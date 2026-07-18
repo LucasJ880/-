@@ -30,6 +30,13 @@ export interface SkillRunInput {
   variables: Record<string, string>;
   userId: string;
   orgId: string;
+  execution?: {
+    model?: string;
+    maxTokens?: number;
+    reasoningEffort?: "low" | "medium" | "high";
+    perRoundTimeoutMs?: number;
+    totalTimeoutMs?: number;
+  };
 }
 
 export interface SkillRunOutput {
@@ -39,6 +46,7 @@ export interface SkillRunOutput {
   toolCalls: { name: string; args: Record<string, unknown> }[];
   durationMs: number;
   tokenCount?: number;
+  model: string;
   executionId: string;
 }
 
