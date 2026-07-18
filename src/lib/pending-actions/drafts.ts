@@ -22,6 +22,10 @@ export interface CreateDraftInput {
   preview: string;
   payload: Record<string, unknown>;
   userId: string;
+  orgId?: string;
+  projectId?: string;
+  approverUserId?: string;
+  requiredRole?: string;
   threadId?: string;
   messageId?: string;
   /** 过期小时数（默认 24） */
@@ -46,6 +50,10 @@ export async function createDraft(
       payload: input.payload as object,
       status: "pending",
       createdById: input.userId,
+      orgId: input.orgId,
+      projectId: input.projectId,
+      approverUserId: input.approverUserId,
+      requiredRole: input.requiredRole,
       threadId: input.threadId,
       messageId: input.messageId,
       expiresAt,
@@ -55,6 +63,8 @@ export async function createDraft(
 
   await logAudit({
     userId: input.userId,
+    orgId: input.orgId,
+    projectId: input.projectId,
     action: "ai_draft_create",
     targetType: "pending_action",
     targetId: action.id,

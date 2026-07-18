@@ -5,6 +5,7 @@ import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { requireMarketingWriteAccess } from "@/lib/marketing/access";
 import { createDraft } from "@/lib/pending-actions/drafts";
 import { logAudit } from "@/lib/audit/logger";
+import { ensureGrowthCenterProject, resolveMarketingLeader } from "@/lib/marketing/team";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
@@ -59,12 +60,18 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   let pendingAction: unknown = null;
   if (requestApproval) {
+    const project = await ensureGrowthCenterProject(orgRes.orgId, user.id);
+    const leaderId = await resolveMarketingLeader({ orgId: orgRes.orgId, projectId: project.id, requesterId: user.id });
     const draft = await createDraft({
       type: "marketing.activate_campaign",
       title: `审批营销活动：${campaign.name}`,
       preview: [`目标：${campaign.objective}`, campaign.product && `产品：${campaign.product}`, campaign.geography && `地域：${campaign.geography}`, campaign.budget != null && `预算：${campaign.currency} ${campaign.budget}`].filter(Boolean).join("\n"),
       payload: { campaignId: campaign.id, metadata: { orgId: orgRes.orgId, targetType: "marketing_campaign", targetId: campaign.id } },
       userId: user.id,
+      orgId: orgRes.orgId,
+      projectId: project.id,
+      approverUserId: leaderId,
+      requiredRole: "project_admin",
       ttlHours: 72,
     });
     pendingAction = draft.data;

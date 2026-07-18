@@ -56,6 +56,11 @@ interface ExecutionItem {
   modelUsed: string | null;
   fallbackUsed: boolean;
   attempts: number;
+  createdById: string | null;
+  requesterName: string;
+  planId: string | null;
+  planStatus: "none" | "awaiting_approval" | "active" | "rejected" | "failed";
+  pendingActionId: string | null;
 }
 
 const EMPTY_FORM: AnalysisForm = {
@@ -201,6 +206,10 @@ export default function MarketIntelligencePage() {
     }
     return result;
   }, [result, tab]);
+  const selectedExecution = useMemo(
+    () => recent.find((item) => item.id === executionId) ?? null,
+    [executionId, recent],
+  );
 
   function updateField<K extends keyof AnalysisForm>(key: K, value: AnalysisForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -452,6 +461,22 @@ export default function MarketIntelligencePage() {
             </div>
 
             {result && (
+              <div className="border-b border-border bg-accent-soft/60 px-4 py-3 text-xs text-foreground sm:px-6">
+                {selectedExecution?.planStatus === "awaiting_approval" ? (
+                  <span>已自动生成 30 天运营计划，正在等待 Leader 审批。审批通过后会自动创建并指派任务。</span>
+                ) : selectedExecution?.planStatus === "active" ? (
+                  <span>运营计划已获批准，执行任务已进入增长项目。 </span>
+                ) : selectedExecution?.planStatus === "rejected" ? (
+                  <span>运营计划已被退回，报告仍保留，可调整后重新规划。</span>
+                ) : selectedExecution?.planStatus === "failed" ? (
+                  <span>报告已完成，但自动生成计划失败；请在增长中心手动创建计划。</span>
+                ) : (
+                  <span>报告完成后会自动生成运营计划草案，并交由 Leader 审批。</span>
+                )}
+              </div>
+            )}
+
+            {result && (
               <div className="flex gap-1 overflow-x-auto border-b border-border px-3 py-2">
                 {[
                   { id: "analysis" as const, label: "决策分析", icon: FileSearch },
@@ -543,6 +568,9 @@ export default function MarketIntelligencePage() {
                       </span>
                     )}
                     {item.fallbackUsed && <span className="text-warning-text">已使用备用模型</span>}
+                    <span>提交人：{item.requesterName}</span>
+                    {item.planStatus === "awaiting_approval" && <span className="text-warning-text">计划待 Leader 审批</span>}
+                    {item.planStatus === "active" && <span className="text-success">计划执行中</span>}
                   </span>
                 </span>
                 <span className="shrink-0 text-right text-[11px] text-muted">

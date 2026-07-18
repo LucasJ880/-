@@ -13,6 +13,7 @@ import {
   approveApprovalItem,
   rejectApprovalItem,
 } from "@/lib/approval/port";
+import { canDecideTeamApproval } from "@/lib/marketing/team";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -27,12 +28,15 @@ export const POST = withAuth(async (request, ctx, user) => {
       title: true,
       preview: true,
       expiresAt: true,
+      orgId: true,
+      projectId: true,
+      approverUserId: true,
     },
   });
   if (!action) {
     return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
   }
-  if (action.createdById !== user.id) {
+  if (!(await canDecideTeamApproval(action, { userId: user.id, role: user.role, orgId: action.orgId }))) {
     return NextResponse.json({ error: "无权操作" }, { status: 403 });
   }
 
@@ -44,6 +48,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     const result = await approveApprovalItem("pending_action", id, {
       userId: user.id,
       role: user.role,
+      orgId: action.orgId,
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -63,6 +68,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     const result = await rejectApprovalItem("pending_action", id, {
       userId: user.id,
       role: user.role,
+      orgId: action.orgId,
       note: reason,
     });
     if (!result.ok) {

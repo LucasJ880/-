@@ -21,6 +21,7 @@ import {
   escalateApproval,
 } from "@/lib/agent/approval";
 import { resumeFlowAfterApproval } from "@/lib/agent-core/skills/flow-runner";
+import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
 
 export type ApprovalKind = "pending_action" | "approval_request";
 
@@ -69,10 +70,16 @@ export interface ApprovalDecisionResult {
 export async function listApprovalInbox(
   userId: string,
 ): Promise<ApprovalInboxItem[]> {
+  const access = await getTeamApprovalAccessIds(userId);
   const [pendingActions, approvalRequests] = await Promise.all([
     db.pendingAction.findMany({
       where: {
-        createdById: userId,
+        OR: [
+          { createdById: userId, orgId: null, projectId: null, approverUserId: null },
+          { approverUserId: userId },
+          ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
+          ...(access.projectIds.length ? [{ projectId: { in: access.projectIds } }] : []),
+        ],
         status: "pending",
         expiresAt: { gt: new Date() },
       },
@@ -87,6 +94,7 @@ export async function listApprovalInbox(
         threadId: true,
         expiresAt: true,
         createdAt: true,
+        projectId: true,
       },
     }),
     getPendingApprovals(userId),
@@ -104,7 +112,7 @@ export async function listApprovalInbox(
         status: a.status,
         createdAt: a.createdAt,
         dueAt: a.expiresAt,
-        source: { threadId: a.threadId },
+        source: { threadId: a.threadId, projectId: a.projectId ?? undefined },
       }),
     ),
     ...approvalRequests.map(

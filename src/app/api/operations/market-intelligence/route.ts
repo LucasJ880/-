@@ -11,6 +11,7 @@ import {
   listMarketResearchRuns,
   queueMarketResearchRun,
 } from "@/lib/market-intelligence/research-runtime";
+import { validateAuditContext, validateBrandTruth } from "@/lib/marketing/brand-validation";
 
 export const maxDuration = 300;
 
@@ -61,6 +62,13 @@ export const GET = withAuth(async (request, _ctx, user) => {
       orgId: orgRes.orgId,
     }),
   ]);
+  const researchUsers = researchRuns.length
+    ? await db.user.findMany({
+        where: { id: { in: [...new Set(researchRuns.map((run) => run.createdById))] } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const researchUserNames = new Map(researchUsers.map((row) => [row.id, row.name || row.email]));
 
   return NextResponse.json({
     skill: {
@@ -82,6 +90,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
         modelUsed: run.modelUsed,
         fallbackUsed: run.fallbackUsed,
         attempts: run.attempts,
+        createdById: run.createdById,
+        requesterName: researchUserNames.get(run.createdById) ?? "未知成员",
+        planId: run.planId,
+        planStatus: run.planStatus,
+        pendingActionId: run.pendingActionId,
       })),
       ...executions
         .filter((execution) =>
@@ -101,6 +114,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
           modelUsed: null,
           fallbackUsed: false,
           attempts: 1,
+          createdById: null,
+          requesterName: "历史任务",
+          planId: null,
+          planStatus: "none",
+          pendingActionId: null,
         })),
     ]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -149,6 +167,36 @@ export const POST = withAuth(async (request, _ctx, user) => {
     const value = typeof body[key] === "string" ? body[key].trim() : "";
     variables[key] = value.slice(0, 20_000);
   }
+
+  const profile = await db.marketingBrandProfile.findUnique({ where: { orgId: orgRes.orgId } });
+  if (!profile || profile.validationStatus !== "valid") {
+    return NextResponse.json({ error: "请先在企业事实中心完成并通过画像校验" }, { status: 409 });
+  }
+  const truth = validateBrandTruth({
+    ...profile,
+    products: profile.productsJson,
+    serviceAreas: profile.serviceAreasJson,
+    targetAudiences: profile.targetAudiencesJson,
+    competitors: profile.competitorsJson,
+    forbiddenContexts: profile.forbiddenContextsJson,
+  }).value;
+  const contextIssues = validateAuditContext(truth, {
+    geography: variables.targetGeography,
+    industry: truth.industry,
+    product: variables.primaryProduct,
+    competitors: variables.competitors,
+    query: `${variables.objective}\n${variables.marketEvidence}`,
+  });
+  if (contextIssues.some((issue) => issue.severity === "error")) {
+    return NextResponse.json({
+      error: "研究范围与企业事实不一致，请先确认地域、产品和竞争对手",
+      issues: contextIssues,
+    }, { status: 422 });
+  }
+  variables.targetGeography ||= truth.serviceAreas.join("、");
+  variables.primaryProduct ||= truth.products.join("、");
+  variables.competitors ||= truth.competitors.join("、") || "未确认竞争对手，请标记待验证";
+  variables.industry = truth.industry;
 
   const run = await queueMarketResearchRun({
     orgId: orgRes.orgId,

@@ -103,7 +103,9 @@ model User {
   coachingRecords CoachingRecord[] @relation("CoachingRecordUser")
 
   // PR4 — AI 待审批动作
-  pendingActionsCreated PendingAction[] @relation("PendingActionCreatedBy")
+  pendingActionsCreated  PendingAction[] @relation("PendingActionCreatedBy")
+  pendingActionsAssigned PendingAction[] @relation("PendingActionApprover")
+  pendingActionsDecided  PendingAction[] @relation("PendingActionDecidedBy")
 
   /// 外贸线索转入销售 CRM 的操作人
   tradeProspectsConverted         TradeProspect[]          @relation("TradeProspectConvertedBy")
@@ -1532,6 +1534,15 @@ model PendingAction {
   createdById String
   createdBy   User   @relation("PendingActionCreatedBy", fields: [createdById], references: [id])
 
+  /// 团队审批范围。为空时保持旧语义：只有创建人本人可处理。
+  orgId          String?
+  projectId      String?
+  approverUserId String?
+  approver       User?   @relation("PendingActionApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
+  requiredRole   String?
+  decidedById    String?
+  decidedBy      User?   @relation("PendingActionDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
   /**
    * 触发生成的 AI 会话（用于回查上下文）
    */
@@ -1571,6 +1582,9 @@ model PendingAction {
   updatedAt DateTime @updatedAt
 
   @@index([createdById, status, createdAt])
+  @@index([approverUserId, status, createdAt])
+  @@index([orgId, status, createdAt])
+  @@index([projectId, status, createdAt])
   @@index([threadId])
 }
 
@@ -2225,30 +2239,36 @@ model MarketAnalysisRun {
 
 /// 用户主动提交的深度市场研究。与请求解耦，由 after/cron 在后台执行。
 model MarketResearchRun {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   orgId            String
-  status           String   @default("queued") // queued | running | completed | failed
+  status           String    @default("queued") // queued | running | completed | failed
   inputJson        Json
-  outputMarkdown   String?  @db.Text
+  outputMarkdown   String?   @db.Text
   errorCode        String?
-  error             String?  @db.VarChar(2000)
-  attempts         Int      @default(0)
+  error            String?   @db.VarChar(2000)
+  attempts         Int       @default(0)
   nextAttemptAt    DateTime?
   leaseExpiresAt   DateTime?
   primaryModel     String
   fallbackModel    String?
   modelUsed        String?
-  fallbackUsed     Boolean  @default(false)
+  fallbackUsed     Boolean   @default(false)
   skillExecutionId String?
   createdById      String
+  projectId        String?
+  planId           String?   @unique
+  pendingActionId  String?
+  actionDraftJson  Json?
+  planStatus       String    @default("none") // none | awaiting_approval | active | rejected | failed
   startedAt        DateTime?
   completedAt      DateTime?
   durationMs       Int?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([orgId, createdAt])
   @@index([orgId, status, createdAt])
+  @@index([orgId, planStatus, createdAt])
   @@index([status, nextAttemptAt])
   @@index([status, leaseExpiresAt])
 }
@@ -4170,38 +4190,47 @@ model MarketingFinding {
 }
 
 model MarketingPlan {
-  id           String              @id @default(cuid())
-  orgId        String
-  name         String
-  objective    String
-  startDate    DateTime            @db.Date
-  endDate      DateTime            @db.Date
-  status       String              @default("draft") // draft / active / completed / canceled
-  createdById  String
-  approvedById String?
-  approvedAt   DateTime?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  items        MarketingPlanItem[]
+  id                  String              @id @default(cuid())
+  orgId               String
+  name                String
+  objective           String
+  startDate           DateTime            @db.Date
+  endDate             DateTime            @db.Date
+  status              String              @default("draft") // draft / awaiting_approval / active / completed / canceled
+  createdById         String
+  approvedById        String?
+  approvedAt          DateTime?
+  projectId           String?
+  sourceResearchRunId String?             @unique
+  pendingActionId     String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  items               MarketingPlanItem[]
 
   @@index([orgId, status, startDate])
 }
 
 model MarketingPlanItem {
-  id          String        @id @default(cuid())
-  orgId       String
-  planId      String
-  plan        MarketingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  dayOffset   Int
-  category    String // repair / content / growth / experiment
-  title       String
-  description String?       @db.Text
-  priority    String        @default("medium")
-  status      String        @default("planned")
-  taskId      String?
-  findingId   String?
-  dueDate     DateTime      @db.Date
-  createdAt   DateTime      @default(now())
+  id              String        @id @default(cuid())
+  orgId           String
+  planId          String
+  plan            MarketingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayOffset       Int
+  category        String // repair / content / growth / experiment
+  title           String
+  description     String?       @db.Text
+  priority        String        @default("medium")
+  status          String        @default("planned")
+  taskId          String?
+  findingId       String?
+  ownerId         String?
+  successMetric   String?
+  targetValue     String?
+  stopCondition   String?       @db.Text
+  evidenceSummary String?       @db.Text
+  confidence      Int?
+  dueDate         DateTime      @db.Date
+  createdAt       DateTime      @default(now())
 
   @@index([orgId, dueDate])
   @@index([planId, dayOffset])

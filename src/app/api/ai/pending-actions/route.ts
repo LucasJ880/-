@@ -6,15 +6,22 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") ?? "pending";
   const threadId = searchParams.get("threadId");
 
+  const access = await getTeamApprovalAccessIds(user.id);
   const actions = await db.pendingAction.findMany({
     where: {
-      createdById: user.id,
+      OR: [
+        { createdById: user.id, orgId: null, projectId: null, approverUserId: null },
+        { approverUserId: user.id },
+        ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
+        ...(access.projectIds.length ? [{ projectId: { in: access.projectIds } }] : []),
+      ],
       ...(status === "all" ? {} : { status }),
       ...(threadId ? { threadId } : {}),
     },
@@ -34,6 +41,12 @@ export const GET = withAuth(async (request, _ctx, user) => {
       failureReason: true,
       resultRef: true,
       createdAt: true,
+      orgId: true,
+      projectId: true,
+      approverUserId: true,
+      createdById: true,
+      createdBy: { select: { name: true, email: true } },
+      approver: { select: { name: true, email: true } },
     },
   });
 
@@ -52,6 +65,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const enriched = actions.map((a) => ({
     ...a,
+    requesterName: a.createdBy.name || a.createdBy.email,
+    approverName: a.approver?.name || a.approver?.email || null,
+    createdBy: undefined,
+    approver: undefined,
     threadTitle: a.threadId ? (threadTitleById.get(a.threadId) ?? null) : null,
   }));
 

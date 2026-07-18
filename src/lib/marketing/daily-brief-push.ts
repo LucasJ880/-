@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { pushMessage } from "@/lib/messaging/gateway";
 import { buildMarketingDailyBrief } from "./wechat-daily-brief";
+import { GROWTH_CENTER_WORKFLOW } from "./team";
 
 export async function pushMarketingDailyBrief(orgId: string) {
   const organization = await db.organization.findUnique({
@@ -14,7 +15,22 @@ export async function pushMarketingDailyBrief(orgId: string) {
     },
   });
   if (!organization) throw new Error("组织不存在");
-  const recipients = [...new Set([organization.ownerId, ...organization.members.map((row) => row.userId)])];
+  const growthProjects = await db.project.findMany({
+    where: { orgId, status: "active", workflowTemplate: GROWTH_CENTER_WORKFLOW },
+    select: {
+      ownerId: true,
+      members: {
+        where: { status: "active", role: "project_admin" },
+        select: { userId: true },
+      },
+    },
+  });
+  const recipients = [...new Set([
+    organization.ownerId,
+    ...organization.members.map((row) => row.userId),
+    ...growthProjects.map((row) => row.ownerId),
+    ...growthProjects.flatMap((row) => row.members.map((member) => member.userId)),
+  ])];
   const content = await buildMarketingDailyBrief(orgId);
   const results = [];
   for (const userId of recipients) {

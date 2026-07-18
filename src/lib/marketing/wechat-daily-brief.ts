@@ -11,8 +11,16 @@ export function formatMarketingDailyBrief(data: Awaited<ReturnType<typeof getMar
     `本月成交贡献：${money}`,
     `运行中实验：${data.summary.runningExperiments}`,
     `待审批内容：${data.summary.pendingContent}`,
+    `待 Leader 审批计划：${data.summary.pendingTeamApprovals}`,
     "",
   ];
+  if (data.pendingTeamApprovals.length > 0) {
+    lines.push("待审批计划：");
+    data.pendingTeamApprovals.slice(0, 3).forEach((approval, index) => {
+      lines.push(`${index + 1}. ${approval.requester.name} 提交 · ${approval.title.replace(/^审批研究运营计划：/, "")}`);
+    });
+    lines.push("");
+  }
   if (data.highPriorityFindings.length > 0) {
     lines.push("今日优先：");
     data.highPriorityFindings.slice(0, 3).forEach((finding, index) => lines.push(`${index + 1}. ${finding.title}`));

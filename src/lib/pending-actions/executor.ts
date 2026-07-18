@@ -25,6 +25,7 @@ import type {
   ProjectTaskPayload,
   EmailDraftPayload,
   MarketingActivateCampaignPayload,
+  MarketingApproveResearchPlanPayload,
 } from "./types";
 import {
   isUnsupportedPendingActionType,
@@ -35,6 +36,9 @@ import {
   EMAIL_DRAFT_SUBJECT_MAX_LEN,
   EMAIL_DRAFT_BODY_MAX_LEN,
 } from "./types";
+import { canDecideTeamApproval } from "@/lib/marketing/team";
+import { createNotification } from "@/lib/notifications/create";
+import { pushMessage } from "@/lib/messaging/gateway";
 
 interface ExecuteContext {
   userId: string;
@@ -78,7 +82,7 @@ export async function executePendingAction(
     return { ok: false, error: "草稿不存在" };
   }
 
-  if (action.createdById !== ctx.userId) {
+  if (!(await canDecideTeamApproval(action, ctx))) {
     return { ok: false, error: "无权操作该草稿" };
   }
 
@@ -120,7 +124,7 @@ export async function executePendingAction(
   // 标记为 approved（进入执行态），避免并发重复执行
   await db.pendingAction.update({
     where: { id: actionId },
-    data: { status: "approved", decidedAt: new Date() },
+    data: { status: "approved", decidedAt: new Date(), decidedById: ctx.userId },
   });
 
   let exec: ExecuteResult;
@@ -165,6 +169,12 @@ export async function executePendingAction(
       case "marketing.activate_campaign":
         exec = await execMarketingActivateCampaign(
           action.payload as unknown as MarketingActivateCampaignPayload,
+          ctx,
+        );
+        break;
+      case "marketing.approve_research_plan":
+        exec = await execMarketingApproveResearchPlan(
+          action.payload as unknown as MarketingApproveResearchPlanPayload,
           ctx,
         );
         break;
@@ -214,6 +224,98 @@ export async function executePendingAction(
   return exec;
 }
 
+async function execMarketingApproveResearchPlan(
+  payload: MarketingApproveResearchPlanPayload,
+  ctx: ExecuteContext,
+): Promise<ExecuteResult> {
+  const orgId = payload?.metadata?.orgId;
+  if (!orgId || !payload.planId || !payload.projectId || !payload.researchRunId) {
+    return { ok: false, error: "计划审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+
+  const plan = await db.marketingPlan.findFirst({
+    where: {
+      id: payload.planId,
+      orgId,
+      projectId: payload.projectId,
+      sourceResearchRunId: payload.researchRunId,
+    },
+    include: { items: { orderBy: [{ dayOffset: "asc" }, { createdAt: "asc" }] } },
+  });
+  if (!plan) return { ok: false, error: "运营计划不存在或不属于当前组织" };
+  if (plan.status !== "awaiting_approval" && plan.status !== "draft") {
+    return { ok: false, error: `计划状态 ${plan.status} 不允许批准` };
+  }
+
+  await db.$transaction(async (tx) => {
+    for (const item of plan.items) {
+      if (item.taskId) continue;
+      const task = await tx.task.create({
+        data: {
+          projectId: payload.projectId,
+          creatorId: payload.requestedById,
+          assigneeId: item.ownerId ?? payload.requestedById,
+          title: item.title.slice(0, 200),
+          description: item.description,
+          priority: item.priority,
+          dueDate: item.dueDate,
+        },
+      });
+      await tx.taskActivity.create({
+        data: {
+          taskId: task.id,
+          actorId: ctx.userId,
+          action: "created_from_marketing_plan",
+          detail: `Leader 批准研究计划后创建；计划 ${plan.id}`,
+        },
+      });
+      await tx.marketingPlanItem.update({
+        where: { id: item.id },
+        data: { taskId: task.id, status: "tasked" },
+      });
+    }
+    await tx.marketingPlan.update({
+      where: { id: plan.id },
+      data: { status: "active", approvedById: ctx.userId, approvedAt: new Date() },
+    });
+    await tx.marketResearchRun.updateMany({
+      where: { id: payload.researchRunId, orgId, planId: plan.id },
+      data: { planStatus: "active" },
+    });
+  });
+
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    projectId: payload.projectId,
+    action: "marketing_plan_approved",
+    targetType: "marketing_plan",
+    targetId: plan.id,
+    beforeData: { status: plan.status },
+    afterData: { status: "active", taskCount: plan.items.length, sourceResearchRunId: payload.researchRunId },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    await Promise.allSettled([
+      createNotification({
+        userId: payload.requestedById,
+        type: "marketing_plan_approved",
+        category: "marketing",
+        title: "研究运营计划已批准",
+        summary: `Leader 已批准计划，并创建 ${plan.items.length} 个执行任务。`,
+        projectId: payload.projectId,
+        entityType: "marketing_plan",
+        entityId: plan.id,
+        priority: "high",
+        sourceKey: `marketing-plan:${plan.id}:approved`,
+        metadata: { route: "/operations/growth", researchRunId: payload.researchRunId },
+      }),
+      pushMessage(payload.requestedById, `【青砚运营计划】\nLeader 已批准你的研究计划，并创建 ${plan.items.length} 个执行任务。\n请前往增长中心查看分工与截止日期。`, { channels: ["personal_wechat", "wecom"] }),
+    ]);
+  }
+  return { ok: true, resultRef: plan.id, message: `计划已批准，已创建 ${plan.items.length} 个执行任务` };
+}
+
 async function execMarketingActivateCampaign(
   payload: MarketingActivateCampaignPayload,
   ctx: ExecuteContext,
@@ -259,7 +361,7 @@ export async function rejectPendingAction(
     where: { id: actionId },
   });
   if (!action) return { ok: false, error: "草稿不存在" };
-  if (action.createdById !== ctx.userId) {
+  if (!(await canDecideTeamApproval(action, ctx))) {
     return { ok: false, error: "无权操作该草稿" };
   }
   if (action.status !== "pending") {
@@ -271,12 +373,49 @@ export async function rejectPendingAction(
     data: {
       status: "rejected",
       decidedAt: new Date(),
+      decidedById: ctx.userId,
       failureReason: reason ?? undefined,
     },
   });
 
+  if (action.type === "marketing.approve_research_plan") {
+    const payload = action.payload as unknown as MarketingApproveResearchPlanPayload;
+    if (payload.metadata?.orgId) {
+      await db.$transaction([
+        db.marketingPlan.updateMany({
+          where: { id: payload.planId, orgId: payload.metadata.orgId, status: "awaiting_approval" },
+          data: { status: "canceled" },
+        }),
+        db.marketResearchRun.updateMany({
+          where: { id: payload.researchRunId, orgId: payload.metadata.orgId, planId: payload.planId },
+          data: { planStatus: "rejected" },
+        }),
+      ]);
+      if (payload.requestedById !== ctx.userId) {
+        await Promise.allSettled([
+          createNotification({
+            userId: payload.requestedById,
+            type: "marketing_plan_rejected",
+            category: "marketing",
+            title: "研究运营计划已退回",
+            summary: reason || "Leader 已退回计划，请调整后重新提交。",
+            projectId: payload.projectId,
+            entityType: "marketing_plan",
+            entityId: payload.planId,
+            priority: "high",
+            sourceKey: `marketing-plan:${payload.planId}:rejected`,
+            metadata: { route: "/operations/growth", researchRunId: payload.researchRunId },
+          }),
+          pushMessage(payload.requestedById, `【青砚运营计划】\nLeader 已退回你的研究计划。\n原因：${reason || "请调整后重新提交"}`, { channels: ["personal_wechat", "wecom"] }),
+        ]);
+      }
+    }
+  }
+
   await logAudit({
     userId: ctx.userId,
+    orgId: action.orgId,
+    projectId: action.projectId,
     action: "ai_draft_reject",
     targetType: "pending_action",
     targetId: actionId,

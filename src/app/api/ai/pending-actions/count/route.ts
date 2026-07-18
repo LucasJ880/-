@@ -7,11 +7,18 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
 
 export const GET = withAuth(async (_request, _ctx, user) => {
+  const access = await getTeamApprovalAccessIds(user.id);
   const count = await db.pendingAction.count({
     where: {
-      createdById: user.id,
+      OR: [
+        { createdById: user.id, orgId: null, projectId: null, approverUserId: null },
+        { approverUserId: user.id },
+        ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
+        ...(access.projectIds.length ? [{ projectId: { in: access.projectIds } }] : []),
+      ],
       status: "pending",
       expiresAt: { gt: new Date() },
     },

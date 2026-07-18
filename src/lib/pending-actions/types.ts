@@ -18,7 +18,9 @@ export type PendingActionType =
   // ── Grader 邮件草稿（已接入真实执行器，创建 Gmail 草稿，绝不发送）──
   | "grader.email_draft"
   // ── Growth Center 活动启用（审批后从 awaiting_approval → active）──
-  | "marketing.activate_campaign";
+  | "marketing.activate_campaign"
+  // ── 市场研究报告生成的 30 天计划（Leader 审批后创建 Project Task）──
+  | "marketing.approve_research_plan";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -177,6 +179,14 @@ export interface MarketingActivateCampaignPayload {
   metadata: PendingActionMetadata & { orgId: string };
 }
 
+export interface MarketingApproveResearchPlanPayload {
+  planId: string;
+  researchRunId: string;
+  projectId: string;
+  requestedById: string;
+  metadata: PendingActionMetadata & { orgId: string };
+}
+
 export type PendingActionPayload =
   | ({ type: "sales.update_followup" } & SalesUpdateFollowupPayload)
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
@@ -184,7 +194,8 @@ export type PendingActionPayload =
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)
   | ({ type: "grader.email_draft" } & EmailDraftPayload)
-  | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload);
+  | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
+  | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload);
 
 // ── 工具返回给 AI 的"草稿已创建"结构 ───────────────────────────
 

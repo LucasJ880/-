@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit/logger";
 import { getMarketingDashboard } from "@/lib/marketing/query-dashboard";
 import { pushMessage } from "@/lib/messaging/gateway";
 import { createNotification } from "@/lib/notifications/create";
+import { createResearchPlanDraft } from "@/lib/marketing/research-plan";
 import { ensureMarketingSkill, MARKETING_SKILL_SLUG } from "./skill";
 
 const MAX_ATTEMPTS = 3;
@@ -203,14 +204,19 @@ async function notifyMarketResearchResult(input: {
   userId: string;
   status: "completed" | "failed";
   error?: string | null;
+  planCreated?: boolean;
 }) {
   const completed = input.status === "completed";
   const title = completed ? "市场研究报告已完成" : "市场研究任务执行失败";
   const summary = completed
-    ? "报告已生成，可前往“运营市场部 → 市场情报”查看。"
+    ? input.planCreated
+      ? "报告已生成，并自动形成 30 天运营计划草案，正在等待 Leader 审批。"
+      : "报告已生成，可前往“运营市场部 → 市场情报”查看。"
     : `任务未能完成：${input.error || "AI 研究服务暂时不可用"}`;
   const wechatText = completed
-    ? `【青砚市场研究】\n报告已完成。\n任务：${input.runId}\n请前往运营市场部 → 市场情报查看。`
+    ? input.planCreated
+      ? `【青砚市场研究】\n报告已完成，并已自动生成 30 天运营计划。\n任务：${input.runId}\n计划正在等待 Leader 审批。`
+      : `【青砚市场研究】\n报告已完成。\n任务：${input.runId}\n请前往运营市场部 → 市场情报查看。`
     : `【青砚市场研究】\n任务执行失败。\n任务：${input.runId}\n原因：${input.error || "AI 研究服务暂时不可用"}`;
 
   await Promise.allSettled([
@@ -292,10 +298,28 @@ export async function executeMarketResearchRun(runId: string) {
         durationMs: completed.durationMs,
       },
     });
+    let planCreated = false;
+    try {
+      planCreated = Boolean(await createResearchPlanDraft(run.id));
+    } catch (planError) {
+      await db.marketResearchRun.update({
+        where: { id: run.id },
+        data: { planStatus: "failed" },
+      });
+      await logAudit({
+        userId: run.createdById,
+        orgId: run.orgId,
+        action: "market_research_plan_failed",
+        targetType: "market_research_run",
+        targetId: run.id,
+        afterData: { error: failureMessage(planError).slice(0, 1000) },
+      });
+    }
     await notifyMarketResearchResult({
       runId: run.id,
       userId: run.createdById,
       status: "completed",
+      planCreated,
     });
     return completed;
   } catch (error) {
