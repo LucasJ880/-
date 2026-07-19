@@ -8,6 +8,11 @@ import { pushMarketingDailyBrief } from "@/lib/marketing/daily-brief-push";
 import { completeMeridianRun } from "@/lib/marketing/mmm";
 import { writeMarketingMetricSnapshot } from "@/lib/marketing/metrics";
 import { reviewMarketingExperiments } from "@/lib/marketing/experiment-review";
+import {
+  buildGa4IngestionKey,
+  mapGa4RowToMetricValues,
+  type Ga4RawMetricRow,
+} from "@/lib/marketing/providers/ga4-mapper";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -103,13 +108,23 @@ export async function POST(request: NextRequest) {
       const items = Array.isArray(data.snapshots) ? data.snapshots.slice(0, 1000) : [data.snapshot];
       const snapshots = [];
       for (let index = 0; index < items.length; index++) {
-        const values = record(items[index]);
-        if (Object.keys(values).length === 0) continue;
-        const itemKey = text(values.ingestionKey) || `${eventId}:${index}`;
+        const raw = record(items[index]);
+        if (Object.keys(raw).length === 0) continue;
+        const sourceHint = text(raw.source) || text(data.provider) || "activepieces";
+        const isGa4 =
+          sourceHint === "ga4" ||
+          sourceHint === "ga4_raw" ||
+          Boolean(raw.propertyId || raw.screenPageViews || raw.sessions);
+        const values = isGa4
+          ? mapGa4RowToMetricValues(raw as Ga4RawMetricRow)
+          : raw;
+        const itemKey =
+          text(raw.ingestionKey) ||
+          (isGa4 ? buildGa4IngestionKey(raw as Ga4RawMetricRow) : `${eventId}:${index}`);
         snapshots.push(await writeMarketingMetricSnapshot({
           orgId,
           userId: actorId,
-          source: text(values.source) || "activepieces",
+          source: isGa4 ? "ga4" : sourceHint || "activepieces",
           ingestionKey: itemKey,
           externalEventId: eventId,
           values,

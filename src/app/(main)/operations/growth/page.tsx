@@ -42,10 +42,35 @@ export default function GrowthCenterPage() {
 
   useEffect(() => { if (!orgLoading && !ambiguous) load(); }, [orgId, orgLoading, ambiguous, load]);
 
-  async function convertFinding(id: string) {
-    const response = await apiFetch(`/api/marketing/findings/${id}/task`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  async function convertFinding(id: string, title: string) {
+    if (!window.confirm(`确认将问题「${title}」转为增长任务？\n将指派给你，并回填相关计划项。`)) return;
+    setError(null);
+    const response = await apiFetch(`/api/marketing/findings/${id}/task`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
     const body = await response.json();
     if (!response.ok) return setError(body.error || "任务创建失败");
+    if (body.reused && body.task?.id) {
+      setBrief(`该问题已关联任务，可直接打开：/tasks/${body.task.id}`);
+    } else if (body.task?.id) {
+      setBrief(`已创建任务：${body.task.title || body.task.id}`);
+    }
+    await load();
+  }
+
+  async function convertPlanItem(id: string, title: string) {
+    if (!window.confirm(`确认将计划项「${title}」转为任务？`)) return;
+    setError(null);
+    const response = await apiFetch(`/api/marketing/plan-items/${id}/task`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const body = await response.json();
+    if (!response.ok) return setError(body.error || "计划项转任务失败");
+    setBrief(body.reused ? "该计划项已关联任务" : "计划项已转为任务");
     await load();
   }
 
@@ -130,8 +155,8 @@ export default function GrowthCenterPage() {
         </div>)}</div>
       </section>}
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-card-bg p-4"><h2 className="font-semibold">高优先级问题</h2><div className="mt-3 space-y-2">{data.highPriorityFindings.length === 0 ? <p className="text-sm text-muted">暂无高优先级问题。</p> : data.highPriorityFindings.map((finding) => <div key={finding.id} className="flex items-start justify-between gap-3 rounded-lg bg-background p-3"><div><div className="text-xs text-red-600">{finding.severity.toUpperCase()} · {finding.dimension}</div><div className="mt-1 text-sm font-medium">{finding.title}</div></div>{finding.taskId ? <Link href={`/tasks/${finding.taskId}`} className="shrink-0 text-xs text-accent">查看任务</Link> : <button type="button" onClick={() => convertFinding(finding.id)} className="shrink-0 rounded border border-border px-2 py-1 text-xs">转为任务</button>}</div>)}</div></section>
-        <section className="rounded-xl border border-border bg-card-bg p-4"><div className="flex items-center justify-between"><h2 className="font-semibold">30 天推广计划</h2><button type="button" onClick={generatePlan} className="text-sm text-accent">生成新计划</button></div>{data.plan ? <div className="mt-3"><div className="flex items-center gap-2"><div className="text-sm font-medium">{data.plan.name}</div><span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted">{data.plan.status === "awaiting_approval" ? "待审批" : data.plan.status === "active" ? "执行中" : data.plan.status}</span></div><div className="mt-2 space-y-2">{data.plan.items.map((item) => <div key={item.id} className="flex justify-between gap-3 text-sm"><span>{item.title}</span><span className="shrink-0 text-xs text-muted">{item.dueDate.slice(0,10)}</span></div>)}</div></div> : <p className="mt-3 text-sm text-muted">体检或市场研究完成后会生成 30 天计划。</p>}</section>
+        <section className="rounded-xl border border-border bg-card-bg p-4"><h2 className="font-semibold">高优先级问题</h2><p className="mt-1 text-xs text-muted">确认后一键建任务（不会自动发布或改预算）。</p><div className="mt-3 space-y-2">{data.highPriorityFindings.length === 0 ? <p className="text-sm text-muted">暂无高优先级问题。</p> : data.highPriorityFindings.map((finding) => <div key={finding.id} className="flex items-start justify-between gap-3 rounded-lg bg-background p-3"><div><div className="text-xs text-red-600">{finding.severity.toUpperCase()} · {finding.dimension}</div><div className="mt-1 text-sm font-medium">{finding.title}</div></div>{finding.taskId ? <Link href={`/tasks/${finding.taskId}`} className="shrink-0 text-xs text-accent">查看任务</Link> : <button type="button" onClick={() => convertFinding(finding.id, finding.title)} className="shrink-0 rounded border border-border px-2 py-1 text-xs">确认并建任务</button>}</div>)}</div></section>
+        <section className="rounded-xl border border-border bg-card-bg p-4"><div className="flex items-center justify-between"><h2 className="font-semibold">30 天推广计划</h2><button type="button" onClick={generatePlan} className="text-sm text-accent">生成新计划</button></div>{data.plan ? <div className="mt-3"><div className="flex items-center gap-2"><div className="text-sm font-medium">{data.plan.name}</div><span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted">{data.plan.status === "awaiting_approval" ? "待审批" : data.plan.status === "active" ? "执行中" : data.plan.status}</span></div><div className="mt-2 space-y-2">{data.plan.items.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 text-sm"><span>{item.title}</span><span className="flex shrink-0 items-center gap-2 text-xs text-muted">{item.dueDate.slice(0,10)}{item.taskId ? <Link href={`/tasks/${item.taskId}`} className="text-accent">任务</Link> : <button type="button" onClick={() => convertPlanItem(item.id, item.title)} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-foreground">建任务</button>}</span></div>)}</div></div> : <p className="mt-3 text-sm text-muted">体检或市场研究完成后会生成 30 天计划。</p>}</section>
       </div>
     </>}
   </div>;
