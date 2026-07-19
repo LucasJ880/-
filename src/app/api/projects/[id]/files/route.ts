@@ -71,6 +71,11 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "未选择文件" }, { status: 400 });
   }
 
+  // 可选：与 files 一一对应的相对路径（文件夹上传用）
+  const relativePaths = formData
+    .getAll("relativePaths")
+    .map((v) => (typeof v === "string" ? v.trim() : ""));
+
   const results: Array<{
     id: string;
     title: string;
@@ -82,13 +87,24 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const errors: Array<{ name: string; reason: string }> = [];
 
+  let index = 0;
   for (const entry of files) {
+    const pathHint = relativePaths[index] || "";
+    index += 1;
+
     if (!(entry instanceof File)) {
       errors.push({ name: "unknown", reason: "非文件对象" });
       continue;
     }
 
     const file = entry;
+    // 展示名：优先相对路径（去掉顶层文件夹名），便于区分同名文件
+    let displayTitle = file.name;
+    if (pathHint.includes("/")) {
+      const parts = pathHint.split("/").filter(Boolean);
+      displayTitle =
+        parts.length > 1 ? parts.slice(1).join("/") : parts[0] || file.name;
+    }
 
     const check = await validateUploadedFileAsync(file, {
       maxSize: MAX_FILE_SIZE,
@@ -96,7 +112,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       checkMagicBytes: true,
     });
     if (!check.ok) {
-      errors.push({ name: file.name, reason: check.reason });
+      errors.push({ name: displayTitle || file.name, reason: check.reason });
       continue;
     }
 
@@ -113,7 +129,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       const doc = await db.projectDocument.create({
         data: {
           projectId,
-          title: file.name,
+          title: displayTitle.slice(0, 240) || file.name,
           url: blob.proxyUrl,
           blobUrl: blob.proxyUrl,
           fileType: ext,

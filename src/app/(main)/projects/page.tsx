@@ -11,6 +11,7 @@ import {
   CheckSquare,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -27,6 +28,10 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { isSuperAdmin } from "@/lib/permissions-client";
+import {
+  FolderImportZone,
+  type PendingImportFile,
+} from "@/components/project-create/folder-import-zone";
 
 interface Project {
   id: string;
@@ -60,6 +65,79 @@ const PROJECT_COLORS = [
   "#84CC16",
 ];
 
+async function uploadPendingFiles(
+  projectId: string,
+  pending: PendingImportFile[],
+  onProgress: (msg: string) => void,
+) {
+  const batchSize = 6;
+  let uploaded = 0;
+  const allErrors: string[] = [];
+
+  for (let i = 0; i < pending.length; i += batchSize) {
+    const batch = pending.slice(i, i + batchSize);
+    onProgress(`上传文件 ${Math.min(i + batch.length, pending.length)}/${pending.length}…`);
+    const formData = new FormData();
+    for (const item of batch) {
+      formData.append("files", item.file);
+      formData.append("relativePaths", item.relativePath);
+    }
+    const res = await apiFetch(`/api/projects/${projectId}/files`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && !data.uploaded?.length) {
+      throw new Error(data.error || `上传失败 (${res.status})`);
+    }
+    uploaded += data.total || data.uploaded?.length || 0;
+    if (Array.isArray(data.errors)) {
+      for (const e of data.errors) {
+        allErrors.push(`${e.name}: ${e.reason}`);
+      }
+    }
+  }
+
+  return { uploaded, errors: allErrors };
+}
+
+async function runProjectFilePipeline(
+  projectId: string,
+  onProgress: (msg: string) => void,
+) {
+  let guard = 0;
+  while (guard < 200) {
+    guard += 1;
+    const res = await apiFetch(`/api/projects/${projectId}/files/process-next`, {
+      method: "POST",
+    });
+    if (!res.ok) break;
+    const data = await res.json();
+    if (data.done) {
+      if (data.metadata?.applied && Object.keys(data.metadata.applied).length) {
+        onProgress(
+          `AI 已补全：${Object.keys(data.metadata.applied).join("、")}`,
+        );
+      } else {
+        onProgress("文件扫描完成");
+      }
+      return data;
+    }
+    const step =
+      data.step === "parse"
+        ? "解析"
+        : data.step === "ai_summary" || data.step === "ai_summary_skip"
+          ? "摘要"
+          : data.step === "intelligence"
+            ? "项目情报"
+            : "处理中";
+    onProgress(
+      `AI 扫描中（${step}${data.documentTitle ? `：${data.documentTitle}` : ""}，剩余 ${data.remaining ?? "…"}）`,
+    );
+  }
+  return null;
+}
+
 function ProjectModal({
   open,
   onOpenChange,
@@ -73,12 +151,16 @@ function ProjectModal({
   editing: Project | null;
   organizations: OrgOption[];
 }) {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [color, setColor] = useState("#3B82F6");
   const [orgId, setOrgId] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [progressMsg, setProgressMsg] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<PendingImportFile[]>([]);
+  const [nameFromFolder, setNameFromFolder] = useState<string | null>(null);
 
   const activeOrgs = useMemo(
     () => organizations.filter((o) => o.status === "active"),
@@ -92,20 +174,44 @@ function ProjectModal({
       setDescription(editing.description || "");
       setColor(editing.color);
       setOrgId("");
+      setPendingFiles([]);
+      setNameFromFolder(null);
+      setProgressMsg("");
     } else {
       setName("");
       setDescription("");
       setColor("#3B82F6");
       const first = organizations.find((o) => o.status === "active");
       setOrgId(first?.id ?? "");
+      setPendingFiles([]);
+      setNameFromFolder(null);
+      setProgressMsg("");
     }
+    setSaveError("");
   }, [editing, open, organizations]);
+
+  const handleFolderFiles = useCallback(
+    (files: PendingImportFile[], folderName: string | null) => {
+      setPendingFiles(files);
+      if (!folderName) return;
+      // 仅在名称为空，或仍是上一次文件夹自动填入时，才用新文件夹名覆盖
+      setName((prev) => {
+        if (!prev.trim() || prev === nameFromFolder) {
+          setNameFromFolder(folderName);
+          return folderName;
+        }
+        return prev;
+      });
+    },
+    [nameFromFolder],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
     setSaveError("");
+    setProgressMsg("");
 
     try {
       const url = editing ? `/api/projects/${editing.id}` : "/api/projects";
@@ -128,31 +234,77 @@ function ProjectModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      const created = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `保存失败 (${res.status})`);
+        throw new Error(created.error || `保存失败 (${res.status})`);
       }
+
+      // 新建 + 有待上传文件：先上传再 AI 扫描，再进入项目页
+      if (!editing && pendingFiles.length > 0 && created.id) {
+        setProgressMsg("项目已创建，开始上传文件夹…");
+        const { uploaded, errors } = await uploadPendingFiles(
+          created.id,
+          pendingFiles,
+          setProgressMsg,
+        );
+        if (uploaded > 0) {
+          await runProjectFilePipeline(created.id, setProgressMsg);
+        }
+        onSaved();
+        onOpenChange(false);
+        const q =
+          errors.length > 0
+            ? `?importWarn=${encodeURIComponent(errors.slice(0, 3).join("；"))}`
+            : "";
+        router.push(`/projects/${created.id}${q}`);
+        return;
+      }
+
       onSaved();
       onOpenChange(false);
+      if (!editing && created.id) {
+        router.push(`/projects/${created.id}`);
+      }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "保存失败，请重试");
     } finally {
       setSaving(false);
+      setProgressMsg("");
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (saving) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className={editing ? "max-w-md" : "max-w-lg"}>
         <DialogHeader>
           <DialogTitle>{editing ? "编辑项目" : "新建项目"}</DialogTitle>
           <DialogDescription>
             {editing
               ? "修改项目名称、描述与颜色标识。"
-              : "填写信息并选择所属组织以创建新项目。"}
+              : "可先选择招标文件夹预填名称；核对信息后点「确认创建」。创建后才会上传并 AI 扫描补全日期等字段。"}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {!editing && (
+            <FolderImportZone
+              files={pendingFiles}
+              disabled={saving}
+              onFiles={handleFolderFiles}
+              onClear={() => {
+                setPendingFiles([]);
+                if (name === nameFromFolder) {
+                  setName("");
+                }
+                setNameFromFolder(null);
+              }}
+            />
+          )}
           {!editing && (
             <div>
               <Label className="mb-1.5 block text-sm font-medium text-foreground">
@@ -166,6 +318,7 @@ function ProjectModal({
                 <select
                   value={orgId}
                   onChange={(e) => setOrgId(e.target.value)}
+                  disabled={saving}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                 >
                   {activeOrgs.map((o) => (
@@ -185,10 +338,19 @@ function ProjectModal({
               id="project-name"
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="输入项目名称..."
+              disabled={saving}
+              onChange={(e) => {
+                setNameFromFolder(null);
+                setName(e.target.value);
+              }}
+              placeholder="输入项目名称，或从文件夹自动预填…"
               autoFocus
             />
+            {!editing && nameFromFolder && name === nameFromFolder ? (
+              <p className="mt-1 text-[11px] text-muted">
+                已从文件夹名预填，可修改；需点击下方确认后才会创建。
+              </p>
+            ) : null}
           </div>
           <div>
             <Label htmlFor="project-description" className="mb-1.5 block text-sm font-medium text-foreground">
@@ -197,8 +359,9 @@ function ProjectModal({
             <textarea
               id="project-description"
               value={description}
+              disabled={saving}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="项目描述（可选）..."
+              placeholder="项目描述（可选；AI 扫描后也可能自动补全）..."
               rows={3}
               className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
             />
@@ -212,6 +375,7 @@ function ProjectModal({
                   type="button"
                   variant="ghost"
                   size="icon"
+                  disabled={saving}
                   onClick={() => setColor(c)}
                   className={cn(
                     "h-8 w-8 min-w-8 rounded-full p-0 transition-all hover:bg-transparent hover:opacity-90",
@@ -225,13 +389,24 @@ function ProjectModal({
               ))}
             </div>
           </div>
+          {progressMsg && (
+            <p className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-[12px] text-foreground">
+              <Loader2 size={12} className="mr-1.5 inline animate-spin" />
+              {progressMsg}
+            </p>
+          )}
           {saveError && (
             <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">
               {saveError}
             </p>
           )}
           <DialogFooter className="gap-3 pt-2 sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={() => onOpenChange(false)}
+            >
               取消
             </Button>
             <Button
@@ -240,7 +415,11 @@ function ProjectModal({
               disabled={!name.trim() || saving || (!editing && activeOrgs.length === 0)}
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
-              {editing ? "保存修改" : "创建项目"}
+              {editing
+                ? "保存修改"
+                : pendingFiles.length > 0
+                  ? "确认创建并上传"
+                  : "确认创建"}
             </Button>
           </DialogFooter>
         </form>

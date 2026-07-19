@@ -60,6 +60,7 @@ run_test "项目价格差距计算" "npx tsx src/lib/projects/__tests__/price-ga
 run_test "项目复盘终态映射" "npx tsx src/lib/projects/__tests__/review-outcome.test.ts"
 run_test "企业规则标签分类" "npx tsx src/lib/projects/__tests__/org-rules-categorize.test.ts"
 run_test "招标结果标记与价格样例" "npx tsx src/lib/projects/__tests__/tender-result.test.ts"
+run_test "文档元数据日期归类" "npx tsx src/lib/projects/__tests__/apply-document-metadata.test.ts"
 run_test "外贸受理路由/幂等" "npx tsx src/lib/trade/__tests__/service-intake-correlation.test.ts"
 run_test "产品视觉素材 prompt 防错" "npx tsx src/lib/skills/product-visual-builder/__tests__/prompt.test.ts"
 run_test "产品视觉素材 dry-run service" "npx tsx src/lib/skills/product-visual-builder/__tests__/service.test.ts"

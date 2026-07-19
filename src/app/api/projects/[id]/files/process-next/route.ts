@@ -134,15 +134,35 @@ export const POST = withAuth(async (request, ctx) => {
 
     if (needsRefresh) {
       await generateProjectIntelligence(projectId);
+      const { applyDocumentMetadataToProject } = await import(
+        "@/lib/projects/apply-document-metadata"
+      );
+      const metadata = await applyDocumentMetadataToProject(projectId).catch(
+        () => null,
+      );
       return NextResponse.json({
         step: "intelligence",
         remaining: 0,
         done: true,
+        metadata,
       });
     }
   }
 
-  return NextResponse.json({ step: "none", remaining: 0, done: true });
+  // 情报已最新时，仍尝试补全一次空字段（幂等：已填不覆盖）
+  const { applyDocumentMetadataToProject } = await import(
+    "@/lib/projects/apply-document-metadata"
+  );
+  const metadata = await applyDocumentMetadataToProject(projectId).catch(
+    () => null,
+  );
+
+  return NextResponse.json({
+    step: "none",
+    remaining: 0,
+    done: true,
+    metadata,
+  });
 });
 
 async function countRemaining(projectId: string): Promise<number> {
