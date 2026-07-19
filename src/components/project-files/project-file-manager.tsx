@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { isFolderImportPipelineActive } from "@/lib/projects/pending-folder-import";
+import { requestAutoAiPanels } from "@/lib/projects/auto-ai-panels";
 
 interface ProjectDocument {
   id: string;
@@ -135,8 +137,20 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
     fetchFiles();
   }, [fetchFiles]);
 
+  useEffect(() => {
+    const onUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      void fetchFiles();
+    };
+    window.addEventListener("qingyan:project-updated", onUpdated);
+    return () => window.removeEventListener("qingyan:project-updated", onUpdated);
+  }, [projectId, fetchFiles]);
+
   const processNextFile = useCallback(async () => {
     if (processingRef.current) return;
+    // 新建项目文件夹导入横幅正在跑流水线时，避免并行抢占
+    if (isFolderImportPipelineActive(projectId)) return;
     processingRef.current = true;
     setJustFinished(null);
     setProcessing({ active: true, step: "准备处理", remaining: 0, phase: "parse" });
@@ -180,6 +194,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
           await fetchFiles();
         } else if (data.step === "intelligence") {
           setJustFinished("intelligence");
+          requestAutoAiPanels(projectId, "intelligence-done");
         }
       }
 
@@ -220,6 +235,7 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   const autoRetryDone = useRef(false);
   useEffect(() => {
     if (loading || documents.length === 0 || processingRef.current) return;
+    if (isFolderImportPipelineActive(projectId)) return;
 
     const hasPending = documents.some(
       (d) =>
@@ -324,7 +340,9 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
   }, []);
 
   const uploadedFiles = documents.filter((d) => d.source === "upload");
-  const externalFiles = documents.filter((d) => d.source !== "upload");
+  const externalFiles = documents.filter(
+    (d) => d.source !== "upload" && d.source !== "ai_checklist",
+  );
   const failedCount = documents.filter(
     (d) => d.parseStatus === "failed" || d.aiSummaryStatus === "failed"
   ).length;

@@ -250,6 +250,9 @@ export async function generateProjectDocument(input: {
     createdById: input.userId,
   };
 
+  // 浏览器必须走 /api/files 代理；私有 Blob 直链会 Forbidden
+  const publicUrl = blob.proxyUrl;
+
   const row = await db.projectGeneratedDocument.create({
     data: {
       orgId: input.orgId,
@@ -257,8 +260,8 @@ export async function generateProjectDocument(input: {
       docType: input.docType,
       version,
       title: `${DOC_TITLES[input.docType]} v${version}`,
-      blobUrl: blob.url,
-      fileUrl: blob.url,
+      blobUrl: publicUrl,
+      fileUrl: publicUrl,
       metaJson: JSON.stringify(meta),
       stale: false,
       createdById: input.userId,
@@ -270,8 +273,8 @@ export async function generateProjectDocument(input: {
     data: {
       projectId: project.id,
       title: row.title,
-      url: blob.url,
-      blobUrl: blob.url,
+      url: publicUrl,
+      blobUrl: publicUrl,
       fileType: "pdf",
       fileSize: pdfBuffer.length,
       parseStatus: "done",

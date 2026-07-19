@@ -8,8 +8,78 @@ import {
   type ProgressSummaryContext,
 } from "@/lib/ai/prompts";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { db } from "@/lib/db";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+const CHECKLIST_SOURCE = "ai_checklist";
+const CHECKLIST_URL = "internal://bid-checklist";
+
+async function loadStoredChecklist(projectId: string) {
+  const doc = await db.projectDocument.findFirst({
+    where: { projectId, source: CHECKLIST_SOURCE },
+    orderBy: { createdAt: "desc" },
+    select: { aiSummaryJson: true, createdAt: true },
+  });
+  if (!doc?.aiSummaryJson) return null;
+  try {
+    const parsed = JSON.parse(doc.aiSummaryJson) as Record<string, unknown>;
+    return {
+      ...parsed,
+      generatedAt:
+        (typeof parsed.generatedAt === "string" && parsed.generatedAt) ||
+        doc.createdAt.toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function saveChecklist(projectId: string, userId: string, payload: unknown) {
+  const existing = await db.projectDocument.findFirst({
+    where: { projectId, source: CHECKLIST_SOURCE },
+    select: { id: true },
+  });
+  const json = JSON.stringify(payload);
+  if (existing) {
+    await db.projectDocument.update({
+      where: { id: existing.id },
+      data: {
+        aiSummaryJson: json,
+        aiSummaryStatus: "done",
+        parseStatus: "done",
+        title: "投标准备清单",
+      },
+    });
+    return;
+  }
+  await db.projectDocument.create({
+    data: {
+      projectId,
+      title: "投标准备清单",
+      url: CHECKLIST_URL,
+      fileType: "json",
+      source: CHECKLIST_SOURCE,
+      uploadedById: userId,
+      parseStatus: "done",
+      aiSummaryStatus: "done",
+      aiSummaryJson: json,
+      sortOrder: 9999,
+    },
+  });
+}
+
+/**
+ * GET /api/projects/:id/checklist — 读取已存清单（不触发 AI）
+ */
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+
+  const checklist = await loadStoredChecklist(id);
+  return NextResponse.json({ checklist });
+}
 
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
@@ -61,6 +131,12 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
 
     const result = JSON.parse(jsonMatch[0]);
+    const payload = {
+      ...result,
+      generatedAt: new Date().toISOString(),
+    };
+
+    await saveChecklist(id, access.user.id, payload);
 
     await logAudit({
       userId: access.user.id,
@@ -75,10 +151,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       request,
     });
 
-    return NextResponse.json({
-      ...result,
-      generatedAt: new Date().toISOString(),
-    });
+    return NextResponse.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : "AI 服务调用失败";
     return NextResponse.json({ error: message }, { status: 500 });

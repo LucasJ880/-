@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileDown, Loader2, ChevronDown } from "lucide-react";
+import { FileDown, Loader2, ChevronDown, ExternalLink, Download } from "lucide-react";
 import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,27 @@ type GenDoc = {
   fileUrl: string | null;
   blobUrl: string | null;
 };
+
+function resolveDocUrl(d: GenDoc): string | null {
+  return d.fileUrl || d.blobUrl || null;
+}
+
+/** 打开用原代理 URL；下载追加 download=1 触发 attachment */
+function withDownloadParam(url: string, filename: string): string {
+  try {
+    const u = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://local");
+    u.searchParams.set("download", "1");
+    u.searchParams.set("filename", filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+    // 相对路径代理：只返回 pathname+search
+    if (url.startsWith("/")) {
+      return `${u.pathname}${u.search}`;
+    }
+    return u.toString();
+  } catch {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}download=1&filename=${encodeURIComponent(filename)}`;
+  }
+}
 
 export function ProjectGenerateMenu({
   projectId,
@@ -76,7 +97,7 @@ export function ProjectGenerateMenu({
       <div className="flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold">
           <FileDown size={16} className="text-accent" />
-          一键生成
+          一键生成文档
         </h3>
         <div className="relative">
           <button
@@ -84,7 +105,7 @@ export function ProjectGenerateMenu({
             onClick={() => setOpen((v) => !v)}
             className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted/20"
           >
-            一键生成
+            选择生成
             <ChevronDown size={12} />
           </button>
           {open ? (
@@ -121,31 +142,48 @@ export function ProjectGenerateMenu({
       ) : null}
 
       {docs.length > 0 ? (
-        <ul className="mt-3 space-y-1.5 text-[12px]">
-          {docs.slice(0, 8).map((d) => (
-            <li key={d.id} className="flex items-center justify-between gap-2">
-              <span>
-                {d.title}
-                {d.stale ? (
-                  <span className="ml-1 text-[10px] text-amber-600">可能过期</span>
+        <ul className="mt-3 space-y-2 text-[12px]">
+          {docs.slice(0, 8).map((d) => {
+            const url = resolveDocUrl(d);
+            const filename = d.title.endsWith(".pdf") ? d.title : `${d.title}.pdf`;
+            return (
+              <li
+                key={d.id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2.5 py-2"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {d.title}
+                  {d.stale ? (
+                    <span className="ml-1 text-[10px] text-amber-600">可能过期</span>
+                  ) : null}
+                </span>
+                {url ? (
+                  <span className="flex shrink-0 items-center gap-2">
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-accent hover:underline"
+                    >
+                      <ExternalLink size={12} />
+                      打开
+                    </a>
+                    <a
+                      href={withDownloadParam(url, filename)}
+                      className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:bg-accent-hover"
+                    >
+                      <Download size={12} />
+                      下载
+                    </a>
+                  </span>
                 ) : null}
-              </span>
-              {d.fileUrl || d.blobUrl ? (
-                <a
-                  href={d.fileUrl || d.blobUrl || "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent hover:underline"
-                >
-                  打开
-                </a>
-              ) : null}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="mt-2 text-xs text-muted">
-          生成供应商询价、内部分析或同事任务单，自动读取当前项目资料。
+          生成供应商询价、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。
         </p>
       )}
     </div>

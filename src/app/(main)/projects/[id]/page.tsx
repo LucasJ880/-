@@ -47,6 +47,8 @@ import { ProjectReviewCard } from "@/components/project-review/project-review-ca
 import { ProjectOrgRulesCard } from "@/components/project-org-rules/project-org-rules-card";
 import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
 import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
+import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
+import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -337,6 +339,9 @@ function ProjectDetailContent() {
 
       <ProjectDetailHeader project={project} canManage={canManage} />
 
+      <ProjectImportBanner projectId={id} onFinished={load} />
+      <AutoAiPanelsRunner projectId={id} />
+
       {/* Abandoned banner */}
       {project.status === "abandoned" && (
         <div className="flex items-center gap-3 rounded-xl border border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.04)] px-5 py-4">
@@ -376,7 +381,7 @@ function ProjectDetailContent() {
             { key: "overview" as const, icon: LayoutDashboard, label: "概览" },
             { key: "files" as const, icon: FolderOpen, label: "文件" },
             { key: "quotes" as const, icon: DollarSign, label: "报价" },
-            { key: "ai" as const, icon: Sparkles, label: "AI" },
+            { key: "ai" as const, icon: Sparkles, label: "工作台" },
           ]).map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.key;
@@ -542,7 +547,7 @@ function ProjectDetailContent() {
         </div>
       )}
 
-      {/* ═══ Tab: AI 工作台 ═══ */}
+      {/* ═══ Tab: 工作台 ═══ */}
       {activeTab === "ai" && (
         <div className="space-y-6">
           <ProjectGenerateMenu projectId={id} canManage={canManage} />

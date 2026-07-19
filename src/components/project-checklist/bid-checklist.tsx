@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ClipboardCheck,
   Loader2,
@@ -168,6 +168,28 @@ export function BidChecklist({ projectId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const hydrate = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/checklist`);
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.checklist) setData(json.checklist as ChecklistData);
+    } catch {
+      /* ignore */
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void hydrate();
+    const onUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      void hydrate();
+    };
+    window.addEventListener("qingyan:ai-panels-updated", onUpdated);
+    return () => window.removeEventListener("qingyan:ai-panels-updated", onUpdated);
+  }, [projectId, hydrate]);
+
   function generate() {
     setLoading(true);
     setError("");
@@ -215,7 +237,7 @@ export function BidChecklist({ projectId }: Props) {
           ) : (
             <Sparkles size={12} />
           )}
-          {data ? "重新生成" : "AI 生成清单"}
+          {data ? "重新生成" : loading ? "自动生成中…" : "AI 生成清单"}
         </button>
       </div>
 
@@ -273,7 +295,7 @@ export function BidChecklist({ projectId }: Props) {
         <div className="mt-4 flex flex-col items-center gap-2 py-6 text-center">
           <ClipboardCheck size={24} className="text-accent/20" />
           <p className="text-xs text-muted">
-            AI 将根据项目当前状态自动生成投标准备检查清单
+            进入项目后将与进展摘要一并自动生成；也可手动重新生成
           </p>
         </div>
       )}

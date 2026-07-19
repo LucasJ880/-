@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
-import { putPrivateBlob } from "@/lib/files/blob-access";
+import { isProxyUrl, putPrivateBlob, toProxyUrl } from "@/lib/files/blob-access";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { canParseFileType } from "@/lib/files/parse-content";
 import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
+
+function asBrowserFileUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  if (isProxyUrl(url)) return url;
+  if (/blob\.vercel-storage\.com/i.test(url) || /^https?:\/\//i.test(url)) {
+    return toProxyUrl(url);
+  }
+  return url;
+}
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const ALLOWED_EXTENSIONS = [
@@ -41,7 +50,16 @@ export const GET = withAuth(async (request, ctx) => {
     db.projectDocument.count({ where: { projectId: id } }),
   ]);
 
-  return NextResponse.json({ documents, total, take, skip });
+  return NextResponse.json({
+    documents: documents.map((d) => ({
+      ...d,
+      url: asBrowserFileUrl(d.url),
+      blobUrl: d.blobUrl ? asBrowserFileUrl(d.blobUrl) : d.blobUrl,
+    })),
+    total,
+    take,
+    skip,
+  });
 });
 
 /**

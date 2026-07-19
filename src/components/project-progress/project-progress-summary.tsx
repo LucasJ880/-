@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Loader2,
   RefreshCw,
@@ -272,12 +272,39 @@ export function ProjectProgressSummary({ projectId }: { projectId: string }) {
   const [error, setError] = useState("");
   const [latestSummaryId, setLatestSummaryId] = useState<string | null>(null);
 
+  const hydrate = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/progress-summary`);
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.summary) {
+        setData(json.summary as ProgressSummary);
+        if (json.summary._meta?.id) setLatestSummaryId(json.summary._meta.id);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void hydrate();
+    const onUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      void hydrate();
+    };
+    window.addEventListener("qingyan:ai-panels-updated", onUpdated);
+    return () => window.removeEventListener("qingyan:ai-panels-updated", onUpdated);
+  }, [projectId, hydrate]);
+
   const generate = async () => {
     setLoading(true);
     setError("");
     try {
       const res = await apiFetch(`/api/projects/${projectId}/progress-summary`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger: "manual" }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -339,7 +366,7 @@ export function ProjectProgressSummary({ projectId }: { projectId: string }) {
 
       {!data && !loading && !error && (
         <div className="px-5 py-8 text-center text-sm text-muted">
-          点击「生成摘要」，AI 将分析项目任务、讨论、询价、文档等数据，生成结构化管理摘要
+          进入项目后将自动生成进展摘要；也可点击「重新生成」手动刷新
         </div>
       )}
 

@@ -169,7 +169,10 @@ export async function generateProjectIntelligence(projectId: string): Promise<vo
       name: true,
       description: true,
       documents: {
-        where: { parseStatus: "done" },
+        where: {
+          parseStatus: "done",
+          source: { not: "ai_checklist" },
+        },
         select: { title: true, contentText: true, aiSummaryJson: true },
         orderBy: { createdAt: "asc" },
         take: 10,

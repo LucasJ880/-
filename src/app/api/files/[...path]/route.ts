@@ -110,6 +110,14 @@ export const GET = withAuth<{ path: string[] }>(async (request, ctx, user) => {
   const blob = await readBlobStream(pathname);
   if (!blob) return notFound();
 
+  const wantDownload = request.nextUrl.searchParams.get("download") === "1";
+  const filenameHint =
+    request.nextUrl.searchParams.get("filename") ||
+    segments[segments.length - 1] ||
+    "download";
+  // 去掉路径里的时间戳前缀噪音，保留可读文件名
+  const safeName = filenameHint.replace(/[^\w.\u4e00-\u9fff\-()+ ]+/g, "_");
+
   const headers = new Headers({
     "Content-Type": blob.contentType,
     // 私有内容：仅浏览器本地缓存，短 TTL；文件按 pathname 带时间戳，实际不可变
@@ -117,6 +125,12 @@ export const GET = withAuth<{ path: string[] }>(async (request, ctx, user) => {
     "X-Content-Type-Options": "nosniff",
   });
   if (blob.size != null) headers.set("Content-Length", String(blob.size));
+  if (wantDownload) {
+    headers.set(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+    );
+  }
 
   return new NextResponse(blob.stream, { status: 200, headers });
 });

@@ -32,6 +32,7 @@ import {
   FolderImportZone,
   type PendingImportFile,
 } from "@/components/project-create/folder-import-zone";
+import { enqueuePendingFolderImport } from "@/lib/projects/pending-folder-import";
 
 interface Project {
   id: string;
@@ -65,79 +66,6 @@ const PROJECT_COLORS = [
   "#84CC16",
 ];
 
-async function uploadPendingFiles(
-  projectId: string,
-  pending: PendingImportFile[],
-  onProgress: (msg: string) => void,
-) {
-  const batchSize = 6;
-  let uploaded = 0;
-  const allErrors: string[] = [];
-
-  for (let i = 0; i < pending.length; i += batchSize) {
-    const batch = pending.slice(i, i + batchSize);
-    onProgress(`上传文件 ${Math.min(i + batch.length, pending.length)}/${pending.length}…`);
-    const formData = new FormData();
-    for (const item of batch) {
-      formData.append("files", item.file);
-      formData.append("relativePaths", item.relativePath);
-    }
-    const res = await apiFetch(`/api/projects/${projectId}/files`, {
-      method: "POST",
-      body: formData,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok && !data.uploaded?.length) {
-      throw new Error(data.error || `上传失败 (${res.status})`);
-    }
-    uploaded += data.total || data.uploaded?.length || 0;
-    if (Array.isArray(data.errors)) {
-      for (const e of data.errors) {
-        allErrors.push(`${e.name}: ${e.reason}`);
-      }
-    }
-  }
-
-  return { uploaded, errors: allErrors };
-}
-
-async function runProjectFilePipeline(
-  projectId: string,
-  onProgress: (msg: string) => void,
-) {
-  let guard = 0;
-  while (guard < 200) {
-    guard += 1;
-    const res = await apiFetch(`/api/projects/${projectId}/files/process-next`, {
-      method: "POST",
-    });
-    if (!res.ok) break;
-    const data = await res.json();
-    if (data.done) {
-      if (data.metadata?.applied && Object.keys(data.metadata.applied).length) {
-        onProgress(
-          `AI 已补全：${Object.keys(data.metadata.applied).join("、")}`,
-        );
-      } else {
-        onProgress("文件扫描完成");
-      }
-      return data;
-    }
-    const step =
-      data.step === "parse"
-        ? "解析"
-        : data.step === "ai_summary" || data.step === "ai_summary_skip"
-          ? "摘要"
-          : data.step === "intelligence"
-            ? "项目情报"
-            : "处理中";
-    onProgress(
-      `AI 扫描中（${step}${data.documentTitle ? `：${data.documentTitle}` : ""}，剩余 ${data.remaining ?? "…"}）`,
-    );
-  }
-  return null;
-}
-
 function ProjectModal({
   open,
   onOpenChange,
@@ -158,7 +86,6 @@ function ProjectModal({
   const [orgId, setOrgId] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const [progressMsg, setProgressMsg] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingImportFile[]>([]);
   const [nameFromFolder, setNameFromFolder] = useState<string | null>(null);
 
@@ -176,7 +103,6 @@ function ProjectModal({
       setOrgId("");
       setPendingFiles([]);
       setNameFromFolder(null);
-      setProgressMsg("");
     } else {
       setName("");
       setDescription("");
@@ -185,7 +111,6 @@ function ProjectModal({
       setOrgId(first?.id ?? "");
       setPendingFiles([]);
       setNameFromFolder(null);
-      setProgressMsg("");
     }
     setSaveError("");
   }, [editing, open, organizations]);
@@ -211,7 +136,6 @@ function ProjectModal({
     if (!name.trim()) return;
     setSaving(true);
     setSaveError("");
-    setProgressMsg("");
 
     try {
       const url = editing ? `/api/projects/${editing.id}` : "/api/projects";
@@ -239,25 +163,9 @@ function ProjectModal({
         throw new Error(created.error || `保存失败 (${res.status})`);
       }
 
-      // 新建 + 有待上传文件：先上传再 AI 扫描，再进入项目页
-      if (!editing && pendingFiles.length > 0 && created.id) {
-        setProgressMsg("项目已创建，开始上传文件夹…");
-        const { uploaded, errors } = await uploadPendingFiles(
-          created.id,
-          pendingFiles,
-          setProgressMsg,
-        );
-        if (uploaded > 0) {
-          await runProjectFilePipeline(created.id, setProgressMsg);
-        }
-        onSaved();
-        onOpenChange(false);
-        const q =
-          errors.length > 0
-            ? `?importWarn=${encodeURIComponent(errors.slice(0, 3).join("；"))}`
-            : "";
-        router.push(`/projects/${created.id}${q}`);
-        return;
+      // 方案 B：创建后立刻进详情；文件夹交给详情页后台上传/解析
+      if (!editing && created.id && pendingFiles.length > 0) {
+        enqueuePendingFolderImport(created.id, pendingFiles);
       }
 
       onSaved();
@@ -269,7 +177,6 @@ function ProjectModal({
       setSaveError(err instanceof Error ? err.message : "保存失败，请重试");
     } finally {
       setSaving(false);
-      setProgressMsg("");
     }
   };
 
@@ -281,126 +188,127 @@ function ProjectModal({
         onOpenChange(next);
       }}
     >
-      <DialogContent className={editing ? "max-w-md" : "max-w-lg"}>
-        <DialogHeader>
+      <DialogContent
+        className={cn(
+          "!flex max-h-[min(90vh,880px)] flex-col gap-0 overflow-hidden p-0",
+          editing ? "max-w-md" : "max-w-lg",
+        )}
+      >
+        <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
           <DialogTitle>{editing ? "编辑项目" : "新建项目"}</DialogTitle>
           <DialogDescription>
             {editing
               ? "修改项目名称、描述与颜色标识。"
-              : "可先选择招标文件夹预填名称；核对信息后点「确认创建」。创建后才会上传并 AI 扫描补全日期等字段。"}
+              : "可先选择招标文件夹预填名称；确认创建后立刻进入项目页，上传与 AI 扫描在后台进行。"}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {!editing && (
-            <FolderImportZone
-              files={pendingFiles}
-              disabled={saving}
-              onFiles={handleFolderFiles}
-              onClear={() => {
-                setPendingFiles([]);
-                if (name === nameFromFolder) {
-                  setName("");
-                }
-                setNameFromFolder(null);
-              }}
-            />
-          )}
-          {!editing && (
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-4">
+            {!editing && (
+              <FolderImportZone
+                files={pendingFiles}
+                disabled={saving}
+                onFiles={handleFolderFiles}
+                onClear={() => {
+                  setPendingFiles([]);
+                  if (name === nameFromFolder) {
+                    setName("");
+                  }
+                  setNameFromFolder(null);
+                }}
+              />
+            )}
+            {!editing && (
+              <div>
+                <Label className="mb-1.5 block text-sm font-medium text-foreground">
+                  所属组织 <span className="text-[#a63d3d]">*</span>
+                </Label>
+                {activeOrgs.length === 0 ? (
+                  <p className="text-sm text-[#9a6a2f]">
+                    暂无可用组织，请先到「组织」页面创建并加入组织。
+                  </p>
+                ) : (
+                  <select
+                    value={orgId}
+                    onChange={(e) => setOrgId(e.target.value)}
+                    disabled={saving}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                  >
+                    {activeOrgs.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name} ({o.code})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             <div>
-              <Label className="mb-1.5 block text-sm font-medium text-foreground">
-                所属组织 <span className="text-[#a63d3d]">*</span>
+              <Label htmlFor="project-name" className="mb-1.5 block text-sm font-medium text-foreground">
+                项目名称 <span className="text-[#a63d3d]">*</span>
               </Label>
-              {activeOrgs.length === 0 ? (
-                <p className="text-sm text-[#9a6a2f]">
-                  暂无可用组织，请先到「组织」页面创建并加入组织。
+              <Input
+                id="project-name"
+                type="text"
+                value={name}
+                disabled={saving}
+                onChange={(e) => {
+                  setNameFromFolder(null);
+                  setName(e.target.value);
+                }}
+                placeholder="输入项目名称，或从文件夹自动预填…"
+                autoFocus
+              />
+              {!editing && nameFromFolder && name === nameFromFolder ? (
+                <p className="mt-1 text-[11px] text-muted">
+                  已从文件夹名预填，可修改；需点击下方确认后才会创建。
                 </p>
-              ) : (
-                <select
-                  value={orgId}
-                  onChange={(e) => setOrgId(e.target.value)}
-                  disabled={saving}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-                >
-                  {activeOrgs.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name} ({o.code})
-                    </option>
-                  ))}
-                </select>
-              )}
+              ) : null}
             </div>
-          )}
-          <div>
-            <Label htmlFor="project-name" className="mb-1.5 block text-sm font-medium text-foreground">
-              项目名称 <span className="text-[#a63d3d]">*</span>
-            </Label>
-            <Input
-              id="project-name"
-              type="text"
-              value={name}
-              disabled={saving}
-              onChange={(e) => {
-                setNameFromFolder(null);
-                setName(e.target.value);
-              }}
-              placeholder="输入项目名称，或从文件夹自动预填…"
-              autoFocus
-            />
-            {!editing && nameFromFolder && name === nameFromFolder ? (
-              <p className="mt-1 text-[11px] text-muted">
-                已从文件夹名预填，可修改；需点击下方确认后才会创建。
+            <div>
+              <Label htmlFor="project-description" className="mb-1.5 block text-sm font-medium text-foreground">
+                描述
+              </Label>
+              <textarea
+                id="project-description"
+                value={description}
+                disabled={saving}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="项目描述（可选；AI 扫描后也可能自动补全）..."
+                rows={3}
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-sm font-medium text-foreground">颜色标识</Label>
+              <div className="flex gap-2">
+                {PROJECT_COLORS.map((c) => (
+                  <Button
+                    key={c}
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={saving}
+                    onClick={() => setColor(c)}
+                    className={cn(
+                      "h-8 w-8 min-w-8 rounded-full p-0 transition-all hover:bg-transparent hover:opacity-90",
+                      color === c
+                        ? "ring-2 ring-accent ring-offset-2"
+                        : "hover:scale-110"
+                    )}
+                    style={{ backgroundColor: c }}
+                    aria-label={`选择颜色 ${c}`}
+                  />
+                ))}
+              </div>
+            </div>
+            {saveError && (
+              <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">
+                {saveError}
               </p>
-            ) : null}
+            )}
           </div>
-          <div>
-            <Label htmlFor="project-description" className="mb-1.5 block text-sm font-medium text-foreground">
-              描述
-            </Label>
-            <textarea
-              id="project-description"
-              value={description}
-              disabled={saving}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="项目描述（可选；AI 扫描后也可能自动补全）..."
-              rows={3}
-              className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-          </div>
-          <div>
-            <Label className="mb-1.5 block text-sm font-medium text-foreground">颜色标识</Label>
-            <div className="flex gap-2">
-              {PROJECT_COLORS.map((c) => (
-                <Button
-                  key={c}
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={saving}
-                  onClick={() => setColor(c)}
-                  className={cn(
-                    "h-8 w-8 min-w-8 rounded-full p-0 transition-all hover:bg-transparent hover:opacity-90",
-                    color === c
-                      ? "ring-2 ring-accent ring-offset-2"
-                      : "hover:scale-110"
-                  )}
-                  style={{ backgroundColor: c }}
-                  aria-label={`选择颜色 ${c}`}
-                />
-              ))}
-            </div>
-          </div>
-          {progressMsg && (
-            <p className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-[12px] text-foreground">
-              <Loader2 size={12} className="mr-1.5 inline animate-spin" />
-              {progressMsg}
-            </p>
-          )}
-          {saveError && (
-            <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">
-              {saveError}
-            </p>
-          )}
-          <DialogFooter className="gap-3 pt-2 sm:space-x-0">
+          <DialogFooter className="shrink-0 gap-3 border-t border-border px-6 py-4 sm:space-x-0">
             <Button
               type="button"
               variant="outline"
@@ -418,7 +326,7 @@ function ProjectModal({
               {editing
                 ? "保存修改"
                 : pendingFiles.length > 0
-                  ? "确认创建并上传"
+                  ? "确认创建（后台导入）"
                   : "确认创建"}
             </Button>
           </DialogFooter>
