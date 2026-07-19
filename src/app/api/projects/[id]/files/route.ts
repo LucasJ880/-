@@ -140,6 +140,13 @@ export const POST = withAuth(async (request, ctx, user) => {
     }
   }
 
+  if (results.length > 0) {
+    const { markGeneratedDocsStale } = await import(
+      "@/lib/projects/generate/generate-docs"
+    );
+    await markGeneratedDocsStale(projectId).catch(() => {});
+  }
+
   return NextResponse.json(
     { uploaded: results, errors, total: results.length },
     { status: results.length > 0 ? 201 : 400 }

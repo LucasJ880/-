@@ -273,6 +273,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       userContent: content,
       chatMessages,
       abortSignal: request.signal,
+      projectId: thread.projectId ?? null,
     });
   }
   // ─── 以下为 legacy 分支 ───
@@ -303,11 +304,17 @@ export const POST = withAuth(async (request, ctx, user) => {
     null;
 
   if (resolvedProjectId) {
-    const [deep, memory] = await Promise.all([
+    const [deep, memory, projectCtx] = await Promise.all([
       getProjectDeepContext(resolvedProjectId),
       getProjectAiMemory(resolvedProjectId),
+      import("@/lib/projects/project-ai-context").then((m) =>
+        m.buildProjectAiContextBlock(resolvedProjectId),
+      ),
     ]);
     if (deep) deepBlock = buildProjectDeepBlock(deep);
+    if (projectCtx) {
+      deepBlock = `${deepBlock}\n\n## 项目工作台上下文（自动注入，勿要求用户重复提供）\n${projectCtx}`;
+    }
     memoryBlock = buildMemoryBlock(memory);
   }
 
@@ -449,6 +456,18 @@ export const POST = withAuth(async (request, ctx, user) => {
           threadId,
         ).catch(() => {});
 
+        if (resolvedProjectId) {
+          import("@/lib/projects/insight-extract")
+            .then((m) =>
+              m.extractInsightsFromAssistantReply({
+                projectId: resolvedProjectId,
+                orgId: legacyOrgId,
+                assistantText: cleanText,
+              }),
+            )
+            .catch(() => {});
+        }
+
         indexThreadMessages(user.id, threadId).catch(() => {});
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -540,16 +559,40 @@ interface OperatorBranchInput {
   userContent: string;
   chatMessages: ChatMessage[];
   abortSignal: AbortSignal;
+  projectId: string | null;
 }
 
 async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextResponse> {
-  const { threadId, threadTitle, isFirstMessage, user, orgId, userContent, chatMessages, abortSignal } = input;
+  const {
+    threadId,
+    threadTitle,
+    isFirstMessage,
+    user,
+    orgId,
+    userContent,
+    chatMessages,
+    abortSignal,
+    projectId,
+  } = input;
 
   const caps = getCapabilities(user.role);
-  const systemPrompt = buildOperatorSystemPrompt({
+  let systemPrompt = buildOperatorSystemPrompt({
     role: user.role,
     userName: user.name,
   });
+  if (projectId) {
+    try {
+      const { buildProjectAiContextBlock } = await import(
+        "@/lib/projects/project-ai-context"
+      );
+      const ctx = await buildProjectAiContextBlock(projectId);
+      if (ctx) {
+        systemPrompt += `\n\n## 项目工作台上下文（自动注入）\n${ctx}`;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
   // PR3：轻量分流 —— 无业务关键词就跳过工具循环，直接流式对话
   const withTools = needsTools(userContent);
@@ -711,6 +754,18 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             },
             data: { messageId: assistantMsg.id },
           });
+        }
+
+        if (projectId) {
+          import("@/lib/projects/insight-extract")
+            .then((m) =>
+              m.extractInsightsFromAssistantReply({
+                projectId,
+                orgId,
+                assistantText: finalContent,
+              }),
+            )
+            .catch(() => {});
         }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));

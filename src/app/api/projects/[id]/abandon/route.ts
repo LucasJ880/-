@@ -94,6 +94,9 @@ export async function POST(
     request,
   });
 
+  const { maybeCreateReviewDraft } = await import("@/lib/projects/review");
+  await maybeCreateReviewDraft(id).catch(() => null);
+
   return NextResponse.json({
     success: true,
     project: {

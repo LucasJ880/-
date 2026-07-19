@@ -41,6 +41,11 @@ import { ProjectFileManager } from "@/components/project-files/project-file-mana
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-onboarding-guide";
 import { ProjectDetailHeader } from "@/components/project-detail/project-detail-header";
+import { ProjectAiSummaryCard } from "@/components/project-ai-summary/project-ai-summary-card";
+import { ProjectHistoryExperienceCard } from "@/components/project-history-experience/project-history-experience-card";
+import { ProjectReviewCard } from "@/components/project-review/project-review-card";
+import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
+import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -399,6 +404,11 @@ function ProjectDetailContent() {
             onGoToAi={() => setActiveTab("ai")}
           />
 
+          <ProjectAiSummaryCard projectId={id} />
+          <ProjectInsightsPanel projectId={id} canManage={canManage} />
+          <ProjectHistoryExperienceCard projectId={id} />
+          <ProjectReviewCard projectId={id} />
+
           {/* AI 情报分析 */}
           {(project.sourceSystem === "bidtogo" || project.intelligence) && (
             <BidToGoIntelligenceCard
@@ -526,6 +536,7 @@ function ProjectDetailContent() {
       {/* ═══ Tab: AI 工作台 ═══ */}
       {activeTab === "ai" && (
         <div className="space-y-6">
+          <ProjectGenerateMenu projectId={id} canManage={canManage} />
           <ProjectAiChat
             projectId={id}
             projectName={project.name}

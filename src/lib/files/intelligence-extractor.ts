@@ -374,6 +374,17 @@ export async function generateProjectIntelligence(projectId: string): Promise<vo
       totalMs: finalDetail?.elapsedMs,
       promptVersion: PROMPT_VERSION,
     });
+
+    try {
+      const { refreshStructuredSummary } = await import(
+        "@/lib/projects/structured-summary"
+      );
+      await refreshStructuredSummary(projectId);
+    } catch (e) {
+      logWarn(projectId, "结构化摘要刷新失败", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   } catch (e) {
     logError(projectId, "DB 写入失败", e);
   }

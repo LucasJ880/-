@@ -94,6 +94,24 @@ export async function PATCH(
     );
   }
   if (body.priority !== undefined) data.priority = body.priority;
+  if (body.ourBidPrice !== undefined) {
+    data.ourBidPrice =
+      body.ourBidPrice === null || body.ourBidPrice === ""
+        ? null
+        : Number(body.ourBidPrice);
+  }
+  if (body.winningBidPrice !== undefined) {
+    data.winningBidPrice =
+      body.winningBidPrice === null || body.winningBidPrice === ""
+        ? null
+        : Number(body.winningBidPrice);
+  }
+  if (body.aiAdviceStatus !== undefined) {
+    data.aiAdviceStatus = body.aiAdviceStatus || null;
+  }
+  if (body.projectTypes !== undefined) {
+    data.projectTypes = body.projectTypes;
+  }
 
   // 进展时间戳字段 — 必须通过 POST /api/projects/[id]/advance-stage 更新
   // 此处拦截，防止绕过规则校验、审计、通知链路
@@ -173,6 +191,15 @@ export async function PATCH(
     },
     request,
   });
+
+  if (
+    body.awardDate !== undefined ||
+    body.ourBidPrice !== undefined ||
+    body.winningBidPrice !== undefined
+  ) {
+    const { maybeCreateReviewDraft } = await import("@/lib/projects/review");
+    await maybeCreateReviewDraft(id).catch(() => null);
+  }
 
   return NextResponse.json(project);
 }

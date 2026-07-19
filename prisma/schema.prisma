@@ -224,6 +224,14 @@ model Project {
   location           String?
   estimatedValue     Float?
   currency           String?
+  /// 我方提交/拟报价格（复盘与相似对比用，可空）
+  ourBidPrice        Float?
+  /// 中标价 / 成交价（复盘用，可空）
+  winningBidPrice    Float?
+  /// 项目类型标签 JSON 数组，如 ["china_sourcing","install"]
+  projectTypes       Json?
+  /// AI 建议态：advance | conditional | wait_info | abandon（不覆盖 tenderStatus）
+  aiAdviceStatus     String?
   solicitationNumber String?
   workflowTemplate   String?
   sourceMetadataJson String?
@@ -275,6 +283,11 @@ model Project {
   inquiries         ProjectInquiry[]
   quotes            ProjectQuote[]
   agentTasks        AgentTask[]
+  insights          ProjectInsight[]
+  similaritiesAsSource ProjectSimilarity[] @relation("SimilaritySource")
+  similaritiesAsTarget ProjectSimilarity[] @relation("SimilarityTarget")
+  reviews           ProjectReview[]
+  generatedDocs     ProjectGeneratedDocument[]
 
   @@index([orgId])
   @@index([sourceSystem])
@@ -1328,8 +1341,96 @@ model ProjectIntelligence {
   reviewNotes  String?
   reviewScore  Int? // 1-5 人工评分（可选）
 
+  /// Phase1：结构化 AI 摘要卡 + 分类型分析（JSON 文本）
+  structuredSummaryJson String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// 从聊天/文件/复盘提取的可确认项目结论（企业记忆原料）
+model ProjectInsight {
+  id          String    @id @default(cuid())
+  orgId       String?
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind        String // advantage | risk | requirement | price | supplier | decision | next_step | strategy | lesson | other
+  title       String
+  content     String    @db.Text
+  source      String    @default("chat") // chat | file | review | system
+  status      String    @default("draft") // draft | confirmed | rejected
+  confirmedAt DateTime?
+  confirmedBy String?
+  embedding   Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([orgId, status])
+  @@index([kind])
+}
+
+/// 相似历史项目匹配结果
+model ProjectSimilarity {
+  id               String   @id @default(cuid())
+  orgId            String?
+  projectId        String
+  project          Project  @relation("SimilaritySource", fields: [projectId], references: [id], onDelete: Cascade)
+  similarProjectId String
+  similarProject   Project  @relation("SimilarityTarget", fields: [similarProjectId], references: [id], onDelete: Cascade)
+  score            Float
+  reasonsJson      String   @db.Text
+  impactText       String?  @db.Text
+  recommendationsJson String? @db.Text
+  redacted         Boolean  @default(false)
+  computedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  @@unique([projectId, similarProjectId])
+  @@index([projectId, score])
+  @@index([orgId])
+}
+
+/// 项目结束复盘（草稿 → 用户确认后进入企业记忆）
+model ProjectReview {
+  id              String    @id @default(cuid())
+  orgId           String?
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status          String    @default("draft") // draft | confirmed
+  outcome         String? // awarded | lost | cancelled | no_bid | completed | terminated
+  priceAnalysisJson String? @db.Text
+  reasonTagsJson  String?   @db.Text
+  narrative       String?   @db.Text
+  customerFeedback String?  @db.Text
+  confirmedById   String?
+  confirmedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([orgId, status])
+  @@index([outcome])
+}
+
+/// 一键生成的项目 PDF / 文件版本记录
+model ProjectGeneratedDocument {
+  id        String   @id @default(cuid())
+  orgId     String?
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  docType   String // supplier_rfq | tech_confirm | internal_analysis | teammate_tasks | owner_clarification
+  version   Int      @default(1)
+  title     String
+  blobUrl   String?
+  fileUrl   String?
+  metaJson  String?  @db.Text
+  stale     Boolean  @default(false)
+  createdById String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId, docType])
+  @@index([orgId])
 }
 
 model ProjectProgressSummary {
