@@ -140,7 +140,8 @@ export default function GrowthCenterPage() {
         <section className="rounded-xl border border-border bg-card-bg p-4"><h2 className="font-semibold">快捷入口</h2><div className="mt-3 space-y-2 text-sm">
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/brand"><ClipboardList size={16}/>企业事实中心</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/metrics"><Activity size={16}/>录入渠道数据</Link>
-          <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/campaigns"><Megaphone size={16}/>活动与赛马实验</Link>
+          <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/campaigns"><Megaphone size={16}/>营销活动</Link>
+          <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/experiments"><FlaskConical size={16}/>赛马实验</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/automations"><Workflow size={16}/>智能自动流</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/mmm"><BrainCircuit size={16}/>Meridian MMM</Link>
           <button type="button" onClick={previewBrief} className="flex w-full items-center gap-2 rounded-lg bg-background p-3 text-left"><Users size={16}/>预览微信推广日报</button>
