@@ -20,6 +20,7 @@ import {
   TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
   TRADE_PROSPECT_STAGES,
 } from "@/lib/trade/stage";
+import { searchKnowledge } from "@/lib/trade/knowledge-service";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -453,6 +454,47 @@ registry.register({
       requestType: request.requestType,
       status: request.status,
       title: request.title,
+    });
+  },
+});
+
+// ── trade.search_knowledge（组织知识库，含 vault 导入内容）────────
+
+registry.register({
+  name: "trade_search_knowledge",
+  description:
+    "在当前组织的外贸/产品知识库中检索（含从 Markdown/Obsidian 导入的条目）。用于产品规格、FAQ、认证、案例；只读，不修改知识库。",
+  domain: "trade",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "检索关键词或问题" },
+      category: {
+        type: "string",
+        description: "可选：product / faq / case_study / certification / process",
+      },
+    },
+    required: ["query"],
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const orgId = (ctx.orgId ?? "").trim();
+    if (!orgId || orgId === "default") {
+      return { success: false, data: null, error: "缺少合法 orgId，无法检索知识库" };
+    }
+    const query = String(ctx.args.query || "").trim();
+    if (!query) {
+      return { success: false, data: null, error: "query 不能为空" };
+    }
+    const category =
+      typeof ctx.args.category === "string" && ctx.args.category.trim()
+        ? ctx.args.category.trim()
+        : undefined;
+    const context = await searchKnowledge(orgId, query, { category, limit: 5 });
+    return ok({
+      query,
+      category: category ?? null,
+      found: Boolean(context),
+      context: context || "未找到相关知识条目。可提示用户到「外贸 · 产品知识库」导入 Markdown/ZIP。",
     });
   },
 });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, BookOpen, Trash2, Edit3 } from "lucide-react";
+import { Plus, Loader2, BookOpen, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
@@ -42,6 +42,9 @@ export default function TradeKnowledgePage() {
   const [filter, setFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!orgId || ambiguous) {
@@ -69,6 +72,37 @@ export default function TradeKnowledgePage() {
     load();
   };
 
+  const handleImport = async (fileList: FileList | null) => {
+    if (!orgId || ambiguous || !fileList?.length) return;
+    setImporting(true);
+    setImportError(null);
+    setImportMessage(null);
+    try {
+      const form = new FormData();
+      form.set("orgId", orgId);
+      form.set("defaultCategory", filter || "product");
+      if (fileList.length === 1) {
+        form.set("file", fileList[0]!);
+      } else {
+        Array.from(fileList).forEach((file) => form.append("files", file));
+      }
+      const res = await apiFetch("/api/trade/knowledge/import", {
+        method: "POST",
+        body: form,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "导入失败");
+      setImportMessage(
+        `已导入 ${body.created} 条${body.skipped?.length ? `，跳过 ${body.skipped.length} 个文件` : ""}。组织知识以青砚为准，可供数字员工检索。`,
+      );
+      await load();
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : "导入失败");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   if (orgLoading || loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -90,9 +124,21 @@ export default function TradeKnowledgePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="产品知识库" description="AI 生成开发信和回复建议时会自动引用这些资料" />
+      <PageHeader
+        title="产品知识库"
+        description="组织级知识真相源：可在 Obsidian 起草后导入 Markdown/ZIP。数字员工与开发信 AI 从此检索，不反向依赖本地笔记软件。"
+      />
 
-      <div className="flex items-center justify-between gap-3">
+      {importError && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{importError}</div>
+      )}
+      {importMessage && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {importMessage}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none">
             <option value="">全部类型</option>
@@ -102,10 +148,30 @@ export default function TradeKnowledgePage() {
           </select>
           <span className="text-xs text-muted">{items.length} 条</span>
         </div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-500">
-          <Plus size={14} /> 添加知识
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-background">
+            {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            导入 MD / ZIP
+            <input
+              type="file"
+              accept=".md,.mdx,.txt,.markdown,.zip"
+              multiple
+              className="hidden"
+              disabled={importing}
+              onChange={(e) => {
+                void handleImport(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-500">
+            <Plus size={14} /> 添加知识
+          </button>
+        </div>
       </div>
+      <p className="text-xs text-muted">
+        Obsidian 建议：用文件夹名对应类型（product / faq / case_study / certification / process），或在 frontmatter 写 category。导入后请在青砚维护，勿依赖双向同步。
+      </p>
 
       {items.length === 0 ? (
         <div className="rounded-xl border border-border/60 bg-card-bg px-8 py-16 text-center">
