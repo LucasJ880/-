@@ -105,6 +105,9 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   marketing_request_data_sync:  { risk: "l2_soft", allowRoles: "*" },
   marketing_ingest_channel_metrics: { risk: "l1_internal_write", allowRoles: "*" },
   marketing_get_mmm_summary:    { risk: "l0_read", allowRoles: "*" },
+
+  // ── 组织通用知识库 ──
+  org_search_knowledge:         { risk: "l0_read", allowRoles: "*" },
 };
 
 /**

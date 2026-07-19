@@ -12,6 +12,7 @@ import {
   Clock,
   Settings,
   Search,
+  Upload,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -261,6 +262,29 @@ export default function KnowledgeBaseDetailPage() {
     }
   }
 
+  async function importVault(files: FileList | null) {
+    if (!files?.length) return;
+    setDocSaving(true);
+    try {
+      const form = new FormData();
+      if (files.length === 1) form.set("file", files[0]!);
+      else Array.from(files).forEach((f) => form.append("files", f));
+      const res = await apiFetch(
+        `/api/projects/${projectId}/knowledge-bases/${kbId}/import`,
+        { method: "POST", body: form },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "导入失败");
+      alert(data.note || `已导入 ${data.created} 篇`);
+      loadDocuments(docKeyword, docStatusFilter, docPage);
+      loadDetail();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "导入失败");
+    } finally {
+      setDocSaving(false);
+    }
+  }
+
   async function createDoc(e: React.FormEvent) {
     e.preventDefault();
     setDocSaving(true);
@@ -471,14 +495,35 @@ export default function KnowledgeBaseDetailPage() {
               </button>
             )}
             {canManage && kb.status === "active" && (
-              <button
-                type="button"
-                onClick={() => setShowDocForm((v) => !v)}
-                className="ml-auto inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-              >
-                <Plus size={14} />
-                {showDocForm ? "取消" : "新建文档"}
-              </button>
+              <>
+                <label className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-lg border border-border px-3 py-2 text-sm">
+                  {docSaving ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Upload size={14} />
+                  )}
+                  导入 MD/ZIP
+                  <input
+                    type="file"
+                    accept=".md,.mdx,.txt,.markdown,.zip"
+                    multiple
+                    className="hidden"
+                    disabled={docSaving}
+                    onChange={(e) => {
+                      void importVault(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowDocForm((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+                >
+                  <Plus size={14} />
+                  {showDocForm ? "取消" : "新建文档"}
+                </button>
+              </>
             )}
           </div>
 

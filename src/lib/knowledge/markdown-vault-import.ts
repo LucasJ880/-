@@ -31,6 +31,8 @@ export interface ParseVaultOptions {
 }
 
 const CATEGORY_ALIASES: Record<string, string> = {
+  general: "general",
+  通用: "general",
   product: "product",
   products: "product",
   产品: "product",

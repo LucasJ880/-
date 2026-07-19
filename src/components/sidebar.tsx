@@ -112,6 +112,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ["admin", "super_admin", "user"],
     items: [
       { href: "/organizations", labelKey: "nav_organizations", icon: Building2, roles: ["admin", "super_admin", "user"] },
+      { href: "/knowledge", labelKey: "nav_org_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "user"] },
       { href: "/projects", labelKey: "nav_projects", icon: FolderKanban, roles: ["admin", "super_admin", "user"] },
       { href: "/suppliers", labelKey: "nav_suppliers", icon: Package2, roles: ["admin", "super_admin", "user"] },
     ],

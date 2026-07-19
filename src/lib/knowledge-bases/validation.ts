@@ -1,4 +1,4 @@
-export const KB_SOURCE_TYPES = ["manual", "link", "file_stub"] as const;
+export const KB_SOURCE_TYPES = ["manual", "link", "file_stub", "vault_import"] as const;
 export type KbSourceType = (typeof KB_SOURCE_TYPES)[number];
 
 export const KB_STATUS = ["active", "archived"] as const;

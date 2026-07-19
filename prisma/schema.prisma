@@ -2575,6 +2575,43 @@ model TradeKnowledge {
   @@index([orgId, isActive])
 }
 
+/// 组织通用知识库（平台真相源）— Markdown/vault 导入后供数字员工向量检索
+/// Obsidian 等仅作起草边缘；不双向同步。
+model OrgKnowledgeDocument {
+  id          String   @id @default(cuid())
+  orgId       String
+  title       String
+  content     String   @db.Text
+  category    String   @default("general")
+  tags        String?
+  language    String   @default("zh")
+  sourceType  String   @default("manual") // manual / vault_import
+  sourcePath  String?
+  status      String   @default("active") // active / archived
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  chunks OrgKnowledgeChunk[]
+
+  @@index([orgId, status, updatedAt])
+  @@index([orgId, category])
+}
+
+model OrgKnowledgeChunk {
+  id         String                       @id @default(cuid())
+  orgId      String
+  documentId String
+  document   OrgKnowledgeDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String                       @db.Text
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now())
+
+  @@unique([documentId, chunkIndex])
+  @@index([orgId, documentId])
+}
+
 model TradeEmailTemplate {
   id          String   @id @default(cuid())
   orgId       String

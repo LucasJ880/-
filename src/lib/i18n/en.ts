@@ -58,6 +58,7 @@ export const en: Messages = {
   nav_email_templates: "Email Templates",
   nav_message_channels: "Message Channels",
   nav_trade_knowledge: "Global Knowledge",
+  nav_org_knowledge: "Org Knowledge",
   nav_trade_watch_signals: "Market Monitoring",
   nav_organizations: "Organizations",
   nav_projects: "Projects",

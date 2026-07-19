@@ -94,6 +94,7 @@ const TOOL_LABELS: Record<string, string> = {
   marketing_list_channel_accounts: "列出营销渠道账号",
   marketing_request_data_sync: "同步营销渠道数据",
   marketing_ingest_channel_metrics: "写入渠道周指标",
+  org_search_knowledge: "检索组织知识库",
 };
 
 export function toolLabel(name: string): string {

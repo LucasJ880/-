@@ -61,6 +61,7 @@ export interface Messages {
   nav_email_templates: string;
   nav_message_channels: string;
   nav_trade_knowledge: string;
+  nav_org_knowledge: string;
   nav_trade_watch_signals: string;
   nav_organizations: string;
   nav_projects: string;
