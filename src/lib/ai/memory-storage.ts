@@ -1,12 +1,10 @@
 /**
- * 用户记忆 CRUD 操作 — 存储、更新、删除、列表、嵌入回填
+ * 用户记忆 CRUD — 强制 orgId 隔离
  */
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { generateEmbedding, cosineSimilarity } from "./embedding";
-
-// ─── 共享类型 ─────────────────────────────────────────────────
 
 export type MemoryType =
   | "decision"
@@ -18,6 +16,7 @@ export type MemoryType =
 
 export interface MemoryEntry {
   id: string;
+  orgId: string;
   memoryType: MemoryType;
   layer: number;
   content: string;
@@ -26,17 +25,23 @@ export interface MemoryEntry {
   createdAt: Date;
 }
 
-// ─── 冲突检测 ────────────────────────────────────────────────
-
 const CONFLICT_THRESHOLD = 0.88;
 
+function requireOrgId(orgId: string | null | undefined): string {
+  const id = (orgId || "").trim();
+  if (!id) throw new Error("orgId 必填：记忆必须按组织隔离");
+  return id;
+}
+
 async function detectAndSupersede(
+  orgId: string,
   userId: string,
   memoryType: MemoryType,
   newEmbedding: number[],
 ): Promise<string | null> {
   const existing = await db.userMemory.findMany({
     where: {
+      orgId,
       userId,
       memoryType,
       embedding: { not: Prisma.JsonNullValueFilter.JsonNull },
@@ -53,9 +58,8 @@ async function detectAndSupersede(
   return null;
 }
 
-// ─── 存储 ─────────────────────────────────────────────────────
-
 export async function saveMemory(params: {
+  orgId: string;
   userId: string;
   memoryType: MemoryType;
   content: string;
@@ -66,35 +70,51 @@ export async function saveMemory(params: {
   customerId?: string;
   projectId?: string;
 }): Promise<{ id: string }> {
+  const orgId = requireOrgId(params.orgId);
+  if (!params.userId) throw new Error("userId 必填");
+
   let embedding: number[] | null = null;
   try {
     embedding = await generateEmbedding(params.content);
-  } catch { /* embedding 生成失败不阻塞存储 */ }
+  } catch {
+    /* embedding 生成失败不阻塞存储 */
+  }
 
-  if (embedding && (params.memoryType === "preference" || params.memoryType === "decision")) {
+  if (
+    embedding &&
+    (params.memoryType === "preference" || params.memoryType === "decision")
+  ) {
     const superseded = await detectAndSupersede(
+      orgId,
       params.userId,
       params.memoryType,
       embedding,
     );
     if (superseded) {
-      const updated = await db.userMemory.update({
-        where: { id: superseded },
-        data: {
-          content: params.content,
-          tags: params.tags ?? undefined,
-          importance: params.importance ?? 3,
-          embedding: embedding ?? Prisma.JsonNull,
-          sourceThreadId: params.sourceThreadId ?? null,
-        },
+      const owned = await db.userMemory.findFirst({
+        where: { id: superseded, orgId, userId: params.userId },
         select: { id: true },
       });
-      return updated;
+      if (owned) {
+        const updated = await db.userMemory.update({
+          where: { id: owned.id },
+          data: {
+            content: params.content,
+            tags: params.tags ?? undefined,
+            importance: params.importance ?? 3,
+            embedding: embedding ?? Prisma.JsonNull,
+            sourceThreadId: params.sourceThreadId ?? null,
+          },
+          select: { id: true },
+        });
+        return updated;
+      }
     }
   }
 
   const record = await db.userMemory.create({
     data: {
+      orgId,
       userId: params.userId,
       memoryType: params.memoryType,
       content: params.content,
@@ -113,6 +133,7 @@ export async function saveMemory(params: {
 
 export async function saveMemories(
   userId: string,
+  orgId: string,
   entries: Array<{
     memoryType: MemoryType;
     content: string;
@@ -120,14 +141,16 @@ export async function saveMemories(
     tags?: string;
     importance?: number;
     sourceThreadId?: string;
-  }>
+  }>,
 ): Promise<number> {
   if (entries.length === 0) return 0;
+  const safeOrgId = requireOrgId(orgId);
 
   let saved = 0;
   for (const e of entries) {
     try {
       await saveMemory({
+        orgId: safeOrgId,
         userId,
         memoryType: e.memoryType,
         content: e.content,
@@ -137,15 +160,16 @@ export async function saveMemories(
         sourceThreadId: e.sourceThreadId,
       });
       saved++;
-    } catch { /* 单条失败不阻塞其它 */ }
+    } catch {
+      /* 单条失败不阻塞其它 */
+    }
   }
   return saved;
 }
 
-// ─── 记忆管理 CRUD ──────────────────────────────────────────
-
 export async function listMemories(
   userId: string,
+  orgId: string,
   opts?: {
     layer?: number;
     memoryType?: string;
@@ -154,7 +178,8 @@ export async function listMemories(
     offset?: number;
   },
 ): Promise<{ items: MemoryEntry[]; total: number }> {
-  const where: Record<string, unknown> = { userId };
+  const safeOrgId = requireOrgId(orgId);
+  const where: Record<string, unknown> = { userId, orgId: safeOrgId };
   if (opts?.layer !== undefined) where.layer = opts.layer;
   if (opts?.memoryType) where.memoryType = opts.memoryType;
   if (opts?.search) {
@@ -179,16 +204,18 @@ export async function listMemories(
 
 export async function getMemoryById(
   userId: string,
+  orgId: string,
   id: string,
 ): Promise<MemoryEntry | null> {
   const m = await db.userMemory.findFirst({
-    where: { id, userId },
+    where: { id, userId, orgId: requireOrgId(orgId) },
   });
   return m as MemoryEntry | null;
 }
 
 export async function updateMemory(
   userId: string,
+  orgId: string,
   id: string,
   data: {
     content?: string;
@@ -198,15 +225,23 @@ export async function updateMemory(
     importance?: number;
   },
 ): Promise<MemoryEntry> {
+  const owned = await db.userMemory.findFirst({
+    where: { id, userId, orgId: requireOrgId(orgId) },
+    select: { id: true },
+  });
+  if (!owned) throw new Error("记忆不存在或跨组织");
+
   let embedding: number[] | undefined;
   if (data.content) {
     try {
       embedding = await generateEmbedding(data.content);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   const updated = await db.userMemory.update({
-    where: { id },
+    where: { id: owned.id },
     data: {
       ...data,
       ...(embedding ? { embedding } : {}),
@@ -217,16 +252,27 @@ export async function updateMemory(
 
 export async function deleteMemory(
   userId: string,
+  orgId: string,
   id: string,
 ): Promise<void> {
-  await db.userMemory.delete({
-    where: { id },
+  const owned = await db.userMemory.findFirst({
+    where: { id, userId, orgId: requireOrgId(orgId) },
+    select: { id: true },
   });
+  if (!owned) throw new Error("记忆不存在或跨组织");
+  await db.userMemory.delete({ where: { id: owned.id } });
 }
 
-export async function backfillEmbeddings(userId: string): Promise<number> {
+export async function backfillEmbeddings(
+  userId: string,
+  orgId: string,
+): Promise<number> {
   const noEmbed = await db.userMemory.findMany({
-    where: { userId, embedding: { equals: Prisma.JsonNull } },
+    where: {
+      userId,
+      orgId: requireOrgId(orgId),
+      embedding: { equals: Prisma.JsonNull },
+    },
     take: 100,
   });
 
@@ -239,7 +285,9 @@ export async function backfillEmbeddings(userId: string): Promise<number> {
         data: { embedding: emb },
       });
       count++;
-    } catch { break; }
+    } catch {
+      break;
+    }
   }
   return count;
 }

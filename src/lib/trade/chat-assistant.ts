@@ -112,8 +112,8 @@ export async function processChat(
   // ── 加载记忆 ──
   let memoryBlock = "";
   try {
-    const { l0, l1 } = await getWakeUpMemories(userId, 8);
-    const l2 = await recallMemories(userId, userMessage, { limit: 5 });
+    const { l0, l1 } = await getWakeUpMemories(userId, orgId, 8);
+    const l2 = await recallMemories(userId, orgId, userMessage, { limit: 5 });
     memoryBlock = buildUserMemoryBlock(l0, l1, l2);
   } catch { /* 记忆加载失败不阻塞对话 */ }
 
@@ -191,8 +191,8 @@ export async function processChatV2(
 
   let memoryBlock = "";
   try {
-    const { l0, l1 } = await getMemories(userId, 8);
-    const l2 = await recall(userId, userMessage, { limit: 5 });
+    const { l0, l1 } = await getMemories(userId, orgId, 8);
+    const l2 = await recall(userId, orgId, userMessage, { limit: 5 });
     memoryBlock = buildBlock(l0, l1, l2);
   } catch { /* 记忆不阻塞 */ }
 

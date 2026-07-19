@@ -66,6 +66,7 @@ export function canAccessModule(role: string | null | undefined, modulePath: str
     "/suppliers":       ["admin", "user"],
     "/assistant":       undefined,
     "/wechat":          undefined,
+    "/agent-trace":     undefined,
     "/ai-activity":     undefined,
     "/reports":         ["admin", "user"],
     "/settings/wechat": undefined,

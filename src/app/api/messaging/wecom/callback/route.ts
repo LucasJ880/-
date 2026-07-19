@@ -8,7 +8,7 @@
  *       trade_intake 模式下走外贸受理链路（建单到客户 org，可自动桥接处理方 org）。
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
   handleInboundMessage,
@@ -17,7 +17,7 @@ import {
 import { WeComAdapter, parseWeComMessageXml } from "@/lib/messaging/adapters/wecom";
 import type { InboundMessage } from "@/lib/messaging/types";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 // 注意：每次都要新建 Response（Response body 是一次性流，复用会在第二个请求返回空体）。
 function ok(): NextResponse {
@@ -128,7 +128,8 @@ export async function POST(req: NextRequest) {
 
     if (!inbound) return ok();
 
-    // 按网关业务模式路由：trade_intake → 外贸受理；否则 → 内部员工助理。
+    // 快速回 ok，后台处理（ACK + AI），避免企微等待整段模型调用超时重试。
+    // trade_intake 仍需同步处理以保证受理时序；assistant 走 after。
     if (gateway.mode === "trade_intake") {
       await attachAdapterInbound(adapter, {
         orgId,
@@ -137,9 +138,16 @@ export async function POST(req: NextRequest) {
       });
       const handler = adapter.getMessageHandler();
       if (handler) await handler(inbound);
-    } else {
-      await handleInboundMessage(inbound);
+      return ok();
     }
+
+    after(async () => {
+      try {
+        await handleInboundMessage(inbound);
+      } catch (e) {
+        console.error("[WeCom Callback] async handle failed:", e);
+      }
+    });
 
     return ok();
   } catch (e) {

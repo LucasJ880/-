@@ -88,8 +88,9 @@ export async function runProjectHealthForWeChat(params: {
   channel: string;
   externalUserId?: string;
   intent: ProjectHealthIntent;
+  agentRunId?: string;
 }): Promise<string> {
-  const { userId, orgId, channel, externalUserId, intent } = params;
+  const { userId, orgId, channel, externalUserId, intent, agentRunId } = params;
 
   if (!orgId) {
     return "无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定后重试。";
@@ -154,7 +155,7 @@ export async function runProjectHealthForWeChat(params: {
 
     const adapted = await graderActionsToPendingActions(
       result.suggestedActions,
-      { orgId, userId, channel },
+      { orgId, userId, channel, agentRunId },
       { limit: 3 },
     );
 

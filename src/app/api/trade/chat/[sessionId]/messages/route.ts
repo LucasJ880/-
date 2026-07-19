@@ -62,7 +62,12 @@ export async function POST(
     data: { sessionId, role: "assistant", content: aiResponse },
   });
 
-  extractAndSaveMemories(auth.user.id, body.content.trim(), aiResponse).catch(() => {});
+  extractAndSaveMemories(
+    auth.user.id,
+    session.orgId,
+    body.content.trim(),
+    aiResponse,
+  ).catch(() => {});
 
   indexNewMessages(auth.user.id, session.orgId, sessionId).catch(() => {});
 
@@ -91,12 +96,18 @@ async function indexNewMessages(userId: string, orgId: string, sessionId: string
   await indexTradeChatMessages(userId, orgId, sessionId);
 }
 
-async function extractAndSaveMemories(userId: string, userMsg: string, aiReply: string) {
+async function extractAndSaveMemories(
+  userId: string,
+  orgId: string,
+  userMsg: string,
+  aiReply: string,
+) {
   const extracted = extractMemoriesFromConversation(userMsg, aiReply);
   if (extracted.length === 0) return;
 
   await saveMemories(
     userId,
+    orgId,
     extracted.map((e) => ({
       memoryType: e.memoryType,
       content: e.content,

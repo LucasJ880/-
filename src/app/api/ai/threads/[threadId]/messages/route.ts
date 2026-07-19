@@ -289,7 +289,9 @@ export const POST = withAuth(async (request, ctx, user) => {
   const [workContext, prepared, wakeUp, companyBlock] = await Promise.all([
     getWorkContext(user.id, user.role),
     prepareConversation(chatMessages),
-    getWakeUpMemories(user.id),
+    legacyOrgId
+      ? getWakeUpMemories(user.id, legacyOrgId)
+      : Promise.resolve({ l0: [], l1: [] }),
     buildCompanyBlock(user.id, legacyOrgId),
   ]);
 
@@ -309,11 +311,13 @@ export const POST = withAuth(async (request, ctx, user) => {
     memoryBlock = buildMemoryBlock(memory);
   }
 
-  const l2Memories = await recallMemories(user.id, content, {
-    customerId: undefined,
-    projectId: resolvedProjectId ?? undefined,
-    limit: 5,
-  });
+  const l2Memories = legacyOrgId
+    ? await recallMemories(user.id, legacyOrgId, content, {
+        customerId: undefined,
+        projectId: resolvedProjectId ?? undefined,
+        limit: 5,
+      })
+    : [];
   const userMemoryBlock = buildUserMemoryBlock(wakeUp.l0, wakeUp.l1, l2Memories);
 
   const fileBlock = fileText
@@ -437,9 +441,13 @@ export const POST = withAuth(async (request, ctx, user) => {
           }),
         ]);
 
-        extractAndSaveMemories(user.id, content, cleanText, threadId).catch(
-          () => {}
-        );
+        extractAndSaveMemories(
+          user.id,
+          legacyOrgId,
+          content,
+          cleanText,
+          threadId,
+        ).catch(() => {});
 
         indexThreadMessages(user.id, threadId).catch(() => {});
 
@@ -727,15 +735,18 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
 
 async function extractAndSaveMemories(
   userId: string,
+  orgId: string | null,
   userMessage: string,
   assistantReply: string,
-  threadId: string
+  threadId: string,
 ) {
+  if (!orgId) return;
   const extracted = extractMemoriesFromConversation(userMessage, assistantReply);
   if (extracted.length === 0) return;
 
   await saveMemories(
     userId,
+    orgId,
     extracted.map((m) => ({
       memoryType: m.memoryType,
       content: m.content,
@@ -743,6 +754,6 @@ async function extractAndSaveMemories(
       tags: m.tags,
       importance: m.importance,
       sourceThreadId: threadId,
-    }))
+    })),
   );
 }

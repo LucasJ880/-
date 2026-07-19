@@ -44,7 +44,13 @@ export async function getRecentPendingActionsForWeChat(
     },
     orderBy: { createdAt: "desc" },
     take: limit,
-    select: { id: true, type: true, title: true, createdAt: true },
+    select: {
+      id: true,
+      type: true,
+      title: true,
+      createdAt: true,
+      agentRunId: true,
+    },
   });
   return rows.reverse();
 }
@@ -88,13 +94,28 @@ export async function handleWeChatPendingReply(
     }
     const role = await loadRole();
     let rejected = 0;
+    const runIds = new Set<string>();
     for (const a of batch) {
       const r = await rejectApprovalItem("pending_action", a.id, {
         userId: ctx.userId,
         role,
         orgId: ctx.orgId,
       });
-      if (r.ok) rejected++;
+      if (r.ok) {
+        rejected++;
+        if (a.agentRunId) runIds.add(a.agentRunId);
+      }
+    }
+    if (runIds.size > 0) {
+      const { maybeCompleteAgentRunAfterApproval } = await import(
+        "@/lib/agent-runtime/pending-link"
+      );
+      for (const agentRunId of runIds) {
+        await maybeCompleteAgentRunAfterApproval({
+          orgId: ctx.orgId,
+          agentRunId,
+        }).catch(() => {});
+      }
     }
     return { handled: true, reply: `已取消 ${rejected} 个待确认动作。` };
   }
@@ -120,6 +141,15 @@ export async function handleWeChatPendingReply(
   });
 
   if (result.ok) {
+    if (target.agentRunId) {
+      const { maybeCompleteAgentRunAfterApproval } = await import(
+        "@/lib/agent-runtime/pending-link"
+      );
+      await maybeCompleteAgentRunAfterApproval({
+        orgId: ctx.orgId,
+        agentRunId: target.agentRunId,
+      }).catch(() => {});
+    }
     // 内部备注用更贴合业务语义的文案；其余动作保持通用「已执行」
     if (target.type === "grader.internal_note") {
       return {

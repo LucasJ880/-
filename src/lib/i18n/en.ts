@@ -65,6 +65,7 @@ export const en: Messages = {
   nav_suppliers: "Suppliers",
   nav_wechat_messages: "WeChat Messages",
   nav_ai_memory: "Organization Knowledge",
+  nav_agent_trace: "Agent Trace",
   nav_ai_activity: "Automation Log",
   nav_weekly_reports: "Business Briefs",
   nav_publish_calendar: "Content Operations",

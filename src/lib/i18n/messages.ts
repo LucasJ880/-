@@ -68,6 +68,7 @@ export interface Messages {
   nav_suppliers: string;
   nav_wechat_messages: string;
   nav_ai_memory: string;
+  nav_agent_trace: string;
   nav_ai_activity: string;
   nav_weekly_reports: string;
   nav_publish_calendar: string;

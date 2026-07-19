@@ -1554,6 +1554,11 @@ model PendingAction {
   messageId String?
 
   /**
+   * 关联的 AgentRun（微信/Runtime 任务）。取消 Run 时联动拒绝未决草稿。
+   */
+  agentRunId String?
+
+  /**
    * 过期时间（默认创建时 +24h）
    */
   expiresAt DateTime
@@ -1586,6 +1591,7 @@ model PendingAction {
   @@index([orgId, status, createdAt])
   @@index([projectId, status, createdAt])
   @@index([threadId])
+  @@index([agentRunId, status])
 }
 
 // ============================================================
@@ -3127,10 +3133,13 @@ model SalesFAQ {
 // ============================================================
 
 /// 用户级 AI 记忆条目 — 跨对话、跨项目的持久知识
+/// 强制 orgId 隔离：同一用户在不同组织的记忆互不召回
 model UserMemory {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 所属组织（必填）。禁止跨组织读写记忆。
+  orgId  String
 
   // 记忆分类（借鉴 MemPalace 的 5 类提取）
   memoryType String // decision / preference / milestone / problem / insight / fact
@@ -3160,12 +3169,13 @@ model UserMemory {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([orgId, userId, layer])
+  @@index([orgId, userId, memoryType])
+  @@index([orgId, userId, importance])
+  @@index([orgId, userId, tags])
+  @@index([orgId, userId, customerId])
+  @@index([orgId, userId, projectId])
   @@index([userId, layer])
-  @@index([userId, memoryType])
-  @@index([userId, importance])
-  @@index([userId, tags])
-  @@index([userId, customerId])
-  @@index([userId, projectId])
 }
 
 // ============================================================
@@ -3446,6 +3456,87 @@ model WeChatMessage {
   @@index([bindingId, createdAt])
   @@index([userId, createdAt])
   @@index([channel, createdAt])
+  @@index([orgId, channel, externalMsgId])
+}
+
+/// Agent 渠道会话（微信/企微等）— 多轮复用，带 org 隔离
+/// 不存完整聊天；原文仍在 WeChatMessage。summary 仅为压缩摘要。
+model AgentSession {
+  id                    String    @id @default(cuid())
+  orgId                 String
+  userId                String?
+  channel               String
+  channelUserId         String?
+  channelConversationId String?
+  currentProjectId      String?
+  currentCustomerId     String?
+  currentOpportunityId  String?
+  currentQuoteId        String?
+  lastResponseId        String?
+  summary               String?   @db.Text
+  status                String    @default("active") // active / archived
+  lastActiveAt          DateTime  @default(now())
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  runs AgentRun[]
+
+  @@index([orgId, userId])
+  @@index([orgId, channel, channelConversationId])
+  @@index([orgId, channel, channelUserId, status])
+}
+
+/// 单次 AI 处理任务（含后台队列租约，对标 MarketResearchRun）
+model AgentRun {
+  id            String    @id @default(cuid())
+  orgId         String
+  sessionId     String
+  session       AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userMessageId String?
+  runType       String    @default("conversation")
+  status        String    @default("queued")
+  model         String?
+  intent        String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  latencyMs     Int?
+  errorCode     String?
+  errorMessage  String?   @db.Text
+  metadata      Json?
+  /// 后台消费：尝试次数
+  attempts      Int       @default(0)
+  /// 租约过期时间（running 超时可被重新认领）
+  leaseExpiresAt DateTime?
+  /// 下次可尝试时间（退避重试）
+  nextAttemptAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  events AgentRunEvent[]
+
+  @@index([orgId, sessionId])
+  @@index([orgId, status])
+  @@index([orgId, userMessageId])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+}
+
+/// AgentRun 真实执行进度事件（不伪造「正在思考」）
+model AgentRunEvent {
+  id            String   @id @default(cuid())
+  orgId         String
+  runId         String
+  run           AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sequence      Int
+  eventType     String
+  title         String?
+  payload       Json?
+  visibleToUser Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@unique([runId, sequence])
+  @@index([orgId, runId])
 }
 
 /// 客服会话 — 未绑定的外部联系人（客户）发给机器人微信号的会话

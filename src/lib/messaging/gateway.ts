@@ -101,12 +101,14 @@ export async function attachAdapterInbound(
 
 /**
  * 处理入站消息 — 内部员工 AI 助理通道（assistant 模式）的统一入口
+ *
+ * Phase-1 流程：
+ * 身份校验 → 去重 → Session → Run →（确定性命令 / ACK）→ 业务分流 → 最终回复
  */
 export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   // 1. 查找绑定
   const binding = await findBindingByExternal(msg.channel, msg.externalUserId);
   if (!binding || binding.status !== "active") {
-    // 未绑定 = 外部客户 → 进客服收件箱（不回复、不进 AI 链路；群消息跳过）
     if (msg.orgId && !msg.externalUserId.includes("@chatroom")) {
       const { recordCustomerMessage } = await import(
         "@/lib/service-inbox/service"
@@ -127,22 +129,55 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     return;
   }
 
+  if (!binding.orgId) {
+    const adapter = await ensureSendAdapter(msg.channel, null);
+    if (adapter) {
+      await adapter
+        .sendText(
+          msg.externalUserId,
+          "无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定。",
+        )
+        .catch(() => {});
+    }
+    return;
+  }
+
+  const orgId = binding.orgId;
+
   // 2. 消息过滤
   if (!passesFilter(msg.content, binding.filterMode as FilterMode, binding.filterKeyword)) {
     return;
   }
 
-  // 3. 更新活跃时间
+  // 3. webhook 幂等：同一 externalMsgId 不重复处理
+  if (msg.externalMsgId) {
+    const dup = await db.weChatMessage.findFirst({
+      where: {
+        orgId,
+        channel: msg.channel,
+        externalMsgId: msg.externalMsgId,
+        direction: "inbound",
+      },
+      select: { id: true },
+    });
+    if (dup) {
+      console.info("[Gateway] duplicate inbound skipped", {
+        orgId,
+        externalMsgId: msg.externalMsgId,
+      });
+      return;
+    }
+  }
+
   await touchBinding(msg.channel, msg.externalUserId);
 
-  // 4. 持久化入站消息（语音消息标记来源；写入 binding.orgId 保证租户隔离）
   const isVoice = msg.messageType === "voice";
   const isImage = msg.messageType === "image";
-  await db.weChatMessage.create({
+  const inboundRow = await db.weChatMessage.create({
     data: {
       bindingId: binding.id,
       userId: binding.userId,
-      orgId: binding.orgId,
+      orgId,
       direction: "inbound",
       channel: msg.channel,
       externalUserId: msg.externalUserId,
@@ -156,99 +191,239 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     },
   });
 
+  const {
+    getOrCreateAgentSession,
+    createAgentRun,
+    completeAgentRun,
+    failAgentRun,
+    appendAgentRunEvent,
+    updateAgentRunStatus,
+    tryHandleDeterministicCommand,
+    buildAckText,
+    markAckSent,
+    executeConversationRun,
+    updateAgentSessionContext,
+  } = await import("@/lib/agent-runtime");
+
+  let session;
+  try {
+    session = await getOrCreateAgentSession({
+      orgId,
+      userId: binding.userId,
+      channel: msg.channel,
+      channelUserId: msg.externalUserId,
+    });
+  } catch (e) {
+    console.error("[Gateway] session create failed", {
+      orgId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return;
+  }
+
+  const { run, reused } = await createAgentRun({
+    orgId,
+    sessionId: session.id,
+    userMessageId: inboundRow.id,
+    runType: "conversation",
+  });
+
+  // 重复 webhook：Run 已存在则不再 ACK / 不再执行
+  if (reused) {
+    console.info("[Gateway] duplicate run skipped", { orgId, runId: run.id });
+    return;
+  }
+
   const visualizerKey = {
-    orgId: binding.orgId,
+    orgId,
     userId: binding.userId,
     channel: msg.channel,
     externalUserId: msg.externalUserId,
   };
 
-  // 4.5 图片消息 → 微信可视化（检测窗户，等待 SKU），不进入文字 AI 链路
   let aiResponse: string;
   let aiResponseImageUrl: string | undefined;
+  let ackSent = false;
+
+  async function sendTextSafe(text: string): Promise<void> {
+    const adapter = await ensureSendAdapter(msg.channel, orgId);
+    if (!adapter) return;
+    try {
+      await adapter.sendText(msg.externalUserId, text);
+    } catch (e) {
+      console.error("[Gateway] send failed", {
+        orgId,
+        runId: run.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  async function sendAckIfNeeded(): Promise<void> {
+    if (ackSent) return;
+    const ackText = buildAckText({
+      content: msg.content,
+      messageType: msg.messageType,
+    });
+    try {
+      await sendTextSafe(ackText);
+      await markAckSent({ orgId, runId: run.id, ackText });
+      ackSent = true;
+    } catch (e) {
+      console.error("[Gateway] ack failed (continue)", {
+        orgId,
+        runId: run.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  // 图片 → 可视化（ACK 后处理）
   if (isImage && msg.media) {
+    await sendAckIfNeeded();
     const { handleWechatVisualizerImage } = await import(
       "@/lib/visualizer/wechat-visualizer"
     );
     try {
       aiResponse = await handleWechatVisualizerImage(visualizerKey, msg.media);
+      await completeAgentRun(orgId, run.id);
     } catch (e) {
       console.error("[Gateway] visualizer image failed:", e);
       aiResponse = "图片处理失败，请稍后重试。";
+      await failAgentRun(orgId, run.id, {
+        code: "tool_failed",
+        message: e instanceof Error ? e.message : "visualizer failed",
+      });
     }
     await deliverAndPersist();
     return;
   }
 
-  // 5. 优先尝试「数字回复确认」：用户回复 1/2/3 或「取消」时，直接走 PendingAction 审批链路，
-  //    命中则不再进入常规 AI 链路（避免把确认编号当普通问题回答）。
+  // 确定性命令：状态 / 取消（不 ACK「正在处理」、不调模型）
+  const deterministic = await tryHandleDeterministicCommand({
+    orgId,
+    sessionId: session.id,
+    text: msg.content,
+    currentRunId: run.id,
+  });
+  if (deterministic.handled) {
+    aiResponse = deterministic.reply;
+    await updateAgentRunStatus(orgId, run.id, "running", {
+      intent: "deterministic",
+    });
+    await completeAgentRun(orgId, run.id);
+    await deliverAndPersist();
+    return;
+  }
+
+  // PendingAction 数字确认 / 取消（明确匹配，不误触发普通「发送」）
   const { handleWeChatPendingReply } = await import(
     "@/lib/ai-grader/actions/wechat-confirm"
   );
   const confirm = await handleWeChatPendingReply(msg.content, {
     userId: binding.userId,
-    orgId: binding.orgId,
+    orgId,
   });
   if (confirm.handled) {
     aiResponse = confirm.reply ?? "已处理。";
-  } else {
-    // 5.5 微信可视化挂起会话：等待 SKU 时优先解析（取消 / SKU / 产品名），
-    //     命中即生成效果图；普通聊天文字不命中，继续走下方链路。
-    const { handleWechatVisualizerReply } = await import(
-      "@/lib/visualizer/wechat-visualizer"
-    );
-    const visualizerReply = await handleWechatVisualizerReply(
-      visualizerKey,
-      msg.content,
-      async (progressText) => {
-        const adapter = await ensureSendAdapter(msg.channel, binding.orgId);
-        if (adapter) await adapter.sendText(msg.externalUserId, progressText);
-      },
-    );
-    if (visualizerReply.handled) {
-      aiResponse = visualizerReply.reply ?? "已处理。";
-      aiResponseImageUrl = visualizerReply.imageUrl;
-      await deliverAndPersist();
-      return;
+    if (/等待|确认|审批/.test(aiResponse)) {
+      await updateAgentRunStatus(orgId, run.id, "awaiting_approval");
+      await appendAgentRunEvent({
+        orgId,
+        runId: run.id,
+        eventType: "approval.required",
+        title: "等待确认",
+        visibleToUser: true,
+      });
     }
+    await completeAgentRun(orgId, run.id);
+    await deliverAndPersist();
+    return;
+  }
 
-    // 6. Growth Center 推广日报（确定性触发，避免普通 AI 猜测营销数据）
-    if (/推广日报|营销日报|增长日报/.test(msg.content)) {
-      if (!binding.orgId) {
-        aiResponse = "无法解析所属组织，请先完成微信与组织绑定。";
-      } else {
-        const m = await import("@/lib/marketing/wechat-daily-brief");
-        aiResponse = await m.buildMarketingDailyBrief(binding.orgId);
-      }
-      await deliverAndPersist();
-      return;
-    }
+  // 微信可视化挂起会话
+  const { handleWechatVisualizerReply } = await import(
+    "@/lib/visualizer/wechat-visualizer"
+  );
+  const visualizerReply = await handleWechatVisualizerReply(
+    visualizerKey,
+    msg.content,
+    async (progressText) => {
+      await sendTextSafe(progressText);
+    },
+  );
+  if (visualizerReply.handled) {
+    aiResponse = visualizerReply.reply ?? "已处理。";
+    aiResponseImageUrl = visualizerReply.imageUrl;
+    await completeAgentRun(orgId, run.id);
+    await deliverAndPersist();
+    return;
+  }
 
-    // 6.5 统一 Grader 意图分类器（确定性规则；命中即不进入普通 chat）
-    //    优先级：项目 > 报价 > 客户 > 今日体检 > 普通 AI
-    const { classifyWechatGraderIntent } = await import(
-      "@/lib/ai-grader/wechat-intent-classifier"
-    );
-    // 读取该用户的短期 Grader 上下文（30 分钟内、同 org/user/channel），
-    // 让「这个客户/项目/报价/他/刚刚那个」能解析到最近一次目标对象。
-    const { readGraderContext } = await import("@/lib/ai-grader/wechat-context");
-    const graderContext = await readGraderContext({
-      orgId: binding.orgId,
-      userId: binding.userId,
-      channel: msg.channel,
+  // Growth Center 推广日报（确定性，不调 LLM）
+  if (/推广日报|营销日报|增长日报/.test(msg.content)) {
+    await sendAckIfNeeded();
+    aiResponse = await (
+      await import("@/lib/marketing/wechat-daily-brief")
+    ).buildMarketingDailyBrief(orgId);
+    await completeAgentRun(orgId, run.id);
+    await deliverAndPersist();
+    return;
+  }
+
+  // Grader：仅规则意图命中时同步调用（非每条消息）；业务事件见 event-triggers.ts
+  const { classifyWechatGraderIntent } = await import(
+    "@/lib/ai-grader/wechat-intent-classifier"
+  );
+  const { readGraderContext } = await import("@/lib/ai-grader/wechat-context");
+  const graderContext = await readGraderContext({
+    orgId,
+    userId: binding.userId,
+    channel: msg.channel,
+  });
+  const intent = classifyWechatGraderIntent(msg.content, {
+    context: graderContext,
+  });
+
+  const isGraderIntent =
+    intent.intent === "DAILY_BRIEF" ||
+    intent.intent === "CUSTOMER_FOLLOWUP" ||
+    intent.intent === "CHECK_CUSTOMER" ||
+    intent.intent === "QUOTE_RISK" ||
+    intent.intent === "CHECK_QUOTE" ||
+    intent.intent === "PROJECT_HEALTH" ||
+    intent.intent === "CHECK_PROJECT";
+
+  if (intent.needsClarification && intent.clarificationMessage) {
+    aiResponse = intent.clarificationMessage;
+    await completeAgentRun(orgId, run.id);
+    await deliverAndPersist();
+    return;
+  }
+
+  if (isGraderIntent) {
+    await sendAckIfNeeded();
+    await updateAgentRunStatus(orgId, run.id, "running", {
+      intent: intent.intent,
     });
-    const intent = classifyWechatGraderIntent(msg.content, { context: graderContext });
+    await appendAgentRunEvent({
+      orgId,
+      runId: run.id,
+      eventType: "grader.started",
+      title: `Grader ${intent.intent}`,
+      payload: { intent: intent.intent },
+      visibleToUser: true,
+    });
 
-    if (intent.needsClarification && intent.clarificationMessage) {
-      // 「这个项目/报价/客户」缺上下文 → 直接澄清，不乱猜
-      aiResponse = intent.clarificationMessage;
-    } else {
-      const base = {
-        userId: binding.userId,
-        orgId: binding.orgId,
-        channel: msg.channel,
-        externalUserId: msg.externalUserId,
-      };
+    const base = {
+      userId: binding.userId,
+      orgId,
+      channel: msg.channel,
+      externalUserId: msg.externalUserId,
+      agentRunId: run.id,
+    };
+
+    try {
       switch (intent.intent) {
         case "DAILY_BRIEF": {
           const m = await import("@/lib/ai-grader/wechat-daily-brief");
@@ -264,11 +439,21 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
               intent.intent === "CHECK_CUSTOMER"
                 ? {
                     mode: "CUSTOMER",
-                    customerId: intent.targetType === "CUSTOMER" ? intent.targetId : undefined,
+                    customerId:
+                      intent.targetType === "CUSTOMER"
+                        ? intent.targetId
+                        : undefined,
                     customerName: intent.targetName,
                   }
                 : { mode: "GLOBAL" },
           });
+          if (intent.targetType === "CUSTOMER" && intent.targetId) {
+            await updateAgentSessionContext({
+              orgId,
+              sessionId: session.id,
+              currentCustomerId: intent.targetId,
+            }).catch(() => {});
+          }
           break;
         }
         case "QUOTE_RISK":
@@ -280,11 +465,21 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
               intent.intent === "CHECK_QUOTE"
                 ? {
                     mode: "QUOTE",
-                    quoteId: intent.targetType === "QUOTE" ? intent.targetId : undefined,
+                    quoteId:
+                      intent.targetType === "QUOTE"
+                        ? intent.targetId
+                        : undefined,
                     customerName: intent.targetName,
                   }
                 : { mode: "GLOBAL" },
           });
+          if (intent.targetType === "QUOTE" && intent.targetId) {
+            await updateAgentSessionContext({
+              orgId,
+              sessionId: session.id,
+              currentQuoteId: intent.targetId,
+            }).catch(() => {});
+          }
           break;
         }
         case "PROJECT_HEALTH":
@@ -296,31 +491,100 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
               intent.intent === "CHECK_PROJECT"
                 ? {
                     mode: "PROJECT",
-                    projectId: intent.targetType === "PROJECT" ? intent.targetId : undefined,
+                    projectId:
+                      intent.targetType === "PROJECT"
+                        ? intent.targetId
+                        : undefined,
                     projectName: intent.targetName,
                   }
                 : { mode: "GLOBAL" },
           });
+          if (intent.targetType === "PROJECT" && intent.targetId) {
+            await updateAgentSessionContext({
+              orgId,
+              sessionId: session.id,
+              currentProjectId: intent.targetId,
+            }).catch(() => {});
+          }
           break;
         }
-        default: {
-          // CONFIRM/CANCEL（数字与取消已在第 5 步处理）/ CHAT → 普通 AI
-          try {
-            aiResponse = await processWithAgentCore(binding.userId, msg, binding.orgId);
-          } catch (e) {
-            aiResponse = `抱歉，处理出错: ${e instanceof Error ? e.message : "未知错误"}`;
-          }
-        }
+        default:
+          aiResponse = "暂无法处理该请求。";
       }
+
+      await appendAgentRunEvent({
+        orgId,
+        runId: run.id,
+        eventType: "grader.completed",
+        title: `Grader ${intent.intent} 完成`,
+        visibleToUser: false,
+      });
+      await completeAgentRun(orgId, run.id);
+    } catch (e) {
+      console.error("[Gateway] grader failed", {
+        orgId,
+        runId: run.id,
+        intent: intent.intent,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      aiResponse =
+        "这个任务没有完成，我已经保留了任务记录。请稍后重试。";
+      await failAgentRun(orgId, run.id, {
+        code: "tool_failed",
+        message: e instanceof Error ? e.message : "grader failed",
+      });
     }
+
+    await deliverAndPersist();
+    return;
+  }
+
+  // 普通 CHAT：ACK → 最小上下文 → 主模型（单次对话引擎）
+  await sendAckIfNeeded();
+  const userRow = await db.user.findUnique({
+    where: { id: binding.userId },
+    select: { role: true, name: true },
+  });
+  try {
+    const conv = await executeConversationRun({
+      orgId,
+      userId: binding.userId,
+      userRole: userRow?.role ?? "user",
+      userName: userRow?.name ?? null,
+      channel: msg.channel,
+      channelUserId: msg.externalUserId,
+      content: msg.content,
+      messageType: msg.messageType,
+      session,
+      runId: run.id,
+    });
+    aiResponse = conv.text;
+    // 后台任务：立刻踢一脚消费，不专等 cron（失败由 cron 兜底）
+    if (conv.backgroundQueued) {
+      void import("@/lib/agent-runtime/queue")
+        .then((m) => m.processQueuedAgentRuns(1))
+        .catch((err) =>
+          console.error("[Gateway] kick agent queue failed", err),
+        );
+    }
+  } catch (e) {
+    console.error("[Gateway] conversation failed", {
+      orgId,
+      runId: run.id,
+      sessionId: session.id,
+      stage: "executeConversationRun",
+      error: e instanceof Error ? e.message : String(e),
+      retryable: true,
+    });
+    aiResponse =
+      "这个任务没有完成，我已经保留了任务记录。请稍后重试。";
   }
 
   await deliverAndPersist();
   return;
 
-  // ── 步骤 6–8：发送回复（文字 + 可选图片）→ 持久化 → 记忆索引 ──
   async function deliverAndPersist(): Promise<void> {
-    const adapter = await ensureSendAdapter(msg.channel, binding!.orgId);
+    const adapter = await ensureSendAdapter(msg.channel, orgId);
     if (adapter) {
       try {
         await adapter.sendText(msg.externalUserId, aiResponse);
@@ -336,6 +600,7 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       data: {
         bindingId: binding!.id,
         userId: binding!.userId,
+        orgId,
         direction: "outbound",
         channel: msg.channel,
         externalUserId: msg.externalUserId,
@@ -348,9 +613,12 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       },
     });
 
-    extractAndIndex(binding!.userId, binding!.id, msg.content, aiResponse).catch(
-      () => {},
-    );
+    extractAndIndex(
+      binding!.userId,
+      orgId,
+      msg.content,
+      aiResponse,
+    ).catch(() => {});
   }
 }
 
@@ -388,6 +656,59 @@ export async function sendToExternalUser(opts: {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * @deprecated Phase-1 起由 executeConversationRun 承接；保留导出以免外部引用断裂。
+ */
+export async function processWithAgentCore(
+  userId: string,
+  msg: InboundMessage,
+  bindingOrgId: string | null,
+): Promise<string> {
+  const { getOrCreateAgentSession, createAgentRun, executeConversationRun } =
+    await import("@/lib/agent-runtime");
+  const orgId =
+    bindingOrgId ||
+    (
+      await db.organizationMember.findFirst({
+        where: { userId, status: "active" },
+        select: { orgId: true },
+      })
+    )?.orgId;
+  if (!orgId) {
+    throw new Error(
+      "无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定后重试。",
+    );
+  }
+  const session = await getOrCreateAgentSession({
+    orgId,
+    userId,
+    channel: msg.channel,
+    channelUserId: msg.externalUserId,
+  });
+  const { run } = await createAgentRun({
+    orgId,
+    sessionId: session.id,
+    runType: "conversation",
+  });
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true, name: true },
+  });
+  const conv = await executeConversationRun({
+    orgId,
+    userId,
+    userRole: user?.role ?? "user",
+    userName: user?.name ?? null,
+    channel: msg.channel,
+    channelUserId: msg.externalUserId,
+    content: msg.content,
+    messageType: msg.messageType,
+    session,
+    runId: run.id,
+  });
+  return conv.text;
 }
 
 /**
@@ -447,126 +768,6 @@ export async function pushMessage(
 
 // ── 内部函数 ──────────────────────────────────────────────────
 
-async function processWithAgentCore(
-  userId: string,
-  msg: InboundMessage,
-  bindingOrgId: string | null,
-): Promise<string> {
-  const { runAgent } = await import("@/lib/agent-core");
-  const {
-    getWakeUpMemories,
-    recallMemories,
-    buildUserMemoryBlock,
-  } = await import("@/lib/ai/user-memory");
-
-  // 加载最近对话上下文
-  const recentMessages = await db.weChatMessage.findMany({
-    where: { userId, channel: msg.channel },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: { direction: true, content: true },
-  });
-
-  const history = recentMessages
-    .reverse()
-    .map((m) => ({
-      role: (m.direction === "inbound" ? "user" : "assistant") as "user" | "assistant",
-      content: m.content,
-    }));
-
-  // 加载用户信息 + 角色
-  // orgId 解析优先级：binding.orgId → 用户活跃组织（唯一）。禁止 default 兜底，
-  // 解析不到组织直接拒绝处理，避免跨租户数据串入 default 桶。
-  const [membership, user] = await Promise.all([
-    bindingOrgId
-      ? Promise.resolve({ orgId: bindingOrgId })
-      : db.organizationMember.findFirst({
-          where: { userId, status: "active" },
-          select: { orgId: true },
-        }),
-    db.user.findUnique({
-      where: { id: userId },
-      select: { role: true, name: true },
-    }),
-  ]);
-  const orgId = membership?.orgId ?? null;
-  if (!orgId) {
-    throw new Error("无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定后重试。");
-  }
-  const userRole = user?.role ?? "user";
-
-  const [wakeUp, l2] = await Promise.all([
-    getWakeUpMemories(userId),
-    recallMemories(userId, msg.content, { limit: 3 }),
-  ]);
-  const memoryBlock = buildUserMemoryBlock(wakeUp.l0, wakeUp.l1, l2);
-
-    // 根据角色构建可用域
-    const domains: Array<"trade" | "sales" | "project" | "secretary" | "knowledge" | "cockpit" | "system"> = ["secretary", "system"];
-  if (userRole === "admin" || userRole === "super_admin") {
-    domains.push("trade", "sales", "cockpit");
-  } else if (userRole === "sales") {
-    domains.push("sales");
-  } else if (userRole === "trade") {
-    domains.push("trade");
-  }
-
-  const isVoice = msg.messageType === "voice";
-
-  const systemPrompt = `你是「青砚」AI 工作助理，正在通过微信与用户 ${user?.name || ""} 对话。
-用户角色：${userRole}
-${isVoice ? "⚠️ 这条消息是语音转写的，可能存在识别误差，请结合上下文理解用户意图。\n" : ""}
-规则：
-- 用简洁中文回复，适合手机阅读（短句、分行）
-- 如果需要数据，直接调用工具查询，不要凭空编造
-- 给出具体可执行的建议
-- 当用户说"发"、"确认"、"好的"时，执行对应操作
-- 复杂内容用数字列表，方便用户回复数字选择
-- 操作完成后，用简短确认告知用户结果
-
-邮件流程（重要！）：
-1. 用户说"给XXX发邮件/跟进/发报价" → 先调用 sales.compose_email 生成预览
-2. 将预览内容展示给用户：收件人、主题、正文摘要
-3. 询问用户"确认发送？或告诉我怎么修改"
-4. 用户说"发/确认/好的" → 调用 sales.send_quote_email 发送
-5. 用户说"改一下/更热情/加折扣" → 调用 sales.refine_email 修改后再次展示
-6. 反复修改直到用户满意，就像用 ChatGPT 一样自然
-
-知识库与 AI 辅助（重要！）：
-- 用户问"客户嫌贵怎么回"、"之前类似案例怎么成交" → 调用 sales.search_knowledge 搜索知识库
-- 用户问"XXX 这个客户怎么跟"、"给我分析一下 XXX" → 调用 sales.get_coaching 获取 AI 建议
-- 用户问"XXX 的 deal 怎么样"、"健康度多少" → 调用 sales.get_deal_health
-- 当你给出建议时，主动搜索知识库找相似赢单模式，用数据支撑你的建议
-- 给出具体建议后 → 调用 sales.record_coaching 记录建议（系统会在成单后自动学习效果）
-- 用户说"好的用这个"、"试试看" → 调用 sales.coaching_feedback(adopted=true)
-- 用户说"不合适"、"换一个" → 调用 sales.coaching_feedback(adopted=false)
-
-其他操作：
-- "查一下 XXX 的报价" → 调用 sales.get_customer_quotes
-- "帮 XXX 预约安装" → 调用 sales.create_appointment（现场量房已下线，统一走『电子报价单』，不要预约 measure 类型）
-- "把 XXX 推进到已签单" → 调用 sales.advance_stage
-- "今天有多少活跃机会" → 调用 sales.get_overview
-${memoryBlock}`;
-
-  const messages = [
-    ...history.slice(-8),
-    { role: "user" as const, content: msg.content },
-  ];
-
-  const result = await runAgent({
-    systemPrompt,
-    messages,
-    domains,
-    mode: "chat",
-    temperature: 0.3,
-    userId,
-    orgId,
-    maxToolRounds: 5,
-  });
-
-  return result.content;
-}
-
 function passesFilter(content: string, mode: FilterMode, keyword: string | null): boolean {
   switch (mode) {
     case "all":
@@ -598,10 +799,11 @@ function isInSilentPeriod(start: string | null, end: string | null): boolean {
 
 async function extractAndIndex(
   userId: string,
-  _bindingId: string,
+  orgId: string,
   userMsg: string,
   aiReply: string,
 ): Promise<void> {
+  if (!orgId) return;
   const { extractMemoriesFromConversation, saveMemories } = await import(
     "@/lib/ai/user-memory"
   );
@@ -610,6 +812,7 @@ async function extractAndIndex(
   if (extracted.length > 0) {
     await saveMemories(
       userId,
+      orgId,
       extracted.map((e) => ({
         memoryType: e.memoryType,
         content: e.content,

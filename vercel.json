@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/marketing-automation",
       "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-runs",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

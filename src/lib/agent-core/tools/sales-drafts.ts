@@ -149,7 +149,9 @@ registry.register({
         note: args.note,
       },
       userId: ctx.userId,
+      orgId: ctx.orgId,
       threadId: ctx.sessionId,
+      agentRunId: ctx.agentRunId,
     });
   },
 });
@@ -228,7 +230,9 @@ registry.register({
         note: args.note,
       },
       userId: ctx.userId,
+      orgId: ctx.orgId,
       threadId: ctx.sessionId,
+      agentRunId: ctx.agentRunId,
     });
   },
 });
@@ -301,7 +305,9 @@ registry.register({
         reminderMinutes: Number.isFinite(reminder) ? reminder : 15,
       },
       userId: ctx.userId,
+      orgId: ctx.orgId,
       threadId: ctx.sessionId,
+      agentRunId: ctx.agentRunId,
     });
   },
 });

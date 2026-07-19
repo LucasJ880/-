@@ -86,6 +86,8 @@ export interface ToolExecutionContext {
   orgId: string;
   /** 会话 ID（可选） */
   sessionId?: string;
+  /** AgentRun.id（可选，写入 PendingAction 关联） */
+  agentRunId?: string;
   /** 当前用户的平台角色（PR1：用于数据隔离 + 防御性权限校验） */
   role?: PlatformRole | string;
 }
@@ -161,6 +163,8 @@ export interface AgentRunOptions {
   userId: string;
   orgId: string;
   sessionId?: string;
+  /** 当前 AgentRun.id，透传给工具以关联 PendingAction */
+  agentRunId?: string;
   /**
    * 当前用户平台角色（PR1 新增）
    * - 决定工具可见性（ToolRegistry.list 过滤）

@@ -65,6 +65,7 @@ export const zh: Messages = {
   nav_suppliers: "供应商",
   nav_wechat_messages: "微信消息",
   nav_ai_memory: "组织知识",
+  nav_agent_trace: "Agent Trace",
   nav_ai_activity: "自动化记录",
   nav_weekly_reports: "经营简报",
   nav_publish_calendar: "内容运营",

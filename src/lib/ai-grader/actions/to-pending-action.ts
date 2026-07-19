@@ -56,6 +56,8 @@ export interface GraderActionContext {
   /** 触发的 AI 会话（可选，便于回查） */
   threadId?: string;
   messageId?: string;
+  /** 关联 AgentRun（取消任务时联动拒绝草稿） */
+  agentRunId?: string;
 }
 
 /** 单条适配结果 */
@@ -187,8 +189,10 @@ async function adaptCalendarReminder(
     preview: action.description,
     payload: draftPayload,
     userId: ctx.userId,
+    orgId: ctx.orgId,
     threadId: ctx.threadId,
     messageId: ctx.messageId,
+    agentRunId: ctx.agentRunId,
   });
   return fromDraftResult(res, "calendar.create_event", title, action.description, true);
 }
@@ -226,8 +230,10 @@ async function adaptStatusUpdate(
       preview: action.description,
       payload: draftPayload,
       userId: ctx.userId,
+      orgId: ctx.orgId,
       threadId: ctx.threadId,
       messageId: ctx.messageId,
+      agentRunId: ctx.agentRunId,
     });
     return fromDraftResult(res, "sales.update_stage", action.label, action.description, true);
   }
@@ -248,8 +254,10 @@ async function adaptStatusUpdate(
       preview: action.description,
       payload: draftPayload,
       userId: ctx.userId,
+      orgId: ctx.orgId,
       threadId: ctx.threadId,
       messageId: ctx.messageId,
+      agentRunId: ctx.agentRunId,
     });
     return fromDraftResult(res, "sales.update_followup", action.label, action.description, true);
   }
@@ -316,8 +324,10 @@ async function adaptInternalNote(
     preview: action.description,
     payload: notePayload as unknown as Record<string, unknown>,
     userId: ctx.userId,
+    orgId: ctx.orgId,
     threadId: ctx.threadId,
     messageId: ctx.messageId,
+    agentRunId: ctx.agentRunId,
   });
 
   const supported = (SUPPORTED_INTERNAL_NOTE_TARGETS as readonly string[]).includes(targetType);
@@ -394,8 +404,10 @@ async function adaptProjectTask(
     preview: action.description,
     payload: taskPayload as unknown as Record<string, unknown>,
     userId: ctx.userId,
+    orgId: ctx.orgId,
     threadId: ctx.threadId,
     messageId: ctx.messageId,
+    agentRunId: ctx.agentRunId,
   });
   return fromDraftResult(res, "grader.project_task", action.label, action.description, true);
 }
@@ -463,8 +475,10 @@ async function adaptEmailDraft(
     preview: action.description,
     payload: draftPayload as unknown as Record<string, unknown>,
     userId: ctx.userId,
+    orgId: ctx.orgId,
     threadId: ctx.threadId,
     messageId: ctx.messageId,
+    agentRunId: ctx.agentRunId,
   });
   return fromDraftResult(res, "grader.email_draft", action.label, action.description, true);
 }

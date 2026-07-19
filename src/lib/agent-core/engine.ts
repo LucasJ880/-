@@ -159,6 +159,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
     userId,
     orgId,
     sessionId,
+    agentRunId,
     mode = "chat",
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
@@ -280,7 +281,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           const toolStartedAt = Date.now();
           const result = await executeToolUnified(
             tc.function.name,
-            { args, userId, orgId, sessionId, role },
+            { args, userId, orgId, sessionId, agentRunId, role },
             options.extraTools,
           );
 
@@ -397,6 +398,7 @@ export async function* runAgentStream(
     userId,
     orgId,
     sessionId,
+    agentRunId,
     mode = "chat",
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
@@ -656,7 +658,7 @@ export async function* runAgentStream(
         const toolStartedAt = Date.now();
         const result = await executeToolUnified(
           name,
-          { args, userId, orgId, sessionId, role },
+          { args, userId, orgId, sessionId, agentRunId, role },
           options.extraTools,
         );
 

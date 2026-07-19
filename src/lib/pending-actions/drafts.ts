@@ -5,7 +5,8 @@
  * 职责：
  * - 落库
  * - 写审计日志
- * - 返回 ToolExecutionResult 给 LLM（格式固定，让它知道"已进入待审批态"）
+ * - 可选关联 AgentRun（取消 Run 时联动拒绝）
+ * - 返回 ToolExecutionResult 给 LLM
  */
 
 import { db } from "@/lib/db";
@@ -28,6 +29,8 @@ export interface CreateDraftInput {
   requiredRole?: string;
   threadId?: string;
   messageId?: string;
+  /** 关联 AgentRun.id */
+  agentRunId?: string;
   /** 过期小时数（默认 24） */
   ttlHours?: number;
 }
@@ -56,9 +59,10 @@ export async function createDraft(
       requiredRole: input.requiredRole,
       threadId: input.threadId,
       messageId: input.messageId,
+      agentRunId: input.agentRunId || null,
       expiresAt,
     },
-    select: { id: true, type: true, title: true, preview: true },
+    select: { id: true, type: true, title: true, preview: true, agentRunId: true },
   });
 
   await logAudit({
@@ -72,8 +76,18 @@ export async function createDraft(
       type: action.type,
       title: action.title,
       payload: input.payload,
+      agentRunId: action.agentRunId,
     },
   });
+
+  if (action.agentRunId && input.orgId) {
+    const { markAgentRunAwaitingApproval } = await import(
+      "@/lib/agent-runtime/pending-link"
+    );
+    await markAgentRunAwaitingApproval(input.orgId, action.agentRunId).catch(
+      () => {},
+    );
+  }
 
   return {
     success: true,

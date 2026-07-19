@@ -40,8 +40,9 @@ export async function runDailyBriefForWeChat(params: {
   userId: string;
   orgId: string | null;
   channel: string;
+  agentRunId?: string;
 }): Promise<string> {
-  const { userId, orgId, channel } = params;
+  const { userId, orgId, channel, agentRunId } = params;
 
   if (!orgId) {
     return "无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定后重试。";
@@ -59,7 +60,7 @@ export async function runDailyBriefForWeChat(params: {
     // suggestedActions → PendingAction 草稿（复用现有审批链路，最多 3 个）
     const adapted = await graderActionsToPendingActions(
       result.suggestedActions,
-      { orgId, userId, channel },
+      { orgId, userId, channel, agentRunId },
       { limit: 3 },
     );
 

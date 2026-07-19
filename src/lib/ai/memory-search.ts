@@ -1,5 +1,5 @@
 /**
- * 用户记忆检索 — 向量语义搜索、关键词兜底、记忆提取、格式化
+ * 用户记忆检索 — 强制 orgId 隔离
  */
 
 import { Prisma } from "@prisma/client";
@@ -7,25 +7,29 @@ import { db } from "@/lib/db";
 import { generateEmbedding, cosineSimilarity } from "./embedding";
 import type { MemoryType, MemoryEntry } from "./memory-storage";
 
-// ─── L0 + L1：唤醒层 ─────────────────────────────────────────
+function requireOrgId(orgId: string | null | undefined): string {
+  const id = (orgId || "").trim();
+  if (!id) throw new Error("orgId 必填：记忆必须按组织隔离");
+  return id;
+}
 
 /**
- * 获取 L0 + L1 记忆 — 每次对话启动时加载
- * L0: 用户偏好/身份（layer=0）
- * L1: 高重要度核心记忆（layer=1, 按 importance 排序）
+ * 获取 L0 + L1 记忆 — 每次对话启动时加载（仅本 org）
  */
 export async function getWakeUpMemories(
   userId: string,
-  maxL1: number = 10
+  orgId: string,
+  maxL1: number = 10,
 ): Promise<{ l0: MemoryEntry[]; l1: MemoryEntry[] }> {
+  const safeOrgId = requireOrgId(orgId);
   const [l0, l1] = await Promise.all([
     db.userMemory.findMany({
-      where: { userId, layer: 0 },
+      where: { userId, orgId: safeOrgId, layer: 0 },
       orderBy: { importance: "desc" },
       take: 20,
     }),
     db.userMemory.findMany({
-      where: { userId, layer: 1 },
+      where: { userId, orgId: safeOrgId, layer: 1 },
       orderBy: [{ importance: "desc" }, { updatedAt: "desc" }],
       take: maxL1,
     }),
@@ -37,34 +41,35 @@ export async function getWakeUpMemories(
   };
 }
 
-// ─── L2：按需检索 ─────────────────────────────────────────────
-
 /**
- * 根据用户消息中的关键词，检索相关 L2 记忆
- * MVP 用 tag 匹配 + 内容 LIKE 查询
+ * 根据用户消息检索相关 L2 记忆（仅本 org）
  */
 export async function recallMemories(
   userId: string,
+  orgId: string,
   query: string,
   options?: {
     customerId?: string;
     projectId?: string;
     limit?: number;
-  }
+  },
 ): Promise<MemoryEntry[]> {
+  const safeOrgId = requireOrgId(orgId);
   const limit = options?.limit ?? 5;
 
   let vectorResults: MemoryEntry[] = [];
   try {
     const queryEmbedding = await generateEmbedding(query);
-    vectorResults = await vectorSearch(userId, queryEmbedding, {
+    vectorResults = await vectorSearch(userId, safeOrgId, queryEmbedding, {
       limit: limit * 2,
       customerId: options?.customerId,
       projectId: options?.projectId,
     });
-  } catch { /* 向量检索失败，降级到关键词 */ }
+  } catch {
+    /* 向量检索失败，降级到关键词 */
+  }
 
-  const keywordResults = await keywordSearch(userId, query, {
+  const keywordResults = await keywordSearch(userId, safeOrgId, query, {
     limit,
     customerId: options?.customerId,
     projectId: options?.projectId,
@@ -82,7 +87,11 @@ export async function recallMemories(
 
   if (final.length > 0) {
     await db.userMemory.updateMany({
-      where: { id: { in: final.map((m) => m.id) } },
+      where: {
+        id: { in: final.map((m) => m.id) },
+        orgId: safeOrgId,
+        userId,
+      },
       data: {
         accessCount: { increment: 1 },
         lastAccessedAt: new Date(),
@@ -95,11 +104,13 @@ export async function recallMemories(
 
 async function vectorSearch(
   userId: string,
+  orgId: string,
   queryEmbedding: number[],
   opts: { limit: number; customerId?: string; projectId?: string },
 ): Promise<MemoryEntry[]> {
   const where: Record<string, unknown> = {
     userId,
+    orgId,
     layer: 2,
     embedding: { not: Prisma.JsonNullValueFilter.JsonNull },
   };
@@ -126,6 +137,7 @@ async function vectorSearch(
 
 async function keywordSearch(
   userId: string,
+  orgId: string,
   query: string,
   opts: { limit: number; customerId?: string; projectId?: string },
 ): Promise<MemoryEntry[]> {
@@ -134,7 +146,7 @@ async function keywordSearch(
     return [];
   }
 
-  const conditions: object[] = [{ userId }];
+  const conditions: object[] = [{ userId }, { orgId }];
   if (opts.customerId) conditions.push({ customerId: opts.customerId });
   if (opts.projectId) conditions.push({ projectId: opts.projectId });
 
@@ -156,8 +168,6 @@ async function keywordSearch(
   return memories as MemoryEntry[];
 }
 
-// ─── 格式化：注入 prompt ──────────────────────────────────────
-
 const TYPE_LABELS: Record<string, string> = {
   decision: "决策",
   preference: "偏好",
@@ -170,18 +180,18 @@ const TYPE_LABELS: Record<string, string> = {
 export function buildUserMemoryBlock(
   l0: MemoryEntry[],
   l1: MemoryEntry[],
-  l2: MemoryEntry[] = []
+  l2: MemoryEntry[] = [],
 ): string {
   if (l0.length === 0 && l1.length === 0 && l2.length === 0) {
     return "";
   }
 
-  const lines: string[] = ["\n### 用户长期记忆"];
+  const lines: string[] = ["\n### 用户长期记忆（仅当前组织）"];
 
   if (l0.length > 0) {
     lines.push("**用户偏好与身份：**");
     for (const m of l0) {
-      lines.push(`- ${m.content}`);
+      lines.push(`- ${m.content.slice(0, 200)}`);
     }
   }
 
@@ -189,7 +199,7 @@ export function buildUserMemoryBlock(
     lines.push("**核心记忆：**");
     for (const m of l1) {
       const label = TYPE_LABELS[m.memoryType] ?? m.memoryType;
-      lines.push(`- [${label}] ${m.content}`);
+      lines.push(`- [${label}] ${m.content.slice(0, 200)}`);
     }
   }
 
@@ -197,18 +207,16 @@ export function buildUserMemoryBlock(
     lines.push("**相关回忆：**");
     for (const m of l2) {
       const label = TYPE_LABELS[m.memoryType] ?? m.memoryType;
-      lines.push(`- [${label}] ${m.content}`);
+      lines.push(`- [${label}] ${m.content.slice(0, 200)}`);
     }
   }
 
   lines.push(
-    "请参考以上记忆，保持一致性，避免与之前的决策/偏好矛盾。"
+    "请参考以上记忆，保持一致性；不得使用其他组织或未授权数据。",
   );
 
   return lines.join("\n");
 }
-
-// ─── 记忆提取（从对话中自动抽取） ─────────────────────────────
 
 const DECISION_PATTERNS = [
   /我们(决定|选择|确定|采用|用)(了)?/,
@@ -247,13 +255,9 @@ export interface ExtractedMemory {
   tags: string;
 }
 
-/**
- * 从用户消息+AI回复中提取值得记住的记忆
- * 借鉴 MemPalace 的 general_extractor.py 纯关键词/模式匹配
- */
 export function extractMemoriesFromConversation(
   userMessage: string,
-  assistantReply: string
+  assistantReply: string,
 ): ExtractedMemory[] {
   const memories: ExtractedMemory[] = [];
   const combined = userMessage + " " + assistantReply;
@@ -299,8 +303,6 @@ export function extractMemoriesFromConversation(
 
   return memories.slice(0, 3);
 }
-
-// ─── 工具函数 ─────────────────────────────────────────────────
 
 function countMatches(text: string, patterns: RegExp[]): number {
   let count = 0;
