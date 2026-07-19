@@ -15,14 +15,16 @@ export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
   }
   const { id } = await ctx.params;
   try {
-    const signal = await reviewMarketSignal({
+    const result = await reviewMarketSignal({
       orgId: orgRes.orgId,
       signalId: id,
       userId: user.id,
       status: body.status,
       note: typeof body.note === "string" ? body.note : undefined,
+      sendToContent:
+        typeof body.sendToContent === "boolean" ? body.sendToContent : undefined,
     });
-    return NextResponse.json({ signal });
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "审核失败" },

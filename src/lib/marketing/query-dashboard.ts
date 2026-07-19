@@ -10,7 +10,8 @@ export async function getMarketingDashboard(orgId: string) {
     orderBy: { completedAt: "desc" },
   });
 
-  const [profile, findings, campaigns, runningExperiments, pendingContent, publications, metrics, attributions, plans, pendingTeamApprovals] = await Promise.all([
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+  const [profile, findings, campaigns, runningExperiments, pendingContent, publications, metrics, attributions, plans, pendingTeamApprovals, pendingIntelTopics] = await Promise.all([
     db.marketingBrandProfile.findUnique({ where: { orgId }, select: { id: true, brandName: true, validationStatus: true, validationScore: true, validationIssues: true, updatedAt: true } }),
     db.marketingFinding.findMany({ where: { orgId, status: { in: ["open", "tasked"] } }, orderBy: [{ createdAt: "desc" }], take: 100 }),
     db.marketingCampaign.findMany({ where: { orgId, status: { in: ["awaiting_approval", "active"] } }, select: { id: true, name: true, status: true, objective: true }, orderBy: { createdAt: "desc" }, take: 10 }),
@@ -34,6 +35,14 @@ export async function getMarketingDashboard(orgId: string) {
       },
       orderBy: { createdAt: "asc" },
       take: 20,
+    }),
+    db.contentPlanItem.count({
+      where: {
+        orgId,
+        source: "intelligence",
+        status: "proposed",
+        createdAt: { gte: weekAgo },
+      },
     }),
   ]);
 
@@ -62,6 +71,7 @@ export async function getMarketingDashboard(orgId: string) {
       currency: "CAD",
       runningExperiments,
       pendingContent,
+      pendingIntelTopics,
       pendingTeamApprovals: pendingTeamApprovals.length,
       highPriorityIssues: highPriority.length,
       spend: metrics._sum.spend ?? 0,

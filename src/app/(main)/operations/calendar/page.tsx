@@ -23,6 +23,7 @@ interface PlanItem {
   status: string;
   source: string;
   assetId: string | null;
+  sourceSignalId?: string | null;
 }
 
 interface AssetOption {
@@ -286,6 +287,19 @@ export default function ContentCalendarPage() {
                     </span>
                     <span className="text-[11px] text-muted">{it.groupName}</span>
                     {it.source === "ai" && <span className="text-[11px] text-muted">AI</span>}
+                    {it.source === "manual" && <span className="text-[11px] text-muted">手动</span>}
+                    {it.source === "intelligence" && (
+                      <a
+                        href="/operations/intelligence"
+                        className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 hover:bg-violet-200"
+                        title={it.sourceSignalId ? `信号 ${it.sourceSignalId}` : "来自市场情报"}
+                      >
+                        情报
+                      </a>
+                    )}
+                    {it.status === "approved" && !it.assetId && (
+                      <span className="text-[11px] text-amber-700">待配视频</span>
+                    )}
                   </div>
                   <div className="mt-1 font-semibold">{it.topic}</div>
                   {it.angle && <p className="mt-1 text-xs leading-relaxed text-muted">{it.angle}</p>}

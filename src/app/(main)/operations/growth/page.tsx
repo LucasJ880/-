@@ -10,7 +10,7 @@ import { DIMENSION_LABELS } from "@/lib/marketing/constants";
 
 interface DashboardData {
   profile: { validationStatus: string; validationScore: number; brandName: string } | null;
-  summary: { marketPresence: number | null; growthExecution: number; effectiveLeads: number; revenue: number; currency: string; runningExperiments: number; pendingContent: number; pendingTeamApprovals: number; highPriorityIssues: number; spend: number };
+  summary: { marketPresence: number | null; growthExecution: number; effectiveLeads: number; revenue: number; currency: string; runningExperiments: number; pendingContent: number; pendingIntelTopics?: number; pendingTeamApprovals: number; highPriorityIssues: number; spend: number };
   latestAudit: { confidence: number; completedAt: string; dimensions: Array<{ dimension: string; score: number; grade: string }> } | null;
   highPriorityFindings: Array<{ id: string; dimension: string; severity: string; title: string; description: string | null; status: string; taskId: string | null }>;
   campaigns: Array<{ id: string; name: string; status: string; objective: string }>;
@@ -94,6 +94,19 @@ export default function GrowthCenterPage() {
         <Stat label="待审批内容" value={data.summary.pendingContent} icon={CheckCircle2} />
         <Stat label="高优问题" value={data.summary.highPriorityIssues} icon={AlertTriangle} />
       </div>
+      {(data.summary.pendingIntelTopics ?? 0) > 0 && (
+        <Link
+          href="/operations/calendar"
+          className="flex items-center justify-between gap-3 rounded-xl border border-violet-300 bg-violet-50 p-4 text-violet-950"
+        >
+          <span>
+            <strong>待审情报选题 {data.summary.pendingIntelTopics} 条</strong>
+            <br />
+            <span className="text-sm">市场情报确认后进入内容日历，请运营审核后再配视频扇出。</span>
+          </span>
+          <span className="shrink-0 text-sm font-medium">打开内容日历 →</span>
+        </Link>
+      )}
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="rounded-xl border border-border bg-card-bg p-4 lg:col-span-2">
           <div className="flex items-center justify-between"><h2 className="font-semibold">七维营销体检</h2><Link href="/operations/growth/audit" className="text-sm text-accent">手动录入体检 →</Link></div>

@@ -211,6 +211,24 @@ export async function listMarketIntelligenceWorkspace(orgId: string) {
   ]);
 
   const competitorNames = new Map(competitors.map((item) => [item.id, item.name]));
+  const signalIds = signals.map((s) => s.id);
+  const contentPlans =
+    signalIds.length > 0
+      ? await db.contentPlanItem.findMany({
+          where: {
+            orgId,
+            source: "intelligence",
+            sourceSignalId: { in: signalIds },
+          },
+          select: { id: true, sourceSignalId: true, status: true, topic: true },
+        })
+      : [];
+  const planBySignal = new Map(
+    contentPlans
+      .filter((p): p is typeof p & { sourceSignalId: string } => Boolean(p.sourceSignalId))
+      .map((p) => [p.sourceSignalId, p]),
+  );
+
   return {
     configured: Boolean(process.env.FIRECRAWL_API_KEY?.trim()),
     webhookSecure: Boolean(
@@ -218,12 +236,18 @@ export async function listMarketIntelligenceWorkspace(orgId: string) {
         process.env.MARKET_INTELLIGENCE_WEBHOOK_TOKEN?.trim(),
     ),
     competitors,
-    signals: signals.map((signal) => ({
-      ...signal,
-      competitorName: competitorNames.get(signal.competitorId) ?? "未知竞品",
-      analysis: signal.analysisRuns[0] ?? null,
-      analysisRuns: undefined,
-    })),
+    signals: signals.map((signal) => {
+      const plan = planBySignal.get(signal.id);
+      return {
+        ...signal,
+        competitorName: competitorNames.get(signal.competitorId) ?? "未知竞品",
+        analysis: signal.analysisRuns[0] ?? null,
+        analysisRuns: undefined,
+        contentPlan: plan
+          ? { id: plan.id, status: plan.status, topic: plan.topic }
+          : null,
+      };
+    }),
   };
 }
 
@@ -603,13 +627,15 @@ export async function reviewMarketSignal(input: {
   userId: string;
   status: "reviewed" | "dismissed";
   note?: string;
+  /** 确认已阅时是否送入内容日历（默认 true）；忽略信号时无效 */
+  sendToContent?: boolean;
 }) {
   const signal = await db.marketSignal.findFirst({
     where: { id: input.signalId, orgId: input.orgId },
     select: { id: true },
   });
   if (!signal) throw new Error("市场信号不存在");
-  return db.marketSignal.update({
+  const updated = await db.marketSignal.update({
     where: { id: signal.id },
     data: {
       status: input.status,
@@ -618,4 +644,47 @@ export async function reviewMarketSignal(input: {
       reviewNote: input.note?.trim().slice(0, 2000) || null,
     },
   });
+
+  let contentPlanItem: {
+    id: string;
+    topic: string;
+    status: string;
+    source: string;
+    sourceSignalId: string | null;
+    plannedDate: Date;
+    groupName: string;
+  } | null = null;
+  let contentPlanCreated = false;
+  let contentPlanError: string | null = null;
+
+  const sendToContent = input.sendToContent !== false;
+  if (input.status === "reviewed" && sendToContent) {
+    try {
+      const { createContentPlanFromSignal } = await import(
+        "@/lib/operations/intel-to-content"
+      );
+      const result = await createContentPlanFromSignal({
+        orgId: input.orgId,
+        signalId: signal.id,
+        userId: input.userId,
+      });
+      contentPlanItem = result.item;
+      contentPlanCreated = result.created;
+    } catch (error) {
+      contentPlanError =
+        error instanceof Error ? error.message : "生成内容选题失败";
+      console.error("[market-intelligence] sendToContent failed", {
+        signalId: signal.id,
+        orgId: input.orgId,
+        error: contentPlanError,
+      });
+    }
+  }
+
+  return {
+    signal: updated,
+    contentPlanItem,
+    contentPlanCreated,
+    contentPlanError,
+  };
 }

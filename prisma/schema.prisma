@@ -3924,10 +3924,16 @@ model ContentPlanItem {
 
   /// proposed（AI 生成待审）/ approved（已通过待配视频）/ dispatched（已扇出）/ skipped
   status String @default("proposed")
-  source String @default("ai") // ai / manual
+  /// ai / manual / intelligence（来自市场情报确认）
+  source String @default("ai")
 
   /// 扇出时关联的视频资产
   assetId String?
+
+  /// 溯源：市场情报信号（intelligence 来源时有值；应用层按 orgId+sourceSignalId 去重）
+  sourceSignalId      String?
+  /// 溯源：市场研究报告（预留，M1 可空）
+  sourceResearchRunId String?
 
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -3935,6 +3941,7 @@ model ContentPlanItem {
 
   @@index([orgId, plannedDate])
   @@index([orgId, status])
+  @@index([orgId, sourceSignalId])
 }
 
 model MatrixAccount {

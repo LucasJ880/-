@@ -73,6 +73,7 @@ interface MarketSignal {
     outputMarkdown?: string | null;
     completedAt?: string | null;
   } | null;
+  contentPlan?: { id: string; status: string; topic: string } | null;
 }
 
 interface AutomationWorkspace {
@@ -135,6 +136,9 @@ export function MonitoringWorkspace() {
   const [submitting, setSubmitting] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [selectedSignal, setSelectedSignal] = useState<MarketSignal | null>(null);
+  /** 确认已阅时默认送入内容日历 */
+  const [sendToContent, setSendToContent] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -267,17 +271,35 @@ export function MonitoringWorkspace() {
   async function reviewSignal(signal: MarketSignal, status: "reviewed" | "dismissed") {
     if (!orgId) return;
     setBusyAction(`review:${signal.id}`);
+    setNotice(null);
     try {
       const response = await apiFetch(
         `/api/operations/market-intelligence/signals/${signal.id}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orgId, status }),
+          body: JSON.stringify({
+            orgId,
+            status,
+            sendToContent: status === "reviewed" ? sendToContent : false,
+          }),
         },
       );
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "审核失败");
+      if (status === "reviewed" && sendToContent) {
+        if (data.contentPlanItem) {
+          setNotice(
+            data.contentPlanCreated
+              ? `已确认，并生成内容选题「${data.contentPlanItem.topic}」（待审）`
+              : `已确认；选题已存在「${data.contentPlanItem.topic}」`,
+          );
+        } else if (data.contentPlanError) {
+          setNotice(`已确认信号，但生成选题失败：${data.contentPlanError}`);
+        }
+      } else if (status === "reviewed") {
+        setNotice("已确认信号（未送内容运营）");
+      }
       setSelectedSignal(null);
       await load();
     } catch (cause) {
@@ -338,6 +360,14 @@ export function MonitoringWorkspace() {
         <div className="flex items-start gap-2 rounded-[var(--radius-md)] border border-danger/20 bg-danger-bg px-4 py-3 text-sm text-danger">
           <ShieldAlert size={16} className="mt-0.5 shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-[var(--radius-md)] border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}{" "}
+          <a href="/operations/calendar" className="font-medium underline underline-offset-2">
+            打开内容日历
+          </a>
         </div>
       )}
 
@@ -498,10 +528,15 @@ export function MonitoringWorkspace() {
                       <span className="text-[11px] text-muted sm:mt-2 sm:block">{formatTime(signal.createdAt)}</span>
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate text-sm font-semibold text-foreground">{signal.competitorName}</h3>
                         {signal.status !== "pending" && (
                           <Check size={13} className={signal.status === "reviewed" ? "text-success" : "text-text-quaternary"} />
+                        )}
+                        {signal.contentPlan && (
+                          <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+                            已进日历
+                          </span>
                         )}
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{signal.summary}</p>
@@ -629,9 +664,25 @@ export function MonitoringWorkspace() {
                   )}
                 </div>
                 {selectedSignal.status === "pending" && (
-                  <div className="flex flex-col-reverse gap-2 border-t border-border px-4 py-3 sm:flex-row sm:justify-end sm:px-5">
-                    <button type="button" onClick={() => reviewSignal(selectedSignal, "dismissed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border px-4 text-sm font-medium text-muted hover:bg-background disabled:opacity-50"><X size={14} />忽略信号</button>
-                    <button type="button" onClick={() => reviewSignal(selectedSignal, "reviewed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">{busyAction === `review:${selectedSignal.id}` ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}确认已阅</button>
+                  <div className="space-y-3 border-t border-border px-4 py-3 sm:px-5">
+                    <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={sendToContent}
+                        onChange={(e) => setSendToContent(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-border"
+                      />
+                      <span>
+                        送内容运营
+                        <span className="mt-0.5 block text-xs text-muted">
+                          默认开启：确认后生成内容日历选题（待审），不自动发帖
+                        </span>
+                      </span>
+                    </label>
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                      <button type="button" onClick={() => reviewSignal(selectedSignal, "dismissed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border px-4 text-sm font-medium text-muted hover:bg-background disabled:opacity-50"><X size={14} />忽略信号</button>
+                      <button type="button" onClick={() => reviewSignal(selectedSignal, "reviewed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">{busyAction === `review:${selectedSignal.id}` ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}确认已阅</button>
+                    </div>
                   </div>
                 )}
               </>
