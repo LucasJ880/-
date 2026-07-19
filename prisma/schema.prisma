@@ -4118,7 +4118,7 @@ model MarketingBrandProfile {
 model MarketingChannelAccount {
   id                String    @id @default(cuid())
   orgId             String
-  provider          String // manual / gsc / ga4 / gbp / meta / tiktok / google_ads
+  provider          String // manual / gsc / ga4 / gbp / meta / tiktok / google_ads / xiaohongshu
   name              String
   externalAccountId String?
   status            String    @default("manual") // manual / connected / paused / error

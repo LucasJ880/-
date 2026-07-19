@@ -62,6 +62,7 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   trade_get_suggestions:          { risk: "l0_read", allowRoles: ["admin", "trade"] },
   trade_run_prospect_research:    { risk: "l2_soft", allowRoles: ["admin", "trade"] },
   trade_create_service_request:   { risk: "l2_soft", allowRoles: ["admin", "trade"] },
+  trade_search_knowledge:         { risk: "l0_read", allowRoles: ["admin", "trade"] },
 
   // ── cockpit（当前 domain 标为 trade，仅 admin 可调） ──────────
   cockpit_get_metrics:        { risk: "l0_read", allowRoles: ["admin"] },
@@ -100,7 +101,9 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   marketing_get_growth_summary: { risk: "l0_read", allowRoles: "*" },
   marketing_run_health_scan:    { risk: "l0_read", allowRoles: "*" },
   marketing_analyze:            { risk: "l1_internal_write", allowRoles: "*" },
+  marketing_list_channel_accounts: { risk: "l0_read", allowRoles: "*" },
   marketing_request_data_sync:  { risk: "l2_soft", allowRoles: "*" },
+  marketing_ingest_channel_metrics: { risk: "l1_internal_write", allowRoles: "*" },
   marketing_get_mmm_summary:    { risk: "l0_read", allowRoles: "*" },
 };
 

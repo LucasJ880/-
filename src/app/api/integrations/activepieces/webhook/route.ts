@@ -6,13 +6,8 @@ import { runMarketingHealthGrader } from "@/lib/ai-grader/graders/marketing-heal
 import { verifyActivepiecesSignature } from "@/lib/marketing/activepieces";
 import { pushMarketingDailyBrief } from "@/lib/marketing/daily-brief-push";
 import { completeMeridianRun } from "@/lib/marketing/mmm";
-import { writeMarketingMetricSnapshot } from "@/lib/marketing/metrics";
 import { reviewMarketingExperiments } from "@/lib/marketing/experiment-review";
-import {
-  buildGa4IngestionKey,
-  mapGa4RowToMetricValues,
-  type Ga4RawMetricRow,
-} from "@/lib/marketing/providers/ga4-mapper";
+import { ingestChannelMetricRows } from "@/lib/marketing/ingest-metrics";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -105,39 +100,28 @@ export async function POST(request: NextRequest) {
         },
       });
     } else if (eventType === "marketing.metrics.upsert") {
-      const items = Array.isArray(data.snapshots) ? data.snapshots.slice(0, 1000) : [data.snapshot];
-      const snapshots = [];
-      for (let index = 0; index < items.length; index++) {
-        const raw = record(items[index]);
-        if (Object.keys(raw).length === 0) continue;
-        const sourceHint = text(raw.source) || text(data.provider) || "activepieces";
-        const isGa4 =
-          sourceHint === "ga4" ||
-          sourceHint === "ga4_raw" ||
-          Boolean(raw.propertyId || raw.screenPageViews || raw.sessions);
-        const values = isGa4
-          ? mapGa4RowToMetricValues(raw as Ga4RawMetricRow)
-          : raw;
-        const itemKey =
-          text(raw.ingestionKey) ||
-          (isGa4 ? buildGa4IngestionKey(raw as Ga4RawMetricRow) : `${eventId}:${index}`);
-        snapshots.push(await writeMarketingMetricSnapshot({
-          orgId,
-          userId: actorId,
-          source: isGa4 ? "ga4" : sourceHint || "activepieces",
-          ingestionKey: itemKey,
-          externalEventId: eventId,
-          values,
-        }));
-      }
-      const accountIds = [...new Set(snapshots.map((row) => row.channelAccountId).filter((id): id is string => Boolean(id)))];
-      if (accountIds.length) {
-        await db.marketingChannelAccount.updateMany({
-          where: { orgId, id: { in: accountIds } },
-          data: { status: "connected", lastSyncedAt: new Date(), lastError: null },
-        });
-      }
-      result = { upserted: snapshots.length };
+      const items = Array.isArray(data.snapshots)
+        ? data.snapshots.slice(0, 1000)
+        : data.snapshot
+          ? [data.snapshot]
+          : Array.isArray(data.rows)
+            ? data.rows.slice(0, 1000)
+            : [];
+      const ingested = await ingestChannelMetricRows({
+        orgId,
+        userId: actorId,
+        provider: text(data.provider) || null,
+        channelAccountId: text(data.channelAccountId) || null,
+        externalAccountId: text(data.externalAccountId) || null,
+        rows: items,
+        externalEventId: eventId,
+      });
+      result = {
+        written: ingested.written,
+        failed: ingested.results.filter((row) => !row.ok).length,
+        results: ingested.results,
+        channelAccountId: ingested.channelAccountId,
+      };
     } else if (eventType === "marketing.health.requested") {
       result = await runMarketingHealthGrader({ orgId, userId: actorId });
     } else if (eventType === "marketing.daily_brief.requested") {

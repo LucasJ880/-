@@ -56,6 +56,7 @@ const TOOL_LABELS: Record<string, string> = {
 
   // trade
   trade_get_overview: "查询外贸总览",
+  trade_search_knowledge: "检索组织产品知识库",
   trade_list_campaigns: "查询获客活动",
   trade_search_prospects: "搜索外贸线索",
   trade_get_prospect: "查询线索详情",
@@ -90,7 +91,9 @@ const TOOL_LABELS: Record<string, string> = {
   marketing_run_health_scan: "检查营销健康度",
   marketing_analyze: "提交后台市场研究",
   marketing_get_mmm_summary: "读取 MMM 分析",
+  marketing_list_channel_accounts: "列出营销渠道账号",
   marketing_request_data_sync: "同步营销渠道数据",
+  marketing_ingest_channel_metrics: "写入渠道周指标",
 };
 
 export function toolLabel(name: string): string {

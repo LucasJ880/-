@@ -3,6 +3,11 @@ import { runMarketingHealthGrader } from "@/lib/ai-grader/graders/marketing-heal
 import { getMarketingDashboard } from "@/lib/marketing/query-dashboard";
 import { dispatchMarketingWorkflow } from "@/lib/marketing/workflows";
 import { queueMarketResearchRequest } from "@/lib/market-intelligence/research-runtime";
+import { ingestChannelMetricRows } from "@/lib/marketing/ingest-metrics";
+import {
+  isSyncableMetricProvider,
+  normalizeProviderHint,
+} from "@/lib/marketing/channel-providers";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
@@ -89,8 +94,34 @@ registry.register({
 });
 
 registry.register({
+  name: "marketing_list_channel_accounts",
+  description: "列出组织已登记的营销渠道账号（Google Ads / Meta / 小红书等），供同步或灌数前对齐",
+  domain: "system",
+  parameters: { type: "object", properties: {} },
+  execute: async (ctx) => {
+    const denied = await requireAccess(ctx);
+    if (denied) return denied;
+    const accounts = await db.marketingChannelAccount.findMany({
+      where: { orgId: ctx.orgId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        name: true,
+        provider: true,
+        externalAccountId: true,
+        status: true,
+        lastSyncedAt: true,
+      },
+    });
+    return { success: true, data: { accounts } };
+  },
+});
+
+registry.register({
   name: "marketing_request_data_sync",
-  description: "向 Activepieces 提交只读渠道数据同步请求；不会发布内容或修改广告预算",
+  description:
+    "向 Activepieces 提交渠道数据同步请求（google_ads/meta/xiaohongshu/ga4 等）；只拉数回写青砚，不会发布内容或修改广告预算",
   domain: "system",
   parameters: {
     type: "object",
@@ -98,7 +129,11 @@ registry.register({
       providers: {
         type: "array",
         items: { type: "string" },
-        description: "需要同步的平台，如 ga4、gsc、google_ads、meta、tiktok",
+        description: "需要同步的平台，如 google_ads、meta、xiaohongshu、ga4、tiktok",
+      },
+      channelAccountId: {
+        type: "string",
+        description: "可选，限定同步到某个已登记渠道账号",
       },
     },
   },
@@ -106,15 +141,112 @@ registry.register({
     const denied = await requireAccess(ctx);
     if (denied) return denied;
     try {
+      const providers = (
+        Array.isArray(ctx.args.providers) ? ctx.args.providers.map(String) : []
+      )
+        .map((item) => normalizeProviderHint(item))
+        .filter((item): item is string => Boolean(item) && isSyncableMetricProvider(item));
       const run = await dispatchMarketingWorkflow({
         orgId: ctx.orgId,
         userId: ctx.userId,
         flowKey: "sync-metrics",
-        data: { providers: Array.isArray(ctx.args.providers) ? ctx.args.providers.map(String) : [] },
+        data: {
+          providers:
+            providers.length > 0
+              ? providers
+              : ["google_ads", "meta", "xiaohongshu"],
+          channelAccountId:
+            typeof ctx.args.channelAccountId === "string"
+              ? ctx.args.channelAccountId
+              : null,
+        },
       });
-      return { success: true, data: { id: run.id, status: run.status, error: run.error } };
+      return {
+        success: true,
+        data: {
+          id: run.id,
+          status: run.status,
+          error: run.error,
+          note:
+            run.status === "skipped"
+              ? "Activepieces sync-metrics 未配置；可用 marketing_ingest_channel_metrics 直接灌周数据。"
+              : "已请求同步，等待回调 marketing.metrics.upsert。",
+        },
+      };
     } catch (error) {
       return { success: false, data: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+});
+
+registry.register({
+  name: "marketing_ingest_channel_metrics",
+  description:
+    "将 Google Ads / Meta / 小红书等周级花费与 KPI 写入青砚（幂等）；不改广告后台预算、不发布内容。数字员工在拿到外部报表后调用。",
+  domain: "system",
+  parameters: {
+    type: "object",
+    properties: {
+      provider: {
+        type: "string",
+        description: "google_ads / meta / xiaohongshu / ga4 等",
+      },
+      channelAccountId: { type: "string", description: "青砚渠道账号 id（优先）" },
+      externalAccountId: { type: "string", description: "平台广告户外部 id（可与 provider 解析账号）" },
+      rows: {
+        type: "array",
+        description: "周数据行，含 weekStart、spend、qualifiedLeads 等",
+        items: { type: "object" },
+      },
+    },
+    required: ["provider", "rows"],
+  },
+  execute: async (ctx) => {
+    const denied = await requireAccess(ctx);
+    if (denied) return denied;
+    const rows = Array.isArray(ctx.args.rows) ? ctx.args.rows : [];
+    if (rows.length === 0) {
+      return { success: false, data: null, error: "rows 不能为空" };
+    }
+    try {
+      const result = await ingestChannelMetricRows({
+        orgId: ctx.orgId,
+        userId: ctx.userId,
+        provider: String(ctx.args.provider || ""),
+        channelAccountId:
+          typeof ctx.args.channelAccountId === "string"
+            ? ctx.args.channelAccountId
+            : null,
+        externalAccountId:
+          typeof ctx.args.externalAccountId === "string"
+            ? ctx.args.externalAccountId
+            : null,
+        rows,
+        externalEventId: `agent:${ctx.userId}:${Date.now()}`,
+        maxRows: 200,
+      });
+      if (result.written <= 0) {
+        return {
+          success: false,
+          data: { results: result.results.slice(0, 20) },
+          error: result.results.find((row) => !row.ok)?.error || "未写入任何行",
+        };
+      }
+      return {
+        success: true,
+        data: {
+          written: result.written,
+          failed: result.results.filter((row) => !row.ok).length,
+          channelAccountId: result.channelAccountId,
+          results: result.results.slice(0, 50),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   },
 });

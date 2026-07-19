@@ -139,7 +139,7 @@ export default function GrowthCenterPage() {
         </section>
         <section className="rounded-xl border border-border bg-card-bg p-4"><h2 className="font-semibold">快捷入口</h2><div className="mt-3 space-y-2 text-sm">
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/brand"><ClipboardList size={16}/>企业事实中心</Link>
-          <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/metrics"><Activity size={16}/>录入渠道数据</Link>
+          <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/metrics"><Activity size={16}/>渠道数据接入</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/campaigns"><Megaphone size={16}/>营销活动</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/experiments"><FlaskConical size={16}/>赛马实验</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/automations"><Workflow size={16}/>智能自动流</Link>

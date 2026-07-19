@@ -87,6 +87,37 @@ Activepieces 回调青砚时使用相同签名算法，正文必须包含：
 
 `marketing.metrics.upsert` 应为每条数据提供稳定的 `ingestionKey`。青砚通过 `orgId + source + ingestionKey` 幂等写入，重试不会重复累计。
 
+### 付费渠道（Google Ads / Meta / 小红书）回调示例
+
+青砚 `sync-metrics` 出站 `data.providers` 可能为 `["google_ads","meta","xiaohongshu"]`。Activepieces 拉完各广告 API 后回调：
+
+```json
+{
+  "eventId": "sync-google-ads-2026-W28",
+  "eventType": "marketing.metrics.upsert",
+  "orgId": "organization-id",
+  "workflowRunId": "qingyan-run-id",
+  "data": {
+    "provider": "google_ads",
+    "channelAccountId": "qingyan-channel-account-id",
+    "externalAccountId": "123-456-7890",
+    "snapshots": [
+      {
+        "weekStart": "2026-07-06",
+        "spend": 1200.5,
+        "clicks": 340,
+        "impressions": 12000,
+        "qualifiedLeads": 9,
+        "currency": "CAD"
+      }
+    ]
+  }
+}
+```
+
+字段别名：`cost`/`amount`→spend，`conversions`/`results`→leads，`facebook`→meta，`xhs`→xiaohongshu。  
+未配 Activepieces 时，同事可用 `/operations/growth/metrics` 或 `POST /api/marketing/metrics/bulk` 手灌；数字员工工具：`marketing_ingest_channel_metrics` / `marketing_request_data_sync`。
+
 ## 审批边界
 
 Activepieces 不得直接：

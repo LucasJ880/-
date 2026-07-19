@@ -13,7 +13,7 @@ interface AutomationData {
 }
 
 const FLOW_LABELS: Record<string, { name: string; description: string }> = {
-  "sync-metrics": { name: "同步渠道数据", description: "从已连接渠道读取数据并幂等写回青砚。" },
+  "sync-metrics": { name: "同步渠道数据", description: "从 Google Ads / Meta / 小红书 / GA4 等拉取周花费与 KPI，经 marketing.metrics.upsert 幂等写回青砚。" },
   "health-scan": { name: "营销健康检查", description: "运行只读检查，不会自动发布或修改预算。" },
   "daily-brief": { name: "微信推广日报", description: "生成日报并推送给组织负责人和管理员。" },
   "experiment-review": { name: "实验复盘", description: "汇总赛马数据，给出方向性结论供人工确认。" },
