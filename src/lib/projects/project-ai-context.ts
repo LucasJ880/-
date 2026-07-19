@@ -9,6 +9,7 @@ export async function buildProjectAiContextBlock(projectId: string): Promise<str
     where: { id: projectId },
     select: {
       id: true,
+      orgId: true,
       name: true,
       description: true,
       category: true,
@@ -183,8 +184,16 @@ export async function buildProjectAiContextBlock(projectId: string): Promise<str
     );
   }
 
+  try {
+    const { buildActiveOrgRulesBlock } = await import("@/lib/projects/org-rules");
+    const rulesBlock = await buildActiveOrgRulesBlock(project.orgId);
+    if (rulesBlock) lines.push(rulesBlock);
+  } catch {
+    /* ignore */
+  }
+
   lines.push(
-    "规则：优先使用以上已有信息，不要让用户重复提供；不要自动改正式报价或对外发送文件。",
+    "规则：优先使用以上已有信息与企业已确认规则；不要让用户重复提供；不要自动改正式报价或对外发送文件；不得把 AI 推测直接当正式企业规则。",
   );
 
   return lines.join("\n");

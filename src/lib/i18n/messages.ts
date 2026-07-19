@@ -65,6 +65,7 @@ export interface Messages {
   nav_trade_watch_signals: string;
   nav_organizations: string;
   nav_projects: string;
+  nav_project_intelligence: string;
   nav_suppliers: string;
   nav_wechat_messages: string;
   nav_ai_memory: string;

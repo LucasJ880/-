@@ -349,17 +349,25 @@ export default function ProjectsPage() {
         title="项目管理"
         description="项目归属在组织之下，用于承载任务与知识资源。"
         actions={
-          <button
-            type="button"
-            onClick={() => {
-              setEditing(null);
-              setShowModal(true);
-            }}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-          >
-            <Plus size={16} />
-            新建项目
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/projects/intelligence"
+              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted/30"
+            >
+              项目智能
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(null);
+                setShowModal(true);
+              }}
+              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+            >
+              <Plus size={16} />
+              新建项目
+            </button>
+          </div>
         }
       />
 

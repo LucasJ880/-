@@ -35,6 +35,7 @@ import {
   Radar,
   Megaphone,
   Inbox,
+  Lightbulb,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -115,6 +116,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/organizations", labelKey: "nav_organizations", icon: Building2, roles: ["admin", "super_admin", "user"] },
       { href: "/knowledge", labelKey: "nav_org_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "user"] },
       { href: "/projects", labelKey: "nav_projects", icon: FolderKanban, roles: ["admin", "super_admin", "user"] },
+      { href: "/projects/intelligence", labelKey: "nav_project_intelligence", icon: Lightbulb, roles: ["admin", "super_admin", "user"] },
       { href: "/suppliers", labelKey: "nav_suppliers", icon: Package2, roles: ["admin", "super_admin", "user"] },
     ],
   },
@@ -160,6 +162,14 @@ const BOTTOM_ITEMS: NavItem[] = [
 
 function isItemActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
+  // /projects 与 /projects/intelligence 分流，避免列表项把智能中心也高亮
+  if (href === "/projects") {
+    return (
+      pathname === "/projects" ||
+      (pathname.startsWith("/projects/") &&
+        !pathname.startsWith("/projects/intelligence"))
+    );
+  }
   return pathname.startsWith(href);
 }
 

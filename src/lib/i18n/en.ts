@@ -62,6 +62,7 @@ export const en: Messages = {
   nav_trade_watch_signals: "Market Monitoring",
   nav_organizations: "Organizations",
   nav_projects: "Projects",
+  nav_project_intelligence: "Project Intelligence",
   nav_suppliers: "Suppliers",
   nav_wechat_messages: "WeChat Messages",
   nav_ai_memory: "Organization Knowledge",

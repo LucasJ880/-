@@ -213,5 +213,23 @@ export async function confirmProjectReview(input: {
     },
   });
 
+  // Phase2：提出企业规则草案（需人工再确认才 active）
+  try {
+    const { proposeRulesFromConfirmedReview } = await import(
+      "@/lib/projects/org-rules"
+    );
+    await proposeRulesFromConfirmedReview({
+      orgId: review.project.orgId,
+      projectId: review.projectId,
+      reviewId: updated.id,
+      outcome: updated.outcome,
+      reasonTags: tags,
+      narrative: updated.narrative,
+      priceSummary: price ? price.summaryLines.join("；") : null,
+    });
+  } catch {
+    /* 规则提案失败不阻断复盘确认 */
+  }
+
   return updated;
 }

@@ -602,6 +602,30 @@ model Organization {
   suppliers         Supplier[]
   agentSkills       AgentSkill[]
   marketCompetitors MarketCompetitor[]
+  projectRules      OrganizationProjectRule[]
+}
+
+/// 企业项目规则（Phase2）：仅用户确认后生效，不自动变成正式规则
+model OrganizationProjectRule {
+  id              String       @id @default(cuid())
+  orgId           String
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  title           String
+  content         String       @db.Text
+  category        String       @default("general") // price | tech | qualification | execution | competition | general
+  status          String       @default("proposed") // proposed | active | rejected | archived
+  sourceProjectId String?
+  sourceReviewId  String?
+  sourceInsightId String?
+  evidenceJson    String?      @db.Text
+  confirmedById   String?
+  confirmedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([orgId, status])
+  @@index([orgId, category])
+  @@index([sourceProjectId])
 }
 
 model OrganizationMember {
