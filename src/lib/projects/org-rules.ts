@@ -92,15 +92,40 @@ export async function proposeRulesFromConfirmedReview(input: {
 export async function listOrgProjectRules(input: {
   orgId: string;
   status?: string;
+  sourceProjectId?: string;
   limit?: number;
 }) {
   return db.organizationProjectRule.findMany({
     where: {
       orgId: input.orgId,
       ...(input.status ? { status: input.status } : {}),
+      ...(input.sourceProjectId
+        ? { sourceProjectId: input.sourceProjectId }
+        : {}),
     },
     orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
     take: Math.min(input.limit ?? 50, 100),
+  });
+}
+
+/** 本项目提出的企业规则（不限 org 传入，按 sourceProjectId） */
+export async function listRulesSourcedFromProject(projectId: string) {
+  return db.organizationProjectRule.findMany({
+    where: { sourceProjectId: projectId },
+    orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+    take: 30,
+    select: {
+      id: true,
+      orgId: true,
+      title: true,
+      content: true,
+      category: true,
+      status: true,
+      sourceReviewId: true,
+      confirmedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 }
 

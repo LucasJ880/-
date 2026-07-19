@@ -17,9 +17,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
   if (!orgRes.ok) return orgRes.response;
 
   const status = searchParams.get("status") || undefined;
+  const sourceProjectId = searchParams.get("sourceProjectId") || undefined;
   const rules = await listOrgProjectRules({
     orgId: orgRes.orgId,
     status: status || undefined,
+    sourceProjectId: sourceProjectId || undefined,
   });
   return NextResponse.json({ orgId: orgRes.orgId, rules });
 });

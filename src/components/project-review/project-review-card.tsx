@@ -13,7 +13,14 @@ type Review = {
   priceAnalysisJson: string | null;
 };
 
-export function ProjectReviewCard({ projectId }: { projectId: string }) {
+export function ProjectReviewCard({
+  projectId,
+  onConfirmed,
+}: {
+  projectId: string;
+  /** 复盘确认后回调（例如刷新本项目提出的企业规则） */
+  onConfirmed?: () => void;
+}) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -47,6 +54,7 @@ export function ProjectReviewCard({ projectId }: { projectId: string }) {
         body: JSON.stringify({ action: "confirm", reviewId: draft.id }),
       });
       await load();
+      onConfirmed?.();
     } catch {
       /* ignore */
     }

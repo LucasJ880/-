@@ -44,6 +44,7 @@ import { ProjectDetailHeader } from "@/components/project-detail/project-detail-
 import { ProjectAiSummaryCard } from "@/components/project-ai-summary/project-ai-summary-card";
 import { ProjectHistoryExperienceCard } from "@/components/project-history-experience/project-history-experience-card";
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
+import { ProjectOrgRulesCard } from "@/components/project-org-rules/project-org-rules-card";
 import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
 import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
 import { getProjectStage } from "@/lib/tender/stage";
@@ -161,6 +162,7 @@ function ProjectDetailContent() {
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
   const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
   const [showQuestionDialog, setShowQuestionDialog] = useState(false);
+  const [orgRulesRefreshKey, setOrgRulesRefreshKey] = useState(0);
 
   type ProjectTab = "overview" | "files" | "quotes" | "ai";
   const [activeTab, setActiveTab] = useState<ProjectTab>(() => {
@@ -407,7 +409,14 @@ function ProjectDetailContent() {
           <ProjectAiSummaryCard projectId={id} />
           <ProjectInsightsPanel projectId={id} canManage={canManage} />
           <ProjectHistoryExperienceCard projectId={id} />
-          <ProjectReviewCard projectId={id} />
+          <ProjectReviewCard
+            projectId={id}
+            onConfirmed={() => setOrgRulesRefreshKey((k) => k + 1)}
+          />
+          <ProjectOrgRulesCard
+            projectId={id}
+            refreshKey={orgRulesRefreshKey}
+          />
 
           {/* AI 情报分析 */}
           {(project.sourceSystem === "bidtogo" || project.intelligence) && (
