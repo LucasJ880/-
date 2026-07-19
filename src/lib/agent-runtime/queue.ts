@@ -202,13 +202,15 @@ export async function executeBackgroundAgentRun(runId: string) {
       visibleToUser: true,
     });
 
-    const text = typeof result === "string" ? result : result.text;
+    const rawText = typeof result === "string" ? result : result.text;
+    const { appendWorkbenchLink } = await import("./workbench-link");
+    const text = appendWorkbenchLink(rawText, run.id).slice(0, 3500);
     await pushResultToChannel({
       orgId: run.orgId,
       channel: payload.channel,
       channelUserId: payload.channelUserId,
       userId: payload.userId,
-      text: text.slice(0, 3500),
+      text,
     });
 
     const binding = await db.weChatBinding.findFirst({
@@ -268,13 +270,19 @@ export async function executeBackgroundAgentRun(runId: string) {
         code: "model_failed",
         message,
       });
-      await pushResultToChannel({
-        orgId: run.orgId,
-        channel: payload.channel,
-        channelUserId: payload.channelUserId,
-        userId: payload.userId,
-        text: "这个任务没有完成，我已经保留了任务记录。请稍后重试或发送「状态」查看。",
-      });
+      {
+        const { appendWorkbenchLink } = await import("./workbench-link");
+        await pushResultToChannel({
+          orgId: run.orgId,
+          channel: payload.channel,
+          channelUserId: payload.channelUserId,
+          userId: payload.userId,
+          text: appendWorkbenchLink(
+            "这个任务没有完成，我已经保留了任务记录。请稍后重试或发送「状态」查看。",
+            run.id,
+          ),
+        });
+      }
     }
     return db.agentRun.findUnique({ where: { id: runId } });
   }

@@ -584,6 +584,31 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   return;
 
   async function deliverAndPersist(): Promise<void> {
+    // 待确认 / 编号确认类终答附工作台深链；闲聊不加
+    try {
+      const {
+        shouldAttachWorkbenchLink,
+        appendWorkbenchLink,
+      } = await import("@/lib/agent-runtime/workbench-link");
+      const runRow = await db.agentRun.findFirst({
+        where: { id: run.id, orgId },
+        select: { status: true },
+      });
+      if (
+        shouldAttachWorkbenchLink(aiResponse, {
+          runStatus: runRow?.status ?? null,
+        })
+      ) {
+        aiResponse = appendWorkbenchLink(aiResponse, run.id);
+      }
+    } catch (e) {
+      console.error("[Gateway] workbench link append failed", {
+        orgId,
+        runId: run.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     const adapter = await ensureSendAdapter(msg.channel, orgId);
     if (adapter) {
       try {

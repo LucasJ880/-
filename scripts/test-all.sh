@@ -55,6 +55,7 @@ run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/mem
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
 run_test "Agent Phase-B 调度与队列" "npx tsx src/lib/agent-runtime/__tests__/phase-b.test.ts"
 run_test "Agent Trace 只读查询" "npx tsx src/lib/agent-runtime/__tests__/trace.test.ts"
+run_test "Agent 工作台深链" "npx tsx src/lib/agent-runtime/__tests__/workbench-link.test.ts"
 run_test "外贸受理路由/幂等" "npx tsx src/lib/trade/__tests__/service-intake-correlation.test.ts"
 run_test "产品视觉素材 prompt 防错" "npx tsx src/lib/skills/product-visual-builder/__tests__/prompt.test.ts"
 run_test "产品视觉素材 dry-run service" "npx tsx src/lib/skills/product-visual-builder/__tests__/service.test.ts"

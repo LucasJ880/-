@@ -10,4 +10,5 @@ export * from "./dispatch";
 export * from "./queue";
 export * from "./pending-link";
 export * from "./trace";
+export * from "./workbench-link";
 export * from "./process";

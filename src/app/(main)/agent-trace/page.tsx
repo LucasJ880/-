@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   Loader2,
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiJson } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 
 type SessionRow = {
   id: string;
@@ -40,6 +42,16 @@ type RunRow = {
   createdAt: string;
 };
 
+type PendingRow = {
+  id: string;
+  type: string;
+  title: string;
+  preview: string | null;
+  status: string;
+  createdAt: string;
+  expiresAt: string | null;
+};
+
 type RunDetail = {
   run: RunRow & {
     model: string | null;
@@ -47,6 +59,7 @@ type RunDetail = {
     attempts: number;
     startedAt: string | null;
     completedAt: string | null;
+    sessionId?: string;
   };
   session: {
     id: string;
@@ -63,14 +76,16 @@ type RunDetail = {
     payload: Record<string, unknown> | null;
     createdAt: string;
   }>;
-  pendingActions: Array<{
-    id: string;
-    type: string;
-    title: string;
-    status: string;
-    createdAt: string;
-  }>;
+  pendingActions: PendingRow[];
 };
+
+const ACTIVE_POLL_STATUSES = new Set([
+  "queued",
+  "acknowledged",
+  "planning",
+  "running",
+  "awaiting_approval",
+]);
 
 const STATUS_COLOR: Record<string, string> = {
   queued: "bg-zinc-500/15 text-zinc-400",
@@ -93,7 +108,9 @@ function fmtTime(iso: string) {
   });
 }
 
-export default function AgentTracePage() {
+export default function AgentWorkbenchPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [scope, setScope] = useState<string>("self");
@@ -104,6 +121,23 @@ export default function AgentTracePage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [decideError, setDecideError] = useState<string | null>(null);
+  const deepLinkHandled = useRef(false);
+  const syncingQuery = useRef(false);
+
+  const syncQuery = useCallback(
+    (next: { sessionId?: string | null; runId?: string | null }) => {
+      const params = new URLSearchParams();
+      if (next.runId) params.set("runId", next.runId);
+      if (next.sessionId) params.set("sessionId", next.sessionId);
+      const qs = params.toString();
+      const href = qs ? `/agent-trace?${qs}` : "/agent-trace";
+      syncingQuery.current = true;
+      router.replace(href, { scroll: false });
+    },
+    [router],
+  );
 
   const loadSessions = useCallback(async () => {
     if (!orgId) {
@@ -125,14 +159,7 @@ export default function AgentTracePage() {
     setLoading(false);
   }, [orgId]);
 
-  useEffect(() => {
-    if (!orgLoading) void loadSessions();
-  }, [orgLoading, loadSessions]);
-
-  const openSession = async (sessionId: string) => {
-    setSelectedSessionId(sessionId);
-    setSelectedRunId(null);
-    setDetail(null);
+  const fetchRuns = useCallback(async (sessionId: string) => {
     setRunsLoading(true);
     try {
       const data = await apiJson<{ runs?: RunRow[] }>(
@@ -143,26 +170,144 @@ export default function AgentTracePage() {
       setRuns([]);
     }
     setRunsLoading(false);
+  }, []);
+
+  const fetchRunDetail = useCallback(
+    async (runId: string, opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) setDetailLoading(true);
+      try {
+        const data = await apiJson<RunDetail>(
+          `/api/agent/trace/runs/${runId}`,
+        );
+        setDetail(data);
+        return data;
+      } catch {
+        if (!opts?.quiet) setDetail(null);
+        return null;
+      } finally {
+        if (!opts?.quiet) setDetailLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!orgLoading) void loadSessions();
+  }, [orgLoading, loadSessions]);
+
+  // 深链：?runId= / ?sessionId=
+  useEffect(() => {
+    if (orgLoading || !orgId || deepLinkHandled.current || syncingQuery.current) {
+      if (syncingQuery.current) syncingQuery.current = false;
+      return;
+    }
+    const runId = searchParams.get("runId");
+    const sessionId = searchParams.get("sessionId");
+    if (!runId && !sessionId) return;
+
+    deepLinkHandled.current = true;
+    void (async () => {
+      if (runId) {
+        setSelectedRunId(runId);
+        const data = await fetchRunDetail(runId);
+        if (data?.session.id) {
+          setSelectedSessionId(data.session.id);
+          await fetchRuns(data.session.id);
+        }
+        return;
+      }
+      if (sessionId) {
+        setSelectedSessionId(sessionId);
+        setSelectedRunId(null);
+        setDetail(null);
+        await fetchRuns(sessionId);
+      }
+    })();
+  }, [orgLoading, orgId, searchParams, fetchRunDetail, fetchRuns]);
+
+  // 活动 Run 轮询（页面不可见时暂停）
+  useEffect(() => {
+    if (!selectedRunId || !detail) return;
+    if (!ACTIVE_POLL_STATUSES.has(detail.run.status)) return;
+
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      void fetchRunDetail(selectedRunId, { quiet: true }).then((data) => {
+        if (data?.session.id) {
+          void fetchRuns(data.session.id);
+        }
+      });
+    };
+
+    const id = window.setInterval(tick, 3000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [selectedRunId, detail?.run.status, fetchRunDetail, fetchRuns, detail]);
+
+  const openSession = async (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setSelectedRunId(null);
+    setDetail(null);
+    setDecideError(null);
+    syncQuery({ sessionId, runId: null });
+    await fetchRuns(sessionId);
   };
 
-  const openRun = async (runId: string) => {
+  const openRun = async (runId: string, sessionId?: string | null) => {
     setSelectedRunId(runId);
-    setDetailLoading(true);
-    try {
-      const data = await apiJson<RunDetail>(`/api/agent/trace/runs/${runId}`);
-      setDetail(data);
-    } catch {
-      setDetail(null);
+    setDecideError(null);
+    const sid = sessionId ?? selectedSessionId;
+    syncQuery({ sessionId: sid, runId });
+    const data = await fetchRunDetail(runId);
+    if (data?.session.id && data.session.id !== selectedSessionId) {
+      setSelectedSessionId(data.session.id);
+      await fetchRuns(data.session.id);
     }
-    setDetailLoading(false);
+  };
+
+  const decidePending = async (
+    actionId: string,
+    decision: "approve" | "reject",
+  ) => {
+    setDecidingId(actionId);
+    setDecideError(null);
+    try {
+      await apiJson(`/api/ai/pending-actions/${actionId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      notifyPendingActionsChanged();
+      if (selectedRunId) {
+        await fetchRunDetail(selectedRunId, { quiet: true });
+        if (selectedSessionId) await fetchRuns(selectedSessionId);
+      }
+    } catch (e) {
+      setDecideError(e instanceof Error ? e.message : "操作失败");
+    }
+    setDecidingId(null);
   };
 
   if (ambiguous) {
     return (
       <div className="p-6">
         <PageHeader
-          title="Agent Trace"
-          description="请先在左上角选择组织，再查看 AI 任务轨迹。"
+          title="AI 工作台"
+          description="请先在左上角选择组织，再查看 AI 任务与待确认。"
         />
       </div>
     );
@@ -171,8 +316,8 @@ export default function AgentTracePage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-6">
       <PageHeader
-        title="Agent Trace"
-        description="只读查看微信/企微 Agent 会话、任务状态与真实执行事件。不展示密钥与完整敏感正文。"
+        title="AI 工作台"
+        description="查看微信/企微 Agent 会话、任务进度与事件；可在此确认或拒绝待办动作。手机仍可用编号确认。"
         actions={
           <button
             type="button"
@@ -187,6 +332,9 @@ export default function AgentTracePage() {
 
       <p className="text-[12px] text-muted">
         范围：{scope === "org" ? "本组织全部会话" : "仅我的会话"}
+        {detail && ACTIVE_POLL_STATUSES.has(detail.run.status)
+          ? " · 进行中，自动刷新"
+          : ""}
       </p>
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_1fr_1.2fr]">
@@ -226,7 +374,8 @@ export default function AgentTracePage() {
                       <span
                         className={cn(
                           "rounded px-1.5 py-0.5 text-[10px]",
-                          STATUS_COLOR[s.latestRun.status] || STATUS_COLOR.queued,
+                          STATUS_COLOR[s.latestRun.status] ||
+                            STATUS_COLOR.queued,
                         )}
                       >
                         {s.latestRun.status}
@@ -266,7 +415,7 @@ export default function AgentTracePage() {
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => void openRun(r.id)}
+                  onClick={() => void openRun(r.id, selectedSessionId)}
                   className={cn(
                     "flex w-full items-center gap-2 border-b border-border/60 px-3 py-2.5 text-left hover:bg-muted/20",
                     selectedRunId === r.id && "bg-muted/30",
@@ -304,7 +453,7 @@ export default function AgentTracePage() {
         <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs font-medium text-muted">
             <Activity size={13} />
-            事件时间线
+            事件与确认
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {!selectedRunId ? (
@@ -320,7 +469,9 @@ export default function AgentTracePage() {
                 <div className="space-y-1 text-[12px]">
                   <div>
                     <span className="text-muted">Run </span>
-                    <code className="text-[11px]">{detail.run.id.slice(0, 12)}…</code>
+                    <code className="text-[11px]">
+                      {detail.run.id.slice(0, 12)}…
+                    </code>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     <span
@@ -332,7 +483,9 @@ export default function AgentTracePage() {
                       {detail.run.status}
                     </span>
                     {detail.run.model ? (
-                      <span className="text-muted">model: {detail.run.model}</span>
+                      <span className="text-muted">
+                        model: {detail.run.model}
+                      </span>
                     ) : null}
                     {detail.run.attempts > 0 ? (
                       <span className="text-muted">
@@ -355,15 +508,67 @@ export default function AgentTracePage() {
                 {detail.pendingActions.length > 0 ? (
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-muted">
-                      关联待确认
+                      待确认动作
                     </div>
-                    <ul className="space-y-1">
+                    {decideError ? (
+                      <p className="mb-2 rounded bg-red-500/10 px-2 py-1 text-[11px] text-red-400">
+                        {decideError}
+                      </p>
+                    ) : null}
+                    <ul className="space-y-2">
                       {detail.pendingActions.map((p) => (
                         <li
                           key={p.id}
-                          className="rounded border border-border/60 px-2 py-1 text-[11px]"
+                          className="rounded border border-border/60 px-2.5 py-2 text-[11px]"
                         >
-                          <span className="text-muted">{p.status}</span> · {p.title}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={cn(
+                                "rounded px-1.5 py-0.5 text-[10px]",
+                                p.status === "pending"
+                                  ? "bg-orange-500/15 text-orange-400"
+                                  : "bg-muted/40 text-muted",
+                              )}
+                            >
+                              {p.status}
+                            </span>
+                            <span className="text-muted">{p.type}</span>
+                          </div>
+                          <div className="mt-1 font-medium">{p.title}</div>
+                          {p.preview ? (
+                            <p className="mt-1 whitespace-pre-wrap text-muted">
+                              {p.preview}
+                            </p>
+                          ) : null}
+                          {p.expiresAt ? (
+                            <p className="mt-1 text-[10px] text-muted">
+                              过期：{fmtTime(p.expiresAt)}
+                            </p>
+                          ) : null}
+                          {p.status === "pending" ? (
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                type="button"
+                                disabled={decidingId === p.id}
+                                onClick={() =>
+                                  void decidePending(p.id, "approve")
+                                }
+                                className="rounded-md bg-primary px-2.5 py-1 text-[11px] text-primary-foreground disabled:opacity-50"
+                              >
+                                {decidingId === p.id ? "处理中…" : "确认"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={decidingId === p.id}
+                                onClick={() =>
+                                  void decidePending(p.id, "reject")
+                                }
+                                className="rounded-md border border-border px-2.5 py-1 text-[11px] hover:bg-muted/30 disabled:opacity-50"
+                              >
+                                拒绝
+                              </button>
+                            </div>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

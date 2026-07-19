@@ -182,6 +182,39 @@ async function main() {
     });
     ok(otherUser === null, "self 不能读他人 Run");
 
+    // PendingAction preview 截断（需真实 User FK；无用户则跳过）
+    const anyUser = await db.user.findFirst({ select: { id: true } });
+    if (anyUser) {
+      const longPreview = "预览".repeat(300);
+      const pending = await db.pendingAction.create({
+        data: {
+          type: "smoke.test",
+          title: "冒烟待确认",
+          preview: longPreview,
+          payload: {},
+          status: "pending",
+          createdById: anyUser.id,
+          orgId: orgA,
+          agentRunId: run.id,
+          expiresAt: new Date(Date.now() + 3600_000),
+        },
+      });
+      const withPending = await getAgentRunTrace({
+        orgId: orgA,
+        userId: userA,
+        runId: run.id,
+        scope: "self",
+      });
+      const row = withPending?.pendingActions.find((p) => p.id === pending.id);
+      ok(!!row, "关联 PendingAction 可见");
+      ok((row?.preview?.length ?? 0) <= 400, "preview 截断至 400");
+      ok(!!row?.expiresAt, "expiresAt 回传");
+      ok(row?.type === "smoke.test", "type 回传");
+      await db.pendingAction.delete({ where: { id: pending.id } }).catch(() => {});
+    } else {
+      console.log("  · 跳过 Pending preview（库中无 User）");
+    }
+
     console.log(`  ${pass} passed, ${fail} failed`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

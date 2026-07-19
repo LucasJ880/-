@@ -184,9 +184,11 @@ export async function getAgentRunTrace(input: {
       id: true,
       type: true,
       title: true,
+      preview: true,
       status: true,
       createdAt: true,
       decidedAt: true,
+      expiresAt: true,
     },
   });
 
@@ -231,9 +233,11 @@ export async function getAgentRunTrace(input: {
       id: p.id,
       type: p.type,
       title: p.title,
+      preview: p.preview?.slice(0, 400) ?? null,
       status: p.status,
       createdAt: p.createdAt.toISOString(),
       decidedAt: p.decidedAt?.toISOString() ?? null,
+      expiresAt: p.expiresAt?.toISOString() ?? null,
     })),
   };
 }

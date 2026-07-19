@@ -30,6 +30,6 @@ export function formatPendingActionsForWeChat(
     "可执行动作：",
     ...lines,
     "",
-    "回复编号即可确认，回复\u201c取消\u201d放弃。",
+    "回复编号即可确认，回复\u201c取消\u201d放弃。也可打开工作台确认。",
   ].join("\n");
 }
