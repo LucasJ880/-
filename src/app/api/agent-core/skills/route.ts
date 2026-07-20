@@ -1,7 +1,7 @@
 /**
  * 动态技能管理 API
  *
- * GET  /api/agent-core/skills          — 列出组织技能
+ * GET  /api/agent-core/skills          — 列出组织技能（支持筛选与统计）
  * POST /api/agent-core/skills          — 创建技能（手动或 AI 提议）
  */
 
@@ -9,33 +9,54 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { seedBuiltinSkills } from "@/lib/agent-core/skills/seed";
+import { getUserActiveOrgId } from "@/lib/organizations/active-org";
+
+async function resolveOrgId(userId: string): Promise<string | null> {
+  const active = await getUserActiveOrgId(userId);
+  if (active) return active;
+  const membership = await db.organizationMember.findFirst({
+    where: { userId, status: "active" },
+    select: { orgId: true },
+    orderBy: { joinedAt: "desc" },
+  });
+  return membership?.orgId ?? null;
+}
 
 export const GET = withAuth(async (req, _ctx, user) => {
   const { searchParams } = new URL(req.url);
   const domain = searchParams.get("domain") || undefined;
+  const tier = searchParams.get("tier") || undefined;
+  const active = searchParams.get("active");
+  const builtin = searchParams.get("builtin");
+  const includeStats = searchParams.get("includeStats") === "1";
 
-  const membership = await db.organizationMember.findFirst({
-    where: { userId: user.id },
-    select: { orgId: true },
-  });
-
-  if (!membership) {
+  const orgId = await resolveOrgId(user.id);
+  if (!orgId) {
     return NextResponse.json({ error: "无组织" }, { status: 403 });
   }
 
-  // 首次访问时自动播种内置技能
   const existingCount = await db.agentSkill.count({
-    where: { orgId: membership.orgId },
+    where: { orgId },
   });
   if (existingCount === 0) {
-    await seedBuiltinSkills(membership.orgId);
+    await seedBuiltinSkills(orgId);
   }
 
   const skills = await db.agentSkill.findMany({
     where: {
-      orgId: membership.orgId,
-      isActive: true,
+      orgId,
       ...(domain ? { domain } : {}),
+      ...(tier ? { tier } : {}),
+      ...(active === "true"
+        ? { isActive: true }
+        : active === "false"
+          ? { isActive: false }
+          : {}),
+      ...(builtin === "true"
+        ? { isBuiltin: true }
+        : builtin === "false"
+          ? { isBuiltin: false }
+          : {}),
     },
     orderBy: { updatedAt: "desc" },
     select: {
@@ -47,6 +68,7 @@ export const GET = withAuth(async (req, _ctx, user) => {
       tier: true,
       version: true,
       isBuiltin: true,
+      isActive: true,
       outputFormat: true,
       optimizationCount: true,
       lastOptimizedAt: true,
@@ -56,15 +78,44 @@ export const GET = withAuth(async (req, _ctx, user) => {
     },
   });
 
-  return NextResponse.json({ skills });
+  if (!includeStats) {
+    return NextResponse.json({ skills });
+  }
+
+  const { getSkillStats } = await import("@/lib/agent-core/skills/learner");
+  const withStats = await Promise.all(
+    skills.map(async (skill) => {
+      const stats = await getSkillStats(skill.id);
+      const last = await db.skillExecution.findFirst({
+        where: { skillId: skill.id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, userRating: true },
+      });
+      return {
+        ...skill,
+        stats: {
+          successRate: stats.total > 0 ? stats.successRate : null,
+          avgRating: stats.avgRating,
+          lastExecutedAt: last?.createdAt?.toISOString() ?? null,
+          lastRating: last?.userRating ?? null,
+        },
+      };
+    }),
+  );
+
+  return NextResponse.json({ skills: withStats });
 });
 
 export const POST = withAuth(async (req, _ctx, user) => {
-  const membership = await db.organizationMember.findFirst({
-    where: { userId: user.id },
-    select: { orgId: true, role: true },
-  });
+  const orgId = await resolveOrgId(user.id);
+  if (!orgId) {
+    return NextResponse.json({ error: "无组织" }, { status: 403 });
+  }
 
+  const membership = await db.organizationMember.findUnique({
+    where: { orgId_userId: { orgId, userId: user.id } },
+    select: { role: true },
+  });
   if (!membership) {
     return NextResponse.json({ error: "无组织" }, { status: 403 });
   }
@@ -77,20 +128,13 @@ export const POST = withAuth(async (req, _ctx, user) => {
       "@/lib/agent-core/skills/auto-creator"
     );
 
-    const proposal = await proposeSkillFromDescription(
-      membership.orgId,
-      body.description,
-    );
+    const proposal = await proposeSkillFromDescription(orgId, body.description);
 
     if (!proposal) {
       return NextResponse.json({ error: "无法提取技能" }, { status: 400 });
     }
 
-    const skillId = await createSkillFromProposal(
-      membership.orgId,
-      proposal,
-      user.id,
-    );
+    const skillId = await createSkillFromProposal(orgId, proposal, user.id);
 
     return NextResponse.json({ skillId, proposal });
   }
@@ -98,7 +142,7 @@ export const POST = withAuth(async (req, _ctx, user) => {
   if (action === "create") {
     const skill = await db.agentSkill.create({
       data: {
-        orgId: membership.orgId,
+        orgId,
         slug: body.slug,
         name: body.name,
         description: body.description,
@@ -110,6 +154,7 @@ export const POST = withAuth(async (req, _ctx, user) => {
         temperature: body.temperature ?? 0.3,
         maxTokens: body.maxTokens ?? 2000,
         inputSchema: body.inputSchema ?? undefined,
+        outputSchema: body.outputSchema ?? undefined,
         requiredTools: body.requiredTools ?? null,
         isBuiltin: false,
         isActive: true,

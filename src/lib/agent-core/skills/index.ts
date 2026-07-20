@@ -10,6 +10,13 @@ export {
   proposeSkillFromDescription,
   createSkillFromProposal,
 } from "./auto-creator";
+export { ENTERPRISE_SKILLS } from "./enterprise-index";
+export { DIGITAL_EMPLOYEE_ROLES } from "./digital-employee-roles";
+export {
+  materializeSkillPendingActions,
+  collectPendingProposals,
+  SKILL_PENDING_ACTION_ALLOWLIST,
+} from "./pending-action-bridge";
 export type {
   DynamicSkillDef,
   SkillRunInput,
@@ -17,3 +24,4 @@ export type {
   SkillFeedback,
   SkillOptimizationResult,
 } from "./types";
+export type { EnterpriseSkillSeed } from "./enterprise-types";

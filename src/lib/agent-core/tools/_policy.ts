@@ -27,6 +27,10 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   sales_search_customers:     { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_get_customer:         { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_get_pipeline:         { risk: "l0_read",           allowRoles: ["admin", "sales"] },
+  sales_get_pipeline_snapshot:{ risk: "l0_read",           allowRoles: ["admin", "sales"] },
+  sales_get_opportunity:      { risk: "l0_read",           allowRoles: ["admin", "sales"] },
+  sales_get_customer_interactions: { risk: "l0_read",      allowRoles: ["admin", "sales"] },
+  sales_get_quote_summary:    { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_list_opportunities:   { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   sales_get_overview:         { risk: "l0_read",           allowRoles: ["admin", "sales"] },
   // PR4：sales 推进阶段改走 sales_update_stage 草稿流，老的 advance 保留给 admin 直写
@@ -91,6 +95,14 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   project_document_summary:       { risk: "l1_internal_write", allowRoles: ["admin", "sales", "trade"] },
   project_bid_quote:              { risk: "l2_soft",           allowRoles: ["admin", "sales"] },
   project_inquiry_email_draft:    { risk: "l2_soft",           allowRoles: ["admin", "sales", "trade"] },
+  project_get_tender_summary:     { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_get_project_documents:  { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_get_project_requirements:{ risk: "l0_read",          allowRoles: ["admin", "sales", "trade"] },
+  project_get_project_inquiries:  { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_get_project_quotes:     { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  project_search_similar_projects:{ risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
+  knowledge_search_org:           { risk: "l0_read",           allowRoles: "*" },
+  knowledge_search_project:       { risk: "l0_read",           allowRoles: ["admin", "sales", "trade"] },
 
   // ── skill 域（动态技能需 admin 权限执行 / 创建） ──────────────
   skill_list:                   { risk: "l0_read", allowRoles: "*" },
@@ -105,6 +117,9 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   marketing_request_data_sync:  { risk: "l2_soft", allowRoles: "*" },
   marketing_ingest_channel_metrics: { risk: "l1_internal_write", allowRoles: "*" },
   marketing_get_mmm_summary:    { risk: "l0_read", allowRoles: "*" },
+  marketing_get_channel_metrics:{ risk: "l0_read", allowRoles: "*" },
+  marketing_get_experiments:    { risk: "l0_read", allowRoles: "*" },
+  marketing_get_brand_profile:  { risk: "l0_read", allowRoles: "*" },
 
   // ── 组织通用知识库 ──
   org_search_knowledge:         { risk: "l0_read", allowRoles: "*" },

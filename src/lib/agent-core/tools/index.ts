@@ -18,6 +18,7 @@ import "./cockpit";
 import "./project-skills"; // A-P2: lib/agent 静态技能桥接
 import "./marketing"; // Growth Center：白名单营销工具（内部再校验组织成员）
 import "./org-knowledge"; // 组织通用知识库（向量/关键词检索）
+import "./enterprise-readonly"; // 企业数字员工 Phase1 只读工具补齐
 
 import { applyToolPolicy } from "./_policy";
 

@@ -50,13 +50,27 @@ export const POST = withAuth(async (req, ctx, user) => {
   const { id } = await ctx.params;
   const body = await req.json();
 
-  const membership = await db.organizationMember.findFirst({
-    where: { userId: user.id },
+  const { getUserActiveOrgId } = await import("@/lib/organizations/active-org");
+  let orgId = await getUserActiveOrgId(user.id);
+  if (!orgId) {
+    const membership = await db.organizationMember.findFirst({
+      where: { userId: user.id, status: "active" },
+      select: { orgId: true },
+      orderBy: { joinedAt: "desc" },
+    });
+    orgId = membership?.orgId ?? null;
+  }
+
+  if (!orgId) {
+    return NextResponse.json({ error: "无组织" }, { status: 403 });
+  }
+
+  const skillOrg = await db.agentSkill.findUnique({
+    where: { id },
     select: { orgId: true },
   });
-
-  if (!membership) {
-    return NextResponse.json({ error: "无组织" }, { status: 403 });
+  if (!skillOrg || skillOrg.orgId !== orgId) {
+    return NextResponse.json({ error: "技能不属于当前组织" }, { status: 403 });
   }
 
   if (body.action === "run") {
@@ -65,7 +79,7 @@ export const POST = withAuth(async (req, ctx, user) => {
       skillId: id,
       variables: body.variables ?? {},
       userId: user.id,
-      orgId: membership.orgId,
+      orgId,
     });
     return NextResponse.json({ result });
   }
@@ -117,6 +131,13 @@ export const PATCH = withAuth(async (req, ctx) => {
   if (body.maxTokens !== undefined) updateData.maxTokens = body.maxTokens;
   if (body.requiredTools !== undefined) updateData.requiredTools = body.requiredTools;
   if (body.isActive !== undefined) updateData.isActive = body.isActive;
+  if (
+    body.systemPrompt !== undefined ||
+    body.userPromptTemplate !== undefined ||
+    body.requiredTools !== undefined
+  ) {
+    updateData.version = { increment: 1 };
+  }
 
   const updated = await db.agentSkill.update({
     where: { id },

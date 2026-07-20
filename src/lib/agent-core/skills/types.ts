@@ -48,6 +48,14 @@ export interface SkillRunOutput {
   tokenCount?: number;
   model: string;
   executionId: string;
+  /** 由技能 JSON 提案落库的 PendingAction（仅 pending，未自动执行） */
+  pendingActions?: {
+    id: string;
+    type: string;
+    title: string;
+    preview: string;
+  }[];
+  pendingActionsSkipped?: { reason: string }[];
 }
 
 export interface SkillFeedback {

@@ -63,6 +63,32 @@ function loadRequiredTools(raw: string | null): string[] {
     .filter(Boolean);
 }
 
+/** 从工具名解析域：兼容 a.b 与 a_b 两种命名 */
+function resolveToolDomain(toolName: string): ToolDomain | null {
+  if (toolName.includes(".")) {
+    const prefix = toolName.split(".")[0];
+    return isToolDomain(prefix) ? prefix : null;
+  }
+  const prefix = toolName.split("_")[0];
+  if (prefix === "org" || prefix === "marketing" || prefix === "skill") {
+    return "system";
+  }
+  if (prefix === "knowledge") return "knowledge";
+  return isToolDomain(prefix) ? prefix : null;
+}
+
+function isToolDomain(value: string): value is ToolDomain {
+  return (
+    value === "trade" ||
+    value === "sales" ||
+    value === "project" ||
+    value === "secretary" ||
+    value === "knowledge" ||
+    value === "cockpit" ||
+    value === "system"
+  );
+}
+
 export function toSkillDef(row: {
   id: string;
   slug: string;
@@ -136,10 +162,12 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     systemPrompt += "\n\n请严格以 JSON 格式输出，不要添加任何额外文字。";
   }
 
+  // 工具名为下划线风格（sales_get_pipeline）时，不得再用 split(".") 误作 domain。
+  // 已显式指定 tools 名称时，跳过 domains 过滤，避免白名单工具被清空。
   const domains = new Set<ToolDomain>();
   for (const toolName of skill.requiredTools) {
-    const [domain] = toolName.split(".");
-    if (domain) domains.add(domain as ToolDomain);
+    const domain = resolveToolDomain(toolName);
+    if (domain) domains.add(domain);
   }
 
   let result;
@@ -148,7 +176,12 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
       systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
       tools: skill.requiredTools.length > 0 ? skill.requiredTools : undefined,
-      domains: domains.size > 0 ? Array.from(domains) : undefined,
+      domains:
+        skill.requiredTools.length > 0
+          ? undefined
+          : domains.size > 0
+            ? Array.from(domains)
+            : undefined,
       mode: "chat",
       model: input.execution?.model,
       maxTokens: input.execution?.maxTokens ?? skill.maxTokens,
@@ -218,6 +251,31 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     },
   });
 
+  // 企业技能闭环：JSON 中的 pendingActionProposal → PendingAction(pending)
+  let pendingActions: SkillRunOutput["pendingActions"];
+  let pendingActionsSkipped: SkillRunOutput["pendingActionsSkipped"];
+  if (parsed) {
+    const { materializeSkillPendingActions } = await import(
+      "./pending-action-bridge"
+    );
+    const projectId =
+      typeof input.variables.projectId === "string"
+        ? input.variables.projectId
+        : undefined;
+    const materialized = await materializeSkillPendingActions({
+      parsed,
+      userId: input.userId,
+      orgId: input.orgId,
+      skillSlug: skill.slug,
+      skillExecutionId: execution.id,
+      projectId,
+    });
+    pendingActions = materialized.created;
+    pendingActionsSkipped = materialized.skipped.map((s) => ({
+      reason: s.reason,
+    }));
+  }
+
   return {
     success: true,
     content: result.content,
@@ -226,6 +284,8 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     durationMs,
     model: result.model,
     executionId: execution.id,
+    pendingActions,
+    pendingActionsSkipped,
   };
 }
 

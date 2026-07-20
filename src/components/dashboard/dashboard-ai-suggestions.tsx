@@ -54,6 +54,7 @@ const SEVERITY_STYLES: Record<TriggerSeverity, { bg: string; text: string; borde
 
 const KIND_ICONS: Record<TriggerKind, typeof AlertTriangle> = {
   deadline_approaching: Clock,
+  open_date_approaching: Clock,
   stage_stalled: AlertTriangle,
   supplier_no_response: Users,
   tasks_overdue: ListTodo,
