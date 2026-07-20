@@ -18,6 +18,7 @@ import {
   attachAdapterInbound,
 } from "@/lib/messaging/gateway";
 import { WeComAdapter, parseWeComMessageXml } from "@/lib/messaging/adapters/wecom";
+import { findBindingByExternal } from "@/lib/messaging/binding";
 import {
   isPlatformWecomOrgKey,
   resolveWecomCredentialOrgId,
@@ -156,6 +157,17 @@ export async function POST(req: NextRequest) {
       });
       const handler = adapter.getMessageHandler();
       if (handler) await handler(inbound);
+      return ok();
+    }
+
+    // 未绑定：同步回提示（避免 after 未跑导致「完全没反应」）
+    const existing = await findBindingByExternal("wecom", inbound.externalUserId);
+    if (!existing || existing.status !== "active") {
+      try {
+        await handleInboundMessage(inbound);
+      } catch (e) {
+        console.error("[WeCom Callback] unbound handle failed:", e);
+      }
       return ok();
     }
 

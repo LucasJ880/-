@@ -82,6 +82,9 @@ export default function WeChatSettingsPage() {
   const [showWecomForm, setShowWecomForm] = useState(false);
   const [platformWecom, setPlatformWecom] = useState<GatewayInfo | null>(null);
   const [canManagePlatformWecom, setCanManagePlatformWecom] = useState(false);
+  const [wecomUserId, setWecomUserId] = useState("");
+  const [bindError, setBindError] = useState<string | null>(null);
+  const [bindOk, setBindOk] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -223,6 +226,34 @@ export default function WeChatSettingsPage() {
       await fetchData();
     } catch (e) {
       console.error("保存失败:", e);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBindWecom = async () => {
+    const externalId = wecomUserId.trim();
+    if (!externalId) {
+      setBindError("请填写企微 UserId");
+      return;
+    }
+    setActionLoading("bind_wecom");
+    setBindError(null);
+    setBindOk(false);
+    try {
+      await apiFetch("/api/messaging/bindings", {
+        method: "POST",
+        body: JSON.stringify({
+          channel: "wecom",
+          externalId,
+          displayName: externalId,
+        }),
+      });
+      setWecomUserId("");
+      setBindOk(true);
+      await fetchData();
+    } catch (e) {
+      setBindError(e instanceof Error ? e.message : "绑定失败");
     } finally {
       setActionLoading(null);
     }
@@ -461,6 +492,44 @@ export default function WeChatSettingsPage() {
           <WeComCallbackHint />
         </div>
       )}
+
+      {/* ── 企业微信账号绑定 ── */}
+      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+        <h3 className="text-sm font-medium">绑定企业微信账号</h3>
+        <p className="text-xs text-muted">
+          必须绑定后，在企微应用里发消息才会进入你的青砚工作组织。UserId 在企微管理后台 → 通讯录 → 成员详情 →「账号」。
+          也可先给 mengxin 发消息，未绑定时机器人会把你的 UserId 回复给你。
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            value={wecomUserId}
+            onChange={(e) => setWecomUserId(e.target.value)}
+            placeholder="企微 UserId，例如 ZhangSan"
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted/50 focus:border-accent focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => void handleBindWecom()}
+            disabled={actionLoading === "bind_wecom"}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90 disabled:opacity-50"
+          >
+            {actionLoading === "bind_wecom" ? <Loader2 size={12} className="animate-spin" /> : null}
+            绑定
+          </button>
+        </div>
+        {bindError && <p className="text-xs text-red-500">{bindError}</p>}
+        {bindOk && <p className="text-xs text-[#2e7a56]">绑定成功，请回到企微再发一句「你好」。</p>}
+        {bindings.some((b) => b.channel === "wecom" && b.status === "active") && (
+          <p className="text-xs text-muted">
+            已绑定：
+            {bindings
+              .filter((b) => b.channel === "wecom" && b.status === "active")
+              .map((b) => b.displayName || b.externalId)
+              .join("、")}
+          </p>
+        )}
+      </div>
 
       {/* ── 推送偏好 ── */}
       {bindings.length > 0 && (

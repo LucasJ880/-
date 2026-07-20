@@ -45,11 +45,17 @@ export const POST = withAuth(async (req, _ctx, user) => {
       })
     )?.orgId;
 
+  const channel = body.channel === "wecom" ? "wecom" : body.channel === "personal_wechat" ? "personal_wechat" : null;
+  const externalId = typeof body.externalId === "string" ? body.externalId.trim() : "";
+  if (!channel || !externalId) {
+    return NextResponse.json({ error: "缺少 channel 或 externalId" }, { status: 400 });
+  }
+
   const binding = await createBinding({
     userId: user.id,
     orgId,
-    channel: body.channel,
-    externalId: body.externalId,
+    channel,
+    externalId,
     displayName: body.displayName,
   });
 

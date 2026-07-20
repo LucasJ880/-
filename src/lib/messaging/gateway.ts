@@ -129,6 +129,11 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
   // 1. 查找绑定
   const binding = await findBindingByExternal(msg.channel, msg.externalUserId);
   if (!binding || binding.status !== "active") {
+    console.info("[Gateway] inbound without active binding", {
+      channel: msg.channel,
+      externalUserId: msg.externalUserId,
+      orgHint: msg.orgId ?? null,
+    });
     if (msg.orgId && !msg.externalUserId.includes("@chatroom")) {
       const { recordCustomerMessage } = await import(
         "@/lib/service-inbox/service"
@@ -145,6 +150,25 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       }).catch((e) =>
         console.error("[Gateway] record customer message failed:", e),
       );
+    }
+    // 平台助理通道：未绑定也回一句，避免「发了没反应」
+    if (msg.channel === "wecom" && !msg.externalUserId.includes("@chatroom")) {
+      const adapter = await ensureSendAdapter("wecom", msg.orgId ?? null);
+      if (adapter) {
+        await adapter
+          .sendText(
+            msg.externalUserId,
+            [
+              "你好，我是青砚。",
+              "当前企微账号尚未绑定青砚用户，所以无法进入你的工作组织。",
+              `你的企微 UserId：${msg.externalUserId}`,
+              "请打开青砚 → 设置 → 微信集成，填写上述 UserId 完成绑定后再发消息。",
+            ].join("\n"),
+          )
+          .catch((e) =>
+            console.error("[Gateway] unbound wecom reply failed:", e),
+          );
+      }
     }
     return;
   }
