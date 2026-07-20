@@ -251,11 +251,13 @@ registry.register({
       description: { type: "string", description: "描述（可选）" },
       startTime: {
         type: "string",
-        description: "开始时间，必须包含时区偏移的 ISO 8601，如 2026-04-21T10:00:00-04:00",
+        description:
+          "开始时间 ISO 8601。优先带 America/Toronto 偏移（如 2026-07-21T15:00:00-04:00）。无偏移时按多伦多本地墙钟解释，切勿把本地点钟写成 Z/UTC。",
       },
       endTime: {
         type: "string",
-        description: "结束时间，必须包含时区偏移的 ISO 8601",
+        description:
+          "结束时间 ISO 8601。优先带 America/Toronto 偏移；无偏移时按多伦多本地墙钟解释。",
       },
       allDay: { type: "string", description: "是否全天事件（true/false）" },
       location: { type: "string", description: "地点（可选）" },
@@ -277,8 +279,9 @@ registry.register({
       reminderMinutes?: string | number;
     };
 
-    const start = new Date(args.startTime);
-    const end = new Date(args.endTime);
+    const { parseBusinessDateTime } = await import("@/lib/time");
+    const start = parseBusinessDateTime(args.startTime);
+    const end = parseBusinessDateTime(args.endTime);
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return { success: false, data: { error: "时间格式无效，请使用 ISO 8601" } };
     }

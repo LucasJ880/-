@@ -5,16 +5,29 @@ import { pushEventToGoogle, getGoogleProvider } from "@/lib/google-calendar";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 import { onEventCreated } from "@/lib/project-discussion/system-events";
 
-export const GET = withAuth(async (request) => {
+export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
+  const startParam = searchParams.get("start");
+  const endParam = searchParams.get("end");
 
-  const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
-  const dayStart = startOfDayToronto(ref);
-  const dayEnd = endOfDayToronto(ref);
+  let dayStart: Date;
+  let dayEnd: Date;
+  if (startParam && endParam) {
+    dayStart = new Date(startParam);
+    dayEnd = new Date(endParam);
+    if (Number.isNaN(dayStart.getTime()) || Number.isNaN(dayEnd.getTime())) {
+      return NextResponse.json({ error: "时间范围无效" }, { status: 400 });
+    }
+  } else {
+    const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+    dayStart = startOfDayToronto(ref);
+    dayEnd = endOfDayToronto(ref);
+  }
 
   const events = await db.calendarEvent.findMany({
     where: {
+      userId: user.id,
       OR: [
         { startTime: { gte: dayStart, lt: dayEnd } },
         { endTime: { gt: dayStart, lte: dayEnd } },

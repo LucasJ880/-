@@ -25,6 +25,32 @@ export function torontoDateStr(d: Date = new Date()): string {
   return d.toLocaleDateString("en-CA", { timeZone: TIMEZONE });
 }
 
+/**
+ * 解析业务日历时间。
+ * - 带 Z / ±offset 的字符串：按绝对时间解析
+ * - 无时区的 `YYYY-MM-DDTHH:mm[:ss]`：按 America/Toronto 墙钟解释（避免 Vercel UTC 把 15:00 当成 UTC）
+ */
+export function parseBusinessDateTime(input: string): Date {
+  const s = input.trim();
+  if (!s) return new Date(NaN);
+  if (/([zZ]|[+-]\d{2}:?\d{2})$/.test(s)) return new Date(s);
+
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+  );
+  if (!m) return new Date(s);
+
+  const y = m[1];
+  const mo = m[2];
+  const d = m[3];
+  const h = Number(m[4] ?? "0");
+  const mi = Number(m[5] ?? "0");
+  const sec = Number(m[6] ?? "0");
+  const mid = new Date(`${y}-${mo}-${d}T12:00:00Z`);
+  const dayStart = startOfDayToronto(mid);
+  return new Date(dayStart.getTime() + ((h * 60 + mi) * 60 + sec) * 1000);
+}
+
 /** 获取 Toronto 时间分量（hour, minute） */
 export function torontoTimeParts(d: Date = new Date()): { hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat("en-US", {

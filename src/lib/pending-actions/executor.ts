@@ -527,8 +527,40 @@ async function execCalendarCreateEvent(
       reminderMinutes: payload.reminderMinutes ?? 15,
       source: "qingyan",
     },
-    select: { id: true },
+    select: {
+      id: true,
+      title: true,
+      startTime: true,
+      endTime: true,
+      allDay: true,
+      location: true,
+    },
   });
+
+  // 销售日历页主要展示 Google 事件；批准后尽量同步，避免「已创建但不显示」
+  try {
+    const { getGoogleProvider, pushEventToGoogle } = await import(
+      "@/lib/google-calendar"
+    );
+    const googleProvider = await getGoogleProvider(ctx.userId);
+    if (googleProvider) {
+      const googleId = await pushEventToGoogle(ctx.userId, {
+        title: event.title,
+        startTime: event.startTime.toISOString(),
+        endTime: event.endTime.toISOString(),
+        allDay: event.allDay,
+        location: event.location,
+      });
+      if (googleId) {
+        await db.calendarEvent.update({
+          where: { id: event.id },
+          data: { externalId: googleId },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[pending-action] calendar google sync failed:", err);
+  }
 
   await logAudit({
     userId: ctx.userId,

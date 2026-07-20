@@ -126,17 +126,54 @@ export default function SalesCalendarPage() {
       );
       setAppointments(apptRes.appointments ?? []);
 
+      let gEvents: GoogleEvent[] = [];
       try {
         const gcalRes = await apiJson<GoogleEvent[]>(
           `/api/calendar/google?timeMin=${start}&timeMax=${end}`,
         );
-        setGoogleEvents(Array.isArray(gcalRes) ? gcalRes : []);
+        gEvents = Array.isArray(gcalRes) ? gcalRes : [];
         setGcalTokenExpired(false);
       } catch (err) {
-        setGoogleEvents([]);
+        gEvents = [];
         if (err instanceof Error && err.message === "token_expired") {
           setGcalTokenExpired(true);
         }
+      }
+
+      // 合并青砚本地事件（含协同 AI 批准创建的日程），避免只显示 Google 时「已创建看不到」
+      try {
+        const qingyanRes = await apiJson<
+          Array<{
+            id: string;
+            title: string;
+            startTime: string;
+            endTime: string;
+            allDay: boolean;
+            location?: string | null;
+            description?: string | null;
+            externalId?: string | null;
+          }>
+        >(`/api/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+        const local = Array.isArray(qingyanRes) ? qingyanRes : [];
+        const googleIds = new Set(
+          gEvents.map((e) => e.id).filter(Boolean),
+        );
+        const extras: GoogleEvent[] = local
+          .filter((e) => !e.externalId || !googleIds.has(e.externalId))
+          .map((e) => ({
+            id: `qingyan:${e.id}`,
+            title: e.title,
+            startTime: e.startTime,
+            endTime: e.endTime,
+            allDay: e.allDay,
+            location: e.location ?? null,
+            description: e.description ?? null,
+            calendarName: "青砚",
+            color: "#2b6055",
+          }));
+        setGoogleEvents([...gEvents, ...extras]);
+      } catch {
+        setGoogleEvents(gEvents);
       }
     } catch {
       setAppointments([]);

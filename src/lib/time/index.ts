@@ -12,6 +12,7 @@ export {
   nowToronto,
   torontoDateStr,
   torontoTimeParts,
+  parseBusinessDateTime,
   startOfDayToronto,
   endOfDayToronto,
   startOfWeekToronto,
