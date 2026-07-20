@@ -15,19 +15,19 @@ export { SELECTED_ORG_STORAGE_KEY, persistSelectedOrgId };
 /**
  * 解析当前应使用的 orgId（不信任「列表第一个」为多组织默认值）
  *
- * 优先级：URL `/organizations/:id` → localStorage → 仅一个组织时自动
+ * 优先级：localStorage（全局当前组织）→ URL `/organizations/:id`（仅组织详情浏览）→ 仅一个组织时自动
  */
 export function getCurrentOrgIdFromRouteOrStorage(
   pathname: string,
   organizationIds: string[],
 ): { orgId: string | null; source: "route" | "storage" | "single" | "none" } {
-  const routeId = pathname.match(/\/organizations\/([^/]+)/)?.[1];
-  if (routeId && organizationIds.includes(routeId)) {
-    return { orgId: routeId, source: "route" };
-  }
   const stored = readStoredOrgId();
   if (stored && organizationIds.includes(stored)) {
     return { orgId: stored, source: "storage" };
+  }
+  const routeId = pathname.match(/\/organizations\/([^/]+)/)?.[1];
+  if (routeId && organizationIds.includes(routeId)) {
+    return { orgId: routeId, source: "route" };
   }
   if (organizationIds.length === 1) {
     return { orgId: organizationIds[0], source: "single" };
@@ -61,13 +61,13 @@ export function useCurrentOrgId() {
 
   const { orgId, source } = useMemo(() => {
     const ids = organizationIds;
-    const routeId = pathname.match(/\/organizations\/([^/]+)/)?.[1];
-    if (routeId && ids.includes(routeId)) {
-      return { orgId: routeId, source: "route" as const };
-    }
     const stored = storedSnapshot.trim();
     if (stored && ids.includes(stored)) {
       return { orgId: stored, source: "storage" as const };
+    }
+    const routeId = pathname.match(/\/organizations\/([^/]+)/)?.[1];
+    if (routeId && ids.includes(routeId)) {
+      return { orgId: routeId, source: "route" as const };
     }
     if (ids.length === 1) {
       return { orgId: ids[0], source: "single" as const };

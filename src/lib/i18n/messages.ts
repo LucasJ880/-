@@ -31,6 +31,7 @@ export interface Messages {
   nav_group_workspace: string;
   nav_group_sales: string;
   nav_group_trade: string;
+  nav_group_tender: string;
   nav_group_collaboration: string;
   nav_group_intelligence: string;
   nav_group_operations: string;

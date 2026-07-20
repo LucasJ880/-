@@ -6,6 +6,10 @@ import { Building2, Loader2, Plus, FolderKanban, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import {
+  readStoredOrgId,
+  selectActiveOrganization,
+} from "@/lib/org-selection";
 
 interface OrgRow {
   id: string;
@@ -25,6 +29,15 @@ export default function OrganizationsPage() {
   const [code, setCode] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [activeOrgId, setActiveOrgId] = useState("");
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveOrgId(readStoredOrgId());
+    const onStorage = () => setActiveOrgId(readStoredOrgId());
+    window.addEventListener("qingyan-org-storage", onStorage);
+    return () => window.removeEventListener("qingyan-org-storage", onStorage);
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -137,41 +150,77 @@ export default function OrganizationsPage() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {orgs.map((o) => (
-            <li key={o.id}>
-              <Link
-                href={`/organizations/${o.id}`}
-                className="flex items-center justify-between rounded-xl border border-border bg-card-bg px-4 py-3 transition-colors hover:bg-background"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                    <Building2 size={20} />
-                  </div>
-                  <div>
-                    <p className="font-medium">{o.name}</p>
-                    <p className="text-xs text-muted">
-                      {o.code} · {o.memberCount} 人 · {o.projectCount} 个项目
-                      {o.myRole && (
-                        <span className="ml-2 rounded bg-[rgba(110,125,118,0.08)] px-1.5 py-0.5 text-[10px]">
-                          {o.myRole}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <span
+          {orgs.map((o) => {
+            const isCurrent = o.id === activeOrgId;
+            return (
+              <li key={o.id}>
+                <div
                   className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                    o.status === "active"
-                      ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
-                      : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+                    "flex items-center justify-between gap-3 rounded-xl border bg-card-bg px-4 py-3",
+                    isCurrent ? "border-accent/40" : "border-border"
                   )}
                 >
-                  {o.status === "active" ? "正常" : o.status}
-                </span>
-              </Link>
-            </li>
-          ))}
+                  <Link
+                    href={`/organizations/${o.id}`}
+                    className="flex min-w-0 flex-1 items-center gap-3 transition-colors hover:opacity-90"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                      <Building2 size={20} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium">
+                        {o.name}
+                        {isCurrent && (
+                          <span className="ml-2 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+                            当前
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {o.code} · {o.memberCount} 人 · {o.projectCount} 个项目
+                        {o.myRole && (
+                          <span className="ml-2 rounded bg-[rgba(110,125,118,0.08)] px-1.5 py-0.5 text-[10px]">
+                            {o.myRole}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </Link>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {!isCurrent && (
+                      <button
+                        type="button"
+                        disabled={switchingId === o.id}
+                        onClick={async () => {
+                          setSwitchingId(o.id);
+                          const r = await selectActiveOrganization(o.id);
+                          setSwitchingId(null);
+                          if (!r.ok) {
+                            alert(r.error || "切换失败");
+                            return;
+                          }
+                          window.location.reload();
+                        }}
+                        className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:border-accent/40 hover:text-accent disabled:opacity-50"
+                      >
+                        {switchingId === o.id ? "切换中…" : "设为当前"}
+                      </button>
+                    )}
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                        o.status === "active"
+                          ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
+                          : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+                      )}
+                    >
+                      {o.status === "active" ? "正常" : o.status}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -25,11 +25,22 @@ function parseYmd(dateStr: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-type DateKind = "closeDate" | "publicDate" | "questionCloseDate" | "awardDate";
+type DateKind =
+  | "closeDate"
+  | "openDate"
+  | "publicDate"
+  | "questionCloseDate"
+  | "awardDate";
 
 /** 供单测：根据中英标签归类日期字段 */
 export function classifyDateLabel(label: string): DateKind | null {
   const t = label.toLowerCase();
+  if (
+    /开标|opening|bid\s*opening|public\s*opening|开标日|开标时间/.test(t) &&
+    !/截标|closing|deadline/.test(t)
+  ) {
+    return "openDate";
+  }
   if (
     /截标|截止|closing|close\s*date|rfb\s*closing|submission\s*deadline|投标截止|报价截止/.test(
       t,
@@ -86,6 +97,7 @@ export async function applyDocumentMetadataToProject(
       currency: true,
       estimatedValue: true,
       closeDate: true,
+      openDate: true,
       publicDate: true,
       questionCloseDate: true,
       awardDate: true,
@@ -177,6 +189,7 @@ export async function applyDocumentMetadataToProject(
 
   for (const kind of [
     "closeDate",
+    "openDate",
     "publicDate",
     "questionCloseDate",
     "awardDate",
@@ -200,6 +213,13 @@ export async function applyDocumentMetadataToProject(
     where: { id: projectId },
     data,
   });
+
+  if (data.closeDate !== undefined || data.openDate !== undefined) {
+    const { syncProjectMilestoneCalendars } = await import(
+      "@/lib/projects/sync-milestone-calendar"
+    );
+    await syncProjectMilestoneCalendars(projectId).catch(() => null);
+  }
 
   const applied: Record<string, string | number | null> = {};
   for (const [k, v] of Object.entries(data)) {

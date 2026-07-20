@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   authCardClass,
@@ -12,7 +11,6 @@ import {
 import { apiFetch } from "@/lib/api-fetch";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [inviteCode, setInviteCode] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -53,8 +51,7 @@ export default function RegisterPage() {
         return;
       }
 
-      router.push("/");
-      router.refresh();
+      window.location.href = "/select-org?next=/";
     } catch {
       setError("网络错误，请稍后重试");
     } finally {

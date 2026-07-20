@@ -10,6 +10,7 @@ import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
 
 const detailInclude = {
   owner: { select: { id: true, name: true, email: true } },
+  purchaser: { select: { id: true, name: true, email: true } },
   org: { select: { id: true, name: true, code: true, status: true } },
   _count: { select: { tasks: true, environments: true, members: true } },
   externalRef: true,
@@ -132,14 +133,25 @@ export async function PATCH(
     );
   }
 
-  // 非进展日期字段 — 仍可通过 PATCH 更新
+  // 非进展日期字段 — 仍可通过 PATCH 更新（含截标/开标，可人工调整）
   const editableDateFields = [
-    "publicDate", "questionCloseDate", "closeDate", "awardDate",
+    "publicDate", "questionCloseDate", "closeDate", "openDate", "awardDate",
   ] as const;
   for (const f of editableDateFields) {
     if (body[f] !== undefined) {
       data[f] = body[f] ? new Date(body[f]) : null;
     }
+  }
+
+  if (body.purchaserId !== undefined) {
+    data.purchaserId =
+      body.purchaserId === null || body.purchaserId === ""
+        ? null
+        : String(body.purchaserId);
+  }
+
+  if (body.ownerId !== undefined) {
+    data.ownerId = String(body.ownerId);
   }
 
   if (body.orgId !== undefined) {
@@ -199,6 +211,19 @@ export async function PATCH(
   ) {
     const { maybeCreateReviewDraft } = await import("@/lib/projects/review");
     await maybeCreateReviewDraft(id).catch(() => null);
+  }
+
+  if (
+    body.closeDate !== undefined ||
+    body.openDate !== undefined ||
+    body.purchaserId !== undefined ||
+    body.ownerId !== undefined ||
+    body.name !== undefined
+  ) {
+    const { syncProjectMilestoneCalendars } = await import(
+      "@/lib/projects/sync-milestone-calendar"
+    );
+    await syncProjectMilestoneCalendars(id).catch(() => null);
   }
 
   return NextResponse.json(project);

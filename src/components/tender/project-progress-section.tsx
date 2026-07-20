@@ -53,8 +53,14 @@ const STATUS_CONFIG: Record<
 
 export function ProjectProgressSection({
   project,
+  projectId,
+  canManage,
+  onUpdated,
 }: {
   project: TenderProject;
+  projectId?: string;
+  canManage?: boolean;
+  onUpdated?: () => void;
 }) {
   const currentStage = getProjectStage(project);
   const stageStatus = getProjectStageStatus(project);
@@ -133,7 +139,12 @@ export function ProjectProgressSection({
 
         {/* Key date chips */}
         <div className="mt-3">
-          <ProjectKeyDates project={project} />
+          <ProjectKeyDates
+            project={project}
+            projectId={projectId}
+            canManage={canManage}
+            onUpdated={onUpdated}
+          />
         </div>
       </div>
 

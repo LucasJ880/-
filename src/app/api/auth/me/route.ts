@@ -7,9 +7,11 @@ export const GET = withAuth(async (_request, _ctx, user) => {
   // 公司归属（联合品牌）：左上角显示「青砚 × 公司logo」
   const row = await db.user.findUnique({
     where: { id: user.id },
-    select: { companyIdsJson: true },
+    select: { companyIdsJson: true, activeOrgId: true },
   });
   const companies = await getCompaniesByIds(parseCompanyIds(row?.companyIdsJson));
 
-  return NextResponse.json({ user: { ...user, companies } });
+  return NextResponse.json({
+    user: { ...user, companies, activeOrgId: row?.activeOrgId ?? null },
+  });
 });

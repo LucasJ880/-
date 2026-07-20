@@ -50,16 +50,12 @@ import { ProjectInsightsPanel } from "@/components/project-insights/project-insi
 import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
 import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
 import { getProjectStage } from "@/lib/tender/stage";
-import { ACTIVITY_TYPE_LABELS } from "@/lib/i18n/labels";
+import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
+import type { ProjectDuty } from "@/lib/projects/duty";
 
-const PROJECT_ROLES = [
-  "project_admin",
-  "operator",
-  "tester",
-  "viewer",
-] as const;
+const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
 interface ProjectDetail {
   id: string;
@@ -69,6 +65,8 @@ interface ProjectDetail {
   status: string;
   orgId: string | null;
   owner: { id: string; name: string; email: string };
+  purchaserId?: string | null;
+  purchaser?: { id: string; name: string; email: string } | null;
   org: {
     id: string;
     name: string;
@@ -91,6 +89,7 @@ interface ProjectDetail {
   publicDate?: string | null;
   questionCloseDate?: string | null;
   closeDate?: string | null;
+  openDate?: string | null;
   distributedAt?: string | null;
   dispatchedAt?: string | null;
   intakeStatus?: string | null;
@@ -125,6 +124,7 @@ interface MemberRow {
   id: string;
   userId: string;
   role: string;
+  duty: ProjectDuty;
   status: string;
   orgRole: string | null;
   user: { id: string; email: string; name: string; avatar?: string | null; nickname?: string | null };
@@ -152,7 +152,7 @@ function ProjectDetailContent() {
   const [error, setError] = useState("");
 
   const [addUserId, setAddUserId] = useState("");
-  const [addRole, setAddRole] = useState<string>("viewer");
+  const [addDuty, setAddDuty] = useState<ProjectDuty>("participant");
   const [busy, setBusy] = useState<string | null>(null);
 
   const [activities, setActivities] = useState<FormattedActivity[]>([]);
@@ -254,11 +254,12 @@ function ProjectDetailContent() {
       const res = await apiFetch(`/api/projects/${id}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid, role: addRole }),
+        body: JSON.stringify({ userId: uid, duty: addDuty }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "添加失败");
       setAddUserId("");
+      setAddDuty("participant");
       load();
     } catch (err) {
       alert(err instanceof Error ? err.message : "添加失败");
@@ -267,13 +268,13 @@ function ProjectDetailContent() {
     }
   }
 
-  async function patchMember(memberId: string, role: string) {
+  async function patchMemberDuty(memberId: string, duty: ProjectDuty) {
     setBusy(memberId);
     try {
       const res = await apiFetch(`/api/projects/${id}/members/${memberId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ duty }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "更新失败");
@@ -463,7 +464,12 @@ function ProjectDetailContent() {
 
           {/* 招投标进度 */}
           {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
-            <ProjectProgressSection project={buildTenderProps(project)} />
+            <ProjectProgressSection
+              project={buildTenderProps(project)}
+              projectId={id}
+              canManage={canManage}
+              onUpdated={load}
+            />
           )}
 
           {/* 项目讨论 */}
@@ -574,12 +580,17 @@ function ProjectDetailContent() {
             </button>
           )}
         </div>
+        <p className="mt-1 text-xs text-muted">
+          主负责人与主采购人跟进各节点；参与者知情截标日；有开标日时全员通知。
+        </p>
         {canManage && (
           <form onSubmit={addMember} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
             <input value={addUserId} onChange={(e) => setAddUserId(e.target.value)} placeholder="用户 ID（须已加入所属组织）"
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
-            <select value={addRole} onChange={(e) => setAddRole(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-              {PROJECT_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            <select value={addDuty} onChange={(e) => setAddDuty(e.target.value as ProjectDuty)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              {PROJECT_DUTIES.map((d) => (
+                <option key={d} value={d}>{PROJECT_DUTY_LABELS[d]}</option>
+              ))}
             </select>
             <button type="submit" disabled={busy === "member"} className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-50">添加</button>
           </form>
@@ -588,7 +599,7 @@ function ProjectDetailContent() {
           <thead>
             <tr className="border-b border-border text-xs text-muted">
               <th className="pb-2 w-10" /><th className="pb-2">用户</th><th className="pb-2">邮箱</th>
-              <th className="pb-2">项目角色</th><th className="pb-2">组织角色</th><th className="pb-2">状态</th>
+              <th className="pb-2">项目身份</th><th className="pb-2">状态</th>
               {canManage && <th className="pb-2 w-10" />}
             </tr>
           </thead>
@@ -606,17 +617,24 @@ function ProjectDetailContent() {
                 <td className="py-2 text-muted">{m.user.email}</td>
                 <td className="py-2">
                   {canManage && m.status === "active" ? (
-                    <select value={m.role} disabled={busy === m.id} onChange={(e) => patchMember(m.id, e.target.value)}
-                      className="rounded border border-border bg-background px-2 py-1 text-xs">
-                      {PROJECT_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                    <select
+                      value={m.duty}
+                      disabled={busy === m.id}
+                      onChange={(e) => patchMemberDuty(m.id, e.target.value as ProjectDuty)}
+                      className="rounded border border-border bg-background px-2 py-1 text-xs"
+                    >
+                      {PROJECT_DUTIES.map((d) => (
+                        <option key={d} value={d}>{PROJECT_DUTY_LABELS[d]}</option>
+                      ))}
                     </select>
-                  ) : m.role}
+                  ) : (
+                    PROJECT_DUTY_LABELS[m.duty] ?? m.duty
+                  )}
                 </td>
-                <td className="py-2 text-muted">{m.orgRole ?? "—"}</td>
-                <td className="py-2">{m.status}</td>
+                <td className="py-2">{PROJECT_MEMBER_STATUS_LABELS[m.status] ?? m.status}</td>
                 {canManage && (
                   <td className="py-2">
-                    {m.status === "active" && (
+                    {m.status === "active" && m.duty !== "owner" && (
                       <button type="button" onClick={() => removeMember(m.id)} disabled={busy === m.id}
                         className="text-[#a63d3d] hover:text-[#a63d3d] disabled:opacity-50"><Trash2 size={14} /></button>
                     )}
@@ -655,6 +673,7 @@ function buildTenderProps(project: ProjectDetail) {
     publicDate: project.publicDate ?? null,
     questionCloseDate: project.questionCloseDate ?? null,
     closeDate: project.closeDate ?? null,
+    openDate: project.openDate ?? null,
     dueDate: project.dueDate ?? null,
     distributedAt: project.distributedAt ?? null,
     dispatchedAt: project.dispatchedAt ?? null,

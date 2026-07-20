@@ -5,6 +5,18 @@
  * 页面 / 组件通过 import 使用，避免 raw 英文值直接暴露给用户。
  */
 
+// ─── 项目业务身份 ───
+export const PROJECT_DUTY_LABELS: Record<string, string> = {
+  owner: "主负责人",
+  purchaser: "主采购人",
+  participant: "参与者",
+};
+
+export const PROJECT_MEMBER_STATUS_LABELS: Record<string, string> = {
+  active: "在项",
+  inactive: "已退出",
+};
+
 // ─── 活动类型（项目动态筛选） ───
 export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   project: "项目",

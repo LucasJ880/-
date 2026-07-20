@@ -4,7 +4,16 @@
 
 import { db } from "@/lib/db";
 
-export async function buildProjectAiContextBlock(projectId: string): Promise<string> {
+export type ProjectAiContextOptions = {
+  /** 轻量模式：少文档正文、少关联数据，优先首字速度（快速对话） */
+  light?: boolean;
+};
+
+export async function buildProjectAiContextBlock(
+  projectId: string,
+  options: ProjectAiContextOptions = {}
+): Promise<string> {
+  const light = Boolean(options.light);
   const project = await db.project.findUnique({
     where: { id: projectId },
     select: {
@@ -34,40 +43,47 @@ export async function buildProjectAiContextBlock(projectId: string): Promise<str
       },
       documents: {
         orderBy: { createdAt: "desc" },
-        take: 12,
-        select: {
-          title: true,
-          fileType: true,
-          parseStatus: true,
-          contentText: true,
-          aiSummaryJson: true,
-        },
+        take: light ? 5 : 12,
+        select: light
+          ? {
+              title: true,
+              fileType: true,
+              parseStatus: true,
+              aiSummaryJson: true,
+            }
+          : {
+              title: true,
+              fileType: true,
+              parseStatus: true,
+              contentText: true,
+              aiSummaryJson: true,
+            },
       },
       tasks: {
         where: { status: { not: "done" } },
-        take: 15,
+        take: light ? 6 : 15,
         orderBy: { updatedAt: "desc" },
         select: { title: true, status: true, priority: true, dueDate: true },
       },
       quotes: {
-        take: 5,
+        take: light ? 2 : 5,
         orderBy: { createdAt: "desc" },
         select: { title: true, status: true, totalAmount: true, currency: true },
       },
       inquiries: {
-        take: 5,
+        take: light ? 2 : 5,
         orderBy: { createdAt: "desc" },
         select: { title: true, status: true },
       },
       insights: {
         where: { status: "confirmed" },
-        take: 20,
+        take: light ? 5 : 20,
         orderBy: { updatedAt: "desc" },
         select: { kind: true, title: true, content: true },
       },
       similaritiesAsSource: {
         orderBy: { score: "desc" },
-        take: 5,
+        take: light ? 2 : 5,
         select: {
           score: true,
           reasonsJson: true,
@@ -89,8 +105,12 @@ export async function buildProjectAiContextBlock(projectId: string): Promise<str
   if (!project) return "";
 
   const lines: string[] = [
+    `projectId=${project.id}`,
     `【当前项目】${project.name}`,
-    project.description ? `描述：${project.description.slice(0, 500)}` : "",
+    `（调用任何 project_* 工具时，projectId 必须填：${project.id}）`,
+    project.description
+      ? `描述：${project.description.slice(0, light ? 220 : 500)}`
+      : "",
     project.clientOrganization ? `客户：${project.clientOrganization}` : "",
     project.location ? `地区：${project.location}` : "",
     project.category ? `品类：${project.category}` : "",
@@ -113,7 +133,7 @@ export async function buildProjectAiContextBlock(projectId: string): Promise<str
   if (project.intelligence?.summary) {
     lines.push(`AI摘要：${project.intelligence.summary}`);
   }
-  if (project.intelligence?.structuredSummaryJson) {
+  if (project.intelligence?.structuredSummaryJson && !light) {
     lines.push(
       `结构化摘要：${project.intelligence.structuredSummaryJson.slice(0, 2500)}`,
     );
@@ -122,11 +142,20 @@ export async function buildProjectAiContextBlock(projectId: string): Promise<str
   if (project.documents.length) {
     lines.push("【已上传文件】");
     for (const d of project.documents) {
-      const snippet =
-        d.aiSummaryJson?.slice(0, 200) ||
-        d.contentText?.slice(0, 200) ||
-        "(无文本摘要)";
-      lines.push(`- ${d.title} [${d.fileType}/${d.parseStatus}] ${snippet}`);
+      const contentText =
+        "contentText" in d && typeof d.contentText === "string"
+          ? d.contentText
+          : "";
+      const snippet = light
+        ? d.aiSummaryJson?.slice(0, 80) || ""
+        : d.aiSummaryJson?.slice(0, 200) ||
+          contentText.slice(0, 200) ||
+          "(无文本摘要)";
+      lines.push(
+        snippet
+          ? `- ${d.title} [${d.fileType}/${d.parseStatus}] ${snippet}`
+          : `- ${d.title} [${d.fileType}/${d.parseStatus}]`
+      );
     }
   }
 

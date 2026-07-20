@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   CheckSquare,
@@ -38,11 +38,24 @@ import {
   Lightbulb,
   type LucideIcon,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
-import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
+import {
+  readStoredOrgId,
+  selectActiveOrganization,
+} from "@/lib/org-selection";
+
+function subscribeOrgStorage(cb: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", cb);
+  window.addEventListener("qingyan-org-storage", cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener("qingyan-org-storage", cb);
+  };
+}
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
@@ -110,14 +123,21 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    titleKey: "nav_group_tender",
+    roles: ["admin", "super_admin", "user", "manager"],
+    items: [
+      { href: "/projects", labelKey: "nav_projects", icon: FolderKanban, roles: ["admin", "super_admin", "user", "manager"] },
+      { href: "/projects/intelligence", labelKey: "nav_project_intelligence", icon: Lightbulb, roles: ["admin", "super_admin", "user", "manager"] },
+      { href: "/admin/project-intake", labelKey: "nav_project_intake", icon: ClipboardList, adminOnly: true },
+      { href: "/suppliers", labelKey: "nav_suppliers", icon: Package2, roles: ["admin", "super_admin", "user", "manager"] },
+    ],
+  },
+  {
     titleKey: "nav_group_collaboration",
     roles: ["admin", "super_admin", "user"],
     items: [
       { href: "/organizations", labelKey: "nav_organizations", icon: Building2, roles: ["admin", "super_admin", "user"] },
       { href: "/knowledge", labelKey: "nav_org_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "user"] },
-      { href: "/projects", labelKey: "nav_projects", icon: FolderKanban, roles: ["admin", "super_admin", "user"] },
-      { href: "/projects/intelligence", labelKey: "nav_project_intelligence", icon: Lightbulb, roles: ["admin", "super_admin", "user"] },
-      { href: "/suppliers", labelKey: "nav_suppliers", icon: Package2, roles: ["admin", "super_admin", "user"] },
     ],
   },
   {
@@ -146,7 +166,6 @@ const NAV_GROUPS: NavGroup[] = [
     titleKey: "nav_group_admin",
     roles: ["admin", "super_admin", "manager"],
     items: [
-      { href: "/admin/project-intake", labelKey: "nav_project_intake", icon: ClipboardList, adminOnly: true },
       { href: "/admin/users", labelKey: "nav_user_management", icon: Users, roles: ["admin", "super_admin", "manager"] },
       { href: "/admin/invite-codes", labelKey: "nav_invite_codes", icon: Shield, adminOnly: true },
       { href: "/admin/audit-logs", labelKey: "nav_audit_logs", icon: ScrollText, adminOnly: true },
@@ -183,14 +202,18 @@ function OrgSwitcher({
   const { m } = useLocale();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const router = useRouter();
   const pathname = usePathname();
 
-  const currentOrgId = pathname.match(/\/organizations\/([^/]+)/)?.[1];
-  // 优先级：URL 上的组织 → 用户选定的组织（localStorage）→ 列表第一个
+  const storedOrgId = useSyncExternalStore(
+    subscribeOrgStorage,
+    readStoredOrgId,
+    () => ""
+  );
+  // 当前工作组织：本地记忆优先（全局默认），不因浏览其他组织详情页而漂移
   const currentOrg =
-    organizations.find((o) => o.id === currentOrgId) ??
-    organizations.find((o) => o.id === readStoredOrgId());
+    organizations.find((o) => o.id === storedOrgId) ??
+    organizations.find((o) => o.id === pathname.match(/\/organizations\/([^/]+)/)?.[1]);
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -206,6 +229,23 @@ function OrgSwitcher({
   if (organizations.length === 0) return null;
 
   const displayOrg = currentOrg ?? organizations[0];
+
+  async function switchOrg(orgId: string) {
+    if (orgId === displayOrg.id) {
+      setOpen(false);
+      return;
+    }
+    setSwitchingId(orgId);
+    const r = await selectActiveOrganization(orgId);
+    if (!r.ok) {
+      setSwitchingId(null);
+      alert(r.error || "切换组织失败");
+      return;
+    }
+    setOpen(false);
+    // 整页刷新，确保销售/外贸/知识库等已按旧 orgId 加载的数据一并更新
+    window.location.reload();
+  }
 
   return (
     <div ref={ref} className="relative px-2 pb-1">
@@ -227,6 +267,7 @@ function OrgSwitcher({
               </p>
               <p className="truncate text-[10px] text-white/40">
                 {displayOrg.myRole ? orgRoleLabel(displayOrg.myRole) : displayOrg.code}
+                <span className="text-white/25"> · 当前组织</span>
               </p>
             </div>
             <ChevronsUpDown size={14} className="shrink-0 text-white/30" />
@@ -236,17 +277,17 @@ function OrgSwitcher({
 
       {open && (
         <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-[var(--radius-md)] border border-white/8 bg-[#1a2826] shadow-xl">
+          <div className="px-2.5 pt-2 pb-1 text-[10px] text-white/35">
+            切换后全系统使用该组织，直到下次更换
+          </div>
           <div className="p-1">
             {organizations.map((org) => (
               <button
                 key={org.id}
-                onClick={() => {
-                  persistSelectedOrgId(org.id);
-                  router.push(`/organizations/${org.id}`);
-                  setOpen(false);
-                }}
+                disabled={Boolean(switchingId)}
+                onClick={() => switchOrg(org.id)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/8",
+                  "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/8 disabled:opacity-50",
                   org.id === displayOrg.id && "bg-white/5"
                 )}
               >
@@ -259,11 +300,13 @@ function OrgSwitcher({
                     {org.memberCount} {m.sidebar_org_members} · {org.projectCount} {m.sidebar_org_projects}
                   </p>
                 </div>
-                {org.myRole && (
+                {switchingId === org.id ? (
+                  <span className="shrink-0 text-[9px] text-white/45">切换中…</span>
+                ) : org.myRole ? (
                   <span className="shrink-0 text-[9px] text-white/35">
                     {orgRoleLabel(org.myRole)}
                   </span>
-                )}
+                ) : null}
               </button>
             ))}
           </div>

@@ -151,7 +151,12 @@ export async function GET(request: NextRequest) {
     role: user.role,
   });
 
-  const response = NextResponse.redirect(new URL(next, request.url));
+  // 登录后统一走选组织页（已有偏好会自动跳过）
+  const dest =
+    next.startsWith("/select-org")
+      ? next
+      : `/select-org?next=${encodeURIComponent(next.startsWith("/") ? next : "/")}`;
+  const response = NextResponse.redirect(new URL(dest, request.url));
   setSessionCookie(response, token);
 
   response.cookies.set(STATE_COOKIE, "", {

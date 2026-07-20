@@ -10,6 +10,14 @@ import {
   authPrimaryButtonClass,
 } from "@/lib/auth-styles";
 import { Loader2 } from "lucide-react";
+import {
+  OrgActivePicker,
+  type OrgActiveOption,
+} from "@/components/org-active-picker";
+import {
+  hydrateStoredOrgId,
+  selectActiveOrganization,
+} from "@/lib/org-selection";
 
 function safeNext(raw: string | null): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
@@ -47,8 +55,41 @@ function LoginForm() {
     return "";
   });
   const [loading, setLoading] = useState(false);
+  const [orgStep, setOrgStep] = useState(false);
+  const [orgs, setOrgs] = useState<OrgActiveOption[]>([]);
+  const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
 
   const next = safeNext(searchParams.get("next"));
+
+  async function finishLogin(opts: {
+    activeOrgId?: string | null;
+    needsSelection?: boolean;
+    organizations?: OrgActiveOption[];
+  }) {
+    try {
+      sessionStorage.removeItem("qy_401_ts");
+    } catch {
+      /* ignore */
+    }
+
+    const list = opts.organizations ?? [];
+    if (opts.activeOrgId) {
+      hydrateStoredOrgId(opts.activeOrgId);
+      window.location.href = next;
+      return;
+    }
+    if (list.length === 1) {
+      await selectActiveOrganization(list[0].id);
+      window.location.href = next;
+      return;
+    }
+    if (opts.needsSelection && list.length > 1) {
+      setOrgs(list);
+      setOrgStep(true);
+      return;
+    }
+    window.location.href = next;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,9 +110,11 @@ function LoginForm() {
         return;
       }
 
-      try { sessionStorage.removeItem("qy_401_ts"); } catch {}
-
-      window.location.href = next;
+      await finishLogin({
+        activeOrgId: data.activeOrgId,
+        needsSelection: data.needsSelection,
+        organizations: data.organizations,
+      });
     } catch {
       setError("网络错误，请稍后重试");
     } finally {
@@ -79,9 +122,41 @@ function LoginForm() {
     }
   }
 
+  async function handleSelectOrg(orgId: string) {
+    setBusyOrgId(orgId);
+    setError("");
+    const r = await selectActiveOrganization(orgId);
+    if (!r.ok) {
+      setError(r.error || "选择组织失败");
+      setBusyOrgId(null);
+      return;
+    }
+    window.location.href = next;
+  }
+
   function handleWeChatLogin() {
-    const params = new URLSearchParams({ next });
+    // 微信回调后先进入选组织页，再跳到业务目标页
+    const params = new URLSearchParams({
+      next: `/select-org?next=${encodeURIComponent(next)}`,
+    });
     window.location.href = `/api/auth/wechat?${params.toString()}`;
+  }
+
+  if (orgStep) {
+    return (
+      <div className={authCardClass}>
+        {error && (
+          <div className="mb-4 rounded-[var(--radius-md)] border border-[rgba(166,61,61,0.15)] bg-danger-bg px-4 py-2.5 text-sm text-danger">
+            {error}
+          </div>
+        )}
+        <OrgActivePicker
+          organizations={orgs}
+          busyId={busyOrgId}
+          onSelect={handleSelectOrg}
+        />
+      </div>
+    );
   }
 
   return (

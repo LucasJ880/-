@@ -4,6 +4,8 @@ export interface TenderProject {
   publicDate: string | null;
   questionCloseDate: string | null;
   closeDate: string | null;
+  /** 开标日（可选） */
+  openDate?: string | null;
   dueDate: string | null;
   distributedAt: string | null;
   dispatchedAt?: string | null;

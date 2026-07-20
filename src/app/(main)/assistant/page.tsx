@@ -20,6 +20,13 @@ import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
 import { ThreadSidebar, type AiThread } from "./thread-list";
 import { ChatPanel, type StreamingMsg } from "./chat-panel";
+import {
+  completeToolResult,
+  createThinkStep,
+  finalizeSteps,
+  markReplying,
+  upsertToolStart,
+} from "./agent-run-types";
 
 // ── 类型 ──────────────────────────────────────────────────────
 
@@ -240,10 +247,19 @@ function AssistantPageInner() {
     }
   };
 
+  const orgReady = !orgLoading && !!orgId && !ambiguous;
+  const orgBlockReason = orgLoading
+    ? "正在加载组织信息…"
+    : ambiguous
+      ? "请先选择当前工作组织，再开始对话"
+      : !orgId
+        ? "当前账号尚未关联可用组织，请联系管理员或先加入组织"
+        : null;
+
   const handleSend = async (text?: string) => {
     let content = (text || input).trim();
     if (!content || isLoading) return;
-    if (orgLoading || !orgId) return;
+    if (!orgReady) return;
 
     if (channelMode) {
       const chLabel = CHANNEL_LABELS[channelMode] || channelMode;
@@ -268,6 +284,7 @@ function AssistantPageInner() {
       role: "assistant",
       content: "",
       isStreaming: true,
+      agentSteps: [createThinkStep()],
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -338,10 +355,20 @@ function AssistantPageInner() {
           // 旧协议兼容：parsed.content 仍然追加
           if (parsed.type === "tool_start") {
             const label: string = parsed.label || "处理中";
+            const toolName: string = parsed.name || "";
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, toolStatus: `正在${label}…`, isStreaming: true }
+                  ? {
+                      ...m,
+                      toolStatus: `正在${label}…`,
+                      isStreaming: true,
+                      agentSteps: upsertToolStart(
+                        m.agentSteps ?? [createThinkStep()],
+                        toolName,
+                        label
+                      ),
+                    }
                   : m
               )
             );
@@ -349,10 +376,21 @@ function AssistantPageInner() {
           }
 
           if (parsed.type === "tool_result") {
+            const toolName: string = parsed.name || "";
+            const ok = parsed.ok !== false;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, toolStatus: null, isStreaming: true }
+                  ? {
+                      ...m,
+                      toolStatus: null,
+                      isStreaming: true,
+                      agentSteps: completeToolResult(
+                        m.agentSteps ?? [],
+                        toolName,
+                        ok
+                      ),
+                    }
                   : m
               )
             );
@@ -361,7 +399,6 @@ function AssistantPageInner() {
 
           if (parsed.type === "done") {
             if (typeof window !== "undefined") {
-              // 开发时方便观察 —— 生产也无伤
               console.debug("[ai.operator.done]", parsed);
             }
             continue;
@@ -376,6 +413,12 @@ function AssistantPageInner() {
                 if (m.id !== assistantId) return m;
                 const existing = m.pendingApprovals ?? [];
                 if (existing.some((p) => p.actionId === parsed.actionId)) return m;
+                const steps = m.agentSteps ?? [];
+                const hasApprove = steps.some(
+                  (s) =>
+                    s.kind === "approve" &&
+                    s.detail === String(parsed.actionId)
+                );
                 return {
                   ...m,
                   pendingApprovals: [
@@ -388,21 +431,51 @@ function AssistantPageInner() {
                       status: "pending" as const,
                     },
                   ],
+                  agentSteps: hasApprove
+                    ? steps
+                    : [
+                        ...steps.map((s) =>
+                          s.status === "running"
+                            ? { ...s, status: "done" as const, endedAt: Date.now() }
+                            : s
+                        ),
+                        {
+                          id: `approve-${parsed.actionId}`,
+                          kind: "approve" as const,
+                          label: String(parsed.title ?? "等待你确认"),
+                          status: "done" as const,
+                          detail: String(parsed.actionId),
+                          startedAt: Date.now(),
+                          endedAt: Date.now(),
+                        },
+                      ],
                 };
               })
             );
-            // PR4.5：新草稿生成，通知 Sidebar 徽章和 PendingInbox 刷新
             notifyPendingActionsChanged();
             continue;
           }
 
-          if (parsed.content) {
-            fullText += parsed.content;
+          const textDelta =
+            typeof parsed.content === "string"
+              ? parsed.content
+              : parsed.type === "text" && typeof parsed.delta === "string"
+                ? parsed.delta
+                : "";
+
+          if (textDelta) {
+            fullText += textDelta;
             const displayText = cleanStreamingText(fullText);
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: displayText, isStreaming: true, toolStatus: null }
+                  ? {
+                      ...m,
+                      content: displayText,
+                      isStreaming: true,
+                      toolStatus: null,
+                      agentSteps: markReplying(m.agentSteps ?? []),
+                    }
                   : m
               )
             );
@@ -424,6 +497,7 @@ function AssistantPageInner() {
                 workSuggestion: suggestion,
                 isStreaming: false,
                 toolStatus: null,
+                agentSteps: finalizeSteps(m.agentSteps ?? []),
               }
             : m
         )
@@ -448,7 +522,13 @@ function AssistantPageInner() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? { ...m, content: errorMessage, isStreaming: false, isError: true }
+            ? {
+                ...m,
+                content: errorMessage,
+                isStreaming: false,
+                isError: true,
+                agentSteps: finalizeSteps(m.agentSteps ?? []),
+              }
             : m
         )
       );
@@ -533,6 +613,8 @@ function AssistantPageInner() {
             setActiveThreadId(id);
             router.replace(`/assistant?thread=${id}`);
           }}
+          orgReady={orgReady}
+          orgBlockReason={orgBlockReason}
         />
       </div>
     </div>

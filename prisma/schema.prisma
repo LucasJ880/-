@@ -34,7 +34,12 @@ model User {
   // 仅对 sales/trade/user 生效；admin/super_admin 永远可改
   canEditCustomers Boolean @default(true)
 
-  projects                 Project[]
+  /// 用户当前工作组织（登录后默认；侧栏切换后更新；登出再登入仍沿用）
+  activeOrgId String?
+  activeOrg   Organization? @relation("UserActiveOrg", fields: [activeOrgId], references: [id], onDelete: SetNull)
+
+  projects                 Project[]                  @relation("ProjectOwner")
+  purchasedProjects        Project[]                  @relation("ProjectPurchaser")
   tasks                    Task[]                      @relation("TaskAssignee")
   createdTasks             Task[]                      @relation("TaskCreator")
   comments                 TaskComment[]
@@ -132,6 +137,7 @@ model User {
   @@index([status])
   @@index([authProvider])
   @@index([role])
+  @@index([activeOrgId])
 }
 
 // ============================================================
@@ -240,6 +246,8 @@ model Project {
   publicDate         DateTime?
   questionCloseDate  DateTime?
   closeDate          DateTime?
+  /// 开标日（可人工调整；有值则同步日历并通知全员）
+  openDate           DateTime?
   distributedAt      DateTime?
   interpretedAt      DateTime?
   supplierInquiredAt DateTime?
@@ -259,7 +267,10 @@ model Project {
   dispatchedById String?
 
   ownerId              String
-  owner                User                      @relation(fields: [ownerId], references: [id])
+  owner                User                      @relation("ProjectOwner", fields: [ownerId], references: [id])
+  /// 主采购人：与主负责人一样需跟进各关键节点
+  purchaserId          String?
+  purchaser            User?                     @relation("ProjectPurchaser", fields: [purchaserId], references: [id])
   tasks                Task[]
   blindsOrders         BlindsOrder[]
   members              ProjectMember[]
@@ -273,6 +284,7 @@ model Project {
   agents               Agent[]
   tools                ToolRegistry[]
   notificationRules    ProjectNotificationRule[]
+  calendarEvents       CalendarEvent[]
 
   externalRef       ExternalReference?
   intelligence      ProjectIntelligence?
@@ -290,6 +302,7 @@ model Project {
   generatedDocs     ProjectGeneratedDocument[]
 
   @@index([orgId])
+  @@index([purchaserId])
   @@index([sourceSystem])
   @@index([tenderStatus])
   @@index([intakeStatus])
@@ -386,16 +399,24 @@ model CalendarEvent {
   reminderMinutes Int      @default(15)
   source          String   @default("qingyan")
   externalId      String?
+  /// 系统里程碑去重键，如 project:{id}:close（与 userId 联合唯一）
+  sourceKey       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   taskId String?
   task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
   reminders Reminder[]
+
+  @@unique([userId, sourceKey])
+  @@index([projectId])
 }
 
 model BlindsOrder {
@@ -603,6 +624,7 @@ model Organization {
   agentSkills       AgentSkill[]
   marketCompetitors MarketCompetitor[]
   projectRules      OrganizationProjectRule[]
+  activeUsers       User[]                   @relation("UserActiveOrg")
 }
 
 /// 企业项目规则（Phase2）：仅用户确认后生效，不自动变成正式规则

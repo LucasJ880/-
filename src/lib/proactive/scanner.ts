@@ -11,6 +11,7 @@
 
 import { db } from "@/lib/db";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import { isProjectController } from "@/lib/projects/duty";
 import { getProjectStage } from "@/lib/tender/stage";
 import type {
   ProactiveSuggestion,
@@ -24,11 +25,13 @@ function makeId(): string {
   return `ps_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ── 截止日逼近 ─────────────────────────────────────────────────
+// ── 截标日逼近 ─────────────────────────────────────────────────
+// 主负责人/主采购人：7/3/1 天；参与者：仅 1 天（知情）
 
 function checkDeadlineApproaching(
   project: ProjectRow,
-  now: Date
+  now: Date,
+  controller: boolean
 ): ProactiveSuggestion | null {
   const closeDate = project.closeDate;
   if (!closeDate) return null;
@@ -37,8 +40,8 @@ function checkDeadlineApproaching(
   if (msLeft < 0) return null; // 已过期的由 tasks_overdue 或 stage 检测处理
 
   const daysLeft = Math.ceil(msLeft / DAY_MS);
-
-  if (daysLeft > 7) return null;
+  const maxDays = controller ? 7 : 1;
+  if (daysLeft > maxDays) return null;
 
   let severity: TriggerSeverity;
   let title: string;
@@ -61,13 +64,54 @@ function checkDeadlineApproaching(
     kind: "deadline_approaching",
     severity,
     title,
-    description: `截标日期 ${closeDate.toISOString().slice(0, 10)}，建议检查投标准备进度。`,
+    description: controller
+      ? `截标日期 ${closeDate.toISOString().slice(0, 10)}，建议检查投标准备进度。`
+      : `截标日期 ${closeDate.toISOString().slice(0, 10)}（知情提醒）。`,
     suggestedAction: {
       type: "view_project",
       label: "查看项目",
       params: { projectId: project.id },
     },
     dedupeKey: `deadline:${project.id}:${daysLeft <= 1 ? "1d" : daysLeft <= 3 ? "3d" : "7d"}`,
+    createdAt: now.toISOString(),
+  };
+}
+
+// ── 开标日逼近（全员） ─────────────────────────────────────────
+
+function checkOpenDateApproaching(
+  project: ProjectRow,
+  now: Date
+): ProactiveSuggestion | null {
+  const openDate = project.openDate;
+  if (!openDate) return null;
+
+  const msLeft = openDate.getTime() - now.getTime();
+  if (msLeft < 0) return null;
+
+  const daysLeft = Math.ceil(msLeft / DAY_MS);
+  if (daysLeft > 3) return null;
+
+  const severity: TriggerSeverity = daysLeft <= 1 ? "urgent" : "warning";
+  const title =
+    daysLeft <= 1
+      ? `开标提醒：${project.name} 明天开标`
+      : `开标提醒：${project.name} 还剩 ${daysLeft} 天`;
+
+  return {
+    id: makeId(),
+    projectId: project.id,
+    projectName: project.name,
+    kind: "open_date_approaching",
+    severity,
+    title,
+    description: `开标日期 ${openDate.toISOString().slice(0, 10)}，请知悉并做好相关准备。`,
+    suggestedAction: {
+      type: "view_project",
+      label: "查看项目",
+      params: { projectId: project.id },
+    },
+    dedupeKey: `opendate:${project.id}:${daysLeft <= 1 ? "1d" : "3d"}`,
     createdAt: now.toISOString(),
   };
 }
@@ -230,6 +274,7 @@ interface ProjectRow {
   name: string;
   status: string;
   closeDate: Date | null;
+  openDate: Date | null;
   questionCloseDate: Date | null;
   publicDate: Date | null;
   dueDate: Date | null;
@@ -245,6 +290,8 @@ interface ProjectRow {
   submittedAt: Date | null;
   awardDate: Date | null;
   orgId: string | null;
+  ownerId: string;
+  purchaserId: string | null;
 }
 
 const PROJECT_SCAN_SELECT = {
@@ -252,6 +299,7 @@ const PROJECT_SCAN_SELECT = {
   name: true,
   status: true,
   closeDate: true,
+  openDate: true,
   questionCloseDate: true,
   publicDate: true,
   dueDate: true,
@@ -267,6 +315,8 @@ const PROJECT_SCAN_SELECT = {
   submittedAt: true,
   awardDate: true,
   orgId: true,
+  ownerId: true,
+  purchaserId: true,
 } as const;
 
 export async function scanProjectsForUser(
@@ -291,9 +341,17 @@ export async function scanProjectsForUser(
   const seenKeys = new Set<string>();
 
   for (const project of projects) {
+    const controller = isProjectController(
+      userId,
+      project.ownerId,
+      project.purchaserId
+    );
+
     const checks = [
-      checkDeadlineApproaching(project, now),
-      checkStageStalled(project, now),
+      checkDeadlineApproaching(project, now, controller),
+      checkOpenDateApproaching(project, now),
+      // 阶段卡顿 / 供应商 / 逾期：仅主控人跟进
+      controller ? checkStageStalled(project, now) : null,
     ];
 
     for (const result of checks) {
@@ -302,6 +360,8 @@ export async function scanProjectsForUser(
         suggestions.push(result);
       }
     }
+
+    if (!controller) continue;
 
     const asyncChecks = await Promise.all([
       checkSupplierNoResponse(project, now),

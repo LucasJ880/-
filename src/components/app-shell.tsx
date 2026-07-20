@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { MobileTabBar } from "./mobile-tab-bar";
+import { ActiveOrgHydrator } from "./active-org-hydrator";
 import { X } from "lucide-react";
 import { LocaleProvider } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <AppShellContext.Provider
       value={{ mobileOpen, openMobileSidebar, closeMobileSidebar }}
     >
+      <ActiveOrgHydrator />
       <div className="flex h-screen-safe overflow-hidden bg-app-mesh pwa-safe-top">
         {/* Desktop sidebar — hidden on mobile */}
         <div className="hidden md:flex">

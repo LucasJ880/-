@@ -10,7 +10,14 @@ import {
   isValidProjectMemberRole,
   DEFAULT_NEW_PROJECT_MEMBER_ROLE,
 } from "@/lib/projects/members-utils";
+import {
+  dutyToMemberRole,
+  isValidProjectDuty,
+  resolveProjectDuty,
+  type ProjectDuty,
+} from "@/lib/projects/duty";
 import { onMemberJoined } from "@/lib/project-discussion/system-events";
+import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -51,10 +58,13 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   }
 
   return NextResponse.json({
+    ownerId: project.ownerId,
+    purchaserId: project.purchaserId ?? null,
     members: members.map((m) => ({
       id: m.id,
       userId: m.userId,
       role: m.role,
+      duty: resolveProjectDuty(m.userId, project.ownerId, project.purchaserId),
       status: m.status,
       createdAt: m.createdAt,
       user: m.user,
@@ -72,10 +82,21 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   const body = await request.json();
   const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+
+  let duty: ProjectDuty | null = null;
+  if (body.duty !== undefined) {
+    if (!isValidProjectDuty(String(body.duty))) {
+      return NextResponse.json({ error: "无效的项目身份" }, { status: 400 });
+    }
+    duty = body.duty as ProjectDuty;
+  }
+
   const role =
-    typeof body.role === "string" && body.role.trim()
-      ? body.role.trim()
-      : DEFAULT_NEW_PROJECT_MEMBER_ROLE;
+    duty
+      ? dutyToMemberRole(duty)
+      : typeof body.role === "string" && body.role.trim()
+        ? body.role.trim()
+        : DEFAULT_NEW_PROJECT_MEMBER_ROLE;
 
   if (!userId) {
     return NextResponse.json({ error: "userId 必填" }, { status: 400 });
@@ -104,55 +125,68 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     where: { projectId_userId: { projectId, userId } },
   });
 
-  if (existing) {
-    if (existing.status === "active") {
-      return NextResponse.json({ error: "该用户已是项目成员" }, { status: 409 });
-    }
-    const updated = await db.$transaction(async (tx) => {
-      const m = await tx.projectMember.update({
+  const member = await db.$transaction(async (tx) => {
+    let m;
+    if (existing) {
+      if (existing.status === "active") {
+        throw new Error("ALREADY_MEMBER");
+      }
+      m = await tx.projectMember.update({
         where: { id: existing.id },
         data: { role, status: "active" },
         include: {
-          user: { select: { id: true, email: true, name: true, nickname: true, avatar: true, status: true } },
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              nickname: true,
+              avatar: true,
+              status: true,
+            },
+          },
         },
       });
-      await onMemberJoined(projectId, m.user.name, m.role, user.id, m.userId, tx);
-      return m;
-    });
-    await logAudit({
-      userId: user.id,
-      orgId: project.orgId ?? undefined,
-      projectId,
-      action: AUDIT_ACTIONS.CREATE,
-      targetType: AUDIT_TARGETS.PROJECT_MEMBER,
-      targetId: updated.id,
-      afterData: { userId, role: updated.role, status: updated.status },
-      request,
-    });
-    return NextResponse.json(
-      {
-        member: {
-          id: updated.id,
-          userId: updated.userId,
-          role: updated.role,
-          status: updated.status,
-          user: updated.user,
+    } else {
+      m = await tx.projectMember.create({
+        data: { projectId, userId, role, status: "active" },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              nickname: true,
+              avatar: true,
+              status: true,
+            },
+          },
         },
-      },
-      { status: 201 }
-    );
-  }
+      });
+    }
 
-  const created = await db.$transaction(async (tx) => {
-    const m = await tx.projectMember.create({
-      data: { projectId, userId, role, status: "active" },
-      include: {
-        user: { select: { id: true, email: true, name: true, nickname: true, avatar: true, status: true } },
-      },
-    });
+    if (duty === "owner") {
+      await tx.project.update({
+        where: { id: projectId },
+        data: { ownerId: userId },
+      });
+    } else if (duty === "purchaser") {
+      await tx.project.update({
+        where: { id: projectId },
+        data: { purchaserId: userId },
+      });
+    }
+
     await onMemberJoined(projectId, m.user.name, m.role, user.id, m.userId, tx);
     return m;
+  }).catch((err: Error) => {
+    if (err.message === "ALREADY_MEMBER") return null;
+    throw err;
   });
+
+  if (!member) {
+    return NextResponse.json({ error: "该用户已是项目成员" }, { status: 409 });
+  }
 
   await logAudit({
     userId: user.id,
@@ -160,19 +194,31 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     projectId,
     action: AUDIT_ACTIONS.CREATE,
     targetType: AUDIT_TARGETS.PROJECT_MEMBER,
-    targetId: created.id,
-    afterData: { userId, role: created.role },
+    targetId: member.id,
+    afterData: { userId, role: member.role, duty },
     request,
+  });
+
+  syncProjectMilestoneCalendars(projectId).catch(() => null);
+
+  const refreshed = await db.project.findUnique({
+    where: { id: projectId },
+    select: { ownerId: true, purchaserId: true },
   });
 
   return NextResponse.json(
     {
       member: {
-        id: created.id,
-        userId: created.userId,
-        role: created.role,
-        status: created.status,
-        user: created.user,
+        id: member.id,
+        userId: member.userId,
+        role: member.role,
+        duty: resolveProjectDuty(
+          member.userId,
+          refreshed?.ownerId ?? project.ownerId,
+          refreshed?.purchaserId ?? project.purchaserId
+        ),
+        status: member.status,
+        user: member.user,
       },
     },
     { status: 201 }

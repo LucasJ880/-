@@ -5,7 +5,8 @@
  */
 
 export type TriggerKind =
-  | "deadline_approaching"    // 截止日逼近（7/3/1 天）
+  | "deadline_approaching"    // 截标日逼近（主控全量；参与者仅临近）
+  | "open_date_approaching"   // 开标日逼近（全员）
   | "stage_stalled"           // 项目阶段卡顿
   | "supplier_no_response"    // 供应商未回复
   | "tasks_overdue"           // 任务逾期

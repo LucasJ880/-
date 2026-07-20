@@ -74,6 +74,11 @@ export async function POST(request: NextRequest) {
     role: user.role,
   });
 
+  const { resolvePreferredOrgId } = await import(
+    "@/lib/organizations/active-org"
+  );
+  const preferred = await resolvePreferredOrgId(user.id, user.role);
+
   const response = NextResponse.json({
     user: {
       id: user.id,
@@ -81,6 +86,9 @@ export async function POST(request: NextRequest) {
       name: user.name,
       role: user.role,
     },
+    activeOrgId: preferred.orgId,
+    needsSelection: preferred.needsSelection,
+    organizations: preferred.organizations,
   });
 
   setSessionCookie(response, token);

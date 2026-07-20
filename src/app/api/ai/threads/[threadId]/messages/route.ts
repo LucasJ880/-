@@ -172,6 +172,9 @@ export const POST = withAuth(async (request, ctx, user) => {
   const fileText = typeof body.fileText === "string" ? body.fileText : "";
   const fileName = typeof body.fileName === "string" ? body.fileName : "";
 
+  const { parseAssistantMode } = await import("@/lib/ai/assistant-modes");
+  const assistantMode = parseAssistantMode(body.assistantMode);
+
   // Operator 工具必须有明确组织上下文。项目对话优先使用项目所属组织，
   // 普通对话使用客户端当前组织；在写入用户消息前校验，避免失败请求留下重复历史。
   const requestedMarketingSkill = content
@@ -179,7 +182,9 @@ export const POST = withAuth(async (request, ctx, user) => {
     .includes("qingyan-marketing-analysis");
   const longMarketingResearch = classifyLongRunningMarketingResearch(content);
   const requestedCalendarAction = requestsCalendarWrite(content);
+  // 项目内显式选了助手模式 → 强制 Operator（否则 fast/expert 无效）
   const useOperator =
+    Boolean(assistantMode) ||
     requestedMarketingSkill ||
     Boolean(longMarketingResearch) ||
     requestedCalendarAction ||
@@ -274,6 +279,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       chatMessages,
       abortSignal: request.signal,
       projectId: thread.projectId ?? null,
+      assistantMode,
     });
   }
   // ─── 以下为 legacy 分支 ───
@@ -560,6 +566,7 @@ interface OperatorBranchInput {
   chatMessages: ChatMessage[];
   abortSignal: AbortSignal;
   projectId: string | null;
+  assistantMode?: import("@/lib/ai/assistant-modes").AssistantMode | null;
 }
 
 async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextResponse> {
@@ -573,29 +580,51 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     chatMessages,
     abortSignal,
     projectId,
+    assistantMode = null,
   } = input;
+
+  const {
+    needsProjectTools,
+    buildProjectExpertSystemAddon,
+  } = await import("@/lib/ai/assistant-modes");
 
   const caps = getCapabilities(user.role);
   let systemPrompt = buildOperatorSystemPrompt({
     role: user.role,
     userName: user.name,
   });
+
   if (projectId) {
     try {
       const { buildProjectAiContextBlock } = await import(
         "@/lib/projects/project-ai-context"
       );
-      const ctx = await buildProjectAiContextBlock(projectId);
+      const ctx = await buildProjectAiContextBlock(projectId, {
+        light: assistantMode === "fast",
+      });
       if (ctx) {
         systemPrompt += `\n\n## 项目工作台上下文（自动注入）\n${ctx}`;
       }
     } catch {
       /* ignore */
     }
+    if (assistantMode === "project_expert") {
+      systemPrompt += buildProjectExpertSystemAddon(projectId);
+    }
   }
 
-  // PR3：轻量分流 —— 无业务关键词就跳过工具循环，直接流式对话
-  const withTools = needsTools(userContent);
+  // 分流：fast 强制直答；expert 强制工具；agent 按关键词（含项目意图）
+  let withTools = needsTools(userContent);
+  if (assistantMode === "fast") withTools = false;
+  else if (assistantMode === "project_expert") withTools = true;
+  else if (projectId && needsProjectTools(userContent)) withTools = true;
+
+  const domains = new Set<string>(caps.aiDomains);
+  if (projectId && assistantMode !== "fast") {
+    domains.add("project");
+  }
+
+  const taskMode = assistantMode === "fast" ? "fast" : "chat";
   const encoder = new TextEncoder();
   const startedAt = Date.now();
 
@@ -616,7 +645,11 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
 
       try {
         // 发个 mode 心跳，前端可选读取
-        emit({ type: "mode", mode: withTools ? "operator.tools" : "operator.direct" });
+        emit({
+          type: "mode",
+          mode: withTools ? "operator.tools" : "operator.direct",
+          assistantMode: assistantMode ?? "auto",
+        });
 
         if (withTools) {
           // ── 走完整 agent 流程 ──
@@ -625,12 +658,12 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           for await (const ev of runAgentStream({
             systemPrompt,
             messages: chatMessages,
-            mode: "chat",
+            mode: taskMode,
             userId: user.id,
             orgId,
             sessionId: threadId,
             role: user.role,
-            domains: [...caps.aiDomains],
+            domains: Array.from(domains) as (typeof caps.aiDomains)[number][],
             maxRisk: "l2_soft",
             abortSignal,
           })) {
@@ -667,15 +700,17 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
         } else {
           // ── 免工具直答：最小 operator prompt + 原始对话 ──
           // 只带最近 20 条消息，避免过长
-          const recent = chatMessages.slice(-20);
+          const recent = chatMessages.slice(
+            assistantMode === "fast" ? -12 : -20
+          );
           const stream = await createChatStream({
             systemPrompt,
             messages: recent,
-            mode: "chat",
+            mode: taskMode,
             signal: abortSignal,
           });
 
-          model = "direct-chat";
+          model = taskMode === "fast" ? "direct-fast" : "direct-chat";
           let lastChunk: unknown = null;
           for await (const chunk of stream) {
             lastChunk = chunk;

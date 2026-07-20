@@ -9,7 +9,7 @@
 
 import { Building2 } from "lucide-react";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
-import { persistSelectedOrgId } from "@/lib/org-selection";
+import { selectActiveOrganization } from "@/lib/org-selection";
 import { cn } from "@/lib/utils";
 
 export function OrgSelectBanner({
@@ -49,16 +49,15 @@ export function OrgSelectBanner({
           >
             <Building2 size={13} />
           </span>
-          选择本次工作的组织
+          选择当前工作组织（选定后将默认沿用）
         </div>
         <div className="flex flex-wrap gap-1.5 sm:ml-auto">
           {organizations.map((org) => (
             <button
               key={org.id}
               type="button"
-              onClick={() => {
-                persistSelectedOrgId(org.id);
-                // 页面数据大多在初始加载时已带错误返回，默认整页刷新兜底
+              onClick={async () => {
+                await selectActiveOrganization(org.id);
                 if (onSelected) onSelected();
                 else window.location.reload();
               }}

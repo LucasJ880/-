@@ -34,6 +34,8 @@ import remarkGfm from "remark-gfm";
 import type { AiThread } from "./thread-list";
 import { ApprovalCard, type PendingApproval } from "./approval-card";
 import { PendingInbox } from "./pending-inbox";
+import { AgentRunPanel } from "./agent-run-panel";
+import type { AgentStep } from "./agent-run-types";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -138,8 +140,10 @@ export interface StreamingMsg {
   workSuggestion?: WorkSuggestion | null;
   isStreaming?: boolean;
   isError?: boolean;
-  /** PR3：当前正在调用的工具状态，如"正在查询销售管道…"；null 表示无 */
+  /** @deprecated 保留兼容；优先用 agentSteps 时间线 */
   toolStatus?: string | null;
+  /** 主 Agent 执行步骤（理解 → 分发 → 工具 → 回复） */
+  agentSteps?: AgentStep[];
   /** PR4：该消息带出的待审批草稿 */
   pendingApprovals?: PendingApproval[];
 }
@@ -184,6 +188,10 @@ export interface ChatPanelProps {
   onApprovalChange?: (messageId: string, next: PendingApproval) => void;
   /** PR4.5：PendingInbox 打开对话的回调 */
   onOpenThread?: (threadId: string) => void;
+  /** 当前组织是否就绪；未就绪时发送会给出明确反馈 */
+  orgReady?: boolean;
+  /** 未就绪时的原因文案（展示在输入区上方） */
+  orgBlockReason?: string | null;
 }
 
 // ── ChatPanel ─────────────────────────────────────────────────
@@ -208,6 +216,8 @@ export function ChatPanel({
   inputRef,
   onApprovalChange,
   onOpenThread,
+  orgReady = true,
+  orgBlockReason = null,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -220,6 +230,18 @@ export function ChatPanel({
 
   // 语音输入：转写结果追加到输入框，用户确认后发送
   const { error: toastError } = useToast();
+
+  const trySend = useCallback(
+    (text?: string) => {
+      if (!orgReady) {
+        toastError(orgBlockReason || "请先选择当前工作组织后再发送");
+        return;
+      }
+      onSend(text);
+    },
+    [orgReady, orgBlockReason, onSend, toastError]
+  );
+
   const inputValueRef = useRef(input);
   useEffect(() => {
     inputValueRef.current = input;
@@ -400,8 +422,8 @@ export function ChatPanel({
               {QUICK_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => onSend(prompt)}
-                  disabled={isLoading}
+                  onClick={() => trySend(prompt)}
+                  disabled={isLoading || !orgReady}
                   className="group flex min-h-12 items-center justify-between gap-3 rounded-lg border border-black/[0.07] bg-white px-3.5 py-2.5 text-left text-xs font-medium text-[#4b524f] shadow-xs transition-colors hover:border-[#2b6055]/25 hover:bg-[#f5f8f7] hover:text-[#171a19] disabled:opacity-50"
                 >
                   <span>{prompt}</span>
@@ -433,8 +455,8 @@ export function ChatPanel({
               {(activeThread?.project ? PROJECT_QUICK_PROMPTS : QUICK_PROMPTS).map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => onSend(prompt)}
-                  disabled={isLoading}
+                  onClick={() => trySend(prompt)}
+                  disabled={isLoading || !orgReady}
                   className="group flex min-h-12 items-center justify-between gap-3 rounded-lg border border-black/[0.07] bg-white px-3.5 py-2.5 text-left text-xs font-medium text-[#4b524f] shadow-xs transition-colors hover:border-[#2b6055]/25 hover:bg-[#f5f8f7] hover:text-[#171a19] disabled:opacity-50"
                 >
                   <span>{prompt}</span>
@@ -484,6 +506,15 @@ export function ChatPanel({
                       请求失败
                     </div>
                   )}
+                  {msg.role === "assistant" &&
+                    msg.agentSteps &&
+                    msg.agentSteps.length > 0 && (
+                      <AgentRunPanel
+                        steps={msg.agentSteps}
+                        isStreaming={msg.isStreaming}
+                        className={msg.content ? "mb-3" : undefined}
+                      />
+                    )}
                   {msg.content ? (
                     msg.role === "assistant" ? (
                       <div className="prose-ai">
@@ -498,19 +529,14 @@ export function ChatPanel({
                         </p>
                       ))
                     )
-                  ) : msg.isStreaming && !msg.toolStatus ? (
+                  ) : msg.isStreaming &&
+                    !(msg.agentSteps && msg.agentSteps.length > 0) ? (
                     <div className="flex items-center gap-2 text-[#7c8480]">
                       <Loader2 size={14} className="animate-spin" />
-                      <span className="text-xs">思考中...</span>
+                      <span className="text-xs">青砚正在接入…</span>
                     </div>
                   ) : null}
-                  {msg.isStreaming && msg.toolStatus && (
-                    <div className="mt-2 flex w-fit items-center gap-1.5 rounded-md border border-[#2b6055]/10 bg-[#edf3f1] px-2.5 py-1 text-[11px] font-medium text-[#2b6055]">
-                      <Loader2 size={11} className="animate-spin" />
-                      <span>{msg.toolStatus}</span>
-                    </div>
-                  )}
-                  {msg.isStreaming && msg.content && !msg.toolStatus && (
+                  {msg.isStreaming && msg.content && (
                     <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent/60" />
                   )}
                 </div>
@@ -573,6 +599,12 @@ export function ChatPanel({
       {/* Input */}
       <div className="border-t border-black/[0.06] bg-white/90 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:px-6 sm:pb-4">
         <div className="mx-auto w-full max-w-[920px]">
+        {!orgReady && orgBlockReason && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-950">
+            <AlertCircle size={14} className="mt-0.5 shrink-0 text-amber-700" />
+            <span>{orgBlockReason}</span>
+          </div>
+        )}
         {/* Channel selector */}
         <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
           <span className="mr-1 shrink-0 text-[11px] font-medium text-[#68706c]">输出渠道</span>
@@ -657,11 +689,13 @@ export function ChatPanel({
                 !e.nativeEvent.isComposing
               ) {
                 e.preventDefault();
-                onSend();
+                trySend();
               }
             }}
             placeholder={
-              voiceState === "recording"
+              !orgReady
+                ? "请先选择当前工作组织…"
+                : voiceState === "recording"
                 ? "正在聆听，再点一下麦克风结束..."
                 : voiceState === "transcribing"
                   ? "正在识别语音..."
@@ -705,10 +739,15 @@ export function ChatPanel({
             </button>
           )}
           <button
-            onClick={() => onSend()}
+            onClick={() => trySend()}
             disabled={!input.trim() || isLoading}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#202422] text-white shadow-xs transition-colors hover:bg-[#2b6055] disabled:bg-[#d8dcda] disabled:text-[#8e9591] disabled:shadow-none"
-            title="发送"
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white shadow-xs transition-colors disabled:bg-[#d8dcda] disabled:text-[#8e9591] disabled:shadow-none",
+              !orgReady
+                ? "bg-amber-700 hover:bg-amber-800"
+                : "bg-[#202422] hover:bg-[#2b6055]"
+            )}
+            title={!orgReady ? orgBlockReason || "请先选择组织" : "发送"}
             aria-label="发送"
           >
             {isLoading ? (
