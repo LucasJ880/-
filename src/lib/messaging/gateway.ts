@@ -149,8 +149,8 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     return;
   }
 
-  const orgId = await resolveBindingOrgId(binding);
-  if (!orgId) {
+  const resolvedOrgId = await resolveBindingOrgId(binding);
+  if (!resolvedOrgId) {
     const adapter = await ensureSendAdapter(msg.channel, null);
     if (adapter) {
       await adapter
@@ -162,6 +162,8 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     }
     return;
   }
+  // 显式收窄，避免嵌套闭包里仍被看成 string | null
+  const orgId: string = resolvedOrgId;
 
   // 2. 消息过滤
   if (!passesFilter(msg.content, binding.filterMode as FilterMode, binding.filterKeyword)) {
