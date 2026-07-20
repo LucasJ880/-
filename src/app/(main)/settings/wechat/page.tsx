@@ -412,6 +412,10 @@ export default function WeChatSettingsPage() {
         }
       />
 
+      {orgId && !showWecomForm && (
+        <WeComCallbackHint orgId={orgId} />
+      )}
+
       {/* 企业微信配置表单 */}
       {showWecomForm && (
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -485,16 +489,7 @@ export default function WeChatSettingsPage() {
               保存并验证
             </button>
           </div>
-          <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-[11px] text-muted space-y-1">
-            <p>
-              回调 URL：
-              <code className="rounded bg-muted/10 px-1 break-all">
-                {(typeof window !== "undefined" ? window.location.origin : "")}/api/messaging/wecom/callback?org={orgId || "YOUR_ORG_ID"}
-              </code>
-            </p>
-            <p>在「应用管理 → 自建应用 → 接收消息」处填入上面的 URL、Token、EncodingAESKey。</p>
-            <p>支持消息类型：文本、图片（出图交付可回传图片）。</p>
-          </div>
+          <WeComCallbackHint orgId={orgId} />
         </div>
       )}
 
@@ -650,6 +645,67 @@ function ChannelCard({
         </div>
         <div className="shrink-0">{actions}</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 企业微信回调 URL 提示。
+ * 优先使用 NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN（备案子域名），避免在 qingyan.ca 上误填加拿大域。
+ */
+function WeComCallbackHint({ orgId }: { orgId: string }) {
+  const [copied, setCopied] = useState(false);
+  const configuredOrigin = (
+    process.env.NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN || ""
+  ).trim().replace(/\/$/, "");
+  const browserOrigin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  const origin = configuredOrigin || browserOrigin;
+  const usingRecommended = Boolean(configuredOrigin);
+  const callbackUrl = `${origin}/api/messaging/wecom/callback?org=${orgId || "YOUR_ORG_ID"}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(callbackUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-[11px] text-muted space-y-2">
+      <p className="font-medium text-foreground/80">企业微信接收消息 · 回调 URL</p>
+      <div className="flex items-start gap-2">
+        <code className="flex-1 rounded bg-muted/10 px-1.5 py-1 break-all text-[11px] text-foreground/90">
+          {callbackUrl}
+        </code>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className="shrink-0 rounded border border-border px-2 py-1 text-[10px] hover:bg-muted/10"
+        >
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+      {usingRecommended ? (
+        <p className="text-[10px] text-[#2e7a56]">
+          已使用备案回调域名（NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN）。产品站可继续使用 qingyan.ca。
+        </p>
+      ) : (
+        <p className="text-[10px] text-amber-700/90">
+          未配置 NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN，当前按浏览器域名拼接。生产请设为
+          https://wechat.mengxinhometextile.com，避免把 qingyan.ca 填进企微后台。
+        </p>
+      )}
+      <ol className="list-decimal space-y-1 pl-4 text-[10px] leading-relaxed">
+        <li>阿里云 DNS：主机记录 <code className="rounded bg-muted/10 px-0.5">wechat</code>，类型 A，记录值 <code className="rounded bg-muted/10 px-0.5">76.76.21.21</code>（以 Vercel Domains 提示为准）。</li>
+        <li>青砚本页保存 CorpID / AgentId / Secret / Token / EncodingAESKey。</li>
+        <li>企业微信后台 → 应用管理 → 自建应用 → 接收消息：粘贴上方 URL，Token 与 EncodingAESKey 与本页一致，点保存并验证。</li>
+        <li>验证通过后，在企微应用内发一条测试文本消息。</li>
+      </ol>
+      <p>支持消息类型：文本、图片（出图交付可回传图片）。路径固定为 /api/messaging/wecom/callback，勿使用 /wechat/callback。</p>
     </div>
   );
 }

@@ -113,6 +113,41 @@ npx prisma db seed
 
 ---
 
+## 七-B、企业微信回调（国内备案子域名）
+
+产品站继续使用 `https://qingyan.ca`。企业微信服务器访问国内备案域名即可：
+
+```text
+https://wechat.mengxinhometextile.com/api/messaging/wecom/callback?org=<ORG_ID>
+```
+
+### DNS（阿里云 / 万网，Nameserver 为 hichina 时）
+
+| 主机记录 | 类型 | 记录值 |
+|---------|------|--------|
+| `wechat` | A | `76.76.21.21` |
+
+（以 Vercel → Domains → `wechat.mengxinhometextile.com` 提示为准；亦可能显示 CNAME `cname.vercel-dns.com`。）
+
+### Vercel
+
+1. Domains 添加 `wechat.mengxinhometextile.com`（与 `qingyan.ca` 同一项目）。  
+2. Production 环境变量：
+
+```text
+NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN=https://wechat.mengxinhometextile.com
+```
+
+3. 重新部署后，设置页「微信集成」会展示推荐回调 URL（可复制）。
+
+### 企业微信后台
+
+应用管理 → 自建应用 → 接收消息：URL / Token / EncodingAESKey 与青砚 `/settings/wechat` 保存值一致，保存并验证。
+
+> 子域名一般随主域名 ICP 备案，无需单独再备；日后换青砚自有域名时，改 DNS + 企微 URL + 上述 env 即可，业务路径不变。
+
+---
+
 ## 八、后续发版
 
 推送代码到 Git 默认分支后，Vercel 会自动触发新部署；`prisma migrate deploy` 会在每次 build 中应用**尚未执行**的迁移。  
