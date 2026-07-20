@@ -9,7 +9,8 @@
  */
 
 import { db } from "@/lib/db";
-import { findBindingByExternal, touchBinding } from "./binding";
+import { findBindingByExternal, resolveBindingOrgId, touchBinding } from "./binding";
+import { PLATFORM_WECOM_ORG_ID } from "./platform-wecom";
 import type {
   ChannelType,
   InboundMessage,
@@ -44,6 +45,16 @@ export async function ensureSendAdapter(
   const cached = adapters.get(channel);
   if (cached) return cached;
 
+  if (channel === "wecom") {
+    const { WeComAdapter } = await import("./adapters/wecom");
+    // 优先平台凭证；未配置平台时回退到业务 org 级网关（兼容旧接入）
+    const credentialOrgId = await resolveWecomSendCredentialOrgId(orgId);
+    if (!credentialOrgId) return null;
+    const adapter = new WeComAdapter(credentialOrgId);
+    await adapter.start();
+    return adapter.getStatus() === "connected" ? adapter : null;
+  }
+
   if (!orgId) return null;
 
   if (channel === "personal_wechat") {
@@ -53,14 +64,23 @@ export async function ensureSendAdapter(
     return ok ? adapter : null;
   }
 
-  if (channel === "wecom") {
-    const { WeComAdapter } = await import("./adapters/wecom");
-    const adapter = new WeComAdapter(orgId);
-    await adapter.start();
-    return adapter.getStatus() === "connected" ? adapter : null;
-  }
-
   return null;
+}
+
+/** 发送侧解析企微凭证所在 org：平台网关优先 */
+async function resolveWecomSendCredentialOrgId(
+  businessOrgId: string | null,
+): Promise<string | null> {
+  const platform = await db.weChatGateway.findUnique({
+    where: {
+      orgId_channel: { orgId: PLATFORM_WECOM_ORG_ID, channel: "wecom" },
+    },
+    select: { corpId: true, secret: true },
+  });
+  if (platform?.corpId && platform?.secret) {
+    return PLATFORM_WECOM_ORG_ID;
+  }
+  return businessOrgId;
 }
 
 /**
@@ -129,7 +149,8 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     return;
   }
 
-  if (!binding.orgId) {
+  const orgId = await resolveBindingOrgId(binding);
+  if (!orgId) {
     const adapter = await ensureSendAdapter(msg.channel, null);
     if (adapter) {
       await adapter
@@ -141,8 +162,6 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     }
     return;
   }
-
-  const orgId = binding.orgId;
 
   // 2. 消息过滤
   if (!passesFilter(msg.content, binding.filterMode as FilterMode, binding.filterKeyword)) {

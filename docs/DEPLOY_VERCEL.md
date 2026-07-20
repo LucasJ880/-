@@ -118,8 +118,10 @@ npx prisma db seed
 产品站继续使用 `https://qingyan.ca`。企业微信服务器访问国内备案域名即可：
 
 ```text
-https://wechat.mengxinhometextile.com/api/messaging/wecom/callback?org=<ORG_ID>
+https://wechat.mengxinhometextile.com/api/messaging/wecom/callback?org=platform
 ```
+
+平台级接入：一套企微应用凭证由平台管理员配置；勿再填客户组织 ID。详见 `docs/WECOM_WECHAT_DOMAIN.md`。
 
 ### DNS（阿里云 / 万网，Nameserver 为 hichina 时）
 

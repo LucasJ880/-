@@ -33,15 +33,21 @@ export const POST = withAuth(async (req, _ctx, user) => {
     return NextResponse.json({ ok: true });
   }
 
-  // 默认：创建绑定
-  const membership = await db.organizationMember.findFirst({
-    where: { userId: user.id },
-    select: { orgId: true },
-  });
+  // 默认：创建绑定（优先当前工作组织）
+  const { resolvePreferredOrgId } = await import("@/lib/organizations/active-org");
+  const preferred = await resolvePreferredOrgId(user.id, user.role);
+  const orgId =
+    preferred.orgId ??
+    (
+      await db.organizationMember.findFirst({
+        where: { userId: user.id },
+        select: { orgId: true },
+      })
+    )?.orgId;
 
   const binding = await createBinding({
     userId: user.id,
-    orgId: membership?.orgId,
+    orgId,
     channel: body.channel,
     externalId: body.externalId,
     displayName: body.displayName,

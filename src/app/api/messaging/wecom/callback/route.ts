@@ -4,8 +4,11 @@
  * GET  — URL 验证（回显解密后的 echostr）
  * POST — 接收消息推送（验签 + 解密 + 按网关业务模式路由）
  *
- * 安全：org 由 query 显式传入，凭证与验签全部服务端校验；
- *       trade_intake 模式下走外贸受理链路（建单到客户 org，可自动桥接处理方 org）。
+ * 平台级（默认）：
+ *   URL 可省略 org，或使用 ?org=platform；凭证读平台网关；
+ *   业务组织由 WeChatBinding → activeOrg 解析。
+ * 组织级（兼容）：
+ *   ?org=<真实ORG_ID> 仍可用，凭证读该组织网关。
  */
 
 import { after, NextRequest, NextResponse } from "next/server";
@@ -15,6 +18,10 @@ import {
   attachAdapterInbound,
 } from "@/lib/messaging/gateway";
 import { WeComAdapter, parseWeComMessageXml } from "@/lib/messaging/adapters/wecom";
+import {
+  isPlatformWecomOrgKey,
+  resolveWecomCredentialOrgId,
+} from "@/lib/messaging/platform-wecom";
 import type { InboundMessage } from "@/lib/messaging/types";
 
 export const maxDuration = 60;
@@ -33,21 +40,17 @@ export async function GET(req: NextRequest) {
   const timestamp = searchParams.get("timestamp") ?? "";
   const nonce = searchParams.get("nonce") ?? "";
   const echostr = searchParams.get("echostr") ?? "";
-  const orgId = searchParams.get("org") ?? "";
-
-  if (!orgId) {
-    return new NextResponse("missing org param", { status: 400 });
-  }
+  const credentialOrgId = resolveWecomCredentialOrgId(searchParams.get("org"));
 
   const gateway = await db.weChatGateway.findUnique({
-    where: { orgId_channel: { orgId, channel: "wecom" } },
+    where: { orgId_channel: { orgId: credentialOrgId, channel: "wecom" } },
   });
 
   if (!gateway?.callbackToken || !gateway?.encodingKey) {
     return new NextResponse("not configured", { status: 404 });
   }
 
-  const adapter = new WeComAdapter(orgId);
+  const adapter = new WeComAdapter(credentialOrgId);
   await adapter.loadConfig();
   const plain = adapter.verifyCallback(msgSignature, timestamp, nonce, echostr);
 
@@ -63,30 +66,31 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const orgId = searchParams.get("org") ?? "";
+  const queryOrg = searchParams.get("org");
+  const credentialOrgId = resolveWecomCredentialOrgId(queryOrg);
   const msgSignature = searchParams.get("msg_signature") ?? "";
   const timestamp = searchParams.get("timestamp") ?? "";
   const nonce = searchParams.get("nonce") ?? "";
-
-  // 任何情况下都尽量回 ok，避免企业微信重试风暴（幂等由受理层兜底）。
-  if (!orgId) return ok();
 
   try {
     const body = await req.text();
 
     const gateway = await db.weChatGateway.findUnique({
-      where: { orgId_channel: { orgId, channel: "wecom" } },
+      where: { orgId_channel: { orgId: credentialOrgId, channel: "wecom" } },
     });
     if (!gateway?.encodingKey || !gateway?.callbackToken) return ok();
 
-    const adapter = new WeComAdapter(orgId);
+    const adapter = new WeComAdapter(credentialOrgId);
     const loaded = await adapter.loadConfig();
     if (!loaded) return ok();
 
     // 验签 + 解密内层消息 XML
     const plainXml = adapter.decryptCallback(body, msgSignature, timestamp, nonce);
     if (!plainXml) {
-      console.warn("[WeCom Callback] signature/decrypt failed for org", orgId);
+      console.warn(
+        "[WeCom Callback] signature/decrypt failed for credential org",
+        credentialOrgId,
+      );
       return ok();
     }
 
@@ -98,6 +102,11 @@ export async function POST(req: NextRequest) {
     // 仅处理文本 / 图片；事件、语音、文件等暂忽略（回 ok）。
     let inbound: InboundMessage | null = null;
 
+    // 组织级回调可带业务 org；平台级留给 binding 解析
+    const hintOrgId = isPlatformWecomOrgKey(queryOrg)
+      ? undefined
+      : credentialOrgId;
+
     if (msgType === "text" && parsed.Content) {
       inbound = {
         channel: "wecom",
@@ -105,8 +114,10 @@ export async function POST(req: NextRequest) {
         content: parsed.Content,
         messageType: "text",
         externalMsgId: parsed.MsgId,
-        timestamp: new Date(parseInt(parsed.CreateTime || "0", 10) * 1000 || Date.now()),
-        orgId,
+        timestamp: new Date(
+          parseInt(parsed.CreateTime || "0", 10) * 1000 || Date.now(),
+        ),
+        orgId: hintOrgId,
       };
     } else if (msgType === "image" && parsed.MediaId) {
       const media = await adapter.downloadMedia(parsed.MediaId);
@@ -120,19 +131,26 @@ export async function POST(req: NextRequest) {
         content: "",
         messageType: "image",
         externalMsgId: parsed.MsgId,
-        timestamp: new Date(parseInt(parsed.CreateTime || "0", 10) * 1000 || Date.now()),
+        timestamp: new Date(
+          parseInt(parsed.CreateTime || "0", 10) * 1000 || Date.now(),
+        ),
         media: { bytes: media.bytes, mimeType: media.mimeType },
-        orgId,
+        orgId: hintOrgId,
       };
     }
 
     if (!inbound) return ok();
 
-    // 快速回 ok，后台处理（ACK + AI），避免企微等待整段模型调用超时重试。
-    // trade_intake 仍需同步处理以保证受理时序；assistant 走 after。
+    // trade_intake 仍需明确业务 org（组织级回调）；平台网关不做外贸受理
     if (gateway.mode === "trade_intake") {
+      if (isPlatformWecomOrgKey(queryOrg) || !hintOrgId) {
+        console.warn(
+          "[WeCom Callback] trade_intake requires ?org=<真实组织ID>",
+        );
+        return ok();
+      }
       await attachAdapterInbound(adapter, {
-        orgId,
+        orgId: hintOrgId,
         mode: gateway.mode,
         fulfillmentOrgId: gateway.fulfillmentOrgId,
       });
@@ -155,4 +173,3 @@ export async function POST(req: NextRequest) {
     return ok();
   }
 }
-

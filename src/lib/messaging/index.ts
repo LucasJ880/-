@@ -1,5 +1,18 @@
 export { handleInboundMessage, pushMessage, registerAdapter, getAdapter, listAdapters } from "./gateway";
-export { createBinding, findBindingByExternal, findBindingsByUser, updateBindingPreferences, removeBinding } from "./binding";
+export {
+  createBinding,
+  findBindingByExternal,
+  findBindingsByUser,
+  resolveBindingOrgId,
+  updateBindingPreferences,
+  removeBinding,
+} from "./binding";
+export {
+  PLATFORM_WECOM_ORG_ID,
+  PLATFORM_WECOM_QUERY,
+  isPlatformWecomOrgKey,
+  resolveWecomCredentialOrgId,
+} from "./platform-wecom";
 export {
   pushDailyBriefing,
   pushFollowupReminder,

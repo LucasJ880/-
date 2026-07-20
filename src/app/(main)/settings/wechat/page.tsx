@@ -71,7 +71,7 @@ export default function WeChatSettingsPage() {
   });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 企业微信配置表单
+  // 企业微信配置表单（平台级）
   const [wecomForm, setWecomForm] = useState({
     corpId: "",
     agentId: "",
@@ -80,24 +80,23 @@ export default function WeChatSettingsPage() {
     encodingKey: "",
   });
   const [showWecomForm, setShowWecomForm] = useState(false);
-  const [orgId, setOrgId] = useState<string>("");
-  // 企业微信外贸受理模式
-  const [wecomTradeIntake, setWecomTradeIntake] = useState(false);
-  const [wecomFulfillmentOrgId, setWecomFulfillmentOrgId] = useState("");
+  const [platformWecom, setPlatformWecom] = useState<GatewayInfo | null>(null);
+  const [canManagePlatformWecom, setCanManagePlatformWecom] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
       const [gwRes, bindRes] = await Promise.all([
-        apiJson<{ gateways?: GatewayInfo[]; orgId?: string }>("/api/messaging/gateway"),
+        apiJson<{
+          gateways?: GatewayInfo[];
+          orgId?: string | null;
+          platformWecom?: GatewayInfo | null;
+          canManagePlatformWecom?: boolean;
+        }>("/api/messaging/gateway"),
         apiJson<{ bindings?: BindingInfo[] }>("/api/messaging/bindings"),
       ]);
       setGateways(gwRes.gateways || []);
-      if (gwRes.orgId) setOrgId(gwRes.orgId);
-      const wc = (gwRes.gateways || []).find((g) => g.channel === "wecom");
-      if (wc) {
-        setWecomTradeIntake(wc.mode === "trade_intake");
-        setWecomFulfillmentOrgId(wc.fulfillmentOrgId ?? "");
-      }
+      setPlatformWecom(gwRes.platformWecom ?? null);
+      setCanManagePlatformWecom(Boolean(gwRes.canManagePlatformWecom));
       setBindings(bindRes.bindings || []);
     } catch {
       // 初次可能没有数据
@@ -214,21 +213,12 @@ export default function WeChatSettingsPage() {
     try {
       await apiFetch("/api/messaging/gateway", {
         method: "POST",
-        body: JSON.stringify({ action: "configure_wecom", ...wecomForm }),
+        body: JSON.stringify({
+          action: "configure_wecom",
+          scope: "platform",
+          ...wecomForm,
+        }),
       });
-      // 同步外贸受理模式（trade_intake）+ 处理方组织绑定
-      await apiFetch("/api/messaging/gateway", {
-        method: "POST",
-        body: JSON.stringify(
-          wecomTradeIntake
-            ? {
-                action: "configure_trade_intake",
-                channel: "wecom",
-                fulfillmentOrgId: wecomFulfillmentOrgId.trim(),
-              }
-            : { action: "configure_trade_intake", channel: "wecom", fulfillmentOrgId: "", mode: "assistant" },
-        ),
-      }).catch(() => {});
       setShowWecomForm(false);
       await fetchData();
     } catch (e) {
@@ -255,7 +245,7 @@ export default function WeChatSettingsPage() {
   };
 
   const personalGw = gateways.find((g) => g.channel === "personal_wechat");
-  const wecomGw = gateways.find((g) => g.channel === "wecom");
+  const wecomGw = platformWecom;
 
   if (loading) {
     return (
@@ -382,46 +372,53 @@ export default function WeChatSettingsPage() {
         }
       />
 
-      {/* ── 企业微信 ── */}
+      {/* ── 企业微信（平台级统一入口）── */}
       <ChannelCard
         title="企业微信"
         icon={<Building2 size={20} />}
-        subtitle="通过企业微信应用 API 接入，支持部门级推送"
+        subtitle="青砚平台统一入口：一套企微应用服务全部组织，进线后按账号绑定进入工作组织"
         status={wecomGw?.status ?? "disconnected"}
         nickname={wecomGw?.corpId ? `企业 ${wecomGw.corpId}` : undefined}
         lastHeartbeat={wecomGw?.lastHeartbeat}
         error={wecomGw?.errorMessage}
         actions={
-          <div className="flex items-center gap-2">
-            {wecomGw?.status === "active" && (
+          canManagePlatformWecom ? (
+            <div className="flex items-center gap-2">
+              {wecomGw?.status === "active" && (
+                <button
+                  onClick={() =>
+                    handleGatewayAction("disconnect", {
+                      channel: "wecom",
+                      scope: "platform",
+                    })
+                  }
+                  disabled={actionLoading !== null}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
+                >
+                  断开
+                </button>
+              )}
               <button
-                onClick={() => handleGatewayAction("disconnect", { channel: "wecom" })}
-                disabled={actionLoading !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
+                onClick={() => setShowWecomForm(!showWecomForm)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
               >
-                断开
+                {wecomGw ? "修改配置" : "配置企业微信"}
               </button>
-            )}
-            <button
-              onClick={() => setShowWecomForm(!showWecomForm)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
-            >
-              {wecomGw ? "修改配置" : "配置企业微信"}
-            </button>
-          </div>
+            </div>
+          ) : (
+            <span className="text-xs text-muted">由平台管理员配置；你只需完成下方账号绑定</span>
+          )
         }
       />
 
-      {orgId && !showWecomForm && (
-        <WeComCallbackHint orgId={orgId} />
-      )}
+      {!showWecomForm && <WeComCallbackHint />}
 
-      {/* 企业微信配置表单 */}
-      {showWecomForm && (
+      {/* 企业微信配置表单（平台管理员） */}
+      {showWecomForm && canManagePlatformWecom && (
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <h3 className="text-sm font-medium">企业微信应用配置</h3>
+          <h3 className="text-sm font-medium">平台企业微信应用配置</h3>
           <p className="text-xs text-muted">
-            在企业微信管理后台 → 应用管理 → 自建应用中获取以下信息
+            在企业微信管理后台 → 应用管理 → 自建应用中获取以下信息。保存后作为青砚全平台入口，不绑定单一客户组织。
           </p>
           <div className="grid grid-cols-2 gap-3">
             {(
@@ -445,34 +442,6 @@ export default function WeChatSettingsPage() {
               </div>
             ))}
           </div>
-          {/* 外贸客户受理模式 */}
-          <div className="rounded-lg border border-[#2b6055]/30 bg-[#2b6055]/5 p-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={wecomTradeIntake}
-                onChange={(e) => setWecomTradeIntake(e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-[#2b6055]"
-              />
-              启用外贸客户需求受理（trade_intake）
-            </label>
-            <p className="text-[11px] text-muted">
-              开启后，该企业微信通道收到的客户消息将自动建单到本组织，并按需桥接给处理方团队。
-              关闭则作为内部员工 AI 助理通道。
-            </p>
-            {wecomTradeIntake && (
-              <div>
-                <label className="mb-1 block text-xs text-muted">处理方组织 ID（加拿大团队 org，可留空）</label>
-                <input
-                  type="text"
-                  value={wecomFulfillmentOrgId}
-                  onChange={(e) => setWecomFulfillmentOrgId(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted/50 focus:border-accent focus:outline-none"
-                  placeholder="留空则只建单到本组织，需手动指派"
-                />
-              </div>
-            )}
-          </div>
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setShowWecomForm(false)}
@@ -489,7 +458,7 @@ export default function WeChatSettingsPage() {
               保存并验证
             </button>
           </div>
-          <WeComCallbackHint orgId={orgId} />
+          <WeComCallbackHint />
         </div>
       )}
 
@@ -650,10 +619,10 @@ function ChannelCard({
 }
 
 /**
- * 企业微信回调 URL 提示。
+ * 企业微信回调 URL 提示（平台级）。
  * 优先使用 NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN（备案子域名），避免在 qingyan.ca 上误填加拿大域。
  */
-function WeComCallbackHint({ orgId }: { orgId: string }) {
+function WeComCallbackHint() {
   const [copied, setCopied] = useState(false);
   const configuredOrigin = (
     process.env.NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN || ""
@@ -662,7 +631,8 @@ function WeComCallbackHint({ orgId }: { orgId: string }) {
     typeof window !== "undefined" ? window.location.origin : "";
   const origin = configuredOrigin || browserOrigin;
   const usingRecommended = Boolean(configuredOrigin);
-  const callbackUrl = `${origin}/api/messaging/wecom/callback?org=${orgId || "YOUR_ORG_ID"}`;
+  // 平台级回调：固定 ?org=platform（也可省略 org）
+  const callbackUrl = `${origin}/api/messaging/wecom/callback?org=platform`;
 
   const copy = async () => {
     try {
@@ -676,7 +646,7 @@ function WeComCallbackHint({ orgId }: { orgId: string }) {
 
   return (
     <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-[11px] text-muted space-y-2">
-      <p className="font-medium text-foreground/80">企业微信接收消息 · 回调 URL</p>
+      <p className="font-medium text-foreground/80">企业微信接收消息 · 平台回调 URL</p>
       <div className="flex items-start gap-2">
         <code className="flex-1 rounded bg-muted/10 px-1.5 py-1 break-all text-[11px] text-foreground/90">
           {callbackUrl}
@@ -701,11 +671,11 @@ function WeComCallbackHint({ orgId }: { orgId: string }) {
       )}
       <ol className="list-decimal space-y-1 pl-4 text-[10px] leading-relaxed">
         <li>阿里云 DNS：主机记录 <code className="rounded bg-muted/10 px-0.5">wechat</code>，类型 A，记录值 <code className="rounded bg-muted/10 px-0.5">76.76.21.21</code>（以 Vercel Domains 提示为准）。</li>
-        <li>青砚本页保存 CorpID / AgentId / Secret / Token / EncodingAESKey。</li>
-        <li>企业微信后台 → 应用管理 → 自建应用 → 接收消息：粘贴上方 URL，Token 与 EncodingAESKey 与本页一致，点保存并验证。</li>
-        <li>验证通过后，在企微应用内发一条测试文本消息。</li>
+        <li>平台管理员在本页保存一套 CorpID / AgentId / Secret / Token / EncodingAESKey。</li>
+        <li>企业微信后台 → 应用管理 → 自建应用 → 接收消息：粘贴上方 URL（含 <code className="rounded bg-muted/10 px-0.5">org=platform</code>），Token 与 EncodingAESKey 与本页一致，点保存并验证。</li>
+        <li>成员在青砚完成企微账号绑定后，在应用内发测试文本；业务归属走当前工作组织。</li>
       </ol>
-      <p>支持消息类型：文本、图片（出图交付可回传图片）。路径固定为 /api/messaging/wecom/callback，勿使用 /wechat/callback。</p>
+      <p>支持消息类型：文本、图片。路径固定为 /api/messaging/wecom/callback，勿使用 /wechat/callback。勿再填写客户组织 ID。</p>
     </div>
   );
 }

@@ -111,6 +111,37 @@ export async function touchBinding(channel: ChannelType, externalId: string): Pr
   });
 }
 
+/**
+ * 解析绑定对应的业务组织：绑定上的 orgId → 用户 activeOrg / 唯一所属组织。
+ * 平台级企微进线时绑定可能未写 orgId，必须在此补齐。
+ */
+export async function resolveBindingOrgId(
+  binding: Pick<BindingInfo, "id" | "userId" | "orgId">,
+): Promise<string | null> {
+  const { PLATFORM_WECOM_ORG_ID } = await import("./platform-wecom");
+  if (binding.orgId && binding.orgId !== PLATFORM_WECOM_ORG_ID) {
+    return binding.orgId;
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: binding.userId },
+    select: { role: true },
+  });
+  const { resolvePreferredOrgId } = await import("@/lib/organizations/active-org");
+  const { orgId } = await resolvePreferredOrgId(
+    binding.userId,
+    user?.role ?? "user",
+  );
+  if (!orgId) return null;
+
+  if (orgId !== binding.orgId) {
+    await db.weChatBinding
+      .update({ where: { id: binding.id }, data: { orgId } })
+      .catch(() => {});
+  }
+  return orgId;
+}
+
 function toBindingInfo(row: {
   id: string;
   userId: string;
