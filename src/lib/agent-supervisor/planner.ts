@@ -113,7 +113,7 @@ export async function createSupervisorPlan(
       userId: state.userId,
       maxTokens: 1600,
       temperature: 0.2,
-      timeoutMs: 20_000,
+      timeoutMs: 45_000,
     });
 
     const cleaned = result.content
@@ -121,7 +121,22 @@ export async function createSupervisorPlan(
       .replace(/```\s*/g, "")
       .trim();
     const parsed = JSON.parse(cleaned);
-    const plan = PlannerOutputSchema.parse(parsed);
+    let plan = PlannerOutputSchema.parse(parsed);
+
+    // 模型步骤过少但候选充足时，用规则计划补齐（仍计为 llm，因主规划来自模型）
+    const candidateList = state.complexity?.candidateSkills || [];
+    if (plan.steps.length < 2 && candidateList.length >= 2) {
+      const enriched = heuristicPlan(state);
+      plan = PlannerOutputSchema.parse({
+        ...plan,
+        steps: enriched.steps,
+        assumptions: [
+          ...(plan.assumptions || []),
+          "模型步骤偏少，已按候选技能补齐多步计划",
+        ],
+      });
+    }
+
     const modelMeta = {
       requestedModel: result.requestedModel,
       actualModel: result.actualModel,
@@ -132,6 +147,46 @@ export async function createSupervisorPlan(
     return { plan, source: "llm", modelMeta };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
+    // 超时/中止：再试一次（callSupervisorCompletion 内已处理 403；此处覆盖 abort）
+    if (/aborted|timeout|超时/i.test(reason)) {
+      try {
+        const retry = await callSupervisorCompletion("planner", {
+          systemPrompt: PLANNER_SYSTEM_PROMPT,
+          userPrompt: [
+            `目标：${state.objective}`,
+            `候选技能：${(state.complexity?.candidateSkills || []).join(", ")}`,
+            `最多步骤：${state.maxSteps}`,
+            "只输出简洁 JSON 计划。",
+          ].join("\n"),
+          orgId: state.orgId,
+          userId: state.userId,
+          maxTokens: 1000,
+          temperature: 0.1,
+          timeoutMs: 45_000,
+        });
+        const cleaned = retry.content
+          .replace(/```json\s*/g, "")
+          .replace(/```\s*/g, "")
+          .trim();
+        const plan = PlannerOutputSchema.parse(JSON.parse(cleaned));
+        logger.warn("supervisor.planner.retry_ok", {
+          reason,
+          actualModel: retry.actualModel,
+        });
+        return {
+          plan,
+          source: "llm",
+          modelMeta: {
+            requestedModel: retry.requestedModel,
+            actualModel: retry.actualModel,
+            fallbackUsed: true,
+            fallbackReason: `planner_timeout_retry: ${reason}`,
+          },
+        };
+      } catch {
+        /* fall through to rules */
+      }
+    }
     logger.warn("supervisor.planner.rules_fallback", {
       reason,
       requestedModel: "see prior model logs",

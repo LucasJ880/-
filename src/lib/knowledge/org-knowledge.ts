@@ -299,6 +299,14 @@ export async function searchOrgKnowledge(input: {
     }
   } catch (error) {
     console.warn("[OrgKnowledge] vector search fallback", error);
+    try {
+      const { noteEmbeddingFailure } = await import("@/lib/ai/embedding");
+      noteEmbeddingFailure(
+        error instanceof Error ? error.message : String(error),
+      );
+    } catch {
+      /* ignore */
+    }
   }
 
   return {

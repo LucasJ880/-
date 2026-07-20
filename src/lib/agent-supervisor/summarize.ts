@@ -40,9 +40,13 @@ function humanizeSkillTitle(slug: string): string {
 function extractReadableSnippet(raw: string, max = 220): string {
   const t = (raw || "").trim();
   if (!t) return "";
-  if (t.startsWith("{") || t.startsWith("[")) {
+
+  const looksJson = t.startsWith("{") || t.startsWith("[") || /"priorities"|"asOf"|"missingData"/.test(t);
+  if (looksJson) {
     try {
-      const obj = JSON.parse(t) as Record<string, unknown>;
+      const start = t.indexOf("{") >= 0 ? t.indexOf("{") : t.indexOf("[");
+      const jsonText = start >= 0 ? t.slice(start) : t;
+      const obj = JSON.parse(jsonText) as Record<string, unknown>;
       const keys = [
         "summary",
         "conclusion",
@@ -50,29 +54,48 @@ function extractReadableSnippet(raw: string, max = 220): string {
         "recommendation",
         "managementSummary",
         "nextAction",
+        "message",
       ];
       for (const k of keys) {
         const v = obj[k];
-        if (typeof v === "string" && v.trim()) return v.trim().slice(0, max);
-        if (v && typeof v === "object") {
-          const s = JSON.stringify(v);
-          if (s.length < max) return s;
+        if (typeof v === "string" && v.trim() && !v.trim().startsWith("{")) {
+          return v.trim().slice(0, max);
         }
+      }
+      const priorities = obj.priorities;
+      if (Array.isArray(priorities) && priorities.length) {
+        const first = priorities[0] as Record<string, unknown>;
+        const name =
+          (first.customerName as string) ||
+          (first.name as string) ||
+          (first.targetId as string) ||
+          "重点客户";
+        return `识别到 ${priorities.length} 个优先跟进对象，首要关注：${String(name).slice(0, 60)}`;
       }
       const missing = obj.missingData || obj.missingInformation;
       if (Array.isArray(missing) && missing.length) {
         return `缺失信息 ${missing.length} 项，需补充后才能给出确定建议`;
       }
-      return "已完成结构化分析（细节见内部记录，不在此展开原始 JSON）";
+      if (typeof obj.decision === "string") {
+        return `判断结果：${obj.decision}`;
+      }
+      return "已完成结构化分析（原始 JSON 已折叠，详见内部记录）";
     } catch {
-      return t.slice(0, max);
+      return "已完成结构化分析（原始 JSON 已折叠，详见内部记录）";
     }
   }
-  return t.slice(0, max);
+  // 截断时若仍像 JSON 片段，折叠
+  const sliced = t.slice(0, max);
+  if (sliced.includes('{"') || sliced.includes('"priorities"')) {
+    return "已完成结构化分析（原始 JSON 已折叠，详见内部记录）";
+  }
+  return sliced;
 }
 
 function buildDeterministicSummary(state: SupervisorState): ManagementSummary {
-  const completed = state.plan.filter((s) => s.status === "completed");
+  const completed = state.plan.filter(
+    (s) => s.status === "completed" || s.status === "waiting_for_approval",
+  );
   const skippedFailed = state.plan.filter(
     (s) =>
       s.status === "failed" ||

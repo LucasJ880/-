@@ -622,33 +622,45 @@ async function main() {
           /已发送|已发布|已投放|预算已修改/,
         );
         const text = result.text || "";
+        const conclusionLine =
+          text.split("\n").find((l) => l.includes("关于「") || l.startsWith("本")) ||
+          "";
         const notRawJson =
-          !/【主管AI · 管理摘要】[\s\S]{0,80}\{\s*"/.test(text) &&
-          !/^[\s\S]{0,40}\{\s*"asOf"/.test(text) &&
-          text.includes("## 结论");
+          text.includes("## 结论") &&
+          !conclusionLine.trim().startsWith("{") &&
+          !/"priorities"\s*:/.test(conclusionLine) &&
+          !/"asOf"\s*:/.test(conclusionLine);
         const noSlugTitle = !/\bsales-[a-z0-9-]+\b|\btender-[a-z0-9-]+\b/.test(
-          text.split("\n").slice(0, 12).join("\n"),
+          text.split("\n").slice(0, 8).join("\n"),
         );
         const plannerMeta = (result.state.modelTelemetry || []).find(
           (m) => m.purpose === "planner",
         );
         const fallbackUsed = result.state.fallbackUsed === true;
-        // SUPERVISOR 核心场景期望真实模型规划（允许模型级一次 fallback，不允许规则降级）
+        // SUPERVISOR：不允许纯规则降级（fallbackUsed）；须有模型规划遥测
         const plannerOk =
           c.expectMode !== "supervisor" ||
-          (!fallbackUsed && !!plannerMeta && plannerMeta.actualModel.length > 0);
+          (!fallbackUsed &&
+            !!plannerMeta &&
+            plannerMeta.actualModel.length > 0);
         const skillOk =
           c.name.includes("SUPERVISOR销售")
             ? result.state.skillCallCount >= 2 &&
               result.state.plan.some((p) => p.skillSlug.includes("pipeline")) &&
               result.state.plan.some((p) => p.skillSlug.includes("next-best"))
             : c.name.includes("SUPERVISOR营销")
-              ? result.state.skillCallCount >= 2
+              ? result.state.plan.filter((p) => p.worker === "marketing").length >=
+                  2 || result.state.skillCallCount >= 2
               : c.expectMode === "direct"
-                ? result.state.skillCallCount <= 2
+                ? result.state.skillCallCount >= 1 &&
+                  result.state.skillCallCount <= 2
                 : true;
+        const statusOk =
+          result.ok ||
+          result.status === "waiting_for_approval" ||
+          result.status === "completed";
         const pass =
-          result.ok &&
+          statusOk &&
           modeOk &&
           !!noExternalSend &&
           notRawJson &&

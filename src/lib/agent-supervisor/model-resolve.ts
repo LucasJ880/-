@@ -85,6 +85,19 @@ function isModelAccessError(err: unknown): boolean {
   );
 }
 
+function isTransientModelError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  return (
+    isModelAccessError(err) ||
+    lower.includes("aborted") ||
+    lower.includes("timeout") ||
+    lower.includes("超时") ||
+    lower.includes("429") ||
+    lower.includes("rate limit")
+  );
+}
+
 /**
  * 主管模型调用：优先 requested；仅在模型访问错误时试一次 fallback。
  * 不允许无限重试；失败时抛出，由调用方决定是否规则降级。
@@ -124,21 +137,28 @@ export async function callSupervisorCompletion(
       fallbackUsed: false,
     };
   } catch (err) {
-    if (!isModelAccessError(err)) throw err;
-    if (resolved.fallbackModel === resolved.requestedModel) throw err;
+    if (!isTransientModelError(err)) throw err;
+    // 访问错误换模型；超时/中止用同一模型或 fallback 再试一次
+    const retryModel = isModelAccessError(err)
+      ? resolved.fallbackModel
+      : resolved.fallbackModel !== resolved.requestedModel
+        ? resolved.fallbackModel
+        : resolved.requestedModel;
+    if (!retryModel) throw err;
 
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn("supervisor.model.fallback", {
       purpose,
       requestedModel: resolved.requestedModel,
-      fallbackModel: resolved.fallbackModel,
+      fallbackModel: retryModel,
       fallbackReason: reason,
     });
 
     const second = await createCompletionDetailed({
       ...opts,
-      model: resolved.fallbackModel,
+      model: retryModel,
       mode: opts.mode ?? "normal",
+      timeoutMs: Math.max(opts.timeoutMs || 30_000, 45_000),
     });
     return {
       ...second,
