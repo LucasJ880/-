@@ -12,6 +12,7 @@ export { registry } from "./tool-registry";
 export {
   toolLabel,
   needsTools,
+  mentionsCalendar,
   requestsCalendarWrite,
   classifyLongRunningMarketingResearch,
 } from "./streaming";

@@ -31,6 +31,7 @@ import { isOperatorEnabled } from "@/lib/feature-flags";
 import {
   runAgentStream,
   needsTools,
+  mentionsCalendar,
   requestsCalendarWrite,
   classifyLongRunningMarketingResearch,
 } from "@/lib/agent-core";
@@ -614,14 +615,26 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
   }
 
   // 分流：fast 强制直答；expert 强制工具；agent 按关键词（含项目意图）
-  let withTools = needsTools(userContent);
-  if (assistantMode === "fast") withTools = false;
-  else if (assistantMode === "project_expert") withTools = true;
-  else if (projectId && needsProjectTools(userContent)) withTools = true;
+  // 日历写入/日程意图必须挂工具，否则模型会误称「本会话没有可用的日历创建工具」
+  const calendarWrite = requestsCalendarWrite(userContent);
+  const calendarMention = mentionsCalendar(userContent);
+  let withTools = needsTools(userContent) || calendarWrite || calendarMention;
+  if (assistantMode === "fast" && !calendarWrite && !calendarMention) {
+    withTools = false;
+  } else if (assistantMode === "project_expert") {
+    withTools = true;
+  } else if (projectId && needsProjectTools(userContent)) {
+    withTools = true;
+  }
+  if (calendarWrite || calendarMention) withTools = true;
 
   const domains = new Set<string>(caps.aiDomains);
   if (projectId && assistantMode !== "fast") {
     domains.add("project");
+  }
+  // 个人日历工具挂在 secretary 域；任意角色都要能创建草稿（仍需本人审批）
+  if (calendarWrite || calendarMention) {
+    domains.add("secretary");
   }
 
   const taskMode = assistantMode === "fast" ? "fast" : "chat";
@@ -703,8 +716,13 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           const recent = chatMessages.slice(
             assistantMode === "fast" ? -12 : -20
           );
+          // 直答模式未挂工具：禁止模型编造「没有日历工具」类借口
+          const directPrompt =
+            systemPrompt +
+            "\n\n# 当前模式\n当前为直答模式，未挂载工具。不要声称没有日历/日程创建工具或权限；" +
+            "若用户明确要新增日程、会议或提醒，请请他改用更明确的说法（例如「帮我把明天下午三点会议加到日历」）。";
           const stream = await createChatStream({
-            systemPrompt,
+            systemPrompt: directPrompt,
             messages: recent,
             mode: taskMode,
             signal: abortSignal,

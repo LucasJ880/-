@@ -151,6 +151,8 @@ const BUSINESS_TRIGGERS: readonly string[] = [
  */
 export function needsTools(text: string): boolean {
   if (!text) return false;
+  // 日程/日历意图优先：避免直答模式下模型谎称「没有日历创建工具」
+  if (requestsCalendarWrite(text) || mentionsCalendar(text)) return true;
   const lower = text.toLowerCase();
   for (const kw of BUSINESS_TRIGGERS) {
     if (lower.includes(kw.toLowerCase())) return true;
@@ -226,16 +228,35 @@ export function classifyLongRunningMarketingResearch(
   return null;
 }
 
-const CALENDAR_NOUNS = ["日历", "日程", "会议", "calendar", "meeting", "reminder"];
-const CALENDAR_WRITE_ACTIONS = [
-  "加", "添加", "新增", "创建", "安排", "提醒", "记到", "放到", "➕",
-  "add", "create", "schedule", "remind",
+const CALENDAR_NOUNS = [
+  "日历", "日程", "会议", "约会", "约见", "预约",
+  "calendar", "meeting", "reminder", "appointment", "event",
 ];
+const CALENDAR_WRITE_ACTIONS = [
+  "加", "添加", "新增", "创建", "安排", "提醒", "记到", "放到", "写入", "约", "订", "➕",
+  "add", "create", "schedule", "remind", "book",
+];
+/** 口语化整句：即使分词不完美也能命中 */
+const CALENDAR_WRITE_PHRASES = [
+  "加到日历", "加入日历", "写进日历", "记到日历", "创建日程", "新建日程",
+  "安排会议", "约个会", "约一下", "订个会", "定个会", "安排个时间",
+  "创建日历", "新建日历", "加个日程", "建个日程",
+  "add to calendar", "create a meeting", "schedule a meeting",
+];
+
+/** 提到个人日历 / 日程相关实体（含查询与写入）。 */
+export function mentionsCalendar(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  if (CALENDAR_WRITE_PHRASES.some((phrase) => lower.includes(phrase))) return true;
+  return CALENDAR_NOUNS.some((keyword) => lower.includes(keyword));
+}
 
 /** 明确要求新增个人日历事项；此类请求可安全绕过 Operator 灰度，因为仍需本人审批。 */
 export function requestsCalendarWrite(text: string): boolean {
   if (!text) return false;
   const lower = text.toLowerCase();
+  if (CALENDAR_WRITE_PHRASES.some((phrase) => lower.includes(phrase))) return true;
   return (
     CALENDAR_NOUNS.some((keyword) => lower.includes(keyword)) &&
     CALENDAR_WRITE_ACTIONS.some((keyword) => lower.includes(keyword))
