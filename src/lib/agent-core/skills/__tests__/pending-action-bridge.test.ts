@@ -1,10 +1,12 @@
 /**
- * 技能 → PendingAction 提案收集与白名单
+ * 技能 → PendingAction 提案收集、来源链与幂等键
  * 运行：npx tsx src/lib/agent-core/skills/__tests__/pending-action-bridge.test.ts
  */
 
 import {
   collectPendingProposals,
+  buildSkillPendingIdempotencyKey,
+  buildAgentSkillActionSource,
   SKILL_PENDING_ACTION_ALLOWLIST,
 } from "../pending-action-bridge";
 
@@ -79,6 +81,47 @@ expect(
 );
 expect(collectPendingProposals(null).length === 0, "空输入无提案");
 expect(collectPendingProposals({ summary: "ok" }).length === 0, "无提案字段为空");
+
+const key1 = buildSkillPendingIdempotencyKey("exec_1", 0, "grader.internal_note");
+const key2 = buildSkillPendingIdempotencyKey("exec_1", 0, "grader.internal_note");
+const key3 = buildSkillPendingIdempotencyKey("exec_1", 1, "grader.internal_note");
+const key4 = buildSkillPendingIdempotencyKey("exec_1", 0, "sales.update_stage");
+expect(key1 === "exec_1:0:grader.internal_note", "幂等键格式正确");
+expect(key1 === key2, "相同三元组幂等键一致");
+expect(key1 !== key3, "不同 proposalIndex 幂等键不同");
+expect(key1 !== key4, "不同 action type 幂等键不同");
+
+const source = buildAgentSkillActionSource({
+  orgId: "org_1",
+  skillId: "skill_1",
+  skillSlug: "sales-next-best-action",
+  skillExecutionId: "exec_1",
+  agentRunId: "run_1",
+  proposalIndex: 0,
+  actionType: "sales.update_followup",
+});
+expect(source.source === "AGENT_SKILL", "来源标记 AGENT_SKILL");
+expect(source.skillId === "skill_1", "保留 skillId");
+expect(source.skillSlug === "sales-next-best-action", "保留 skillSlug");
+expect(source.skillExecutionId === "exec_1", "保留 skillExecutionId");
+expect(source.agentRunId === "run_1", "保留 agentRunId");
+expect(source.proposalIndex === 0, "保留 proposalIndex");
+expect(
+  source.idempotencyKey === "exec_1:0:sales.update_followup",
+  "来源链含幂等键",
+);
+expect(source.orgId === "org_1", "来源链含 orgId");
+
+const sourceNoRun = buildAgentSkillActionSource({
+  orgId: "org_1",
+  skillId: "skill_1",
+  skillSlug: "tender-bid-no-bid",
+  skillExecutionId: "exec_2",
+  agentRunId: null,
+  proposalIndex: 2,
+  actionType: "grader.project_task",
+});
+expect(sourceNoRun.agentRunId === "", "无 agentRunId 时为空串");
 
 console.log(
   `\n${failed === 0 ? "✅" : "❌"} pending-action-bridge: ${total - failed}/${total} 通过`,

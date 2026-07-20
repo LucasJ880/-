@@ -14,11 +14,13 @@ import { db } from "@/lib/db";
 import {
   collectPendingProposals,
   materializeSkillPendingActions,
+  buildSkillPendingIdempotencyKey,
 } from "@/lib/agent-core/skills/pending-action-bridge";
 import {
   executePendingAction,
   rejectPendingAction,
 } from "@/lib/pending-actions/executor";
+import { randomUUID } from "crypto";
 
 const orgArgIdx = process.argv.indexOf("--org");
 const ORG_CODE =
@@ -92,28 +94,62 @@ async function main() {
   const collected = collectPendingProposals(fixture);
   ok(collected.length === 2, `收集到 ${collected.length} 条提案`);
 
-  // ── 2) 落库（含非法类型 skip）──
-  const materialized = await materializeSkillPendingActions({
-    parsed: fixture,
-    userId,
-    orgId: org.id,
-    skillSlug: "verify-enterprise-pending-loop",
-    projectId: project?.id,
-  });
+  // ── 2) 落库（含非法类型 skip）+ 幂等 + 来源链 ──
+  const fakeExecutionId = `verify-exec-${randomUUID()}`;
+  const fakeSkillId = `verify-skill-${randomUUID()}`;
+  const materializeOnce = () =>
+    materializeSkillPendingActions({
+      parsed: fixture,
+      userId,
+      orgId: org.id,
+      skillId: fakeSkillId,
+      skillSlug: "verify-enterprise-pending-loop",
+      skillExecutionId: fakeExecutionId,
+      agentRunId: null,
+      projectId: project?.id,
+    });
+
+  const materialized = await materializeOnce();
   ok(materialized.created.length === 1, "合法提案落库 1 条");
   ok(
     materialized.skipped.some((s) => s.reason.includes("白名单")),
     "非法直发类型被跳过",
   );
+  ok(materialized.created[0].reused !== true, "首次落库非 reused");
+
+  const again = await materializeOnce();
+  ok(again.created.length === 1, "重复处理仍返回 1 条");
+  ok(again.created[0].reused === true, "重复处理标记 reused");
+  ok(
+    again.created[0].id === materialized.created[0].id,
+    "幂等返回同一 PendingAction",
+  );
 
   const actionId = materialized.created[0].id;
   const row = await db.pendingAction.findUnique({
     where: { id: actionId },
-    select: { id: true, status: true, type: true, orgId: true, title: true },
+    select: { id: true, status: true, type: true, orgId: true, title: true, payload: true },
   });
   ok(row?.status === "pending", `草稿状态 pending (${row?.id})`);
   ok(row?.type === "grader.internal_note", "类型为 grader.internal_note");
   ok(row?.orgId === org.id, "组织隔离 orgId 正确");
+
+  const meta = (row?.payload as { metadata?: Record<string, unknown> } | null)
+    ?.metadata;
+  ok(meta?.source === "AGENT_SKILL", "metadata.source=AGENT_SKILL");
+  ok(meta?.skillId === fakeSkillId, "metadata.skillId");
+  ok(meta?.skillSlug === "verify-enterprise-pending-loop", "metadata.skillSlug");
+  ok(meta?.skillExecutionId === fakeExecutionId, "metadata.skillExecutionId");
+  ok(meta?.proposalIndex === 0, "metadata.proposalIndex");
+  ok(
+    meta?.idempotencyKey ===
+      buildSkillPendingIdempotencyKey(
+        fakeExecutionId,
+        0,
+        "grader.internal_note",
+      ),
+    "metadata.idempotencyKey",
+  );
 
   // ── 3a) 无项目或 skip-execute：拒绝路径 ──
   if (!project || SKIP_EXECUTE) {
@@ -164,7 +200,9 @@ async function main() {
     parsed: rejectFixture,
     userId,
     orgId: org.id,
+    skillId: fakeSkillId,
     skillSlug: "verify-enterprise-pending-loop",
+    skillExecutionId: `verify-exec-reject-${randomUUID()}`,
     projectId: project.id,
   });
   ok(m2.created.length === 1, "第二条草稿落库");

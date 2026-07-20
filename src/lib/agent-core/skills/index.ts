@@ -15,8 +15,11 @@ export { DIGITAL_EMPLOYEE_ROLES } from "./digital-employee-roles";
 export {
   materializeSkillPendingActions,
   collectPendingProposals,
+  buildSkillPendingIdempotencyKey,
+  buildAgentSkillActionSource,
   SKILL_PENDING_ACTION_ALLOWLIST,
 } from "./pending-action-bridge";
+export type { AgentSkillActionSource } from "./pending-action-bridge";
 export type {
   DynamicSkillDef,
   SkillRunInput,

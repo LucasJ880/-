@@ -266,8 +266,10 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
       parsed,
       userId: input.userId,
       orgId: input.orgId,
+      skillId: skill.id,
       skillSlug: skill.slug,
       skillExecutionId: execution.id,
+      agentRunId: input.agentRunId ?? null,
       projectId,
     });
     pendingActions = materialized.created;

@@ -3,8 +3,12 @@
  *
  * 数字员工 JSON 技能可在输出中带 pendingActionProposal；
  * 本模块仅创建待审批草稿，绝不自动批准/执行。
+ *
+ * 幂等：同一 SkillExecution + proposalIndex + action type 只落一条；
+ * 重复处理返回已有 PendingAction。
  */
 
+import { db } from "@/lib/db";
 import { createDraft } from "@/lib/pending-actions/drafts";
 import type { PendingActionType } from "@/lib/pending-actions/types";
 
@@ -21,6 +25,19 @@ export const SKILL_PENDING_ACTION_ALLOWLIST = [
 export type SkillPendingActionType =
   (typeof SKILL_PENDING_ACTION_ALLOWLIST)[number];
 
+/** PendingAction.metadata 中的技能来源链（可追溯数字员工 / 技能 / 执行） */
+export interface AgentSkillActionSource {
+  source: "AGENT_SKILL";
+  skillId: string;
+  skillSlug: string;
+  skillExecutionId: string;
+  agentRunId: string;
+  proposalIndex: number;
+  /** 幂等键：skillExecutionId + proposalIndex + type */
+  idempotencyKey: string;
+  orgId: string;
+}
+
 export interface SkillPendingProposal {
   type: string;
   title?: string;
@@ -35,11 +52,14 @@ export interface MaterializedPendingAction {
   type: string;
   title: string;
   preview: string;
+  /** true = 命中幂等，返回已有草稿 */
+  reused?: boolean;
+  proposalIndex: number;
 }
 
 export interface MaterializeResult {
   created: MaterializedPendingAction[];
-  skipped: { reason: string; proposal: SkillPendingProposal }[];
+  skipped: { reason: string; proposal: SkillPendingProposal; proposalIndex?: number }[];
 }
 
 function isAllowlisted(type: string): type is SkillPendingActionType {
@@ -53,7 +73,41 @@ function asProposal(value: unknown): SkillPendingProposal | null {
   return obj;
 }
 
-/** 从技能 JSON 输出中收集全部提案 */
+/** 幂等键：SkillExecution ID + proposal index + action type */
+export function buildSkillPendingIdempotencyKey(
+  skillExecutionId: string,
+  proposalIndex: number,
+  actionType: string,
+): string {
+  return `${skillExecutionId}:${proposalIndex}:${actionType}`;
+}
+
+export function buildAgentSkillActionSource(input: {
+  orgId: string;
+  skillId: string;
+  skillSlug: string;
+  skillExecutionId: string;
+  agentRunId?: string | null;
+  proposalIndex: number;
+  actionType: string;
+}): AgentSkillActionSource {
+  return {
+    source: "AGENT_SKILL",
+    skillId: input.skillId || "",
+    skillSlug: input.skillSlug || "",
+    skillExecutionId: input.skillExecutionId,
+    agentRunId: input.agentRunId || "",
+    proposalIndex: input.proposalIndex,
+    idempotencyKey: buildSkillPendingIdempotencyKey(
+      input.skillExecutionId,
+      input.proposalIndex,
+      input.actionType,
+    ),
+    orgId: input.orgId,
+  };
+}
+
+/** 从技能 JSON 输出中收集全部提案（顺序即 proposalIndex） */
 export function collectPendingProposals(
   parsed: unknown,
 ): SkillPendingProposal[] {
@@ -100,7 +154,7 @@ export function collectPendingProposals(
 
 function buildPayload(
   proposal: SkillPendingProposal,
-  orgId: string,
+  source: AgentSkillActionSource,
 ): Record<string, unknown> {
   const {
     type: _t,
@@ -114,25 +168,58 @@ function buildPayload(
       ? { ...payload }
       : { ...rest };
 
-  const meta =
+  const existingMeta =
     base.metadata && typeof base.metadata === "object"
-      ? { ...(base.metadata as Record<string, unknown>) }
+      ? (base.metadata as Record<string, unknown>)
       : {};
-  if (!meta.orgId) meta.orgId = orgId;
-  base.metadata = meta;
+
+  // 来源链字段以桥接器为准，避免被模型输出覆盖
+  base.metadata = {
+    ...existingMeta,
+    ...source,
+    orgId: source.orgId,
+  };
   return base;
+}
+
+async function findExistingByIdempotencyKey(input: {
+  orgId: string;
+  type: string;
+  idempotencyKey: string;
+}): Promise<{
+  id: string;
+  type: string;
+  title: string;
+  preview: string;
+} | null> {
+  // Prisma JSON path 查询（PostgreSQL）
+  const hit = await db.pendingAction.findFirst({
+    where: {
+      orgId: input.orgId,
+      type: input.type,
+      payload: {
+        path: ["metadata", "idempotencyKey"],
+        equals: input.idempotencyKey,
+      },
+    },
+    select: { id: true, type: true, title: true, preview: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return hit;
 }
 
 /**
  * 将技能提案落为 PendingAction(pending)。
- * 非法类型 / 缺标题 → skip，不抛错（避免阻断技能主输出）。
+ * 非法类型 → skip；同一执行的同一提案 → 复用已有草稿。
  */
 export async function materializeSkillPendingActions(input: {
   parsed: unknown;
   userId: string;
   orgId: string;
+  skillId?: string;
   skillSlug?: string;
   skillExecutionId?: string;
+  agentRunId?: string | null;
   projectId?: string;
   maxActions?: number;
 }): Promise<MaterializeResult> {
@@ -141,31 +228,75 @@ export async function materializeSkillPendingActions(input: {
   const skipped: MaterializeResult["skipped"] = [];
   const max = input.maxActions ?? 5;
 
-  for (const proposal of proposals.slice(0, max)) {
-    if (!isAllowlisted(proposal.type)) {
+  if (!input.skillExecutionId?.trim()) {
+    for (const proposal of proposals) {
       skipped.push({
-        reason: `类型不在白名单: ${proposal.type}`,
+        reason: "缺少 skillExecutionId，拒绝落库（无法保证幂等与来源链）",
         proposal,
+      });
+    }
+    return { created, skipped };
+  }
+
+  const skillExecutionId = input.skillExecutionId.trim();
+
+  for (let proposalIndex = 0; proposalIndex < proposals.length; proposalIndex++) {
+    const proposal = proposals[proposalIndex];
+
+    if (proposalIndex >= max) {
+      skipped.push({
+        reason: `超过单次上限 ${max}`,
+        proposal,
+        proposalIndex,
       });
       continue;
     }
 
-    const title =
-      (typeof proposal.title === "string" && proposal.title.trim()) ||
-      `数字员工建议：${proposal.type}`;
-    const preview =
-      (typeof proposal.preview === "string" && proposal.preview.trim()) ||
-      title;
-    const payload = buildPayload(proposal, input.orgId);
+    if (!isAllowlisted(proposal.type)) {
+      skipped.push({
+        reason: `类型不在白名单: ${proposal.type}`,
+        proposal,
+        proposalIndex,
+      });
+      continue;
+    }
 
-    // 把技能溯源写入 payload，便于审计
-    payload.skillTrace = {
-      skillSlug: input.skillSlug ?? null,
-      skillExecutionId: input.skillExecutionId ?? null,
-      source: "enterprise_skill",
-    };
+    const source = buildAgentSkillActionSource({
+      orgId: input.orgId,
+      skillId: input.skillId ?? "",
+      skillSlug: input.skillSlug ?? "",
+      skillExecutionId,
+      agentRunId: input.agentRunId,
+      proposalIndex,
+      actionType: proposal.type,
+    });
 
     try {
+      const existing = await findExistingByIdempotencyKey({
+        orgId: input.orgId,
+        type: proposal.type,
+        idempotencyKey: source.idempotencyKey,
+      });
+      if (existing) {
+        created.push({
+          id: existing.id,
+          type: existing.type,
+          title: existing.title,
+          preview: existing.preview,
+          reused: true,
+          proposalIndex,
+        });
+        continue;
+      }
+
+      const title =
+        (typeof proposal.title === "string" && proposal.title.trim()) ||
+        `数字员工建议：${proposal.type}`;
+      const preview =
+        (typeof proposal.preview === "string" && proposal.preview.trim()) ||
+        title;
+      const payload = buildPayload(proposal, source);
+
       const result = await createDraft({
         type: proposal.type,
         title,
@@ -173,6 +304,7 @@ export async function materializeSkillPendingActions(input: {
         payload,
         userId: input.userId,
         orgId: input.orgId,
+        agentRunId: input.agentRunId || undefined,
         projectId:
           input.projectId ||
           (typeof payload.projectId === "string"
@@ -189,24 +321,22 @@ export async function materializeSkillPendingActions(input: {
           type: data.type ?? proposal.type,
           title: data.title ?? title,
           preview: data.preview ?? preview,
+          reused: false,
+          proposalIndex,
         });
       } else {
         skipped.push({
           reason: result.error || "createDraft 失败",
           proposal,
+          proposalIndex,
         });
       }
     } catch (err) {
       skipped.push({
         reason: err instanceof Error ? err.message : String(err),
         proposal,
+        proposalIndex,
       });
-    }
-  }
-
-  if (proposals.length > max) {
-    for (const proposal of proposals.slice(max)) {
-      skipped.push({ reason: `超过单次上限 ${max}`, proposal });
     }
   }
 

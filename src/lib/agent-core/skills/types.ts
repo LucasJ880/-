@@ -30,6 +30,8 @@ export interface SkillRunInput {
   variables: Record<string, string>;
   userId: string;
   orgId: string;
+  /** 关联 AgentRun（可选，写入 PendingAction 来源链） */
+  agentRunId?: string;
   execution?: {
     model?: string;
     maxTokens?: number;
