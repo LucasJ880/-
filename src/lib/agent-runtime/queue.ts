@@ -26,6 +26,8 @@ export type BackgroundRunPayload = {
   content: string;
   messageType: string;
   plan: AgentPlan;
+  /** 主管 AI 多步任务标记（由 process 在 forceForeground 时进入 Supervisor） */
+  supervisor?: boolean;
 };
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {

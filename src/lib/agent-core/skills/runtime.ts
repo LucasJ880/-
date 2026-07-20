@@ -154,6 +154,26 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     variables.brandContext =
       (await getBrandContext(input.orgId)) ?? "（未配置品牌语料，请基于用户输入创作，不要编造品牌信息）";
   }
+  // 营销技能：自动注入 Product Marketing Context（按 org 隔离，缺省不编造）
+  if (
+    skill.userPromptTemplate.includes("{{productMarketingContext}}") &&
+    !variables.productMarketingContext?.trim()
+  ) {
+    try {
+      const { loadMarketingFoundationContext } = await import(
+        "@/lib/marketing/product-marketing-context"
+      );
+      const foundation = await loadMarketingFoundationContext({
+        orgId: input.orgId,
+        skillSlug: skill.slug,
+        userId: input.userId,
+      });
+      variables.productMarketingContext = foundation.productMarketingContextText;
+    } catch {
+      variables.productMarketingContext =
+        "（无法加载产品营销上下文；请基于用户输入，并列出 missingInformation，禁止编造）";
+    }
+  }
 
   const userPrompt = compileTemplate(skill.userPromptTemplate, variables);
 
@@ -192,6 +212,8 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
       temperature: skill.temperature,
       userId: input.userId,
       orgId: input.orgId,
+      agentRunId: input.agentRunId,
+      role: input.role,
       maxToolRounds: 3,
     });
   } catch (error) {

@@ -28,8 +28,21 @@ export const DIGITAL_EMPLOYEE_ROLES: DigitalEmployeeRole[] = [
   {
     id: "marketing-growth-digital-employee",
     name: "营销增长数字员工",
-    description: "GEO/CRO 审计，并复用现有运营技能包",
-    skillSlugs: ["marketing-geo-audit", "marketing-cro-audit"],
+    description:
+      "产品营销档案、客户研究、竞品、获客、文案、邮件、广告、实验、销售赋能，以及 GEO/CRO 与运营技能包",
+    skillSlugs: [
+      "marketing-product-context",
+      "marketing-customer-research",
+      "marketing-competitor-profile",
+      "marketing-prospecting-campaign",
+      "marketing-copywriting",
+      "marketing-email-campaign",
+      "marketing-paid-campaign-plan",
+      "marketing-experiment-design",
+      "marketing-sales-enablement",
+      "marketing-geo-audit",
+      "marketing-cro-audit",
+    ],
     includeOperationsSkills: true,
   },
   {

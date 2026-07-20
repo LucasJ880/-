@@ -3651,6 +3651,8 @@ model AgentRun {
   errorCode     String?
   errorMessage  String?   @db.Text
   metadata      Json?
+  /// 主管 AI Supervisor 持久化状态（与 metadata.background 隔离）
+  supervisorState Json?
   /// 后台消费：尝试次数
   attempts      Int       @default(0)
   /// 租约过期时间（running 超时可被重新认领）
@@ -4376,6 +4378,8 @@ model MarketingBrandProfile {
   competitorsJson       Json  @default("[]")
   forbiddenContextsJson Json  @default("[]")
   canonicalNapJson      Json?
+  /// 已确认的产品营销上下文（Product Marketing Context）；AI 只能提议更新，不可直接覆盖
+  productMarketingContextJson Json?
 
   validationStatus String    @default("draft") // draft / valid / needs_review
   validationScore  Int       @default(0)

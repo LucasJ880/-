@@ -834,3 +834,68 @@ registry.register({
     };
   },
 });
+
+registry.register({
+  name: "marketing_get_product_context",
+  description: "读取当前组织已确认/聚合的 Product Marketing Context（只读，按 org 隔离）",
+  domain: "system",
+  parameters: { type: "object", properties: {} },
+  execute: async (ctx) => {
+    const denied = await requireOrgMember(ctx);
+    if (denied) return { success: false, data: null, error: denied };
+    const {
+      getProductMarketingContext,
+      getProductContextCompleteness,
+    } = await import("@/lib/marketing/product-marketing-context");
+    const context = await getProductMarketingContext(ctx.orgId);
+    const completeness = getProductContextCompleteness(context);
+    return {
+      success: true,
+      data: {
+        context,
+        completeness,
+        // 不返回密钥；仅结构化营销上下文
+      },
+    };
+  },
+});
+
+registry.register({
+  name: "marketing_get_campaigns",
+  description: "列出当前组织营销活动（只读）",
+  domain: "system",
+  parameters: {
+    type: "object",
+    properties: {
+      status: { type: "string" },
+      limit: { type: "number" },
+    },
+    required: [],
+  },
+  execute: async (ctx) => {
+    const denied = await requireOrgMember(ctx);
+    if (denied) return { success: false, data: null, error: denied };
+    const campaigns = await db.marketingCampaign.findMany({
+      where: {
+        orgId: ctx.orgId,
+        ...(ctx.args.status ? { status: String(ctx.args.status) } : {}),
+      },
+      orderBy: { updatedAt: "desc" },
+      take: Number(ctx.args.limit ?? 20),
+      select: {
+        id: true,
+        name: true,
+        objective: true,
+        product: true,
+        geography: true,
+        status: true,
+        budget: true,
+        currency: true,
+        startsAt: true,
+        endsAt: true,
+        updatedAt: true,
+      },
+    });
+    return { success: true, data: { campaigns } };
+  },
+});

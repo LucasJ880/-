@@ -138,6 +138,7 @@ export default function GrowthCenterPage() {
           {data.latestAudit ? <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">{data.latestAudit.dimensions.map((row) => <div key={row.dimension} className="rounded-lg bg-background p-3 text-center"><div className="text-xs text-muted">{DIMENSION_LABELS[row.dimension as keyof typeof DIMENSION_LABELS] ?? row.dimension}</div><div className="mt-1 text-xl font-bold">{row.score}</div><div className="text-xs text-muted">{row.grade}</div></div>)}</div> : <p className="mt-4 text-sm text-muted">还没有有效体检。错误地域、行业或未确认竞争对手会被拒绝且不计分。</p>}
         </section>
         <section className="rounded-xl border border-border bg-card-bg p-4"><h2 className="font-semibold">快捷入口</h2><div className="mt-3 space-y-2 text-sm">
+          <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/marketing/employee"><Megaphone size={16}/>营销数字员工</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/brand"><ClipboardList size={16}/>企业事实中心</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/metrics"><Activity size={16}/>渠道数据接入</Link>
           <Link className="flex items-center gap-2 rounded-lg bg-background p-3" href="/operations/growth/campaigns"><Megaphone size={16}/>营销活动</Link>

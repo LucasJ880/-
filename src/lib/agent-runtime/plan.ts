@@ -11,6 +11,7 @@
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import { db } from "@/lib/db";
+import { routeMarketingSkillIntent } from "@/lib/marketing/skill-router";
 
 export type AgentPlanComplexity = "simple" | "normal" | "complex";
 export type AgentPlanSource = "llm" | "rules" | "fallback";
@@ -45,6 +46,7 @@ const ALLOWED_INTENTS = new Set([
   "customer",
   "quote",
   "status",
+  "marketing",
   "other",
 ]);
 
@@ -70,27 +72,42 @@ export function createAgentPlanFromRules(input: {
   const text = input.content || "";
   let intent = "chat";
   let confidence = 0.5;
+  let skills: string[] = [];
 
-  if (/邮件|gmail|发信/.test(text)) {
-    intent = "email";
-    confidence = 0.7;
-  } else if (/项目|任务|进度/.test(text)) {
-    intent = "project";
-    confidence = 0.7;
-  } else if (/报价/.test(text)) {
-    intent = "quote";
-    confidence = 0.7;
-  } else if (/客户|跟进/.test(text)) {
-    intent = "customer";
-    confidence = 0.65;
+  // 营销数字员工：规则路由优先（结合语义模式，非单纯关键词）
+  const mkt = routeMarketingSkillIntent(text);
+  if (mkt.slug && mkt.confidence >= 0.7) {
+    intent = "marketing";
+    confidence = mkt.confidence;
+    skills = [mkt.slug];
+  }
+
+  if (intent === "chat") {
+    if (/邮件|gmail|发信/.test(text)) {
+      intent = "email";
+      confidence = 0.7;
+    } else if (/项目|任务|进度/.test(text)) {
+      intent = "project";
+      confidence = 0.7;
+    } else if (/报价/.test(text)) {
+      intent = "quote";
+      confidence = 0.7;
+    } else if (/客户|跟进/.test(text)) {
+      intent = "customer";
+      confidence = 0.65;
+    }
   }
 
   const needsTools =
-    /查|搜|列|统计|报价|邮件|项目|客户|跟进|任务|deadline/.test(text) &&
-    text.length > 4;
-  const requiresApproval = /发送邮件|发邮件|正式报价|删除|批量/.test(text);
+    skills.length > 0 ||
+    (/查|搜|列|统计|报价|邮件|项目|客户|跟进|任务|deadline/.test(text) &&
+      text.length > 4);
+  const requiresApproval =
+    /发送邮件|发邮件|正式报价|删除|批量|直接投放|直接上线|改预算/.test(text);
   const requiresBackgroundRun =
-    text.length > 200 || /分析|整理|总结|对比|报告/.test(text);
+    skills.length > 0 ||
+    text.length > 200 ||
+    /分析|整理|总结|对比|报告/.test(text);
   const complexity: AgentPlanComplexity = requiresBackgroundRun
     ? "complex"
     : needsTools
@@ -106,10 +123,14 @@ export function createAgentPlanFromRules(input: {
       opportunityId: input.session?.currentOpportunityId || undefined,
       quoteId: input.session?.currentQuoteId || undefined,
     },
-    skills: [],
+    skills,
     tools: [],
     needsTools,
-    canAnswerDirectly: !needsTools && !requiresApproval && complexity === "simple",
+    canAnswerDirectly:
+      skills.length === 0 &&
+      !needsTools &&
+      !requiresApproval &&
+      complexity === "simple",
     requiresBackgroundRun,
     requiresApproval,
     complexity,
@@ -353,7 +374,7 @@ function buildPlannerPrompts(input: {
   const systemPrompt = `你是青砚的对话规划器。只输出一个 JSON 对象，不要 Markdown，不要解释。
 字段：
 {
-  "intent": "chat|email|project|customer|quote|status|other",
+  "intent": "chat|email|project|customer|quote|status|marketing|other",
   "confidence": 0-1,
   "entities": { "projectId?:", "customerId?:", "opportunityId?:", "quoteId?:" },
   "skills": string[],
@@ -370,9 +391,10 @@ function buildPlannerPrompts(input: {
 2. 实体 ID 仅在会话上下文已给出时填写，不要编造 ID
 3. 问候/闲聊/简单确认：needsTools=false, canAnswerDirectly=true, 并给出 initialResponse
 4. 需要查数据/写操作：needsTools=true, canAnswerDirectly=false
-5. 发送邮件、改正式报价、删除、批量改客户：requiresApproval=true, canAnswerDirectly=false
+5. 发送邮件、改正式报价、删除、批量改客户、直接投放/改预算：requiresApproval=true, canAnswerDirectly=false
 6. tools 只是建议，不要假设已经执行；禁止建议直接发送邮件的工具
-7. initialResponse 用简洁中文，适合手机阅读`;
+7. 营销相关（产品档案/客户研究/竞品/获客/文案/邮件活动/广告规划/实验/销售赋能/GEO/CRO）时 intent=marketing，并在 skills 填入对应 slug（如 marketing-product-context、marketing-competitor-profile），不得建议直接发送/发布/投放工具
+8. initialResponse 用简洁中文，适合手机阅读`;
 
   const userPrompt = `会话上下文：${sessionHint || "无"}
 用户消息：${input.content.slice(0, 1200)}`;
@@ -441,6 +463,15 @@ export async function createAgentPlan(input: {
       session: input.session,
       entities: sanitized.entities,
     });
+    // LLM 未点名营销技能时，用规则路由补齐（不覆盖已有 skills）
+    if (sanitized.skills.length === 0 && rules.skills.length > 0) {
+      sanitized.skills = rules.skills;
+      sanitized.intent = "marketing";
+      sanitized.needsTools = true;
+      sanitized.canAnswerDirectly = false;
+      if (rules.requiresBackgroundRun) sanitized.requiresBackgroundRun = true;
+      if (rules.requiresApproval) sanitized.requiresApproval = true;
+    }
     sanitized.plannerModel = "fast";
     sanitized.source = "llm";
     return sanitized;

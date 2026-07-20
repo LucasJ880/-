@@ -6,6 +6,7 @@
 import { ENTERPRISE_SKILLS } from "../enterprise-index";
 import { DIGITAL_EMPLOYEE_ROLES } from "../digital-employee-roles";
 import { OPERATIONS_SKILLS } from "../operations-seed";
+import { MARKETING_PHASE2_SKILLS } from "../marketing-phase2-seed";
 
 let total = 0;
 let failed = 0;
@@ -106,11 +107,16 @@ for (const skill of ENTERPRISE_SKILLS) {
   }
 }
 
+const phase2Slugs = new Set(MARKETING_PHASE2_SKILLS.map((s) => s.slug));
+const knownSkillSlugs = new Set([...unique, ...phase2Slugs]);
 const roleSlugs = DIGITAL_EMPLOYEE_ROLES.flatMap((r) => r.skillSlugs);
 for (const slug of roleSlugs) {
-  expect(unique.has(slug), `角色推荐技能存在: ${slug}`);
+  expect(knownSkillSlugs.has(slug), `角色推荐技能存在: ${slug}`);
 }
 expect(DIGITAL_EMPLOYEE_ROLES.length === 4, "四个数字员工角色分组");
+expect(OPERATIONS_SKILLS.length === 23, "运营技能仍为 23 条");
+expect(ENTERPRISE_SKILLS.length === 11, "Phase1 企业技能仍为 11 条");
+expect(MARKETING_PHASE2_SKILLS.length === 9, "Phase2 营销技能 9 条");
 
 console.log(
   `\n${failed === 0 ? "✅" : "❌"} enterprise-skills: ${total - failed}/${total} 通过`,

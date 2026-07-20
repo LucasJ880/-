@@ -35,6 +35,9 @@
     "seed:ops-skills:write": "tsx scripts/seed-operations-skills.ts --write",
     "seed:enterprise-skills": "tsx scripts/seed-enterprise-skills.ts",
     "seed:enterprise-skills:write": "tsx scripts/seed-enterprise-skills.ts --write",
+    "seed:marketing-phase2": "tsx scripts/seed-marketing-phase2-skills.ts",
+    "seed:marketing-phase2:write": "tsx scripts/seed-marketing-phase2-skills.ts --write",
+    "seed:org:sunny-home-deco": "tsx scripts/seed-org-sunny-home-deco.ts",
     "verify:enterprise-pending-loop": "tsx scripts/verify-enterprise-pending-loop.ts",
     "import:visualizer-catalog": "tsx scripts/import-visualizer-catalog.ts",
     "import:visualizer-catalog:write": "tsx scripts/import-visualizer-catalog.ts --write",
@@ -46,6 +49,8 @@
     "db:push:dev": "prisma db push"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.3",
+    "@langchain/langgraph": "^1.4.8",
     "@prisma/client": "^6.19.2",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
@@ -84,7 +89,8 @@
     "remark-gfm": "^4.0.1",
     "resend": "^6.10.0",
     "tailwind-merge": "^3.5.0",
-    "unpdf": "^1.4.0"
+    "unpdf": "^1.4.0",
+    "zod": "^4.4.3"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

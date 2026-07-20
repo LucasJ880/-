@@ -20,6 +20,8 @@ export const SKILL_PENDING_ACTION_ALLOWLIST = [
   "grader.internal_note",
   "grader.project_task",
   "marketing.activate_campaign",
+  "marketing.propose_context_update",
+  "marketing.create_campaign_draft",
 ] as const satisfies readonly PendingActionType[];
 
 export type SkillPendingActionType =

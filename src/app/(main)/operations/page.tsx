@@ -57,6 +57,18 @@ export default function OperationsPage() {
           </div>
         </Link>
         <Link
+          href="/marketing/employee"
+          className="flex items-center gap-3 rounded-xl border border-accent/40 bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <Megaphone className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">营销数字员工</div>
+            <div className="mt-0.5 text-xs text-muted">
+              产品档案、客户研究、竞品、文案、邮件与广告规划（副作用须审批）
+            </div>
+          </div>
+        </Link>
+        <Link
           href="/operations/intelligence"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
         >

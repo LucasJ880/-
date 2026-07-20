@@ -26,6 +26,8 @@ import type {
   EmailDraftPayload,
   MarketingActivateCampaignPayload,
   MarketingApproveResearchPlanPayload,
+  MarketingProposeContextUpdatePayload,
+  MarketingCreateCampaignDraftPayload,
 } from "./types";
 import {
   isUnsupportedPendingActionType,
@@ -175,6 +177,18 @@ export async function executePendingAction(
       case "marketing.approve_research_plan":
         exec = await execMarketingApproveResearchPlan(
           action.payload as unknown as MarketingApproveResearchPlanPayload,
+          ctx,
+        );
+        break;
+      case "marketing.propose_context_update":
+        exec = await execMarketingProposeContextUpdate(
+          action.payload as unknown as MarketingProposeContextUpdatePayload,
+          ctx,
+        );
+        break;
+      case "marketing.create_campaign_draft":
+        exec = await execMarketingCreateCampaignDraft(
+          action.payload as unknown as MarketingCreateCampaignDraftPayload,
           ctx,
         );
         break;
@@ -349,6 +363,107 @@ async function execMarketingActivateCampaign(
     afterData: { status: "active", via: "pending_action" },
   });
   return { ok: true, resultRef: campaign.id, message: "营销活动已审批并启用" };
+}
+
+async function execMarketingProposeContextUpdate(
+  payload: MarketingProposeContextUpdatePayload,
+  ctx: ExecuteContext,
+): Promise<ExecuteResult> {
+  const orgId = payload?.metadata?.orgId;
+  if (!orgId) return { ok: false, error: "缺少组织信息，拒绝执行" };
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const membership = await getOrgMembership(ctx.userId, orgId);
+  if (!isSuperAdmin(ctx.role ?? "") && membership?.status !== "active") {
+    return { ok: false, error: "无权更新该组织的产品营销上下文" };
+  }
+  if (!payload.context || typeof payload.context !== "object") {
+    return { ok: false, error: "缺少 context 载荷" };
+  }
+  const { approveProductMarketingContextUpdate } = await import(
+    "@/lib/marketing/product-marketing-context"
+  );
+  try {
+    const stored = await approveProductMarketingContextUpdate({
+      orgId,
+      userId: ctx.userId,
+      context: payload.context as unknown as import("@/lib/marketing/product-marketing-context").ProductMarketingContext,
+    });
+    await logAudit({
+      userId: ctx.userId,
+      orgId,
+      action: "marketing_pmc_update",
+      targetType: "marketing_brand_profile",
+      targetId: orgId,
+      afterData: {
+        lastReviewedAt: stored.lastReviewedAt,
+        reason: payload.reason ?? null,
+        via: "pending_action",
+        skillExecutionId: payload.metadata?.skillExecutionId ?? null,
+      },
+    });
+    return {
+      ok: true,
+      resultRef: orgId,
+      message: "产品营销上下文已人工确认并写入",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "PMC 更新失败",
+    };
+  }
+}
+
+async function execMarketingCreateCampaignDraft(
+  payload: MarketingCreateCampaignDraftPayload,
+  ctx: ExecuteContext,
+): Promise<ExecuteResult> {
+  const orgId = payload?.metadata?.orgId;
+  if (!orgId) return { ok: false, error: "缺少组织信息，拒绝执行" };
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const membership = await getOrgMembership(ctx.userId, orgId);
+  if (!isSuperAdmin(ctx.role ?? "") && membership?.status !== "active") {
+    return { ok: false, error: "无权在该组织创建营销活动草稿" };
+  }
+  const name = String(payload.name || "").trim();
+  const objective = String(payload.objective || "").trim();
+  const primaryConversion = String(payload.primaryConversion || "").trim();
+  if (!name || !objective || !primaryConversion) {
+    return { ok: false, error: "活动草稿缺少 name/objective/primaryConversion" };
+  }
+  const campaign = await db.marketingCampaign.create({
+    data: {
+      orgId,
+      name,
+      objective,
+      product: payload.product?.trim() || null,
+      geography: payload.geography?.trim() || null,
+      offer: payload.offer?.trim() || null,
+      primaryConversion,
+      status: "draft",
+      budget: typeof payload.budget === "number" ? payload.budget : null,
+      currency: payload.currency?.trim() || "CAD",
+      createdById: ctx.userId,
+    },
+    select: { id: true },
+  });
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "marketing_campaign_draft_create",
+    targetType: "marketing_campaign",
+    targetId: campaign.id,
+    afterData: {
+      status: "draft",
+      via: "pending_action",
+      skillExecutionId: payload.metadata?.skillExecutionId ?? null,
+    },
+  });
+  return {
+    ok: true,
+    resultRef: campaign.id,
+    message: "营销活动草稿已创建（未启用、未投放）",
+  };
 }
 
 /** 对外入口 —— 用户点"拒绝" */

@@ -50,6 +50,14 @@ function withDefaultSkills(plan: AgentPlan): AgentPlan {
   return skills.length ? { ...plan, skills } : plan;
 }
 
+function pickMarketingSkillSlug(plan: AgentPlan): string | null {
+  for (const s of plan.skills) {
+    const name = s.trim();
+    if (name.startsWith("marketing-")) return name;
+  }
+  return null;
+}
+
 export async function executeConversationRun(input: {
   orgId: string;
   userId: string;
@@ -130,6 +138,99 @@ export async function executeConversationRun(input: {
     }).catch(() => {});
   }
 
+  // ── 主管 AI：Feature Flag 开启且复杂度为 SUPERVISOR（或 intent=marketing 多步）时进入 ──
+  try {
+    const { isSupervisorEnabled, routeComplexity, runSupervisor } = await import(
+      "@/lib/agent-supervisor"
+    );
+    const org = await db.organization.findUnique({
+      where: { id: orgId },
+      select: { code: true },
+    });
+    const enabled = isSupervisorEnabled({
+      userId,
+      role: input.userRole,
+      orgId,
+      orgCode: org?.code,
+    });
+    if (enabled) {
+      const complexity = routeComplexity({
+        content: input.content,
+        pageContext: {
+          projectId: plan.entities.projectId,
+          customerId: plan.entities.customerId,
+          opportunityId: plan.entities.opportunityId,
+          quoteId: plan.entities.quoteId,
+        },
+      });
+      if (complexity.mode === "supervisor") {
+        // 主管多步任务入后台，避免微信链路阻塞
+        if (!input.forceForeground) {
+          await enqueueBackgroundAgentRun({
+            orgId,
+            runId,
+            payload: {
+              background: true,
+              userId,
+              userRole: input.userRole,
+              userName: input.userName,
+              channel: input.channel,
+              channelUserId,
+              content: input.content,
+              messageType: input.messageType,
+              plan,
+              supervisor: true,
+            },
+          });
+          return {
+            text: "这个任务需要多步协调，我已按主管模式在后台处理。可发送「状态」查看进度。",
+            backgroundQueued: true,
+          };
+        }
+        const result = await runSupervisor({
+          sessionId: input.session.id,
+          runId,
+          orgId,
+          userId,
+          userRole: input.userRole,
+          content: input.content,
+          pageContext: {
+            projectId: plan.entities.projectId,
+            customerId: plan.entities.customerId,
+            opportunityId: plan.entities.opportunityId,
+            quoteId: plan.entities.quoteId,
+          },
+        });
+        if (result.status !== "waiting_for_approval") {
+          await persistSuccess({
+            orgId,
+            runId,
+            session: input.session,
+            userText: input.content,
+            assistantText: result.text,
+            plan,
+          });
+        }
+        return { text: result.text };
+      }
+    }
+  } catch (supervisorError) {
+    // Supervisor 初始化失败 → 降级现有路径，不阻断主助手
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "planning.completed",
+      title: "主管模式不可用，已降级",
+      payload: {
+        error:
+          supervisorError instanceof Error
+            ? supervisorError.message
+            : String(supervisorError),
+      },
+      visibleToUser: false,
+    }).catch(() => {});
+  }
+
   // ── Phase-B：长任务入队，不阻塞手机对话 ──
   const shouldBackground =
     !input.forceForeground &&
@@ -196,6 +297,69 @@ export async function executeConversationRun(input: {
       plan,
     });
     return { text: reply };
+  }
+
+  // ── 营销数字员工：Plan 命中 marketing-* 时走现有 runSkill（无第二套 Runtime）──
+  const marketingSlug = pickMarketingSkillSlug(plan);
+  if (marketingSlug) {
+    try {
+      await appendAgentRunEvent({
+        orgId,
+        runId,
+        eventType: "skill.started",
+        title: `营销技能 ${marketingSlug}`,
+        payload: { skillSlug: marketingSlug, requiresApproval: plan.requiresApproval },
+        visibleToUser: true,
+      });
+      const { runSkill } = await import("@/lib/agent-core/skills/runtime");
+      const result = await runSkill({
+        slug: marketingSlug,
+        variables: {
+          objective: input.content,
+          rawMaterials: input.content,
+        },
+        userId,
+        orgId,
+        agentRunId: runId,
+      });
+      const pendingHint =
+        result.pendingActions && result.pendingActions.length > 0
+          ? `\n\n已生成 ${result.pendingActions.length} 条待审批草稿，请在营销数字员工或待办中批准后才会生效。`
+          : "";
+      const text =
+        (typeof result.content === "string" && result.content.trim()
+          ? result.content.trim()
+          : "营销任务已完成，请查看结构化结果。") + pendingHint;
+      await appendAgentRunEvent({
+        orgId,
+        runId,
+        eventType: "skill.completed",
+        title: `${marketingSlug} 完成`,
+        payload: {
+          skillSlug: marketingSlug,
+          executionId: result.executionId,
+          pendingCount: result.pendingActions?.length ?? 0,
+        },
+        visibleToUser: false,
+      });
+      await persistSuccess({
+        orgId,
+        runId,
+        session: input.session,
+        userText: input.content,
+        assistantText: text,
+        plan,
+      });
+      return { text };
+    } catch (error) {
+      await failAgentRun(orgId, runId, {
+        code: "tool_failed",
+        message: error instanceof Error ? error.message : "营销技能失败",
+      });
+      return {
+        text: "营销任务没有完成。可能尚未导入对应技能，请先在营销数字员工页运行 Seed，或稍后重试。",
+      };
+    }
   }
 
   // ── 子能力：Plan 点名才跑 ──

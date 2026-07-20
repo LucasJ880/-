@@ -120,6 +120,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   marketing_get_channel_metrics:{ risk: "l0_read", allowRoles: "*" },
   marketing_get_experiments:    { risk: "l0_read", allowRoles: "*" },
   marketing_get_brand_profile:  { risk: "l0_read", allowRoles: "*" },
+  marketing_get_product_context:{ risk: "l0_read", allowRoles: "*" },
+  marketing_get_campaigns:      { risk: "l0_read", allowRoles: "*" },
 
   // ── 组织通用知识库 ──
   org_search_knowledge:         { risk: "l0_read", allowRoles: "*" },

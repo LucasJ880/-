@@ -20,7 +20,11 @@ export type PendingActionType =
   // ── Growth Center 活动启用（审批后从 awaiting_approval → active）──
   | "marketing.activate_campaign"
   // ── 市场研究报告生成的 30 天计划（Leader 审批后创建 Project Task）──
-  | "marketing.approve_research_plan";
+  | "marketing.approve_research_plan"
+  // ── 营销 Phase2：写入已确认 Product Marketing Context（绝不自动）──
+  | "marketing.propose_context_update"
+  // ── 营销 Phase2：创建活动草稿（status=draft，不投放）──
+  | "marketing.create_campaign_draft";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -41,6 +45,14 @@ export interface PendingActionMetadata {
   targetId?: string;
   /** 源 GraderAction.actionType，便于回溯 */
   graderActionType?: string;
+  /** AgentSkill 来源链（可选） */
+  source?: string;
+  skillId?: string;
+  skillSlug?: string;
+  skillExecutionId?: string;
+  agentRunId?: string;
+  proposalIndex?: number;
+  idempotencyKey?: string;
 }
 
 export type PendingActionStatus =
@@ -187,6 +199,25 @@ export interface MarketingApproveResearchPlanPayload {
   metadata: PendingActionMetadata & { orgId: string };
 }
 
+export interface MarketingProposeContextUpdatePayload {
+  /** 完整或补丁后的 Product Marketing Context */
+  context: Record<string, unknown>;
+  reason?: string;
+  metadata: PendingActionMetadata & { orgId: string };
+}
+
+export interface MarketingCreateCampaignDraftPayload {
+  name: string;
+  objective: string;
+  product?: string;
+  geography?: string;
+  offer?: string;
+  primaryConversion: string;
+  budget?: number;
+  currency?: string;
+  metadata: PendingActionMetadata & { orgId: string };
+}
+
 export type PendingActionPayload =
   | ({ type: "sales.update_followup" } & SalesUpdateFollowupPayload)
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
@@ -195,7 +226,9 @@ export type PendingActionPayload =
   | ({ type: "grader.project_task" } & ProjectTaskPayload)
   | ({ type: "grader.email_draft" } & EmailDraftPayload)
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
-  | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload);
+  | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
+  | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
+  | ({ type: "marketing.create_campaign_draft" } & MarketingCreateCampaignDraftPayload);
 
 // ── 工具返回给 AI 的"草稿已创建"结构 ───────────────────────────
 

@@ -192,6 +192,9 @@ export interface ChatPanelProps {
   orgReady?: boolean;
   /** 未就绪时的原因文案（展示在输入区上方） */
   orgBlockReason?: string | null;
+  /** 助手模式：自动 / 快速 / 主管AI */
+  assistantMode?: "auto" | "quick" | "supervisor";
+  onAssistantModeChange?: (mode: "auto" | "quick" | "supervisor") => void;
 }
 
 // ── ChatPanel ─────────────────────────────────────────────────
@@ -218,6 +221,8 @@ export function ChatPanel({
   onOpenThread,
   orgReady = true,
   orgBlockReason = null,
+  assistantMode = "auto",
+  onAssistantModeChange,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -605,6 +610,36 @@ export function ChatPanel({
             <span>{orgBlockReason}</span>
           </div>
         )}
+        {/* Assistant mode */}
+        {onAssistantModeChange && (
+          <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
+            <span className="mr-1 shrink-0 text-[11px] font-medium text-[#68706c]">
+              模式
+            </span>
+            {(
+              [
+                ["auto", "自动"],
+                ["quick", "快速回答"],
+                ["supervisor", "主管AI"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onAssistantModeChange(key)}
+                className={cn(
+                  "min-h-7 shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  assistantMode === key
+                    ? "border-[#202422] bg-[#202422] text-white"
+                    : "border-black/[0.07] bg-[#f4f5f5] text-[#68706c] hover:bg-[#e9ebea] hover:text-[#171a19]",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Channel selector */}
         <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
           <span className="mr-1 shrink-0 text-[11px] font-medium text-[#68706c]">输出渠道</span>

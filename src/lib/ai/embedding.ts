@@ -13,8 +13,48 @@ import { createHash } from "node:crypto";
 import { getClient } from "./client";
 import { recordAiCall } from "./monitor";
 
-const EMBEDDING_MODEL = "text-embedding-3-small";
+/** 可通过 AGENT_EMBEDDING_MODEL 覆盖；默认 text-embedding-3-small */
+export function getEmbeddingModel(): string {
+  return (
+    process.env.AGENT_EMBEDDING_MODEL?.trim() ||
+    process.env.OPENAI_EMBEDDING_MODEL?.trim() ||
+    "text-embedding-3-small"
+  );
+}
+
 const DIMENSIONS = 1536;
+
+export type EmbeddingHealth = {
+  status: "available" | "degraded" | "unavailable";
+  reason: string;
+  model: string;
+};
+
+let lastEmbeddingHealth: EmbeddingHealth = {
+  status: "available",
+  reason: "",
+  model: getEmbeddingModel(),
+};
+
+export function getEmbeddingHealth(): EmbeddingHealth {
+  return { ...lastEmbeddingHealth, model: getEmbeddingModel() };
+}
+
+export function noteEmbeddingFailure(reason: string): void {
+  lastEmbeddingHealth = {
+    status: "unavailable",
+    reason: reason.slice(0, 300),
+    model: getEmbeddingModel(),
+  };
+}
+
+export function resetEmbeddingHealthForTests(): void {
+  lastEmbeddingHealth = {
+    status: "available",
+    reason: "",
+    model: getEmbeddingModel(),
+  };
+}
 
 const MAX_CACHE = 500;
 const cache = new Map<string, number[]>();
@@ -48,26 +88,46 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   if (hit) return hit;
 
   const client = getClient();
+  const model = getEmbeddingModel();
   const t0 = Date.now();
-  const res = await client.embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: trimmed,
-    dimensions: DIMENSIONS,
-  });
+  try {
+    const res = await client.embeddings.create({
+      model,
+      input: trimmed,
+      dimensions: DIMENSIONS,
+    });
 
-  const usage = (res as unknown as { usage?: { prompt_tokens?: number; total_tokens?: number } }).usage;
-  recordAiCall({
-    model: EMBEDDING_MODEL,
-    success: true,
-    elapsedMs: Date.now() - t0,
-    source: "embedding",
-    promptTokens: usage?.prompt_tokens,
-    totalTokens: usage?.total_tokens,
-  });
+    const usage = (res as unknown as { usage?: { prompt_tokens?: number; total_tokens?: number } }).usage;
+    recordAiCall({
+      model,
+      success: true,
+      elapsedMs: Date.now() - t0,
+      source: "embedding",
+      promptTokens: usage?.prompt_tokens,
+      totalTokens: usage?.total_tokens,
+    });
 
-  const embedding = res.data[0].embedding;
-  cacheSet(key, embedding);
-  return embedding;
+    lastEmbeddingHealth = {
+      status: "available",
+      reason: "",
+      model,
+    };
+
+    const embedding = res.data[0].embedding;
+    cacheSet(key, embedding);
+    return embedding;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    noteEmbeddingFailure(reason);
+    recordAiCall({
+      model,
+      success: false,
+      elapsedMs: Date.now() - t0,
+      source: "embedding",
+      error: reason,
+    });
+    throw err;
+  }
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
@@ -87,28 +147,34 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
   if (missingTexts.length > 0) {
     const client = getClient();
+    const model = getEmbeddingModel();
     const t0 = Date.now();
-    const res = await client.embeddings.create({
-      model: EMBEDDING_MODEL,
-      input: missingTexts,
-      dimensions: DIMENSIONS,
-    });
+    try {
+      const res = await client.embeddings.create({
+        model,
+        input: missingTexts,
+        dimensions: DIMENSIONS,
+      });
 
-    const usage = (res as unknown as { usage?: { prompt_tokens?: number; total_tokens?: number } }).usage;
-    recordAiCall({
-      model: EMBEDDING_MODEL,
-      success: true,
-      elapsedMs: Date.now() - t0,
-      source: "embedding-batch",
-      promptTokens: usage?.prompt_tokens,
-      totalTokens: usage?.total_tokens,
-    });
+      const usage = (res as unknown as { usage?: { prompt_tokens?: number; total_tokens?: number } }).usage;
+      recordAiCall({
+        model,
+        success: true,
+        elapsedMs: Date.now() - t0,
+        source: "embedding-batch",
+        promptTokens: usage?.prompt_tokens,
+        totalTokens: usage?.total_tokens,
+      });
 
-    for (let j = 0; j < missingIndexes.length; j++) {
-      const idx = missingIndexes[j];
-      const emb = res.data[j].embedding;
-      results[idx] = emb;
-      cacheSet(cacheKey(missingTexts[j]), emb);
+      for (let j = 0; j < missingIndexes.length; j++) {
+        const idx = missingIndexes[j];
+        const emb = res.data[j].embedding;
+        results[idx] = emb;
+        cacheSet(cacheKey(missingTexts[j]), emb);
+      }
+    } catch (err) {
+      noteEmbeddingFailure(err instanceof Error ? err.message : String(err));
+      throw err;
     }
   }
 

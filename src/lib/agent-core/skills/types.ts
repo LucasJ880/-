@@ -32,6 +32,11 @@ export interface SkillRunInput {
   orgId: string;
   /** 关联 AgentRun（可选，写入 PendingAction 来源链） */
   agentRunId?: string;
+  /**
+   * 平台角色（透传 ToolRegistry / 工具数据范围）
+   * 主管 AI 等可信入口可传入调用方已校验的角色；未提供时引擎按 user 处理
+   */
+  role?: string;
   execution?: {
     model?: string;
     maxTokens?: number;

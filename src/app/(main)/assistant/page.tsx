@@ -104,6 +104,10 @@ function AssistantPageInner() {
   const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [channelMode, setChannelMode] = useState<string | null>(null);
+  /** auto | quick | supervisor — 主管 AI 灰度入口 */
+  const [assistantMode, setAssistantMode] = useState<
+    "auto" | "quick" | "supervisor"
+  >("auto");
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -293,6 +297,104 @@ function AssistantPageInner() {
     setIsLoading(true);
 
     try {
+      // 主管 AI：走独立编排入口（仍写回同一会话消息）
+      if (assistantMode === "supervisor") {
+        const res = await apiFetch("/api/agent-supervisor/runs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: content,
+            mode: "supervisor",
+            pageContext: {
+              projectId: initialProjectId || undefined,
+            },
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "主管 AI 启动失败");
+        }
+        const statusLabel: Record<string, string> = {
+          pending: "待执行",
+          running: "执行中",
+          completed: "已完成",
+          skipped: "已跳过",
+          failed: "失败",
+          waiting_for_approval: "等待审批",
+          waiting_for_user: "等待确认",
+        };
+        const planLines = Array.isArray(data.plan)
+          ? data.plan
+              .map(
+                (s: {
+                  order: number;
+                  workerName?: string;
+                  worker: string;
+                  objective: string;
+                  status: string;
+                  error?: string | null;
+                  resultSummary?: string | null;
+                }) => {
+                  const name = s.workerName || `${s.worker}数字员工`;
+                  const st = statusLabel[s.status] || s.status;
+                  const extra =
+                    s.error === "pending_action_rejected"
+                      ? " · 已拒绝，未执行"
+                      : s.resultSummary
+                        ? ` · ${String(s.resultSummary).slice(0, 80)}`
+                        : "";
+                  return `${s.order}. ${name}：${s.objective}（${st}${extra}）`;
+                },
+              )
+              .join("\n")
+          : "";
+        const pending = Array.isArray(data.pendingActionIds)
+          ? data.pendingActionIds
+          : [];
+        const text = [
+          `模式：主管AI`,
+          data.objective ? `目标：${data.objective}` : "",
+          data.text || "",
+          planLines ? `\n计划步骤：\n${planLines}` : "",
+          pending.length
+            ? `\n待审批：${pending.length} 项（批准前不会执行）`
+            : "",
+          data.knowledgeRetrieval?.status &&
+          data.knowledgeRetrieval.status !== "available"
+            ? `\n限制：本次结论基于 CRM/项目等结构化数据；企业知识库检索暂不可用。`
+            : "",
+          data.fallbackUsed
+            ? `\n（管理员可见：本次规划使用规则降级）`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+          .trim();
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content: text,
+                  isStreaming: false,
+                  agentSteps: finalizeSteps(m.agentSteps || []),
+                  pendingActions: pending.map((id: string) => ({
+                    id,
+                    type: "pending",
+                    title: "待审批动作",
+                    preview: "请在审批收件箱确认",
+                    status: "pending" as const,
+                    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                  })),
+                }
+              : m,
+          ),
+        );
+        notifyPendingActionsChanged();
+        setIsLoading(false);
+        return;
+      }
+
       const payload: Record<string, string> = { content, orgId };
       if (attachedFile) {
         payload.fileText = attachedFile.text;
@@ -615,6 +717,8 @@ function AssistantPageInner() {
           }}
           orgReady={orgReady}
           orgBlockReason={orgBlockReason}
+          assistantMode={assistantMode}
+          onAssistantModeChange={setAssistantMode}
         />
       </div>
     </div>

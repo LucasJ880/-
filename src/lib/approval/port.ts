@@ -147,11 +147,40 @@ export async function approveApprovalItem(
   ctx: ApprovalDecisionContext,
 ): Promise<ApprovalDecisionResult> {
   if (kind === "pending_action") {
+    const before = await db.pendingAction.findUnique({
+      where: { id },
+      select: { agentRunId: true, orgId: true },
+    });
     const result = await executePendingAction(id, {
       userId: ctx.userId,
       role: ctx.role,
       orgId: ctx.orgId,
     });
+    // 主管 AI：批准后尝试从 AgentRun.supervisorState 恢复（读取 DB 审批状态）
+    if (result.ok && before?.agentRunId && before.orgId) {
+      try {
+        const { loadSupervisorState, resumeSupervisorAfterApproval } =
+          await import("@/lib/agent-supervisor");
+        const state = await loadSupervisorState(before.orgId, before.agentRunId);
+        if (state && state.status === "waiting_for_approval") {
+          const resumed = await resumeSupervisorAfterApproval({
+            orgId: before.orgId,
+            runId: before.agentRunId,
+            userId: ctx.userId,
+            userRole: ctx.role ?? undefined,
+          });
+          return {
+            ok: result.ok,
+            status: result.ok ? "executed" : "failed",
+            resultRef: result.resultRef,
+            message: [result.message, resumed.text].filter(Boolean).join("\n\n"),
+            error: result.error,
+          };
+        }
+      } catch {
+        /* 恢复失败不回滚已批准动作 */
+      }
+    }
     return {
       ok: result.ok,
       status: result.ok ? "executed" : "failed",
@@ -193,11 +222,44 @@ export async function rejectApprovalItem(
   ctx: ApprovalDecisionContext,
 ): Promise<ApprovalDecisionResult> {
   if (kind === "pending_action") {
+    const before = await db.pendingAction.findUnique({
+      where: { id },
+      select: { agentRunId: true, orgId: true },
+    });
     const result = await rejectPendingAction(
       id,
       { userId: ctx.userId, role: ctx.role, orgId: ctx.orgId },
       ctx.note,
     );
+    // 主管 AI：拒绝后同样恢复，且不得把拒绝当作已执行
+    if (result.ok && before?.agentRunId && before.orgId) {
+      try {
+        const { loadSupervisorState, resumeSupervisorAfterApproval } =
+          await import("@/lib/agent-supervisor");
+        const state = await loadSupervisorState(before.orgId, before.agentRunId);
+        if (state && state.status === "waiting_for_approval") {
+          const resumed = await resumeSupervisorAfterApproval({
+            orgId: before.orgId,
+            runId: before.agentRunId,
+            userId: ctx.userId,
+            userRole: ctx.role ?? undefined,
+          });
+          return {
+            ok: result.ok,
+            status: "rejected",
+            message: [
+              "已拒绝，动作未执行",
+              resumed.text,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+            error: result.error,
+          };
+        }
+      } catch {
+        /* 恢复失败不改变拒绝结果 */
+      }
+    }
     return {
       ok: result.ok,
       status: result.ok ? "rejected" : "failed",

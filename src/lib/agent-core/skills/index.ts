@@ -11,6 +11,10 @@ export {
   createSkillFromProposal,
 } from "./auto-creator";
 export { ENTERPRISE_SKILLS } from "./enterprise-index";
+export {
+  MARKETING_PHASE2_SKILLS,
+  MARKETING_PHASE2_SOURCE,
+} from "./marketing-phase2-seed";
 export { DIGITAL_EMPLOYEE_ROLES } from "./digital-employee-roles";
 export {
   materializeSkillPendingActions,
