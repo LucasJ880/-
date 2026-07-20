@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { ENTERPRISE_SKILLS } from "@/lib/agent-core/skills/enterprise-index";
 
 const WRITE = process.argv.includes("--write");
+const ALLOW_INACTIVE = process.argv.includes("--allow-inactive");
 const orgArgIdx = process.argv.indexOf("--org");
 const ORG_CODE =
   orgArgIdx > -1 ? process.argv[orgArgIdx + 1] : "sunny-shutter-bid-lead";
@@ -28,12 +29,17 @@ async function main() {
     select: { id: true, name: true, status: true },
   });
   if (!org) throw new Error(`组织不存在: code=${ORG_CODE}`);
-  if (org.status !== "active") {
-    throw new Error(`组织 ${ORG_CODE} 非 active 状态`);
+  if (org.status !== "active" && !ALLOW_INACTIVE) {
+    throw new Error(
+      `组织 ${ORG_CODE} 非 active（status=${org.status}）。若确认导入请加 --allow-inactive`,
+    );
   }
 
-  console.log(`目标组织: ${org.name} (${ORG_CODE})`);
+  console.log(`目标组织: ${org.name} (${ORG_CODE}) status=${org.status}`);
   console.log(`模式: ${WRITE ? "WRITE 写入" : "DRY-RUN 只读"}`);
+  if (org.status !== "active") {
+    console.log("注意: 使用 --allow-inactive，组织非 active");
+  }
   console.log(`定义条数: ${ENTERPRISE_SKILLS.length}\n`);
 
   let created = 0;

@@ -24,6 +24,7 @@ const orgArgIdx = process.argv.indexOf("--org");
 const ORG_CODE =
   orgArgIdx > -1 ? process.argv[orgArgIdx + 1] : "sunny-shutter-bid-lead";
 const SKIP_EXECUTE = process.argv.includes("--skip-execute");
+const ALLOW_INACTIVE = process.argv.includes("--allow-inactive");
 
 function ok(cond: boolean, msg: string) {
   if (!cond) throw new Error(`断言失败: ${msg}`);
@@ -36,7 +37,15 @@ async function main() {
     select: { id: true, name: true, status: true },
   });
   if (!org) throw new Error(`组织不存在: ${ORG_CODE}`);
-  ok(org.status === "active", `组织 active: ${org.name}`);
+  if (org.status === "active") {
+    ok(true, `组织 active: ${org.name}`);
+  } else if (ALLOW_INACTIVE) {
+    ok(true, `组织 ${org.status}（已允许 --allow-inactive）: ${org.name}`);
+  } else {
+    throw new Error(
+      `组织 ${ORG_CODE} 非 active（${org.status}）。可加 --allow-inactive`,
+    );
+  }
 
   const member = await db.organizationMember.findFirst({
     where: { orgId: org.id, status: "active" },
