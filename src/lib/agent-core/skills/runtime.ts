@@ -182,6 +182,63 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     systemPrompt += "\n\n请严格以 JSON 格式输出，不要添加任何额外文字。";
   }
 
+  // 人机协作学习：注入个人确认偏好 + 已批准 Playbook（Flag 关闭时为空）
+  let employeeAssistMeta: {
+    employeeAiProfileVersion: number | null;
+    rolePlaybookIds: string[];
+    rolePlaybookVersions: number[];
+    contextHash: string;
+  } | null = null;
+  try {
+    const {
+      buildEmployeeAssistContext,
+      formatAssistContextForPrompt,
+      recordSkillVersionSnapshot,
+      isEmployeeAiLearningEnabled,
+    } = await import("@/lib/employee-ai");
+    if (
+      isEmployeeAiLearningEnabled({
+        userId: input.userId,
+        orgId: input.orgId,
+        role: input.role,
+      })
+    ) {
+      const assist = await buildEmployeeAssistContext({
+        orgId: input.orgId,
+        userId: input.userId,
+        skillSlug: skill.slug,
+        role: input.role,
+        skillVersion: skill.version,
+        workerType: skill.domain,
+      });
+      const block = formatAssistContextForPrompt(assist);
+      if (block.trim()) {
+        systemPrompt += `\n\n${block}`;
+      }
+      employeeAssistMeta = {
+        employeeAiProfileVersion: assist.employeeAiProfileVersion,
+        rolePlaybookIds: assist.rolePlaybookIds,
+        rolePlaybookVersions: assist.rolePlaybookVersions,
+        contextHash: assist.contextHash,
+      };
+      await recordSkillVersionSnapshot({
+        orgId: input.orgId,
+        skillId: skill.id,
+        version: skill.version,
+        systemPrompt: skill.systemPrompt,
+        inputSchema: skill.inputSchema,
+        outputSchema: skill.outputSchema,
+        playbookVersionRefs: assist.activeRolePlaybooks.map((p) => ({
+          id: p.id,
+          version: p.version,
+        })),
+        createdBy: input.userId,
+      }).catch(() => null);
+    }
+  } catch {
+    /* 学习上下文失败不阻断技能执行 */
+  }
+
   // 工具名为下划线风格（sales_get_pipeline）时，不得再用 split(".") 误作 domain。
   // 已显式指定 tools 名称时，跳过 domains 过滤，避免白名单工具被清空。
   const domains = new Set<ToolDomain>();
@@ -262,7 +319,17 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
     data: {
       skillId: skill.id,
       userId: input.userId,
-      inputJson: JSON.stringify(input.variables),
+      inputJson: JSON.stringify({
+        ...input.variables,
+        ...(employeeAssistMeta
+          ? {
+              _employeeAssist: {
+                ...employeeAssistMeta,
+                skillVersion: skill.version,
+              },
+            }
+          : {}),
+      }),
       outputJson: result.content,
       toolCalls: JSON.parse(JSON.stringify(
         result.toolCalls.map((tc) => ({ name: tc.name, args: tc.args })),

@@ -134,6 +134,11 @@ model User {
   /// 公司归属（JSON 数组的 Company.id）；第一个为主公司，用于左上角联合品牌
   companyIdsJson String?
 
+  // 人机协作学习 Phase 1
+  employeeAiProfiles  EmployeeAiProfile[] @relation("EmployeeAiProfileUser")
+  humanFeedbackEvents HumanFeedbackEvent[] @relation("HumanFeedbackEventUser")
+  businessOutcomes    BusinessOutcome[]    @relation("BusinessOutcomeUser")
+
   @@index([status])
   @@index([authProvider])
   @@index([role])
@@ -625,6 +630,15 @@ model Organization {
   marketCompetitors MarketCompetitor[]
   projectRules      OrganizationProjectRule[]
   activeUsers       User[]                   @relation("UserActiveOrg")
+
+  // 人机协作学习 Phase 1
+  employeeAiProfiles    EmployeeAiProfile[]
+  humanFeedbackEvents   HumanFeedbackEvent[]
+  businessOutcomes      BusinessOutcome[]
+  candidatePractices    CandidatePractice[]
+  rolePlaybooks         RolePlaybook[]
+  agentSkillVersions    AgentSkillVersion[]
+  evaluationCases       EvaluationCase[]
 }
 
 /// 企业项目规则（Phase2）：仅用户确认后生效，不自动变成正式规则
@@ -3370,6 +3384,7 @@ model AgentSkill {
   updatedAt DateTime @updatedAt
 
   executions SkillExecution[]
+  versions   AgentSkillVersion[]
 
   @@unique([orgId, slug])
   @@index([orgId, domain])
@@ -4787,4 +4802,249 @@ model MarketingLeadAttribution {
 
   @@unique([orgId, campaignId, salesOpportunityId])
   @@index([orgId, salesOpportunityId])
+}
+
+// ============================================================
+// 人机协作与企业数字员工学习系统 Phase 1
+// 原则：先辅助真人 → 再学习真人 → 最后沉淀企业能力
+// 不自动改 Prompt/Skill、不监控私人行为、不跨组织
+// ============================================================
+
+/// 员工个人数字助理偏好（orgId+userId 唯一；推断与确认值分开）
+model EmployeeAiProfile {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId String
+  user   User         @relation("EmployeeAiProfileUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  roleScope  String  @default("general") // sales / marketing / tender / analytics / general
+  department String?
+
+  preferredLanguage   String?
+  responseDetailLevel String? // concise / balanced / detailed
+  preferredFormats    Json?
+  preferredChannels   Json?
+  schedulingPreferences Json?
+  communicationStyle  Json?
+  approvalPreferences Json?
+  personalTemplates   Json?
+
+  /// AI 推断偏好（须经员工确认才写入 confirmed）
+  learnedPreferences Json?
+  /// 员工人工确认偏好（优先级高于 inferred）
+  manuallyConfirmedPreferences Json?
+
+  /// 学习知情同意
+  consentConfirmed   Boolean   @default(false)
+  consentConfirmedAt DateTime?
+
+  status  String @default("active") // active / paused
+  version Int    @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, userId])
+  @@index([orgId, department])
+  @@index([userId])
+}
+
+/// AI 建议与真人决策差异（默认 personal_only，须授权才进 team_candidate）
+model HumanFeedbackEvent {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId String
+  user   User         @relation("HumanFeedbackEventUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  agentRunId        String?
+  skillExecutionId  String?
+  pendingActionId   String?
+  supervisorStepId  String?
+  workerType        String?
+  skillSlug         String?
+  taskType          String
+
+  /// 引用优先：{ type, id }；必要时才存快照
+  aiOutputRef      Json
+  aiOutputSnapshot Json?
+  humanDecision    String // accepted / edited / rejected / deferred / not_applicable
+  humanEditedOutput Json?
+  diffSummary       Json?
+  reasonCode        String?
+  reasonText        String?
+
+  /// personal_only | team_candidate | do_not_learn
+  feedbackScope    String  @default("personal_only")
+  consentConfirmed Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  businessOutcomes BusinessOutcome[]
+
+  @@index([orgId, userId, createdAt])
+  @@index([orgId, feedbackScope, createdAt])
+  @@index([orgId, skillSlug, createdAt])
+  @@index([agentRunId])
+  @@index([pendingActionId])
+  @@index([skillExecutionId])
+}
+
+/// 可验证业务结果（禁止仅凭 AI 推测写入）
+model BusinessOutcome {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId String?
+  user   User?        @relation("BusinessOutcomeUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  feedbackEventId  String?
+  feedbackEvent    HumanFeedbackEvent? @relation(fields: [feedbackEventId], references: [id], onDelete: SetNull)
+  pendingActionId  String?
+  skillExecutionId String?
+
+  entityType String
+  entityId   String
+  actionType String
+  actionOccurredAt DateTime
+
+  outcomeType    String
+  outcomeValue   Json?
+  successSignals Json?
+  failureSignals Json?
+  revenueImpact  Float?
+  confidence     Float  @default(0.5)
+
+  /// business_record | user_confirmed | approval_result | connected_source
+  sourceType String
+  sourceId   String?
+
+  manuallyVerified Boolean   @default(false)
+  verifiedBy       String?
+  verifiedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, entityType, entityId])
+  @@index([orgId, outcomeType, createdAt])
+  @@index([feedbackEventId])
+  @@index([pendingActionId])
+}
+
+/// 候选工作方法（不得被数字员工自动当作正式规则）
+model CandidatePractice {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  department String
+  roleScope  String
+  title      String
+  description String @db.Text
+
+  triggerConditions   Json?
+  recommendedProcess  Json?
+  exceptions          Json?
+  evidenceSummary     Json?
+  supportingFeedbackIds Json?
+  supportingOutcomeIds  Json?
+
+  evidenceCount Int    @default(0)
+  confidence    Float  @default(0)
+  /// draft | pending_review | approved | rejected | archived
+  status        String @default("draft")
+
+  generatedByRunId String?
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  rejectionReason  String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, status, department])
+  @@index([orgId, roleScope])
+}
+
+/// 已批准部门 Playbook（版本化，禁止覆盖历史）
+model RolePlaybook {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  department  String
+  roleScope   String
+  name        String
+  description String  @db.Text
+  version     Int     @default(1)
+  /// draft | active | retired
+  status      String  @default("draft")
+
+  rules           Json?
+  workflows       Json?
+  templates       Json?
+  exceptions      Json?
+  evidenceSummary Json?
+  sourceCandidatePracticeIds Json?
+
+  approvedBy String?
+  approvedAt DateTime?
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  supersedesId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, name, version])
+  @@index([orgId, status, department])
+  @@index([orgId, roleScope, status])
+  @@index([supersedesId])
+}
+
+/// Skill 版本快照（本轮不自动改正式 Skill 代码；供追溯与评估）
+model AgentSkillVersion {
+  id      String       @id @default(cuid())
+  orgId   String
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  skillId String
+  skill   AgentSkill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  version           Int
+  systemPromptHash  String
+  inputSchemaHash   String?
+  outputSchemaHash  String?
+  playbookVersionRefs Json?
+  changeReason      String? @db.Text
+  /// draft | active | retired
+  status            String  @default("active")
+  createdBy         String?
+  createdAt         DateTime @default(now())
+
+  @@unique([skillId, version])
+  @@index([orgId, skillId])
+}
+
+/// 评估用例（脱敏 fixture；用于后续 Playbook/Skill 变更评估）
+model EvaluationCase {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  domain   String
+  taskType String
+  title    String
+  inputFixture        Json
+  expectedConstraints Json?
+  expectedSignals     Json?
+  source   String  @default("manual")
+  approved Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, domain, taskType])
+  @@index([orgId, approved])
 }

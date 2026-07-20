@@ -138,7 +138,7 @@ export async function executeConversationRun(input: {
     }).catch(() => {});
   }
 
-  // ── 主管 AI：Feature Flag 开启且复杂度为 SUPERVISOR（或 intent=marketing 多步）时进入 ──
+  // ── 主管 AI：协同通道在 Flag 开启时始终走主管模式（网页 / 企微 / 个微同一策略）──
   try {
     const { isSupervisorEnabled, routeComplexity, runSupervisor } = await import(
       "@/lib/agent-supervisor"
@@ -154,18 +154,26 @@ export async function executeConversationRun(input: {
       orgCode: org?.code,
     });
     if (enabled) {
+      const pageContext = {
+        projectId: plan.entities.projectId,
+        customerId: plan.entities.customerId,
+        opportunityId: plan.entities.opportunityId,
+        quoteId: plan.entities.quoteId,
+      };
+      // 协同始终强制主管；自然复杂度仅用于判断是否入后台（避免短句全被「后台处理」）
+      const naturalComplexity = routeComplexity({
+        content: input.content,
+        pageContext,
+      });
       const complexity = routeComplexity({
         content: input.content,
-        pageContext: {
-          projectId: plan.entities.projectId,
-          customerId: plan.entities.customerId,
-          opportunityId: plan.entities.opportunityId,
-          quoteId: plan.entities.quoteId,
-        },
+        pageContext,
+        forceMode: "supervisor",
       });
       if (complexity.mode === "supervisor") {
-        // 主管多步任务入后台，避免微信链路阻塞
-        if (!input.forceForeground) {
+        const shouldBackground =
+          !input.forceForeground && naturalComplexity.mode === "supervisor";
+        if (shouldBackground) {
           await enqueueBackgroundAgentRun({
             orgId,
             runId,
@@ -194,12 +202,8 @@ export async function executeConversationRun(input: {
           userId,
           userRole: input.userRole,
           content: input.content,
-          pageContext: {
-            projectId: plan.entities.projectId,
-            customerId: plan.entities.customerId,
-            opportunityId: plan.entities.opportunityId,
-            quoteId: plan.entities.quoteId,
-          },
+          pageContext,
+          forceMode: "supervisor",
         });
         if (result.status !== "waiting_for_approval") {
           await persistSuccess({

@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/agent-runs",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/employee-ai-practice-miner",
+      "schedule": "0 6 * * 1"
     }
   ]
 }

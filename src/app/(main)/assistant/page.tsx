@@ -104,10 +104,6 @@ function AssistantPageInner() {
   const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [channelMode, setChannelMode] = useState<string | null>(null);
-  /** auto | quick | supervisor — 主管 AI 灰度入口 */
-  const [assistantMode, setAssistantMode] = useState<
-    "auto" | "quick" | "supervisor"
-  >("auto");
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -297,23 +293,20 @@ function AssistantPageInner() {
     setIsLoading(true);
 
     try {
-      // 主管 AI：走独立编排入口（仍写回同一会话消息）
-      if (assistantMode === "supervisor") {
-        const res = await apiFetch("/api/agent-supervisor/runs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: content,
-            mode: "supervisor",
-            pageContext: {
-              projectId: initialProjectId || undefined,
-            },
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data.error || "主管 AI 启动失败");
-        }
+      // 协同空间始终优先主管 AI；Flag 未开（403）时降级到普通对话，不打断使用
+      const supervisorRes = await apiFetch("/api/agent-supervisor/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: content,
+          mode: "supervisor",
+          pageContext: {
+            projectId: initialProjectId || undefined,
+          },
+        }),
+      });
+      const supervisorData = await supervisorRes.json().catch(() => ({}));
+      if (supervisorRes.ok) {
         const statusLabel: Record<string, string> = {
           pending: "待执行",
           running: "执行中",
@@ -323,8 +316,8 @@ function AssistantPageInner() {
           waiting_for_approval: "等待审批",
           waiting_for_user: "等待确认",
         };
-        const planLines = Array.isArray(data.plan)
-          ? data.plan
+        const planLines = Array.isArray(supervisorData.plan)
+          ? supervisorData.plan
               .map(
                 (s: {
                   order: number;
@@ -348,22 +341,22 @@ function AssistantPageInner() {
               )
               .join("\n")
           : "";
-        const pending = Array.isArray(data.pendingActionIds)
-          ? data.pendingActionIds
+        const pending = Array.isArray(supervisorData.pendingActionIds)
+          ? supervisorData.pendingActionIds
           : [];
         const text = [
           `模式：主管AI`,
-          data.objective ? `目标：${data.objective}` : "",
-          data.text || "",
+          supervisorData.objective ? `目标：${supervisorData.objective}` : "",
+          supervisorData.text || "",
           planLines ? `\n计划步骤：\n${planLines}` : "",
           pending.length
             ? `\n待审批：${pending.length} 项（批准前不会执行）`
             : "",
-          data.knowledgeRetrieval?.status &&
-          data.knowledgeRetrieval.status !== "available"
+          supervisorData.knowledgeRetrieval?.status &&
+          supervisorData.knowledgeRetrieval.status !== "available"
             ? `\n限制：本次结论基于 CRM/项目等结构化数据；企业知识库检索暂不可用。`
             : "",
-          data.fallbackUsed
+          supervisorData.fallbackUsed
             ? `\n（管理员可见：本次规划使用规则降级）`
             : "",
         ]
@@ -393,6 +386,9 @@ function AssistantPageInner() {
         notifyPendingActionsChanged();
         setIsLoading(false);
         return;
+      }
+      if (supervisorRes.status !== 403) {
+        throw new Error(supervisorData.error || "主管 AI 启动失败");
       }
 
       const payload: Record<string, string> = { content, orgId };
@@ -717,8 +713,6 @@ function AssistantPageInner() {
           }}
           orgReady={orgReady}
           orgBlockReason={orgBlockReason}
-          assistantMode={assistantMode}
-          onAssistantModeChange={setAssistantMode}
         />
       </div>
     </div>

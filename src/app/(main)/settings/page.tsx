@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles } from "lucide-react";
+import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -137,6 +137,20 @@ function SettingsContent() {
           )}
         </div>
       )}
+
+      <Link
+        href="/settings/digital-employees"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+          <Brain size={20} className="text-accent" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold">数字员工学习</h2>
+          <p className="text-xs text-muted">个人偏好、反馈学习、部门候选方法与 Playbook（默认关闭）</p>
+        </div>
+        <span className="text-xs text-accent">去管理 →</span>
+      </Link>
 
       <Link
         href="/settings/agent-skills"

@@ -36,6 +36,8 @@ import { ApprovalCard, type PendingApproval } from "./approval-card";
 import { PendingInbox } from "./pending-inbox";
 import { AgentRunPanel } from "./agent-run-panel";
 import type { AgentStep } from "./agent-run-types";
+import { FeedbackActions } from "@/components/agent-feedback";
+import { apiFetch } from "@/lib/api-fetch";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -192,9 +194,6 @@ export interface ChatPanelProps {
   orgReady?: boolean;
   /** 未就绪时的原因文案（展示在输入区上方） */
   orgBlockReason?: string | null;
-  /** 助手模式：自动 / 快速 / 主管AI */
-  assistantMode?: "auto" | "quick" | "supervisor";
-  onAssistantModeChange?: (mode: "auto" | "quick" | "supervisor") => void;
 }
 
 // ── ChatPanel ─────────────────────────────────────────────────
@@ -221,8 +220,6 @@ export function ChatPanel({
   onOpenThread,
   orgReady = true,
   orgBlockReason = null,
-  assistantMode = "auto",
-  onAssistantModeChange,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -575,6 +572,30 @@ export function ChatPanel({
                   </div>
                 )}
 
+              {msg.role === "assistant" &&
+                !msg.isStreaming &&
+                !msg.isError &&
+                msg.content && (
+                  <div className="ml-11 mt-2 sm:ml-12">
+                    <FeedbackActions
+                      taskType="assistant_suggestion"
+                      aiOutputRef={{ messageId: msg.id }}
+                      aiOutputSnapshot={msg.content.slice(0, 2000)}
+                      onSubmit={async (payload) => {
+                        const res = await apiFetch("/api/agent-feedback", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(payload),
+                        });
+                        if (!res.ok) {
+                          const data = await res.json().catch(() => ({}));
+                          throw new Error(data.error || "反馈提交失败");
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
               {msg.workSuggestion && !msg.isStreaming && (
                 <div className="ml-11 mt-3 max-w-[calc(100%-44px)] sm:ml-12">
                   <WorkSuggestionCard
@@ -610,35 +631,14 @@ export function ChatPanel({
             <span>{orgBlockReason}</span>
           </div>
         )}
-        {/* Assistant mode */}
-        {onAssistantModeChange && (
-          <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
-            <span className="mr-1 shrink-0 text-[11px] font-medium text-[#68706c]">
-              模式
-            </span>
-            {(
-              [
-                ["auto", "自动"],
-                ["quick", "快速回答"],
-                ["supervisor", "主管AI"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => onAssistantModeChange(key)}
-                className={cn(
-                  "min-h-7 shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  assistantMode === key
-                    ? "border-[#202422] bg-[#202422] text-white"
-                    : "border-black/[0.07] bg-[#f4f5f5] text-[#68706c] hover:bg-[#e9ebea] hover:text-[#171a19]",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="mb-2 flex max-w-full items-center gap-2 overflow-x-auto pb-0.5">
+          <span className="shrink-0 rounded-md border border-[#202422]/15 bg-[#202422]/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#202422]">
+            协同 · 主管AI
+          </span>
+          <span className="text-[11px] text-[#8a918d]">
+            本对话统一由主管 AI 编排任务
+          </span>
+        </div>
 
         {/* Channel selector */}
         <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
