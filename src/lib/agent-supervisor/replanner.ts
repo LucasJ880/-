@@ -54,7 +54,68 @@ export async function replanSupervisor(
   }
 
   // 先对现有 pending 做确定性裁剪（动态规划证据）
-  const adjustedExisting = applyObserverPlanAdjustments(state.plan, reason);
+  let adjustedExisting = applyObserverPlanAdjustments(state.plan, reason);
+
+  // 销售热机会：确定性路径，不再二次调用 Planner（避免丢掉 next-best-action）
+  if (/优先.*next-best|高价值|逾期未跟进|逾期跟进/.test(reason)) {
+    adjustedExisting = adjustedExisting.map((s) => {
+      if (s.status !== "pending") return s;
+      if (
+        /prospect|获客|icp|新潜客|拓客|评分/.test(
+          `${s.skillSlug} ${s.objective}`.toLowerCase(),
+        ) &&
+        s.skillSlug !== "sales-next-best-action"
+      ) {
+        return {
+          ...s,
+          status: "skipped" as const,
+          resultSummary: "已有高价值待跟进机会，跳过拓客/评分，优先行动",
+        };
+      }
+      return s;
+    });
+    if (
+      !adjustedExisting.some(
+        (s) =>
+          s.skillSlug === "sales-next-best-action" &&
+          (s.status === "pending" || s.status === "completed"),
+      )
+    ) {
+      adjustedExisting = [
+        ...adjustedExisting,
+        {
+          id: `replan-${state.replanCount + 1}-nba`,
+          order: adjustedExisting.length + 1,
+          worker: "sales" as const,
+          skillSlug: "sales-next-best-action",
+          objective: "针对高价值/逾期机会给出本周行动",
+          input: { objective: state.objective },
+          dependsOn: [],
+          status: "pending" as const,
+          mayCreatePendingAction: true,
+        },
+      ];
+    }
+    const retainedHot = adjustedExisting.filter(
+      (s) =>
+        s.status === "completed" ||
+        s.status === "failed" ||
+        s.status === "skipped",
+    );
+    return {
+      ...state,
+      plan: adjustedExisting.map((s, i) => ({ ...s, order: i + 1 })),
+      currentStepIndex: retainedHot.filter((s) => s.status === "completed")
+        .length,
+      replanCount: state.replanCount + 1,
+      status: "replanning",
+      decision: { type: "replan", reason },
+      userVisibleTimeline: [
+        ...state.userVisibleTimeline,
+        `发现高价值机会，已改为优先行动（第 ${state.replanCount + 1} 次）`,
+      ],
+    };
+  }
 
   const retained = adjustedExisting.filter(
     (s) =>
@@ -70,30 +131,9 @@ export async function replanSupervisor(
     (/不投|abandon|致命|强制缺口/.test(reason) &&
       retained.some((s) => s.skillSlug === "tender-bid-no-bid"))
   ) {
-    // 确保 next-best-action 在销售热机会场景存在
-    let plan = adjustedExisting;
-    if (
-      /优先.*next-best|高价值|逾期/.test(reason) &&
-      !plan.some((s) => s.skillSlug === "sales-next-best-action")
-    ) {
-      plan = [
-        ...plan,
-        {
-          id: `replan-${state.replanCount + 1}-nba`,
-          order: plan.length + 1,
-          worker: "sales" as const,
-          skillSlug: "sales-next-best-action",
-          objective: "针对高价值/逾期机会给出本周行动",
-          input: { objective: state.objective },
-          dependsOn: [],
-          status: "pending" as const,
-          mayCreatePendingAction: true,
-        },
-      ];
-    }
     return {
       ...state,
-      plan: plan.map((s, i) => ({ ...s, order: i + 1 })),
+      plan: adjustedExisting.map((s, i) => ({ ...s, order: i + 1 })),
       currentStepIndex: retained.filter((s) => s.status === "completed").length,
       replanCount: state.replanCount + 1,
       status: "replanning",

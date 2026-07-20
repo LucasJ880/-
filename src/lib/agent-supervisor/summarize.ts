@@ -296,7 +296,8 @@ async function tryLlmSummary(
       userId: state.userId,
       maxTokens: 1800,
       temperature: 0.2,
-      timeoutMs: 25_000,
+      timeoutMs: 45_000,
+      mode: "normal",
     });
     const cleaned = result.content
       .replace(/```json\s*/g, "")

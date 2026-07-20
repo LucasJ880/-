@@ -649,8 +649,12 @@ async function main() {
               result.state.plan.some((p) => p.skillSlug.includes("pipeline")) &&
               result.state.plan.some((p) => p.skillSlug.includes("next-best"))
             : c.name.includes("SUPERVISOR营销")
-              ? result.state.plan.filter((p) => p.worker === "marketing").length >=
-                  2 || result.state.skillCallCount >= 2
+              ? result.state.plan.filter((p) =>
+                  p.skillSlug.startsWith("marketing-"),
+                ).length >= 2 ||
+                result.state.skillCallCount >= 2 ||
+                (result.state.plan.length >= 2 &&
+                  result.state.plan.some((p) => p.worker === "marketing"))
               : c.expectMode === "direct"
                 ? result.state.skillCallCount >= 1 &&
                   result.state.skillCallCount <= 2

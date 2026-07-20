@@ -60,10 +60,9 @@ export function resolveSupervisorModel(input: {
 }): SupervisorModelResolution {
   const cfg = getAIConfig();
   const primary = cfg.primaryModel || getTaskPreset("normal").model;
-  const mini = cfg.miniModel || getTaskPreset("structured").model;
+  // Fallback 优先仍用 primary（账号常无 terra/luna 权限）；仅当 requested 不是 primary 时回退 primary
   const requested = envModel(input.purpose) || primary;
-  const fallbackModel =
-    requested === primary ? mini : primary;
+  const fallbackModel = requested === primary ? primary : primary;
 
   return {
     purpose: input.purpose,
