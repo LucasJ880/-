@@ -11,6 +11,7 @@ import {
   type EmployeeAssistContext,
 } from "./types";
 import { isEmployeeAiPlaybooksEnabled, isEmployeeAiLearningEnabled } from "./flags";
+import { flattenConfirmedForInject, unwrapConfirmedValue } from "./preference-history";
 
 function hashContext(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
@@ -27,8 +28,9 @@ export function mergePreferencesWithSafety(input: {
   const doNotUse: string[] = [...NON_OVERRIDABLE_RULE_KEYS];
   const confirmed: Record<string, unknown> = {};
   const inferred: Record<string, unknown> = {};
+  const flatConfirmed = flattenConfirmedForInject(input.confirmed || {});
 
-  for (const [k, v] of Object.entries(input.confirmed || {})) {
+  for (const [k, v] of Object.entries(flatConfirmed)) {
     if (NON_OVERRIDABLE_RULE_KEYS.includes(k as (typeof NON_OVERRIDABLE_RULE_KEYS)[number])) {
       doNotUse.push(`blocked_confirmed:${k}`);
       continue;
@@ -40,7 +42,7 @@ export function mergePreferencesWithSafety(input: {
     if (NON_OVERRIDABLE_RULE_KEYS.includes(k as (typeof NON_OVERRIDABLE_RULE_KEYS)[number])) {
       continue;
     }
-    inferred[k] = v;
+    inferred[k] = unwrapConfirmedValue(v);
   }
 
   return {
@@ -59,10 +61,15 @@ export function formatAssistContextForPrompt(ctx: EmployeeAssistContext): string
   if (Object.keys(conf).length > 0) {
     lines.push("已确认个人偏好：");
     for (const [k, v] of Object.entries(conf)) {
+      const unwrapped = unwrapConfirmedValue(v);
       const text =
-        typeof v === "object" && v && "preference" in (v as object)
-          ? String((v as { preference: string }).preference)
-          : JSON.stringify(v);
+        typeof unwrapped === "object" &&
+        unwrapped &&
+        "preference" in (unwrapped as object)
+          ? String((unwrapped as { preference: string }).preference)
+          : typeof unwrapped === "string"
+            ? unwrapped
+            : JSON.stringify(unwrapped);
       lines.push(`- ${k}: ${text}`);
     }
   }

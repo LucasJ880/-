@@ -3,6 +3,7 @@ export * from "./types";
 export * from "./diff";
 export * from "./access";
 export * from "./profile-service";
+export * from "./preference-history";
 export * from "./feedback-service";
 export * from "./outcome-service";
 export * from "./preference-learner";

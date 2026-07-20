@@ -52,6 +52,7 @@ run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests_
 run_test "企业微信回调加解密/验签" "npx tsx src/lib/messaging/adapters/__tests__/wecom-crypto.test.ts"
 run_test "Agent Runtime Phase-1" "npx tsx src/lib/agent-runtime/__tests__/runtime.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
+run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
 run_test "Agent Phase-B 调度与队列" "npx tsx src/lib/agent-runtime/__tests__/phase-b.test.ts"
 run_test "Agent Trace 只读查询" "npx tsx src/lib/agent-runtime/__tests__/trace.test.ts"

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { EmployeeAiAccessError } from "./access";
+import { applyPreferenceDecision } from "./preference-history";
 
 export async function getOrCreateEmployeeAiProfile(input: {
   orgId: string;
@@ -20,7 +21,7 @@ export async function getOrCreateEmployeeAiProfile(input: {
       roleScope: input.roleScope ?? "general",
       department: input.department,
       learnedPreferences: { inferred: {}, confidence: {}, lastLearnedAt: null },
-      manuallyConfirmedPreferences: { confirmed: {} },
+      manuallyConfirmedPreferences: { confirmed: {}, history: [] },
     },
   });
 }
@@ -45,6 +46,8 @@ export async function updateOwnEmployeeAiProfile(input: {
     approvalPreferences?: unknown;
     personalTemplates?: unknown;
     manuallyConfirmedPreferences?: unknown;
+    /** 按 key 写入确认偏好（走 history supersede） */
+    confirmPreference?: { key: string; value: unknown; scope?: unknown };
     department?: string | null;
     roleScope?: string;
     status?: "active" | "paused";
@@ -70,6 +73,18 @@ export async function updateOwnEmployeeAiProfile(input: {
   if (p.personalTemplates !== undefined) data.personalTemplates = p.personalTemplates as object;
   if (p.manuallyConfirmedPreferences !== undefined) {
     data.manuallyConfirmedPreferences = p.manuallyConfirmedPreferences as object;
+  }
+  if (p.confirmPreference?.key) {
+    const bag =
+      (profile.manuallyConfirmedPreferences as Record<string, unknown>) || {};
+    const { confirmedBag } = applyPreferenceDecision({
+      confirmedBag: bag,
+      key: p.confirmPreference.key,
+      decision: "manual",
+      nextValue: p.confirmPreference.value,
+      scope: p.confirmPreference.scope,
+    });
+    data.manuallyConfirmedPreferences = confirmedBag as object;
   }
   if (p.department !== undefined) data.department = p.department;
   if (p.roleScope !== undefined) data.roleScope = p.roleScope;
@@ -109,17 +124,21 @@ export async function respondToInferredPreference(input: {
   const inferred = (learned.inferred as Record<string, unknown>) || {};
   const confirmedBag =
     (profile.manuallyConfirmedPreferences as Record<string, unknown>) || {};
-  const confirmed = (confirmedBag.confirmed as Record<string, unknown>) || {};
 
-  if (input.decision === "confirm") {
-    confirmed[input.preferenceKey] = inferred[input.preferenceKey] ?? true;
-  } else if (input.decision === "scope_limit") {
-    confirmed[input.preferenceKey] = {
-      value: inferred[input.preferenceKey],
-      scope: input.scopedValue ?? "limited",
-    };
-  } else if (input.decision === "reject" || input.decision === "stop_learning") {
-    delete confirmed[input.preferenceKey];
+  let nextValue: unknown = inferred[input.preferenceKey] ?? true;
+  if (input.decision === "scope_limit") {
+    nextValue = inferred[input.preferenceKey] ?? true;
+  }
+
+  const { confirmedBag: nextBag } = applyPreferenceDecision({
+    confirmedBag,
+    key: input.preferenceKey,
+    decision: input.decision,
+    nextValue,
+    scope: input.decision === "scope_limit" ? input.scopedValue ?? "limited" : undefined,
+  });
+
+  if (input.decision === "reject" || input.decision === "stop_learning") {
     const rejected = (learned.rejected as string[]) || [];
     if (!rejected.includes(input.preferenceKey)) rejected.push(input.preferenceKey);
     learned.rejected = rejected;
@@ -132,7 +151,7 @@ export async function respondToInferredPreference(input: {
     where: { id: profile.id },
     data: {
       learnedPreferences: learned as object,
-      manuallyConfirmedPreferences: { ...confirmedBag, confirmed } as object,
+      manuallyConfirmedPreferences: nextBag as object,
       version: profile.version + 1,
     },
   });

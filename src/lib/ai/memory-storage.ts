@@ -1,5 +1,6 @@
 /**
  * 用户记忆 CRUD — 强制 orgId 隔离
+ * 冲突时 supersede：关闭旧行 + 新建生效行（保留历史）
  */
 
 import { Prisma } from "@prisma/client";
@@ -23,9 +24,18 @@ export interface MemoryEntry {
   tags: string | null;
   importance: number;
   createdAt: Date;
+  effectiveFrom?: Date;
+  effectiveTo?: Date | null;
+  supersedesId?: string | null;
+  supersededById?: string | null;
 }
 
 const CONFLICT_THRESHOLD = 0.88;
+
+/** 当前生效记忆过滤条件 */
+export function activeMemoryWhere(): { effectiveTo: null } {
+  return { effectiveTo: null };
+}
 
 function requireOrgId(orgId: string | null | undefined): string {
   const id = (orgId || "").trim();
@@ -44,6 +54,7 @@ async function detectAndSupersede(
       orgId,
       userId,
       memoryType,
+      effectiveTo: null,
       embedding: { not: Prisma.JsonNullValueFilter.JsonNull },
     },
     take: 50,
@@ -56,6 +67,70 @@ async function detectAndSupersede(
     }
   }
   return null;
+}
+
+/**
+ * 原子 supersede：同一时刻关闭旧记忆并打开新记忆
+ */
+export async function supersedeMemory(input: {
+  orgId: string;
+  userId: string;
+  oldId: string;
+  memoryType: MemoryType;
+  content: string;
+  layer?: number;
+  tags?: string | null;
+  importance?: number;
+  sourceThreadId?: string | null;
+  customerId?: string | null;
+  projectId?: string | null;
+  embedding?: number[] | null;
+}): Promise<{ id: string }> {
+  const now = new Date();
+  return db.$transaction(async (tx) => {
+    const owned = await tx.userMemory.findFirst({
+      where: {
+        id: input.oldId,
+        orgId: input.orgId,
+        userId: input.userId,
+        effectiveTo: null,
+      },
+      select: { id: true, layer: true, customerId: true, projectId: true },
+    });
+    if (!owned) {
+      throw new Error("被取代记忆不存在、已失效或跨组织");
+    }
+
+    const created = await tx.userMemory.create({
+      data: {
+        orgId: input.orgId,
+        userId: input.userId,
+        memoryType: input.memoryType,
+        content: input.content,
+        layer: input.layer ?? owned.layer,
+        tags: input.tags ?? null,
+        importance: input.importance ?? 3,
+        sourceThreadId: input.sourceThreadId ?? null,
+        customerId: input.customerId ?? owned.customerId,
+        projectId: input.projectId ?? owned.projectId,
+        embedding: input.embedding ?? undefined,
+        supersedesId: owned.id,
+        effectiveFrom: now,
+        effectiveTo: null,
+      },
+      select: { id: true },
+    });
+
+    await tx.userMemory.update({
+      where: { id: owned.id },
+      data: {
+        effectiveTo: now,
+        supersededById: created.id,
+      },
+    });
+
+    return created;
+  });
 }
 
 export async function saveMemory(params: {
@@ -91,27 +166,28 @@ export async function saveMemory(params: {
       embedding,
     );
     if (superseded) {
-      const owned = await db.userMemory.findFirst({
-        where: { id: superseded, orgId, userId: params.userId },
-        select: { id: true },
-      });
-      if (owned) {
-        const updated = await db.userMemory.update({
-          where: { id: owned.id },
-          data: {
-            content: params.content,
-            tags: params.tags ?? undefined,
-            importance: params.importance ?? 3,
-            embedding: embedding ?? Prisma.JsonNull,
-            sourceThreadId: params.sourceThreadId ?? null,
-          },
-          select: { id: true },
+      try {
+        return await supersedeMemory({
+          orgId,
+          userId: params.userId,
+          oldId: superseded,
+          memoryType: params.memoryType,
+          content: params.content,
+          layer: params.layer,
+          tags: params.tags ?? null,
+          importance: params.importance ?? 3,
+          sourceThreadId: params.sourceThreadId ?? null,
+          customerId: params.customerId ?? null,
+          projectId: params.projectId ?? null,
+          embedding,
         });
-        return updated;
+      } catch {
+        /* 旧行竞态失效则走新建 */
       }
     }
   }
 
+  const now = new Date();
   const record = await db.userMemory.create({
     data: {
       orgId,
@@ -125,6 +201,8 @@ export async function saveMemory(params: {
       customerId: params.customerId ?? null,
       projectId: params.projectId ?? null,
       embedding: embedding ?? undefined,
+      effectiveFrom: now,
+      effectiveTo: null,
     },
     select: { id: true },
   });
@@ -176,10 +254,15 @@ export async function listMemories(
     search?: string;
     limit?: number;
     offset?: number;
+    /** 默认 false：只返回当前生效记忆 */
+    includeSuperseded?: boolean;
   },
 ): Promise<{ items: MemoryEntry[]; total: number }> {
   const safeOrgId = requireOrgId(orgId);
   const where: Record<string, unknown> = { userId, orgId: safeOrgId };
+  if (!opts?.includeSuperseded) {
+    where.effectiveTo = null;
+  }
   if (opts?.layer !== undefined) where.layer = opts.layer;
   if (opts?.memoryType) where.memoryType = opts.memoryType;
   if (opts?.search) {
@@ -192,7 +275,11 @@ export async function listMemories(
   const [items, total] = await Promise.all([
     db.userMemory.findMany({
       where: where as never,
-      orderBy: [{ layer: "asc" }, { importance: "desc" }, { updatedAt: "desc" }],
+      orderBy: [
+        { layer: "asc" },
+        { importance: "desc" },
+        { effectiveFrom: "desc" },
+      ],
       take: opts?.limit ?? 50,
       skip: opts?.offset ?? 0,
     }),
@@ -290,4 +377,21 @@ export async function backfillEmbeddings(
     }
   }
   return count;
+}
+
+/** 纯函数：相似度接近时偏新（供测试与 recall 复用） */
+export function preferRecentOnSimilarityTie<
+  T extends { similarity: number; effectiveFrom: Date | string },
+>(
+  a: T,
+  b: T,
+  epsilon = 0.02,
+): number {
+  const simDiff = b.similarity - a.similarity;
+  if (Math.abs(simDiff) < epsilon) {
+    const ta = new Date(a.effectiveFrom).getTime();
+    const tb = new Date(b.effectiveFrom).getTime();
+    return tb - ta;
+  }
+  return simDiff;
 }

@@ -19,6 +19,9 @@ export {
   updateMemory,
   deleteMemory,
   backfillEmbeddings,
+  supersedeMemory,
+  preferRecentOnSimilarityTie,
+  activeMemoryWhere,
 } from "./memory-storage";
 
 export {
