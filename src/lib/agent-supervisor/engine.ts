@@ -501,6 +501,10 @@ export async function runSupervisor(input: {
       state = await runPlanLoop(state);
     }
 
+    syncKnowledgeRetrieval(state);
+    if (!state.finalSummary) {
+      state.finalSummary = await buildValidatedFinalSummary(state);
+    }
     const text =
       state.status === "waiting_for_approval"
         ? `${formatSummaryForUser(state)}\n\n请审批上述草稿后，任务可继续。`

@@ -111,7 +111,7 @@ export async function createSupervisorPlan(
       userPrompt,
       orgId: state.orgId,
       userId: state.userId,
-      maxTokens: 1600,
+      maxTokens: 2800,
       temperature: 0.2,
       timeoutMs: 45_000,
     });
@@ -120,7 +120,35 @@ export async function createSupervisorPlan(
       .replace(/```json\s*/g, "")
       .replace(/```\s*/g, "")
       .trim();
-    const parsed = JSON.parse(cleaned);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (parseErr) {
+      // JSON 截断：再要一次更短的计划
+      const repair = await callSupervisorCompletion("repair", {
+        systemPrompt:
+          "你只输出合法 JSON 计划，steps 最多 3 个，每个字段尽量短。不要 markdown。",
+        userPrompt: [
+          `目标：${state.objective}`,
+          `候选技能：${(state.complexity?.candidateSkills || []).join(", ")}`,
+          `上次输出无法解析：${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          `请重新输出完整 JSON。`,
+        ].join("\n"),
+        orgId: state.orgId,
+        userId: state.userId,
+        maxTokens: 1200,
+        temperature: 0.1,
+        timeoutMs: 30_000,
+      });
+      parsed = JSON.parse(
+        repair.content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim(),
+      );
+      result.fallbackUsed = true;
+      result.fallbackReason = `planner_json_repair: ${
+        parseErr instanceof Error ? parseErr.message : String(parseErr)
+      }`;
+      result.actualModel = repair.actualModel;
+    }
     let plan = PlannerOutputSchema.parse(parsed);
 
     // 模型步骤过少但候选充足时，用规则计划补齐（仍计为 llm，因主规划来自模型）
