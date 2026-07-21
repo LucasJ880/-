@@ -3,6 +3,7 @@
  *
  * 浏览器不再直接访问 Blob 存储 URL；一律经本代理按路径前缀鉴权后流式转发：
  * - visual-builder/{orgId}/...          → org 成员
+ * - product-content/{orgId}/...         → org 成员
  * - wechat-visualizer/{orgId}/...       → org 成员
  * - trade-service/{orgId}/...           → org 成员
  * - trade/intelligence/{orgId}/...      → org 成员
@@ -51,6 +52,7 @@ async function authorizeBlobPath(
 
   switch (head) {
     case "visual-builder":
+    case "product-content":
     case "wechat-visualizer":
     case "trade-service": {
       if (!second) return "unknown";

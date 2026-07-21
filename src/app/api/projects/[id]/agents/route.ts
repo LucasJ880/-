@@ -11,6 +11,7 @@ import {
   isValidAgentType,
 } from "@/lib/agents/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { ProviderRouter } from "@/lib/ai/model-registry";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -21,7 +22,7 @@ function buildConfigSnapshot(fields: Record<string, unknown>) {
     knowledgeBaseId: fields.knowledgeBaseId ?? null,
     knowledgeBaseVersionId: fields.knowledgeBaseVersionId ?? null,
     modelProvider: fields.modelProvider ?? "openai",
-    modelName: fields.modelName ?? "gpt-5.2",
+    modelName: fields.modelName ?? ProviderRouter.getChatModel(),
     temperature: fields.temperature ?? 0.7,
     maxTokens: fields.maxTokens ?? 4096,
     systemBehaviorNote: fields.systemBehaviorNote ?? null,
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const promptId = typeof body.promptId === "string" && body.promptId.trim() ? body.promptId.trim() : null;
   const knowledgeBaseId = typeof body.knowledgeBaseId === "string" && body.knowledgeBaseId.trim() ? body.knowledgeBaseId.trim() : null;
   const modelProvider = typeof body.modelProvider === "string" && body.modelProvider.trim() ? body.modelProvider.trim() : "openai";
-  const modelName = typeof body.modelName === "string" && body.modelName.trim() ? body.modelName.trim() : "gpt-5.2";
+  const modelName = typeof body.modelName === "string" && body.modelName.trim() ? body.modelName.trim() : ProviderRouter.getChatModel();
   const temperature = typeof body.temperature === "number" ? body.temperature : 0.7;
   const maxTokens = typeof body.maxTokens === "number" ? body.maxTokens : 4096;
 

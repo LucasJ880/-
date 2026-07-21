@@ -3,6 +3,7 @@
  * 运行：npx tsx src/lib/market-intelligence/__tests__/research-runtime.test.ts
  */
 import { getMarketResearchModelConfig } from "../research-runtime";
+import { OPENAI_BUILTIN } from "@/lib/ai/model-registry";
 
 let total = 0;
 let failed = 0;
@@ -18,11 +19,14 @@ function expect(condition: boolean, message: string) {
 }
 
 const defaults = getMarketResearchModelConfig({});
-expect(defaults.primary.model === "gpt-5.6-sol", "默认使用深度研究主模型");
+expect(defaults.primary.model === OPENAI_BUILTIN.chat, "默认使用深度研究主模型");
 expect(defaults.primary.maxTokens === 16_000, "主模型默认输出预算为 16K");
 expect(defaults.primary.perRoundTimeoutMs === 150_000, "单轮等待由 30 秒提升至 150 秒");
 expect(defaults.primary.totalTimeoutMs === 180_000, "主模型最多使用 3 分钟");
-expect(defaults.fallback?.model === "gpt-5.6-luna", "配置已验证可用的独立备用模型");
+expect(
+  defaults.fallback?.model === OPENAI_BUILTIN.reasoning,
+  "备用模型回退到 reasoning 默认",
+);
 expect(defaults.fallback?.maxTokens === 8_000, "备用模型保留 8K 输出预算");
 expect(
   defaults.primary.totalTimeoutMs + (defaults.fallback?.totalTimeoutMs ?? 0) <= 270_000,

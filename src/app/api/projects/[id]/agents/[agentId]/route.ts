@@ -6,6 +6,7 @@ import {
 } from "@/lib/projects/access";
 import { isValidAgentStatus } from "@/lib/agents/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { ProviderRouter } from "@/lib/ai/model-registry";
 
 type Ctx = { params: Promise<{ id: string; agentId: string }> };
 
@@ -16,7 +17,7 @@ function buildConfigSnapshot(a: Record<string, unknown>) {
     knowledgeBaseId: a.knowledgeBaseId ?? null,
     knowledgeBaseVersionId: a.knowledgeBaseVersionId ?? null,
     modelProvider: a.modelProvider ?? "openai",
-    modelName: a.modelName ?? "gpt-5.2",
+    modelName: a.modelName ?? ProviderRouter.getChatModel(),
     temperature: a.temperature ?? 0.7,
     maxTokens: a.maxTokens ?? 4096,
     systemBehaviorNote: a.systemBehaviorNote ?? null,

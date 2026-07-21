@@ -64,10 +64,8 @@ export const POST = withAuth(async (_request, ctx, user) => {
     );
   }
 
-  const model =
-    process.env.OPENAI_VISION_MODEL ||
-    process.env.OPENAI_MODEL_MINI ||
-    "gpt-4o-mini";
+  const { ProviderRouter } = await import("@/lib/ai/model-registry");
+  const model = ProviderRouter.getVisionModel();
   const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 
   const prompt = `Detect visible window openings in this window-covering site photo.

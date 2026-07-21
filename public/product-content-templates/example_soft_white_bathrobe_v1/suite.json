@@ -1,0 +1,90 @@
+{
+  "id": "example_soft_white_bathrobe_v1",
+  "name": "示例 · 柔白浴袍套图",
+  "category": "home_textile_bathrobe",
+  "description": "授权采集示例：请替换为真实模版名称、构图说明与图片文件。",
+  "shotCount": 4,
+  "shots": [
+    {
+      "key": "bathroom_model",
+      "label": "模特 · 浴室",
+      "styleGroup": "A_model_lifestyle",
+      "mode": "STUDIO",
+      "styleRefs": "model",
+      "promptBody": "Create an Amazon-style e-commerce product image based on the primary product photo. PRIMARY IMAGE is the ground-truth product photo. Preserve EXACT product identity with photoreal fidelity. Keep exact pattern/print, colors, collar/trim, belt/accessories, pockets and fabric texture from the primary photo. Do NOT invent a different print or colorway. Do NOT invent logos or brand marks. Prefer under-stylizing over inventing details. Only use product references from THIS job. Composition brief: 真人模特穿着本品浴袍坐在明亮现代浴室化妆台边，自然日光，电商生活方式构图，产品嵌入感强。 Photoreal embedding: natural fabric weight, soft contact shadows, believable folds, correct scale/perspective, scene-matched lighting. Must NOT look like a flat cutout pasted onto a background. CRITICAL: Absolutely NO text, letters, numbers, watermarks, logos, brand marks, Chinese/English overlays, marketplace branding, or material callouts anywhere."
+    },
+    {
+      "key": "bedroom_model",
+      "label": "模特 · 卧室",
+      "styleGroup": "A_model_lifestyle",
+      "mode": "STUDIO",
+      "styleRefs": "model",
+      "promptBody": "Create an Amazon-style e-commerce product image based on the primary product photo. PRIMARY IMAGE is the ground-truth product photo. Preserve EXACT product identity with photoreal fidelity. Keep exact pattern/print, colors, collar/trim, belt/accessories, pockets and fabric texture from the primary photo. Do NOT invent a different print or colorway. Do NOT invent logos or brand marks. Prefer under-stylizing over inventing details. Only use product references from THIS job. Composition brief: 真人模特穿着本品浴袍坐在床沿或靠窗站立，柔和晨光，酒店家居感。 Photoreal embedding: natural fabric weight, soft contact shadows, believable folds, correct scale/perspective, scene-matched lighting. Must NOT look like a flat cutout pasted onto a background. CRITICAL: Absolutely NO text, letters, numbers, watermarks, logos, brand marks, Chinese/English overlays, marketplace branding, or material callouts anywhere."
+    },
+    {
+      "key": "hanging_display",
+      "label": "悬挂陈列",
+      "styleGroup": "B_display_embed",
+      "mode": "STUDIO",
+      "styleRefs": "display",
+      "promptBody": "Create an Amazon-style e-commerce product image based on the primary product photo. PRIMARY IMAGE is the ground-truth product photo. Preserve EXACT product identity with photoreal fidelity. Keep exact pattern/print, colors, collar/trim, belt/accessories, pockets and fabric texture from the primary photo. Do NOT invent a different print or colorway. Do NOT invent logos or brand marks. Prefer under-stylizing over inventing details. Only use product references from THIS job. Composition brief: 浴袍挂在木衣架与金属杆上，靠清洁室内墙面，自然垂坠与接触阴影，可有同款折叠陈列。 Photoreal embedding: natural fabric weight, soft contact shadows, believable folds, correct scale/perspective, scene-matched lighting. Must NOT look like a flat cutout pasted onto a background. CRITICAL: Absolutely NO text, letters, numbers, watermarks, logos, brand marks, Chinese/English overlays, marketplace branding, or material callouts anywhere."
+    },
+    {
+      "key": "model_plus_folded",
+      "label": "模特 + 折叠",
+      "styleGroup": "B_display_embed",
+      "mode": "STUDIO",
+      "styleRefs": "both",
+      "promptBody": "Create an Amazon-style e-commerce product image based on the primary product photo. PRIMARY IMAGE is the ground-truth product photo. Preserve EXACT product identity with photoreal fidelity. Keep exact pattern/print, colors, collar/trim, belt/accessories, pockets and fabric texture from the primary photo. Do NOT invent a different print or colorway. Do NOT invent logos or brand marks. Prefer under-stylizing over inventing details. Only use product references from THIS job. Composition brief: 模特穿着本品 + 旁侧家具上同款整齐折叠，双呈现，明亮室内。 Photoreal embedding: natural fabric weight, soft contact shadows, believable folds, correct scale/perspective, scene-matched lighting. Must NOT look like a flat cutout pasted onto a background. CRITICAL: Absolutely NO text, letters, numbers, watermarks, logos, brand marks, Chinese/English overlays, marketplace branding, or material callouts anywhere."
+    }
+  ],
+  "uploadSlots": [
+    {
+      "id": "product_front",
+      "label": "正面",
+      "required": true,
+      "description": "商品主视角（必填）"
+    },
+    {
+      "id": "product_side",
+      "label": "侧面",
+      "required": false,
+      "description": "补充侧面视角"
+    },
+    {
+      "id": "product_detail",
+      "label": "细节",
+      "required": false,
+      "description": "领口/口袋/腰带等细节"
+    },
+    {
+      "id": "product_texture",
+      "label": "材质纹理",
+      "required": false,
+      "description": "面料特写，强化真实感"
+    }
+  ],
+  "fidelityRules": [
+    "正面主图为唯一产品真相来源",
+    "禁止不同 SKU 印花混用参考",
+    "禁止画面出现品牌字 / 平台名 / 材质卖点叠字",
+    "印花、颜色、领型、腰带、口袋必须跟随正面主图"
+  ],
+  "supportedAspectRatios": [
+    "1:1",
+    "3:4",
+    "4:3",
+    "9:16",
+    "16:9"
+  ],
+  "supportedResolutions": [
+    "1K",
+    "2K"
+  ],
+  "quality": "high",
+  "previewImage": "/product-content-templates/example_soft_white_bathrobe_v1/preview.jpg",
+  "styleAssetPaths": {
+    "model": "/product-content-templates/example_soft_white_bathrobe_v1/style-model.jpg",
+    "display": "/product-content-templates/example_soft_white_bathrobe_v1/style-display.jpg"
+  }
+}

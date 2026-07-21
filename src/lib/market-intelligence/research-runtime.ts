@@ -11,6 +11,7 @@ import { pushMessage } from "@/lib/messaging/gateway";
 import { createNotification } from "@/lib/notifications/create";
 import { createResearchPlanDraft } from "@/lib/marketing/research-plan";
 import { ensureMarketingSkill, MARKETING_SKILL_SLUG } from "./skill";
+import { OPENAI_BUILTIN, ProviderRouter } from "@/lib/ai/model-registry";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_MS = 6 * 60 * 1000;
@@ -41,12 +42,18 @@ export interface MarketResearchModelConfig {
 export function getMarketResearchModelConfig(
   env: Record<string, string | undefined> = process.env,
 ): MarketResearchModelConfig {
-  const primaryModel = env.OPENAI_MODEL_MARKET_INTELLIGENCE?.trim()
-    || env.OPENAI_MODEL?.trim()
-    || "gpt-5.6-sol";
-  const fallbackModel = env.OPENAI_MODEL_MARKET_INTELLIGENCE_FALLBACK?.trim()
-    || env.OPENAI_MODEL_MINI?.trim()
-    || "gpt-5.6-luna";
+  const primaryModel =
+    env.OPENAI_MODEL_MARKET_INTELLIGENCE?.trim() ||
+    env.OPENAI_CHAT_MODEL?.trim() ||
+    env.OPENAI_MODEL?.trim() ||
+    (env === process.env ? ProviderRouter.getChatModel() : OPENAI_BUILTIN.chat);
+  const fallbackModel =
+    env.OPENAI_MODEL_MARKET_INTELLIGENCE_FALLBACK?.trim() ||
+    env.OPENAI_REASONING_MODEL?.trim() ||
+    env.OPENAI_MODEL_MINI?.trim() ||
+    (env === process.env
+      ? ProviderRouter.getReasoningModel()
+      : OPENAI_BUILTIN.reasoning);
   return {
     primary: {
       model: primaryModel,

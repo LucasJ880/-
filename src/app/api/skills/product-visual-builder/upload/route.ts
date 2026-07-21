@@ -4,7 +4,7 @@
  * 链路：auth → active org → MIME/大小/文件名校验 → uploadVisualBuilderImage → public Blob
  *      → 返回 sourceImageUrls（供后续 POST /api/skills/product-visual-builder dry-run 使用）。
  *
- * 本阶段不接 gpt-image-2、不生成 outputImageUrls、不写 SkillExecution / AuditLog、不做前端。
+ * 本阶段不接 Image Provider、不生成 outputImageUrls、不写 SkillExecution / AuditLog、不做前端。
  *
  * 鉴权复用 Phase 1C：withAuth（401/停用/500 统一处理）
  * + resolveRequestOrgIdForUser 标准 org 解析（多组织/管理员必须显式 orgId，且校验成员归属）。

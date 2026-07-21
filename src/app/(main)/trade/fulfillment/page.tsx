@@ -204,7 +204,7 @@ export default function FulfillmentConsolePage() {
     <div className="space-y-6">
       <PageHeader
         title="履约控制台"
-        description="加拿大团队视角：处理被指派的外贸客户工单 — 上传输入图、gpt-image-2 出图、交付回传客户微信。"
+        description="加拿大团队视角：处理被指派的外贸客户工单 — 上传输入图、AI 出图、交付回传客户微信。"
         actions={
           <button
             onClick={() => loadList()}

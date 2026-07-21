@@ -13,15 +13,104 @@
  * - visualizer/sessions/{sessionId}/...   → session scope 校验
  * - visualizer/catalog/{orgId}/...        → org 成员校验
  * - visual-builder/{orgId}/...            → org 成员校验
+ * - product-content/{orgId}/...           → org 成员校验
  * - projects/{projectId}/...              → 项目读权限
  * - trade-service/{orgId}/...             → org 成员校验
  * - trade/intelligence/{orgId}/...        → org 成员校验
  * - temp/brochures/...                    → 登录即可（临时画册 PDF）
  */
 
+import fs from "fs";
+import path from "path";
 import { put, get, del } from "@vercel/blob";
+import { blobPathnameFromUrl, toProxyUrl } from "./blob-url";
 
-export const FILE_PROXY_PREFIX = "/api/files/";
+export {
+  FILE_PROXY_PREFIX,
+  blobPathnameFromUrl,
+  isProxyUrl,
+  toProxyUrl,
+} from "./blob-url";
+
+/** 本地验收/无 private Blob store 时：写入仓库外 .data（不进 git） */
+function useLocalBlobStore(): boolean {
+  return process.env.PRODUCT_CONTENT_LOCAL_STORE === "1";
+}
+
+function localBlobRoot(): string {
+  return (
+    process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR ||
+    path.join(process.cwd(), ".data", "product-content-blobs")
+  );
+}
+
+function localBlobAbsPath(pathname: string): string {
+  const safe = pathname.replace(/^\/+/, "").replace(/\.\./g, "");
+  return path.join(localBlobRoot(), safe);
+}
+
+function guessMimeFromPath(pathname: string, fallback?: string): string {
+  const lower = pathname.toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".xlsx"))
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (lower.endsWith(".json")) return "application/json";
+  return fallback || "application/octet-stream";
+}
+
+async function putLocalBlob(
+  args: PutPrivateBlobArgs,
+): Promise<PutPrivateBlobResult> {
+  const abs = localBlobAbsPath(args.pathname);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  let buffer: Buffer;
+  if (Buffer.isBuffer(args.body)) buffer = args.body;
+  else if (typeof args.body === "string") buffer = Buffer.from(args.body);
+  else if (args.body instanceof ArrayBuffer)
+    buffer = Buffer.from(new Uint8Array(args.body));
+  else if (typeof Blob !== "undefined" && args.body instanceof Blob) {
+    buffer = Buffer.from(await args.body.arrayBuffer());
+  } else {
+    throw new Error("local blob store 暂不支持该 body 类型");
+  }
+  fs.writeFileSync(abs, buffer);
+  // 旁路记录 contentType，供本地读回
+  const metaPath = `${abs}.meta.json`;
+  fs.writeFileSync(
+    metaPath,
+    JSON.stringify({
+      contentType: guessMimeFromPath(args.pathname, args.contentType),
+    }),
+  );
+  return {
+    url: `local://${args.pathname}`,
+    pathname: args.pathname,
+    proxyUrl: toProxyUrl(args.pathname),
+  };
+}
+
+function readLocalBlob(
+  pathname: string,
+): { buffer: Buffer; contentType: string } | null {
+  const abs = localBlobAbsPath(pathname);
+  if (!fs.existsSync(abs)) return null;
+  let contentType = guessMimeFromPath(pathname);
+  try {
+    const meta = JSON.parse(fs.readFileSync(`${abs}.meta.json`, "utf8")) as {
+      contentType?: string;
+    };
+    if (meta.contentType) contentType = meta.contentType;
+  } catch {
+    /* ignore */
+  }
+  return {
+    buffer: fs.readFileSync(abs),
+    contentType,
+  };
+}
 
 /** private store 的 token；未配置时回退默认 token（本地/测试环境） */
 function privateToken(): string | undefined {
@@ -54,16 +143,34 @@ export interface PutPrivateBlobResult {
 export async function putPrivateBlob(
   args: PutPrivateBlobArgs,
 ): Promise<PutPrivateBlobResult> {
-  const blob = await put(args.pathname, args.body, {
-    access: "private",
-    contentType: args.contentType,
-    token: privateToken(),
-  });
-  return {
-    url: blob.url,
-    pathname: args.pathname,
-    proxyUrl: toProxyUrl(args.pathname),
-  };
+  if (useLocalBlobStore()) {
+    return putLocalBlob(args);
+  }
+  try {
+    const blob = await put(args.pathname, args.body, {
+      access: "private",
+      contentType: args.contentType,
+      token: privateToken(),
+    });
+    return {
+      url: blob.url,
+      pathname: args.pathname,
+      proxyUrl: toProxyUrl(args.pathname),
+    };
+  } catch (err) {
+    // 公共 store 无法 private 上传时，product-content 验收允许降级本地盘
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      args.pathname.startsWith("product-content/") &&
+      /private access on a public store/i.test(msg)
+    ) {
+      console.warn(
+        "[blob-access] private store 不可用，product-content 降级本地盘",
+      );
+      return putLocalBlob(args);
+    }
+    throw err;
+  }
 }
 
 /** 删除 Blob（按 URL 或 pathname）。双 store 各删一次（del 幂等，不存在不报错）。 */
@@ -74,50 +181,6 @@ export async function deleteBlob(urlOrPathname: string): Promise<void> {
   if (legacy && legacy !== privateToken()) {
     await del(pathname, { token: legacy }).catch(() => undefined);
   }
-}
-
-/**
- * 从「存储的 URL」提取 Blob pathname。
- * 兼容三种历史/现行形态：
- * - Blob 完整 URL（https://xxx.blob.vercel-storage.com/{pathname}）
- * - 代理 URL（/api/files/{pathname}，含带域名的绝对形式）
- * - 纯 pathname
- */
-export function blobPathnameFromUrl(urlOrPathname: string): string {
-  let path = urlOrPathname;
-  if (/^https?:\/\//i.test(path)) {
-    try {
-      path = new URL(path).pathname;
-    } catch {
-      // 保底按原字符串处理
-    }
-  }
-  path = path.replace(/^\/+/, "");
-  const proxyPrefix = FILE_PROXY_PREFIX.replace(/^\/+/, ""); // "api/files/"
-  if (path.startsWith(proxyPrefix)) {
-    path = path.slice(proxyPrefix.length);
-  }
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
-}
-
-/** 存储 URL / pathname → 浏览器可用的代理 URL。 */
-export function toProxyUrl(urlOrPathname: string): string {
-  const pathname = blobPathnameFromUrl(urlOrPathname);
-  const encoded = pathname
-    .split("/")
-    .filter(Boolean)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
-  return `${FILE_PROXY_PREFIX}${encoded}`;
-}
-
-/** 判断一个 URL 是否已是本系统代理 URL（避免重复包装）。 */
-export function isProxyUrl(url: string): boolean {
-  return url.startsWith(FILE_PROXY_PREFIX);
 }
 
 export interface BlobStreamResult {
@@ -166,6 +229,12 @@ export async function readBlobStream(
 export async function readBlobBuffer(
   urlOrPathname: string,
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const pathname = blobPathnameFromUrl(urlOrPathname);
+  if (useLocalBlobStore() || pathname.startsWith("product-content/")) {
+    const local = readLocalBlob(pathname);
+    if (local) return local;
+  }
+
   const res = await readBlobStream(urlOrPathname);
   if (!res) return null;
   const chunks: Uint8Array[] = [];

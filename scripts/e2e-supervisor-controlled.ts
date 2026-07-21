@@ -283,18 +283,17 @@ async function main() {
   process.env.AGENT_SUPERVISOR_ORG_ALLOWLIST = TEST_ORG;
   process.env.AGENT_SUPERVISOR_ROLE_ALLOWLIST = "admin";
   process.env.AGENT_SUPERVISOR_ROLLOUT_PCT = "100";
-  // 强制主管模型走已验证可用的 primary（避免默认 luna 403）
+  // 强制主管模型走 Registry chat 默认
+  const { ProviderRouter } = await import("../src/lib/ai/model-registry");
+  const chatDefault = ProviderRouter.getChatModel();
   if (!process.env.AGENT_SUPERVISOR_PLANNER_MODEL) {
-    process.env.AGENT_SUPERVISOR_PLANNER_MODEL =
-      process.env.OPENAI_MODEL || "gpt-5.6-sol";
+    process.env.AGENT_SUPERVISOR_PLANNER_MODEL = chatDefault;
   }
   if (!process.env.AGENT_SUPERVISOR_SUMMARY_MODEL) {
-    process.env.AGENT_SUPERVISOR_SUMMARY_MODEL =
-      process.env.OPENAI_MODEL || "gpt-5.6-sol";
+    process.env.AGENT_SUPERVISOR_SUMMARY_MODEL = chatDefault;
   }
   if (!process.env.AGENT_SUPERVISOR_OBSERVER_MODEL) {
-    process.env.AGENT_SUPERVISOR_OBSERVER_MODEL =
-      process.env.OPENAI_MODEL || "gpt-5.6-sol";
+    process.env.AGENT_SUPERVISOR_OBSERVER_MODEL = chatDefault;
   }
 
   record(

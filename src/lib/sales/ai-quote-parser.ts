@@ -278,7 +278,10 @@ Return ONLY valid JSON (no markdown):
   }
 
   try {
-    const model = options?.imageDataUrl ? "gpt-4o" : "gpt-4o-mini";
+    const { ProviderRouter } = await import("@/lib/ai/model-registry");
+    const model = options?.imageDataUrl
+      ? ProviderRouter.getVisionModel()
+      : ProviderRouter.getChatModel();
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {

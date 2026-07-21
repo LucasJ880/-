@@ -1,17 +1,21 @@
 import { strict as assert } from "node:assert";
 import { buildTuningParams } from "../client";
+import { OPENAI_BUILTIN } from "@/lib/ai/model-registry";
 
-assert.deepEqual(buildTuningParams("gpt-5.6-sol", 0.5, "medium"), {
+const chatModel = OPENAI_BUILTIN.chat;
+
+assert.deepEqual(buildTuningParams(chatModel, 0.5, "medium"), {
   reasoning_effort: "medium",
 });
 
 assert.deepEqual(
-  buildTuningParams("gpt-5.6-sol", 0.5, "medium", {
+  buildTuningParams(chatModel, 0.5, "medium", {
     hasFunctionTools: true,
   }),
   { reasoning_effort: "none" },
 );
 
+// 旧模型族仍走 temperature 路径（回归保护）
 assert.deepEqual(
   buildTuningParams("gpt-4o", 0.3, "high", {
     hasFunctionTools: true,

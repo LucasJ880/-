@@ -1,7 +1,7 @@
 /**
  * product-visual-builder — 图片存储约定与校验（Phase 1D-Storage）
  *
- * 职责（本阶段仅做存储约定，不接 gpt-image-2、不调用图片模型）：
+ * 职责（本阶段仅做存储约定，不接 Image Provider、不调用图片模型）：
  * - 统一 Blob 路径规范：visual-builder/{orgId}/{yyyy}/{mm}/{executionId}/{assetRole}-{index}.{ext}
  * - orgId / executionId 路径隔离与注入防护（优先拒绝，不悄悄修正危险路径）
  * - 图片 MIME / 文件大小校验

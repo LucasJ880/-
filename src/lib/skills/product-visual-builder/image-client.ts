@@ -8,7 +8,7 @@
  * - 不写数据库 / 不写 SkillExecution / 不写 AuditLog / 不做前端
  *
  * 复用现有 AI 基础设施：
- * - 模型名来自 getAIConfig().imageModel（不硬编码 gpt-image-2）
+ * - 模型名来自 getAIConfig().imageModel（ProviderRouter / ModelRegistry）
  * - 真实调用走项目统一的 getClient()（@/lib/ai/client，单例 OpenAI，apiKey/baseURL 来自 getAIConfig）
  *
  * source image 处理（Phase 1F 采用方案 B）：

@@ -1,0 +1,61 @@
+{
+  "id": "example_soft_white_bathrobe_v1",
+  "name": "示例 · 柔白浴袍套图",
+  "category": "home_textile_bathrobe",
+  "description": "授权采集示例：请替换为真实模版名称、构图说明与图片文件。",
+  "source": {
+    "vendor": "authorized-partner",
+    "externalName": "柔白",
+    "licenseNote": "已授权下载预览图并导入自有系统商用",
+    "collectedAt": "2026-07-21",
+    "collectedBy": "your-name"
+  },
+  "quality": "high",
+  "supportedAspectRatios": ["1:1", "3:4", "4:3", "9:16", "16:9"],
+  "supportedResolutions": ["1K", "2K"],
+  "files": {
+    "preview": "preview.jpg",
+    "styleModel": "style-model.jpg",
+    "styleDisplay": "style-display.jpg"
+  },
+  "fidelityRules": [
+    "正面主图为唯一产品真相来源",
+    "禁止不同 SKU 印花混用参考",
+    "禁止画面出现品牌字 / 平台名 / 材质卖点叠字",
+    "印花、颜色、领型、腰带、口袋必须跟随正面主图"
+  ],
+  "shots": [
+    {
+      "key": "bathroom_model",
+      "label": "模特 · 浴室",
+      "styleGroup": "A_model_lifestyle",
+      "mode": "STUDIO",
+      "styleRefs": "model",
+      "compositionNotes": "真人模特穿着本品浴袍坐在明亮现代浴室化妆台边，自然日光，电商生活方式构图，产品嵌入感强。"
+    },
+    {
+      "key": "bedroom_model",
+      "label": "模特 · 卧室",
+      "styleGroup": "A_model_lifestyle",
+      "mode": "STUDIO",
+      "styleRefs": "model",
+      "compositionNotes": "真人模特穿着本品浴袍坐在床沿或靠窗站立，柔和晨光，酒店家居感。"
+    },
+    {
+      "key": "hanging_display",
+      "label": "悬挂陈列",
+      "styleGroup": "B_display_embed",
+      "mode": "STUDIO",
+      "styleRefs": "display",
+      "compositionNotes": "浴袍挂在木衣架与金属杆上，靠清洁室内墙面，自然垂坠与接触阴影，可有同款折叠陈列。"
+    },
+    {
+      "key": "model_plus_folded",
+      "label": "模特 + 折叠",
+      "styleGroup": "B_display_embed",
+      "mode": "STUDIO",
+      "styleRefs": "both",
+      "compositionNotes": "模特穿着本品 + 旁侧家具上同款整齐折叠，双呈现，明亮室内。"
+    }
+  ]
+}

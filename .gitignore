@@ -24,6 +24,9 @@
 .DS_Store
 *.pem
 
+# 本地验收 Blob 降级存储（product-content）
+.data/
+
 # local SQLite（勿提交到 GitHub）
 *.db
 *.db-journal
