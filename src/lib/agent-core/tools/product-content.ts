@@ -346,12 +346,16 @@ registry.register({
     if (denied) return fail(denied);
     const jobId = str(ctx.args.jobId);
     if (!jobId) return fail("jobId 必填");
-    const job = await approveProductContentJob({
+    const result = await approveProductContentJob({
       orgId: ctx.orgId,
       jobId,
       userId: ctx.userId,
     });
-    return ok({ jobId: job.id, status: job.status });
+    return ok({
+      jobId: result.job.id,
+      status: result.job.status,
+      snapshotId: result.snapshot.id,
+    });
   },
 });
 

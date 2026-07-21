@@ -44,15 +44,22 @@ export async function editProductImage(
     (deps.runEdit
       ? async (args) => {
           const buffer = await deps.runEdit!(args);
+          const providerErrorCode = buffer
+            ? undefined
+            : ("UNKNOWN_PROVIDER_ERROR" as const);
+          const httpStatus = buffer ? 200 : 500;
           return {
             buffer,
             execution: {
               requestedModel: args.model || "test",
               resolvedModel: buffer ? args.model || "test" : undefined,
               attemptNumber: args.attemptNumber ?? 1,
-              httpStatus: buffer ? 200 : 500,
-              providerErrorCode: buffer ? undefined : ("UNKNOWN_PROVIDER_ERROR" as const),
+              httpStatus,
+              providerErrorCode,
             },
+            providerErrorCode,
+            httpStatus,
+            errorBody: undefined as string | undefined,
           };
         }
       : runImageEditDetailed);
