@@ -12,7 +12,7 @@ import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
 async function hasMarketingAccess(ctx: ToolExecutionContext): Promise<boolean> {
-  if (ctx.role === "admin" || ctx.role === "super_admin") return true;
+  if (ctx.hasMembership === true) return true;
   const membership = await db.organizationMember.findUnique({
     where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
     select: { status: true },

@@ -77,12 +77,32 @@ export async function createProductContentJob(input: {
     (settings.defaultExecutionMode as ExecutionMode) ??
     "AUTOPILOT";
 
+  const org = await db.organization.findUnique({
+    where: { id: input.orgId },
+    select: { industryPackId: true },
+  });
+  const { resolveIndustryPack } = await import("@/lib/industry-packs/registry");
+  const requested = input.industryPack?.trim() || org?.industryPackId || null;
+  const resolved = resolveIndustryPack(requested);
+  if (resolved.status !== "ok" || !resolved.pack) {
+    throw new Error(
+      resolved.status === "ok"
+        ? "Industry Pack 解析失败"
+        : resolved.message,
+    );
+  }
+  if (!resolved.pack.productContentFieldPackId) {
+    throw new Error(
+      `当前 Industry Pack（${resolved.pack.id}）未定义产品内容字段包，禁止回退家纺语义`,
+    );
+  }
+
   const job = await db.productContentJob.create({
     data: {
       orgId: input.orgId,
       title: input.title.trim(),
       executionMode,
-      industryPack: input.industryPack ?? "home_textile",
+      industryPack: resolved.pack.productContentFieldPackId,
       selectedSku: input.selectedSku,
       createdById: input.userId,
       status: "DRAFT",

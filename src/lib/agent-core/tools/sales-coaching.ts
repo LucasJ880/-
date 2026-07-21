@@ -41,6 +41,9 @@ registry.register({
     required: ["query"],
   },
   execute: async (ctx: ToolExecutionContext) => {
+    if (!ctx.orgId) {
+      return { success: false, data: { error: "缺少组织上下文" } };
+    }
     const { searchKnowledgeChunks, searchInsights, hybridSearch } =
       await import("@/lib/sales/vector-search");
 
@@ -48,10 +51,11 @@ registry.register({
     const mode = (ctx.args.mode as string) ?? "hybrid";
     const limit = (ctx.args.limit as number) ?? 5;
     const customerId = ctx.args.customerId as string | undefined;
+    const orgId = ctx.orgId;
 
     try {
       if (mode === "insights") {
-        const results = await searchInsights(query, { limit });
+        const results = await searchInsights(query, { orgId, limit });
         return ok({
           mode: "insights",
           results: results.map((r) => ({
@@ -67,6 +71,7 @@ registry.register({
       if (mode === "chunks") {
         const results = await searchKnowledgeChunks({
           query,
+          orgId,
           limit,
           filters: { customerId },
         });
@@ -83,8 +88,8 @@ registry.register({
         });
       }
 
-      const chunks = await hybridSearch(query, { limit, customerId });
-      const insights = await searchInsights(query, { limit: 3 });
+      const chunks = await hybridSearch(query, { orgId, limit, customerId });
+      const insights = await searchInsights(query, { orgId, limit: 3 });
 
       return ok({
         mode: "hybrid",
@@ -131,6 +136,9 @@ registry.register({
     required: ["situation"],
   },
   execute: async (ctx: ToolExecutionContext) => {
+    if (!ctx.orgId) {
+      return { success: false, data: { error: "缺少组织上下文" } };
+    }
     const { hybridSearch, searchInsights } = await import(
       "@/lib/sales/vector-search"
     );
@@ -138,6 +146,7 @@ registry.register({
 
     const situation = ctx.args.situation as string;
     let customerId = ctx.args.customerId as string | undefined;
+    const orgId = ctx.orgId;
 
     if (!customerId && ctx.args.customerName) {
       const custScope = salesCreatedScope(ctx.userId, ctx.role, ctx.orgId);
@@ -152,8 +161,16 @@ registry.register({
     }
 
     try {
-      const similarCases = await hybridSearch(situation, { limit: 5, customerId });
-      const insights = await searchInsights(situation, { limit: 3, minEffectiveness: 0.3 });
+      const similarCases = await hybridSearch(situation, {
+        orgId,
+        limit: 5,
+        customerId,
+      });
+      const insights = await searchInsights(situation, {
+        orgId,
+        limit: 3,
+        minEffectiveness: 0.3,
+      });
 
       const contextParts: string[] = [];
       if (similarCases.length > 0) {

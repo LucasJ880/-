@@ -7,8 +7,7 @@ import { cn } from "@/lib/utils";
 import { Plus, Trash2, AlertCircle, Lock, Unlock, Settings2 } from "lucide-react";
 import { priceFor, isCordlessEligible, formatCAD } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS, DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
-
-const DISCOUNT_CODE = "Sunny2026";
+import { apiFetch } from "@/lib/api-fetch";
 
 function recalcLine(line: PartALine): PartALine {
   if (!line.product || !line.fabric || !line.widthIn || !line.heightIn) {
@@ -56,19 +55,34 @@ function DiscountPanel({
   const [codeInput, setCodeInput] = useState("");
   const [showCodeInput, setShowCodeInput] = useState(false);
   const [codeError, setCodeError] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   const defaultDiscount = product ? (DEFAULT_DISCOUNTS[product as ProductName] ?? 0) : 0;
   const currentPct = discountOverride !== null ? discountOverride : defaultDiscount;
   const isCustom = discountOverride !== null;
 
-  const handleCodeSubmit = () => {
-    if (codeInput === DISCOUNT_CODE) {
-      onUnlock();
-      setShowCodeInput(false);
-      setCodeError(false);
-      setCodeInput("");
-    } else {
+  const handleCodeSubmit = async () => {
+    const code = codeInput.trim();
+    if (!code || verifying) return;
+    setVerifying(true);
+    setCodeError(false);
+    try {
+      const res = await apiFetch("/api/sales/quote-settings/verify-line-discount-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (res.ok) {
+        onUnlock();
+        setShowCodeInput(false);
+        setCodeInput("");
+      } else {
+        setCodeError(true);
+      }
+    } catch {
       setCodeError(true);
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -88,8 +102,9 @@ function DiscountPanel({
             placeholder="Enter code"
             autoFocus
           />
-          <button onClick={handleCodeSubmit}
-            className="rounded bg-teal-600 px-2 py-1 text-[10px] text-white font-medium hover:bg-teal-700">
+          <button onClick={() => void handleCodeSubmit()}
+            disabled={verifying}
+            className="rounded bg-teal-600 px-2 py-1 text-[10px] text-white font-medium hover:bg-teal-700 disabled:opacity-50">
             OK
           </button>
           <button onClick={() => { setShowCodeInput(false); setCodeError(false); }}

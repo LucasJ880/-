@@ -164,6 +164,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
     role,
+    orgRole,
+    hasMembership,
+    modulesJson,
+    workspaceIds,
+    toolPolicy,
   } = options;
 
   const preset = getTaskPreset(mode);
@@ -181,13 +186,29 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const hooks = options.hooks;
   const runStartedAt = Date.now();
 
+  const toolCtxBase = {
+    userId,
+    orgId,
+    sessionId,
+    agentRunId,
+    role,
+    orgRole,
+    hasMembership,
+    modulesJson,
+    workspaceIds,
+    toolPolicy,
+    maxRisk: options.maxRisk,
+  };
+
   // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤；A-P1：附加 run 级临时工具）
   const openaiTools = [
     ...registry.toOpenAITools({
       domains: options.domains,
       names: options.tools,
       role,
+      orgRole,
       maxRisk: options.maxRisk,
+      disabledTools: toolPolicy?.disabledTools,
     }),
     ...extraToolsToOpenAI(options.extraTools),
   ];
@@ -281,7 +302,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           const toolStartedAt = Date.now();
           const result = await executeToolUnified(
             tc.function.name,
-            { args, userId, orgId, sessionId, agentRunId, role },
+            { args, ...toolCtxBase },
             options.extraTools,
           );
 
@@ -403,6 +424,11 @@ export async function* runAgentStream(
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
     role,
+    orgRole,
+    hasMembership,
+    modulesJson,
+    workspaceIds,
+    toolPolicy,
     abortSignal,
   } = options;
 
@@ -425,12 +451,28 @@ export async function* runAgentStream(
   let fullText = "";
   const toolCallLog: AgentRunResult["toolCalls"] = [];
 
+  const toolCtxBase = {
+    userId,
+    orgId,
+    sessionId,
+    agentRunId,
+    role,
+    orgRole,
+    hasMembership,
+    modulesJson,
+    workspaceIds,
+    toolPolicy,
+    maxRisk: options.maxRisk,
+  };
+
   const openaiTools = [
     ...registry.toOpenAITools({
       domains: options.domains,
       names: options.tools,
       role,
+      orgRole,
       maxRisk: options.maxRisk,
+      disabledTools: toolPolicy?.disabledTools,
     }),
     ...extraToolsToOpenAI(options.extraTools),
   ];
@@ -658,7 +700,7 @@ export async function* runAgentStream(
         const toolStartedAt = Date.now();
         const result = await executeToolUnified(
           name,
-          { args, userId, orgId, sessionId, agentRunId, role },
+          { args, ...toolCtxBase },
           options.extraTools,
         );
 

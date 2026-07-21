@@ -12,11 +12,21 @@
  */
 
 import { db } from "@/lib/db";
+import { DEFAULT_SUNNY_MODULES } from "../src/lib/tenancy/modules";
 
 const ORG = {
   code: "sunny-home-deco",
   name: "Sunny Home & Deco",
 } as const;
+
+const WORKSPACES = [
+  { slug: "sales", name: "Sales", type: "department" },
+  { slug: "government-bids", name: "Government Bids", type: "department" },
+  { slug: "projects", name: "Projects", type: "department" },
+  { slug: "marketing", name: "Marketing", type: "department" },
+  { slug: "operations", name: "Operations", type: "department" },
+  { slug: "product-content", name: "Product Content", type: "department" },
+] as const;
 
 const OWNER_EMAIL = "lucas@sunnyshutter.ca";
 const SWITCH_ACTIVE = process.argv.includes("--switch-active");
@@ -50,6 +60,8 @@ async function main() {
         ownerId: owner.id,
         status: "active",
         planType: "free",
+        modulesJson: { enabled: [...DEFAULT_SUNNY_MODULES] },
+        industryPackId: "window_covering_services_v1",
       },
       select: { id: true, name: true, code: true, status: true, ownerId: true },
     });
@@ -57,11 +69,55 @@ async function main() {
   } else {
     org = await db.organization.update({
       where: { id: org.id },
-      data: { name: ORG.name, status: "active" },
+      data: {
+        name: ORG.name,
+        status: "active",
+        modulesJson: { enabled: [...DEFAULT_SUNNY_MODULES] },
+        industryPackId: "window_covering_services_v1",
+      },
       select: { id: true, name: true, code: true, status: true, ownerId: true },
     });
     console.log(`组织已存在，已激活: ${org.name} (${org.code}) id=${org.id}`);
   }
+
+  await db.organization.update({
+    where: { id: org.id },
+    data: {
+      modulesJson: { enabled: [...DEFAULT_SUNNY_MODULES] },
+      industryPackId: "window_covering_services_v1",
+    },
+  });
+  console.log(`modulesJson: ${DEFAULT_SUNNY_MODULES.join(", ")}`);
+  console.log("industryPackId: window_covering_services_v1");
+
+  // 企业折扣行 + 解锁码哈希（幂等：已有哈希绝不覆盖）
+  // 生产：SUNNY_LINE_DISCOUNT_UNLOCK_CODE；开发可缺省示例 Sunny2026（仅非生产）
+  const { ensureLineDiscountUnlockHash } = await import(
+    "../src/lib/blinds/seed-unlock-code"
+  );
+  const unlockResult = await ensureLineDiscountUnlockHash({
+    orgId: org.id,
+    userId: owner.id,
+    envPlain: process.env.SUNNY_LINE_DISCOUNT_UNLOCK_CODE,
+    devExamplePlain: "Sunny2026",
+    orgLabel: ORG.code,
+  });
+  console.log(`行折扣解锁码: ${unlockResult.status}`, unlockResult);
+
+  for (const ws of WORKSPACES) {
+    await db.workspace.upsert({
+      where: { orgId_slug: { orgId: org.id, slug: ws.slug } },
+      update: { name: ws.name, status: "active", type: ws.type },
+      create: {
+        orgId: org.id,
+        slug: ws.slug,
+        name: ws.name,
+        type: ws.type,
+        status: "active",
+      },
+    });
+  }
+  console.log(`Workspace 就绪: ${WORKSPACES.map((w) => w.slug).join(", ")}`);
 
   await db.organizationMember.upsert({
     where: { orgId_userId: { orgId: org.id, userId: owner.id } },

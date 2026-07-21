@@ -11,13 +11,17 @@ import {
 import { db } from "@/lib/db";
 
 async function assertOrgAccess(ctx: ToolExecutionContext) {
-  if (ctx.role === "admin" || ctx.role === "super_admin") return null;
+  if (ctx.hasMembership === true) return null;
   const membership = await db.organizationMember.findUnique({
     where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
     select: { status: true },
   });
   if (membership?.status !== "active") {
-    return { success: false as const, data: null, error: "无权访问该组织知识库" };
+    return {
+      success: false as const,
+      data: null,
+      error: "无权访问该组织知识库（需要企业成员身份）",
+    };
   }
   return null;
 }

@@ -227,10 +227,13 @@ function mergeStringArrays(existing: string[], incoming: string[]): string[] {
  * 批量更新所有客户画像（定时任务用）
  */
 export async function refreshAllProfiles(
-  opts?: { limit?: number },
+  opts?: { limit?: number; orgId?: string },
 ): Promise<{ updated: number; errors: number }> {
+  if (!opts?.orgId?.trim()) {
+    throw new Error("refreshAllProfiles 需要 orgId");
+  }
   const customers = await db.salesCustomer.findMany({
-    where: { status: "active" },
+    where: { status: "active", orgId: opts.orgId },
     select: { id: true },
     take: opts?.limit ?? 100,
     orderBy: { updatedAt: "desc" },

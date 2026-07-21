@@ -1,11 +1,8 @@
 /**
  * 统一工具注册表
  *
- * 所有 Agent 可调用的工具在此注册。支持：
- * - 按域（trade/sales/project/secretary）过滤
- * - 按角色（admin/sales/trade/user）过滤（PR1 新增）
- * - 自动转换为 OpenAI function calling 格式
- * - 运行时按名称查找执行（含角色防御性校验）
+ * Phase 2A：execute 层以 TenantContext.orgRole + membership 授权（canInvokeTool）。
+ * 平台 role 仅作 list 兼容过滤与工具内数据范围遗留用途。
  */
 
 import type {
@@ -17,6 +14,7 @@ import type {
   ToolAllowRoles,
 } from "./types";
 import type { PlatformRole } from "@/lib/rbac/roles";
+import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 
 /** 未声明 allowRoles 的工具视为 admin-only（安全默认） */
 const DEFAULT_ALLOW_ROLES: ToolAllowRoles = ["admin"];
@@ -36,7 +34,7 @@ function normalizeRole(role: string | null | undefined): PlatformRole {
   ) {
     return role;
   }
-  return "user"; // 最低权限回退
+  return "user";
 }
 
 function roleCanCall(tool: ToolDefinition, role: PlatformRole): boolean {
@@ -48,10 +46,13 @@ function roleCanCall(tool: ToolDefinition, role: PlatformRole): boolean {
 export interface RegistryFilters {
   domains?: ToolDomain[];
   names?: string[];
-  /** PR1：按角色过滤；未提供时不做角色过滤（供内部系统调用） */
+  /** 遗留：按平台角色过滤（list 可见性） */
   role?: PlatformRole | string;
-  /** PR1：最高允许风险等级；用于只读模式（如主入口灰度） */
+  /** Phase 2A：按组织角色收紧 list（viewer 仅 l0） */
+  orgRole?: string;
   maxRisk?: "l0_read" | "l1_internal_write" | "l2_soft" | "l3_strong";
+  /** 企业禁用工具 */
+  disabledTools?: string[];
 }
 
 const RISK_ORDER: Record<NonNullable<RegistryFilters["maxRisk"]>, number> = {
@@ -75,7 +76,6 @@ class ToolRegistry {
     return this.tools.get(name);
   }
 
-  /** 列出所有工具；支持按域 / 名称 / 角色 / 风险过滤 */
   list(filters?: RegistryFilters): ToolDefinition[] {
     let result = Array.from(this.tools.values());
     if (filters?.domains?.length) {
@@ -85,9 +85,16 @@ class ToolRegistry {
       const nameSet = new Set(filters.names);
       result = result.filter((t) => nameSet.has(t.name));
     }
+    if (filters?.disabledTools?.length) {
+      const banned = new Set(filters.disabledTools);
+      result = result.filter((t) => !banned.has(t.name));
+    }
     if (filters?.role) {
       const role = normalizeRole(filters.role);
       result = result.filter((t) => roleCanCall(t, role));
+    }
+    if (filters?.orgRole === "org_viewer") {
+      result = result.filter((t) => (t.risk ?? "l0_read") === "l0_read");
     }
     if (filters?.maxRisk) {
       const cap = RISK_ORDER[filters.maxRisk];
@@ -99,7 +106,6 @@ class ToolRegistry {
     return result;
   }
 
-  /** 转换为 OpenAI function calling 的 tools 格式 */
   toOpenAITools(filters?: RegistryFilters): OpenAIToolSpec[] {
     return this.list(filters).map((tool) => ({
       type: "function" as const,
@@ -112,10 +118,7 @@ class ToolRegistry {
   }
 
   /**
-   * 执行一个工具
-   *
-   * 防御性角色校验：即使 list() 过滤被绕过（prompt injection / 未来接入其他通道），
-   * execute 层会再检查一次。ctx.role 缺失时按 "user"（最低权限）处理。
+   * 执行工具：canInvokeTool（membership + orgRole + modules + risk）
    */
   async execute(
     name: string,
@@ -126,21 +129,32 @@ class ToolRegistry {
       return { success: false, data: null, error: `未知工具: ${name}` };
     }
 
-    // —— RBAC 防御性校验 ——
-    const role = normalizeRole(ctx.role);
-    if (!roleCanCall(tool, role)) {
+    const decision = canInvokeTool({
+      tenant: {
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole ?? "org_viewer",
+        isPlatformAdmin: ctx.role === "admin" || ctx.role === "super_admin",
+        workspaceIds: ctx.workspaceIds,
+      },
+      hasMembership: ctx.hasMembership === true,
+      tool,
+      maxRisk: ctx.maxRisk,
+      modulesJson: ctx.modulesJson,
+      toolPolicy: ctx.toolPolicy,
+    });
+
+    if (!decision.ok) {
       console.warn(
-        `[ToolRegistry] RBAC reject: role=${role} attempted ${name} (allowRoles=${JSON.stringify(resolveAllowRoles(tool))})`,
+        `[ToolRegistry] Tenant/orgRole reject: ${decision.code} tool=${name} org=${ctx.orgId} orgRole=${ctx.orgRole}`,
       );
-      return {
-        success: false,
-        data: null,
-        error: `当前角色（${role}）无权调用工具 ${name}`,
-      };
+      return { success: false, data: null, error: decision.error };
     }
 
+    // 遗留：归一化平台 role 供工具内数据范围使用
+    const role = normalizeRole(ctx.role);
+
     try {
-      // 确保下游工具拿到的 role 已归一化
       return await tool.execute({ ...ctx, role });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

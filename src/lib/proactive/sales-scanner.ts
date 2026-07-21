@@ -24,7 +24,7 @@ const ACTIVE_STAGES = [
   'negotiation',
 ];
 
-const STALE_DAYS_BY_STAGE: Record<string, number> = {
+const PLATFORM_STALE_DAYS_BY_STAGE: Record<string, number> = {
   new_lead: 3,
   needs_confirmed: 5,
   measure_booked: 5,
@@ -32,14 +32,32 @@ const STALE_DAYS_BY_STAGE: Record<string, number> = {
   negotiation: 7,
 };
 
-export async function scanSalesForUser(userId: string): Promise<ProactiveSuggestion[]> {
+export async function scanSalesForUser(
+  userId: string,
+  opts?: { orgId?: string },
+): Promise<ProactiveSuggestion[]> {
   const now = new Date();
   const suggestions: ProactiveSuggestion[] = [];
   const seenKeys = new Set<string>();
 
+  let staleDaysByStage = PLATFORM_STALE_DAYS_BY_STAGE;
+  let defaultStaleDays = 7;
+  if (opts?.orgId) {
+    const { loadProjectRiskRule } = await import("@/lib/org-rules/service");
+    const risk = await loadProjectRiskRule(opts.orgId);
+    if (Object.keys(risk.value.staleDaysByStage).length > 0) {
+      staleDaysByStage = {
+        ...PLATFORM_STALE_DAYS_BY_STAGE,
+        ...risk.value.staleDaysByStage,
+      };
+    }
+    defaultStaleDays = risk.value.defaultStaleDays;
+  }
+
   const opportunities = await db.salesOpportunity.findMany({
     where: {
       stage: { in: ACTIVE_STAGES },
+      ...(opts?.orgId ? { orgId: opts.orgId } : {}),
       OR: [
         { assignedToId: userId },
         { createdById: userId },
@@ -122,7 +140,7 @@ export async function scanSalesForUser(userId: string): Promise<ProactiveSuggest
 
     // 3. No interaction for too long
     const lastInteraction = opp.interactions[0];
-    const staleDays = STALE_DAYS_BY_STAGE[opp.stage] ?? 7;
+    const staleDays = staleDaysByStage[opp.stage] ?? defaultStaleDays;
     const lastActivityDate = lastInteraction
       ? new Date(lastInteraction.createdAt)
       : new Date(opp.createdAt);

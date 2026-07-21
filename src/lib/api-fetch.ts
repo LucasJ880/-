@@ -21,6 +21,7 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/ai/memory",
   "/api/agent/trace",
   "/api/org/",
+  "/api/product-content",
 ];
 
 /**

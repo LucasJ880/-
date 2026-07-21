@@ -174,8 +174,8 @@ registry.register({
 
     let prospect;
     if (prospectId) {
-      prospect = await db.tradeProspect.findUnique({
-        where: { id: prospectId },
+      prospect = await db.tradeProspect.findFirst({
+        where: { id: prospectId, orgId: ctx.orgId },
         include: { campaign: true, messages: { orderBy: { createdAt: "desc" }, take: 5 } },
       });
     } else if (companyName) {
@@ -186,6 +186,9 @@ registry.register({
     }
 
     if (!prospect) return { success: false, data: null, error: "未找到该线索" };
+    if (prospect.orgId !== ctx.orgId) {
+      return { success: false, data: null, error: "未找到该线索" };
+    }
 
     const reportBody = getResearchReportForAgents(prospect.researchReport);
     const parsed = parseResearchBundle(prospect.researchReport);
