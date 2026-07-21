@@ -511,7 +511,7 @@ async function main() {
   const orgTests: Array<{ name: string; ok: boolean; detail: string }> = [];
   if (otherOrg) {
     try {
-      await getProductContentJobDetail(otherOrg.id, JOB_ID);
+      await getProductContentJobDetail(otherOrg.id, JOB_ID, userId);
       orgTests.push({ name: "getJobDetail_otherOrg", ok: false, detail: "不应成功" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
