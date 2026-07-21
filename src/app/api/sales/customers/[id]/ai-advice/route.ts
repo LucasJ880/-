@@ -6,11 +6,17 @@ import { createCompletion } from "@/lib/ai/client";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { aggregateDealHealth } from "@/lib/sales/communication-analyzer";
 
-export const POST = withAuth(async (_request, ctx) => {
+export const POST = withAuth(async (request, ctx, user) => {
+  const { resolveSalesOrgIdForRequest } = await import(
+    "@/lib/sales/org-context"
+  );
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await ctx.params;
 
-  const customer = await db.salesCustomer.findUnique({
-    where: { id },
+  const customer = await db.salesCustomer.findFirst({
+    where: { id, orgId: orgRes.orgId },
     include: {
       opportunities: {
         orderBy: { updatedAt: "desc" },
@@ -105,8 +111,16 @@ export const POST = withAuth(async (_request, ctx) => {
     const { hybridSearch, searchInsights } = await import("@/lib/sales/vector-search");
     const searchQuery = `${customer.name} ${customer.opportunities.map((o) => o.title).join(" ")}`.trim();
     if (searchQuery) {
-      const chunks = await hybridSearch(searchQuery, { limit: 3, customerId: id });
-      const insights = await searchInsights(searchQuery, { limit: 2, minEffectiveness: 0.3 });
+      const chunks = await hybridSearch(searchQuery, {
+        orgId: orgRes.orgId,
+        limit: 3,
+        customerId: id,
+      });
+      const insights = await searchInsights(searchQuery, {
+        orgId: orgRes.orgId,
+        limit: 2,
+        minEffectiveness: 0.3,
+      });
 
       if (chunks.length > 0) {
         knowledgeContext += "\n\n## 知识库相关记录\n";

@@ -18,6 +18,8 @@ import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { runAgent } from "@/lib/agent-core";
 import type { CoreMessage, ToolDomain, AgentRunOptions } from "@/lib/agent-core";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
+import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
+import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
 
 export const maxDuration = 60;
 
@@ -56,6 +58,20 @@ export const POST = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId as string | undefined);
   if (!orgRes.ok) return orgRes.response;
   const orgId = orgRes.orgId;
+  const tenant = await resolveAgentTenant(user, orgId);
+  if ("error" in tenant) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+  if (!tenant.hasMembership) {
+    return NextResponse.json(
+      { error: "无企业成员身份，不能调用企业 Agent 工具" },
+      { status: 403 },
+    );
+  }
+  const autoSend = await loadQuoteAutoSendRule(orgId);
+  const maxRisk = autoSend.value.allowDirectSend
+    ? autoSend.value.sessionMaxRisk
+    : "l2_soft";
   const domains = body.domains as ToolDomain[] | undefined;
   const systemPrompt = body.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   const mode = (body.mode ?? "chat") as AgentRunOptions["mode"];
@@ -69,7 +85,12 @@ export const POST = withAuth(async (request, _ctx, user) => {
       userId: user.id,
       orgId,
       role: user.role,
-      maxRisk: "l2_soft",
+      orgRole: tenant.orgRole,
+      hasMembership: tenant.hasMembership,
+      modulesJson: tenant.modulesJson,
+      workspaceIds: tenant.workspaceIds,
+      toolPolicy: tenant.toolPolicy,
+      maxRisk,
       abortSignal: request.signal,
     });
 

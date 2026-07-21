@@ -4,10 +4,13 @@ import {
   resolvePreferredOrgId,
   setUserActiveOrgId,
 } from "@/lib/organizations/active-org";
+import { db } from "@/lib/db";
+import { parseOrgModulesJson } from "@/lib/tenancy";
 
 /**
  * GET /api/auth/active-org
  * 返回当前偏好组织 + 可选列表（供前端 hydrate / 选组织页）
+ * 附带当前组织 modules（用于侧栏动态裁剪）
  */
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -15,8 +18,21 @@ export async function GET(request: NextRequest) {
   const { user } = auth;
 
   const resolved = await resolvePreferredOrgId(user.id, user.role);
+  let modules: ReturnType<typeof parseOrgModulesJson> = null;
+  let orgCode: string | null = null;
+  if (resolved.orgId) {
+    const org = await db.organization.findUnique({
+      where: { id: resolved.orgId },
+      select: { code: true, modulesJson: true },
+    });
+    orgCode = org?.code ?? null;
+    modules = parseOrgModulesJson(org?.modulesJson);
+  }
+
   return NextResponse.json({
     activeOrgId: resolved.orgId,
+    orgCode,
+    modules,
     needsSelection: resolved.needsSelection,
     organizations: resolved.organizations,
   });

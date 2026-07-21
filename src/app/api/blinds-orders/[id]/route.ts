@@ -30,12 +30,29 @@ export const GET = withAuth(async (request, ctx, user) => {
   return NextResponse.json(order);
 });
 
-export const PUT = withAuth(async (request, ctx) => {
+export const PUT = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
   const body = await request.json();
 
-  const existing = await db.blindsOrder.findUnique({ where: { id } });
+  const existing = await db.blindsOrder.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      code: true,
+      projectId: true,
+    },
+  });
   if (!existing) {
+    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+  }
+
+  if (existing.projectId) {
+    const visibleIds = await getVisibleProjectIds(user.id, user.role);
+    if (visibleIds !== null && !visibleIds.includes(existing.projectId)) {
+      return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+    }
+  } else if (!["admin", "super_admin"].includes(user.role)) {
+    // 无项目归属的历史单：仅平台管理员可改
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 

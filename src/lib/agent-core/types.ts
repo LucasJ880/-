@@ -88,8 +88,22 @@ export interface ToolExecutionContext {
   sessionId?: string;
   /** AgentRun.id（可选，写入 PendingAction 关联） */
   agentRunId?: string;
-  /** 当前用户的平台角色（PR1：用于数据隔离 + 防御性权限校验） */
+  /** 当前用户的平台角色（数据范围等遗留用途；工具授权以 orgRole 为准） */
   role?: PlatformRole | string;
+  /** 组织角色：org_admin | org_member | org_viewer */
+  orgRole?: string;
+  /** 是否为当前 org 的 active OrganizationMember */
+  hasMembership?: boolean;
+  /** 企业 modulesJson */
+  modulesJson?: unknown;
+  workspaceIds?: string[];
+  /** 企业 Agent 工具政策覆盖 */
+  toolPolicy?: {
+    disabledTools?: string[];
+    forceApprovalTools?: string[];
+  };
+  /** 会话风险上限（与 AgentRunOptions.maxRisk 对齐） */
+  maxRisk?: ToolRisk;
 }
 
 export interface ToolExecutionResult {
@@ -167,11 +181,20 @@ export interface AgentRunOptions {
   agentRunId?: string;
   /**
    * 当前用户平台角色（PR1 新增）
-   * - 决定工具可见性（ToolRegistry.list 过滤）
-   * - 决定数据可见范围（透传至 ToolExecutionContext）
-   * - 未提供时默认按 "user" 处理（最低权限）
+   * - 遗留：部分工具内数据范围仍读 role
+   * - 工具调用授权以 orgRole + hasMembership 为准（Phase 2A）
    */
   role?: PlatformRole | string;
+  /** 组织角色（TenantContext.orgRole） */
+  orgRole?: string;
+  /** 必须为 true 才能调用企业业务工具 */
+  hasMembership?: boolean;
+  modulesJson?: unknown;
+  workspaceIds?: string[];
+  toolPolicy?: {
+    disabledTools?: string[];
+    forceApprovalTools?: string[];
+  };
   /**
    * PR4：工具风险上限（透传至 registry.list）。
    * 用于让主入口只暴露特定风险等级以下的工具：

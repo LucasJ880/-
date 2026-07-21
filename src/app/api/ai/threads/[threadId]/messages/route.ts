@@ -43,6 +43,8 @@ import {
   executeMarketResearchRun,
   queueMarketResearchRequest,
 } from "@/lib/market-intelligence/research-runtime";
+import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
+import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
 
 // 普通对话仍使用 Agent 自身的短超时；只有前置分流的深度研究使用后台预算。
 export const maxDuration = 300;
@@ -589,6 +591,21 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     buildProjectExpertSystemAddon,
   } = await import("@/lib/ai/assistant-modes");
 
+  const tenant = await resolveAgentTenant(user, orgId);
+  if ("error" in tenant) {
+    return NextResponse.json({ error: tenant.error }, { status: tenant.status });
+  }
+  if (!tenant.hasMembership) {
+    return NextResponse.json(
+      { error: "无企业成员身份，不能调用企业 Agent 工具" },
+      { status: 403 },
+    );
+  }
+  const autoSend = await loadQuoteAutoSendRule(orgId);
+  const maxRisk = autoSend.value.allowDirectSend
+    ? autoSend.value.sessionMaxRisk
+    : "l2_soft";
+
   const caps = getCapabilities(user.role);
   let systemPrompt = buildOperatorSystemPrompt({
     role: user.role,
@@ -676,8 +693,13 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             orgId,
             sessionId: threadId,
             role: user.role,
+            orgRole: tenant.orgRole,
+            hasMembership: tenant.hasMembership,
+            modulesJson: tenant.modulesJson,
+            workspaceIds: tenant.workspaceIds,
+            toolPolicy: tenant.toolPolicy,
             domains: Array.from(domains) as (typeof caps.aiDomains)[number][],
-            maxRisk: "l2_soft",
+            maxRisk,
             abortSignal,
           })) {
             if (ev.type === "text") {

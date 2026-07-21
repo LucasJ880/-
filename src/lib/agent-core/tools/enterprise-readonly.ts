@@ -13,13 +13,14 @@ import { ok } from "./sales-helpers";
 
 async function requireOrgMember(ctx: ToolExecutionContext): Promise<string | null> {
   if (!ctx.orgId) return "缺少组织上下文";
-  if (ctx.role === "admin" || ctx.role === "super_admin") return null;
+  // Phase 2A：平台管理员无 membership 不可访问企业数据
+  if (ctx.hasMembership === true) return null;
   const membership = await db.organizationMember.findUnique({
     where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
     select: { status: true },
   });
   if (!membership || membership.status !== "active") {
-    return "无权访问该组织数据";
+    return "无权访问该组织数据（需要企业成员身份）";
   }
   return null;
 }

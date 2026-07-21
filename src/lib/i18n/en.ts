@@ -72,6 +72,7 @@ export const en: Messages = {
   nav_ai_activity: "Automation Log",
   nav_weekly_reports: "Business Briefs",
   nav_publish_calendar: "Content Operations",
+  nav_operations_center: "Business Center",
   nav_market_intelligence: "Market Intelligence",
   nav_service_inbox: "Customer Service",
   nav_project_intake: "Project Intake",

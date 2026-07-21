@@ -53,6 +53,7 @@ model User {
   projectNotificationRules ProjectNotificationRule[]
   ownedOrgs                Organization[]
   orgMemberships           OrganizationMember[]
+  workspaceMemberships     WorkspaceMember[]
   projectMemberships       ProjectMember[]
   auditLogs                AuditLog[]
   promptsCreated           Prompt[]                    @relation("PromptCreatedBy")
@@ -215,6 +216,9 @@ model Project {
   id          String        @id @default(cuid())
   orgId       String?
   org         Organization? @relation(fields: [orgId], references: [id])
+  /// 可选归属工作空间（部门级）；空=仅挂在企业下
+  workspaceId String?
+  workspace   Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   name        String
   code        String?       @unique
   description String?
@@ -307,6 +311,7 @@ model Project {
   generatedDocs     ProjectGeneratedDocument[]
 
   @@index([orgId])
+  @@index([workspaceId])
   @@index([purchaserId])
   @@index([sourceSystem])
   @@index([tenderStatus])
@@ -619,11 +624,19 @@ model Organization {
   owner     User     @relation(fields: [ownerId], references: [id])
   status    String   @default("active")
   planType  String   @default("free")
+  /// 启用模块：{ "enabled": ["sales","trade",...] }
+  modulesJson Json?
+  /// 企业级设置预留（审批默认、Agent 默认等）
+  settingsJson Json?
+  /// Industry Pack id（Registry）：如 window_covering_services_v1；空=未配置（禁止静默家纺回退）
+  industryPackId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   members           OrganizationMember[]
   projects          Project[]
+  workspaces        Workspace[]
+  businessRules     OrgBusinessRule[]
   auditLogs         AuditLog[]
   suppliers         Supplier[]
   agentSkills       AgentSkill[]
@@ -644,6 +657,45 @@ model Organization {
   tradeProducts              TradeProduct[]
   productContentJobs         ProductContentJob[]
   agentApprovalSettings      AgentApprovalSettings?
+  quoteDiscountSettings      QuoteDiscountSettings?
+}
+
+/// 企业内部工作空间 / 部门（第一阶段骨架）
+model Workspace {
+  id           String       @id @default(cuid())
+  orgId        String
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name         String
+  slug         String
+  type         String       @default("department") // department | team | custom
+  status       String       @default("active") // active | archived
+  description  String?
+  settingsJson Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  members  WorkspaceMember[]
+  projects Project[]
+
+  @@unique([orgId, slug])
+  @@index([orgId, status])
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// workspace_admin | manager | editor | member | viewer
+  role        String    @default("member")
+  status      String    @default("active")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
 }
 
 /// 企业项目规则（Phase2）：仅用户确认后生效，不自动变成正式规则
@@ -3021,36 +3073,55 @@ model SalesQuote {
   @@index([orgId])
 }
 
-/// 全局报价折扣率设置（单行配置 id="singleton"）
-/// - Order Form / AI 报价工具 / 驾驶舱统一读取
-/// - 仅 admin/super_admin 可写，走 RBAC + 审计日志
-/// - 每个字段为 0~1 之间的小数，代表默认百分比折扣
+/// 企业级报价折扣/促销/定金规则（每 org 一行当前生效配置）
+/// 历史版本见 OrgBusinessRule(ruleKey=quote_discounts)
+/// 遗留 singleton 行仅作迁移源，运行时禁止跨 org 读取
 model QuoteDiscountSettings {
-  id                  String   @id @default("singleton")
-  zebra               Float    @default(0.45)
-  shangrila           Float    @default(0.35)
-  cellular            Float    @default(0.35)
-  roller              Float    @default(0.45)
-  drapery             Float    @default(0.35)
-  sheer               Float    @default(0.35)
-  shutters            Float    @default(0.35)
-  honeycomb           Float    @default(0.35)
-  // Special Promotion 预警 & 上限阈值（0~1 小数，如 0.06 表示 6%）
-  // - warn:   >= 此比例开始黄色提醒
-  // - danger: >= 此比例红色强警告
-  // - max:    销售不得超过；admin/super_admin 不受限
-  promoWarnPct        Float    @default(0.06)
-  promoDangerPct      Float    @default(0.15)
-  promoMaxPct         Float    @default(0.25)
-  // 定金 (deposit) 阈值（按 Grand Total 含税总价的比例，0~1 小数）
-  // - depositWarnPct:         低于此比例，销售端黄色提醒（默认 40%）
-  // - depositMinPct:          低于此比例，销售需输入解锁码才能保存（默认 30%）
-  // - depositOverrideCode:    老板设置的解锁码（明文存；MVP 简化方案）
-  depositWarnPct      Float    @default(0.40)
-  depositMinPct       Float    @default(0.30)
+  id                  String       @id @default(cuid())
+  orgId               String       @unique
+  org                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  version             Int          @default(1)
+  effectiveAt         DateTime     @default(now())
+  zebra               Float        @default(0.45)
+  shangrila           Float        @default(0.35)
+  cellular            Float        @default(0.35)
+  roller              Float        @default(0.45)
+  drapery             Float        @default(0.35)
+  sheer               Float        @default(0.35)
+  shutters            Float        @default(0.35)
+  honeycomb           Float        @default(0.35)
+  promoWarnPct        Float        @default(0.06)
+  promoDangerPct      Float        @default(0.15)
+  promoMaxPct         Float        @default(0.25)
+  depositWarnPct      Float        @default(0.40)
+  depositMinPct       Float        @default(0.30)
+  /// bcrypt 哈希；禁止存明文。API 永不返回此字段。
   depositOverrideCode String?
-  updatedAt           DateTime @updatedAt
+  /// 行折扣解锁码的 bcrypt 哈希（禁止存明文；API 永不返回）
+  lineDiscountUnlockCodeHash String?
+  updatedAt           DateTime     @updatedAt
   updatedBy           String?
+}
+
+/// 企业业务规则版本库（毛利/风险/自动发送/Agent 工具覆盖等）
+model OrgBusinessRule {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// quote_margin | quote_auto_send | project_risk | agent_tool_policy | quote_discounts_snapshot
+  ruleKey     String
+  version     Int          @default(1)
+  /// draft | active | superseded
+  status      String       @default("active")
+  configJson  Json
+  effectiveAt DateTime     @default(now())
+  createdById String?
+  updatedById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([orgId, ruleKey, version])
+  @@index([orgId, ruleKey, status])
 }
 
 model SalesQuoteItem {
@@ -5417,6 +5488,9 @@ model AgentApprovalSettings {
   id                                  String       @id @default(cuid())
   orgId                               String       @unique
   org                                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  version                             Int          @default(1)
+  effectiveAt                         DateTime     @default(now())
+  updatedById                         String?
   defaultExecutionMode                String       @default("AUTOPILOT")
   autoAnalyzeFiles                    Boolean      @default(true)
   autoCreateProductDraft              Boolean      @default(true)

@@ -62,6 +62,11 @@ import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
 import { useLocale } from "@/lib/i18n/context";
 import { CoBrand } from "@/components/co-brand";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { apiFetch } from "@/lib/api-fetch";
+import {
+  navHrefAllowedByModules,
+  type OrgModulesConfig,
+} from "@/lib/tenancy/modules";
 
 interface NavItem {
   href: string;
@@ -158,6 +163,7 @@ const NAV_GROUPS: NavGroup[] = [
     titleKey: "nav_group_operations",
     roles: ["admin", "super_admin", "manager", "sales", "user"],
     items: [
+      { href: "/operations/center", labelKey: "nav_operations_center", icon: LayoutDashboard, roles: ["admin", "super_admin", "manager", "sales", "trade", "user"] },
       { href: "/service-inbox", labelKey: "nav_service_inbox", icon: Inbox, roles: ["admin", "super_admin", "manager", "sales", "user"] },
       { href: "/operations", labelKey: "nav_publish_calendar", icon: Megaphone, roles: ["admin", "super_admin", "manager"] },
       { href: "/operations/intelligence", labelKey: "nav_market_intelligence", icon: Radar, roles: ["admin", "super_admin", "manager"] },
@@ -337,6 +343,26 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const isAdmin = canViewAdminPages(user?.role);
   const userRole = user?.role || "user";
   const { count: pendingCount } = usePendingApprovalsBadge();
+  const [orgModules, setOrgModules] = useState<OrgModulesConfig | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch("/api/auth/active-org");
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          modules?: OrgModulesConfig | null;
+        };
+        if (!cancelled) setOrgModules(data.modules ?? null);
+      } catch {
+        if (!cancelled) setOrgModules(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <aside
@@ -373,6 +399,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         {NAV_GROUPS.map((group, gi) => {
           if (group.adminOnly && !isAdmin) return null;
           if (group.roles && userRole && !group.roles.includes(userRole)) return null;
+          const visibleItems = group.items.filter((item) => {
+            if (item.adminOnly && !isAdmin) return false;
+            if (item.roles && userRole && !item.roles.includes(userRole)) return false;
+            if (!navHrefAllowedByModules(item.href, orgModules)) return false;
+            return true;
+          });
+          if (visibleItems.length === 0) return null;
           return (
             <div
               key={group.titleKey}
@@ -384,9 +417,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                   {group.adminOnly && <Shield size={9} className="text-emerald-400/35" />}
                 </p>
               )}
-              {group.items.map((item) => {
-                if (item.adminOnly && !isAdmin) return null;
-                if (item.roles && userRole && !item.roles.includes(userRole)) return null;
+              {visibleItems.map((item) => {
                 const isActive = isItemActive(pathname, item.href);
                 return (
                   <Link

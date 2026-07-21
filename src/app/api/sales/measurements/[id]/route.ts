@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
   const { id } = await ctx.params;
-  const record = await db.measurementRecord.findUnique({
-    where: { id },
+  const record = await db.measurementRecord.findFirst({
+    where: { id, customer: { orgId: orgRes.orgId } },
     include: {
       customer: { select: { id: true, name: true, phone: true, address: true } },
       windows: {
@@ -19,10 +23,18 @@ export const GET = withAuth(async (_request, ctx) => {
   return NextResponse.json({ record });
 });
 
-export const PATCH = withAuth(async (request, ctx) => {
-  const { id } = await ctx.params;
-  const body = await request.json();
+export const PATCH = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
 
+  const { id } = await ctx.params;
+  const existing = await db.measurementRecord.findFirst({
+    where: { id, customer: { orgId: orgRes.orgId } },
+    select: { id: true },
+  });
+  if (!existing) return NextResponse.json({ error: "不存在" }, { status: 404 });
+
+  const body = await request.json();
   const updateData: Record<string, unknown> = {};
   if (body.status) updateData.status = body.status;
   if (body.overallNotes !== undefined) updateData.overallNotes = body.overallNotes;

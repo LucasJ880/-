@@ -29,6 +29,8 @@ export interface VectorSearchResult {
 
 export interface SearchOptions {
   query: string;
+  /** 必填：租户隔离，经 SalesCustomer.orgId JOIN */
+  orgId: string;
   limit?: number;
   minSimilarity?: number;
   filters?: {
@@ -117,43 +119,50 @@ export async function setPlaybookEmbedding(playbookId: string, embedding: number
 export async function searchKnowledgeChunks(
   opts: SearchOptions,
 ): Promise<VectorSearchResult[]> {
+  if (!opts.orgId?.trim()) {
+    throw new Error("searchKnowledgeChunks 需要 orgId");
+  }
   await ensureExtension();
   const embedding = await generateEmbedding(opts.query);
   const vec = toSql(embedding);
   const limit = opts.limit ?? 10;
   const minSim = opts.minSimilarity ?? 0.3;
 
-  const conditions: string[] = [`embedding IS NOT NULL`];
-  const params: unknown[] = [vec, limit];
-  let paramIdx = 3;
+  const conditions: string[] = [
+    `c.embedding IS NOT NULL`,
+    `c."customerId" IS NOT NULL`,
+    `sc."orgId" = $3`,
+  ];
+  const params: unknown[] = [vec, limit, opts.orgId];
+  let paramIdx = 4;
 
   if (opts.filters?.customerId) {
-    conditions.push(`"customerId" = $${paramIdx}`);
+    conditions.push(`c."customerId" = $${paramIdx}`);
     params.push(opts.filters.customerId);
     paramIdx++;
   }
   if (opts.filters?.opportunityId) {
-    conditions.push(`"opportunityId" = $${paramIdx}`);
+    conditions.push(`c."opportunityId" = $${paramIdx}`);
     params.push(opts.filters.opportunityId);
     paramIdx++;
   }
   if (opts.filters?.sourceType) {
-    conditions.push(`"sourceType" = $${paramIdx}`);
+    conditions.push(`c."sourceType" = $${paramIdx}`);
     params.push(opts.filters.sourceType);
     paramIdx++;
   }
   if (opts.filters?.intent) {
-    conditions.push(`intent = $${paramIdx}`);
+    conditions.push(`c.intent = $${paramIdx}`);
     params.push(opts.filters.intent);
     paramIdx++;
   }
   if (opts.filters?.isWinPattern !== undefined) {
-    conditions.push(`"isWinPattern" = $${paramIdx}`);
+    conditions.push(`c."isWinPattern" = $${paramIdx}`);
     params.push(opts.filters.isWinPattern);
     paramIdx++;
   }
   if (opts.filters?.isLossSignal !== undefined) {
-    conditions.push(`"isLossSignal" = $${paramIdx}`);
+    conditions.push(`c."isLossSignal" = $${paramIdx}`);
     params.push(opts.filters.isLossSignal);
     paramIdx++;
   }
@@ -162,15 +171,16 @@ export async function searchKnowledgeChunks(
 
   const results = await db.$queryRawUnsafe<VectorSearchResult[]>(
     `SELECT
-       id, content,
-       1 - (embedding <=> $1::vector) AS similarity,
-       metadata, "sourceType", "customerId", "opportunityId",
-       tags, sentiment, intent, "objectionType",
-       "isWinPattern", "isLossSignal"
-     FROM "SalesKnowledgeChunk"
+       c.id, c.content,
+       1 - (c.embedding <=> $1::vector) AS similarity,
+       c.metadata, c."sourceType", c."customerId", c."opportunityId",
+       c.tags, c.sentiment, c.intent, c."objectionType",
+       c."isWinPattern", c."isLossSignal"
+     FROM "SalesKnowledgeChunk" c
+     INNER JOIN "SalesCustomer" sc ON sc.id = c."customerId"
      WHERE ${whereClause}
-       AND 1 - (embedding <=> $1::vector) >= ${minSim}
-     ORDER BY embedding <=> $1::vector
+       AND 1 - (c.embedding <=> $1::vector) >= ${minSim}
+     ORDER BY c.embedding <=> $1::vector
      LIMIT $2`,
     ...params,
   );
@@ -182,50 +192,55 @@ export async function searchKnowledgeChunks(
 
 export async function searchInsights(
   query: string,
-  opts?: {
+  opts: {
+    orgId: string;
     limit?: number;
     dealStage?: string;
     insightType?: string;
     minEffectiveness?: number;
   },
 ): Promise<InsightSearchResult[]> {
+  if (!opts.orgId?.trim()) {
+    throw new Error("searchInsights 需要 orgId");
+  }
   await ensureExtension();
   const embedding = await generateEmbedding(query);
   const vec = toSql(embedding);
-  const limit = opts?.limit ?? 5;
+  const limit = opts.limit ?? 5;
 
   const conditions: string[] = [
-    `embedding IS NOT NULL`,
-    `status = 'active'`,
+    `i.embedding IS NOT NULL`,
+    `i.status = 'active'`,
+    `i."userId" IN (SELECT om."userId" FROM "OrganizationMember" om WHERE om."orgId" = $3 AND om.status = 'active')`,
   ];
-  const params: unknown[] = [vec, limit];
-  let paramIdx = 3;
+  const params: unknown[] = [vec, limit, opts.orgId];
+  let paramIdx = 4;
 
-  if (opts?.dealStage) {
-    conditions.push(`("dealStage" = $${paramIdx} OR "dealStage" IS NULL)`);
+  if (opts.dealStage) {
+    conditions.push(`(i."dealStage" = $${paramIdx} OR i."dealStage" IS NULL)`);
     params.push(opts.dealStage);
     paramIdx++;
   }
-  if (opts?.insightType) {
-    conditions.push(`"insightType" = $${paramIdx}`);
+  if (opts.insightType) {
+    conditions.push(`i."insightType" = $${paramIdx}`);
     params.push(opts.insightType);
     paramIdx++;
   }
-  if (opts?.minEffectiveness !== undefined) {
-    conditions.push(`effectiveness >= ${opts.minEffectiveness}`);
+  if (opts.minEffectiveness !== undefined) {
+    conditions.push(`i.effectiveness >= ${opts.minEffectiveness}`);
   }
 
   const whereClause = conditions.join(" AND ");
 
   const results = await db.$queryRawUnsafe<InsightSearchResult[]>(
     `SELECT
-       id, title, description,
-       1 - (embedding <=> $1::vector) AS similarity,
-       "insightType", "dealStage", "productType",
-       effectiveness, "usageCount", "successCount"
-     FROM "SalesInsight"
+       i.id, i.title, i.description,
+       1 - (i.embedding <=> $1::vector) AS similarity,
+       i."insightType", i."dealStage", i."productType",
+       i.effectiveness, i."usageCount", i."successCount"
+     FROM "SalesInsight" i
      WHERE ${whereClause}
-     ORDER BY embedding <=> $1::vector
+     ORDER BY i.embedding <=> $1::vector
      LIMIT $2`,
     ...params,
   );
@@ -237,24 +252,32 @@ export async function searchInsights(
 
 export async function hybridSearch(
   query: string,
-  opts?: {
+  opts: {
+    orgId: string;
     limit?: number;
     customerId?: string;
     keywordBoost?: number;
   },
 ): Promise<VectorSearchResult[]> {
+  if (!opts.orgId?.trim()) {
+    throw new Error("hybridSearch 需要 orgId");
+  }
   await ensureExtension();
   const embedding = await generateEmbedding(query);
   const vec = toSql(embedding);
-  const limit = opts?.limit ?? 10;
-  const kwBoost = opts?.keywordBoost ?? 0.3;
+  const limit = opts.limit ?? 10;
+  const kwBoost = opts.keywordBoost ?? 0.3;
 
-  const conditions: string[] = [`embedding IS NOT NULL`];
-  const params: unknown[] = [vec, `%${query}%`, limit];
-  let paramIdx = 4;
+  const conditions: string[] = [
+    `c.embedding IS NOT NULL`,
+    `c."customerId" IS NOT NULL`,
+    `sc."orgId" = $4`,
+  ];
+  const params: unknown[] = [vec, `%${query}%`, limit, opts.orgId];
+  let paramIdx = 5;
 
-  if (opts?.customerId) {
-    conditions.push(`"customerId" = $${paramIdx}`);
+  if (opts.customerId) {
+    conditions.push(`c."customerId" = $${paramIdx}`);
     params.push(opts.customerId);
     paramIdx++;
   }
@@ -263,13 +286,14 @@ export async function hybridSearch(
 
   const results = await db.$queryRawUnsafe<VectorSearchResult[]>(
     `SELECT
-       id, content,
-       (1 - (embedding <=> $1::vector)) +
-       CASE WHEN content ILIKE $2 THEN ${kwBoost} ELSE 0 END AS similarity,
-       metadata, "sourceType", "customerId", "opportunityId",
-       tags, sentiment, intent, "objectionType",
-       "isWinPattern", "isLossSignal"
-     FROM "SalesKnowledgeChunk"
+       c.id, c.content,
+       (1 - (c.embedding <=> $1::vector)) +
+       CASE WHEN c.content ILIKE $2 THEN ${kwBoost} ELSE 0 END AS similarity,
+       c.metadata, c."sourceType", c."customerId", c."opportunityId",
+       c.tags, c.sentiment, c.intent, c."objectionType",
+       c."isWinPattern", c."isLossSignal"
+     FROM "SalesKnowledgeChunk" c
+     INNER JOIN "SalesCustomer" sc ON sc.id = c."customerId"
      WHERE ${whereClause}
      ORDER BY similarity DESC
      LIMIT $3`,

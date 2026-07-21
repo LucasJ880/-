@@ -79,7 +79,19 @@ export function listMissingFields(
   });
 }
 
+/**
+ * 产品内容字段包解析。
+ * 仅接受显式家纺 / Registry 映射；未知 id 抛错，禁止静默回退家纺。
+ */
 export function getIndustryPack(packId: string) {
-  if (packId === "home_textile") return getHomeTextilePack();
-  return getHomeTextilePack();
+  const id = String(packId || "").trim();
+  if (
+    id === "home_textile" ||
+    id === "home_textile_trade_v1"
+  ) {
+    return getHomeTextilePack();
+  }
+  throw new Error(
+    `未知产品内容 Industry Pack: ${id || "(empty)"}（禁止静默回退家纺）`,
+  );
 }

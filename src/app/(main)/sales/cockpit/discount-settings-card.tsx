@@ -28,8 +28,8 @@ interface DiscountsDto {
   promoMaxPct: number;
   depositWarnPct: number;
   depositMinPct: number;
-  depositOverrideCode?: string | null;
   hasDepositOverrideCode: boolean;
+  hasLineDiscountUnlockCode?: boolean;
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -76,8 +76,9 @@ interface DraftMap {
   promoMaxPct: string;
   depositWarnPct: string;
   depositMinPct: string;
-  // 解锁码：空串表示"清空"；undefined 表示"不改动"（保存时不发送）
+  // 解锁码：空串表示"清空"；undefined 表示"不改动"（保存时不发送）；永不回显服务端值
   depositOverrideCode?: string;
+  lineDiscountUnlockCode?: string;
 }
 
 function toDraftMap(d: DiscountsDto): DraftMap {
@@ -95,8 +96,8 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),
     depositWarnPct: Math.round(d.depositWarnPct * 100).toString(),
     depositMinPct: Math.round(d.depositMinPct * 100).toString(),
-    // 明文 code：admin 才会拿到，其它角色为 undefined；初始为"不改动"
     depositOverrideCode: undefined,
+    lineDiscountUnlockCode: undefined,
   };
 }
 
@@ -164,16 +165,27 @@ export function DiscountSettingsCard() {
       setError("定金黄色提醒阈值不能低于定金最低阈值");
       return;
     }
-    // 解锁码：undefined 表示"不改动"，其它（含空串）都提交
+    // 解锁码明文仅用于本次提交，服务端存哈希；undefined = 不改动
     if (draft.depositOverrideCode !== undefined) {
       const raw = draft.depositOverrideCode;
       if (raw === "") {
         payload.depositOverrideCode = null;
       } else if (raw.length < 3 || raw.length > 64) {
-        setError("解锁码长度需为 3~64 个字符（留空表示清除）");
+        setError("定金解锁码长度需为 3~64 个字符（留空表示清除）");
         return;
       } else {
         payload.depositOverrideCode = raw;
+      }
+    }
+    if (draft.lineDiscountUnlockCode !== undefined) {
+      const raw = draft.lineDiscountUnlockCode;
+      if (raw === "") {
+        payload.lineDiscountUnlockCode = null;
+      } else if (raw.length < 3 || raw.length > 64) {
+        setError("行折扣解锁码长度需为 3~64 个字符（留空表示清除）");
+        return;
+      } else {
+        payload.lineDiscountUnlockCode = raw;
       }
     }
 
@@ -349,7 +361,37 @@ export function DiscountSettingsCard() {
             </>
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
-              {current?.hasDepositOverrideCode ? "已配置（已隐藏）" : "未配置"}
+              {current?.hasDepositOverrideCode ? "已配置（哈希存储，不可回显）" : "未配置"}
+            </div>
+          )}
+        </div>
+        <div className="mt-3 space-y-1">
+          <label className="text-[11px] font-medium text-muted-foreground block">
+            行折扣解锁码
+          </label>
+          {editing && draft && canEdit ? (
+            <>
+              <input
+                type="password"
+                autoComplete="new-password"
+                placeholder={
+                  current?.hasLineDiscountUnlockCode
+                    ? "已配置；留空保存将清除，输入新值以覆盖"
+                    : "尚未配置；输入 3~64 个字符"
+                }
+                value={draft.lineDiscountUnlockCode ?? ""}
+                onChange={(e) =>
+                  setDraft({ ...draft, lineDiscountUnlockCode: e.target.value })
+                }
+                className="w-full rounded-lg border border-input bg-white px-2 py-1.5 text-sm font-medium font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                报价单行折扣修改时使用。服务端仅存 bcrypt 哈希，永不回显。
+              </p>
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+              {current?.hasLineDiscountUnlockCode ? "已配置（哈希存储，不可回显）" : "未配置"}
             </div>
           )}
         </div>

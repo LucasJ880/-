@@ -26,9 +26,22 @@ export interface CheckItem {
   actionPayload?: Record<string, unknown>;
 }
 
+export type QuoteMarginThresholds = {
+  urgentBelowPct: number;
+  warnBelowPct: number;
+  highAbovePct: number;
+};
+
+const DEFAULT_MARGIN: QuoteMarginThresholds = {
+  urgentBelowPct: 5,
+  warnBelowPct: 10,
+  highAbovePct: 60,
+};
+
 export function runQuoteChecks(
   header: QuoteHeaderData,
-  lines: QuoteLineItemData[]
+  lines: QuoteLineItemData[],
+  margin: QuoteMarginThresholds = DEFAULT_MARGIN,
 ): CheckItem[] {
   const items: CheckItem[] = [];
   const template = TEMPLATE_CONFIGS[header.templateType];
@@ -51,18 +64,18 @@ export function runQuoteChecks(
     }
   }
 
-  // ── 2. 利润率检查 ──
+  // ── 2. 利润率检查（阈值来自企业规则或平台通用默认） ──
   if (totals.profitMargin != null) {
-    if (totals.profitMargin < 5) {
+    if (totals.profitMargin < margin.urgentBelowPct) {
       items.push({
         id: "low_margin",
         severity: "urgent",
         field: "profitMargin",
-        message: `利润率 ${totals.profitMargin}%，低于 5% 安全线`,
+        message: `利润率 ${totals.profitMargin}%，低于 ${margin.urgentBelowPct}% 安全线`,
         suggestion: "建议调整到 15%-25% 区间",
         actionType: "adjust_price",
       });
-    } else if (totals.profitMargin < 10) {
+    } else if (totals.profitMargin < margin.warnBelowPct) {
       items.push({
         id: "margin_warning",
         severity: "warning",
@@ -70,7 +83,7 @@ export function runQuoteChecks(
         message: `利润率 ${totals.profitMargin}%，偏低`,
         suggestion: "建议提升到 15% 以上",
       });
-    } else if (totals.profitMargin > 60) {
+    } else if (totals.profitMargin > margin.highAbovePct) {
       items.push({
         id: "high_margin",
         severity: "info",

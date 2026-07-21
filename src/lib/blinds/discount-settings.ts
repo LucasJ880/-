@@ -1,22 +1,19 @@
 /**
- * 报价折扣率设置 —— 服务端读取辅助
+ * 报价折扣率设置 —— 按企业（orgId）读取
  *
- * 职责：统一从 DB 的 QuoteDiscountSettings（单行 id="singleton"）读取全局折扣率
- * 并按产品映射成 priceFor 需要的形态。Order Form / AI 工具 / 驾驶舱共用这一份。
- *
- * 客户端（iframe / Order Form 页面）通过 /api/sales/quote-settings/discounts 拉取。
+ * 禁止：无 orgId 的全局 singleton；禁止跨企业回退。
+ * 解锁码：仅存 bcrypt 哈希（lineDiscountUnlockCodeHash / depositOverrideCode），API 永不返回明文或哈希。
  */
 
 import { db } from "@/lib/db";
 import type { ProductName } from "./pricing-types";
 import { DEFAULT_DISCOUNTS } from "./pricing-data";
+import type { ConfigLoadResult } from "@/lib/org-rules/types";
+import { publishOrgRule } from "@/lib/org-rules/service";
+import { hashUnlockCode } from "./unlock-code";
 
 export type DiscountsByProduct = Record<ProductName, number>;
 
-/**
- * 固定的字段映射：DB 字段名 → priceFor 使用的 ProductName
- * 保持和 DEFAULT_DISCOUNTS 完全同形，未来新增产品时两边同时加
- */
 const FIELD_TO_PRODUCT: Record<string, ProductName> = {
   zebra: "Zebra",
   shangrila: "SHANGRILA",
@@ -28,30 +25,15 @@ const FIELD_TO_PRODUCT: Record<string, ProductName> = {
   honeycomb: "SkylightHoneycomb",
 };
 
-/** 反向映射，供 PUT 校验用 */
 export const PRODUCT_TO_FIELD: Record<ProductName, string> = Object.fromEntries(
   Object.entries(FIELD_TO_PRODUCT).map(([f, p]) => [p, f]),
 ) as Record<ProductName, string>;
 
-/** 从 DB 读取并映射成 ProductName 折扣表；DB 无记录时 fallback 到内置默认 */
-export async function loadDiscounts(): Promise<DiscountsByProduct> {
-  const row = await db.quoteDiscountSettings.findUnique({
-    where: { id: "singleton" },
-  });
-  if (!row) return { ...DEFAULT_DISCOUNTS };
-
-  const out = { ...DEFAULT_DISCOUNTS };
-  for (const [field, product] of Object.entries(FIELD_TO_PRODUCT)) {
-    const v = (row as unknown as Record<string, unknown>)[field];
-    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) {
-      out[product] = v;
-    }
-  }
-  return out;
-}
-
-/** DB 字段 → 序列化成 API/前端的扁平对象（字段名=DB 字段） */
 export interface DiscountsDto {
+  orgId: string;
+  version: number;
+  effectiveAt: string;
+  configStatus: "ok" | "missing";
   zebra: number;
   shangrila: number;
   cellular: number;
@@ -60,40 +42,122 @@ export interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
-  // Special Promotion 阈值（0~1 小数）
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
-  // 定金阈值（0~1 小数，按 Grand Total 含税总价的比例）
   depositWarnPct: number;
   depositMinPct: number;
-  // 仅 admin 可见明文 code；非 admin 通过 hasDepositOverrideCode 判断是否已配置
-  depositOverrideCode?: string | null;
+  /** 仅布尔：是否已配置定金解锁码（永不返回明文/哈希） */
   hasDepositOverrideCode: boolean;
+  /** 仅布尔：是否已配置行折扣解锁码（永不返回明文/哈希） */
+  hasLineDiscountUnlockCode: boolean;
   updatedAt: string;
   updatedBy: string | null;
 }
 
 const PRODUCT_KEYS = [
-  "zebra", "shangrila", "cellular", "roller",
-  "drapery", "sheer", "shutters", "honeycomb",
+  "zebra",
+  "shangrila",
+  "cellular",
+  "roller",
+  "drapery",
+  "sheer",
+  "shutters",
+  "honeycomb",
 ] as const;
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
 const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
-export const DTO_NUMERIC_KEYS = [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS] as const;
+export const DTO_NUMERIC_KEYS = [
+  ...PRODUCT_KEYS,
+  ...THRESHOLD_KEYS,
+  ...DEPOSIT_KEYS,
+] as const;
 
-/**
- * 加载折扣 DTO；isAdmin=true 时返回 depositOverrideCode 明文，
- * 否则仅返回 hasDepositOverrideCode 布尔。
- */
-export async function loadDiscountsDto(opts: { isAdmin?: boolean } = {}): Promise<DiscountsDto> {
-  const row = await db.quoteDiscountSettings.upsert({
-    where: { id: "singleton" },
-    update: {},
-    create: { id: "singleton" },
+function rowToProductMap(row: Record<string, unknown> | null): DiscountsByProduct {
+  const out = { ...DEFAULT_DISCOUNTS };
+  if (!row) return out;
+  for (const [field, product] of Object.entries(FIELD_TO_PRODUCT)) {
+    const v = row[field];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) {
+      out[product] = v;
+    }
+  }
+  return out;
+}
+
+export async function loadDiscounts(orgId: string): Promise<DiscountsByProduct> {
+  if (!orgId) {
+    throw new Error("loadDiscounts 必须提供 orgId");
+  }
+  const row = await db.quoteDiscountSettings.findUnique({
+    where: { orgId },
   });
-  const hasCode = !!(row.depositOverrideCode && row.depositOverrideCode.length > 0);
+  return rowToProductMap(row as unknown as Record<string, unknown> | null);
+}
+
+export async function loadDiscountsResult(
+  orgId: string,
+): Promise<ConfigLoadResult<DiscountsByProduct>> {
+  const row = await db.quoteDiscountSettings.findUnique({ where: { orgId } });
+  if (!row) {
+    return {
+      status: "missing",
+      value: { ...DEFAULT_DISCOUNTS },
+      orgId,
+      ruleKey: "quote_discounts",
+      version: null,
+      effectiveAt: null,
+      updatedById: null,
+      message: "未配置企业折扣，使用平台通用默认（非其他企业配置）",
+    };
+  }
   return {
+    status: "ok",
+    value: rowToProductMap(row as unknown as Record<string, unknown>),
+    orgId,
+    ruleKey: "quote_discounts",
+    version: row.version,
+    effectiveAt: row.effectiveAt,
+    updatedById: row.updatedBy,
+  };
+}
+
+/** 加载折扣 DTO；永不包含解锁码明文或哈希 */
+export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
+  if (!orgId) throw new Error("loadDiscountsDto 必须提供 orgId");
+
+  const row = await db.quoteDiscountSettings.findUnique({ where: { orgId } });
+  if (!row) {
+    return {
+      orgId,
+      version: 0,
+      effectiveAt: new Date(0).toISOString(),
+      configStatus: "missing",
+      zebra: DEFAULT_DISCOUNTS.Zebra,
+      shangrila: DEFAULT_DISCOUNTS.SHANGRILA,
+      cellular: DEFAULT_DISCOUNTS["Cordless Cellular"],
+      roller: DEFAULT_DISCOUNTS.Roller,
+      drapery: DEFAULT_DISCOUNTS.Drapery,
+      sheer: DEFAULT_DISCOUNTS.Sheer,
+      shutters: DEFAULT_DISCOUNTS.Shutters,
+      honeycomb: DEFAULT_DISCOUNTS.SkylightHoneycomb,
+      promoWarnPct: 0.06,
+      promoDangerPct: 0.15,
+      promoMaxPct: 0.25,
+      depositWarnPct: 0.4,
+      depositMinPct: 0.3,
+      hasDepositOverrideCode: false,
+      hasLineDiscountUnlockCode: false,
+      updatedAt: new Date(0).toISOString(),
+      updatedBy: null,
+    };
+  }
+
+  return {
+    orgId,
+    version: row.version,
+    effectiveAt: row.effectiveAt.toISOString(),
+    configStatus: "ok",
     zebra: row.zebra,
     shangrila: row.shangrila,
     cellular: row.cellular,
@@ -107,28 +171,127 @@ export async function loadDiscountsDto(opts: { isAdmin?: boolean } = {}): Promis
     promoMaxPct: row.promoMaxPct,
     depositWarnPct: row.depositWarnPct,
     depositMinPct: row.depositMinPct,
-    depositOverrideCode: opts.isAdmin ? row.depositOverrideCode : undefined,
-    hasDepositOverrideCode: hasCode,
+    hasDepositOverrideCode: !!(row.depositOverrideCode && row.depositOverrideCode.length > 0),
+    hasLineDiscountUnlockCode: !!(
+      row.lineDiscountUnlockCodeHash && row.lineDiscountUnlockCodeHash.length > 0
+    ),
     updatedAt: row.updatedAt.toISOString(),
     updatedBy: row.updatedBy,
   };
 }
 
-/**
- * 校验入参合法性：
- * - 所有产品折扣字段 0~1
- * - 阈值字段 0~1
- * - 如果三个阈值都传，要求 warn <= danger <= max（防止顺序乱）
- */
+export type DiscountSavePatch = Partial<
+  Pick<DiscountsDto, (typeof DTO_NUMERIC_KEYS)[number]>
+> & {
+  /** 明文入参；落库前哈希到 depositOverrideCode */
+  depositOverrideCodePlain?: string | null;
+  /** 明文入参；落库前哈希到 lineDiscountUnlockCodeHash */
+  lineDiscountUnlockCodePlain?: string | null;
+};
+
+export async function saveDiscountsForOrg(params: {
+  orgId: string;
+  userId: string;
+  patch: DiscountSavePatch;
+}): Promise<DiscountsDto> {
+  const existing = await db.quoteDiscountSettings.findUnique({
+    where: { orgId: params.orgId },
+  });
+  const nextVersion = (existing?.version ?? 0) + 1;
+  const now = new Date();
+
+  const {
+    depositOverrideCodePlain,
+    lineDiscountUnlockCodePlain,
+    ...numericPatch
+  } = params.patch;
+
+  const data: Record<string, unknown> = { ...numericPatch };
+
+  if (depositOverrideCodePlain !== undefined) {
+    if (depositOverrideCodePlain === null || depositOverrideCodePlain.trim() === "") {
+      data.depositOverrideCode = null;
+    } else {
+      data.depositOverrideCode = await hashUnlockCode(depositOverrideCodePlain);
+    }
+  }
+
+  if (lineDiscountUnlockCodePlain !== undefined) {
+    if (
+      lineDiscountUnlockCodePlain === null ||
+      lineDiscountUnlockCodePlain.trim() === ""
+    ) {
+      data.lineDiscountUnlockCodeHash = null;
+    } else {
+      data.lineDiscountUnlockCodeHash = await hashUnlockCode(
+        lineDiscountUnlockCodePlain,
+      );
+    }
+  }
+
+  const updated = await db.quoteDiscountSettings.upsert({
+    where: { orgId: params.orgId },
+    create: {
+      orgId: params.orgId,
+      version: 1,
+      effectiveAt: now,
+      ...data,
+      updatedBy: params.userId,
+    },
+    update: {
+      ...data,
+      version: nextVersion,
+      effectiveAt: now,
+      updatedBy: params.userId,
+    },
+  });
+
+  await publishOrgRule({
+    orgId: params.orgId,
+    ruleKey: "quote_discounts",
+    userId: params.userId,
+    effectiveAt: now,
+    config: {
+      zebra: updated.zebra,
+      shangrila: updated.shangrila,
+      cellular: updated.cellular,
+      roller: updated.roller,
+      drapery: updated.drapery,
+      sheer: updated.sheer,
+      shutters: updated.shutters,
+      honeycomb: updated.honeycomb,
+      promoWarnPct: updated.promoWarnPct,
+      promoDangerPct: updated.promoDangerPct,
+      promoMaxPct: updated.promoMaxPct,
+      depositWarnPct: updated.depositWarnPct,
+      depositMinPct: updated.depositMinPct,
+      hasDepositOverrideCode: !!updated.depositOverrideCode,
+      hasLineDiscountUnlockCode: !!updated.lineDiscountUnlockCodeHash,
+    },
+  }).catch((e) => {
+    console.warn("[discount-settings] snapshot OrgBusinessRule failed", e);
+  });
+
+  return loadDiscountsDto(params.orgId);
+}
+
 export function validateDiscountsInput(
   input: Record<string, unknown>,
-): { ok: true; value: Partial<Pick<DiscountsDto, (typeof DTO_NUMERIC_KEYS)[number]>> } | { ok: false; error: string } {
+):
+  | {
+      ok: true;
+      value: Partial<Pick<DiscountsDto, (typeof DTO_NUMERIC_KEYS)[number]>>;
+    }
+  | { ok: false; error: string } {
   const out: Record<string, number> = {};
   for (const k of DTO_NUMERIC_KEYS) {
     if (input[k] === undefined) continue;
     const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 1) {
-      return { ok: false, error: `字段 ${k} 必须为 0~1 之间的数字（0.06 表示 6%）` };
+      return {
+        ok: false,
+        error: `字段 ${k} 必须为 0~1 之间的数字（0.06 表示 6%）`,
+      };
     }
     out[k] = Math.round(n * 10000) / 10000;
   }
@@ -144,7 +307,6 @@ export function validateDiscountsInput(
   if (w !== undefined && m !== undefined && w > m) {
     return { ok: false, error: "黄色预警阈值不能大于最高让利上限" };
   }
-  // 定金阈值校验：warn >= min（警告阈值必须 ≥ 强制阈值）
   const dw = out.depositWarnPct;
   const dm = out.depositMinPct;
   if (dw !== undefined && dm !== undefined && dw < dm) {

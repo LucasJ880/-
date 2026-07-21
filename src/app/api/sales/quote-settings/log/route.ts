@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@/lib/common/api-helpers";
 import { logAudit } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
+import { requireTenantContext } from "@/lib/tenancy";
+import { verifyUnlockCode } from "@/lib/blinds/unlock-code";
 
-const SETTINGS_CODE = "sunny2026";
 const TARGET_TYPE = "quote_discount_settings";
-
-function isAdmin(role: string): boolean {
-  return role === "admin" || role === "super_admin";
-}
 
 interface DiscountLogBody {
   before?: Record<string, number> | null;
@@ -16,13 +12,25 @@ interface DiscountLogBody {
   code?: string;
 }
 
-export const POST = withAuth(async (request, _ctx, user) => {
+/**
+ * POST — 客户端折扣变更审计（校验当前企业行折扣解锁码哈希）
+ */
+export async function POST(request: Request) {
+  const tenant = await requireTenantContext(request as import("next/server").NextRequest);
+  if (tenant instanceof NextResponse) return tenant;
+
   const body = (await request.json().catch(() => null)) as DiscountLogBody | null;
   if (!body) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  if (body.code !== SETTINGS_CODE) {
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  const row = await db.quoteDiscountSettings.findUnique({
+    where: { orgId: tenant.orgId },
+    select: { lineDiscountUnlockCodeHash: true },
+  });
+  const matched = await verifyUnlockCode(code, row?.lineDiscountUnlockCodeHash);
+  if (!matched) {
     return NextResponse.json({ error: "Invalid code" }, { status: 403 });
   }
 
@@ -42,19 +50,23 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   await logAudit({
-    userId: user.id,
+    userId: tenant.userId,
+    orgId: tenant.orgId,
     action: "update",
     targetType: TARGET_TYPE,
     beforeData: { discounts: before },
     afterData: { discounts: after, diff },
-    request,
+    request: request as import("next/server").NextRequest,
   });
 
   return NextResponse.json({ ok: true, changed: true, diff });
-});
+}
 
-export const GET = withAuth(async (request, _ctx, user) => {
-  if (!isAdmin(user.role)) {
+export async function GET(request: Request) {
+  const tenant = await requireTenantContext(request as import("next/server").NextRequest);
+  if (tenant instanceof NextResponse) return tenant;
+
+  if (tenant.orgRole !== "org_admin") {
     return NextResponse.json({ error: "无权访问" }, { status: 403 });
   }
 
@@ -65,7 +77,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
     Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10) || 20),
   );
 
-  const where = { targetType: TARGET_TYPE } as const;
+  const where = {
+    targetType: TARGET_TYPE,
+    orgId: tenant.orgId,
+  } as const;
 
   const [total, rows] = await Promise.all([
     db.auditLog.count({ where }),
@@ -108,7 +123,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
   });
-});
+}
 
 function normalizeDiscountMap(
   raw: Record<string, number> | null | undefined,

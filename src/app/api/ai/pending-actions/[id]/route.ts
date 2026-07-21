@@ -14,6 +14,7 @@ import {
   rejectApprovalItem,
 } from "@/lib/approval/port";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
+import { getOrgMembership } from "@/lib/auth";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -35,6 +36,16 @@ export const POST = withAuth(async (request, ctx, user) => {
   });
   if (!action) {
     return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
+  }
+  // Phase 2A：企业业务审批必须是该企业成员（平台超管无 membership 不可代批）
+  if (action.orgId) {
+    const membership = await getOrgMembership(user.id, action.orgId);
+    if (!membership || membership.status !== "active") {
+      return NextResponse.json(
+        { error: "无企业成员身份，不能审批该企业动作" },
+        { status: 403 },
+      );
+    }
   }
   if (!(await canDecideTeamApproval(action, { userId: user.id, role: user.role, orgId: action.orgId }))) {
     return NextResponse.json({ error: "无权操作" }, { status: 403 });
