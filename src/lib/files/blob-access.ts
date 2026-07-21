@@ -23,8 +23,14 @@
 import fs from "fs";
 import path from "path";
 import { put, get, del } from "@vercel/blob";
+import { blobPathnameFromUrl, toProxyUrl } from "./blob-url";
 
-export const FILE_PROXY_PREFIX = "/api/files/";
+export {
+  FILE_PROXY_PREFIX,
+  blobPathnameFromUrl,
+  isProxyUrl,
+  toProxyUrl,
+} from "./blob-url";
 
 /** 本地验收/无 private Blob store 时：写入仓库外 .data（不进 git） */
 function useLocalBlobStore(): boolean {
@@ -175,50 +181,6 @@ export async function deleteBlob(urlOrPathname: string): Promise<void> {
   if (legacy && legacy !== privateToken()) {
     await del(pathname, { token: legacy }).catch(() => undefined);
   }
-}
-
-/**
- * 从「存储的 URL」提取 Blob pathname。
- * 兼容三种历史/现行形态：
- * - Blob 完整 URL（https://xxx.blob.vercel-storage.com/{pathname}）
- * - 代理 URL（/api/files/{pathname}，含带域名的绝对形式）
- * - 纯 pathname
- */
-export function blobPathnameFromUrl(urlOrPathname: string): string {
-  let path = urlOrPathname;
-  if (/^https?:\/\//i.test(path)) {
-    try {
-      path = new URL(path).pathname;
-    } catch {
-      // 保底按原字符串处理
-    }
-  }
-  path = path.replace(/^\/+/, "");
-  const proxyPrefix = FILE_PROXY_PREFIX.replace(/^\/+/, ""); // "api/files/"
-  if (path.startsWith(proxyPrefix)) {
-    path = path.slice(proxyPrefix.length);
-  }
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
-}
-
-/** 存储 URL / pathname → 浏览器可用的代理 URL。 */
-export function toProxyUrl(urlOrPathname: string): string {
-  const pathname = blobPathnameFromUrl(urlOrPathname);
-  const encoded = pathname
-    .split("/")
-    .filter(Boolean)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
-  return `${FILE_PROXY_PREFIX}${encoded}`;
-}
-
-/** 判断一个 URL 是否已是本系统代理 URL（避免重复包装）。 */
-export function isProxyUrl(url: string): boolean {
-  return url.startsWith(FILE_PROXY_PREFIX);
 }
 
 export interface BlobStreamResult {

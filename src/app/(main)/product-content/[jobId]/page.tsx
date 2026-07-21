@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { SuiteStudioPanel } from "@/components/product-content/suite-studio-panel";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
-import { toProxyUrl } from "@/lib/files/blob-access";
+import { toProxyUrl } from "@/lib/files/blob-url";
 import { cn } from "@/lib/utils";
 
 interface FactRow {

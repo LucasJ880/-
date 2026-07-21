@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Upload, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import { toProxyUrl } from "@/lib/files/blob-access";
+import { toProxyUrl } from "@/lib/files/blob-url";
 import { cn } from "@/lib/utils";
 
 type AspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
