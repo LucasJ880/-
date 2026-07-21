@@ -20,12 +20,19 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
   if (!orgRes.ok) return orgRes.response;
 
   try {
-    const job = await approveProductContentJob({
+    const purpose =
+      body.purpose === "INTERNAL_DRAFT" ||
+      body.purpose === "CUSTOMER_REVIEW" ||
+      body.purpose === "FORMAL_EXTERNAL"
+        ? body.purpose
+        : undefined;
+    const result = await approveProductContentJob({
       orgId: orgRes.orgId,
       jobId,
       userId: user.id,
+      purpose,
     });
-    return NextResponse.json({ job });
+    return NextResponse.json(result);
   } catch (err) {
     const mapped = mapProductContentError(err);
     if (mapped) return mapped;

@@ -1,17 +1,30 @@
 import { randomUUID } from "crypto";
 import { readBlobBuffer } from "@/lib/files/blob-access";
-import { runImageEdit } from "@/lib/visualizer/image-ai";
+import { runImageEditDetailed } from "@/lib/visualizer/image-ai";
 import {
   buildImagePrompt,
   defaultProtectionRules,
   pickImageProvider,
 } from "@/lib/image-engine/types";
+import {
+  shouldRetryWithPinnedModel,
+  type ProviderExecution,
+} from "@/lib/image-engine/errors";
 import type { ImageEditRequest } from "@/lib/product-content/types";
 import type { ImageEditResult } from "@/lib/image-engine/types";
 
 export interface ImageEditDeps {
   readBlob?: typeof readBlobBuffer;
-  runEdit?: typeof runImageEdit;
+  runEditDetailed?: typeof runImageEditDetailed;
+  /** 测试兼容：仅返回 Buffer 时包装为 Detailed */
+  runEdit?: (args: {
+    imageBuffer: Buffer;
+    imageMime: string;
+    prompt: string;
+    referenceImages?: Array<{ buffer: Buffer; mime: string; fileName?: string }>;
+    quality?: "low" | "medium" | "high" | "auto";
+    model?: string;
+  }) => Promise<Buffer | null>;
 }
 
 function isDryRun(request: ImageEditRequest): boolean {
@@ -26,7 +39,23 @@ export async function editProductImage(
   deps: ImageEditDeps = {},
 ): Promise<ImageEditResult> {
   const readBlob = deps.readBlob ?? readBlobBuffer;
-  const runEdit = deps.runEdit ?? runImageEdit;
+  const runEditDetailed =
+    deps.runEditDetailed ??
+    (deps.runEdit
+      ? async (args) => {
+          const buffer = await deps.runEdit!(args);
+          return {
+            buffer,
+            execution: {
+              requestedModel: args.model || "test",
+              resolvedModel: buffer ? args.model || "test" : undefined,
+              attemptNumber: args.attemptNumber ?? 1,
+              httpStatus: buffer ? 200 : 500,
+              providerErrorCode: buffer ? undefined : ("UNKNOWN_PROVIDER_ERROR" as const),
+            },
+          };
+        }
+      : runImageEditDetailed);
 
   const provider = pickImageProvider({
     mode: request.mode,
@@ -115,36 +144,91 @@ export async function editProductImage(
     request.mode === "EXACT" ? "high" : request.mode === "STUDIO" ? "medium" : "auto";
 
   const { ProviderRouter } = await import("@/lib/ai/model-registry");
-  // 统一 OPENAI_IMAGE_MODEL → pinned（不再维护 PRODUCT_CONTENT_IMAGE_MODEL）
-  const modelCandidates = [
-    ProviderRouter.getImageModel(),
-    ProviderRouter.getImagePinnedModel(),
-  ].filter((m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i);
+  // 默认 OPENAI_IMAGE_MODEL；可选 PRODUCT_CONTENT_IMAGE_MODEL 覆盖；失败可回退 pinned
+  const primaryModel = ProviderRouter.getProductContentImageModel();
+  const pinnedModel = ProviderRouter.getImagePinnedModel();
+  const modelCandidates = [primaryModel, pinnedModel].filter(
+    (m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i,
+  );
 
   let edited: Buffer | null = null;
-  let usedModel = modelCandidates[0] || ProviderRouter.getImageModel();
+  let usedModel = modelCandidates[0] || primaryModel;
+  const executions: ProviderExecution[] = [];
   const modelErrors: string[] = [];
 
-  for (const model of modelCandidates) {
+  for (let i = 0; i < modelCandidates.length; i++) {
+    const model = modelCandidates[i];
     usedModel = model;
-    edited = await runEdit({
+    const detailed = await runEditDetailed({
       imageBuffer: primary.buffer,
       imageMime: primary.contentType || "image/jpeg",
       prompt,
       referenceImages: references,
       quality,
       model,
+      attemptNumber: i + 1,
     });
-    if (edited) break;
-    modelErrors.push(model);
-    console.warn(`[image-engine] model failed, trying next: ${model}`);
+
+    const execution: ProviderExecution = {
+      ...detailed.execution,
+      requestedModel: modelCandidates[0],
+      resolvedModel: detailed.buffer ? model : undefined,
+      attemptNumber: i + 1,
+    };
+
+    if (!detailed.buffer && i > 0) {
+      execution.fallbackReason = executions[0]?.providerErrorCode
+        ? `primary_failed:${executions[0].providerErrorCode}`
+        : "primary_failed";
+    }
+    if (!detailed.buffer && detailed.providerErrorCode) {
+      execution.providerErrorCode = detailed.providerErrorCode;
+      execution.httpStatus = detailed.httpStatus;
+      execution.bodySnippet = detailed.errorBody?.slice(0, 400);
+    }
+    executions.push(execution);
+
+    if (detailed.buffer) {
+      edited = detailed.buffer;
+      usedModel = model;
+      break;
+    }
+
+    modelErrors.push(`${model}:${detailed.providerErrorCode || "empty"}`);
+    console.warn(
+      `[image-engine] model failed`,
+      JSON.stringify({
+        model,
+        httpStatus: detailed.httpStatus,
+        providerErrorCode: detailed.providerErrorCode,
+        willRetryPinned:
+          i === 0 &&
+          modelCandidates.length > 1 &&
+          shouldRetryWithPinnedModel(
+            detailed.providerErrorCode || "UNKNOWN_PROVIDER_ERROR",
+          ),
+      }),
+    );
+
+    // 仅在可重试错误码时继续 pinned；参数非法等直接停
+    if (
+      detailed.providerErrorCode &&
+      !shouldRetryWithPinnedModel(detailed.providerErrorCode)
+    ) {
+      break;
+    }
   }
 
   const latencyMs = Date.now() - startedAt;
+  const firstFail = executions.find((e) => e.providerErrorCode);
+  const successExec = executions.find((e) => e.resolvedModel);
 
   if (!edited) {
     throw new Error(
-      `图像编辑 provider 返回空结果（已尝试: ${modelErrors.join(", ") || usedModel}）`,
+      `图像编辑 provider 返回空结果（已尝试: ${modelErrors.join(", ") || usedModel}）` +
+        (firstFail?.providerErrorCode
+          ? ` [${firstFail.providerErrorCode}/${firstFail.httpStatus}]`
+          : ""),
     );
   }
 
@@ -165,6 +249,18 @@ export async function editProductImage(
       startedAt,
       endedAt: Date.now(),
       modelsTried: modelCandidates,
+      requestedModel: modelCandidates[0],
+      resolvedModel: usedModel,
+      fallbackReason:
+        successExec && usedModel !== modelCandidates[0]
+          ? firstFail?.providerErrorCode
+            ? `alias_or_primary_failed:${firstFail.providerErrorCode}`
+            : "primary_failed_retry_pinned"
+          : undefined,
+      httpStatus: successExec?.httpStatus ?? 200,
+      providerErrorCode: firstFail?.providerErrorCode,
+      attemptNumber: successExec?.attemptNumber ?? 1,
+      providerExecutions: executions,
     },
   };
 }

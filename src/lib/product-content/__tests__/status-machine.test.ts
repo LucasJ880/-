@@ -27,6 +27,14 @@ function throws(fn: () => void, name: string) {
 
 ok(ALLOWED_TRANSITIONS.DRAFT.includes("ANALYZING"), "DRAFT 可进入 ANALYZING");
 ok(!ALLOWED_TRANSITIONS.DELIVERED.includes("DRAFT"), "DELIVERED 不可回退 DRAFT");
+ok(
+  ALLOWED_TRANSITIONS.READY_FOR_REVIEW.includes("REVISION_REQUESTED"),
+  "READY_FOR_REVIEW 可进入 REVISION_REQUESTED",
+);
+ok(
+  ALLOWED_TRANSITIONS.REVISION_REQUESTED.includes("READY_FOR_REVIEW"),
+  "REVISION_REQUESTED 可回到 READY_FOR_REVIEW",
+);
 
 throws(() => assertTransition("DELIVERED", "DRAFT"), "非法流转应拒绝");
 

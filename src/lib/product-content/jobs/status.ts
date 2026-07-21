@@ -34,6 +34,7 @@ export const ALLOWED_TRANSITIONS: Record<
     "PLAN_READY",
     "GENERATING_VISUALS",
     "GENERATING_CONTENT",
+    "READY_FOR_REVIEW",
     "CANCELLED",
     "FAILED",
   ],

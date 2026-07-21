@@ -344,13 +344,42 @@ export async function regenerateVisualOutput(input: {
   }
 
   if (output.status !== "locked") {
+    const prevMeta =
+      output.metadata && typeof output.metadata === "object"
+        ? (output.metadata as Record<string, unknown>)
+        : {};
     await db.visualOutput.update({
       where: { id: output.id },
-      data: { status: "rejected" },
+      data: {
+        status: "rejected",
+        metadata: {
+          ...prevMeta,
+          supersededByOutputId: result.outputId,
+          supersededAt: new Date().toISOString(),
+        },
+      },
     });
   }
 
-  return { outputId: result.outputId };
+  // 单图重试完成后回到审核态（不重跑整条 Pipeline）
+  const job = await db.productContentJob.findFirst({
+    where: { id: input.jobId, orgId: input.orgId },
+  });
+  if (job?.status === "REVISION_REQUESTED" || job?.status === "GENERATING_VISUALS") {
+    const { setJobStatus } = await import("@/lib/product-content/jobs/service");
+    await setJobStatus({
+      orgId: input.orgId,
+      userId: input.userId,
+      jobId: input.jobId,
+      status: "READY_FOR_REVIEW",
+    });
+  }
+
+  return {
+    outputId: result.outputId,
+    previousOutputId: output.id,
+    sceneType: output.visualJob.sceneType,
+  };
 }
 
 export async function runProductContentPipeline(

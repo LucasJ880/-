@@ -36,6 +36,7 @@ export const PATCH = withAuth<{ id: string; outputId: string }>(
         userId: user.id,
         outputId,
         action,
+        reason: typeof body.reason === "string" ? body.reason : undefined,
       });
       return NextResponse.json({ output });
     } catch (err) {

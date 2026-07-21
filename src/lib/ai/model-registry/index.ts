@@ -35,6 +35,18 @@ export const ModelRegistry = {
   get imagePinned(): string {
     return OpenAIModels.imagePinned;
   },
+  /** 可选业务覆盖；未设置时等于 image */
+  get productContentImage(): string {
+    return OpenAIModels.productContent;
+  },
+  /** 结构化访问（兼容文档中的 .default / .pinned） */
+  get imageModels() {
+    return {
+      default: OpenAIModels.image,
+      pinned: OpenAIModels.imagePinned,
+      productContent: OpenAIModels.productContent,
+    };
+  },
   get vision(): string {
     return OpenAIModels.vision;
   },
@@ -73,10 +85,13 @@ export function getModelRegistrySnapshot() {
     fast: ModelRegistry.fast,
     image: ModelRegistry.image,
     imagePinned: ModelRegistry.imagePinned,
+    productContentImage: ModelRegistry.productContentImage,
     vision: ModelRegistry.vision,
     preferredChatModel: ProviderRouter.getChatModel(),
     preferredReasoningModel: ProviderRouter.getReasoningModel(),
     preferredImageModel: ProviderRouter.getImageModel(),
+    preferredProductContentImageModel:
+      ProviderRouter.getProductContentImageModel(),
     provider: ProviderRouter.defaultProvider,
     builtins: { ...OPENAI_BUILTIN },
   };

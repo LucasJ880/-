@@ -257,10 +257,15 @@ export async function updateVisualOutput(input: {
   userId: string;
   outputId: string;
   action: "approve" | "reject" | "lock" | "unlock";
+  /** 拒绝原因（写入 metadata + 审计） */
+  reason?: string;
+  /** reject 时是否将 Job 置为 REVISION_REQUESTED（默认 true） */
+  requestRevision?: boolean;
 }) {
   await assertOrgAccess(input.orgId, input.userId);
   const output = await db.visualOutput.findFirst({
     where: { id: input.outputId, orgId: input.orgId },
+    include: { visualJob: true },
   });
   if (!output) throw new Error("视觉输出不存在");
 
@@ -270,11 +275,53 @@ export async function updateVisualOutput(input: {
         where: { id: output.id },
         data: { status: "approved", locked: false },
       });
-    case "reject":
-      return db.visualOutput.update({
+    case "reject": {
+      const prevMeta =
+        output.metadata && typeof output.metadata === "object"
+          ? (output.metadata as Record<string, unknown>)
+          : {};
+      const updated = await db.visualOutput.update({
         where: { id: output.id },
-        data: { status: "rejected", locked: false },
+        data: {
+          status: "rejected",
+          locked: false,
+          metadata: {
+            ...prevMeta,
+            rejectReason: input.reason ?? prevMeta.rejectReason ?? null,
+            rejectedAt: new Date().toISOString(),
+            rejectedById: input.userId,
+          } as Prisma.InputJsonValue,
+        },
       });
+
+      await logAudit({
+        userId: input.userId,
+        orgId: input.orgId,
+        action: AUDIT_ACTIONS.UPDATE,
+        targetType: "visual_output",
+        targetId: output.id,
+        afterData: {
+          status: "rejected",
+          reason: input.reason ?? null,
+          sceneType: output.visualJob.sceneType,
+        },
+      });
+
+      if (input.requestRevision !== false) {
+        const job = await db.productContentJob.findFirst({
+          where: { id: output.visualJob.jobId, orgId: input.orgId },
+        });
+        if (job && (job.status === "READY_FOR_REVIEW" || job.status === "APPROVED")) {
+          await setJobStatus({
+            orgId: input.orgId,
+            userId: input.userId,
+            jobId: job.id,
+            status: "REVISION_REQUESTED",
+          });
+        }
+      }
+      return updated;
+    }
     case "lock":
       return db.visualOutput.update({
         where: { id: output.id },
@@ -286,6 +333,40 @@ export async function updateVisualOutput(input: {
         data: { status: "generated", locked: false },
       });
   }
+}
+
+/**
+ * 统计会阻断批准的 rejected：仅当某场景「最新输出」仍为 rejected，
+ * 且该场景没有任何 approved/locked 时计入（旧版拒绝不阻断）。
+ */
+export async function countBlockingRejectedVisuals(
+  orgId: string,
+  jobId: string,
+): Promise<number> {
+  const outputs = await db.visualOutput.findMany({
+    where: { orgId, visualJob: { jobId } },
+    include: { visualJob: { select: { sceneType: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const byScene = new Map<string, typeof outputs>();
+  for (const o of outputs) {
+    const scene = o.visualJob.sceneType;
+    const list = byScene.get(scene) ?? [];
+    list.push(o);
+    byScene.set(scene, list);
+  }
+
+  let blocking = 0;
+  for (const [, list] of byScene) {
+    const hasApproved = list.some(
+      (o) => o.status === "approved" || o.status === "locked",
+    );
+    if (hasApproved) continue;
+    const latest = list[0];
+    if (latest?.status === "rejected") blocking += 1;
+  }
+  return blocking;
 }
 
 export async function updateProductCopyFields(input: {
@@ -333,6 +414,8 @@ export async function updateProductCopyFields(input: {
     "specificationsJson",
     "packagingJson",
     "useCasesJson",
+    "missingInformationJson",
+    "claimsToVerifyJson",
   ] as const;
 
   const data: Record<string, unknown> = {};

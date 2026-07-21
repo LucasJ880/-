@@ -40,6 +40,12 @@ export const ProviderRouter = {
     return OpenAIModels.imagePinned;
   },
 
+  /** 产品内容出图：可选 PRODUCT_CONTENT_IMAGE_MODEL，否则 OPENAI_IMAGE_MODEL */
+  getProductContentImageModel(provider?: AiProviderId): string {
+    assertOpenAI(provider);
+    return OpenAIModels.productContent;
+  },
+
   getVisionModel(provider?: AiProviderId): string {
     assertOpenAI(provider);
     return OpenAIModels.vision;

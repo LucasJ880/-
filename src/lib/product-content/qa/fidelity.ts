@@ -47,6 +47,27 @@ export function recommendedStatusFromScore(
   return "REJECT";
 }
 
+/**
+ * 受控 QA 专项测试：注入已知缺陷（不进入正式交付包）。
+ * 期望至少判定为 REVIEW 或 REJECT。
+ */
+export function runControlledDefectFidelityQa(defect: {
+  kind: "color_shift" | "missing_belt" | "fake_logo" | "pocket_count";
+  mode?: VisualGenerationMode;
+}): ProductFidelityQaResult {
+  const mode = defect.mode ?? "EXACT";
+  const violations: string[] = [];
+  if (defect.kind === "color_shift") violations.push("color drifted from source product");
+  if (defect.kind === "missing_belt") violations.push("shape belt accessory removed");
+  if (defect.kind === "fake_logo") violations.push("logo invented brand mark not in source");
+  if (defect.kind === "pocket_count") violations.push("shape pocket count changed");
+  return runHeuristicFidelityQa({
+    mode,
+    metadata: { controlledDefectTest: defect.kind },
+    protectionViolations: violations,
+  });
+}
+
 export function runHeuristicFidelityQa(args: {
   mode: VisualGenerationMode;
   metadata?: Record<string, unknown>;

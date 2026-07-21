@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
@@ -32,6 +33,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function ProductContentListPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const suiteFromQuery = searchParams.get("suite");
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,7 +80,15 @@ export default function ProductContentListPage() {
         body: JSON.stringify({ orgId, title: title.trim(), executionMode }),
       });
       if (res.ok) {
+        const data = (await res.json()) as { job?: { id?: string } };
         setTitle("");
+        if (data.job?.id) {
+          const q = suiteFromQuery
+            ? `?suite=${encodeURIComponent(suiteFromQuery)}`
+            : "";
+          router.push(`/product-content/${data.job.id}${q}`);
+          return;
+        }
         await load();
       } else {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -121,6 +133,13 @@ export default function ProductContentListPage() {
           </button>
         }
       />
+
+      {suiteFromQuery && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+          已选择套图模版 <code className="text-xs">{suiteFromQuery}</code>
+          ，创建任务后将进入套图工作室。
+        </div>
+      )}
 
       <form
         onSubmit={handleCreate}

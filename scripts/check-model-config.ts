@@ -122,6 +122,7 @@ async function main() {
   console.log("Fast Model:           ", snap.fast);
   console.log("Image Model:          ", snap.image);
   console.log("Pinned Image Version: ", snap.imagePinned);
+  console.log("Product Content Image:", snap.productContentImage);
   console.log("Vision Model:         ", snap.vision);
   console.log("");
   console.log("Provider:             ", snap.provider);

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { listMissingFields } from "@/lib/product-content/industry-packs/home-textile";
@@ -7,6 +8,8 @@ export type SnapshotPurpose = "INTERNAL_DRAFT" | "CUSTOMER_REVIEW" | "FORMAL_EXT
 export interface SnapshotPayload {
   capturedAt: string;
   purpose: SnapshotPurpose;
+  contentHash: string;
+  approvalId?: string | null;
   job: {
     id: string;
     title: string;
@@ -15,8 +18,18 @@ export interface SnapshotPayload {
     industryPack: string;
     documentPurpose: string;
   };
+  productFacts: Array<{
+    fieldKey: string;
+    value: unknown;
+    status: string;
+    sourceType: string;
+  }>;
+  /** @deprecated 使用 productFacts；保留兼容 */
   facts: Array<{ fieldKey: string; value: unknown; status: string; sourceType: string }>;
+  approvedCopy: Record<string, unknown> | null;
+  /** @deprecated 使用 approvedCopy */
   copy: Record<string, unknown> | null;
+  approvedVisualIds: string[];
   approvedVisuals: Array<{
     id: string;
     sceneType: string;
@@ -31,6 +44,23 @@ export interface SnapshotPayload {
     detectedChanges: unknown;
   }>;
   missingFields: Array<{ key: string; label: string }>;
+  openConflicts: string[];
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+export function computeSnapshotContentHash(
+  payload: Omit<SnapshotPayload, "contentHash" | "capturedAt">,
+): string {
+  return createHash("sha256").update(stableStringify(payload)).digest("hex");
 }
 
 export async function createProductContentSnapshot(
@@ -38,6 +68,7 @@ export async function createProductContentSnapshot(
   jobId: string,
   userId: string,
   purpose: SnapshotPurpose,
+  opts?: { approvalId?: string | null },
 ) {
   const job = await db.productContentJob.findFirst({
     where: { id: jobId, orgId },
@@ -46,6 +77,7 @@ export async function createProductContentSnapshot(
         where: { status: { in: ["extracted", "confirmed", "needs_review"] } },
         orderBy: { fieldKey: "asc" },
       },
+      conflicts: { where: { status: "open" }, select: { id: true, fieldKey: true } },
       copy: true,
       visualJobs: {
         include: {
@@ -84,9 +116,36 @@ export async function createProductContentSnapshot(
       })),
   );
 
-  const payload: SnapshotPayload = {
-    capturedAt: new Date().toISOString(),
+  const productFacts = job.facts.map((f) => ({
+    fieldKey: f.fieldKey,
+    value: f.value,
+    status: f.status,
+    sourceType: f.sourceType,
+  }));
+
+  const approvedCopy = job.copy
+    ? {
+        productNameEn: job.copy.productNameEn,
+        titleEn: job.copy.titleEn,
+        shortDescriptionEn: job.copy.shortDescriptionEn,
+        longDescriptionEn: job.copy.longDescriptionEn,
+        sellingPointsJson: job.copy.sellingPointsJson,
+        specificationsJson: job.copy.specificationsJson,
+        packagingJson: job.copy.packagingJson,
+        careInstructionsEn: job.copy.careInstructionsEn,
+        useCasesJson: job.copy.useCasesJson,
+        missingInformationJson: job.copy.missingInformationJson,
+        claimsToVerifyJson: job.copy.claimsToVerifyJson,
+        status: job.copy.status,
+        locked: job.copy.locked,
+      }
+    : null;
+
+  const openConflicts = job.conflicts.map((c) => `${c.fieldKey}:${c.id}`);
+
+  const base = {
     purpose,
+    approvalId: opts?.approvalId ?? null,
     job: {
       id: job.id,
       title: job.title,
@@ -95,32 +154,22 @@ export async function createProductContentSnapshot(
       industryPack: job.industryPack,
       documentPurpose: job.documentPurpose,
     },
-    facts: job.facts.map((f) => ({
-      fieldKey: f.fieldKey,
-      value: f.value,
-      status: f.status,
-      sourceType: f.sourceType,
-    })),
-    copy: job.copy
-      ? {
-          productNameEn: job.copy.productNameEn,
-          titleEn: job.copy.titleEn,
-          shortDescriptionEn: job.copy.shortDescriptionEn,
-          longDescriptionEn: job.copy.longDescriptionEn,
-          sellingPointsJson: job.copy.sellingPointsJson,
-          specificationsJson: job.copy.specificationsJson,
-          packagingJson: job.copy.packagingJson,
-          careInstructionsEn: job.copy.careInstructionsEn,
-          useCasesJson: job.copy.useCasesJson,
-          missingInformationJson: job.copy.missingInformationJson,
-          claimsToVerifyJson: job.copy.claimsToVerifyJson,
-          status: job.copy.status,
-          locked: job.copy.locked,
-        }
-      : null,
+    productFacts,
+    facts: productFacts,
+    approvedCopy,
+    copy: approvedCopy,
+    approvedVisualIds: approvedVisuals.map((v) => v.id),
     approvedVisuals,
     qaSummaries,
     missingFields: missing.map((f) => ({ key: f.key, label: f.label })),
+    openConflicts,
+  };
+
+  const contentHash = computeSnapshotContentHash(base);
+  const payload: SnapshotPayload = {
+    ...base,
+    capturedAt: new Date().toISOString(),
+    contentHash,
   };
 
   const latest = await db.productContentSnapshot.findFirst({
@@ -142,12 +191,8 @@ export async function createProductContentSnapshot(
   });
 }
 
-export async function getLatestSnapshotPayload(
-  orgId: string,
-  jobId: string,
-  purpose?: SnapshotPurpose,
-): Promise<SnapshotPayload | null> {
-  const snapshot = await db.productContentSnapshot.findFirst({
+export async function getLatestSnapshot(orgId: string, jobId: string, purpose?: SnapshotPurpose) {
+  return db.productContentSnapshot.findFirst({
     where: {
       orgId,
       jobId,
@@ -155,6 +200,14 @@ export async function getLatestSnapshotPayload(
     },
     orderBy: { version: "desc" },
   });
+}
+
+export async function getLatestSnapshotPayload(
+  orgId: string,
+  jobId: string,
+  purpose?: SnapshotPurpose,
+): Promise<SnapshotPayload | null> {
+  const snapshot = await getLatestSnapshot(orgId, jobId, purpose);
   if (!snapshot) return null;
   return snapshot.payloadJson as unknown as SnapshotPayload;
 }

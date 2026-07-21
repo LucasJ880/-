@@ -35,11 +35,19 @@ export const OpenAIModels = {
       OPENAI_BUILTIN.reasoning
     );
   },
+  /** 全项目图片默认：OPENAI_IMAGE_MODEL */
   get image(): string {
     return env("OPENAI_IMAGE_MODEL") ?? OPENAI_BUILTIN.image;
   },
   get imagePinned(): string {
     return env("OPENAI_IMAGE_MODEL_PINNED") ?? OPENAI_BUILTIN.imagePinned;
+  },
+  /**
+   * 产品内容可选覆盖。未设置时回退 image（OPENAI_IMAGE_MODEL）。
+   * 不得作为第二套必须维护的配置。
+   */
+  get productContent(): string {
+    return env("PRODUCT_CONTENT_IMAGE_MODEL") ?? OpenAIModels.image;
   },
   /** Vision 默认走 chat（多模态同族） */
   get vision(): string {

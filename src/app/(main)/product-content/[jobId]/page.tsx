@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { SuiteStudioPanel } from "@/components/product-content/suite-studio-panel";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { toProxyUrl } from "@/lib/files/blob-access";
@@ -84,7 +85,9 @@ interface JobDetail {
 
 export default function ProductContentReviewPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const jobId = String(params.jobId ?? "");
+  const initialSuiteId = searchParams.get("suite");
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [job, setJob] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -385,6 +388,15 @@ export default function ProductContentReviewPage() {
           </button>
         </div>
       </div>
+
+      {orgId && (
+        <SuiteStudioPanel
+          orgId={orgId}
+          jobId={jobId}
+          initialSuiteId={initialSuiteId}
+          onGenerated={() => void load()}
+        />
+      )}
 
       <section className="rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-4 text-sm">

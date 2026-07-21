@@ -6,6 +6,7 @@
  * - orgId?: 多组织时显式选择
  * - jobId?: 可选，用于路径分桶
  * - inputType?: image | excel | pdf | voice | other
+ * - purpose?: product_front | product_side | product_detail | product_texture | ...
  */
 
 import { NextResponse } from "next/server";
@@ -53,6 +54,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   const orgIdRaw = form.get("orgId");
   const jobIdRaw = form.get("jobId");
   const inputTypeHint = form.get("inputType");
+  const purposeRaw = form.get("purpose");
 
   const requestedOrgId =
     typeof orgIdRaw === "string" && orgIdRaw.trim() ? orgIdRaw.trim() : null;
@@ -90,6 +92,11 @@ export const POST = withAuth(async (request, _ctx, user) => {
       ? inputTypeHint.trim()
       : guessInputType(file.type || "", ext);
 
+  const purpose =
+    typeof purposeRaw === "string" && purposeRaw.trim()
+      ? purposeRaw.trim()
+      : null;
+
   return NextResponse.json({
     success: true,
     pathname: uploaded.pathname,
@@ -98,6 +105,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     fileName: file.name,
     sizeBytes: file.size,
     inputType,
+    purpose,
     orgId,
     jobId,
   });
