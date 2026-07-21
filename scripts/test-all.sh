@@ -75,6 +75,7 @@ run_test "多租户数据隔离断言" "npx tsx src/lib/tenancy/__tests__/tenant
 run_test "多租户文件 pathname 声明" "npx tsx src/lib/tenancy/__tests__/tenant-file-access.test.ts"
 run_test "Phase2A 规则/Pack/工具权限" "npx tsx src/lib/tenancy/__tests__/phase2a-rules-tools.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
+run_test "Phase2B 企业语义隔离" "npx tsx src/lib/tenancy/__tests__/phase2b-semantics.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

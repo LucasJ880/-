@@ -658,6 +658,13 @@ model Organization {
   productContentJobs         ProductContentJob[]
   agentApprovalSettings      AgentApprovalSettings?
   quoteDiscountSettings      QuoteDiscountSettings?
+
+  // Phase 2B：企业语义与业务配置
+  glossaryTerms              OrganizationGlossaryTerm[]
+  businessObjectDefinitions  BusinessObjectDefinition[]
+  businessMetricDefinitions  BusinessMetricDefinition[]
+  workspaceSkillBindings     WorkspaceSkillBinding[]
+  workspaceKnowledgeBindings WorkspaceKnowledgeBinding[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -676,6 +683,11 @@ model Workspace {
 
   members  WorkspaceMember[]
   projects Project[]
+  glossaryTerms              OrganizationGlossaryTerm[]
+  businessObjectDefinitions  BusinessObjectDefinition[]
+  businessMetricDefinitions  BusinessMetricDefinition[]
+  skillBindings              WorkspaceSkillBinding[]
+  knowledgeBindings          WorkspaceKnowledgeBinding[]
 
   @@unique([orgId, slug])
   @@index([orgId, status])
@@ -3122,6 +3134,129 @@ model OrgBusinessRule {
 
   @@unique([orgId, ruleKey, version])
   @@index([orgId, ruleKey, status])
+}
+
+/// Phase 2B：企业术语表（轻量 Glossary，非知识图谱）
+model OrganizationGlossaryTerm {
+  id            String       @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId   String?
+  workspace     Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// "org" 或 workspaceId，避免 PG 对 NULL unique 的歧义
+  scopeKey      String       @default("org")
+  canonicalTerm String
+  displayName   String
+  description   String?      @db.Text
+  aliasesJson   Json         @default("[]")
+  category      String       @default("general")
+  language      String       @default("zh")
+  /// active | draft | archived
+  status        String       @default("active")
+  version       Int          @default(1)
+  effectiveFrom DateTime     @default(now())
+  effectiveTo   DateTime?
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([orgId, scopeKey, canonicalTerm, language])
+  @@index([orgId, status])
+  @@index([orgId, workspaceId, status])
+}
+
+/// Phase 2B：标准业务对象定义（注册现有 Prisma 对象，不复制业务数据）
+model BusinessObjectDefinition {
+  id                     String       @id @default(cuid())
+  orgId                  String
+  org                    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId            String?
+  workspace              Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  industryPackId         String?
+  objectKey              String
+  displayName            String
+  description            String?      @db.Text
+  aliasesJson            Json         @default("[]")
+  sourceModel            String?
+  idField                String?      @default("id")
+  statusField            String?
+  allowedStatusesJson     Json?
+  relationDefinitionsJson Json?
+  riskFieldsJson         Json?
+  /// active | draft | disabled
+  status                 String       @default("active")
+  version                Int          @default(1)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@unique([orgId, objectKey])
+  @@index([orgId, status])
+  @@index([orgId, workspaceId])
+}
+
+/// Phase 2B：企业经营指标定义（仅定义与接口，不做复杂图表）
+model BusinessMetricDefinition {
+  id                   String       @id @default(cuid())
+  orgId                String
+  org                  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId          String?
+  workspace            Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  key                  String
+  name                 String
+  description          String?      @db.Text
+  category             String       @default("operations")
+  unit                 String       @default("count")
+  /// higher_better | lower_better | neutral
+  direction            String       @default("higher_better")
+  /// query | static | manual
+  sourceType           String       @default("query")
+  sourceConfigJson     Json         @default("{}")
+  warningThresholdJson Json?
+  targetValueJson      Json?
+  /// active | draft | disabled
+  status               String       @default("active")
+  displayOrder         Int          @default(0)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([orgId, key])
+  @@index([orgId, status, displayOrder])
+}
+
+/// Phase 2B：Workspace Skill 启用/参数（不复制 Skill 本体）
+model WorkspaceSkillBinding {
+  id            String       @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId   String
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  skillKey      String
+  enabled       Boolean      @default(true)
+  paramsJson    Json?
+  /// 可选：限制 orgRole 列表
+  allowOrgRolesJson Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([workspaceId, skillKey])
+  @@index([orgId, workspaceId])
+}
+
+/// Phase 2B：Workspace 默认知识库绑定
+model WorkspaceKnowledgeBinding {
+  id              String       @id @default(cuid())
+  orgId           String
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId     String
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBaseId String
+  isDefault       Boolean      @default(false)
+  status          String       @default("active")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([workspaceId, knowledgeBaseId])
+  @@index([orgId, workspaceId])
 }
 
 model SalesQuoteItem {
