@@ -5,7 +5,7 @@
  *   销售发照片 → 存私有 Blob → Grounding DINO 检测窗户
  *   → 回复「识别到 N 扇窗，请回复 SKU 选择材质」
  *   → 销售回复 SKU（FabricInventory.sku 或可视化目录产品名）
- *   → 多窗合一蒙版 + gpt-image-2 图像编辑生成效果图
+ *   → 多窗合一蒙版 + Image Edit（ProviderRouter.getImageModel）生成效果图
  *   → 效果图发回微信（可连续换 SKU 重新生成，回复「取消」结束）
  *
  * 状态存 WeChatGraderContext（30 分钟 TTL，org/user/channel 隔离）。

@@ -61,6 +61,7 @@ export const en: Messages = {
   nav_trade_knowledge: "Global Knowledge",
   nav_org_knowledge: "Org Knowledge",
   nav_trade_watch_signals: "Market Monitoring",
+  nav_product_content: "Product Content",
   nav_organizations: "Organizations",
   nav_projects: "Projects",
   nav_project_intelligence: "Project Intelligence",

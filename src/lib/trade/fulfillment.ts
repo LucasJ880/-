@@ -2,7 +2,7 @@
  * 外贸客户服务工单 — 处理方（加拿大团队）履约层
  *
  * 职责：
- * - 对工单输入图运行 gpt-image-2 出图（复用 visualizer 的 runImageEdit）。
+ * - 对工单输入图运行 Image Edit 出图（复用 visualizer 的 runImageEdit / ModelRegistry.image）。
  * - 把交付物写回工单（资产归属客户 org），更新状态。
  * - 把交付结果通过客户专属微信通道回传给客户。
  *
@@ -30,7 +30,7 @@ function extFromMime(mime: string): string {
 }
 
 /**
- * 对工单的某个输入图运行 gpt-image-2 出图，并把结果作为交付物挂回工单。
+ * 对工单的某个输入图运行 Image Edit 出图，并把结果作为交付物挂回工单。
  *
  * @returns 新建的 deliverable 资产（含 fileUrl）。
  */
@@ -65,8 +65,11 @@ export async function runDesignImageForRequest(input: {
     prompt: input.prompt,
   });
   if (!outBuffer) {
-    throw new Error("gpt-image-2 出图失败");
+    throw new Error("图片编辑出图失败");
   }
+
+  const { ProviderRouter } = await import("@/lib/ai/model-registry");
+  const imageModel = ProviderRouter.getImageModel();
 
   const ts = Date.now();
   const pathname = `${BLOB_PREFIX}/${request.orgId}/${request.id}/deliverables/${ts}.png`;
@@ -82,7 +85,7 @@ export async function runDesignImageForRequest(input: {
     fileUrl: blob.proxyUrl,
     fileName: `design_${ts}.png`,
     mimeType: "image/png",
-    meta: { prompt: input.prompt, sourceAssetId: inputAsset.id, model: "gpt-image-2" },
+    meta: { prompt: input.prompt, sourceAssetId: inputAsset.id, model: imageModel },
     createdById: input.createdById ?? null,
   });
 

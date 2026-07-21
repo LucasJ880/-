@@ -7,7 +7,7 @@
  *   AGENT_SUPERVISOR_SUMMARY_MODEL
  *   AGENT_SUPERVISOR_REPAIR_MODEL
  *
- * 未设置时回退到 Agent Core 已验证可用的默认（primary = OPENAI_MODEL / gpt-5.6-sol）。
+ * 未设置时回退到 ProviderRouter.getChatModel()（OPENAI_CHAT_MODEL / OPENAI_MODEL）。
  * 指定模型 403/404/model_not_found 时，只允许再试一次默认 Fallback。
  */
 
@@ -16,7 +16,7 @@ import {
   type CompletionOptions,
   type DetailedCompletionResult,
 } from "@/lib/ai/client";
-import { getAIConfig, getTaskPreset } from "@/lib/ai/config";
+import { ProviderRouter } from "@/lib/ai/model-registry";
 import { logger } from "@/lib/common/logger";
 
 export type SupervisorModelPurpose =
@@ -52,17 +52,18 @@ function envModel(purpose: SupervisorModelPurpose): string | undefined {
   return v || undefined;
 }
 
-/** 默认使用已验证可用的 primary（sol），避免 nano/luna 403 */
+/**
+ * Planner / Supervisor 默认走 Reasoning；访问失败时回退 Chat（见 callSupervisorCompletion）。
+ */
 export function resolveSupervisorModel(input: {
   purpose: SupervisorModelPurpose;
   orgId?: string;
   userId?: string;
 }): SupervisorModelResolution {
-  const cfg = getAIConfig();
-  const primary = cfg.primaryModel || getTaskPreset("normal").model;
-  // Fallback 优先仍用 primary（账号常无 terra/luna 权限）；仅当 requested 不是 primary 时回退 primary
-  const requested = envModel(input.purpose) || primary;
-  const fallbackModel = requested === primary ? primary : primary;
+  const reasoning = ProviderRouter.getReasoningModel();
+  const chat = ProviderRouter.getChatModel();
+  const requested = envModel(input.purpose) || reasoning;
+  const fallbackModel = chat;
 
   return {
     purpose: input.purpose,

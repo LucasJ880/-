@@ -61,6 +61,7 @@ export const zh: Messages = {
   nav_trade_knowledge: "海外业务知识",
   nav_org_knowledge: "组织知识库",
   nav_trade_watch_signals: "市场监测",
+  nav_product_content: "产品内容",
   nav_organizations: "组织",
   nav_projects: "项目",
   nav_project_intelligence: "项目智能",

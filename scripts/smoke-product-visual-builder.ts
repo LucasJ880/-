@@ -385,7 +385,10 @@ function printSummary(env: EnvMap, smokeFileExists: boolean): void {
   console.log("host:", info ? info.host : "(none/unparseable)");
   console.log("db:", info ? info.db : "(none)");
   console.log("含 branch/smoke/dev/preview 标识:", marker);
-  console.log("OPENAI_IMAGE_MODEL:", env.OPENAI_IMAGE_MODEL || "(default gpt-image-2)");
+  console.log(
+    "OPENAI_IMAGE_MODEL:",
+    env.OPENAI_IMAGE_MODEL || "(default via ModelRegistry.image)",
+  );
   console.log("OPENAI_API_KEY present:", Boolean(env.OPENAI_API_KEY));
   console.log("OPENAI_BASE_URL present:", Boolean(env.OPENAI_BASE_URL));
   console.log("DIRECT_URL present (来自 .env.smoke):", Boolean(env.DIRECT_URL));

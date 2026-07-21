@@ -2,7 +2,7 @@
  * product-visual-builder — dry-run service（Phase 1B-Service，轻量版）
  *
  * 只跑内部记录链路：AgentSkill → buildProductVisualPrompt → SkillExecution → AuditLog。
- * 本阶段不调用 gpt-image-2、不上传 Blob、不创建 API、不做前端。
+ * 本阶段不调用 Image Provider、不上传 Blob、不创建 API、不做前端。
  *
  * 安全边界：
  * - orgId / userId 必须由调用方（params）传入，不信任 input.orgId / input.userId。

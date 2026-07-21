@@ -639,6 +639,11 @@ model Organization {
   rolePlaybooks         RolePlaybook[]
   agentSkillVersions    AgentSkillVersion[]
   evaluationCases       EvaluationCase[]
+
+  // AI 外贸产品内容总监 Phase 1
+  tradeProducts              TradeProduct[]
+  productContentJobs         ProductContentJob[]
+  agentApprovalSettings      AgentApprovalSettings?
 }
 
 /// 企业项目规则（Phase2）：仅用户确认后生效，不自动变成正式规则
@@ -5056,4 +5061,378 @@ model EvaluationCase {
 
   @@index([orgId, domain, taskType])
   @@index([orgId, approved])
+}
+
+// ============================================================
+// AI 外贸产品内容总监 Phase 1
+// ============================================================
+
+/// 组织级产品主档（动态 attributes，行业字段由 Industry Pack 定义）
+model TradeProduct {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sku            String
+  name           String
+  nameEn         String?
+  brand          String?
+  category       String?
+  collection     String?
+  modelNumber    String?
+  industryPack   String       @default("home_textile")
+  geometryClass  String       @default("DEFORMABLE_SURFACE")
+  attributes     Json         @default("{}")
+  status         String       @default("draft") // draft | active | archived
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  facts ProductFact[]
+  assets ProductAsset[]
+  jobs  ProductContentJob[]
+
+  @@unique([orgId, sku])
+  @@index([orgId, category])
+  @@index([orgId, status])
+}
+
+model ProductAsset {
+  id                 String       @id @default(cuid())
+  orgId              String
+  productId          String?
+  product            TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  jobId              String?
+  job                ProductContentJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  roleAuto           String       @default("unknown")
+  roleConfirmed      String?
+  roleConfidence     Float        @default(0)
+  sourceType         String       @default("upload")
+  blobPathname       String
+  mimeType           String?
+  fileName           String?
+  width              Int?
+  height             Int?
+  locked             Boolean      @default(false)
+  metadata           Json?
+  createdById        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([orgId, productId])
+  @@index([orgId, jobId])
+}
+
+model ProductFact {
+  id               String        @id @default(cuid())
+  orgId            String
+  productId        String?
+  product          TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  jobId            String?
+  job              ProductContentJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fieldKey         String
+  value            Json
+  normalizedValue  Json?
+  sourceType       String
+  sourceId         String?
+  sourceLocation   String?
+  confidence       Float         @default(0.5)
+  status           String        @default("extracted") // extracted | needs_review | confirmed | rejected | conflict
+  confirmedById    String?
+  confirmedAt      DateTime?
+  locked           Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  conflictsAsCurrent ProductFactConflict[] @relation("ConflictCurrent")
+  conflictsAsIncoming ProductFactConflict[] @relation("ConflictIncoming")
+
+  @@index([orgId, jobId, fieldKey])
+  @@index([orgId, productId, fieldKey])
+  @@index([orgId, status])
+}
+
+model ProductFactConflict {
+  id              String      @id @default(cuid())
+  orgId           String
+  jobId           String
+  job             ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fieldKey        String
+  currentFactId   String?
+  currentFact     ProductFact? @relation("ConflictCurrent", fields: [currentFactId], references: [id], onDelete: SetNull)
+  incomingFactId  String?
+  incomingFact    ProductFact? @relation("ConflictIncoming", fields: [incomingFactId], references: [id], onDelete: SetNull)
+  currentValue    Json?
+  incomingValue   Json?
+  status          String      @default("open") // open | resolved | dismissed
+  resolution      String?
+  resolvedById    String?
+  resolvedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([orgId, jobId, status])
+}
+
+model ProductContentJob {
+  id               String       @id @default(cuid())
+  orgId            String
+  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  title            String
+  status           String       @default("DRAFT")
+  executionMode    String       @default("AUTOPILOT") // AUTOPILOT | ALWAYS_ASK
+  industryPack     String       @default("home_textile")
+  selectedSku      String?
+  planJson         Json?
+  missingFieldsJson Json?
+  costCents        Int          @default(0)
+  estimatedCostCents Int        @default(0)
+  currency         String       @default("USD")
+  documentPurpose  String       @default("INTERNAL_DRAFT") // INTERNAL_DRAFT | CUSTOMER_REVIEW | FORMAL_EXTERNAL
+  errorMessage     String?      @db.Text
+  createdById      String?
+  approvedById     String?
+  approvedAt       DateTime?
+  deliveredAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  inputs      ProductContentJobInput[]
+  steps       ProductContentStep[]
+  facts       ProductFact[]
+  conflicts   ProductFactConflict[]
+  assets      ProductAsset[]
+  visualJobs  VisualGenerationJob[]
+  copy        ProductCopy?
+  documents   GeneratedDocument[]
+  approvals   ProductContentApproval[]
+  snapshots   ProductContentSnapshot[]
+  costEntries ProductContentCostEntry[]
+
+  @@index([orgId, status])
+  @@index([orgId, createdAt])
+  @@index([orgId, productId])
+}
+
+model ProductContentSnapshot {
+  id          String            @id @default(cuid())
+  orgId       String
+  jobId       String
+  job         ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  version     Int               @default(1)
+  purpose     String            @default("INTERNAL_DRAFT") // INTERNAL_DRAFT | CUSTOMER_REVIEW | FORMAL_EXTERNAL
+  payloadJson Json
+  createdById String?
+  createdAt   DateTime          @default(now())
+
+  @@unique([jobId, version])
+  @@index([orgId, jobId])
+}
+
+model ProductContentCostEntry {
+  id             String            @id @default(cuid())
+  orgId          String
+  jobId          String
+  job            ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  category       String            // image_edit | fidelity_qa | copy | document | other
+  provider       String?
+  model          String?
+  estimatedCents Int               @default(0)
+  actualCents    Int               @default(0)
+  currency       String            @default("USD")
+  requestId      String?
+  latencyMs      Int?
+  metaJson       Json?
+  createdAt      DateTime          @default(now())
+
+  @@index([orgId, jobId])
+}
+
+model ProductContentJobInput {
+  id             String           @id @default(cuid())
+  orgId          String
+  jobId          String
+  job            ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  inputType      String           // image | excel | pdf | url | text | voice
+  blobPathname   String?
+  mimeType       String?
+  fileName       String?
+  textContent    String?          @db.Text
+  url            String?
+  purpose        String?          // WebSourcePurpose / image role hint
+  parseStatus    String           @default("pending") // pending | parsed | failed
+  parseResultJson Json?
+  transcriptText String?          @db.Text
+  createdById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([orgId, jobId])
+}
+
+model ProductContentStep {
+  id          String           @id @default(cuid())
+  orgId       String
+  jobId       String
+  job         ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepKey     String
+  status      String           @default("pending") // pending | running | waiting_approval | done | failed | skipped
+  inputJson   Json?
+  outputJson  Json?
+  errorMessage String?         @db.Text
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([orgId, jobId, stepKey])
+}
+
+model VisualGenerationJob {
+  id            String           @id @default(cuid())
+  orgId         String
+  jobId         String
+  job           ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  mode          String           // EXACT | STUDIO | CREATIVE
+  sceneType     String           // white_bg | lifestyle | marketing_layout
+  status        String           @default("pending")
+  prompt        String?          @db.Text
+  provider      String?
+  model         String?
+  costCents     Int              @default(0)
+  errorMessage  String?          @db.Text
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  outputs VisualOutput[]
+
+  @@index([orgId, jobId])
+}
+
+model VisualOutput {
+  id              String              @id @default(cuid())
+  orgId           String
+  visualJobId     String
+  visualJob       VisualGenerationJob @relation(fields: [visualJobId], references: [id], onDelete: Cascade)
+  blobPathname    String?
+  status          String              @default("generated") // generated | approved | rejected | locked
+  locked          Boolean             @default(false)
+  provider        String?
+  model           String?
+  qaOverallScore  Float?
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  qaResult VisualQaResult?
+
+  @@index([orgId, visualJobId])
+  @@index([orgId, status])
+}
+
+model VisualQaResult {
+  id                 String       @id @default(cuid())
+  orgId              String
+  visualOutputId     String       @unique
+  visualOutput       VisualOutput @relation(fields: [visualOutputId], references: [id], onDelete: Cascade)
+  overallScore       Float
+  shapeScore         Float
+  colorScore         Float
+  patternScore       Float?
+  textureScore       Float?
+  logoScore          Float?
+  textScore          Float?
+  accessoryScore     Float?
+  detectedChangesJson Json
+  recommendedStatus  String       // APPROVE | REVIEW | REJECT
+  rawJson            Json?
+  createdAt          DateTime     @default(now())
+
+  @@index([orgId, recommendedStatus])
+}
+
+model ProductCopy {
+  id                    String           @id @default(cuid())
+  orgId                 String
+  jobId                 String           @unique
+  job                   ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  productNameEn         String?
+  titleEn               String?
+  sellingPointsJson     Json?
+  shortDescriptionEn    String?          @db.Text
+  longDescriptionEn     String?          @db.Text
+  specificationsJson    Json?
+  packagingJson         Json?
+  careInstructionsEn    String?          @db.Text
+  useCasesJson          Json?
+  missingInformationJson Json?
+  claimsToVerifyJson    Json?
+  locked                Boolean          @default(false)
+  status                String           @default("draft") // draft | ready | approved
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([orgId, status])
+}
+
+model GeneratedDocument {
+  id           String           @id @default(cuid())
+  orgId        String
+  jobId        String
+  job          ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  docType      String           // word | pdf | excel | zip | web
+  blobPathname String?
+  fileName     String?
+  version      Int              @default(1)
+  status       String           @default("draft") // draft | ready | approved
+  metadata     Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([orgId, jobId, docType])
+}
+
+model ProductContentApproval {
+  id           String           @id @default(cuid())
+  orgId        String
+  jobId        String
+  job          ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  actionKey    String
+  policy       String           // AUTO_ALLOW | ASK_BEFORE | MANUAL_ONLY
+  status       String           @default("pending") // pending | approved | rejected | auto_allowed
+  requestedById String?
+  decidedById  String?
+  decidedAt    DateTime?
+  reason       String?          @db.Text
+  payloadJson  Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([orgId, jobId, status])
+  @@index([orgId, actionKey])
+}
+
+model AgentApprovalSettings {
+  id                                  String       @id @default(cuid())
+  orgId                               String       @unique
+  org                                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  defaultExecutionMode                String       @default("AUTOPILOT")
+  autoAnalyzeFiles                    Boolean      @default(true)
+  autoCreateProductDraft              Boolean      @default(true)
+  autoGenerateLowCostVisuals          Boolean      @default(true)
+  autoRunFidelityQa                   Boolean      @default(true)
+  autoGenerateCopyDraft               Boolean      @default(true)
+  autoGenerateFormalDocuments         Boolean      @default(false)
+  autoProcessMultipleSkus             Boolean      @default(false)
+  askBeforeHighCostModel              Boolean      @default(true)
+  askBeforeCreativeMode               Boolean      @default(true)
+  askBeforeFormalPdf                  Boolean      @default(true)
+  askBeforeOverwriteApprovedContent   Boolean      @default(true)
+  askBeforeExternalSend               Boolean      @default(true)
+  askBeforePublish                    Boolean      @default(true)
+  maxAutoCostPerJobCents              Int?
+  maxAutoCostPerDayCents              Int?
+  createdAt                           DateTime     @default(now())
+  updatedAt                           DateTime     @updatedAt
 }

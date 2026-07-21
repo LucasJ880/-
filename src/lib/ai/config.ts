@@ -1,9 +1,10 @@
 /**
  * 青砚 AI 统一配置中心
  *
- * 所有模型、推理力度、任务预设在此集中管理。
- * 其他模块通过 getAIConfig() / getTaskPreset() 读取，不再各自硬编码。
+ * 模型名称唯一来源：ModelRegistry / ProviderRouter。
  */
+
+import { ProviderRouter } from "@/lib/ai/model-registry";
 
 // ── 推理力度 ──────────────────────────────────────────────────
 
@@ -18,44 +19,48 @@ export interface TaskPreset {
   reasoningEffort: ReasoningEffort;
 }
 
-// GPT-5.6 家族（2026-07 GA）：sol 旗舰 / terra 均衡 / luna 高吞吐轻任务
-const MODEL_PRIMARY = process.env.OPENAI_MODEL || "gpt-5.6-sol";
-const MODEL_MINI = process.env.OPENAI_MODEL_MINI || "gpt-5.6-terra";
-const MODEL_NANO = process.env.OPENAI_MODEL_NANO || "gpt-5.6-luna";
-const MODEL_IMAGE = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
-
 export const TASK_PRESETS: Record<string, TaskPreset> = {
   normal: {
-    model: MODEL_PRIMARY,
+    get model() {
+      return ProviderRouter.getChatModel();
+    },
     temperature: 0.5,
     maxTokens: 8192,
     reasoningEffort: "medium",
   },
   deep: {
-    model: MODEL_PRIMARY,
+    get model() {
+      return ProviderRouter.getReasoningModel();
+    },
     temperature: 0.3,
     maxTokens: 16384,
     reasoningEffort: "high",
   },
   fast: {
-    model: MODEL_NANO,
+    get model() {
+      return ProviderRouter.getFastModel();
+    },
     temperature: 0.6,
     maxTokens: 2048,
     reasoningEffort: "low",
   },
   chat: {
-    model: MODEL_PRIMARY,
+    get model() {
+      return ProviderRouter.getChatModel();
+    },
     temperature: 0.5,
     maxTokens: 8192,
     reasoningEffort: "medium",
   },
   structured: {
-    model: MODEL_MINI,
+    get model() {
+      return ProviderRouter.getReasoningModel();
+    },
     temperature: 0.3,
     maxTokens: 4096,
     reasoningEffort: "medium",
   },
-} as const;
+};
 
 export type TaskMode = keyof typeof TASK_PRESETS;
 
@@ -72,16 +77,22 @@ export interface AIConfig {
   miniModel: string;
   nanoModel: string;
   imageModel: string;
+  imagePinnedModel: string;
+  chatModel: string;
+  reasoningModel: string;
 }
 
 export function getAIConfig(): AIConfig {
   return {
     apiKey: process.env.OPENAI_API_KEY || "",
     baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    primaryModel: MODEL_PRIMARY,
-    miniModel: MODEL_MINI,
-    nanoModel: MODEL_NANO,
-    imageModel: MODEL_IMAGE,
+    primaryModel: ProviderRouter.getChatModel(),
+    chatModel: ProviderRouter.getChatModel(),
+    miniModel: ProviderRouter.getReasoningModel(),
+    reasoningModel: ProviderRouter.getReasoningModel(),
+    nanoModel: ProviderRouter.getFastModel(),
+    imageModel: ProviderRouter.getImageModel(),
+    imagePinnedModel: ProviderRouter.getImagePinnedModel(),
   };
 }
 
@@ -105,16 +116,6 @@ export interface IntelligenceReportConfig {
   promptVersion: string;
 }
 
-/**
- * 读取 intelligence_report 专属配置，未设置则回退到全局 deep / normal 预设。
- *
- * 环境变量：
- *   OPENAI_MODEL_INTELLIGENCE_REPORT          主模型
- *   OPENAI_TEMPERATURE_INTELLIGENCE_REPORT     温度
- *   OPENAI_MAX_TOKENS_INTELLIGENCE_REPORT      最大输出 token
- *   OPENAI_REASONING_EFFORT_INTELLIGENCE_REPORT  推理力度(low/medium/high)
- *   OPENAI_MODEL_INTELLIGENCE_REPORT_FALLBACK  回退模型
- */
 export function getIntelligenceReportConfig(): IntelligenceReportConfig {
   const deep = TASK_PRESETS.deep;
   const normal = TASK_PRESETS.normal;
@@ -127,10 +128,17 @@ export function getIntelligenceReportConfig(): IntelligenceReportConfig {
 
   return {
     model: process.env.OPENAI_MODEL_INTELLIGENCE_REPORT || deep.model,
-    temperature: safeFloat(process.env.OPENAI_TEMPERATURE_INTELLIGENCE_REPORT, deep.temperature),
-    maxTokens: safeInt(process.env.OPENAI_MAX_TOKENS_INTELLIGENCE_REPORT, deep.maxTokens),
+    temperature: safeFloat(
+      process.env.OPENAI_TEMPERATURE_INTELLIGENCE_REPORT,
+      deep.temperature,
+    ),
+    maxTokens: safeInt(
+      process.env.OPENAI_MAX_TOKENS_INTELLIGENCE_REPORT,
+      deep.maxTokens,
+    ),
     reasoningEffort: effort,
-    fallbackModel: process.env.OPENAI_MODEL_INTELLIGENCE_REPORT_FALLBACK || normal.model,
+    fallbackModel:
+      process.env.OPENAI_MODEL_INTELLIGENCE_REPORT_FALLBACK || normal.model,
     fallbackTemperature: normal.temperature,
     fallbackMaxTokens: normal.maxTokens,
     fallbackReasoningEffort: "medium",
@@ -151,3 +159,5 @@ function safeInt(raw: string | undefined, fallback: number): number {
   const v = parseInt(raw, 10);
   return Number.isFinite(v) ? v : fallback;
 }
+
+export { ModelRegistry, ProviderRouter } from "@/lib/ai/model-registry";

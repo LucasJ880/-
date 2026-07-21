@@ -68,6 +68,21 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   trade_create_service_request:   { risk: "l2_soft", allowRoles: ["admin", "trade"] },
   trade_search_knowledge:         { risk: "l0_read", allowRoles: ["admin", "trade"] },
 
+  // ── 产品内容总监（Phase 1） ───────────────────────────────────
+  product_content_get_status:       { risk: "l0_read",           allowRoles: ["admin", "trade"] },
+  product_content_create_job:       { risk: "l1_internal_write", allowRoles: ["admin", "trade"] },
+  product_content_add_input:        { risk: "l1_internal_write", allowRoles: ["admin", "trade"] },
+  product_content_analyze_inputs:   { risk: "l1_internal_write", allowRoles: ["admin", "trade"] },
+  product_content_extract_facts:    { risk: "l0_read",           allowRoles: ["admin", "trade"] },
+  product_content_confirm_fact:     { risk: "l1_internal_write", allowRoles: ["admin", "trade"] },
+  product_content_generate_plan:    { risk: "l1_internal_write", allowRoles: ["admin", "trade"] },
+  product_content_approve_plan:     { risk: "l2_soft",           allowRoles: ["admin", "trade"] },
+  product_content_run_pipeline:     { risk: "l2_soft",           allowRoles: ["admin", "trade"] },
+  product_content_generate_copy:    { risk: "l1_internal_write", allowRoles: ["admin", "trade"] },
+  product_content_generate_documents:{ risk: "l2_soft",          allowRoles: ["admin", "trade"] },
+  product_content_approve_job:      { risk: "l2_soft",           allowRoles: ["admin", "trade"] },
+  product_content_deliver:          { risk: "l2_soft",           allowRoles: ["admin", "trade"] },
+
   // ── cockpit（当前 domain 标为 trade，仅 admin 可调） ──────────
   cockpit_get_metrics:        { risk: "l0_read", allowRoles: ["admin"] },
   cockpit_get_weekly_report:  { risk: "l0_read", allowRoles: ["admin"] },

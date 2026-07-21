@@ -11,6 +11,7 @@ import {
   resolveSalesOrgIdForRequest,
   resolveSalesScope,
 } from "@/lib/sales/org-context";
+import { ProviderRouter } from "@/lib/ai/model-registry";
 
 const DAY_MS = 86_400_000;
 
@@ -106,7 +107,7 @@ ${isAdmin ? `- 库存预警: ${lowStock} 种面料` : ""}
   try {
     const openai = new OpenAI();
     const completion = await openai.chat.completions.create({
-      model: process.env.AI_MODEL || "gpt-4o-mini",
+      model: process.env.AI_MODEL || ProviderRouter.getChatModel(),
       messages: [
         {
           role: "system",

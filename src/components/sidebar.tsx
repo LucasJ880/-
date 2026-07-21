@@ -36,6 +36,7 @@ import {
   Megaphone,
   Inbox,
   Lightbulb,
+  Layers,
   type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useRef, useSyncExternalStore } from "react";
@@ -120,6 +121,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/trade/fulfillment", labelKey: "nav_trade_fulfillment", icon: PackageCheck, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/knowledge", labelKey: "nav_trade_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
       { href: "/trade/signals", labelKey: "nav_trade_watch_signals", icon: Eye, roles: ["admin", "super_admin", "trade"] },
+      { href: "/product-content", labelKey: "nav_product_content", icon: Layers, roles: ["admin", "super_admin", "trade"] },
     ],
   },
   {

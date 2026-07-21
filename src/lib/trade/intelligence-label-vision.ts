@@ -143,8 +143,8 @@ export async function extractTradeLabelFromImageUrl(params: {
   if (!apiKey?.trim()) {
     throw new Error("OPENAI_API_KEY 未配置");
   }
-  const model =
-    process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const { ProviderRouter } = await import("@/lib/ai/model-registry");
+  const model = ProviderRouter.getVisionModel();
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 
   const userText = `assetType（用户选择）: ${params.assetType}

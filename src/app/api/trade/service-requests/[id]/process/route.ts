@@ -1,5 +1,5 @@
 /**
- * 外贸客户服务工单 — 处理方出图（gpt-image-2）
+ * 外贸客户服务工单 — 处理方出图（Image Edit / ModelRegistry.image）
  *
  * POST /api/trade/service-requests/[id]/process
  *   body: { inputAssetId, prompt }

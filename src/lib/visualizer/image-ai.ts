@@ -33,12 +33,14 @@ export async function runImageEdit(args: {
     fileName?: string;
   }>;
   quality?: "low" | "medium" | "high" | "auto";
+  /** 覆盖默认图片模型（来自 ModelRegistry.image） */
+  model?: string;
 }): Promise<Buffer | null> {
   const cfg = getAIConfig();
   if (!cfg.apiKey) throw new Error("OPENAI_API_KEY missing");
 
   const form = new FormData();
-  form.append("model", cfg.imageModel);
+  form.append("model", args.model || cfg.imageModel);
   form.append("prompt", args.prompt);
   form.append("size", "auto");
   if (args.quality) form.append("quality", args.quality);
