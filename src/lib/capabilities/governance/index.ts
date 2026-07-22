@@ -26,3 +26,22 @@ export {
   auditWorkspaceRestriction,
 } from "./access";
 export { precheckMonthlyAiCost } from "./precheck";
+export {
+  requireStreamTenant,
+  beginStreamAiUsage,
+  buildStreamSessionKey,
+  streamTenantErrorResponse,
+  type StreamTenantErrorCode,
+  type BeginStreamAiUsageResult,
+} from "./stream-guard";
+export {
+  settleAiUsageReservation,
+  actualCostFromStreamUsage,
+  type SettleAiUsageReservationInput,
+  type SettleAiUsageReservationResult,
+  type SettlementStatus,
+} from "./settle";
+export {
+  notifyQuotaThreshold,
+  buildQuotaNotifyDedupeKey,
+} from "./quota-notify";
