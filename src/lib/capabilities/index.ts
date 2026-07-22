@@ -19,3 +19,9 @@ export {
   getUsageTimeseries,
   listLedgerForRun,
 } from "./usage";
+export {
+  listCapabilityApprovals,
+  getCapabilityApproval,
+} from "./approvals/query";
+export { decideCapabilityApproval } from "./approvals/decision";
+export type { ApprovalProjection } from "./approvals/types";

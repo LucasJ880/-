@@ -71,6 +71,7 @@ export const en: Messages = {
   nav_agent_trace: "Agent Workbench",
   nav_ai_activity: "Automation Log",
   nav_capabilities_runs: "Runs Center",
+  nav_capabilities_approvals: "Approvals",
   nav_weekly_reports: "Business Briefs",
   nav_publish_calendar: "Content Operations",
   nav_operations_center: "Business Center",

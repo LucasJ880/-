@@ -97,10 +97,22 @@ export interface ToolExecutionContext {
   /** 企业 modulesJson */
   modulesJson?: unknown;
   workspaceIds?: string[];
+  /** Phase 3A-3：当前调用所属 Workspace */
+  workspaceId?: string;
+  /** Phase 3A-3：后端解析后的 Workspace 角色 */
+  workspaceRole?: string;
   /** 企业 Agent 工具政策覆盖 */
   toolPolicy?: {
     disabledTools?: string[];
     forceApprovalTools?: string[];
+  };
+  /** Phase 3A-3：Workspace 级工具政策（只能收紧） */
+  workspaceToolPolicy?: {
+    disabledTools?: string[];
+    forceApprovalTools?: string[];
+    maxRisk?: ToolRisk;
+    policyId?: string;
+    version?: number;
   };
   /** 会话风险上限（与 AgentRunOptions.maxRisk 对齐） */
   maxRisk?: ToolRisk;

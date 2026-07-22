@@ -156,6 +156,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/agent-trace", labelKey: "nav_agent_trace", icon: GitBranch },
       { href: "/ai-activity", labelKey: "nav_ai_activity", icon: Activity },
       { href: "/capabilities/runs", labelKey: "nav_capabilities_runs", icon: Radar },
+      { href: "/capabilities/approvals", labelKey: "nav_capabilities_approvals", icon: Shield },
       { href: "/reports", labelKey: "nav_weekly_reports", icon: FileText, roles: ["admin", "super_admin", "user"] },
     ],
   },

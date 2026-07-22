@@ -79,6 +79,8 @@ run_test "Phase2B 企业语义隔离" "npx tsx src/lib/tenancy/__tests__/phase2b
 run_test "Phase3A-1 Trace Read Model" "npx tsx src/lib/capabilities/__tests__/phase3a1-trace-read-model.test.ts"
 run_test "Phase3A-2 Runs and Usage Ledger" "npx tsx src/lib/capabilities/__tests__/phase3a2-runs-and-usage.test.ts"
 run_test "Phase3A-2 Ledger DB" "npx tsx src/lib/capabilities/__tests__/phase3a2-ledger-db.test.ts"
+run_test "Phase3A-2 Smoke Access" "npx tsx src/lib/capabilities/__tests__/phase3a2-smoke-access.test.ts"
+run_test "Phase3A-3 Approvals RBAC" "npx tsx src/lib/capabilities/__tests__/phase3a3-approvals-rbac.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

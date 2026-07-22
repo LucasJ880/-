@@ -14,6 +14,7 @@ import { logAudit } from "@/lib/audit/logger";
 import type { ToolExecutionResult } from "@/lib/agent-core/types";
 import type { PendingActionType } from "./types";
 import { toPendingApprovalResult } from "./types";
+import { computePayloadHash } from "@/lib/capabilities/approvals/integrity";
 
 const DEFAULT_TTL_HOURS = 24;
 
@@ -25,6 +26,7 @@ export interface CreateDraftInput {
   userId: string;
   orgId?: string;
   projectId?: string;
+  workspaceId?: string;
   approverUserId?: string;
   requiredRole?: string;
   threadId?: string;
@@ -33,6 +35,8 @@ export interface CreateDraftInput {
   agentRunId?: string;
   /** 过期小时数（默认 24） */
   ttlHours?: number;
+  policyVersion?: string;
+  resourceVersion?: string;
 }
 
 /**
@@ -45,6 +49,13 @@ export async function createDraft(
   const ttl = input.ttlHours ?? DEFAULT_TTL_HOURS;
   const expiresAt = new Date(Date.now() + ttl * 3600 * 1000);
 
+  const workspaceId =
+    input.workspaceId ??
+    (typeof input.payload.workspaceId === "string"
+      ? input.payload.workspaceId
+      : undefined);
+  const payloadHash = computePayloadHash(input.payload);
+
   const action = await db.pendingAction.create({
     data: {
       type: input.type,
@@ -55,6 +66,11 @@ export async function createDraft(
       createdById: input.userId,
       orgId: input.orgId,
       projectId: input.projectId,
+      workspaceId: workspaceId ?? null,
+      payloadVersion: 1,
+      payloadHash,
+      policyVersion: input.policyVersion ?? "org-default-v1",
+      resourceVersion: input.resourceVersion ?? null,
       approverUserId: input.approverUserId,
       requiredRole: input.requiredRole,
       threadId: input.threadId,
@@ -69,14 +85,15 @@ export async function createDraft(
     userId: input.userId,
     orgId: input.orgId,
     projectId: input.projectId,
-    action: "ai_draft_create",
+    action: "APPROVAL_CREATED",
     targetType: "pending_action",
     targetId: action.id,
     afterData: {
       type: action.type,
       title: action.title,
-      payload: input.payload,
+      payloadHash,
       agentRunId: action.agentRunId,
+      // 不记录完整敏感 payload
     },
   });
 
