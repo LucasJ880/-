@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
-import { isSuperAdmin } from '@/lib/rbac/roles';
 import { db } from '@/lib/db';
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from '@/lib/audit/logger';
+import { authorize, humanPrincipal } from '@/lib/authorization';
+import { isAdmin, isSuperAdmin } from '@/lib/rbac/roles';
 import {
   resolveSalesOrgIdForRequest,
-  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 export const GET = withAuth(async (request, ctx, user) => {
@@ -49,9 +49,24 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
   }
 
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (ownOnly && customer.createdById !== user.id) {
-    return NextResponse.json({ error: '无权访问该客户' }, { status: 403 });
+  if (!isAdmin(user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(user, orgRes.orgId),
+      orgId: orgRes.orgId,
+      permission: 'sales.customer.read',
+      resource: {
+        type: 'sales_customer',
+        id: customer.id,
+        ownerId: customer.createdById,
+        orgId: orgRes.orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: '无权访问该客户', code: decision.reasonCode },
+        { status: 403 },
+      );
+    }
   }
 
   return NextResponse.json(customer);
@@ -74,23 +89,36 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: '该客户已归档，不可修改' }, { status: 400 });
   }
 
-  // 权限检查：
-  //  - 本组织 admin / org_admin / 平台 admin：始终可改本组织客户
-  //  - org_member / org_viewer：必须是自己创建的客户 且 当前账号 canEditCustomers=true
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (ownOnly) {
-    if (customer.createdById !== user.id) {
-      return NextResponse.json({ error: '无权修改该客户' }, { status: 403 });
-    }
-    const currentUser = await db.user.findUnique({
-      where: { id: user.id },
-      select: { canEditCustomers: true },
+  // Security-1：sales.customer.update + Scope；另保留 canEditCustomers 细开关
+  if (!isAdmin(user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(user, orgRes.orgId),
+      orgId: orgRes.orgId,
+      permission: 'sales.customer.update',
+      resource: {
+        type: 'sales_customer',
+        id: customer.id,
+        ownerId: customer.createdById,
+        orgId: orgRes.orgId,
+      },
     });
-    if (currentUser?.canEditCustomers === false) {
+    if (!decision.allowed) {
       return NextResponse.json(
-        { error: '管理员暂未授权你修改客户信息，请联系管理员' },
+        { error: '无权修改该客户', code: decision.reasonCode },
         { status: 403 },
       );
+    }
+    if (decision.matchedScope !== 'ORG') {
+      const currentUser = await db.user.findUnique({
+        where: { id: user.id },
+        select: { canEditCustomers: true },
+      });
+      if (currentUser?.canEditCustomers === false) {
+        return NextResponse.json(
+          { error: '管理员暂未授权你修改客户信息，请联系管理员' },
+          { status: 403 },
+        );
+      }
     }
   }
 

@@ -16,9 +16,13 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) return orgRes.response;
   const orgId = orgRes.orgId;
-  const { ownOnly } = await resolveSalesScope(user, orgId);
-  if (ownOnly) {
-    return NextResponse.json({ error: "仅管理员可访问" }, { status: 403 });
+  // Security-1：需组织级客户读权限（销售经理 / 企业负责人），不再用 org_admin
+  const scope = await resolveSalesScope(user, orgId, "sales.customer.read");
+  if (!scope.allowed || scope.ownOnly) {
+    return NextResponse.json(
+      { error: "需要组织级销售数据权限", code: scope.reasonCode || "SCOPE_NOT_ORG" },
+      { status: 403 },
+    );
   }
 
   // 拉当前组织内"有客户的"用户，按客户数降序

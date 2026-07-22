@@ -69,7 +69,14 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) return orgRes.response;
   const orgId = orgRes.orgId;
-  const { ownOnly } = await resolveSalesScope(user, orgId);
+  const scope = await resolveSalesScope(user, orgId, "sales.analytics.read");
+  if (!scope.allowed) {
+    return NextResponse.json(
+      { error: "无权查看销售分析", code: scope.reasonCode },
+      { status: 403 },
+    );
+  }
+  const { ownOnly } = scope;
 
   const { searchParams } = new URL(request.url);
   const startStr = searchParams.get("startDate");

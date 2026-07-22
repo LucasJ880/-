@@ -1,16 +1,25 @@
 /**
  * 销售 CRM 组织上下文 — 与外贸模块 resolveTradeOrgId 规则一致（复用实现）。
  *
+ * Security-1：数据范围改走统一 authorize()，不再用 org_admin ≡ 全部业务数据。
+ *
  * - 多组织用户必须显式传 orgId（query 优先，其次 body 经 opts 传入，且须校验成员关系）
  * - 单组织用户可自动解析
  * - 平台管理员跨组织操作必须显式 orgId，且仅校验组织存在
  * - 禁止默认 fallback 到「任意组织」；禁止仅信任裸 body.orgId（须走 resolve）
+ * - body.orgId 仅交叉校验，不可覆盖 activeOrgId（由 resolveTradeOrgId / tenancy 保证）
  */
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { AuthUser } from "@/lib/auth";
-import { getOrgMembership } from "@/lib/auth";
+import {
+  authorize,
+  buildAuthorizedWhere,
+  humanPrincipal,
+  type DataScope,
+  type SalesResourceKind,
+} from "@/lib/authorization";
 import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/rbac/roles";
 import { resolveTradeOrgId, type TradeOrgResolution } from "@/lib/trade/access";
@@ -25,24 +34,102 @@ export async function resolveSalesOrgIdForRequest(
   return resolveTradeOrgId(request, user, opts);
 }
 
+export type SalesScopeResult = {
+  /** true = 非 ORG scope（兼容旧调用方） */
+  ownOnly: boolean;
+  allowed: boolean;
+  scopes: DataScope[];
+  reasonCode: string;
+};
+
 /**
- * 解析调用者在指定 org 内的数据可见范围。
+ * 解析调用者在指定 org 内的数据可见范围（Security-1）。
  *
- * - 平台 admin / super_admin：ownOnly=false（在 orgId 上下文内看本组织全部）
- * - 目标 org 的 org_admin（active）：ownOnly=false（看本组织全部）
- * - org_member / org_viewer / 非 active 成员：ownOnly=true（仅看自己 created/assigned）
- *
- * 注意：orgId 的访问权限应已由 resolveSalesOrgIdForRequest 校验通过，
- * 本函数只决定「本组织内看全部还是看自己」，不再重复校验组织准入。
+ * - 平台 admin / super_admin：ownOnly=false（支持排查；不授予 org_admin 业务特权）
+ * - 其余：authorize(permission)；含 ORG → ownOnly=false；仅 PRINCIPAL/ASSIGNED → ownOnly=true
+ * - org_admin 默认无销售权限 → allowed=false（不再因角色看全量）
  */
 export async function resolveSalesScope(
   user: AuthUser,
   orgId: string,
-): Promise<{ ownOnly: boolean }> {
-  if (isAdmin(user.role)) return { ownOnly: false };
-  const m = await getOrgMembership(user.id, orgId);
-  const isOrgAdmin = m?.status === "active" && m.role === "org_admin";
-  return { ownOnly: !isOrgAdmin };
+  permission: string = "sales.customer.read",
+): Promise<SalesScopeResult> {
+  if (isAdmin(user.role)) {
+    return {
+      ownOnly: false,
+      allowed: true,
+      scopes: ["ORG"],
+      reasonCode: "PLATFORM_ADMIN",
+    };
+  }
+
+  const principal = humanPrincipal(user, orgId);
+  const decision = await authorize({
+    principal,
+    orgId,
+    permission,
+  });
+
+  if (!decision.allowed) {
+    return {
+      ownOnly: true,
+      allowed: false,
+      scopes: [],
+      reasonCode: decision.reasonCode,
+    };
+  }
+
+  return {
+    ownOnly: !decision.scopes.includes("ORG"),
+    allowed: true,
+    scopes: decision.scopes,
+    reasonCode: decision.reasonCode,
+  };
+}
+
+/**
+ * 列表查询：编译授权 where。失败时调用方应 403。
+ */
+export async function resolveSalesAuthorizedWhere(
+  user: AuthUser,
+  orgId: string,
+  permission: string,
+  resourceType: SalesResourceKind,
+): Promise<
+  | { ok: true; where: Record<string, unknown>; scopes: DataScope[]; ownOnly: boolean }
+  | { ok: false; reasonCode: string; response: NextResponse }
+> {
+  if (isAdmin(user.role)) {
+    return {
+      ok: true,
+      where: { orgId },
+      scopes: ["ORG"],
+      ownOnly: false,
+    };
+  }
+  const principal = humanPrincipal(user, orgId);
+  const built = await buildAuthorizedWhere({
+    principal,
+    orgId,
+    permission,
+    resourceType,
+  });
+  if (!built.ok) {
+    return {
+      ok: false,
+      reasonCode: built.reasonCode,
+      response: NextResponse.json(
+        { error: "无权访问销售数据", code: built.reasonCode },
+        { status: 403 },
+      ),
+    };
+  }
+  return {
+    ok: true,
+    where: built.where,
+    scopes: built.scopes,
+    ownOnly: !built.scopes.includes("ORG"),
+  };
 }
 
 /**
@@ -72,13 +159,18 @@ export function buildSalesScopeWhere(
 }
 
 /**
- * 校验 opportunity 属于 orgId（可选再校验 own 归属）。
- * 跨组织/不存在 → 404；同组织但非本人（ownOnly）→ 403。
+ * 校验 opportunity 属于 orgId，并以 authorize 校验资源级权限。
+ * 跨组织/不存在 → 404；无权 → 403。
  */
 export async function assertSalesOpportunityInOrgForMutation(
   opportunityId: string,
   orgId: string,
-  opts?: { userId?: string; ownOnly?: boolean },
+  opts?: {
+    userId?: string;
+    ownOnly?: boolean;
+    user?: AuthUser;
+    permission?: string;
+  },
 ): Promise<
   | {
       ok: true;
@@ -101,6 +193,32 @@ export async function assertSalesOpportunityInOrgForMutation(
       response: NextResponse.json({ error: "机会不存在" }, { status: 404 }),
     };
   }
+
+  if (opts?.user && !isAdmin(opts.user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(opts.user, orgId),
+      orgId,
+      permission: opts.permission ?? "sales.opportunity.read",
+      resource: {
+        type: "sales_opportunity",
+        id: opp.id,
+        ownerId: opp.createdById,
+        assignedToId: opp.assignedToId,
+        orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: "无权访问该机会", code: decision.reasonCode },
+          { status: 403 },
+        ),
+      };
+    }
+    return { ok: true, opportunity: opp };
+  }
+
   if (
     opts?.ownOnly &&
     opts.userId &&
@@ -164,15 +282,38 @@ export async function getActiveOrgMemberUserIds(orgId: string): Promise<string[]
 }
 
 /**
- * 创建商机 / 报价 / 互动前：客户必须属于当前 org。
+ * 创建商机 / 报价 / 互动前：客户必须属于当前 org，且调用方对客户有权限。
  * A2-3 起：严格要求 customer.orgId === orgId（orgId 为空不再容忍）。
+ *
+ * Security-1：传入 user 时走 authorize（禁止仅凭同组织 ID 越权写）。
+ * 未传 user 的内部转换路径仍只校验组织边界。
  */
 export async function assertSalesCustomerInOrgForMutation(
-  customer: { orgId: string | null; createdById: string },
+  customer: { orgId: string | null; createdById: string; id?: string },
   orgId: string,
+  opts?: { user?: AuthUser; permission?: string },
 ): Promise<NextResponse | null> {
   if (customer.orgId !== orgId) {
     return NextResponse.json({ error: "客户不属于当前组织" }, { status: 403 });
+  }
+  if (opts?.user && !isAdmin(opts.user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(opts.user, orgId),
+      orgId,
+      permission: opts.permission ?? "sales.customer.read",
+      resource: {
+        type: "sales_customer",
+        id: customer.id,
+        ownerId: customer.createdById,
+        orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: "无权访问该客户", code: decision.reasonCode },
+        { status: 403 },
+      );
+    }
   }
   return null;
 }

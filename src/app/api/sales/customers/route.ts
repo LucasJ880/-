@@ -3,8 +3,8 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import {
   assertSalesCustomerInOrgForMutation,
+  resolveSalesAuthorizedWhere,
   resolveSalesOrgIdForRequest,
-  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 // 漏斗状态定义（需与 /api/sales/analytics/customer-matrix 保持一致）
@@ -21,7 +21,14 @@ function deriveFunnelStatus(stages: string[], quoteCount: number): FunnelStatus 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) return orgRes.response;
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  const authz = await resolveSalesAuthorizedWhere(
+    user,
+    orgRes.orgId,
+    'sales.customer.read',
+    'sales_customer',
+  );
+  if (!authz.ok) return authz.response;
+  const { ownOnly } = authz;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search') || '';
@@ -31,16 +38,14 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const includeArchived = searchParams.get('includeArchived') === '1';
 
-  // —— admin 专用筛选 ——
+  // —— ORG scope 专用筛选 ——
   const createdByIdParam = searchParams.get('createdById'); // 指定归属销售
   const startDateStr = searchParams.get('startDate');       // 按创建时间过滤
   const endDateStr = searchParams.get('endDate');
   const funnelStatusFilter = searchParams.get('funnelStatus') as FunnelStatus | null;
 
-  const where: Record<string, unknown> = { orgId: orgRes.orgId };
-  if (ownOnly) {
-    where.createdById = user.id;
-  } else if (createdByIdParam) {
+  const where: Record<string, unknown> = { ...authz.where };
+  if (!ownOnly && createdByIdParam) {
     where.createdById = createdByIdParam;
   }
   // 默认过滤归档；仅本组织 admin 且显式要求 ?includeArchived=1 时才返回
@@ -158,6 +163,14 @@ export const POST = withAuth(async (request, _ctx, user) => {
   if (!orgRes.ok) return orgRes.response;
   const orgId = orgRes.orgId;
 
+  const createAuthz = await resolveSalesAuthorizedWhere(
+    user,
+    orgId,
+    'sales.customer.create',
+    'sales_customer',
+  );
+  if (!createAuthz.ok) return createAuthz.response;
+
   if (!body.name?.trim()) {
     return NextResponse.json({ error: '客户名称不能为空' }, { status: 400 });
   }
@@ -189,7 +202,10 @@ export const POST = withAuth(async (request, _ctx, user) => {
         if (!target) {
           return NextResponse.json({ error: '客户不存在' }, { status: 404 });
         }
-        const denied = await assertSalesCustomerInOrgForMutation(target, orgId);
+        const denied = await assertSalesCustomerInOrgForMutation(target, orgId, {
+          user,
+          permission: 'sales.customer.update',
+        });
         if (denied) return denied;
         const merged = mergeAddress(target.address, incomingAddress);
         const updated = await db.salesCustomer.update({

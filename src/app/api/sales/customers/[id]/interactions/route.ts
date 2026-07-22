@@ -28,7 +28,10 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (!customer) {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
   }
-  const denied = await assertSalesCustomerInOrgForMutation(customer, orgRes.orgId);
+  const denied = await assertSalesCustomerInOrgForMutation(customer, orgRes.orgId, {
+    user,
+    permission: "sales.customer.read",
+  });
   if (denied) return denied;
 
   const textForAnalysis = `${body.summary} ${body.content || ""}`;

@@ -2,17 +2,22 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import {
+  resolveSalesAuthorizedWhere,
   resolveSalesOrgIdForRequest,
-  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) return orgRes.response;
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  const authz = await resolveSalesAuthorizedWhere(
+    user,
+    orgRes.orgId,
+    'sales.quote.read',
+    'sales_quote',
+  );
+  if (!authz.ok) return authz.response;
 
-  const where: Record<string, unknown> = { orgId: orgRes.orgId };
-  if (ownOnly) where.createdById = user.id;
+  const where: Record<string, unknown> = { ...authz.where };
 
   const quotes = await db.salesQuote.findMany({
     where,
