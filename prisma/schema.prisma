@@ -12,6 +12,14 @@ datasource db {
   extensions = [vector]
 }
 
+/// Security-1：企业访问模式
+/// FIXED = 普通员工锁定企业；MULTI_ORG = 可在设置中切换；PLATFORM_SUPPORT = 平台支持（本阶段仅占位）
+enum OrgAccessMode {
+  FIXED
+  MULTI_ORG
+  PLATFORM_SUPPORT
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -34,9 +42,14 @@ model User {
   // 仅对 sales/trade/user 生效；admin/super_admin 永远可改
   canEditCustomers Boolean @default(true)
 
-  /// 用户当前工作组织（登录后默认；侧栏切换后更新；登出再登入仍沿用）
+  /// 用户当前锁定的工作企业（Security-1：不再由侧栏随意切换）
   activeOrgId String?
   activeOrg   Organization? @relation("UserActiveOrg", fields: [activeOrgId], references: [id], onDelete: SetNull)
+
+  /// 企业访问模式（默认 FIXED：普通员工不可自助切换）
+  orgAccessMode    OrgAccessMode @default(FIXED)
+  /// 是否允许在个人设置中自助切换工作企业（需同时 MULTI_ORG）
+  canSelfSwitchOrg Boolean       @default(false)
 
   projects                 Project[]                  @relation("ProjectOwner")
   purchasedProjects        Project[]                  @relation("ProjectPurchaser")

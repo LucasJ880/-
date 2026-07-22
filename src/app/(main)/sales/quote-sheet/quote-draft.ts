@@ -29,8 +29,14 @@ import type {
 } from "./types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
+/** @deprecated 使用 draftStorageKey(orgId, userId) — 必须含 org 隔离 */
 export const DRAFT_KEY = "qingyan:quote-sheet-draft:v1";
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Security-1：报价草稿 key 必须含 orgId + userId，防止跨企业串草稿 */
+export function draftStorageKey(orgId: string, userId: string): string {
+  return `qingyan:quote-sheet-draft:v1:${orgId}:${userId}`;
+}
 
 export interface QuoteDraftV1 {
   v: 1;
@@ -83,18 +89,20 @@ export interface QuoteDraftV1 {
   specialPromotion?: string;
 }
 
-export function loadDraft(): QuoteDraftV1 | null {
+export function loadDraft(orgId?: string, userId?: string): QuoteDraftV1 | null {
   if (typeof window === "undefined") return null;
+  if (!orgId?.trim() || !userId?.trim()) return null;
+  const key = draftStorageKey(orgId.trim(), userId.trim());
   try {
-    const raw = window.localStorage.getItem(DRAFT_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     const d = JSON.parse(raw) as QuoteDraftV1;
     if (!d || d.v !== 1 || typeof d.savedAt !== "number") {
-      window.localStorage.removeItem(DRAFT_KEY);
+      window.localStorage.removeItem(key);
       return null;
     }
     if (Date.now() - d.savedAt > DRAFT_TTL_MS) {
-      window.localStorage.removeItem(DRAFT_KEY);
+      window.localStorage.removeItem(key);
       return null;
     }
     return d;
@@ -103,20 +111,29 @@ export function loadDraft(): QuoteDraftV1 | null {
   }
 }
 
-export function saveDraft(draft: Omit<QuoteDraftV1, "v" | "savedAt">): void {
+export function saveDraft(
+  draft: Omit<QuoteDraftV1, "v" | "savedAt">,
+  orgId?: string,
+  userId?: string,
+): void {
   if (typeof window === "undefined") return;
+  if (!orgId?.trim() || !userId?.trim()) return;
+  const key = draftStorageKey(orgId.trim(), userId.trim());
   try {
     const full: QuoteDraftV1 = { v: 1, savedAt: Date.now(), ...draft };
-    window.localStorage.setItem(DRAFT_KEY, JSON.stringify(full));
+    window.localStorage.setItem(key, JSON.stringify(full));
   } catch {
     // localStorage 满 / 被禁用时静默失败，不影响主流程
   }
 }
 
-export function clearDraft(): void {
+export function clearDraft(orgId?: string, userId?: string): void {
   if (typeof window === "undefined") return;
+  if (!orgId?.trim() || !userId?.trim()) return;
   try {
-    window.localStorage.removeItem(DRAFT_KEY);
+    window.localStorage.removeItem(
+      draftStorageKey(orgId.trim(), userId.trim()),
+    );
   } catch {
     /* ignore */
   }

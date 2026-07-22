@@ -238,13 +238,21 @@ function QuoteSheetPageInner() {
   // 首屏检查完成前不允许自动保存，避免把刚挂载的空表覆盖掉尚未恢复的草稿
   const [draftReady, setDraftReady] = useState(false);
 
+  const { isSuperAdmin, user: currentUser } = useCurrentUser();
+  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+
   useEffect(() => {
-    const d = loadDraft();
+    if (orgLoading || !currentUser) return;
+    if (!orgId) {
+      setDraftReady(true);
+      return;
+    }
+    const d = loadDraft(orgId, currentUser.id);
     if (d && isDraftMeaningful(d)) {
       setPendingDraft(d);
     }
     setDraftReady(true);
-  }, []);
+  }, [orgId, currentUser, orgLoading]);
 
   useEffect(() => {
     (async () => {
@@ -313,8 +321,7 @@ function QuoteSheetPageInner() {
   }, []);
 
   // 当前用户角色 —— admin/super_admin 不受 promoMaxPct 约束
-  const { isSuperAdmin } = useCurrentUser();
-  const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+  // currentUser / orgId 已在草稿 effect 上方声明
 
   const handleCustomerSelect = useCallback(async (id: string) => {
     setCustomerId(id);
@@ -459,19 +466,24 @@ function QuoteSheetPageInner() {
     if (!draftReady) return;
     if (pendingDraft) return; // 用户还没决定恢复/丢弃前，不要覆盖草稿
     const timer = setTimeout(() => {
-      saveDraft({
-        customerId, customerName, customerPhone, customerEmail, customerAddress,
-        heardUsOn, opportunityId,
-        date, salesRep, measureSequence,
-        partALines,
-        partBAddons, partBNotes, paymentMethod,
-        depositAmount, balanceAmount, financeEligible, financeApproved, financeDifference,
-        partCServices, partCAddOns,
-        shadeOrders, shutterOrders, drapeOrders,
-        shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-        installMode,
-        specialPromotion,
-      });
+      if (!orgId || !currentUser?.id) return;
+      saveDraft(
+        {
+          customerId, customerName, customerPhone, customerEmail, customerAddress,
+          heardUsOn, opportunityId,
+          date, salesRep, measureSequence,
+          partALines,
+          partBAddons, partBNotes, paymentMethod,
+          depositAmount, balanceAmount, financeEligible, financeApproved, financeDifference,
+          partCServices, partCAddOns,
+          shadeOrders, shutterOrders, drapeOrders,
+          shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
+          installMode,
+          specialPromotion,
+        },
+        orgId,
+        currentUser.id,
+      );
     }, 1000);
     return () => clearTimeout(timer);
   }, [
@@ -559,9 +571,9 @@ function QuoteSheetPageInner() {
   }, [pendingDraft, applyFormState]);
 
   const handleDiscardDraft = useCallback(() => {
-    clearDraft();
+    if (orgId && currentUser?.id) clearDraft(orgId, currentUser.id);
     setPendingDraft(null);
-  }, []);
+  }, [orgId, currentUser?.id]);
 
   // ── 编辑已有报价单：加载 formDataJson 并填表 ─────────────────────
   useEffect(() => {
@@ -848,7 +860,7 @@ function QuoteSheetPageInner() {
         quoteId,
       });
       // 真正保存成功 → 本地草稿使命完成
-      clearDraft();
+      if (orgId && currentUser?.id) clearDraft(orgId, currentUser.id);
 
       // 兜底模式（partial / shell）时提示销售："数据已保存，但定价未完全算出"
       const saveMode: "full" | "partial" | "shell" | undefined = res.saveMode;
