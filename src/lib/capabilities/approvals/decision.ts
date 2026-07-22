@@ -11,12 +11,20 @@ import {
   rejectApprovalItem,
 } from "@/lib/approval/port";
 import { decideApproval } from "@/lib/product-content/jobs/service";
+import { loadAgentToolPolicyRule } from "@/lib/org-rules/service";
+import {
+  canWorkspaceApprove,
+  getWorkspaceMembership,
+} from "@/lib/tenancy/workspace-rbac";
 import type { CapabilitiesAccessContext } from "../types";
-import { CapabilitiesAccessError } from "../access";
-import { verifyPayloadIntegrity } from "./integrity";
+import { CapabilitiesAccessError, isOrgAdminRole } from "../access";
+import {
+  computePayloadHash,
+  verifyPayloadIntegrity,
+} from "./integrity";
 import { getCapabilityApproval } from "./query";
 import { parseApprovalId } from "./types";
-import type { ApprovalProjection } from "./types";
+import type { ApprovalProjection, ApprovalRiskLevel } from "./types";
 
 export type DecisionAction = "approve" | "reject" | "cancel" | "retry";
 
@@ -101,6 +109,105 @@ async function loadIdempotency(
   return { ...(existing.resultJson as DecisionResult), duplicate: true };
 }
 
+/**
+ * 执行前重新授权：Workspace 权限 / Tool 停用
+ * 批准 ≠ 无条件执行
+ */
+async function reauthorizeBeforeExecute(opts: {
+  access: CapabilitiesAccessContext;
+  workspaceId: string | null | undefined;
+  actionType: string;
+  riskLevel: ApprovalRiskLevel;
+  approverUserId?: string | null;
+}): Promise<DecisionResult | null> {
+  const { access, workspaceId, actionType, riskLevel } = opts;
+
+  if (workspaceId) {
+    const m = await getWorkspaceMembership({
+      userId: access.userId,
+      workspaceId,
+      orgId: access.orgId,
+    });
+    const isDesignated = opts.approverUserId === access.userId;
+    if (!m) {
+      // 无 WS membership：仅显式审批人且无 WS 绑定的企业级草稿可继续；有 WS 则阻止
+      if (!isDesignated) {
+        await logAudit({
+          userId: access.userId,
+          orgId: access.orgId,
+          action: "APPROVAL_EXECUTION_BLOCKED",
+          targetType: "approval",
+          targetId: actionType,
+          afterData: { reason: "workspace_membership_removed" },
+        });
+        return {
+          ok: false,
+          error: "Workspace 权限已移除，执行被阻止，请重新提交审批",
+          code: "EXECUTION_BLOCKED",
+          status: "EXECUTION_BLOCKED",
+        };
+      }
+      // 指定审批人但已无 WS：仍阻止业务 Workspace 动作
+      await logAudit({
+        userId: access.userId,
+        orgId: access.orgId,
+        action: "APPROVAL_EXECUTION_BLOCKED",
+        targetType: "approval",
+        afterData: { reason: "workspace_membership_removed", designated: true },
+      });
+      return {
+        ok: false,
+        error: "Workspace 权限已移除，执行被阻止，请重新提交审批",
+        code: "EXECUTION_BLOCKED",
+        status: "EXECUTION_BLOCKED",
+      };
+    }
+    if (!canWorkspaceApprove(m.role, riskLevel) && !isDesignated) {
+      return {
+        ok: false,
+        error: "当前 Workspace 角色无权执行该审批",
+        code: "EXECUTION_BLOCKED",
+        status: "EXECUTION_BLOCKED",
+      };
+    }
+  } else if (
+    !isOrgAdminRole(access.orgRole) &&
+    opts.approverUserId &&
+    opts.approverUserId !== access.userId
+  ) {
+    return {
+      ok: false,
+      error: "无权执行该审批",
+      code: "capability_denied",
+    };
+  }
+
+  // Tool 停用后，已批准动作也不能执行
+  try {
+    const policy = await loadAgentToolPolicyRule(access.orgId);
+    const disabled = policy.value?.disabledTools ?? [];
+    if (disabled.includes(actionType)) {
+      await logAudit({
+        userId: access.userId,
+        orgId: access.orgId,
+        action: "APPROVAL_EXECUTION_BLOCKED",
+        targetType: "approval",
+        afterData: { reason: "tool_disabled", tool: actionType },
+      });
+      return {
+        ok: false,
+        error: "相关 Tool 已停用，执行被阻止，请重新提交审批",
+        code: "EXECUTION_BLOCKED",
+        status: "EXECUTION_BLOCKED",
+      };
+    }
+  } catch {
+    /* 政策加载失败时保守放行到 executor 既有校验；不静默吞权限错误以外的情况 */
+  }
+
+  return null;
+}
+
 export async function decideCapabilityApproval(
   access: CapabilitiesAccessContext,
   input: DecisionInput,
@@ -119,6 +226,24 @@ export async function decideCapabilityApproval(
   }
 
   const projection = await getCapabilityApproval(access, input.approvalId);
+
+  // 过期优先（展示态 EXPIRED 或底层仍 pending 但已过期）
+  if (
+    projection.status === "EXPIRED" ||
+    (projection.expiresAt &&
+      new Date(projection.expiresAt).getTime() < Date.now() &&
+      (projection.status === "PENDING" ||
+        input.action === "approve" ||
+        input.action === "reject"))
+  ) {
+    if (input.action === "approve" || input.action === "reject") {
+      return {
+        ok: false,
+        error: "审批已过期",
+        code: "expired",
+      };
+    }
+  }
 
   // 能力检查
   const capOk =
@@ -143,19 +268,6 @@ export async function decideCapabilityApproval(
     };
   }
 
-  // 过期
-  if (
-    projection.expiresAt &&
-    new Date(projection.expiresAt).getTime() < Date.now() &&
-    projection.status === "PENDING"
-  ) {
-    return {
-      ok: false,
-      error: "审批已过期",
-      code: "expired",
-    };
-  }
-
   // PendingAction：完整性 + 条件更新防并发
   if (parsed.sourceType === "PENDING_ACTION") {
     const row = await db.pendingAction.findFirst({
@@ -165,25 +277,31 @@ export async function decideCapabilityApproval(
       throw new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
     }
 
+    const computedHash = computePayloadHash(row.payload);
     const integrity = verifyPayloadIntegrity({
       payload: row.payload,
-      expectedHash: row.payloadHash ?? input.expectedPayloadHash,
+      expectedHash: row.payloadHash ?? computedHash,
       expectedVersion: row.payloadVersion,
       currentVersion: row.payloadVersion,
     });
-    if (!integrity.ok) {
+    const clientHashMismatch =
+      !!input.expectedPayloadHash &&
+      input.expectedPayloadHash !== computedHash;
+    const storedHashMismatch =
+      !!row.payloadHash && row.payloadHash !== computedHash;
+    if (!integrity.ok || clientHashMismatch || storedHashMismatch) {
       await logAudit({
         userId: access.userId,
         orgId: access.orgId,
         action: "APPROVAL_EXECUTION_BLOCKED",
         targetType: "pending_action",
         targetId: row.id,
-        afterData: { reason: integrity.reason },
+        afterData: { reason: "payload_hash_mismatch" },
       });
       return {
         ok: false,
         error: "审批内容已变化，请重新提交审批",
-        code: integrity.reason,
+        code: "payload_hash_mismatch",
       };
     }
 
@@ -268,6 +386,16 @@ export async function decideCapabilityApproval(
       }
       return result;
     }
+
+    // 执行前重新授权（Workspace / Tool Policy）
+    const blocked = await reauthorizeBeforeExecute({
+      access,
+      workspaceId: row.workspaceId ?? projection.workspaceId,
+      actionType: row.type,
+      riskLevel: projection.riskLevel,
+      approverUserId: row.approverUserId,
+    });
+    if (blocked) return blocked;
 
     // approve / retry → ApprovalPort（内部走 executor，不重写）
     await logAudit({
