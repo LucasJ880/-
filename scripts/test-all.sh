@@ -92,6 +92,7 @@ run_test "Phase3A-5 Catalog/Health" "npx tsx src/lib/capabilities/__tests__/phas
 run_test "Phase3A-5 Overview Acceptance" "npx tsx src/lib/capabilities/__tests__/phase3a5-overview-acceptance.test.ts"
 run_test "Security-1 Org Access Mode" "npx tsx src/lib/organizations/__tests__/org-access.test.ts"
 run_test "Security-1 Owner/Manager" "npx tsx src/lib/rbac/__tests__/security1-owner-manager.test.ts"
+run_test "Security-1 Authorization" "npx tsx src/lib/authorization/__tests__/authorize.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

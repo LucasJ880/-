@@ -656,6 +656,8 @@ model Organization {
   marketCompetitors MarketCompetitor[]
   projectRules      OrganizationProjectRule[]
   activeUsers       User[]                   @relation("UserActiveOrg")
+  roleProfiles      RoleProfile[]
+  positionTemplates PositionTemplate[]
 
   // 人机协作学习 Phase 1
   employeeAiProfiles    EmployeeAiProfile[]
@@ -767,6 +769,83 @@ model OrganizationMember {
   @@unique([orgId, userId])
   @@index([orgId])
   @@index([userId])
+}
+
+// ============================================================
+// Security-1：统一授权底座（Role Profile / Permission Binding / Principal）
+// ============================================================
+
+model RoleProfile {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key           String
+  name          String
+  description   String?
+  principalType String   @default("HUMAN")
+  isSystem      Boolean  @default(false)
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  permissions RolePermissionBinding[]
+  assignments PrincipalRoleBinding[]
+  positionTemplates PositionTemplate[]
+
+  @@unique([orgId, key])
+  @@index([orgId, status])
+}
+
+model RolePermissionBinding {
+  id            String @id @default(cuid())
+  orgId         String
+  roleProfileId String
+  permissionKey String
+  dataScope     String
+  effect        String @default("ALLOW")
+  conditionsJson Json?
+
+  roleProfile RoleProfile @relation(fields: [roleProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([roleProfileId, permissionKey, dataScope])
+  @@index([orgId, permissionKey])
+}
+
+model PrincipalRoleBinding {
+  id            String    @id @default(cuid())
+  orgId         String
+  principalType String
+  principalId   String
+  roleProfileId String
+  startsAt      DateTime  @default(now())
+  expiresAt     DateTime?
+  status        String    @default("active")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  roleProfile RoleProfile @relation(fields: [roleProfileId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, principalType, principalId, status])
+  @@index([roleProfileId])
+}
+
+model PositionTemplate {
+  id                   String   @id @default(cuid())
+  orgId                String
+  org                  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key                  String
+  name                 String
+  description          String?
+  principalType        String   @default("HUMAN")
+  status               String   @default("active")
+  isSystem             Boolean  @default(false)
+  primaryRoleProfileId String?
+  primaryRoleProfile   RoleProfile? @relation(fields: [primaryRoleProfileId], references: [id], onDelete: SetNull)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([orgId, key])
+  @@index([orgId, status])
 }
 
 model ProjectMember {
