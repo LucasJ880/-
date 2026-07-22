@@ -1816,6 +1816,14 @@ model PendingAction {
    */
   resultRef String?
 
+  /// Phase 3A-3：可选 Workspace 归属（历史可空；新草稿应尽量写入）
+  workspaceId String?
+  /// Phase 3A-3：防篡改 — 审批创建时固定
+  payloadVersion Int?
+  payloadHash    String?
+  policyVersion  String?
+  resourceVersion String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1825,6 +1833,22 @@ model PendingAction {
   @@index([projectId, status, createdAt])
   @@index([threadId])
   @@index([agentRunId, status])
+  @@index([orgId, workspaceId, status])
+}
+
+/// Phase 3A-3：审批决定幂等（防重复点击 / 网络重试）
+model ApprovalDecisionIdempotency {
+  id             String   @id @default(cuid())
+  orgId          String
+  idempotencyKey String
+  approvalKey    String   // sourceType:sourceId
+  action         String   // approve | reject | cancel | retry
+  userId         String
+  resultJson     Json?
+  createdAt      DateTime @default(now())
+
+  @@unique([orgId, idempotencyKey])
+  @@index([orgId, approvalKey])
 }
 
 // ============================================================

@@ -26,8 +26,27 @@ export {
   requireProjectAccess,
 } from "./context";
 
-export type { ToolAuthDecision, CanInvokeToolInput } from "./tool-auth";
+export type {
+  ToolAuthDecision,
+  CanInvokeToolInput,
+  AppliedPolicy,
+  WorkspaceToolPolicy,
+} from "./tool-auth";
 export { canInvokeTool } from "./tool-auth";
+
+export type {
+  WorkspaceRole,
+  WorkspacePermission,
+} from "./workspace-rbac";
+export {
+  WORKSPACE_ROLES,
+  normalizeWorkspaceRole,
+  effectiveWorkspaceRole,
+  workspaceRoleHasPermission,
+  canWorkspaceApprove,
+  getWorkspaceMembership,
+  assertWorkspacePermission,
+} from "./workspace-rbac";
 
 export type { AgentTenantResolved } from "./resolve-agent-tenant";
 export { resolveAgentTenant } from "./resolve-agent-tenant";

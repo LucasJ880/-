@@ -139,9 +139,12 @@ class ToolRegistry {
       },
       hasMembership: ctx.hasMembership === true,
       tool,
+      workspaceId: ctx.workspaceId,
+      workspaceRole: ctx.workspaceRole,
       maxRisk: ctx.maxRisk,
       modulesJson: ctx.modulesJson,
       toolPolicy: ctx.toolPolicy,
+      workspaceToolPolicy: ctx.workspaceToolPolicy,
     });
 
     if (!decision.ok) {
