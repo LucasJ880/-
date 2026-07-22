@@ -47,10 +47,10 @@
 
 | 维度 | 判定 |
 |---|---|
-| 状态 | **部分完成** |
-| 已有 | 页面骨架；拼装 runs / approvals / usage.summary；membership 403；导航入口 |
-| 缺失 | 专用 `GET /api/capabilities/overview`；今日运行/成功率真实聚合；配额与配置健康摘要；严重度排序的「需要处理」；能力状态计数；空态/失败不伪造 0 |
-| 本阶段修复 | overview API + 页面收口（高价值指标 + 需要处理 + 最近运行 + 能力状态入口） |
+| 状态 | **本阶段已修复** |
+| 已有 | `GET /api/capabilities/overview`；指标聚合；需要处理；最近运行；能力状态；失败不伪造 0 |
+| 缺失 | （本阶段范围外）物化宽表、图表 |
+| 本阶段修复 | overview API + 页面收口 |
 | 留到 3B/3C | 物化宽表、图表、经营 Dashboard 合并 |
 
 **关键文件**：`src/app/(main)/capabilities/page.tsx`
