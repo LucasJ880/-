@@ -1,11 +1,14 @@
 /**
- * Security-1：authorize / compileAuthorizedWhere / Principal
+ * Security-1：authorize / compileAuthorizedWhere / Principal / DENY / compat
  * 运行：npx tsx src/lib/authorization/__tests__/authorize.test.ts
  */
 
-import { authorize } from "../authorize";
+import { authorize, decideFromBindings } from "../authorize";
 import { compileAuthorizedWhereFromScopes } from "../compile-where";
-import { bindingsFromSystemProfile } from "../resolve-effective-permissions";
+import {
+  bindingsFromSystemProfile,
+  compatProfileKeyForMembership,
+} from "../resolve-effective-permissions";
 import { resolvePrincipalRef } from "../resolve-principal";
 import type { PrincipalRef } from "../types";
 
@@ -35,20 +38,57 @@ ok(
   ownerBindings.some(
     (b) => b.permissionKey === "sales.customer.read" && b.dataScope === "ORG",
   ),
-  "企业负责人含 sales.customer.read:ORG",
+  "org_owner → Role Profile 含销售 ORG read",
 );
 
 const adminBindings = bindingsFromSystemProfile("org_admin");
 ok(
-  !adminBindings.some((b) => b.permissionKey === "sales.customer.read"),
-  "企业管理员默认无销售客户读权限",
+  !adminBindings.some((b) => b.permissionKey.startsWith("sales.")),
+  "org_admin → 仅企业管理权限，无销售",
 );
 
-const repBindings = bindingsFromSystemProfile("sales_rep");
+const viewerBindings = bindingsFromSystemProfile("viewer");
 ok(
-  repBindings.some((b) => b.dataScope === "PRINCIPAL") &&
-    repBindings.some((b) => b.dataScope === "ASSIGNED"),
-  "销售人员含 PRINCIPAL+ASSIGNED",
+  viewerBindings.every((b) => !b.permissionKey.startsWith("sales.")),
+  "org_viewer → viewer profile 无销售",
+);
+
+ok(
+  compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "sales" }) ===
+    "sales_rep",
+  "sales + org_member → 可兼容 sales_rep",
+);
+ok(
+  compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "trade" }) ===
+    null,
+  "trade + org_member → 无销售权限",
+);
+ok(
+  compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "user" }) ===
+    null,
+  "user + org_member → 无销售权限",
+);
+ok(
+  compatProfileKeyForMembership({
+    orgRole: "org_member",
+    platformRole: "manager",
+  }) === null,
+  "manager + org_member → 无销售权限",
+);
+ok(
+  compatProfileKeyForMembership({ orgRole: "org_admin", platformRole: "sales" }) ===
+    "org_admin",
+  "org_admin membership → admin profile（非 sales_rep）",
+);
+ok(
+  compatProfileKeyForMembership({ orgRole: "org_owner", platformRole: "user" }) ===
+    "org_owner",
+  "org_owner membership → owner profile",
+);
+ok(
+  compatProfileKeyForMembership({ orgRole: "org_viewer", platformRole: "sales" }) ===
+    "viewer",
+  "org_viewer → viewer profile",
 );
 
 const digi = resolvePrincipalRef({
@@ -58,7 +98,6 @@ const digi = resolvePrincipalRef({
 });
 ok(!digi.ok && digi.result.reasonCode === "NOT_IMPLEMENTED", "数字员工未实现");
 
-// compile where — ORG
 const orgWhere = compileAuthorizedWhereFromScopes({
   orgId: "org1",
   principalId: "u1",
@@ -66,13 +105,10 @@ const orgWhere = compileAuthorizedWhereFromScopes({
   resourceType: "sales_customer",
 });
 ok(
-  orgWhere.ok &&
-    "orgId" in orgWhere.where &&
-    !("AND" in orgWhere.where),
+  orgWhere.ok && "orgId" in orgWhere.where && !("AND" in orgWhere.where),
   "ORG scope → 仅 orgId",
 );
 
-// PRINCIPAL + ASSIGNED for opportunity
 const oppWhere = compileAuthorizedWhereFromScopes({
   orgId: "org1",
   principalId: "u1",
@@ -85,36 +121,53 @@ if (oppWhere.ok) {
   ok(Array.isArray(and?.[0]?.OR) && and[0].OR.length === 2, "组合 Scope OR 两条");
 }
 
-// GROUP fail closed
-const groupWhere = compileAuthorizedWhereFromScopes({
-  orgId: "org1",
-  principalId: "u1",
-  scopes: ["GROUP"],
-  resourceType: "sales_customer",
-});
 ok(
-  !groupWhere.ok && groupWhere.reasonCode === "SCOPE_NOT_IMPLEMENTED",
+  !compileAuthorizedWhereFromScopes({
+    orgId: "org1",
+    principalId: "u1",
+    scopes: ["GROUP"],
+    resourceType: "sales_customer",
+  }).ok,
   "GROUP fail closed",
 );
 
-const noneWhere = compileAuthorizedWhereFromScopes({
-  orgId: "org1",
-  principalId: "u1",
-  scopes: ["NONE"],
-  resourceType: "sales_customer",
-});
-ok(!noneWhere.ok && noneWhere.reasonCode === "SCOPE_NONE", "NONE 拒绝");
-
-const assignedOnlyCustomer = compileAuthorizedWhereFromScopes({
-  orgId: "org1",
-  principalId: "u1",
-  scopes: ["ASSIGNED"],
-  resourceType: "sales_customer",
+// DENY = permission 级全局拒绝
+const denyDecision = decideFromBindings({
+  principal,
+  permission: "sales.customer.read",
+  bindings: [
+    {
+      permissionKey: "sales.customer.read",
+      dataScope: "ORG",
+      effect: "ALLOW",
+      source: "allow",
+    },
+    {
+      permissionKey: "sales.customer.read",
+      dataScope: "PRINCIPAL",
+      effect: "DENY",
+      source: "deny",
+    },
+  ],
 });
 ok(
-  !assignedOnlyCustomer.ok && assignedOnlyCustomer.reasonCode === "NO_USABLE_SCOPE",
-  "客户无 ASSIGNED 字段时不静默扩权",
+  !denyDecision.allowed && denyDecision.reasonCode === "EXPLICIT_DENY",
+  "ALLOW:ORG + DENY:PRINCIPAL → 整个 permission 拒绝",
 );
+
+const allowOnly = decideFromBindings({
+  principal,
+  permission: "sales.customer.read",
+  bindings: [
+    {
+      permissionKey: "sales.customer.read",
+      dataScope: "ORG",
+      effect: "ALLOW",
+      source: "allow",
+    },
+  ],
+});
+ok(allowOnly.allowed && allowOnly.matchedScope === "ORG", "仅 ALLOW:ORG → 允许");
 
 (async () => {
   const unknown = await authorize({

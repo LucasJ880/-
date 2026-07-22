@@ -1,9 +1,16 @@
 /**
  * Security-1：统一 authorize()
+ *
+ * DENY 语义（V1，已锁定）：
+ * 同一 permission 存在任意 DENY binding → 整个 permission 拒绝，
+ * 不是按 scope 局部拒绝。例如 ALLOW:ORG + DENY:PRINCIPAL → 全部拒绝。
  */
 
 import { isKnownPermission } from "./permissions";
-import { resolveEffectiveBindings } from "./resolve-effective-permissions";
+import {
+  resolveEffectiveBindings,
+  type EffectiveBinding,
+} from "./resolve-effective-permissions";
 import {
   ACTIVE_DATA_SCOPES,
   RESERVED_DATA_SCOPES,
@@ -23,7 +30,6 @@ function scopeMatchesResource(
     return !resource || resource.orgId === principal.orgId;
   }
   if (!resource) {
-    // 列表级：有 PRINCIPAL/ASSIGNED/ORG 即允许进入查询构建
     return scope === "PRINCIPAL" || scope === "ASSIGNED";
   }
   if (resource.orgId !== principal.orgId) return false;
@@ -36,42 +42,16 @@ function scopeMatchesResource(
   return false;
 }
 
-export async function authorize(opts: {
+/** 纯决策：便于单测 DENY / Scope（不读库） */
+export function decideFromBindings(opts: {
   principal: PrincipalRef;
-  orgId: string;
   permission: string;
+  bindings: EffectiveBinding[];
   resource?: AuthorizeResource;
-}): Promise<AuthorizeResult> {
-  if (opts.principal.orgId !== opts.orgId) {
-    return {
-      allowed: false,
-      permission: opts.permission,
-      scopes: [],
-      sourceBindings: [],
-      reasonCode: "ORG_CONTEXT_MISMATCH",
-    };
-  }
-  if (opts.principal.type !== "HUMAN") {
-    return {
-      allowed: false,
-      permission: opts.permission,
-      scopes: [],
-      sourceBindings: [],
-      reasonCode: "NOT_IMPLEMENTED",
-    };
-  }
-  if (!isKnownPermission(opts.permission)) {
-    return {
-      allowed: false,
-      permission: opts.permission,
-      scopes: [],
-      sourceBindings: [],
-      reasonCode: "UNKNOWN_PERMISSION",
-    };
-  }
-
-  const bindings = await resolveEffectiveBindings(opts.principal);
-  const relevant = bindings.filter((b) => b.permissionKey === opts.permission);
+}): AuthorizeResult {
+  const relevant = opts.bindings.filter(
+    (b) => b.permissionKey === opts.permission,
+  );
   if (relevant.length === 0) {
     return {
       allowed: false,
@@ -82,7 +62,7 @@ export async function authorize(opts: {
     };
   }
 
-  // DENY 优先
+  // DENY = permission 级全局拒绝（非 scope-aware）
   const denied = relevant.find((b) => b.effect === "DENY");
   if (denied) {
     return {
@@ -128,7 +108,6 @@ export async function authorize(opts: {
   const scopes = [...new Set(allows.map((b) => b.dataScope))];
   const sources = allows.map((b) => b.source);
 
-  // 列表级（无 resource）：任一启用 Scope 即允许
   if (!opts.resource) {
     const usable = scopes.filter((s) => s !== "NONE");
     if (usable.length === 0) {
@@ -144,15 +123,12 @@ export async function authorize(opts: {
       allowed: true,
       permission: opts.permission,
       scopes: usable,
-      matchedScope: usable.includes("ORG")
-        ? "ORG"
-        : usable[0],
+      matchedScope: usable.includes("ORG") ? "ORG" : usable[0],
       sourceBindings: sources,
       reasonCode: "ALLOW",
     };
   }
 
-  // 资源级：按 ORG → ASSIGNED → PRINCIPAL 匹配
   const order: DataScope[] = ["ORG", "ASSIGNED", "PRINCIPAL"];
   for (const scope of order) {
     if (!scopes.includes(scope)) continue;
@@ -175,4 +151,47 @@ export async function authorize(opts: {
     sourceBindings: sources,
     reasonCode: "RESOURCE_OUT_OF_SCOPE",
   };
+}
+
+export async function authorize(opts: {
+  principal: PrincipalRef;
+  orgId: string;
+  permission: string;
+  resource?: AuthorizeResource;
+}): Promise<AuthorizeResult> {
+  if (opts.principal.orgId !== opts.orgId) {
+    return {
+      allowed: false,
+      permission: opts.permission,
+      scopes: [],
+      sourceBindings: [],
+      reasonCode: "ORG_CONTEXT_MISMATCH",
+    };
+  }
+  if (opts.principal.type !== "HUMAN") {
+    return {
+      allowed: false,
+      permission: opts.permission,
+      scopes: [],
+      sourceBindings: [],
+      reasonCode: "NOT_IMPLEMENTED",
+    };
+  }
+  if (!isKnownPermission(opts.permission)) {
+    return {
+      allowed: false,
+      permission: opts.permission,
+      scopes: [],
+      sourceBindings: [],
+      reasonCode: "UNKNOWN_PERMISSION",
+    };
+  }
+
+  const bindings = await resolveEffectiveBindings(opts.principal);
+  return decideFromBindings({
+    principal: opts.principal,
+    permission: opts.permission,
+    bindings,
+    resource: opts.resource,
+  });
 }

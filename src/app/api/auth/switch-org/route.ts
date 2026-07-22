@@ -45,13 +45,15 @@ export async function POST(request: NextRequest) {
   });
   if (!result.ok) {
     const status =
-      result.code === "ORG_SWITCH_NOT_ALLOWED"
-        ? 403
-        : result.code === "ORG_MEMBERSHIP_REQUIRED"
+      result.code === "ORG_SWITCH_AUDIT_FAILED"
+        ? 500
+        : result.code === "ORG_SWITCH_NOT_ALLOWED"
           ? 403
-          : result.code === "ORG_INACTIVE"
-            ? 404
-            : 400;
+          : result.code === "ORG_MEMBERSHIP_REQUIRED"
+            ? 403
+            : result.code === "ORG_INACTIVE"
+              ? 404
+              : 400;
     return NextResponse.json(
       { error: result.message, code: result.code },
       { status },

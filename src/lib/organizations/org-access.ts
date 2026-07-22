@@ -4,19 +4,25 @@
 
 import { db } from "@/lib/db";
 import type { OrgAccessMode } from "@prisma/client";
-import { logAudit } from "@/lib/audit/logger";
+import { writeAuditLog } from "@/lib/audit/logger";
 
 export type OrgSwitchErrorCode =
   | "ORG_SWITCH_NOT_ALLOWED"
   | "ORG_MEMBERSHIP_REQUIRED"
   | "ORG_INACTIVE"
-  | "ORG_CONTEXT_INVALID";
+  | "ORG_CONTEXT_INVALID"
+  | "ORG_SWITCH_AUDIT_FAILED";
 
 export type OrgAccessProfile = {
   orgAccessMode: OrgAccessMode;
   canSelfSwitchOrg: boolean;
   activeOrgId: string | null;
 };
+
+/** 仅 status === "active" 可切入；未知状态 fail closed */
+export function isOrgStatusActive(status: string | null | undefined): boolean {
+  return status === "active";
+}
 
 export async function getOrgAccessProfile(
   userId: string,
@@ -45,7 +51,7 @@ export function canSelfSwitchOrganizations(profile: OrgAccessProfile): boolean {
 
 /**
  * 切换工作企业（仅 MULTI_ORG + canSelfSwitchOrg）。
- * 目标组织必须有 active membership 且 org 未归档。
+ * User.activeOrgId 更新与 AuditLog 同事务：审计失败则整体回滚。
  */
 export async function switchUserActiveOrg(opts: {
   userId: string;
@@ -75,11 +81,11 @@ export async function switchUserActiveOrg(opts: {
     where: { id: opts.targetOrgId },
     select: { id: true, status: true, name: true },
   });
-  if (!org || org.status === "archived" || org.status === "inactive") {
+  if (!org || !isOrgStatusActive(org.status)) {
     return {
       ok: false,
       code: "ORG_INACTIVE",
-      message: "目标企业不存在或已停用",
+      message: "目标企业不存在或当前不可用",
     };
   }
 
@@ -98,23 +104,36 @@ export async function switchUserActiveOrg(opts: {
   }
 
   const before = profile.activeOrgId;
-  await db.user.update({
-    where: { id: opts.userId },
-    data: { activeOrgId: opts.targetOrgId },
-  });
+  const actorUserId = opts.actorUserId ?? opts.userId;
 
-  await logAudit({
-    userId: opts.actorUserId ?? opts.userId,
-    orgId: opts.targetOrgId,
-    action: "org.switch_active",
-    targetType: "organization",
-    targetId: opts.targetOrgId,
-    beforeData: { activeOrgId: before },
-    afterData: {
-      activeOrgId: opts.targetOrgId,
-      orgAccessMode: profile.orgAccessMode,
-    },
-  }).catch(() => undefined);
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: opts.userId },
+        data: { activeOrgId: opts.targetOrgId },
+      });
+
+      await writeAuditLog(tx, {
+        userId: actorUserId,
+        orgId: opts.targetOrgId,
+        action: "org.switch_active",
+        targetType: "organization",
+        targetId: opts.targetOrgId,
+        beforeData: { activeOrgId: before },
+        afterData: {
+          activeOrgId: opts.targetOrgId,
+          orgAccessMode: profile.orgAccessMode,
+        },
+      });
+    });
+  } catch (err) {
+    console.error("[org-access] switchUserActiveOrg transaction failed:", err);
+    return {
+      ok: false,
+      code: "ORG_SWITCH_AUDIT_FAILED",
+      message: "组织切换审计写入失败，未变更工作企业",
+    };
+  }
 
   return { ok: true, activeOrgId: opts.targetOrgId };
 }
@@ -145,7 +164,7 @@ export async function ensureFixedUserActiveOrg(
     }
     return only;
   }
-  // 多 membership 但仍 FIXED：保持 activeOrgId（若无效则清空由调用方处理）
+  // 多 membership 但仍 FIXED：保持有效 activeOrgId；无效则不随机选，返回 null
   if (
     profile.activeOrgId &&
     memberships.some((m) => m.orgId === profile.activeOrgId)

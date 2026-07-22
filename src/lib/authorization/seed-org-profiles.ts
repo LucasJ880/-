@@ -133,7 +133,8 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
     }
   }
 
-  // 平台 role=sales/trade 的 active org_member → sales_rep（不覆盖已有 owner/admin 绑定）
+  // 平台 role=sales 的 active org_member → sales_rep（不覆盖已有 owner/admin 绑定）
+  // trade 不自动绑销售岗位
   const salesProfileId = profileIdByKey.get("sales_rep");
   if (salesProfileId) {
     const members = await db.organizationMember.findMany({
@@ -141,7 +142,7 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
       select: { userId: true, user: { select: { role: true } } },
     });
     for (const m of members) {
-      if (m.user.role !== "sales" && m.user.role !== "trade") continue;
+      if (m.user.role !== "sales") continue;
       const hasAny = await db.principalRoleBinding.findFirst({
         where: {
           orgId,

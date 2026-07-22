@@ -35,7 +35,10 @@ User.canSelfSwitchOrg @default(false)
 |---|---|
 | `FIXED` | 默认；不可自助切换；日常使用 `activeOrgId` |
 | `MULTI_ORG` | 需同时 `canSelfSwitchOrg=true` 且 active membership > 1；仅可在设置中切换 |
-| `PLATFORM_SUPPORT` | 预留；本阶段无普通切换入口 |
+| `PLATFORM_SUPPORT` | 平台 admin/super_admin；不走普通企业切换器 |
+
+**重要**：多个 active membership **不等于** 可自助切换。不得在迁移中自动授予 `canSelfSwitchOrg=true`。  
+纠正迁移：`20260723040000_security1_fix_org_switch_grants`（撤销误开；admin→PLATFORM_SUPPORT；多 owner 可标 MULTI_ORG 但 `canSelfSwitchOrg=false`）。
 
 `activeOrgId` 语义：**当前锁定的工作企业**（不新增第二个 currentOrgId）。
 
@@ -121,6 +124,13 @@ Seed：`npx tsx scripts/seed-security1-authorization.ts`
 
 禁止未实现 Scope 静默扩为 ORG。
 
+### DENY 语义（V1 锁定）
+
+同一 `permission` 存在**任意** `DENY` binding → **整个 permission 拒绝**（不是按 scope 局部拒绝）。
+
+例：`ALLOW sales.customer.read:ORG` + `DENY sales.customer.read:PRINCIPAL` → 仍全部拒绝。  
+本阶段不实现 scope-aware DENY。
+
 ---
 
 ## 10. Principal 兼容设计
@@ -192,34 +202,47 @@ type PrincipalRef = {
 | `20260723010000_security1_org_access_mode` | `OrgAccessMode` + User 字段 |
 | `20260723020000_security1_org_owner` | owner → `org_owner` |
 | `20260723030000_security1_role_profiles` | RoleProfile / Binding / PositionTemplate |
+| `20260723040000_security1_fix_org_switch_grants` | 纠正误开 MULTI_ORG/canSelfSwitchOrg |
 
-回填：多 membership → `MULTI_ORG`+`canSelfSwitchOrg`；单 membership 保持 FIXED；销售平台角色 → sales_rep 绑定（seed）。
+回填（纠正后）：
+
+- 普通用户默认 `FIXED` + `canSelfSwitchOrg=false`（即使多 membership）
+- 平台 `admin`/`super_admin` → `PLATFORM_SUPPORT`
+- 多企业 `ownerId` → 可标 `MULTI_ORG` 但 `canSelfSwitchOrg=false`（需平台显式开启自助切换）
+- 单 membership → 修复 `activeOrgId`；多 membership 无效 activeOrgId → warning，不随机选
+- 平台 `sales` + `org_member` → sales_rep（兼容/seed）；**`trade` 不映射销售**
 
 ---
 
 ## 16. Sunny 验收（清单）
 
-- [ ] 普通销售登录进入 Sunny，左上角只读
-- [ ] 销售只见自己客户；不能用他人客户 ID 建商机/报价
-- [ ] 企业负责人可见组织级销售
-- [ ] 企业管理员无销售权限时看不到全部客户
-- [ ] `/settings/account` FIXED 无切换按钮
+DB 探针（`scripts/security1-acceptance-check.ts`，2026-07-23）：
+
+- [x] active 组织：Sunny Home & Deco
+- [x] 销售 `alex@…` FIXED、不可自助切换、customer.read=PRINCIPAL
+- [x] org_admin 经 `authorize` 无销售读
+- [x] org_owner 有销售 ORG read；跨梦馨资源拒绝
+- [ ] **UI**：左上角只读 / 设置页无切换 / 客户列表隔离（需 Preview 人工点验）
+
+说明：`alex@` 当前 membership 仍在 archived「Sunny Shutter --Bid Lead」；active「Sunny Home & Deco」尚无独立销售成员，需运营补挂。
 
 ---
 
 ## 17. 梦馨验收（清单）
 
-- [ ] 梦馨成员无法读 Sunny 客户/报价
-- [ ] activeOrgId=梦馨 时用 Sunny 资源 ID → 404/403
-- [ ] 草稿 key 含 orgId，切换后不串
+- [x] trade 用户对梦馨无 `sales.customer.read`、无 sales_rep 绑定
+- [x] Sunny owner 无法用 Sunny principal 读梦馨资源
+- [ ] **UI**：草稿 / Workspace 不串（需 Preview）
 
 ---
 
 ## 18. 多组织验收（清单）
 
-- [ ] MULTI_ORG 用户可在设置切换；FIXED 不可
-- [ ] 切换后导航 / Workspace / 报价草稿隔离
-- [ ] 无 membership 企业不可见
+- [x] 纠正后 `canSelfSwitchOrg=true` 计数 = 0
+- [x] 平台 admin → `PLATFORM_SUPPORT`
+- [x] 多 membership + FIXED 存在（不自动开放切换）
+- [x] archived/inactive/suspended/未知状态 fail closed（单测）
+- [ ] **UI**：MULTI_ORG 仅设置页切换（当前库无已授权自助切换账号）
 
 ---
 
@@ -228,22 +251,25 @@ type PrincipalRef = {
 | 套件 | 命令 |
 |---|---|
 | Org Access | `npx tsx src/lib/organizations/__tests__/org-access.test.ts` |
+| Org Switch Audit | `npx tsx src/lib/organizations/__tests__/org-switch-audit.test.ts` |
 | Owner/Manager | `npx tsx src/lib/rbac/__tests__/security1-owner-manager.test.ts` |
 | Authorization | `npx tsx src/lib/authorization/__tests__/authorize.test.ts` |
 | Sales Authz | `npx tsx src/lib/sales/__tests__/security1-sales-authz.test.ts` |
+| DB 验收探针 | `npx tsx scripts/security1-acceptance-check.ts` |
+| 访问模式报告 | `npx tsx scripts/security1-report-org-access.ts` |
 | 汇总 | `./scripts/test-all.sh` |
 
-已覆盖：FIXED 不可切、DENY/未知权限/GROUP fail closed、org_admin 无销售、PRINCIPAL+ASSIGNED where、manager 无平台用户管理等。
-
-回归执行（2026-07-23）：
+回归执行（2026-07-23 终修）：
 
 | 检查 | 结果 |
 |---|---|
-| `prisma validate` / `migrate status` / `generate` | 通过 |
-| Security-1 四套单测 | 41 passed |
-| `tsc --noEmit` | 通过 |
-| `./scripts/test-all.sh` | 通过（含既有 Agent Trace / Runtime 基线 warning） |
-| `next build` | 通过（Compiled + TypeScript） |
+| `prisma validate` / `migrate deploy`（含 40000 纠正） | 通过 |
+| `gen_random_uuid()`（Neon PG） | 冒烟脚本验证 |
+| seed 幂等 | 冒烟脚本验证 |
+| `migrate reset --force` | **未对共享库执行**（无本地 PG；禁止 wipe 共享 Neon） |
+| Security-1 单测 | org-access 16 + audit 5 + authorize 20 + sales 8 |
+| DB 验收探针 | 13/13 |
+| `tsc --noEmit` / `next build` | 见本轮 CI / 本地结果 |
 
 ---
 

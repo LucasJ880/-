@@ -25,6 +25,22 @@ function membershipRoleToProfileKey(role: string): string | null {
   return null;
 }
 
+/**
+ * 无 PrincipalRoleBinding 时的兼容岗位 key（纯函数，供单测）。
+ * trade / manager / user 等不得映射为 sales_rep。
+ */
+export function compatProfileKeyForMembership(opts: {
+  orgRole: string;
+  platformRole: string;
+}): string | null {
+  const fromOrg = membershipRoleToProfileKey(opts.orgRole);
+  if (fromOrg) return fromOrg;
+  if (opts.orgRole === "org_member" && opts.platformRole === "sales") {
+    return "sales_rep";
+  }
+  return null;
+}
+
 export async function resolveEffectiveBindings(
   principal: PrincipalRef,
 ): Promise<EffectiveBinding[]> {
@@ -72,17 +88,14 @@ export async function resolveEffectiveBindings(
   });
   if (!member || member.status !== "active") return [];
 
-  let profileKey = membershipRoleToProfileKey(member.role);
-  if (!profileKey && member.role === "org_member") {
-    const user = await db.user.findUnique({
-      where: { id: principal.id },
-      select: { role: true },
-    });
-    // 兼容：平台 sales/trade 且企业普通成员 → 销售人员模板
-    if (user?.role === "sales" || user?.role === "trade") {
-      profileKey = "sales_rep";
-    }
-  }
+  const user = await db.user.findUnique({
+    where: { id: principal.id },
+    select: { role: true },
+  });
+  const profileKey = compatProfileKeyForMembership({
+    orgRole: member.role,
+    platformRole: user?.role ?? "",
+  });
   if (!profileKey) {
     return [];
   }
