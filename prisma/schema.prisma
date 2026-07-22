@@ -668,6 +668,9 @@ model Organization {
 
   // Phase 3A-2：统一 AI 使用成本账本
   aiUsageLedgers             AiUsageLedger[]
+  // Phase 3A-4：企业配额
+  capabilityQuotaPolicies    CapabilityQuotaPolicy[]
+  capabilityQuotaReservations CapabilityQuotaReservation[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -1083,6 +1086,10 @@ model AuditLog {
   org        Organization? @relation(fields: [orgId], references: [id])
   projectId  String?
   project    Project?      @relation(fields: [projectId], references: [id])
+  /// Phase 3A-4：可选 Workspace / Trace / 风险（历史可空）
+  workspaceId String?
+  traceId     String?
+  riskLevel   String?
   userId     String
   user       User          @relation(fields: [userId], references: [id])
   action     String
@@ -1100,6 +1107,8 @@ model AuditLog {
   @@index([action])
   @@index([targetType, targetId])
   @@index([createdAt])
+  @@index([orgId, workspaceId, createdAt])
+  @@index([traceId])
 }
 
 // ============================================================
@@ -5535,6 +5544,53 @@ model AiUsageLedger {
   @@index([runId])
   @@index([provider, model])
   @@index([orgId, sourceType, sourceId])
+}
+
+/// Phase 3A-4：能力配额策略（Organization / Workspace）
+model CapabilityQuotaPolicy {
+  id            String       @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId   String?
+  metric        String
+  period        String
+  warningLimit  Decimal?     @db.Decimal(18, 6)
+  softLimit     Decimal?     @db.Decimal(18, 6)
+  hardLimit     Decimal?     @db.Decimal(18, 6)
+  enabled       Boolean      @default(true)
+  version       Int          @default(1)
+  effectiveFrom DateTime     @default(now())
+  effectiveTo   DateTime?
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([orgId, metric, enabled])
+  @@index([orgId, workspaceId, metric])
+  @@index([orgId, metric, version])
+}
+
+/// Phase 3A-4：配额预留（防并发穿透 hard limit）
+model CapabilityQuotaReservation {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId    String?
+  metric         String
+  amount         Decimal      @db.Decimal(18, 6)
+  idempotencyKey String       @unique
+  /// RESERVED | COMMITTED | RELEASED | EXPIRED
+  status         String       @default("RESERVED")
+  expiresAt      DateTime
+  committedAt    DateTime?
+  releasedAt     DateTime?
+  runId          String?
+  traceId        String?
+  createdAt      DateTime     @default(now())
+
+  @@index([orgId, metric, status, expiresAt])
+  @@index([orgId, workspaceId, metric, status])
+  @@index([runId])
 }
 
 model ProductContentJobInput {

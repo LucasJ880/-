@@ -39,7 +39,7 @@ export async function createAgentRun(input: {
 
   const session = await db.agentSession.findFirst({
     where: { id: input.sessionId, orgId: input.orgId },
-    select: { id: true },
+    select: { id: true, userId: true },
   });
   if (!session) throw new Error("Session 不存在或跨组织");
 
@@ -70,20 +70,115 @@ export async function createAgentRun(input: {
     ...traceContextToMetadata(trace),
   };
 
-  const run = await db.agentRun.create({
-    data: {
-      orgId: input.orgId,
-      sessionId: input.sessionId,
-      userMessageId: input.userMessageId || null,
-      runType: input.runType || "conversation",
-      status: "queued",
-      intent: input.intent || null,
-      traceId: trace.traceId,
-      parentRunId: trace.parentRunId,
-      metadata: jsonValue(mergedMeta),
-      startedAt: new Date(),
-    },
+  // Phase 3A-4：创建前配额预留（失败则不落 Run）
+  const actorId = session.userId ?? "system";
+  const { reserveQuota, releaseReservation, commitReservation } = await import(
+    "@/lib/capabilities/governance/reserve"
+  );
+  const idemBase = `agent_run:${input.orgId}:${input.userMessageId ?? trace.traceId}:${Date.now()}`;
+  const rDaily = await reserveQuota({
+    orgId: input.orgId,
+    userId: actorId,
+    workspaceId: input.workspaceId,
+    metric: "DAILY_AGENT_RUNS",
+    amount: 1,
+    idempotencyKey: `${idemBase}:daily`,
+    traceId: trace.traceId,
   });
+  if (!rDaily.ok) {
+    throw new Error(`配额限制：${rDaily.error}`);
+  }
+  const rConc = await reserveQuota({
+    orgId: input.orgId,
+    userId: actorId,
+    workspaceId: input.workspaceId,
+    metric: "MAX_CONCURRENT_RUNS",
+    amount: 1,
+    idempotencyKey: `${idemBase}:concurrent`,
+    traceId: trace.traceId,
+  });
+  if (!rConc.ok) {
+    await releaseReservation({
+      reservationId: rDaily.reservationId,
+      orgId: input.orgId,
+      userId: actorId,
+    });
+    throw new Error(`配额限制：${rConc.error}`);
+  }
+
+  // 单次运行估算成本（estimated；不预留账本，仅 hard 拦截）
+  const { evaluateQuota } = await import(
+    "@/lib/capabilities/governance/evaluate"
+  );
+  const costEval = await evaluateQuota({
+    orgId: input.orgId,
+    userId: actorId,
+    workspaceId: input.workspaceId,
+    metric: "SINGLE_RUN_ESTIMATED_COST",
+    requestedAmount: 0.15,
+  });
+  if (!costEval.allowed) {
+    await releaseReservation({
+      reservationId: rDaily.reservationId,
+      orgId: input.orgId,
+      userId: actorId,
+    });
+    await releaseReservation({
+      reservationId: rConc.reservationId,
+      orgId: input.orgId,
+      userId: actorId,
+    });
+    throw new Error("配额限制：单次运行估算成本超过 hard limit");
+  }
+
+  let run;
+  try {
+    run = await db.agentRun.create({
+      data: {
+        orgId: input.orgId,
+        sessionId: input.sessionId,
+        userMessageId: input.userMessageId || null,
+        runType: input.runType || "conversation",
+        status: "queued",
+        intent: input.intent || null,
+        traceId: trace.traceId,
+        parentRunId: trace.parentRunId,
+        metadata: jsonValue({
+          ...mergedMeta,
+          quotaReservationIds: [
+            rDaily.reservationId,
+            rConc.reservationId,
+          ],
+        }),
+        startedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    await releaseReservation({
+      reservationId: rDaily.reservationId,
+      orgId: input.orgId,
+      userId: actorId,
+    });
+    await releaseReservation({
+      reservationId: rConc.reservationId,
+      orgId: input.orgId,
+      userId: actorId,
+    });
+    throw err;
+  }
+
+  await commitReservation({
+    reservationId: rDaily.reservationId,
+    orgId: input.orgId,
+    userId: actorId,
+  });
+  // 并发预留保持 RESERVED 至 run 终态；此处先关联 runId
+  await db.capabilityQuotaReservation
+    .updateMany({
+      where: { id: rConc.reservationId, orgId: input.orgId },
+      data: { runId: run.id },
+    })
+    .catch(() => {});
 
   // 回写 runId 到 metadata（创建后已知）
   const runWithMeta = await db.agentRun.update({
