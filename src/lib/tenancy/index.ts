@@ -32,6 +32,13 @@ export { canInvokeTool } from "./tool-auth";
 export type { AgentTenantResolved } from "./resolve-agent-tenant";
 export { resolveAgentTenant } from "./resolve-agent-tenant";
 
+export type { ScopedConfigType, ScopedConfigResult } from "./scoped-config";
+export {
+  resolveScopedConfig,
+  isWorkspaceSkillEnabled,
+  LOCKED_SECURITY_KEYS,
+} from "./scoped-config";
+
 /** 文件 pathname 是否声明了目标 org（代理层再做 membership） */
 export function pathnameDeclaresOrg(
   pathname: string,

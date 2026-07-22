@@ -80,6 +80,8 @@ export default function OperationsCenterPage() {
   const [loading, setLoading] = useState(true);
   const [issues, setIssues] = useState<ConfigIssue[]>([]);
   const [packLabel, setPackLabel] = useState<string>("");
+  const [metricStatus, setMetricStatus] = useState<"ok" | "missing" | "">("");
+  const [metricNames, setMetricNames] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +105,10 @@ export default function OperationsCenterPage() {
         );
         setOrgName(active?.name ?? "");
 
-        const healthRes = await apiFetch("/api/operations/config-health");
+        const [healthRes, metricsRes] = await Promise.all([
+          apiFetch("/api/operations/config-health"),
+          apiFetch("/api/operations/metrics"),
+        ]);
         if (healthRes.ok) {
           const health = (await healthRes.json()) as {
             issues?: ConfigIssue[];
@@ -119,6 +124,16 @@ export default function OperationsCenterPage() {
                   ? String(pack.id)
                   : "未配置",
             );
+          }
+        }
+        if (metricsRes.ok) {
+          const metrics = (await metricsRes.json()) as {
+            configStatus?: "ok" | "missing";
+            metrics?: Array<{ name: string }>;
+          };
+          if (!cancelled) {
+            setMetricStatus(metrics.configStatus ?? "missing");
+            setMetricNames((metrics.metrics ?? []).map((m) => m.name));
           }
         }
       } finally {
@@ -165,6 +180,25 @@ export default function OperationsCenterPage() {
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {!loading && metricStatus ? (
+        <div className="rounded-xl border border-border bg-card px-4 py-3">
+          <p className="text-sm font-medium">经营指标定义</p>
+          {metricStatus === "missing" ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              配置状态：missing — 请运行{" "}
+              <code className="text-xs">npm run seed:org:semantics-phase2b</code>{" "}
+              或在企业配置中添加指标定义（本阶段不做复杂图表）。
+            </p>
+          ) : (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {metricNames.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
+          )}
         </div>
       ) : null}
 
