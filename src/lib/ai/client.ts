@@ -59,9 +59,36 @@ export interface ChatStreamOptions {
    * 客户端断开连接时会自动中止上游 OpenAI 请求，避免继续计费。
    */
   signal?: AbortSignal;
+  /**
+   * Phase 3A-5：流式调用强制可信租户。缺省或空 → 拒绝发起模型调用。
+   * 调用方须先完成 membership / TenantContext 预检与配额预留。
+   */
+  orgId: string;
+  userId: string;
+  workspaceId?: string | null;
+  /** 为 true 时跳过内层预检（调用方已 beginStreamAiUsage） */
+  skipInnerPrecheck?: boolean;
 }
 
 export async function createChatStream(opts: ChatStreamOptions) {
+  if (!opts.orgId?.trim() || !opts.userId?.trim()) {
+    throw new Error("TENANT_CONTEXT_REQUIRED: 流式调用缺少可信 orgId/userId");
+  }
+
+  if (!opts.skipInnerPrecheck) {
+    const { precheckMonthlyAiCost } = await import(
+      "@/lib/capabilities/governance/precheck"
+    );
+    const budget = await precheckMonthlyAiCost({
+      orgId: opts.orgId,
+      userId: opts.userId,
+      workspaceId: opts.workspaceId,
+    });
+    if (!budget.allowed) {
+      throw new Error("QUOTA_HARD_LIMIT: 月 AI 费用已达 hard limit");
+    }
+  }
+
   const preset = getTaskPreset(opts.mode ?? "chat");
   const client = getClient();
 

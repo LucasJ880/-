@@ -45,6 +45,14 @@ import {
 } from "@/lib/market-intelligence/research-runtime";
 import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
 import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
+import { getRequestContext } from "@/lib/common/request-context";
+import {
+  requireStreamTenant,
+  beginStreamAiUsage,
+  buildStreamSessionKey,
+  settleAiUsageReservation,
+  actualCostFromStreamUsage,
+} from "@/lib/capabilities/governance";
 
 // 普通对话仍使用 Agent 自身的短超时；只有前置分流的深度研究使用后台预算。
 export const maxDuration = 300;
@@ -130,17 +138,6 @@ export const GET = withAuth(async (request, ctx, user) => {
 });
 
 export const POST = withAuth(async (request, ctx, user) => {
-  const rl = await checkRateLimitAsync(AI_THREAD_RATE_LIMIT, user.id);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: "请求过于频繁，请稍后再试" },
-      {
-        status: 429,
-        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
-      }
-    );
-  }
-
   if (!isAIConfigured()) {
     return NextResponse.json(
       { error: "未配置 AI API 密钥" },
@@ -171,6 +168,36 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (content.length > 10000) {
     return NextResponse.json({ error: "消息过长" }, { status: 400 });
   }
+
+  // Phase 3A-5：流开始前强制可信租户；body.orgId 仅作交叉校验
+  const claimedBodyOrgId =
+    typeof body.orgId === "string" ? body.orgId.trim() : null;
+  const streamTenant = await requireStreamTenant(request, {
+    claimedBodyOrgId,
+  });
+  if (streamTenant instanceof NextResponse) return streamTenant;
+
+  const rl = await checkRateLimitAsync(
+    AI_THREAD_RATE_LIMIT,
+    `${streamTenant.orgId}:${user.id}`,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试", code: "RATE_LIMITED" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+      }
+    );
+  }
+
+  const reqCtx = getRequestContext();
+  const streamSessionKey = buildStreamSessionKey({
+    orgId: streamTenant.orgId,
+    userId: user.id,
+    requestId: reqCtx?.requestId,
+    threadId,
+  });
 
   const fileText = typeof body.fileText === "string" ? body.fileText : "";
   const fileName = typeof body.fileName === "string" ? body.fileName : "";
@@ -272,12 +299,23 @@ export const POST = withAuth(async (request, ctx, user) => {
   // 显式技能和个人日历草稿不受 Operator 灰度影响；两者都有独立执行边界，
   // 日历写入还必须经过当前用户确认。
   if (useOperator) {
+    // 可信 org 以 streamTenant 为准；与 operator 解析结果不一致则拒绝
+    if (operatorOrgId && operatorOrgId !== streamTenant.orgId) {
+      return NextResponse.json(
+        {
+          error: "请求组织与当前工作组织不一致",
+          code: "ORG_CONTEXT_MISMATCH",
+        },
+        { status: 403 },
+      );
+    }
     return handleOperatorBranch({
       threadId,
       threadTitle: thread.title,
       isFirstMessage,
       user,
-      orgId: operatorOrgId!,
+      orgId: streamTenant.orgId,
+      streamSessionKey,
       userContent: content,
       chatMessages,
       abortSignal: request.signal,
@@ -395,20 +433,65 @@ export const POST = withAuth(async (request, ctx, user) => {
     fileBlock +
     buildSummaryPrefix(prepared.summarizedContext);
 
+  const legacyBudget = await beginStreamAiUsage({
+    orgId: streamTenant.orgId,
+    userId: user.id,
+    sessionKey: `${streamSessionKey}:legacy`,
+  });
+  if (!legacyBudget.ok) {
+    return NextResponse.json(
+      { error: legacyBudget.message, code: legacyBudget.code },
+      { status: 403 },
+    );
+  }
+
   const stream = await createChatStream({
     systemPrompt,
     messages: prepared.messages,
     mode: effectiveMode,
     signal: request.signal,
+    orgId: streamTenant.orgId,
+    userId: user.id,
+    skipInnerPrecheck: true,
   });
 
   const encoder = new TextEncoder();
   let fullText = "";
   const streamStartedAt = Date.now();
+  const legacyModelTag = `thread-${effectiveMode ?? "chat"}`;
 
   const readable = new ReadableStream({
     async start(controller) {
       let lastChunk: unknown = null;
+      let settled = false;
+      const settleLegacy = async (usage: {
+        promptTokens?: number;
+        completionTokens?: number;
+      }, success: boolean, error?: string) => {
+        if (settled) return;
+        settled = true;
+        const actualCost =
+          success && (usage.promptTokens || usage.completionTokens)
+            ? actualCostFromStreamUsage({
+                model: legacyModelTag,
+                promptTokens: usage.promptTokens,
+                completionTokens: usage.completionTokens,
+              })
+            : 0;
+        await settleAiUsageReservation({
+          reservationId: legacyBudget.reservationId,
+          orgId: streamTenant.orgId,
+          userId: user.id,
+          idempotencyKey: `stream-settle:${streamSessionKey}:legacy`,
+          actualCost,
+          model: legacyModelTag,
+          inputTokens: usage.promptTokens ?? null,
+          outputTokens: usage.completionTokens ?? null,
+          success,
+          hadBillableUsage: actualCost > 0,
+          errorCode: error?.slice(0, 120) ?? null,
+        });
+      };
       try {
         for await (const chunk of stream) {
           lastChunk = chunk;
@@ -425,12 +508,14 @@ export const POST = withAuth(async (request, ctx, user) => {
 
         const usage = extractUsage(lastChunk);
         recordAiCall({
-          model: `thread-${effectiveMode ?? "chat"}`,
+          model: legacyModelTag,
           success: true,
           elapsedMs: Date.now() - streamStartedAt,
           source: "ai-thread-stream",
+          userId: user.id,
           ...usage,
         });
+        await settleLegacy(usage, true);
 
         const { cleanText, suggestion, parseError } = extractWorkSuggestion(fullText);
         const finalContent = parseError
@@ -484,6 +569,8 @@ export const POST = withAuth(async (request, ctx, user) => {
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "AI 服务调用失败";
+        const usage = extractUsage(lastChunk);
+        await settleLegacy(usage, false, message);
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({ error: message })}\n\n`
@@ -492,6 +579,18 @@ export const POST = withAuth(async (request, ctx, user) => {
         controller.close();
       }
     },
+    async cancel() {
+      await settleAiUsageReservation({
+        reservationId: legacyBudget.reservationId,
+        orgId: streamTenant.orgId,
+        userId: user.id,
+        idempotencyKey: `stream-settle:${streamSessionKey}:legacy`,
+        actualCost: 0,
+        success: false,
+        hadBillableUsage: false,
+        errorCode: "client_abort",
+      });
+    },
   });
 
   return new NextResponse(readable, {
@@ -499,6 +598,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Org-Id": streamTenant.orgId,
     },
   });
 });
@@ -565,6 +665,8 @@ interface OperatorBranchInput {
   isFirstMessage: boolean;
   user: { id: string; role: string; name: string };
   orgId: string;
+  /** Phase 3A-5 流式会话键（含 orgId） */
+  streamSessionKey: string;
   userContent: string;
   chatMessages: ChatMessage[];
   abortSignal: AbortSignal;
@@ -579,6 +681,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     isFirstMessage,
     user,
     orgId,
+    streamSessionKey,
     userContent,
     chatMessages,
     abortSignal,
@@ -743,33 +846,99 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             systemPrompt +
             "\n\n# 当前模式\n当前为直答模式，未挂载工具。不要声称没有日历/日程创建工具或权限；" +
             "若用户明确要新增日程、会议或提醒，请请他改用更明确的说法（例如「帮我把明天下午三点会议加到日历」）。";
-          const stream = await createChatStream({
-            systemPrompt: directPrompt,
-            messages: recent,
-            mode: taskMode,
-            signal: abortSignal,
+          const directBudget = await beginStreamAiUsage({
+            orgId,
+            userId: user.id,
+            sessionKey: `${streamSessionKey}:operator-direct`,
           });
+          if (!directBudget.ok) {
+            emit({
+              type: "error",
+              error: directBudget.message,
+              code: directBudget.code,
+            });
+            hadError = true;
+          } else {
+            const stream = await createChatStream({
+              systemPrompt: directPrompt,
+              messages: recent,
+              mode: taskMode,
+              signal: abortSignal,
+              orgId,
+              userId: user.id,
+              skipInnerPrecheck: true,
+            });
 
-          model = taskMode === "fast" ? "direct-fast" : "direct-chat";
-          let lastChunk: unknown = null;
-          for await (const chunk of stream) {
-            lastChunk = chunk;
-            const delta = chunk.choices?.[0]?.delta?.content;
-            if (delta) {
-              if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
-              fullText += delta;
-              emit({ type: "text", content: delta });
+            model = taskMode === "fast" ? "direct-fast" : "direct-chat";
+            let lastChunk: unknown = null;
+            try {
+              for await (const chunk of stream) {
+                lastChunk = chunk;
+                const delta = chunk.choices?.[0]?.delta?.content;
+                if (delta) {
+                  if (firstTokenMs === undefined)
+                    firstTokenMs = Date.now() - startedAt;
+                  fullText += delta;
+                  emit({ type: "text", content: delta });
+                }
+              }
+              const usage = extractUsage(lastChunk);
+              recordAiCall({
+                model: "operator-direct",
+                success: true,
+                elapsedMs: Date.now() - startedAt,
+                source: "ai-operator-direct",
+                userId: user.id,
+                ...usage,
+              });
+              const actualCost = actualCostFromStreamUsage({
+                model: "operator-direct",
+                promptTokens: usage.promptTokens,
+                completionTokens: usage.completionTokens,
+              });
+              await settleAiUsageReservation({
+                reservationId: directBudget.reservationId,
+                orgId,
+                userId: user.id,
+                idempotencyKey: `stream-settle:${streamSessionKey}:operator-direct`,
+                actualCost,
+                model: "operator-direct",
+                inputTokens: usage.promptTokens ?? null,
+                outputTokens: usage.completionTokens ?? null,
+                success: true,
+                hadBillableUsage: actualCost > 0,
+              });
+              rounds = 1;
+            } catch (directErr) {
+              hadError = true;
+              const usage = extractUsage(lastChunk);
+              const actualCost =
+                usage.promptTokens || usage.completionTokens
+                  ? actualCostFromStreamUsage({
+                      model: "operator-direct",
+                      promptTokens: usage.promptTokens,
+                      completionTokens: usage.completionTokens,
+                    })
+                  : 0;
+              await settleAiUsageReservation({
+                reservationId: directBudget.reservationId,
+                orgId,
+                userId: user.id,
+                idempotencyKey: `stream-settle:${streamSessionKey}:operator-direct`,
+                actualCost,
+                model: "operator-direct",
+                inputTokens: usage.promptTokens ?? null,
+                outputTokens: usage.completionTokens ?? null,
+                success: false,
+                hadBillableUsage: actualCost > 0,
+                errorCode:
+                  directErr instanceof Error
+                    ? directErr.message.slice(0, 120)
+                    : "operator_direct_failed",
+              });
+              throw directErr;
             }
           }
-          const usage = extractUsage(lastChunk);
-          recordAiCall({
-            model: "operator-direct",
-            success: true,
-            elapsedMs: Date.now() - startedAt,
-            source: "ai-operator-direct",
-            ...usage,
-          });
-          rounds = 1;
         }
 
         const latencyMs = Date.now() - startedAt;

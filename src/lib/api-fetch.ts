@@ -22,6 +22,8 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/agent/trace",
   "/api/org/",
   "/api/product-content",
+  // Phase 3A-5：中台 API 必须按当前企业隔离；多组织用户需显式 orgId
+  "/api/capabilities",
 ];
 
 /**

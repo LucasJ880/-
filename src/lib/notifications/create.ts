@@ -12,6 +12,7 @@ export interface CreateNotificationInput {
   category?: string;
   title: string;
   summary?: string;
+  orgId?: string | null;
   projectId?: string;
   entityType?: string;
   entityId?: string;
@@ -30,6 +31,7 @@ export async function createNotification(input: CreateNotificationInput) {
     category = type,
     title,
     summary,
+    orgId,
     projectId,
     entityType,
     entityId,
@@ -46,6 +48,7 @@ export async function createNotification(input: CreateNotificationInput) {
   return db.notification.create({
     data: {
       userId,
+      orgId: orgId ?? null,
       type,
       category,
       title,
@@ -59,6 +62,34 @@ export async function createNotification(input: CreateNotificationInput) {
       status: "unread",
     },
   });
+}
+
+/**
+ * 批量通知用户；sourceKey = `${sourceKeyPrefix}:${userId}` 幂等去重。
+ * @returns 新建条数
+ */
+export async function createNotificationsForUsers(
+  userIds: string[],
+  input: Omit<CreateNotificationInput, "userId" | "sourceKey"> & {
+    sourceKeyPrefix: string;
+  },
+): Promise<number> {
+  let created = 0;
+  const { sourceKeyPrefix, ...rest } = input;
+  for (const uid of userIds) {
+    const before = await db.notification.findUnique({
+      where: { sourceKey: `${sourceKeyPrefix}:${uid}` },
+      select: { id: true },
+    });
+    if (before) continue;
+    await createNotification({
+      ...rest,
+      userId: uid,
+      sourceKey: `${sourceKeyPrefix}:${uid}`,
+    });
+    created += 1;
+  }
+  return created;
 }
 
 /**
