@@ -10,6 +10,10 @@ import type {
   AgentRunStatus,
 } from "./types";
 import { ACTIVE_RUN_STATUSES } from "./types";
+import {
+  createTraceContext,
+  traceContextToMetadata,
+} from "@/lib/capabilities/trace-context";
 
 function jsonValue(
   value: Record<string, unknown> | undefined,
@@ -25,6 +29,11 @@ export async function createAgentRun(input: {
   runType?: string;
   intent?: string | null;
   metadata?: Record<string, unknown>;
+  /** Phase 3A：可选传入；缺省则自动生成并写入列 + metadata */
+  traceId?: string | null;
+  parentRunId?: string | null;
+  workspaceId?: string | null;
+  projectId?: string | null;
 }) {
   if (!input.orgId) throw new Error("orgId 必填");
 
@@ -45,6 +54,22 @@ export async function createAgentRun(input: {
     if (existing) return { run: existing, reused: true as const };
   }
 
+  const existingMeta = input.metadata ?? {};
+  const incomingTrace =
+    input.traceId ||
+    (typeof existingMeta.traceId === "string" ? existingMeta.traceId : null);
+  const trace = createTraceContext({
+    orgId: input.orgId,
+    traceId: incomingTrace,
+    parentRunId: input.parentRunId ?? null,
+    workspaceId: input.workspaceId ?? null,
+    projectId: input.projectId ?? null,
+  });
+  const mergedMeta = {
+    ...existingMeta,
+    ...traceContextToMetadata(trace),
+  };
+
   const run = await db.agentRun.create({
     data: {
       orgId: input.orgId,
@@ -53,8 +78,21 @@ export async function createAgentRun(input: {
       runType: input.runType || "conversation",
       status: "queued",
       intent: input.intent || null,
-      metadata: jsonValue(input.metadata),
+      traceId: trace.traceId,
+      parentRunId: trace.parentRunId,
+      metadata: jsonValue(mergedMeta),
       startedAt: new Date(),
+    },
+  });
+
+  // 回写 runId 到 metadata（创建后已知）
+  const runWithMeta = await db.agentRun.update({
+    where: { id: run.id },
+    data: {
+      metadata: jsonValue({
+        ...mergedMeta,
+        runId: run.id,
+      }),
     },
   });
 
@@ -66,7 +104,7 @@ export async function createAgentRun(input: {
     visibleToUser: true,
   });
 
-  return { run, reused: false as const };
+  return { run: runWithMeta, reused: false as const };
 }
 
 export async function updateAgentRunStatus(

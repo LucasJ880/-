@@ -3879,6 +3879,10 @@ model AgentRun {
   status        String    @default("queued")
   model         String?
   intent        String?
+  /// Phase 3A：跨执行关联；历史可空，新执行应写入
+  traceId       String?
+  /// Phase 3A：父 Run（可选）
+  parentRunId   String?
   startedAt     DateTime?
   completedAt   DateTime?
   cancelledAt   DateTime?
@@ -3902,6 +3906,7 @@ model AgentRun {
   @@index([orgId, sessionId])
   @@index([orgId, status])
   @@index([orgId, userMessageId])
+  @@index([orgId, traceId])
   @@index([status, nextAttemptAt])
   @@index([status, leaseExpiresAt])
 }
