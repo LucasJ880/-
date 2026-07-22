@@ -72,6 +72,9 @@ const ORG_ADMIN_PERMISSIONS: Permission[] = [
   PERMISSIONS.AUDIT_LOG_READ,
 ];
 
+/** 企业负责人：至少拥有企业管理员全部组织管理权限（业务数据另走 Permission Registry） */
+const ORG_OWNER_PERMISSIONS: Permission[] = [...ORG_ADMIN_PERMISSIONS];
+
 const ORG_MEMBER_PERMISSIONS: Permission[] = [
   PERMISSIONS.ORG_READ,
   PERMISSIONS.ORG_MEMBER_LIST,
@@ -84,6 +87,7 @@ const ORG_VIEWER_PERMISSIONS: Permission[] = [
 ];
 
 const ORG_ROLE_PERMISSIONS: Record<OrgRole, Permission[]> = {
+  org_owner: ORG_OWNER_PERMISSIONS,
   org_admin: ORG_ADMIN_PERMISSIONS,
   org_member: ORG_MEMBER_PERMISSIONS,
   org_viewer: ORG_VIEWER_PERMISSIONS,

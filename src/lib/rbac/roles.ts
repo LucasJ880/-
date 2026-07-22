@@ -19,6 +19,7 @@ export const PLATFORM_ROLE_LABELS: Record<string, string> = {
 // --- 组织级角色 ---
 
 export const ORG_ROLES = [
+  "org_owner",
   "org_admin",
   "org_member",
   "org_viewer",
@@ -26,6 +27,7 @@ export const ORG_ROLES = [
 export type OrgRole = (typeof ORG_ROLES)[number];
 
 const ORG_ROLE_LEVEL: Record<OrgRole, number> = {
+  org_owner: 40,
   org_admin: 30,
   org_member: 20,
   org_viewer: 10,
@@ -84,21 +86,25 @@ export function isPlatformSuperAdmin(role: string | null | undefined): boolean {
 }
 
 /**
- * 用户账号管理权限（查看用户列表 / 详情、删除账号）。
- * - admin / super_admin：平台管理员，全权
- * - manager（总经理）：可管理用户账号，但无其它平台管理页权限，
- *   数据可见性仍按组织成员关系解析（非跨组织）
+ * 平台用户管理（/api/users、全局软删）。
+ * Security-1：仅平台 admin / super_admin；manager 不再拥有跨组织用户列表权限。
+ * 企业内成员管理走 /organizations/[orgId]/members。
  */
 export function canManageUsers(role: string | null | undefined): boolean {
-  return isAdmin(role ?? "") || role === "manager";
+  return isAdmin(role ?? "");
 }
 
 /**
- * 删除人员账号权限（总经理 / 管理员）。
- * 删除为软删除：status=deleted + 邮箱匿名化释放 + 退出组织，业务数据保留。
+ * 全局账号软删除：仅平台管理员。
+ * 企业侧移除员工只能 inactive OrganizationMember，不能删全局 User。
  */
 export function canDeleteUsers(role: string | null | undefined): boolean {
   return canManageUsers(role);
+}
+
+/** 企业系统管理角色（成员/配置）：owner 或 admin */
+export function isOrgSystemAdmin(orgRole: string | null | undefined): boolean {
+  return orgRole === "org_owner" || orgRole === "org_admin";
 }
 
 export function hasOrgRole(userRole: string, requiredRole: OrgRole): boolean {
