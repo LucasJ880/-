@@ -320,6 +320,75 @@ export async function loadAgentToolPolicyRule(
   };
 }
 
+export type BaselineRuleEnsureStatus =
+  | "created"
+  | "kept_existing"
+  | "updated_by_admin";
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
+}
+
+function configsEqual(a: unknown, b: unknown): boolean {
+  return stableJson(a) === stableJson(b);
+}
+
+/**
+ * Seed 用：为企业写入平台通用默认规则。
+ * - 仅 missing 时创建 v1（各企业独立写入平台默认，不复制其他企业阈值）
+ * - 已有 active 绝不覆盖（含管理员已改过的规则）
+ * - 状态：created | kept_existing（仍为平台默认）| updated_by_admin（已定制，跳过）
+ */
+export async function ensureBaselineOrgRules(params: {
+  orgId: string;
+  userId: string;
+}): Promise<Array<{ ruleKey: RuleKey; status: BaselineRuleEnsureStatus }>> {
+  const baselines: Array<{ ruleKey: RuleKey; config: unknown }> = [
+    { ruleKey: "quote_margin", config: { ...PLATFORM_DEFAULT_QUOTE_MARGIN } },
+    { ruleKey: "quote_auto_send", config: { ...PLATFORM_DEFAULT_QUOTE_AUTO_SEND } },
+    { ruleKey: "project_risk", config: { ...PLATFORM_DEFAULT_PROJECT_RISK } },
+    {
+      ruleKey: "agent_tool_policy",
+      config: {
+        disabledTools: [...(PLATFORM_DEFAULT_AGENT_TOOL_POLICY.disabledTools ?? [])],
+        forceApprovalTools: [
+          ...(PLATFORM_DEFAULT_AGENT_TOOL_POLICY.forceApprovalTools ?? []),
+        ],
+      },
+    },
+  ];
+
+  const out: Array<{ ruleKey: RuleKey; status: BaselineRuleEnsureStatus }> = [];
+  for (const b of baselines) {
+    const existing = await loadActiveRule(params.orgId, b.ruleKey);
+    if (existing) {
+      const customized =
+        existing.version > 1 || !configsEqual(existing.configJson, b.config);
+      out.push({
+        ruleKey: b.ruleKey,
+        status: customized ? "updated_by_admin" : "kept_existing",
+      });
+      continue;
+    }
+    await publishOrgRule({
+      orgId: params.orgId,
+      ruleKey: b.ruleKey,
+      config: b.config,
+      userId: params.userId,
+    });
+    out.push({ ruleKey: b.ruleKey, status: "created" });
+  }
+  return out;
+}
+
 /** 经营中心：汇总配置健康（缺失/无效） */
 export async function listOrgConfigIssues(orgId: string): Promise<
   Array<{

@@ -11,11 +11,16 @@
 ## 数据模型
 
 - `Organization.industryPackId`
-- `QuoteDiscountSettings`：每 org 一行（`orgId` unique）+ `version` / `effectiveAt` / `lineDiscountUnlockCode`
+- `QuoteDiscountSettings`：每 org 一行（`orgId` unique）+ `version` / `effectiveAt` + 解锁码哈希列
 - `OrgBusinessRule`：规则版本库（`quote_margin` / `quote_auto_send` / `project_risk` / `agent_tool_policy` / `quote_discounts` 快照等）
 - `AgentApprovalSettings`：增加 `version` / `effectiveAt` / `updatedById`
 
-迁移：`prisma/migrations/20260721190000_phase2a_org_rules_industry_pack/`
+迁移链（解锁码列）：
+
+1. `20260721190000_phase2a_org_rules_industry_pack` — 创建旧列 `lineDiscountUnlockCode`
+2. `20260721210000_rename_line_discount_unlock_hash` — 重命名为 `lineDiscountUnlockCodeHash`
+
+运行时与 Prisma schema 仅使用 `lineDiscountUnlockCodeHash`。Seed 可通过 `ensureBaselineOrgRules` 幂等补齐缺失的平台默认规则（不覆盖管理员已改规则）。
 
 ## Industry Pack
 
@@ -47,6 +52,10 @@ npm run seed:org:sunny-home-deco
 npm run seed:org:mengxin-home-textile
 ```
 
+全新空库需支持 `vector` 扩展（Neon 默认具备）。本地无 pgvector 时，至少验收解锁码迁移链：
+
+`20260721180000` → `20260721190000`（旧列）→ `20260721210000`（Hash 列）。
+
 ### 解锁码安全
 
 - 字段：`lineDiscountUnlockCodeHash`（bcrypt）；`depositOverrideCode` 亦存哈希（注释标明）
@@ -55,6 +64,16 @@ npm run seed:org:mengxin-home-textile
   - Sunny：`SUNNY_LINE_DISCOUNT_UNLOCK_CODE`；非生产可缺省示例 `Sunny2026`（仅首次）
   - 梦馨：`MENGXIN_LINE_DISCOUNT_UNLOCK_CODE`（无 Sunny 默认，企业独立）
   - **已有哈希绝不覆盖**；生产未设环境变量时跳过，不写入可猜测默认码
+- 若曾写入临时明文哈希（如开发验收用 `Mengxin2026`）：仅改 Vercel 环境变量并重跑 seed **不会**轮换；须经受控管理接口或一次性安全脚本主动更新哈希，并验证旧码失效
+
+### 基线规则 Seed
+
+`ensureBaselineOrgRules` 幂等补齐平台默认规则：
+
+- `created`：首次写入
+- `kept_existing`：已有且仍为平台默认
+- `updated_by_admin`：企业已定制，跳过不覆盖
+- 各企业独立写入平台默认，不把 Sunny 阈值复制给梦馨
 
 ## Phase 2B（下阶段，本轮不做）
 
