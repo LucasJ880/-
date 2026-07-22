@@ -2,52 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import {
-  LayoutDashboard,
-  CheckSquare,
-  FolderKanban,
-  Bell,
-  CalendarDays,
-  Settings,
-  CircleHelp,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardList,
-  Building2,
-  Users,
-  ScrollText,
-  Shield,
-  ShieldCheck,
-  ChevronsUpDown,
-  Package,
-  Package2,
-  FileText,
-  Activity,
-  BarChart3,
-  Handshake,
-  BookOpen,
-  Upload,
-  Eye,
-  MessageSquare,
-  PackageCheck,
-  MessageCircle,
-  Brain,
-  GitBranch,
-  Radar,
-  Megaphone,
-  Inbox,
-  Lightbulb,
-  Layers,
-  type LucideIcon,
-} from "lucide-react";
-import { useState, useEffect, useRef, useSyncExternalStore } from "react";
+  useState,
+  useEffect,
+  useSyncExternalStore,
+  useMemo,
+  useRef,
+} from "react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { useOrganizations, type OrgSummary } from "@/lib/hooks/use-organizations";
+import { useOrganizations } from "@/lib/hooks/use-organizations";
+import { readStoredOrgId } from "@/lib/org-selection";
+import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
+import { useLocale } from "@/lib/i18n/context";
+import { CoBrand } from "@/components/co-brand";
+import { OrgSwitcher } from "@/components/org-switcher";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { apiFetch } from "@/lib/api-fetch";
+import type { OrgModulesConfig } from "@/lib/tenancy/modules";
 import {
-  readStoredOrgId,
-  selectActiveOrganization,
-} from "@/lib/org-selection";
+  NAVIGATION_REGISTRY,
+  SYSTEM_NAV_ITEMS,
+  NAV_GROUP_META,
+  NAV_SECTION_LABEL,
+  resolveNavigationTree,
+  type NavigationFilterContext,
+  type NavigationGroup,
+  type ResolvedNavItem,
+} from "@/lib/navigation";
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -58,285 +41,182 @@ function subscribeOrgStorage(cb: () => void) {
     window.removeEventListener("qingyan-org-storage", cb);
   };
 }
-import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
-import { canViewAdminPages, orgRoleLabel } from "@/lib/permissions-client";
-import { useLocale } from "@/lib/i18n/context";
-import { CoBrand } from "@/components/co-brand";
-import type { MessageKey } from "@/lib/i18n/messages";
-import { apiFetch } from "@/lib/api-fetch";
-import {
-  navHrefAllowedByModules,
-  type OrgModulesConfig,
-} from "@/lib/tenancy/modules";
 
-interface NavItem {
-  href: string;
-  labelKey: MessageKey;
-  icon: LucideIcon;
-  disabled?: boolean;
-  badgeKey?: MessageKey;
-  adminOnly?: boolean;
-  roles?: string[];
+function itemLabel(
+  item: ResolvedNavItem,
+  m: Record<string, string>,
+): string {
+  if (item.labelKey && m[item.labelKey]) return m[item.labelKey];
+  return item.label;
 }
 
-interface NavGroup {
-  titleKey: MessageKey;
-  items: NavItem[];
-  adminOnly?: boolean;
-  roles?: string[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    titleKey: "nav_group_workspace",
-    items: [
-      { href: "/", labelKey: "nav_dashboard", icon: LayoutDashboard },
-      { href: "/notifications", labelKey: "nav_notifications", icon: Bell },
-      { href: "/tasks", labelKey: "nav_tasks", icon: CheckSquare },
-    ],
-  },
-  {
-    titleKey: "nav_group_sales",
-    roles: ["admin", "super_admin", "sales"],
-    items: [
-      { href: "/sales", labelKey: "nav_sales_pipeline", icon: Handshake, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/quote-sheet", labelKey: "nav_quote_sheet", icon: FileText, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/quotes", labelKey: "nav_all_quotes", icon: ScrollText, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/calendar", labelKey: "nav_appointment_calendar", icon: CalendarDays, roles: ["admin", "super_admin", "sales"] },
-      // 现场量房入口已下线（功能被电子报价单取代），保留页面 & API 供历史数据访问
-      // { href: "/sales/measure", labelKey: "nav_field_measure", icon: ClipboardList, roles: ["admin", "super_admin", "sales"] },
-      { href: "/sales/cockpit", labelKey: "nav_cockpit", icon: BarChart3, roles: ["admin", "super_admin", "sales"] },
-      { href: "/blinds-orders", labelKey: "nav_work_orders", icon: ClipboardList, roles: ["admin", "super_admin", "sales"], badgeKey: "sidebar_badge_industry" },
-      { href: "/inventory", labelKey: "nav_fabric_inventory", icon: Package, roles: ["admin", "super_admin"] },
-      { href: "/sales/knowledge", labelKey: "nav_sales_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "sales"] },
-    ],
-  },
-  {
-    titleKey: "nav_group_trade",
-    roles: ["admin", "super_admin", "trade"],
-    items: [
-      { href: "/trade", labelKey: "nav_trade_dashboard", icon: Handshake, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/prospects", labelKey: "nav_trade_prospects", icon: Users, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/intelligence", labelKey: "nav_trade_intelligence", icon: Radar, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/cockpit", labelKey: "nav_trade_cockpit", icon: Activity, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/chat", labelKey: "nav_ai_assistant", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/quotes", labelKey: "nav_trade_quotes", icon: ScrollText, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/import", labelKey: "nav_trade_import", icon: Upload, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/templates", labelKey: "nav_email_templates", icon: FileText, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/channels", labelKey: "nav_message_channels", icon: MessageSquare, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/fulfillment", labelKey: "nav_trade_fulfillment", icon: PackageCheck, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/knowledge", labelKey: "nav_trade_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "trade"] },
-      { href: "/trade/signals", labelKey: "nav_trade_watch_signals", icon: Eye, roles: ["admin", "super_admin", "trade"] },
-      { href: "/product-content", labelKey: "nav_product_content", icon: Layers, roles: ["admin", "super_admin", "trade"] },
-    ],
-  },
-  {
-    titleKey: "nav_group_tender",
-    roles: ["admin", "super_admin", "user", "manager"],
-    items: [
-      { href: "/projects", labelKey: "nav_projects", icon: FolderKanban, roles: ["admin", "super_admin", "user", "manager"] },
-      { href: "/projects/intelligence", labelKey: "nav_project_intelligence", icon: Lightbulb, roles: ["admin", "super_admin", "user", "manager"] },
-      { href: "/admin/project-intake", labelKey: "nav_project_intake", icon: ClipboardList, adminOnly: true },
-      { href: "/suppliers", labelKey: "nav_suppliers", icon: Package2, roles: ["admin", "super_admin", "user", "manager"] },
-    ],
-  },
-  {
-    titleKey: "nav_group_collaboration",
-    roles: ["admin", "super_admin", "user"],
-    items: [
-      { href: "/organizations", labelKey: "nav_organizations", icon: Building2, roles: ["admin", "super_admin", "user"] },
-      { href: "/knowledge", labelKey: "nav_org_knowledge", icon: BookOpen, roles: ["admin", "super_admin", "user"] },
-    ],
-  },
-  {
-    titleKey: "nav_group_intelligence",
-    items: [
-      { href: "/assistant", labelKey: "nav_ai_assistant", icon: MessageSquare },
-      { href: "/wechat", labelKey: "nav_wechat_messages", icon: MessageCircle },
-      { href: "/memory", labelKey: "nav_ai_memory", icon: Brain },
-      { href: "/agent-trace", labelKey: "nav_agent_trace", icon: GitBranch },
-      { href: "/ai-activity", labelKey: "nav_ai_activity", icon: Activity },
-      { href: "/capabilities/runs", labelKey: "nav_capabilities_runs", icon: Radar },
-      { href: "/capabilities/approvals", labelKey: "nav_capabilities_approvals", icon: Shield },
-      { href: "/capabilities/governance", labelKey: "nav_capabilities_governance", icon: ShieldCheck },
-      { href: "/reports", labelKey: "nav_weekly_reports", icon: FileText, roles: ["admin", "super_admin", "user"] },
-    ],
-  },
-  {
-    // 运营模块：发布日历（管理员/总经理）+ 客服收件箱（全体成员，后端按 org 隔离）
-    titleKey: "nav_group_operations",
-    roles: ["admin", "super_admin", "manager", "sales", "user"],
-    items: [
-      { href: "/operations/center", labelKey: "nav_operations_center", icon: LayoutDashboard, roles: ["admin", "super_admin", "manager", "sales", "trade", "user"] },
-      { href: "/service-inbox", labelKey: "nav_service_inbox", icon: Inbox, roles: ["admin", "super_admin", "manager", "sales", "user"] },
-      { href: "/operations", labelKey: "nav_publish_calendar", icon: Megaphone, roles: ["admin", "super_admin", "manager"] },
-      { href: "/operations/intelligence", labelKey: "nav_market_intelligence", icon: Radar, roles: ["admin", "super_admin", "manager"] },
-    ],
-  },
-  {
-    // 总经理(manager)仅可见「用户管理」；其余仍为平台管理员专属
-    titleKey: "nav_group_admin",
-    roles: ["admin", "super_admin", "manager"],
-    items: [
-      { href: "/admin/users", labelKey: "nav_user_management", icon: Users, roles: ["admin", "super_admin", "manager"] },
-      { href: "/admin/invite-codes", labelKey: "nav_invite_codes", icon: Shield, adminOnly: true },
-      { href: "/admin/audit-logs", labelKey: "nav_audit_logs", icon: ScrollText, adminOnly: true },
-      { href: "/blinds-orders", labelKey: "nav_orders_admin", icon: ClipboardList, adminOnly: true },
-    ],
-  },
-];
-
-const BOTTOM_ITEMS: NavItem[] = [
-  { href: "/help", labelKey: "nav_help", icon: CircleHelp },
-  { href: "/settings", labelKey: "nav_settings", icon: Settings },
-];
-
-function isItemActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/";
-  // /projects 与 /projects/intelligence 分流，避免列表项把智能中心也高亮
-  if (href === "/projects") {
-    return (
-      pathname === "/projects" ||
-      (pathname.startsWith("/projects/") &&
-        !pathname.startsWith("/projects/intelligence"))
-    );
-  }
-  return pathname.startsWith(href);
-}
-
-function OrgSwitcher({
+function NavLink({
+  item,
   collapsed,
-  organizations,
+  nested,
+  onNavigate,
+  pendingCount,
 }: {
+  item: ResolvedNavItem;
   collapsed: boolean;
-  organizations: OrgSummary[];
+  nested?: boolean;
+  onNavigate?: () => void;
+  pendingCount: number;
 }) {
   const { m } = useLocale();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const pathname = usePathname();
-
-  const storedOrgId = useSyncExternalStore(
-    subscribeOrgStorage,
-    readStoredOrgId,
-    () => ""
-  );
-  // 当前工作组织：本地记忆优先（全局默认），不因浏览其他组织详情页而漂移
-  const currentOrg =
-    organizations.find((o) => o.id === storedOrgId) ??
-    organizations.find((o) => o.id === pathname.match(/\/organizations\/([^/]+)/)?.[1]);
-  const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const label = itemLabel(item, m as unknown as Record<string, string>);
+  const Icon = item.icon;
+  const ref = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  if (organizations.length === 0) return null;
-
-  const displayOrg = currentOrg ?? organizations[0];
-
-  async function switchOrg(orgId: string) {
-    if (orgId === displayOrg.id) {
-      setOpen(false);
-      return;
+    if (item.active && ref.current) {
+      ref.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
-    setSwitchingId(orgId);
-    const r = await selectActiveOrganization(orgId);
-    if (!r.ok) {
-      setSwitchingId(null);
-      alert(r.error || "切换组织失败");
-      return;
-    }
-    setOpen(false);
-    // 整页刷新，确保销售/外贸/知识库等已按旧 orgId 加载的数据一并更新
-    window.location.reload();
+  }, [item.active, item.href]);
+
+  return (
+    <Link
+      ref={ref}
+      href={item.href || "#"}
+      onClick={onNavigate}
+      data-nav-active={item.active ? "true" : undefined}
+      className={cn(
+        "flex min-h-9 items-center gap-2.5 rounded-md text-[13px] transition-colors duration-150",
+        nested
+          ? "min-h-8 px-2.5 py-1.5 text-[12px]"
+          : "px-2.5 py-2 font-medium",
+        nested && "ml-3 border-l border-white/10 pl-3",
+        item.active
+          ? nested
+            ? "bg-white/10 text-emerald-200"
+            : "bg-sidebar-active text-white"
+          : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
+        collapsed && !nested && "justify-center px-0",
+      )}
+    >
+      {!nested && Icon && (
+        <span className="relative shrink-0">
+          <Icon size={16} />
+          {collapsed && item.href === "/assistant" && pendingCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[#c85a3a] px-0.5 text-[9px] font-semibold leading-none text-white">
+              {pendingCount > 9 ? "9+" : pendingCount}
+            </span>
+          )}
+        </span>
+      )}
+      {!collapsed && (
+        <>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {item.href === "/assistant" && pendingCount > 0 && (
+            <span className="ml-auto shrink-0 rounded-full bg-[#c85a3a] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white">
+              {pendingCount > 99 ? "99+" : pendingCount}
+            </span>
+          )}
+          {item.badgeKey && (
+            <span className="ml-auto shrink-0 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/60">
+              {m[item.badgeKey as MessageKey]}
+            </span>
+          )}
+        </>
+      )}
+    </Link>
+  );
+}
+
+function CollapsibleNav({
+  item,
+  collapsed,
+  onNavigate,
+  pendingCount,
+  manualExpanded,
+  onToggle,
+}: {
+  item: ResolvedNavItem;
+  collapsed: boolean;
+  onNavigate?: () => void;
+  pendingCount: number;
+  manualExpanded: boolean | null;
+  onToggle: () => void;
+}) {
+  const { m } = useLocale();
+  const label = itemLabel(item, m as unknown as Record<string, string>);
+  const Icon = item.icon;
+  const expanded = manualExpanded ?? item.expanded;
+  const childActive = item.children?.some((c) => c.active) ?? false;
+
+  if (collapsed) {
+    return (
+      <Link
+        href={item.href || "/capabilities"}
+        onClick={onNavigate}
+        className={cn(
+          "flex min-h-9 items-center justify-center rounded-md px-0 py-2 transition-colors",
+          childActive || item.active
+            ? "bg-sidebar-active text-white"
+            : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
+        )}
+        title={label}
+      >
+        {Icon && <Icon size={16} />}
+      </Link>
+    );
   }
 
   return (
-    <div ref={ref} className="relative px-2 pb-1">
-      <button
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-2 text-left transition-colors hover:bg-sidebar-hover",
-          collapsed && "justify-center"
-        )}
-      >
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.25)] text-xs font-bold text-emerald-200">
-          {displayOrg.name[0]?.toUpperCase()}
-        </div>
-        {!collapsed && (
-          <>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-white/90">
-                {displayOrg.name}
-              </p>
-              <p className="truncate text-[10px] text-white/40">
-                {displayOrg.myRole ? orgRoleLabel(displayOrg.myRole) : displayOrg.code}
-                <span className="text-white/25"> · 当前组织</span>
-              </p>
-            </div>
-            <ChevronsUpDown size={14} className="shrink-0 text-white/30" />
-          </>
-        )}
-      </button>
-
-      {open && (
-        <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-[var(--radius-md)] border border-white/8 bg-[#1a2826] shadow-xl">
-          <div className="px-2.5 pt-2 pb-1 text-[10px] text-white/35">
-            切换后全系统使用该组织，直到下次更换
-          </div>
-          <div className="p-1">
-            {organizations.map((org) => (
-              <button
-                key={org.id}
-                disabled={Boolean(switchingId)}
-                onClick={() => switchOrg(org.id)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/8 disabled:opacity-50",
-                  org.id === displayOrg.id && "bg-white/5"
-                )}
-              >
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[rgba(43,96,85,0.2)] text-[10px] font-bold text-emerald-200/80">
-                  {org.name[0]?.toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs text-white/85">{org.name}</p>
-                  <p className="truncate text-[10px] text-white/35">
-                    {org.memberCount} {m.sidebar_org_members} · {org.projectCount} {m.sidebar_org_projects}
-                  </p>
-                </div>
-                {switchingId === org.id ? (
-                  <span className="shrink-0 text-[9px] text-white/45">切换中…</span>
-                ) : org.myRole ? (
-                  <span className="shrink-0 text-[9px] text-white/35">
-                    {orgRoleLabel(org.myRole)}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-          <div className="border-t border-white/8 p-1">
-            <Link
-              href="/organizations"
-              onClick={() => setOpen(false)}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/8 hover:text-white/80"
-            >
-              <Building2 size={12} />
-              {m.sidebar_manage_orgs}
-            </Link>
-          </div>
-        </div>
-      )}
+    <div className="space-y-px">
+      <div className="flex items-center gap-0.5">
+        <Link
+          href={item.href || "/capabilities"}
+          onClick={onNavigate}
+          className={cn(
+            "flex min-h-9 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
+            // 父级仅轻度强调；子级承担明确 active
+            childActive
+              ? "text-white/75"
+              : item.active
+                ? "bg-white/[0.06] text-white/90"
+                : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
+          )}
+        >
+          {Icon && <Icon size={16} className="shrink-0" />}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </Link>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="rounded-md p-1.5 text-white/35 hover:bg-sidebar-hover hover:text-white/70"
+          aria-label={expanded ? "折叠" : "展开"}
+        >
+          <ChevronDown
+            size={14}
+            className={cn("transition-transform", expanded && "rotate-180")}
+          />
+        </button>
+      </div>
+      {expanded &&
+        item.children?.map((child) => (
+          <NavLink
+            key={child.key}
+            item={child}
+            collapsed={false}
+            nested
+            onNavigate={onNavigate}
+            pendingCount={pendingCount}
+          />
+        ))}
     </div>
   );
 }
+
+const GROUP_RENDER_ORDER: NavigationGroup[] = [
+  "WORK",
+  "OPERATIONS",
+  "CAPABILITIES",
+  "BUSINESS",
+  "GROWTH",
+  "MANAGEMENT",
+  "PLATFORM",
+];
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { m } = useLocale();
@@ -344,10 +224,30 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useCurrentUser();
   const { organizations } = useOrganizations();
-  const isAdmin = canViewAdminPages(user?.role);
-  const userRole = user?.role || "user";
   const { count: pendingCount } = usePendingApprovalsBadge();
   const [orgModules, setOrgModules] = useState<OrgModulesConfig | null>(null);
+  const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
+  const [apiOrgRole, setApiOrgRole] = useState<string | null>(null);
+  const [apiHasMembership, setApiHasMembership] = useState<boolean | null>(
+    null,
+  );
+  const [capExpanded, setCapExpanded] = useState<boolean | null>(null);
+
+  const storedOrgId = useSyncExternalStore(
+    subscribeOrgStorage,
+    readStoredOrgId,
+    () => "",
+  );
+  const activeOrg =
+    organizations.find((o) => o.id === storedOrgId) ?? organizations[0];
+  const orgRole = apiOrgRole ?? activeOrg?.myRole ?? null;
+  const hasMembership =
+    apiHasMembership !== null
+      ? apiHasMembership
+      : Boolean(activeOrg?.myRole);
+  const platformRole = user?.role ?? "user";
+  const isPlatformAdmin =
+    platformRole === "admin" || platformRole === "super_admin";
 
   useEffect(() => {
     let cancelled = false;
@@ -357,25 +257,99 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         if (!res.ok) return;
         const data = (await res.json()) as {
           modules?: OrgModulesConfig | null;
+          workspaceIds?: string[];
+          orgRole?: string | null;
+          hasMembership?: boolean;
         };
-        if (!cancelled) setOrgModules(data.modules ?? null);
+        if (!cancelled) {
+          setOrgModules(data.modules ?? null);
+          setWorkspaceIds(data.workspaceIds ?? []);
+          setApiOrgRole(data.orgRole ?? null);
+          setApiHasMembership(
+            typeof data.hasMembership === "boolean"
+              ? data.hasMembership
+              : Boolean(data.orgRole),
+          );
+        }
       } catch {
-        if (!cancelled) setOrgModules(null);
+        if (!cancelled) {
+          setOrgModules(null);
+          setWorkspaceIds([]);
+          setApiOrgRole(null);
+          setApiHasMembership(null);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storedOrgId]);
+
+  // 切换路径离开中台时，重置手动展开，恢复默认折叠策略
+  useEffect(() => {
+    if (!pathname.startsWith("/capabilities")) {
+      setCapExpanded(null);
+    }
+  }, [pathname]);
+
+  const filterCtx: NavigationFilterContext = useMemo(
+    () => ({
+      pathname,
+      platformRole,
+      orgRole,
+      hasMembership,
+      workspaceIds,
+      modules: orgModules,
+      isPlatformAdmin,
+    }),
+    [
+      pathname,
+      platformRole,
+      orgRole,
+      hasMembership,
+      workspaceIds,
+      orgModules,
+      isPlatformAdmin,
+    ],
+  );
+
+  const resolved = useMemo(
+    () =>
+      resolveNavigationTree(NAVIGATION_REGISTRY, filterCtx, {
+        expandCapabilities: capExpanded === true,
+      }),
+    [filterCtx, capExpanded],
+  );
+
+  const systemResolved = useMemo(
+    () => resolveNavigationTree(SYSTEM_NAV_ITEMS, filterCtx),
+    [filterCtx],
+  );
+
+  const grouped = useMemo(() => {
+    return GROUP_RENDER_ORDER.map((group) => ({
+      group,
+      items: resolved.filter((i) => i.group === group),
+      label: NAV_SECTION_LABEL[group] ?? NAV_GROUP_META[group].label,
+    })).filter((g) => g.items.length > 0);
+  }, [resolved]);
+
+  const sections = useMemo(
+    () =>
+      grouped.map((g) => ({
+        label: g.label,
+        groups: [g],
+      })),
+    [grouped],
+  );
 
   return (
     <aside
       className={cn(
-        "flex flex-col border-r border-white/[0.06] bg-[#111b1d] text-sidebar-text transition-all duration-200 ease-out",
-        collapsed ? "w-[60px]" : "w-60"
+        "flex h-full min-h-0 flex-col border-r border-white/[0.06] bg-[#111b1d] text-sidebar-text transition-all duration-200 ease-out",
+        collapsed ? "w-[60px]" : "w-60",
       )}
     >
-      {/* Brand — 收起时显示图标，展开时显示完整联合品牌 */}
       <div
         className={cn(
           "flex h-13 items-center border-b border-white/[0.06]",
@@ -398,89 +372,57 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
       <OrgSwitcher collapsed={collapsed} organizations={organizations} />
 
-      {/* Navigation */}
-      <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-1.5">
-        {NAV_GROUPS.map((group, gi) => {
-          if (group.adminOnly && !isAdmin) return null;
-          if (group.roles && userRole && !group.roles.includes(userRole)) return null;
-          const visibleItems = group.items.filter((item) => {
-            if (item.adminOnly && !isAdmin) return false;
-            if (item.roles && userRole && !item.roles.includes(userRole)) return false;
-            if (!navHrefAllowedByModules(item.href, orgModules)) return false;
-            return true;
-          });
-          if (visibleItems.length === 0) return null;
-          return (
-            <div
-              key={group.titleKey}
-              className={cn("space-y-px", gi > 0 && (collapsed ? "mt-2 border-t border-white/[0.06] pt-2" : "mt-3"))}
-            >
-              {!collapsed && (
-                <p className="flex items-center gap-1 px-3 pb-1 pt-1.5 text-[10px] font-medium text-white/30">
-                  {m[group.titleKey]}
-                  {group.adminOnly && <Shield size={9} className="text-emerald-400/35" />}
-                </p>
-              )}
-              {visibleItems.map((item) => {
-                const isActive = isItemActive(pathname, item.href);
-                return (
-                  <Link
-                    key={item.href + item.labelKey}
-                    href={item.disabled ? "#" : item.href}
-                    onClick={onNavigate}
-                    className={cn(
-                      "flex min-h-9 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
-                      isActive
-                        ? "bg-sidebar-active text-white"
-                        : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
-                      item.disabled && "cursor-not-allowed opacity-30",
-                      collapsed && "justify-center px-0"
-                    )}
-                  >
-                    <span className="relative shrink-0">
-                      <item.icon size={16} />
-                      {/* 折叠态下直接在图标上挂红点 */}
-                      {collapsed &&
-                        item.href === "/assistant" &&
-                        pendingCount > 0 && (
-                          <span className="absolute -right-1 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-[#c85a3a] px-0.5 text-[9px] font-semibold leading-none text-white">
-                            {pendingCount > 9 ? "9+" : pendingCount}
-                          </span>
-                        )}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="min-w-0 flex-1 truncate">{m[item.labelKey]}</span>
-                        {/* PR4.5：展开态 /assistant 项显示待确认数字徽章 */}
-                        {item.href === "/assistant" && pendingCount > 0 && (
-                          <span
-                            className="ml-auto shrink-0 rounded-full bg-[#c85a3a] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white"
-                            title={`${pendingCount} 条待我确认`}
-                          >
-                            {pendingCount > 99 ? "99+" : pendingCount}
-                          </span>
-                        )}
-                        {item.badgeKey && !(item.href === "/assistant" && pendingCount > 0) && (
-                          <span className="ml-auto shrink-0 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/60">
-                            {m[item.badgeKey]}
-                          </span>
-                        )}
-                        {item.disabled && (
-                          <span className="ml-auto rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-white/30">
-                            {m.sidebar_coming_soon}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          );
-        })}
+      <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 py-1.5">
+        {sections.map((section, si) => (
+          <div
+            key={section.label + si}
+            className={cn(
+              "space-y-px",
+              si > 0 &&
+                (collapsed
+                  ? "mt-2 border-t border-white/[0.06] pt-2"
+                  : "mt-4"),
+            )}
+          >
+            {!collapsed && (
+              <p className="px-3 pb-1 pt-1 text-[10px] font-medium tracking-wide text-white/30">
+                {section.label}
+              </p>
+            )}
+            {section.groups.map((g) =>
+              g.items.map((item) =>
+                item.collapsible && item.children?.length ? (
+                  <CollapsibleNav
+                    key={item.key}
+                    item={item}
+                    collapsed={collapsed}
+                    onNavigate={onNavigate}
+                    pendingCount={pendingCount}
+                    manualExpanded={
+                      item.key === "capabilities" ? capExpanded : null
+                    }
+                    onToggle={() =>
+                      setCapExpanded((prev) => {
+                        const current = prev ?? item.expanded;
+                        return !current;
+                      })
+                    }
+                  />
+                ) : (
+                  <NavLink
+                    key={item.key}
+                    item={item}
+                    collapsed={collapsed}
+                    onNavigate={onNavigate}
+                    pendingCount={pendingCount}
+                  />
+                ),
+              ),
+            )}
+          </div>
+        ))}
       </nav>
 
-      {/* Bottom */}
       <div className="border-t border-white/[0.06] px-2 py-2">
         {!collapsed && (
           <p className="px-2.5 pb-1 text-[10px] font-medium text-white/25">
@@ -488,27 +430,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           </p>
         )}
         <div className="space-y-px">
-          {BOTTOM_ITEMS.map((item) => {
-            const isActive = isItemActive(pathname, item.href);
-            return (
-              <Link
-                key={item.labelKey}
-                href={item.disabled ? "#" : item.href}
-                onClick={onNavigate}
-                className={cn(
-                  "flex min-h-9 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
-                  isActive
-                    ? "bg-sidebar-active text-white"
-                    : "text-white/50 hover:bg-sidebar-hover hover:text-white/80",
-                  item.disabled && "cursor-not-allowed opacity-30",
-                  collapsed && "justify-center px-0"
-                )}
-              >
-                <item.icon size={16} />
-                {!collapsed && <span>{m[item.labelKey]}</span>}
-              </Link>
-            );
-          })}
+          {systemResolved.map((item) => (
+            <NavLink
+              key={item.key}
+              item={item}
+              collapsed={collapsed}
+              onNavigate={onNavigate}
+              pendingCount={0}
+            />
+          ))}
         </div>
       </div>
     </aside>

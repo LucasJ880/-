@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { MobileTabBar } from "./mobile-tab-bar";
+import { MobileNavDrawer } from "./mobile-nav-drawer";
 import { ActiveOrgHydrator } from "./active-org-hydrator";
-import { X } from "lucide-react";
 import { LocaleProvider } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 
@@ -44,31 +44,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ActiveOrgHydrator />
       <div className="flex h-screen-safe overflow-hidden bg-app-mesh pwa-safe-top">
         {/* Desktop sidebar — hidden on mobile */}
-        <div className="hidden md:flex">
+        <div className="hidden h-full min-h-0 md:flex">
           <Sidebar />
         </div>
 
-        {/* Mobile sidebar overlay */}
-        {mobileOpen && (
-          <div className="fixed inset-0 z-50 flex md:hidden">
-            {/* Backdrop */}
-            <div
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-              onClick={closeMobileSidebar}
-            />
-            {/* Drawer */}
-            <div className="relative z-10 flex w-[280px] animate-in slide-in-from-left duration-200">
-              <Sidebar onNavigate={closeMobileSidebar} />
-              <button
-                onClick={closeMobileSidebar}
-                className="absolute right-2 top-3 z-20 rounded-full bg-white/10 p-1.5 text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-                aria-label="关闭菜单"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Mobile：一级分类 → 二级菜单（不用超长桌面侧栏） */}
+        <MobileNavDrawer open={mobileOpen} onClose={closeMobileSidebar} />
 
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm">

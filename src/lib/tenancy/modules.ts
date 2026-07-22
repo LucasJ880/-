@@ -71,6 +71,7 @@ export const NAV_HREF_MODULES: Record<string, OrgModule[]> = {
   "/operations/center": ["operations"],
   "/service-inbox": ["operations", "sales", "trade"],
   "/marketing": ["marketing"],
+  "/operations/growth": ["marketing", "operations"],
 };
 
 export function parseOrgModulesJson(raw: unknown): OrgModulesConfig | null {
