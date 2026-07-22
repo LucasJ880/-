@@ -7,6 +7,7 @@
 
 import { logger } from "@/lib/common/logger";
 import { getRequestContext } from "@/lib/common/request-context";
+import { bridgeMonitorAiCallToLedger } from "@/lib/ai/usage-ledger-bridge";
 
 interface CallRecord {
   model: string;
@@ -74,6 +75,13 @@ export function recordAiCall(input: RecordAiCallInput) {
     userId: record.userId,
     err: input.error,
   });
+
+  // Phase 3A-2：best-effort 写入统一账本（无 orgId 时跳过；失败不阻断业务）
+  try {
+    bridgeMonitorAiCallToLedger(input);
+  } catch {
+    // 已在 bridge / record 内吞错；此处防止同步路径抛出
+  }
 }
 
 /** 从 OpenAI 响应 usage 提取 token 数（类型宽松以兼容 DeepSeek 等） */

@@ -70,6 +70,7 @@ export const zh: Messages = {
   nav_ai_memory: "组织知识",
   nav_agent_trace: "AI 工作台",
   nav_ai_activity: "自动化记录",
+  nav_capabilities_runs: "运行中心",
   nav_weekly_reports: "经营简报",
   nav_publish_calendar: "内容运营",
   nav_operations_center: "经营中心",
