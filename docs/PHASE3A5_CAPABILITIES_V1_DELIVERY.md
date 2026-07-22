@@ -4,6 +4,11 @@
 **基线**：PR #12 merge `82766aa`（Navigation IA）  
 **范围**：仅六项收口；**不**开 Phase 3B；**不**改一级导航。
 
+**合入状态**：MERGED via PR #13  
+**Merge commit**：`19c1200ffd3af9199dbcb681afd710d3a1192200`  
+**Phase 3A 状态**：见 `docs/PHASE3A_COMPLETE.md` — **COMPLETE**
+
+
 ### Commits（相对 main 共 4 个，均属 Phase 3A-5）
 
 | SHA | Message | 说明 |
