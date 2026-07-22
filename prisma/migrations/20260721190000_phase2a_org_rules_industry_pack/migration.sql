@@ -7,7 +7,7 @@ ALTER TABLE "Organization" ADD COLUMN IF NOT EXISTS "industryPackId" TEXT;
 ALTER TABLE "QuoteDiscountSettings" ADD COLUMN IF NOT EXISTS "orgId" TEXT;
 ALTER TABLE "QuoteDiscountSettings" ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE "QuoteDiscountSettings" ADD COLUMN IF NOT EXISTS "effectiveAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE "QuoteDiscountSettings" ADD COLUMN IF NOT EXISTS "lineDiscountUnlockCodeHash" TEXT;
+ALTER TABLE "QuoteDiscountSettings" ADD COLUMN IF NOT EXISTS "lineDiscountUnlockCode" TEXT;
 
 -- 为每个现有组织复制一份当前 singleton（若有）配置
 DO $$
@@ -34,7 +34,7 @@ BEGIN
           zebra, shangrila, cellular, roller, drapery, sheer, shutters, honeycomb,
           "promoWarnPct", "promoDangerPct", "promoMaxPct",
           "depositWarnPct", "depositMinPct", "depositOverrideCode",
-          "lineDiscountUnlockCodeHash", "updatedAt", "updatedBy"
+          "lineDiscountUnlockCode", "updatedAt", "updatedBy"
         ) VALUES (
           'qds_' || replace(gen_random_uuid()::text, '-', ''),
           org_rec.id,
@@ -53,8 +53,7 @@ BEGIN
           COALESCE(singleton_row."promoMaxPct", 0.25),
           COALESCE(singleton_row."depositWarnPct", 0.40),
           COALESCE(singleton_row."depositMinPct", 0.30),
-          -- 遗留 singleton 若含定金码明文：不迁移明文到新行（需管理员重设）
-          NULL,
+          singleton_row."depositOverrideCode",
           NULL,
           CURRENT_TIMESTAMP,
           singleton_row."updatedBy"

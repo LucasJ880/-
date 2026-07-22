@@ -70,3 +70,4 @@ cursor-agent-team
 /backups/
 # Local design explorations
 prototypes/
+.tmp/

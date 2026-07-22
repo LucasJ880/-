@@ -112,6 +112,16 @@ async function main() {
   });
   console.log(`行折扣解锁码: ${unlockResult.status}`, unlockResult);
 
+  const { ensureBaselineOrgRules } = await import("../src/lib/org-rules/service");
+  const baselineRules = await ensureBaselineOrgRules({
+    orgId: org.id,
+    userId: owner.id,
+  });
+  console.log(
+    "基线 OrgBusinessRule:",
+    baselineRules.map((r) => `${r.ruleKey}:${r.status}`).join(", "),
+  );
+
   await db.organizationMember.upsert({
     where: { orgId_userId: { orgId: org.id, userId: owner.id } },
     update: { role: "org_admin", status: "active" },
