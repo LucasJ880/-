@@ -20,6 +20,8 @@ export async function GET(request: NextRequest) {
   const resolved = await resolvePreferredOrgId(user.id, user.role);
   let modules: ReturnType<typeof parseOrgModulesJson> = null;
   let orgCode: string | null = null;
+  let workspaceIds: string[] = [];
+  let orgRole: string | null = null;
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
@@ -27,12 +29,33 @@ export async function GET(request: NextRequest) {
     });
     orgCode = org?.code ?? null;
     modules = parseOrgModulesJson(org?.modulesJson);
+    const [member, workspaces] = await Promise.all([
+      db.organizationMember.findUnique({
+        where: {
+          orgId_userId: { orgId: resolved.orgId, userId: user.id },
+        },
+        select: { role: true, status: true },
+      }),
+      db.workspaceMember.findMany({
+        where: {
+          userId: user.id,
+          status: "active",
+          workspace: { orgId: resolved.orgId, status: "active" },
+        },
+        select: { workspaceId: true },
+      }),
+    ]);
+    if (member?.status === "active") orgRole = member.role;
+    workspaceIds = workspaces.map((w) => w.workspaceId);
   }
 
   return NextResponse.json({
     activeOrgId: resolved.orgId,
     orgCode,
     modules,
+    orgRole,
+    workspaceIds,
+    hasMembership: Boolean(orgRole),
     needsSelection: resolved.needsSelection,
     organizations: resolved.organizations,
   });

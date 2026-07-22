@@ -37,6 +37,13 @@ export interface Messages {
   nav_group_operations: string;
   nav_group_admin: string;
   nav_group_system: string;
+  nav_group_work: string;
+  nav_group_ops: string;
+  nav_group_capabilities: string;
+  nav_group_business: string;
+  nav_group_growth: string;
+  nav_group_management: string;
+  nav_group_platform: string;
 
   // 导航项
   nav_dashboard: string;
@@ -75,7 +82,12 @@ export interface Messages {
   nav_ai_activity: string;
   nav_capabilities_runs: string;
   nav_capabilities_approvals: string;
+  nav_capabilities_hub: string;
+  nav_capabilities_overview: string;
+  nav_capabilities_catalog: string;
   nav_capabilities_governance: string;
+  nav_capabilities_health: string;
+  nav_growth_hub: string;
   nav_weekly_reports: string;
   nav_publish_calendar: string;
   nav_operations_center: string;
