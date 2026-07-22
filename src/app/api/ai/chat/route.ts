@@ -28,7 +28,20 @@ import {
 } from "@/lib/ai";
 
 export const POST = withAuth(async (request, _ctx, user) => {
-  const tenant = await requireStreamTenant(request);
+  // Phase 3A-5：先解析 body，再租户预检；body.orgId 仅交叉校验，不可作信任源
+  const body = (await request.json().catch(() => ({}))) as {
+    messages?: Parameters<typeof prepareConversation>[0];
+    orgId?: unknown;
+  };
+  const claimedBodyOrgId =
+    typeof body.orgId === "string" ? body.orgId.trim() : null;
+  const workspaceId =
+    request.nextUrl.searchParams.get("workspaceId")?.trim() || null;
+
+  const tenant = await requireStreamTenant(request, {
+    claimedBodyOrgId,
+    workspaceId,
+  });
   if (tenant instanceof NextResponse) return tenant;
 
   const rl = await checkRateLimitAsync(
@@ -56,7 +69,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     );
   }
 
-  const { messages: rawMessages } = await request.json();
+  const rawMessages = body.messages ?? [];
 
   const reqCtx = getRequestContext();
   const sessionKey = buildStreamSessionKey({

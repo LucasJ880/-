@@ -4,6 +4,18 @@
 **基线**：PR #12 merge `82766aa`（Navigation IA）  
 **范围**：仅六项收口；**不**开 Phase 3B；**不**改一级导航。
 
+### Commits（相对 main 共 4 个，均属 Phase 3A-5）
+
+| SHA | Message | 说明 |
+|---|---|---|
+| `b395c35` | `docs(capabilities): add Phase 3A-5 V1 gap audit` | 差距审计（仅文档），属本阶段范围锁定 |
+| `8075672` | `feat(capabilities): enforce streaming tenancy and settle AI usage costs` | 流式预检 + soft 通知 + 结算 |
+| `5940449` | `feat(capabilities): complete capability catalog and configuration health` | Catalog + config-health |
+| `eb2ca34` | `feat(capabilities): finish Phase 3A-5 capabilities V1 experience` | 总览收口 + 验收 + 交付文档 |
+| `6428b1a` | `fix(capabilities): wire orgId into hub UI and close stream guard gaps` | 合入前验收修复：api-fetch orgId、chat 交叉校验、冒烟与截图 |
+
+说明：相对 main 最终为 **5 个 Commit**（3 feat + gap audit 文档 + 验收 fix），全部属于 Phase 3A-5，无误带 merge/rebase。
+
 ---
 
 ## 1. 中台 V1 架构
@@ -146,35 +158,60 @@
 
 ## 14. 测试
 
-| 套件 | 覆盖 |
-|---|---|
-| `phase3a5-stream-settle.test.ts` | 预检码、session key、结算逻辑 |
-| `phase3a5-settle-db.test.ts` | DB 结算 / idempotency |
-| `phase3a5-catalog-health.test.ts` | Pack 不回退、状态枚举 |
-| `phase3a5-overview-acceptance.test.ts` | 总览 + 双租户 |
+| 套件 | 覆盖 | 合入前实测 |
+|---|---|---|
+| `phase3a5-stream-settle.test.ts` | 预检码、session key、结算逻辑 | ✅ 10/10 |
+| `phase3a5-settle-db.test.ts` | DB 结算 / idempotency | ✅ 8/8 |
+| `phase3a5-catalog-health.test.ts` | Pack 不回退、状态枚举 | ✅ 7/7 |
+| `phase3a5-overview-acceptance.test.ts` | 总览 + 双租户 | ✅ 23/23 |
+| `scripts/phase3a5-capabilities-acceptance-smoke.mjs` | 六页 API/UI + 流式 | ✅ 49/49 |
+| `scripts/phase3a5-stream-ledger-verify.ts` | ledger/reservation/去重 | ✅ 10/10 |
+| `./scripts/test-all.sh` | 全量 | ⚠️ 99/102（见下） |
+
+**test-all 未通过项（如实记录，非本 PR 引入的阻断项）：**
+
+1. **Image Engine FormData 传图证明** — 既有基线（`metadata 不含 URL`）  
+2. **AI 工作事项分类** — 外部 API `401 Unauthorized`（环境密钥，非中台回归）  
+3. **Agent Trace 只读查询** — 测试用假 `orgId` 触发 `CapabilityQuotaReservation` FK（与 3A-4 预留挂接交互；非导航/中台页面回归）
+
+Phase 3A-1～4、Navigation IA、3A-5 专项均在 test-all 中通过。
+
+截图：`docs/phase3a5-screenshots/`（Sunny / 梦馨 × 1440 / 1280 / 390）。
 
 ---
 
 ## 15. tsc
 
-交付前执行 `npx tsc --noEmit`，须通过。
+`npx tsc --noEmit` ✅ 通过（合入前）。
 
 ---
 
 ## 16. build
 
-交付前执行 `npm run build`（或项目等价命令），须通过。
+`npx next build` ✅ 通过（合入前）。
 
 ---
 
 ## 17. 已知限制
 
 1. Workflow / Prompt Template 多为 `MISSING_CONFIG` 占位投影  
-2. Soft limit 仅站内通知，无邮件/Webhook  
+2. Soft limit 仅站内通知，无邮件/Webhook；本环境 Sunny 配额已 `HARD_LIMIT`，live soft 通知以单测覆盖为主  
 3. `createCompletionDetailed` 非流式路径 orgId 仍可选（流式已强制）  
 4. Agent 工具循环内结算完整度弱于 direct chat  
 5. Workspace members CRUD、Agent Builder、Eval、正式账单 → Phase 3B/3C  
 6. 未删除旧成本表  
+7. 验收修复：`api-fetch` 将 `/api/capabilities` 纳入 org-scoped，避免多组织 UI 漏带 orgId  
+
+### 合入前验收摘录（nav-qa）
+
+| 项 | Sunny | 梦馨 |
+|---|---|---|
+| Industry Pack | `window_covering_services_v1` | `home_textile_trade_v1` |
+| 本月成本 | ~USD 3.41 | ~USD 0.05（流式后） |
+| 配额 | HARD_LIMIT（流式前拦截） | OK（流式成功） |
+| 配置健康 overall | MISSING | MISSING |
+| body.orgId 错配 | `ORG_CONTEXT_MISMATCH` | — |
+| Workspace 假 id | `WORKSPACE_ACCESS_DENIED` | — |
 
 ---
 
