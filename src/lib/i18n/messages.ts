@@ -75,6 +75,7 @@ export interface Messages {
   nav_ai_activity: string;
   nav_capabilities_runs: string;
   nav_capabilities_approvals: string;
+  nav_capabilities_governance: string;
   nav_weekly_reports: string;
   nav_publish_calendar: string;
   nav_operations_center: string;

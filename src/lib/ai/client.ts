@@ -93,6 +93,10 @@ export interface CompletionOptions {
   maxTokens?: number;
   timeoutMs?: number;
   reasoningEffort?: "low" | "medium" | "high";
+  /** Phase 3A-4：可信租户上下文时做月费用预检 */
+  orgId?: string;
+  userId?: string;
+  workspaceId?: string;
 }
 
 export async function createCompletion(opts: CompletionOptions): Promise<string> {
@@ -112,6 +116,20 @@ export interface DetailedCompletionResult {
 export async function createCompletionDetailed(
   opts: CompletionOptions,
 ): Promise<DetailedCompletionResult> {
+  if (opts.orgId && opts.userId) {
+    const { precheckMonthlyAiCost } = await import(
+      "@/lib/capabilities/governance/precheck"
+    );
+    const budget = await precheckMonthlyAiCost({
+      orgId: opts.orgId,
+      userId: opts.userId,
+      workspaceId: opts.workspaceId,
+    });
+    if (!budget.allowed) {
+      throw new Error("配额限制：月 AI 费用已达 hard limit");
+    }
+  }
+
   const preset = getTaskPreset(opts.mode ?? "normal");
   const client = getClient();
   const actualModel = opts.model ?? preset.model;

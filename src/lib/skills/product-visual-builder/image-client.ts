@@ -41,6 +41,10 @@ export interface GenerateProductVisualImageParams {
   /** 默认 true；为 false 时不调用模型，返回 disabled。 */
   generateEnabled?: boolean;
   requestId?: string;
+  /** Phase 3A-4：有可信 orgId 时做配额预留 */
+  orgId?: string;
+  userId?: string;
+  workspaceId?: string;
 }
 
 export interface GeneratedImage {
@@ -133,10 +137,48 @@ export async function generateProductVisualImage(
 
   const size: VisualImageSize = params.size ?? "1024x1024";
 
+  let reservationId: string | null = null;
+  if (params.orgId && params.userId) {
+    const { reserveQuota, commitReservation, releaseReservation } = await import(
+      "@/lib/capabilities/governance/reserve"
+    );
+    const reserved = await reserveQuota({
+      orgId: params.orgId,
+      userId: params.userId,
+      workspaceId: params.workspaceId,
+      metric: "DAILY_IMAGE_GENERATIONS",
+      amount: 1,
+      idempotencyKey: `image_gen:${params.orgId}:${params.requestId ?? Date.now()}`,
+    });
+    if (!reserved.ok) {
+      throw new Error(reserved.error ?? "图片生成配额已达 hard limit");
+    }
+    reservationId = reserved.reservationId;
+    // 月费用保守估算预留（estimated）
+    await reserveQuota({
+      orgId: params.orgId,
+      userId: params.userId,
+      workspaceId: params.workspaceId,
+      metric: "MONTHLY_AI_COST",
+      amount: 0.12,
+      idempotencyKey: `image_cost:${params.orgId}:${params.requestId ?? Date.now()}`,
+    }).catch(() => null);
+  }
+
   let results: { base64: string }[];
   try {
     results = await deps.generate({ model, prompt: params.prompt, size });
   } catch (err) {
+    if (reservationId && params.orgId && params.userId) {
+      const { releaseReservation } = await import(
+        "@/lib/capabilities/governance/reserve"
+      );
+      await releaseReservation({
+        reservationId,
+        orgId: params.orgId,
+        userId: params.userId,
+      });
+    }
     // 不泄露 prompt / apiKey：仅透出底层错误消息
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`图片生成失败（model=${model}）：${msg}`);
@@ -151,7 +193,28 @@ export async function generateProductVisualImage(
     }));
 
   if (images.length === 0) {
+    if (reservationId && params.orgId && params.userId) {
+      const { releaseReservation } = await import(
+        "@/lib/capabilities/governance/reserve"
+      );
+      await releaseReservation({
+        reservationId,
+        orgId: params.orgId,
+        userId: params.userId,
+      });
+    }
     throw new Error(`图片生成返回空结果（model=${model}）`);
+  }
+
+  if (reservationId && params.orgId && params.userId) {
+    const { commitReservation } = await import(
+      "@/lib/capabilities/governance/reserve"
+    );
+    await commitReservation({
+      reservationId,
+      orgId: params.orgId,
+      userId: params.userId,
+    });
   }
 
   return {

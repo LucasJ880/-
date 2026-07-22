@@ -154,6 +154,65 @@ class ToolRegistry {
       return { success: false, data: null, error: decision.error };
     }
 
+    // Phase 3A-4：高风险 Tool 配额（l2+）
+    const risk = tool.risk ?? "l0_read";
+    const highRisk = risk === "l2_soft" || risk === "l3_strong";
+    let reservationId: string | null = null;
+    if (highRisk && ctx.orgId && ctx.hasMembership) {
+      try {
+        const { reserveQuota, commitReservation, releaseReservation } =
+          await import("@/lib/capabilities/governance/reserve");
+        const reserved = await reserveQuota({
+          orgId: ctx.orgId,
+          userId: ctx.userId,
+          workspaceId: ctx.workspaceId,
+          metric: "DAILY_HIGH_RISK_TOOL_CALLS",
+          amount: 1,
+          idempotencyKey: `tool:${ctx.orgId}:${name}:${ctx.agentRunId ?? ctx.sessionId ?? "nosession"}:${Date.now()}`,
+        });
+        if (!reserved.ok) {
+          return {
+            success: false,
+            data: null,
+            error: reserved.error ?? "高风险 Tool 配额已达 hard limit",
+          };
+        }
+        reservationId = reserved.reservationId;
+        const result = await tool.execute({
+          ...ctx,
+          role: normalizeRole(ctx.role),
+        });
+        if (result.success) {
+          await commitReservation({
+            reservationId,
+            orgId: ctx.orgId,
+            userId: ctx.userId,
+          });
+        } else {
+          await releaseReservation({
+            reservationId,
+            orgId: ctx.orgId,
+            userId: ctx.userId,
+          });
+        }
+        return result;
+      } catch (e) {
+        if (reservationId) {
+          const { releaseReservation } = await import(
+            "@/lib/capabilities/governance/reserve"
+          );
+          await releaseReservation({
+            reservationId,
+            orgId: ctx.orgId,
+            userId: ctx.userId,
+          });
+        }
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[ToolRegistry] Tool ${name} failed:`, msg);
+        return { success: false, data: null, error: msg };
+      }
+    }
+
     // 遗留：归一化平台 role 供工具内数据范围使用
     const role = normalizeRole(ctx.role);
 
