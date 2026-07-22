@@ -73,6 +73,7 @@ export interface Messages {
   nav_ai_memory: string;
   nav_agent_trace: string;
   nav_ai_activity: string;
+  nav_capabilities_runs: string;
   nav_weekly_reports: string;
   nav_publish_calendar: string;
   nav_operations_center: string;

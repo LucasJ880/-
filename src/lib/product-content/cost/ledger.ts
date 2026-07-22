@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
 import { getOrCreateApprovalSettings } from "@/lib/product-content/approval/settings";
+import { recordAiUsageBestEffort } from "@/lib/capabilities/usage/record";
+import { centsToUsd } from "@/lib/capabilities/usage/pricing";
 
 export type CostCategory =
   | "image_edit"
@@ -56,6 +58,36 @@ export async function recordCostEntry(input: RecordCostEntryInput) {
     data: {
       estimatedCostCents: summary.estimatedCents,
       costCents: summary.actualCents,
+    },
+  });
+
+  // Phase 3A-2：双写统一账本（稳定 idempotency；失败不阻断 PC 业务）
+  const usageType =
+    input.category === "image_edit" || input.category === "fidelity_qa"
+      ? ("IMAGE" as const)
+      : input.category === "copy" || input.category === "document"
+        ? ("TEXT" as const)
+        : ("OTHER" as const);
+  recordAiUsageBestEffort({
+    orgId: input.orgId,
+    sourceType: "PRODUCT_CONTENT",
+    sourceId: entry.id,
+    idempotencyKey: `product_content_cost:${entry.id}`,
+    provider: (input.provider ?? "openai").toLowerCase(),
+    model: input.model ?? `pc:${input.category}`,
+    usageType,
+    imageCount: input.category === "image_edit" ? 1 : null,
+    durationMs: input.latencyMs ?? null,
+    costAmount: centsToUsd(actual),
+    currency: input.currency ?? "USD",
+    pricingVersion: "product-content-cents-v1",
+    pricingMode: "estimated",
+    status: "ESTIMATED",
+    occurredAt: entry.createdAt,
+    metadata: {
+      jobId: input.jobId,
+      category: input.category,
+      pricingMode: "estimated",
     },
   });
 

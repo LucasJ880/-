@@ -665,6 +665,9 @@ model Organization {
   businessMetricDefinitions  BusinessMetricDefinition[]
   workspaceSkillBindings     WorkspaceSkillBinding[]
   workspaceKnowledgeBindings WorkspaceKnowledgeBinding[]
+
+  // Phase 3A-2：统一 AI 使用成本账本
+  aiUsageLedgers             AiUsageLedger[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -5458,6 +5461,56 @@ model ProductContentCostEntry {
   createdAt      DateTime          @default(now())
 
   @@index([orgId, jobId])
+}
+
+/// Phase 3A-2：最小统一 AI 使用成本账本（不替代 ProductContentCostEntry）
+/// sourceType: AGENT_RUNTIME | PRODUCT_CONTENT | IMAGE_ENGINE | SUPERVISOR | WORKFLOW | MANUAL_IMPORT
+/// usageType: TEXT | IMAGE | EMBEDDING | AUDIO | OTHER
+/// status: SUCCEEDED | FAILED | PARTIAL | ESTIMATED
+model AiUsageLedger {
+  id                 String       @id @default(cuid())
+  orgId              String
+  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId        String?
+  projectId          String?
+  userId             String?
+
+  traceId            String?
+  runId              String?
+  parentRunId        String?
+
+  sourceType         String
+  sourceId           String?
+  idempotencyKey     String       @unique
+
+  provider           String
+  model              String
+  usageType          String
+
+  inputTokens        Int?
+  outputTokens       Int?
+  cachedInputTokens  Int?
+  imageCount         Int?
+  audioSeconds       Float?
+
+  durationMs         Int?
+  costAmount         Decimal      @db.Decimal(18, 6)
+  currency           String       @default("USD")
+  pricingVersion     String?
+
+  status             String
+  errorCode          String?
+  occurredAt         DateTime
+  createdAt          DateTime     @default(now())
+
+  metadataJson       Json?
+
+  @@index([orgId, occurredAt])
+  @@index([workspaceId, occurredAt])
+  @@index([traceId])
+  @@index([runId])
+  @@index([provider, model])
+  @@index([orgId, sourceType, sourceId])
 }
 
 model ProductContentJobInput {

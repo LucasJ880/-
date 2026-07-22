@@ -10,3 +10,12 @@ export {
 export {
   TOOL_CALL_TRACE_ORG_DEBT,
 } from "./adapters/tool-call-trace";
+export { listCapabilityRuns } from "./runs/list";
+export { getCapabilityRunDetail } from "./runs/detail";
+export {
+  recordAiUsage,
+  recordAiUsageBestEffort,
+  getUsageSummary,
+  getUsageTimeseries,
+  listLedgerForRun,
+} from "./usage";
