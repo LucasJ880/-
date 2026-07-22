@@ -44,7 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ActiveOrgHydrator />
       <div className="flex h-screen-safe overflow-hidden bg-app-mesh pwa-safe-top">
         {/* Desktop sidebar — hidden on mobile */}
-        <div className="hidden md:flex">
+        <div className="hidden h-full min-h-0 md:flex">
           <Sidebar />
         </div>
 

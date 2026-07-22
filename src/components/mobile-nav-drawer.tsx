@@ -24,6 +24,8 @@ import {
 } from "@/lib/navigation";
 import { useLocale } from "@/lib/i18n/context";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { OrgSwitcher } from "@/components/org-switcher";
+import { CoBrand } from "@/components/co-brand";
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -147,8 +149,8 @@ export function MobileNavDrawer({
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 flex w-[300px] flex-col bg-[#111b1d] text-white animate-in slide-in-from-left duration-200">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+      <div className="relative z-10 flex h-full max-h-screen w-[300px] flex-col bg-[#111b1d] text-white animate-in slide-in-from-left duration-200 pb-safe">
+        <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
           {drill ? (
             <button
               type="button"
@@ -159,7 +161,7 @@ export function MobileNavDrawer({
               返回分类
             </button>
           ) : (
-            <span className="text-sm font-medium">导航</span>
+            <CoBrand size="sm" variant="sidebar" />
           )}
           <button
             type="button"
@@ -171,23 +173,39 @@ export function MobileNavDrawer({
           </button>
         </div>
 
+        {!drill && (
+          <div className="border-b border-white/10 pt-1">
+            <OrgSwitcher compact organizations={organizations} />
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto px-2 py-3">
           {!drill && (
             <ul className="space-y-1">
               {MOBILE_TOP_CATEGORIES.map((cat) => {
                 const items = categoryItems(cat.key);
+                const needsMembership = [
+                  "OPERATIONS",
+                  "CAPABILITIES",
+                  "BUSINESS",
+                  "GROWTH",
+                  "MANAGEMENT",
+                ].includes(cat.key);
+                if (needsMembership && !ctx.hasMembership) return null;
+                // BUSINESS 无稳定落地页：无二级入口时不展示空分类
+                if (cat.key === "BUSINESS" && items.length === 0) return null;
                 if (
                   cat.key !== "WORK" &&
-                  cat.key !== "OPERATIONS" &&
                   items.length === 0 &&
                   !cat.href
                 ) {
                   return null;
                 }
-                // 无 membership 隐藏能力中台
-                if (cat.key === "CAPABILITIES" && !ctx.hasMembership) {
-                  return null;
-                }
+                const groupActive = resolved.some(
+                  (i) =>
+                    i.group === cat.key &&
+                    (i.active || i.children?.some((c) => c.active)),
+                );
                 return (
                   <li key={cat.key}>
                     {cat.href && items.length <= 1 ? (
@@ -196,7 +214,8 @@ export function MobileNavDrawer({
                         onClick={onClose}
                         className={cn(
                           "flex min-h-11 items-center rounded-md px-3 text-[15px]",
-                          pathname.startsWith(cat.href) ||
+                          groupActive ||
+                            pathname.startsWith(cat.href) ||
                             (cat.href === "/" && pathname === "/")
                             ? "bg-white/10 text-white"
                             : "text-white/75 hover:bg-white/5",
@@ -215,7 +234,12 @@ export function MobileNavDrawer({
                           }
                           setDrill(cat.key);
                         }}
-                        className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-[15px] text-white/75 hover:bg-white/5"
+                        className={cn(
+                          "flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-[15px] hover:bg-white/5",
+                          groupActive
+                            ? "bg-white/10 text-white"
+                            : "text-white/75",
+                        )}
                       >
                         <span>{cat.label}</span>
                         <span className="text-white/35">›</span>

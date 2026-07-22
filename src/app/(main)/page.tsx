@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronUp, Loader2, MessagesSquare, Radar } from "lucide-react";
 import Link from "next/link";
 import { DashboardDailyBriefing } from "@/components/dashboard/dashboard-daily-briefing";
@@ -18,11 +18,34 @@ import { ProjectQuickViewDrawer } from "@/components/project/project-quick-view-
 import { TaskDrawer } from "@/components/tasks/task-drawer";
 import { useDashboardData } from "@/components/dashboard/use-dashboard-data";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { useOrganizations } from "@/lib/hooks/use-organizations";
+import { readStoredOrgId } from "@/lib/org-selection";
 import { isAdmin as checkIsAdmin } from "@/lib/permissions-client";
 import type { ReminderItemData } from "@/components/dashboard/types";
 
+function subscribeOrgStorage(cb: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", cb);
+  window.addEventListener("qingyan-org-storage", cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener("qingyan-org-storage", cb);
+  };
+}
+
 export default function Dashboard() {
   const { user } = useCurrentUser();
+  const { organizations } = useOrganizations();
+  const storedOrgId = useSyncExternalStore(
+    subscribeOrgStorage,
+    readStoredOrgId,
+    () => "",
+  );
+  const activeOrg =
+    organizations.find((o) => o.id === storedOrgId) ?? organizations[0];
+  const orgEyebrow = activeOrg?.name
+    ? `${activeOrg.name} · 经营总览`
+    : "经营总览";
   const userRole = user?.role || "user";
   const showProjectModules = checkIsAdmin(userRole) || userRole === "user";
   const showSalesModules = checkIsAdmin(userRole) || userRole === "sales";
@@ -100,7 +123,7 @@ export default function Dashboard() {
       <section className="border-b border-border pb-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[11px] font-medium text-muted">SUNNY SHUTTER · BUSINESS OPERATIONS</p>
+            <p className="text-[11px] font-medium text-muted">{orgEyebrow}</p>
             <h1 className="mt-1 text-2xl font-semibold">经营总览</h1>
             <p className="mt-1 text-sm text-muted">
               {userName ? `${userName}，` : ""}以下是当前业务节奏和需要推进的重点事项。

@@ -121,20 +121,13 @@ export default function CapabilitiesOverviewPage() {
         <p className="text-sm text-muted-foreground">加载中…</p>
       ) : (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <StatCard label="近期运行" value={String(runsTotal)} />
-            <StatCard label="等待审批" value={String(pendingApprovals)} />
+          <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+            <StatCard label="今日/近期运行" value={String(runsTotal)} />
+            <StatCard label="待审批" value={String(pendingApprovals)} />
             <StatCard label="运行失败" value={String(failedRuns)} />
             <StatCard label="本月 AI 成本" value={monthCost} />
-            <StatCard label="配置健康" value="见健康页" />
-            <StatCard
-              label="当前异常"
-              value={
-                pendingApprovals + failedRuns > 0
-                  ? `${pendingApprovals + failedRuns} 项待处理`
-                  : "暂无"
-              }
-            />
+            <StatCard label="配额状态" value="见治理中心" />
+            <StatCard label="配置健康" value="查看详情" />
           </section>
 
           <section className="space-y-3">

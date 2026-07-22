@@ -18,10 +18,17 @@ function modulesOk(
     const keys = Array.isArray(item.moduleKey)
       ? item.moduleKey
       : [item.moduleKey];
+    // 有企业 membership 时必须等 modules 就绪；未加载/空配置 fail-closed，避免双租户串菜单
+    if (ctx.hasMembership && !ctx.modules?.enabled?.length) return false;
+    // 无 membership 的兼容路径：未配置 modules 时不按模块拦截
     if (!ctx.modules?.enabled?.length) return true;
     if (!keys.some((k) => ctx.modules!.enabled.includes(k))) return false;
   }
-  if (item.href && !navHrefAllowedByModules(item.href, ctx.modules)) {
+  if (
+    item.href &&
+    ctx.modules?.enabled?.length &&
+    !navHrefAllowedByModules(item.href, ctx.modules)
+  ) {
     return false;
   }
   return true;
@@ -111,22 +118,23 @@ function resolveItem(
     exact: item.exact,
     matchPaths: item.matchPaths,
   });
-  const childActive = childResolved.some((c) => c.active || c.expanded);
-  const active = selfActive || (childActive && !item.children?.length);
+  // 仅看子级 active；叶子项 expanded 恒为 false，不可据此冒泡展开父级
+  const childActive = childResolved.some((c) => c.active);
   const inCapabilities =
     item.group === "CAPABILITIES" && isCapabilitiesPath(ctx.pathname);
-  const expanded = Boolean(
-    forceExpand ||
-      !item.collapsible ||
-      childActive ||
-      selfActive ||
-      (item.collapsible && inCapabilities && item.key === "capabilities"),
-  );
+  const expanded = item.collapsible
+    ? Boolean(
+        forceExpand === true ||
+          childActive ||
+          (item.key === "capabilities" && inCapabilities) ||
+          (forceExpand !== false && selfActive && !item.children?.length),
+      )
+    : false;
 
   return {
     ...item,
     children: childResolved.length ? childResolved : undefined,
-    active: selfActive || (item.collapsible && childActive && !childResolved.some((c) => c.active) ? false : selfActive),
+    active: selfActive,
     expanded,
   };
 }
@@ -170,20 +178,29 @@ export function resolveNavigationTree(
       expanded: false,
     }));
     const childActive = children.some((c) => c.active);
-    const selfExact = pathMatches(ctx.pathname, item.href, {
-      exact: true,
-      matchPaths:
-        item.href === "/capabilities" ? ["/capabilities"] : item.matchPaths,
-    });
+    const selfExact =
+      item.href === "/capabilities"
+        ? pathMatches(ctx.pathname, item.href, { exact: true })
+        : pathMatches(ctx.pathname, item.href, {
+            exact: item.exact,
+            matchPaths: item.matchPaths,
+          });
+    const autoExpandCapabilities =
+      item.key === "capabilities" && isCapabilitiesPath(ctx.pathname);
     return {
       ...item,
       children,
       // 父级：仅在自身总览页时标记；子级 active 由 children 承担
       active: selfExact && !childActive,
-      expanded:
-        item.expanded ||
-        childActive ||
-        Boolean(item.collapsible && isCapabilitiesPath(ctx.pathname)),
+      // 可折叠项：子级 active / 中台路径 / 显式 forceExpand 才展开
+      // 禁止因叶子 !collapsible 误把父级常开
+      expanded: Boolean(
+        item.collapsible &&
+          (opts?.expandCapabilities === true ||
+            childActive ||
+            autoExpandCapabilities ||
+            (selfExact && !childActive && item.key === "capabilities")),
+      ),
     };
   });
 }

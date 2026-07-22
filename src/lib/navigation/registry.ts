@@ -51,15 +51,19 @@ export const NAV_GROUP_META: Record<
   SYSTEM: { label: "系统", order: 90 },
 };
 
-/** 桌面侧栏展示用弱化分组标题（合并相邻业务语义） */
+/**
+ * 桌面侧栏弱化分组标题。
+ * 注意：一级产品顺序为 工作台→经营中心→企业能力中台→业务运营→品牌增长→企业管理，
+ * 因此「企业经营」与「业务运营」不得合并为同一标题（中间夹着中台）。
+ */
 export const NAV_SECTION_LABEL: Partial<Record<NavigationGroup, string>> = {
   WORK: "日常工作",
-  OPERATIONS: "经营与业务",
+  OPERATIONS: "企业经营",
   CAPABILITIES: "AI 能力",
-  BUSINESS: "经营与业务",
-  GROWTH: "增长",
-  MANAGEMENT: "管理",
-  PLATFORM: "平台",
+  BUSINESS: "业务运营",
+  GROWTH: "品牌增长",
+  MANAGEMENT: "企业管理",
+  PLATFORM: "平台运营",
   SYSTEM: "系统",
 };
 
@@ -573,9 +577,10 @@ export const MOBILE_TOP_CATEGORIES: Array<{
   matchPrefix?: string;
 }> = [
   { key: "WORK", label: "工作台", href: "/" },
-  { key: "OPERATIONS", label: "经营中心", href: "/operations/center" },
+  { key: "OPERATIONS", label: "经营", href: "/operations/center" },
   { key: "CAPABILITIES", label: "能力中台", href: "/capabilities" },
+  // 无默认落地页：有二级入口时进入 drill；modules 未就绪或无业务模块时不展示
   { key: "BUSINESS", label: "业务" },
-  { key: "GROWTH", label: "品牌增长", href: "/operations/growth" },
+  { key: "GROWTH", label: "增长", href: "/operations/growth" },
   { key: "MANAGEMENT", label: "管理", href: "/organizations" },
 ];
