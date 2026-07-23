@@ -17,7 +17,7 @@ import { readStoredOrgId } from "@/lib/org-selection";
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { useLocale } from "@/lib/i18n/context";
 import { CoBrand } from "@/components/co-brand";
-import { OrgSwitcher } from "@/components/org-switcher";
+import { OrgIdentityBadge } from "@/components/org-identity-badge";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { apiFetch } from "@/lib/api-fetch";
 import type { OrgModulesConfig } from "@/lib/tenancy/modules";
@@ -370,7 +370,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         </button>
       </div>
 
-      <OrgSwitcher collapsed={collapsed} organizations={organizations} />
+      <OrgIdentityBadge collapsed={collapsed} organizations={organizations} />
 
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 py-1.5">
         {sections.map((section, si) => (

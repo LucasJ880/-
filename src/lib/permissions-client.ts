@@ -79,7 +79,8 @@ export function canAccessModule(role: string | null | undefined, modulePath: str
 }
 
 const ORG_ROLE_LABELS: Record<string, string> = {
-  org_admin: "管理员",
+  org_owner: "企业负责人",
+  org_admin: "企业管理员",
   org_member: "成员",
   org_viewer: "观察者",
 };

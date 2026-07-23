@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
+import { authorize, humanPrincipal } from '@/lib/authorization';
 import { db } from '@/lib/db';
+import { isAdmin } from '@/lib/rbac/roles';
 import { onDealWon, onDealLost } from '@/lib/sales/opportunity-lifecycle';
 import {
   resolveSalesOrgIdForRequest,
-  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 export const PATCH = withAuth(async (request, ctx, user) => {
@@ -20,13 +21,26 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   if (!existing) {
     return NextResponse.json({ error: '机会不存在' }, { status: 404 });
   }
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (
-    ownOnly &&
-    existing.createdById !== user.id &&
-    existing.assignedToId !== user.id
-  ) {
-    return NextResponse.json({ error: '无权修改该机会' }, { status: 403 });
+
+  if (!isAdmin(user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(user, orgRes.orgId),
+      orgId: orgRes.orgId,
+      permission: 'sales.opportunity.update',
+      resource: {
+        type: 'sales_opportunity',
+        id: existing.id,
+        ownerId: existing.createdById,
+        assignedToId: existing.assignedToId,
+        orgId: orgRes.orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: '无权修改该机会', code: decision.reasonCode },
+        { status: 403 },
+      );
+    }
   }
 
   const body = await request.json();
@@ -101,13 +115,25 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: '机会不存在' }, { status: 404 });
   }
 
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (
-    ownOnly &&
-    opportunity.createdById !== user.id &&
-    opportunity.assignedToId !== user.id
-  ) {
-    return NextResponse.json({ error: '无权访问该机会' }, { status: 403 });
+  if (!isAdmin(user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(user, orgRes.orgId),
+      orgId: orgRes.orgId,
+      permission: 'sales.opportunity.read',
+      resource: {
+        type: 'sales_opportunity',
+        id: opportunity.id,
+        ownerId: opportunity.createdById,
+        assignedToId: opportunity.assignedToId,
+        orgId: orgRes.orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: '无权访问该机会', code: decision.reasonCode },
+        { status: 403 },
+      );
+    }
   }
 
   return NextResponse.json(opportunity);

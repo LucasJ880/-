@@ -1,10 +1,11 @@
 /**
- * 外贸模块 — 组织上下文与资源级访问校验
+ * 外贸/销售模块 — 组织上下文与资源级访问校验
  *
- * 规则：
- * - 禁止仅信任 query/body 中的 orgId；必须与用户组织成员关系或平台管理员规则结合。
- * - trade 用户：仅能访问其 active OrganizationMember 所属 org；多组织时必须显式传 orgId。
- * - 平台管理员：必须显式传 orgId，且该 Organization 须存在（不要求管理员本人是成员）。
+ * Security-1 规则：
+ * - 日常业务以 User.activeOrgId 为准，不询问用户组织
+ * - body/query orgId 仅交叉校验，不可覆盖 activeOrgId（不一致 → ORG_CONTEXT_MISMATCH）
+ * - 禁止仅信任裸 orgId；必须校验 active membership
+ * - 平台管理员：必须显式传 orgId，且组织须存在
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -35,7 +36,7 @@ type TradeQuoteWithItemsAndProspect = Prisma.TradeQuoteGetPayload<{
 
 function orgMissingResponse(): NextResponse {
   return NextResponse.json(
-    { error: "缺少 orgId，或您属于多个组织请在请求中指定 orgId" },
+    { error: "缺少工作企业上下文，请联系管理员设置所属企业" },
     { status: 400 },
   );
 }
@@ -44,20 +45,33 @@ function forbiddenOrgResponse(): NextResponse {
   return NextResponse.json({ error: "无权访问该组织的外贸数据" }, { status: 403 });
 }
 
+function orgContextMismatchResponse(): NextResponse {
+  return NextResponse.json(
+    {
+      error: "请求组织与当前工作企业不一致",
+      code: "ORG_CONTEXT_MISMATCH",
+    },
+    { status: 403 },
+  );
+}
+
 async function listActiveOrgIdsForUser(userId: string): Promise<string[]> {
   const rows = await db.organizationMember.findMany({
-    where: { userId, status: "active" },
+    where: {
+      userId,
+      status: "active",
+      org: { status: "active" },
+    },
     select: { orgId: true },
   });
   return rows.map((r) => r.orgId);
 }
 
 /**
- * 解析当前请求对应的外贸 orgId（已做成员关系或管理员校验）。
+ * 解析当前请求对应的 orgId（销售/外贸共用）。
  *
- * - query 优先 `orgId`，否则读 body 中的 `orgId`（若调用方已 parse body 可传入 bodyOrgId）。
- * - 平台管理员：必须提供存在的 organization.id。
- * - 普通 trade/sales/user：必须在 active 成员关系中；单组织可省略 orgId。
+ * Security-1：优先 User.activeOrgId（须为 active membership）；
+ * 显式 orgId 仅允许与 activeOrgId 一致。
  */
 export async function resolveTradeOrgId(
   request: NextRequest,
@@ -90,24 +104,32 @@ export async function resolveTradeOrgId(
     return {
       ok: false,
       response: NextResponse.json(
-        { error: "未加入任何组织，无法使用外贸功能" },
+        { error: "未加入任何有效组织，无法使用企业功能" },
         { status: 403 },
       ),
     };
   }
 
-  if (explicit) {
-    if (!memberships.includes(explicit)) {
-      return { ok: false, response: forbiddenOrgResponse() };
-    }
-    return { ok: true, orgId: explicit };
+  const profile = await db.user.findUnique({
+    where: { id: user.id },
+    select: { activeOrgId: true },
+  });
+  const activeOrgId =
+    profile?.activeOrgId && memberships.includes(profile.activeOrgId)
+      ? profile.activeOrgId
+      : memberships.length === 1
+        ? memberships[0]!
+        : null;
+
+  if (!activeOrgId) {
+    return { ok: false, response: orgMissingResponse() };
   }
 
-  if (memberships.length === 1) {
-    return { ok: true, orgId: memberships[0] };
+  if (explicit && explicit !== activeOrgId) {
+    return { ok: false, response: orgContextMismatchResponse() };
   }
 
-  return { ok: false, response: orgMissingResponse() };
+  return { ok: true, orgId: activeOrgId };
 }
 
 /** 校验用户是否可访问某 orgId（用于已从资源读出 orgId 的场景） */

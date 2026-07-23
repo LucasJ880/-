@@ -4,6 +4,8 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import {
   assertSalesCustomerInOrgForMutation,
+  assertSalesOpportunityInOrgForMutation,
+  resolveSalesAuthorizedWhere,
   resolveSalesOrgIdForRequest,
 } from '@/lib/sales/org-context';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
@@ -85,21 +87,35 @@ export const POST = withAuth(async (request, _ctx, user) => {
   if (!customerRow) {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
   }
-  const customerDenied = await assertSalesCustomerInOrgForMutation(customerRow, requestOrgId);
+  const customerDenied = await assertSalesCustomerInOrgForMutation(
+    customerRow,
+    requestOrgId,
+    { user, permission: 'sales.customer.read' },
+  );
   if (customerDenied) return customerDenied;
 
+  const createAuthz = await resolveSalesAuthorizedWhere(
+    user,
+    requestOrgId,
+    'sales.quote.create',
+    'sales_quote',
+  );
+  if (!createAuthz.ok) return createAuthz.response;
+
   if (opportunityId) {
+    const oppCheck = await assertSalesOpportunityInOrgForMutation(
+      opportunityId,
+      requestOrgId,
+      { user, permission: 'sales.opportunity.read' },
+    );
+    if (!oppCheck.ok) return oppCheck.response;
     const opp = await db.salesOpportunity.findFirst({
-      where: { id: opportunityId, customerId },
-      select: { id: true, customerId: true, orgId: true },
+      where: { id: opportunityId, customerId, orgId: requestOrgId },
+      select: { id: true },
     });
     if (!opp) {
       return NextResponse.json({ error: '商机不存在或不属于该客户' }, { status: 404 });
     }
-    if (opp.orgId && opp.orgId !== requestOrgId) {
-      return NextResponse.json({ error: '商机不属于当前组织' }, { status: 403 });
-    }
-    // TODO remove legacy membership fallback after sales orgId backfill — opp.orgId 为空时仅凭 customer 已通过 org 校验
   }
 
   // —— 尝试 pricing 计算；失败也不抛错 ——

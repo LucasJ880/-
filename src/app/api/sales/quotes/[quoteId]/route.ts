@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { authorize, humanPrincipal } from "@/lib/authorization";
+import { isAdmin } from "@/lib/rbac/roles";
 import {
   resolveSalesOrgIdForRequest,
   resolveSalesScope,
@@ -43,9 +45,24 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (ownOnly && quote.createdById !== user.id) {
-    return NextResponse.json({ error: "无权查看此报价单" }, { status: 403 });
+  if (!isAdmin(user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(user, orgRes.orgId),
+      orgId: orgRes.orgId,
+      permission: "sales.quote.read",
+      resource: {
+        type: "sales_quote",
+        id: quote.id,
+        ownerId: quote.createdById,
+        orgId: orgRes.orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: "无权查看此报价单", code: decision.reasonCode },
+        { status: 403 },
+      );
+    }
   }
 
   return NextResponse.json({ quote });
@@ -117,12 +134,29 @@ export const PUT = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (ownOnly && existing.createdById !== user.id) {
-    return NextResponse.json({ error: "无权编辑此报价单" }, { status: 403 });
+  const scope = await resolveSalesScope(user, orgRes.orgId, "sales.quote.update");
+  if (!isAdmin(user.role)) {
+    const decision = await authorize({
+      principal: humanPrincipal(user, orgRes.orgId),
+      orgId: orgRes.orgId,
+      permission: "sales.quote.update",
+      resource: {
+        type: "sales_quote",
+        id: existing.id,
+        ownerId: existing.createdById,
+        orgId: orgRes.orgId,
+      },
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: "无权编辑此报价单", code: decision.reasonCode },
+        { status: 403 },
+      );
+    }
   }
+  const ownOnly = scope.ownOnly;
 
-  // 已签单 / 已接受的 quote 对销售锁定，本组织 admin 可强制改
+  // 已签单 / 已接受的 quote 对销售锁定；ORG scope / 平台 admin 可强制改
   const lockedStatuses = new Set(["signed", "accepted"]);
   if (lockedStatuses.has(existing.status) && ownOnly) {
     return NextResponse.json(

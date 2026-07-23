@@ -39,7 +39,10 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   if (!record) return NextResponse.json({ error: "量房记录不存在" }, { status: 404 });
 
-  const custDenied = await assertSalesCustomerInOrgForMutation(record.customer, requestOrgId);
+  const custDenied = await assertSalesCustomerInOrgForMutation(record.customer, requestOrgId, {
+    user,
+    permission: "sales.customer.read",
+  });
   if (custDenied) return custDenied;
 
   const windowsWithProduct = record.windows.filter((w) => w.product && w.widthIn > 0 && w.heightIn > 0);

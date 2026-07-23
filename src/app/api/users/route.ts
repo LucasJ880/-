@@ -6,13 +6,16 @@ import { queryString, queryPagination } from "@/lib/common/api-helpers";
 
 /**
  * GET /api/users
- * 平台管理员 / 总经理查看用户列表，支持分页、搜索、状态筛选
+ * Security-1：仅平台 admin / super_admin。企业成员管理走 /organizations/.../members
  */
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
   if (!canManageUsers(auth.user.role)) {
-    return NextResponse.json({ error: "需要管理员或总经理权限" }, { status: 403 });
+    return NextResponse.json(
+      { error: "需要平台管理员权限", code: "PLATFORM_ADMIN_REQUIRED" },
+      { status: 403 },
+    );
   }
 
   const { page, pageSize } = queryPagination(request);

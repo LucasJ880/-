@@ -6,7 +6,9 @@ import {
   isValidOrgRole,
   isValidMemberStatus,
   countActiveOrgAdmins,
+  countActiveOrgOwners,
 } from "@/lib/organizations/utils";
+import { wouldRemoveLastOrgOwner } from "@/lib/organizations/owner-guard";
 
 type RouteCtx = {
   params: Promise<{ orgId: string; memberId: string }>;
@@ -51,6 +53,21 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
 
   const nextRole = data.role ?? member.role;
   const nextStatus = data.status ?? member.status;
+
+  if (
+    wouldRemoveLastOrgOwner({
+      currentRole: member.role,
+      currentStatus: member.status,
+      nextRole,
+      nextStatus,
+      activeOwnerCount: await countActiveOrgOwners(orgId),
+    })
+  ) {
+    return NextResponse.json(
+      { error: "不能移除或降级唯一的企业负责人", code: "LAST_ORG_OWNER" },
+      { status: 400 },
+    );
+  }
 
   if (
     member.role === "org_admin" &&
@@ -120,6 +137,21 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx) {
   });
   if (!member) {
     return NextResponse.json({ error: "成员不存在" }, { status: 404 });
+  }
+
+  if (
+    wouldRemoveLastOrgOwner({
+      currentRole: member.role,
+      currentStatus: member.status,
+      nextRole: member.role,
+      nextStatus: "inactive",
+      activeOwnerCount: await countActiveOrgOwners(orgId),
+    })
+  ) {
+    return NextResponse.json(
+      { error: "不能移除唯一的企业负责人", code: "LAST_ORG_OWNER" },
+      { status: 400 },
+    );
   }
 
   if (

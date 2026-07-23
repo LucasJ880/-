@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain } from "lucide-react";
+import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain, Building2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -164,6 +164,20 @@ function SettingsContent() {
           <p className="text-xs text-muted">查看、编辑与测试销售/营销/投标等技能；副作用仍需负责人确认</p>
         </div>
         <span className="text-xs text-accent">去管理 →</span>
+      </Link>
+
+      <Link
+        href="/settings/account"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+          <Building2 size={20} className="text-accent" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold">账号与企业</h2>
+          <p className="text-xs text-muted">查看当前工作企业；获授权后可在此切换</p>
+        </div>
+        <span className="text-xs text-accent">去设置 →</span>
       </Link>
 
       <Link

@@ -24,7 +24,7 @@ import {
 } from "@/lib/navigation";
 import { useLocale } from "@/lib/i18n/context";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { OrgSwitcher } from "@/components/org-switcher";
+import { OrgIdentityBadge } from "@/components/org-identity-badge";
 import { CoBrand } from "@/components/co-brand";
 
 function subscribeOrgStorage(cb: () => void) {
@@ -175,7 +175,7 @@ export function MobileNavDrawer({
 
         {!drill && (
           <div className="border-b border-white/10 pt-1">
-            <OrgSwitcher compact organizations={organizations} />
+            <OrgIdentityBadge compact organizations={organizations} />
           </div>
         )}
 

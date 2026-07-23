@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAuth, requireOrgRole } from "@/lib/auth/guards";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import { isOrgSystemAdmin, isSuperAdmin } from "@/lib/rbac/roles";
 import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isValidOrgRole } from "@/lib/organizations/utils";
 
 type RouteCtx = { params: Promise<{ orgId: string }> };
 
-/** GET：组织成员可查看列表 */
+/** GET：组织成员列表（Security-1：邮箱仅管理角色可见） */
 export async function GET(request: NextRequest, ctx: RouteCtx) {
   const { orgId } = await ctx.params;
 
@@ -16,11 +16,13 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
   if (auth instanceof NextResponse) return auth;
   const { user } = auth;
 
+  let callerOrgRole: string | null = null;
   if (!isSuperAdmin(user.role)) {
     const m = await getOrgMembership(user.id, orgId);
     if (!m || m.status !== "active") {
       return NextResponse.json({ error: "无权查看成员列表" }, { status: 403 });
     }
+    callerOrgRole = m.role;
   }
 
   const org = await db.organization.findUnique({ where: { id: orgId } });
@@ -28,13 +30,16 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
     return NextResponse.json({ error: "组织不存在" }, { status: 404 });
   }
 
+  const canSeePii =
+    isSuperAdmin(user.role) || isOrgSystemAdmin(callerOrgRole);
+
   const members = await db.organizationMember.findMany({
     where: { orgId },
     include: {
       user: {
         select: {
           id: true,
-          email: true,
+          email: canSeePii,
           name: true,
           nickname: true,
           avatar: true,
@@ -49,11 +54,19 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
     members: members.map((m) => ({
       id: m.id,
       userId: m.userId,
-      role: m.role,
+      role: canSeePii ? m.role : undefined,
+      displayRole: m.role,
       status: m.status,
-      joinedAt: m.joinedAt,
-      createdAt: m.createdAt,
-      user: m.user,
+      joinedAt: canSeePii ? m.joinedAt : undefined,
+      createdAt: canSeePii ? m.createdAt : undefined,
+      user: {
+        id: m.user.id,
+        name: m.user.name,
+        nickname: m.user.nickname,
+        avatar: m.user.avatar,
+        status: m.user.status,
+        ...(canSeePii ? { email: m.user.email } : {}),
+      },
     })),
   });
 }

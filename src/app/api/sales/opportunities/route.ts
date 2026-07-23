@@ -3,14 +3,20 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import {
   assertSalesCustomerInOrgForMutation,
+  resolveSalesAuthorizedWhere,
   resolveSalesOrgIdForRequest,
-  resolveSalesScope,
 } from '@/lib/sales/org-context';
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) return orgRes.response;
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  const authz = await resolveSalesAuthorizedWhere(
+    user,
+    orgRes.orgId,
+    'sales.opportunity.read',
+    'sales_opportunity',
+  );
+  if (!authz.ok) return authz.response;
 
   const { searchParams } = new URL(request.url);
   const stage = searchParams.get('stage') || '';
@@ -22,10 +28,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10)),
   );
 
-  const where: Record<string, unknown> = { orgId: orgRes.orgId };
-  if (ownOnly) {
-    where.OR = [{ createdById: user.id }, { assignedToId: user.id }];
-  }
+  const where: Record<string, unknown> = { ...authz.where };
   if (stage) where.stage = stage;
   if (priority) where.priority = priority;
   if (customerId) where.customerId = customerId;
@@ -77,8 +80,19 @@ export const POST = withAuth(async (request, _ctx, user) => {
   if (!customer) {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
   }
-  const denied = await assertSalesCustomerInOrgForMutation(customer, orgRes.orgId);
+  const denied = await assertSalesCustomerInOrgForMutation(customer, orgRes.orgId, {
+    user,
+    permission: 'sales.customer.read',
+  });
   if (denied) return denied;
+
+  const createAuthz = await resolveSalesAuthorizedWhere(
+    user,
+    orgRes.orgId,
+    'sales.opportunity.create',
+    'sales_opportunity',
+  );
+  if (!createAuthz.ok) return createAuthz.response;
 
   const opportunity = await db.salesOpportunity.create({
     data: {

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 
 // ============================================================
@@ -17,21 +18,16 @@ export interface AuditLogParams {
   request?: NextRequest;
 }
 
+type AuditDbClient = Pick<Prisma.TransactionClient, "auditLog"> | typeof db;
+
 /**
- * 记录审计日志
- *
- * @example
- * await logAudit({
- *   userId: user.id,
- *   orgId: org.id,
- *   action: "create",
- *   targetType: "project",
- *   targetId: project.id,
- *   afterData: project,
- *   request,
- * });
+ * 写入审计日志（可传入 transaction client）。
+ * 失败时抛错，由调用方决定是否回滚事务。
  */
-export async function logAudit(params: AuditLogParams): Promise<void> {
+export async function writeAuditLog(
+  client: AuditDbClient,
+  params: AuditLogParams,
+): Promise<void> {
   const {
     userId,
     orgId,
@@ -44,25 +40,36 @@ export async function logAudit(params: AuditLogParams): Promise<void> {
     request,
   } = params;
 
+  await client.auditLog.create({
+    data: {
+      userId,
+      orgId: orgId ?? undefined,
+      projectId: projectId ?? undefined,
+      action,
+      targetType,
+      targetId: targetId ?? undefined,
+      beforeData: beforeData ? JSON.stringify(beforeData) : undefined,
+      afterData: afterData ? JSON.stringify(afterData) : undefined,
+      ip: extractIp(request),
+      userAgent: request?.headers.get("user-agent") ?? undefined,
+    },
+  });
+}
+
+/**
+ * 记录审计日志（非事务路径；失败仅打日志，不抛错——兼容历史调用方）。
+ * 安全关键写操作请使用 writeAuditLog + 事务。
+ */
+export async function logAudit(params: AuditLogParams): Promise<void> {
   try {
-    await db.auditLog.create({
-      data: {
-        userId,
-        orgId: orgId ?? undefined,
-        projectId: projectId ?? undefined,
-        action,
-        targetType,
-        targetId: targetId ?? undefined,
-        beforeData: beforeData ? JSON.stringify(beforeData) : undefined,
-        afterData: afterData ? JSON.stringify(afterData) : undefined,
-        ip: extractIp(request),
-        userAgent: request?.headers.get("user-agent") ?? undefined,
-      },
-    });
+    await writeAuditLog(db, params);
   } catch (err) {
     console.error("[AuditLog] Failed to write audit log:", err);
   }
 }
+
+/** @deprecated 使用 writeAuditLog；保留别名 */
+export const logAuditWithTx = writeAuditLog;
 
 function extractIp(request?: NextRequest): string | undefined {
   if (!request) return undefined;

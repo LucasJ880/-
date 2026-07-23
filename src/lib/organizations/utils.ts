@@ -43,7 +43,7 @@ export function isValidPlanType(p: string): p is OrgPlanType {
   return (ORG_PLAN_TYPES as readonly string[]).includes(p);
 }
 
-/** 活跃 org_admin 成员数量 */
+/** 活跃 org_admin 成员数量（不含 owner） */
 export async function countActiveOrgAdmins(orgId: string): Promise<number> {
   return db.organizationMember.count({
     where: {
@@ -52,4 +52,20 @@ export async function countActiveOrgAdmins(orgId: string): Promise<number> {
       status: "active",
     },
   });
+}
+
+/** 活跃 org_owner 数量 — Security-1：禁止删除/降级唯一 owner */
+export async function countActiveOrgOwners(orgId: string): Promise<number> {
+  return db.organizationMember.count({
+    where: {
+      orgId,
+      role: "org_owner",
+      status: "active",
+    },
+  });
+}
+
+/** 是否为组织系统管理角色（owner / admin） */
+export function isOrgManageRole(role: string): boolean {
+  return role === "org_owner" || role === "org_admin";
 }

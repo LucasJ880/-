@@ -46,6 +46,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       createdById: quote.customer.createdById,
     },
     requestOrgId,
+    { user, permission: "sales.customer.read" },
   );
   if (custDenied) return custDenied;
 
