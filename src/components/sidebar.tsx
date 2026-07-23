@@ -17,8 +17,8 @@ import { readStoredOrgId } from "@/lib/org-selection";
 import { usePendingApprovalsBadge } from "@/lib/hooks/use-pending-approvals-badge";
 import { useLocale } from "@/lib/i18n/context";
 import { CoBrand } from "@/components/co-brand";
-import { OrgIdentityBadge } from "@/components/org-identity-badge";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { isPlatformAdmin as checkPlatformAdmin } from "@/lib/permissions-client";
 import { apiFetch } from "@/lib/api-fetch";
 import type { OrgModulesConfig } from "@/lib/tenancy/modules";
 import {
@@ -246,8 +246,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       ? apiHasMembership
       : Boolean(activeOrg?.myRole);
   const platformRole = user?.role ?? "user";
-  const isPlatformAdmin =
-    platformRole === "admin" || platformRole === "super_admin";
+  const isPlatformAdmin = checkPlatformAdmin(platformRole);
 
   useEffect(() => {
     let cancelled = false;
@@ -369,8 +368,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
       </div>
-
-      <OrgIdentityBadge collapsed={collapsed} organizations={organizations} />
 
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 py-1.5">
         {sections.map((section, si) => (

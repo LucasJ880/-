@@ -13,6 +13,15 @@ export function isAdmin(role: string | null | undefined): boolean {
   return role === "admin" || role === "super_admin";
 }
 
+/**
+ * 平台管理员（调试面）。与 isSuperAdmin 同义。
+ * SYNC: src/lib/rbac/platform-admin.ts
+ * 注意：org_owner / org_admin / 企业负责人 ≠ 平台管理员
+ */
+export function isPlatformAdmin(role: string | null | undefined): boolean {
+  return isSuperAdmin(role);
+}
+
 export function canManageOrg(orgRole: string | null | undefined): boolean {
   return orgRole === "org_admin";
 }

@@ -116,7 +116,7 @@ export async function generateDailyBriefing(
   // 写入用户的置顶「每日简报」对话线程（手机端打开即见）
   try {
     const { writeBriefingToThread } = await import("./briefing-to-thread");
-    await writeBriefingToThread(userId, briefing);
+    await writeBriefingToThread(userId, briefing, orgId);
   } catch (e) {
     console.error("[secretary] Briefing-to-thread failed:", e);
   }

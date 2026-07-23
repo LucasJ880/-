@@ -10,6 +10,11 @@ import {
 } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
+import {
+  toBusinessConversationListItem,
+  toPlatformDiagnosticConversationListItem,
+} from "@/lib/conversations/dto";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -67,43 +72,52 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     .map((c) => c.knowledgeBaseId)
     .filter((id): id is string => !!id);
 
-  const [promptMap, kbMap] = await Promise.all([
-    promptIds.length > 0
-      ? db.prompt
-          .findMany({
-            where: { id: { in: promptIds } },
-            select: { id: true, key: true, name: true },
-          })
-          .then((ps) => new Map(ps.map((p) => [p.id, p])))
-      : Promise.resolve(new Map<string, { id: string; key: string; name: string }>()),
-    kbIds.length > 0
-      ? db.knowledgeBase
-          .findMany({
-            where: { id: { in: kbIds } },
-            select: { id: true, key: true, name: true },
-          })
-          .then((ks) => new Map(ks.map((k) => [k.id, k])))
-      : Promise.resolve(new Map<string, { id: string; key: string; name: string }>()),
-  ]);
+  const diagnostic = isPlatformAdmin(access.user);
+
+  const [promptMap, kbMap] = diagnostic
+    ? await Promise.all([
+        promptIds.length > 0
+          ? db.prompt
+              .findMany({
+                where: { id: { in: promptIds } },
+                select: { id: true, key: true, name: true },
+              })
+              .then((ps) => new Map(ps.map((p) => [p.id, p])))
+          : Promise.resolve(
+              new Map<string, { id: string; key: string; name: string }>(),
+            ),
+        kbIds.length > 0
+          ? db.knowledgeBase
+              .findMany({
+                where: { id: { in: kbIds } },
+                select: { id: true, key: true, name: true },
+              })
+              .then((ks) => new Map(ks.map((k) => [k.id, k])))
+          : Promise.resolve(
+              new Map<string, { id: string; key: string; name: string }>(),
+            ),
+      ])
+    : [
+        new Map<string, { id: string; key: string; name: string }>(),
+        new Map<string, { id: string; key: string; name: string }>(),
+      ];
 
   return NextResponse.json({
-    conversations: conversations.map((c) => ({
-      id: c.id,
-      title: c.title,
-      channel: c.channel,
-      status: c.status,
-      environment: c.environment,
-      user: c.user,
-      messageCount: c.messageCount,
-      totalTokens: c.totalTokens,
-      estimatedCost: c.estimatedCost,
-      startedAt: c.startedAt,
-      lastMessageAt: c.lastMessageAt,
-      prompt: c.promptId ? promptMap.get(c.promptId) ?? null : null,
-      knowledgeBase: c.knowledgeBaseId
-        ? kbMap.get(c.knowledgeBaseId) ?? null
-        : null,
-    })),
+    conversations: conversations.map((c) => {
+      const row = {
+        ...c,
+        inputTokens: c.inputTokens,
+        outputTokens: c.outputTokens,
+        avgLatencyMs: c.avgLatencyMs,
+        prompt: c.promptId ? promptMap.get(c.promptId) ?? null : null,
+        knowledgeBase: c.knowledgeBaseId
+          ? kbMap.get(c.knowledgeBaseId) ?? null
+          : null,
+      };
+      return diagnostic
+        ? toPlatformDiagnosticConversationListItem(row)
+        : toBusinessConversationListItem(row);
+    }),
     total,
     page,
     pageSize,

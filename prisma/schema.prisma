@@ -686,6 +686,9 @@ model Organization {
   // Phase 3A-4：企业配额
   capabilityQuotaPolicies    CapabilityQuotaPolicy[]
   capabilityQuotaReservations CapabilityQuotaReservation[]
+
+  // Phase 3B-A：助手线程租户绑定
+  aiThreads                  AiThread[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -1797,21 +1800,26 @@ model ProjectMessage {
 // ── AI 助手持久对话 ──────────────────────────────────────────
 
 model AiThread {
-  id            String      @id @default(cuid())
+  id            String        @id @default(cuid())
   userId        String
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Phase 3B-A：企业隔离；历史可空，新线程应用层强制非空
+  orgId         String?
+  org           Organization? @relation(fields: [orgId], references: [id], onDelete: Restrict)
   projectId     String?
-  project       Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  title         String      @default("新对话")
-  pinned        Boolean     @default(false)
-  archived      Boolean     @default(false)
-  lastMessageAt DateTime    @default(now())
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  project       Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title         String        @default("新对话")
+  pinned        Boolean       @default(false)
+  archived      Boolean       @default(false)
+  lastMessageAt DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
   messages      AiMessage[]
 
   @@index([userId, pinned, lastMessageAt])
   @@index([userId, projectId])
+  @@index([userId, orgId, pinned, lastMessageAt])
+  @@index([userId, orgId, projectId])
 }
 
 model AiMessage {

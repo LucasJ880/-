@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleEmailCallback } from "@/lib/google-email";
+import { GmailOAuthError, handleEmailCallback } from "@/lib/google-email";
 import { getCurrentUser } from "@/lib/auth";
 
 /**
@@ -26,13 +26,16 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`${returnTo}?gmail=error&reason=${encodeURIComponent(error)}`, request.url)
+      new URL(
+        `${returnTo}?gmail=error&reason=${encodeURIComponent(error)}`,
+        request.url,
+      ),
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      new URL(`${returnTo}?gmail=error&reason=no_code`, request.url)
+      new URL(`${returnTo}?gmail=error&reason=no_code`, request.url),
     );
   }
 
@@ -40,16 +43,23 @@ export async function GET(request: NextRequest) {
     const user = await getCurrentUser(request);
     if (!user) {
       return NextResponse.redirect(
-        new URL(`${returnTo}?gmail=error&reason=no_user`, request.url)
+        new URL(`${returnTo}?gmail=error&reason=no_user`, request.url),
       );
     }
 
     await handleEmailCallback(code, user.id);
-    return NextResponse.redirect(new URL(`${returnTo}?gmail=success`, request.url));
+    return NextResponse.redirect(
+      new URL(`${returnTo}?gmail=success`, request.url),
+    );
   } catch (err) {
     console.error("Gmail OAuth callback error:", err);
+    const reason =
+      err instanceof GmailOAuthError ? err.code : "token_fail";
     return NextResponse.redirect(
-      new URL(`${returnTo}?gmail=error&reason=token_fail`, request.url)
+      new URL(
+        `${returnTo}?gmail=error&reason=${encodeURIComponent(reason)}`,
+        request.url,
+      ),
     );
   }
 }

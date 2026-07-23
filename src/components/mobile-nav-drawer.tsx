@@ -24,9 +24,9 @@ import {
 } from "@/lib/navigation";
 import { useLocale } from "@/lib/i18n/context";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { OrgIdentityBadge } from "@/components/org-identity-badge";
 import { CoBrand } from "@/components/co-brand";
 import { lockAppScroll } from "@/lib/mobile/scroll-lock";
+import { isPlatformAdmin as checkPlatformAdmin } from "@/lib/permissions-client";
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -108,8 +108,7 @@ export function MobileNavDrawer({
   }, [storedOrgId, open]);
 
   const platformRole = user?.role ?? "user";
-  const isPlatformAdmin =
-    platformRole === "admin" || platformRole === "super_admin";
+  const isPlatformAdmin = checkPlatformAdmin(platformRole);
 
   const ctx: NavigationFilterContext = useMemo(
     () => ({
@@ -193,12 +192,6 @@ export function MobileNavDrawer({
             <X size={16} />
           </button>
         </div>
-
-        {!drill && (
-          <div className="border-b border-white/10 pt-1">
-            <OrgIdentityBadge compact organizations={organizations} />
-          </div>
-        )}
 
         <div className="flex-1 overflow-y-auto px-2 py-3">
           {!drill && (

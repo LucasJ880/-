@@ -53,6 +53,12 @@ import {
   settleAiUsageReservation,
   actualCostFromStreamUsage,
 } from "@/lib/capabilities/governance";
+import {
+  findOwnedThreadInOrg,
+  resolveAssistantOrgId,
+  threadNotFoundResponse,
+} from "@/lib/assistant/thread-org";
+import { prepareAssistantDispatch } from "@/lib/assistant/dispatch";
 
 // 普通对话仍使用 Agent 自身的短超时；只有前置分流的深度研究使用后台预算。
 export const maxDuration = 300;
@@ -65,14 +71,13 @@ const AI_THREAD_RATE_LIMIT = {
 
 export const GET = withAuth(async (request, ctx, user) => {
   const { threadId } = await ctx.params;
+  const orgRes = await resolveAssistantOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
 
-  const thread = await db.aiThread.findUnique({
-    where: { id: threadId },
-    select: { userId: true },
+  const thread = await findOwnedThreadInOrg(threadId, user.id, orgRes.orgId, {
+    id: true,
   });
-  if (!thread || thread.userId !== user.id) {
-    return NextResponse.json({ error: "对话不存在" }, { status: 404 });
-  }
+  if (!thread) return threadNotFoundResponse();
 
   const { searchParams } = new URL(request.url);
   const cursor = searchParams.get("cursor");
@@ -92,14 +97,15 @@ export const GET = withAuth(async (request, ctx, user) => {
     },
   });
 
-  // PR4 回看：把该会话中已回填 messageId 的 pendingAction 一并返回
-  // 只返回非最终态（pending）+ 已终态（executed/rejected/failed）用于历史展示
+  // PR4 回看：仅附带同 org + 同 thread 的 PendingAction
   const messageIds = messages.map((m) => m.id);
   const pendingActions =
     messageIds.length > 0
       ? await db.pendingAction.findMany({
           where: {
             createdById: user.id,
+            threadId,
+            orgId: orgRes.orgId,
             messageId: { in: messageIds },
           },
           orderBy: { createdAt: "asc" },
@@ -147,20 +153,22 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const { threadId } = await ctx.params;
 
-  const thread = await db.aiThread.findUnique({
-    where: { id: threadId },
-    select: {
-      userId: true,
-      projectId: true,
-      title: true,
-      project: { select: { orgId: true } },
-    },
-  });
-  if (!thread || thread.userId !== user.id) {
-    return NextResponse.json({ error: "对话不存在" }, { status: 404 });
-  }
-
   const body = await request.json();
+  const claimedBodyOrgId =
+    typeof body.orgId === "string" ? body.orgId.trim() : null;
+  const orgRes = await resolveAssistantOrgId(request, user, claimedBodyOrgId);
+  if (!orgRes.ok) return orgRes.response;
+
+  const thread = await findOwnedThreadInOrg(threadId, user.id, orgRes.orgId, {
+    id: true,
+    userId: true,
+    orgId: true,
+    projectId: true,
+    title: true,
+    project: { select: { orgId: true } },
+  });
+  if (!thread) return threadNotFoundResponse();
+
   const content = typeof body.content === "string" ? body.content.trim() : "";
   if (!content) {
     return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
@@ -169,17 +177,11 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "消息过长" }, { status: 400 });
   }
 
-  // Phase 3A-5：流开始前强制可信租户；body.orgId 仅作交叉校验
-  const claimedBodyOrgId =
-    typeof body.orgId === "string" ? body.orgId.trim() : null;
-  const streamTenant = await requireStreamTenant(request, {
-    claimedBodyOrgId,
-  });
-  if (streamTenant instanceof NextResponse) return streamTenant;
-
+  // Phase 3B-A Commit 3A：限流必须在 Dispatch 之前（场景/unsupported/general 同一配额）
+  // 命中 429 时不得写入 AiMessage / AgentRun / Event / PendingAction
   const rl = await checkRateLimitAsync(
     AI_THREAD_RATE_LIMIT,
-    `${streamTenant.orgId}:${user.id}`,
+    `${orgRes.orgId}:${user.id}`,
   );
   if (!rl.allowed) {
     return NextResponse.json(
@@ -187,7 +189,39 @@ export const POST = withAuth(async (request, ctx, user) => {
       {
         status: 429,
         headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
-      }
+      },
+    );
+  }
+
+  // Phase 3B-A：统一服务端意图分流（废除前端 Supervisor 业务双路由）
+  // general_answer → 继续下方既有 Operator/SSE；场景/unsupported 由此处落库并返回。
+  const dispatchPrep = await prepareAssistantDispatch({
+    userId: user.id,
+    activeOrgId: orgRes.orgId,
+    threadId,
+    message: content,
+    threadTitle: thread.title,
+    role: user.role,
+  });
+  if (dispatchPrep.kind === "handled") {
+    return dispatchPrep.response;
+  }
+
+  // Phase 3A-5：流开始前强制可信租户；须与线程 orgId 一致
+  const streamTenant = await requireStreamTenant(request, {
+    claimedBodyOrgId,
+  });
+  if (streamTenant instanceof NextResponse) return streamTenant;
+  if (
+    streamTenant.orgId !== orgRes.orgId ||
+    (thread.orgId && thread.orgId !== streamTenant.orgId)
+  ) {
+    return NextResponse.json(
+      {
+        error: "请求组织与对话所属组织不一致",
+        code: "ORG_CONTEXT_MISMATCH",
+      },
+      { status: 403 },
     );
   }
 

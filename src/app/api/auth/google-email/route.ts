@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEmailAuthUrl } from "@/lib/google-email";
+import { getEmailAuthUrl, getGmailReauthUrl } from "@/lib/google-email";
 
 export async function GET(request: NextRequest) {
   const id = process.env.GOOGLE_CLIENT_ID?.trim();
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
         error:
           "Gmail 邮件 OAuth 未配置。请在部署环境中设置 GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET 与 GOOGLE_EMAIL_REDIRECT_URI",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const returnTo = searchParams.get("return_to") || "";
   const state = returnTo ? encodeURIComponent(returnTo) : undefined;
-  const url = getEmailAuthUrl(state);
+  // reauth=1：强制 consent + offline + 不合并旧 scope（与默认策略相同，语义入口）
+  const reauth = searchParams.get("reauth") === "1";
+  const url = reauth ? getGmailReauthUrl(state) : getEmailAuthUrl(state);
   return NextResponse.redirect(url);
 }

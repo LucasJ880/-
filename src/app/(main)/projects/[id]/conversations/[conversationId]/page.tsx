@@ -27,47 +27,51 @@ import {
 import { ConversationHeader } from "./conversation-header";
 import { MessageList } from "./message-list";
 import { InputArea } from "./input-area";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 interface ConvDetail {
   id: string;
   title: string;
   channel: string;
   status: string;
-  environment: { id: string; code: string; name: string };
-  user: { id: string; name: string | null; email: string } | null;
+  environment: { id: string; code?: string; name: string } | null;
+  user: { id: string; name: string | null; email?: string | null } | null;
   messageCount: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  estimatedCost: number;
-  avgLatencyMs: number;
+  /** 以下诊断字段仅平台管理员 API 返回 */
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  estimatedCost?: number;
+  avgLatencyMs?: number;
   runtimeStatus?: string;
   lastErrorMessage?: string | null;
   runCount?: number;
   agentId?: string | null;
+  businessStatus?: string;
   startedAt: string;
   lastMessageAt: string | null;
   endedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface MessageItem {
   id: string;
   role: string;
   content: string;
-  contentType: string;
-  sequence: number;
-  modelName: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  latencyMs: number;
+  contentType?: string;
+  sequence?: number;
+  modelName?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
   status: string;
-  errorMessage: string | null;
-  toolName: string | null;
-  toolCallId: string | null;
-  parentMessageId: string | null;
-  metadataJson: string | null;
+  errorMessage?: string | null;
+  toolName?: string | null;
+  toolCallId?: string | null;
+  parentMessageId?: string | null;
+  metadataJson?: string | null;
+  isToolCall?: boolean;
   createdAt: string;
 }
 
@@ -125,6 +129,7 @@ export default function ConversationDetailPage() {
   const router = useRouter();
   const projectId = params.id as string;
   const conversationId = params.conversationId as string;
+  const { isPlatformAdmin } = useCurrentUser();
 
   const [canManage, setCanManage] = useState(false);
   const [conv, setConv] = useState<ConvDetail | null>(null);
@@ -148,6 +153,12 @@ export default function ConversationDetailPage() {
   const [error, setError] = useState("");
 
   const [activeTab, setActiveTab] = useState<Tab>("messages");
+
+  useEffect(() => {
+    if (!isPlatformAdmin && activeTab !== "messages") {
+      setActiveTab("messages");
+    }
+  }, [isPlatformAdmin, activeTab]);
 
   const [running, setRunning] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -394,9 +405,13 @@ export default function ConversationDetailPage() {
 
   const tabs: { key: Tab; label: string; disabled?: boolean }[] = [
     { key: "messages", label: "消息记录" },
-    { key: "context", label: "上下文" },
-    { key: "trace", label: "工具调用" },
-    { key: "feedback", label: "评估反馈" },
+    ...(isPlatformAdmin
+      ? ([
+          { key: "context", label: "上下文" },
+          { key: "trace", label: "工具调用" },
+          { key: "feedback", label: "评估反馈" },
+        ] as const)
+      : []),
   ];
 
   return (
@@ -423,15 +438,17 @@ export default function ConversationDetailPage() {
         onReloadConversation={loadConversation}
       />
 
-      {/* Stats */}
-      <ConversationStatsCard
-        messageCount={conv.messageCount}
-        inputTokens={conv.inputTokens}
-        outputTokens={conv.outputTokens}
-        totalTokens={conv.totalTokens}
-        estimatedCost={conv.estimatedCost}
-        avgLatencyMs={conv.avgLatencyMs}
-      />
+      {/* Stats：token / 费用等仅平台管理员可见 */}
+      {isPlatformAdmin && (
+        <ConversationStatsCard
+          messageCount={conv.messageCount}
+          inputTokens={conv.inputTokens ?? 0}
+          outputTokens={conv.outputTokens ?? 0}
+          totalTokens={conv.totalTokens ?? 0}
+          estimatedCost={conv.estimatedCost ?? 0}
+          avgLatencyMs={conv.avgLatencyMs ?? 0}
+        />
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
@@ -473,6 +490,7 @@ export default function ConversationDetailPage() {
             tags={tags}
             tagsLoaded={tagsLoaded}
             loadTags={loadTags}
+            showDebugMeta={isPlatformAdmin}
           />
 
           {canManage && isActive && (

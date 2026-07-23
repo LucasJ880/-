@@ -11,6 +11,14 @@ import {
 } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
+import {
+  findForbiddenDiagnosticFields,
+  toBusinessMessageDto,
+  toBusinessRuntimeDto,
+  toPlatformDiagnosticMessageDto,
+  toPlatformDiagnosticRuntimeDto,
+} from "@/lib/conversations/dto";
 
 type Ctx = { params: Promise<{ id: string; conversationId: string }> };
 
@@ -31,11 +39,11 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const { searchParams } = new URL(request.url);
   const page = Math.max(
     1,
-    parseInt(searchParams.get("page") ?? "1", 10) || 1
+    parseInt(searchParams.get("page") ?? "1", 10) || 1,
   );
   const pageSize = Math.min(
     200,
-    Math.max(1, parseInt(searchParams.get("pageSize") ?? "100", 10) || 100)
+    Math.max(1, parseInt(searchParams.get("pageSize") ?? "100", 10) || 100),
   );
 
   const [total, messages] = await Promise.all([
@@ -48,25 +56,14 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     }),
   ]);
 
+  const diagnostic = isPlatformAdmin(access.user);
+
   return NextResponse.json({
-    messages: messages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      contentType: m.contentType,
-      sequence: m.sequence,
-      modelName: m.modelName,
-      inputTokens: m.inputTokens,
-      outputTokens: m.outputTokens,
-      latencyMs: m.latencyMs,
-      status: m.status,
-      errorMessage: m.errorMessage,
-      toolName: m.toolName,
-      toolCallId: m.toolCallId,
-      parentMessageId: m.parentMessageId,
-      metadataJson: m.metadataJson,
-      createdAt: m.createdAt,
-    })),
+    messages: messages.map((m) =>
+      diagnostic
+        ? toPlatformDiagnosticMessageDto(m)
+        : toBusinessMessageDto(m),
+    ),
     total,
     page,
     pageSize,
@@ -80,6 +77,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const access = await requireProjectManageAccess(request, projectId);
   if (access instanceof NextResponse) return access;
   const { user, project } = access;
+  const diagnostic = isPlatformAdmin(user);
 
   const conv = await db.conversation.findFirst({
     where: { id: conversationId, projectId },
@@ -88,14 +86,79 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "会话不存在" }, { status: 404 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
 
-  const role =
-    typeof body.role === "string" && isValidMessageRole(body.role)
-      ? body.role
-      : "user";
-  const content =
-    typeof body.content === "string" ? body.content : "";
+  if (!diagnostic) {
+    const forbidden = findForbiddenDiagnosticFields(body);
+    if (forbidden.length > 0) {
+      return NextResponse.json(
+        {
+          error: "不允许提交诊断字段",
+          code: "DIAGNOSTIC_FIELDS_FORBIDDEN",
+          fields: forbidden,
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  const content = typeof body.content === "string" ? body.content : "";
+
+  let role = "user";
+  let status = "success";
+  let modelName: string | null = null;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let latencyMs = 0;
+  let errorMessage: string | null = null;
+  let toolName: string | null = null;
+  let toolCallId: string | null = null;
+  let metadataJson: string | null = null;
+  let parentMessageId: string | null = null;
+
+  if (diagnostic) {
+    role =
+      typeof body.role === "string" && isValidMessageRole(body.role)
+        ? body.role
+        : "user";
+    status =
+      typeof body.status === "string" && isValidMessageStatus(body.status)
+        ? body.status
+        : "success";
+    modelName =
+      typeof body.modelName === "string" && body.modelName.trim()
+        ? body.modelName.trim()
+        : null;
+    inputTokens =
+      typeof body.inputTokens === "number" ? body.inputTokens : 0;
+    outputTokens =
+      typeof body.outputTokens === "number" ? body.outputTokens : 0;
+    latencyMs = typeof body.latencyMs === "number" ? body.latencyMs : 0;
+    errorMessage =
+      typeof body.errorMessage === "string" && body.errorMessage.trim()
+        ? body.errorMessage.trim()
+        : null;
+    toolName =
+      typeof body.toolName === "string" && body.toolName.trim()
+        ? body.toolName.trim()
+        : null;
+    toolCallId =
+      typeof body.toolCallId === "string" && body.toolCallId.trim()
+        ? body.toolCallId.trim()
+        : null;
+    metadataJson =
+      typeof body.metadataJson === "string" && body.metadataJson.trim()
+        ? body.metadataJson.trim()
+        : null;
+    parentMessageId =
+      typeof body.parentMessageId === "string" && body.parentMessageId.trim()
+        ? body.parentMessageId.trim()
+        : null;
+  }
+
   if (!content.trim() && role !== "tool") {
     return NextResponse.json({ error: "消息内容不能为空" }, { status: 400 });
   }
@@ -104,36 +167,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     typeof body.contentType === "string" && isValidContentType(body.contentType)
       ? body.contentType
       : "text";
-  const status =
-    typeof body.status === "string" && isValidMessageStatus(body.status)
-      ? body.status
-      : "success";
-  const modelName =
-    typeof body.modelName === "string" && body.modelName.trim()
-      ? body.modelName.trim()
-      : null;
-  const inputTokens =
-    typeof body.inputTokens === "number" ? body.inputTokens : 0;
-  const outputTokens =
-    typeof body.outputTokens === "number" ? body.outputTokens : 0;
-  const latencyMs =
-    typeof body.latencyMs === "number" ? body.latencyMs : 0;
-  const errorMessage =
-    typeof body.errorMessage === "string" && body.errorMessage.trim()
-      ? body.errorMessage.trim()
-      : null;
-  const toolName =
-    typeof body.toolName === "string" && body.toolName.trim()
-      ? body.toolName.trim()
-      : null;
-  const toolCallId =
-    typeof body.toolCallId === "string" && body.toolCallId.trim()
-      ? body.toolCallId.trim()
-      : null;
-  const metadataJson =
-    typeof body.metadataJson === "string" && body.metadataJson.trim()
-      ? body.metadataJson.trim()
-      : null;
 
   const now = new Date();
 
@@ -159,6 +192,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         errorMessage,
         toolName,
         toolCallId,
+        parentMessageId,
         metadataJson,
       },
     });
@@ -194,16 +228,21 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       conversationId,
       role,
       sequence: message.sequence,
-      modelName,
-      tokens: inputTokens + outputTokens,
+      ...(diagnostic
+        ? { modelName, tokens: inputTokens + outputTokens }
+        : {}),
     },
     request,
   });
 
+  const messageDto = diagnostic
+    ? toPlatformDiagnosticMessageDto(message)
+    : toBusinessMessageDto(message);
+
   const shouldRun = body.run === true && role === "user";
 
   if (!shouldRun) {
-    return NextResponse.json({ message }, { status: 201 });
+    return NextResponse.json({ message: messageDto }, { status: 201 });
   }
 
   const runtimeResult = await runConversationAgent({
@@ -220,7 +259,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       action: AUDIT_ACTIONS.RUNTIME_FAIL,
       targetType: AUDIT_TARGETS.RUNTIME,
       targetId: conversationId,
-      afterData: { error: runtimeResult.error.slice(0, 200) },
+      afterData: {
+        error: diagnostic
+          ? runtimeResult.error.slice(0, 200)
+          : "RUNTIME_FAILED",
+      },
       request,
     });
   } else {
@@ -233,14 +276,21 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       targetId: conversationId,
       afterData: {
         newMessageCount: runtimeResult.newMessages.length,
-        toolTraceCount: runtimeResult.toolTraces.length,
+        ...(diagnostic
+          ? { toolTraceCount: runtimeResult.toolTraces.length }
+          : {}),
       },
       request,
     });
   }
 
-  return NextResponse.json({
-    message,
-    runtime: runtimeResult,
-  }, { status: 201 });
+  return NextResponse.json(
+    {
+      message: messageDto,
+      runtime: diagnostic
+        ? toPlatformDiagnosticRuntimeDto(runtimeResult)
+        : toBusinessRuntimeDto(runtimeResult),
+    },
+    { status: 201 },
+  );
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
-  requireProjectReadAccess,
-  requireProjectManageAccess,
-} from "@/lib/projects/access";
+  requireDiagnosticProjectReadAccess as requireProjectReadAccess,
+  requireDiagnosticProjectManageAccess as requireProjectManageAccess,
+} from "@/lib/projects/diagnostic-access";
 import { getEnvironmentInProject } from "@/lib/prompts/scope";
 import {
   normalizeKbKey,

@@ -77,7 +77,7 @@ export const en: Messages = {
   nav_ai_memory: "Organization Knowledge",
   nav_agent_trace: "Agent Workbench",
   nav_ai_activity: "Automation Log",
-  nav_capabilities_runs: "Runs Center",
+  nav_capabilities_runs: "Run Diagnostics",
   nav_capabilities_approvals: "Approvals",
   nav_capabilities_hub: "Capabilities",
   nav_capabilities_overview: "Overview",

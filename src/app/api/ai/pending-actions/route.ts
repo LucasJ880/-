@@ -7,20 +7,55 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
+import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") ?? "pending";
   const threadId = searchParams.get("threadId");
 
+  const orgRes = await resolveAssistantOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
+  // 若指定 threadId，必须属于当前 org，否则当作不存在（不泄露跨组织）
+  if (threadId) {
+    const thread = await db.aiThread.findFirst({
+      where: {
+        id: threadId,
+        userId: user.id,
+        orgId: orgRes.orgId,
+        archived: false,
+      },
+      select: { id: true },
+    });
+    if (!thread) {
+      return NextResponse.json({ actions: [] });
+    }
+  }
+
   const access = await getTeamApprovalAccessIds(user.id);
   const actions = await db.pendingAction.findMany({
     where: {
-      OR: [
-        { createdById: user.id, orgId: null, projectId: null, approverUserId: null },
-        { approverUserId: user.id },
-        ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
-        ...(access.projectIds.length ? [{ projectId: { in: access.projectIds } }] : []),
+      AND: [
+        {
+          OR: [
+            {
+              createdById: user.id,
+              orgId: null,
+              projectId: null,
+              approverUserId: null,
+            },
+            { approverUserId: user.id },
+            ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
+            ...(access.projectIds.length
+              ? [{ projectId: { in: access.projectIds } }]
+              : []),
+          ],
+        },
+        // Phase 3B-A：列表默认限制在当前 active org（含 null-org 个人草稿）
+        {
+          OR: [{ orgId: orgRes.orgId }, { orgId: null, createdById: user.id }],
+        },
       ],
       ...(status === "all" ? {} : { status }),
       ...(threadId ? { threadId } : {}),
@@ -57,7 +92,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const threads =
     threadIds.length > 0
       ? await db.aiThread.findMany({
-          where: { id: { in: threadIds }, userId: user.id },
+          where: {
+            id: { in: threadIds },
+            userId: user.id,
+            orgId: orgRes.orgId,
+          },
           select: { id: true, title: true },
         })
       : [];

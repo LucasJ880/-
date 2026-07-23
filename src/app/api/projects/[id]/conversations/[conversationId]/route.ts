@@ -6,6 +6,11 @@ import {
 } from "@/lib/projects/access";
 import { isValidConversationStatus } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
+import {
+  toBusinessConversationDto,
+  toPlatformDiagnosticConversationDto,
+} from "@/lib/conversations/dto";
 
 type Ctx = { params: Promise<{ id: string; conversationId: string }> };
 
@@ -25,6 +30,12 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
   if (!conv) {
     return NextResponse.json({ error: "会话不存在" }, { status: 404 });
+  }
+
+  if (!isPlatformAdmin(access.user)) {
+    return NextResponse.json({
+      conversation: toBusinessConversationDto(conv),
+    });
   }
 
   const contextSnapshot = await db.conversationContextSnapshot.findFirst({
@@ -76,44 +87,23 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     if (kb) kbInfo = { ...kb, version };
   }
 
-  return NextResponse.json({
-    conversation: {
-      id: conv.id,
-      title: conv.title,
-      channel: conv.channel,
-      status: conv.status,
-      environment: conv.environment,
-      user: conv.user,
-      messageCount: conv.messageCount,
-      inputTokens: conv.inputTokens,
-      outputTokens: conv.outputTokens,
-      totalTokens: conv.totalTokens,
-      estimatedCost: conv.estimatedCost,
-      avgLatencyMs: conv.avgLatencyMs,
-      agentId: conv.agentId,
-      runtimeStatus: conv.runtimeStatus,
-      lastErrorMessage: conv.lastErrorMessage,
-      runCount: conv.runCount,
-      startedAt: conv.startedAt,
-      lastMessageAt: conv.lastMessageAt,
-      endedAt: conv.endedAt,
-      createdAt: conv.createdAt,
-      updatedAt: conv.updatedAt,
-    },
-    prompt: promptInfo,
-    knowledgeBase: kbInfo,
-    contextSnapshot: contextSnapshot
-      ? {
-          id: contextSnapshot.id,
-          promptKey: contextSnapshot.promptKey,
-          knowledgeBaseKey: contextSnapshot.knowledgeBaseKey,
-          systemPromptSnapshot: contextSnapshot.systemPromptSnapshot,
-          retrievalConfigJson: contextSnapshot.retrievalConfigJson,
-          extraConfigJson: contextSnapshot.extraConfigJson,
-          createdAt: contextSnapshot.createdAt,
-        }
-      : null,
-  });
+  return NextResponse.json(
+    toPlatformDiagnosticConversationDto(conv, {
+      prompt: promptInfo,
+      knowledgeBase: kbInfo,
+      contextSnapshot: contextSnapshot
+        ? {
+            id: contextSnapshot.id,
+            promptKey: contextSnapshot.promptKey,
+            knowledgeBaseKey: contextSnapshot.knowledgeBaseKey,
+            systemPromptSnapshot: contextSnapshot.systemPromptSnapshot,
+            retrievalConfigJson: contextSnapshot.retrievalConfigJson,
+            extraConfigJson: contextSnapshot.extraConfigJson,
+            createdAt: contextSnapshot.createdAt,
+          }
+        : null,
+    }),
+  );
 }
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
@@ -175,5 +165,47 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     request,
   });
 
-  return NextResponse.json({ conversation: updated });
+  if (isPlatformAdmin(user)) {
+    return NextResponse.json({
+      conversation: {
+        id: updated.id,
+        title: updated.title,
+        channel: updated.channel,
+        status: updated.status,
+        environment: updated.environment,
+        messageCount: conv.messageCount,
+        inputTokens: conv.inputTokens,
+        outputTokens: conv.outputTokens,
+        totalTokens: conv.totalTokens,
+        estimatedCost: conv.estimatedCost,
+        avgLatencyMs: conv.avgLatencyMs,
+        agentId: conv.agentId,
+        runtimeStatus: conv.runtimeStatus,
+        lastErrorMessage: conv.lastErrorMessage,
+        runCount: conv.runCount,
+        startedAt: updated.startedAt,
+        lastMessageAt: updated.lastMessageAt,
+        endedAt: updated.endedAt,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
+  }
+
+  return NextResponse.json({
+    conversation: toBusinessConversationDto({
+      ...updated,
+      inputTokens: conv.inputTokens,
+      outputTokens: conv.outputTokens,
+      totalTokens: conv.totalTokens,
+      estimatedCost: conv.estimatedCost,
+      avgLatencyMs: conv.avgLatencyMs,
+      messageCount: conv.messageCount,
+      agentId: conv.agentId,
+      runtimeStatus: conv.runtimeStatus,
+      lastErrorMessage: conv.lastErrorMessage,
+      runCount: conv.runCount,
+      user: null,
+    }),
+  });
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireProjectReadAccess } from "@/lib/projects/access";
+import { requireDiagnosticProjectReadAccess as requireProjectReadAccess } from "@/lib/projects/diagnostic-access";
 
 type Ctx = { params: Promise<{ id: string; kbId: string }> };
 

@@ -20,6 +20,9 @@ interface GmailState {
   connected: boolean;
   email?: string;
   grantedScopes?: string;
+  hasComposeScope?: boolean;
+  needsReauth?: boolean;
+  draftEnabled?: boolean;
 }
 
 interface SmtpState {
@@ -133,9 +136,11 @@ export default function EmailBindingPage() {
     }
   }, [loadStatus]);
 
-  const handleConnectGoogle = () => {
-    // 带上 return_to 让 callback 回跳到当前页面（默认跳 /settings）
-    window.location.href = "/api/auth/google-email?return_to=/settings/email";
+  const handleConnectGoogle = (reauth = false) => {
+    // 强制 offline + consent + include_granted_scopes=false；成功后覆盖旧 EmailProvider
+    const q = new URLSearchParams({ return_to: "/settings/email" });
+    if (reauth) q.set("reauth", "1");
+    window.location.href = `/api/auth/google-email?${q.toString()}`;
   };
 
   const handleUnlinkGoogle = async () => {
@@ -262,36 +267,48 @@ export default function EmailBindingPage() {
             </p>
 
             {gmail?.connected ? (
-              <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-200 bg-white/60 px-3 py-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <CheckCircle size={16} className="shrink-0 text-emerald-600" />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-emerald-800">
-                      {gmail.email}
-                    </p>
-                    <p className="text-[11px] text-emerald-700/80">已连接 Gmail</p>
+              <div className="mt-3 space-y-2">
+                {gmail.needsReauth && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+                    当前授权缺少 <code className="text-[10px]">gmail.compose</code>
+                    ，无法创建 AI 邮件草稿。请点击「重新授权」并完整同意权限。
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleConnectGoogle}
-                    className="rounded-md border border-border bg-white px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50"
-                  >
-                    重新授权
-                  </button>
-                  <button
-                    onClick={handleUnlinkGoogle}
-                    disabled={unlinkingGmail}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
-                    title="断开 Gmail 连接"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                )}
+                <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-white/60 px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <CheckCircle size={16} className="shrink-0 text-emerald-600" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-emerald-800">
+                        {gmail.email}
+                      </p>
+                      <p className="text-[11px] text-emerald-700/80">
+                        {gmail.hasComposeScope
+                          ? "已连接 Gmail（含草稿权限）"
+                          : "已连接 Gmail（需重新授权草稿权限）"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleConnectGoogle(true)}
+                      className="rounded-md border border-border bg-white px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50"
+                    >
+                      重新授权
+                    </button>
+                    <button
+                      onClick={handleUnlinkGoogle}
+                      disabled={unlinkingGmail}
+                      className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                      title="断开 Gmail 连接"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
               <button
-                onClick={handleConnectGoogle}
+                onClick={() => handleConnectGoogle(false)}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white border border-border px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:border-accent/50 hover:bg-accent/5 transition-colors"
               >
                 <svg viewBox="0 0 18 18" className="h-4 w-4" aria-hidden>

@@ -48,19 +48,35 @@ function formatBriefingMarkdown(briefing: DailyBriefing): string {
 /**
  * 把简报写入用户的置顶「每日简报」线程（无则创建）。
  * 每天最多写一条：若当天已有简报消息则更新为最新内容。
+ * Phase 3B-A：必须带 orgId，禁止创建无组织线程。
  */
 export async function writeBriefingToThread(
   userId: string,
   briefing: DailyBriefing,
+  orgId: string,
 ): Promise<void> {
+  if (!orgId) {
+    throw new Error("writeBriefingToThread requires orgId");
+  }
+
   let thread = await db.aiThread.findFirst({
-    where: { userId, title: BRIEF_THREAD_TITLE, archived: false },
+    where: {
+      userId,
+      orgId,
+      title: BRIEF_THREAD_TITLE,
+      archived: false,
+    },
     select: { id: true },
   });
 
   if (!thread) {
     thread = await db.aiThread.create({
-      data: { userId, title: BRIEF_THREAD_TITLE, pinned: true },
+      data: {
+        userId,
+        orgId,
+        title: BRIEF_THREAD_TITLE,
+        pinned: true,
+      },
       select: { id: true },
     });
   }

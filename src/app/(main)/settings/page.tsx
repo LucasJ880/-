@@ -6,6 +6,7 @@ import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDo
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 interface GoogleStatus {
   connected: boolean;
@@ -16,6 +17,9 @@ interface GmailStatus {
   connected: boolean;
   email?: string;
   grantedScopes?: string;
+  hasComposeScope?: boolean;
+  needsReauth?: boolean;
+  draftEnabled?: boolean;
 }
 
 export default function SettingsPage() {
@@ -34,9 +38,16 @@ const GOOGLE_ERROR_HINTS: Record<string, string> = {
   no_user: "授权回来时未检测到登录状态，请先在本站登录再连接 Google。",
   no_code: "未收到授权码，请重试连接。",
   token_fail: "用授权码换取令牌失败，请检查 Vercel 里的 GOOGLE_CLIENT_ID / SECRET / REDIRECT_URI 是否一致。",
+  GMAIL_COMPOSE_SCOPE_NOT_GRANTED:
+    "Google 未授予 gmail.compose（草稿权限）。请用「重新授权」完整同意后再试；旧绑定不会被错误覆盖。",
+  GMAIL_REFRESH_TOKEN_MISSING_REAUTHORIZE:
+    "未返回 refresh_token。请点击「重新授权」（会强制重新同意）后再试；现有绑定不会被覆盖。",
+  GMAIL_REAUTH_REQUIRED:
+    "当前 Gmail 授权缺少草稿权限，请到本页重新授权。",
 };
 
 function SettingsContent() {
+  const { isPlatformAdmin } = useCurrentUser();
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,7 +106,7 @@ function SettingsContent() {
       <div className="mb-6">
         <PageHeader
           title="设置"
-          description="管理外部服务连接、集成状态与排错说明。部署与环境变量总览见 docs/DEPLOY_VERCEL.md。"
+          description="管理外部服务连接、通知偏好与企业账号。"
         />
       </div>
 
@@ -138,33 +149,37 @@ function SettingsContent() {
         </div>
       )}
 
-      <Link
-        href="/settings/digital-employees"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
-          <Brain size={20} className="text-accent" />
-        </div>
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold">数字员工学习</h2>
-          <p className="text-xs text-muted">个人偏好、反馈学习、部门候选方法与 Playbook（默认关闭）</p>
-        </div>
-        <span className="text-xs text-accent">去管理 →</span>
-      </Link>
+      {isPlatformAdmin && (
+        <Link
+          href="/settings/digital-employees"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+            <Brain size={20} className="text-accent" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">数字员工学习</h2>
+            <p className="text-xs text-muted">个人偏好、反馈学习、部门候选方法与 Playbook（默认关闭）</p>
+          </div>
+          <span className="text-xs text-accent">去管理 →</span>
+        </Link>
+      )}
 
-      <Link
-        href="/settings/agent-skills"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
-          <Sparkles size={20} className="text-accent" />
-        </div>
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold">数字员工技能</h2>
-          <p className="text-xs text-muted">查看、编辑与测试销售/营销/投标等技能；副作用仍需负责人确认</p>
-        </div>
-        <span className="text-xs text-accent">去管理 →</span>
-      </Link>
+      {isPlatformAdmin && (
+        <Link
+          href="/settings/agent-skills"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+            <Sparkles size={20} className="text-accent" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">数字员工技能</h2>
+            <p className="text-xs text-muted">查看、编辑与测试销售/营销/投标等技能；副作用仍需负责人确认</p>
+          </div>
+          <span className="text-xs text-accent">去管理 →</span>
+        </Link>
+      )}
 
       <Link
         href="/settings/account"
@@ -359,7 +374,20 @@ function SettingsContent() {
                 <span className="text-sm font-medium text-[#2e7a56]">已绑定</span>
                 <span className="text-sm text-muted">{gmail.email}</span>
               </div>
-              <div className="flex gap-2">
+              {gmail.needsReauth && (
+                <p className="text-xs text-[#a67c3d]">
+                  缺少 <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.compose</code>
+                  ，AI 邮件草稿不可用。请重新授权。
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="/api/auth/google-email?reauth=1&return_to=/settings"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(43,96,85,0.25)] px-3 py-1.5 text-xs font-medium text-[#2b6055] transition-colors hover:bg-[rgba(43,96,85,0.04)]"
+                >
+                  <Mail size={12} />
+                  重新授权（草稿权限）
+                </a>
                 <button
                   onClick={handleGmailDisconnect}
                   disabled={gmailDisconnecting}
@@ -377,7 +405,7 @@ function SettingsContent() {
                 <span className="text-sm text-muted">未绑定</span>
               </div>
               <a
-                href="/api/auth/google-email"
+                href="/api/auth/google-email?return_to=/settings"
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
               >
                 <Mail size={14} />
@@ -399,7 +427,7 @@ function SettingsContent() {
             </summary>
             <div className="border-t border-border/60 px-3 pb-3 pt-2 text-[11px] leading-relaxed text-muted">
               <p>
-                Gmail 邮件使用独立的 OAuth 授权流程（scope: <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.send</code>），与 Google Calendar 授权互不影响。
+                Gmail 邮件使用独立的 OAuth 授权流程（scope: <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.compose</code> + <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">userinfo.email</code>），与 Google Calendar 授权互不影响。AI 路径仅创建草稿（drafts.create），不会自动发送。
               </p>
               <p className="mt-1.5">
                 需要在 Google Cloud Console 的 OAuth 客户端中额外添加重定向 URI：{" "}
@@ -410,10 +438,10 @@ function SettingsContent() {
                 </code>
               </p>
               <p className="mt-1.5">
-                Vercel 环境变量：<code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">GOOGLE_EMAIL_REDIRECT_URI</code> 设置为上述地址。
+                Vercel 环境变量：<code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">GOOGLE_EMAIL_REDIRECT_URI</code> 设置为上述地址；AI 草稿另需 <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">GMAIL_DRAFT_ENABLED=true</code>。
               </p>
               <p className="mt-1.5">
-                注意：<code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.send</code> 是 restricted scope，需在{" "}
+                注意：<code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.compose</code> 是 restricted scope，需在{" "}
                 <a
                   href="https://admin.google.com/ac/owl/list?tab=configuredApps"
                   target="_blank"

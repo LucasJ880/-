@@ -24,7 +24,7 @@ export interface ConversationHeaderProps {
     status: string;
     runtimeStatus?: string;
     lastErrorMessage?: string | null;
-    user: { id: string; name: string | null; email: string } | null;
+    user: { id: string; name: string | null; email?: string | null } | null;
     runCount?: number;
   };
   canManage: boolean;

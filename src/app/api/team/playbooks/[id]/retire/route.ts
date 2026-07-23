@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
+
 import {
   EmployeeAiAccessError,
   assertOrgMembership,
@@ -11,6 +13,9 @@ import {
 import { safeParseBody } from "@/lib/common/api-helpers";
 
 export const POST = withAuth<{ id: string }>(async (req, ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   try {
     const { id } = await ctx.params;
     const orgId = await resolveEmployeeAiOrgId(user.id);

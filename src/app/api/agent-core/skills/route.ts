@@ -10,6 +10,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { seedBuiltinSkills } from "@/lib/agent-core/skills/seed";
 import { getUserActiveOrgId } from "@/lib/organizations/active-org";
+import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
 
 async function resolveOrgId(userId: string): Promise<string | null> {
   const active = await getUserActiveOrgId(userId);
@@ -23,6 +24,9 @@ async function resolveOrgId(userId: string): Promise<string | null> {
 }
 
 export const GET = withAuth(async (req, _ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const { searchParams } = new URL(req.url);
   const domain = searchParams.get("domain") || undefined;
   const tier = searchParams.get("tier") || undefined;
@@ -107,6 +111,9 @@ export const GET = withAuth(async (req, _ctx, user) => {
 });
 
 export const POST = withAuth(async (req, _ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const orgId = await resolveOrgId(user.id);
   if (!orgId) {
     return NextResponse.json({ error: "无组织" }, { status: 403 });

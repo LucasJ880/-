@@ -77,7 +77,7 @@ export const zh: Messages = {
   nav_ai_memory: "组织知识",
   nav_agent_trace: "AI 工作台",
   nav_ai_activity: "自动化记录",
-  nav_capabilities_runs: "运行中心",
+  nav_capabilities_runs: "运行诊断",
   nav_capabilities_approvals: "审批中心",
   nav_capabilities_hub: "企业能力中台",
   nav_capabilities_overview: "中台总览",

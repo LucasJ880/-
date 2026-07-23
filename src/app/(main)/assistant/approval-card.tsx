@@ -11,6 +11,10 @@ import { useState } from "react";
 import { Check, X, Loader2, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
+import {
+  isAssistantRunStatusDto,
+  type AssistantRunStatusDto,
+} from "@/lib/assistant/run-status-types";
 
 export interface PendingApproval {
   actionId: string;
@@ -25,14 +29,17 @@ const DRAFT_TYPE_LABELS: Record<string, string> = {
   "sales.update_followup": "更新跟进时间",
   "sales.update_stage": "推进商机阶段",
   "calendar.create_event": "创建日历事件",
+  "grader.email_draft": "Gmail 草稿",
 };
 
 interface Props {
   approval: PendingApproval;
   onChange: (next: PendingApproval) => void;
+  /** Commit 6：确认/拒绝后立即更新任务卡 */
+  onRunUpdate?: (run: AssistantRunStatusDto) => void;
 }
 
-export function ApprovalCard({ approval, onChange }: Props) {
+export function ApprovalCard({ approval, onChange, onRunUpdate }: Props) {
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
 
   const typeLabel = DRAFT_TYPE_LABELS[approval.draftType] ?? approval.draftType;
@@ -47,6 +54,9 @@ export function ApprovalCard({ approval, onChange }: Props) {
         body: JSON.stringify({ decision }),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.run && isAssistantRunStatusDto(data.run)) {
+        onRunUpdate?.(data.run);
+      }
       if (!res.ok || data.ok === false) {
         onChange({
           ...approval,
@@ -67,7 +77,6 @@ export function ApprovalCard({ approval, onChange }: Props) {
       });
     } finally {
       setBusy(null);
-      // 不论结果如何，这条草稿都离开了 pending 池，通知全局徽章刷新
       notifyPendingActionsChanged();
     }
   };
@@ -133,28 +142,28 @@ export function ApprovalCard({ approval, onChange }: Props) {
       <div className="mb-3 text-xs leading-relaxed text-muted">
         {approval.preview}
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <button
           onClick={() => handle("approve")}
           disabled={busy !== null}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           {busy === "approve" ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <Check size={12} />
+            <Check size={14} />
           )}
           确认执行
         </button>
         <button
           onClick={() => handle("reject")}
           disabled={busy !== null}
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground disabled:opacity-50"
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-[13px] font-medium text-muted transition-colors hover:text-foreground disabled:opacity-50"
         >
           {busy === "reject" ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <X size={12} />
+            <X size={14} />
           )}
           取消
         </button>

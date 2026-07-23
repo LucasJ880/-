@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
+import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
+
 import {
   EmployeeAiAccessError,
   assertOrgMembership,
@@ -15,6 +17,9 @@ import {
 import { asOptionalString, asString } from "@/lib/employee-ai/http";
 
 export const GET = withAuth(async (_req, _ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const orgId = await resolveEmployeeAiOrgId(user.id);
   if (!orgId) {
     return NextResponse.json({ error: "无组织" }, { status: 403 });
@@ -60,6 +65,9 @@ export const GET = withAuth(async (_req, _ctx, user) => {
 });
 
 export const PATCH = withAuth(async (req, _ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   try {
     const orgId = await resolveEmployeeAiOrgId(user.id);
     if (!orgId) {

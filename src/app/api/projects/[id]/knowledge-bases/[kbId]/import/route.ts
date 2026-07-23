@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireProjectManageAccess } from "@/lib/projects/access";
+import { requireDiagnosticProjectManageAccess as requireProjectManageAccess } from "@/lib/projects/diagnostic-access";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import {
   importVaultToProjectKnowledgeBase,

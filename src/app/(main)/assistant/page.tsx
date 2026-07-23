@@ -27,6 +27,11 @@ import {
   markReplying,
   upsertToolStart,
 } from "./agent-run-types";
+import {
+  isAssistantRunStatusDto,
+  type AssistantRunStatusDto,
+} from "@/lib/assistant/run-status-types";
+import { attachRunsToAssistantMessages } from "@/lib/assistant/attach-runs";
 
 // ── 类型 ──────────────────────────────────────────────────────
 
@@ -58,13 +63,6 @@ function cleanStreamingText(raw: string): string {
   }
   return raw;
 }
-
-const CHANNEL_LABELS: Record<string, string> = {
-  wechat: "微信",
-  xiaohongshu: "小红书",
-  facebook: "Facebook",
-  email: "邮件",
-};
 
 // ── 主页面 ────────────────────────────────────────────────────
 
@@ -103,7 +101,6 @@ function AssistantPageInner() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [channelMode, setChannelMode] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -156,47 +153,54 @@ function AssistantPageInner() {
     }
   }, [createThread, initialProjectId, initialThreadId]);
 
-  // Load messages when active thread changes
+  // Load messages + assistant runs when active thread changes
   useEffect(() => {
     if (!activeThreadId) {
       setMessages([]);
       return;
     }
     setLoadingThread(true);
-    apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${activeThreadId}/messages`)
-      .then((data) => {
-        if (data.messages) {
-          const now = Date.now();
-          setMessages(
-            data.messages.map((m: AiMsg) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
-              pendingApprovals: (m.pendingActions ?? []).map((a) => {
-                // PR4 回看：pending 但已过期的降级为 expired，不给点击
-                const expired =
-                  a.status === "pending" &&
-                  new Date(a.expiresAt).getTime() < now;
-                return {
-                  actionId: a.id,
-                  draftType: a.type,
-                  title: a.title,
-                  preview: a.preview,
-                  status: expired
-                    ? ("expired" as const)
-                    : (a.status as
-                        | "pending"
-                        | "executed"
-                        | "rejected"
-                        | "failed"
-                        | "expired"),
-                  failureReason: a.failureReason ?? undefined,
-                };
-              }),
-            }))
-          );
-        }
+    const threadId = activeThreadId;
+    Promise.all([
+      apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${threadId}/messages`),
+      apiJson<{ runs?: AssistantRunStatusDto[] }>(
+        `/api/ai/threads/${threadId}/runs`,
+      ).catch(() => ({ runs: [] as AssistantRunStatusDto[] })),
+    ])
+      .then(([data, runsData]) => {
+        if (!data.messages) return;
+        const now = Date.now();
+        const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+          pendingApprovals: (m.pendingActions ?? []).map((a) => {
+            const expired =
+              a.status === "pending" &&
+              new Date(a.expiresAt).getTime() < now;
+            return {
+              actionId: a.id,
+              draftType: a.type,
+              title: a.title,
+              preview: a.preview,
+              status: expired
+                ? ("expired" as const)
+                : (a.status as
+                    | "pending"
+                    | "executed"
+                    | "rejected"
+                    | "failed"
+                    | "expired"),
+              failureReason: a.failureReason ?? undefined,
+            };
+          }),
+        }));
+
+        // 按 Run.assistantMessageId 精确挂载；禁止 runs[0] → 最后一条 assistant
+        setMessages(
+          attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
+        );
       })
       .catch(() => {})
       .finally(() => setLoadingThread(false));
@@ -261,11 +265,6 @@ function AssistantPageInner() {
     if (!content || isLoading) return;
     if (!orgReady) return;
 
-    if (channelMode) {
-      const chLabel = CHANNEL_LABELS[channelMode] || channelMode;
-      content = `[渠道: ${chLabel}] ${content}\n\n请按${chLabel}渠道风格生成话术。`;
-    }
-
     let threadId = activeThreadId;
 
     if (!threadId) {
@@ -278,7 +277,7 @@ function AssistantPageInner() {
       role: "user",
       content,
     };
-    const assistantId = `assistant-${Date.now()}`;
+    let assistantId = `assistant-${Date.now()}`;
     const assistantMsg: StreamingMsg = {
       id: assistantId,
       role: "assistant",
@@ -293,104 +292,7 @@ function AssistantPageInner() {
     setIsLoading(true);
 
     try {
-      // 协同空间始终优先主管 AI；Flag 未开（403）时降级到普通对话，不打断使用
-      const supervisorRes = await apiFetch("/api/agent-supervisor/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: content,
-          mode: "supervisor",
-          pageContext: {
-            projectId: initialProjectId || undefined,
-          },
-        }),
-      });
-      const supervisorData = await supervisorRes.json().catch(() => ({}));
-      if (supervisorRes.ok) {
-        const statusLabel: Record<string, string> = {
-          pending: "待执行",
-          running: "执行中",
-          completed: "已完成",
-          skipped: "已跳过",
-          failed: "失败",
-          waiting_for_approval: "等待审批",
-          waiting_for_user: "等待确认",
-        };
-        const planLines = Array.isArray(supervisorData.plan)
-          ? supervisorData.plan
-              .map(
-                (s: {
-                  order: number;
-                  workerName?: string;
-                  worker: string;
-                  objective: string;
-                  status: string;
-                  error?: string | null;
-                  resultSummary?: string | null;
-                }) => {
-                  const name = s.workerName || `${s.worker}数字员工`;
-                  const st = statusLabel[s.status] || s.status;
-                  const extra =
-                    s.error === "pending_action_rejected"
-                      ? " · 已拒绝，未执行"
-                      : s.resultSummary
-                        ? ` · ${String(s.resultSummary).slice(0, 80)}`
-                        : "";
-                  return `${s.order}. ${name}：${s.objective}（${st}${extra}）`;
-                },
-              )
-              .join("\n")
-          : "";
-        const pending = Array.isArray(supervisorData.pendingActionIds)
-          ? supervisorData.pendingActionIds
-          : [];
-        const text = [
-          `模式：主管AI`,
-          supervisorData.objective ? `目标：${supervisorData.objective}` : "",
-          supervisorData.text || "",
-          planLines ? `\n计划步骤：\n${planLines}` : "",
-          pending.length
-            ? `\n待审批：${pending.length} 项（批准前不会执行）`
-            : "",
-          supervisorData.knowledgeRetrieval?.status &&
-          supervisorData.knowledgeRetrieval.status !== "available"
-            ? `\n限制：本次结论基于 CRM/项目等结构化数据；企业知识库检索暂不可用。`
-            : "",
-          supervisorData.fallbackUsed
-            ? `\n（管理员可见：本次规划使用规则降级）`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("\n")
-          .trim();
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  content: text,
-                  isStreaming: false,
-                  agentSteps: finalizeSteps(m.agentSteps || []),
-                  pendingActions: pending.map((id: string) => ({
-                    id,
-                    type: "pending",
-                    title: "待审批动作",
-                    preview: "请在审批收件箱确认",
-                    status: "pending" as const,
-                    expiresAt: new Date(Date.now() + 86400000).toISOString(),
-                  })),
-                }
-              : m,
-          ),
-        );
-        notifyPendingActionsChanged();
-        setIsLoading(false);
-        return;
-      }
-      if (supervisorRes.status !== 403) {
-        throw new Error(supervisorData.error || "主管 AI 启动失败");
-      }
-
+      // Phase 3B-A：单一主入口。业务路由由服务端 dispatch 决定，禁止前端 Supervisor→SSE 双路由。
       const payload: Record<string, string> = { content, orgId };
       if (attachedFile) {
         payload.fileText = attachedFile.text;
@@ -502,7 +404,55 @@ function AssistantPageInner() {
             continue;
           }
 
-          if (parsed.type === "mode") continue;
+          if (parsed.type === "mode") {
+            // 将临时消息 ID 对齐为服务端持久化 ID（刷新后可按 assistantMessageId 挂卡）
+            const realAssistantId =
+              typeof parsed.assistantMessageId === "string"
+                ? parsed.assistantMessageId
+                : null;
+            const realUserId =
+              typeof parsed.userMessageId === "string"
+                ? parsed.userMessageId
+                : null;
+            if (realAssistantId || realUserId) {
+              const prevAssistantId = assistantId;
+              const prevUserId = userMsg.id;
+              if (realAssistantId) assistantId = realAssistantId;
+              if (realUserId) userMsg.id = realUserId;
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (realUserId && m.id === prevUserId) {
+                    return { ...m, id: realUserId };
+                  }
+                  if (realAssistantId && m.id === prevAssistantId) {
+                    return { ...m, id: realAssistantId };
+                  }
+                  return m;
+                }),
+              );
+            }
+            continue;
+          }
+
+          // Phase 3B-A：统一七态卡片（只读 event.run.status）
+          if (parsed.type === "run_status") {
+            const runPayload = parsed.run;
+            if (isAssistantRunStatusDto(runPayload)) {
+              const targetId =
+                runPayload.assistantMessageId &&
+                runPayload.assistantMessageId.length > 0
+                  ? runPayload.assistantMessageId
+                  : assistantId;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === targetId || m.id === assistantId
+                    ? { ...m, id: targetId, assistantRun: runPayload, isStreaming: true }
+                    : m,
+                ),
+              );
+            }
+            continue;
+          }
 
           // PR4：AI 生成了待审批草稿 → 挂到当前 assistant 消息下
           if (parsed.type === "approval_required" && parsed.actionId) {
@@ -658,6 +608,76 @@ function AssistantPageInner() {
     );
   };
 
+  // Commit 6：按 assistantMessageId 精确更新任务卡（禁止挂最后一条）
+  const handleRunUpdate = (run: AssistantRunStatusDto) => {
+    const targetId = run.assistantMessageId;
+    if (!targetId) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === targetId ? { ...m, assistantRun: run } : m,
+      ),
+    );
+  };
+
+  const handleRunRetry = async (run: AssistantRunStatusDto) => {
+    if (!activeThreadId || !run.canRetry) return;
+    const res = await apiFetch(
+      `/api/ai/threads/${activeThreadId}/runs/${run.runId}/retry`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "重试失败");
+      return;
+    }
+    // 消费 SSE 后再刷新挂载（按 assistantMessageId）
+    const reader = res.body?.getReader();
+    if (reader) {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    }
+    const data = await apiJson<{ messages?: AiMsg[] }>(
+      `/api/ai/threads/${activeThreadId}/messages`,
+    ).catch(() => null);
+    const runsData = await apiJson<{ runs?: AssistantRunStatusDto[] }>(
+      `/api/ai/threads/${activeThreadId}/runs`,
+    ).catch(() => ({ runs: [] as AssistantRunStatusDto[] }));
+    if (data?.messages) {
+      const now = Date.now();
+      const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+        pendingApprovals: (m.pendingActions ?? []).map((a) => {
+          const expired =
+            a.status === "pending" &&
+            new Date(a.expiresAt).getTime() < now;
+          return {
+            actionId: a.id,
+            draftType: a.type,
+            title: a.title,
+            preview: a.preview,
+            status: expired
+              ? ("expired" as const)
+              : (a.status as
+                  | "pending"
+                  | "executed"
+                  | "rejected"
+                  | "failed"
+                  | "expired"),
+            failureReason: a.failureReason ?? undefined,
+          };
+        }),
+      }));
+      setMessages(
+        attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
+      );
+    }
+  };
+
   return (
     <div className="flex h-full bg-[#f5f6f6] tracking-normal text-[#171a19]">
       <ThreadSidebar
@@ -702,11 +722,11 @@ function AssistantPageInner() {
           onClearAttachedFile={() => setAttachedFile(null)}
           onFileUpload={handleFileUpload}
           uploadingFile={uploadingFile}
-          channelMode={channelMode}
-          onChannelModeChange={setChannelMode}
           onShowMobileSidebar={() => setShowMobileSidebar(true)}
           inputRef={inputRef}
           onApprovalChange={handleApprovalChange}
+          onRunUpdate={handleRunUpdate}
+          onRunRetry={handleRunRetry}
           onOpenThread={(id) => {
             setActiveThreadId(id);
             router.replace(`/assistant?thread=${id}`);

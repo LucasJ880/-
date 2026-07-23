@@ -11,6 +11,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { selectActiveOrganization } from "@/lib/org-selection";
+import { orgRoleLabel } from "@/lib/permissions-client";
 
 type SwitchOrgInfo = {
   orgAccessMode: string;
@@ -98,6 +99,11 @@ export default function SettingsAccountPage() {
             {current?.code && (
               <div className="text-xs text-muted-foreground">{current.code}</div>
             )}
+            {current?.myRole && (
+              <div className="mt-1 text-sm text-muted-foreground">
+                企业角色：{orgRoleLabel(current.myRole)}
+              </div>
+            )}
           </div>
 
           <div className="text-xs text-muted-foreground">
@@ -116,7 +122,10 @@ export default function SettingsAccountPage() {
                   >
                     <div className="min-w-0">
                       <div className="font-medium">{o.name}</div>
-                      <div className="text-xs text-muted-foreground">{o.code}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {o.code}
+                        {o.myRole ? ` · ${orgRoleLabel(o.myRole)}` : ""}
+                      </div>
                     </div>
                     {o.id === info.activeOrgId ? (
                       <span className="shrink-0 text-xs text-emerald-700">当前</span>

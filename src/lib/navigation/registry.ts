@@ -177,11 +177,12 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       },
       {
         key: "cap-runs",
-        label: "运行中心",
+        label: "运行诊断",
         labelKey: "nav_capabilities_runs",
         href: "/capabilities/runs",
         group: "CAPABILITIES",
         requireMembership: true,
+        platformAdminOnly: true,
         displayOrder: 30,
       },
       {
@@ -472,6 +473,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Brain,
     group: "MANAGEMENT",
     requireMembership: true,
+    platformAdminOnly: true,
     displayOrder: 30,
   },
   {

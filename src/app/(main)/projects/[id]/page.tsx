@@ -41,6 +41,7 @@ import { ProjectFileManager } from "@/components/project-files/project-file-mana
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-onboarding-guide";
 import { ProjectDetailHeader } from "@/components/project-detail/project-detail-header";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { ProjectAiSummaryCard } from "@/components/project-ai-summary/project-ai-summary-card";
 import { ProjectHistoryExperienceCard } from "@/components/project-history-experience/project-history-experience-card";
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
@@ -144,6 +145,7 @@ function ProjectDetailContent() {
   const searchParams = useSearchParams();
   const id = params.id as string;
   const highlightActivityId = searchParams.get("activity") ?? undefined;
+  const { isPlatformAdmin } = useCurrentUser();
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
@@ -338,7 +340,11 @@ function ProjectDetailContent() {
         <ArrowLeft size={14} /> 项目列表
       </button>
 
-      <ProjectDetailHeader project={project} canManage={canManage} />
+      <ProjectDetailHeader
+        project={project}
+        canManage={canManage}
+        showDevTools={isPlatformAdmin}
+      />
 
       <ProjectImportBanner projectId={id} onFinished={load} />
       <AutoAiPanelsRunner projectId={id} />
