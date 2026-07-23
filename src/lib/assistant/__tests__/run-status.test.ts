@@ -99,6 +99,33 @@ ok(
 );
 
 ok(
+  "失败 DTO 展示 scenarioErrorCode 而非仅 tool_failed",
+  (() => {
+    const dto = toAssistantRunStatusDto({
+      run: {
+        id: "run-3",
+        orgId: "sunny",
+        status: "failed",
+        intent: "customer_followup_task",
+        errorCode: "tool_failed",
+        errorMessage: "DRAFT_CREATION_FAILED",
+        metadata: {
+          threadId: "thread-1",
+          initiatedByUserId: "u1",
+          scenarioErrorCode: "DRAFT_CREATION_FAILED",
+        },
+        startedAt: new Date(),
+        updatedAt: new Date(),
+        completedAt: new Date(),
+      },
+      threadId: "thread-1",
+      initiatedByUserId: "u1",
+    });
+    return dto.errorCode === "DRAFT_CREATION_FAILED";
+  })(),
+);
+
+ok(
   "同 org、同 thread、同 user → 可见",
   runMatchesOwner({
     orgId: "sunny",

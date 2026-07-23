@@ -8,6 +8,12 @@ import { resolveCustomerForFollowup } from "@/lib/ai-grader/graders/customer-fol
 import type { AssistantScenarioResult, ScenarioContext } from "./types";
 import { friendlyScenarioError } from "./types";
 import { extractCustomerNameHint, extractEmail } from "./entity-parse";
+import {
+  assertNoInternalLeak,
+  buildCustomerVisibleEmailBody,
+  buildEmailSubject,
+  extractEmailContentFacts,
+} from "./email-content";
 
 const SUBJECT_MAX = 200;
 const BODY_MAX = 10_000;
@@ -56,13 +62,13 @@ export type GmailAnalyzeResult =
   | { kind: "ready"; plan: GmailDraftPlan };
 
 async function resolveRecipient(
-  ctx: Pick<
-    ScenarioContext,
-    "orgId" | "userId" | "role" | "message"
-  >,
+  ctx: Pick<ScenarioContext, "orgId" | "userId" | "role" | "message">,
 ): Promise<
   | { ok: true; to: string; customerId?: string; customerName?: string }
-  | { ok: false; result: Extract<GmailAnalyzeResult, { kind: "clarification_required" }> }
+  | {
+      ok: false;
+      result: Extract<GmailAnalyzeResult, { kind: "clarification_required" }>;
+    }
 > {
   const email = extractEmail(ctx.message);
   if (email) {
@@ -141,29 +147,44 @@ export async function analyzeGmailDraft(
     "orgId" | "userId" | "role" | "message" | "requestedDirectExecution"
   >,
 ): Promise<GmailAnalyzeResult> {
+  const content = extractEmailContentFacts(ctx.message);
+  if (!content.hasPurpose) {
+    return {
+      kind: "clarification_required",
+      missingFields: ["emailPurpose"],
+      assistantContent:
+        "请告诉我这封邮件想表达的具体内容（例如生产周期、测量时间、报价是否有效）。当前不会生成空泛的通用跟进邮件。",
+    };
+  }
+
   const recipient = await resolveRecipient(ctx);
   if (!recipient.ok) return recipient.result;
 
-  const subject = clip(
-    recipient.customerName
-      ? `关于 ${recipient.customerName} 的跟进`
-      : "跟进邮件",
-    SUBJECT_MAX,
-  );
   const body = clip(
-    [
-      `您好${recipient.customerName ? ` ${recipient.customerName}` : ""}，`,
-      "",
-      "希望这封邮件找到你一切顺利。",
-      "",
-      "我想跟进一下我们之前沟通的事项，请问您方便的时间吗？",
-      "",
-      "此致",
-      "敬礼",
-      "",
-      `（由青砚助手根据你的请求起草；原文：${ctx.message.slice(0, 120)}）`,
-    ].join("\n"),
+    buildCustomerVisibleEmailBody({
+      customerName: recipient.customerName,
+      facts: content.facts,
+      language: content.language,
+    }),
     BODY_MAX,
+  );
+
+  // 双重保险：禁止内部泄漏进入客户可见正文
+  if (!assertNoInternalLeak(body)) {
+    return {
+      kind: "clarification_required",
+      missingFields: ["emailPurpose"],
+      assistantContent: "邮件内容生成异常，请换一种说法重试。",
+    };
+  }
+
+  const subject = clip(
+    buildEmailSubject({
+      customerName: recipient.customerName,
+      facts: content.facts,
+      language: content.language,
+    }),
+    SUBJECT_MAX,
   );
 
   return {
@@ -189,6 +210,15 @@ export async function commitGmailDraft(
   ready: Extract<GmailAnalyzeResult, { kind: "ready" }>,
 ): Promise<AssistantScenarioResult> {
   const { plan } = ready;
+
+  if (!assertNoInternalLeak(plan.body)) {
+    return {
+      kind: "failed",
+      assistantContent: friendlyScenarioError("DRAFT_CREATION_FAILED"),
+      errorCode: "DRAFT_CREATION_FAILED",
+    };
+  }
+
   const draft = await createDraft({
     type: "grader.email_draft",
     title: `邮件草稿：${plan.to}`,
@@ -209,6 +239,7 @@ export async function commitGmailDraft(
       metadata: {
         orgId: ctx.orgId,
         customerId: plan.customerId,
+        source: "assistant_scenario",
       },
     },
     userId: ctx.userId,

@@ -397,13 +397,33 @@ async function finalizeScenarioRun(input: {
       code: "tool_failed",
       message: input.result.errorCode,
     });
+    const failedBase = await db.agentRun.findFirstOrThrow({
+      where: { id: input.runId },
+    });
+    const failMeta = {
+      ...((failedBase.metadata as Record<string, unknown>) ?? {}),
+      scenarioErrorCode: input.result.errorCode,
+      resultSummary: input.result.errorCode,
+      assistantMessageId: input.assistantMessageId,
+      threadId: input.threadId,
+      initiatedByUserId: input.userId,
+      channel: "web_assistant",
+      scenario: input.intent,
+    };
+    await db.agentRun.update({
+      where: { id: input.runId },
+      data: { metadata: failMeta as Prisma.InputJsonValue },
+    });
     await appendAgentRunEvent({
       orgId: input.orgId,
       runId: input.runId,
       eventType: "run.failed",
       title: "run.failed",
       visibleToUser: true,
-      payload: { errorCode: input.result.errorCode },
+      payload: {
+        errorCode: input.result.errorCode,
+        scenarioErrorCode: input.result.errorCode,
+      },
     });
     const failed = await db.agentRun.findFirstOrThrow({
       where: { id: input.runId },

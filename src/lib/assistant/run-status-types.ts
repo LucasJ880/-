@@ -36,6 +36,10 @@ export type AssistantRunStatusDto = {
     type: AssistantRunStepType;
     title: string;
   } | null;
+  /**
+   * 优先 metadata.scenarioErrorCode（如 DRAFT_CREATION_FAILED），
+   * 否则回退 AgentRun.errorCode（枚举如 tool_failed）。
+   */
   errorCode: string | null;
   resultSummary: string | null;
   startedAt: string | null;
@@ -153,5 +157,12 @@ export function isAssistantRunStatusDto(value: unknown): value is AssistantRunSt
 export function readAssistantMessageId(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null;
   const v = (metadata as Record<string, unknown>).assistantMessageId;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/** 场景可恢复错误码（优先于枚举 tool_failed） */
+export function readScenarioErrorCode(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const v = (metadata as Record<string, unknown>).scenarioErrorCode;
   return typeof v === "string" && v.length > 0 ? v : null;
 }

@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import {
   mapAgentRunToAssistantStatus,
   readAssistantMessageId,
+  readScenarioErrorCode,
   type AssistantRunStatusDto,
   type AssistantTaskStatus,
 } from "@/lib/assistant/run-status-types";
@@ -100,7 +101,8 @@ export function toAssistantRunStatusDto(input: {
     status,
     intent: input.run.intent,
     currentStep,
-    errorCode: input.run.errorCode,
+    errorCode:
+      readScenarioErrorCode(input.run.metadata) ?? input.run.errorCode,
     resultSummary:
       input.resultSummary ??
       metaSummary ??

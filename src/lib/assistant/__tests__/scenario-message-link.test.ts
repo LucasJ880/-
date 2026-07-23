@@ -172,4 +172,61 @@ ok(
   })(),
 );
 
+ok(
+  "场景错误码可恢复：DTO 优先 scenarioErrorCode 而非 tool_failed",
+  (() => {
+    const dto = toAssistantRunStatusDto({
+      run: {
+        id: "run-err",
+        orgId: "sunny",
+        status: "failed",
+        intent: "gmail_email_draft",
+        errorCode: "tool_failed",
+        errorMessage: "DRAFT_CREATION_FAILED",
+        userMessageId: "um-1",
+        metadata: {
+          threadId: "t1",
+          initiatedByUserId: "u1",
+          assistantMessageId: "am-1",
+          scenarioErrorCode: "DRAFT_CREATION_FAILED",
+        },
+        startedAt: new Date(),
+        updatedAt: new Date(),
+        completedAt: new Date(),
+      },
+      threadId: "t1",
+      initiatedByUserId: "u1",
+    });
+    return dto.errorCode === "DRAFT_CREATION_FAILED";
+  })(),
+);
+
+ok(
+  "GRADER_FAILED 场景码可恢复",
+  (() => {
+    const dto = toAssistantRunStatusDto({
+      run: {
+        id: "run-g",
+        orgId: "sunny",
+        status: "failed",
+        intent: "daily_business_brief",
+        errorCode: "tool_failed",
+        errorMessage: "GRADER_FAILED",
+        metadata: {
+          threadId: "t1",
+          initiatedByUserId: "u1",
+          assistantMessageId: "am-g",
+          scenarioErrorCode: "GRADER_FAILED",
+        },
+        startedAt: new Date(),
+        updatedAt: new Date(),
+        completedAt: new Date(),
+      },
+      threadId: "t1",
+      initiatedByUserId: "u1",
+    });
+    return dto.errorCode === "GRADER_FAILED";
+  })(),
+);
+
 console.log(`结果: ${passed} passed`);

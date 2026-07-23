@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2–5 已实施（org 绑定 + Dispatch + 七态任务卡 + 三场景真实编排）；Commit 6（确认执行收敛 / 恢复重试）未开始  
+**状态**：Commit 2–5A 已实施（org 绑定 + Dispatch + 七态任务卡 + 三场景编排硬化）；Commit 6（确认执行收敛 / 恢复重试）未开始  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -131,6 +131,15 @@ archived = true
 | Gmail | `grader.email_draft`；发送话术仍只建草稿；确认前不调 `createGmailDraft` |
 | 测试 | `scenario-message-link` / `daily-brief` / `customer-followup` / `gmail-draft` 单测 |
 | 不做 | Executor 重写；Commit 6 的 PA 执行后 Run 收敛 / 恢复重试 |
+
+### Commit 5A（场景解析与 Prepare 一致性）
+
+| 项 | 说明 |
+|---|---|
+| Gmail 正文 | 仅用户明确事实；禁止「青砚助手/原文」等内部说明；无目的则澄清 |
+| 实体解析 | 支持「把 ABC 商机…」「给 Rudy 起草一封邮件」等前置名 |
+| 双 PA | `createDraftBatch` 事务创建 + 失败补偿；不留孤立 pending |
+| 错误码 | `metadata.scenarioErrorCode` → DTO.errorCode（优先于 tool_failed） |
 
 **关联约定**：
 

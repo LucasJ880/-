@@ -4,7 +4,7 @@
  */
 
 import { db } from "@/lib/db";
-import { createDraft } from "@/lib/pending-actions/drafts";
+import { createDraftBatch } from "@/lib/pending-actions/drafts";
 import { resolveCustomerForFollowup } from "@/lib/ai-grader/graders/customer-followup-grader";
 import { resolveSalesOwnOnly } from "@/lib/ai-grader/graders/_scope";
 import type { AssistantScenarioResult, ScenarioContext } from "./types";
@@ -81,26 +81,6 @@ async function listOpportunitiesForCustomer(input: {
     orderBy: { updatedAt: "desc" },
     take: 10,
   });
-}
-
-function draftOk(
-  result: Awaited<ReturnType<typeof createDraft>>,
-): result is {
-  success: true;
-  data: {
-    status: string;
-    actionId: string;
-    type: string;
-    title: string;
-    preview: string;
-  };
-} {
-  return (
-    result.success === true &&
-    !!result.data &&
-    typeof result.data === "object" &&
-    typeof (result.data as { actionId?: unknown }).actionId === "string"
-  );
 }
 
 /** 分析阶段：可澄清、不创建 Run / PA */
@@ -266,20 +246,14 @@ export async function analyzeCustomerFollowup(
   };
 }
 
-/** 提交阶段：创建独立 PendingAction（须已有 AgentRun） */
+/** 提交阶段：事务批量创建独立 PendingAction（须已有 AgentRun） */
 export async function commitCustomerFollowup(
   ctx: ScenarioContext,
   ready: Extract<FollowupAnalyzeResult, { kind: "ready" }>,
+  batchAdapters?: Parameters<typeof createDraftBatch>[1],
 ): Promise<AssistantScenarioResult> {
-  const pendingActions: Array<{
-    id: string;
-    type: string;
-    title: string;
-    preview: string;
-  }> = [];
-
-  for (const plan of ready.plans) {
-    const draft = await createDraft({
+  const batch = await createDraftBatch(
+    ready.plans.map((plan) => ({
       type: plan.type,
       title: plan.title,
       preview: plan.preview,
@@ -289,27 +263,28 @@ export async function commitCustomerFollowup(
       threadId: ctx.threadId,
       messageId: ctx.assistantMessageId,
       agentRunId: ctx.agentRunId,
-    });
-    if (!draftOk(draft)) {
-      return {
-        kind: "failed",
-        assistantContent: friendlyScenarioError("DRAFT_CREATION_FAILED"),
-        errorCode: "DRAFT_CREATION_FAILED",
-      };
-    }
-    pendingActions.push({
-      id: draft.data.actionId,
-      type: draft.data.type,
-      title: draft.data.title,
-      preview: draft.data.preview,
-    });
+    })),
+    batchAdapters,
+  );
+
+  if (!batch.success) {
+    return {
+      kind: "failed",
+      assistantContent: friendlyScenarioError("DRAFT_CREATION_FAILED"),
+      errorCode: "DRAFT_CREATION_FAILED",
+    };
   }
 
   return {
     kind: "approval_required",
     assistantContent: ready.assistantLines.join("\n"),
-    pendingActions,
-    resultSummary: `followup_actions_${pendingActions.length}`,
+    pendingActions: batch.actions.map((a) => ({
+      id: a.actionId,
+      type: a.type,
+      title: a.title,
+      preview: a.preview,
+    })),
+    resultSummary: `followup_actions_${batch.actions.length}`,
   };
 }
 

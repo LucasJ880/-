@@ -5,8 +5,16 @@
 
 import assert from "node:assert/strict";
 import { routeAssistantIntent } from "@/lib/assistant/intent-router";
-import { extractEmail, extractCustomerNameHint } from "@/lib/assistant/scenarios/entity-parse";
+import {
+  extractEmail,
+  extractCustomerNameHint,
+} from "@/lib/assistant/scenarios/entity-parse";
 import { buildGmailDraftCopy } from "@/lib/assistant/scenarios/gmail-draft";
+import {
+  assertNoInternalLeak,
+  buildCustomerVisibleEmailBody,
+  extractEmailContentFacts,
+} from "@/lib/assistant/scenarios/email-content";
 import { friendlyScenarioError } from "@/lib/assistant/scenarios/types";
 
 let passed = 0;
@@ -32,9 +40,7 @@ ok(
   "草稿意图不带直接发送标记",
   (() => {
     const r = routeAssistantIntent("帮我写一封 Gmail 草稿");
-    return (
-      r.intent === "gmail_email_draft" && !r.requestedDirectExecution
-    );
+    return r.intent === "gmail_email_draft" && !r.requestedDirectExecution;
   })(),
 );
 
@@ -49,8 +55,57 @@ ok(
 );
 
 ok(
-  "客户名 hint 可解析",
-  !!extractCustomerNameHint("给 ABC 写邮件跟进"),
+  "给 Rudy 起草一封邮件 → 解析 Rudy",
+  extractCustomerNameHint("给 Rudy 起草一封邮件") === "Rudy",
+);
+
+ok(
+  "给 ABC 客户发送邮件 → 解析 ABC",
+  extractCustomerNameHint("给 ABC 客户发送邮件") === "ABC",
+);
+
+ok(
+  "生产周期事实进入正文，且无内部说明",
+  (() => {
+    const msg = "帮我回复客户，我们生产周期是 8 周";
+    const extracted = extractEmailContentFacts(msg);
+    const body = buildCustomerVisibleEmailBody({
+      facts: extracted.facts,
+      language: extracted.language,
+    });
+    return (
+      extracted.hasPurpose &&
+      (body.includes("8 周") || body.includes("8 weeks")) &&
+      !body.includes("青砚助手") &&
+      !body.includes("原文") &&
+      !body.includes("系统提示") &&
+      assertNoInternalLeak(body)
+    );
+  })(),
+);
+
+ok(
+  "测量 / 报价 / 到场事实可提取",
+  (() => {
+    const a = extractEmailContentFacts("告诉 Rudy，我们预计 8 月初测量");
+    const b = extractEmailContentFacts("给客户写邮件，确认报价仍然有效");
+    const c = extractEmailContentFacts(
+      "回复客户，现场只有 Hui Jiang 一个人参加",
+    );
+    return (
+      a.facts.some((f) => /8 月初|measure/i.test(f)) &&
+      b.facts.some((f) => /报价仍然有效|remains valid/i.test(f)) &&
+      c.facts.some((f) => /Hui Jiang/)
+    );
+  })(),
+);
+
+ok(
+  "只有收件人、没有邮件目的 → 无 purpose（应澄清、不建 PA）",
+  (() => {
+    const extracted = extractEmailContentFacts("帮我发送邮件给客户");
+    return extracted.hasPurpose === false && extracted.facts.length === 0;
+  })(),
 );
 
 ok(
@@ -59,7 +114,7 @@ ok(
     const text = buildGmailDraftCopy({
       to: "a@b.com",
       subject: "跟进",
-      body: "你好",
+      body: "生产周期为 8 周",
       requestedDirectExecution: true,
     });
     return (
@@ -85,11 +140,6 @@ ok(
 ok(
   "缺少收件人友好文案",
   friendlyScenarioError("RECIPIENT_REQUIRED").includes("邮箱"),
-);
-
-ok(
-  "歧义收件人友好文案",
-  friendlyScenarioError("RECIPIENT_AMBIGUOUS").includes("多个"),
 );
 
 ok(
