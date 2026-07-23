@@ -16,11 +16,21 @@ import path from "path";
 const BASE = process.argv[2] || "http://127.0.0.1:3000";
 const EMAIL = process.env.MOBILE_AUDIT_EMAIL;
 const PASSWORD = process.env.MOBILE_AUDIT_PASSWORD;
+/** Vercel Deployment Protection bypass（可选，勿写入仓库） */
+const VERCEL_BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
 if (!EMAIL || !PASSWORD) {
   throw new Error(
     "MOBILE_AUDIT_EMAIL and MOBILE_AUDIT_PASSWORD are required",
   );
+}
+
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  if (VERCEL_BYPASS) {
+    headers["x-vercel-protection-bypass"] = VERCEL_BYPASS;
+  }
+  return headers;
 }
 
 const OUT = path.join(process.cwd(), "docs/mobile2-audit-results.json");
@@ -84,7 +94,7 @@ function activeLockCount(page: Page): Promise<number | null> {
 async function loginViaApi(context: BrowserContext) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
   if (!res.ok) {
@@ -92,21 +102,31 @@ async function loginViaApi(context: BrowserContext) {
   }
   const setCookie = res.headers.getSetCookie?.() ?? [];
   const url = new URL(BASE);
-  await context.addCookies(
-    setCookie.map((raw) => {
-      const [pair] = raw.split(";");
-      const eq = pair.indexOf("=");
-      return {
-        name: pair.slice(0, eq),
-        value: pair.slice(eq + 1),
-        domain: url.hostname,
-        path: "/",
-        httpOnly: /httponly/i.test(raw),
-        secure: url.protocol === "https:",
-        sameSite: "Lax" as const,
-      };
-    }),
-  );
+  const cookies = setCookie.map((raw) => {
+    const [pair] = raw.split(";");
+    const eq = pair.indexOf("=");
+    return {
+      name: pair.slice(0, eq),
+      value: pair.slice(eq + 1),
+      domain: url.hostname,
+      path: "/",
+      httpOnly: /httponly/i.test(raw),
+      secure: url.protocol === "https:",
+      sameSite: "Lax" as const,
+    };
+  });
+  if (VERCEL_BYPASS) {
+    cookies.push({
+      name: "x-vercel-protection-bypass",
+      value: VERCEL_BYPASS,
+      domain: url.hostname,
+      path: "/",
+      httpOnly: false,
+      secure: url.protocol === "https:",
+      sameSite: "Lax" as const,
+    });
+  }
+  await context.addCookies(cookies);
   const data = (await res.json()) as { activeOrgId?: string };
   const page = await context.newPage();
   await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
@@ -116,6 +136,19 @@ async function loginViaApi(context: BrowserContext) {
     }, data.activeOrgId);
   }
   await page.close();
+}
+
+function contextOptions(partial: {
+  viewport: { width: number; height: number };
+  isMobile?: boolean;
+  hasTouch?: boolean;
+}) {
+  return {
+    ...partial,
+    ...(VERCEL_BYPASS
+      ? { extraHTTPHeaders: authHeaders() }
+      : {}),
+  };
 }
 
 async function auditNavLock(page: Page): Promise<NavLockResult> {
@@ -196,11 +229,13 @@ async function runEngine(
 
   try {
     for (const width of WIDTHS) {
-      const context = await browser.newContext({
-        viewport: { width, height: width >= 768 ? 1024 : 844 },
-        isMobile: width < 768,
-        hasTouch: width < 768,
-      });
+      const context = await browser.newContext(
+        contextOptions({
+          viewport: { width, height: width >= 768 ? 1024 : 844 },
+          isMobile: width < 768,
+          hasTouch: width < 768,
+        }),
+      );
       await loginViaApi(context);
       const page = await context.newPage();
       for (const route of ROUTES) {
@@ -242,11 +277,13 @@ async function runEngine(
       await context.close();
     }
 
-    const navCtx = await browser.newContext({
-      viewport: { width: 375, height: 812 },
-      isMobile: true,
-      hasTouch: true,
-    });
+    const navCtx = await browser.newContext(
+      contextOptions({
+        viewport: { width: 375, height: 812 },
+        isMobile: true,
+        hasTouch: true,
+      }),
+    );
     await loginViaApi(navCtx);
     const navPage = await navCtx.newPage();
     navLock = await auditNavLock(navPage);
