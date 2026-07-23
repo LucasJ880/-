@@ -121,15 +121,19 @@ export default function Dashboard() {
   return (
     <div className="mx-auto max-w-7xl space-y-5">
       <section className="border-b border-border pb-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[11px] font-medium text-muted">{orgEyebrow}</p>
-            <h1 className="mt-1 text-2xl font-semibold">经营总览</h1>
-            <p className="mt-1 text-sm text-muted">
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-[11px] font-medium text-muted [overflow-wrap:anywhere]">
+              {orgEyebrow}
+            </p>
+            <h1 className="mt-1 break-words text-2xl font-semibold leading-tight [overflow-wrap:anywhere]">
+              经营总览
+            </h1>
+            <p className="mt-1 break-words text-sm text-muted [overflow-wrap:anywhere]">
               {userName ? `${userName}，` : ""}以下是当前业务节奏和需要推进的重点事项。
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:shrink-0">
             <Link
               href="/operations/intelligence"
               className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-white/70 px-3 text-sm font-medium text-foreground hover:bg-white"

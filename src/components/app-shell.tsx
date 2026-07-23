@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, createContext, useContext } from "react";
+import { useState, useCallback, createContext, useContext, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
@@ -32,6 +32,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const openMobileSidebar = useCallback(() => setMobileOpen(true), []);
   const closeMobileSidebar = useCallback(() => setMobileOpen(false), []);
+
+  // 路由变化时关闭移动导航，避免遮罩/打开态残留
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   // AI 对话页：手机端全屏沉浸（隐藏全局顶栏、去内边距），页面自管滚动
   const isChatRoute = pathname === "/assistant";

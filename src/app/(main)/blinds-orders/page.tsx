@@ -126,8 +126,8 @@ export default function BlindsOrdersPage() {
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-          <table className="w-full text-sm">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-white shadow-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border bg-[rgba(26,36,32,0.02)] text-left text-muted">
                 <th className="px-4 py-3 font-medium">订单号</th>

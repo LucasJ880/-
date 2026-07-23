@@ -495,16 +495,19 @@ select {
 :root {
   --mobile-tabbar-height: 56px;
   --mobile-header-height: 52px;
+  /* Header 实际为 h-13（52px）；供移动搜索/通知面板定位 */
+  --header-height: var(--mobile-header-height);
 }
 
 @utility h-screen-safe {
-  height: 100dvh;
+  /* 先写 vh 作为旧引擎 fallback，再写 dvh 覆盖（修复 MOBILE-P0-002） */
   height: 100vh;
+  height: 100dvh;
 }
 
 @utility min-h-screen-safe {
-  min-height: 100dvh;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 @utility pb-tabbar {

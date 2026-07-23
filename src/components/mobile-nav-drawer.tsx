@@ -26,6 +26,7 @@ import { useLocale } from "@/lib/i18n/context";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { OrgIdentityBadge } from "@/components/org-identity-badge";
 import { CoBrand } from "@/components/co-brand";
+import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -62,6 +63,12 @@ export function MobileNavDrawer({
 
   useEffect(() => {
     if (!open) setDrill(null);
+  }, [open]);
+
+  // 打开时锁定 main（AppShell 主滚动）+ body/html；关闭/卸载恢复 previous
+  useEffect(() => {
+    if (!open) return;
+    return lockAppScroll();
   }, [open]);
 
   useEffect(() => {

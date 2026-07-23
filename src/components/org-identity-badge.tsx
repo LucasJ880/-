@@ -74,10 +74,24 @@ export function OrgIdentityBadge({
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-white/90">
+            <p
+              className={cn(
+                "text-xs font-medium text-white/90",
+                compact
+                  ? "break-words leading-snug [overflow-wrap:anywhere] line-clamp-2"
+                  : "truncate",
+              )}
+            >
               青砚 × {currentOrg.name}
             </p>
-            <p className="truncate text-[10px] text-white/40">
+            <p
+              className={cn(
+                "text-[10px] text-white/40",
+                compact
+                  ? "break-words [overflow-wrap:anywhere] line-clamp-2"
+                  : "truncate",
+              )}
+            >
               {subtitle || "当前企业"}
             </p>
           </div>
