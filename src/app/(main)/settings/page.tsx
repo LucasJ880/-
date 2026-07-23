@@ -6,6 +6,7 @@ import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDo
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 interface GoogleStatus {
   connected: boolean;
@@ -37,6 +38,7 @@ const GOOGLE_ERROR_HINTS: Record<string, string> = {
 };
 
 function SettingsContent() {
+  const { isPlatformAdmin } = useCurrentUser();
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ function SettingsContent() {
       <div className="mb-6">
         <PageHeader
           title="设置"
-          description="管理外部服务连接、集成状态与排错说明。部署与环境变量总览见 docs/DEPLOY_VERCEL.md。"
+          description="管理外部服务连接、通知偏好与企业账号。"
         />
       </div>
 
@@ -138,33 +140,37 @@ function SettingsContent() {
         </div>
       )}
 
-      <Link
-        href="/settings/digital-employees"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
-          <Brain size={20} className="text-accent" />
-        </div>
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold">数字员工学习</h2>
-          <p className="text-xs text-muted">个人偏好、反馈学习、部门候选方法与 Playbook（默认关闭）</p>
-        </div>
-        <span className="text-xs text-accent">去管理 →</span>
-      </Link>
+      {isPlatformAdmin && (
+        <Link
+          href="/settings/digital-employees"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+            <Brain size={20} className="text-accent" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">数字员工学习</h2>
+            <p className="text-xs text-muted">个人偏好、反馈学习、部门候选方法与 Playbook（默认关闭）</p>
+          </div>
+          <span className="text-xs text-accent">去管理 →</span>
+        </Link>
+      )}
 
-      <Link
-        href="/settings/agent-skills"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
-          <Sparkles size={20} className="text-accent" />
-        </div>
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold">数字员工技能</h2>
-          <p className="text-xs text-muted">查看、编辑与测试销售/营销/投标等技能；副作用仍需负责人确认</p>
-        </div>
-        <span className="text-xs text-accent">去管理 →</span>
-      </Link>
+      {isPlatformAdmin && (
+        <Link
+          href="/settings/agent-skills"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+            <Sparkles size={20} className="text-accent" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">数字员工技能</h2>
+            <p className="text-xs text-muted">查看、编辑与测试销售/营销/投标等技能；副作用仍需负责人确认</p>
+          </div>
+          <span className="text-xs text-accent">去管理 →</span>
+        </Link>
+      )}
 
       <Link
         href="/settings/account"

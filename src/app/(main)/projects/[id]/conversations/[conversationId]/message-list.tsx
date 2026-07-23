@@ -45,6 +45,7 @@ export interface MessageListProps {
   tags: TagItem[];
   tagsLoaded: boolean;
   loadTags: () => void;
+  showDebugMeta?: boolean;
 }
 
 export function MessageList({
@@ -55,6 +56,7 @@ export function MessageList({
   tags,
   tagsLoaded,
   loadTags,
+  showDebugMeta = false,
 }: MessageListProps) {
   const [msgFbTarget, setMsgFbTarget] = useState<string | null>(null);
   const [msgFbRating, setMsgFbRating] = useState(0);
@@ -109,7 +111,11 @@ export function MessageList({
 
   return (
     <>
-      <MessageTimeline messages={messages} onFeedback={canManage ? openMsgFeedback : undefined} />
+      <MessageTimeline
+        messages={messages}
+        onFeedback={canManage ? openMsgFeedback : undefined}
+        showDebugMeta={showDebugMeta}
+      />
 
       {msgFbTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setMsgFbTarget(null)}>

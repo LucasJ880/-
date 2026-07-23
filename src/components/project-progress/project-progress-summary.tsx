@@ -507,12 +507,6 @@ export function ProjectProgressSummary({ projectId }: { projectId: string }) {
               <Clock size={10} />
               生成于 {new Date(data.generatedAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
             </div>
-            {data._meta && (
-              <span>
-                {data._meta.prompt_version as string}
-                {data._meta.used_fallback ? " · fallback" : ""}
-              </span>
-            )}
           </div>
         </div>
       )}

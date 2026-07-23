@@ -14,6 +14,11 @@ import {
   hasProjectPermission,
   type Permission,
 } from "@/lib/rbac/permissions";
+import {
+  isPlatformAdmin,
+  PLATFORM_ADMIN_ERROR_MESSAGE,
+  PLATFORM_ADMIN_REQUIRED,
+} from "@/lib/rbac/platform-admin";
 
 // ============================================================
 // API 路由守卫
@@ -58,18 +63,32 @@ export async function requireAuth(
 }
 
 /**
- * 平台管理员校验
+ * 平台管理员校验。
+ * 错误码：PLATFORM_ADMIN_REQUIRED
+ * org_owner / org_admin 不通过。
  */
-export async function requireSuperAdmin(
+export async function requirePlatformAdmin(
   request: NextRequest
 ): Promise<AuthResult | NextResponse> {
   const result = await requireAuth(request);
   if (result instanceof NextResponse) return result;
-
-  if (!isSuperAdmin(result.user.role)) {
-    return NextResponse.json({ error: "需要平台管理员权限" }, { status: 403 });
+  if (!isPlatformAdmin(result.user)) {
+    return NextResponse.json(
+      {
+        error: PLATFORM_ADMIN_ERROR_MESSAGE,
+        code: PLATFORM_ADMIN_REQUIRED,
+      },
+      { status: 403 },
+    );
   }
   return result;
+}
+
+/** @deprecated 使用 requirePlatformAdmin */
+export async function requireSuperAdmin(
+  request: NextRequest
+): Promise<AuthResult | NextResponse> {
+  return requirePlatformAdmin(request);
 }
 
 /**

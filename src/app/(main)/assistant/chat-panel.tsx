@@ -186,8 +186,6 @@ export interface ChatPanelProps {
   onClearAttachedFile: () => void;
   onFileUpload: (file: File) => void;
   uploadingFile: boolean;
-  channelMode: string | null;
-  onChannelModeChange: (mode: string | null) => void;
   onShowMobileSidebar: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** PR4：审批卡片更新回调 */
@@ -218,8 +216,6 @@ export function ChatPanel({
   onClearAttachedFile,
   onFileUpload,
   uploadingFile,
-  channelMode,
-  onChannelModeChange,
   onShowMobileSidebar,
   inputRef,
   onApprovalChange,
@@ -655,54 +651,6 @@ export function ChatPanel({
             <span>{orgBlockReason}</span>
           </div>
         )}
-        <div className="mb-2 flex max-w-full items-center gap-2 overflow-x-auto pb-0.5">
-          <span className="shrink-0 rounded-md border border-[#202422]/15 bg-[#202422]/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#202422]">
-            协同 · 主管AI
-          </span>
-          <span className="text-[11px] text-[#8a918d]">
-            本对话统一由主管 AI 编排任务
-          </span>
-        </div>
-
-        {/* Channel selector */}
-        <div className="mb-2 flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
-          <span className="mr-1 shrink-0 text-[11px] font-medium text-[#68706c]">输出渠道</span>
-          {(["wechat", "xiaohongshu", "facebook", "email"] as const).map(
-            (ch) => (
-              <button
-                key={ch}
-                onClick={() =>
-                  onChannelModeChange(channelMode === ch ? null : ch)
-                }
-                className={cn(
-                  "min-h-7 shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  channelMode === ch
-                    ? "border-[#202422] bg-[#202422] text-white"
-                    : "border-black/[0.07] bg-[#f4f5f5] text-[#68706c] hover:bg-[#e9ebea] hover:text-[#171a19]"
-                )}
-              >
-                {ch === "wechat"
-                  ? "微信"
-                  : ch === "xiaohongshu"
-                  ? "小红书"
-                  : ch === "facebook"
-                  ? "Facebook"
-                  : "邮件"}
-              </button>
-            )
-          )}
-          {channelMode && (
-            <button
-              onClick={() => onChannelModeChange(null)}
-              className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#7c8480] hover:bg-black/[0.04] hover:text-[#171a19]"
-              title="清除渠道"
-              aria-label="清除渠道"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-
         {attachedFile && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-[#2b6055]/15 bg-[#f0f5f3] px-3 py-2">
             <FileText size={14} className="shrink-0 text-accent" />

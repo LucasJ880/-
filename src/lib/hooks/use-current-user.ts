@@ -21,6 +21,8 @@ interface UseCurrentUserReturn {
   user: CurrentUser | null;
   loading: boolean;
   isSuperAdmin: boolean;
+  /** 与 isSuperAdmin 同义；调试面门禁请用此名 */
+  isPlatformAdmin: boolean;
   reload: () => void;
 }
 
@@ -67,10 +69,14 @@ export function useCurrentUser(): UseCurrentUserReturn {
     });
   }, []);
 
+  const isPlatformAdmin =
+    user?.role === "super_admin" || user?.role === "admin";
+
   return {
     user,
     loading,
-    isSuperAdmin: user?.role === "super_admin" || user?.role === "admin",
+    isSuperAdmin: isPlatformAdmin,
+    isPlatformAdmin,
     reload,
   };
 }

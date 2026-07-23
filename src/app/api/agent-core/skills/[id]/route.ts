@@ -9,9 +9,14 @@
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
+
 import { db } from "@/lib/db";
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(async (_req, ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const { id } = await ctx.params;
 
   const skill = await db.agentSkill.findUnique({
@@ -47,6 +52,9 @@ export const GET = withAuth(async (_req, ctx) => {
 });
 
 export const POST = withAuth(async (req, ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const body = await req.json();
 
@@ -108,7 +116,10 @@ export const POST = withAuth(async (req, ctx, user) => {
   return NextResponse.json({ error: "未知 action" }, { status: 400 });
 });
 
-export const PATCH = withAuth(async (req, ctx) => {
+export const PATCH = withAuth(async (req, ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const body = await req.json();
 
@@ -147,7 +158,10 @@ export const PATCH = withAuth(async (req, ctx) => {
   return NextResponse.json({ skill: { id: updated.id, version: updated.version } });
 });
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(async (_req, ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const { id } = await ctx.params;
 
   const skill = await db.agentSkill.findUnique({

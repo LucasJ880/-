@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
 import {
   Bell,
   User,
@@ -26,6 +26,9 @@ import { useAppShell } from "@/components/app-shell";
 import { CoBrand } from "@/components/co-brand";
 import { useLocale, LOCALE_LABELS } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/messages";
+import { useOrganizations } from "@/lib/hooks/use-organizations";
+import { readStoredOrgId } from "@/lib/org-selection";
+import { orgRoleLabel } from "@/lib/permissions-client";
 
 /* ── Search types ── */
 
@@ -460,6 +463,16 @@ function LanguageSwitcher() {
 
 /* ── Header ── */
 
+function subscribeOrgStorage(cb: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", cb);
+  window.addEventListener("qingyan-org-storage", cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener("qingyan-org-storage", cb);
+  };
+}
+
 export function Header() {
   const { m, locale } = useLocale();
   const [notifCount, setNotifCount] = useState(0);
@@ -471,6 +484,17 @@ export function Header() {
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const { organizations } = useOrganizations();
+  const storedOrgId = useSyncExternalStore(
+    subscribeOrgStorage,
+    readStoredOrgId,
+    () => "",
+  );
+  const currentOrg =
+    organizations.find((o) => o.id === storedOrgId) ?? organizations[0];
+  const orgRoleText = currentOrg?.myRole
+    ? orgRoleLabel(currentOrg.myRole)
+    : null;
 
   const loadCount = useCallback(() => {
     apiFetch("/api/notifications/unread-count")
@@ -645,8 +669,22 @@ export function Header() {
               <div className="border-b border-border px-4 py-3">
                 <p className="text-sm font-medium">{currentUser?.name}</p>
                 <p className="mt-0.5 text-xs text-muted">{currentUser?.email}</p>
+                {currentOrg && (
+                  <p className="mt-1.5 text-xs text-muted">
+                    {currentOrg.name}
+                    {orgRoleText ? ` · ${orgRoleText}` : ""}
+                  </p>
+                )}
               </div>
               <div className="py-1">
+                <Link
+                  href="/settings/account"
+                  onClick={() => setUserMenuOpen(false)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-foreground transition-colors hover:bg-foreground/[0.04]"
+                >
+                  <Settings2 size={14} />
+                  账号与企业
+                </Link>
                 <button
                   onClick={async () => {
                     await apiFetch("/api/auth/logout", { method: "POST" });

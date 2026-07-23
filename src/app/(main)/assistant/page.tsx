@@ -64,13 +64,6 @@ function cleanStreamingText(raw: string): string {
   return raw;
 }
 
-const CHANNEL_LABELS: Record<string, string> = {
-  wechat: "微信",
-  xiaohongshu: "小红书",
-  facebook: "Facebook",
-  email: "邮件",
-};
-
 // ── 主页面 ────────────────────────────────────────────────────
 
 export default function AssistantPage() {
@@ -108,7 +101,6 @@ function AssistantPageInner() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [channelMode, setChannelMode] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -272,11 +264,6 @@ function AssistantPageInner() {
     let content = (text || input).trim();
     if (!content || isLoading) return;
     if (!orgReady) return;
-
-    if (channelMode) {
-      const chLabel = CHANNEL_LABELS[channelMode] || channelMode;
-      content = `[渠道: ${chLabel}] ${content}\n\n请按${chLabel}渠道风格生成话术。`;
-    }
 
     let threadId = activeThreadId;
 
@@ -735,8 +722,6 @@ function AssistantPageInner() {
           onClearAttachedFile={() => setAttachedFile(null)}
           onFileUpload={handleFileUpload}
           uploadingFile={uploadingFile}
-          channelMode={channelMode}
-          onChannelModeChange={setChannelMode}
           onShowMobileSidebar={() => setShowMobileSidebar(true)}
           inputRef={inputRef}
           onApprovalChange={handleApprovalChange}

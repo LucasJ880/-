@@ -11,6 +11,11 @@ import {
 } from "@/lib/conversations/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
+import {
+  toBusinessMessageDto,
+  toPlatformDiagnosticMessageDto,
+} from "@/lib/conversations/dto";
 
 type Ctx = { params: Promise<{ id: string; conversationId: string }> };
 
@@ -48,25 +53,33 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     }),
   ]);
 
+  const diagnostic = isPlatformAdmin(access.user);
+
   return NextResponse.json({
-    messages: messages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      contentType: m.contentType,
-      sequence: m.sequence,
-      modelName: m.modelName,
-      inputTokens: m.inputTokens,
-      outputTokens: m.outputTokens,
-      latencyMs: m.latencyMs,
-      status: m.status,
-      errorMessage: m.errorMessage,
-      toolName: m.toolName,
-      toolCallId: m.toolCallId,
-      parentMessageId: m.parentMessageId,
-      metadataJson: m.metadataJson,
-      createdAt: m.createdAt,
-    })),
+    messages: messages.map((m) =>
+      diagnostic
+        ? toPlatformDiagnosticMessageDto(m)
+        : {
+            // 保持前端字段形状，但诊断值一律置空/归零（非删字段后藏 UI）
+            ...toBusinessMessageDto(m),
+            modelName: null,
+            inputTokens: 0,
+            outputTokens: 0,
+            latencyMs: 0,
+            toolName: null,
+            toolCallId: null,
+            parentMessageId: null,
+            metadataJson: null,
+            content:
+              m.role === "tool"
+                ? "（工具调用）"
+                : m.content,
+            errorMessage:
+              m.status === "error"
+                ? "处理失败，请稍后重试或联系管理员"
+                : null,
+          },
+    ),
     total,
     page,
     pageSize,

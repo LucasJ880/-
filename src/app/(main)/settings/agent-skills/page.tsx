@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Loader2,
@@ -14,6 +15,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { DIGITAL_EMPLOYEE_ROLES } from "@/lib/agent-core/skills/digital-employee-roles";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 interface SkillRow {
   id: string;
@@ -43,6 +45,8 @@ type FilterState = {
 };
 
 export default function AgentSkillsSettingsPage() {
+  const router = useRouter();
+  const { isPlatformAdmin, loading: userLoading } = useCurrentUser();
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -82,6 +86,12 @@ export default function AgentSkillsSettingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!userLoading && !isPlatformAdmin) {
+      router.replace("/settings");
+    }
+  }, [userLoading, isPlatformAdmin, router]);
 
   const domains = useMemo(
     () => Array.from(new Set(skills.map((s) => s.domain))).sort(),
@@ -155,6 +165,14 @@ export default function AgentSkillsSettingsPage() {
       setBusyId(null);
     }
   };
+
+  if (userLoading || !isPlatformAdmin) {
+    return (
+      <div className="flex h-40 items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">

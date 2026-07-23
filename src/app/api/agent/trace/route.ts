@@ -5,10 +5,15 @@
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
+
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAgentSessionsForTrace } from "@/lib/agent-runtime/trace";
 
 export const GET = withAuth(async (request, _ctx, user) => {
+  const denied = denyUnlessPlatformAdmin(user);
+  if (denied) return denied;
+
   const { searchParams } = new URL(request.url);
   const orgRes = await resolveRequestOrgIdForUser(
     user,

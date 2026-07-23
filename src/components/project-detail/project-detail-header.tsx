@@ -46,9 +46,15 @@ interface ProjectDetail {
 interface Props {
   project: ProjectDetail;
   canManage: boolean;
+  /** 仅平台管理员可见：Prompt / Agent / 工具等开发者入口 */
+  showDevTools?: boolean;
 }
 
-export function ProjectDetailHeader({ project, canManage }: Props) {
+export function ProjectDetailHeader({
+  project,
+  canManage,
+  showDevTools = false,
+}: Props) {
   const id = project.id;
 
   return (
@@ -212,8 +218,8 @@ export function ProjectDetailHeader({ project, canManage }: Props) {
             </div>
           )}
 
-          {/* 开发者工具 */}
-          {canManage && (
+          {/* 开发者工具：仅平台管理员可见（Prompt / Agent 等内部配置） */}
+          {showDevTools && canManage && (
             <div className="mt-4">
               <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted">开发者工具</p>
               <div className="flex flex-wrap items-center gap-2 text-xs">

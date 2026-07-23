@@ -10,8 +10,13 @@ import {
   requireCapabilitiesAccess,
 } from "@/lib/capabilities/http";
 import { listCapabilityRuns } from "@/lib/capabilities/runs/list";
+import { requirePlatformAdmin } from "@/lib/auth/guards";
 
 export async function GET(request: NextRequest) {
+  // 方案 A：运行中心仅平台管理员（调试面）
+  const admin = await requirePlatformAdmin(request);
+  if (admin instanceof NextResponse) return admin;
+
   const access = await requireCapabilitiesAccess(request);
   if (access instanceof NextResponse) return access;
 

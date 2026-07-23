@@ -1,10 +1,30 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
-import { Brain, BookOpen, Users, Shield } from "lucide-react";
+import { Brain, BookOpen, Users, Shield, Loader2 } from "lucide-react";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 
 export default function DigitalEmployeesHubPage() {
+  const router = useRouter();
+  const { isPlatformAdmin, loading } = useCurrentUser();
+
+  useEffect(() => {
+    if (!loading && !isPlatformAdmin) {
+      router.replace("/settings");
+    }
+  }, [loading, isPlatformAdmin, router]);
+
+  if (loading || !isPlatformAdmin) {
+    return (
+      <div className="flex h-40 items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted" />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader

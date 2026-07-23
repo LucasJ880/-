@@ -33,10 +33,13 @@ export function MessageTimeline({
   messages,
   className,
   onFeedback,
+  showDebugMeta = false,
 }: {
   messages: MessageItem[];
   className?: string;
   onFeedback?: (messageId: string) => void;
+  /** 模型名 / tokens / latency / metadata — 仅调试视图 */
+  showDebugMeta?: boolean;
 }) {
   if (messages.length === 0) {
     return (
@@ -47,13 +50,26 @@ export function MessageTimeline({
   return (
     <div className={cn("space-y-3", className)}>
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} onFeedback={onFeedback} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onFeedback={onFeedback}
+          showDebugMeta={showDebugMeta}
+        />
       ))}
     </div>
   );
 }
 
-function MessageBubble({ message: msg, onFeedback }: { message: MessageItem; onFeedback?: (id: string) => void }) {
+function MessageBubble({
+  message: msg,
+  onFeedback,
+  showDebugMeta = false,
+}: {
+  message: MessageItem;
+  onFeedback?: (id: string) => void;
+  showDebugMeta?: boolean;
+}) {
   const [showMeta, setShowMeta] = useState(false);
   const isUser = msg.role === "user";
   const isError = msg.status === "error";
@@ -80,10 +96,10 @@ function MessageBubble({ message: msg, onFeedback }: { message: MessageItem; onF
         >
           <MessageRoleBadge role={msg.role} />
           <span className="text-[10px] text-muted">
-            #{msg.sequence} ·{" "}
+            {showDebugMeta ? `#${msg.sequence} · ` : ""}
             {new Date(msg.createdAt).toLocaleTimeString("zh-CN")}
           </span>
-          {msg.modelName && (
+          {showDebugMeta && msg.modelName && (
             <span className="text-[10px] text-muted">{msg.modelName}</span>
           )}
         </div>
@@ -102,8 +118,8 @@ function MessageBubble({ message: msg, onFeedback }: { message: MessageItem; onF
           {isTool && msg.toolName && (
             <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-[#2d6a7a]">
               <Wrench size={12} />
-              {msg.toolName}
-              {msg.toolCallId && (
+              {showDebugMeta ? msg.toolName : "工具调用"}
+              {showDebugMeta && msg.toolCallId && (
                 <code className="text-[10px] text-muted">
                   ({msg.toolCallId})
                 </code>
@@ -126,46 +142,50 @@ function MessageBubble({ message: msg, onFeedback }: { message: MessageItem; onF
         </div>
 
         {/* Meta row */}
-        <div
-          className={cn(
-            "flex items-center gap-2 text-[10px] text-muted",
-            isUser ? "flex-row-reverse" : "flex-row"
-          )}
-        >
-          {msg.inputTokens + msg.outputTokens > 0 && (
-            <span>
-              {msg.inputTokens + msg.outputTokens} tokens
-            </span>
-          )}
-          {msg.latencyMs > 0 && <span>{msg.latencyMs}ms</span>}
-          {msg.metadataJson && (
-            <button
-              type="button"
-              onClick={() => setShowMeta((v) => !v)}
-              className="inline-flex items-center gap-0.5 text-accent hover:underline"
-            >
-              {showMeta ? (
-                <ChevronDown size={10} />
-              ) : (
-                <ChevronRight size={10} />
-              )}
-              metadata
-            </button>
-          )}
-          {onFeedback && !isUser && (
-            <button
-              type="button"
-              onClick={() => onFeedback(msg.id)}
-              className="inline-flex items-center gap-0.5 text-[var(--gold)] hover:text-[#9a7a4a] hover:underline"
-              title="反馈"
-            >
-              <MessageSquarePlus size={10} />
-              反馈
-            </button>
-          )}
-        </div>
+        {(showDebugMeta || (onFeedback && !isUser)) && (
+          <div
+            className={cn(
+              "flex items-center gap-2 text-[10px] text-muted",
+              isUser ? "flex-row-reverse" : "flex-row"
+            )}
+          >
+            {showDebugMeta && msg.inputTokens + msg.outputTokens > 0 && (
+              <span>
+                {msg.inputTokens + msg.outputTokens} tokens
+              </span>
+            )}
+            {showDebugMeta && msg.latencyMs > 0 && (
+              <span>{msg.latencyMs}ms</span>
+            )}
+            {showDebugMeta && msg.metadataJson && (
+              <button
+                type="button"
+                onClick={() => setShowMeta((v) => !v)}
+                className="inline-flex items-center gap-0.5 text-accent hover:underline"
+              >
+                {showMeta ? (
+                  <ChevronDown size={10} />
+                ) : (
+                  <ChevronRight size={10} />
+                )}
+                metadata
+              </button>
+            )}
+            {onFeedback && !isUser && (
+              <button
+                type="button"
+                onClick={() => onFeedback(msg.id)}
+                className="inline-flex items-center gap-0.5 text-[var(--gold)] hover:text-[#9a7a4a] hover:underline"
+                title="反馈"
+              >
+                <MessageSquarePlus size={10} />
+                反馈
+              </button>
+            )}
+          </div>
+        )}
 
-        {showMeta && msg.metadataJson && (
+        {showDebugMeta && showMeta && msg.metadataJson && (
           <pre className="max-h-32 overflow-auto rounded-[var(--radius-sm)] border border-border bg-[rgba(26,36,32,0.02)] p-2 text-[10px]">
             {formatJson(msg.metadataJson)}
           </pre>
