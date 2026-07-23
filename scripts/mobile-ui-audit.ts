@@ -5,7 +5,7 @@
  *   npx tsx scripts/mobile-ui-audit.ts [baseUrl]
  *
  * 环境变量：
- *   MOBILE_AUDIT_EMAIL / MOBILE_AUDIT_PASSWORD（默认 Security-1 QA）
+ *   MOBILE_AUDIT_EMAIL / MOBILE_AUDIT_PASSWORD（必填，无默认值）
  *
  * 输出：
  *   docs/mobile1-audit-results.json
@@ -19,10 +19,13 @@ import fs from "fs";
 import path from "path";
 
 const BASE = process.argv[2] || "http://127.0.0.1:3000";
-/** 默认用 FIXED 单企业 QA，避免登录页组织选择卡住 */
-const EMAIL =
-  process.env.MOBILE_AUDIT_EMAIL || "security1-sales-b@test.qingyan.ai";
-const PASSWORD = process.env.MOBILE_AUDIT_PASSWORD || "Qingyan@Sec1QA2026";
+const EMAIL = process.env.MOBILE_AUDIT_EMAIL;
+const PASSWORD = process.env.MOBILE_AUDIT_PASSWORD;
+if (!EMAIL || !PASSWORD) {
+  throw new Error(
+    "MOBILE_AUDIT_EMAIL and MOBILE_AUDIT_PASSWORD are required",
+  );
+}
 const OUT_JSON = path.join(process.cwd(), "docs/mobile1-audit-results.json");
 
 const WIDTHS = [320, 360, 375, 390, 430, 768] as const;

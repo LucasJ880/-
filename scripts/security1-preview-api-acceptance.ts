@@ -10,7 +10,10 @@ import { db } from "../src/lib/db";
 const BASE =
   process.argv[2] ||
   "https://git-feature-security-1-workforce-a-233948-lucas-9039s-projects.vercel.app";
-const PASSWORD = "Qingyan@Sec1QA2026";
+const PASSWORD = process.env.SECURITY1_QA_PASSWORD;
+if (!PASSWORD) {
+  throw new Error("SECURITY1_QA_PASSWORD is required");
+}
 
 type Check = { name: string; ok: boolean; detail?: string };
 const checks: Check[] = [];

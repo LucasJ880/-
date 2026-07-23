@@ -12,7 +12,10 @@ import bcrypt from "bcryptjs";
 import { db } from "../src/lib/db";
 import { seedOrgAuthorizationProfiles } from "../src/lib/authorization/seed-org-profiles";
 
-const PASSWORD = "Qingyan@Sec1QA2026";
+const PASSWORD = process.env.SECURITY1_QA_PASSWORD;
+if (!PASSWORD) {
+  throw new Error("SECURITY1_QA_PASSWORD is required");
+}
 const SUNNY_CODE = "sunny-home-deco";
 const MENGXIN_CODE = "mengxin-home-textile";
 
