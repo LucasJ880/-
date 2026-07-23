@@ -1207,7 +1207,7 @@ function QuoteSheetPageInner() {
   }, [depositAmount, grandTotal, paymentMethod]);
 
   return (
-    <div className="space-y-4 md:space-y-6 pb-44 md:pb-32">
+    <div className="space-y-4 pb-[calc(7.5rem+var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] md:space-y-6 md:pb-32">
       <PageHeader
         title={
           editingQuoteId
@@ -1321,7 +1321,7 @@ function QuoteSheetPageInner() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
           <div>
             <Label className="text-xs">Customer Name</Label>
             <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)}
@@ -1577,10 +1577,7 @@ function QuoteSheetPageInner() {
 
       {/* Sticky action bar — mobile 下避让底部 Tab Bar */}
       <div
-        className="fixed left-0 right-0 bottom-[var(--mobile-tabbar-height)] md:bottom-0 bg-white/95 backdrop-blur border-t border-border px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between gap-2 z-40"
-        style={{
-          paddingBottom: "max(0.625rem, env(safe-area-inset-bottom, 0))",
-        }}
+        className="fixed bottom-[calc(var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] left-0 right-0 z-40 flex items-center justify-between gap-2 border-t border-border bg-white/95 px-3 py-2.5 backdrop-blur md:bottom-0 md:px-4 md:py-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
       >
         <div className="min-w-0 text-sm space-y-0.5">
           {orderNumber && (

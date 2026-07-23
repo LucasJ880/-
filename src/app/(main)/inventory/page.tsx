@@ -204,8 +204,8 @@ export default function InventoryPage() {
       {loading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">加载中...</div>
       ) : (
-        <div className="rounded-xl border border-border bg-white/60 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-white/60">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
                 <th className="px-4 py-3">SKU</th>

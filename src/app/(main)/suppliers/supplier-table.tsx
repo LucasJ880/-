@@ -318,8 +318,8 @@ export function SupplierTable({
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card-bg">
-      <table className="w-full text-sm">
+    <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card-bg">
+      <table className="w-full min-w-[720px] text-sm">
         <thead>
           <tr className="border-b border-border bg-background/50 text-left text-xs text-muted">
             <th className="w-8 px-3 py-2.5" />

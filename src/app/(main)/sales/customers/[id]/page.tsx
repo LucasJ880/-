@@ -410,35 +410,36 @@ export default function CustomerDetailPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <Link
           href="/sales"
-          className="rounded-lg border border-border bg-white/80 p-1.5 text-muted hover:text-foreground transition-colors"
+          className="mt-1 shrink-0 rounded-lg border border-border bg-white/80 p-1.5 text-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="min-w-0 flex-1">
-          <PageHeader
-            title={customer.name}
-            description={`客户 · ${customer.source || "未知来源"} · ${new Date(customer.createdAt).toLocaleDateString("zh-CN")} 创建`}
-          />
-        </div>
-        {canDeleteCustomer && (
-          <button
-            type="button"
-            onClick={handleDeleteCustomer}
-            disabled={deleting}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
-            title="管理员可删除客户（软删，客户将被归档）"
-          >
-            {deleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
-            删除客户
-          </button>
-        )}
+        <PageHeader
+          className="flex-1"
+          title={customer.name}
+          description={`客户 · ${customer.source || "未知来源"} · ${new Date(customer.createdAt).toLocaleDateString("zh-CN")} 创建`}
+          actions={
+            canDeleteCustomer ? (
+              <button
+                type="button"
+                onClick={handleDeleteCustomer}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+                title="管理员可删除客户（软删，客户将被归档）"
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                删除客户
+              </button>
+            ) : undefined
+          }
+        />
       </div>
 
       <OrgSelectBanner />

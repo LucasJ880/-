@@ -284,7 +284,8 @@ export default function OrganizationDetailPage() {
           </form>
         )}
 
-        <table className="mt-4 w-full text-left text-sm">
+        <div className="mt-4 max-w-full overflow-x-auto overscroll-x-contain">
+        <table className="w-full min-w-[560px] text-left text-sm">
           <thead>
             <tr className="border-b border-border text-xs text-muted">
               <th className="pb-2 pr-2">用户</th>
@@ -337,6 +338,7 @@ export default function OrganizationDetailPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
