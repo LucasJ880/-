@@ -231,7 +231,11 @@ export async function compressAllUserSessions(
   let compressed = 0;
 
   const threads = await db.aiThread.findMany({
-    where: { userId },
+    where: {
+      userId,
+      archived: false,
+      ...(orgId ? { orgId } : { orgId: { not: null } }),
+    },
     select: { id: true, _count: { select: { messages: true } } },
     orderBy: { lastMessageAt: "desc" },
     take: 50,

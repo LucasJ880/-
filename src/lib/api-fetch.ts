@@ -19,6 +19,8 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/operations/",
   "/api/marketing/",
   "/api/ai/memory",
+  "/api/ai/threads",
+  "/api/ai/pending-actions",
   "/api/agent/trace",
   "/api/org/",
   "/api/product-content",

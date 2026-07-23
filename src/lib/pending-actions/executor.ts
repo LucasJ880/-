@@ -88,6 +88,16 @@ export async function executePendingAction(
     return { ok: false, error: "无权操作该草稿" };
   }
 
+  // Phase 3B-A：列上的 orgId 与调用方 activeOrg 必须一致（保留 metadata 二次校验）
+  if (action.orgId) {
+    if (!ctx.orgId) {
+      return { ok: false, error: "缺少组织上下文，拒绝执行" };
+    }
+    if (action.orgId !== ctx.orgId) {
+      return { ok: false, error: "跨组织动作，拒绝执行" };
+    }
+  }
+
   // 跨组织防护：若调用方带了 orgId 且草稿 metadata 记录了 orgId，则必须一致。
   if (ctx.orgId) {
     const meta = readPendingActionMetadata(action.payload);

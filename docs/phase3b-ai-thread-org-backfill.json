@@ -1,0 +1,175 @@
+{
+  "generatedAt": "2026-07-23T04:39:12.252Z",
+  "dryRun": false,
+  "totalThreads": 24,
+  "alreadyBound": 0,
+  "alreadyArchivedUnresolved": 0,
+  "boundByProject": 4,
+  "boundByPendingAction": 1,
+  "boundByAgentRun": 0,
+  "boundByUniqueMembership": 5,
+  "conflicted": 0,
+  "unresolved": 14,
+  "archived": 14,
+  "errors": [],
+  "postApplyVerification": {
+    "verifiedAt": "2026-07-23T04:39:18.012Z",
+    "orgIdNonNull": 10,
+    "orgIdNullArchived": 14,
+    "orgIdNullNotArchived": 0,
+    "crossOrgProjectMismatch": 0
+  },
+  "idempotencyCheck": {
+    "reRunDryRunAt": "2026-07-23T04:39:19.414Z",
+    "alreadyBound": 10,
+    "alreadyArchivedUnresolved": 14,
+    "furtherWrites": 0
+  },
+  "conflicts": [
+    {
+      "threadId": "cmo050k8h000eld04yvcdghyj",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmo3lgzoi0001l80468wquyfl",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmripjplr0001kv04y19j65qp",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmo76z98c0003jv045035adyr"
+      ]
+    },
+    {
+      "threadId": "cmrj420t20009l4041ehboh78",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrj420v3000fl4042yp6g00m",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmo76z98c0003jv045035adyr"
+      ]
+    },
+    {
+      "threadId": "cmrjwj1hm0003l5040hyyhv8z",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrldz3df0002l2043afjy307",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrle094i0002ju04tjo3ur2y",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrlgv4xw0001k304inw55cb0",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrm6qwlg0001l704o3uggfmr",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrmajk360004jt048hpr4crn",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrspl74m0009l20407kil4r4",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrspluvx0003l704zur4xqpa",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrujktxk000mjv04xma06eej",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    }
+  ]
+}

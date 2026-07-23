@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：架构锁定完成（**Draft PR 后开始功能编码**）  
+**状态**：Commit 2 已实施（`AiThread.orgId` 绑定）；统一 Dispatch 未开始  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -12,6 +12,62 @@
 | main tip（建分支时） | `6fccc96`（含 Mobile-2 COMPLETE） |
 
 **原则**：复用现有基础设施；**不新建**第二套 Run / PendingAction / Message / Gmail Executor / SalesTask；**必须**做 `AiThread.orgId` 最小安全迁移。
+
+---
+
+## 0A. 【实施结果】Commit 2 — AiThread 组织绑定（2026-07-23）
+
+| 项 | 结果 |
+|---|---|
+| 迁移 | `prisma/migrations/20260723120000_phase3b_bind_ai_threads_to_org` |
+| Prisma | `validate` ✅ / `generate` ✅ / `migrate deploy` ✅（共享 Neon，无 reset） |
+| 回填脚本 | `scripts/phase3b-backfill-ai-thread-org.ts`（默认 dry-run；`--apply` 写入） |
+| 报告 | `docs/phase3b-ai-thread-org-backfill.json` |
+
+### 回填计数（apply）
+
+| 指标 | 数量 |
+|---|---|
+| totalThreads | 24 |
+| boundByProject | 4 |
+| boundByPendingAction | 1 |
+| boundByAgentRun | 0 |
+| boundByUniqueMembership | 5 |
+| conflicted | 0 |
+| unresolved（`MULTIPLE_ACTIVE_MEMBERSHIPS`） | 14 → `orgId=null` + `archived=true` |
+| errors | 0 |
+
+### 迁移验收
+
+| 指标 | 数量 |
+|---|---|
+| AiThread 总数 | 24 |
+| orgId 非空 | 10 |
+| orgId 为空且 archived | 14 |
+| orgId 为空且未 archived | **0** ✅ |
+| 跨 org 项目异常 | 0 |
+
+幂等：再次 dry-run → `alreadyBound=10` / `alreadyArchivedUnresolved=14` / 无进一步写入。
+
+### API 覆盖
+
+| 路径 | 行为 |
+|---|---|
+| `GET/POST /api/ai/threads` | 按 activeOrg 列表；创建强制写 `orgId`；body.orgId 仅交叉校验 |
+| `GET/PATCH/DELETE /api/ai/threads/[id]` | `userId+orgId+!archived`；跨 org → `404 THREAD_NOT_FOUND` |
+| `GET/POST .../messages` | 同上；PendingAction 附带要求 `orgId=activeOrg` |
+| `GET /api/ai/pending-actions` | 限制当前 org；threadId 跨 org → 空列表 |
+| `POST /api/ai/pending-actions/[id]` | activeOrg ≠ action.orgId → 403；executor 保留列/metadata 二次鉴权 |
+| `api-fetch` | `/api/ai/threads`、`/api/ai/pending-actions` 加入 ORG_SCOPED |
+
+### 测试
+
+- `src/lib/assistant/__tests__/thread-org-policy.test.ts`（回填优先级 / 跨 org PA / 列表契约）
+- Security-1 既有单测保持在 `test-all.sh`
+
+### 已知可接受历史
+
+14 条多 membership 历史线程**未猜测归属**，仅归档；消息保留。不阻塞 Commit 2；Draft PR Test Plan 记录即可。
 
 ---
 
@@ -35,7 +91,7 @@
 
 | 模型 | 用途 | 组织绑定 | 是否助手主路径 |
 |---|---|---|---|
-| `AiThread` / `AiMessage` | Web/Mobile「青砚助手」对话 | **现状无 orgId（P0 缺口）→ 3B-A 必须加 `orgId`** | **是** |
+| `AiThread` / `AiMessage` | Web/Mobile「青砚助手」对话 | **已加 `orgId`（Commit 2；历史可空已回填/归档）** | **是** |
 | `Conversation` / `Message` | 项目/环境级 Agent 实验室会话（强绑 `projectId` + `environmentId`） | 经 Project | **否**（3B-A 不扩展此表） |
 
 证据：`prisma/schema.prisma`（`AiThread` ≈ L1799；`Conversation` ≈ L1080）；助手页面 `src/app/(main)/assistant/page.tsx` 调用 `/api/ai/threads*`。
@@ -422,9 +478,10 @@ tests: 跨组织 thread/PA 攻击；dispatch 路由；三场景；Security-1
 ## 13. 调整后的提交顺序
 
 1. ✅ `docs(ai): audit Phase 3B task execution architecture`  
-2. ✅ `docs(ai): lock Phase 3B tenant dispatch and followup decisions`（本修正）  
-3. `fix(ai): bind assistant threads to organization context`  
+2. ✅ `docs(ai): lock Phase 3B tenant dispatch and followup decisions`  
+3. ✅ `fix(ai): bind assistant threads to organization context`（见 §0A）  
 4. `feat(ai): add tenant-safe assistant dispatch and run status`  
+（Commit 3 起才做统一 Dispatch；本轮停止）  
 5. `feat(ai): add mobile assistant task cards`  
 6. `feat(ai): add brief followup and email draft scenarios`  
 7. `feat(ai): add confirmed execution recovery and retry`  

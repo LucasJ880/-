@@ -35,8 +35,7 @@ export function isUnsupportedPendingActionType(type: string): boolean {
 
 /**
  * Grader 适配器写入 PendingAction.payload.metadata 的统一结构。
- * 因 PendingAction 表暂无 orgId 列，orgId 通过此 metadata 携带，
- * 供 executor 做跨组织防护与审计。
+ * PendingAction 表已有 orgId 列；metadata.orgId 仍写入供 executor 二次校验。
  */
 export interface PendingActionMetadata {
   orgId: string;

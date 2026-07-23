@@ -95,6 +95,7 @@ run_test "Security-1 Org Switch Audit" "npx tsx src/lib/organizations/__tests__/
 run_test "Security-1 Owner/Manager" "npx tsx src/lib/rbac/__tests__/security1-owner-manager.test.ts"
 run_test "Security-1 Authorization" "npx tsx src/lib/authorization/__tests__/authorize.test.ts"
 run_test "Security-1 Sales Authz" "npx tsx src/lib/sales/__tests__/security1-sales-authz.test.ts"
+run_test "Phase3B-A AiThread Org Bind" "npx tsx src/lib/assistant/__tests__/thread-org-policy.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"
