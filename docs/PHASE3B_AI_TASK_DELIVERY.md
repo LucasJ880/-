@@ -2,7 +2,7 @@
 
 **分支**：`feature/phase-3b-ai-task-loop`  
 **Draft PR**：#17  
-**状态**：Commit 2–6A 已实施（收敛/重试幂等硬化）；未合入 main；Preview 待做
+**状态**：Commit 2–6A 已实施（收敛/重试幂等硬化）；未合入 main；Preview 人工验收进行中（Commit 5 全过，Commit 6 核心收敛已过）
 
 ## Run 收敛决策表
 
@@ -55,4 +55,4 @@ API：`POST /api/ai/threads/[threadId]/runs/[runId]/retry`
 1. Gmail：外部草稿创建成功后若 DB 标 failed，不会自动重试（manual review）
 2. 安全重试会再走 Dispatch，可能产生新的用户消息气泡（MVP 可接受）
 3. 无定时 Cron 清理过期 pending；恢复查询时按 `expiresAt` 派生 expired
-4. Preview 截图与 12 项人工验收需在 Vercel Ready 后补齐
+4. Preview 截图见 `docs/phase3b-screenshots/`；失败/安全重试路径标 NOT REPRODUCIBLE IN PREVIEW；375px / 跨 org 待补
