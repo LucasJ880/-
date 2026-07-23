@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { PageHeader } from "@/components/page-header";
 
 interface OrgDetail {
   id: string;
@@ -202,25 +203,22 @@ export default function OrganizationDetailPage() {
       </Link>
 
       <div className="rounded-xl border border-border bg-card-bg p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold">{org.name}</h1>
-            <p className="mt-1 text-sm text-muted">
-              {org.code} · {org.planType} · {org.memberCount} 人 ·{" "}
-              {org.projectCount} 个项目
-            </p>
-          </div>
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[10px] font-medium",
-              org.status === "active"
-                ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
-                : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
-            )}
-          >
-            {org.status}
-          </span>
-        </div>
+        <PageHeader
+          title={org.name}
+          description={`${org.code} · ${org.planType} · ${org.memberCount} 人 · ${org.projectCount} 个项目`}
+          actions={
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                org.status === "active"
+                  ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
+                  : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+              )}
+            >
+              {org.status}
+            </span>
+          }
+        />
 
         {isAdmin && org.status === "active" && (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end">
