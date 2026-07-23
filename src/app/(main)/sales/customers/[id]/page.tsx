@@ -23,6 +23,7 @@ import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,6 +122,7 @@ export default function CustomerDetailPage() {
   const [showCreateQuote, setShowCreateQuote] = useState(false);
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
+  useAppScrollLock(!!sendingEmailFor, "customer-send-email-overlay");
   const [deleting, setDeleting] = useState(false);
   const [openingVisualizerFor, setOpeningVisualizerFor] = useState<string | null>(
     null,

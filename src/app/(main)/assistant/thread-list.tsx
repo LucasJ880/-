@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 
 // ── 类型 ──────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export function ThreadSidebar({
   onCloseMobile,
 }: ThreadSidebarProps) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  useAppScrollLock(showMobile, "assistant-thread-sidebar");
 
   const pinned = threads.filter((t) => t.pinned);
   const projectThreads = threads.filter((t) => !t.pinned && t.projectId);
@@ -172,12 +174,17 @@ export function ThreadSidebar({
       </div>
       {/* Mobile overlay */}
       {showMobile && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
+        <div
+          className="fixed inset-0 z-[var(--ui-z-drawer-panel)] flex lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="会话列表"
+        >
           <div
             className="absolute inset-0 bg-black/50"
             onClick={onCloseMobile}
           />
-          <div className="relative w-[min(82vw,304px)] bg-[#f0f2f1] shadow-dialog">
+          <div className="relative w-[min(82vw,304px)] max-h-dvh overflow-y-auto overscroll-contain bg-[#f0f2f1] pb-safe shadow-dialog">
             {sidebar}
           </div>
         </div>

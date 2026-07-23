@@ -28,6 +28,8 @@ import {
 import { cn } from "@/lib/utils";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
+import { useVisualViewport } from "@/lib/mobile/use-visual-viewport";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
@@ -169,6 +171,24 @@ function QuoteSheetPageInner() {
   // 发送 Quote 弹窗（让销售选择：发邮件 / 本地保存 PDF）
   const [sendQuoteOpen, setSendQuoteOpen] = useState(false);
   const [sendQuoteBusy, setSendQuoteBusy] = useState<null | "email" | "local">(null);
+  useAppScrollLock(sendQuoteOpen, "quote-sheet-send-dialog");
+  const [narrowViewport, setNarrowViewport] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => setNarrowViewport(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  const viewport = useVisualViewport(narrowViewport);
+  const actionBarBottom =
+    narrowViewport && viewport.keyboardOpen
+      ? Math.max(
+          0,
+          Math.round(window.innerHeight - viewport.height - viewport.offsetTop),
+        )
+      : null;
   const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean; quoteId?: string } | null>(null);
 
   // Customer selector
@@ -1577,7 +1597,10 @@ function QuoteSheetPageInner() {
 
       {/* Sticky action bar — mobile 下避让底部 Tab Bar */}
       <div
-        className="fixed bottom-[calc(var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] left-0 right-0 z-40 flex items-center justify-between gap-2 border-t border-border bg-white/95 px-3 py-2.5 backdrop-blur md:bottom-0 md:px-4 md:py-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
+        className="fixed bottom-[calc(var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[var(--ui-z-sticky)] flex items-center justify-between gap-2 border-t border-border bg-white/95 px-3 py-2.5 backdrop-blur md:bottom-0 md:px-4 md:py-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
+        style={
+          actionBarBottom != null ? { bottom: `${actionBarBottom}px` } : undefined
+        }
       >
         <div className="min-w-0 text-sm space-y-0.5">
           {orderNumber && (
@@ -1684,7 +1707,10 @@ function QuoteSheetPageInner() {
       {/* 发送 Quote 弹窗 —— 选择邮件 / 本地 */}
       {sendQuoteOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+          className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="发送 Quote"
           onClick={() => {
             if (!sendQuoteBusy) setSendQuoteOpen(false);
           }}

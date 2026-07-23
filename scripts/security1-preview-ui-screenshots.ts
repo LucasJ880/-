@@ -7,7 +7,10 @@ import path from "path";
 import fs from "fs";
 
 const BASE = process.argv[2] || "http://127.0.0.1:3015";
-const PASSWORD = "Qingyan@Sec1QA2026";
+const PASSWORD = process.env.SECURITY1_QA_PASSWORD;
+if (!PASSWORD) {
+  throw new Error("SECURITY1_QA_PASSWORD is required");
+}
 const OUT = path.join(process.cwd(), "docs/security1-screenshots");
 
 async function login(page: import("playwright").Page, email: string) {

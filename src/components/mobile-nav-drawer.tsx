@@ -68,8 +68,17 @@ export function MobileNavDrawer({
   // 打开时锁定 main（AppShell 主滚动）+ body/html；关闭/卸载恢复 previous
   useEffect(() => {
     if (!open) return;
-    return lockAppScroll();
+    return lockAppScroll("mobile-nav-drawer");
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,12 +160,17 @@ export function MobileNavDrawer({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex md:hidden">
+    <div
+      className="fixed inset-0 z-[var(--ui-z-drawer-panel)] flex md:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="完整导航"
+    >
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 flex h-full max-h-screen w-[300px] flex-col bg-[#111b1d] text-white animate-in slide-in-from-left duration-200 pb-safe">
+      <div className="relative z-10 flex h-full max-h-dvh w-[min(300px,85vw)] flex-col bg-[#111b1d] text-white animate-in slide-in-from-left duration-200 pb-safe">
         <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
           {drill ? (
             <button
@@ -173,7 +187,7 @@ export function MobileNavDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full bg-white/10 p-1.5 text-white/70"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/70"
             aria-label="关闭"
           >
             <X size={16} />

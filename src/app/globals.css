@@ -497,6 +497,18 @@ select {
   --mobile-header-height: 52px;
   /* Header 实际为 h-13（52px）；供移动搜索/通知面板定位 */
   --header-height: var(--mobile-header-height);
+  --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mobile-action-padding: 1rem;
+  /* Overlay z-index（见 src/lib/ui/layers.ts） */
+  --ui-z-sticky: 20;
+  --ui-z-tabbar: 30;
+  --ui-z-popover: 40;
+  --ui-z-drawer-overlay: 50;
+  --ui-z-drawer-panel: 60;
+  --ui-z-dialog-overlay: 70;
+  --ui-z-dialog-panel: 80;
+  --ui-z-toast: 90;
+  --ui-z-critical: 100;
 }
 
 @utility h-screen-safe {

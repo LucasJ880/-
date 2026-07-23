@@ -58,7 +58,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
   return (
     <nav
       className={cn(
-        "fixed inset-x-0 bottom-0 z-40 flex md:hidden",
+        "fixed inset-x-0 bottom-0 z-[var(--ui-z-tabbar)] flex md:hidden",
         "border-t border-black/[0.06] bg-[rgba(250,248,244,0.92)] backdrop-blur-xl",
         "pb-safe",
       )}

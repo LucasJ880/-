@@ -6,6 +6,7 @@ import { Activity, AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, Clipboa
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { PageHeader } from "@/components/page-header";
 import { DIMENSION_LABELS } from "@/lib/marketing/constants";
 
 interface DashboardData {
@@ -101,10 +102,15 @@ export default function GrowthCenterPage() {
   }
 
   return <div className="mx-auto max-w-6xl space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h1 className="text-2xl font-bold">增长中心 Growth Center</h1><p className="mt-1 text-sm text-muted">从企业事实、营销体检到任务、内容、实验和成交反馈的执行闭环。</p></div>
-      <button type="button" onClick={load} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><RefreshCw size={15} className={loading ? "animate-spin" : ""} />刷新</button>
-    </div>
+    <PageHeader
+      title="增长中心 Growth Center"
+      description="从企业事实、营销体检到任务、内容、实验和成交反馈的执行闭环。"
+      actions={
+        <button type="button" onClick={load} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+          <RefreshCw size={15} className={loading ? "animate-spin" : ""} />刷新
+        </button>
+      }
+    />
     <OrgSelectBanner />
     {error && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
     {data && !data.profile && <Link href="/operations/growth/brand" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><AlertTriangle size={20} /><span><strong>先建立企业事实中心</strong><br/><span className="text-sm">确认地域、行业、产品和竞争对手后，系统才允许营销检测。</span></span></Link>}

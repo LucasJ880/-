@@ -7,9 +7,13 @@ import fs from "fs";
 import path from "path";
 
 const BASE = process.argv[2] || "http://127.0.0.1:3000";
-const EMAIL =
-  process.env.MOBILE_AUDIT_EMAIL || "security1-sales-b@test.qingyan.ai";
-const PASSWORD = process.env.MOBILE_AUDIT_PASSWORD || "Qingyan@Sec1QA2026";
+const EMAIL = process.env.MOBILE_AUDIT_EMAIL;
+const PASSWORD = process.env.MOBILE_AUDIT_PASSWORD;
+if (!EMAIL || !PASSWORD) {
+  throw new Error(
+    "MOBILE_AUDIT_EMAIL and MOBILE_AUDIT_PASSWORD are required",
+  );
+}
 const OUT = path.join(process.cwd(), "docs/mobile1-screenshots");
 
 async function loginViaApi(context: import("playwright").BrowserContext) {

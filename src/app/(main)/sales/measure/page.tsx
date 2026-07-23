@@ -563,7 +563,7 @@ export default function MeasurePage() {
       )}
 
       {/* Action bar */}
-      <div className="sticky bottom-4 z-10 pb-[env(safe-area-inset-bottom,0px)]">
+      <div className="sticky bottom-[calc(1rem+var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] z-[var(--ui-z-sticky)] md:bottom-4">
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-white/95 p-4 shadow-lg backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-muted-foreground">
             {!orgLoading && ambiguous && (

@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 
 export type CompareMode = "side-by-side" | "slider";
 
@@ -135,11 +136,7 @@ export default function ComparisonMode(props: ComparisonModeProps) {
   // 锁定 body 滚动
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return lockAppScroll("visualizer-comparison");
   }, [open]);
 
   const handleSelect = useCallback(

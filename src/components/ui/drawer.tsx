@@ -24,7 +24,7 @@ export function Drawer({ open, onClose, title, children, width = "w-[480px]" }: 
   useEffect(() => {
     if (!open) return;
     document.addEventListener("keydown", handleEsc);
-    const unlock = lockAppScroll();
+    const unlock = lockAppScroll("ui-drawer");
     return () => {
       document.removeEventListener("keydown", handleEsc);
       unlock();
@@ -36,7 +36,7 @@ export function Drawer({ open, onClose, title, children, width = "w-[480px]" }: 
       {/* backdrop */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-black/50 transition-opacity duration-250",
+          "fixed inset-0 z-[var(--ui-z-drawer-overlay)] bg-black/50 transition-opacity duration-250",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={onClose}
@@ -44,8 +44,11 @@ export function Drawer({ open, onClose, title, children, width = "w-[480px]" }: 
 
       {/* panel */}
       <aside
+        role="dialog"
+        aria-modal={open ? "true" : undefined}
+        aria-label={title || "侧栏"}
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-full max-h-dvh flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
+          "fixed right-0 top-0 z-[var(--ui-z-drawer-panel)] flex h-full max-h-dvh flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
           width,
           "max-w-[calc(100vw-1rem)]",
           open ? "translate-x-0" : "pointer-events-none translate-x-full"
@@ -53,16 +56,22 @@ export function Drawer({ open, onClose, title, children, width = "w-[480px]" }: 
       >
         {title && (
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <h2 className="text-base font-semibold text-foreground">{title}</h2>
+            <h2 className="min-w-0 break-words text-base font-semibold text-foreground [overflow-wrap:anywhere]">
+              {title}
+            </h2>
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-[var(--radius-sm)] p-1.5 text-muted transition-colors hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+              aria-label="关闭"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-muted transition-colors hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
             >
               <X size={18} />
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className="flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom,0px)]">
+          {children}
+        </div>
       </aside>
     </>
   );

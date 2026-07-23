@@ -1,0 +1,562 @@
+{
+  "generatedAt": "2026-07-23T03:48:50.399Z",
+  "base": "http://127.0.0.1:3016",
+  "headHint": "2152c2ef2fda0d8b4780cd16738dd55f85562ab9",
+  "emailPresent": true,
+  "mobile1Baseline": "aa81c08",
+  "safariRealDevice": "PENDING",
+  "chromium": {
+    "status": "PASS",
+    "pageSuccessCount": 40,
+    "pageTotal": 40,
+    "navLock": {
+      "openLocked": true,
+      "closedRestored": true,
+      "activeLocksAfterClose": 0
+    }
+  },
+  "webkit": {
+    "status": "PASS",
+    "pageSuccessCount": 40,
+    "pageTotal": 40,
+    "skipReason": null,
+    "navLock": {
+      "openLocked": true,
+      "closedRestored": true,
+      "activeLocksAfterClose": 0
+    }
+  },
+  "failedPages": [],
+  "engines": [
+    {
+      "engine": "chromium",
+      "status": "PASS",
+      "available": true,
+      "pageSuccessCount": 40,
+      "pageTotal": 40,
+      "pages": [
+        {
+          "width": 320,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        }
+      ],
+      "navLock": {
+        "width": 375,
+        "beforeMainInline": "",
+        "openMainInline": "hidden",
+        "closedMainInline": "",
+        "drawerVisibleWhenOpen": true,
+        "drawerDetachedAfterClose": true,
+        "openLocked": true,
+        "closedRestored": true,
+        "activeLocksAfterClose": 0
+      }
+    },
+    {
+      "engine": "webkit",
+      "status": "PASS",
+      "available": true,
+      "pageSuccessCount": 40,
+      "pageTotal": 40,
+      "pages": [
+        {
+          "width": 320,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 320,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 375,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 390,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 430,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/settings/account",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/sales",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/sales/quote-sheet",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/inventory",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/operations/center",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/capabilities/runs",
+          "ok": true,
+          "hOverflow": false
+        },
+        {
+          "width": 768,
+          "route": "/assistant",
+          "ok": true,
+          "hOverflow": false
+        }
+      ],
+      "navLock": {
+        "width": 375,
+        "beforeMainInline": "",
+        "openMainInline": "hidden",
+        "closedMainInline": "",
+        "drawerVisibleWhenOpen": true,
+        "drawerDetachedAfterClose": true,
+        "openLocked": true,
+        "closedRestored": true,
+        "activeLocksAfterClose": 0
+      }
+    }
+  ],
+  "previewUrl": "https://git-feature-mobile-2-interaction-hardening-lucas-9039s-projects.vercel.app",
+  "previewAutomation": "BLOCKED_BY_VERCEL_SSO_WITHOUT_BYPASS",
+  "executionHost": "local next start production build (same HEAD)",
+  "security1Smoke": {
+    "salesCustomers": "200",
+    "tradeSales": "403 NO_BINDING",
+    "fixedCanSelfSwitchOrg": false,
+    "fixedOrgAccessMode": "FIXED"
+  },
+  "iphoneRealDevice": "PENDING"
+}

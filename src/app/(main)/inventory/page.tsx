@@ -5,6 +5,7 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
+import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 import {
   Plus,
   Search,
@@ -66,6 +67,9 @@ export default function InventoryPage() {
   const [newYards, setNewYards] = useState("");
   const [newMinYards, setNewMinYards] = useState("10");
   const [newCost, setNewCost] = useState("");
+
+  const inventoryModalOpen = showAdd || !!editFabric || !!adjustFabric;
+  useAppScrollLock(inventoryModalOpen, "inventory-modal");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -266,7 +270,7 @@ export default function InventoryPage() {
 
       {/* Add dialog */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">新增面料</h3>
@@ -295,7 +299,7 @@ export default function InventoryPage() {
 
       {/* Edit dialog */}
       {editFabric && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">编辑面料 — {editFabric.sku}</h3>
@@ -324,7 +328,7 @@ export default function InventoryPage() {
 
       {/* Adjust dialog */}
       {adjustFabric && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">库存调整 — {adjustFabric.sku}</h3>

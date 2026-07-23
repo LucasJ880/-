@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 import type {
   BrochureParseResult,
   BrochureParseResponse,
@@ -48,6 +49,7 @@ const MAX_SIZE_MB = 10;
 const MAX_SIZE = MAX_SIZE_MB * 1024 * 1024;
 
 export function SupplierFormDialog({ open, onClose, onSaved, editing, orgId }: Props) {
+  useAppScrollLock(open, "supplier-form-dialog");
   const [name, setName] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -215,13 +217,23 @@ export function SupplierFormDialog({ open, onClose, onSaved, editing, orgId }: P
   const analysis = parseResult?.analysis;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card-bg p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">
+    <div
+      className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/50 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={editing ? "编辑供应商" : "新建供应商"}
+    >
+      <div className="max-h-[min(90dvh,880px)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-xl border border-border bg-card-bg p-6 shadow-xl z-[var(--ui-z-dialog-panel)]">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h3 className="min-w-0 break-words text-lg font-semibold [overflow-wrap:anywhere]">
             {editing ? "编辑供应商" : "新建供应商"}
           </h3>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-background">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted hover:bg-background"
+          >
             <X size={18} />
           </button>
         </div>

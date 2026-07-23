@@ -10,6 +10,7 @@ import { Check, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 
 interface PlanItem {
@@ -193,22 +194,20 @@ export default function ContentCalendarPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">内容日历</h1>
-          <p className="mt-1 text-sm text-muted">
-            AI 按品牌记忆为每个账号组批量出选题，人工审核后关联视频扇出。让矩阵从「来什么发什么」变成「按计划发」。
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={load}
-          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
-        >
-          <RefreshCw size={14} className={cn(loading && "animate-spin")} />
-          刷新
-        </button>
-      </div>
+      <PageHeader
+        title="内容日历"
+        description="AI 按品牌记忆为每个账号组批量出选题，人工审核后关联视频扇出。让矩阵从「来什么发什么」变成「按计划发」。"
+        actions={
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
+          >
+            <RefreshCw size={14} className={cn(loading && "animate-spin")} />
+            刷新
+          </button>
+        }
+      />
 
       <OrgSelectBanner />
 

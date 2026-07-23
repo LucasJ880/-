@@ -11,6 +11,7 @@ import { Cloud, Crown, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 
 interface MatrixAccount {
@@ -245,19 +246,16 @@ export default function MatrixAccountsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">矩阵账号</h1>
-          <p className="mt-1 text-sm text-muted">
-            英文社媒（Postiz 官方 API）与小红书（PostFlow worker）的账号台账，按账号组扇出发布。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="矩阵账号"
+        description="英文社媒（Postiz 官方 API）与小红书（PostFlow worker）的账号台账，按账号组扇出发布。"
+        actions={
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handlePostizSync}
             disabled={postizLoading}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background disabled:opacity-50"
           >
             <Cloud size={14} className={cn(postizLoading && "animate-pulse")} />
             同步 Postiz
@@ -265,7 +263,7 @@ export default function MatrixAccountsPage() {
           <button
             type="button"
             onClick={load}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
           >
             <RefreshCw size={14} className={cn(loading && "animate-spin")} />
             刷新
@@ -273,13 +271,14 @@ export default function MatrixAccountsPage() {
           <button
             type="button"
             onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             <Plus size={14} />
             登记账号
           </button>
         </div>
-      </div>
+        }
+      />
 
       <OrgSelectBanner />
 
