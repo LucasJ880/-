@@ -39,6 +39,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { useToast } from "@/components/ui/toast";
 import { resizeImageForUpload } from "@/lib/visualizer/client-resize";
 import { cn } from "@/lib/utils";
+import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 import type {
   VisualizerProductOptionDetail,
   VisualizerProductOptionTransform,
@@ -224,11 +225,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
   // 手机端配置面板打开时锁住页面滚动，避免抽屉和画布同时跟手滚动。
   useEffect(() => {
     if (!mobilePanelOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
+    return lockAppScroll("visualizer-mobile-panel");
   }, [mobilePanelOpen]);
 
   // 容器尺寸监听

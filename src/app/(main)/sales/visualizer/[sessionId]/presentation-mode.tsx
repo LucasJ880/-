@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 import type {
   VisualizerSessionDetail,
   VisualizerSourceImageSummary,
@@ -78,14 +79,10 @@ export default function PresentationMode(props: PresentationModeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, variantId, session.variants]);
 
-  // 锁定 body 滚动
+  // 锁定 AppShell 主滚动（引用计数）
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return lockAppScroll("visualizer-presentation");
   }, [open]);
 
   // 容器尺寸

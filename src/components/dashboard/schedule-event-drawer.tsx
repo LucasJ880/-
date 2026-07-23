@@ -85,8 +85,17 @@ export function ScheduleEventDrawer({
 }: Props) {
   useEffect(() => {
     if (!open || !event) return;
-    return lockAppScroll();
+    return lockAppScroll("schedule-event-drawer");
   }, [open, event]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   if (!event) return null;
 
@@ -101,7 +110,7 @@ export function ScheduleEventDrawer({
       {/* backdrop */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-black/50 transition-opacity duration-250",
+          "fixed inset-0 z-[var(--ui-z-drawer-overlay)] bg-black/50 transition-opacity duration-250",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={onClose}
@@ -109,8 +118,11 @@ export function ScheduleEventDrawer({
 
       {/* panel */}
       <aside
+        role="dialog"
+        aria-modal={open ? "true" : undefined}
+        aria-label={event.title}
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-full max-h-dvh w-[min(420px,calc(100vw-1rem))] flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
+          "fixed right-0 top-0 z-[var(--ui-z-drawer-panel)] flex h-full max-h-dvh w-[min(420px,calc(100vw-1rem))] flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
           open ? "translate-x-0" : "pointer-events-none translate-x-full"
         )}
       >
