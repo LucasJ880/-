@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2 / 2A 已实施（org 绑定 + activeOrg 强制 + 归档管理）；统一 Dispatch 进行中  
+**状态**：Commit 2 / 2A / 3 已实施（org 绑定 + Dispatch 骨架 + Run 七态 DTO）；三场景编排与任务卡片未开始  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -84,6 +84,18 @@ archived = true
 | `resolveTrustedAssistantOrg` | 仅信任服务端 `activeOrgId`（或唯一 membership）；`query`/`body` 只交叉校验 |
 | `findOwnedThreadInOrg({ includeArchived })` | PATCH/DELETE 可管理归档；消息/详情/发送仍排除归档 |
 | orgId=null 历史线程 | 仍不可经普通 API 取消归档 |
+
+### Commit 3（统一 Dispatch + Run 七态）
+
+| 项 | 说明 |
+|---|---|
+| `dispatchAssistantMessage` / `prepareAssistantDispatch` | `src/lib/assistant/dispatch.ts` |
+| 意图路由 stub | `src/lib/assistant/intent-router.ts`（场景占位，完整编排后续） |
+| 七态 DTO | `src/lib/assistant/run-status.ts` |
+| 接线 | `POST .../messages` 先分流；`general_answer` 仍走既有 SSE |
+| 前端 | 废除 Supervisor→SSE 业务双路由；单入口 messages |
+| Run 恢复 | `GET .../threads/[threadId]/runs`（`metadata.threadId`） |
+| 关联约定 | `AgentRun.sessionId=AgentSession(web_assistant)`；`metadata.threadId=AiThread.id` |
 
 ---
 
@@ -497,7 +509,7 @@ tests: 跨组织 thread/PA 攻击；dispatch 路由；三场景；Security-1
 2. ✅ `docs(ai): lock Phase 3B tenant dispatch and followup decisions`  
 3. ✅ `fix(ai): bind assistant threads to organization context`（见 §0A）  
 3A. ✅ `fix(ai): enforce active org and restore archived threads safely`  
-4. `feat(ai): add tenant-safe assistant dispatch and run status`  
+4. ✅ `feat(ai): add tenant-safe assistant dispatch and run status`  
 5. `feat(ai): add mobile assistant task cards`  
 6. `feat(ai): add brief followup and email draft scenarios`  
 7. `feat(ai): add confirmed execution recovery and retry`  

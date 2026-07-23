@@ -58,6 +58,7 @@ import {
   resolveAssistantOrgId,
   threadNotFoundResponse,
 } from "@/lib/assistant/thread-org";
+import { prepareAssistantDispatch } from "@/lib/assistant/dispatch";
 
 // 普通对话仍使用 Agent 自身的短超时；只有前置分流的深度研究使用后台预算。
 export const maxDuration = 300;
@@ -174,6 +175,19 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
   if (content.length > 10000) {
     return NextResponse.json({ error: "消息过长" }, { status: 400 });
+  }
+
+  // Phase 3B-A Commit 3：统一服务端意图分流（废除前端 Supervisor 业务双路由）
+  // general_answer → 继续下方既有 Operator/SSE；场景/unsupported 由此处落库并返回。
+  const dispatchPrep = await prepareAssistantDispatch({
+    userId: user.id,
+    activeOrgId: orgRes.orgId,
+    threadId,
+    message: content,
+    threadTitle: thread.title,
+  });
+  if (dispatchPrep.kind === "handled") {
+    return dispatchPrep.response;
   }
 
   // Phase 3A-5：流开始前强制可信租户；须与线程 orgId 一致
