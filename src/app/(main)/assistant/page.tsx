@@ -31,6 +31,7 @@ import {
   isAssistantRunStatusDto,
   type AssistantRunStatusDto,
 } from "@/lib/assistant/run-status-types";
+import { attachRunsToAssistantMessages } from "@/lib/assistant/attach-runs";
 
 // ── 类型 ──────────────────────────────────────────────────────
 
@@ -204,17 +205,10 @@ function AssistantPageInner() {
           }),
         }));
 
-        // 将最新 Run 挂到最近一条 assistant 消息，刷新后可恢复七态卡片
-        const latestRun = (runsData.runs ?? [])[0];
-        if (latestRun) {
-          for (let i = mapped.length - 1; i >= 0; i--) {
-            if (mapped[i].role === "assistant") {
-              mapped[i] = { ...mapped[i], assistantRun: latestRun };
-              break;
-            }
-          }
-        }
-        setMessages(mapped);
+        // 按 Run.assistantMessageId 精确挂载；禁止 runs[0] → 最后一条 assistant
+        setMessages(
+          attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
+        );
       })
       .catch(() => {})
       .finally(() => setLoadingThread(false));
@@ -296,7 +290,7 @@ function AssistantPageInner() {
       role: "user",
       content,
     };
-    const assistantId = `assistant-${Date.now()}`;
+    let assistantId = `assistant-${Date.now()}`;
     const assistantMsg: StreamingMsg = {
       id: assistantId,
       role: "assistant",
@@ -423,16 +417,49 @@ function AssistantPageInner() {
             continue;
           }
 
-          if (parsed.type === "mode") continue;
+          if (parsed.type === "mode") {
+            // 将临时消息 ID 对齐为服务端持久化 ID（刷新后可按 assistantMessageId 挂卡）
+            const realAssistantId =
+              typeof parsed.assistantMessageId === "string"
+                ? parsed.assistantMessageId
+                : null;
+            const realUserId =
+              typeof parsed.userMessageId === "string"
+                ? parsed.userMessageId
+                : null;
+            if (realAssistantId || realUserId) {
+              const prevAssistantId = assistantId;
+              const prevUserId = userMsg.id;
+              if (realAssistantId) assistantId = realAssistantId;
+              if (realUserId) userMsg.id = realUserId;
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (realUserId && m.id === prevUserId) {
+                    return { ...m, id: realUserId };
+                  }
+                  if (realAssistantId && m.id === prevAssistantId) {
+                    return { ...m, id: realAssistantId };
+                  }
+                  return m;
+                }),
+              );
+            }
+            continue;
+          }
 
           // Phase 3B-A：统一七态卡片（只读 event.run.status）
           if (parsed.type === "run_status") {
             const runPayload = parsed.run;
             if (isAssistantRunStatusDto(runPayload)) {
+              const targetId =
+                runPayload.assistantMessageId &&
+                runPayload.assistantMessageId.length > 0
+                  ? runPayload.assistantMessageId
+                  : assistantId;
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, assistantRun: runPayload, isStreaming: true }
+                  m.id === targetId || m.id === assistantId
+                    ? { ...m, id: targetId, assistantRun: runPayload, isStreaming: true }
                     : m,
                 ),
               );

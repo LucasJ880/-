@@ -65,6 +65,40 @@ ok(
 );
 
 ok(
+  "DTO 含 userMessageId / assistantMessageId / pendingActionIds",
+  (() => {
+    const dto = toAssistantRunStatusDto({
+      run: {
+        id: "run-2",
+        orgId: "sunny",
+        status: "awaiting_approval",
+        intent: "customer_followup_task",
+        errorCode: null,
+        errorMessage: null,
+        userMessageId: "um-1",
+        metadata: {
+          threadId: "thread-1",
+          initiatedByUserId: "u1",
+          assistantMessageId: "am-1",
+        },
+        startedAt: new Date(),
+        updatedAt: new Date(),
+        completedAt: null,
+      },
+      threadId: "thread-1",
+      initiatedByUserId: "u1",
+      pendingActionIds: ["pa-1", "pa-2"],
+    });
+    return (
+      dto.userMessageId === "um-1" &&
+      dto.assistantMessageId === "am-1" &&
+      dto.pendingActionIds.length === 2 &&
+      dto.pendingActionIds[0] === "pa-1"
+    );
+  })(),
+);
+
+ok(
   "同 org、同 thread、同 user → 可见",
   runMatchesOwner({
     orgId: "sunny",

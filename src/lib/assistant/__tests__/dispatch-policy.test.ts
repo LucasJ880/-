@@ -73,7 +73,7 @@ ok(
 );
 
 ok(
-  "跟进占位文案不含「和/或」",
+  "跟进场景文案不含「和/或」且说明双卡",
   (() => {
     const text = getScenarioPlaceholderText({
       intent: "customer_followup_task",
@@ -89,7 +89,7 @@ ok(
 );
 
 ok(
-  "发送邮件占位提示不会自动发送",
+  "发送邮件场景提示不会自动发送",
   (() => {
     const text = getScenarioPlaceholderText({
       intent: "gmail_email_draft",
@@ -101,6 +101,15 @@ ok(
       text.includes("只会创建 Gmail 草稿") && text.includes("不会自动发送")
     );
   })(),
+);
+
+ok(
+  "简报文案声明只读不自动写动作",
+  getScenarioPlaceholderText({
+    intent: "daily_business_brief",
+    confidence: 1,
+    reason: "brief_keywords",
+  }).includes("只读"),
 );
 
 ok(

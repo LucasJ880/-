@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2–4 已实施（org 绑定 + Dispatch + 七态任务卡）；三场景真实编排未开始  
+**状态**：Commit 2–5 已实施（org 绑定 + Dispatch + 七态任务卡 + 三场景真实编排）；Commit 6（确认执行收敛 / 恢复重试）未开始  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -114,9 +114,33 @@ archived = true
 | `AssistantTaskCard` | `src/components/assistant/assistant-task-card.tsx` |
 | 客户端类型 | `src/lib/assistant/run-status-types.ts`（无 DB） |
 | SSE | `page.tsx` 消费 `run_status` → `event.run` |
-| 刷新恢复 | 线程加载并行 `GET .../runs`，挂到最近 assistant 消息 |
+| 刷新恢复 | 线程加载并行 `GET .../runs`，挂到最近 assistant 消息（Commit 5 前为错挂：`runs[0]`→最后一条） |
 | 操作区 | 重试骨架 `min-h-11` + safe-area；ApprovalCard 确认/取消升至 44px |
 | 不做 | 三场景真实 Executor / 真实重试 API |
+
+### Commit 5（三场景真实编排 + Run/消息精确关联）
+
+| 项 | 说明 |
+|---|---|
+| 场景模块 | `src/lib/assistant/scenarios/{daily-brief,customer-followup,gmail-draft,entity-parse,types}.ts` |
+| Dispatch | 真实生命周期 `received→planning→running→completed/waiting/failed`；澄清优先不建 Run |
+| Run DTO | `userMessageId` / `assistantMessageId` / `pendingActionIds`（无新列） |
+| 刷新恢复 | `attachRunsToAssistantMessages`：按 `metadata.assistantMessageId` 挂卡 |
+| 简报 | `runDailyBusinessBriefGrader` 只读；不自动建 PA；trade 无销售权限不泄露 |
+| 跟进 | `calendar.create_event`（仅本人）/ `sales.update_followup` / 双独立 PA |
+| Gmail | `grader.email_draft`；发送话术仍只建草稿；确认前不调 `createGmailDraft` |
+| 测试 | `scenario-message-link` / `daily-brief` / `customer-followup` / `gmail-draft` 单测 |
+| 不做 | Executor 重写；Commit 6 的 PA 执行后 Run 收敛 / 恢复重试 |
+
+**关联约定**：
+
+```text
+用户消息 → AiMessage(user)
+初始 Assistant → AiMessage(assistant)（先占位再更新同一条）
+AgentRun.userMessageId → 用户消息
+AgentRun.metadata.assistantMessageId → Assistant 消息
+PendingAction.messageId / agentRunId → 同上
+```
 
 ---
 

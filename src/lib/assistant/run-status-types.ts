@@ -24,6 +24,12 @@ export type AssistantRunStatusDto = {
   conversationId: string;
   organizationId: string;
   initiatedByPrincipalId: string;
+  /** AgentRun.userMessageId → AiMessage(user) */
+  userMessageId: string | null;
+  /** metadata.assistantMessageId → AiMessage(assistant) */
+  assistantMessageId: string | null;
+  /** PendingAction.agentRunId 关联 */
+  pendingActionIds: string[];
   status: AssistantTaskStatus;
   intent: string | null;
   currentStep: {
@@ -142,4 +148,10 @@ export function isAssistantRunStatusDto(value: unknown): value is AssistantRunSt
     typeof v.status === "string" &&
     typeof v.initiatedByPrincipalId === "string"
   );
+}
+
+export function readAssistantMessageId(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const v = (metadata as Record<string, unknown>).assistantMessageId;
+  return typeof v === "string" && v.length > 0 ? v : null;
 }

@@ -201,6 +201,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     threadId,
     message: content,
     threadTitle: thread.title,
+    role: user.role,
   });
   if (dispatchPrep.kind === "handled") {
     return dispatchPrep.response;

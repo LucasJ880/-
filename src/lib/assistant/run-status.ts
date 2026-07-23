@@ -7,6 +7,7 @@ import type { AgentRun, AgentRunEvent, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
   mapAgentRunToAssistantStatus,
+  readAssistantMessageId,
   type AssistantRunStatusDto,
   type AssistantTaskStatus,
 } from "@/lib/assistant/run-status-types";
@@ -59,11 +60,12 @@ export function toAssistantRunStatusDto(input: {
     | "startedAt"
     | "updatedAt"
     | "completedAt"
-  >;
+  > & { userMessageId?: string | null };
   threadId: string;
   initiatedByUserId: string;
   events?: Array<Pick<AgentRunEvent, "eventType" | "title" | "visibleToUser" | "createdAt">>;
   pendingActionStatus?: string | null;
+  pendingActionIds?: string[];
   resultSummary?: string | null;
   statusOverride?: AssistantTaskStatus;
 }): AssistantRunStatusDto {
@@ -92,6 +94,9 @@ export function toAssistantRunStatusDto(input: {
     conversationId: input.threadId,
     organizationId: input.run.orgId,
     initiatedByPrincipalId: input.initiatedByUserId,
+    userMessageId: input.run.userMessageId ?? null,
+    assistantMessageId: readAssistantMessageId(input.run.metadata),
+    pendingActionIds: input.pendingActionIds ?? [],
     status,
     intent: input.run.intent,
     currentStep,
@@ -125,6 +130,7 @@ export async function listAssistantRunsForThread(input: {
       errorCode: string | null;
       errorMessage: string | null;
       metadata: unknown;
+      userMessageId: string | null;
       startedAt: Date | null;
       updatedAt: Date;
       completedAt: Date | null;
@@ -132,7 +138,7 @@ export async function listAssistantRunsForThread(input: {
     }>
   >`
     SELECT r.id, r."orgId", r.status, r.intent, r."errorCode", r."errorMessage",
-           r.metadata, r."startedAt", r."updatedAt", r."completedAt",
+           r.metadata, r."userMessageId", r."startedAt", r."updatedAt", r."completedAt",
            s."userId" AS "sessionUserId"
     FROM "AgentRun" r
     INNER JOIN "AgentSession" s ON s.id = r."sessionId"
@@ -167,16 +173,19 @@ export async function listAssistantRunsForThread(input: {
         createdAt: true,
       },
     });
-    const pending = await db.pendingAction.findFirst({
+    const pendingRows = await db.pendingAction.findMany({
       where: {
         orgId: input.orgId,
         agentRunId: run.id,
         threadId: input.threadId,
-        status: { in: ["pending", "approved"] },
       },
-      select: { status: true },
-      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true },
+      orderBy: { createdAt: "asc" },
+      take: 20,
     });
+    const openPending = pendingRows.find(
+      (p) => p.status === "pending" || p.status === "approved",
+    );
     dtos.push(
       toAssistantRunStatusDto({
         run: {
@@ -186,7 +195,8 @@ export async function listAssistantRunsForThread(input: {
         threadId: input.threadId,
         initiatedByUserId,
         events,
-        pendingActionStatus: pending?.status ?? null,
+        pendingActionStatus: openPending?.status ?? null,
+        pendingActionIds: pendingRows.map((p) => p.id),
       }),
     );
   }
