@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-07-23T03:48:50.399Z",
+  "generatedAt": "2026-07-23T04:16:33.584Z",
   "base": "http://127.0.0.1:3016",
-  "headHint": "2152c2ef2fda0d8b4780cd16738dd55f85562ab9",
+  "headHint": "84553eca8e4137f20e36fea14b91bbb9b3648382",
   "emailPresent": true,
   "mobile1Baseline": "aa81c08",
   "safariRealDevice": "PENDING",
@@ -549,14 +549,6 @@
       }
     }
   ],
-  "previewUrl": "https://git-feature-mobile-2-interaction-hardening-lucas-9039s-projects.vercel.app",
-  "previewAutomation": "BLOCKED_BY_VERCEL_SSO_WITHOUT_BYPASS",
-  "executionHost": "local next start production build (same HEAD)",
-  "security1Smoke": {
-    "salesCustomers": "200",
-    "tradeSales": "403 NO_BINDING",
-    "fixedCanSelfSwitchOrg": false,
-    "fixedOrgAccessMode": "FIXED"
-  },
+  "postMerge": true,
   "iphoneRealDevice": "PENDING"
 }
