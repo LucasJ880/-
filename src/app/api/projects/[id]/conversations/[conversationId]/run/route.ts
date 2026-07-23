@@ -3,9 +3,14 @@ import { db } from "@/lib/db";
 import { requireDiagnosticProjectManageAccess as requireProjectManageAccess } from "@/lib/projects/diagnostic-access";
 import { runConversationAgent } from "@/lib/agent-core/conversation/adapter";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { toPlatformDiagnosticRuntimeDto } from "@/lib/conversations/dto";
 
 type Ctx = { params: Promise<{ id: string; conversationId: string }> };
 
+/**
+ * 诊断用手动触发 Runtime：仅平台管理员（requireDiagnosticProjectManageAccess）。
+ * 普通用户通过 POST messages?run=true 获得业务 Runtime DTO。
+ */
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id: projectId, conversationId } = await ctx.params;
   const access = await requireProjectManageAccess(request, projectId);
@@ -20,13 +25,17 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   if (conv.runtimeStatus === "running") {
-    return NextResponse.json({ error: "会话正在运行中，请稍后再试" }, { status: 409 });
+    return NextResponse.json(
+      { error: "会话正在运行中，请稍后再试" },
+      { status: 409 },
+    );
   }
 
   const body = await request.json().catch(() => ({}));
-  const maxToolRounds = typeof body.maxToolRounds === "number"
-    ? Math.min(body.maxToolRounds, 5)
-    : undefined;
+  const maxToolRounds =
+    typeof body.maxToolRounds === "number"
+      ? Math.min(body.maxToolRounds, 5)
+      : undefined;
 
   const result = await runConversationAgent({
     conversationId,
@@ -62,5 +71,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
   }
 
-  return NextResponse.json({ result });
+  return NextResponse.json({
+    runtime: toPlatformDiagnosticRuntimeDto(result),
+  });
 }

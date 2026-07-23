@@ -59,18 +59,19 @@ interface MessageItem {
   id: string;
   role: string;
   content: string;
-  contentType: string;
-  sequence: number;
-  modelName: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  latencyMs: number;
+  contentType?: string;
+  sequence?: number;
+  modelName?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
   status: string;
-  errorMessage: string | null;
-  toolName: string | null;
-  toolCallId: string | null;
-  parentMessageId: string | null;
-  metadataJson: string | null;
+  errorMessage?: string | null;
+  toolName?: string | null;
+  toolCallId?: string | null;
+  parentMessageId?: string | null;
+  metadataJson?: string | null;
+  isToolCall?: boolean;
   createdAt: string;
 }
 

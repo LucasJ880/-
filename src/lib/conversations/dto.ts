@@ -65,6 +65,39 @@ export type ContextSnapshotInfo = {
   createdAt: Date | string;
 } | null;
 
+export type ConversationRunResultLike = {
+  newMessages: unknown[];
+  toolTraces: unknown[];
+  error?: string;
+};
+
+/** 非平台管理员 POST 消息时禁止出现的 body 键（fail closed） */
+export const MESSAGE_DIAGNOSTIC_BODY_KEYS = [
+  "role",
+  "modelName",
+  "inputTokens",
+  "outputTokens",
+  "latencyMs",
+  "errorMessage",
+  "toolName",
+  "toolCallId",
+  "metadataJson",
+  "parentMessageId",
+  "status",
+] as const;
+
+export type MessageDiagnosticBodyKey =
+  (typeof MESSAGE_DIAGNOSTIC_BODY_KEYS)[number];
+
+/** 请求体中出现的诊断字段名（含值为 null/0 也算出现） */
+export function findForbiddenDiagnosticFields(
+  body: Record<string, unknown>,
+): MessageDiagnosticBodyKey[] {
+  return MESSAGE_DIAGNOSTIC_BODY_KEYS.filter((k) =>
+    Object.prototype.hasOwnProperty.call(body, k),
+  );
+}
+
 /** 普通用户：业务会话摘要（无 token / prompt / agent 诊断） */
 export function toBusinessConversationDto(conv: ConversationRow) {
   return {
@@ -84,7 +117,6 @@ export function toBusinessConversationDto(conv: ConversationRow) {
     endedAt: conv.endedAt ?? null,
     createdAt: conv.createdAt,
     updatedAt: conv.updatedAt,
-    /** 业务态：映射 runtimeStatus，不暴露内部 agent 字段名 */
     businessStatus: mapBusinessStatus(conv.status, conv.runtimeStatus),
   };
 }
@@ -128,22 +160,33 @@ export function toPlatformDiagnosticConversationDto(
   };
 }
 
-/** 普通用户消息：角色 / 正文 / 时间 / 业务状态 */
+/**
+ * 普通用户消息 DTO：JSON 中不得出现 model/token/tool/metadata 等键。
+ * Tool 消息仅标记 isToolCall，不返回名称/输入/输出/调用 ID。
+ */
 export function toBusinessMessageDto(m: MessageRow) {
-  const isTool = m.role === "tool";
+  if (m.role === "tool") {
+    return {
+      id: m.id,
+      role: "tool" as const,
+      content: "",
+      isToolCall: true as const,
+      status: m.status === "error" ? "error" : m.status,
+      createdAt: m.createdAt,
+    };
+  }
+
   return {
     id: m.id,
     role: m.role,
-    content: isTool ? "" : m.content,
+    content: m.content,
     contentType: m.contentType,
     sequence: m.sequence,
     status: m.status,
-    /** 友好错误，不透出模型/内部堆栈 */
     errorMessage:
       m.status === "error" ? "处理失败，请稍后重试或联系管理员" : null,
     createdAt: m.createdAt,
-    /** 工具消息仅标记，不返回 toolName / payload */
-    isToolCall: isTool,
+    isToolCall: false as const,
   };
 }
 
@@ -169,10 +212,43 @@ export function toPlatformDiagnosticMessageDto(m: MessageRow) {
   };
 }
 
-export function toBusinessConversationListItem(conv: ConversationRow & {
-  prompt?: { id: string; key: string; name: string } | null;
-  knowledgeBase?: { id: string; key: string; name: string } | null;
-}) {
+/** 普通用户 Runtime：无 toolTraces / model / tokens / prompt / metadata */
+export function toBusinessRuntimeDto(runtime: ConversationRunResultLike) {
+  const newMessageCount = Array.isArray(runtime.newMessages)
+    ? runtime.newMessages.length
+    : 0;
+  if (runtime.error) {
+    return {
+      status: "failed" as const,
+      businessMessage: "处理失败，请稍后重试或联系管理员",
+      newMessageCount,
+    };
+  }
+  return {
+    status: "completed" as const,
+    businessMessage: "处理完成",
+    newMessageCount,
+  };
+}
+
+/** 平台管理员 Runtime：完整诊断结构 */
+export function toPlatformDiagnosticRuntimeDto(
+  runtime: ConversationRunResultLike,
+) {
+  return {
+    status: runtime.error ? ("failed" as const) : ("completed" as const),
+    newMessages: runtime.newMessages,
+    toolTraces: runtime.toolTraces,
+    error: runtime.error ?? null,
+  };
+}
+
+export function toBusinessConversationListItem(
+  conv: ConversationRow & {
+    prompt?: { id: string; key: string; name: string } | null;
+    knowledgeBase?: { id: string; key: string; name: string } | null;
+  },
+) {
   return {
     id: conv.id,
     title: conv.title,
@@ -189,10 +265,12 @@ export function toBusinessConversationListItem(conv: ConversationRow & {
   };
 }
 
-export function toPlatformDiagnosticConversationListItem(conv: ConversationRow & {
-  prompt?: { id: string; key: string; name: string } | null;
-  knowledgeBase?: { id: string; key: string; name: string } | null;
-}) {
+export function toPlatformDiagnosticConversationListItem(
+  conv: ConversationRow & {
+    prompt?: { id: string; key: string; name: string } | null;
+    knowledgeBase?: { id: string; key: string; name: string } | null;
+  },
+) {
   return {
     id: conv.id,
     title: conv.title,

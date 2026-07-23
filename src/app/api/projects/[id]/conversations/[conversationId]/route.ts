@@ -35,9 +35,6 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (!isPlatformAdmin(access.user)) {
     return NextResponse.json({
       conversation: toBusinessConversationDto(conv),
-      prompt: null,
-      knowledgeBase: null,
-      contextSnapshot: null,
     });
   }
 
@@ -168,18 +165,47 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     request,
   });
 
+  if (isPlatformAdmin(user)) {
+    return NextResponse.json({
+      conversation: {
+        id: updated.id,
+        title: updated.title,
+        channel: updated.channel,
+        status: updated.status,
+        environment: updated.environment,
+        messageCount: conv.messageCount,
+        inputTokens: conv.inputTokens,
+        outputTokens: conv.outputTokens,
+        totalTokens: conv.totalTokens,
+        estimatedCost: conv.estimatedCost,
+        avgLatencyMs: conv.avgLatencyMs,
+        agentId: conv.agentId,
+        runtimeStatus: conv.runtimeStatus,
+        lastErrorMessage: conv.lastErrorMessage,
+        runCount: conv.runCount,
+        startedAt: updated.startedAt,
+        lastMessageAt: updated.lastMessageAt,
+        endedAt: updated.endedAt,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
+  }
+
   return NextResponse.json({
-    conversation: isPlatformAdmin(user)
-      ? updated
-      : toBusinessConversationDto({
-          ...updated,
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-          estimatedCost: 0,
-          avgLatencyMs: 0,
-          messageCount: conv.messageCount,
-          user: null,
-        }),
+    conversation: toBusinessConversationDto({
+      ...updated,
+      inputTokens: conv.inputTokens,
+      outputTokens: conv.outputTokens,
+      totalTokens: conv.totalTokens,
+      estimatedCost: conv.estimatedCost,
+      avgLatencyMs: conv.avgLatencyMs,
+      messageCount: conv.messageCount,
+      agentId: conv.agentId,
+      runtimeStatus: conv.runtimeStatus,
+      lastErrorMessage: conv.lastErrorMessage,
+      runCount: conv.runCount,
+      user: null,
+    }),
   });
 }

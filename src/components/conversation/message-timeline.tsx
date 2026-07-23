@@ -15,17 +15,18 @@ interface MessageItem {
   id: string;
   role: string;
   content: string;
-  contentType: string;
-  sequence: number;
-  modelName: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  latencyMs: number;
+  contentType?: string;
+  sequence?: number;
+  modelName?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
   status: string;
-  errorMessage: string | null;
-  toolName: string | null;
-  toolCallId: string | null;
-  metadataJson: string | null;
+  errorMessage?: string | null;
+  toolName?: string | null;
+  toolCallId?: string | null;
+  metadataJson?: string | null;
+  isToolCall?: boolean;
   createdAt: string;
 }
 
@@ -73,7 +74,7 @@ function MessageBubble({
   const [showMeta, setShowMeta] = useState(false);
   const isUser = msg.role === "user";
   const isError = msg.status === "error";
-  const isTool = msg.role === "tool";
+  const isTool = msg.role === "tool" || msg.isToolCall === true;
 
   return (
     <div
@@ -115,10 +116,10 @@ function MessageBubble({
             isError && "border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.04)]"
           )}
         >
-          {isTool && msg.toolName && (
+          {isTool && (
             <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-[#2d6a7a]">
               <Wrench size={12} />
-              {showDebugMeta ? msg.toolName : "工具调用"}
+              {showDebugMeta && msg.toolName ? msg.toolName : "工具调用"}
               {showDebugMeta && msg.toolCallId && (
                 <code className="text-[10px] text-muted">
                   ({msg.toolCallId})
@@ -149,12 +150,13 @@ function MessageBubble({
               isUser ? "flex-row-reverse" : "flex-row"
             )}
           >
-            {showDebugMeta && msg.inputTokens + msg.outputTokens > 0 && (
+            {showDebugMeta &&
+              (msg.inputTokens ?? 0) + (msg.outputTokens ?? 0) > 0 && (
               <span>
-                {msg.inputTokens + msg.outputTokens} tokens
+                {(msg.inputTokens ?? 0) + (msg.outputTokens ?? 0)} tokens
               </span>
             )}
-            {showDebugMeta && msg.latencyMs > 0 && (
+            {showDebugMeta && (msg.latencyMs ?? 0) > 0 && (
               <span>{msg.latencyMs}ms</span>
             )}
             {showDebugMeta && msg.metadataJson && (
