@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { getEmailProvider } from "@/lib/google-email";
+import {
+  getEmailProvider,
+  hasGmailComposeScope,
+  isGmailDraftEnabled,
+} from "@/lib/google-email";
 
 /**
  * GET /api/sales/email-status
@@ -29,13 +33,20 @@ export const GET = withAuth(async (_req, _ctx, user) => {
     }),
   ]);
 
+  const hasComposeScope = hasGmailComposeScope(provider?.grantedScopes);
   const gmail = provider && provider.accessToken
     ? {
         connected: true,
         email: provider.accountEmail,
         grantedScopes: provider.grantedScopes,
+        hasComposeScope,
+        needsReauth: !hasComposeScope,
+        draftEnabled: isGmailDraftEnabled(),
       }
-    : { connected: false as const };
+    : {
+        connected: false as const,
+        draftEnabled: isGmailDraftEnabled(),
+      };
 
   const smtp = binding
     ? {

@@ -5,6 +5,7 @@
 import { db } from "@/lib/db";
 import { createDraft } from "@/lib/pending-actions/drafts";
 import { resolveCustomerForFollowup } from "@/lib/ai-grader/graders/customer-followup-grader";
+import { isGmailDraftEnabled } from "@/lib/google-email";
 import type { AssistantScenarioResult, ScenarioContext } from "./types";
 import { friendlyScenarioError } from "./types";
 import { extractCustomerNameHint, extractEmail } from "./entity-parse";
@@ -210,6 +211,15 @@ export async function commitGmailDraft(
   ready: Extract<GmailAnalyzeResult, { kind: "ready" }>,
 ): Promise<AssistantScenarioResult> {
   const { plan } = ready;
+
+  if (!isGmailDraftEnabled()) {
+    return {
+      kind: "failed",
+      assistantContent:
+        "Gmail 草稿功能未开启。请联系管理员启用 GMAIL_DRAFT_ENABLED 后再试。",
+      errorCode: "GMAIL_DRAFT_DISABLED",
+    };
+  }
 
   if (!assertNoInternalLeak(plan.body)) {
     return {

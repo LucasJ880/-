@@ -105,6 +105,7 @@ run_test "Phase3B-A Scenario Message Link" "npx tsx src/lib/assistant/__tests__/
 run_test "Phase3B-A Daily Brief Scenario" "npx tsx src/lib/assistant/__tests__/daily-brief-scenario.test.ts"
 run_test "Phase3B-A Customer Followup Scenario" "npx tsx src/lib/assistant/__tests__/customer-followup-scenario.test.ts"
 run_test "Phase3B-A Gmail Draft Scenario" "npx tsx src/lib/assistant/__tests__/gmail-draft-scenario.test.ts"
+run_test "Gmail Draft OAuth Compose Scope" "npx tsx src/lib/__tests__/google-email-oauth.test.ts"
 run_test "Phase3B-A Run Reconcile" "npx tsx src/lib/assistant/__tests__/run-reconcile.test.ts"
 run_test "Phase3B-A Run Retry Policy" "npx tsx src/lib/assistant/__tests__/run-retry-policy.test.ts"
 run_test "Phase3B-A PA-Run Integration" "npx tsx src/lib/assistant/__tests__/pending-action-run-integration.test.ts"

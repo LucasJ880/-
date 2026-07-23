@@ -85,6 +85,10 @@ export function friendlyScenarioError(code: string): string {
       return "创建待确认草稿失败，请稍后再试。";
     case "UNSUPPORTED_ASSIGNEE":
       return "当前阶段只能在你自己的日历创建提醒，不能替其他成员创建任务。";
+    case "GMAIL_DRAFT_DISABLED":
+      return "Gmail 草稿功能未开启。请联系管理员启用后再试。";
+    case "GMAIL_REAUTH_REQUIRED":
+      return "当前 Gmail 授权缺少草稿权限，请到设置页重新授权后再确认。";
     default:
       return "处理失败，请稍后再试。";
   }

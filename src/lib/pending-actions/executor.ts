@@ -14,7 +14,12 @@ import { canSeeResource } from "@/lib/rbac/data-scope";
 import { getOrgMembership, getProjectMembership } from "@/lib/auth";
 import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
 import { onAiInternalNote } from "@/lib/project-discussion/system-events";
-import { getEmailProvider, createGmailDraft } from "@/lib/google-email";
+import {
+  getEmailProvider,
+  createGmailDraft,
+  assertGmailDraftReady,
+  GmailOAuthError,
+} from "@/lib/google-email";
 import type {
   PendingActionType,
   PendingActionMetadata,
@@ -70,6 +75,7 @@ export interface ExecuteResult {
   resultRef?: string;
   message?: string;
   error?: string;
+  errorCode?: string;
 }
 
 /** 对外入口 —— 按 id 取草稿并执行 */
@@ -1054,25 +1060,35 @@ async function execGraderEmailDraft(
     if (!perm.ok) return perm;
   }
 
-  // 3. Gmail 授权（无授权 → 安全失败，不发送、不降级）
+  // 3. 能力预检：功能开关 + compose scope（确认前失败，勿等 Gmail API insufficient scopes）
   const provider = await getEmailProvider(ctx.userId);
-  if (!provider?.accessToken) {
-    return {
-      ok: false,
-      error: "未找到 Gmail 授权，邮件草稿未创建。请到『设置 → 邮箱绑定』连接 Google 后重试。",
-    };
+  try {
+    assertGmailDraftReady(provider);
+  } catch (err) {
+    if (err instanceof GmailOAuthError) {
+      return { ok: false, error: err.message, errorCode: err.code };
+    }
+    throw err;
   }
 
   const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { name: true } });
-  const fromName = user?.name?.trim() || provider.accountEmail;
+  const fromName = user?.name?.trim() || provider!.accountEmail;
 
-  // 4. 创建 Gmail 草稿（绝不发送）
-  const { draftId } = await createGmailDraft(ctx.userId, {
-    to: payload.to?.trim() || "",
-    from: `"${fromName}" <${provider.accountEmail}>`,
-    subject,
-    body,
-  });
+  // 4. 创建 Gmail 草稿（绝不发送；仅 drafts.create）
+  let draftId: string;
+  try {
+    ({ draftId } = await createGmailDraft(ctx.userId, {
+      to: payload.to?.trim() || "",
+      from: `"${fromName}" <${provider!.accountEmail}>`,
+      subject,
+      body,
+    }));
+  } catch (err) {
+    if (err instanceof GmailOAuthError) {
+      return { ok: false, error: err.message, errorCode: err.code };
+    }
+    throw err;
+  }
 
   // 5. 审计
   await logAudit({

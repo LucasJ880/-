@@ -98,6 +98,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         {
           ok: false,
           error: result.error ?? "执行失败",
+          errorCode: result.errorCode,
           status: result.status,
           run: result.run ?? null,
         },

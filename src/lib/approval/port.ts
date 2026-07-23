@@ -15,6 +15,7 @@ import {
   executePendingAction,
   rejectPendingAction,
 } from "@/lib/pending-actions/executor";
+import { isTerminalPendingActionStatus } from "@/lib/pending-actions/terminal";
 import {
   resolveApproval,
   getPendingApprovals,
@@ -63,6 +64,7 @@ export interface ApprovalDecisionResult {
   resultRef?: string;
   message?: string;
   error?: string;
+  errorCode?: string;
   /** Phase 3B-A：收敛后的 Run DTO（无关联则为 null） */
   run?: import("@/lib/assistant/run-status-types").AssistantRunStatusDto | null;
   duplicate?: boolean;
@@ -189,13 +191,8 @@ export async function approveApprovalItem(
       select: { agentRunId: true, orgId: true, status: true, type: true },
     });
 
-    // 幂等：已终态 → 收敛并返回既有结果，不重复副作用
-    if (
-      before &&
-      (before.status === "executed" ||
-        before.status === "failed" ||
-        before.status === "rejected")
-    ) {
+    // 幂等：已终态 → 收敛并返回既有结果，不重复副作用（含 Gmail 草稿：不二次 drafts.create）
+    if (before && isTerminalPendingActionStatus(before.status)) {
       const run = await reconcileAfterPendingAction({
         actionId: id,
         orgId: before.orgId || ctx.orgId,
@@ -264,6 +261,7 @@ export async function approveApprovalItem(
             resultRef: result.resultRef,
             message: [result.message, resumed.text].filter(Boolean).join("\n\n"),
             error: result.error,
+            errorCode: result.errorCode,
             run,
           };
         }
@@ -277,6 +275,7 @@ export async function approveApprovalItem(
       resultRef: result.resultRef,
       message: result.message,
       error: result.error,
+      errorCode: result.errorCode,
       run,
     };
   }
