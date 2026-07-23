@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import {
   Calendar,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 import type { ScheduleEvent } from "./types";
 
 interface Props {
@@ -81,6 +83,11 @@ export function ScheduleEventDrawer({
   onDelete,
   onOpenProject,
 }: Props) {
+  useEffect(() => {
+    if (!open || !event) return;
+    return lockAppScroll();
+  }, [open, event]);
+
   if (!event) return null;
 
   const pri = PRIORITY_MAP[event.priority] ?? PRIORITY_MAP.medium;
@@ -103,8 +110,8 @@ export function ScheduleEventDrawer({
       {/* panel */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-full w-[420px] flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
-          open ? "translate-x-0" : "translate-x-full"
+          "fixed right-0 top-0 z-50 flex h-full max-h-dvh w-[min(420px,calc(100vw-1rem))] flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
+          open ? "translate-x-0" : "pointer-events-none translate-x-full"
         )}
       >
         {/* header */}

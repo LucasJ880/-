@@ -3,6 +3,7 @@
 import { useEffect, useCallback, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 
 interface DrawerProps {
   open: boolean;
@@ -21,13 +22,12 @@ export function Drawer({ open, onClose, title, children, width = "w-[480px]" }: 
   );
 
   useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleEsc);
-      document.body.style.overflow = "hidden";
-    }
+    if (!open) return;
+    document.addEventListener("keydown", handleEsc);
+    const unlock = lockAppScroll();
     return () => {
       document.removeEventListener("keydown", handleEsc);
-      document.body.style.overflow = "";
+      unlock();
     };
   }, [open, handleEsc]);
 
@@ -45,9 +45,10 @@ export function Drawer({ open, onClose, title, children, width = "w-[480px]" }: 
       {/* panel */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
+          "fixed right-0 top-0 z-50 flex h-full max-h-dvh flex-col border-l border-border bg-[var(--card-bg)] shadow-[var(--shadow-float)] transition-transform duration-300 ease-out",
           width,
-          open ? "translate-x-0" : "translate-x-full"
+          "max-w-[calc(100vw-1rem)]",
+          open ? "translate-x-0" : "pointer-events-none translate-x-full"
         )}
       >
         {title && (
