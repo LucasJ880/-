@@ -19,6 +19,18 @@ export type AssistantRunStepType =
   | "approval_required"
   | "result";
 
+export type AssistantActionSummary = {
+  total: number;
+  pending: number;
+  approved: number;
+  executed: number;
+  rejected: number;
+  failed: number;
+  expired: number;
+};
+
+export type AssistantRetryKind = "safe_reprepare" | "manual_review" | null;
+
 export type AssistantRunStatusDto = {
   runId: string;
   conversationId: string;
@@ -45,6 +57,11 @@ export type AssistantRunStatusDto = {
   startedAt: string | null;
   updatedAt: string;
   completedAt: string | null;
+  actionSummary?: AssistantActionSummary;
+  partialCompletion?: boolean;
+  partialSideEffects?: boolean;
+  canRetry?: boolean;
+  retryKind?: AssistantRetryKind;
 };
 
 export type RunStatusEvent = {

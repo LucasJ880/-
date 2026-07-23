@@ -400,6 +400,9 @@ async function finalizeScenarioRun(input: {
     const failedBase = await db.agentRun.findFirstOrThrow({
       where: { id: input.runId },
     });
+    const paCount = await db.pendingAction.count({
+      where: { agentRunId: input.runId, orgId: input.orgId },
+    });
     const failMeta = {
       ...((failedBase.metadata as Record<string, unknown>) ?? {}),
       scenarioErrorCode: input.result.errorCode,
@@ -409,6 +412,8 @@ async function finalizeScenarioRun(input: {
       initiatedByUserId: input.userId,
       channel: "web_assistant",
       scenario: input.intent,
+      // 仅无任何 PA 时允许安全重试（Prepare/分析失败）
+      safeToRetry: paCount === 0,
     };
     await db.agentRun.update({
       where: { id: input.runId },

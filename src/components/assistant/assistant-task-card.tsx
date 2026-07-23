@@ -1,11 +1,10 @@
 "use client";
 
 /**
- * Phase 3B-A Commit 4：助手任务七态卡片（移动端优先）
- * 展示 received → … → completed/failed/cancelled；重试仅为骨架。
+ * Phase 3B-A：助手任务七态卡片（Commit 4 + Commit 6 收敛文案 / 安全重试）
  */
 
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import {
   CheckCircle2,
   CircleDashed,
@@ -17,7 +16,6 @@ import {
   ListTodo,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/components/ui/toast";
 import {
   assistantStatusLabel,
   type AssistantRunStatusDto,
@@ -57,13 +55,57 @@ const INTENT_LABEL: Record<string, string> = {
   assistant_dispatch: "助手任务",
 };
 
+export function assistantRunCardSummary(run: AssistantRunStatusDto): string | null {
+  if (run.resultSummary && !["scenario_placeholder", "no_actions"].includes(run.resultSummary)) {
+    // 优先使用服务端用户文案
+    if (
+      /项|完成|取消|失败|过期|等待/.test(run.resultSummary) ||
+      run.resultSummary.includes("任务已结束")
+    ) {
+      return run.resultSummary;
+    }
+  }
+  const s = run.actionSummary;
+  if (!s || s.total === 0) {
+    if (run.status === "failed" && run.retryKind === "manual_review") {
+      return "该动作可能已影响外部系统。请先检查后再重新生成操作。";
+    }
+    return run.resultSummary && run.resultSummary !== "scenario_placeholder"
+      ? run.resultSummary
+      : null;
+  }
+  if (run.status === "waiting_for_confirmation") {
+    const open = s.pending + s.approved;
+    return open === 1
+      ? "还剩 1 项动作等待确认"
+      : `还剩 ${open} 项动作等待确认`;
+  }
+  if (run.status === "completed" && run.partialCompletion) {
+    return `${s.executed} 项已完成，${s.rejected} 项已取消`;
+  }
+  if (run.status === "completed") {
+    return "所有确认动作已完成";
+  }
+  if (run.status === "cancelled") {
+    return "所有待确认动作已取消";
+  }
+  if (run.status === "failed") {
+    if (s.expired > 0 && s.executed === 0) {
+      return "确认已过期，请重新生成操作。";
+    }
+    if (run.partialSideEffects) {
+      return "部分动作已执行，另有动作失败。已完成的操作不会自动回滚。";
+    }
+    return "动作执行失败。";
+  }
+  return null;
+}
+
 export interface AssistantTaskCardProps {
   run: AssistantRunStatusDto;
-  /** 可选：已可见的步骤标题列表（工具时间线摘要） */
   stepTitles?: string[];
   className?: string;
-  /** 重试骨架；未传则 toast 提示后续开放 */
-  onRetry?: (run: AssistantRunStatusDto) => void;
+  onRetry?: (run: AssistantRunStatusDto) => void | Promise<void>;
 }
 
 export function AssistantTaskCard({
@@ -72,18 +114,21 @@ export function AssistantTaskCard({
   className,
   onRetry,
 }: AssistantTaskCardProps) {
-  const { toast } = useToast();
+  const [retrying, setRetrying] = useState(false);
   const Icon = STATUS_ICON[run.status];
   const spinning = run.status === "planning" || run.status === "running";
   const intentLabel =
     (run.intent && INTENT_LABEL[run.intent]) || run.intent || "助手任务";
+  const summary = assistantRunCardSummary(run);
 
-  const handleRetry = () => {
-    if (onRetry) {
-      onRetry(run);
-      return;
+  const handleRetry = async () => {
+    if (!run.canRetry || !onRetry || retrying) return;
+    setRetrying(true);
+    try {
+      await onRetry(run);
+    } finally {
+      setRetrying(false);
     }
-    toast("场景恢复与重试将在后续版本开放", "info");
   };
 
   return (
@@ -95,6 +140,7 @@ export function AssistantTaskCard({
       )}
       data-testid="assistant-task-card"
       data-status={run.status}
+      data-can-retry={run.canRetry ? "true" : "false"}
     >
       <div className="flex items-start gap-3 px-3 py-3 sm:px-3.5">
         <div
@@ -121,12 +167,12 @@ export function AssistantTaskCard({
               当前步骤：{run.currentStep.title}
             </p>
           ) : null}
-          {run.resultSummary && run.resultSummary !== "scenario_placeholder" ? (
+          {summary ? (
             <p className="mt-1 line-clamp-3 text-[12px] leading-5 text-[#4a524e]">
-              {run.resultSummary}
+              {summary}
             </p>
           ) : null}
-          {run.errorCode ? (
+          {run.errorCode && run.status === "failed" ? (
             <p className="mt-1 text-[12px] font-medium text-[#a63d3d]">
               错误码：{run.errorCode}
             </p>
@@ -161,17 +207,27 @@ export function AssistantTaskCard({
 
       {run.status === "failed" ? (
         <div className="border-t border-black/[0.06] bg-white/50 px-3 py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:px-3.5 sm:pb-2.5">
-          <button
-            type="button"
-            onClick={handleRetry}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-[#2b6055]/25 bg-white px-3 text-[13px] font-medium text-[#2b6055] transition-colors hover:bg-[#edf3f1] active:bg-[#e2ebe8]"
-          >
-            <RefreshCw size={14} />
-            重试
-          </button>
-          <p className="mt-2 text-center text-[11px] text-[#8a918d]">
-            重试能力骨架已就位；场景恢复将在后续版本接入。
-          </p>
+          {run.canRetry && onRetry ? (
+            <button
+              type="button"
+              onClick={() => void handleRetry()}
+              disabled={retrying}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-[#2b6055]/25 bg-white px-3 text-[13px] font-medium text-[#2b6055] transition-colors hover:bg-[#edf3f1] active:bg-[#e2ebe8] disabled:opacity-60"
+            >
+              {retrying ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              {retrying ? "重试中…" : "重试"}
+            </button>
+          ) : (
+            <p className="text-center text-[12px] leading-5 text-[#68706c]">
+              {run.retryKind === "manual_review"
+                ? "请检查后重新生成操作（不可自动重试）"
+                : "请重新发送消息以生成新操作"}
+            </p>
+          )}
         </div>
       ) : null}
     </div>

@@ -63,6 +63,9 @@ export interface ApprovalDecisionResult {
   resultRef?: string;
   message?: string;
   error?: string;
+  /** Phase 3B-A：收敛后的 Run DTO（无关联则为 null） */
+  run?: import("@/lib/assistant/run-status-types").AssistantRunStatusDto | null;
+  duplicate?: boolean;
 }
 
 // ── 统一收件箱 ───────────────────────────────────────────────────
@@ -141,6 +144,40 @@ export async function listApprovalInbox(
 
 // ── 确认 / 拒绝 ─────────────────────────────────────────────────
 
+async function reconcileAfterPendingAction(input: {
+  actionId: string;
+  orgId: string | null | undefined;
+  userId: string;
+  outcome: "executed" | "rejected" | "failed" | "expired";
+}): Promise<import("@/lib/assistant/run-status-types").AssistantRunStatusDto | null> {
+  const action = await db.pendingAction.findUnique({
+    where: { id: input.actionId },
+    select: { agentRunId: true, orgId: true, type: true },
+  });
+  const orgId = action?.orgId || input.orgId;
+  if (!action?.agentRunId || !orgId) return null;
+  try {
+    const { reconcileAssistantRunFromPendingActions } = await import(
+      "@/lib/assistant/reconcile-run"
+    );
+    const recon = await reconcileAssistantRunFromPendingActions({
+      orgId,
+      runId: action.agentRunId,
+      triggeredByUserId: input.userId,
+      reason: `pending_action_${input.outcome}`,
+      triggerAction: {
+        id: input.actionId,
+        type: action.type,
+        outcome: input.outcome,
+      },
+    });
+    return recon.run;
+  } catch (e) {
+    console.error("[approval.port] reconcile failed:", e);
+    return null;
+  }
+}
+
 export async function approveApprovalItem(
   kind: ApprovalKind,
   id: string,
@@ -149,13 +186,65 @@ export async function approveApprovalItem(
   if (kind === "pending_action") {
     const before = await db.pendingAction.findUnique({
       where: { id },
-      select: { agentRunId: true, orgId: true },
+      select: { agentRunId: true, orgId: true, status: true, type: true },
     });
+
+    // 幂等：已终态 → 收敛并返回既有结果，不重复副作用
+    if (
+      before &&
+      (before.status === "executed" ||
+        before.status === "failed" ||
+        before.status === "rejected")
+    ) {
+      const run = await reconcileAfterPendingAction({
+        actionId: id,
+        orgId: before.orgId || ctx.orgId,
+        userId: ctx.userId,
+        outcome:
+          before.status === "executed"
+            ? "executed"
+            : before.status === "rejected"
+              ? "rejected"
+              : "failed",
+      });
+      return {
+        ok: before.status === "executed" || before.status === "rejected",
+        status: before.status,
+        duplicate: true,
+        message:
+          before.status === "executed"
+            ? "该动作此前已执行"
+            : before.status === "rejected"
+              ? "该动作此前已取消"
+              : "该动作此前已失败",
+        run,
+      };
+    }
+
     const result = await executePendingAction(id, {
       userId: ctx.userId,
       role: ctx.role,
       orgId: ctx.orgId,
     });
+
+    const after = await db.pendingAction.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    const outcome: "executed" | "failed" | "expired" =
+      after?.status === "executed"
+        ? "executed"
+        : result.error?.includes("过期")
+          ? "expired"
+          : "failed";
+
+    const run = await reconcileAfterPendingAction({
+      actionId: id,
+      orgId: before?.orgId || ctx.orgId,
+      userId: ctx.userId,
+      outcome: result.ok ? "executed" : outcome,
+    });
+
     // 主管 AI：批准后尝试从 AgentRun.supervisorState 恢复（读取 DB 审批状态）
     if (result.ok && before?.agentRunId && before.orgId) {
       try {
@@ -175,6 +264,7 @@ export async function approveApprovalItem(
             resultRef: result.resultRef,
             message: [result.message, resumed.text].filter(Boolean).join("\n\n"),
             error: result.error,
+            run,
           };
         }
       } catch {
@@ -183,10 +273,11 @@ export async function approveApprovalItem(
     }
     return {
       ok: result.ok,
-      status: result.ok ? "executed" : "failed",
+      status: result.ok ? "executed" : after?.status === "failed" ? "failed" : "failed",
       resultRef: result.resultRef,
       message: result.message,
       error: result.error,
+      run,
     };
   }
 
@@ -224,13 +315,38 @@ export async function rejectApprovalItem(
   if (kind === "pending_action") {
     const before = await db.pendingAction.findUnique({
       where: { id },
-      select: { agentRunId: true, orgId: true },
+      select: { agentRunId: true, orgId: true, status: true },
     });
+
+    if (before && before.status === "rejected") {
+      const run = await reconcileAfterPendingAction({
+        actionId: id,
+        orgId: before.orgId || ctx.orgId,
+        userId: ctx.userId,
+        outcome: "rejected",
+      });
+      return {
+        ok: true,
+        status: "rejected",
+        duplicate: true,
+        message: "该动作此前已取消",
+        run,
+      };
+    }
+
     const result = await rejectPendingAction(
       id,
       { userId: ctx.userId, role: ctx.role, orgId: ctx.orgId },
       ctx.note,
     );
+
+    const run = await reconcileAfterPendingAction({
+      actionId: id,
+      orgId: before?.orgId || ctx.orgId,
+      userId: ctx.userId,
+      outcome: result.ok ? "rejected" : "failed",
+    });
+
     // 主管 AI：拒绝后同样恢复，且不得把拒绝当作已执行
     if (result.ok && before?.agentRunId && before.orgId) {
       try {
@@ -254,6 +370,7 @@ export async function rejectApprovalItem(
               .filter(Boolean)
               .join("\n\n"),
             error: result.error,
+            run,
           };
         }
       } catch {
@@ -264,6 +381,7 @@ export async function rejectApprovalItem(
       ok: result.ok,
       status: result.ok ? "rejected" : "failed",
       error: result.error,
+      run,
     };
   }
 

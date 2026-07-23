@@ -192,6 +192,8 @@ export interface ChatPanelProps {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** PR4：审批卡片更新回调 */
   onApprovalChange?: (messageId: string, next: PendingApproval) => void;
+  onRunUpdate?: (run: AssistantRunStatusDto) => void;
+  onRunRetry?: (run: AssistantRunStatusDto) => void | Promise<void>;
   /** PR4.5：PendingInbox 打开对话的回调 */
   onOpenThread?: (threadId: string) => void;
   /** 当前组织是否就绪；未就绪时发送会给出明确反馈 */
@@ -221,6 +223,8 @@ export function ChatPanel({
   onShowMobileSidebar,
   inputRef,
   onApprovalChange,
+  onRunUpdate,
+  onRunRetry,
   onOpenThread,
   orgReady = true,
   orgBlockReason = null,
@@ -518,6 +522,7 @@ export function ChatPanel({
                       stepTitles={(msg.agentSteps ?? [])
                         .map((s) => s.label)
                         .filter(Boolean)}
+                      onRetry={onRunRetry}
                       className={
                         msg.content || (msg.agentSteps && msg.agentSteps.length > 0)
                           ? "mb-3"
@@ -631,6 +636,7 @@ export function ChatPanel({
                       key={pa.actionId}
                       approval={pa}
                       onChange={(next) => onApprovalChange?.(msg.id, next)}
+                      onRunUpdate={onRunUpdate}
                     />
                   ))}
                 </div>

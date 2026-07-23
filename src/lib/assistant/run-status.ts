@@ -9,9 +9,16 @@ import {
   mapAgentRunToAssistantStatus,
   readAssistantMessageId,
   readScenarioErrorCode,
+  type AssistantActionSummary,
+  type AssistantRetryKind,
   type AssistantRunStatusDto,
   type AssistantTaskStatus,
 } from "@/lib/assistant/run-status-types";
+import {
+  decideRunReconcile,
+  deriveRetryFlags,
+  summarizeActions,
+} from "@/lib/assistant/reconcile-decision";
 
 export * from "@/lib/assistant/run-status-types";
 
@@ -20,7 +27,7 @@ function mapEventToStep(
 ): AssistantRunStatusDto["currentStep"] {
   const title = event.title || event.eventType;
   const t = event.eventType;
-  if (t === "approval.required") {
+  if (t === "approval.required" || t.startsWith("approval.")) {
     return { type: "approval_required", title };
   }
   if (t.startsWith("tool.") || t.startsWith("skill.") || t.startsWith("grader.")) {
@@ -29,7 +36,7 @@ function mapEventToStep(
   if (t.startsWith("planning.") || t === "context.loading" || t === "context.loaded") {
     return { type: "data_lookup", title };
   }
-  if (t.startsWith("response.") || t === "run.completed") {
+  if (t.startsWith("response.") || t === "run.completed" || t === "run.reconciled") {
     return { type: "result", title };
   }
   if (t === "run.started" || t === "ack.sent") {
@@ -69,6 +76,11 @@ export function toAssistantRunStatusDto(input: {
   pendingActionIds?: string[];
   resultSummary?: string | null;
   statusOverride?: AssistantTaskStatus;
+  actionSummary?: AssistantActionSummary;
+  partialCompletion?: boolean;
+  partialSideEffects?: boolean;
+  canRetry?: boolean;
+  retryKind?: AssistantRetryKind;
 }): AssistantRunStatusDto {
   const status =
     input.statusOverride ??
@@ -89,6 +101,10 @@ export function toAssistantRunStatusDto(input: {
   const meta = (input.run.metadata ?? {}) as Record<string, unknown>;
   const metaSummary =
     typeof meta.resultSummary === "string" ? meta.resultSummary : null;
+  const metaPartial =
+    typeof meta.partialCompletion === "boolean" ? meta.partialCompletion : false;
+  const metaSide =
+    typeof meta.partialSideEffects === "boolean" ? meta.partialSideEffects : false;
 
   return {
     runId: input.run.id,
@@ -111,6 +127,11 @@ export function toAssistantRunStatusDto(input: {
     startedAt: input.run.startedAt?.toISOString() ?? null,
     updatedAt: input.run.updatedAt.toISOString(),
     completedAt: input.run.completedAt?.toISOString() ?? null,
+    actionSummary: input.actionSummary,
+    partialCompletion: input.partialCompletion ?? metaPartial,
+    partialSideEffects: input.partialSideEffects ?? metaSide,
+    canRetry: input.canRetry ?? false,
+    retryKind: input.retryKind ?? null,
   };
 }
 
@@ -156,6 +177,7 @@ export async function listAssistantRunsForThread(input: {
     LIMIT ${input.take ?? 10}
   `;
 
+  const now = new Date();
   const dtos: AssistantRunStatusDto[] = [];
   for (const run of rows) {
     const metaUser = readInitiatedByUserId(run.metadata);
@@ -181,13 +203,32 @@ export async function listAssistantRunsForThread(input: {
         agentRunId: run.id,
         threadId: input.threadId,
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, expiresAt: true },
       orderBy: { createdAt: "asc" },
       take: 20,
     });
-    const openPending = pendingRows.find(
-      (p) => p.status === "pending" || p.status === "approved",
-    );
+
+    const decision = decideRunReconcile(pendingRows, now, {
+      safeToRetryHint:
+        (run.metadata as Record<string, unknown> | null)?.safeToRetry === true,
+    });
+    const retry = deriveRetryFlags({
+      runStatus: run.status,
+      metadata: run.metadata,
+      actions: pendingRows,
+      now,
+    });
+
+    const statusOverride =
+      decision.kind === "noop_no_actions"
+        ? undefined
+        : decision.assistantStatus;
+
+    const openPending = pendingRows.find((p) => {
+      const s = summarizeActions([p], now);
+      return s.pending + s.approved > 0;
+    });
+
     dtos.push(
       toAssistantRunStatusDto({
         run: {
@@ -197,8 +238,27 @@ export async function listAssistantRunsForThread(input: {
         threadId: input.threadId,
         initiatedByUserId,
         events,
-        pendingActionStatus: openPending?.status ?? null,
+        pendingActionStatus: openPending
+          ? "pending"
+          : decision.kind === "cancelled"
+            ? "rejected"
+            : decision.kind === "failed"
+              ? "failed"
+              : null,
         pendingActionIds: pendingRows.map((p) => p.id),
+        resultSummary:
+          decision.kind === "noop_no_actions"
+            ? undefined
+            : decision.userFacingSummary || decision.resultSummary,
+        statusOverride,
+        actionSummary:
+          decision.kind === "noop_no_actions"
+            ? summarizeActions([], now)
+            : decision.counts,
+        partialCompletion: decision.partialCompletion,
+        partialSideEffects: decision.partialSideEffects,
+        canRetry: retry.canRetry,
+        retryKind: retry.retryKind,
       }),
     );
   }

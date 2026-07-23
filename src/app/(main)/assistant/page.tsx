@@ -621,6 +621,76 @@ function AssistantPageInner() {
     );
   };
 
+  // Commit 6：按 assistantMessageId 精确更新任务卡（禁止挂最后一条）
+  const handleRunUpdate = (run: AssistantRunStatusDto) => {
+    const targetId = run.assistantMessageId;
+    if (!targetId) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === targetId ? { ...m, assistantRun: run } : m,
+      ),
+    );
+  };
+
+  const handleRunRetry = async (run: AssistantRunStatusDto) => {
+    if (!activeThreadId || !run.canRetry) return;
+    const res = await apiFetch(
+      `/api/ai/threads/${activeThreadId}/runs/${run.runId}/retry`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "重试失败");
+      return;
+    }
+    // 消费 SSE 后再刷新挂载（按 assistantMessageId）
+    const reader = res.body?.getReader();
+    if (reader) {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    }
+    const data = await apiJson<{ messages?: AiMsg[] }>(
+      `/api/ai/threads/${activeThreadId}/messages`,
+    ).catch(() => null);
+    const runsData = await apiJson<{ runs?: AssistantRunStatusDto[] }>(
+      `/api/ai/threads/${activeThreadId}/runs`,
+    ).catch(() => ({ runs: [] as AssistantRunStatusDto[] }));
+    if (data?.messages) {
+      const now = Date.now();
+      const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+        pendingApprovals: (m.pendingActions ?? []).map((a) => {
+          const expired =
+            a.status === "pending" &&
+            new Date(a.expiresAt).getTime() < now;
+          return {
+            actionId: a.id,
+            draftType: a.type,
+            title: a.title,
+            preview: a.preview,
+            status: expired
+              ? ("expired" as const)
+              : (a.status as
+                  | "pending"
+                  | "executed"
+                  | "rejected"
+                  | "failed"
+                  | "expired"),
+            failureReason: a.failureReason ?? undefined,
+          };
+        }),
+      }));
+      setMessages(
+        attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
+      );
+    }
+  };
+
   return (
     <div className="flex h-full bg-[#f5f6f6] tracking-normal text-[#171a19]">
       <ThreadSidebar
@@ -670,6 +740,8 @@ function AssistantPageInner() {
           onShowMobileSidebar={() => setShowMobileSidebar(true)}
           inputRef={inputRef}
           onApprovalChange={handleApprovalChange}
+          onRunUpdate={handleRunUpdate}
+          onRunRetry={handleRunRetry}
           onOpenThread={(id) => {
             setActiveThreadId(id);
             router.replace(`/assistant?thread=${id}`);

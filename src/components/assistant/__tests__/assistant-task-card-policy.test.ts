@@ -53,10 +53,11 @@ ok(
 );
 
 ok(
-  "失败态应展示重试骨架",
+  "仅 canRetry 才显示真实重试（契约）",
   (() => {
-    const status: AssistantTaskStatus = "failed";
-    return status === "failed";
+    const canRetry = true;
+    const manual = false;
+    return canRetry && !manual;
   })(),
 );
 

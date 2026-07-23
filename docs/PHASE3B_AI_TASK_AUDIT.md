@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2–5A 已实施（org 绑定 + Dispatch + 七态任务卡 + 三场景编排硬化）；Commit 6（确认执行收敛 / 恢复重试）未开始  
+**状态**：Commit 2–6 已实施（含 Run 确认收敛与安全重试）；Draft PR #17 未合入 main  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -140,6 +140,17 @@ archived = true
 | 实体解析 | 支持「把 ABC 商机…」「给 Rudy 起草一封邮件」等前置名 |
 | 双 PA | `createDraftBatch` 事务创建 + 失败补偿；不留孤立 pending |
 | 错误码 | `metadata.scenarioErrorCode` → DTO.errorCode（优先于 tool_failed） |
+
+### Commit 6（确认执行后 Run 收敛）
+
+| 项 | 说明 |
+|---|---|
+| 收敛服务 | `reconcileAssistantRunFromPendingActions`（`FOR UPDATE`） |
+| 接入点 | `approval/port.ts` approve/reject 后；API 返回 `{ run }` |
+| DTO | `actionSummary` / `partialCompletion` / `partialSideEffects` / `canRetry` / `retryKind` |
+| 安全重试 | `POST .../runs/[runId]/retry`；仅无 PA + `safeToRetry` |
+| 前端 | ApprovalCard → onRunUpdate；TaskCard 仅 `canRetry` 显示重试 |
+| 交付文档 | `docs/PHASE3B_AI_TASK_DELIVERY.md` |
 
 **关联约定**：
 

@@ -34,6 +34,8 @@ export async function createAgentRun(input: {
   parentRunId?: string | null;
   workspaceId?: string | null;
   projectId?: string | null;
+  /** Commit 6：安全重试允许同一 userMessageId 再建 Run */
+  skipUserMessageIdempotency?: boolean;
 }) {
   if (!input.orgId) throw new Error("orgId 必填");
 
@@ -43,8 +45,8 @@ export async function createAgentRun(input: {
   });
   if (!session) throw new Error("Session 不存在或跨组织");
 
-  // 幂等：同一 userMessageId 不重复创建 Run
-  if (input.userMessageId) {
+  // 幂等：同一 userMessageId 不重复创建 Run（重试除外）
+  if (input.userMessageId && !input.skipUserMessageIdempotency) {
     const existing = await db.agentRun.findFirst({
       where: {
         orgId: input.orgId,

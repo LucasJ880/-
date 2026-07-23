@@ -2,10 +2,11 @@
  * POST /api/ai/pending-actions/[id]
  * body: { decision: "approve" | "reject", reason?: string, orgId?: string }
  *
- * 批准 → 调 executor 执行真实副作用 → 返回 { ok, resultRef, message }
+ * 批准 → 调 executor 执行真实副作用 → 返回 { ok, resultRef, message, run }
  * 拒绝 → 只标状态，不执行
  *
  * Phase 3B-A：确认时必须与服务端 activeOrg 一致；跨组织旧 Action fail-closed。
+ * Commit 6：决策后 reconcile AgentRun，响应附带最新 Run DTO。
  */
 
 import { NextResponse } from "next/server";
@@ -43,6 +44,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       orgId: true,
       projectId: true,
       approverUserId: true,
+      agentRunId: true,
     },
   });
   if (!action) {
@@ -63,7 +65,6 @@ export const POST = withAuth(async (request, ctx, user) => {
     );
   }
 
-  // Phase 2A：企业业务审批必须是该企业成员（平台超管无 membership 不可代批）
   if (action.orgId) {
     const membership = await getOrgMembership(user.id, action.orgId);
     if (!membership || membership.status !== "active") {
@@ -92,17 +93,24 @@ export const POST = withAuth(async (request, ctx, user) => {
       role: user.role,
       orgId: orgRes.orgId,
     });
-    if (!result.ok) {
+    if (!result.ok && !result.duplicate) {
       return NextResponse.json(
-        { ok: false, error: result.error ?? "执行失败" },
+        {
+          ok: false,
+          error: result.error ?? "执行失败",
+          status: result.status,
+          run: result.run ?? null,
+        },
         { status: 400 },
       );
     }
     return NextResponse.json({
       ok: true,
-      status: "executed",
+      status: result.status ?? "executed",
       resultRef: result.resultRef,
       message: result.message,
+      duplicate: result.duplicate === true,
+      run: result.run ?? null,
     });
   }
 
@@ -113,13 +121,22 @@ export const POST = withAuth(async (request, ctx, user) => {
       orgId: orgRes.orgId,
       note: reason,
     });
-    if (!result.ok) {
+    if (!result.ok && !result.duplicate) {
       return NextResponse.json(
-        { ok: false, error: result.error ?? "拒绝失败" },
+        {
+          ok: false,
+          error: result.error ?? "拒绝失败",
+          run: result.run ?? null,
+        },
         { status: 400 },
       );
     }
-    return NextResponse.json({ ok: true, status: "rejected" });
+    return NextResponse.json({
+      ok: true,
+      status: "rejected",
+      duplicate: result.duplicate === true,
+      run: result.run ?? null,
+    });
   }
 
   return NextResponse.json(
