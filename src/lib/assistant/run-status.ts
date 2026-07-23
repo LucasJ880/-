@@ -264,3 +264,22 @@ export async function listAssistantRunsForThread(input: {
   }
   return dtos;
 }
+
+/**
+ * 按确定 runId 读取 DTO。
+ * 发起人无法从 metadata / session 确认时返回 null（不伪造 "unknown"）。
+ */
+export async function getAssistantRunStatusDto(input: {
+  orgId: string;
+  runId: string;
+  userId: string;
+  threadId: string;
+}): Promise<AssistantRunStatusDto | null> {
+  const runs = await listAssistantRunsForThread({
+    orgId: input.orgId,
+    threadId: input.threadId,
+    userId: input.userId,
+    take: 50,
+  });
+  return runs.find((r) => r.runId === input.runId) ?? null;
+}

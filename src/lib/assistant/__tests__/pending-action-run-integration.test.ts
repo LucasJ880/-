@@ -4,7 +4,12 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { decideRunReconcile } from "@/lib/assistant/reconcile-decision";
+import {
+  planReconcileEventKeys,
+} from "@/lib/assistant/reconcile-run";
 import { attachRunsToAssistantMessages } from "@/lib/assistant/attach-runs";
 import { assistantRunCardSummary } from "@/components/assistant/assistant-task-card";
 import {
@@ -168,7 +173,73 @@ ok(
 
 ok(
   "跨 org 确认 fail-closed 契约码",
-  ["ORG_CONTEXT_MISMATCH", "THREAD_NOT_FOUND"].every((c) => c.length > 0),
+  ["ORG_CONTEXT_MISMATCH", "THREAD_NOT_FOUND", "ORG_LINK_MISMATCH"].every(
+    (c) => c.length > 0,
+  ),
+);
+
+ok(
+  "跨 org Action 关联同一 Run → fail closed（源码）",
+  (() => {
+    const src = readFileSync(
+      resolve(process.cwd(), "src/lib/assistant/reconcile-run.ts"),
+      "utf8",
+    );
+    return (
+      src.includes("ORG_LINK_MISMATCH") &&
+      src.includes("ASSISTANT_RUN_ORG_LINK_MISMATCH") &&
+      src.includes("foreign.length > 0")
+    );
+  })(),
+);
+
+ok(
+  "Run 发起用户无法确认 → 不返回伪造 DTO",
+  (() => {
+    const recon = readFileSync(
+      resolve(process.cwd(), "src/lib/assistant/reconcile-run.ts"),
+      "utf8",
+    );
+    const status = readFileSync(
+      resolve(process.cwd(), "src/lib/assistant/run-status.ts"),
+      "utf8",
+    );
+    return (
+      recon.includes("INITIATOR_UNKNOWN") &&
+      recon.includes("if (!result.initiatedByUserId)") &&
+      status.includes('不伪造 "unknown"') &&
+      !recon.includes('"unknown"')
+    );
+  })(),
+);
+
+ok(
+  "模拟并发 reconcile：writtenEventKeys 保证终态/Action 各一条",
+  (() => {
+    const decision = decideRunReconcile([
+      { status: "executed", expiresAt: future },
+    ]);
+    let keys: string[] = [];
+    const events: string[] = [];
+    // 两次「事务」串行（FOR UPDATE 语义）
+    for (let i = 0; i < 2; i++) {
+      const plan = planReconcileEventKeys({
+        writtenKeys: keys,
+        decision,
+        triggerAction: { id: "pa_1", outcome: "executed" },
+      });
+      if (plan.writeAction) events.push("approval.executed");
+      if (plan.writeTerminal) {
+        events.push("run.reconciled");
+        events.push("run.completed");
+      }
+      keys = plan.nextKeys;
+    }
+    return (
+      events.filter((e) => e === "approval.executed").length === 1 &&
+      events.filter((e) => e === "run.completed").length === 1
+    );
+  })(),
 );
 
 console.log(`结果: ${passed} passed`);

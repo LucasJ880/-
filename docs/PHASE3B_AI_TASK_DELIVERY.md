@@ -2,7 +2,7 @@
 
 **分支**：`feature/phase-3b-ai-task-loop`  
 **Draft PR**：#17  
-**状态**：Commit 2–6 已实施（收敛与安全重试）；未合入 main
+**状态**：Commit 2–6A 已实施（收敛/重试幂等硬化）；未合入 main；Preview 待做
 
 ## Run 收敛决策表
 
@@ -17,7 +17,7 @@
 | executed + rejected（无开放/失败） | `completed` | completed | partially_executed |
 | 存在 failed/expired（无开放） | `failed` | failed | action_execution_failed / partial_side_effects_failed |
 
-实现：`src/lib/assistant/reconcile-decision.ts` + `reconcile-run.ts`（`FOR UPDATE` 行锁）。
+实现：`src/lib/assistant/reconcile-decision.ts` + `reconcile-run.ts`（`FOR UPDATE` 行锁；事件与 `writtenEventKeys` 在同一事务内写入）。
 
 ## 多 Action 规则
 
@@ -36,12 +36,15 @@
 
 API：`POST /api/ai/threads/[threadId]/runs/[runId]/retry`
 
-## 幂等机制
+## 幂等机制（Commit 6A）
 
 - 助手确认路径：终态 Action 再次确认 → 不重复副作用，返回既有状态 + 最新 Run DTO
-- 能力中心：`ApprovalDecisionIdempotency`（既有）
-- reconcile：`metadata.lastReconcileEventKey` 防止重复终态事件
-- retry：`ApprovalDecisionIdempotency` 稳定键
+- Action 事件键：`approval-action:{actionId}:{outcome}`（写入 `metadata.writtenEventKeys`）
+- reconcile 终态键：`decision.eventKey`（`run.reconciled` + completed/cancelled/failed 同事务只写一次）
+- retry 原子占位：`RESERVED → STARTED → COMPLETED | FAILED`，键 `assistant-run-retry:{oldRunId}:{attempt}`
+- 新 Run：先 `createAssistantScenarioBinding`（确定 `runId`），禁止 `runs[0]` 猜测
+- 跨 org Action 关联：`ORG_LINK_MISMATCH` fail closed
+- 发起人缺失：从 `AgentSession.userId` 恢复；仍未知则不返回伪造 DTO
 
 ## 手工检查范围（Preview）
 

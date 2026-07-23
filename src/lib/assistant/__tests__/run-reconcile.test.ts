@@ -4,12 +4,19 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   decideRunReconcile,
   deriveRetryFlags,
   effectiveActionStatus,
   summarizeActions,
 } from "@/lib/assistant/reconcile-decision";
+import {
+  actionEventKey,
+  planReconcileEventKeys,
+  readWrittenEventKeys,
+} from "@/lib/assistant/reconcile-run";
 
 let passed = 0;
 function ok(name: string, cond: boolean) {
@@ -201,6 +208,139 @@ ok(
 ok(
   "无关联 Action → noop",
   decideRunReconcile([]).kind === "noop_no_actions",
+);
+
+// ── Commit 6A：事件幂等计划（可验证事务边界）──────────────────────
+
+ok(
+  "重复确认 executed → approval.executed 仅规划一次",
+  (() => {
+    const decision = decideRunReconcile([
+      { status: "executed", expiresAt: future },
+    ]);
+    const first = planReconcileEventKeys({
+      writtenKeys: [],
+      decision,
+      triggerAction: { id: "pa_123", outcome: "executed" },
+    });
+    const second = planReconcileEventKeys({
+      writtenKeys: first.nextKeys,
+      decision,
+      triggerAction: { id: "pa_123", outcome: "executed" },
+    });
+    return (
+      first.writeAction === true &&
+      first.actionKey === "approval-action:pa_123:executed" &&
+      second.writeAction === false &&
+      second.writeTerminal === false
+    );
+  })(),
+);
+
+ok(
+  "重复拒绝 → approval.rejected 仅规划一次",
+  (() => {
+    const decision = decideRunReconcile([
+      { status: "rejected", expiresAt: future },
+    ]);
+    const first = planReconcileEventKeys({
+      writtenKeys: [],
+      decision,
+      triggerAction: { id: "pa_456", outcome: "rejected" },
+    });
+    const second = planReconcileEventKeys({
+      writtenKeys: first.nextKeys,
+      decision,
+      triggerAction: { id: "pa_456", outcome: "rejected" },
+    });
+    return (
+      first.writeAction &&
+      first.actionKey === actionEventKey("pa_456", "rejected") &&
+      !second.writeAction &&
+      first.writeTerminal &&
+      !second.writeTerminal
+    );
+  })(),
+);
+
+ok(
+  "并发 reconcile completed → run.completed 终态键仅一次",
+  (() => {
+    const decision = decideRunReconcile([
+      { status: "executed", expiresAt: future },
+    ]);
+    // 模拟两事务先后：后到者读到已写入的 keys
+    const a = planReconcileEventKeys({
+      writtenKeys: [],
+      decision,
+      triggerAction: null,
+    });
+    const b = planReconcileEventKeys({
+      writtenKeys: a.nextKeys,
+      decision,
+      triggerAction: null,
+    });
+    return (
+      a.writeTerminal === true &&
+      b.writeTerminal === false &&
+      a.nextKeys.includes(decision.eventKey)
+    );
+  })(),
+);
+
+ok(
+  "已写入终态后再触发 Action → 不重写 terminal",
+  (() => {
+    const decision = decideRunReconcile([
+      { status: "executed", expiresAt: future },
+    ]);
+    const afterTerminal = planReconcileEventKeys({
+      writtenKeys: [decision.eventKey],
+      decision,
+      triggerAction: { id: "pa_x", outcome: "executed" },
+    });
+    return (
+      afterTerminal.writeTerminal === false &&
+      afterTerminal.writeAction === true
+    );
+  })(),
+);
+
+ok(
+  "readWrittenEventKeys 解析 metadata",
+  (() => {
+    const keys = readWrittenEventKeys({
+      writtenEventKeys: ["approval-action:pa_1:executed", "completed:all:1"],
+    });
+    return keys.length === 2 && keys[0].startsWith("approval-action:");
+  })(),
+);
+
+ok(
+  "reconcile-run 锁内写事件（源码契约）",
+  (() => {
+    const src = readFileSync(
+      resolve(process.cwd(), "src/lib/assistant/reconcile-run.ts"),
+      "utf8",
+    );
+    const hasForUpdate = src.includes("FOR UPDATE");
+    const createsInTx = src.includes("createRunEventInTx");
+    // 终态不得在事务外 appendAgentRunEvent
+    const afterTxAppend =
+      /\$transaction[\s\S]*appendAgentRunEvent/.test(src) === false ||
+      !src.includes("appendAgentRunEvent");
+    const failClosedOrg = src.includes("ORG_LINK_MISMATCH");
+    const noUnknown =
+      !src.includes('initiatedByPrincipalId: "unknown"') &&
+      !src.includes('initiatedByUserId: "unknown"');
+    return (
+      hasForUpdate &&
+      createsInTx &&
+      afterTxAppend &&
+      failClosedOrg &&
+      noUnknown
+    );
+  })(),
 );
 
 console.log(`结果: ${passed} passed`);

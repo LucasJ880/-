@@ -152,6 +152,17 @@ archived = true
 | 前端 | ApprovalCard → onRunUpdate；TaskCard 仅 `canRetry` 显示重试 |
 | 交付文档 | `docs/PHASE3B_AI_TASK_DELIVERY.md` |
 
+### Commit 6A（Retry / Reconcile 全幂等）
+
+| 项 | 说明 |
+|---|---|
+| Retry 占位 | `RESERVED→STARTED→COMPLETED\|FAILED`，键 `assistant-run-retry:{oldRunId}:{attempt}` |
+| 确定 runId | `createAssistantScenarioBinding` + `startAssistantScenario({ binding })`；禁 `runs[0]` |
+| Reconcile 事件 | 锁内 `tx.agentRunEvent.create`；`writtenEventKeys` / `lastReconcileEventWritten` |
+| Action 事件键 | `approval-action:{actionId}:{outcome}` |
+| 跨 org | `ORG_LINK_MISMATCH` fail closed + 审计 |
+| 发起人 | session 恢复；未知 → `INITIATOR_UNKNOWN`，不伪造 `"unknown"` |
+
 **关联约定**：
 
 ```text

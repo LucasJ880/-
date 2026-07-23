@@ -60,6 +60,40 @@ export type DispatchGeneralResult = {
 
 export type DispatchPrepareResult = DispatchHandleResult | DispatchGeneralResult;
 
+/** Commit 6A：Retry / 预绑定场景启动上下文 */
+export type AssistantRetryContext = {
+  retriedFromRunId: string;
+  retryAttempt: number;
+  idempotencyKey: string;
+};
+
+export type AssistantScenarioBinding = {
+  userMessageId: string;
+  assistantMessageId: string;
+  runId: string;
+  dto: AssistantRunStatusDto;
+};
+
+export type StartAssistantScenarioResult =
+  | {
+      kind: "handled";
+      response: NextResponse;
+      runId: string | null;
+      userMessageId: string;
+      assistantMessageId: string;
+      intent: IntentRouteResult;
+    }
+  | {
+      kind: "general";
+      intent: IntentRouteResult;
+    }
+  | {
+      kind: "error";
+      code: string;
+      error: string;
+      status: number;
+    };
+
 const UNSUPPORTED_MESSAGE =
   "这个操作超出当前助手能力边界（例如自动下单、批量删除客户、清空数据）。青砚可以帮你起草、整理和建议，写操作需你确认后才会执行。";
 
@@ -223,10 +257,16 @@ async function createThreadBoundRun(input: {
   userMessageId: string;
   assistantMessageId: string;
   intent: AssistantIntent;
+  /** 已确定的 Run：不再创建，禁止从 runs[0] 猜测 */
+  bound?: AssistantScenarioBinding | null;
+  retryContext?: AssistantRetryContext | null;
 }): Promise<{
   runId: string;
   dto: AssistantRunStatusDto;
 } | null> {
+  if (input.bound) {
+    return { runId: input.bound.runId, dto: input.bound.dto };
+  }
   try {
     const session = await getOrCreateAgentSession({
       orgId: input.orgId,
@@ -242,12 +282,20 @@ async function createThreadBoundRun(input: {
       userMessageId: input.userMessageId,
       runType: "assistant_dispatch",
       intent: input.intent,
+      skipUserMessageIdempotency: !!input.retryContext,
       metadata: {
         threadId: input.threadId,
         initiatedByUserId: input.userId,
         assistantMessageId: input.assistantMessageId,
         channel: "web_assistant",
         scenario: input.intent,
+        ...(input.retryContext
+          ? {
+              retriedFromRunId: input.retryContext.retriedFromRunId,
+              retryAttempt: input.retryContext.retryAttempt,
+              retryIdempotencyKey: input.retryContext.idempotencyKey,
+            }
+          : {}),
       },
     });
 
@@ -264,6 +312,43 @@ async function createThreadBoundRun(input: {
     console.error("[assistant.dispatch] createThreadBoundRun failed:", e);
     return null;
   }
+}
+
+/**
+ * 服务端在场景执行前创建消息 + AgentRun，返回确定关联 ID。
+ * Retry 路径必须走此函数，禁止事后从 list runs[0] 倒推。
+ */
+export async function createAssistantScenarioBinding(input: {
+  orgId: string;
+  userId: string;
+  threadId: string;
+  threadTitle: string;
+  message: string;
+  intent: AssistantIntent;
+  retryContext?: AssistantRetryContext | null;
+}): Promise<AssistantScenarioBinding | null> {
+  const { userMessageId, assistantMessageId } =
+    await persistUserAndInitialAssistant({
+      threadId: input.threadId,
+      threadTitle: input.threadTitle,
+      userContent: input.message,
+    });
+  const created = await createThreadBoundRun({
+    orgId: input.orgId,
+    userId: input.userId,
+    threadId: input.threadId,
+    userMessageId,
+    assistantMessageId,
+    intent: input.intent,
+    retryContext: input.retryContext,
+  });
+  if (!created) return null;
+  return {
+    userMessageId,
+    assistantMessageId,
+    runId: created.runId,
+    dto: created.dto,
+  };
 }
 
 async function emitLifecycle(
@@ -484,6 +569,8 @@ async function streamUnsupported(input: {
   userMessageId: string;
   assistantMessageId: string;
   emit: SseEmit;
+  bound?: AssistantScenarioBinding | null;
+  retryContext?: AssistantRetryContext | null;
 }) {
   await updateAssistantMessage({
     assistantMessageId: input.assistantMessageId,
@@ -496,6 +583,8 @@ async function streamUnsupported(input: {
     userMessageId: input.userMessageId,
     assistantMessageId: input.assistantMessageId,
     intent: "unsupported_action",
+    bound: input.bound,
+    retryContext: input.retryContext,
   });
   const meta = {
     mode: "assistant.dispatch",
@@ -551,6 +640,8 @@ async function streamDailyBrief(input: {
   userMessageId: string;
   assistantMessageId: string;
   emit: SseEmit;
+  bound?: AssistantScenarioBinding | null;
+  retryContext?: AssistantRetryContext | null;
 }) {
   const created = await createThreadBoundRun({
     orgId: input.orgId,
@@ -559,6 +650,8 @@ async function streamDailyBrief(input: {
     userMessageId: input.userMessageId,
     assistantMessageId: input.assistantMessageId,
     intent: "daily_business_brief",
+    bound: input.bound,
+    retryContext: input.retryContext,
   });
   if (!created) {
     const err = friendlyScenarioError("GRADER_FAILED");
@@ -665,6 +758,8 @@ async function streamFollowup(input: {
   userMessageId: string;
   assistantMessageId: string;
   emit: SseEmit;
+  bound?: AssistantScenarioBinding | null;
+  retryContext?: AssistantRetryContext | null;
 }) {
   const analyzed = await analyzeCustomerFollowup({
     orgId: input.orgId,
@@ -675,6 +770,13 @@ async function streamFollowup(input: {
   });
 
   if (analyzed.kind === "clarification_required") {
+    if (input.bound) {
+      // Retry 已预建 Run：澄清时 fail closed，避免悬挂 Run
+      await failAgentRun(input.orgId, input.bound.runId, {
+        code: "tool_failed",
+        message: "clarification_required_on_retry",
+      });
+    }
     await streamClarification({
       orgId: input.orgId,
       intent: "customer_followup_task",
@@ -693,6 +795,8 @@ async function streamFollowup(input: {
     userMessageId: input.userMessageId,
     assistantMessageId: input.assistantMessageId,
     intent: "customer_followup_task",
+    bound: input.bound,
+    retryContext: input.retryContext,
   });
   if (!created) {
     const err = friendlyScenarioError("DRAFT_CREATION_FAILED");
@@ -787,6 +891,8 @@ async function streamGmail(input: {
   assistantMessageId: string;
   requestedDirectExecution?: boolean;
   emit: SseEmit;
+  bound?: AssistantScenarioBinding | null;
+  retryContext?: AssistantRetryContext | null;
 }) {
   const analyzed = await analyzeGmailDraft({
     orgId: input.orgId,
@@ -797,6 +903,12 @@ async function streamGmail(input: {
   });
 
   if (analyzed.kind === "clarification_required") {
+    if (input.bound) {
+      await failAgentRun(input.orgId, input.bound.runId, {
+        code: "tool_failed",
+        message: "clarification_required_on_retry",
+      });
+    }
     await streamClarification({
       orgId: input.orgId,
       intent: "gmail_email_draft",
@@ -815,6 +927,8 @@ async function streamGmail(input: {
     userMessageId: input.userMessageId,
     assistantMessageId: input.assistantMessageId,
     intent: "gmail_email_draft",
+    bound: input.bound,
+    retryContext: input.retryContext,
   });
   if (!created) {
     const err = friendlyScenarioError("DRAFT_CREATION_FAILED");
@@ -899,10 +1013,12 @@ async function streamGmail(input: {
 }
 
 /**
- * 统一入口准备：校验线程租户 → 意图路由 → 场景编排。
- * 调用方须先完成 Rate Limit；本函数假定限流已通过。
+ * Commit 6A：统一场景启动。
+ * - 可先绑定确定的 runId / 消息 ID（Retry）
+ * - 或内部创建消息后由场景流创建 Run
+ * - 返回确定关联 ID，禁止调用方从 runs[0] 猜测
  */
-export async function prepareAssistantDispatch(input: {
+export async function startAssistantScenario(input: {
   userId: string;
   activeOrgId: string;
   threadId: string;
@@ -910,23 +1026,18 @@ export async function prepareAssistantDispatch(input: {
   threadTitle?: string;
   /** 服务端可信角色，不得来自客户端 */
   role: string;
-}): Promise<DispatchPrepareResult> {
+  /** 已创建的消息 + Run；SSE 只传输该已知 Run */
+  binding?: AssistantScenarioBinding | null;
+  retryContext?: AssistantRetryContext | null;
+  /** 已路由意图（Retry 可复用）；缺省则按 message 路由 */
+  intent?: IntentRouteResult;
+}): Promise<StartAssistantScenarioResult> {
   if (!input.activeOrgId) {
     return {
-      kind: "handled",
-      intent: {
-        intent: "unsupported_action",
-        confidence: 1,
-        reason: "missing_org",
-      },
-      run: null,
-      response: NextResponse.json(
-        {
-          error: "缺少可信组织上下文",
-          code: "TENANT_CONTEXT_REQUIRED",
-        },
-        { status: 403 },
-      ),
+      kind: "error",
+      code: "TENANT_CONTEXT_REQUIRED",
+      error: "缺少可信组织上下文",
+      status: 403,
     };
   }
 
@@ -938,21 +1049,14 @@ export async function prepareAssistantDispatch(input: {
   );
   if (!thread || !thread.orgId || thread.orgId !== input.activeOrgId) {
     return {
-      kind: "handled",
-      intent: {
-        intent: "unsupported_action",
-        confidence: 1,
-        reason: "thread_not_found",
-      },
-      run: null,
-      response: NextResponse.json(
-        { error: "对话不存在", code: "THREAD_NOT_FOUND" },
-        { status: 404 },
-      ),
+      kind: "error",
+      code: "THREAD_NOT_FOUND",
+      error: "对话不存在",
+      status: 404,
     };
   }
 
-  const intent = routeAssistantIntent(input.message);
+  const intent = input.intent ?? routeAssistantIntent(input.message);
 
   if (intent.intent === "general_answer") {
     return { kind: "general", intent };
@@ -962,15 +1066,34 @@ export async function prepareAssistantDispatch(input: {
     return { kind: "general", intent };
   }
 
-  const { userMessageId, assistantMessageId } =
-    await persistUserAndInitialAssistant({
+  let binding = input.binding ?? null;
+  let userMessageId = binding?.userMessageId;
+  let assistantMessageId = binding?.assistantMessageId;
+
+  if (!binding) {
+    // 普通路径：先落消息；Run 仍在场景流内创建（澄清路径可不建 Run）
+    // Retry 路径必须传入 binding（已含确定 runId）
+    const persisted = await persistUserAndInitialAssistant({
       threadId: input.threadId,
       threadTitle: input.threadTitle ?? thread.title,
       userContent: input.message,
     });
+    userMessageId = persisted.userMessageId;
+    assistantMessageId = persisted.assistantMessageId;
+  }
+
+  if (!userMessageId || !assistantMessageId) {
+    return {
+      kind: "error",
+      code: "MESSAGE_CREATE_FAILED",
+      error: "消息创建失败",
+      status: 500,
+    };
+  }
 
   const orgId = input.activeOrgId;
   const role = input.role;
+  const knownRunId = binding?.runId ?? null;
 
   const response = createSseResponse({
     orgId,
@@ -984,6 +1107,8 @@ export async function prepareAssistantDispatch(input: {
             userMessageId,
             assistantMessageId,
             emit,
+            bound: binding,
+            retryContext: input.retryContext,
           });
         } else if (intent.intent === "daily_business_brief") {
           await streamDailyBrief({
@@ -995,6 +1120,8 @@ export async function prepareAssistantDispatch(input: {
             userMessageId,
             assistantMessageId,
             emit,
+            bound: binding,
+            retryContext: input.retryContext,
           });
         } else if (intent.intent === "customer_followup_task") {
           await streamFollowup({
@@ -1006,6 +1133,8 @@ export async function prepareAssistantDispatch(input: {
             userMessageId,
             assistantMessageId,
             emit,
+            bound: binding,
+            retryContext: input.retryContext,
           });
         } else if (intent.intent === "gmail_email_draft") {
           await streamGmail({
@@ -1018,6 +1147,8 @@ export async function prepareAssistantDispatch(input: {
             assistantMessageId,
             requestedDirectExecution: intent.requestedDirectExecution,
             emit,
+            bound: binding,
+            retryContext: input.retryContext,
           });
         }
       } finally {
@@ -1029,8 +1160,50 @@ export async function prepareAssistantDispatch(input: {
   return {
     kind: "handled",
     intent,
-    run: null,
     response,
+    runId: knownRunId,
+    userMessageId,
+    assistantMessageId,
+  };
+}
+
+/**
+ * 统一入口准备：校验线程租户 → 意图路由 → 场景编排。
+ * 调用方须先完成 Rate Limit；本函数假定限流已通过。
+ */
+export async function prepareAssistantDispatch(input: {
+  userId: string;
+  activeOrgId: string;
+  threadId: string;
+  message: string;
+  threadTitle?: string;
+  /** 服务端可信角色，不得来自客户端 */
+  role: string;
+}): Promise<DispatchPrepareResult> {
+  const started = await startAssistantScenario(input);
+  if (started.kind === "general") {
+    return { kind: "general", intent: started.intent };
+  }
+  if (started.kind === "error") {
+    return {
+      kind: "handled",
+      intent: {
+        intent: "unsupported_action",
+        confidence: 1,
+        reason: started.code.toLowerCase(),
+      },
+      run: null,
+      response: NextResponse.json(
+        { error: started.error, code: started.code },
+        { status: started.status },
+      ),
+    };
+  }
+  return {
+    kind: "handled",
+    intent: started.intent,
+    run: null,
+    response: started.response,
   };
 }
 

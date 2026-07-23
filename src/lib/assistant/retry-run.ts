@@ -1,5 +1,7 @@
 /**
- * Phase 3B-A Commit 6：安全重试（仅 Prepare 失败、无 PA、无外部副作用）
+ * Phase 3B-A Commit 6A：安全重试（原子占位 + 确定 runId）
+ *
+ * 禁止：先查幂等 → Dispatch → 最后写幂等；禁止 runs[0] 猜测新 Run。
  */
 
 import { Prisma } from "@prisma/client";
@@ -7,9 +9,22 @@ import { db } from "@/lib/db";
 import { findOwnedThreadInOrg } from "@/lib/assistant/thread-org";
 import { deriveRetryFlags } from "@/lib/assistant/reconcile-decision";
 import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
-import { prepareAssistantDispatch } from "@/lib/assistant/dispatch";
-import type { AssistantRunStatusDto } from "@/lib/assistant/run-status-types";
-import { listAssistantRunsForThread } from "@/lib/assistant/run-status";
+import {
+  createAssistantScenarioBinding,
+  startAssistantScenario,
+} from "@/lib/assistant/dispatch";
+import { routeAssistantIntent, isScenarioIntent } from "@/lib/assistant/intent-router";
+import { getAssistantRunStatusDto } from "@/lib/assistant/run-status";
+import {
+  buildRetryIdempotencyKey,
+  markRetrySlotCompleted,
+  markRetrySlotFailed,
+  markRetrySlotStarted,
+  prismaRetrySlotStore,
+  reserveRetrySlot,
+  type RetrySlotPayload,
+  type RetrySlotStore,
+} from "@/lib/assistant/retry-idempotency";
 
 const MAX_RETRY_ATTEMPT = 2;
 
@@ -19,65 +34,66 @@ export type RetryRunResult =
       response: globalThis.Response;
       oldRunId: string;
       retryAttempt: number;
+      newRunId: string;
     }
   | {
       ok: false;
       status: number;
       code: string;
       error: string;
+      newRunId?: string;
     };
 
-async function loadIdempotency(orgId: string, key: string) {
-  return db.approvalDecisionIdempotency.findUnique({
-    where: { orgId_idempotencyKey: { orgId, idempotencyKey: key } },
+function duplicateOrInProgressResponse(input: {
+  orgId: string;
+  newRunId: string | null;
+  dto: Awaited<ReturnType<typeof getAssistantRunStatusDto>> | null;
+  inProgress: boolean;
+}): Response {
+  const body = [
+    `data: ${JSON.stringify({
+      type: "mode",
+      mode: "assistant.retry",
+      duplicate: !input.inProgress,
+      inProgress: input.inProgress,
+      runId: input.newRunId,
+      code: input.inProgress ? "RETRY_IN_PROGRESS" : undefined,
+    })}\n\n`,
+    input.dto
+      ? `data: ${JSON.stringify({ type: "run_status", run: input.dto, transition: input.dto.status })}\n\n`
+      : "",
+    `data: ${JSON.stringify({
+      type: "done",
+      duplicate: !input.inProgress,
+      inProgress: input.inProgress,
+      code: input.inProgress ? "RETRY_IN_PROGRESS" : undefined,
+    })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join("");
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Org-Id": input.orgId,
+    },
   });
 }
 
-async function rememberIdempotency(input: {
-  orgId: string;
-  key: string;
-  userId: string;
-  oldRunId: string;
-  result: Record<string, unknown>;
-}) {
-  try {
-    await db.approvalDecisionIdempotency.create({
-      data: {
-        orgId: input.orgId,
-        idempotencyKey: input.key,
-        approvalKey: `assistant-run-retry:${input.oldRunId}`,
-        action: "retry",
-        userId: input.userId,
-        resultJson: input.result as object,
-      },
-    });
-    return { duplicate: false as const };
-  } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      const existing = await loadIdempotency(input.orgId, input.key);
-      return {
-        duplicate: true as const,
-        result: (existing?.resultJson ?? null) as Record<string, unknown> | null,
-      };
-    }
-    throw err;
-  }
-}
-
 /**
- * 安全重试：从原 Run.userMessageId 读取内容，重新走 Dispatch（新 Assistant 消息 + 新 Run）。
+ * 安全重试：原子占位 → 创建消息+Run（确定 ID）→ 场景执行。
  * 客户端不得传入 message / safeToRetry / org 作为可信来源。
  */
-export async function retryAssistantRun(input: {
-  orgId: string;
-  userId: string;
-  role: string;
-  threadId: string;
-  runId: string;
-}): Promise<RetryRunResult> {
+export async function retryAssistantRun(
+  input: {
+    orgId: string;
+    userId: string;
+    role: string;
+    threadId: string;
+    runId: string;
+  },
+  store: RetrySlotStore = prismaRetrySlotStore,
+): Promise<RetryRunResult> {
   const thread = await findOwnedThreadInOrg(
     input.threadId,
     input.userId,
@@ -95,6 +111,7 @@ export async function retryAssistantRun(input: {
 
   const run = await db.agentRun.findFirst({
     where: { id: input.runId, orgId: input.orgId },
+    include: { session: { select: { userId: true } } },
   });
   if (!run) {
     return {
@@ -114,10 +131,12 @@ export async function retryAssistantRun(input: {
       error: "任务不存在",
     };
   }
-  if (
-    typeof meta.initiatedByUserId === "string" &&
-    meta.initiatedByUserId !== input.userId
-  ) {
+
+  const initiated =
+    (typeof meta.initiatedByUserId === "string" && meta.initiatedByUserId) ||
+    run.session?.userId ||
+    null;
+  if (!initiated || initiated !== input.userId) {
     return {
       ok: false,
       status: 404,
@@ -166,46 +185,6 @@ export async function retryAssistantRun(input: {
     };
   }
 
-  const idemKey = `assistant-run-retry:${input.runId}:${nextAttempt}`;
-  const existing = await loadIdempotency(input.orgId, idemKey);
-  if (existing?.resultJson) {
-    const cached = existing.resultJson as {
-      ok?: boolean;
-      newRunId?: string;
-    };
-    if (cached.newRunId) {
-      const runs = await listAssistantRunsForThread({
-        orgId: input.orgId,
-        threadId: input.threadId,
-        userId: input.userId,
-        take: 20,
-      });
-      const dto = runs.find((r) => r.runId === cached.newRunId) ?? null;
-      // 重复请求：返回空流 + done，避免再跑场景
-      const body = [
-        `data: ${JSON.stringify({ type: "mode", mode: "assistant.retry", duplicate: true, runId: cached.newRunId })}\n\n`,
-        dto
-          ? `data: ${JSON.stringify({ type: "run_status", run: dto, transition: dto.status })}\n\n`
-          : "",
-        `data: ${JSON.stringify({ type: "done", duplicate: true })}\n\n`,
-        "data: [DONE]\n\n",
-      ].join("");
-      return {
-        ok: true,
-        oldRunId: input.runId,
-        retryAttempt: nextAttempt,
-        response: new Response(body, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-Org-Id": input.orgId,
-          },
-        }),
-      };
-    }
-  }
-
   if (!run.userMessageId) {
     return {
       ok: false,
@@ -228,50 +207,11 @@ export async function retryAssistantRun(input: {
     };
   }
 
-  await appendAgentRunEvent({
-    orgId: input.orgId,
-    runId: input.runId,
-    eventType: "run.retry_requested",
-    title: "run.retry_requested",
-    visibleToUser: true,
-    payload: { retryAttempt: nextAttempt },
-  });
-
-  // 标记旧 Run 重试元数据（保持 failed）
-  await db.agentRun.update({
-    where: { id: run.id },
-    data: {
-      metadata: {
-        ...meta,
-        retryAttempt: nextAttempt,
-        lastRetryAt: new Date().toISOString(),
-      } as Prisma.InputJsonValue,
-    },
-  });
-
-  await appendAgentRunEvent({
-    orgId: input.orgId,
-    runId: input.runId,
-    eventType: "run.retry_started",
-    title: "run.retry_started",
-    visibleToUser: true,
-    payload: { retryAttempt: nextAttempt },
-  });
-
-  // 通过 Dispatch 重新编排：会新建 user+assistant；在 metadata 中标记 retriedFrom
-  // 为避免重复用户气泡，先写入一条系统提示式 user？规范要求复用内容——
-  // 这里用原内容再走 dispatch，前端刷新后会看到新的一轮消息（可接受 MVP）。
-  const prep = await prepareAssistantDispatch({
-    userId: input.userId,
-    activeOrgId: input.orgId,
-    threadId: input.threadId,
-    message: userMsg.content,
-    threadTitle: thread.title,
-    role: input.role,
-  });
-
-  if (prep.kind !== "handled") {
-    // general_answer：不应出现在场景失败重试；仍返回错误
+  const intent = routeAssistantIntent(userMsg.content);
+  if (
+    intent.intent === "general_answer" ||
+    (!isScenarioIntent(intent.intent) && intent.intent !== "unsupported_action")
+  ) {
     return {
       ok: false,
       status: 400,
@@ -280,44 +220,223 @@ export async function retryAssistantRun(input: {
     };
   }
 
-  // 将最新 Run 标记 retriedFromRunId（异步：从列表取最新）
-  const runs = await listAssistantRunsForThread({
-    orgId: input.orgId,
-    threadId: input.threadId,
-    userId: input.userId,
-    take: 5,
-  });
-  const newest = runs[0] as AssistantRunStatusDto | undefined;
-  if (newest && newest.runId !== input.runId) {
-    const newRun = await db.agentRun.findFirst({
-      where: { id: newest.runId, orgId: input.orgId },
-    });
-    if (newRun) {
-      const nm = (newRun.metadata ?? {}) as Record<string, unknown>;
-      await db.agentRun.update({
-        where: { id: newRun.id },
-        data: {
-          metadata: {
-            ...nm,
-            retriedFromRunId: input.runId,
-            retryAttempt: nextAttempt,
-          } as Prisma.InputJsonValue,
-        },
-      });
-    }
-    await rememberIdempotency({
-      orgId: input.orgId,
-      key: idemKey,
-      userId: input.userId,
-      oldRunId: input.runId,
-      result: { ok: true, newRunId: newest.runId, retryAttempt: nextAttempt },
-    });
-  }
+  const idemKey = buildRetryIdempotencyKey(input.runId, nextAttempt);
 
-  return {
-    ok: true,
+  // ① 任何消息 / Dispatch 之前原子占位
+  const reserved = await reserveRetrySlot(store, {
+    orgId: input.orgId,
+    userId: input.userId,
     oldRunId: input.runId,
     retryAttempt: nextAttempt,
-    response: prep.response,
-  };
+    idempotencyKey: idemKey,
+  });
+
+  if (reserved.kind === "completed" && reserved.payload.newRunId) {
+    const dto = await getAssistantRunStatusDto({
+      orgId: input.orgId,
+      runId: reserved.payload.newRunId,
+      userId: input.userId,
+      threadId: input.threadId,
+    });
+    return {
+      ok: true,
+      oldRunId: input.runId,
+      retryAttempt: nextAttempt,
+      newRunId: reserved.payload.newRunId,
+      response: duplicateOrInProgressResponse({
+        orgId: input.orgId,
+        newRunId: reserved.payload.newRunId,
+        dto,
+        inProgress: false,
+      }),
+    };
+  }
+
+  if (reserved.kind === "in_progress") {
+    const existingId = reserved.payload.newRunId ?? null;
+    const dto = existingId
+      ? await getAssistantRunStatusDto({
+          orgId: input.orgId,
+          runId: existingId,
+          userId: input.userId,
+          threadId: input.threadId,
+        })
+      : null;
+    if (existingId) {
+      return {
+        ok: true,
+        oldRunId: input.runId,
+        retryAttempt: nextAttempt,
+        newRunId: existingId,
+        response: duplicateOrInProgressResponse({
+          orgId: input.orgId,
+          newRunId: existingId,
+          dto,
+          inProgress: true,
+        }),
+      };
+    }
+    return {
+      ok: false,
+      status: 409,
+      code: "RETRY_IN_PROGRESS",
+      error: "重试正在进行中，请稍后再查询状态。",
+    };
+  }
+
+  // acquired | reclaimed
+  let slot: RetrySlotPayload = reserved.payload;
+
+  try {
+    await appendAgentRunEvent({
+      orgId: input.orgId,
+      runId: input.runId,
+      eventType: "run.retry_requested",
+      title: "run.retry_requested",
+      visibleToUser: true,
+      payload: { retryAttempt: nextAttempt, idempotencyKey: idemKey },
+    });
+
+    await db.agentRun.update({
+      where: { id: run.id },
+      data: {
+        metadata: {
+          ...meta,
+          retryAttempt: nextAttempt,
+          lastRetryAt: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    await appendAgentRunEvent({
+      orgId: input.orgId,
+      runId: input.runId,
+      eventType: "run.retry_started",
+      title: "run.retry_started",
+      visibleToUser: true,
+      payload: { retryAttempt: nextAttempt },
+    });
+
+    // ② 先创建 user / assistant / AgentRun，获得确定 runId
+    const binding = await createAssistantScenarioBinding({
+      orgId: input.orgId,
+      userId: input.userId,
+      threadId: input.threadId,
+      threadTitle: thread.title,
+      message: userMsg.content,
+      intent: intent.intent,
+      retryContext: {
+        retriedFromRunId: input.runId,
+        retryAttempt: nextAttempt,
+        idempotencyKey: idemKey,
+      },
+    });
+
+    if (!binding) {
+      await markRetrySlotFailed(store, {
+        orgId: input.orgId,
+        idempotencyKey: idemKey,
+        payload: slot,
+        errorCode: "RUN_CREATE_FAILED",
+        errorMessage: "无法创建重试 Run",
+      });
+      return {
+        ok: false,
+        status: 500,
+        code: "RUN_CREATE_FAILED",
+        error: "重试启动失败，请稍后再试。",
+      };
+    }
+
+    slot = {
+      ...slot,
+      status: "STARTED",
+      newRunId: binding.runId,
+      userMessageId: binding.userMessageId,
+      assistantMessageId: binding.assistantMessageId,
+    };
+
+    await markRetrySlotStarted(store, {
+      orgId: input.orgId,
+      idempotencyKey: idemKey,
+      fromStatus: "RESERVED",
+      payload: slot,
+    });
+
+    // ③ 将确定 runId 交给场景执行器（不再 list runs[0]）
+    const started = await startAssistantScenario({
+      userId: input.userId,
+      activeOrgId: input.orgId,
+      threadId: input.threadId,
+      message: userMsg.content,
+      threadTitle: thread.title,
+      role: input.role,
+      binding,
+      retryContext: {
+        retriedFromRunId: input.runId,
+        retryAttempt: nextAttempt,
+        idempotencyKey: idemKey,
+      },
+      intent,
+    });
+
+    if (started.kind !== "handled") {
+      await markRetrySlotFailed(store, {
+        orgId: input.orgId,
+        idempotencyKey: idemKey,
+        payload: slot,
+        errorCode:
+          started.kind === "error" ? started.code : "RETRY_NOT_ALLOWED",
+        errorMessage:
+          started.kind === "error" ? started.error : "不适合自动重试",
+      });
+      return {
+        ok: false,
+        status: started.kind === "error" ? started.status : 400,
+        code: started.kind === "error" ? started.code : "RETRY_NOT_ALLOWED",
+        error:
+          started.kind === "error"
+            ? started.error
+            : "该任务不适合自动重试，请重新发送消息。",
+        newRunId: binding.runId,
+      };
+    }
+
+    await markRetrySlotCompleted(store, {
+      orgId: input.orgId,
+      idempotencyKey: idemKey,
+      payload: {
+        ...slot,
+        status: "COMPLETED",
+        newRunId: binding.runId,
+        userMessageId: binding.userMessageId,
+        assistantMessageId: binding.assistantMessageId,
+      },
+    });
+
+    return {
+      ok: true,
+      oldRunId: input.runId,
+      retryAttempt: nextAttempt,
+      newRunId: binding.runId,
+      response: started.response,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "retry_failed";
+    await markRetrySlotFailed(store, {
+      orgId: input.orgId,
+      idempotencyKey: idemKey,
+      payload: slot,
+      errorCode: "RETRY_FAILED",
+      errorMessage: msg.slice(0, 500),
+    });
+    console.error("[assistant.retry] failed:", e);
+    return {
+      ok: false,
+      status: 500,
+      code: "RETRY_FAILED",
+      error: "重试失败，请稍后再试。",
+      newRunId: slot.newRunId,
+    };
+  }
 }
