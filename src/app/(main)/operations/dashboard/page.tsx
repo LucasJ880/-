@@ -11,6 +11,7 @@ import { RefreshCw, ShieldAlert } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 
 interface PlatformAccounts {
@@ -107,22 +108,20 @@ export default function OperationsDashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">运营数据看板</h1>
-          <p className="mt-1 text-sm text-muted">
-            矩阵账号健康、发布任务状态与近 {data?.recent.days ?? 14} 天发布趋势。
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={load}
-          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
-        >
-          <RefreshCw size={14} className={cn(loading && "animate-spin")} />
-          刷新
-        </button>
-      </div>
+      <PageHeader
+        title="运营数据看板"
+        description={`矩阵账号健康、发布任务状态与近 ${data?.recent.days ?? 14} 天发布趋势。`}
+        actions={
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
+          >
+            <RefreshCw size={14} className={cn(loading && "animate-spin")} />
+            刷新
+          </button>
+        }
+      />
 
       <OrgSelectBanner />
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BarChart3, BookOpen, CalendarDays, Clapperboard, ExternalLink, Megaphone, Search, ShieldCheck, TrendingUp, Users } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 /**
  * 内容运营入口
@@ -9,12 +10,10 @@ const POSTIZ_URL = process.env.NEXT_PUBLIC_POSTIZ_URL;
 export default function OperationsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">内容运营</h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          统一管理市场情报、品牌资产、内容计划、审核与多渠道发布。
-        </p>
-      </div>
+      <PageHeader
+        title="内容运营"
+        description="统一管理市场情报、品牌资产、内容计划、审核与多渠道发布。"
+      />
 
       {POSTIZ_URL ? (
         <a

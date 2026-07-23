@@ -623,7 +623,7 @@ export function ChatPanel({
       </div>
 
       {/* Input */}
-      <div className="border-t border-black/[0.06] bg-white/90 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:px-6 sm:pb-4">
+      <div className="border-t border-black/[0.06] bg-white/90 px-3 pb-[max(12px,calc(var(--mobile-action-padding)+env(safe-area-inset-bottom)))] pt-3 backdrop-blur-xl sm:px-6 sm:pb-4">
         <div className="mx-auto w-full max-w-[920px]">
         {!orgReady && orgBlockReason && (
           <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-950">

@@ -10,6 +10,7 @@ import { Check, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 
 interface ReviewJob {
@@ -96,22 +97,20 @@ export default function PublishReviewPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">发布审核队列</h1>
-          <p className="mt-1 text-sm text-muted">
-            抽检任务与规则拦截任务在此处理。被拦截的必须改文案后才能通过；通过即派发。
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={load}
-          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
-        >
-          <RefreshCw size={14} className={cn(loading && "animate-spin")} />
-          刷新
-        </button>
-      </div>
+      <PageHeader
+        title="发布审核队列"
+        description="抽检任务与规则拦截任务在此处理。被拦截的必须改文案后才能通过；通过即派发。"
+        actions={
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
+          >
+            <RefreshCw size={14} className={cn(loading && "animate-spin")} />
+            刷新
+          </button>
+        }
+      />
 
       <OrgSelectBanner />
 

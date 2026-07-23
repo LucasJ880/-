@@ -10,6 +10,7 @@ import { Download, Plus, RefreshCw, Send } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 
 interface VideoAssetRow {
@@ -201,41 +202,39 @@ export default function VideoAssetsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">视频资产</h1>
-          <p className="mt-1 text-sm text-muted">
-            Aivora 成片自动入库（每小时）+ 手动登记。配文案后按账号组扇出到 Postiz / PostFlow。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={load}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
-          >
-            <RefreshCw size={14} className={cn(loading && "animate-spin")} />
-            刷新
-          </button>
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background disabled:opacity-50"
-          >
-            <Download size={14} className={cn(syncing && "animate-pulse")} />
-            {syncing ? "同步中…" : "同步 Aivora"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
-          >
-            <Plus size={14} />
-            手动登记
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="视频资产"
+        description="Aivora 成片自动入库（每小时）+ 手动登记。配文案后按账号组扇出到 Postiz / PostFlow。"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={load}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background"
+            >
+              <RefreshCw size={14} className={cn(loading && "animate-spin")} />
+              刷新
+            </button>
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={syncing}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:bg-background disabled:opacity-50"
+            >
+              <Download size={14} className={cn(syncing && "animate-pulse")} />
+              {syncing ? "同步中…" : "同步 Aivora"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm((v) => !v)}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <Plus size={14} />
+              手动登记
+            </button>
+          </div>
+        }
+      />
 
       <OrgSelectBanner />
 
