@@ -1,0 +1,1796 @@
+{
+  "generatedAt": "2026-07-23T01:09:26.728Z",
+  "base": "http://127.0.0.1:3000",
+  "email": "security1-sales-b@test.qingyan.ai",
+  "engine": "chromium-playwright",
+  "safariVerified": false,
+  "widths": [
+    320,
+    360,
+    375,
+    390,
+    430,
+    768
+  ],
+  "routes": [
+    "/",
+    "/settings",
+    "/settings/account",
+    "/sales",
+    "/sales/quotes",
+    "/sales/quote-sheet",
+    "/sales/analytics",
+    "/organizations",
+    "/capabilities",
+    "/capabilities/runs",
+    "/capabilities/approvals",
+    "/operations/center",
+    "/projects",
+    "/tasks"
+  ],
+  "pageCount": 84,
+  "horizontalOverflowHits": 0,
+  "loadFailures": [],
+  "pages": [
+    {
+      "route": "/",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/settings",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "border-t border-border/60 px-3 pb-3 pt-2",
+          "scrollWidth": 304,
+          "clientWidth": 243,
+          "path": "div.mx-auto.max-w-2xl > div.rounded-xl.border > div.border-t.border-border > details.group.rounded-lg > div.border-t.border-border/60"
+        },
+        {
+          "tag": "p",
+          "id": "",
+          "className": "text-[11px] leading-relaxed text-muted",
+          "scrollWidth": 292,
+          "clientWidth": 219,
+          "path": "div.rounded-xl.border > div.border-t.border-border > details.group.rounded-lg > div.border-t.border-border/60 > p.text-[11px].leading-relaxed"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "设置"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/settings/account",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "账号与企业"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "商机中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quotes",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "全部报价"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quote-sheet",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-4 md:space-y-6 pb-44 md:pb-32",
+          "scrollWidth": 303,
+          "clientWidth": 287,
+          "path": "div.flex.h-screen-safe > div.flex.min-w-0 > main.flex-1.pb-tabbar > div.mx-auto.w-full > div.space-y-4.md:space-y-6"
+        },
+        {
+          "tag": "input",
+          "id": "",
+          "className": "flex h-9 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2 text-[13px] tracking-[-0.01em] tra",
+          "scrollWidth": 161,
+          "clientWidth": 123,
+          "path": "div.space-y-4.md:space-y-6 > div.rounded-xl.border > div.grid.grid-cols-2 > div > input.flex.h-9"
+        },
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-2",
+          "scrollWidth": 142,
+          "clientWidth": 123,
+          "path": "div.space-y-4.md:space-y-6 > div.rounded-xl.border > div.space-y-4 > div.grid.grid-cols-2 > div.space-y-2"
+        },
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex gap-2",
+          "scrollWidth": 142,
+          "clientWidth": 123,
+          "path": "div.rounded-xl.border > div.space-y-4 > div.grid.grid-cols-2 > div.space-y-2 > div.flex.gap-2"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "Quote Sheet"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/analytics",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/organizations",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "组织"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "企业能力中台"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/runs",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "运行中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/approvals",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "审批中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/operations/center",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "经营中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/projects",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "项目管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/tasks",
+      "width": 320,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm",
+          "scrollWidth": 819,
+          "clientWidth": 319,
+          "path": "html.h-full > body.h-full > div.flex.h-screen-safe > div.flex.min-w-0"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "任务管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/settings",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "border-t border-border/60 px-3 pb-3 pt-2",
+          "scrollWidth": 304,
+          "clientWidth": 283,
+          "path": "div.mx-auto.max-w-2xl > div.rounded-xl.border > div.border-t.border-border > details.group.rounded-lg > div.border-t.border-border/60"
+        },
+        {
+          "tag": "p",
+          "id": "",
+          "className": "text-[11px] leading-relaxed text-muted",
+          "scrollWidth": 292,
+          "clientWidth": 259,
+          "path": "div.rounded-xl.border > div.border-t.border-border > details.group.rounded-lg > div.border-t.border-border/60 > p.text-[11px].leading-relaxed"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "设置"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/settings/account",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "账号与企业"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "商机中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quotes",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "全部报价"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quote-sheet",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-4 md:space-y-6 pb-44 md:pb-32",
+          "scrollWidth": 343,
+          "clientWidth": 327,
+          "path": "div.flex.h-screen-safe > div.flex.min-w-0 > main.flex-1.pb-tabbar > div.mx-auto.w-full > div.space-y-4.md:space-y-6"
+        },
+        {
+          "tag": "input",
+          "id": "",
+          "className": "flex h-9 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2 text-[13px] tracking-[-0.01em] tra",
+          "scrollWidth": 161,
+          "clientWidth": 143,
+          "path": "div.space-y-4.md:space-y-6 > div.rounded-xl.border > div.grid.grid-cols-2 > div > input.flex.h-9"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "Quote Sheet"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/analytics",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/organizations",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "组织"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "企业能力中台"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/runs",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "运行中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/approvals",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "审批中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/operations/center",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "经营中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/projects",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "项目管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/tasks",
+      "width": 360,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm",
+          "scrollWidth": 859,
+          "clientWidth": 359,
+          "path": "html.h-full > body.h-full > div.flex.h-screen-safe > div.flex.min-w-0"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "任务管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/settings",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "border-t border-border/60 px-3 pb-3 pt-2",
+          "scrollWidth": 304,
+          "clientWidth": 298,
+          "path": "div.mx-auto.max-w-2xl > div.rounded-xl.border > div.border-t.border-border > details.group.rounded-lg > div.border-t.border-border/60"
+        },
+        {
+          "tag": "p",
+          "id": "",
+          "className": "text-[11px] leading-relaxed text-muted",
+          "scrollWidth": 292,
+          "clientWidth": 274,
+          "path": "div.rounded-xl.border > div.border-t.border-border > details.group.rounded-lg > div.border-t.border-border/60 > p.text-[11px].leading-relaxed"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "设置"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/settings/account",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "账号与企业"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "商机中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quotes",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "全部报价"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quote-sheet",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-4 md:space-y-6 pb-44 md:pb-32",
+          "scrollWidth": 358,
+          "clientWidth": 342,
+          "path": "div.flex.h-screen-safe > div.flex.min-w-0 > main.flex-1.pb-tabbar > div.mx-auto.w-full > div.space-y-4.md:space-y-6"
+        },
+        {
+          "tag": "input",
+          "id": "",
+          "className": "flex h-9 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2 text-[13px] tracking-[-0.01em] tra",
+          "scrollWidth": 161,
+          "clientWidth": 150,
+          "path": "div.space-y-4.md:space-y-6 > div.rounded-xl.border > div.grid.grid-cols-2 > div > input.flex.h-9"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "Quote Sheet"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/analytics",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/organizations",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "组织"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "企业能力中台"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/runs",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "运行中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/approvals",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "审批中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/operations/center",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "经营中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/projects",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "项目管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/tasks",
+      "width": 375,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm",
+          "scrollWidth": 874,
+          "clientWidth": 374,
+          "path": "html.h-full > body.h-full > div.flex.h-screen-safe > div.flex.min-w-0"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "任务管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/settings",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "设置"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/settings/account",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "账号与企业"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "商机中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quotes",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "全部报价"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quote-sheet",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-4 md:space-y-6 pb-44 md:pb-32",
+          "scrollWidth": 373,
+          "clientWidth": 357,
+          "path": "div.flex.h-screen-safe > div.flex.min-w-0 > main.flex-1.pb-tabbar > div.mx-auto.w-full > div.space-y-4.md:space-y-6"
+        },
+        {
+          "tag": "input",
+          "id": "",
+          "className": "flex h-9 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2 text-[13px] tracking-[-0.01em] tra",
+          "scrollWidth": 161,
+          "clientWidth": 158,
+          "path": "div.space-y-4.md:space-y-6 > div.rounded-xl.border > div.grid.grid-cols-2 > div > input.flex.h-9"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "Quote Sheet"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/analytics",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/organizations",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "组织"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "企业能力中台"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/runs",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "运行中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/approvals",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "审批中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/operations/center",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "经营中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/projects",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "项目管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/tasks",
+      "width": 390,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm",
+          "scrollWidth": 889,
+          "clientWidth": 389,
+          "path": "html.h-full > body.h-full > div.flex.h-screen-safe > div.flex.min-w-0"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "任务管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/settings",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "设置"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/settings/account",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "账号与企业"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "商机中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quotes",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "全部报价"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quote-sheet",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-4 md:space-y-6 pb-44 md:pb-32",
+          "scrollWidth": 413,
+          "clientWidth": 397,
+          "path": "div.flex.h-screen-safe > div.flex.min-w-0 > main.flex-1.pb-tabbar > div.mx-auto.w-full > div.space-y-4.md:space-y-6"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "Quote Sheet"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/analytics",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/organizations",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "组织"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "企业能力中台"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/runs",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "运行中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/approvals",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "审批中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/operations/center",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "经营中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/projects",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "项目管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/tasks",
+      "width": 430,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm",
+          "scrollWidth": 929,
+          "clientWidth": 429,
+          "path": "html.h-full > body.h-full > div.flex.h-screen-safe > div.flex.min-w-0"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "任务管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/settings",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "设置"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/settings/account",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "账号与企业"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "商机中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quotes",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "全部报价"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/quote-sheet",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": true,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "space-y-4 md:space-y-6 pb-44 md:pb-32",
+          "scrollWidth": 483,
+          "clientWidth": 479,
+          "path": "div.flex.h-screen-safe > div.flex.min-w-0 > main.flex-1.pb-tabbar > div.mx-auto.w-full > div.space-y-4.md:space-y-6"
+        },
+        {
+          "tag": "input",
+          "id": "",
+          "className": "flex h-9 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2 text-[13px] tracking-[-0.01em] tra",
+          "scrollWidth": 130,
+          "clientWidth": 98,
+          "path": "div.space-y-4.md:space-y-6 > div.rounded-xl.border > div.grid.grid-cols-2 > div > input.flex.h-9"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "Quote Sheet"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/sales/analytics",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 0,
+      "h1Sample": [],
+      "tableCount": 0,
+      "hasPageHeader": false,
+      "status": 200
+    },
+    {
+      "route": "/organizations",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "组织"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "企业能力中台"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/runs",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "运行中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/capabilities/approvals",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "审批中心"
+      ],
+      "tableCount": 1,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/operations/center",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "经营中心"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/projects",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [],
+      "h1Count": 1,
+      "h1Sample": [
+        "项目管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    },
+    {
+      "route": "/tasks",
+      "width": 768,
+      "ok": true,
+      "mainOverflowY": "auto",
+      "contentExceedsMain": false,
+      "scrollLocked": false,
+      "mainHorizontalOverflow": false,
+      "documentHorizontalOverflow": false,
+      "overflowCandidates": [
+        {
+          "tag": "div",
+          "id": "",
+          "className": "flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm",
+          "scrollWidth": 1027,
+          "clientWidth": 527,
+          "path": "html.h-full > body.h-full > div.flex.h-screen-safe > div.flex.min-w-0"
+        }
+      ],
+      "h1Count": 1,
+      "h1Sample": [
+        "任务管理"
+      ],
+      "tableCount": 0,
+      "hasPageHeader": true,
+      "status": 200
+    }
+  ],
+  "nav": [
+    {
+      "width": 320,
+      "openBodyOverflow": "(empty)",
+      "openHtmlOverflow": "(empty)",
+      "openMainOverflowY": "auto",
+      "closedBodyOverflow": "(empty)",
+      "closedHtmlOverflow": "(empty)",
+      "closedMainOverflowY": "auto",
+      "afterCloseCanClickMain": true,
+      "note": "AppShell 主滚动在 main，而非 body；仅检查 body.style.overflow 不足以判定抽屉是否锁住背景滚动。"
+    },
+    {
+      "width": 360,
+      "openBodyOverflow": "(empty)",
+      "openHtmlOverflow": "(empty)",
+      "openMainOverflowY": "auto",
+      "closedBodyOverflow": "(empty)",
+      "closedHtmlOverflow": "(empty)",
+      "closedMainOverflowY": "auto",
+      "afterCloseCanClickMain": true,
+      "note": "AppShell 主滚动在 main，而非 body；仅检查 body.style.overflow 不足以判定抽屉是否锁住背景滚动。"
+    },
+    {
+      "width": 375,
+      "openBodyOverflow": "(empty)",
+      "openHtmlOverflow": "(empty)",
+      "openMainOverflowY": "auto",
+      "closedBodyOverflow": "(empty)",
+      "closedHtmlOverflow": "(empty)",
+      "closedMainOverflowY": "auto",
+      "afterCloseCanClickMain": true,
+      "note": "AppShell 主滚动在 main，而非 body；仅检查 body.style.overflow 不足以判定抽屉是否锁住背景滚动。"
+    },
+    {
+      "width": 390,
+      "openBodyOverflow": "(empty)",
+      "openHtmlOverflow": "(empty)",
+      "openMainOverflowY": "auto",
+      "closedBodyOverflow": "(empty)",
+      "closedHtmlOverflow": "(empty)",
+      "closedMainOverflowY": "auto",
+      "afterCloseCanClickMain": true,
+      "note": "AppShell 主滚动在 main，而非 body；仅检查 body.style.overflow 不足以判定抽屉是否锁住背景滚动。"
+    },
+    {
+      "width": 430,
+      "openBodyOverflow": "(empty)",
+      "openHtmlOverflow": "(empty)",
+      "openMainOverflowY": "auto",
+      "closedBodyOverflow": "(empty)",
+      "closedHtmlOverflow": "(empty)",
+      "closedMainOverflowY": "auto",
+      "afterCloseCanClickMain": true,
+      "note": "AppShell 主滚动在 main，而非 body；仅检查 body.style.overflow 不足以判定抽屉是否锁住背景滚动。"
+    }
+  ]
+}
