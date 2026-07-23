@@ -17,11 +17,13 @@ import {
   type IntentRouteResult,
 } from "@/lib/assistant/intent-router";
 import {
-  buildRunStatusEvent,
   toAssistantRunStatusDto,
   type AssistantRunStatusDto,
-  type AssistantTaskStatus,
 } from "@/lib/assistant/run-status";
+import {
+  buildRunStatusEvent,
+  type AssistantTaskStatus,
+} from "@/lib/assistant/run-status-types";
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
 import {
   appendAgentRunEvent,

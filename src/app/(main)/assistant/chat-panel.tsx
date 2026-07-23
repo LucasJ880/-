@@ -38,6 +38,8 @@ import { AgentRunPanel } from "./agent-run-panel";
 import type { AgentStep } from "./agent-run-types";
 import { FeedbackActions } from "@/components/agent-feedback";
 import { apiFetch } from "@/lib/api-fetch";
+import { AssistantTaskCard } from "@/components/assistant/assistant-task-card";
+import type { AssistantRunStatusDto } from "@/lib/assistant/run-status-types";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -148,6 +150,8 @@ export interface StreamingMsg {
   agentSteps?: AgentStep[];
   /** PR4：该消息带出的待审批草稿 */
   pendingApprovals?: PendingApproval[];
+  /** Phase 3B-A：统一任务七态（SSE run_status / 线程恢复） */
+  assistantRun?: AssistantRunStatusDto | null;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────
@@ -508,6 +512,19 @@ export function ChatPanel({
                       请求失败
                     </div>
                   )}
+                  {msg.role === "assistant" && msg.assistantRun && (
+                    <AssistantTaskCard
+                      run={msg.assistantRun}
+                      stepTitles={(msg.agentSteps ?? [])
+                        .map((s) => s.label)
+                        .filter(Boolean)}
+                      className={
+                        msg.content || (msg.agentSteps && msg.agentSteps.length > 0)
+                          ? "mb-3"
+                          : undefined
+                      }
+                    />
+                  )}
                   {msg.role === "assistant" &&
                     msg.agentSteps &&
                     msg.agentSteps.length > 0 && (
@@ -532,6 +549,7 @@ export function ChatPanel({
                       ))
                     )
                   ) : msg.isStreaming &&
+                    !msg.assistantRun &&
                     !(msg.agentSteps && msg.agentSteps.length > 0) ? (
                     <div className="flex items-center gap-2 text-[#7c8480]">
                       <Loader2 size={14} className="animate-spin" />

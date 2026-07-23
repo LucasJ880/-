@@ -1,0 +1,145 @@
+/**
+ * Phase 3B-A：助手七态类型与纯函数（客户端可安全导入，无 DB）
+ */
+
+export type AssistantTaskStatus =
+  | "received"
+  | "planning"
+  | "running"
+  | "waiting_for_confirmation"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AssistantRunStepType =
+  | "intent"
+  | "data_lookup"
+  | "permission_check"
+  | "tool_execution"
+  | "approval_required"
+  | "result";
+
+export type AssistantRunStatusDto = {
+  runId: string;
+  conversationId: string;
+  organizationId: string;
+  initiatedByPrincipalId: string;
+  status: AssistantTaskStatus;
+  intent: string | null;
+  currentStep: {
+    type: AssistantRunStepType;
+    title: string;
+  } | null;
+  errorCode: string | null;
+  resultSummary: string | null;
+  startedAt: string | null;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
+export type RunStatusEvent = {
+  type: "run_status";
+  run: AssistantRunStatusDto;
+  transition?: AssistantTaskStatus;
+};
+
+const STATUS_LABEL: Record<AssistantTaskStatus, string> = {
+  received: "已收到",
+  planning: "正在分析",
+  running: "正在执行",
+  waiting_for_confirmation: "等待确认",
+  completed: "已完成",
+  failed: "执行失败",
+  cancelled: "已取消",
+};
+
+export function assistantStatusLabel(status: AssistantTaskStatus): string {
+  return STATUS_LABEL[status];
+}
+
+export function isTerminalAssistantStatus(status: AssistantTaskStatus): boolean {
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
+}
+
+export function buildRunStatusEvent(
+  run: AssistantRunStatusDto,
+  statusOverride?: AssistantTaskStatus,
+): RunStatusEvent {
+  const status = statusOverride ?? run.status;
+  const dto: AssistantRunStatusDto = { ...run, status };
+  return {
+    type: "run_status",
+    run: dto,
+    transition: status,
+  };
+}
+
+export function mapAgentRunToAssistantStatus(input: {
+  runStatus: string;
+  pendingActionStatus?: string | null;
+}): AssistantTaskStatus {
+  const pa = input.pendingActionStatus;
+  if (pa === "pending" || pa === "approved") {
+    return "waiting_for_confirmation";
+  }
+  if (pa === "rejected") return "cancelled";
+  if (pa === "failed" || pa === "expired") return "failed";
+
+  switch (input.runStatus) {
+    case "queued":
+    case "acknowledged":
+      return "received";
+    case "planning":
+      return "planning";
+    case "running":
+      return "running";
+    case "awaiting_approval":
+    case "waiting_for_approval":
+      return "waiting_for_confirmation";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return "running";
+  }
+}
+
+export function runMatchesOwner(input: {
+  orgId: string;
+  activeOrgId: string;
+  metadataThreadId: string | null;
+  requestThreadId: string;
+  sessionUserId: string | null;
+  metadataInitiatedByUserId: string | null;
+  currentUserId: string;
+}): boolean {
+  if (input.orgId !== input.activeOrgId) return false;
+  if (input.metadataThreadId !== input.requestThreadId) return false;
+  if (input.sessionUserId !== input.currentUserId) return false;
+  if (
+    input.metadataInitiatedByUserId &&
+    input.metadataInitiatedByUserId !== input.currentUserId
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function isAssistantRunStatusDto(value: unknown): value is AssistantRunStatusDto {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.runId === "string" &&
+    typeof v.conversationId === "string" &&
+    typeof v.organizationId === "string" &&
+    typeof v.status === "string" &&
+    typeof v.initiatedByPrincipalId === "string"
+  );
+}

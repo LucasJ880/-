@@ -99,6 +99,7 @@ run_test "Phase3B-A AiThread Org Bind" "npx tsx src/lib/assistant/__tests__/thre
 run_test "Phase3B-A Intent Router" "npx tsx src/lib/assistant/__tests__/intent-router.test.ts"
 run_test "Phase3B-A Run Status" "npx tsx src/lib/assistant/__tests__/run-status.test.ts"
 run_test "Phase3B-A Dispatch Policy" "npx tsx src/lib/assistant/__tests__/dispatch-policy.test.ts"
+run_test "Phase3B-A Task Card Policy" "npx tsx src/components/assistant/__tests__/assistant-task-card-policy.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

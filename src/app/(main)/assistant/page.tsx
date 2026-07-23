@@ -27,6 +27,10 @@ import {
   markReplying,
   upsertToolStart,
 } from "./agent-run-types";
+import {
+  isAssistantRunStatusDto,
+  type AssistantRunStatusDto,
+} from "@/lib/assistant/run-status-types";
 
 // ── 类型 ──────────────────────────────────────────────────────
 
@@ -156,47 +160,61 @@ function AssistantPageInner() {
     }
   }, [createThread, initialProjectId, initialThreadId]);
 
-  // Load messages when active thread changes
+  // Load messages + assistant runs when active thread changes
   useEffect(() => {
     if (!activeThreadId) {
       setMessages([]);
       return;
     }
     setLoadingThread(true);
-    apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${activeThreadId}/messages`)
-      .then((data) => {
-        if (data.messages) {
-          const now = Date.now();
-          setMessages(
-            data.messages.map((m: AiMsg) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
-              pendingApprovals: (m.pendingActions ?? []).map((a) => {
-                // PR4 回看：pending 但已过期的降级为 expired，不给点击
-                const expired =
-                  a.status === "pending" &&
-                  new Date(a.expiresAt).getTime() < now;
-                return {
-                  actionId: a.id,
-                  draftType: a.type,
-                  title: a.title,
-                  preview: a.preview,
-                  status: expired
-                    ? ("expired" as const)
-                    : (a.status as
-                        | "pending"
-                        | "executed"
-                        | "rejected"
-                        | "failed"
-                        | "expired"),
-                  failureReason: a.failureReason ?? undefined,
-                };
-              }),
-            }))
-          );
+    const threadId = activeThreadId;
+    Promise.all([
+      apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${threadId}/messages`),
+      apiJson<{ runs?: AssistantRunStatusDto[] }>(
+        `/api/ai/threads/${threadId}/runs`,
+      ).catch(() => ({ runs: [] as AssistantRunStatusDto[] })),
+    ])
+      .then(([data, runsData]) => {
+        if (!data.messages) return;
+        const now = Date.now();
+        const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+          pendingApprovals: (m.pendingActions ?? []).map((a) => {
+            const expired =
+              a.status === "pending" &&
+              new Date(a.expiresAt).getTime() < now;
+            return {
+              actionId: a.id,
+              draftType: a.type,
+              title: a.title,
+              preview: a.preview,
+              status: expired
+                ? ("expired" as const)
+                : (a.status as
+                    | "pending"
+                    | "executed"
+                    | "rejected"
+                    | "failed"
+                    | "expired"),
+              failureReason: a.failureReason ?? undefined,
+            };
+          }),
+        }));
+
+        // 将最新 Run 挂到最近一条 assistant 消息，刷新后可恢复七态卡片
+        const latestRun = (runsData.runs ?? [])[0];
+        if (latestRun) {
+          for (let i = mapped.length - 1; i >= 0; i--) {
+            if (mapped[i].role === "assistant") {
+              mapped[i] = { ...mapped[i], assistantRun: latestRun };
+              break;
+            }
+          }
         }
+        setMessages(mapped);
       })
       .catch(() => {})
       .finally(() => setLoadingThread(false));
@@ -407,8 +425,20 @@ function AssistantPageInner() {
 
           if (parsed.type === "mode") continue;
 
-          // Phase 3B-A：服务端 dispatch 推送的七态（卡片 UI 后续 Commit 接入）
-          if (parsed.type === "run_status") continue;
+          // Phase 3B-A：统一七态卡片（只读 event.run.status）
+          if (parsed.type === "run_status") {
+            const runPayload = parsed.run;
+            if (isAssistantRunStatusDto(runPayload)) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, assistantRun: runPayload, isStreaming: true }
+                    : m,
+                ),
+              );
+            }
+            continue;
+          }
 
           // PR4：AI 生成了待审批草稿 → 挂到当前 assistant 消息下
           if (parsed.type === "approval_required" && parsed.actionId) {

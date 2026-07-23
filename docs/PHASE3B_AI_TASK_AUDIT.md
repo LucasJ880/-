@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2–3A 已实施（org 绑定 + Dispatch 硬化）；任务卡片与三场景编排未开始  
+**状态**：Commit 2–4 已实施（org 绑定 + Dispatch + 七态任务卡）；三场景真实编排未开始  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -106,6 +106,17 @@ archived = true
 | 邮件发送意图 | 「发送/发出/回复客户」→ `gmail_email_draft` + `requestedDirectExecution` |
 | SSE 协议 | `run_status` 仅含一致 `run` DTO；`transition === run.status` |
 | 跟进文案 | 去掉「和/或」；明确两项则两张独立确认卡 |
+
+### Commit 4（移动端七态任务卡）
+
+| 项 | 说明 |
+|---|---|
+| `AssistantTaskCard` | `src/components/assistant/assistant-task-card.tsx` |
+| 客户端类型 | `src/lib/assistant/run-status-types.ts`（无 DB） |
+| SSE | `page.tsx` 消费 `run_status` → `event.run` |
+| 刷新恢复 | 线程加载并行 `GET .../runs`，挂到最近 assistant 消息 |
+| 操作区 | 重试骨架 `min-h-11` + safe-area；ApprovalCard 确认/取消升至 44px |
+| 不做 | 三场景真实 Executor / 真实重试 API |
 
 ---
 
@@ -521,7 +532,7 @@ tests: 跨组织 thread/PA 攻击；dispatch 路由；三场景；Security-1
 3A. ✅ `fix(ai): enforce active org and restore archived threads safely`  
 4. ✅ `feat(ai): add tenant-safe assistant dispatch and run status`  
 4A. ✅ `fix(ai): harden assistant dispatch rate limits and run ownership`  
-5. `feat(ai): add mobile assistant task cards`  
+5. ✅ `feat(ai): add mobile assistant task cards`  
 6. `feat(ai): add brief followup and email draft scenarios`  
 7. `feat(ai): add confirmed execution recovery and retry`  
 8. `docs(ai): complete Phase 3B-A task execution delivery`  

@@ -133,28 +133,28 @@ export function ApprovalCard({ approval, onChange }: Props) {
       <div className="mb-3 text-xs leading-relaxed text-muted">
         {approval.preview}
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <button
           onClick={() => handle("approve")}
           disabled={busy !== null}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           {busy === "approve" ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <Check size={12} />
+            <Check size={14} />
           )}
           确认执行
         </button>
         <button
           onClick={() => handle("reject")}
           disabled={busy !== null}
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground disabled:opacity-50"
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-[13px] font-medium text-muted transition-colors hover:text-foreground disabled:opacity-50"
         >
           {busy === "reject" ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <X size={12} />
+            <X size={14} />
           )}
           取消
         </button>

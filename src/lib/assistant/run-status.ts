@@ -1,115 +1,17 @@
 /**
- * Phase 3B-A：助手任务七态 DTO（应用层映射，不建新表）
+ * Phase 3B-A：助手任务七态 DTO（含 DB 恢复查询）
+ * 纯类型见 run-status-types.ts（客户端可安全导入）
  */
 
 import type { AgentRun, AgentRunEvent, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import {
+  mapAgentRunToAssistantStatus,
+  type AssistantRunStatusDto,
+  type AssistantTaskStatus,
+} from "@/lib/assistant/run-status-types";
 
-export type AssistantTaskStatus =
-  | "received"
-  | "planning"
-  | "running"
-  | "waiting_for_confirmation"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-export type AssistantRunStepType =
-  | "intent"
-  | "data_lookup"
-  | "permission_check"
-  | "tool_execution"
-  | "approval_required"
-  | "result";
-
-export type AssistantRunStatusDto = {
-  runId: string;
-  conversationId: string;
-  organizationId: string;
-  initiatedByPrincipalId: string;
-  status: AssistantTaskStatus;
-  intent: string | null;
-  currentStep: {
-    type: AssistantRunStepType;
-    title: string;
-  } | null;
-  errorCode: string | null;
-  resultSummary: string | null;
-  startedAt: string | null;
-  updatedAt: string;
-  completedAt: string | null;
-};
-
-/** SSE 事件：只含一致的 run DTO，可选 transition 且必须与 run.status 相同 */
-export type RunStatusEvent = {
-  type: "run_status";
-  run: AssistantRunStatusDto;
-  transition?: AssistantTaskStatus;
-};
-
-const STATUS_LABEL: Record<AssistantTaskStatus, string> = {
-  received: "已收到",
-  planning: "正在分析",
-  running: "正在执行",
-  waiting_for_confirmation: "等待确认",
-  completed: "已完成",
-  failed: "执行失败",
-  cancelled: "已取消",
-};
-
-export function assistantStatusLabel(status: AssistantTaskStatus): string {
-  return STATUS_LABEL[status];
-}
-
-export function buildRunStatusEvent(
-  run: AssistantRunStatusDto,
-  statusOverride?: AssistantTaskStatus,
-): RunStatusEvent {
-  const status = statusOverride ?? run.status;
-  const dto: AssistantRunStatusDto = { ...run, status };
-  return {
-    type: "run_status",
-    run: dto,
-    transition: status,
-  };
-}
-
-/**
- * AgentRun.status (+ 可选 PA) → 七态
- * 兼容 awaiting_approval / waiting_for_approval 两种命名。
- */
-export function mapAgentRunToAssistantStatus(input: {
-  runStatus: string;
-  pendingActionStatus?: string | null;
-}): AssistantTaskStatus {
-  const pa = input.pendingActionStatus;
-  if (pa === "pending" || pa === "approved") {
-    return "waiting_for_confirmation";
-  }
-  if (pa === "rejected") return "cancelled";
-  if (pa === "failed" || pa === "expired") return "failed";
-
-  switch (input.runStatus) {
-    case "queued":
-    case "acknowledged":
-      return "received";
-    case "planning":
-      return "planning";
-    case "running":
-      return "running";
-    case "awaiting_approval":
-    case "waiting_for_approval":
-      return "waiting_for_confirmation";
-    case "completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return "running";
-  }
-}
+export * from "@/lib/assistant/run-status-types";
 
 function mapEventToStep(
   event: Pick<AgentRunEvent, "eventType" | "title">,
@@ -142,8 +44,7 @@ function readInitiatedByUserId(metadata: unknown): string | null {
 
 /**
  * 将 DB Run 映射为 DTO。
- * initiatedByPrincipalId 必须来自已验证的发起用户（metadata / session），
- * 不得把「当前调用方 userId」无条件冒充为发起人。
+ * initiatedByPrincipalId 必须来自已验证的发起用户。
  */
 export function toAssistantRunStatusDto(input: {
   run: Pick<
@@ -160,7 +61,6 @@ export function toAssistantRunStatusDto(input: {
     | "completedAt"
   >;
   threadId: string;
-  /** 已验证的发起用户（session.userId 或 metadata.initiatedByUserId） */
   initiatedByUserId: string;
   events?: Array<Pick<AgentRunEvent, "eventType" | "title" | "visibleToUser" | "createdAt">>;
   pendingActionStatus?: string | null;
@@ -209,7 +109,6 @@ export function toAssistantRunStatusDto(input: {
 
 /**
  * 按 org + metadata.threadId + 发起用户 恢复 Run。
- * 同时要求 session.userId / metadata.initiatedByUserId 匹配当前用户。
  */
 export async function listAssistantRunsForThread(input: {
   orgId: string;
@@ -292,26 +191,4 @@ export async function listAssistantRunsForThread(input: {
     );
   }
   return dtos;
-}
-
-/** 纯函数：判断某条 Run 行是否对当前用户可见（单测用） */
-export function runMatchesOwner(input: {
-  orgId: string;
-  activeOrgId: string;
-  metadataThreadId: string | null;
-  requestThreadId: string;
-  sessionUserId: string | null;
-  metadataInitiatedByUserId: string | null;
-  currentUserId: string;
-}): boolean {
-  if (input.orgId !== input.activeOrgId) return false;
-  if (input.metadataThreadId !== input.requestThreadId) return false;
-  if (input.sessionUserId !== input.currentUserId) return false;
-  if (
-    input.metadataInitiatedByUserId &&
-    input.metadataInitiatedByUserId !== input.currentUserId
-  ) {
-    return false;
-  }
-  return true;
 }
