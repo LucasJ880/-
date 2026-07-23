@@ -293,8 +293,8 @@ export default function InviteCodesPage() {
         </div>
       )}
 
-      <div className="rounded-xl border border-border/60 bg-card-bg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border/60 bg-card-bg">
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-border/40 text-left text-xs text-muted">
               <th className="px-4 py-3 font-medium">邀请码</th>
