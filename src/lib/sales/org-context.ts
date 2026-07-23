@@ -3,11 +3,10 @@
  *
  * Security-1：数据范围改走统一 authorize()，不再用 org_admin ≡ 全部业务数据。
  *
- * - 多组织用户必须显式传 orgId（query 优先，其次 body 经 opts 传入，且须校验成员关系）
- * - 单组织用户可自动解析
+ * - 日常业务以 User.activeOrgId 为准（FIXED / MULTI_ORG 均不询问）
+ * - body/query orgId 仅交叉校验，不可覆盖 activeOrgId（不一致 → ORG_CONTEXT_MISMATCH）
  * - 平台管理员跨组织操作必须显式 orgId，且仅校验组织存在
  * - 禁止默认 fallback 到「任意组织」；禁止仅信任裸 body.orgId（须走 resolve）
- * - body.orgId 仅交叉校验，不可覆盖 activeOrgId（由 resolveTradeOrgId / tenancy 保证）
  */
 
 import { NextResponse } from "next/server";

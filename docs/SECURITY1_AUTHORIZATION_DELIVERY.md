@@ -214,62 +214,77 @@ type PrincipalRef = {
 
 ---
 
-## 16. Sunny 验收（清单）
+## 16. Sunny 验收
 
-DB 探针（`scripts/security1-acceptance-check.ts`，2026-07-23）：
+### 验收组织
 
-- [x] active 组织：Sunny Home & Deco
-- [x] 销售 `alex@…` FIXED、不可自助切换、customer.read=PRINCIPAL
-- [x] org_admin 经 `authorize` 无销售读
-- [x] org_owner 有销售 ORG read；跨梦馨资源拒绝
-- [ ] **UI**：左上角只读 / 设置页无切换 / 客户列表隔离（需 Preview 人工点验）
+| 组织 | code | 状态 |
+|---|---|---|
+| Sunny Home & Deco | `sunny-home-deco` | active（验收主组织） |
+| Sunny Shutter --Bid Lead | `sunny-shutter-bid-lead` | archived（**未搬迁历史数据**） |
 
-说明：`alex@` 当前 membership 仍在 archived「Sunny Shutter --Bid Lead」；active「Sunny Home & Deco」尚无独立销售成员，需运营补挂。
+### 验收账号
 
----
+| 身份 | Email | OrgRole | RoleProfile | OrgAccessMode | canSelfSwitchOrg |
+|---|---|---|---|---|---|
+| 企业负责人 | `security1-owner@test.qingyan.ai` | org_owner | org_owner | FIXED | false |
+| 企业管理员 | `security1-admin@test.qingyan.ai` | org_admin | org_admin | FIXED | false |
+| 销售 A | `alex@sunnyshutter.ca` | org_member | sales_rep | FIXED | false |
+| 销售 B | `security1-sales-b@test.qingyan.ai` | org_member | sales_rep | FIXED | false |
 
-## 17. 梦馨验收（清单）
+准备：`scripts/security1-prepare-preview-qa.ts`。仅为 Alex **新增** Sunny Home & Deco membership；archived Bid Lead 历史业务数据未迁移；其 archived membership 已 inactive。
 
-- [x] trade 用户对梦馨无 `sales.customer.read`、无 sales_rep 绑定
-- [x] Sunny owner 无法用 Sunny principal 读梦馨资源
-- [ ] **UI**：草稿 / Workspace 不串（需 Preview）
+### 结果
 
----
-
-## 18. 多组织验收（清单）
-
-- [x] 纠正后 `canSelfSwitchOrg=true` 计数 = 0
-- [x] 平台 admin → `PLATFORM_SUPPORT`
-- [x] 多 membership + FIXED 存在（不自动开放切换）
-- [x] archived/inactive/suspended/未知状态 fail closed（单测）
-- [ ] **UI**：MULTI_ORG 仅设置页切换（当前库无已授权自助切换账号）
+- [x] API 验收 31/31（`scripts/security1-preview-api-acceptance.ts`）
+- [x] 销售 A：左上角只读、设置无切换、仅见自己客户、跨销售 403
+- [x] 企业管理员：成员可管；销售 API 403（`NO_BINDING`）；`/admin/users` 403
+- [x] 企业负责人：可见 A/B 客户与分析；跨梦馨资源拒绝
+- [x] UI 截图：`docs/security1-screenshots/sunny-*.png`
 
 ---
 
-## 19. 测试
+## 17. 梦馨验收
 
-| 套件 | 命令 |
+| 身份 | Email | platform | OrgRole | RoleProfile | 模式 |
+|---|---|---|---|---|---|
+| 外贸员工 | `security1-trade@test.qingyan.ai` | trade | org_member | 无（禁止 sales_rep） | FIXED |
+
+- [x] 自动进入梦馨；左上角不可切换
+- [x] 无销售客户读权限；trade 不映射 sales_rep
+- [x] 不能访问 Sunny 销售资源
+- [x] 草稿 key 含独立 orgId（见准备脚本 draftKeyExamples）
+- [x] UI 截图：`mengxin-trade-*.png`
+
+---
+
+## 18. 多组织验收
+
+| 身份 | Email | 说明 |
+|---|---|---|
+| 双租户 QA | `security1-multi@test.qingyan.ai` | 专用 MULTI_ORG + canSelfSwitchOrg；**非**平台 admin |
+
+> `nav-qa@test.qingyan.ai` 为平台 admin，不用作普通 MULTI_ORG 切换验收。
+
+- [x] 左上角只读；仅 `/settings/account` 显示「切换工作企业」
+- [x] 列表仅 Sunny + 梦馨；无 archived / 其他组织
+- [x] 切换后 AuditLog `org.switch_active` before/after 正确
+- [x] UI 截图：`multi-org-*.png`
+
+---
+
+## 19. 测试与 Preview
+
+| 项 | 结果 |
 |---|---|
-| Org Access | `npx tsx src/lib/organizations/__tests__/org-access.test.ts` |
-| Org Switch Audit | `npx tsx src/lib/organizations/__tests__/org-switch-audit.test.ts` |
-| Owner/Manager | `npx tsx src/lib/rbac/__tests__/security1-owner-manager.test.ts` |
-| Authorization | `npx tsx src/lib/authorization/__tests__/authorize.test.ts` |
-| Sales Authz | `npx tsx src/lib/sales/__tests__/security1-sales-authz.test.ts` |
-| DB 验收探针 | `npx tsx scripts/security1-acceptance-check.ts` |
-| 访问模式报告 | `npx tsx scripts/security1-report-org-access.ts` |
-| 汇总 | `./scripts/test-all.sh` |
+| Vercel Preview | **SUCCESS**（SSO Protection 阻挡无登录 curl；同 Head 本地 `next start` + 共享 Neon 完成 UI/API 验收） |
+| Preview URL | `https://git-feature-security-1-workforce-a-233948-lucas-9039s-projects.vercel.app` |
+| `migrate reset --force` | **N/A**：无隔离本地 PostgreSQL；禁止 wipe 共享 Neon。真实 migrate deploy + Smoke + DB 探针已通过 |
+| API 验收 | 31/31 |
+| 截图 | `docs/security1-screenshots/`（含要求的 7 张 + 补充） |
+| 基线失败 | Image Engine FormData；AI 分类 401；Agent Trace 假 orgId / Reservation FK（据实） |
 
-回归执行（2026-07-23 终修）：
-
-| 检查 | 结果 |
-|---|---|
-| `prisma validate` / `migrate deploy`（含 40000 纠正） | 通过 |
-| `gen_random_uuid()`（Neon PG） | 冒烟脚本验证 |
-| seed 幂等 | 冒烟脚本验证 |
-| `migrate reset --force` | **未对共享库执行**（无本地 PG；禁止 wipe 共享 Neon） |
-| Security-1 单测 | org-access 16 + audit 5 + authorize 20 + sales 8 |
-| DB 验收探针 | 13/13 |
-| `tsc --noEmit` / `next build` | 见本轮 CI / 本地结果 |
+另：`resolveTradeOrgId` 已按 Security-1 改为优先 `activeOrgId`（query/body orgId 仅交叉校验）。
 
 ---
 
