@@ -1,17 +1,31 @@
 # Phase Mobile-1：移动端 UI 稳定性 — 交付报告
 
-**状态**：实现完成，等待人工验收（**未自动合入**）  
-**分支**：`feature/mobile-1-ui-stability`  
-**基线**：`main`（含 Security-1 PR #14 merge `55f109a`）  
+**状态**：实现完成，等待人工 Preview / Safari 验收（**未自动合入**）  
+**PR**：[\#15](https://github.com/LucasJ880/-/pull/15)（Open · MERGEABLE · 非 Draft · Vercel Preview SUCCESS）  
+**分支**：`feature/mobile-1-ui-stability`（5 commits / 32 files）  
+**基线**：`main`（含 Security-1 PR #14）  
 **自检**：`docs/MOBILE1_UI_AUDIT.md`  
 **截图**：`docs/mobile1-screenshots/`
+
+### 合入门槛（产品核对 2026-07-23）
+
+| 项 | 状态 |
+|---|---|
+| 代码方向 / 关键修复合理性 | ✅ 已核对通过 |
+| Chromium 320–768、自检、滚动锁、长标题、表格、Security-1 回归 | ✅ 已勾选 |
+| Vercel Preview SUCCESS | ✅ |
+| 人工 Preview（导航/长标题/客户表/报价/Security-1） | ⏳ 待完成 |
+| Safari / iPhone 真机（建议合入门槛） | ⏳ **Safari / iPhone verification pending** |
+| 无 iPhone 时 | 可合入，但必须保留上表 pending 标记，上线后第一时间真机 Smoke |
+
+合入方式（验收通过后）：**merge commit，不要 squash**。合入后标记 COMPLETE，拉最新 main，最小 Production Smoke；**不自动启动 Mobile-2**。
 
 ---
 
 ## 1. 自检结果摘要
 
 - Chromium 自动化：6 宽度 × 14 代表路由（见 `docs/mobile1-audit-results.json`）
-- Safari / iPhone 真机：**未在本环境验证**（交付前建议补验）
+- Safari / iPhone 真机：**Safari / iPhone verification pending**（滚动锁 / `100dvh` / 地址栏 / 软键盘 / 固定底栏差异最大）
 - 核心根因：AppShell 主滚动在 `main`；导航未锁 `main`；`h-screen-safe` 被 `100vh` 覆盖；宽表缺横滚策略
 
 ---
@@ -109,11 +123,19 @@ docs/mobile1-screenshots/
 
 ## 9. 已知限制
 
-1. Safari / 软键盘真机未验证  
+1. **Safari / iPhone verification pending**（建议至少 5 分钟：开/关导航、Drawer、长页滚动、报价输入、键盘弹收）  
 2. 仍有手写 `fixed inset-0` 弹层未统一接入 `lockAppScroll`  
 3. 运营/增长大量硬编码 h1 未全部迁到 PageHeader  
 4. 销售 segmented control 竖排文字体验（P2，可 Mobile-2）  
-5. 禁止用全局 `body { overflow-x: hidden }` 掩盖溢出（本阶段未加）
+5. 禁止用全局 `body { overflow-x: hidden }` 掩盖溢出（本阶段未加）  
+
+### 非阻断技术债：`lockAppScroll` 非引用计数
+
+当前为「保存 previous → 锁定 → cleanup 恢复」实现，**不是** `scrollLockCount`。
+
+- 常规单导航 / 单 Drawer：**无问题**（本 PR 不阻塞）  
+- 理论风险：两层 Overlay 同时打开，外层先关、内层仍开时，可能提前恢复滚动  
+- Mobile-2 建议改为：`lock()` / `unlock()` + 计数，**最后一个锁释放后才恢复**
 
 ---
 
@@ -121,17 +143,42 @@ docs/mobile1-screenshots/
 
 - 左上角企业身份只读（导航内 OrgIdentityBadge）  
 - `/settings/account` FIXED 无「切换工作企业」  
-- 未改权限 / RoleProfile / authorize 逻辑  
+- 移动导航不暴露无 membership 组织  
+- Sunny / 梦馨数据与草稿不串（依赖既有 orgId key；本 PR 未改授权语义）  
 - 未启动 Security-2 / 数字员工 / Phase 3B  
 
 ---
 
-## 11. 后续 Mobile-2 建议
+## 11. 人工 Preview 必过清单
 
-1. 统一手写 Modal 的 scroll lock  
-2. 运营页 PageHeader 迁移  
-3. Safari 真机矩阵 + 软键盘验收  
-4. 销售看板 segmented control 移动布局  
-5. 更多列表策略 A（商机/审批卡片化）  
+### 导航滚动
+- [ ] 打开后背景不可滚；关闭立即恢复  
+- [ ] 菜单跳转后新页可滚；连续开关 5 次不卡死  
+- [ ] 浏览器返回无透明遮罩  
 
-**不要自动开始 Mobile-2**；等待人工验收本 PR。
+### 320px 长标题
+- [ ] 标题换行；无整页横滚；操作按钮落到下一行  
+- [ ] 企业/客户/项目名不撑破容器  
+
+### 客户与宽表
+- [ ] 客户列表移动卡片可点  
+- [ ] 宽表仅表格区横滑；竖滑不被抢走  
+
+### 报价表单
+- [ ] 单列；输入不超屏；键盘后仍可达提交；底栏不被遮挡  
+
+### Security-1
+- [ ] 企业身份只读；FIXED 无切换；导航无其他组织；租户不串  
+
+---
+
+## 12. 后续 Mobile-2 建议
+
+1. `scrollLockCount` 引用计数式锁  
+2. 统一手写 Modal 的 scroll lock  
+3. 运营页 PageHeader 迁移  
+4. Safari 真机矩阵 + 软键盘验收（若合入时仍 pending，上线后第一时间补）  
+5. 销售看板 segmented control 移动布局  
+6. 更多列表策略 A（商机/审批卡片化）  
+
+**不要自动开始 Mobile-2**；等 PR #15 人工验收合入并标记 COMPLETE 后再议。
