@@ -1,6 +1,6 @@
 # Mobile-2 验收截图
 
-请在 Vercel Preview / 真机验收时补齐（QA 数据，禁止真实客户敏感信息）：
+已用 Chromium mobile emulation 补齐（QA 数据；禁止真实客户敏感信息 / 密码 / Token）：
 
 - nested-overlay-mobile.png
 - drawer-dialog-mobile.png
@@ -11,4 +11,7 @@
 - mobile-dropdown-viewport.png
 - scroll-restored-after-overlays.png
 
-WebKit automated ≠ iPhone Safari real device。
+说明：
+
+- 软键盘相关截图为 `visualViewport` 模拟，**不等于** iPhone Safari 真机键盘。
+- WebKit automated ≠ iPhone Safari real device。

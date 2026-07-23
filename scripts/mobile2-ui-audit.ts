@@ -5,18 +5,26 @@
  *   MOBILE_AUDIT_EMAIL=... MOBILE_AUDIT_PASSWORD=... \
  *     npx tsx scripts/mobile2-ui-audit.ts [baseUrl]
  *
+ * 可选：VERCEL_AUTOMATION_BYPASS_SECRET（Deployment Protection）
+ *
  * 输出：docs/mobile2-audit-results.json（不含密码）
  * 失败时 process.exit(1)
  */
 
-import { chromium, webkit, type BrowserType, type BrowserContext, type Page } from "playwright";
+import {
+  chromium,
+  webkit,
+  type Browser,
+  type BrowserType,
+  type BrowserContext,
+  type Page,
+} from "playwright";
 import fs from "fs";
 import path from "path";
 
 const BASE = process.argv[2] || "http://127.0.0.1:3000";
 const EMAIL = process.env.MOBILE_AUDIT_EMAIL;
 const PASSWORD = process.env.MOBILE_AUDIT_PASSWORD;
-/** Vercel Deployment Protection bypass（可选，勿写入仓库） */
 const VERCEL_BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
 if (!EMAIL || !PASSWORD) {
@@ -91,13 +99,19 @@ function activeLockCount(page: Page): Promise<number | null> {
   });
 }
 
-async function loginViaApi(context: BrowserContext) {
+async function loginOnce(
+  browser: Browser,
+): Promise<{ storageState: Awaited<ReturnType<BrowserContext["storageState"]>>; activeOrgId?: string }> {
+  const context = await browser.newContext({
+    ...(VERCEL_BYPASS ? { extraHTTPHeaders: authHeaders() } : {}),
+  });
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
   if (!res.ok) {
+    await context.close();
     throw new Error(`login failed: HTTP ${res.status}`);
   }
   const setCookie = res.headers.getSetCookie?.() ?? [];
@@ -135,20 +149,50 @@ async function loginViaApi(context: BrowserContext) {
       localStorage.setItem("qingyan_selected_org_id", id);
     }, data.activeOrgId);
   }
+  const storageState = await context.storageState();
   await page.close();
+  await context.close();
+  return { storageState, activeOrgId: data.activeOrgId };
 }
 
-function contextOptions(partial: {
-  viewport: { width: number; height: number };
-  isMobile?: boolean;
-  hasTouch?: boolean;
-}) {
-  return {
-    ...partial,
-    ...(VERCEL_BYPASS
-      ? { extraHTTPHeaders: authHeaders() }
-      : {}),
-  };
+async function openAuthedContext(
+  browser: Browser,
+  storageState: Awaited<ReturnType<BrowserContext["storageState"]>>,
+  opts: {
+    viewport: { width: number; height: number };
+    isMobile?: boolean;
+    hasTouch?: boolean;
+  },
+): Promise<BrowserContext> {
+  return browser.newContext({
+    ...opts,
+    storageState,
+    ...(VERCEL_BYPASS ? { extraHTTPHeaders: authHeaders() } : {}),
+  });
+}
+
+async function gotoStable(page: Page, route: string) {
+  await page.goto(`${BASE}${route}`, {
+    waitUntil: "domcontentloaded",
+    timeout: 45000,
+  });
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(350);
+}
+
+async function measureOverflow(page: Page): Promise<boolean | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await page.evaluate(() => {
+        const main = document.querySelector("main");
+        if (!main) return null;
+        return main.scrollWidth > main.clientWidth + 2;
+      });
+    } catch {
+      await page.waitForTimeout(200);
+    }
+  }
+  return null;
 }
 
 async function auditNavLock(page: Page): Promise<NavLockResult> {
@@ -166,9 +210,7 @@ async function auditNavLock(page: Page): Promise<NavLockResult> {
   };
 
   try {
-    await page.goto(`${BASE}/`, { waitUntil: "networkidle", timeout: 60000 });
-    await page.waitForTimeout(800);
-
+    await gotoStable(page, "/");
     result.beforeMainInline = await page.evaluate(
       () => document.querySelector("main")?.style.overflow || "",
     );
@@ -208,7 +250,7 @@ async function runEngine(
   name: string,
   type: BrowserType,
 ): Promise<EngineResult> {
-  let browser;
+  let browser: Browser;
   try {
     browser = await type.launch({ headless: true });
   } catch (e) {
@@ -228,38 +270,36 @@ async function runEngine(
   let fatal: string | undefined;
 
   try {
+    const { storageState } = await loginOnce(browser);
+
     for (const width of WIDTHS) {
-      const context = await browser.newContext(
-        contextOptions({
-          viewport: { width, height: width >= 768 ? 1024 : 844 },
-          isMobile: width < 768,
-          hasTouch: width < 768,
-        }),
-      );
-      await loginViaApi(context);
+      const context = await openAuthedContext(browser, storageState, {
+        viewport: { width, height: width >= 768 ? 1024 : 844 },
+        isMobile: width < 768,
+        hasTouch: width < 768,
+      });
       const page = await context.newPage();
       for (const route of ROUTES) {
         try {
-          await page.goto(`${BASE}${route}`, {
-            waitUntil: "domcontentloaded",
-            timeout: 45000,
-          });
-          await page.waitForTimeout(400);
-          const hOverflow = await page.evaluate(() => {
-            const main = document.querySelector("main");
-            if (!main) return null;
-            return main.scrollWidth > main.clientWidth + 2;
-          });
+          await gotoStable(page, route);
+          const hOverflow = await measureOverflow(page);
           const overflowBad = hOverflow === true;
           pages.push({
             width,
             route,
-            ok: !overflowBad,
+            ok: !overflowBad && hOverflow !== null,
             hOverflow,
-            error: overflowBad ? "main horizontal overflow" : undefined,
+            error:
+              hOverflow === null
+                ? "overflow measure failed"
+                : overflowBad
+                  ? "main horizontal overflow"
+                  : undefined,
           });
           console.log(
-            `[${name}/${width}] ${route} ${overflowBad ? "FAIL h-overflow" : "ok"}`,
+            `[${name}/${width}] ${route} ${
+              overflowBad || hOverflow === null ? "FAIL" : "ok"
+            }${overflowBad ? " h-overflow" : ""}`,
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -277,14 +317,11 @@ async function runEngine(
       await context.close();
     }
 
-    const navCtx = await browser.newContext(
-      contextOptions({
-        viewport: { width: 375, height: 812 },
-        isMobile: true,
-        hasTouch: true,
-      }),
-    );
-    await loginViaApi(navCtx);
+    const navCtx = await openAuthedContext(browser, storageState, {
+      viewport: { width: 375, height: 812 },
+      isMobile: true,
+      hasTouch: true,
+    });
     const navPage = await navCtx.newPage();
     navLock = await auditNavLock(navPage);
     console.log(`[${name}] navLock`, {
@@ -334,36 +371,64 @@ async function main() {
   console.log("=== Phase Mobile-2 UI Audit ===");
   console.log("base:", BASE);
   console.log("email set:", Boolean(EMAIL));
-  console.log(
-    "note: WebKit automated ≠ iPhone Safari real device",
-  );
+  console.log("vercel bypass set:", Boolean(VERCEL_BYPASS));
+  console.log("note: WebKit automated ≠ iPhone Safari real device");
 
   const engines: EngineResult[] = [];
   engines.push(await runEngine("chromium", chromium));
+  // 避免连续登录触发限流
+  await new Promise((r) => setTimeout(r, 1500));
   engines.push(await runEngine("webkit", webkit));
 
   const chromiumEngine = engines.find((e) => e.engine === "chromium")!;
   const webkitEngine = engines.find((e) => e.engine === "webkit")!;
+
+  const failedPages = engines.flatMap((e) =>
+    e.pages
+      .filter((p) => !p.ok)
+      .map((p) => ({
+        engine: e.engine,
+        width: p.width,
+        route: p.route,
+        error: p.error,
+      })),
+  );
 
   const summary = {
     generatedAt: new Date().toISOString(),
     base: BASE,
     headHint: process.env.MOBILE_AUDIT_HEAD || null,
     emailPresent: true,
-    // 绝不写入密码
     mobile1Baseline: "aa81c08",
     safariRealDevice: "PENDING",
     chromium: {
       status: chromiumEngine.status,
       pageSuccessCount: chromiumEngine.pageSuccessCount,
       pageTotal: chromiumEngine.pageTotal,
+      navLock: chromiumEngine.navLock
+        ? {
+            openLocked: chromiumEngine.navLock.openLocked,
+            closedRestored: chromiumEngine.navLock.closedRestored,
+            activeLocksAfterClose:
+              chromiumEngine.navLock.activeLocksAfterClose,
+          }
+        : null,
     },
     webkit: {
       status: webkitEngine.status,
       pageSuccessCount: webkitEngine.pageSuccessCount,
       pageTotal: webkitEngine.pageTotal,
-      skipReason: webkitEngine.status === "SKIPPED" ? webkitEngine.error : null,
+      skipReason:
+        webkitEngine.status === "SKIPPED" ? webkitEngine.error : null,
+      navLock: webkitEngine.navLock
+        ? {
+            openLocked: webkitEngine.navLock.openLocked,
+            closedRestored: webkitEngine.navLock.closedRestored,
+            activeLocksAfterClose: webkitEngine.navLock.activeLocksAfterClose,
+          }
+        : null,
     },
+    failedPages,
     engines,
   };
 
@@ -376,6 +441,9 @@ async function main() {
       `${e.engine}: ${e.status} pages=${e.pageSuccessCount}/${e.pageTotal}` +
         (e.error ? ` error=${e.error}` : ""),
     );
+  }
+  if (failedPages.length) {
+    console.log("failedPages:", JSON.stringify(failedPages, null, 2));
   }
 
   const chromiumOk = chromiumEngine.status === "PASS";

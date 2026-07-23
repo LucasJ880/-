@@ -1,9 +1,11 @@
 # Phase Mobile-2：移动交互统一、Overlay 治理与 Safari 稳定性 — 交付报告
 
-**状态**：实现完成，等待人工验收（**未自动合入**）  
+**状态**：合入前安全修复 + Preview/本地验收完成；**未自动合入**  
 **分支**：`feature/mobile-2-interaction-hardening`  
+**Head**：见最新 push（含凭据清理历史重写）  
 **基线**：Mobile-1 COMPLETE `aa81c08` / `main` @ `daddade`  
 **自检**：`docs/MOBILE2_UI_AUDIT.md`  
+**审计结果**：`docs/mobile2-audit-results.json`  
 **PR 标题**：`feat(mobile): Phase Mobile-2 interaction and overlay hardening`
 
 ---
@@ -119,19 +121,37 @@ Toast 已从 `z-[9999]` 迁到 `--ui-z-toast`，并避让 TabBar。
 
 | 项 | 结果 |
 |---|---|
-| scroll-lock 单测 | 通过 |
-| `tsc --noEmit` | 通过（交付前复跑） |
-| Security-1 org-access / authorize | 交付前复跑 |
-| Chromium / WebKit audit script | 见 `scripts/mobile2-ui-audit.ts` |
-| iPhone 真机 | PENDING |
+| scroll-lock 单测 | PASS |
+| `tsc --noEmit` | PASS |
+| Chromium automated | PASS（40/40 + nav lock，`activeLocksAfterClose=0`） |
+| WebKit automated | PASS（40/40 + nav lock，`activeLocksAfterClose=0`） |
+| Security-1 Smoke | PASS：sales 客户 200；trade 销售 403 `NO_BINDING`；FIXED `canSelfSwitchOrg=false` |
+| iPhone 真机 | **PENDING** |
+| Vercel Preview | SUCCESS；Deployment Protection（SSO）阻断无 bypass 的自动化直连 |
+
+### 验收宿主说明
+
+- Preview URL：`https://git-feature-mobile-2-interaction-hardening-lucas-9039s-projects.vercel.app`
+- 自动化实际宿主：本地 `next start`（同 Head 生产构建），因 Preview SSO 需 `VERCEL_AUTOMATION_BYPASS_SECRET`
+- 结果文件：`docs/mobile2-audit-results.json`（**不含密码**）
+- QA 凭据：仅环境变量；仓库与 PR 分支历史已清除旧明文默认密码；账号密码已轮换
+
+### 人工 Preview 清单（本轮）
+
+| 项 | 状态 |
+|---|---|
+| 导航连续开关 / 锁与恢复（自动化等价） | PASS（Chromium+WebKit navLock） |
+| 嵌套 Overlay（截图 + activeLocks=0） | PASS（emulation；真机 PENDING） |
+| 报价键盘 | PASS（visualViewport 模拟截图；真机软键盘 PENDING） |
+| 运营长标题 320px | PASS（截图） |
+| Security-1 Smoke | PASS |
+| iPhone Safari real device | **PENDING** |
 
 ---
 
 ## 11. 截图
 
-目录：`docs/mobile2-screenshots/`（人工 / Preview 补齐；QA 数据，无真实客户敏感信息）
-
-建议文件名：
+目录：`docs/mobile2-screenshots/`（QA 数据，无真实客户敏感信息 / 密码 / Token）
 
 ```text
 nested-overlay-mobile.png
