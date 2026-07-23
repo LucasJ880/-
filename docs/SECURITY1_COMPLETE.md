@@ -68,4 +68,14 @@
 
 ## Production Smoke（合入后最小）
 
-合入后在最新 `main` 上复跑 Security-1 专项、`tsc`、`next build`，并对 Sunny / 梦馨做最小冒烟（登录与组织边界）。详见同目录交付报告与验收脚本。
+| 项 | 结果 |
+|---|---|
+| Merge SHA | `55f109a183c742589a0d244c8267fd45e78f2fae` |
+| 完成标记提交 | `f00423d6c3a8fa30236467d7e4d4f70dbc9bff72`（及后续补记） |
+| Security-1 专项 | org-access 16 / authorize 20 / sales-authz 8 — 全部通过 |
+| Preview API（本地 `next start` + Neon） | 31/31 |
+| `tsc --noEmit` | 通过 |
+| `next build`（最新 main） | 通过 |
+| Production API Smoke（`https://qingyan.ca`） | **31/31**（Sunny 销售隔离、管理员 403、负责人 ORG、梦馨 trade、MULTI_ORG 切换与 AuditLog） |
+
+说明：Vercel 部署别名 URL 开启 SSO Protection，无登录 curl 会 401；公开产品站 `qingyan.ca` 已完成 API 级最小冒烟。UI 截图仍以 Preview 验收产物为准（`docs/security1-screenshots/`）。
