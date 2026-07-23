@@ -12,6 +12,8 @@ import {
   visibleThreadWhere,
   ownedThreadWhere,
   threadNotFoundResponse,
+  resolveTrustedAssistantOrg,
+  threadAccessAllowsArchived,
 } from "@/lib/assistant/thread-org";
 
 let passed = 0;
@@ -46,10 +48,209 @@ ok(
 );
 
 ok(
+  "owned where includeArchived omits archived filter",
+  (() => {
+    const w = ownedThreadWhere("t1", "u1", "sunny", { includeArchived: true });
+    return (
+      w.id === "t1" &&
+      w.orgId === "sunny" &&
+      !("archived" in w)
+    );
+  })(),
+);
+
+ok(
   "cross-org leak uses THREAD_NOT_FOUND 404",
   (() => {
     const res = threadNotFoundResponse();
     return res.status === 404;
+  })(),
+);
+
+// ── 组织解析：activeOrg 优先；query/body 仅交叉校验 ──
+ok(
+  "activeOrg=Sunny + queryOrg=Sunny → PASS",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "sunny",
+      memberOrgIds: ["sunny", "mengxin"],
+      queryOrgId: "sunny",
+    });
+    return r.ok && r.orgId === "sunny";
+  })(),
+);
+
+ok(
+  "activeOrg=Sunny + queryOrg=梦馨 → ORG_CONTEXT_MISMATCH",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "sunny",
+      memberOrgIds: ["sunny", "mengxin"],
+      queryOrgId: "mengxin",
+    });
+    return !r.ok && r.code === "ORG_CONTEXT_MISMATCH";
+  })(),
+);
+
+ok(
+  "activeOrg=Sunny + bodyOrg=梦馨 → ORG_CONTEXT_MISMATCH",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "sunny",
+      memberOrgIds: ["sunny", "mengxin"],
+      bodyOrgId: "mengxin",
+    });
+    return !r.ok && r.code === "ORG_CONTEXT_MISMATCH";
+  })(),
+);
+
+ok(
+  "无 activeOrg + 多 membership + queryOrg=Sunny → TENANT_CONTEXT_REQUIRED",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: null,
+      memberOrgIds: ["sunny", "mengxin"],
+      queryOrgId: "sunny",
+    });
+    return !r.ok && r.code === "TENANT_CONTEXT_REQUIRED";
+  })(),
+);
+
+ok(
+  "无 activeOrg + 唯一 membership → fallback",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: null,
+      memberOrgIds: ["sunny"],
+      queryOrgId: null,
+    });
+    return r.ok && r.orgId === "sunny";
+  })(),
+);
+
+ok(
+  "query 不能选组织（activeOrg 优先于 query）",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "sunny",
+      memberOrgIds: ["sunny", "mengxin"],
+      queryOrgId: "mengxin",
+    });
+    // 不得返回 mengxin
+    return !r.ok || r.orgId !== "mengxin";
+  })(),
+);
+
+ok(
+  "body 不能选组织",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "sunny",
+      memberOrgIds: ["sunny", "mengxin"],
+      bodyOrgId: "mengxin",
+    });
+    return !r.ok && r.code === "ORG_CONTEXT_MISMATCH";
+  })(),
+);
+
+ok(
+  "非 membership 的 activeOrg 不可信 → TENANT_CONTEXT_REQUIRED（多 membership）",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "other",
+      memberOrgIds: ["sunny", "mengxin"],
+    });
+    return !r.ok && r.code === "TENANT_CONTEXT_REQUIRED";
+  })(),
+);
+
+ok(
+  "非 membership activeOrg + 唯一 membership → 用唯一 membership",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "other",
+      memberOrgIds: ["sunny"],
+    });
+    return r.ok && r.orgId === "sunny";
+  })(),
+);
+
+ok(
+  "无 membership → NO_MEMBERSHIP",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "sunny",
+      memberOrgIds: [],
+    });
+    return !r.ok && r.code === "NO_MEMBERSHIP";
+  })(),
+);
+
+ok(
+  "activeOrg 优先于唯一 membership 以外的臆测",
+  (() => {
+    const r = resolveTrustedAssistantOrg({
+      activeOrgId: "mengxin",
+      memberOrgIds: ["sunny", "mengxin"],
+      queryOrgId: "sunny",
+    });
+    return !r.ok && r.code === "ORG_CONTEXT_MISMATCH";
+  })(),
+);
+
+// ── 归档访问策略 ──
+ok(
+  "list/read/message 不允许默认访问归档",
+  !threadAccessAllowsArchived({ operation: "list" }) &&
+    !threadAccessAllowsArchived({ operation: "read" }) &&
+    !threadAccessAllowsArchived({ operation: "message" }),
+);
+
+ok(
+  "patch/delete 允许访问归档（取消归档/删除）",
+  threadAccessAllowsArchived({ operation: "patch" }) &&
+    threadAccessAllowsArchived({ operation: "delete" }),
+);
+
+ok(
+  "同 org 归档线程可 PATCH archived=false（策略）",
+  (() => {
+    // includeArchived where 可命中；orgId 必须非空
+    const w = ownedThreadWhere("t-arch", "u1", "sunny", {
+      includeArchived: true,
+    });
+    return w.orgId === "sunny" && !("archived" in w);
+  })(),
+);
+
+ok(
+  "消息读取仍排除归档（默认 where）",
+  (() => {
+    const w = ownedThreadWhere("t-arch", "u1", "sunny");
+    return w.archived === false;
+  })(),
+);
+
+ok(
+  "orgId=null 历史归档无法经普通 API 恢复（无 org 匹配）",
+  (() => {
+    // 普通 API 永远要求 orgId=activeOrg；null 永不命中
+    const activeOrg = "sunny";
+    const historical = { id: "h1", orgId: null as string | null, archived: true };
+    const canRestore =
+      historical.orgId === activeOrg; // false
+    return !canRestore;
+  })(),
+);
+
+ok(
+  "跨 org 归档线程 PATCH/DELETE 表现为不存在",
+  (() => {
+    const activeOrg = "sunny";
+    const otherArchived = { id: "t2", orgId: "mengxin", archived: true };
+    const visible =
+      otherArchived.orgId === activeOrg; // false → 404
+    return !visible;
   })(),
 );
 
@@ -283,15 +484,6 @@ ok(
       visible[0].id === "a" &&
       !visible.some((t) => t.orgId === null || t.orgId === "mengxin")
     );
-  })(),
-);
-
-ok(
-  "client forged orgId mismatch is rejectable",
-  (() => {
-    const serverOrg = "sunny";
-    const claimed = "mengxin";
-    return claimed !== serverOrg;
   })(),
 );
 

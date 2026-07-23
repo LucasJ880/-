@@ -19,11 +19,25 @@
     "orgIdNullNotArchived": 0,
     "crossOrgProjectMismatch": 0
   },
-  "idempotencyCheck": {
-    "reRunDryRunAt": "2026-07-23T04:39:19.414Z",
-    "alreadyBound": 10,
-    "alreadyArchivedUnresolved": 14,
-    "furtherWrites": 0
+  "incrementalApply": {
+    "appliedAt": "2026-07-23T15:09:46.203Z",
+    "note": "Preview/cron 在 Commit2 部署前创建了 9 条「每日简报」线程（orgId=null）；按同一回填规则二次 apply，未猜测归属。",
+    "newThreadsSeen": 9,
+    "boundByUniqueMembership": 4,
+    "unresolvedArchived": 5,
+    "reasonCodes": ["MULTIPLE_ACTIVE_MEMBERSHIPS"]
+  },
+  "latestVerification": {
+    "verifiedAt": "2026-07-23T15:09:51.997Z",
+    "totalThreads": 33,
+    "orgIdNonNull": 14,
+    "orgIdNullArchived": 19,
+    "orgIdNullNotArchived": 0,
+    "crossOrgProjectMismatch": 0
+  },
+  "techDebt": {
+    "nullOrgArchivedThreads": 19,
+    "rule": "MULTIPLE_ACTIVE_MEMBERSHIPS 历史线程仅管理员人工确认后由安全脚本写入 orgId 并恢复；普通用户 API 不得自行认领。"
   },
   "conflicts": [
     {
@@ -165,6 +179,49 @@
     },
     {
       "threadId": "cmrujktxk000mjv04xma06eej",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrxegqn3000hl704tj84ujab",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmngj3hdq0001l404ucrjgu19",
+        "cmoljc3ux0001l404gzveved9",
+        "cmmzrxh7w0001l704fs5ktwt3",
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrxegqp6000nl704ssr2onpg",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmo76z98c0003jv045035adyr"
+      ]
+    },
+    {
+      "threadId": "cmrxegv1c001fl704tdb8d2h1",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrxegym3001ll704hgfwxfym",
+      "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
+      "sourceOrgIds": [
+        "cmrtcnz1c0001sbjcy87hemyl",
+        "cmrv37moo0001sbskqeknr5km"
+      ]
+    },
+    {
+      "threadId": "cmrxeh181001rl704rvllr925",
       "reasonCode": "MULTIPLE_ACTIVE_MEMBERSHIPS",
       "sourceOrgIds": [
         "cmrtcnz1c0001sbjcy87hemyl",

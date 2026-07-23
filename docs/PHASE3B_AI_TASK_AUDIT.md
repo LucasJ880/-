@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2 已实施（`AiThread.orgId` 绑定）；统一 Dispatch 未开始  
+**状态**：Commit 2 / 2A 已实施（org 绑定 + activeOrg 强制 + 归档管理）；统一 Dispatch 进行中  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -41,13 +41,13 @@
 
 | 指标 | 数量 |
 |---|---|
-| AiThread 总数 | 24 |
-| orgId 非空 | 10 |
-| orgId 为空且 archived | 14 |
+| AiThread 总数（Commit2 apply 时） | 24 |
+| orgId 非空 | 10 → **14**（二次 apply 后） |
+| orgId 为空且 archived | 14 → **19** |
 | orgId 为空且未 archived | **0** ✅ |
 | 跨 org 项目异常 | 0 |
 
-幂等：再次 dry-run → `alreadyBound=10` / `alreadyArchivedUnresolved=14` / 无进一步写入。
+说明：Commit2 推送后、Preview 部署前，cron 又创建了 9 条「每日简报」无 org 线程；已按同一安全规则二次回填（4 条唯一 membership 绑定，5 条多 membership 归档）。最新验收：`null 未 archived = 0`。
 
 ### API 覆盖
 
@@ -65,9 +65,25 @@
 - `src/lib/assistant/__tests__/thread-org-policy.test.ts`（回填优先级 / 跨 org PA / 列表契约）
 - Security-1 既有单测保持在 `test-all.sh`
 
-### 已知可接受历史
+### 已知可接受历史 / 技术债
 
-14 条多 membership 历史线程**未猜测归属**，仅归档；消息保留。不阻塞 Commit 2；Draft PR Test Plan 记录即可。
+14 条多 membership 历史线程（`MULTIPLE_ACTIVE_MEMBERSHIPS`）**未猜测归属**，保持：
+
+```text
+orgId = null
+archived = true
+消息保留
+```
+
+**技术债**：这些线程只有在管理员人工确认组织归属后，才能通过单独的安全脚本写入 `orgId` 并恢复；**普通用户 API 不得自行认领**。本阶段不开发管理员恢复界面。
+
+### Commit 2A（组织解析与归档管理）
+
+| 修正 | 说明 |
+|---|---|
+| `resolveTrustedAssistantOrg` | 仅信任服务端 `activeOrgId`（或唯一 membership）；`query`/`body` 只交叉校验 |
+| `findOwnedThreadInOrg({ includeArchived })` | PATCH/DELETE 可管理归档；消息/详情/发送仍排除归档 |
+| orgId=null 历史线程 | 仍不可经普通 API 取消归档 |
 
 ---
 
@@ -480,8 +496,8 @@ tests: 跨组织 thread/PA 攻击；dispatch 路由；三场景；Security-1
 1. ✅ `docs(ai): audit Phase 3B task execution architecture`  
 2. ✅ `docs(ai): lock Phase 3B tenant dispatch and followup decisions`  
 3. ✅ `fix(ai): bind assistant threads to organization context`（见 §0A）  
+3A. ✅ `fix(ai): enforce active org and restore archived threads safely`  
 4. `feat(ai): add tenant-safe assistant dispatch and run status`  
-（Commit 3 起才做统一 Dispatch；本轮停止）  
 5. `feat(ai): add mobile assistant task cards`  
 6. `feat(ai): add brief followup and email draft scenarios`  
 7. `feat(ai): add confirmed execution recovery and retry`  
