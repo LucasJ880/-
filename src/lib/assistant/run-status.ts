@@ -40,6 +40,13 @@ export type AssistantRunStatusDto = {
   completedAt: string | null;
 };
 
+/** SSE 事件：只含一致的 run DTO，可选 transition 且必须与 run.status 相同 */
+export type RunStatusEvent = {
+  type: "run_status";
+  run: AssistantRunStatusDto;
+  transition?: AssistantTaskStatus;
+};
+
 const STATUS_LABEL: Record<AssistantTaskStatus, string> = {
   received: "已收到",
   planning: "正在分析",
@@ -52,6 +59,19 @@ const STATUS_LABEL: Record<AssistantTaskStatus, string> = {
 
 export function assistantStatusLabel(status: AssistantTaskStatus): string {
   return STATUS_LABEL[status];
+}
+
+export function buildRunStatusEvent(
+  run: AssistantRunStatusDto,
+  statusOverride?: AssistantTaskStatus,
+): RunStatusEvent {
+  const status = statusOverride ?? run.status;
+  const dto: AssistantRunStatusDto = { ...run, status };
+  return {
+    type: "run_status",
+    run: dto,
+    transition: status,
+  };
 }
 
 /**
@@ -68,9 +88,6 @@ export function mapAgentRunToAssistantStatus(input: {
   }
   if (pa === "rejected") return "cancelled";
   if (pa === "failed" || pa === "expired") return "failed";
-  if (pa === "executed") {
-    // PA 已执行时仍以 Run 终态为准；若 Run 仍活跃则视为 running 收尾
-  }
 
   switch (input.runStatus) {
     case "queued":
@@ -117,6 +134,17 @@ function mapEventToStep(
   return { type: "intent", title };
 }
 
+function readInitiatedByUserId(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const v = (metadata as Record<string, unknown>).initiatedByUserId;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/**
+ * 将 DB Run 映射为 DTO。
+ * initiatedByPrincipalId 必须来自已验证的发起用户（metadata / session），
+ * 不得把「当前调用方 userId」无条件冒充为发起人。
+ */
 export function toAssistantRunStatusDto(input: {
   run: Pick<
     AgentRun,
@@ -132,15 +160,19 @@ export function toAssistantRunStatusDto(input: {
     | "completedAt"
   >;
   threadId: string;
-  userId: string;
+  /** 已验证的发起用户（session.userId 或 metadata.initiatedByUserId） */
+  initiatedByUserId: string;
   events?: Array<Pick<AgentRunEvent, "eventType" | "title" | "visibleToUser" | "createdAt">>;
   pendingActionStatus?: string | null;
   resultSummary?: string | null;
+  statusOverride?: AssistantTaskStatus;
 }): AssistantRunStatusDto {
-  const status = mapAgentRunToAssistantStatus({
-    runStatus: input.run.status,
-    pendingActionStatus: input.pendingActionStatus,
-  });
+  const status =
+    input.statusOverride ??
+    mapAgentRunToAssistantStatus({
+      runStatus: input.run.status,
+      pendingActionStatus: input.pendingActionStatus,
+    });
 
   const visible = (input.events ?? [])
     .filter((e) => e.visibleToUser !== false)
@@ -159,7 +191,7 @@ export function toAssistantRunStatusDto(input: {
     runId: input.run.id,
     conversationId: input.threadId,
     organizationId: input.run.orgId,
-    initiatedByPrincipalId: input.userId,
+    initiatedByPrincipalId: input.initiatedByUserId,
     status,
     intent: input.run.intent,
     currentStep,
@@ -175,7 +207,10 @@ export function toAssistantRunStatusDto(input: {
   };
 }
 
-/** 按 metadata.threadId 查当前组织下与线程关联的 Run（禁止用 sessionId=threadId） */
+/**
+ * 按 org + metadata.threadId + 发起用户 恢复 Run。
+ * 同时要求 session.userId / metadata.initiatedByUserId 匹配当前用户。
+ */
 export async function listAssistantRunsForThread(input: {
   orgId: string;
   threadId: string;
@@ -194,20 +229,34 @@ export async function listAssistantRunsForThread(input: {
       startedAt: Date | null;
       updatedAt: Date;
       completedAt: Date | null;
+      sessionUserId: string | null;
     }>
   >`
-    SELECT id, "orgId", status, intent, "errorCode", "errorMessage",
-           metadata, "startedAt", "updatedAt", "completedAt"
-    FROM "AgentRun"
-    WHERE "orgId" = ${input.orgId}
-      AND metadata IS NOT NULL
-      AND metadata->>'threadId' = ${input.threadId}
-    ORDER BY "startedAt" DESC NULLS LAST
+    SELECT r.id, r."orgId", r.status, r.intent, r."errorCode", r."errorMessage",
+           r.metadata, r."startedAt", r."updatedAt", r."completedAt",
+           s."userId" AS "sessionUserId"
+    FROM "AgentRun" r
+    INNER JOIN "AgentSession" s ON s.id = r."sessionId"
+    WHERE r."orgId" = ${input.orgId}
+      AND r.metadata IS NOT NULL
+      AND r.metadata->>'threadId' = ${input.threadId}
+      AND s."userId" = ${input.userId}
+      AND (
+        r.metadata->>'initiatedByUserId' IS NULL
+        OR r.metadata->>'initiatedByUserId' = ${input.userId}
+      )
+    ORDER BY r."startedAt" DESC NULLS LAST
     LIMIT ${input.take ?? 10}
   `;
 
   const dtos: AssistantRunStatusDto[] = [];
   for (const run of rows) {
+    const metaUser = readInitiatedByUserId(run.metadata);
+    const initiatedByUserId = metaUser || run.sessionUserId;
+    if (!initiatedByUserId || initiatedByUserId !== input.userId) {
+      continue;
+    }
+
     const events = await db.agentRunEvent.findMany({
       where: { orgId: input.orgId, runId: run.id, visibleToUser: true },
       orderBy: { createdAt: "asc" },
@@ -236,11 +285,33 @@ export async function listAssistantRunsForThread(input: {
           metadata: (run.metadata ?? null) as Prisma.JsonValue,
         },
         threadId: input.threadId,
-        userId: input.userId,
+        initiatedByUserId,
         events,
         pendingActionStatus: pending?.status ?? null,
       }),
     );
   }
   return dtos;
+}
+
+/** 纯函数：判断某条 Run 行是否对当前用户可见（单测用） */
+export function runMatchesOwner(input: {
+  orgId: string;
+  activeOrgId: string;
+  metadataThreadId: string | null;
+  requestThreadId: string;
+  sessionUserId: string | null;
+  metadataInitiatedByUserId: string | null;
+  currentUserId: string;
+}): boolean {
+  if (input.orgId !== input.activeOrgId) return false;
+  if (input.metadataThreadId !== input.requestThreadId) return false;
+  if (input.sessionUserId !== input.currentUserId) return false;
+  if (
+    input.metadataInitiatedByUserId &&
+    input.metadataInitiatedByUserId !== input.currentUserId
+  ) {
+    return false;
+  }
+  return true;
 }

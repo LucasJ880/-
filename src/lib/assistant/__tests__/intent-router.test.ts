@@ -31,14 +31,59 @@ ok(
 );
 
 ok(
-  "邮件草稿 → gmail_email_draft",
-  routeAssistantIntent("帮我写一封 Gmail 邮件草稿").intent ===
-    "gmail_email_draft",
+  "创建邮件草稿 → gmail_email_draft",
+  routeAssistantIntent("帮我创建邮件草稿").intent === "gmail_email_draft",
 );
 
 ok(
-  "直接发邮件 → unsupported_action",
-  routeAssistantIntent("请直接发送这封邮件").intent === "unsupported_action",
+  "帮我发送邮件 → gmail_email_draft（非 unsupported）",
+  (() => {
+    const r = routeAssistantIntent("帮我发送邮件");
+    return (
+      r.intent === "gmail_email_draft" &&
+      r.requestedDirectExecution === true &&
+      r.reason === "email_send_converted_to_draft"
+    );
+  })(),
+);
+
+ok(
+  "把这封邮件发送给 Rudy → gmail_email_draft",
+  (() => {
+    const r = routeAssistantIntent("把这封邮件发送给 Rudy");
+    return r.intent === "gmail_email_draft" && r.requestedDirectExecution === true;
+  })(),
+);
+
+ok(
+  "立即发出这封 Gmail → gmail_email_draft",
+  (() => {
+    const r = routeAssistantIntent("立即发出这封 Gmail");
+    return r.intent === "gmail_email_draft" && r.requestedDirectExecution === true;
+  })(),
+);
+
+ok(
+  "帮我回复客户 → gmail_email_draft",
+  (() => {
+    const r = routeAssistantIntent("帮我回复客户");
+    return r.intent === "gmail_email_draft" && r.requestedDirectExecution === true;
+  })(),
+);
+
+ok(
+  "自动下单 → unsupported_action",
+  routeAssistantIntent("自动下单").intent === "unsupported_action",
+);
+
+ok(
+  "批量删除客户 → unsupported_action",
+  routeAssistantIntent("批量删除客户").intent === "unsupported_action",
+);
+
+ok(
+  "清空数据 → unsupported_action",
+  routeAssistantIntent("清空数据").intent === "unsupported_action",
 );
 
 ok(

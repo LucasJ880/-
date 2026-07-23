@@ -177,7 +177,23 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "消息过长" }, { status: 400 });
   }
 
-  // Phase 3B-A Commit 3：统一服务端意图分流（废除前端 Supervisor 业务双路由）
+  // Phase 3B-A Commit 3A：限流必须在 Dispatch 之前（场景/unsupported/general 同一配额）
+  // 命中 429 时不得写入 AiMessage / AgentRun / Event / PendingAction
+  const rl = await checkRateLimitAsync(
+    AI_THREAD_RATE_LIMIT,
+    `${orgRes.orgId}:${user.id}`,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试", code: "RATE_LIMITED" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+      },
+    );
+  }
+
+  // Phase 3B-A：统一服务端意图分流（废除前端 Supervisor 业务双路由）
   // general_answer → 继续下方既有 Operator/SSE；场景/unsupported 由此处落库并返回。
   const dispatchPrep = await prepareAssistantDispatch({
     userId: user.id,
@@ -205,20 +221,6 @@ export const POST = withAuth(async (request, ctx, user) => {
         code: "ORG_CONTEXT_MISMATCH",
       },
       { status: 403 },
-    );
-  }
-
-  const rl = await checkRateLimitAsync(
-    AI_THREAD_RATE_LIMIT,
-    `${streamTenant.orgId}:${user.id}`,
-  );
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: "请求过于频繁，请稍后再试", code: "RATE_LIMITED" },
-      {
-        status: 429,
-        headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
-      }
     );
   }
 

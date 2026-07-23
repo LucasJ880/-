@@ -3,7 +3,8 @@
  *
  * - 可信租户仅来自服务端 activeOrgId
  * - 前端不得选择 Supervisor / Grader / Operator 作为业务路由
- * - AgentRun.sessionId = AgentSession.id；metadata.threadId = AiThread.id
+ * - AgentRun.sessionId = AgentSession.id；metadata.threadId + initiatedByUserId
+ * - Rate limit 由 messages 路由在调用本函数之前强制执行
  */
 
 import { NextResponse } from "next/server";
@@ -16,8 +17,10 @@ import {
   type IntentRouteResult,
 } from "@/lib/assistant/intent-router";
 import {
+  buildRunStatusEvent,
   toAssistantRunStatusDto,
   type AssistantRunStatusDto,
+  type AssistantTaskStatus,
 } from "@/lib/assistant/run-status";
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
 import {
@@ -41,20 +44,37 @@ export type DispatchGeneralResult = {
 
 export type DispatchPrepareResult = DispatchHandleResult | DispatchGeneralResult;
 
-const SCENARIO_PLACEHOLDER: Record<
-  Exclude<AssistantIntent, "general_answer" | "unsupported_action">,
-  string
-> = {
-  daily_business_brief:
-    "已识别为「今日业务简报」。该场景编排正在接入（将复用现有 Grader，只读当前企业数据）。请稍后再试，或先用普通对话提问。",
-  customer_followup_task:
-    "已识别为「客户跟进」。该场景编排正在接入：将按规则生成日历提醒和/或商机跟进草稿，确认后才会写入。请稍后再试。",
-  gmail_email_draft:
-    "已识别为「Gmail 邮件草稿」。该场景编排正在接入：只会创建草稿、不会自动发送。请稍后再试。",
-};
+const FOLLOWUP_PLACEHOLDER =
+  "已识别为「客户跟进」。青砚会根据你的明确要求，准备日历提醒或商机跟进更新；若你明确要求两项，将生成两张独立确认卡。该场景编排正在接入，请稍后再试。";
+
+const GMAIL_DRAFT_PLACEHOLDER =
+  "已识别为「Gmail 邮件草稿」。该场景编排正在接入：只会创建草稿、不会自动发送。请稍后再试。";
+
+const GMAIL_SEND_AS_DRAFT_PLACEHOLDER =
+  "你要求发送邮件。当前阶段为了安全，只会创建 Gmail 草稿，不会自动发送。该场景编排正在接入，请稍后再试。";
+
+const BRIEF_PLACEHOLDER =
+  "已识别为「今日业务简报」。该场景编排正在接入（将复用现有 Grader，只读当前企业数据）。请稍后再试，或先用普通对话提问。";
 
 const UNSUPPORTED_MESSAGE =
-  "这个操作超出当前助手能力边界（例如直接发送邮件、自动下单、批量删除客户）。青砚可以帮你起草、整理和建议，写操作需你确认；直接发送类动作请在对应系统中完成。";
+  "这个操作超出当前助手能力边界（例如自动下单、批量删除客户、清空数据）。青砚可以帮你起草、整理和建议，写操作需你确认后才会执行。";
+
+function scenarioAssistantContent(intent: IntentRouteResult): string {
+  if (intent.intent === "unsupported_action") return UNSUPPORTED_MESSAGE;
+  if (intent.intent === "daily_business_brief") return BRIEF_PLACEHOLDER;
+  if (intent.intent === "customer_followup_task") return FOLLOWUP_PLACEHOLDER;
+  if (intent.intent === "gmail_email_draft") {
+    return intent.requestedDirectExecution
+      ? GMAIL_SEND_AS_DRAFT_PLACEHOLDER
+      : GMAIL_DRAFT_PLACEHOLDER;
+  }
+  return UNSUPPORTED_MESSAGE;
+}
+
+/** 导出供单测检查文案契约 */
+export function getScenarioPlaceholderText(intent: IntentRouteResult): string {
+  return scenarioAssistantContent(intent);
+}
 
 function createDispatchSse(input: {
   content: string;
@@ -67,45 +87,35 @@ function createDispatchSse(input: {
     mode: "assistant.dispatch",
     intent: input.intent,
     runId: input.run?.runId ?? null,
-    status: input.run?.status ?? "completed",
   };
+
+  const emit = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    payload: unknown,
+  ) => {
+    controller.enqueue(
+      encoder.encode(`data: ${JSON.stringify(payload)}\n\n`),
+    );
+  };
+
   const readable = new ReadableStream({
     start(controller) {
       if (input.run) {
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({
-              type: "run_status",
-              status: "received",
-              run: input.run,
-            })}\n\n`,
-          ),
+        // 首包：DTO 内 status=received，与 transition 一致；无顶层冲突 status
+        emit(
+          controller,
+          buildRunStatusEvent(input.run, "received" satisfies AssistantTaskStatus),
         );
       }
-      controller.enqueue(
-        encoder.encode(`data: ${JSON.stringify({ type: "mode", ...meta })}\n\n`),
-      );
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({ type: "text", content: input.content })}\n\n`,
-        ),
-      );
+      emit(controller, { type: "mode", ...meta });
+      emit(controller, { type: "text", content: input.content });
       if (input.run) {
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({
-              type: "run_status",
-              status: input.run.status,
-              run: input.run,
-            })}\n\n`,
-          ),
+        emit(
+          controller,
+          buildRunStatusEvent(input.run, "completed" satisfies AssistantTaskStatus),
         );
       }
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({ type: "done", ...meta, latencyMs: 0 })}\n\n`,
-        ),
-      );
+      emit(controller, { type: "done", ...meta, latencyMs: 0 });
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
     },
@@ -177,6 +187,7 @@ async function createThreadBoundRun(input: {
       intent: input.intent,
       metadata: {
         threadId: input.threadId,
+        initiatedByUserId: input.userId,
         channel: "web_assistant",
         dispatchPhase: "placeholder",
       },
@@ -206,7 +217,7 @@ async function createThreadBoundRun(input: {
     return toAssistantRunStatusDto({
       run: completed,
       threadId: input.threadId,
-      userId: input.userId,
+      initiatedByUserId: input.userId,
       resultSummary: "scenario_placeholder",
     });
   } catch (e) {
@@ -217,6 +228,7 @@ async function createThreadBoundRun(input: {
 
 /**
  * 统一入口准备：校验线程租户 → 意图路由。
+ * 调用方须先完成 Rate Limit；本函数假定限流已通过。
  * general_answer 交回 messages 路由既有 SSE；其余由本函数处理并落库。
  */
 export async function prepareAssistantDispatch(input: {
@@ -273,12 +285,7 @@ export async function prepareAssistantDispatch(input: {
     return { kind: "general", intent };
   }
 
-  const assistantContent =
-    intent.intent === "unsupported_action"
-      ? UNSUPPORTED_MESSAGE
-      : isScenarioIntent(intent.intent)
-        ? SCENARIO_PLACEHOLDER[intent.intent]
-        : UNSUPPORTED_MESSAGE;
+  const assistantContent = scenarioAssistantContent(intent);
 
   const { userMessageId } = await persistUserAndAssistant({
     threadId: input.threadId,

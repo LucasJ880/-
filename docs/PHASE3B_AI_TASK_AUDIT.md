@@ -1,6 +1,6 @@
 # Phase 3B-A：移动端 AI 工作入口与任务执行闭环 — 架构自检
 
-**状态**：Commit 2 / 2A / 3 已实施（org 绑定 + Dispatch 骨架 + Run 七态 DTO）；三场景编排与任务卡片未开始  
+**状态**：Commit 2–3A 已实施（org 绑定 + Dispatch 硬化）；任务卡片与三场景编排未开始  
 **分支**：`feature/phase-3b-ai-task-loop`  
 **基线**：
 
@@ -96,6 +96,16 @@ archived = true
 | 前端 | 废除 Supervisor→SSE 业务双路由；单入口 messages |
 | Run 恢复 | `GET .../threads/[threadId]/runs`（`metadata.threadId`） |
 | 关联约定 | `AgentRun.sessionId=AgentSession(web_assistant)`；`metadata.threadId=AiThread.id` |
+
+### Commit 3A（Dispatch 硬化）
+
+| 修正 | 说明 |
+|---|---|
+| Rate limit 前置 | `checkRateLimitAsync(AI_THREAD_RATE_LIMIT)` 在 `prepareAssistantDispatch` 之前；429 不写库 |
+| Run 归属 | `metadata.initiatedByUserId` + `AgentSession.userId`；恢复查询强制当前用户 |
+| 邮件发送意图 | 「发送/发出/回复客户」→ `gmail_email_draft` + `requestedDirectExecution` |
+| SSE 协议 | `run_status` 仅含一致 `run` DTO；`transition === run.status` |
+| 跟进文案 | 去掉「和/或」；明确两项则两张独立确认卡 |
 
 ---
 
@@ -510,6 +520,7 @@ tests: 跨组织 thread/PA 攻击；dispatch 路由；三场景；Security-1
 3. ✅ `fix(ai): bind assistant threads to organization context`（见 §0A）  
 3A. ✅ `fix(ai): enforce active org and restore archived threads safely`  
 4. ✅ `feat(ai): add tenant-safe assistant dispatch and run status`  
+4A. ✅ `fix(ai): harden assistant dispatch rate limits and run ownership`  
 5. `feat(ai): add mobile assistant task cards`  
 6. `feat(ai): add brief followup and email draft scenarios`  
 7. `feat(ai): add confirmed execution recovery and retry`  
