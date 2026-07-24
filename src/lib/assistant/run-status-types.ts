@@ -62,6 +62,29 @@ export type AssistantRunStatusDto = {
   partialSideEffects?: boolean;
   canRetry?: boolean;
   retryKind?: AssistantRetryKind;
+  /** Agent Runtime 2.0 */
+  runtimeVersion?: string | null;
+  planSummary?: string | null;
+  objective?: string | null;
+  runtimeSteps?: Array<{
+    stepKey?: string | null;
+    title: string;
+    status: string;
+    /** @deprecated 使用 preferredTool */
+    toolName?: string | null;
+    preferredTool?: string | null;
+    attemptCount?: number;
+    errorMessage?: string | null;
+    requiresApproval?: boolean;
+  }>;
+  prioritizedCustomers?: Array<{
+    customerName: string;
+    score: number;
+    reasons: string[];
+    evidenceRefs: string[];
+  }>;
+  awaitingApprovalStepCount?: number;
+  verificationLabel?: string | null;
 };
 
 export type RunStatusEvent = {
@@ -121,14 +144,20 @@ export function mapAgentRunToAssistantStatus(input: {
     case "acknowledged":
       return "received";
     case "planning":
+    case "planned":
       return "planning";
     case "running":
+    case "executing":
+    case "verifying":
+    case "repairing":
       return "running";
     case "awaiting_approval":
     case "waiting_for_approval":
       return "waiting_for_confirmation";
     case "completed":
+    case "partially_executed":
       return "completed";
+    case "needs_human":
     case "failed":
       return "failed";
     case "cancelled":

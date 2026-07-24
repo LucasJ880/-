@@ -1,0 +1,378 @@
+{
+  "startedAt": "2026-07-24T02:47:16.682Z",
+  "orgId": "cmrtcnz1c0001sbjcy87hemyl",
+  "userId": "cmmy6zimk0000ju04hrln3yqv",
+  "scenarios": {
+    "s1": {
+      "result": "PASS",
+      "runId": "cmrycasvo000fn1kczgwu4cpa",
+      "runtimeVersion": "v2",
+      "status": "awaiting_approval",
+      "stepCount": 8,
+      "pendingActionIds": [
+        "cmrycaych002rn1kcg9wc4jhe",
+        "cmrycayr8002xn1kc0cwcp02l",
+        "cmrycaz050033n1kcvm1kfz5i"
+      ],
+      "pendingActionCount": 3,
+      "prioritized": [
+        {
+          "email": "ar2-qa-2@example.test",
+          "score": 74,
+          "stage": "quoted",
+          "reasons": [
+            "跟进逾期 4 天(+20)",
+            "距最后互动 7 天(+7)",
+            "阶段 quoted(+22)",
+            "预估金额 20000(+15)",
+            "无 expectedCloseDate（使用 install/measure 代理亦缺失）",
+            "报价发送后未回复 5 天(+5)",
+            "有有效邮箱(+5)"
+          ],
+          "customerId": "cmryc915a0009n1dhr9uxqzdh",
+          "customerName": "[AR2-QA] Customer 2",
+          "evidenceRefs": [
+            "s2:cmryc916q000bn1dht6us5l6q",
+            "interaction_or_updated:cmryc916q000bn1dht6us5l6q",
+            "quote_unanswered:cmryc916q000bn1dht6us5l6q",
+            "s3_followup_analysis",
+            "s4_quote_risk"
+          ],
+          "opportunityId": "cmryc916q000bn1dht6us5l6q"
+        },
+        {
+          "email": "ar2-qa-3@example.test",
+          "score": 72,
+          "stage": "needs_confirmed",
+          "reasons": [
+            "跟进逾期 6 天(+24)",
+            "距最后互动 8 天(+8)",
+            "阶段 needs_confirmed(+14)",
+            "预估金额 30000(+15)",
+            "无 expectedCloseDate（使用 install/measure 代理亦缺失）",
+            "报价发送后未回复 6 天(+6)",
+            "有有效邮箱(+5)"
+          ],
+          "customerId": "cmryc91cm000hn1dhwwdcpr8j",
+          "customerName": "[AR2-QA] Customer 3",
+          "evidenceRefs": [
+            "s2:cmryc91ec000jn1dhsu393dbu",
+            "interaction_or_updated:cmryc91ec000jn1dhsu393dbu",
+            "quote_unanswered:cmryc91ec000jn1dhsu393dbu",
+            "s3_followup_analysis",
+            "s4_quote_risk"
+          ],
+          "opportunityId": "cmryc91ec000jn1dhsu393dbu"
+        },
+        {
+          "email": "ar2-qa-1@example.test",
+          "score": 71,
+          "stage": "negotiation",
+          "reasons": [
+            "跟进逾期 2 天(+16)",
+            "距最后互动 6 天(+6)",
+            "阶段 negotiation(+25)",
+            "预估金额 10000(+15)",
+            "无 expectedCloseDate（使用 install/measure 代理亦缺失）",
+            "报价发送后未回复 4 天(+4)",
+            "有有效邮箱(+5)"
+          ],
+          "customerId": "cmryc8zyy0001n1dh5oowx2ku",
+          "customerName": "[AR2-QA] Customer 1",
+          "evidenceRefs": [
+            "s2:cmryc90fy0003n1dha99ieou2",
+            "interaction_or_updated:cmryc90fy0003n1dha99ieou2",
+            "quote_unanswered:cmryc90fy0003n1dha99ieou2",
+            "s3_followup_analysis",
+            "s4_quote_risk"
+          ],
+          "opportunityId": "cmryc90fy0003n1dha99ieou2"
+        }
+      ],
+      "hasMengxinLeak": false,
+      "reportPreview": "查询 Pipeline 与客户/报价证据，运行跟进与报价风险分析，选出最多 3 个客户，准备任务、跟进日期与 Gmail 草稿，全部经 PendingAction 审批。\n\n已选出 3 个高优先级客户：[AR2-QA] Customer 2、[AR2-QA] Customer 3、[AR2-QA] Customer 1\n写操作：等待确认 1，已执行 0，跳过 0\n\n上述动作正在等待确认。确认后我会验证任务/日期/草稿是否真实创建，再给出最终报告。"
+    },
+    "s2": {
+      "result": "PASS",
+      "runId": "cmrycasvo000fn1kczgwu4cpa",
+      "status": "awaiting_approval",
+      "pendingBefore": 3,
+      "pendingAfter": 3,
+      "stepCount": 8
+    },
+    "s3": {
+      "result": "PASS",
+      "rejectedActionId": "cmrycaych002rn1kcg9wc4jhe",
+      "approvalActorUserId": "cmrwr476n006psbazoikb3pvw",
+      "reconcile": {
+        "stepStatus": "awaiting_approval",
+        "runHint": "awaiting_approval",
+        "reason": "still_pending"
+      },
+      "businessWriteDetected": false,
+      "note": "审批人可为另一管理员；后续 resume 将用 Lucas principal"
+    },
+    "s4": {
+      "result": "FAIL",
+      "resumed": {
+        "status": "awaiting_approval",
+        "report": "查询 Pipeline 与客户/报价证据，运行跟进与报价风险分析，选出最多 3 个客户，准备任务、跟进日期与 Gmail 草稿，全部经 PendingAction 审批。\n\n已选出 3 个高优先级客户：[AR2-QA] Customer 2、[AR2-QA] Customer 3、[AR2-QA] Customer 1\n写操作：等待确认 1，已执行 0，跳过 0\n\n上述动作正在等待确认。确认后我会验证任务/日期/草稿是否真实创建，再给出最终报告。"
+      },
+      "principal": {
+        "ok": true,
+        "userId": "cmmy6zimk0000ju04hrln3yqv",
+        "role": "admin",
+        "orgRole": "org_admin",
+        "approvalActorUserId": "cmrwr476n006psbazoikb3pvw"
+      },
+      "approvalActorUserId": "cmrwr476n006psbazoikb3pvw",
+      "runStatus": "awaiting_approval",
+      "verifications": [],
+      "pendingStatuses": [
+        {
+          "id": "cmrycaych002rn1kcg9wc4jhe",
+          "type": "calendar.create_event",
+          "status": "rejected",
+          "idempotencyKey": "ar2:cmrycasvo000fn1kczgwu4cpa:s6_followup_tasks:calendar.create_event:cmryc916q000bn1dht6us5l6q",
+          "resultRef": null
+        },
+        {
+          "id": "cmrycayr8002xn1kc0cwcp02l",
+          "type": "calendar.create_event",
+          "status": "executed",
+          "idempotencyKey": "ar2:cmrycasvo000fn1kczgwu4cpa:s6_followup_tasks:calendar.create_event:cmryc91ec000jn1dhsu393dbu",
+          "resultRef": "cmrycb0nr003dn1kcwjypztwc"
+        },
+        {
+          "id": "cmrycaz050033n1kcvm1kfz5i",
+          "type": "calendar.create_event",
+          "status": "executed",
+          "idempotencyKey": "ar2:cmrycasvo000fn1kczgwu4cpa:s6_followup_tasks:calendar.create_event:cmryc90fy0003n1dha99ieou2",
+          "resultRef": "cmrycb1ia003jn1kckandfb1c"
+        },
+        {
+          "id": "cmrycb2mg003vn1kc4njae179",
+          "type": "sales.update_followup",
+          "status": "pending",
+          "idempotencyKey": "ar2:cmrycasvo000fn1kczgwu4cpa:s7_followup_dates:sales.update_followup:cmryc916q000bn1dht6us5l6q",
+          "resultRef": null
+        },
+        {
+          "id": "cmrycb2vu0041n1kcz3cjwuz3",
+          "type": "sales.update_followup",
+          "status": "pending",
+          "idempotencyKey": "ar2:cmrycasvo000fn1kczgwu4cpa:s7_followup_dates:sales.update_followup:cmryc91ec000jn1dhsu393dbu",
+          "resultRef": null
+        }
+      ],
+      "execResults": [
+        {
+          "id": "cmrycayr8002xn1kc0cwcp02l",
+          "r": {
+            "ok": true,
+            "resultRef": "cmrycb0nr003dn1kcwjypztwc",
+            "message": "已创建日历事件"
+          }
+        },
+        {
+          "id": "cmrycaz050033n1kcvm1kfz5i",
+          "r": {
+            "ok": true,
+            "resultRef": "cmrycb1ia003jn1kckandfb1c",
+            "message": "已创建日历事件"
+          }
+        }
+      ],
+      "gmailComposeAvailable": false,
+      "gmailAutoSendDetected": false,
+      "followupChanged": false
+    },
+    "s5": {
+      "result": "PASS",
+      "idempotencyKey": "ar2:cmrycasvo000fn1kczgwu4cpa:s6_followup_tasks:calendar.create_event:cmryc916q000bn1dht6us5l6q",
+      "beforeCount": 1,
+      "afterCount": 1,
+      "reusedId": "cmrycaych002rn1kcg9wc4jhe",
+      "originalId": "cmrycaych002rn1kcg9wc4jhe"
+    },
+    "s6": {
+      "result": "PASS",
+      "detail": {
+        "verdict": "BLOCKED",
+        "summary": "仍有写操作等待审批，暂不验证完成",
+        "unsatisfied": [
+          "写操作尚未全部决策"
+        ],
+        "fatalAuthRejected": true,
+        "timeoutDegradable": true,
+        "schemaOk": true
+      }
+    },
+    "s7": {
+      "result": "PASS",
+      "otherUser": {
+        "userId": "cmrwr476n006psbazoikb3pvw",
+        "user": {
+          "email": "security1-owner@test.qingyan.ai",
+          "role": "user"
+        }
+      },
+      "otherRouted": false,
+      "otherEnabled": false,
+      "forgedOrgViewIsNull": true,
+      "forgedRunIsNull": true,
+      "deadPrincipal": {
+        "ok": false,
+        "code": "USER_INACTIVE",
+        "error": "发起人已离职或被冻结，停止 Runtime"
+      },
+      "livePrincipalStillLucas": true
+    }
+  },
+  "gmail": {
+    "accountEmail": "lucas@sunnyshutter.ca",
+    "hasCompose": false,
+    "hasSend": true,
+    "scopes": "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email openid"
+  },
+  "qaBefore": {
+    "customers": [
+      {
+        "id": "cmryc8zyy0001n1dh5oowx2ku",
+        "name": "[AR2-QA] Customer 1",
+        "email": "ar2-qa-1@example.test"
+      },
+      {
+        "id": "cmryc915a0009n1dhr9uxqzdh",
+        "name": "[AR2-QA] Customer 2",
+        "email": "ar2-qa-2@example.test"
+      },
+      {
+        "id": "cmryc91cm000hn1dhwwdcpr8j",
+        "name": "[AR2-QA] Customer 3",
+        "email": "ar2-qa-3@example.test"
+      }
+    ],
+    "opps": [
+      {
+        "id": "cmryc90fy0003n1dha99ieou2",
+        "title": "[AR2-QA] Opportunity 1",
+        "stage": "negotiation",
+        "nextFollowupAt": "2026-07-22T02:45:59.037Z",
+        "estimatedValue": 10000,
+        "customerId": "cmryc8zyy0001n1dh5oowx2ku"
+      },
+      {
+        "id": "cmryc916q000bn1dht6us5l6q",
+        "title": "[AR2-QA] Opportunity 2",
+        "stage": "quoted",
+        "nextFollowupAt": "2026-07-20T02:46:00.001Z",
+        "estimatedValue": 20000,
+        "customerId": "cmryc915a0009n1dhr9uxqzdh"
+      },
+      {
+        "id": "cmryc91ec000jn1dhsu393dbu",
+        "title": "[AR2-QA] Opportunity 3",
+        "stage": "needs_confirmed",
+        "nextFollowupAt": "2026-07-18T02:46:00.275Z",
+        "estimatedValue": 30000,
+        "customerId": "cmryc91cm000hn1dhwwdcpr8j"
+      }
+    ],
+    "quotes": [
+      {
+        "id": "cmryc910o0005n1dhvvrlhoei",
+        "status": "sent",
+        "sentAt": "2026-07-20T02:45:59.783Z",
+        "customerId": "cmryc8zyy0001n1dh5oowx2ku"
+      },
+      {
+        "id": "cmryc91ad000dn1dhazacxwfl",
+        "status": "sent",
+        "sentAt": "2026-07-19T02:46:00.132Z",
+        "customerId": "cmryc915a0009n1dhr9uxqzdh"
+      },
+      {
+        "id": "cmryc91fu000ln1dhelosgtom",
+        "status": "sent",
+        "sentAt": "2026-07-18T02:46:00.329Z",
+        "customerId": "cmryc91cm000hn1dhwwdcpr8j"
+      }
+    ]
+  },
+  "mengxinOrg": {
+    "id": "cmrv37moo0001sbskqeknr5km",
+    "name": "梦馨家纺",
+    "code": "mengxin-home-textile"
+  },
+  "qaAfter": {
+    "customers": [
+      {
+        "id": "cmryc8zyy0001n1dh5oowx2ku",
+        "name": "[AR2-QA] Customer 1",
+        "email": "ar2-qa-1@example.test"
+      },
+      {
+        "id": "cmryc915a0009n1dhr9uxqzdh",
+        "name": "[AR2-QA] Customer 2",
+        "email": "ar2-qa-2@example.test"
+      },
+      {
+        "id": "cmryc91cm000hn1dhwwdcpr8j",
+        "name": "[AR2-QA] Customer 3",
+        "email": "ar2-qa-3@example.test"
+      }
+    ],
+    "opps": [
+      {
+        "id": "cmryc90fy0003n1dha99ieou2",
+        "title": "[AR2-QA] Opportunity 1",
+        "stage": "negotiation",
+        "nextFollowupAt": "2026-07-22T02:45:59.037Z",
+        "estimatedValue": 10000,
+        "customerId": "cmryc8zyy0001n1dh5oowx2ku"
+      },
+      {
+        "id": "cmryc916q000bn1dht6us5l6q",
+        "title": "[AR2-QA] Opportunity 2",
+        "stage": "quoted",
+        "nextFollowupAt": "2026-07-20T02:46:00.001Z",
+        "estimatedValue": 20000,
+        "customerId": "cmryc915a0009n1dhr9uxqzdh"
+      },
+      {
+        "id": "cmryc91ec000jn1dhsu393dbu",
+        "title": "[AR2-QA] Opportunity 3",
+        "stage": "needs_confirmed",
+        "nextFollowupAt": "2026-07-18T02:46:00.275Z",
+        "estimatedValue": 30000,
+        "customerId": "cmryc91cm000hn1dhwwdcpr8j"
+      }
+    ],
+    "quotes": [
+      {
+        "id": "cmryc910o0005n1dhvvrlhoei",
+        "status": "sent",
+        "sentAt": "2026-07-20T02:45:59.783Z",
+        "customerId": "cmryc8zyy0001n1dh5oowx2ku"
+      },
+      {
+        "id": "cmryc91ad000dn1dhazacxwfl",
+        "status": "sent",
+        "sentAt": "2026-07-19T02:46:00.132Z",
+        "customerId": "cmryc915a0009n1dhr9uxqzdh"
+      },
+      {
+        "id": "cmryc91fu000ln1dhelosgtom",
+        "status": "sent",
+        "sentAt": "2026-07-18T02:46:00.329Z",
+        "customerId": "cmryc91cm000hn1dhwwdcpr8j"
+      }
+    ]
+  },
+  "finishedAt": "2026-07-24T02:47:37.769Z",
+  "final": "PREVIEW_ACCEPTANCE_FAIL",
+  "blockers": [
+    "Gmail lacks gmail.compose scope — Gmail draft path cannot fully pass"
+  ]
+}

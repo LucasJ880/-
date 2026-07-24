@@ -1,0 +1,24 @@
+{
+  "auditedAt": "2026-07-24T04:38:30.000Z",
+  "trigger": "user said: compose 已就绪",
+  "userId": "cmmy6zimk0000ju04hrln3yqv",
+  "accountEmail": "lucas@sunnyshutter.ca",
+  "emailProviderId": "cmo788rvy0000lg04v5hvzlkv",
+  "grantedScopes": "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email openid",
+  "hasGmailCompose": false,
+  "hasGmailSend": true,
+  "updatedAt": "2026-07-23T19:02:04.534Z",
+  "tokenExpiry": "2026-07-23T20:02:03.532Z",
+  "verdict": "FAIL_GMAIL_COMPOSE_MISSING",
+  "smokeGate": "BLOCKED",
+  "envNotes": {
+    "previewRedirectUri": "https://rho-sage.vercel.app/api/auth/google-email/callback",
+    "previewAndProdShareDb": true,
+    "dbHost": "ep-super-field-antfibsl-pooler.c-6.us-east-1.aws.neon.tech"
+  },
+  "interpretation": [
+    "EmailProvider row unchanged since 2026-07-23 — successful compose reauth did not land",
+    "App only persists EmailProvider when tokens.scope includes gmail.compose AND refresh_token is present",
+    "OAuth callback redirect is Production host rho-sage.vercel.app even from Preview; check callback URL for error= after reauth"
+  ]
+}
