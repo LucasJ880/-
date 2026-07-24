@@ -51,8 +51,8 @@ model User {
   /// 是否允许在个人设置中自助切换工作企业（需同时 MULTI_ORG）
   canSelfSwitchOrg Boolean       @default(false)
 
-  projects                 Project[]                  @relation("ProjectOwner")
-  purchasedProjects        Project[]                  @relation("ProjectPurchaser")
+  projects                 Project[]                   @relation("ProjectOwner")
+  purchasedProjects        Project[]                   @relation("ProjectPurchaser")
   tasks                    Task[]                      @relation("TaskAssignee")
   createdTasks             Task[]                      @relation("TaskCreator")
   comments                 TaskComment[]
@@ -149,7 +149,7 @@ model User {
   companyIdsJson String?
 
   // 人机协作学习 Phase 1
-  employeeAiProfiles  EmployeeAiProfile[] @relation("EmployeeAiProfileUser")
+  employeeAiProfiles  EmployeeAiProfile[]  @relation("EmployeeAiProfileUser")
   humanFeedbackEvents HumanFeedbackEvent[] @relation("HumanFeedbackEventUser")
   businessOutcomes    BusinessOutcome[]    @relation("BusinessOutcomeUser")
 
@@ -308,20 +308,20 @@ model Project {
   notificationRules    ProjectNotificationRule[]
   calendarEvents       CalendarEvent[]
 
-  externalRef       ExternalReference?
-  intelligence      ProjectIntelligence?
-  progressSummaries ProjectProgressSummary[]
-  documents         ProjectDocument[]
-  discussion        ProjectConversation?
-  aiThreads         AiThread[]
-  inquiries         ProjectInquiry[]
-  quotes            ProjectQuote[]
-  agentTasks        AgentTask[]
-  insights          ProjectInsight[]
-  similaritiesAsSource ProjectSimilarity[] @relation("SimilaritySource")
-  similaritiesAsTarget ProjectSimilarity[] @relation("SimilarityTarget")
-  reviews           ProjectReview[]
-  generatedDocs     ProjectGeneratedDocument[]
+  externalRef          ExternalReference?
+  intelligence         ProjectIntelligence?
+  progressSummaries    ProjectProgressSummary[]
+  documents            ProjectDocument[]
+  discussion           ProjectConversation?
+  aiThreads            AiThread[]
+  inquiries            ProjectInquiry[]
+  quotes               ProjectQuote[]
+  agentTasks           AgentTask[]
+  insights             ProjectInsight[]
+  similaritiesAsSource ProjectSimilarity[]        @relation("SimilaritySource")
+  similaritiesAsTarget ProjectSimilarity[]        @relation("SimilarityTarget")
+  reviews              ProjectReview[]
+  generatedDocs        ProjectGeneratedDocument[]
 
   @@index([orgId])
   @@index([workspaceId])
@@ -630,21 +630,21 @@ model CalendarProvider {
 // ============================================================
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  code      String   @unique
-  ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id])
-  status    String   @default("active")
-  planType  String   @default("free")
+  id             String   @id @default(cuid())
+  name           String
+  code           String   @unique
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id])
+  status         String   @default("active")
+  planType       String   @default("free")
   /// 启用模块：{ "enabled": ["sales","trade",...] }
-  modulesJson Json?
+  modulesJson    Json?
   /// 企业级设置预留（审批默认、Agent 默认等）
-  settingsJson Json?
+  settingsJson   Json?
   /// Industry Pack id（Registry）：如 window_covering_services_v1；空=未配置（禁止静默家纺回退）
   industryPackId String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   members           OrganizationMember[]
   projects          Project[]
@@ -655,24 +655,24 @@ model Organization {
   agentSkills       AgentSkill[]
   marketCompetitors MarketCompetitor[]
   projectRules      OrganizationProjectRule[]
-  activeUsers       User[]                   @relation("UserActiveOrg")
+  activeUsers       User[]                    @relation("UserActiveOrg")
   roleProfiles      RoleProfile[]
   positionTemplates PositionTemplate[]
 
   // 人机协作学习 Phase 1
-  employeeAiProfiles    EmployeeAiProfile[]
-  humanFeedbackEvents   HumanFeedbackEvent[]
-  businessOutcomes      BusinessOutcome[]
-  candidatePractices    CandidatePractice[]
-  rolePlaybooks         RolePlaybook[]
-  agentSkillVersions    AgentSkillVersion[]
-  evaluationCases       EvaluationCase[]
+  employeeAiProfiles  EmployeeAiProfile[]
+  humanFeedbackEvents HumanFeedbackEvent[]
+  businessOutcomes    BusinessOutcome[]
+  candidatePractices  CandidatePractice[]
+  rolePlaybooks       RolePlaybook[]
+  agentSkillVersions  AgentSkillVersion[]
+  evaluationCases     EvaluationCase[]
 
   // AI 外贸产品内容总监 Phase 1
-  tradeProducts              TradeProduct[]
-  productContentJobs         ProductContentJob[]
-  agentApprovalSettings      AgentApprovalSettings?
-  quoteDiscountSettings      QuoteDiscountSettings?
+  tradeProducts         TradeProduct[]
+  productContentJobs    ProductContentJob[]
+  agentApprovalSettings AgentApprovalSettings?
+  quoteDiscountSettings QuoteDiscountSettings?
 
   // Phase 2B：企业语义与业务配置
   glossaryTerms              OrganizationGlossaryTerm[]
@@ -682,13 +682,13 @@ model Organization {
   workspaceKnowledgeBindings WorkspaceKnowledgeBinding[]
 
   // Phase 3A-2：统一 AI 使用成本账本
-  aiUsageLedgers             AiUsageLedger[]
+  aiUsageLedgers              AiUsageLedger[]
   // Phase 3A-4：企业配额
-  capabilityQuotaPolicies    CapabilityQuotaPolicy[]
+  capabilityQuotaPolicies     CapabilityQuotaPolicy[]
   capabilityQuotaReservations CapabilityQuotaReservation[]
 
   // Phase 3B-A：助手线程租户绑定
-  aiThreads                  AiThread[]
+  aiThreads AiThread[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -705,13 +705,13 @@ model Workspace {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  members  WorkspaceMember[]
-  projects Project[]
-  glossaryTerms              OrganizationGlossaryTerm[]
-  businessObjectDefinitions  BusinessObjectDefinition[]
-  businessMetricDefinitions  BusinessMetricDefinition[]
-  skillBindings              WorkspaceSkillBinding[]
-  knowledgeBindings          WorkspaceKnowledgeBinding[]
+  members                   WorkspaceMember[]
+  projects                  Project[]
+  glossaryTerms             OrganizationGlossaryTerm[]
+  businessObjectDefinitions BusinessObjectDefinition[]
+  businessMetricDefinitions BusinessMetricDefinition[]
+  skillBindings             WorkspaceSkillBinding[]
+  knowledgeBindings         WorkspaceKnowledgeBinding[]
 
   @@unique([orgId, slug])
   @@index([orgId, status])
@@ -779,20 +779,20 @@ model OrganizationMember {
 // ============================================================
 
 model RoleProfile {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   orgId         String
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   key           String
   name          String
   description   String?
-  principalType String   @default("HUMAN")
-  isSystem      Boolean  @default(false)
-  status        String   @default("active")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  principalType String       @default("HUMAN")
+  isSystem      Boolean      @default(false)
+  status        String       @default("active")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  permissions RolePermissionBinding[]
-  assignments PrincipalRoleBinding[]
+  permissions       RolePermissionBinding[]
+  assignments       PrincipalRoleBinding[]
   positionTemplates PositionTemplate[]
 
   @@unique([orgId, key])
@@ -800,12 +800,12 @@ model RoleProfile {
 }
 
 model RolePermissionBinding {
-  id            String @id @default(cuid())
-  orgId         String
-  roleProfileId String
-  permissionKey String
-  dataScope     String
-  effect        String @default("ALLOW")
+  id             String @id @default(cuid())
+  orgId          String
+  roleProfileId  String
+  permissionKey  String
+  dataScope      String
+  effect         String @default("ALLOW")
   conditionsJson Json?
 
   roleProfile RoleProfile @relation(fields: [roleProfileId], references: [id], onDelete: Cascade)
@@ -833,19 +833,19 @@ model PrincipalRoleBinding {
 }
 
 model PositionTemplate {
-  id                   String   @id @default(cuid())
+  id                   String       @id @default(cuid())
   orgId                String
   org                  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   key                  String
   name                 String
   description          String?
-  principalType        String   @default("HUMAN")
-  status               String   @default("active")
-  isSystem             Boolean  @default(false)
+  principalType        String       @default("HUMAN")
+  status               String       @default("active")
+  isSystem             Boolean      @default(false)
   primaryRoleProfileId String?
   primaryRoleProfile   RoleProfile? @relation(fields: [primaryRoleProfileId], references: [id], onDelete: SetNull)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   @@unique([orgId, key])
   @@index([orgId, status])
@@ -1176,25 +1176,25 @@ model ConversationContextSnapshot {
 }
 
 model AuditLog {
-  id         String        @id @default(cuid())
-  orgId      String?
-  org        Organization? @relation(fields: [orgId], references: [id])
-  projectId  String?
-  project    Project?      @relation(fields: [projectId], references: [id])
+  id          String        @id @default(cuid())
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id])
+  projectId   String?
+  project     Project?      @relation(fields: [projectId], references: [id])
   /// Phase 3A-4：可选 Workspace / Trace / 风险（历史可空）
   workspaceId String?
   traceId     String?
   riskLevel   String?
-  userId     String
-  user       User          @relation(fields: [userId], references: [id])
-  action     String
-  targetType String
-  targetId   String?
-  beforeData String?
-  afterData  String?
-  ip         String?
-  userAgent  String?
-  createdAt  DateTime      @default(now())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  action      String
+  targetType  String
+  targetId    String?
+  beforeData  String?
+  afterData   String?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime      @default(now())
 
   @@index([orgId])
   @@index([projectId])
@@ -1608,19 +1608,19 @@ model ProjectInsight {
 
 /// 相似历史项目匹配结果
 model ProjectSimilarity {
-  id               String   @id @default(cuid())
-  orgId            String?
-  projectId        String
-  project          Project  @relation("SimilaritySource", fields: [projectId], references: [id], onDelete: Cascade)
-  similarProjectId String
-  similarProject   Project  @relation("SimilarityTarget", fields: [similarProjectId], references: [id], onDelete: Cascade)
-  score            Float
-  reasonsJson      String   @db.Text
-  impactText       String?  @db.Text
-  recommendationsJson String? @db.Text
-  redacted         Boolean  @default(false)
-  computedAt       DateTime @default(now())
-  createdAt        DateTime @default(now())
+  id                  String   @id @default(cuid())
+  orgId               String?
+  projectId           String
+  project             Project  @relation("SimilaritySource", fields: [projectId], references: [id], onDelete: Cascade)
+  similarProjectId    String
+  similarProject      Project  @relation("SimilarityTarget", fields: [similarProjectId], references: [id], onDelete: Cascade)
+  score               Float
+  reasonsJson         String   @db.Text
+  impactText          String?  @db.Text
+  recommendationsJson String?  @db.Text
+  redacted            Boolean  @default(false)
+  computedAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
 
   @@unique([projectId, similarProjectId])
   @@index([projectId, score])
@@ -1629,20 +1629,20 @@ model ProjectSimilarity {
 
 /// 项目结束复盘（草稿 → 用户确认后进入企业记忆）
 model ProjectReview {
-  id              String    @id @default(cuid())
-  orgId           String?
-  projectId       String
-  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  status          String    @default("draft") // draft | confirmed
-  outcome         String? // awarded | lost | cancelled | no_bid | completed | terminated
-  priceAnalysisJson String? @db.Text
-  reasonTagsJson  String?   @db.Text
-  narrative       String?   @db.Text
-  customerFeedback String?  @db.Text
-  confirmedById   String?
-  confirmedAt     DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  orgId             String?
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status            String    @default("draft") // draft | confirmed
+  outcome           String? // awarded | lost | cancelled | no_bid | completed | terminated
+  priceAnalysisJson String?   @db.Text
+  reasonTagsJson    String?   @db.Text
+  narrative         String?   @db.Text
+  customerFeedback  String?   @db.Text
+  confirmedById     String?
+  confirmedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([projectId, status])
   @@index([orgId, status])
@@ -1651,19 +1651,19 @@ model ProjectReview {
 
 /// 一键生成的项目 PDF / 文件版本记录
 model ProjectGeneratedDocument {
-  id        String   @id @default(cuid())
-  orgId     String?
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  docType   String // supplier_rfq | tech_confirm | internal_analysis | teammate_tasks | owner_clarification
-  version   Int      @default(1)
-  title     String
-  blobUrl   String?
-  fileUrl   String?
-  metaJson  String?  @db.Text
-  stale     Boolean  @default(false)
+  id          String   @id @default(cuid())
+  orgId       String?
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  docType     String // supplier_rfq | tech_confirm | internal_analysis | teammate_tasks | owner_clarification
+  version     Int      @default(1)
+  title       String
+  blobUrl     String?
+  fileUrl     String?
+  metaJson    String?  @db.Text
+  stale       Boolean  @default(false)
   createdById String?
-  createdAt DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   @@index([projectId, docType])
   @@index([orgId])
@@ -1926,16 +1926,20 @@ model PendingAction {
   resultRef String?
 
   /// Phase 3A-3：可选 Workspace 归属（历史可空；新草稿应尽量写入）
-  workspaceId String?
+  workspaceId     String?
   /// Phase 3A-3：防篡改 — 审批创建时固定
-  payloadVersion Int?
-  payloadHash    String?
-  policyVersion  String?
+  payloadVersion  Int?
+  payloadHash     String?
+  policyVersion   String?
   resourceVersion String?
+
+  /// Agent Runtime 2.0：稳定业务幂等键（不含 attempt）；空允许多行
+  idempotencyKey String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([orgId, idempotencyKey])
   @@index([createdById, status, createdAt])
   @@index([approverUserId, status, createdAt])
   @@index([orgId, status, createdAt])
@@ -1950,8 +1954,8 @@ model ApprovalDecisionIdempotency {
   id             String   @id @default(cuid())
   orgId          String
   idempotencyKey String
-  approvalKey    String   // sourceType:sourceId
-  action         String   // approve | reject | cancel | retry
+  approvalKey    String // sourceType:sourceId
+  action         String // approve | reject | cancel | retry
   userId         String
   resultJson     Json?
   createdAt      DateTime @default(now())
@@ -3225,30 +3229,30 @@ model SalesQuote {
 /// 历史版本见 OrgBusinessRule(ruleKey=quote_discounts)
 /// 遗留 singleton 行仅作迁移源，运行时禁止跨 org 读取
 model QuoteDiscountSettings {
-  id                  String       @id @default(cuid())
-  orgId               String       @unique
-  org                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  version             Int          @default(1)
-  effectiveAt         DateTime     @default(now())
-  zebra               Float        @default(0.45)
-  shangrila           Float        @default(0.35)
-  cellular            Float        @default(0.35)
-  roller              Float        @default(0.45)
-  drapery             Float        @default(0.35)
-  sheer               Float        @default(0.35)
-  shutters            Float        @default(0.35)
-  honeycomb           Float        @default(0.35)
-  promoWarnPct        Float        @default(0.06)
-  promoDangerPct      Float        @default(0.15)
-  promoMaxPct         Float        @default(0.25)
-  depositWarnPct      Float        @default(0.40)
-  depositMinPct       Float        @default(0.30)
+  id                         String       @id @default(cuid())
+  orgId                      String       @unique
+  org                        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  version                    Int          @default(1)
+  effectiveAt                DateTime     @default(now())
+  zebra                      Float        @default(0.45)
+  shangrila                  Float        @default(0.35)
+  cellular                   Float        @default(0.35)
+  roller                     Float        @default(0.45)
+  drapery                    Float        @default(0.35)
+  sheer                      Float        @default(0.35)
+  shutters                   Float        @default(0.35)
+  honeycomb                  Float        @default(0.35)
+  promoWarnPct               Float        @default(0.06)
+  promoDangerPct             Float        @default(0.15)
+  promoMaxPct                Float        @default(0.25)
+  depositWarnPct             Float        @default(0.40)
+  depositMinPct              Float        @default(0.30)
   /// bcrypt 哈希；禁止存明文。API 永不返回此字段。
-  depositOverrideCode String?
+  depositOverrideCode        String?
   /// 行折扣解锁码的 bcrypt 哈希（禁止存明文；API 永不返回）
   lineDiscountUnlockCodeHash String?
-  updatedAt           DateTime     @updatedAt
-  updatedBy           String?
+  updatedAt                  DateTime     @updatedAt
+  updatedBy                  String?
 }
 
 /// 企业业务规则版本库（毛利/风险/自动发送/Agent 工具覆盖等）
@@ -3303,27 +3307,27 @@ model OrganizationGlossaryTerm {
 
 /// Phase 2B：标准业务对象定义（注册现有 Prisma 对象，不复制业务数据）
 model BusinessObjectDefinition {
-  id                     String       @id @default(cuid())
-  orgId                  String
-  org                    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  workspaceId            String?
-  workspace              Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  industryPackId         String?
-  objectKey              String
-  displayName            String
-  description            String?      @db.Text
-  aliasesJson            Json         @default("[]")
-  sourceModel            String?
-  idField                String?      @default("id")
-  statusField            String?
+  id                      String       @id @default(cuid())
+  orgId                   String
+  org                     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId             String?
+  workspace               Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  industryPackId          String?
+  objectKey               String
+  displayName             String
+  description             String?      @db.Text
+  aliasesJson             Json         @default("[]")
+  sourceModel             String?
+  idField                 String?      @default("id")
+  statusField             String?
   allowedStatusesJson     Json?
   relationDefinitionsJson Json?
-  riskFieldsJson         Json?
+  riskFieldsJson          Json?
   /// active | draft | disabled
-  status                 String       @default("active")
-  version                Int          @default(1)
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  status                  String       @default("active")
+  version                 Int          @default(1)
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
 
   @@unique([orgId, objectKey])
   @@index([orgId, status])
@@ -3361,18 +3365,18 @@ model BusinessMetricDefinition {
 
 /// Phase 2B：Workspace Skill 启用/参数（不复制 Skill 本体）
 model WorkspaceSkillBinding {
-  id            String       @id @default(cuid())
-  orgId         String
-  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  workspaceId   String
-  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  skillKey      String
-  enabled       Boolean      @default(true)
-  paramsJson    Json?
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId       String
+  workspace         Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  skillKey          String
+  enabled           Boolean      @default(true)
+  paramsJson        Json?
   /// 可选：限制 orgRole 列表
   allowOrgRolesJson Json?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   @@unique([workspaceId, skillKey])
   @@index([orgId, workspaceId])
@@ -3980,7 +3984,7 @@ model WeChatMessage {
 /// Agent 渠道会话（微信/企微等）— 多轮复用，带 org 隔离
 /// 不存完整聊天；原文仍在 WeChatMessage。summary 仅为压缩摘要。
 model AgentSession {
-  id                    String    @id @default(cuid())
+  id                    String   @id @default(cuid())
   orgId                 String
   userId                String?
   channel               String
@@ -3991,11 +3995,11 @@ model AgentSession {
   currentOpportunityId  String?
   currentQuoteId        String?
   lastResponseId        String?
-  summary               String?   @db.Text
-  status                String    @default("active") // active / archived
-  lastActiveAt          DateTime  @default(now())
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  summary               String?  @db.Text
+  status                String   @default("active") // active / archived
+  lastActiveAt          DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   runs AgentRun[]
 
@@ -4006,45 +4010,109 @@ model AgentSession {
 
 /// 单次 AI 处理任务（含后台队列租约，对标 MarketResearchRun）
 model AgentRun {
-  id            String    @id @default(cuid())
-  orgId         String
-  sessionId     String
-  session       AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  userMessageId String?
-  runType       String    @default("conversation")
-  status        String    @default("queued")
-  model         String?
-  intent        String?
+  id              String       @id @default(cuid())
+  orgId           String
+  sessionId       String
+  session         AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userMessageId   String?
+  runType         String       @default("conversation")
+  status          String       @default("queued")
+  model           String?
+  intent          String?
   /// Phase 3A：跨执行关联；历史可空，新执行应写入
-  traceId       String?
+  traceId         String?
   /// Phase 3A：父 Run（可选）
-  parentRunId   String?
-  startedAt     DateTime?
-  completedAt   DateTime?
-  cancelledAt   DateTime?
-  latencyMs     Int?
-  errorCode     String?
-  errorMessage  String?   @db.Text
-  metadata      Json?
+  parentRunId     String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  latencyMs       Int?
+  errorCode       String?
+  errorMessage    String?      @db.Text
+  metadata        Json?
   /// 主管 AI Supervisor 持久化状态（与 metadata.background 隔离）
   supervisorState Json?
+  /// Agent Runtime 2.0：Planner 结构化计划（与 supervisorState 隔离）
+  planJson        Json?
+  /// Agent Runtime 版本标记：空/v1=旧 Runtime；v2=AR2 durable graph
+  runtimeVersion  String?
   /// 后台消费：尝试次数
-  attempts      Int       @default(0)
+  attempts        Int          @default(0)
   /// 租约过期时间（running 超时可被重新认领）
-  leaseExpiresAt DateTime?
+  leaseExpiresAt  DateTime?
   /// 下次可尝试时间（退避重试）
-  nextAttemptAt  DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  nextAttemptAt   DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  events AgentRunEvent[]
+  events        AgentRunEvent[]
+  steps         AgentRunStep[]
+  verifications AgentRunVerification[]
 
   @@index([orgId, sessionId])
   @@index([orgId, status])
   @@index([orgId, userMessageId])
   @@index([orgId, traceId])
+  @@index([orgId, runtimeVersion, status])
   @@index([status, nextAttemptAt])
   @@index([status, leaseExpiresAt])
+}
+
+/// Agent Runtime 2.0 — 持久化步骤（依赖图 + 证据，挂在 AgentRun 下）
+model AgentRunStep {
+  id               String    @id @default(cuid())
+  orgId            String
+  runId            String
+  run              AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepKey          String
+  title            String
+  description      String?   @db.Text
+  status           String    @default("pending")
+  /// JSON string[] of stepKey dependencies
+  dependsOnJson    Json      @default("[]")
+  preferredTool    String?
+  executionMode    String    @default("read")
+  riskLevel        String    @default("LOW")
+  requiresApproval Boolean   @default(false)
+  attemptCount     Int       @default(0)
+  maxAttempts      Int       @default(2)
+  inputJson        Json?
+  outputJson       Json?
+  evidenceJson     Json?
+  pendingActionId  String?
+  errorCode        String?
+  errorMessage     String?   @db.Text
+  /// 幂等键：ar2:{runId}:{stepKey}:{attempt}
+  idempotencyKey   String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([runId, stepKey])
+  @@unique([orgId, idempotencyKey])
+  @@index([orgId, runId])
+  @@index([runId, status])
+  @@index([orgId, pendingActionId])
+}
+
+/// Agent Runtime 2.0 — Verifier 结果与 Repair 历史
+model AgentRunVerification {
+  id                      String   @id @default(cuid())
+  orgId                   String
+  runId                   String
+  run                     AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  attempt                 Int
+  verdict                 String
+  summary                 String   @db.Text
+  satisfiedCriteriaJson   Json     @default("[]")
+  unsatisfiedCriteriaJson Json     @default("[]")
+  evidenceReferencesJson  Json     @default("[]")
+  repairInstructionsJson  Json     @default("[]")
+  createdAt               DateTime @default(now())
+
+  @@unique([runId, attempt])
+  @@index([orgId, runId])
 }
 
 /// AgentRun 真实执行进度事件（不伪造「正在思考」）
@@ -4748,12 +4816,12 @@ model MarketingBrandProfile {
   timezone    String  @default("America/Toronto")
   industry    String
 
-  productsJson          Json  @default("[]")
-  serviceAreasJson      Json  @default("[]")
-  targetAudiencesJson   Json  @default("[]")
-  competitorsJson       Json  @default("[]")
-  forbiddenContextsJson Json  @default("[]")
-  canonicalNapJson      Json?
+  productsJson                Json  @default("[]")
+  serviceAreasJson            Json  @default("[]")
+  targetAudiencesJson         Json  @default("[]")
+  competitorsJson             Json  @default("[]")
+  forbiddenContextsJson       Json  @default("[]")
+  canonicalNapJson            Json?
   /// 已确认的产品营销上下文（Product Marketing Context）；AI 只能提议更新，不可直接覆盖
   productMarketingContextJson Json?
 
@@ -5182,17 +5250,17 @@ model EmployeeAiProfile {
   roleScope  String  @default("general") // sales / marketing / tender / analytics / general
   department String?
 
-  preferredLanguage   String?
-  responseDetailLevel String? // concise / balanced / detailed
-  preferredFormats    Json?
-  preferredChannels   Json?
+  preferredLanguage     String?
+  responseDetailLevel   String? // concise / balanced / detailed
+  preferredFormats      Json?
+  preferredChannels     Json?
   schedulingPreferences Json?
-  communicationStyle  Json?
-  approvalPreferences Json?
-  personalTemplates   Json?
+  communicationStyle    Json?
+  approvalPreferences   Json?
+  personalTemplates     Json?
 
   /// AI 推断偏好（须经员工确认才写入 confirmed）
-  learnedPreferences Json?
+  learnedPreferences           Json?
   /// 员工人工确认偏好（优先级高于 inferred）
   manuallyConfirmedPreferences Json?
 
@@ -5219,18 +5287,18 @@ model HumanFeedbackEvent {
   userId String
   user   User         @relation("HumanFeedbackEventUser", fields: [userId], references: [id], onDelete: Cascade)
 
-  agentRunId        String?
-  skillExecutionId  String?
-  pendingActionId   String?
-  supervisorStepId  String?
-  workerType        String?
-  skillSlug         String?
-  taskType          String
+  agentRunId       String?
+  skillExecutionId String?
+  pendingActionId  String?
+  supervisorStepId String?
+  workerType       String?
+  skillSlug        String?
+  taskType         String
 
   /// 引用优先：{ type, id }；必要时才存快照
-  aiOutputRef      Json
-  aiOutputSnapshot Json?
-  humanDecision    String // accepted / edited / rejected / deferred / not_applicable
+  aiOutputRef       Json
+  aiOutputSnapshot  Json?
+  humanDecision     String // accepted / edited / rejected / deferred / not_applicable
   humanEditedOutput Json?
   diffSummary       Json?
   reasonCode        String?
@@ -5265,9 +5333,9 @@ model BusinessOutcome {
   pendingActionId  String?
   skillExecutionId String?
 
-  entityType String
-  entityId   String
-  actionType String
+  entityType       String
+  entityId         String
+  actionType       String
   actionOccurredAt DateTime
 
   outcomeType    String
@@ -5296,19 +5364,19 @@ model BusinessOutcome {
 
 /// 候选工作方法（不得被数字员工自动当作正式规则）
 model CandidatePractice {
-  id     String       @id @default(cuid())
-  orgId  String
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  department String
-  roleScope  String
-  title      String
+  department  String
+  roleScope   String
+  title       String
   description String @db.Text
 
-  triggerConditions   Json?
-  recommendedProcess  Json?
-  exceptions          Json?
-  evidenceSummary     Json?
+  triggerConditions     Json?
+  recommendedProcess    Json?
+  exceptions            Json?
+  evidenceSummary       Json?
   supportingFeedbackIds Json?
   supportingOutcomeIds  Json?
 
@@ -5320,7 +5388,7 @@ model CandidatePractice {
   generatedByRunId String?
   reviewedBy       String?
   reviewedAt       DateTime?
-  rejectionReason  String? @db.Text
+  rejectionReason  String?   @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -5331,27 +5399,27 @@ model CandidatePractice {
 
 /// 已批准部门 Playbook（版本化，禁止覆盖历史）
 model RolePlaybook {
-  id     String       @id @default(cuid())
-  orgId  String
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   department  String
   roleScope   String
   name        String
-  description String  @db.Text
-  version     Int     @default(1)
+  description String @db.Text
+  version     Int    @default(1)
   /// draft | active | retired
-  status      String  @default("draft")
+  status      String @default("draft")
 
-  rules           Json?
-  workflows       Json?
-  templates       Json?
-  exceptions      Json?
-  evidenceSummary Json?
+  rules                      Json?
+  workflows                  Json?
+  templates                  Json?
+  exceptions                 Json?
+  evidenceSummary            Json?
   sourceCandidatePracticeIds Json?
 
-  approvedBy String?
-  approvedAt DateTime?
+  approvedBy    String?
+  approvedAt    DateTime?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
   supersedesId  String?
@@ -5373,16 +5441,16 @@ model AgentSkillVersion {
   skillId String
   skill   AgentSkill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
 
-  version           Int
-  systemPromptHash  String
-  inputSchemaHash   String?
-  outputSchemaHash  String?
+  version             Int
+  systemPromptHash    String
+  inputSchemaHash     String?
+  outputSchemaHash    String?
   playbookVersionRefs Json?
-  changeReason      String? @db.Text
+  changeReason        String?  @db.Text
   /// draft | active | retired
-  status            String  @default("active")
-  createdBy         String?
-  createdAt         DateTime @default(now())
+  status              String   @default("active")
+  createdBy           String?
+  createdAt           DateTime @default(now())
 
   @@unique([skillId, version])
   @@index([orgId, skillId])
@@ -5390,18 +5458,18 @@ model AgentSkillVersion {
 
 /// 评估用例（脱敏 fixture；用于后续 Playbook/Skill 变更评估）
 model EvaluationCase {
-  id     String       @id @default(cuid())
-  orgId  String
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  domain   String
-  taskType String
-  title    String
+  domain              String
+  taskType            String
+  title               String
   inputFixture        Json
   expectedConstraints Json?
   expectedSignals     Json?
-  source   String  @default("manual")
-  approved Boolean @default(false)
+  source              String  @default("manual")
+  approved            Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -5416,27 +5484,27 @@ model EvaluationCase {
 
 /// 组织级产品主档（动态 attributes，行业字段由 Industry Pack 定义）
 model TradeProduct {
-  id             String       @id @default(cuid())
-  orgId          String
-  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  sku            String
-  name           String
-  nameEn         String?
-  brand          String?
-  category       String?
-  collection     String?
-  modelNumber    String?
-  industryPack   String       @default("home_textile")
-  geometryClass  String       @default("DEFORMABLE_SURFACE")
-  attributes     Json         @default("{}")
-  status         String       @default("draft") // draft | active | archived
-  createdById    String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id            String       @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sku           String
+  name          String
+  nameEn        String?
+  brand         String?
+  category      String?
+  collection    String?
+  modelNumber   String?
+  industryPack  String       @default("home_textile")
+  geometryClass String       @default("DEFORMABLE_SURFACE")
+  attributes    Json         @default("{}")
+  status        String       @default("draft") // draft | active | archived
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  facts ProductFact[]
+  facts  ProductFact[]
   assets ProductAsset[]
-  jobs  ProductContentJob[]
+  jobs   ProductContentJob[]
 
   @@unique([orgId, sku])
   @@index([orgId, category])
@@ -5444,53 +5512,53 @@ model TradeProduct {
 }
 
 model ProductAsset {
-  id                 String       @id @default(cuid())
-  orgId              String
-  productId          String?
-  product            TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  jobId              String?
-  job                ProductContentJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
-  roleAuto           String       @default("unknown")
-  roleConfirmed      String?
-  roleConfidence     Float        @default(0)
-  sourceType         String       @default("upload")
-  blobPathname       String
-  mimeType           String?
-  fileName           String?
-  width              Int?
-  height             Int?
-  locked             Boolean      @default(false)
-  metadata           Json?
-  createdById        String?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  id             String             @id @default(cuid())
+  orgId          String
+  productId      String?
+  product        TradeProduct?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  jobId          String?
+  job            ProductContentJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  roleAuto       String             @default("unknown")
+  roleConfirmed  String?
+  roleConfidence Float              @default(0)
+  sourceType     String             @default("upload")
+  blobPathname   String
+  mimeType       String?
+  fileName       String?
+  width          Int?
+  height         Int?
+  locked         Boolean            @default(false)
+  metadata       Json?
+  createdById    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   @@index([orgId, productId])
   @@index([orgId, jobId])
 }
 
 model ProductFact {
-  id               String        @id @default(cuid())
-  orgId            String
-  productId        String?
-  product          TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  jobId            String?
-  job              ProductContentJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  fieldKey         String
-  value            Json
-  normalizedValue  Json?
-  sourceType       String
-  sourceId         String?
-  sourceLocation   String?
-  confidence       Float         @default(0.5)
-  status           String        @default("extracted") // extracted | needs_review | confirmed | rejected | conflict
-  confirmedById    String?
-  confirmedAt      DateTime?
-  locked           Boolean       @default(false)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id              String             @id @default(cuid())
+  orgId           String
+  productId       String?
+  product         TradeProduct?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  jobId           String?
+  job             ProductContentJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fieldKey        String
+  value           Json
+  normalizedValue Json?
+  sourceType      String
+  sourceId        String?
+  sourceLocation  String?
+  confidence      Float              @default(0.5)
+  status          String             @default("extracted") // extracted | needs_review | confirmed | rejected | conflict
+  confirmedById   String?
+  confirmedAt     DateTime?
+  locked          Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  conflictsAsCurrent ProductFactConflict[] @relation("ConflictCurrent")
+  conflictsAsCurrent  ProductFactConflict[] @relation("ConflictCurrent")
   conflictsAsIncoming ProductFactConflict[] @relation("ConflictIncoming")
 
   @@index([orgId, jobId, fieldKey])
@@ -5499,51 +5567,51 @@ model ProductFact {
 }
 
 model ProductFactConflict {
-  id              String      @id @default(cuid())
-  orgId           String
-  jobId           String
-  job             ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  fieldKey        String
-  currentFactId   String?
-  currentFact     ProductFact? @relation("ConflictCurrent", fields: [currentFactId], references: [id], onDelete: SetNull)
-  incomingFactId  String?
-  incomingFact    ProductFact? @relation("ConflictIncoming", fields: [incomingFactId], references: [id], onDelete: SetNull)
-  currentValue    Json?
-  incomingValue   Json?
-  status          String      @default("open") // open | resolved | dismissed
-  resolution      String?
-  resolvedById    String?
-  resolvedAt      DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id             String            @id @default(cuid())
+  orgId          String
+  jobId          String
+  job            ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fieldKey       String
+  currentFactId  String?
+  currentFact    ProductFact?      @relation("ConflictCurrent", fields: [currentFactId], references: [id], onDelete: SetNull)
+  incomingFactId String?
+  incomingFact   ProductFact?      @relation("ConflictIncoming", fields: [incomingFactId], references: [id], onDelete: SetNull)
+  currentValue   Json?
+  incomingValue  Json?
+  status         String            @default("open") // open | resolved | dismissed
+  resolution     String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   @@index([orgId, jobId, status])
 }
 
 model ProductContentJob {
-  id               String       @id @default(cuid())
-  orgId            String
-  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  productId        String?
-  product          TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  title            String
-  status           String       @default("DRAFT")
-  executionMode    String       @default("AUTOPILOT") // AUTOPILOT | ALWAYS_ASK
-  industryPack     String       @default("home_textile")
-  selectedSku      String?
-  planJson         Json?
-  missingFieldsJson Json?
-  costCents        Int          @default(0)
-  estimatedCostCents Int        @default(0)
-  currency         String       @default("USD")
-  documentPurpose  String       @default("INTERNAL_DRAFT") // INTERNAL_DRAFT | CUSTOMER_REVIEW | FORMAL_EXTERNAL
-  errorMessage     String?      @db.Text
-  createdById      String?
-  approvedById     String?
-  approvedAt       DateTime?
-  deliveredAt      DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                 String        @id @default(cuid())
+  orgId              String
+  org                Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  productId          String?
+  product            TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  title              String
+  status             String        @default("DRAFT")
+  executionMode      String        @default("AUTOPILOT") // AUTOPILOT | ALWAYS_ASK
+  industryPack       String        @default("home_textile")
+  selectedSku        String?
+  planJson           Json?
+  missingFieldsJson  Json?
+  costCents          Int           @default(0)
+  estimatedCostCents Int           @default(0)
+  currency           String        @default("USD")
+  documentPurpose    String        @default("INTERNAL_DRAFT") // INTERNAL_DRAFT | CUSTOMER_REVIEW | FORMAL_EXTERNAL
+  errorMessage       String?       @db.Text
+  createdById        String?
+  approvedById       String?
+  approvedAt         DateTime?
+  deliveredAt        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   inputs      ProductContentJobInput[]
   steps       ProductContentStep[]
@@ -5582,7 +5650,7 @@ model ProductContentCostEntry {
   orgId          String
   jobId          String
   job            ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  category       String            // image_edit | fidelity_qa | copy | document | other
+  category       String // image_edit | fidelity_qa | copy | document | other
   provider       String?
   model          String?
   estimatedCents Int               @default(0)
@@ -5601,42 +5669,42 @@ model ProductContentCostEntry {
 /// usageType: TEXT | IMAGE | EMBEDDING | AUDIO | OTHER
 /// status: SUCCEEDED | FAILED | PARTIAL | ESTIMATED
 model AiUsageLedger {
-  id                 String       @id @default(cuid())
-  orgId              String
-  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  workspaceId        String?
-  projectId          String?
-  userId             String?
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspaceId String?
+  projectId   String?
+  userId      String?
 
-  traceId            String?
-  runId              String?
-  parentRunId        String?
+  traceId     String?
+  runId       String?
+  parentRunId String?
 
-  sourceType         String
-  sourceId           String?
-  idempotencyKey     String       @unique
+  sourceType     String
+  sourceId       String?
+  idempotencyKey String  @unique
 
-  provider           String
-  model              String
-  usageType          String
+  provider  String
+  model     String
+  usageType String
 
-  inputTokens        Int?
-  outputTokens       Int?
-  cachedInputTokens  Int?
-  imageCount         Int?
-  audioSeconds       Float?
+  inputTokens       Int?
+  outputTokens      Int?
+  cachedInputTokens Int?
+  imageCount        Int?
+  audioSeconds      Float?
 
-  durationMs         Int?
-  costAmount         Decimal      @db.Decimal(18, 6)
-  currency           String       @default("USD")
-  pricingVersion     String?
+  durationMs     Int?
+  costAmount     Decimal @db.Decimal(18, 6)
+  currency       String  @default("USD")
+  pricingVersion String?
 
-  status             String
-  errorCode          String?
-  occurredAt         DateTime
-  createdAt          DateTime     @default(now())
+  status     String
+  errorCode  String?
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
 
-  metadataJson       Json?
+  metadataJson Json?
 
   @@index([orgId, occurredAt])
   @@index([workspaceId, occurredAt])
@@ -5694,60 +5762,60 @@ model CapabilityQuotaReservation {
 }
 
 model ProductContentJobInput {
-  id             String           @id @default(cuid())
-  orgId          String
-  jobId          String
-  job            ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  inputType      String           // image | excel | pdf | url | text | voice
-  blobPathname   String?
-  mimeType       String?
-  fileName       String?
-  textContent    String?          @db.Text
-  url            String?
-  purpose        String?          // WebSourcePurpose / image role hint
-  parseStatus    String           @default("pending") // pending | parsed | failed
+  id              String            @id @default(cuid())
+  orgId           String
+  jobId           String
+  job             ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  inputType       String // image | excel | pdf | url | text | voice
+  blobPathname    String?
+  mimeType        String?
+  fileName        String?
+  textContent     String?           @db.Text
+  url             String?
+  purpose         String? // WebSourcePurpose / image role hint
+  parseStatus     String            @default("pending") // pending | parsed | failed
   parseResultJson Json?
-  transcriptText String?          @db.Text
-  createdById    String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  transcriptText  String?           @db.Text
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([orgId, jobId])
 }
 
 model ProductContentStep {
-  id          String           @id @default(cuid())
-  orgId       String
-  jobId       String
-  job         ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  stepKey     String
-  status      String           @default("pending") // pending | running | waiting_approval | done | failed | skipped
-  inputJson   Json?
-  outputJson  Json?
-  errorMessage String?         @db.Text
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id           String            @id @default(cuid())
+  orgId        String
+  jobId        String
+  job          ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepKey      String
+  status       String            @default("pending") // pending | running | waiting_approval | done | failed | skipped
+  inputJson    Json?
+  outputJson   Json?
+  errorMessage String?           @db.Text
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   @@index([orgId, jobId, stepKey])
 }
 
 model VisualGenerationJob {
-  id            String           @id @default(cuid())
-  orgId         String
-  jobId         String
-  job           ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  mode          String           // EXACT | STUDIO | CREATIVE
-  sceneType     String           // white_bg | lifestyle | marketing_layout
-  status        String           @default("pending")
-  prompt        String?          @db.Text
-  provider      String?
-  model         String?
-  costCents     Int              @default(0)
-  errorMessage  String?          @db.Text
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id           String            @id @default(cuid())
+  orgId        String
+  jobId        String
+  job          ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  mode         String // EXACT | STUDIO | CREATIVE
+  sceneType    String // white_bg | lifestyle | marketing_layout
+  status       String            @default("pending")
+  prompt       String?           @db.Text
+  provider     String?
+  model        String?
+  costCents    Int               @default(0)
+  errorMessage String?           @db.Text
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   outputs VisualOutput[]
 
@@ -5755,19 +5823,19 @@ model VisualGenerationJob {
 }
 
 model VisualOutput {
-  id              String              @id @default(cuid())
-  orgId           String
-  visualJobId     String
-  visualJob       VisualGenerationJob @relation(fields: [visualJobId], references: [id], onDelete: Cascade)
-  blobPathname    String?
-  status          String              @default("generated") // generated | approved | rejected | locked
-  locked          Boolean             @default(false)
-  provider        String?
-  model           String?
-  qaOverallScore  Float?
-  metadata        Json?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id             String              @id @default(cuid())
+  orgId          String
+  visualJobId    String
+  visualJob      VisualGenerationJob @relation(fields: [visualJobId], references: [id], onDelete: Cascade)
+  blobPathname   String?
+  status         String              @default("generated") // generated | approved | rejected | locked
+  locked         Boolean             @default(false)
+  provider       String?
+  model          String?
+  qaOverallScore Float?
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   qaResult VisualQaResult?
 
@@ -5776,110 +5844,110 @@ model VisualOutput {
 }
 
 model VisualQaResult {
-  id                 String       @id @default(cuid())
-  orgId              String
-  visualOutputId     String       @unique
-  visualOutput       VisualOutput @relation(fields: [visualOutputId], references: [id], onDelete: Cascade)
-  overallScore       Float
-  shapeScore         Float
-  colorScore         Float
-  patternScore       Float?
-  textureScore       Float?
-  logoScore          Float?
-  textScore          Float?
-  accessoryScore     Float?
+  id                  String       @id @default(cuid())
+  orgId               String
+  visualOutputId      String       @unique
+  visualOutput        VisualOutput @relation(fields: [visualOutputId], references: [id], onDelete: Cascade)
+  overallScore        Float
+  shapeScore          Float
+  colorScore          Float
+  patternScore        Float?
+  textureScore        Float?
+  logoScore           Float?
+  textScore           Float?
+  accessoryScore      Float?
   detectedChangesJson Json
-  recommendedStatus  String       // APPROVE | REVIEW | REJECT
-  rawJson            Json?
-  createdAt          DateTime     @default(now())
+  recommendedStatus   String // APPROVE | REVIEW | REJECT
+  rawJson             Json?
+  createdAt           DateTime     @default(now())
 
   @@index([orgId, recommendedStatus])
 }
 
 model ProductCopy {
-  id                    String           @id @default(cuid())
-  orgId                 String
-  jobId                 String           @unique
-  job                   ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  productNameEn         String?
-  titleEn               String?
-  sellingPointsJson     Json?
-  shortDescriptionEn    String?          @db.Text
-  longDescriptionEn     String?          @db.Text
-  specificationsJson    Json?
-  packagingJson         Json?
-  careInstructionsEn    String?          @db.Text
-  useCasesJson          Json?
+  id                     String            @id @default(cuid())
+  orgId                  String
+  jobId                  String            @unique
+  job                    ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  productNameEn          String?
+  titleEn                String?
+  sellingPointsJson      Json?
+  shortDescriptionEn     String?           @db.Text
+  longDescriptionEn      String?           @db.Text
+  specificationsJson     Json?
+  packagingJson          Json?
+  careInstructionsEn     String?           @db.Text
+  useCasesJson           Json?
   missingInformationJson Json?
-  claimsToVerifyJson    Json?
-  locked                Boolean          @default(false)
-  status                String           @default("draft") // draft | ready | approved
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
+  claimsToVerifyJson     Json?
+  locked                 Boolean           @default(false)
+  status                 String            @default("draft") // draft | ready | approved
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
   @@index([orgId, status])
 }
 
 model GeneratedDocument {
-  id           String           @id @default(cuid())
+  id           String            @id @default(cuid())
   orgId        String
   jobId        String
   job          ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  docType      String           // word | pdf | excel | zip | web
+  docType      String // word | pdf | excel | zip | web
   blobPathname String?
   fileName     String?
-  version      Int              @default(1)
-  status       String           @default("draft") // draft | ready | approved
+  version      Int               @default(1)
+  status       String            @default("draft") // draft | ready | approved
   metadata     Json?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   @@index([orgId, jobId, docType])
 }
 
 model ProductContentApproval {
-  id           String           @id @default(cuid())
-  orgId        String
-  jobId        String
-  job          ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  actionKey    String
-  policy       String           // AUTO_ALLOW | ASK_BEFORE | MANUAL_ONLY
-  status       String           @default("pending") // pending | approved | rejected | auto_allowed
+  id            String            @id @default(cuid())
+  orgId         String
+  jobId         String
+  job           ProductContentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  actionKey     String
+  policy        String // AUTO_ALLOW | ASK_BEFORE | MANUAL_ONLY
+  status        String            @default("pending") // pending | approved | rejected | auto_allowed
   requestedById String?
-  decidedById  String?
-  decidedAt    DateTime?
-  reason       String?          @db.Text
-  payloadJson  Json?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  decidedById   String?
+  decidedAt     DateTime?
+  reason        String?           @db.Text
+  payloadJson   Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([orgId, jobId, status])
   @@index([orgId, actionKey])
 }
 
 model AgentApprovalSettings {
-  id                                  String       @id @default(cuid())
-  orgId                               String       @unique
-  org                                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  version                             Int          @default(1)
-  effectiveAt                         DateTime     @default(now())
-  updatedById                         String?
-  defaultExecutionMode                String       @default("AUTOPILOT")
-  autoAnalyzeFiles                    Boolean      @default(true)
-  autoCreateProductDraft              Boolean      @default(true)
-  autoGenerateLowCostVisuals          Boolean      @default(true)
-  autoRunFidelityQa                   Boolean      @default(true)
-  autoGenerateCopyDraft               Boolean      @default(true)
-  autoGenerateFormalDocuments         Boolean      @default(false)
-  autoProcessMultipleSkus             Boolean      @default(false)
-  askBeforeHighCostModel              Boolean      @default(true)
-  askBeforeCreativeMode               Boolean      @default(true)
-  askBeforeFormalPdf                  Boolean      @default(true)
-  askBeforeOverwriteApprovedContent   Boolean      @default(true)
-  askBeforeExternalSend               Boolean      @default(true)
-  askBeforePublish                    Boolean      @default(true)
-  maxAutoCostPerJobCents              Int?
-  maxAutoCostPerDayCents              Int?
-  createdAt                           DateTime     @default(now())
-  updatedAt                           DateTime     @updatedAt
+  id                                String       @id @default(cuid())
+  orgId                             String       @unique
+  org                               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  version                           Int          @default(1)
+  effectiveAt                       DateTime     @default(now())
+  updatedById                       String?
+  defaultExecutionMode              String       @default("AUTOPILOT")
+  autoAnalyzeFiles                  Boolean      @default(true)
+  autoCreateProductDraft            Boolean      @default(true)
+  autoGenerateLowCostVisuals        Boolean      @default(true)
+  autoRunFidelityQa                 Boolean      @default(true)
+  autoGenerateCopyDraft             Boolean      @default(true)
+  autoGenerateFormalDocuments       Boolean      @default(false)
+  autoProcessMultipleSkus           Boolean      @default(false)
+  askBeforeHighCostModel            Boolean      @default(true)
+  askBeforeCreativeMode             Boolean      @default(true)
+  askBeforeFormalPdf                Boolean      @default(true)
+  askBeforeOverwriteApprovedContent Boolean      @default(true)
+  askBeforeExternalSend             Boolean      @default(true)
+  askBeforePublish                  Boolean      @default(true)
+  maxAutoCostPerJobCents            Int?
+  maxAutoCostPerDayCents            Int?
+  createdAt                         DateTime     @default(now())
+  updatedAt                         DateTime     @updatedAt
 }

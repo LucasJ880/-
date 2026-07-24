@@ -268,6 +268,41 @@ export async function approveApprovalItem(
       } catch {
         /* 恢复失败不回滚已批准动作 */
       }
+
+      // Agent Runtime 2.0：审批后恢复 durable graph
+      try {
+        const v2 = await db.agentRun.findFirst({
+          where: {
+            id: before.agentRunId,
+            orgId: before.orgId,
+            runtimeVersion: "v2",
+          },
+          select: { id: true },
+        });
+        if (v2) {
+          const { resumeRuntimeV2AfterApproval } = await import(
+            "@/lib/agent-runtime-v2/process"
+          );
+          const resumed = await resumeRuntimeV2AfterApproval({
+            orgId: before.orgId,
+            runId: before.agentRunId,
+            approvalActorUserId: ctx.userId,
+          });
+          return {
+            ok: result.ok,
+            status: result.ok ? "executed" : "failed",
+            resultRef: result.resultRef,
+            message: [result.message, resumed.report]
+              .filter(Boolean)
+              .join("\n\n"),
+            error: result.error,
+            errorCode: result.errorCode,
+            run,
+          };
+        }
+      } catch {
+        /* V2 恢复失败不回滚已批准动作 */
+      }
     }
     return {
       ok: result.ok,
@@ -374,6 +409,39 @@ export async function rejectApprovalItem(
         }
       } catch {
         /* 恢复失败不改变拒绝结果 */
+      }
+
+      // Agent Runtime 2.0：拒绝后同样 reconcile step 并恢复剩余图
+      try {
+        const v2 = await db.agentRun.findFirst({
+          where: {
+            id: before.agentRunId,
+            orgId: before.orgId,
+            runtimeVersion: "v2",
+          },
+          select: { id: true },
+        });
+        if (v2) {
+          const { resumeRuntimeV2AfterApproval } = await import(
+            "@/lib/agent-runtime-v2/process"
+          );
+          const resumed = await resumeRuntimeV2AfterApproval({
+            orgId: before.orgId,
+            runId: before.agentRunId,
+            approvalActorUserId: ctx.userId,
+          });
+          return {
+            ok: result.ok,
+            status: "rejected",
+            message: ["已拒绝，动作未执行", resumed.report]
+              .filter(Boolean)
+              .join("\n\n"),
+            error: result.error,
+            run,
+          };
+        }
+      } catch {
+        /* V2 恢复失败不改变拒绝结果 */
       }
     }
     return {

@@ -37,6 +37,11 @@ export interface CreateDraftInput {
   ttlHours?: number;
   policyVersion?: string;
   resourceVersion?: string;
+  /**
+   * 稳定业务幂等键（不含 attempt）。
+   * 同 org + key 已存在时复用原草稿，不重复创建。
+   */
+  idempotencyKey?: string;
 }
 
 export type CreatedDraftAction = {
@@ -136,8 +141,39 @@ function buildCreateData(input: CreateDraftInput) {
       threadId: input.threadId,
       messageId: input.messageId,
       agentRunId: input.agentRunId || null,
+      idempotencyKey: input.idempotencyKey ?? null,
       expiresAt,
     },
+  };
+}
+
+/** 按稳定幂等键查找已有草稿（含已执行，防止重试重复写） */
+export async function findDraftByIdempotencyKey(input: {
+  orgId: string;
+  idempotencyKey: string;
+}): Promise<CreatedDraftAction | null> {
+  const action = await db.pendingAction.findFirst({
+    where: {
+      orgId: input.orgId,
+      idempotencyKey: input.idempotencyKey,
+    },
+    select: {
+      id: true,
+      type: true,
+      title: true,
+      preview: true,
+      agentRunId: true,
+      payloadHash: true,
+    },
+  });
+  if (!action) return null;
+  return {
+    actionId: action.id,
+    type: action.type,
+    title: action.title,
+    preview: action.preview,
+    payloadHash: action.payloadHash ?? "",
+    agentRunId: action.agentRunId,
   };
 }
 
@@ -147,25 +183,84 @@ async function defaultCreateAllInTransaction(
   return db.$transaction(async (tx) => {
     const out: CreatedDraftAction[] = [];
     for (const input of inputs) {
+      if (input.orgId && input.idempotencyKey) {
+        const existing = await tx.pendingAction.findFirst({
+          where: {
+            orgId: input.orgId,
+            idempotencyKey: input.idempotencyKey,
+          },
+          select: {
+            id: true,
+            type: true,
+            title: true,
+            preview: true,
+            agentRunId: true,
+            payloadHash: true,
+          },
+        });
+        if (existing) {
+          out.push({
+            actionId: existing.id,
+            type: existing.type,
+            title: existing.title,
+            preview: existing.preview,
+            payloadHash: existing.payloadHash ?? "",
+            agentRunId: existing.agentRunId,
+          });
+          continue;
+        }
+      }
       const { payloadHash, data } = buildCreateData(input);
-      const action = await tx.pendingAction.create({
-        data,
-        select: {
-          id: true,
-          type: true,
-          title: true,
-          preview: true,
-          agentRunId: true,
-        },
-      });
-      out.push({
-        actionId: action.id,
-        type: action.type,
-        title: action.title,
-        preview: action.preview,
-        payloadHash,
-        agentRunId: action.agentRunId,
-      });
+      try {
+        const action = await tx.pendingAction.create({
+          data,
+          select: {
+            id: true,
+            type: true,
+            title: true,
+            preview: true,
+            agentRunId: true,
+          },
+        });
+        out.push({
+          actionId: action.id,
+          type: action.type,
+          title: action.title,
+          preview: action.preview,
+          payloadHash,
+          agentRunId: action.agentRunId,
+        });
+      } catch (e) {
+        // 并发唯一冲突：复用已有行
+        if (input.orgId && input.idempotencyKey) {
+          const raced = await tx.pendingAction.findFirst({
+            where: {
+              orgId: input.orgId,
+              idempotencyKey: input.idempotencyKey,
+            },
+            select: {
+              id: true,
+              type: true,
+              title: true,
+              preview: true,
+              agentRunId: true,
+              payloadHash: true,
+            },
+          });
+          if (raced) {
+            out.push({
+              actionId: raced.id,
+              type: raced.type,
+              title: raced.title,
+              preview: raced.preview,
+              payloadHash: raced.payloadHash ?? "",
+              agentRunId: raced.agentRunId,
+            });
+            continue;
+          }
+        }
+        throw e;
+      }
     }
     return out;
   });

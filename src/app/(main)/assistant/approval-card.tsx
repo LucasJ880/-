@@ -21,8 +21,17 @@ export interface PendingApproval {
   draftType: string;
   title: string;
   preview: string;
-  status: "pending" | "executed" | "rejected" | "failed" | "expired";
+  status:
+    | "pending"
+    | "approved"
+    | "executing"
+    | "executed"
+    | "rejected"
+    | "failed"
+    | "expired";
   failureReason?: string;
+  agentRunId?: string | null;
+  payload?: Record<string, unknown> | null;
 }
 
 const DRAFT_TYPE_LABELS: Record<string, string> = {
@@ -81,6 +90,18 @@ export function ApprovalCard({ approval, onChange, onRunUpdate }: Props) {
     }
   };
 
+  if (approval.status === "approved" || approval.status === "executing") {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-accent">
+        <Loader2 size={14} className="animate-spin" />
+        <span className="font-medium">
+          {approval.status === "approved" ? "已确认" : "执行中"}
+        </span>
+        <span className="opacity-80">{approval.title}</span>
+      </div>
+    );
+  }
+
   // 已终态
   if (approval.status === "executed") {
     return (
@@ -129,17 +150,24 @@ export function ApprovalCard({ approval, onChange, onRunUpdate }: Props) {
 
   // pending
   return (
-    <div className="rounded-xl border border-accent/40 bg-accent/5 px-3.5 py-3 shadow-[0_0_0_3px_rgba(43,96,85,0.08)] ring-1 ring-accent/20">
+    <div
+      className="rounded-xl border border-accent/40 bg-accent/5 px-3.5 py-3 shadow-[0_0_0_3px_rgba(43,96,85,0.08)] ring-1 ring-accent/20"
+      data-testid="pending-action-card"
+      data-action-id={approval.actionId}
+      data-draft-type={approval.draftType}
+    >
       <div className="mb-1 flex items-center gap-2">
         <span className="relative rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-accent">
           <span className="absolute -left-0.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 animate-ping rounded-full bg-accent/70" />
           <span className="pl-2">待确认 · {typeLabel}</span>
         </span>
       </div>
+      <div className="mb-0.5 text-[11px] text-muted">动作类型：{typeLabel}</div>
       <div className="mb-1 text-sm font-semibold text-foreground">
         {approval.title}
       </div>
       <div className="mb-3 text-xs leading-relaxed text-muted">
+        <span className="font-medium text-foreground/80">变更预览：</span>
         {approval.preview}
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">

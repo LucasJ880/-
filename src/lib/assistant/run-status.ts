@@ -68,7 +68,11 @@ export function toAssistantRunStatusDto(input: {
     | "startedAt"
     | "updatedAt"
     | "completedAt"
-  > & { userMessageId?: string | null };
+  > & {
+    userMessageId?: string | null;
+    runtimeVersion?: string | null;
+    planJson?: unknown;
+  };
   threadId: string;
   initiatedByUserId: string;
   events?: Array<Pick<AgentRunEvent, "eventType" | "title" | "visibleToUser" | "createdAt">>;
@@ -81,6 +85,11 @@ export function toAssistantRunStatusDto(input: {
   partialSideEffects?: boolean;
   canRetry?: boolean;
   retryKind?: AssistantRetryKind;
+  runtimeSteps?: AssistantRunStatusDto["runtimeSteps"];
+  prioritizedCustomers?: AssistantRunStatusDto["prioritizedCustomers"];
+  awaitingApprovalStepCount?: number;
+  verificationLabel?: string | null;
+  objective?: string | null;
 }): AssistantRunStatusDto {
   const status =
     input.statusOverride ??
@@ -105,6 +114,16 @@ export function toAssistantRunStatusDto(input: {
     typeof meta.partialCompletion === "boolean" ? meta.partialCompletion : false;
   const metaSide =
     typeof meta.partialSideEffects === "boolean" ? meta.partialSideEffects : false;
+
+  const planObj =
+    input.run.planJson && typeof input.run.planJson === "object"
+      ? (input.run.planJson as { summary?: unknown; objective?: unknown })
+      : null;
+  const planSummary =
+    typeof planObj?.summary === "string" ? planObj.summary : null;
+  const objective =
+    input.objective ??
+    (typeof planObj?.objective === "string" ? planObj.objective : null);
 
   return {
     runId: input.run.id,
@@ -132,6 +151,13 @@ export function toAssistantRunStatusDto(input: {
     partialSideEffects: input.partialSideEffects ?? metaSide,
     canRetry: input.canRetry ?? false,
     retryKind: input.retryKind ?? null,
+    runtimeVersion: input.run.runtimeVersion ?? null,
+    planSummary,
+    objective,
+    runtimeSteps: input.runtimeSteps,
+    prioritizedCustomers: input.prioritizedCustomers,
+    awaitingApprovalStepCount: input.awaitingApprovalStepCount,
+    verificationLabel: input.verificationLabel ?? null,
   };
 }
 
@@ -158,10 +184,13 @@ export async function listAssistantRunsForThread(input: {
       updatedAt: Date;
       completedAt: Date | null;
       sessionUserId: string | null;
+      runtimeVersion: string | null;
+      planJson: unknown;
     }>
   >`
     SELECT r.id, r."orgId", r.status, r.intent, r."errorCode", r."errorMessage",
            r.metadata, r."userMessageId", r."startedAt", r."updatedAt", r."completedAt",
+           r."runtimeVersion", r."planJson",
            s."userId" AS "sessionUserId"
     FROM "AgentRun" r
     INNER JOIN "AgentSession" s ON s.id = r."sessionId"
@@ -229,6 +258,57 @@ export async function listAssistantRunsForThread(input: {
       return s.pending + s.approved > 0;
     });
 
+    let runtimeSteps: AssistantRunStatusDto["runtimeSteps"];
+    let prioritizedCustomers: AssistantRunStatusDto["prioritizedCustomers"];
+    let awaitingApprovalStepCount: number | undefined;
+    let verificationLabel: string | null = null;
+    if (run.runtimeVersion === "v2") {
+      const steps = await db.agentRunStep.findMany({
+        where: { orgId: input.orgId, runId: run.id },
+        orderBy: { createdAt: "asc" },
+        select: {
+          stepKey: true,
+          title: true,
+          status: true,
+          preferredTool: true,
+          attemptCount: true,
+          errorMessage: true,
+          requiresApproval: true,
+          outputJson: true,
+        },
+      });
+      runtimeSteps = steps.map((s) => ({
+        stepKey: s.stepKey,
+        title: s.title,
+        status: s.status,
+        toolName: s.preferredTool,
+        preferredTool: s.preferredTool,
+        attemptCount: s.attemptCount,
+        errorMessage: s.errorMessage,
+        requiresApproval: s.requiresApproval,
+      }));
+      awaitingApprovalStepCount = steps.filter(
+        (s) => s.status === "awaiting_approval",
+      ).length;
+      const prioritizeStep = steps.find((s) => s.stepKey === "s5_prioritize");
+      if (prioritizeStep?.outputJson) {
+        const { extractPrioritizedCustomers } = await import(
+          "@/lib/assistant/runtime-v2-ui"
+        );
+        prioritizedCustomers = extractPrioritizedCustomers(
+          prioritizeStep.outputJson,
+        );
+      }
+      const latestVerify = await db.agentRunVerification.findFirst({
+        where: { orgId: input.orgId, runId: run.id },
+        orderBy: { attempt: "desc" },
+        select: { verdict: true, summary: true },
+      });
+      if (latestVerify) {
+        verificationLabel = `${latestVerify.verdict}：${latestVerify.summary}`;
+      }
+    }
+
     dtos.push(
       toAssistantRunStatusDto({
         run: {
@@ -259,6 +339,10 @@ export async function listAssistantRunsForThread(input: {
         partialSideEffects: decision.partialSideEffects,
         canRetry: retry.canRetry,
         retryKind: retry.retryKind,
+        runtimeSteps,
+        prioritizedCustomers,
+        awaitingApprovalStepCount,
+        verificationLabel,
       }),
     );
   }
