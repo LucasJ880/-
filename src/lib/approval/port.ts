@@ -286,8 +286,7 @@ export async function approveApprovalItem(
           const resumed = await resumeRuntimeV2AfterApproval({
             orgId: before.orgId,
             runId: before.agentRunId,
-            userId: ctx.userId,
-            role: ctx.role ?? "user",
+            approvalActorUserId: ctx.userId,
           });
           return {
             ok: result.ok,
@@ -429,8 +428,7 @@ export async function rejectApprovalItem(
           const resumed = await resumeRuntimeV2AfterApproval({
             orgId: before.orgId,
             runId: before.agentRunId,
-            userId: ctx.userId,
-            role: ctx.role ?? "user",
+            approvalActorUserId: ctx.userId,
           });
           return {
             ok: result.ok,

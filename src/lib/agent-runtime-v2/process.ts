@@ -234,45 +234,109 @@ export async function processAgentRuntimeV2Run(input: {
   };
 }
 
-/** 审批决策后恢复 V2 Run */
+/** 审批决策后恢复 V2 Run（执行主体=发起人，非审批人） */
 export async function resumeRuntimeV2AfterApproval(input: {
   orgId: string;
   runId: string;
-  userId: string;
-  role: string;
+  /** 审批人（仅记录，不作为后续执行主体） */
+  approvalActorUserId: string;
 }): Promise<{ status: string; report?: string }> {
-  const steps = await db.agentRunStep.findMany({
-    where: { orgId: input.orgId, runId: input.runId, status: "awaiting_approval" },
+  const { recordApprovalActor, resolveRuntimeV2Principal } = await import(
+    "./principal"
+  );
+  const {
+    reconcilePendingActionsForStep,
+    shouldSkipReconcile,
+  } = await import("./reconcile-approval");
+
+  await recordApprovalActor({
+    orgId: input.orgId,
+    runId: input.runId,
+    approvalActorUserId: input.approvalActorUserId,
   });
 
+  const principal = await resolveRuntimeV2Principal({
+    orgId: input.orgId,
+    runId: input.runId,
+    approvalActorUserId: input.approvalActorUserId,
+  });
+  if (!principal.ok) {
+    await db.agentRun.update({
+      where: { id: input.runId },
+      data: {
+        status: "needs_human",
+        errorCode: principal.code,
+        errorMessage: principal.error,
+      },
+    });
+    await emitRuntimeV2Event({
+      orgId: input.orgId,
+      runId: input.runId,
+      eventType: "run.needs_human",
+      title: "发起人身份失效，需要人工处理",
+      payload: {
+        code: principal.code,
+        approvalActorUserId: input.approvalActorUserId,
+      },
+    });
+    return {
+      status: "needs_human",
+      report: principal.error,
+    };
+  }
+
+  const steps = await db.agentRunStep.findMany({
+    where: {
+      orgId: input.orgId,
+      runId: input.runId,
+      status: "awaiting_approval",
+    },
+  });
+
+  let anyNeedsHuman = false;
+  let anyPartial = false;
   for (const step of steps) {
+    if (shouldSkipReconcile(step.status)) continue;
+
     const ids =
       (step.evidenceJson as { pendingActionIds?: string[] } | null)
         ?.pendingActionIds ??
       (step.pendingActionId ? [step.pendingActionId] : []);
-    if (ids.length === 0) continue;
     const actions = await db.pendingAction.findMany({
       where: { id: { in: ids }, orgId: input.orgId },
       select: { id: true, status: true },
     });
-    const allDecided = actions.every((a) =>
-      ["executed", "rejected", "failed"].includes(a.status),
-    );
-    if (!allDecided) continue;
+    const decision = reconcilePendingActionsForStep({
+      expectedPendingActionIds: ids,
+      found: actions,
+    });
 
-    const anyExecuted = actions.some((a) => a.status === "executed");
-    const allRejected = actions.every((a) => a.status === "rejected");
+    if (decision.stepStatus === "awaiting_approval") {
+      continue;
+    }
+
+    const persistedStatus =
+      decision.stepStatus === "needs_human" ? "failed" : decision.stepStatus;
+    if (decision.stepStatus === "partially_executed") anyPartial = true;
+
     await db.agentRunStep.update({
       where: { id: step.id },
       data: {
-        status: allRejected ? "skipped" : anyExecuted ? "completed" : "failed",
+        status: persistedStatus,
         completedAt: new Date(),
+        errorCode:
+          decision.runHint === "needs_human" ? "approval_reconcile" : null,
+        errorMessage:
+          decision.runHint === "needs_human" ? decision.reason : null,
         outputJson: JSON.parse(
           JSON.stringify({
             ...(typeof step.outputJson === "object" && step.outputJson
               ? step.outputJson
               : {}),
             approvalStatuses: actions,
+            reconcile: decision,
+            approvalActorUserId: input.approvalActorUserId,
+            executionPrincipalUserId: principal.userId,
           }),
         ),
       },
@@ -282,8 +346,32 @@ export async function resumeRuntimeV2AfterApproval(input: {
       runId: input.runId,
       eventType: "approval.resolved",
       title: step.title,
-      payload: { stepKey: step.stepKey, actions },
+      payload: {
+        stepKey: step.stepKey,
+        actions,
+        reconcile: decision,
+        approvalActorUserId: input.approvalActorUserId,
+        executionPrincipalUserId: principal.userId,
+      },
     });
+
+    if (decision.runHint === "needs_human") {
+      anyNeedsHuman = true;
+    }
+  }
+
+  if (anyNeedsHuman) {
+    await db.agentRun.update({
+      where: { id: input.runId },
+      data: {
+        status: "needs_human",
+        errorMessage: "审批结果无法安全 reconcile",
+      },
+    });
+    return {
+      status: "needs_human",
+      report: await buildFinalReport(input.orgId, input.runId),
+    };
   }
 
   const stillAwaiting = await db.agentRunStep.count({
@@ -296,6 +384,16 @@ export async function resumeRuntimeV2AfterApproval(input: {
   if (stillAwaiting === 0) {
     await db.agentRun.update({
       where: { id: input.runId },
+      data: {
+        status: anyPartial ? "partially_executed" : "executing",
+      },
+    });
+  }
+
+  // 部分写操作已执行时仍继续验证剩余步骤，但最终报告会标明部分完成
+  if (stillAwaiting === 0 && anyPartial) {
+    await db.agentRun.update({
+      where: { id: input.runId },
       data: { status: "executing" },
     });
   }
@@ -303,8 +401,8 @@ export async function resumeRuntimeV2AfterApproval(input: {
   return processAgentRuntimeV2Run({
     orgId: input.orgId,
     runId: input.runId,
-    userId: input.userId,
-    role: input.role,
+    userId: principal.userId,
+    role: principal.role,
     maxRounds: 12,
   });
 }

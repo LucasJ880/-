@@ -33,3 +33,17 @@ export {
 export { executeRuntimeV2Round } from "./executor";
 export { verifyRuntimeV2Run } from "./verifier";
 export { userFacingRunLabel } from "./events";
+export {
+  resolveRuntimeV2Principal,
+  recordApprovalActor,
+} from "./principal";
+export {
+  reconcilePendingActionsForStep,
+  shouldSkipReconcile,
+} from "./reconcile-approval";
+export {
+  buildRuntimeV2OperationKey,
+  buildStepOperationKey,
+} from "./idempotency";
+export { classifyGraderError } from "./grader-errors";
+export { prioritizeFollowups, extractGraderBoosts } from "./prioritize";
