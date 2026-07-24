@@ -97,16 +97,50 @@ export const GET = withAuth(async (request, ctx, user) => {
     },
   });
 
-  // PR4 回看：仅附带同 org + 同 thread 的 PendingAction
+  // PR4 / Runtime V2：按 messageId 或 agentRunId（经 metadata.assistantMessageId）挂载
   const messageIds = messages.map((m) => m.id);
+  const threadRuns =
+    messageIds.length > 0
+      ? await db.agentRun.findMany({
+          where: {
+            orgId: orgRes.orgId,
+            metadata: { path: ["threadId"], equals: threadId },
+          },
+          select: { id: true, metadata: true },
+          take: 60,
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
+  const runIds = threadRuns.map((r) => r.id);
+  const runToAssistantMessageId = new Map<string, string>();
+  for (const r of threadRuns) {
+    const meta = (r.metadata ?? {}) as Record<string, unknown>;
+    if (typeof meta.assistantMessageId === "string" && meta.assistantMessageId) {
+      runToAssistantMessageId.set(r.id, meta.assistantMessageId);
+    }
+  }
+  // workSuggestion.runId → assistant message（messageId 缺失时的回退）
+  const runToMessageFromSuggestion = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.workSuggestion) continue;
+    const ws = m.workSuggestion as { runId?: unknown };
+    if (typeof ws.runId === "string" && ws.runId) {
+      runToMessageFromSuggestion.set(ws.runId, m.id);
+    }
+  }
+
   const pendingActions =
     messageIds.length > 0
       ? await db.pendingAction.findMany({
           where: {
             createdById: user.id,
-            threadId,
             orgId: orgRes.orgId,
-            messageId: { in: messageIds },
+            OR: [
+              { threadId, messageId: { in: messageIds } },
+              ...(runIds.length > 0
+                ? [{ agentRunId: { in: runIds } }]
+                : []),
+            ],
           },
           orderBy: { createdAt: "asc" },
           select: {
@@ -116,6 +150,7 @@ export const GET = withAuth(async (request, ctx, user) => {
             preview: true,
             status: true,
             messageId: true,
+            agentRunId: true,
             expiresAt: true,
             failureReason: true,
             resultRef: true,
@@ -125,10 +160,17 @@ export const GET = withAuth(async (request, ctx, user) => {
 
   const actionsByMessage = new Map<string, typeof pendingActions>();
   for (const a of pendingActions) {
-    if (!a.messageId) continue;
-    const bucket = actionsByMessage.get(a.messageId) ?? [];
+    const mid =
+      a.messageId ??
+      (a.agentRunId
+        ? runToAssistantMessageId.get(a.agentRunId) ??
+          runToMessageFromSuggestion.get(a.agentRunId) ??
+          null
+        : null);
+    if (!mid || !messageIds.includes(mid)) continue;
+    const bucket = actionsByMessage.get(mid) ?? [];
     bucket.push(a);
-    actionsByMessage.set(a.messageId, bucket);
+    actionsByMessage.set(mid, bucket);
   }
 
   const messagesWithActions = messages.map((m) => ({

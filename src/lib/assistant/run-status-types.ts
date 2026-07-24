@@ -65,11 +65,25 @@ export type AssistantRunStatusDto = {
   /** Agent Runtime 2.0 */
   runtimeVersion?: string | null;
   planSummary?: string | null;
+  objective?: string | null;
   runtimeSteps?: Array<{
+    stepKey?: string | null;
     title: string;
     status: string;
+    /** @deprecated 使用 preferredTool */
     toolName?: string | null;
+    preferredTool?: string | null;
+    attemptCount?: number;
+    errorMessage?: string | null;
+    requiresApproval?: boolean;
   }>;
+  prioritizedCustomers?: Array<{
+    customerName: string;
+    score: number;
+    reasons: string[];
+    evidenceRefs: string[];
+  }>;
+  awaitingApprovalStepCount?: number;
   verificationLabel?: string | null;
 };
 

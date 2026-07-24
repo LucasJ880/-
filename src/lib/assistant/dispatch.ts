@@ -1287,40 +1287,85 @@ export async function prepareAssistantDispatch(input: {
                   orgId: input.activeOrgId,
                   agentRunId: startedV2.runId,
                 },
-                select: { id: true },
+                select: {
+                  id: true,
+                  type: true,
+                  title: true,
+                  preview: true,
+                  status: true,
+                },
                 take: 40,
               });
-              const dto = baseRunDto({
-                run: runRow,
+              const openPending = pendingRows.filter(
+                (p) => p.status === "pending" || p.status === "approved",
+              );
+              const dto = toAssistantRunStatusDto({
+                run: {
+                  ...runRow,
+                  metadata: (runRow.metadata ?? null) as Prisma.JsonValue,
+                  runtimeVersion: "v2",
+                  planJson: runRow.planJson,
+                },
                 threadId: input.threadId,
-                userId: input.userId,
+                initiatedByUserId: input.userId,
                 pendingActionIds: pendingRows.map((p) => p.id),
                 resultSummary: report,
                 statusOverride: mapAgentRunToAssistantStatus({
                   runStatus: startedV2.status,
                   pendingActionStatus:
+                    openPending.length > 0 ||
                     startedV2.status === "awaiting_approval"
                       ? "pending"
                       : null,
                 }),
+                actionSummary: {
+                  total: pendingRows.length,
+                  pending: pendingRows.filter((p) => p.status === "pending")
+                    .length,
+                  approved: pendingRows.filter((p) => p.status === "approved")
+                    .length,
+                  executed: pendingRows.filter((p) => p.status === "executed")
+                    .length,
+                  rejected: pendingRows.filter((p) => p.status === "rejected")
+                    .length,
+                  failed: pendingRows.filter((p) => p.status === "failed")
+                    .length,
+                  expired: pendingRows.filter((p) => p.status === "expired")
+                    .length,
+                },
+                runtimeSteps: (view?.steps ?? []).map((s) => ({
+                  stepKey: s.stepKey,
+                  title: s.title,
+                  status: s.status,
+                  toolName: s.toolName ?? s.preferredTool,
+                  preferredTool: s.preferredTool ?? s.toolName,
+                  attemptCount: s.attemptCount,
+                  errorMessage: s.errorMessage,
+                  requiresApproval: s.requiresApproval,
+                })),
+                prioritizedCustomers: view?.prioritizedCustomers,
+                awaitingApprovalStepCount: view?.awaitingApprovalStepCount,
+                objective: view?.objective,
+                verificationLabel: view?.verifications?.[0]
+                  ? `${view.verifications[0].verdict}：${view.verifications[0].summary}`
+                  : null,
               });
               emit(buildRunStatusEvent(dto));
-            }
 
-            emit({ type: "text", content: report });
-            if (view?.steps?.length) {
-              for (const step of view.steps) {
+              // 挂载 ApprovalCard：每个待确认 PendingAction 独立发出
+              for (const pa of openPending) {
                 emit({
-                  type: "tool_result",
-                  name: step.toolName || step.stepKey,
-                  label: step.title,
-                  ok:
-                    step.status === "completed" ||
-                    step.status === "awaiting_approval" ||
-                    step.status === "skipped",
+                  type: "approval_required",
+                  actionId: pa.id,
+                  draftType: pa.type,
+                  title: pa.title,
+                  preview: pa.preview,
                 });
               }
             }
+
+            // 正文只发分析结论（步骤/审批由结构化卡展示）
+            emit({ type: "text", content: report });
             emit({
               type: "done",
               mode: "agent_runtime_v2",

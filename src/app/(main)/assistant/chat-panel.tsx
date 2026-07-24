@@ -40,6 +40,10 @@ import { FeedbackActions } from "@/components/agent-feedback";
 import { apiFetch } from "@/lib/api-fetch";
 import { AssistantTaskCard } from "@/components/assistant/assistant-task-card";
 import type { AssistantRunStatusDto } from "@/lib/assistant/run-status-types";
+import {
+  preferRuntimeV2Steps,
+  trimDuplicatedRuntimeV2Body,
+} from "@/lib/assistant/runtime-v2-ui";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -141,7 +145,8 @@ export interface StreamingMsg {
   id: string;
   role: "user" | "assistant";
   content: string;
-  workSuggestion?: WorkSuggestion | null;
+  /** Legacy WORK_JSON；Runtime V2 也可能写入 { runtimeVersion:"v2", runId } */
+  workSuggestion?: WorkSuggestion | Record<string, unknown> | null;
   isStreaming?: boolean;
   isError?: boolean;
   /** @deprecated 保留兼容；优先用 agentSteps 时间线 */
@@ -515,18 +520,26 @@ export function ChatPanel({
                   {msg.role === "assistant" && msg.assistantRun && (
                     <AssistantTaskCard
                       run={msg.assistantRun}
-                      stepTitles={(msg.agentSteps ?? [])
-                        .map((s) => s.label)
-                        .filter(Boolean)}
+                      stepTitles={
+                        preferRuntimeV2Steps(msg.assistantRun)
+                          ? undefined
+                          : (msg.agentSteps ?? [])
+                              .map((s) => s.label)
+                              .filter(Boolean)
+                      }
                       onRetry={onRunRetry}
                       className={
-                        msg.content || (msg.agentSteps && msg.agentSteps.length > 0)
+                        msg.content ||
+                        (msg.agentSteps &&
+                          msg.agentSteps.length > 0 &&
+                          !preferRuntimeV2Steps(msg.assistantRun))
                           ? "mb-3"
                           : undefined
                       }
                     />
                   )}
                   {msg.role === "assistant" &&
+                    !preferRuntimeV2Steps(msg.assistantRun ?? {}) &&
                     msg.agentSteps &&
                     msg.agentSteps.length > 0 && (
                       <AgentRunPanel
@@ -535,28 +548,49 @@ export function ChatPanel({
                         className={msg.content ? "mb-3" : undefined}
                       />
                     )}
-                  {msg.content ? (
-                    msg.role === "assistant" ? (
-                      <div className="prose-ai">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
-                    ) : (
-                      msg.content.split("\n").map((line, i) => (
-                        <p key={i} className={line === "" ? "h-2" : ""}>
-                          {line}
-                        </p>
-                      ))
-                    )
-                  ) : msg.isStreaming &&
-                    !msg.assistantRun &&
-                    !(msg.agentSteps && msg.agentSteps.length > 0) ? (
-                    <div className="flex items-center gap-2 text-[#7c8480]">
-                      <Loader2 size={14} className="animate-spin" />
-                      <span className="text-xs">青砚正在接入…</span>
-                    </div>
-                  ) : null}
+                  {(() => {
+                    const body =
+                      msg.role === "assistant" && msg.assistantRun
+                        ? trimDuplicatedRuntimeV2Body(msg.content, {
+                            hasRuntimeCard: preferRuntimeV2Steps(
+                              msg.assistantRun,
+                            ),
+                            hasApprovalCards:
+                              (msg.pendingApprovals?.length ?? 0) > 0,
+                          })
+                        : msg.content;
+                    if (body) {
+                      return msg.role === "assistant" ? (
+                        <div className="prose-ai">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={mdComponents}
+                          >
+                            {body}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        body.split("\n").map((line, i) => (
+                          <p key={i} className={line === "" ? "h-2" : ""}>
+                            {line}
+                          </p>
+                        ))
+                      );
+                    }
+                    if (
+                      msg.isStreaming &&
+                      !msg.assistantRun &&
+                      !(msg.agentSteps && msg.agentSteps.length > 0)
+                    ) {
+                      return (
+                        <div className="flex items-center gap-2 text-[#7c8480]">
+                          <Loader2 size={14} className="animate-spin" />
+                          <span className="text-xs">青砚正在接入…</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                   {msg.isStreaming && msg.content && (
                     <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent/60" />
                   )}
@@ -615,10 +649,18 @@ export function ChatPanel({
                   </div>
                 )}
 
-              {msg.workSuggestion && !msg.isStreaming && (
+              {msg.workSuggestion &&
+                !msg.isStreaming &&
+                // Runtime V2 把 run 元数据存在 workSuggestion，不走 Legacy WorkSuggestionCard
+                !(
+                  msg.assistantRun?.runtimeVersion === "v2" ||
+                  (typeof msg.workSuggestion === "object" &&
+                    (msg.workSuggestion as unknown as { runtimeVersion?: string })
+                      .runtimeVersion === "v2")
+                ) && (
                 <div className="ml-11 mt-3 max-w-[calc(100%-44px)] sm:ml-12">
                   <WorkSuggestionCard
-                    suggestion={msg.workSuggestion}
+                    suggestion={msg.workSuggestion as WorkSuggestion}
                     projects={projects}
                     projectId={activeThread?.projectId || undefined}
                   />

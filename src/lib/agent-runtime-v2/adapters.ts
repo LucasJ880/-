@@ -18,6 +18,8 @@ export type AdapterContext = {
   role: string;
   runId: string;
   threadId?: string | null;
+  /** 关联助手消息，供刷新后挂载 ApprovalCard */
+  assistantMessageId?: string | null;
   stepKey: string;
   /** 稳定业务操作键（不含 attempt） */
   operationKey: string;
@@ -331,6 +333,7 @@ export async function executeRuntimeV2Tool(
           orgId: ctx.orgId,
           agentRunId: ctx.runId,
           threadId: ctx.threadId ?? undefined,
+          messageId: ctx.assistantMessageId ?? undefined,
           idempotencyKey,
         });
         const id = draftActionId(draft);
@@ -400,6 +403,7 @@ export async function executeRuntimeV2Tool(
           orgId: ctx.orgId,
           agentRunId: ctx.runId,
           threadId: ctx.threadId ?? undefined,
+          messageId: ctx.assistantMessageId ?? undefined,
           idempotencyKey,
         });
         const id = draftActionId(draft);
@@ -470,6 +474,7 @@ export async function executeRuntimeV2Tool(
           orgId: ctx.orgId,
           agentRunId: ctx.runId,
           threadId: ctx.threadId ?? undefined,
+          messageId: ctx.assistantMessageId ?? undefined,
           idempotencyKey,
         });
         const id = draftActionId(draft);

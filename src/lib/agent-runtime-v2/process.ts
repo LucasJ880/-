@@ -398,11 +398,23 @@ export async function resumeRuntimeV2AfterApproval(input: {
     });
   }
 
+  const runMeta = await db.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { metadata: true },
+  });
+  const metaThreadId =
+    runMeta?.metadata &&
+    typeof runMeta.metadata === "object" &&
+    typeof (runMeta.metadata as Record<string, unknown>).threadId === "string"
+      ? ((runMeta.metadata as Record<string, unknown>).threadId as string)
+      : null;
+
   return processAgentRuntimeV2Run({
     orgId: input.orgId,
     runId: input.runId,
     userId: principal.userId,
     role: principal.role,
+    threadId: metaThreadId,
     maxRounds: 12,
   });
 }
@@ -422,39 +434,29 @@ export async function buildFinalReport(
 
   const plan = run.planJson as { summary?: string; objective?: string } | null;
   const prioritize = run.steps.find((s) => s.stepKey === "s5_prioritize");
-  const prioritized =
-    (
-      prioritize?.outputJson as {
-        prioritized?: Array<{ customerName: string; reason?: string }>;
-        selectedCount?: number;
-      } | null
-    )?.prioritized ?? [];
+  const { extractPrioritizedCustomers, topReasons } = await import(
+    "@/lib/assistant/runtime-v2-ui"
+  );
+  const prioritized = extractPrioritizedCustomers(prioritize?.outputJson);
 
-  const writeSteps = run.steps.filter((s) => s.requiresApproval);
-  const awaiting = writeSteps.filter((s) => s.status === "awaiting_approval").length;
-  const completedWrites = writeSteps.filter((s) => s.status === "completed").length;
-  const skippedWrites = writeSteps.filter((s) => s.status === "skipped").length;
-
+  // 正文只放分析结论；步骤/审批计数/等待提示由 Workbench 卡片承担，避免重复
   const lines: string[] = [];
   lines.push(plan?.summary ?? plan?.objective ?? "销售跟进处理");
-  lines.push("");
   if (prioritized.length > 0) {
-    lines.push(
-      `已选出 ${prioritized.length} 个高优先级客户：${prioritized
-        .map((p) => p.customerName)
-        .join("、")}`,
-    );
-  }
-  lines.push(
-    `写操作：等待确认 ${awaiting}，已执行 ${completedWrites}，跳过 ${skippedWrites}`,
-  );
-  if (run.status === "awaiting_approval") {
     lines.push("");
-    lines.push("上述动作正在等待确认。确认后我会验证任务/日期/草稿是否真实创建，再给出最终报告。");
+    lines.push("优先客户分析：");
+    for (const p of prioritized) {
+      lines.push(`- ${p.customerName}（评分 ${p.score}）`);
+      for (const reason of topReasons(p.reasons, 3)) {
+        lines.push(`  · ${reason}`);
+      }
+    }
   }
   if (run.verifications[0]) {
     lines.push("");
-    lines.push(`验证：${run.verifications[0].verdict} — ${run.verifications[0].summary}`);
+    lines.push(
+      `最终验证：${run.verifications[0].verdict} — ${run.verifications[0].summary}`,
+    );
   }
   if (run.status === "needs_human") {
     lines.push("");
@@ -477,6 +479,10 @@ export async function getRuntimeV2WorkbenchView(orgId: string, runId: string) {
     },
   });
   if (!run) return null;
+  const { extractPrioritizedCustomers } = await import(
+    "@/lib/assistant/runtime-v2-ui"
+  );
+  const prioritizeStep = run.steps.find((s) => s.stepKey === "s5_prioritize");
   return {
     runId: run.id,
     status: run.status,
@@ -489,10 +495,17 @@ export async function getRuntimeV2WorkbenchView(orgId: string, runId: string) {
       title: s.title,
       status: s.status,
       toolName: s.preferredTool,
+      preferredTool: s.preferredTool,
       requiresApproval: s.requiresApproval,
       attemptCount: s.attemptCount,
       errorMessage: s.errorMessage,
     })),
+    prioritizedCustomers: extractPrioritizedCustomers(
+      prioritizeStep?.outputJson,
+    ),
+    awaitingApprovalStepCount: run.steps.filter(
+      (s) => s.status === "awaiting_approval",
+    ).length,
     verifications: run.verifications.map((v) => ({
       attempt: v.attempt,
       verdict: v.verdict,

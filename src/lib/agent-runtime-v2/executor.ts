@@ -50,6 +50,14 @@ export async function executeRuntimeV2Round(input: {
     where: { id: runId, orgId, runtimeVersion: "v2" },
   });
   if (!run) return { status: "failed", error: "Run not found" };
+  const meta = (run.metadata ?? {}) as Record<string, unknown>;
+  const threadId =
+    input.threadId ??
+    (typeof meta.threadId === "string" ? meta.threadId : null);
+  const assistantMessageId =
+    typeof meta.assistantMessageId === "string"
+      ? meta.assistantMessageId
+      : null;
   if (run.status === "cancelled") return { status: "cancelled" };
   if (run.status === "awaiting_approval") return { status: "awaiting_approval" };
 
@@ -242,7 +250,8 @@ export async function executeRuntimeV2Round(input: {
       userId,
       role,
       runId,
-      threadId: input.threadId,
+      threadId,
+      assistantMessageId,
       stepKey: step.stepKey,
       operationKey,
       priorEvidence,

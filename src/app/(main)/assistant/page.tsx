@@ -31,6 +31,7 @@ import {
   isAssistantRunStatusDto,
   type AssistantRunStatusDto,
 } from "@/lib/assistant/run-status-types";
+import { preferRuntimeV2Steps } from "@/lib/assistant/runtime-v2-ui";
 import { attachRunsToAssistantMessages } from "@/lib/assistant/attach-runs";
 
 // ── 类型 ──────────────────────────────────────────────────────
@@ -329,6 +330,7 @@ function AssistantPageInner() {
 
       const decoder = new TextDecoder();
       let fullText = "";
+      let runtimeV2Mode = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -351,9 +353,25 @@ function AssistantPageInner() {
 
           if (parsed.error) throw new Error(parsed.error);
 
+          if (
+            parsed.type === "mode" &&
+            parsed.mode === "agent_runtime_v2"
+          ) {
+            runtimeV2Mode = true;
+            // V2 不用 Legacy AgentTask 步骤面板
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, agentSteps: undefined, isStreaming: true }
+                  : m,
+              ),
+            );
+          }
+
           // PR3：新事件协议（type=text/tool_start/tool_result/done/mode）
           // 旧协议兼容：parsed.content 仍然追加
           if (parsed.type === "tool_start") {
+            if (runtimeV2Mode) continue;
             const label: string = parsed.label || "处理中";
             const toolName: string = parsed.name || "";
             setMessages((prev) =>
@@ -376,6 +394,7 @@ function AssistantPageInner() {
           }
 
           if (parsed.type === "tool_result") {
+            if (runtimeV2Mode) continue;
             const toolName: string = parsed.name || "";
             const ok = parsed.ok !== false;
             setMessages((prev) =>
@@ -467,6 +486,23 @@ function AssistantPageInner() {
                     s.kind === "approve" &&
                     s.detail === String(parsed.actionId)
                 );
+                // Runtime V2：只挂 ApprovalCard，不写入 Legacy agentSteps
+                if (runtimeV2Mode || preferRuntimeV2Steps(m.assistantRun ?? {})) {
+                  return {
+                    ...m,
+                    pendingApprovals: [
+                      ...existing,
+                      {
+                        actionId: String(parsed.actionId),
+                        draftType: String(parsed.draftType ?? ""),
+                        title: String(parsed.title ?? "待确认动作"),
+                        preview: String(parsed.preview ?? ""),
+                        status: "pending" as const,
+                      },
+                    ],
+                    agentSteps: undefined,
+                  };
+                }
                 return {
                   ...m,
                   pendingApprovals: [
@@ -522,7 +558,9 @@ function AssistantPageInner() {
                       content: displayText,
                       isStreaming: true,
                       toolStatus: null,
-                      agentSteps: markReplying(m.agentSteps ?? []),
+                      agentSteps: runtimeV2Mode
+                        ? undefined
+                        : markReplying(m.agentSteps ?? []),
                     }
                   : m
               )
@@ -545,11 +583,61 @@ function AssistantPageInner() {
                 workSuggestion: suggestion,
                 isStreaming: false,
                 toolStatus: null,
-                agentSteps: finalizeSteps(m.agentSteps ?? []),
+                agentSteps: runtimeV2Mode
+                  ? undefined
+                  : finalizeSteps(m.agentSteps ?? []),
               }
             : m
         )
       );
+
+      // Runtime V2：流结束后按服务端权威数据重挂 steps / ApprovalCard（支持刷新一致）
+      if (runtimeV2Mode && threadId) {
+        try {
+          const [data, runsData] = await Promise.all([
+            apiJson<{ messages?: AiMsg[] }>(
+              `/api/ai/threads/${threadId}/messages`,
+            ),
+            apiJson<{ runs?: AssistantRunStatusDto[] }>(
+              `/api/ai/threads/${threadId}/runs`,
+            ).catch(() => ({ runs: [] as AssistantRunStatusDto[] })),
+          ]);
+          if (data.messages) {
+            const now = Date.now();
+            const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+              pendingApprovals: (m.pendingActions ?? []).map((a) => {
+                const expired =
+                  a.status === "pending" &&
+                  new Date(a.expiresAt).getTime() < now;
+                return {
+                  actionId: a.id,
+                  draftType: a.type,
+                  title: a.title,
+                  preview: a.preview,
+                  status: expired
+                    ? ("expired" as const)
+                    : (a.status as
+                        | "pending"
+                        | "executed"
+                        | "rejected"
+                        | "failed"
+                        | "expired"),
+                  failureReason: a.failureReason ?? undefined,
+                };
+              }),
+            }));
+            setMessages(
+              attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
+            );
+          }
+        } catch {
+          /* 保底：保留流式态 */
+        }
+      }
 
       // Update thread title in sidebar
       setThreads((prev) =>
@@ -608,14 +696,24 @@ function AssistantPageInner() {
     );
   };
 
-  // Commit 6：按 assistantMessageId 精确更新任务卡（禁止挂最后一条）
+  // Commit 6：按 assistantMessageId / runId 精确更新任务卡（禁止挂最后一条）
   const handleRunUpdate = (run: AssistantRunStatusDto) => {
-    const targetId = run.assistantMessageId;
-    if (!targetId) return;
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === targetId ? { ...m, assistantRun: run } : m,
-      ),
+      prev.map((m) => {
+        if (m.role !== "assistant") return m;
+        const byMsg =
+          run.assistantMessageId && m.id === run.assistantMessageId;
+        const byRun = m.assistantRun?.runId === run.runId;
+        const wsRunId =
+          m.workSuggestion &&
+          typeof m.workSuggestion === "object" &&
+          typeof (m.workSuggestion as unknown as { runId?: unknown }).runId ===
+            "string"
+            ? (m.workSuggestion as unknown as { runId: string }).runId
+            : null;
+        const byWs = !!wsRunId && wsRunId === run.runId;
+        return byMsg || byRun || byWs ? { ...m, assistantRun: run } : m;
+      }),
     );
   };
 
