@@ -68,7 +68,11 @@ export function toAssistantRunStatusDto(input: {
     | "startedAt"
     | "updatedAt"
     | "completedAt"
-  > & { userMessageId?: string | null };
+  > & {
+    userMessageId?: string | null;
+    runtimeVersion?: string | null;
+    planJson?: unknown;
+  };
   threadId: string;
   initiatedByUserId: string;
   events?: Array<Pick<AgentRunEvent, "eventType" | "title" | "visibleToUser" | "createdAt">>;
@@ -81,6 +85,8 @@ export function toAssistantRunStatusDto(input: {
   partialSideEffects?: boolean;
   canRetry?: boolean;
   retryKind?: AssistantRetryKind;
+  runtimeSteps?: AssistantRunStatusDto["runtimeSteps"];
+  verificationLabel?: string | null;
 }): AssistantRunStatusDto {
   const status =
     input.statusOverride ??
@@ -105,6 +111,13 @@ export function toAssistantRunStatusDto(input: {
     typeof meta.partialCompletion === "boolean" ? meta.partialCompletion : false;
   const metaSide =
     typeof meta.partialSideEffects === "boolean" ? meta.partialSideEffects : false;
+
+  const planSummary =
+    input.run.planJson &&
+    typeof input.run.planJson === "object" &&
+    typeof (input.run.planJson as { summary?: unknown }).summary === "string"
+      ? ((input.run.planJson as { summary: string }).summary)
+      : null;
 
   return {
     runId: input.run.id,
@@ -132,6 +145,10 @@ export function toAssistantRunStatusDto(input: {
     partialSideEffects: input.partialSideEffects ?? metaSide,
     canRetry: input.canRetry ?? false,
     retryKind: input.retryKind ?? null,
+    runtimeVersion: input.run.runtimeVersion ?? null,
+    planSummary,
+    runtimeSteps: input.runtimeSteps,
+    verificationLabel: input.verificationLabel ?? null,
   };
 }
 
@@ -158,10 +175,13 @@ export async function listAssistantRunsForThread(input: {
       updatedAt: Date;
       completedAt: Date | null;
       sessionUserId: string | null;
+      runtimeVersion: string | null;
+      planJson: unknown;
     }>
   >`
     SELECT r.id, r."orgId", r.status, r.intent, r."errorCode", r."errorMessage",
            r.metadata, r."userMessageId", r."startedAt", r."updatedAt", r."completedAt",
+           r."runtimeVersion", r."planJson",
            s."userId" AS "sessionUserId"
     FROM "AgentRun" r
     INNER JOIN "AgentSession" s ON s.id = r."sessionId"
@@ -229,6 +249,33 @@ export async function listAssistantRunsForThread(input: {
       return s.pending + s.approved > 0;
     });
 
+    let runtimeSteps: AssistantRunStatusDto["runtimeSteps"];
+    let verificationLabel: string | null = null;
+    if (run.runtimeVersion === "v2") {
+      const steps = await db.agentRunStep.findMany({
+        where: { orgId: input.orgId, runId: run.id },
+        orderBy: { createdAt: "asc" },
+        select: {
+          title: true,
+          status: true,
+          preferredTool: true,
+        },
+      });
+      runtimeSteps = steps.map((s) => ({
+        title: s.title,
+        status: s.status,
+        toolName: s.preferredTool,
+      }));
+      const latestVerify = await db.agentRunVerification.findFirst({
+        where: { orgId: input.orgId, runId: run.id },
+        orderBy: { attempt: "desc" },
+        select: { verdict: true, summary: true },
+      });
+      if (latestVerify) {
+        verificationLabel = `${latestVerify.verdict}：${latestVerify.summary}`;
+      }
+    }
+
     dtos.push(
       toAssistantRunStatusDto({
         run: {
@@ -259,6 +306,8 @@ export async function listAssistantRunsForThread(input: {
         partialSideEffects: decision.partialSideEffects,
         canRetry: retry.canRetry,
         retryKind: retry.retryKind,
+        runtimeSteps,
+        verificationLabel,
       }),
     );
   }

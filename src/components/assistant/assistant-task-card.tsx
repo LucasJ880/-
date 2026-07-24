@@ -53,6 +53,18 @@ const INTENT_LABEL: Record<string, string> = {
   unsupported_action: "能力边界",
   general_answer: "对话",
   assistant_dispatch: "助手任务",
+  sales_followup_triage: "销售跟进处理",
+};
+
+const STEP_STATUS_LABEL: Record<string, string> = {
+  pending: "待开始",
+  ready: "就绪",
+  running: "进行中",
+  awaiting_approval: "等待确认",
+  completed: "已完成",
+  failed: "失败",
+  blocked: "受阻",
+  skipped: "已跳过",
 };
 
 export function assistantRunCardSummary(run: AssistantRunStatusDto): string | null {
@@ -180,7 +192,46 @@ export function AssistantTaskCard({
         </div>
       </div>
 
-      {stepTitles && stepTitles.length > 0 ? (
+      {run.planSummary ? (
+        <div className="border-t border-black/[0.06] bg-white/35 px-3 py-2 sm:px-3.5">
+          <p className="text-[11px] font-medium text-[#68706c]">当前计划</p>
+          <p className="mt-0.5 line-clamp-3 text-[12px] leading-5 text-[#3d4541]">
+            {run.planSummary}
+          </p>
+        </div>
+      ) : null}
+
+      {run.runtimeSteps && run.runtimeSteps.length > 0 ? (
+        <div className="border-t border-black/[0.06] bg-white/40 px-3 py-2.5 sm:px-3.5">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-[#68706c]">
+            <ListTodo size={12} />
+            执行步骤
+          </div>
+          <ol className="space-y-1">
+            {run.runtimeSteps.slice(0, 8).map((step, i) => (
+              <li
+                key={`${i}-${step.title}`}
+                className="flex items-start gap-2 text-[12px] leading-5 text-[#3d4541]"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {i + 1}. {step.title}
+                  {step.toolName ? (
+                    <span className="text-[#68706c]"> · {step.toolName}</span>
+                  ) : null}
+                </span>
+                <span className="shrink-0 text-[11px] text-[#68706c]">
+                  {STEP_STATUS_LABEL[step.status] ?? step.status}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {run.verificationLabel ? (
+            <p className="mt-2 text-[11px] leading-4 text-[#4a524e]">
+              验证：{run.verificationLabel}
+            </p>
+          ) : null}
+        </div>
+      ) : stepTitles && stepTitles.length > 0 ? (
         <div className="border-t border-black/[0.06] bg-white/40 px-3 py-2.5 sm:px-3.5">
           <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-[#68706c]">
             <ListTodo size={12} />

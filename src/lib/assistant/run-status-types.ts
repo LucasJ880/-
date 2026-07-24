@@ -62,6 +62,15 @@ export type AssistantRunStatusDto = {
   partialSideEffects?: boolean;
   canRetry?: boolean;
   retryKind?: AssistantRetryKind;
+  /** Agent Runtime 2.0 */
+  runtimeVersion?: string | null;
+  planSummary?: string | null;
+  runtimeSteps?: Array<{
+    title: string;
+    status: string;
+    toolName?: string | null;
+  }>;
+  verificationLabel?: string | null;
 };
 
 export type RunStatusEvent = {
@@ -121,14 +130,20 @@ export function mapAgentRunToAssistantStatus(input: {
     case "acknowledged":
       return "received";
     case "planning":
+    case "planned":
       return "planning";
     case "running":
+    case "executing":
+    case "verifying":
+    case "repairing":
       return "running";
     case "awaiting_approval":
     case "waiting_for_approval":
       return "waiting_for_confirmation";
     case "completed":
+    case "partially_executed":
       return "completed";
+    case "needs_human":
     case "failed":
       return "failed";
     case "cancelled":
