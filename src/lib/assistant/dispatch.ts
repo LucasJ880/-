@@ -24,6 +24,7 @@ import {
 } from "@/lib/assistant/run-status";
 import {
   buildRunStatusEvent,
+  mapAgentRunToAssistantStatus,
   type AssistantTaskStatus,
 } from "@/lib/assistant/run-status-types";
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
@@ -1180,6 +1181,168 @@ export async function prepareAssistantDispatch(input: {
   /** 服务端可信角色，不得来自客户端 */
   role: string;
 }): Promise<DispatchPrepareResult> {
+  // Agent Runtime 2.0：复杂销售跟进目标走 durable graph（灰度白名单）
+  try {
+    const {
+      shouldRouteToRuntimeV2,
+      startAgentRuntimeV2Run,
+      getRuntimeV2WorkbenchView,
+    } = await import("@/lib/agent-runtime-v2/process");
+    const { userFacingRunLabel } = await import(
+      "@/lib/agent-runtime-v2/events"
+    );
+    if (
+      shouldRouteToRuntimeV2({
+        orgId: input.activeOrgId,
+        userId: input.userId,
+        role: input.role,
+        goal: input.message,
+      })
+    ) {
+      const thread = await db.aiThread.findFirst({
+        where: { id: input.threadId },
+        select: { id: true, orgId: true, title: true },
+      });
+      if (thread && thread.orgId === input.activeOrgId) {
+        const persisted = await persistUserAndInitialAssistant({
+          threadId: input.threadId,
+          threadTitle: input.threadTitle ?? thread.title,
+          userContent: input.message,
+          assistantContent: "正在理解目标…",
+        });
+        const intent: IntentRouteResult = {
+          intent: "general_answer",
+          confidence: 1,
+          reason: "agent_runtime_v2",
+        };
+        const response = createSseResponse({
+          orgId: input.activeOrgId,
+          runStream: async (emit, close) => {
+            emit({
+              type: "mode",
+              mode: "agent_runtime_v2",
+              userMessageId: persisted.userMessageId,
+              assistantMessageId: persisted.assistantMessageId,
+            });
+            emit({
+              type: "text",
+              content: "正在理解目标并制定计划…\n",
+            });
+
+            const startedV2 = await startAgentRuntimeV2Run({
+              orgId: input.activeOrgId,
+              userId: input.userId,
+              role: input.role,
+              goal: input.message,
+              channel: "web_assistant",
+              threadId: input.threadId,
+              userMessageId: persisted.userMessageId,
+              assistantMessageId: persisted.assistantMessageId,
+            });
+
+            if (!startedV2.ok) {
+              const clarification =
+                startedV2.clarification ??
+                startedV2.error ??
+                "无法制定计划，请补充说明。";
+              await updateAssistantMessage({
+                assistantMessageId: persisted.assistantMessageId,
+                content: clarification,
+              });
+              emit({ type: "text", content: clarification });
+              emit({ type: "done", mode: "agent_runtime_v2", error: true });
+              close();
+              return;
+            }
+
+            const view = await getRuntimeV2WorkbenchView(
+              input.activeOrgId,
+              startedV2.runId,
+            );
+            const report =
+              startedV2.report ??
+              startedV2.userLabel ??
+              userFacingRunLabel(startedV2.status);
+            await updateAssistantMessage({
+              assistantMessageId: persisted.assistantMessageId,
+              content: report,
+              workSuggestion: view
+                ? {
+                    runtimeVersion: "v2",
+                    runId: startedV2.runId,
+                    status: startedV2.status,
+                    objective: view.objective,
+                    steps: view.steps,
+                    verifications: view.verifications,
+                  }
+                : { runtimeVersion: "v2", runId: startedV2.runId },
+            });
+
+            const runRow = await db.agentRun.findFirst({
+              where: { id: startedV2.runId, orgId: input.activeOrgId },
+            });
+            if (runRow) {
+              const pendingRows = await db.pendingAction.findMany({
+                where: {
+                  orgId: input.activeOrgId,
+                  agentRunId: startedV2.runId,
+                },
+                select: { id: true },
+                take: 40,
+              });
+              const dto = baseRunDto({
+                run: runRow,
+                threadId: input.threadId,
+                userId: input.userId,
+                pendingActionIds: pendingRows.map((p) => p.id),
+                resultSummary: report,
+                statusOverride: mapAgentRunToAssistantStatus({
+                  runStatus: startedV2.status,
+                  pendingActionStatus:
+                    startedV2.status === "awaiting_approval"
+                      ? "pending"
+                      : null,
+                }),
+              });
+              emit(buildRunStatusEvent(dto));
+            }
+
+            emit({ type: "text", content: report });
+            if (view?.steps?.length) {
+              for (const step of view.steps) {
+                emit({
+                  type: "tool_result",
+                  name: step.toolName || step.stepKey,
+                  label: step.title,
+                  ok:
+                    step.status === "completed" ||
+                    step.status === "awaiting_approval" ||
+                    step.status === "skipped",
+                });
+              }
+            }
+            emit({
+              type: "done",
+              mode: "agent_runtime_v2",
+              runId: startedV2.runId,
+              status: startedV2.status,
+            });
+            close();
+          },
+        });
+        return {
+          kind: "handled",
+          intent,
+          run: null,
+          response,
+        };
+      }
+    }
+  } catch (e) {
+    console.error("[assistant.dispatch] runtime v2 route failed:", e);
+    /* V2 路由失败时回落既有路径 */
+  }
+
   const started = await startAssistantScenario(input);
   if (started.kind === "general") {
     return { kind: "general", intent: started.intent };
