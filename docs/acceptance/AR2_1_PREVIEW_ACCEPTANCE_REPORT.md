@@ -309,3 +309,39 @@ PR #20 仍为 Draft。未合并。未改 Production。未开始 AR2-2。
 | `docs/acceptance/screenshots/ar2-1-ui-p1-375-mobile.png` | 375px 移动端 |
 
 > 注：真实 Preview Workbench 仍需 Lucas 登录后人工确认；上表为与实现契约一致的 Workbench fixture 截图（登录墙阻断自动化）。验收结论仍为 `PREVIEW_ACCEPTANCE_BLOCKED`（Gmail compose + 登录冒烟未完成）。
+
+---
+
+## 11. Inline Approval UX（2026-07-24）
+
+**目标：** `awaiting_approval` 时用户可在当前对话直接确认/拒绝，不再依赖右上角「待我确认」。
+
+### 实现要点
+
+| 能力 | 说明 |
+|---|---|
+| Inline Approval Panel | 绑定 `runId` / `pendingActionIds`；勾选 / 全选 / 批量确认拒绝；调用既有 `/api/ai/pending-actions/:id` |
+| Sticky Approval Bar | 输入框上方固定栏；桌面含「查看详情」；按钮 ≥48px；375px + safe-area |
+| 简化进度 | 默认 5 段用户进度；「查看全部 N 个步骤」展开 AgentRunStep |
+| 分析结果卡 | score / 最多 3 reasons / 简化 evidence；不暴露 stepKey |
+| 数量文案 | `1 个步骤等待确认，共 3 个动作。` |
+| Gmail | 明确标注「不会自动发送」；非 CRITICAL 无二次 Modal |
+
+### 截图
+
+| 文件 | 内容 |
+|---|---|
+| `ar2-1-inline-approval-panel.png` | 当前页 Inline Approval Panel |
+| `ar2-1-sticky-approval-bar.png` | Sticky Approval Bar |
+| `ar2-1-multi-action-select.png` | 多动作选择 |
+| `ar2-1-post-confirm-executing.png` | 确认后执行态 |
+| `ar2-1-verifier-completed.png` | Verifier completed |
+| `ar2-1-ui-p1-375-mobile.png` | 375px 移动端 |
+
+### 测试
+
+- `inline-approval-model.test.ts` 13/13  
+- `runtime-v2-workbench-ui.test.ts` 11/11  
+- `tsc` / `next build` ✅  
+
+PR #20 仍为 Draft。未改 Production。未开始 AR2-2。

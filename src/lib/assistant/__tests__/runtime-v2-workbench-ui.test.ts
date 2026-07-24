@@ -102,7 +102,7 @@ ok(
     executedActions: 0,
     rejectedActions: 0,
     failedActions: 0,
-  }).includes("等待确认 1 个步骤，共 3 个待确认动作") &&
+  }).includes("1 个步骤等待确认，共 3 个动作") &&
     formatRuntimeV2ActionCounts({
       awaitingApprovalSteps: 1,
       pendingActions: 3,
@@ -200,8 +200,8 @@ ok(
     const s = assistantRunCardSummary(runDto);
     return (
       !!s &&
-      s.includes("等待确认 1 个步骤") &&
-      s.includes("共 3 个待确认动作") &&
+      s.includes("1 个步骤等待确认") &&
+      s.includes("共 3 个动作") &&
       s !== "等待确认 1"
     );
   })(),

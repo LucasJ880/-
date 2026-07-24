@@ -67,16 +67,17 @@ export function formatRuntimeV2ActionCounts(input: {
   rejectedActions: number;
   failedActions: number;
 }): string {
+  // 与 inline-approval-model.formatAwaitingCopy 对齐
   const parts: string[] = [];
   if (input.awaitingApprovalSteps > 0 || input.pendingActions > 0) {
     parts.push(
-      `等待确认 ${input.awaitingApprovalSteps} 个步骤，共 ${input.pendingActions} 个待确认动作`,
+      `${input.awaitingApprovalSteps} 个步骤等待确认，共 ${input.pendingActions} 个动作`,
     );
   }
-  parts.push(`已执行 ${input.executedActions} 个动作`);
-  parts.push(`已拒绝 ${input.rejectedActions} 个`);
-  parts.push(`已失败 ${input.failedActions} 个`);
-  return `${parts.join("，")}。`;
+  if (input.executedActions > 0) parts.push(`已执行 ${input.executedActions}`);
+  if (input.rejectedActions > 0) parts.push(`已拒绝 ${input.rejectedActions}`);
+  if (input.failedActions > 0) parts.push(`失败 ${input.failedActions}`);
+  return parts.length ? `${parts.join("，")}。` : "";
 }
 
 /** 正文去重：V2 有结构化卡时，去掉与卡片重复的等待确认提示行 */
@@ -89,6 +90,8 @@ export function trimDuplicatedRuntimeV2Body(
     /^写操作：等待确认.*$/m,
     /^上述动作正在等待确认.*$/m,
     /^请在下方确认卡中操作.*$/m,
+    /^优先客户分析：.*$/m,
+    /^已选出 .* 个高优先级客户.*$/m,
   ];
   let next = content;
   for (const re of dropPatterns) {
@@ -97,7 +100,22 @@ export function trimDuplicatedRuntimeV2Body(
   if (opts.hasApprovalCards) {
     next = next.replace(/需要你确认后才会写入[。.]?/g, "");
   }
+  next = next
+    .split("\n")
+    .filter((line) => !/评分\s*\d+/.test(line))
+    .filter((line) => !/^\s*[·•]\s+/.test(line))
+    .join("\n");
   return next.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** V2 正文只保留短总结 */
+export function shortBodyForV2(content: string, maxLen = 160): string {
+  const cleaned = trimDuplicatedRuntimeV2Body(content, {
+    hasRuntimeCard: true,
+    hasApprovalCards: true,
+  });
+  if (cleaned.length <= maxLen) return cleaned;
+  return `${cleaned.slice(0, maxLen).trim()}…`;
 }
 
 export function extractPrioritizedCustomers(

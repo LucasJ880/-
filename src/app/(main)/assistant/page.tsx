@@ -43,9 +43,37 @@ interface ApiPendingAction {
   preview: string;
   status: "pending" | "approved" | "rejected" | "executed" | "failed";
   messageId?: string | null;
+  agentRunId?: string | null;
+  payload?: Record<string, unknown> | null;
   expiresAt: string;
   failureReason?: string | null;
   resultRef?: string | null;
+}
+
+function mapApiPendingAction(
+  a: ApiPendingAction,
+  now = Date.now(),
+): NonNullable<StreamingMsg["pendingApprovals"]>[number] {
+  const expired =
+    a.status === "pending" && new Date(a.expiresAt).getTime() < now;
+  return {
+    actionId: a.id,
+    draftType: a.type,
+    title: a.title,
+    preview: a.preview,
+    status: expired
+      ? ("expired" as const)
+      : (a.status as
+          | "pending"
+          | "approved"
+          | "executed"
+          | "rejected"
+          | "failed"
+          | "expired"),
+    failureReason: a.failureReason ?? undefined,
+    agentRunId: a.agentRunId,
+    payload: a.payload ?? null,
+  };
 }
 
 interface AiMsg {
@@ -176,26 +204,9 @@ function AssistantPageInner() {
           role: m.role as "user" | "assistant",
           content: m.content,
           workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
-          pendingApprovals: (m.pendingActions ?? []).map((a) => {
-            const expired =
-              a.status === "pending" &&
-              new Date(a.expiresAt).getTime() < now;
-            return {
-              actionId: a.id,
-              draftType: a.type,
-              title: a.title,
-              preview: a.preview,
-              status: expired
-                ? ("expired" as const)
-                : (a.status as
-                    | "pending"
-                    | "executed"
-                    | "rejected"
-                    | "failed"
-                    | "expired"),
-              failureReason: a.failureReason ?? undefined,
-            };
-          }),
+          pendingApprovals: (m.pendingActions ?? []).map((a) =>
+            mapApiPendingAction(a, now),
+          ),
         }));
 
         // 按 Run.assistantMessageId 精确挂载；禁止 runs[0] → 最后一条 assistant
@@ -609,26 +620,9 @@ function AssistantPageInner() {
               role: m.role as "user" | "assistant",
               content: m.content,
               workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
-              pendingApprovals: (m.pendingActions ?? []).map((a) => {
-                const expired =
-                  a.status === "pending" &&
-                  new Date(a.expiresAt).getTime() < now;
-                return {
-                  actionId: a.id,
-                  draftType: a.type,
-                  title: a.title,
-                  preview: a.preview,
-                  status: expired
-                    ? ("expired" as const)
-                    : (a.status as
-                        | "pending"
-                        | "executed"
-                        | "rejected"
-                        | "failed"
-                        | "expired"),
-                  failureReason: a.failureReason ?? undefined,
-                };
-              }),
+              pendingApprovals: (m.pendingActions ?? []).map((a) =>
+                mapApiPendingAction(a, now),
+              ),
             }));
             setMessages(
               attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
@@ -696,6 +690,16 @@ function AssistantPageInner() {
     );
   };
 
+  const handleApprovalsReplace: NonNullable<
+    ComponentProps<typeof ChatPanel>["onApprovalsReplace"]
+  > = (messageId, next) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, pendingApprovals: next } : m,
+      ),
+    );
+  };
+
   // Commit 6：按 assistantMessageId / runId 精确更新任务卡（禁止挂最后一条）
   const handleRunUpdate = (run: AssistantRunStatusDto) => {
     setMessages((prev) =>
@@ -749,26 +753,9 @@ function AssistantPageInner() {
         role: m.role as "user" | "assistant",
         content: m.content,
         workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
-        pendingApprovals: (m.pendingActions ?? []).map((a) => {
-          const expired =
-            a.status === "pending" &&
-            new Date(a.expiresAt).getTime() < now;
-          return {
-            actionId: a.id,
-            draftType: a.type,
-            title: a.title,
-            preview: a.preview,
-            status: expired
-              ? ("expired" as const)
-              : (a.status as
-                  | "pending"
-                  | "executed"
-                  | "rejected"
-                  | "failed"
-                  | "expired"),
-            failureReason: a.failureReason ?? undefined,
-          };
-        }),
+        pendingApprovals: (m.pendingActions ?? []).map((a) =>
+          mapApiPendingAction(a, now),
+        ),
       }));
       setMessages(
         attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
@@ -823,6 +810,7 @@ function AssistantPageInner() {
           onShowMobileSidebar={() => setShowMobileSidebar(true)}
           inputRef={inputRef}
           onApprovalChange={handleApprovalChange}
+          onApprovalsReplace={handleApprovalsReplace}
           onRunUpdate={handleRunUpdate}
           onRunRetry={handleRunRetry}
           onOpenThread={(id) => {

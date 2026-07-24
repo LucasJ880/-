@@ -149,6 +149,7 @@ export const GET = withAuth(async (request, ctx, user) => {
             title: true,
             preview: true,
             status: true,
+            payload: true,
             messageId: true,
             agentRunId: true,
             expiresAt: true,

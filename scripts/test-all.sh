@@ -107,6 +107,7 @@ run_test "Phase3B-A Run Status" "npx tsx src/lib/assistant/__tests__/run-status.
 run_test "Phase3B-A Dispatch Policy" "npx tsx src/lib/assistant/__tests__/dispatch-policy.test.ts"
 run_test "Phase3B-A Task Card Policy" "npx tsx src/components/assistant/__tests__/assistant-task-card-policy.test.ts"
 run_test "AR2-1 Runtime V2 Workbench UI" "npx tsx src/lib/assistant/__tests__/runtime-v2-workbench-ui.test.ts"
+run_test "AR2-1 Inline Approval Model" "npx tsx src/lib/assistant/__tests__/inline-approval-model.test.ts"
 run_test "Phase3B-A Scenario Message Link" "npx tsx src/lib/assistant/__tests__/scenario-message-link.test.ts"
 run_test "Phase3B-A Daily Brief Scenario" "npx tsx src/lib/assistant/__tests__/daily-brief-scenario.test.ts"
 run_test "Phase3B-A Customer Followup Scenario" "npx tsx src/lib/assistant/__tests__/customer-followup-scenario.test.ts"

@@ -21,8 +21,17 @@ export interface PendingApproval {
   draftType: string;
   title: string;
   preview: string;
-  status: "pending" | "executed" | "rejected" | "failed" | "expired";
+  status:
+    | "pending"
+    | "approved"
+    | "executing"
+    | "executed"
+    | "rejected"
+    | "failed"
+    | "expired";
   failureReason?: string;
+  agentRunId?: string | null;
+  payload?: Record<string, unknown> | null;
 }
 
 const DRAFT_TYPE_LABELS: Record<string, string> = {
@@ -80,6 +89,18 @@ export function ApprovalCard({ approval, onChange, onRunUpdate }: Props) {
       notifyPendingActionsChanged();
     }
   };
+
+  if (approval.status === "approved" || approval.status === "executing") {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-accent">
+        <Loader2 size={14} className="animate-spin" />
+        <span className="font-medium">
+          {approval.status === "approved" ? "已确认" : "执行中"}
+        </span>
+        <span className="opacity-80">{approval.title}</span>
+      </div>
+    );
+  }
 
   // 已终态
   if (approval.status === "executed") {

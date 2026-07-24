@@ -39,11 +39,16 @@ import type { AgentStep } from "./agent-run-types";
 import { FeedbackActions } from "@/components/agent-feedback";
 import { apiFetch } from "@/lib/api-fetch";
 import { AssistantTaskCard } from "@/components/assistant/assistant-task-card";
+import { RuntimeV2Workbench } from "@/components/assistant/runtime-v2-workbench";
+import { InlineApprovalPanel } from "@/components/assistant/inline-approval-panel";
+import { StickyApprovalBar } from "@/components/assistant/sticky-approval-bar";
 import type { AssistantRunStatusDto } from "@/lib/assistant/run-status-types";
 import {
   preferRuntimeV2Steps,
+  shortBodyForV2,
   trimDuplicatedRuntimeV2Body,
 } from "@/lib/assistant/runtime-v2-ui";
+import { defaultSelectedActionIds } from "@/lib/assistant/inline-approval-model";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -195,6 +200,8 @@ export interface ChatPanelProps {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** PR4：审批卡片更新回调 */
   onApprovalChange?: (messageId: string, next: PendingApproval) => void;
+  /** Runtime V2：整批替换某消息下的 PendingAction 视图态 */
+  onApprovalsReplace?: (messageId: string, next: PendingApproval[]) => void;
   onRunUpdate?: (run: AssistantRunStatusDto) => void;
   onRunRetry?: (run: AssistantRunStatusDto) => void | Promise<void>;
   /** PR4.5：PendingInbox 打开对话的回调 */
@@ -224,6 +231,7 @@ export function ChatPanel({
   onShowMobileSidebar,
   inputRef,
   onApprovalChange,
+  onApprovalsReplace,
   onRunUpdate,
   onRunRetry,
   onOpenThread,
@@ -231,10 +239,41 @@ export function ChatPanel({
   orgBlockReason = null,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const approvalPanelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
   const onFileUploadRef = useRef(onFileUpload);
+  const [stickySelectedIds, setStickySelectedIds] = useState<string[]>([]);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+
+  // 当前对话中最新一条 Runtime V2 + 待确认动作（Sticky Bar）
+  const stickyTarget = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "assistant") continue;
+      if (m.assistantRun?.runtimeVersion !== "v2") continue;
+      const pending = (m.pendingApprovals ?? []).filter((a) => a.status === "pending");
+      if (pending.length === 0 && m.assistantRun.status !== "waiting_for_confirmation") {
+        continue;
+      }
+      if (pending.length === 0) continue;
+      return { message: m, pending };
+    }
+    return null;
+  })();
+
+  useEffect(() => {
+    if (!stickyTarget) {
+      setStickySelectedIds([]);
+      return;
+    }
+    setStickySelectedIds(defaultSelectedActionIds(stickyTarget.pending));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    stickyTarget?.message.id,
+    stickyTarget?.pending.map((p) => p.actionId).join("|"),
+  ]);
   useEffect(() => {
     onFileUploadRef.current = onFileUpload;
   }, [onFileUpload]);
@@ -517,28 +556,89 @@ export function ChatPanel({
                       请求失败
                     </div>
                   )}
-                  {msg.role === "assistant" && msg.assistantRun && (
+                  {msg.role === "assistant" &&
+                  msg.assistantRun?.runtimeVersion === "v2" ? (
+                    <div
+                      ref={
+                        stickyTarget?.message.id === msg.id
+                          ? approvalPanelRef
+                          : undefined
+                      }
+                      className="mb-3"
+                    >
+                      <RuntimeV2Workbench
+                        run={msg.assistantRun}
+                        pendingActionCount={(msg.pendingApprovals ?? []).filter(
+                          (a) => a.status === "pending",
+                        ).length}
+                        onRetry={onRunRetry}
+                        approvalSlot={
+                          (msg.pendingApprovals?.length ?? 0) > 0 ? (
+                            <InlineApprovalPanel
+                              runId={msg.assistantRun.runId}
+                              actions={(msg.pendingApprovals ?? []).map((a) => ({
+                                actionId: a.actionId,
+                                draftType: a.draftType,
+                                title: a.title,
+                                preview: a.preview,
+                                status: a.status,
+                                failureReason: a.failureReason,
+                                agentRunId: a.agentRunId,
+                                payload: a.payload,
+                              }))}
+                              selectedIds={
+                                stickyTarget?.message.id === msg.id
+                                  ? stickySelectedIds
+                                  : undefined
+                              }
+                              onSelectedIdsChange={
+                                stickyTarget?.message.id === msg.id
+                                  ? setStickySelectedIds
+                                  : undefined
+                              }
+                              onBusyChange={
+                                stickyTarget?.message.id === msg.id
+                                  ? setApprovalBusy
+                                  : undefined
+                              }
+                              onActionsChange={(next) =>
+                                onApprovalsReplace?.(
+                                  msg.id,
+                                  next.map((a) => ({
+                                    actionId: a.actionId,
+                                    draftType: a.draftType,
+                                    title: a.title,
+                                    preview: a.preview,
+                                    status: a.status,
+                                    failureReason: a.failureReason,
+                                    agentRunId: a.agentRunId,
+                                    payload: a.payload,
+                                  })),
+                                )
+                              }
+                              onRunUpdate={onRunUpdate}
+                            />
+                          ) : null
+                        }
+                      />
+                    </div>
+                  ) : msg.role === "assistant" && msg.assistantRun ? (
                     <AssistantTaskCard
                       run={msg.assistantRun}
-                      stepTitles={
-                        preferRuntimeV2Steps(msg.assistantRun)
-                          ? undefined
-                          : (msg.agentSteps ?? [])
-                              .map((s) => s.label)
-                              .filter(Boolean)
-                      }
+                      stepTitles={(msg.agentSteps ?? [])
+                        .map((s) => s.label)
+                        .filter(Boolean)}
                       onRetry={onRunRetry}
                       className={
                         msg.content ||
-                        (msg.agentSteps &&
-                          msg.agentSteps.length > 0 &&
-                          !preferRuntimeV2Steps(msg.assistantRun))
+                        (msg.agentSteps && msg.agentSteps.length > 0)
                           ? "mb-3"
                           : undefined
                       }
                     />
-                  )}
+                  ) : null}
                   {msg.role === "assistant" &&
+                    msg.assistantRun?.runtimeVersion !== "v2" &&
                     !preferRuntimeV2Steps(msg.assistantRun ?? {}) &&
                     msg.agentSteps &&
                     msg.agentSteps.length > 0 && (
@@ -549,16 +649,25 @@ export function ChatPanel({
                       />
                     )}
                   {(() => {
+                    const isV2 = msg.assistantRun?.runtimeVersion === "v2";
                     const body =
-                      msg.role === "assistant" && msg.assistantRun
-                        ? trimDuplicatedRuntimeV2Body(msg.content, {
-                            hasRuntimeCard: preferRuntimeV2Steps(
-                              msg.assistantRun,
-                            ),
-                            hasApprovalCards:
-                              (msg.pendingApprovals?.length ?? 0) > 0,
-                          })
-                        : msg.content;
+                      msg.role === "assistant" && isV2
+                        ? shortBodyForV2(
+                            trimDuplicatedRuntimeV2Body(msg.content, {
+                              hasRuntimeCard: true,
+                              hasApprovalCards:
+                                (msg.pendingApprovals?.length ?? 0) > 0,
+                            }),
+                          )
+                        : msg.role === "assistant" && msg.assistantRun
+                          ? trimDuplicatedRuntimeV2Body(msg.content, {
+                              hasRuntimeCard: preferRuntimeV2Steps(
+                                msg.assistantRun,
+                              ),
+                              hasApprovalCards:
+                                (msg.pendingApprovals?.length ?? 0) > 0,
+                            })
+                          : msg.content;
                     if (body) {
                       return msg.role === "assistant" ? (
                         <div className="prose-ai">
@@ -667,7 +776,10 @@ export function ChatPanel({
                 </div>
               )}
 
-              {msg.pendingApprovals && msg.pendingApprovals.length > 0 && (
+              {/* Legacy：非 V2 仍用单卡审批；V2 已内嵌 InlineApprovalPanel */}
+              {msg.assistantRun?.runtimeVersion !== "v2" &&
+                msg.pendingApprovals &&
+                msg.pendingApprovals.length > 0 && (
                 <div className="ml-11 mt-3 flex max-w-[calc(100%-44px)] flex-col gap-2 sm:ml-12">
                   {msg.pendingApprovals.map((pa) => (
                     <ApprovalCard
@@ -683,6 +795,36 @@ export function ChatPanel({
           ))}
         </div>
       </div>
+
+      {stickyTarget ? (
+        <StickyApprovalBar
+          pendingCount={stickyTarget.pending.length}
+          selectedCount={stickySelectedIds.filter((id) =>
+            stickyTarget.pending.some((p) => p.actionId === id),
+          ).length}
+          busy={approvalBusy}
+          onViewDetails={() => {
+            approvalPanelRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "center",
+            });
+          }}
+          onReject={() => {
+            approvalPanelRef.current
+              ?.querySelector<HTMLButtonElement>(
+                '[data-testid="inline-reject-selected"]',
+              )
+              ?.click();
+          }}
+          onConfirm={() => {
+            approvalPanelRef.current
+              ?.querySelector<HTMLButtonElement>(
+                '[data-testid="inline-approve-selected"]',
+              )
+              ?.click();
+          }}
+        />
+      ) : null}
 
       {/* Input */}
       <div className="border-t border-black/[0.06] bg-white/90 px-3 pb-[max(12px,calc(var(--mobile-action-padding)+env(safe-area-inset-bottom)))] pt-3 backdrop-blur-xl sm:px-6 sm:pb-4">
