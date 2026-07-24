@@ -37,7 +37,22 @@ export type AgentRunEventType =
   | "background.started"
   | "background.completed"
   | "skill.started"
-  | "skill.completed";
+  | "skill.completed"
+  // Agent Runtime 2.0
+  | "plan.started"
+  | "plan.created"
+  | "step.ready"
+  | "step.started"
+  | "tool.failed"
+  | "approval.resolved"
+  | "step.completed"
+  | "verification.started"
+  | "verification.passed"
+  | "verification.repair_required"
+  | "verification.needs_human"
+  | "repair.started"
+  | "repair.completed"
+  | "run.needs_human";
 
 export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "queued",

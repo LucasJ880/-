@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AR2-1 Inline Approval UX Fixture</title>
+  <style>
+    body { margin: 0; font-family: "SF Pro Text", "PingFang SC", sans-serif; background: #f5f6f6; color: #171a19; }
+    .page { max-width: 720px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+    .scroll { flex: 1; padding: 16px; padding-bottom: 8px; }
+    .meta { font-size: 12px; color: #68706c; margin-bottom: 12px; }
+    .card { border: 1px solid rgba(245,158,11,.55); background: #fffbeb; border-radius: 12px; overflow: hidden; }
+    .head { padding: 12px 14px; }
+    .section { border-top: 1px solid rgba(0,0,0,.06); background: rgba(255,255,255,.45); padding: 10px 14px; }
+    .label { font-size: 11px; font-weight: 600; color: #68706c; margin: 0 0 6px; }
+    .badge { display:inline-block; background:rgba(255,255,255,.6); border-radius:6px; padding:2px 6px; font-size:11px; margin-left:6px; color:#4a524e; }
+    .progress li { font-size: 12px; margin: 0 0 6px; display:flex; gap:8px; align-items:center; }
+    .dot { width:8px; height:8px; border-radius:50%; background:#c5cac7; }
+    .dot.on { background:#2b6055; }
+    .dot.done { background: rgba(43,96,85,.4); }
+    .panel { border: 1px solid rgba(245,158,11,.7); background: rgba(255,251,235,.95); border-radius: 12px; overflow: hidden; }
+    .panel-h { padding: 10px 12px; border-bottom: 1px solid rgba(251,191,36,.5); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+    .item { padding: 10px 12px; border-bottom: 1px solid rgba(251,191,36,.35); background: rgba(255,255,255,.4); font-size: 12px; }
+    .item:last-child { border-bottom: 0; }
+    .row { display:flex; gap:10px; align-items:flex-start; }
+    .tag { display:inline-block; background:#edf3f1; color:#2b6055; font-size:10px; font-weight:700; border-radius:999px; padding:2px 8px; }
+    .actions { display:flex; flex-direction:column; gap:8px; padding:12px; background:rgba(255,255,255,.55); border-top:1px solid rgba(251,191,36,.5); }
+    @media (min-width:640px){ .actions{ flex-direction:row; } }
+    .btn { min-height:48px; border-radius:8px; border:1px solid #d1d5d3; background:#fff; font-size:13px; font-weight:600; flex:1; }
+    .btn.primary { background:#2b6055; color:#fff; border-color:#2b6055; }
+    .sticky { border-top:1px solid rgba(251,191,36,.9); background:rgba(255,251,235,.95); padding:10px 12px; box-shadow:0 -4px 16px rgba(0,0,0,.06); }
+    .sticky-row { display:flex; flex-direction:column; gap:8px; }
+    @media (min-width:640px){ .sticky-row{ flex-direction:row; align-items:center; justify-content:space-between; } }
+    .sticky-btns { display:flex; gap:8px; }
+    .sticky-btns .btn { flex:1; }
+    .input { border-top:1px solid rgba(0,0,0,.06); background:#fff; padding:12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+    .inputbox { border:1px solid rgba(0,0,0,.1); border-radius:10px; padding:12px; color:#9aa19e; font-size:13px; }
+    .body { margin-top:12px; background:#fff; border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:12px; font-size:13px; color:#4a524e; }
+    .exec { margin-top:8px; font-size:12px; color:#2b6055; display:flex; gap:6px; align-items:center; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="scroll">
+      <div class="meta">Inline Approval UX · runId=cmrycasvo000fn1kczgwu4cpa · awaiting_approval</div>
+      <div class="card" data-testid="runtime-v2-workbench">
+        <div class="head">
+          <strong>等待确认</strong><span class="badge">销售跟进</span>
+          <p style="margin:6px 0 0;font-size:12px;color:#4a524e">帮我把最近的销售跟进处理一下。</p>
+          <p style="margin:6px 0 0;font-size:12px" data-testid="assistant-task-summary">1 个步骤等待确认，共 3 个动作。</p>
+        </div>
+        <div class="section" data-testid="runtime-v2-analysis">
+          <p class="label">分析结果</p>
+          <p style="margin:0;font-size:12px;color:#4a524e">已分析 12 个商机，选出 3 个优先客户</p>
+          <p style="margin:8px 0 0;font-size:13px"><strong>[AR2-QA] Customer 1</strong> <span style="color:#2b6055;font-weight:600">92 分</span></p>
+          <ul style="margin:4px 0 0;padding-left:18px;font-size:12px;color:#4a524e">
+            <li>跟进逾期 6 天</li>
+            <li>报价 12 天未回复</li>
+            <li>商机金额 $18,000</li>
+          </ul>
+          <p style="margin:2px 0 0;font-size:10px;color:#9aa19e">依据：跟进分析 · 报价风险 · 商机记录</p>
+        </div>
+        <div class="section" style="background:rgba(255,255,255,.3);padding:8px">
+          <div class="panel" data-testid="inline-approval-panel">
+            <div class="panel-h">
+              <div>
+                <div style="font-size:13px;font-weight:700">待你确认的动作</div>
+                <div style="font-size:11px;color:#92400e">3 项可在本对话直接确认，无需离开当前任务</div>
+              </div>
+              <div style="font-size:11px">全选 · 取消全选</div>
+            </div>
+            <div class="item" data-testid="inline-approval-item">
+              <div class="row">
+                <input type="checkbox" checked />
+                <div>
+                  <div><strong>创建日历事件</strong> · 等待确认 · 风险 LOW</div>
+                  <div style="font-weight:600;margin-top:4px">[AR2-QA] Customer 1</div>
+                  <div style="color:#4a524e;margin-top:2px">跟进逾期且互动停滞</div>
+                  <div style="color:#68706c;margin-top:2px;font-size:11px">前 无 → 后 日历事件 @ 7/25 15:00</div>
+                </div>
+              </div>
+            </div>
+            <div class="item">
+              <div class="row">
+                <input type="checkbox" checked />
+                <div>
+                  <div><strong>更新跟进时间</strong> · 等待确认 · 风险 LOW</div>
+                  <div style="font-weight:600;margin-top:4px">Customer 2</div>
+                  <div style="color:#68706c;margin-top:2px;font-size:11px">前 7/1 → 后 7/25</div>
+                </div>
+              </div>
+            </div>
+            <div class="item">
+              <div class="row">
+                <input type="checkbox" checked />
+                <div>
+                  <div><strong>Gmail 草稿</strong> · 等待确认 · 风险 LOW <span class="tag">不会自动发送</span></div>
+                  <div style="font-weight:600;margin-top:4px">a@b.com</div>
+                  <div style="color:#68706c;margin-top:2px;font-size:11px">前 无草稿 → 后 草稿 → a@b.com</div>
+                </div>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn primary" data-testid="inline-approve-selected">确认 3 个动作并继续</button>
+              <button class="btn">拒绝所选</button>
+              <button class="btn">拒绝全部</button>
+            </div>
+          </div>
+        </div>
+        <div class="section">
+          <p class="label">进度</p>
+          <ol class="progress" style="margin:0;padding:0;list-style:none" data-testid="runtime-v2-user-progress">
+            <li><span class="dot done"></span>分析数据</li>
+            <li><span class="dot done"></span>选择优先客户</li>
+            <li><span class="dot on"></span><strong>等待确认</strong></li>
+            <li><span class="dot"></span>执行动作</li>
+            <li><span class="dot"></span>验证结果</li>
+          </ol>
+          <p style="margin:10px 0 0;font-size:11px;color:#2b6055">查看全部 8 个步骤 ▾</p>
+        </div>
+        <div class="section" data-testid="runtime-v2-verifier" style="display:none">
+          验证结果 · PASS：任务/日期/草稿已落库
+        </div>
+      </div>
+      <div class="body">简短总结：已选出 3 个优先客户，请在上方确认动作后继续。</div>
+      <div class="exec" id="exec-state" style="display:none">⟳ 正在执行已确认动作… · Customer 1 已完成 · Customer 2 执行中</div>
+      <div class="card" id="completed-card" style="display:none;margin-top:12px;border-color:#a7f3d0;background:#ecfdf5">
+        <div class="head">
+          <strong style="color:#065f46">已完成</strong>
+          <p style="margin:6px 0 0;font-size:12px;color:#065f46" data-testid="runtime-v2-verifier">验证结果 · PASS：跟进任务与日期已创建，邮件草稿仅保存未发送。</p>
+        </div>
+      </div>
+    </div>
+    <div class="sticky" data-testid="sticky-approval-bar">
+      <div class="sticky-row">
+        <div style="font-size:13px;font-weight:700">3 个动作等待确认</div>
+        <div class="sticky-btns">
+          <button class="btn" style="display:none" id="desktop-detail">查看详情</button>
+          <button class="btn">拒绝</button>
+          <button class="btn primary">确认 3 个动作并继续</button>
+        </div>
+      </div>
+    </div>
+    <div class="input"><div class="inputbox">输入消息…</div></div>
+  </div>
+  <script>
+    // 桌面端显示「查看详情」
+    if (window.innerWidth >= 640) document.getElementById('desktop-detail').style.display = 'inline-flex';
+  </script>
+</body>
+</html>
