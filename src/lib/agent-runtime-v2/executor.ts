@@ -6,6 +6,7 @@ import { markAgentRunAwaitingApproval } from "@/lib/agent-runtime/pending-link";
 import { executeRuntimeV2Tool } from "./adapters";
 import { emitRuntimeV2Event } from "./events";
 import { getRuntimeV2Limits } from "./flags";
+import { buildStepOperationKey } from "./idempotency";
 import { getRuntimeV2Tool } from "./tool-catalog";
 import { refreshReadySteps } from "./persist";
 
@@ -202,14 +203,19 @@ export async function executeRuntimeV2Round(input: {
   }
 
   const attempt = step.attemptCount + 1;
-  const idempotencyKey = `ar2:${runId}:${step.stepKey}:${attempt}`;
+  // 业务幂等不含 attempt；Step 表仅记录稳定 operationKey 供审计
+  const operationKey = buildStepOperationKey({
+    runId,
+    stepKey: step.stepKey,
+    toolName,
+  });
 
   await db.agentRunStep.update({
     where: { id: step.id },
     data: {
       status: "running",
       attemptCount: attempt,
-      idempotencyKey,
+      idempotencyKey: operationKey,
       startedAt: new Date(),
     },
   });
@@ -218,14 +224,14 @@ export async function executeRuntimeV2Round(input: {
     runId,
     eventType: "step.started",
     title: step.title,
-    payload: { stepKey: step.stepKey, toolName, attempt },
+    payload: { stepKey: step.stepKey, toolName, attempt, operationKey },
   });
   await emitRuntimeV2Event({
     orgId,
     runId,
     eventType: "tool.started",
     title: toolName,
-    payload: { stepKey: step.stepKey },
+    payload: { stepKey: step.stepKey, operationKey },
   });
 
   const priorEvidence = asEvidenceMap(steps);
@@ -238,6 +244,7 @@ export async function executeRuntimeV2Round(input: {
       runId,
       threadId: input.threadId,
       stepKey: step.stepKey,
+      operationKey,
       priorEvidence,
     });
   } catch (err) {

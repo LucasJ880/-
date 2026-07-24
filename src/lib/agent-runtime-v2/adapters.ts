@@ -8,6 +8,9 @@ import { createDraft } from "@/lib/pending-actions/drafts";
 import { runCustomerFollowupGrader } from "@/lib/ai-grader/graders/customer-followup-grader";
 import { runQuoteRiskGrader } from "@/lib/ai-grader/graders/quote-risk-grader";
 import { isGmailDraftEnabled } from "@/lib/google-email";
+import { classifyGraderError } from "./grader-errors";
+import { buildRuntimeV2OperationKey } from "./idempotency";
+import { prioritizeFollowups, type PrioritizeOpportunity } from "./prioritize";
 
 export type AdapterContext = {
   orgId: string;
@@ -16,6 +19,8 @@ export type AdapterContext = {
   runId: string;
   threadId?: string | null;
   stepKey: string;
+  /** 稳定业务操作键（不含 attempt） */
+  operationKey: string;
   /** 前序步骤输出汇总 */
   priorEvidence: Record<string, unknown>;
 };
@@ -37,6 +42,57 @@ function nextFridayIso(): string {
   return d.toISOString();
 }
 
+function draftActionId(draft: { success: boolean; data: unknown }): string | null {
+  if (!draft.success || !draft.data || typeof draft.data !== "object") return null;
+  const id = (draft.data as { actionId?: string }).actionId;
+  return typeof id === "string" ? id : null;
+}
+
+async function runGraderWithGuardedFallback(
+  name: "customer_followup" | "quote_risk",
+  ctx: AdapterContext,
+  run: () => Promise<unknown>,
+  fallback: () => Promise<Record<string, unknown>>,
+): Promise<AdapterResult> {
+  try {
+    const result = await run();
+    return {
+      ok: true,
+      data: {
+        grader: name,
+        result: result as Record<string, unknown>,
+        degraded: false,
+        evidenceQuality: "FULL",
+      },
+    };
+  } catch (err) {
+    const classified = classifyGraderError(err);
+    if (!classified.degradable) {
+      return {
+        ok: false,
+        error: `${classified.code}: ${classified.message}`,
+        data: {
+          grader: name,
+          errorCode: classified.code,
+          degraded: false,
+          evidenceQuality: "NONE",
+        },
+      };
+    }
+    const fb = await fallback();
+    return {
+      ok: true,
+      data: {
+        grader: `${name}_fallback`,
+        ...fb,
+        degraded: true,
+        degradationReason: `${classified.code}: ${classified.message}`,
+        evidenceQuality: "PARTIAL",
+      },
+    };
+  }
+}
+
 export async function executeRuntimeV2Tool(
   toolName: string,
   ctx: AdapterContext,
@@ -54,6 +110,8 @@ export async function executeRuntimeV2Tool(
           estimatedValue: true,
           nextFollowupAt: true,
           updatedAt: true,
+          installDate: true,
+          measureDate: true,
           customerId: true,
           customer: { select: { id: true, name: true, email: true } },
         },
@@ -81,6 +139,16 @@ export async function executeRuntimeV2Tool(
         },
         include: {
           customer: { select: { id: true, name: true, email: true } },
+          quotes: {
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            select: { id: true, updatedAt: true, status: true, sentAt: true },
+          },
+          interactions: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { id: true, createdAt: true },
+          },
         },
         orderBy: { updatedAt: "desc" },
         take: 30,
@@ -88,109 +156,131 @@ export async function executeRuntimeV2Tool(
       return { ok: true, data: { opportunities: opps } };
     }
     case "sales_customer_followup_analysis": {
-      try {
-        const result = await runCustomerFollowupGrader({
-          orgId: ctx.orgId,
-          userId: ctx.userId,
-          role: ctx.role,
-          mode: "GLOBAL",
-        });
-        return {
-          ok: true,
-          data: { grader: "customer_followup", result: result as unknown as Record<string, unknown> },
-        };
-      } catch (err) {
-        // Grader 签名因版本可能不同：降级为基于 DB 的简析
-        const stale = await db.salesOpportunity.findMany({
-          where: {
+      return runGraderWithGuardedFallback(
+        "customer_followup",
+        ctx,
+        () =>
+          runCustomerFollowupGrader({
             orgId: ctx.orgId,
-            stage: { notIn: ["signed", "completed", "lost"] },
-            OR: [
-              { nextFollowupAt: { lte: new Date() } },
-              { nextFollowupAt: null, updatedAt: { lte: new Date(Date.now() - 14 * 86400000) } },
-            ],
-          },
-          include: { customer: { select: { id: true, name: true, email: true } } },
-          take: 20,
-        });
-        return {
-          ok: true,
-          data: {
-            grader: "customer_followup_fallback",
-            warning: err instanceof Error ? err.message : String(err),
-            staleOpportunities: stale,
-          },
-        };
-      }
+            userId: ctx.userId,
+            role: ctx.role,
+            mode: "GLOBAL",
+          }),
+        async () => {
+          const stale = await db.salesOpportunity.findMany({
+            where: {
+              orgId: ctx.orgId,
+              stage: { notIn: ["signed", "completed", "lost"] },
+              OR: [
+                { nextFollowupAt: { lte: new Date() } },
+                {
+                  nextFollowupAt: null,
+                  updatedAt: { lte: new Date(Date.now() - 14 * 86400000) },
+                },
+              ],
+            },
+            include: {
+              customer: { select: { id: true, name: true, email: true } },
+            },
+            take: 20,
+          });
+          return { staleOpportunities: stale };
+        },
+      );
     }
     case "sales_quote_risk_analysis": {
-      try {
-        const result = await runQuoteRiskGrader({
-          orgId: ctx.orgId,
-          userId: ctx.userId,
-          role: ctx.role,
-          mode: "GLOBAL",
-        });
-        return {
-          ok: true,
-          data: { grader: "quote_risk", result: result as unknown as Record<string, unknown> },
-        };
-      } catch (err) {
-        const quotes = await db.salesQuote.findMany({
-          where: { orgId: ctx.orgId },
-          orderBy: { updatedAt: "desc" },
-          take: 15,
-          include: { customer: { select: { id: true, name: true } } },
-        });
-        return {
-          ok: true,
-          data: {
-            grader: "quote_risk_fallback",
-            warning: err instanceof Error ? err.message : String(err),
-            recentQuotes: quotes,
-          },
-        };
-      }
+      return runGraderWithGuardedFallback(
+        "quote_risk",
+        ctx,
+        () =>
+          runQuoteRiskGrader({
+            orgId: ctx.orgId,
+            userId: ctx.userId,
+            role: ctx.role,
+            mode: "GLOBAL",
+          }),
+        async () => {
+          const quotes = await db.salesQuote.findMany({
+            where: { orgId: ctx.orgId },
+            orderBy: { updatedAt: "desc" },
+            take: 15,
+            include: { customer: { select: { id: true, name: true } } },
+          });
+          return { recentQuotes: quotes };
+        },
+      );
     }
     case "sales_prioritize_followups": {
       const prior = ctx.priorEvidence;
-      const opps =
-        (prior.s2_opportunities as { opportunities?: Array<Record<string, unknown>> })
-          ?.opportunities ??
-        (prior.s1_pipeline as { sample?: Array<Record<string, unknown>> })?.sample ??
+      const s2 = prior.s2_opportunities as {
+        opportunities?: Array<Record<string, unknown>>;
+      } | null;
+      const s3 = prior.s3_followup_analysis;
+      const s4 = prior.s4_quote_risk;
+      if (!s3 || !s4) {
+        return {
+          ok: false,
+          error: "MISSING_GRADER_EVIDENCE: 必须先完成 s3/s4 分析步骤",
+        };
+      }
+      const rawOpps =
+        s2?.opportunities ??
+        (prior.s1_pipeline as { sample?: Array<Record<string, unknown>> })
+          ?.sample ??
         [];
-      const ranked = (opps as Array<{
-        id?: string;
-        customerId?: string;
-        customer?: { id?: string; name?: string; email?: string | null };
-        nextFollowupAt?: string | Date | null;
-        updatedAt?: string | Date;
-        stage?: string;
-      }>)
-        .map((o, idx) => ({
-          opportunityId: o.id,
-          customerId: o.customerId ?? o.customer?.id,
-          customerName: o.customer?.name ?? "未知客户",
-          email: o.customer?.email ?? null,
-          stage: o.stage,
-          score: 100 - idx,
-          reason:
-            o.nextFollowupAt && new Date(o.nextFollowupAt) <= new Date()
-              ? "跟进已到期"
-              : "近期活跃需跟进",
-        }))
-        .filter((x) => x.customerId)
-        .slice(0, 3);
+      const opportunities: PrioritizeOpportunity[] = (
+        rawOpps as Array<{
+          id?: string;
+          customerId?: string;
+          customer?: { id?: string; name?: string; email?: string | null };
+          nextFollowupAt?: string | Date | null;
+          updatedAt?: string | Date;
+          stage?: string;
+          estimatedValue?: number | null;
+          installDate?: string | Date | null;
+          measureDate?: string | Date | null;
+          quotes?: Array<{
+            updatedAt?: string | Date;
+            sentAt?: string | Date | null;
+            status?: string;
+          }>;
+          interactions?: Array<{ createdAt?: string | Date }>;
+        }>
+      )
+        .filter((o) => o.id && (o.customerId || o.customer?.id))
+        .map((o) => {
+          const lastQuote = o.quotes?.[0];
+          const lastIx = o.interactions?.[0]?.createdAt;
+          return {
+            id: o.id!,
+            customerId: (o.customerId ?? o.customer?.id)!,
+            customerName: o.customer?.name ?? "未知客户",
+            email: o.customer?.email ?? null,
+            stage: o.stage,
+            estimatedValue: o.estimatedValue,
+            nextFollowupAt: o.nextFollowupAt,
+            updatedAt: o.updatedAt,
+            expectedCloseDate: o.installDate ?? o.measureDate ?? null,
+            lastInteractionAt: lastIx ?? null,
+            quoteSentAt: lastQuote?.sentAt ?? lastQuote?.updatedAt ?? null,
+          };
+        });
+
+      const ranked = prioritizeFollowups({
+        opportunities,
+        followupAnalysis: s3,
+        quoteRiskAnalysis: s4,
+        limit: 3,
+      });
       return {
         ok: true,
         data: {
-          prioritized: ranked,
-          selectedCount: ranked.length,
+          ...ranked,
+          operationKey: ctx.operationKey,
         },
       };
     }
     case "grader_create_followup_task": {
-      // 无项目上下文时用日历跟进提醒作为「跟进任务」PendingAction（不直写）
       const prioritized =
         (
           ctx.priorEvidence.s5_prioritize as {
@@ -198,7 +288,7 @@ export async function executeRuntimeV2Tool(
               customerId: string;
               customerName: string;
               opportunityId?: string;
-              reason?: string;
+              reasons?: string[];
             }>;
           }
         )?.prioritized ?? [];
@@ -207,16 +297,25 @@ export async function executeRuntimeV2Tool(
       }
       const targets = prioritized.slice(0, 3);
       const startTime = nextFridayIso();
-      const endTime = new Date(new Date(startTime).getTime() + 30 * 60_000).toISOString();
+      const endTime = new Date(
+        new Date(startTime).getTime() + 30 * 60_000,
+      ).toISOString();
       const actionIds: string[] = [];
       for (const t of targets) {
+        const targetId = t.opportunityId || t.customerId;
+        const idempotencyKey = buildRuntimeV2OperationKey({
+          runId: ctx.runId,
+          stepKey: ctx.stepKey,
+          actionType: "calendar.create_event",
+          targetId,
+        });
         const draft = await createDraft({
           type: "calendar.create_event",
           title: `跟进提醒：${t.customerName}`,
-          preview: t.reason ?? "销售跟进提醒",
+          preview: t.reasons?.[0] ?? "销售跟进提醒",
           payload: {
             title: `跟进客户 ${t.customerName}`,
-            description: t.reason ?? "Runtime V2 建议跟进",
+            description: t.reasons?.join("；") ?? "Runtime V2 建议跟进",
             startTime,
             endTime,
             metadata: {
@@ -225,17 +324,17 @@ export async function executeRuntimeV2Tool(
               opportunityId: t.opportunityId,
               source: "agent_runtime_v2",
               stepKey: ctx.stepKey,
+              idempotencyKey,
             },
           },
           userId: ctx.userId,
           orgId: ctx.orgId,
           agentRunId: ctx.runId,
           threadId: ctx.threadId ?? undefined,
+          idempotencyKey,
         });
-        if (draft.success && draft.data && typeof draft.data === "object") {
-          const id = (draft.data as { actionId?: string }).actionId;
-          if (id) actionIds.push(id);
-        }
+        const id = draftActionId(draft);
+        if (id) actionIds.push(id);
       }
       if (actionIds.length === 0) {
         return { ok: false, error: "创建跟进任务草稿失败" };
@@ -270,6 +369,12 @@ export async function executeRuntimeV2Tool(
           select: { id: true, title: true, nextFollowupAt: true },
         });
         if (!opp) continue;
+        const idempotencyKey = buildRuntimeV2OperationKey({
+          runId: ctx.runId,
+          stepKey: ctx.stepKey,
+          actionType: "sales.update_followup",
+          targetId: opp.id,
+        });
         const draft = await createDraft({
           type: "sales.update_followup",
           title: `调整跟进日期：${t.customerName}`,
@@ -288,17 +393,17 @@ export async function executeRuntimeV2Tool(
               customerId: t.customerId,
               source: "agent_runtime_v2",
               stepKey: ctx.stepKey,
+              idempotencyKey,
             },
           },
           userId: ctx.userId,
           orgId: ctx.orgId,
           agentRunId: ctx.runId,
           threadId: ctx.threadId ?? undefined,
+          idempotencyKey,
         });
-        if (draft.success && draft.data && typeof draft.data === "object") {
-          const id = (draft.data as { actionId?: string }).actionId;
-          if (id) actionIds.push(id);
-        }
+        const id = draftActionId(draft);
+        if (id) actionIds.push(id);
       }
       if (actionIds.length === 0) {
         return { ok: false, error: "创建跟进日期草稿失败" };
@@ -314,7 +419,7 @@ export async function executeRuntimeV2Tool(
       if (!isGmailDraftEnabled()) {
         return {
           ok: false,
-          error: "GMAIL_DRAFT_DISABLED",
+          error: "FEATURE_NOT_CONFIGURED: GMAIL_DRAFT_DISABLED",
         };
       }
       const prioritized =
@@ -324,7 +429,7 @@ export async function executeRuntimeV2Tool(
               customerId: string;
               customerName: string;
               email?: string | null;
-              reason?: string;
+              reasons?: string[];
             }>;
           }
         )?.prioritized ?? [];
@@ -335,7 +440,13 @@ export async function executeRuntimeV2Tool(
       const actionIds: string[] = [];
       for (const t of withEmail) {
         const subject = `跟进：${t.customerName}`;
-        const body = `<p>您好，${t.customerName}：</p><p>想跟进一下当前进展。${t.reason ?? ""}</p><p>方便时请回复，谢谢。</p>`;
+        const body = `<p>您好，${t.customerName}：</p><p>想跟进一下当前进展。${t.reasons?.[0] ?? ""}</p><p>方便时请回复，谢谢。</p>`;
+        const idempotencyKey = buildRuntimeV2OperationKey({
+          runId: ctx.runId,
+          stepKey: ctx.stepKey,
+          actionType: "grader.email_draft",
+          targetId: t.customerId,
+        });
         const draft = await createDraft({
           type: "grader.email_draft",
           title: `邮件草稿：${t.email}`,
@@ -352,17 +463,17 @@ export async function executeRuntimeV2Tool(
               customerId: t.customerId,
               source: "agent_runtime_v2",
               stepKey: ctx.stepKey,
+              idempotencyKey,
             },
           },
           userId: ctx.userId,
           orgId: ctx.orgId,
           agentRunId: ctx.runId,
           threadId: ctx.threadId ?? undefined,
+          idempotencyKey,
         });
-        if (draft.success && draft.data && typeof draft.data === "object") {
-          const id = (draft.data as { actionId?: string }).actionId;
-          if (id) actionIds.push(id);
-        }
+        const id = draftActionId(draft);
+        if (id) actionIds.push(id);
       }
       if (actionIds.length === 0) {
         return { ok: false, error: "创建 Gmail 草稿 PendingAction 失败" };

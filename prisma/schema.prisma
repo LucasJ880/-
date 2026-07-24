@@ -1933,9 +1933,13 @@ model PendingAction {
   policyVersion   String?
   resourceVersion String?
 
+  /// Agent Runtime 2.0：稳定业务幂等键（不含 attempt）；空允许多行
+  idempotencyKey String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([orgId, idempotencyKey])
   @@index([createdById, status, createdAt])
   @@index([approverUserId, status, createdAt])
   @@index([orgId, status, createdAt])
