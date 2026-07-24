@@ -55,6 +55,7 @@ run_test "Agent Runtime V2 Planner" "npx tsx src/lib/agent-runtime-v2/__tests__/
 run_test "Agent Runtime V2 Durable State" "npx tsx src/lib/agent-runtime-v2/__tests__/durable-state.test.ts"
 run_test "Agent Runtime V2 Verifier/Security" "npx tsx src/lib/agent-runtime-v2/__tests__/verifier-security.test.ts"
 run_test "Agent Runtime V2 Golden Flow" "npx tsx src/lib/agent-runtime-v2/__tests__/golden-flow.test.ts"
+run_test "Agent Runtime V2 Preview Gate P0" "npx tsx src/lib/agent-runtime-v2/__tests__/preview-gate-p0.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"

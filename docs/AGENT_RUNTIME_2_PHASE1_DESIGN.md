@@ -169,3 +169,21 @@ Must go through Planner → tools (pipeline, interactions, quotes, graders) → 
 ## 14. Conflict note (PR #19)
 
 PR #19 is **not merged** into `main`. This work is stacked on `agent/digital-employees-phase1-activation`. After #19 merges: rebase onto `main`, retarget Draft PR base to `main`, re-run full tests.
+
+## 15. Migration & rollback (Preview Gate)
+
+- Forward migrations only. **Do not edit** already-applied migration files (checksum drift).
+- Shared Neon used by this repo's local/`DATABASE_URL` is the **shared non-Production** project (`ep-super-field-antfibsl*`). Confirm host before any deploy. **Never** treat it as safe to reset.
+- Rollback policy:
+  1. Prefer a **forward-fix** migration that undoes the change safely.
+  2. **Forbidden** on shared or Production DB: manually deleting rows from `_prisma_migrations`.
+  3. `prisma migrate reset` / wipe is allowed **only** on disposable isolated databases.
+- Read-only verification: `npx tsx scripts/verify-agent-runtime-v2-migration.ts`
+
+## 16. Preview Gate P0 invariants
+
+1. Resume execution principal = `metadata.initiatedByUserId` (never approval actor).
+2. Multi-PendingAction reconcile requires `found.length === expected.length`; no `anyExecuted → completed`.
+3. Business idempotency: `ar2:{runId}:{stepKey}:{actionType}:{targetId}` via `PendingAction.idempotencyKey`.
+4. Grader fallback only for MODEL_TIMEOUT / PROVIDER_UNAVAILABLE / FEATURE_NOT_CONFIGURED; PARTIAL evidence cannot PASS verification.
+5. Prioritization must consume `s3_followup_analysis` + `s4_quote_risk` with explainable scores.
