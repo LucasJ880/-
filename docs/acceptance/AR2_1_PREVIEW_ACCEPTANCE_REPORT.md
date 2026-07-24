@@ -276,6 +276,43 @@ PR #20 仍为 Draft。未合并。未改 Production。未开始 AR2-2。
 
 ---
 
+## 9.1 Gmail Scope 审计（2026-07-24 · 前置复检）
+
+用户声明「Gmail 已重新授权」后，对共享 Neon（与 Preview 同库）复核：
+
+| 项 | 结果 |
+|---|---|
+| EmailProvider | `cmo788rvy0000lg04v5hvzlkv` / `lucas@sunnyshutter.ca` |
+| `grantedScopes` | `gmail.send` + `userinfo.email` + `openid` |
+| **`gmail.compose`** | **缺失** |
+| `updatedAt` | `2026-07-23T19:02:04.534Z`（未因本次重授权刷新） |
+| 结论 | **`FAIL_GMAIL_COMPOSE_MISSING`** |
+
+证据：`docs/acceptance/ar2-1-gmail-scope-audit-20260724.json`
+
+**因此未启动 Smoke 1–3。** 系统在缺少 `gmail.compose` 或未返回 `refresh_token` 时不会覆盖旧绑定，故 UI 上「已授权」若仍只有 send，库内不会更新。
+
+请按以下步骤重做授权后再回复「compose 已就绪」：
+1. Preview → 设置 → Gmail → **重新授权（草稿权限）**（必须带 `reauth=1`，不要用普通「绑定」）  
+2. Google 同意屏需出现并勾选 **撰写/草稿（gmail.compose）** 权限  
+3. 若 Google 直接跳过同意屏：到 [Google 账号 → 第三方应用访问](https://myaccount.google.com/permissions) 撤销青砚/该 OAuth 客户端后，再点「重新授权」  
+4. 成功后 `EmailProvider.updatedAt` 应更新，且 `grantedScopes` 含 `.../auth/gmail.compose`
+
+### 复检（用户再次声明 compose 已就绪 · 2026-07-24）
+
+| 项 | 结果 |
+|---|---|
+| `hasGmailCompose` | **仍为 false** |
+| `updatedAt` | 仍为 `2026-07-23T19:02:04Z`（未刷新） |
+| Preview `GOOGLE_EMAIL_REDIRECT_URI` | `https://rho-sage.vercel.app/api/auth/google-email/callback`（回调落在 Production 域名，与 Preview 同库） |
+| 结论 | **Smoke 1–3 继续 BLOCKED** |
+
+证据：`docs/acceptance/ar2-1-gmail-scope-audit-20260724-recheck.json`
+
+**请注意：** 设置页若仍显示橙色「缺少 gmail.compose」，即授权未成功。回调成功时 URL 不应带 `error=`；库内 `updatedAt` 必须变成今天。
+
+---
+
 ## 10. UI P1 修复（2026-07-24）
 
 **Commit：** `6c420a1296b884a65ee3ae2c590f0418430be3bd`  
