@@ -13,9 +13,7 @@ async function main() {
   const orgId = getArg("org-id");
   const userId = getArg("user-id");
 
-  if (!orgId) {
-    throw new Error("Missing --org-id=<Organization.id>");
-  }
+  if (!orgId) throw new Error("Missing --org-id=<Organization.id>");
 
   const org = await db.organization.findUnique({
     where: { id: orgId },
@@ -32,19 +30,23 @@ async function main() {
   const user = userId
     ? await db.user.findUnique({
         where: { id: userId },
-        select: { id: true, email: true, name: true, role: true, status: true, activeOrgId: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          status: true,
+          activeOrgId: true,
+        },
       })
     : null;
 
   const activeBindings = userId
     ? await db.weChatBinding.count({ where: { userId, status: "active" } })
     : 0;
-  const gmailProvider = userId
-    ? await db.emailProvider.findFirst({
-        where: { userId, provider: "gmail" },
-        select: { id: true, email: true, status: true, scopes: true },
-      })
-    : null;
+  const emailProviderCount = userId
+    ? await db.emailProvider.count({ where: { userId } })
+    : 0;
   const notificationPreference = userId
     ? await db.userNotificationPreference.findUnique({
         where: { userId },
@@ -52,38 +54,36 @@ async function main() {
       })
     : null;
 
-  const report = {
-    checkedAt: new Date().toISOString(),
-    organization: org,
-    user,
-    rollout: describeDigitalEmployeeRollout(),
-    employees: describeDigitalEmployees({
-      orgId,
-      userId: user?.id,
-      role: user?.role,
-    }),
-    prerequisites: {
-      openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
-      cronSecretConfigured: Boolean(process.env.CRON_SECRET),
-      activeWechatBindings: activeBindings,
-      gmail: gmailProvider
-        ? {
-            connected: gmailProvider.status === "active",
-            email: gmailProvider.email,
-            scopes: gmailProvider.scopes,
-          }
-        : { connected: false },
-      automationPreferenceMetadata: notificationPreference?.metadata ?? null,
-    },
-    safety: {
-      automaticEmailSend: false,
-      highRiskWritesRequireApproval: true,
-      recommendation:
-        "Keep Supervisor and employee learning disabled until Phase 1 acceptance passes.",
-    },
-  };
-
-  console.log(JSON.stringify(report, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        checkedAt: new Date().toISOString(),
+        organization: org,
+        user,
+        rollout: describeDigitalEmployeeRollout(),
+        employees: describeDigitalEmployees({
+          orgId,
+          userId: user?.id,
+          role: user?.role,
+        }),
+        prerequisites: {
+          openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+          cronSecretConfigured: Boolean(process.env.CRON_SECRET),
+          activeWechatBindings: activeBindings,
+          connectedEmailProviders: emailProviderCount,
+          automationPreferenceMetadata: notificationPreference?.metadata ?? null,
+        },
+        safety: {
+          automaticEmailSend: false,
+          highRiskWritesRequireApproval: true,
+          recommendation:
+            "Keep Supervisor and employee learning disabled until Phase 1 acceptance passes.",
+        },
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 main()
