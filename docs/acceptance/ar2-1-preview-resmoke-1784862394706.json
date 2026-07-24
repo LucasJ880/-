@@ -1,0 +1,32 @@
+{
+  "kind": "AR2_1_RESMOKE_UNBLOCK_ATTEMPT",
+  "at": "2026-07-24T03:06:34.705Z",
+  "previewUrl": "https://1fjstwfyh-4o86vru4i-lucas-9039s-projects.vercel.app",
+  "head": "6676d3af16f80d1459ea78f09aee894c2d4c6103",
+  "prerequisites": {
+    "lucasLoggedInPreview": false,
+    "currentOrgSunny": false,
+    "gmailComposeAuthorized": false,
+    "agentRuntimeV2EnvPresentOnPreview": true,
+    "gmailAudit": {
+      "accountEmail": "lucas@sunnyshutter.ca",
+      "grantedScopes": "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email openid",
+      "emailProviderUpdatedAt": "2026-07-23T19:02:04.534Z",
+      "hasCompose": false
+    },
+    "notes": [
+      "Browser at new Preview URL redirected to /login — no Lucas session",
+      "EmailProvider scopes unchanged since 2026-07-23 — gmail.compose missing",
+      "AGENT_RUNTIME_V2_* present on Preview env list after prior write+redeploy"
+    ]
+  },
+  "smoke": {
+    "s1_ui_plan": "BLOCKED",
+    "s2_ui_refresh": "BLOCKED",
+    "s3_gmail_loop": "BLOCKED"
+  },
+  "screenshots": [
+    "docs/acceptance/screenshots/resmoke-preview-login-blocked.png"
+  ],
+  "final": "PREVIEW_ACCEPTANCE_BLOCKED"
+}

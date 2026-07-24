@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AR2-1 UI P1 Fixture — Runtime V2 Workbench</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+      background: #f5f6f6;
+      color: #171a19;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+    .meta { font-size: 12px; color: #68706c; margin-bottom: 12px; }
+    .card {
+      border: 1px solid rgba(245, 158, 11, 0.55);
+      background: #fffbeb;
+      color: #451a03;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .head { display: flex; gap: 12px; padding: 12px 14px; }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,.6);
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #4a524e;
+      margin-left: 6px;
+    }
+    .section { border-top: 1px solid rgba(0,0,0,.06); background: rgba(255,255,255,.4); padding: 10px 14px; }
+    .label { font-size: 11px; font-weight: 600; color: #68706c; margin: 0 0 6px; }
+    ol { margin: 0; padding: 0; list-style: none; }
+    li.step { font-size: 12px; line-height: 1.45; margin: 0 0 8px; }
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    .muted { color: #68706c; font-size: 11px; white-space: nowrap; }
+    .priority {
+      margin-top: 6px;
+      border: 1px solid rgba(0,0,0,.06);
+      background: rgba(255,255,255,.7);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .priority li { margin-bottom: 8px; }
+    .priority ul { margin: 4px 0 0; padding-left: 18px; color: #4a524e; font-size: 11px; }
+    .refs { font-size: 10px; color: #9aa19e; margin-top: 2px; }
+    .hint {
+      border-top: 1px solid rgba(251, 191, 36, .8);
+      background: rgba(255,251,235,.85);
+      padding: 8px 14px;
+      font-size: 12px;
+    }
+    .body {
+      margin-top: 14px;
+      background: white;
+      border: 1px solid rgba(0,0,0,.06);
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .pa {
+      margin-top: 10px;
+      border: 1px solid rgba(43,96,85,.4);
+      background: rgba(43,96,85,.05);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .pa .tag {
+      display: inline-block;
+      background: rgba(43,96,85,.12);
+      color: #2b6055;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-bottom: 6px;
+    }
+    .pa h3 { margin: 0 0 4px; font-size: 14px; }
+    .pa p { margin: 0 0 10px; font-size: 12px; color: #68706c; }
+    .actions { display: flex; flex-direction: column; gap: 8px; }
+    @media (min-width: 640px) {
+      .actions { flex-direction: row; }
+    }
+    .btn {
+      min-height: 44px;
+      border-radius: 8px;
+      border: 1px solid #d1d5d3;
+      background: white;
+      font-size: 13px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .btn.primary { background: #2b6055; color: white; border-color: #2b6055; }
+    .runid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="fixture">
+    <div class="meta">
+      AR2-1 UI P1 fixture · Runtime V2 ·
+      <span class="runid">runId=cmrycasvo000fn1kczgwu4cpa</span>
+      · status=awaiting_approval
+    </div>
+
+    <div class="card" data-testid="assistant-task-card">
+      <div class="head">
+        <div>
+          <div>
+            <strong>等待确认</strong>
+            <span class="badge">销售跟进处理</span>
+            <span class="badge">Runtime V2</span>
+          </div>
+          <p style="margin:6px 0 0;font-size:12px;color:#4a524e" data-testid="assistant-task-summary">
+            等待确认 1 个步骤，共 3 个待确认动作，已执行 0 个动作，已拒绝 0 个，已失败 0 个。
+          </p>
+        </div>
+      </div>
+
+      <div class="section">
+        <p class="label">目标</p>
+        <p style="margin:0;font-size:12px">帮我把最近的销售跟进处理一下。</p>
+        <p class="label" style="margin-top:8px">计划</p>
+        <p style="margin:0;font-size:12px">读取商机 → 分析跟进与报价风险 → 选出优先客户 → 创建任务/改期/邮件草稿（需确认）→ 验证。</p>
+      </div>
+
+      <div class="section">
+        <p class="label">执行步骤（8）</p>
+        <ol data-testid="runtime-v2-steps">
+          <li class="step"><div class="row"><span>1. 理解目标 · planner</span><span class="muted">已完成</span></div></li>
+          <li class="step"><div class="row"><span>2. 拉取近期商机 · sales_list</span><span class="muted">已完成</span></div></li>
+          <li class="step"><div class="row"><span>3. 跟进分析 · grader_followup</span><span class="muted">已完成</span></div></li>
+          <li class="step"><div class="row"><span>4. 报价风险 · grader_quote</span><span class="muted">已完成</span></div></li>
+          <li class="step">
+            <div class="row"><span>5. 选出最多 3 个优先客户 · prioritize</span><span class="muted">已完成</span></div>
+            <ul class="priority" data-testid="runtime-v2-priority">
+              <li>
+                <strong>[AR2-QA] Customer 1</strong> <span class="muted">评分 88</span>
+                <ul>
+                  <li>跟进逾期且互动停滞</li>
+                  <li>报价后未回复风险升高</li>
+                  <li>接近预计成交窗口</li>
+                </ul>
+                <div class="refs">证据：s3:opp1 · s4:opp1 · interaction_or_updated:opp1</div>
+              </li>
+              <li>
+                <strong>[AR2-QA] Customer 2</strong> <span class="muted">评分 76</span>
+                <ul>
+                  <li>报价风险提示需跟进</li>
+                  <li>阶段停留偏久</li>
+                  <li>近期有互动但未闭环</li>
+                </ul>
+                <div class="refs">证据：s4:opp2 · s3:PARTIAL</div>
+              </li>
+              <li>
+                <strong>[AR2-QA] Customer 3</strong> <span class="muted">评分 71</span>
+                <ul>
+                  <li>跟进日期将至</li>
+                  <li>商机金额相对更高</li>
+                  <li>需要日历提醒推进</li>
+                </ul>
+                <div class="refs">证据：s2:opp3 · s3_followup_analysis</div>
+              </li>
+            </ul>
+          </li>
+          <li class="step"><div class="row"><span>6. 创建跟进任务 · calendar.create_event · 需确认 · 尝试 1</span><span class="muted">等待确认</span></div></li>
+          <li class="step"><div class="row"><span>7. 调整跟进日期 · sales.update_followup · 需确认</span><span class="muted">等待前序步骤</span></div></li>
+          <li class="step"><div class="row"><span>8. 准备邮件草稿 · gmail_create_draft · 需确认</span><span class="muted">等待前序步骤</span></div></li>
+        </ol>
+      </div>
+      <div class="hint">写操作待确认：请在下方审批卡中逐项确认或拒绝。</div>
+    </div>
+
+    <div class="body">
+      <p><strong>优先客户分析：</strong></p>
+      <p>- [AR2-QA] Customer 1（评分 88）</p>
+      <p style="margin-left:12px">· 跟进逾期且互动停滞</p>
+      <p style="margin-left:12px">· 报价后未回复风险升高</p>
+      <p style="margin-left:12px">· 接近预计成交窗口</p>
+      <p style="color:#68706c;font-size:12px;margin-top:10px">（步骤列表与等待确认文案已从正文去重，由上方 Runtime V2 卡承接）</p>
+    </div>
+
+    <div class="pa" data-testid="pending-action-card">
+      <div class="tag">待确认 · 创建日历事件</div>
+      <div style="font-size:11px;color:#68706c">动作类型：创建日历事件</div>
+      <h3>跟进提醒：[AR2-QA] Customer 1</h3>
+      <p><strong>变更预览：</strong>跟进逾期且互动停滞</p>
+      <div class="actions">
+        <button class="btn primary">确认执行</button>
+        <button class="btn">取消</button>
+      </div>
+    </div>
+    <div class="pa" data-testid="pending-action-card">
+      <div class="tag">待确认 · 创建日历事件</div>
+      <div style="font-size:11px;color:#68706c">动作类型：创建日历事件</div>
+      <h3>跟进提醒：[AR2-QA] Customer 2</h3>
+      <p><strong>变更预览：</strong>报价风险提示需跟进</p>
+      <div class="actions">
+        <button class="btn primary">确认执行</button>
+        <button class="btn">取消</button>
+      </div>
+    </div>
+    <div class="pa" data-testid="pending-action-card">
+      <div class="tag">待确认 · 创建日历事件</div>
+      <div style="font-size:11px;color:#68706c">动作类型：创建日历事件</div>
+      <h3>跟进提醒：[AR2-QA] Customer 3</h3>
+      <p><strong>变更预览：</strong>需要日历提醒推进</p>
+      <div class="actions">
+        <button class="btn primary">确认执行</button>
+        <button class="btn">取消</button>
+      </div>
+    </div>
+
+    <div class="meta" style="margin-top:16px">
+      Refresh persistence：同一 runId / 8 steps / 3 approval cards 在刷新后由
+      messages?agentRunId + runs?assistantMessageId 重新挂载。
+    </div>
+  </div>
+</body>
+</html>
