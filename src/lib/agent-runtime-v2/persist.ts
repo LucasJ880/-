@@ -81,7 +81,11 @@ export function dependenciesSatisfied(
 export async function refreshReadySteps(orgId: string, runId: string) {
   const steps = await db.agentRunStep.findMany({ where: { orgId, runId } });
   const completed = new Set(
-    steps.filter((s) => s.status === "completed" || s.status === "skipped").map((s) => s.stepKey),
+    steps
+      .filter((s) =>
+        ["completed", "skipped", "partially_executed"].includes(s.status),
+      )
+      .map((s) => s.stepKey),
   );
   for (const step of steps) {
     if (step.status !== "pending") continue;

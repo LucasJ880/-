@@ -92,6 +92,7 @@ export type RuntimeV2StepStatus =
   | "running"
   | "awaiting_approval"
   | "completed"
+  | "partially_executed"
   | "failed"
   | "blocked"
   | "skipped";

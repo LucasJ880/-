@@ -87,9 +87,30 @@ async function deterministicVerify(input: {
 
   const readDone = steps
     .filter((s) => !s.requiresApproval)
-    .every((s) => s.status === "completed" || s.status === "skipped");
+    .every(
+      (s) =>
+        s.status === "completed" ||
+        s.status === "skipped" ||
+        s.status === "partially_executed",
+    );
   if (readDone) satisfied.push("读取与分析步骤完成");
   else unsatisfied.push("仍有未完成的读取/分析步骤");
+
+  // PARTIAL / degraded 证据不得当作完整完成依据
+  const partialEvidenceSteps = steps.filter((s) => {
+    const out = s.outputJson as {
+      evidenceQuality?: string;
+      degraded?: boolean;
+    } | null;
+    return out?.evidenceQuality === "PARTIAL" || out?.degraded === true;
+  });
+  if (partialEvidenceSteps.length > 0) {
+    unsatisfied.push("存在 PARTIAL/degraded 分析证据，不能视为完整完成");
+    evidence.push(
+      ...partialEvidenceSteps.map((s) => `step:${s.stepKey}:PARTIAL`),
+    );
+    repairs.push("在完整 Grader 证据可用后重新分析并验证");
+  }
 
   if (unsatisfied.length === 0) {
     return {
