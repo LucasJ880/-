@@ -4557,7 +4557,8 @@ model VisualizerCatalogProduct {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assets VisualizerCatalogAsset[]
+  assets       VisualizerCatalogAsset[]
+  templateJobs VisualizerCatalogTemplateJob[]
 
   @@index([orgId, archived])
   @@index([category])
@@ -4581,11 +4582,38 @@ model VisualizerCatalogAsset {
   isPrimary  Boolean @default(false)
   /// real / ai_generated
   sourceType String  @default("real")
+  /// draft / ai_reference / real_unverified / real_verified
+  verificationStatus String @default("draft")
 
   createdById String?
   createdAt   DateTime @default(now())
 
   @@index([productId, role, sortOrder])
+  @@index([productId, verificationStatus])
+}
+
+/// AI 标准安装模板生成任务（同步执行亦写生命周期，便于后续异步化）
+model VisualizerCatalogTemplateJob {
+  id             String                   @id @default(cuid())
+  productId      String
+  product        VisualizerCatalogProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// standard_floor_to_ceiling_day / modern_living_room_day
+  templateType   String
+  /// queued / running / succeeded / failed
+  status         String
+  requestedModel String?
+  resolvedModel  String?
+  promptVersion  String?
+  outputAssetId  String?
+  errorCode      String?
+  errorMessage   String?                  @db.Text
+  createdById    String
+  createdAt      DateTime                 @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+
+  @@index([productId, templateType, createdAt])
+  @@index([status, createdAt])
 }
 
 // ============================================================

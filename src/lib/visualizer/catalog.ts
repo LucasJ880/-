@@ -26,7 +26,12 @@ import type {
   VisualizerCatalogColor,
   VisualizerCatalogMounting,
   VisualizerCatalogProductDetail,
+  VisualizerCatalogVerificationStatus,
 } from "@/lib/visualizer/types";
+import {
+  deriveVerificationStatus,
+  evaluateCatalogReadiness,
+} from "@/lib/visualizer/catalog-readiness";
 
 const VALID_MOUNTINGS = new Set<VisualizerCatalogMounting>(["inside", "outside"]);
 const VALID_ASSET_ROLES = new Set<VisualizerCatalogAssetRole>([
@@ -40,7 +45,13 @@ const VALID_ASSET_SOURCES = new Set<VisualizerCatalogAssetSource>([
   "real",
   "ai_generated",
 ]);
-const MAX_CATALOG_ASSETS = 12;
+const VALID_VERIFICATION = new Set<VisualizerCatalogVerificationStatus>([
+  "draft",
+  "ai_reference",
+  "real_unverified",
+  "real_verified",
+]);
+const MAX_CATALOG_ASSETS = 16;
 
 export const VISUALIZER_CATALOG_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "roller", label: "卷帘" },
@@ -113,8 +124,24 @@ export function sanitizeCatalogAssets(
     ) {
       continue;
     }
+    const resolvedSource: VisualizerCatalogAssetSource =
+      VALID_ASSET_SOURCES.has(sourceType) ? sourceType : "real";
+    // 禁止把 AI 图伪装成真实安装案例
+    const safeRole: VisualizerCatalogAssetRole =
+      resolvedSource === "ai_generated" && role === "installed"
+        ? "style_reference"
+        : role;
+    const rawVerification = value.verificationStatus as VisualizerCatalogVerificationStatus;
+    const verificationStatus = deriveVerificationStatus({
+      role: safeRole,
+      sourceType: resolvedSource,
+      verificationStatus: VALID_VERIFICATION.has(rawVerification)
+        ? rawVerification
+        : null,
+    });
     out.push({
-      role,
+      id: typeof value.id === "string" ? value.id : undefined,
+      role: safeRole,
       fileUrl,
       fileName,
       mimeType,
@@ -126,7 +153,8 @@ export function sanitizeCatalogAssets(
           ? Math.max(0, Math.round(value.sortOrder))
           : index,
       isPrimary: value.isPrimary === true,
-      sourceType: VALID_ASSET_SOURCES.has(sourceType) ? sourceType : "real",
+      sourceType: resolvedSource,
+      verificationStatus,
     });
   }
   return out;
@@ -163,6 +191,7 @@ export function toCatalogDetail(
       sortOrder: number;
       isPrimary: boolean;
       sourceType: string;
+      verificationStatus?: string | null;
     }>;
     defaultOpacity: number;
     colorsJson: unknown;
@@ -176,6 +205,9 @@ export function toCatalogDetail(
   },
   ctx: { currentOrgId: string | null },
 ): VisualizerCatalogProductDetail {
+  const assets = sanitizeCatalogAssets(
+    (row.assets ?? []).map((a) => ({ ...a, id: a.id })),
+  );
   return {
     id: row.id,
     orgId: row.orgId,
@@ -186,10 +218,8 @@ export function toCatalogDetail(
     categoryLabel: row.categoryLabel,
     previewImageUrl: row.previewImageUrl,
     textureUrl: row.textureUrl,
-    assets: sanitizeCatalogAssets(row.assets ?? []).map((asset, index) => ({
-      ...asset,
-      id: row.assets?.[index]?.id,
-    })),
+    assets,
+    readiness: evaluateCatalogReadiness(assets),
     defaultOpacity: row.defaultOpacity,
     colors: sanitizeColors(row.colorsJson),
     mountings: sanitizeMountings(row.mountingsJson),
@@ -204,6 +234,38 @@ export function toCatalogDetail(
 
 /** 把 mock 静态行包成 detail（兜底） */
 function fromMock(p: VisualizerMockProduct): VisualizerCatalogProductDetail {
+  const assets: VisualizerCatalogAssetDetail[] = [
+    ...(p.previewImageUrl
+      ? [{
+          role: "installed" as const,
+          fileUrl: p.previewImageUrl,
+          fileName: "preview",
+          mimeType: "image/jpeg",
+          width: null,
+          height: null,
+          bytes: null,
+          sortOrder: 0,
+          isPrimary: true,
+          sourceType: "real" as const,
+          verificationStatus: "real_unverified" as const,
+        }]
+      : []),
+    ...(p.textureUrl
+      ? [{
+          role: "texture" as const,
+          fileUrl: p.textureUrl,
+          fileName: "texture",
+          mimeType: "image/jpeg",
+          width: null,
+          height: null,
+          bytes: null,
+          sortOrder: 0,
+          isPrimary: true,
+          sourceType: "real" as const,
+          verificationStatus: "draft" as const,
+        }]
+      : []),
+  ];
   return {
     id: p.id,
     orgId: null,
@@ -214,36 +276,8 @@ function fromMock(p: VisualizerMockProduct): VisualizerCatalogProductDetail {
     categoryLabel: p.categoryLabel,
     previewImageUrl: p.previewImageUrl,
     textureUrl: p.textureUrl,
-    assets: [
-      ...(p.previewImageUrl
-        ? [{
-            role: "installed" as const,
-            fileUrl: p.previewImageUrl,
-            fileName: "preview",
-            mimeType: "image/jpeg",
-            width: null,
-            height: null,
-            bytes: null,
-            sortOrder: 0,
-            isPrimary: true,
-            sourceType: "real" as const,
-          }]
-        : []),
-      ...(p.textureUrl
-        ? [{
-            role: "texture" as const,
-            fileUrl: p.textureUrl,
-            fileName: "texture",
-            mimeType: "image/jpeg",
-            width: null,
-            height: null,
-            bytes: null,
-            sortOrder: 0,
-            isPrimary: true,
-            sourceType: "real" as const,
-          }]
-        : []),
-    ],
+    assets,
+    readiness: evaluateCatalogReadiness(assets),
     defaultOpacity: p.defaultOpacity,
     colors: p.supportedColors.map((c: VisualizerProductColor) => ({
       name: c.name,

@@ -10,16 +10,12 @@ import {
   parsePngDataUrl,
   putVisualizerHdRender,
 } from "@/lib/visualizer/upload";
+import {
+  evaluateReferenceQuality,
+  pickCatalogReferencesForRender,
+} from "@/lib/visualizer/catalog-reference";
 
 type RenderBody = { dataUrl?: string; instruction?: string };
-
-const ASSET_ROLE_PRIORITY: Record<string, number> = {
-  installed: 0,
-  texture: 1,
-  detail: 2,
-  swatch: 3,
-  style_reference: 4,
-};
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { variantId } = await ctx.params;
@@ -63,24 +59,24 @@ export const POST = withAuth(async (request, ctx, user) => {
       : [];
 
   const referenceCandidates = products.flatMap((product) => {
-    const sorted = [...product.assets].sort((a, b) => {
-      const roleDiff = (ASSET_ROLE_PRIORITY[a.role] ?? 99) - (ASSET_ROLE_PRIORITY[b.role] ?? 99);
-      if (roleDiff !== 0) return roleDiff;
-      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
-      return a.sortOrder - b.sortOrder;
-    });
-    const seenRoles = new Set<string>();
-    return sorted.filter((asset) => {
-      if (seenRoles.has(asset.role)) return false;
-      seenRoles.add(asset.role);
-      return true;
-    }).map((asset) => ({ product, asset }));
+    const picked = pickCatalogReferencesForRender(product.assets, 8);
+    return picked.map((asset) => ({ product, asset }));
   }).slice(0, 8);
+
+  const quality = evaluateReferenceQuality(
+    referenceCandidates.map(({ asset }) => asset),
+  );
 
   const loadedReferences = await Promise.all(
     referenceCandidates.map(async ({ product, asset }) => {
       const buffer = await fetchBuffer(asset.fileUrl);
-      return buffer ? { product, asset, buffer } : null;
+      return buffer
+        ? {
+            product,
+            asset,
+            buffer,
+          }
+        : null;
     }),
   );
   const usableReferences = loadedReferences.filter(
@@ -88,7 +84,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   );
   const referenceGuide = usableReferences.map(
     ({ product, asset }, index) =>
-      `Input image ${index + 2}: ${asset.role} reference for product "${product.name}"; source=${asset.sourceType}.`,
+      `Input image ${index + 2}: ${asset.role} reference for product "${product.name}"; source=${asset.sourceType}; verification=${asset.verificationStatus ?? "draft"}.`,
   );
   const selectedProductGuide = productOptions.map(
     (option) =>
@@ -104,6 +100,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     "Input image 1 is the customer's room composite and is the only scene to edit.",
     ...referenceGuide,
     ...selectedProductGuide,
+    "Real installed references are authoritative. AI-generated style references are secondary guidance only.",
     "Use later input images only as product identity, construction, texture, material, and style references. Do not copy their rooms or backgrounds.",
     "Preserve the customer's room layout, camera angle, perspective, walls, floor, furniture, window frame, glass area, and lighting direction.",
     "Replace only the indicated window-covering areas. Keep every other pixel visually consistent with input image 1.",
@@ -147,5 +144,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   return NextResponse.json({
     exportImageUrl: updated.exportImageUrl,
     updatedAt: updated.updatedAt.toISOString(),
+    referenceQuality: quality.referenceQuality,
+    warning: quality.warning,
   });
 });

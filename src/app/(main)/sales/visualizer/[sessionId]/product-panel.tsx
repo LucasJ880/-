@@ -297,6 +297,17 @@ function ProductGrid(props: {
                 <span className="block truncate font-medium text-foreground">
                   {p.name}
                 </span>
+                {p.readiness ? (
+                  <span className="mt-0.5 block truncate text-[9px] text-muted">
+                    {p.readiness.status === "real_install_ready"
+                      ? "真实安装"
+                      : p.readiness.status === "ai_template_ready"
+                        ? "AI模板"
+                        : p.readiness.status === "source_ready"
+                          ? "素材待完善"
+                          : "草稿"}
+                  </span>
+                ) : null}
                 <span className="block truncate text-[10px] text-muted">
                   {p.categoryLabel}
                 </span>

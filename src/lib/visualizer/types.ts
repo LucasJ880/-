@@ -302,6 +302,32 @@ export type VisualizerCatalogAssetRole =
 
 export type VisualizerCatalogAssetSource = "real" | "ai_generated";
 
+export type VisualizerCatalogVerificationStatus =
+  | "draft"
+  | "ai_reference"
+  | "real_unverified"
+  | "real_verified";
+
+export type VisualizerCatalogReadiness =
+  | "incomplete"
+  | "source_ready"
+  | "ai_template_ready"
+  | "real_install_ready";
+
+export type VisualizerCatalogTemplateType =
+  | "standard_floor_to_ceiling_day"
+  | "modern_living_room_day";
+
+export interface VisualizerCatalogReadinessResult {
+  status: VisualizerCatalogReadiness;
+  canGenerateTemplate: boolean;
+  canUseForCustomerRender: boolean;
+  hasRealInstalled: boolean;
+  hasAiTemplate: boolean;
+  hasSourceMaterial: boolean;
+  warnings: string[];
+}
+
 export interface VisualizerCatalogAssetDetail {
   id?: string;
   role: VisualizerCatalogAssetRole;
@@ -314,6 +340,7 @@ export interface VisualizerCatalogAssetDetail {
   sortOrder: number;
   isPrimary: boolean;
   sourceType: VisualizerCatalogAssetSource;
+  verificationStatus: VisualizerCatalogVerificationStatus;
 }
 
 export interface VisualizerCatalogProductDetail {
@@ -328,6 +355,7 @@ export interface VisualizerCatalogProductDetail {
   previewImageUrl: string | null;
   textureUrl: string | null;
   assets: VisualizerCatalogAssetDetail[];
+  readiness: VisualizerCatalogReadinessResult;
   defaultOpacity: number;
   colors: VisualizerCatalogColor[];
   mountings: VisualizerCatalogMounting[];

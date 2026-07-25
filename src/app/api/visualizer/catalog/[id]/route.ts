@@ -100,11 +100,22 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   if (body.assets !== undefined) {
     const assets = sanitizeCatalogAssets(body.assets, { orgId });
     const primaryInstalled =
-      assets.find((asset) => asset.role === "installed" && asset.isPrimary) ??
-      assets.find((asset) => asset.role === "installed");
+      assets.find(
+        (asset) =>
+          asset.role === "installed" &&
+          asset.sourceType === "real" &&
+          asset.isPrimary,
+      ) ??
+      assets.find(
+        (asset) => asset.role === "installed" && asset.sourceType === "real",
+      );
     const primaryTexture =
       assets.find((asset) => asset.role === "texture" && asset.isPrimary) ??
       assets.find((asset) => asset.role === "texture");
+    const primaryAiTemplate = assets.find(
+      (asset) =>
+        asset.role === "style_reference" && asset.sourceType === "ai_generated",
+    );
     data.assets = {
       deleteMany: {},
       create: assets.map((asset) => ({
@@ -118,10 +129,18 @@ export const PATCH = withAuth(async (request, ctx, user) => {
         sortOrder: asset.sortOrder,
         isPrimary: asset.isPrimary,
         sourceType: asset.sourceType,
+        verificationStatus: asset.verificationStatus,
         createdById: user.id,
       })),
     };
-    if (body.previewImageUrl === undefined) data.previewImageUrl = primaryInstalled?.fileUrl ?? null;
+    if (body.previewImageUrl === undefined) {
+      data.previewImageUrl =
+        primaryInstalled?.fileUrl ??
+        primaryAiTemplate?.fileUrl ??
+        primaryTexture?.fileUrl ??
+        assets[0]?.fileUrl ??
+        null;
+    }
     if (body.textureUrl === undefined) data.textureUrl = primaryTexture?.fileUrl ?? null;
   }
   if (body.defaultOpacity !== undefined) {
