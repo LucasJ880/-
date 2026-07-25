@@ -53,7 +53,9 @@ const tooMany = sanitizeCatalogAssets(
     mimeType: "image/jpeg",
   })),
 );
-expect(tooMany.length === 12, "单个产品最多保留十二张参考资产");
+expect(tooMany.length === 16, "单个产品最多保留十六张参考资产");
+expect(valid[0]?.verificationStatus === "real_unverified", "真实安装图默认待验证");
+expect(valid[1]?.verificationStatus === "ai_reference", "AI 参考标记为 ai_reference");
 
 const wrongOrg = sanitizeCatalogAssets(
   [{
