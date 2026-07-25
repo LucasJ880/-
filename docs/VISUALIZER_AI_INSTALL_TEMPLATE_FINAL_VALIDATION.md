@@ -230,10 +230,16 @@ TypeScript 类型检查在 `npm test` 末段已跑通（无 TS 报错）。
 
 | 变量 | 当前值 |
 |---|---|
-| `VISUALIZER_TEMPLATE_STANDARD_ROOM_URL` | **UNSET**（主仓 `.env` / `.env.local` 均无） |
-| `VISUALIZER_TEMPLATE_LIVING_ROOM_URL` | **UNSET** |
+| `VISUALIZER_TEMPLATE_STANDARD_ROOM_URL` | **CONFIGURED（本地）** `/api/files/visualizer/templates/standard-floor-to-ceiling.jpg` |
+| `VISUALIZER_TEMPLATE_LIVING_ROOM_URL` | **CONFIGURED（本地）** `/api/files/visualizer/templates/modern-living-room.jpg` |
 
-`.env.example` 已给出私有路径示例（注释）。
+**2026-07-25 补充：**
+
+- 两张空窗底图已上传至青砚**私有 Blob**（pathname 如上；服务端 `fetchBuffer` 读回校验 PASS）
+- 本地写入工作树 `.env.local`（gitignore，不进 git）
+- 上传脚本：`scripts/upload-visualizer-template-rooms.ts`
+- **Vercel/生产环境变量仍需手工同步**上述两行
+- 真实图片模型生成 E2E **尚未重跑**（见 §11）
 
 读取路径约定（代码确认）：
 
@@ -243,14 +249,15 @@ TypeScript 类型检查在 `npm test` 末段已跑通（无 TS 报错）。
 4. `resolveTemplateRoomUrl` 拒绝任意第三方公开 URL
 5. 前端仅见 `/api/files` 代理类 URL（上传走 `putVisualizerCatalogPreview`）
 6. 未配置 → API **503** + 可读文案，非堆栈
+7. `visualizer/templates/...` 代理鉴权：登录即可（平台底图）
 
 ---
 
 ## 11. 真实 E2E
 
-**状态：`BLOCKED_BY_TEMPLATE_SCENE_CONFIG`**
+**状态：`READY_FOR_REAL_E2E`（底图阻塞已解除；生成 E2E 仍未执行）**
 
-未配置两张标准场景底图，按门禁要求**不得伪造生成结果**。以下未实测：
+底图私有 Blob 已配置且服务端可读。以下**尚未**用图片模型实测（本轮不伪造）：
 
 - 私有 Blob 写入 AI 模板资产
 - DB：`style_reference + ai_generated + ai_reference`
@@ -258,7 +265,7 @@ TypeScript 类型检查在 `npm test` 末段已跑通（无 TS 报错）。
 - 产品 `ai_template_ready`
 - 客户 HD 渲染使用该模板并返回 `ai_only` warning
 
-配置底图并指向与 `origin/main` 对齐的目标库后，应重跑：
+下一步应在目标库 migrate baseline 确认后重跑：
 
 1. `standard_floor_to_ceiling_day`
 2. `modern_living_room_day`
@@ -267,7 +274,7 @@ TypeScript 类型检查在 `npm test` 末段已跑通（无 TS 报错）。
 
 ## 12. 已知风险与技术债
 
-1. **模板底图未配置** → 生成 API 503；真实 E2E 阻塞  
+1. **模板底图本地已配置**；生产/Vercel 环境变量仍需同步；真实模型 E2E 未跑  
 2. **`outputAssetId` 无 FK** → Job 可能悬空引用  
 3. **同步 Job** → 长请求超时风险；后续应异步队列  
 4. **`bedroom_blackout` 预留未实现**  
@@ -325,7 +332,7 @@ TypeScript 类型检查在 `npm test` 末段已跑通（无 TS 报错）。
 | Visualizer 单测 61 | PASS |
 | 全量 npm test | 4 个无关失败 |
 | 前端代码走查 | PASS（Playwright 未跑） |
-| 真实生成 E2E | **BLOCKED_BY_TEMPLATE_SCENE_CONFIG** |
-| 合并建议 | **可开 PR，暂缓合并至配置+ migrate + E2E** |
+| 真实生成 E2E | **READY_FOR_REAL_E2E**（底图已配；模型生成未跑） |
+| 合并建议 | **Draft PR 已开；仍须 migrate baseline + 真实 E2E 后合并** |
 
 **暂停。** 未自动合并 main。
