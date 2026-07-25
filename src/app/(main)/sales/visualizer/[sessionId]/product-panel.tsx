@@ -342,7 +342,7 @@ function ProductRowActions(props: {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="rounded p-0.5 text-muted opacity-0 hover:bg-slate-100 hover:text-foreground group-hover:opacity-100"
+        className="rounded p-0.5 text-muted opacity-100 hover:bg-slate-100 hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100"
         aria-label="更多"
       >
         <MoreHorizontal className="h-3.5 w-3.5" />
