@@ -1,13 +1,13 @@
 # Visualizer AI 安装模板 — Production 部署审查
 
-**阶段：** Phase 1（只读上线审查）  
+**阶段：** Phase 2 完成（合并 + Production 模板 env）；**暂停等待 Phase 3**  
 **日期：** 2026-07-26  
-**PR：** [#21](https://github.com/LucasJ880/-/pull/21)  
-**分支：** `feature/visualizer-ai-install-templates` @ `fc5ca1a`  
+**PR：** [#21](https://github.com/LucasJ880/-/pull/21)（**MERGED**）  
+**Merge commit / main：** `69c84c4879a24fa74137870b047f72868ffb0c59`  
 **工作树：** `/Users/user/Desktop/青砚-visualizer-templates`  
-**Base：** `origin/main` @ `0dd25e3`
 
-**本阶段约束：** 未合并 PR；未修改 Production 环境变量；未执行 `migrate deploy` / `resolve` / `db push` / `migrate reset`；未删除 Neon 临时 branch；报告不含连接串/密钥。
+**已执行：** 合并 PR；向 Production 配置两个 `VISUALIZER_TEMPLATE_*`；Production 重新部署 Ready。  
+**未执行（禁止项均遵守）：** `migrate deploy` / `resolve` / `db push` / `migrate reset`；未改 `DATABASE_URL`/`DIRECT_URL`；未删 Neon e2e；未移除 Preview DB override；未做 Production smoke。
 
 ---
 
@@ -246,44 +246,102 @@ npx prisma migrate status   # DATABASE_URL=Production（未 deploy）
 
 ---
 
-## 7. Production 当前环境缺口（Phase 2 清单）
+## 7. Production 环境变量（Phase 2 后）
 
 | 变量 | Production |
 |---|---|
-| `VISUALIZER_TEMPLATE_STANDARD_ROOM_URL` | **MISSING** |
-| `VISUALIZER_TEMPLATE_LIVING_ROOM_URL` | **MISSING** |
-| `DATABASE_URL` / `DIRECT_URL` | 已指向 Production（勿覆盖为 e2e） |
-| `BLOB_PRIVATE_READ_WRITE_TOKEN` | 已存在（勿改，除非另行批准） |
+| `VISUALIZER_TEMPLATE_STANDARD_ROOM_URL` | **CONFIGURED**（`/api/files/visualizer/templates/standard-floor-to-ceiling.jpg`） |
+| `VISUALIZER_TEMPLATE_LIVING_ROOM_URL` | **CONFIGURED**（`/api/files/visualizer/templates/modern-living-room.jpg`） |
+| `DATABASE_URL` / `DIRECT_URL` | **未修改**（仍为既有 Production / shared 配置；未写入 e2e） |
+| `BLOB_PRIVATE_READ_WRITE_TOKEN` | **未修改** |
 
-Preview 分支级隔离（仍保留，待 Phase 3 清理）：
+Preview 分支级隔离（**仍保留**，待 Phase 3 冒烟通过后清理）：
 
-- `DATABASE_URL` / `DIRECT_URL` → `feature/visualizer-ai-install-templates`  
+- `DATABASE_URL` / `DIRECT_URL` → Preview (`feature/visualizer-ai-install-templates`)  
 - `VISUALIZER_TEMPLATE_*` → 同分支 Preview  
 
 Neon 临时 branch **`visualizer-ai-template-e2e`：仍保留**（本阶段未删）。
 
+技术债（不在本 PR 修复）：Production `_prisma_migrations` 含若干 main 目录缺失的历史记录；见 Phase 1 §2。
+
 ---
 
-## 8. Phase 1 状态摘要
+## 8. Phase 1 状态摘要（历史）
 
 | Key | Value |
 |---|---|
 | `PHASE_1_STATUS` | **COMPLETE** |
 | `CODE_REVIEW_STATUS` | **NO_CODE_REVIEW_BLOCKER** |
 | `MIGRATION_BASELINE_STATUS` | **BASELINE_NEEDS_MANUAL_REVIEW** |
-| `MERGE_RECOMMENDATION` | **YES_WITH_ACK**（确认「migration 已在 Production」后合并） |
+| `MERGE_RECOMMENDATION` | **YES_WITH_ACK**（已执行） |
 | `PRODUCTION_MIGRATION_RECOMMENDATION` | **VERIFY_ONLY_NO_NEW_SQL_EXPECTED** |
-| `DATABASE_MIGRATION_STATUS` | **NOT_RUN**（本阶段仅 status / 只读查询） |
-| `PR_STATE` | Ready for Review，未合并 |
+| `DATABASE_MIGRATION_STATUS` | **NOT_RUN** |
+| `PR_STATE` | 当时 Ready；现已 MERGED |
 
 ---
 
-## 9. Phase 2 / 3 占位（未执行）
+## 9. Phase 2 执行记录
 
-- `MERGE_STATUS`：PENDING_APPROVAL  
-- `PRODUCTION_TEMPLATE_ENV_STATUS`：NOT_CONFIGURED  
-- `PRODUCTION_DEPLOYMENT_STATUS`：NOT_STARTED  
-- `PRODUCTION_SMOKE`：NOT_RUN  
-- `FINAL_STATUS`：—  
+### 9.1 合并前检查
 
-**已暂停。等待明确批准后再进入 Phase 2。**
+| 检查 | 结果 |
+|---|---|
+| PR HEAD | `d542416`（含 Phase 1 报告 commit；相对此前验证 HEAD `fc5ca1a` 仅文档） |
+| 工作树 | 提交报告后干净 |
+| mergeable / 冲突 | `MERGEABLE` / `CLEAN`（docs push 后短暂 UNKNOWN，合并成功） |
+| Review blocker / HIGH | 无 review comments |
+| CI | Vercel Preview 历史 SUCCESS；docs commit 触发的 Preview 仍 PENDING 时已按批准合并（与既有 main 合并惯例一致；无失败 check） |
+
+### 9.2 合并
+
+| Key | Value |
+|---|---|
+| `MERGE_STATUS` | **MERGED** |
+| `MERGE_STRATEGY` | **merge commit**（`gh pr merge --merge`；与近期 `#19/#20` 风格一致） |
+| `MERGE_SHA` | `69c84c4879a24fa74137870b047f72868ffb0c59` |
+| `MAIN_SHA` | `69c84c4879a24fa74137870b047f72868ffb0c59` |
+| 合并时间 | `2026-07-26T21:38:31Z` |
+| PR URL | https://github.com/LucasJ880/-/pull/21 |
+
+### 9.3 Production 模板 env
+
+| Key | Value |
+|---|---|
+| `PRODUCTION_TEMPLATE_ENV_STATUS` | **CONFIGURED** |
+| 配置项 | 仅上述两个 `VISUALIZER_TEMPLATE_*` |
+| 禁止项 | 未改 `DATABASE_URL` / `DIRECT_URL`；未复制 Preview 隔离 Neon |
+
+### 9.4 Production 部署
+
+| Key | Value |
+|---|---|
+| `PRODUCTION_DEPLOYMENT_STATUS` | **READY** |
+| 合并触发部署 | `dpl_HX8HhDvieF34KpgsndDgRVxW4owD` → Ready（`1fjstwfyh-ndmo7ls2q-…`） |
+| Env 保障重新部署 | `dpl_2SLqfFrnZRSw11s2HkbzwzR7QCB6` → Ready（`1fjstwfyh-6vap6u619-…`） |
+| Inspect | https://vercel.com/lucas-9039s-projects/-/2SLqfFrnZRSw11s2HkbzwzR7QCB6 |
+| 生产别名 | `qingyan.ca` / `www.qingyan.ca` 等已指向该部署 |
+| 说明 | 因 env 在合并部署创建后数秒内写入，额外 `vercel redeploy` 一次以确保两变量进入当前 Production 运行实例 |
+
+### 9.5 数据库
+
+| Key | Value |
+|---|---|
+| `DATABASE_MIGRATION_STATUS` | **NOT_RUN** |
+| 预期 | 本功能 SQL 已在 Production；Phase 3 仅核对 `migrate status` |
+
+### 9.6 Phase 2 摘要
+
+| Key | Value |
+|---|---|
+| `PHASE_2_STATUS` | **COMPLETE** |
+| `MERGE_STATUS` | **MERGED** |
+| `MERGE_STRATEGY` | **merge commit** |
+| `MERGE_SHA` | `69c84c4879a24fa74137870b047f72868ffb0c59` |
+| `MAIN_SHA` | `69c84c4879a24fa74137870b047f72868ffb0c59` |
+| `PRODUCTION_TEMPLATE_ENV_STATUS` | **CONFIGURED** |
+| `PRODUCTION_DEPLOYMENT_STATUS` | **READY** |
+| `DATABASE_MIGRATION_STATUS` | **NOT_RUN** |
+| `PRODUCTION_SMOKE` | **NOT_RUN** |
+| Neon e2e / Preview DB override | **仍保留** |
+
+**已暂停。等待明确批准后再进入 Phase 3（migrate 核对 + Production 冒烟 + 清理）。**
