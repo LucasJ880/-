@@ -3,18 +3,22 @@
 /**
  * CatalogProductDialog — 创建 / 编辑 本组织私有产品
  *
- * - 创建：必填 name / category / 至少一个颜色 / 至少一种安装方式
- * - 编辑：所有字段可改（仅自家产品；平台预置入口不暴露此弹窗）
- * - 产品资产：按安装效果、材质、结构和风格参考分类上传
- *
- * 父组件保存成功后应自行 reload 产品列表。
+ * 保存规则：
+ * - 草稿可保存（无素材）
+ * - 有 texture/detail/swatch 可生成 AI 标准安装模板
+ * - 有真实 installed 或 AI 模板才可用于客户效果图
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ImageIcon, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
+import { ImageIcon, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useToast } from "@/components/ui/toast";
 import { resizeImageForUpload } from "@/lib/visualizer/client-resize";
+import {
+  assetBadgeLabel,
+  evaluateCatalogReadiness,
+  readinessLabel,
+} from "@/lib/visualizer/catalog-readiness";
 import { cn } from "@/lib/utils";
 import type {
   VisualizerCatalogAssetDetail,
@@ -22,6 +26,7 @@ import type {
   VisualizerCatalogColor,
   VisualizerCatalogMounting,
   VisualizerCatalogProductDetail,
+  VisualizerCatalogTemplateType,
 } from "@/lib/visualizer/types";
 
 interface CatalogProductDialogProps {
@@ -52,18 +57,16 @@ const ASSET_SECTIONS: Array<{
   label: string;
   description: string;
   limit: number;
-  required?: boolean;
 }> = [
   {
     role: "installed",
-    label: "安装效果",
-    description: "完整展示产品装在窗户上的形态，AI 生成必需",
+    label: "真实安装图",
+    description: "真实现场安装照片；有则优先用于客户效果图",
     limit: 3,
-    required: true,
   },
   {
     role: "texture",
-    label: "材质纹理",
+    label: "面料纹理",
     description: "近距离拍摄面料、透光和表面纹理",
     limit: 2,
   },
@@ -74,15 +77,47 @@ const ASSET_SECTIONS: Array<{
     limit: 3,
   },
   {
-    role: "style_reference",
-    label: "效果参考",
-    description: "ChatGPT 等工具生成的理想效果，只用于风格参考",
+    role: "swatch",
+    label: "色卡",
+    description: "色卡或色板照片，辅助还原准确颜色",
     limit: 2,
+  },
+  {
+    role: "style_reference",
+    label: "AI 参考模板",
+    description: "AI 标准安装模板或风格参考（不会当作真实案例）",
+    limit: 4,
+  },
+];
+
+const TEMPLATE_OPTIONS: Array<{
+  type: VisualizerCatalogTemplateType;
+  label: string;
+  description: string;
+}> = [
+  {
+    type: "standard_floor_to_ceiling_day",
+    label: "标准落地窗",
+    description: "中性白墙、标准落地窗、白天自然光",
+  },
+  {
+    type: "modern_living_room_day",
+    label: "现代客厅",
+    description: "简洁客厅、大型窗户、少量中性家具",
   },
 ];
 
 function emptyColors(): VisualizerCatalogColor[] {
   return [{ name: "Default", hex: "#cccccc" }];
+}
+
+function withDefaultVerification(
+  asset: VisualizerCatalogAssetDetail,
+): VisualizerCatalogAssetDetail {
+  return {
+    ...asset,
+    verificationStatus: asset.verificationStatus ?? "draft",
+  };
 }
 
 export default function CatalogProductDialog(props: CatalogProductDialogProps) {
@@ -103,6 +138,9 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploadingRole, setUploadingRole] = useState<VisualizerCatalogAssetRole | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [savedProductId, setSavedProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -122,6 +160,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
           sortOrder: 0,
           isPrimary: true,
           sourceType: "real",
+          verificationStatus: "real_unverified",
         });
       }
       if (editing.assets.length === 0 && editing.textureUrl) {
@@ -136,14 +175,20 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
           sortOrder: 0,
           isPrimary: true,
           sourceType: "real",
+          verificationStatus: "draft",
         });
       }
-      setAssets(editing.assets.length > 0 ? editing.assets : legacyAssets);
+      setAssets(
+        (editing.assets.length > 0 ? editing.assets : legacyAssets).map(
+          withDefaultVerification,
+        ),
+      );
       setDefaultOpacity(editing.defaultOpacity);
       setColors(editing.colors.length > 0 ? editing.colors : emptyColors());
       setMountings(editing.mountings.length > 0 ? editing.mountings : ["inside", "outside"]);
       setPricingProductName(editing.pricingProductName ?? "");
       setNotes(editing.notes ?? "");
+      setSavedProductId(editing.id);
     } else {
       setName("");
       setCategory("roller");
@@ -153,8 +198,13 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
       setMountings(["inside", "outside"]);
       setPricingProductName("");
       setNotes("");
+      setSavedProductId(null);
     }
+    setTemplatePickerOpen(false);
+    setGenerating(false);
   }, [open, editing]);
+
+  const readiness = useMemo(() => evaluateCatalogReadiness(assets), [assets]);
 
   const canSave = useMemo(() => {
     if (!name.trim()) return false;
@@ -162,9 +212,8 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
     if (colors.length === 0) return false;
     if (colors.some((c) => !c.name.trim() || !/^#[0-9a-fA-F]{6}$/.test(c.hex))) return false;
     if (mountings.length === 0) return false;
-    if (!assets.some((asset) => asset.role === "installed")) return false;
-    return !busy && !uploadingRole;
-  }, [name, category, colors, mountings, assets, busy, uploadingRole]);
+    return !busy && !uploadingRole && !generating;
+  }, [name, category, colors, mountings, busy, uploadingRole, generating]);
 
   const handleUpload = async (role: VisualizerCatalogAssetRole, file: File) => {
     const config = ASSET_SECTIONS.find((section) => section.role === role);
@@ -195,6 +244,14 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         toast.error(j.error ?? "上传失败");
         return;
       }
+      const sourceType =
+        role === "style_reference" ? ("ai_generated" as const) : ("real" as const);
+      const verificationStatus =
+        role === "installed" && sourceType === "real"
+          ? ("real_unverified" as const)
+          : role === "style_reference" && sourceType === "ai_generated"
+            ? ("ai_reference" as const)
+            : ("draft" as const);
       setAssets((prev) => {
         const roleAssets = prev.filter((asset) => asset.role === role);
         return [
@@ -209,7 +266,8 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
             bytes: j.bytes ?? resized.file.size,
             sortOrder: roleAssets.length,
             isPrimary: roleAssets.length === 0,
-            sourceType: role === "style_reference" ? "ai_generated" : "real",
+            sourceType,
+            verificationStatus,
           },
         ];
       });
@@ -233,12 +291,12 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
     });
   };
 
-  const save = async () => {
+  const save = async (): Promise<string | null> => {
     if (!orgId) {
       toast.error("无法确定当前组织");
-      return;
+      return null;
     }
-    if (!canSave) return;
+    if (!canSave) return null;
     setBusy(true);
     try {
       const payload = {
@@ -246,8 +304,21 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         name: name.trim(),
         category,
         previewImageUrl:
-          assets.find((asset) => asset.role === "installed" && asset.isPrimary)?.fileUrl ??
-          assets.find((asset) => asset.role === "installed")?.fileUrl ??
+          assets.find(
+            (asset) =>
+              asset.role === "installed" &&
+              asset.sourceType === "real" &&
+              asset.isPrimary,
+          )?.fileUrl ??
+          assets.find(
+            (asset) => asset.role === "installed" && asset.sourceType === "real",
+          )?.fileUrl ??
+          assets.find(
+            (asset) =>
+              asset.role === "style_reference" &&
+              asset.sourceType === "ai_generated",
+          )?.fileUrl ??
+          assets.find((asset) => asset.role === "texture")?.fileUrl ??
           null,
         textureUrl:
           assets.find((asset) => asset.role === "texture" && asset.isPrimary)?.fileUrl ??
@@ -260,29 +331,77 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         pricingProductName: pricingProductName.trim() || null,
         notes: notes.trim() || null,
       };
-      const url = isEdit
-        ? `/api/visualizer/catalog/${editing!.id}`
+      const productId = savedProductId ?? editing?.id ?? null;
+      const url = productId
+        ? `/api/visualizer/catalog/${productId}`
         : "/api/visualizer/catalog";
-      const method = isEdit ? "PATCH" : "POST";
+      const method = productId ? "PATCH" : "POST";
       const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        toast.error(j.error ?? (isEdit ? "保存失败" : "创建失败"));
-        return;
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        product?: VisualizerCatalogProductDetail;
+      };
+      if (!res.ok || !j.product) {
+        toast.error(j.error ?? (productId ? "保存失败" : "创建失败"));
+        return null;
       }
-      toast.success(isEdit ? "已保存" : "产品已添加");
+      setSavedProductId(j.product.id);
+      setAssets(j.product.assets.map(withDefaultVerification));
+      toast.success(
+        readiness.status === "incomplete"
+          ? "草稿已保存（素材待完善）"
+          : productId
+            ? "已保存"
+            : "产品已添加",
+      );
       onSaved();
+      return j.product.id;
     } finally {
       setBusy(false);
     }
   };
 
-  const updateColor = (idx: number, patch: Partial<VisualizerCatalogColor>) => {
-    setColors((prev) => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  const generateTemplate = async (templateType: VisualizerCatalogTemplateType) => {
+    let productId = savedProductId ?? editing?.id ?? null;
+    if (!productId) {
+      productId = await save();
+    } else {
+      // 确保最新素材已落库
+      productId = await save();
+    }
+    if (!productId) return;
+
+    setGenerating(true);
+    setTemplatePickerOpen(false);
+    try {
+      const res = await apiFetch(
+        `/api/visualizer/catalog/${productId}/generate-template`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ templateType }),
+        },
+      );
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        product?: VisualizerCatalogProductDetail;
+      };
+      if (!res.ok || !j.product) {
+        toast.error(j.error ?? "生成标准安装模板失败");
+        return;
+      }
+      setAssets(j.product.assets.map(withDefaultVerification));
+      setSavedProductId(j.product.id);
+      toast.success("AI 标准安装模板已生成");
+      onSaved();
+    } finally {
+      setGenerating(false);
+    }
   };
 
   if (!open) return null;
@@ -295,17 +414,17 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         className="absolute inset-0 bg-black/40"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-white p-5 shadow-2xl"
-        style={{ maxHeight: "90vh" }}>
+      <div
+        className="relative z-10 w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-white p-5 shadow-2xl"
+        style={{ maxHeight: "90vh" }}
+      >
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h3 className="text-base font-semibold text-foreground">
-              {isEdit ? "编辑产品" : "添加本组织产品"}
+              {isEdit || savedProductId ? "编辑产品" : "添加本组织产品"}
             </h3>
             <p className="mt-0.5 text-xs text-muted">
-              {isEdit
-                ? "本组织产品仅对本组织可见，不影响平台预置库。"
-                : "客户在现场提到的款式可以快速加进来，下次不用再录入。"}
+              真实安装图优先；暂无真实图时可上传纹理/色卡并生成 AI 标准安装模板。
             </p>
           </div>
           <button
@@ -316,6 +435,34 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        <div
+          className={cn(
+            "mb-3 rounded-lg border px-3 py-2 text-xs",
+            readiness.status === "real_install_ready" &&
+              "border-emerald-200 bg-emerald-50 text-emerald-900",
+            readiness.status === "ai_template_ready" &&
+              "border-sky-200 bg-sky-50 text-sky-900",
+            readiness.status === "source_ready" &&
+              "border-amber-200 bg-amber-50 text-amber-900",
+            readiness.status === "incomplete" &&
+              "border-slate-200 bg-slate-50 text-slate-700",
+          )}
+        >
+          <p className="font-medium">
+            产品素材状态：{readinessLabel(readiness.status)}
+          </p>
+          {readiness.warnings.map((w) => (
+            <p key={w} className="mt-0.5 text-[11px] opacity-90">
+              {w}
+            </p>
+          ))}
+          {!readiness.canUseForCustomerRender ? (
+            <p className="mt-0.5 text-[11px] opacity-90">
+              当前不可用于正式客户效果图生成。
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-3">
@@ -375,25 +522,32 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                 return (
                   <div key={section.role} className="grid gap-2 p-3 sm:grid-cols-[150px_1fr]">
                     <div>
-                      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                      <div className="text-xs font-medium text-foreground">
                         {section.label}
-                        {section.required ? (
-                          sectionAssets.length > 0 ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-600" aria-label="已完成" />
-                          ) : (
-                            <span className="text-[10px] text-red-600">必填</span>
-                          )
-                        ) : null}
                       </div>
-                      <p className="mt-0.5 text-[10px] leading-4 text-muted">{section.description}</p>
+                      <p className="mt-0.5 text-[10px] leading-4 text-muted">
+                        {section.description}
+                      </p>
                     </div>
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       {sectionAssets.map((asset) => (
-                        <div key={asset.fileUrl} className="group relative h-16 w-20 overflow-hidden rounded border border-border bg-white">
+                        <div
+                          key={asset.fileUrl}
+                          className="group relative h-16 w-20 overflow-hidden rounded border border-border bg-white"
+                        >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={asset.fileUrl} alt={section.label} className="h-full w-full object-cover" />
+                          <img
+                            src={asset.fileUrl}
+                            alt={section.label}
+                            className="h-full w-full object-cover"
+                          />
+                          <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1 text-[9px] text-white">
+                            {assetBadgeLabel(asset)}
+                          </span>
                           {asset.isPrimary ? (
-                            <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1 text-[9px] text-white">主图</span>
+                            <span className="absolute left-1 top-1 rounded bg-amber-500/90 px-1 text-[9px] text-white">
+                              主图
+                            </span>
                           ) : null}
                           <button
                             type="button"
@@ -412,7 +566,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                             type="file"
                             accept="image/png,image/jpeg,image/webp"
                             className="hidden"
-                            disabled={!!uploadingRole}
+                            disabled={!!uploadingRole || generating}
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) void handleUpload(section.role, file);
@@ -426,7 +580,9 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                           ) : (
                             <Upload className="h-4 w-4" />
                           )}
-                          {isUploading ? "上传中" : `${sectionAssets.length}/${section.limit}`}
+                          {isUploading
+                            ? "上传中"
+                            : `${sectionAssets.length}/${section.limit}`}
                         </label>
                       ) : null}
                     </div>
@@ -434,6 +590,53 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                 );
               })}
             </div>
+            <p className="mt-1.5 text-[10px] text-muted">
+              AI 生成参考，仅用于辅助客户预览，不代表真实项目或最终交付效果。
+            </p>
+          </div>
+
+          <div className="rounded-md border border-border bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-medium text-foreground">
+                  AI 生成标准安装模板
+                </p>
+                <p className="text-[10px] text-muted">
+                  {readiness.canGenerateTemplate
+                    ? "未保存时将先保存产品，再生成模板"
+                    : "需要至少一张面料纹理 / 色卡 / 结构细节图"}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!readiness.canGenerateTemplate || generating || busy}
+                onClick={() => setTemplatePickerOpen((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {generating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {generating ? "正在生成标准安装模板……" : "AI 生成标准安装模板"}
+              </button>
+            </div>
+            {templatePickerOpen ? (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {TEMPLATE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    disabled={generating}
+                    onClick={() => void generateTemplate(opt.type)}
+                    className="rounded-md border border-border bg-slate-50 px-2.5 py-2 text-left hover:border-amber-300 hover:bg-amber-50 disabled:opacity-50"
+                  >
+                    <p className="text-xs font-medium text-foreground">{opt.label}</p>
+                    <p className="text-[10px] text-muted">{opt.description}</p>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -459,19 +662,35 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                   <input
                     type="color"
                     value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#cccccc"}
-                    onChange={(e) => updateColor(idx, { hex: e.target.value })}
+                    onChange={(e) =>
+                      setColors((prev) =>
+                        prev.map((x, i) => (i === idx ? { ...x, hex: e.target.value } : x)),
+                      )
+                    }
                     className="h-7 w-9 cursor-pointer rounded border border-border"
                     aria-label="颜色色值"
                   />
                   <input
                     value={c.name}
-                    onChange={(e) => updateColor(idx, { name: e.target.value })}
+                    onChange={(e) =>
+                      setColors((prev) =>
+                        prev.map((x, i) =>
+                          i === idx ? { ...x, name: e.target.value } : x,
+                        ),
+                      )
+                    }
                     placeholder="颜色名（如 White）"
                     className="min-w-0 flex-1 rounded border border-border bg-white px-1.5 py-1 text-[11px]"
                   />
                   <input
                     value={c.hex}
-                    onChange={(e) => updateColor(idx, { hex: e.target.value })}
+                    onChange={(e) =>
+                      setColors((prev) =>
+                        prev.map((x, i) =>
+                          i === idx ? { ...x, hex: e.target.value } : x,
+                        ),
+                      )
+                    }
                     placeholder="#RRGGBB"
                     className="w-20 rounded border border-border bg-white px-1.5 py-1 text-[11px]"
                   />
@@ -527,7 +746,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
             <input
               value={pricingProductName}
               onChange={(e) => setPricingProductName(e.target.value)}
-              placeholder="例如：Zebra / Roller / Drapery（与 pricing-data 中的 ProductName 对应）"
+              placeholder="例如：Zebra / Roller / Drapery"
               className="mt-0.5 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs"
             />
           </div>
@@ -537,7 +756,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="如：客户带来的某品牌系列，建议销售推这款"
+              placeholder="如：客户带来的某品牌系列"
               rows={2}
               className="mt-0.5 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs"
             />
@@ -548,19 +767,22 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
           <button
             type="button"
             onClick={onClose}
-            disabled={busy}
+            disabled={busy || generating}
             className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
           >
             取消
           </button>
           <button
             type="button"
-            onClick={save}
+            onClick={() => void save()}
             disabled={!canSave}
             className="inline-flex items-center gap-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-white hover:bg-foreground/90 disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            {isEdit ? "保存修改" : "添加产品"}
+            {isEdit || savedProductId ? "保存修改" : "保存产品"}
+            {!busy && readiness.status === "incomplete" ? (
+              <span className="opacity-80">（草稿）</span>
+            ) : null}
           </button>
         </div>
       </div>

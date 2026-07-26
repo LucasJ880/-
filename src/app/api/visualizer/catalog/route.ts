@@ -94,15 +94,30 @@ export const POST = withAuth(async (request, _ctx, user) => {
       : categoryLabelFor(category);
 
   const primaryInstalled =
-    assets.find((asset) => asset.role === "installed" && asset.isPrimary) ??
-    assets.find((asset) => asset.role === "installed");
+    assets.find(
+      (asset) =>
+        asset.role === "installed" &&
+        asset.sourceType === "real" &&
+        asset.isPrimary,
+    ) ??
+    assets.find(
+      (asset) => asset.role === "installed" && asset.sourceType === "real",
+    );
   const primaryTexture =
     assets.find((asset) => asset.role === "texture" && asset.isPrimary) ??
     assets.find((asset) => asset.role === "texture");
+  const primaryAiTemplate = assets.find(
+    (asset) =>
+      asset.role === "style_reference" && asset.sourceType === "ai_generated",
+  );
   const previewImageUrl =
     typeof body.previewImageUrl === "string" && body.previewImageUrl.trim()
       ? body.previewImageUrl.trim().slice(0, 2000)
-      : primaryInstalled?.fileUrl ?? null;
+      : primaryInstalled?.fileUrl ??
+        primaryAiTemplate?.fileUrl ??
+        primaryTexture?.fileUrl ??
+        assets[0]?.fileUrl ??
+        null;
   const textureUrl =
     typeof body.textureUrl === "string" && body.textureUrl.trim()
       ? body.textureUrl.trim().slice(0, 2000)
@@ -143,6 +158,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
           sortOrder: asset.sortOrder,
           isPrimary: asset.isPrimary,
           sourceType: asset.sourceType,
+          verificationStatus: asset.verificationStatus,
           createdById: user.id,
         })),
       },

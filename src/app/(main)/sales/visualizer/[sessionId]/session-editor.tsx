@@ -905,13 +905,22 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
           body: JSON.stringify({ dataUrl }),
         },
       );
-      const raw = await res.json().catch(() => ({}));
+      const raw = await res.json().catch(() => ({})) as {
+        error?: string;
+        warning?: string | null;
+        referenceQuality?: string;
+      };
       if (!res.ok) {
-        toast.error((raw as { error?: string }).error ?? "高清渲染失败");
+        toast.error(raw.error ?? "高清渲染失败");
         return;
       }
       await load();
-      toast.success("高清封面已生成");
+      if (raw.referenceQuality === "ai_only" && raw.warning) {
+        toast.success("高清封面已生成");
+        toast.info(raw.warning);
+      } else {
+        toast.success("高清封面已生成");
+      }
     } catch (err) {
       console.error("Render HD cover failed:", err);
       toast.error("高清渲染失败");

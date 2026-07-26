@@ -9,6 +9,7 @@
  * - trade/intelligence/{orgId}/...      → org 成员
  * - visualizer/catalog/{orgId}/...      → org 成员
  * - visualizer/sessions/{sessionId}/... → session 可见性（创建人/负责人/客户创建人/admin）
+ * - visualizer/templates/...            → 登录即可（平台 AI 标准安装模板底图）
  * - projects/{projectId}/...            → 项目读权限
  * - temp/brochures/...                  → 登录即可（临时画册）
  *
@@ -75,6 +76,10 @@ async function authorizeBlobPath(
         });
         if (!session) return "forbidden";
         return canSeeVisualizerSession(session, user) ? "ok" : "forbidden";
+      }
+      // 平台标准安装模板底图：无组织敏感数据，登录即可读
+      if (second === "templates") {
+        return segments.length >= 3 ? "ok" : "unknown";
       }
       return "unknown";
     }
