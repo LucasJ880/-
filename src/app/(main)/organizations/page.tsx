@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Building2, Loader2, Plus, FolderKanban, Info } from "lucide-react";
+import { Building2, Loader2, Plus, Info, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { isSuperAdmin } from "@/lib/permissions-client";
 import {
+  SELECTED_ORG_STORAGE_KEY,
   readStoredOrgId,
   selectActiveOrganization,
 } from "@/lib/org-selection";
@@ -31,6 +33,9 @@ export default function OrganizationsPage() {
   const [error, setError] = useState("");
   const [activeOrgId, setActiveOrgId] = useState("");
   const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [platformRole, setPlatformRole] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveOrgId(readStoredOrgId());
@@ -39,16 +44,60 @@ export default function OrganizationsPage() {
     return () => window.removeEventListener("qingyan-org-storage", onStorage);
   }, []);
 
+  useEffect(() => {
+    apiJson<{ user?: { role: string } }>("/api/auth/me")
+      .then((d) => setPlatformRole(d.user?.role ?? null))
+      .catch(() => {});
+  }, []);
+
+  const isPlatformAdmin = isSuperAdmin(platformRole);
+
   const load = useCallback(() => {
     setLoading(true);
-    apiJson<{ organizations?: OrgRow[] }>("/api/organizations")
+    const q =
+      isPlatformAdmin && showArchived
+        ? "/api/organizations?includeArchived=1"
+        : "/api/organizations";
+    apiJson<{ organizations?: OrgRow[] }>(q)
       .then((d) => setOrgs(d.organizations ?? []))
       .finally(() => setLoading(false));
-  }, []);
+  }, [isPlatformAdmin, showArchived]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  async function archiveOrg(org: OrgRow) {
+    if (
+      !confirm(
+        `确定归档（删除）「${org.name}」？\n归档后会从默认列表隐藏，且不可再在其下新建项目。`,
+      )
+    ) {
+      return;
+    }
+    setArchivingId(org.id);
+    try {
+      const res = await apiFetch(`/api/organizations/${org.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "归档失败");
+      if (readStoredOrgId() === org.id) {
+        try {
+          window.localStorage.removeItem(SELECTED_ORG_STORAGE_KEY);
+          window.dispatchEvent(new Event("qingyan-org-storage"));
+        } catch {
+          /* ignore */
+        }
+        setActiveOrgId("");
+      }
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "归档失败");
+    } finally {
+      setArchivingId(null);
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -132,6 +181,23 @@ export default function OrganizationsPage() {
         )}
       </div>
 
+      {isPlatformAdmin && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted">
+            删除组织 = 归档（软删除）。需要时可勾选「显示已归档」后进入详情恢复。
+          </p>
+          <label className="inline-flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="rounded border-border"
+            />
+            显示已归档
+          </label>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-accent" />
@@ -187,7 +253,7 @@ export default function OrganizationsPage() {
                     </div>
                   </Link>
                   <div className="flex shrink-0 items-center gap-2">
-                    {!isCurrent && (
+                    {!isCurrent && o.status === "active" && (
                       <button
                         type="button"
                         disabled={switchingId === o.id}
@@ -206,6 +272,19 @@ export default function OrganizationsPage() {
                         {switchingId === o.id ? "切换中…" : "设为当前"}
                       </button>
                     )}
+                    {(isPlatformAdmin || o.myRole === "org_admin") &&
+                      o.status === "active" && (
+                        <button
+                          type="button"
+                          disabled={archivingId === o.id}
+                          onClick={() => void archiveOrg(o)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[rgba(166,61,61,0.15)] px-2.5 py-1.5 text-xs font-medium text-[#a63d3d] hover:bg-[rgba(166,61,61,0.04)] disabled:opacity-50"
+                          title="归档组织"
+                        >
+                          <Trash2 size={12} />
+                          {archivingId === o.id ? "…" : "归档"}
+                        </button>
+                      )}
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-[10px] font-medium",

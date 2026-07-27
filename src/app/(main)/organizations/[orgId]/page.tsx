@@ -6,7 +6,12 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { isSuperAdmin } from "@/lib/permissions-client";
 import { PageHeader } from "@/components/page-header";
+import {
+  SELECTED_ORG_STORAGE_KEY,
+  readStoredOrgId,
+} from "@/lib/org-selection";
 
 interface OrgDetail {
   id: string;
@@ -51,8 +56,11 @@ export default function OrganizationDetailPage() {
       .catch(() => {});
   }, []);
 
-  const isAdmin =
-    org?.myRole === "org_admin" || platformRole === "super_admin";
+  // 平台 admin / super_admin 均可管理（与 requireOrgRole / isSuperAdmin 对齐）
+  const canManageOrg =
+    org?.myRole === "org_admin" || isSuperAdmin(platformRole);
+  // 恢复状态仅平台管理员可写（PUT status）
+  const canRestoreOrg = isSuperAdmin(platformRole);
 
   const load = useCallback(() => {
     if (!orgId) return;
@@ -98,7 +106,13 @@ export default function OrganizationDetailPage() {
   }
 
   async function archiveOrg() {
-    if (!confirm("确定归档该组织？归档后不可再在其下新建项目。")) return;
+    if (
+      !confirm(
+        "确定归档（删除）该组织？\n归档后会从组织列表隐藏，且不可再在其下新建项目。数据保留，平台管理员可恢复。",
+      )
+    ) {
+      return;
+    }
     const res = await apiFetch(`/api/organizations/${orgId}`, {
       method: "DELETE",
     });
@@ -106,6 +120,14 @@ export default function OrganizationDetailPage() {
     if (!res.ok) {
       alert(data.error || "操作失败");
       return;
+    }
+    if (readStoredOrgId() === orgId) {
+      try {
+        window.localStorage.removeItem(SELECTED_ORG_STORAGE_KEY);
+        window.dispatchEvent(new Event("qingyan-org-storage"));
+      } catch {
+        /* ignore */
+      }
     }
     router.push("/organizations");
   }
@@ -220,7 +242,7 @@ export default function OrganizationDetailPage() {
           }
         />
 
-        {isAdmin && org.status === "active" && (
+        {canManageOrg && org.status === "active" && (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end">
             <div className="flex-1">
               <label className="mb-1 block text-xs text-muted">组织名称</label>
@@ -241,10 +263,40 @@ export default function OrganizationDetailPage() {
             <button
               type="button"
               onClick={archiveOrg}
-              className="rounded-lg border border-[rgba(166,61,61,0.15)] px-4 py-2 text-sm text-[#a63d3d] hover:bg-[rgba(166,61,61,0.04)]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.15)] px-4 py-2 text-sm text-[#a63d3d] hover:bg-[rgba(166,61,61,0.04)]"
             >
-              归档组织
+              <Trash2 size={14} />
+              归档 / 删除
             </button>
+          </div>
+        )}
+        {org.status === "archived" && (
+          <div className="mt-4 space-y-3 border-t border-border pt-4">
+            <p className="text-xs text-muted">
+              该组织已归档（列表默认隐藏，不可再新建项目）。
+            </p>
+            {canRestoreOrg && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm("确定恢复该组织为正常状态？")) return;
+                  const res = await apiFetch(`/api/organizations/${orgId}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: "active" }),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    alert(data.error || "恢复失败");
+                    return;
+                  }
+                  load();
+                }}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:border-accent/40 hover:text-accent"
+              >
+                恢复组织
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -255,7 +307,7 @@ export default function OrganizationDetailPage() {
           通过用户 ID 添加成员（无邮件邀请）；可从设置或其它途径获取用户 id。
         </p>
 
-        {isAdmin && org.status === "active" && (
+        {canManageOrg && org.status === "active" && (
           <form onSubmit={addMember} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
             <input
               value={addUserId}
@@ -292,7 +344,7 @@ export default function OrganizationDetailPage() {
               <th className="pb-2 pr-2">邮箱</th>
               <th className="pb-2 pr-2">角色</th>
               <th className="pb-2">状态</th>
-              {isAdmin && <th className="pb-2 w-28">操作</th>}
+              {canManageOrg && <th className="pb-2 w-28">操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -301,7 +353,7 @@ export default function OrganizationDetailPage() {
                 <td className="py-2 pr-2">{m.user.name}</td>
                 <td className="py-2 pr-2 text-muted">{m.user.email}</td>
                 <td className="py-2 pr-2">
-                  {isAdmin && org.status === "active" && m.status === "active" ? (
+                  {canManageOrg && org.status === "active" && m.status === "active" ? (
                     <select
                       value={m.role}
                       disabled={busyMemberId === m.id}
@@ -319,7 +371,7 @@ export default function OrganizationDetailPage() {
                   )}
                 </td>
                 <td className="py-2">{m.status}</td>
-                {isAdmin && (
+                {canManageOrg && (
                   <td className="py-2">
                     {org.status === "active" && m.status === "active" && (
                       <button
