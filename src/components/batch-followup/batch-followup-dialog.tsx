@@ -293,7 +293,7 @@ export function BatchFollowupDialog({ projectId, onClose, onSent }: Props) {
                 type="button"
                 onClick={sendAll}
                 disabled={selected.size === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
               >
                 <Send size={12} />
                 发送 {selected.size} 封催促邮件
@@ -304,7 +304,7 @@ export function BatchFollowupDialog({ projectId, onClose, onSent }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white hover:bg-accent-hover"
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
             >
               关闭
             </button>

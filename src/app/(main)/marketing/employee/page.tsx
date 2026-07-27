@@ -252,7 +252,7 @@ export default function MarketingEmployeePage() {
                     type="button"
                     disabled={!task.available || runningSlug === task.slug}
                     onClick={() => void runTask(task)}
-                    className="mt-3 inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
+                    className="mt-3 inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50"
                   >
                     {runningSlug === task.slug ? (
                       <Loader2 size={14} className="animate-spin" />

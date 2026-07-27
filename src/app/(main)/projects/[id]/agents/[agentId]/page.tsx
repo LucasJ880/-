@@ -292,7 +292,7 @@ export default function AgentDetailPage() {
               <button onClick={() => setShowTestConv(true)} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-background">
                 <MessageSquare size={12} /> 测试会话
               </button>
-              <button onClick={() => setShowPublish(true)} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:bg-accent/90">
+              <button onClick={() => setShowPublish(true)} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90">
                 <Rocket size={12} /> 发布
               </button>
             </>
@@ -309,7 +309,7 @@ export default function AgentDetailPage() {
             className="mb-3 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent" />
           <div className="flex gap-2">
             <button onClick={() => setShowPublish(false)} className="rounded-lg border border-border px-3 py-1.5 text-xs">取消</button>
-            <button onClick={handlePublish} disabled={publishing} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+            <button onClick={handlePublish} disabled={publishing} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50">
               {publishing ? "发布中..." : "确认发布"}
             </button>
           </div>
@@ -329,7 +329,7 @@ export default function AgentDetailPage() {
           </label>
           <div className="flex gap-2">
             <button onClick={() => setShowTestConv(false)} className="rounded-lg border border-border px-3 py-1.5 text-xs">取消</button>
-            <button onClick={handleCreateTestConv} disabled={creatingConv} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+            <button onClick={handleCreateTestConv} disabled={creatingConv} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50">
               {creatingConv ? (autoRun && testMsg.trim() ? "创建并运行中..." : "创建中...") : (autoRun && testMsg.trim() ? "创建并运行" : "创建会话")}
             </button>
           </div>
@@ -401,7 +401,7 @@ export default function AgentDetailPage() {
             <div className="flex items-center gap-3 border-t border-border pt-4">
               <input value={fChangeNote} onChange={(e) => setFChangeNote(e.target.value)} placeholder="变更备注（可选）"
                 className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent" />
-              <button onClick={saveConfig} disabled={saving} className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+              <button onClick={saveConfig} disabled={saving} className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 保存配置
               </button>

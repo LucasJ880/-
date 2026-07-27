@@ -465,7 +465,7 @@ export default function ProjectsPage() {
                 setEditing(null);
                 setShowModal(true);
               }}
-              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
             >
               <Plus size={16} />
               新建项目
@@ -572,7 +572,7 @@ export default function ProjectsPage() {
               setEditing(null);
               setShowModal(true);
             }}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
           >
             <Plus size={16} />
             新建项目

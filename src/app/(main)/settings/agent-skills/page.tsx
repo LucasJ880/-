@@ -385,7 +385,7 @@ export default function AgentSkillsSettingsPage() {
                           {editPrompt.trim() && (
                             <button
                               type="button"
-                              className="rounded bg-accent px-2 py-1 text-[11px] text-white"
+                              className="rounded bg-accent px-2 py-1 text-[11px] text-[color:var(--on-accent)]"
                               onClick={() => void savePrompt(skill.id)}
                             >
                               保存 Prompt

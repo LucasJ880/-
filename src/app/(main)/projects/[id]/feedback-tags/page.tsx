@@ -172,7 +172,7 @@ export default function FeedbackTagsPage() {
           <button
             type="button"
             onClick={() => setShowForm(!showForm)}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent/90"
+            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90"
           >
             <Plus size={14} /> 新建标签
           </button>
@@ -237,7 +237,7 @@ export default function FeedbackTagsPage() {
               type="button"
               onClick={createTag}
               disabled={!formKey.trim() || !formLabel.trim() || formSaving}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
             >
               {formSaving ? <Loader2 size={12} className="animate-spin" /> : null}
               创建
@@ -286,7 +286,7 @@ export default function FeedbackTagsPage() {
                     type="button"
                     onClick={() => updateTag(tag.id)}
                     disabled={editSaving}
-                    className="rounded bg-accent px-2 py-1 text-xs text-white"
+                    className="rounded bg-accent px-2 py-1 text-xs text-[color:var(--on-accent)]"
                   >
                     保存
                   </button>

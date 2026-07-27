@@ -128,7 +128,7 @@ export function StageAdvanceCard({
           <>
             <button
               onClick={handleAdvance}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
             >
               确认推进到「{targetLabel}」
             </button>
@@ -141,7 +141,7 @@ export function StageAdvanceCard({
           </>
         )}
         {state === "loading" && (
-          <button disabled className="flex items-center gap-1.5 rounded-lg bg-accent/60 px-3 py-1.5 text-xs text-white">
+          <button disabled className="flex items-center gap-1.5 rounded-lg bg-accent/60 px-3 py-1.5 text-xs text-[color:var(--on-accent)]">
             <Loader2 size={12} className="animate-spin" />
             推进中...
           </button>

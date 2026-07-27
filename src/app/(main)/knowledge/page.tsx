@@ -205,7 +205,7 @@ export default function OrgKnowledgePage() {
         <button
           type="submit"
           disabled={busy === "search"}
-          className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50"
         >
           {busy === "search" ? (
             <Loader2 size={14} className="animate-spin" />
@@ -259,7 +259,7 @@ export default function OrgKnowledgePage() {
         <button
           type="submit"
           disabled={busy === "create"}
-          className="rounded-lg bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50"
         >
           {busy === "create" ? "保存中…" : "保存并索引"}
         </button>

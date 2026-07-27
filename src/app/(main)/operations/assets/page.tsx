@@ -227,7 +227,7 @@ export default function VideoAssetsPage() {
             <button
               type="button"
               onClick={() => setShowForm((v) => !v)}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] transition-opacity hover:opacity-90"
             >
               <Plus size={14} />
               手动登记
@@ -302,7 +302,7 @@ export default function VideoAssetsPage() {
               type="button"
               onClick={handleCreate}
               disabled={saving || !fTitle.trim() || !fUrl.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
             >
               {saving ? "保存中…" : "保存"}
             </button>
@@ -418,7 +418,7 @@ export default function VideoAssetsPage() {
                           type="button"
                           onClick={handleFanout}
                           disabled={fanoutBusy || !fanoutCaption.trim() || !fanoutGroup}
-                          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
                         >
                           {fanoutBusy ? "派发中…" : "派发到账号组"}
                         </button>

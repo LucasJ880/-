@@ -240,7 +240,7 @@ export default function ProjectIntelligencePage() {
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs",
               tab === key
-                ? "bg-accent text-white"
+                ? "bg-accent text-[color:var(--on-accent)]"
                 : "border border-border hover:bg-muted/20",
             )}
           >
@@ -286,7 +286,7 @@ export default function ProjectIntelligencePage() {
                             type="button"
                             disabled={busyRule === r.id}
                             onClick={() => void decideRule(r.id, "activate")}
-                            className="rounded-md bg-accent px-2.5 py-1 text-[11px] text-white"
+                            className="rounded-md bg-accent px-2.5 py-1 text-[11px] text-[color:var(--on-accent)]"
                           >
                             确认为生效规则
                           </button>
@@ -467,7 +467,7 @@ export default function ProjectIntelligencePage() {
               <button
                 type="button"
                 onClick={() => void runCompare()}
-                className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white"
+                className="rounded-lg bg-accent px-3 py-1.5 text-xs text-[color:var(--on-accent)]"
               >
                 开始对比
               </button>

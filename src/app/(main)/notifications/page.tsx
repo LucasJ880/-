@@ -224,7 +224,7 @@ function NotificationsContent() {
               className={cn(
                 "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
                 statusFilter === tab.key
-                  ? "bg-accent text-white"
+                  ? "bg-accent text-[color:var(--on-accent)]"
                   : "text-muted hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
               )}
             >

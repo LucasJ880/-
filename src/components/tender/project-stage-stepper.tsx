@@ -11,7 +11,7 @@ const STATUS_STYLES: Record<string, { dot: string; line: string; text: string }>
     text: "text-success-text",
   },
   current: {
-    dot: "bg-accent text-white ring-4 ring-accent/20",
+    dot: "bg-accent text-[color:var(--on-accent)] ring-4 ring-accent/20",
     line: "bg-border",
     text: "text-accent font-semibold",
   },

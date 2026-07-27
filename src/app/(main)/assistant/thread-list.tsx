@@ -144,7 +144,7 @@ export function ThreadSidebar({
         </div>
         <button
           onClick={() => onCreate()}
-          className="flex h-9 w-9 items-center justify-center rounded-md bg-[#171a19] text-white shadow-xs transition-colors hover:bg-accent"
+          className="flex h-9 w-9 items-center justify-center rounded-md bg-[#171a19] text-[color:var(--on-accent)] shadow-xs transition-colors hover:bg-accent"
           title="新建对话"
           aria-label="新建对话"
         >

@@ -174,7 +174,7 @@ export function ApprovalCard({ approval, onChange, onRunUpdate }: Props) {
         <button
           onClick={() => handle("approve")}
           disabled={busy !== null}
-          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           {busy === "approve" ? (
             <Loader2 size={14} className="animate-spin" />

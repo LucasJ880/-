@@ -255,7 +255,7 @@ export default function ProjectPromptsListPage() {
           <button
             type="button"
             onClick={() => setShowNew(!showNew)}
-            className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent-hover"
+            className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover"
           >
             <Plus size={14} /> 新建 Prompt
           </button>
@@ -412,7 +412,7 @@ export default function ProjectPromptsListPage() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+              className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50"
             >
               {saving ? "创建中…" : "创建"}
             </button>

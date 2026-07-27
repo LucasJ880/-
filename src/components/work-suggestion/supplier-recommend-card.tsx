@@ -127,7 +127,7 @@ export function SupplierRecommendCard({
                   type="button"
                   onClick={() => addSupplier(s.supplierId)}
                   disabled={isBusy}
-                  className="flex shrink-0 items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                  className="flex shrink-0 items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
                 >
                   {isBusy ? (
                     <Loader2 size={11} className="animate-spin" />

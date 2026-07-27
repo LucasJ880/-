@@ -113,7 +113,7 @@ export function ProjectOnboardingGuide({
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
                     step.done
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-[color:var(--on-accent)]"
                       : step.active
                         ? "bg-accent/10 text-accent"
                         : "bg-border/30 text-muted"
@@ -149,7 +149,7 @@ export function ProjectOnboardingGuide({
                 <button
                   type="button"
                   onClick={step.action.onClick}
-                  className="mt-3 inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+                  className="mt-3 inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
                 >
                   {step.action.label}
                   <ArrowRight size={11} />

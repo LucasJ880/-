@@ -432,7 +432,7 @@ export default function WeChatSettingsPage() {
               )}
               <button
                 onClick={() => setShowWecomForm(!showWecomForm)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90"
               >
                 {wecomGw ? "修改配置" : "配置企业微信"}
               </button>
@@ -484,7 +484,7 @@ export default function WeChatSettingsPage() {
             <button
               onClick={handleWecomSave}
               disabled={!wecomForm.corpId || !wecomForm.secret || actionLoading === "configure_wecom"}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90 disabled:opacity-50"
             >
               {actionLoading === "configure_wecom" ? <Loader2 size={12} className="animate-spin" /> : null}
               保存并验证
@@ -513,7 +513,7 @@ export default function WeChatSettingsPage() {
             type="button"
             onClick={() => void handleBindWecom()}
             disabled={actionLoading === "bind_wecom"}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
             {actionLoading === "bind_wecom" ? <Loader2 size={12} className="animate-spin" /> : null}
             绑定

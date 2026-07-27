@@ -217,7 +217,7 @@ export default function InboxPage() {
           <button
             onClick={handleSubmit}
             disabled={!input.trim() || isLoading}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
           >
             {isLoading ? (
               <Loader2 size={13} className="animate-spin" />

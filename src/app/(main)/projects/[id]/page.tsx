@@ -396,7 +396,7 @@ function ProjectDetailContent() {
               <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                 className={cn(
                   "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-all",
-                  isActive ? "bg-accent text-white shadow-sm" : "text-muted hover:bg-background hover:text-foreground"
+                  isActive ? "bg-accent text-[color:var(--on-accent)] shadow-sm" : "text-muted hover:bg-background hover:text-foreground"
                 )}>
                 <Icon size={14} />
                 <span className="hidden sm:inline">{tab.label}</span>
@@ -544,7 +544,7 @@ function ProjectDetailContent() {
                   <span className="text-xs text-muted">向业主/GC/顾问发送澄清邮件</span>
                 </div>
                 <button type="button" onClick={() => setShowQuestionDialog(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover">
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover">
                   <FileQuestion size={12} />向业主提问
                 </button>
               </div>
@@ -598,7 +598,7 @@ function ProjectDetailContent() {
                 <option key={d} value={d}>{PROJECT_DUTY_LABELS[d]}</option>
               ))}
             </select>
-            <button type="submit" disabled={busy === "member"} className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-50">添加</button>
+            <button type="submit" disabled={busy === "member"} className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50">添加</button>
           </form>
         )}
         <table className="mt-4 w-full text-left text-sm">

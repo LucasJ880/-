@@ -337,7 +337,7 @@ export default function MarketingExperimentsPage() {
             <button
               type="submit"
               disabled={busy === "create"}
-              className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 sm:col-span-2"
+              className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50 sm:col-span-2"
             >
               {busy === "create" ? "创建中…" : "创建草稿"}
             </button>
@@ -481,7 +481,7 @@ export default function MarketingExperimentsPage() {
                           type="button"
                           disabled={busy === experiment.id}
                           onClick={() => confirmWinner(experiment)}
-                          className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-50 sm:col-span-2"
+                          className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-[color:var(--on-accent)] disabled:opacity-50 sm:col-span-2"
                         >
                           确认胜者并完成
                         </button>

@@ -188,7 +188,7 @@ export function MessageList({
                   type="button"
                   onClick={submitMsgFeedback}
                   disabled={msgFbRating < 1 || msgFbSubmitting}
-                  className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
                 >
                   {msgFbSubmitting ? <Loader2 size={12} className="animate-spin" /> : null}
                   提交

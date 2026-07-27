@@ -226,7 +226,7 @@ export function BidChecklist({ projectId }: Props) {
             "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
             data
               ? "border border-border bg-background text-foreground hover:bg-background/80"
-              : "bg-accent text-white hover:bg-accent-hover",
+              : "bg-accent text-[color:var(--on-accent)] hover:bg-accent-hover",
             loading && "opacity-50"
           )}
         >

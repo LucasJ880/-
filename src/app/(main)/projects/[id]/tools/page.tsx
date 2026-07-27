@@ -117,7 +117,7 @@ export default function ToolListPage() {
           <p className="text-xs text-muted">管理项目内可选工具定义</p>
         </div>
         {canManage && (
-          <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90">
+          <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90">
             <Plus size={14} /> 新建工具
           </button>
         )}
@@ -194,7 +194,7 @@ export default function ToolListPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowCreate(false)} className="rounded-lg border border-border px-3 py-1.5 text-xs">取消</button>
-              <button type="submit" disabled={creating} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+              <button type="submit" disabled={creating} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50">
                 {creating ? "创建中..." : "创建"}
               </button>
             </div>

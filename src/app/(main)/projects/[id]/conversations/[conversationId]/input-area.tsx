@@ -73,7 +73,7 @@ export function InputArea({
             type="button"
             onClick={handleSendAndRun}
             disabled={sending || running || !content.trim()}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
           >
             {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
             {running ? "运行中..." : "发送并运行"}

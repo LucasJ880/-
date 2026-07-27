@@ -300,7 +300,7 @@ export default function ServiceInboxPage() {
                   type="button"
                   onClick={handleReply}
                   disabled={sending || !replyText.trim()}
-                  className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-opacity disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-opacity disabled:opacity-50"
                 >
                   <Send size={14} />
                   {sending ? "发送中…" : "发送"}

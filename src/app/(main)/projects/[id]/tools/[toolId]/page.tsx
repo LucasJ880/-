@@ -233,7 +233,7 @@ export default function ToolDetailPage() {
       {/* Save button */}
       {canManage && (
         <div className="flex justify-end">
-          <button onClick={saveTool} disabled={saving} className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+          <button onClick={saveTool} disabled={saving} className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             保存
           </button>
