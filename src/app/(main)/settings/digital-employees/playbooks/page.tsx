@@ -54,7 +54,7 @@ export default function PlaybooksPage() {
         {playbooks.map((p) => (
           <div
             key={p.id}
-            className="rounded-xl border border-black/[0.06] bg-white p-4 text-[13px]"
+            className="rounded-xl border border-border bg-card-bg p-4 text-[13px]"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -68,7 +68,7 @@ export default function PlaybooksPage() {
                   {p.department} · {p.roleScope} · {p.status}
                 </div>
               </div>
-              <span className="rounded-md bg-[#f4f5f5] px-2 py-0.5 text-[11px]">
+              <span className="rounded-md bg-background px-2 py-0.5 text-[11px]">
                 {p.status}
               </span>
             </div>

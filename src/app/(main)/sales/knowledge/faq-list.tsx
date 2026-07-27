@@ -37,7 +37,7 @@ export function FAQList({
       {faqs.map((faq) => (
         <div
           key={faq.id}
-          className="group rounded-xl border border-border bg-white/70 overflow-hidden"
+          className="group rounded-xl border border-border bg-card-bg/70 overflow-hidden"
         >
           <button
             onClick={() =>

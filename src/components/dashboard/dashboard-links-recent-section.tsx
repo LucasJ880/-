@@ -30,7 +30,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
           href="/inbox"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-shadow hover:shadow-md"
         >
-          <div className="rounded-lg bg-[rgba(43,96,85,0.04)] p-2 text-[#2b6055]">
+          <div className="rounded-lg bg-accent-soft p-2 text-accent">
             <Inbox size={18} />
           </div>
           <div>
@@ -42,7 +42,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
           href="/tasks"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-shadow hover:shadow-md"
         >
-          <div className="rounded-lg bg-[rgba(46,122,86,0.04)] p-2 text-[#2e7a56]">
+          <div className="rounded-lg bg-success-bg p-2 text-success">
             <Plus size={18} />
           </div>
           <div>
@@ -54,7 +54,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
           href="/projects"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-shadow hover:shadow-md"
         >
-          <div className="rounded-lg bg-[rgba(128,80,120,0.04)] p-2 text-[#805078]">
+          <div className="rounded-lg bg-info-bg p-2 text-info">
             <FolderKanban size={18} />
           </div>
           <div>
@@ -66,7 +66,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
           href="/assistant"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-4 transition-shadow hover:shadow-md"
         >
-          <div className="rounded-lg bg-[rgba(43,96,85,0.04)] p-2 text-[#2b6055]">
+          <div className="rounded-lg bg-accent-soft p-2 text-accent">
             <MessagesSquare size={18} />
           </div>
           <div>
@@ -124,7 +124,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
                       }}
                       className={cn(
                         "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted transition-colors",
-                        onProjectClick && projectId && "hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+                        onProjectClick && projectId && "hover:bg-accent-soft hover:text-foreground"
                       )}
                     >
                       <span

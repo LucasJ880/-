@@ -41,7 +41,7 @@ export default function TradeError({
         </button>
         <a
           href="/"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-card-bg"
         >
           <Home className="h-4 w-4" />
           返回首页

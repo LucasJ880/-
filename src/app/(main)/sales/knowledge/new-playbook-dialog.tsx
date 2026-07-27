@@ -131,7 +131,7 @@ export function NewPlaybookDialog({
           <div className="space-y-1.5">
             <Label>话术内容 *</Label>
             <textarea
-              className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-28 resize-none"
+              className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-28 resize-none"
               placeholder="输入话术模板，可使用 [客户名] [产品名] 等占位符…"
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
@@ -141,7 +141,7 @@ export function NewPlaybookDialog({
           <div className="space-y-1.5">
             <Label>使用范例</Label>
             <textarea
-              className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-16 resize-none"
+              className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-16 resize-none"
               placeholder="可选：实际使用的话术范例…"
               value={form.example}
               onChange={(e) => setForm({ ...form, example: e.target.value })}

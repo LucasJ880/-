@@ -122,10 +122,10 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] flex flex-col gap-0 overflow-hidden border-[rgba(26,36,32,0.12)] bg-[#faf8f4] p-0 shadow-2xl sm:max-w-lg">
-        <DialogHeader className="border-b border-[rgba(26,36,32,0.08)] px-6 py-4 text-left">
-          <DialogTitle className="text-lg font-bold text-[#1a2420]">分发项目</DialogTitle>
-          <DialogDescription className="mt-0.5 max-w-[360px] truncate text-sm text-[#6e7d76]">
+      <DialogContent className="max-h-[85vh] flex flex-col gap-0 overflow-hidden border-border bg-card-bg p-0 shadow-2xl sm:max-w-lg">
+        <DialogHeader className="border-b border-border px-6 py-4 text-left">
+          <DialogTitle className="text-lg font-bold text-foreground">分发项目</DialogTitle>
+          <DialogDescription className="mt-0.5 max-w-[360px] truncate text-sm text-muted">
             {project.name}
           </DialogDescription>
         </DialogHeader>
@@ -135,13 +135,13 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
           <div className="space-y-2">
             <Label
               htmlFor="dispatch-org"
-              className="flex items-center gap-1.5 text-sm font-semibold text-[#1a2420]"
+              className="flex items-center gap-1.5 text-sm font-semibold text-foreground"
             >
-              <Building2 className="h-4 w-4 text-[#4F7C78]" />
-              目标组织 <span className="text-[#a63d3d]">*</span>
+              <Building2 className="h-4 w-4 text-accent" />
+              目标组织 <span className="text-danger">*</span>
             </Label>
             {orgsLoading ? (
-              <div className="flex items-center gap-2 py-2 text-sm text-[#6e7d76]">
+              <div className="flex items-center gap-2 py-2 text-sm text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" /> 加载组织…
               </div>
             ) : (
@@ -168,18 +168,18 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
           <div className="space-y-2">
             <Label
               htmlFor="dispatch-owner"
-              className="flex items-center gap-1.5 text-sm font-semibold text-[#1a2420]"
+              className="flex items-center gap-1.5 text-sm font-semibold text-foreground"
             >
-              <User className="h-4 w-4 text-[#4F7C78]" />
+              <User className="h-4 w-4 text-accent" />
               项目负责人
-              <span className="text-xs font-normal text-[#93A39F]">（可选）</span>
+              <span className="text-xs font-normal text-text-quaternary">（可选）</span>
             </Label>
             {membersLoading ? (
-              <div className="flex items-center gap-2 py-2 text-sm text-[#6e7d76]">
+              <div className="flex items-center gap-2 py-2 text-sm text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" /> 加载成员…
               </div>
             ) : !selectedOrgId ? (
-              <p className="rounded-lg border border-dashed border-[rgba(26,36,32,0.12)] bg-[#f2f0eb] px-3 py-2.5 text-xs text-[#93A39F]">
+              <p className="rounded-lg border border-dashed border-border bg-background px-3 py-2.5 text-xs text-text-quaternary">
                 请先选择组织
               </p>
             ) : (
@@ -205,12 +205,12 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
           {/* Members multi-select */}
           {selectedOrgId && members.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#1a2420]">
-                <Users className="h-4 w-4 text-[#4F7C78]" />
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Users className="h-4 w-4 text-accent" />
                 项目成员
-                <span className="text-xs font-normal text-[#93A39F]">（可选，可多选）</span>
+                <span className="text-xs font-normal text-text-quaternary">（可选，可多选）</span>
               </div>
-              <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-[rgba(26,36,32,0.15)] bg-white p-1.5 shadow-sm">
+              <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border bg-card-bg p-1.5 shadow-sm">
                 {members.map((m) => {
                   const selected = selectedMemberIds.includes(m.userId);
                   return (
@@ -220,15 +220,15 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
                       onClick={() => toggleMember(m.userId)}
                       className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
                         selected
-                          ? "bg-[#4F7C78]/10 text-[#4F7C78]"
-                          : "text-[#1a2420] hover:bg-[rgba(26,36,32,0.04)]"
+                          ? "bg-accent-soft text-accent"
+                          : "text-foreground hover:bg-accent-soft"
                       }`}
                     >
                       <div
                         className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition-colors ${
                           selected
-                            ? "border-[#4F7C78] bg-[#4F7C78] text-white"
-                            : "border-[rgba(26,36,32,0.2)] bg-white"
+                            ? "border-accent bg-accent text-[color:var(--on-accent)]"
+                            : "border-border bg-card-bg"
                         }`}
                       >
                         {selected && <Check className="h-3 w-3" />}
@@ -239,8 +239,8 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           m.role === "org_admin"
-                            ? "bg-[#4F7C78]/10 text-[#4F7C78]"
-                            : "bg-[rgba(26,36,32,0.06)] text-[#93A39F]"
+                            ? "bg-accent-soft text-accent"
+                            : "bg-accent-soft text-text-quaternary"
                         }`}
                       >
                         {m.role === "org_admin" ? "管理员" : "成员"}
@@ -250,16 +250,16 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
                 })}
               </div>
               {selectedMemberIds.length > 0 && (
-                <p className="text-xs text-[#4F7C78]">已选 {selectedMemberIds.length} 人</p>
+                <p className="text-xs text-accent">已选 {selectedMemberIds.length} 人</p>
               )}
             </div>
           )}
 
           {/* Note */}
           <div className="space-y-2">
-            <Label htmlFor="dispatch-note" className="text-sm font-semibold text-[#1a2420]">
+            <Label htmlFor="dispatch-note" className="text-sm font-semibold text-foreground">
               备注
-              <span className="ml-1 text-xs font-normal text-[#93A39F]">（可选）</span>
+              <span className="ml-1 text-xs font-normal text-text-quaternary">（可选）</span>
             </Label>
             <textarea
               id="dispatch-note"
@@ -267,23 +267,23 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
               onChange={(e) => setNote(e.target.value)}
               placeholder="填写分发说明…"
               rows={2}
-              className="w-full resize-none rounded-lg border border-[rgba(26,36,32,0.15)] bg-white px-3 py-2.5 text-sm text-[#1a2420] shadow-sm outline-none transition-colors placeholder:text-[#B8C4C0] focus:border-[#4F7C78] focus:ring-2 focus:ring-[#4F7C78]/20"
+              className="w-full resize-none rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
             />
           </div>
 
           {error && (
-            <div className="rounded-lg border border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.06)] px-3 py-2.5 text-sm font-medium text-[#a63d3d]">
+            <div className="rounded-lg border border-danger/20 bg-danger-bg px-3 py-2.5 text-sm font-medium text-danger">
               {error}
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-3 border-t border-[rgba(26,36,32,0.08)] bg-[#f2f0eb]/60 px-6 py-4 sm:gap-3">
+        <DialogFooter className="gap-3 border-t border-border bg-background/60 px-6 py-4 sm:gap-3">
           <Button
             type="button"
             variant="outline"
             disabled={submitting}
-            className="border-[rgba(26,36,32,0.12)] bg-white text-[#1a2420] shadow-sm hover:bg-[#f2f0eb]"
+            className="border-border bg-card-bg text-foreground shadow-sm hover:bg-accent-soft"
             onClick={() => onOpenChange(false)}
           >
             取消
@@ -291,7 +291,7 @@ export function DispatchDialog({ project, open, onOpenChange, onSuccess }: Dispa
           <Button
             type="button"
             disabled={submitting || !selectedOrgId}
-            className="bg-[#4F7C78] font-semibold text-white shadow-sm hover:bg-[#3d6662] disabled:opacity-40"
+            className="bg-accent font-semibold text-[color:var(--on-accent)] shadow-sm hover:bg-accent-hover disabled:opacity-40"
             onClick={handleSubmit}
           >
             {submitting ? (

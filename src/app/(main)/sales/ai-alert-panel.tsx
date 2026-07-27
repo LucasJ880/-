@@ -380,7 +380,7 @@ export function AiAlertPanel() {
                   onChange={(event) =>
                     setReviewTarget((current) => current ? { ...current, subject: event.target.value } : current)
                   }
-                  className="min-h-10 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+                  className="min-h-10 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
                 />
               </div>
 
@@ -389,7 +389,7 @@ export function AiAlertPanel() {
                   正文预览
                 </div>
                 <div
-                  className="max-h-64 overflow-y-auto bg-white p-4 text-sm leading-6 text-foreground"
+                  className="max-h-64 overflow-y-auto bg-card-bg p-4 text-sm leading-6 text-foreground"
                   dangerouslySetInnerHTML={{ __html: sanitizeHtml(reviewTarget.html) }}
                 />
               </div>

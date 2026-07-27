@@ -247,7 +247,7 @@ export function PipelineBoard({
               onClick={() => setShowNewOpp(true)}
               disabled={orgCreateBlocked}
               title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[12px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-1.5 text-[12px] font-medium text-foreground shadow-xs hover:bg-accent-soft hover:border-border-strong transition-all duration-150 disabled:opacity-40"
             >
               <Plus className="h-3 w-3" />
               新建机会

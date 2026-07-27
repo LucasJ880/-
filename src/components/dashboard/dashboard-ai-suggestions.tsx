@@ -33,21 +33,21 @@ import type {
 
 const SEVERITY_STYLES: Record<TriggerSeverity, { bg: string; text: string; border: string; dot: string }> = {
   urgent: {
-    bg: "bg-[rgba(166,61,61,0.04)]",
-    text: "text-[#a63d3d]",
-    border: "border-[rgba(166,61,61,0.15)]",
-    dot: "bg-[#a63d3d]",
+    bg: "bg-danger-bg",
+    text: "text-danger",
+    border: "border-danger/15",
+    dot: "bg-danger",
   },
   warning: {
-    bg: "bg-[rgba(154,106,47,0.04)]",
-    text: "text-[#9a6a2f]",
-    border: "border-[rgba(154,106,47,0.15)]",
-    dot: "bg-[#9a6a2f]",
+    bg: "bg-warning-bg",
+    text: "text-warning",
+    border: "border-warning/15",
+    dot: "bg-warning",
   },
   info: {
-    bg: "bg-[rgba(43,96,85,0.04)]",
+    bg: "bg-accent-soft",
     text: "text-accent",
-    border: "border-[rgba(43,96,85,0.15)]",
+    border: "border-accent/15",
     dot: "bg-accent",
   },
 };
@@ -233,7 +233,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
           <Sparkles size={15} className="text-accent" />
           <h2 className="text-sm font-semibold">策略建议</h2>
           {urgentCount > 0 && (
-            <span className="rounded-full bg-[rgba(166,61,61,0.1)] px-2 py-0.5 text-[11px] font-medium text-[#a63d3d]">
+            <span className="rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-medium text-danger">
               {urgentCount} 项紧急
             </span>
           )}
@@ -264,7 +264,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
       </div>
 
       {autoActions.length > 0 && (
-        <div className="mx-4 mt-3 rounded-lg border border-accent/20 bg-[rgba(43,96,85,0.04)] px-3 py-2">
+        <div className="mx-4 mt-3 rounded-lg border border-accent/20 bg-accent-soft px-3 py-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
             <Zap size={12} />
             自动化已执行 {autoActions.length} 项操作
@@ -272,7 +272,7 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
           <div className="mt-1.5 space-y-1">
             {autoActions.map((a, i) => (
               <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted">
-                <CheckCircle2 size={10} className={a.success ? "text-[#2e7a56]" : "text-[#a63d3d]"} />
+                <CheckCircle2 size={10} className={a.success ? "text-success" : "text-danger"} />
                 {a.message}
               </div>
             ))}
@@ -445,7 +445,7 @@ function ToggleRow({
       >
         <div
           className={cn(
-            "h-3 w-3 rounded-full bg-white shadow-sm transition-transform mt-0.5",
+            "h-3 w-3 rounded-full bg-card-bg shadow-sm transition-transform mt-0.5",
             checked ? "translate-x-3.5" : "translate-x-0.5"
           )}
         />

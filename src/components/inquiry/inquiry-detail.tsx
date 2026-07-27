@@ -46,10 +46,10 @@ const ITEM_STATUS_LABEL: Record<string, string> = {
 
 const ITEM_STATUS_CLASS: Record<string, string> = {
   pending: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]",
-  sent: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]",
-  replied: "bg-[rgba(43,96,85,0.12)] text-[#2b6055]",
+  sent: "bg-[rgba(43,96,85,0.08)] text-accent",
+  replied: "bg-[rgba(43,96,85,0.12)] text-accent",
   quoted: "bg-accent/10 text-accent",
-  declined: "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]",
+  declined: "bg-[rgba(166,61,61,0.08)] text-danger",
   no_response: "bg-[rgba(154,106,47,0.08)] text-[#9a6a2f]",
 };
 
@@ -385,7 +385,7 @@ function ItemActions({
       <ActionBtn
         key="declined"
         label="拒绝"
-        className="text-[#a63d3d]"
+        className="text-danger"
         onClick={() => onAction("mark-declined")}
       />
     );

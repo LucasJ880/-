@@ -62,7 +62,7 @@ interface Props {
 }
 
 const textareaClass =
-  "flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 disabled:cursor-not-allowed disabled:opacity-50";
+  "flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 disabled:cursor-not-allowed disabled:opacity-50";
 
 // ── 组件 ──────────────────────────────────────────────────
 
@@ -277,7 +277,7 @@ export function ProjectQuestionDialog({
         </div>
 
         {error && (
-          <p className="text-sm text-[#a63d3d]">{error}</p>
+          <p className="text-sm text-danger">{error}</p>
         )}
       </div>
     );
@@ -411,7 +411,7 @@ export function ProjectQuestionDialog({
           {phase === "error" && (
             <div className="space-y-4 py-4">
               {renderForm()}
-              <div className="flex items-center gap-2 rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-[#a63d3d]">
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-danger-bg px-4 py-3 text-sm text-danger">
                 <AlertCircle size={16} />
                 {error}
               </div>
@@ -522,7 +522,7 @@ function Field({
     <label className="block space-y-1">
       <span className="text-xs font-medium text-muted">
         {label}
-        {required && <span className="ml-0.5 text-[#a63d3d]">*</span>}
+        {required && <span className="ml-0.5 text-danger">*</span>}
       </span>
       {children}
     </label>

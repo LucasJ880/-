@@ -197,7 +197,7 @@ function SalesQuotesPageInner() {
         actions={
           <Link
             href="/sales"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-white transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent-soft transition-colors"
           >
             返回商机中心
           </Link>
@@ -212,7 +212,7 @@ function SalesQuotesPageInner() {
           { label: "草稿", value: draftCount, icon: FileText, color: "text-gray-600" },
           { label: "待登记定金", value: pendingDepositCount, icon: Wallet, color: "text-orange-600" },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-border bg-white/60 p-3 sm:p-4">
+          <div key={stat.label} className="rounded-lg border border-border bg-card-bg/60 p-3 sm:p-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <stat.icon size={14} className={stat.color} />
               {stat.label}
@@ -230,10 +230,10 @@ function SalesQuotesPageInner() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索客户名、产品..."
-            className="w-full rounded-lg border border-border bg-white/80 py-2 pl-9 pr-3 text-sm outline-none focus:border-primary/30 focus:ring-1 focus:ring-primary/20"
+            className="w-full rounded-lg border border-border bg-card-bg/80 py-2 pl-9 pr-3 text-sm outline-none focus:border-primary/30 focus:ring-1 focus:ring-primary/20"
           />
         </div>
-        <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-white/60 p-0.5">
+        <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-card-bg/60 p-0.5">
           <Filter size={14} className="ml-2 text-muted-foreground" />
           {STATUS_FILTERS.map((s) => (
             <button
@@ -263,7 +263,7 @@ function SalesQuotesPageInner() {
           {quotes.length === 0 ? "暂无报价记录" : "没有匹配的报价"}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-white/60">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card-bg/60">
           <table className="min-w-[920px] w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
@@ -358,7 +358,7 @@ function SalesQuotesPageInner() {
                                 分享
                               </button>
                               {shareLangMenu === q.id && (
-                                <div className="absolute right-0 top-full mt-1 z-20 rounded-lg border border-border bg-white shadow-lg py-1 min-w-[100px]">
+                                <div className="absolute right-0 top-full mt-1 z-20 rounded-lg border border-border bg-card-bg shadow-lg py-1 min-w-[100px]">
                                   {[
                                     { code: "en", label: "English" },
                                     { code: "cn", label: "中文" },
@@ -429,7 +429,7 @@ function SalesQuotesPageInner() {
       {/* Email send dialog */}
       {emailDialog && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 backdrop-blur-sm sm:items-center sm:p-6">
-          <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-6">
+          <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl bg-card-bg p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold">邮件发送报价</h3>
               <button onClick={() => setEmailDialog(null)} className="rounded-md p-1 hover:bg-muted transition-colors">
@@ -448,7 +448,7 @@ function SalesQuotesPageInner() {
                 <input
                   value={emailTo}
                   onChange={(e) => setEmailTo(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg px-3 py-2 text-sm"
                   placeholder="customer@email.com"
                 />
               </div>

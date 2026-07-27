@@ -32,25 +32,25 @@ export function EditDiffReview({ open, aiOutput, onClose, onConfirm }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
-      <div className="w-full max-w-lg rounded-xl border border-black/[0.08] bg-white p-4 shadow-lg">
-        <h3 className="text-[15px] font-semibold text-[#171a19]">修改后使用</h3>
-        <p className="mt-1 text-[12px] text-[#68706c]">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card-bg p-4 shadow-lg">
+        <h3 className="text-[15px] font-semibold text-foreground">修改后使用</h3>
+        <p className="mt-1 text-[12px] text-muted">
           左侧为 AI 原稿摘要；请在下方填写你最终使用的版本。系统只保存结构化差异与必要快照。
         </p>
-        <pre className="mt-2 max-h-28 overflow-auto rounded-md bg-[#f4f5f5] p-2 text-[11px] text-[#68706c]">
+        <pre className="mt-2 max-h-28 overflow-auto rounded-md bg-card-bg p-2 text-[11px] text-muted">
           {toEditable(aiOutput).slice(0, 800)}
         </pre>
         <textarea
           value={edited}
           onChange={(e) => setEdited(e.target.value)}
-          className="mt-2 w-full rounded-md border border-black/[0.1] px-2 py-1.5 text-[13px]"
+          className="mt-2 w-full rounded-md border border-border px-2 py-1.5 text-[13px]"
           rows={6}
         />
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-[12px] text-[#68706c] hover:bg-[#f4f5f5]"
+            className="rounded-md px-3 py-1.5 text-[12px] text-muted hover:bg-accent-soft"
           >
             取消
           </button>

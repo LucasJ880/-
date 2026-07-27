@@ -33,11 +33,11 @@ export function OutcomeFollowup({
   return (
     <div className={className}>
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
-        <span className="text-[#68706c]">后续结果</span>
+        <span className="text-muted">后续结果</span>
         <select
           value={outcomeType}
           onChange={(e) => setOutcomeType(e.target.value)}
-          className="rounded-md border border-black/[0.1] px-2 py-1"
+          className="rounded-md border border-border px-2 py-1"
         >
           <option value="customer_replied">客户已回复</option>
           <option value="meeting_booked">已约会议</option>

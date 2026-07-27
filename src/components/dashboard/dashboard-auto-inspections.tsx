@@ -40,10 +40,10 @@ interface InspectionTask {
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string; Icon: typeof CheckCircle2 }> = {
-  completed: { label: "正常", color: "text-[#2e7a56]", Icon: CheckCircle2 },
-  failed: { label: "有异常", color: "text-[#a63d3d]", Icon: XCircle },
+  completed: { label: "正常", color: "text-success", Icon: CheckCircle2 },
+  failed: { label: "有异常", color: "text-danger", Icon: XCircle },
   running: { label: "执行中", color: "text-accent", Icon: Loader2 },
-  waiting_for_approval: { label: "待审批", color: "text-[#9a6a2f]", Icon: Clock },
+  waiting_for_approval: { label: "待审批", color: "text-warning", Icon: Clock },
 };
 
 interface Props {
@@ -108,7 +108,7 @@ export function DashboardAutoInspections({ onProjectClick }: Props) {
           <Shield size={15} className="text-accent" />
           <h2 className="text-sm font-semibold">自动巡检</h2>
           {failedCount > 0 && (
-            <span className="rounded-full bg-[rgba(166,61,61,0.1)] px-2 py-0.5 text-[11px] font-medium text-[#a63d3d]">
+            <span className="rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-medium text-danger">
               {failedCount} 项异常
             </span>
           )}
@@ -184,9 +184,9 @@ export function DashboardAutoInspections({ onProjectClick }: Props) {
                       <div key={step.id} className="rounded-md border border-border px-3 py-2">
                         <div className="flex items-center gap-2">
                           {step.status === "completed" ? (
-                            <CheckCircle2 size={11} className="text-[#2e7a56]" />
+                            <CheckCircle2 size={11} className="text-success" />
                           ) : step.status === "failed" ? (
-                            <XCircle size={11} className="text-[#a63d3d]" />
+                            <XCircle size={11} className="text-danger" />
                           ) : (
                             <Clock size={11} className="text-muted" />
                           )}
@@ -202,7 +202,7 @@ export function DashboardAutoInspections({ onProjectClick }: Props) {
                                 key={i}
                                 className={cn(
                                   "flex items-start gap-1.5 text-[10px]",
-                                  issue.level === "error" ? "text-[#a63d3d]" : "text-[#9a6a2f]"
+                                  issue.level === "error" ? "text-danger" : "text-warning"
                                 )}
                               >
                                 <AlertTriangle size={9} className="mt-0.5 shrink-0" />

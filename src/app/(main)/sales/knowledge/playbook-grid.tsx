@@ -62,7 +62,7 @@ export function PlaybookGrid({
       {playbooks.map((pb) => (
         <div
           key={pb.id}
-          className="group relative rounded-xl border border-border bg-white/70 p-4 transition-shadow hover:shadow-md"
+          className="group relative rounded-xl border border-border bg-card-bg/70 p-4 transition-shadow hover:shadow-md"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="flex flex-wrap gap-1.5">

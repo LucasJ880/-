@@ -49,13 +49,13 @@ const STATUS_ICON: Record<
 };
 
 const STATUS_TONE: Record<AssistantTaskStatus, string> = {
-  received: "border-[#2b6055]/15 bg-[#f6f8f7] text-[#2b6055]",
-  planning: "border-[#2b6055]/20 bg-[#edf3f1] text-[#2b6055]",
-  running: "border-[#2b6055]/25 bg-[#edf3f1] text-[#1f4f46]",
+  received: "border-accent/15 bg-card-bg text-accent",
+  planning: "border-accent/20 bg-accent-soft text-accent",
+  running: "border-accent/25 bg-accent-soft text-accent",
   waiting_for_confirmation: "border-amber-300/80 bg-amber-50 text-amber-950",
   completed: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  failed: "border-[rgba(166,61,61,0.25)] bg-[#fff7f7] text-[#a63d3d]",
-  cancelled: "border-black/10 bg-[#f3f4f3] text-[#68706c]",
+  failed: "border-[rgba(166,61,61,0.25)] bg-danger-bg text-danger",
+  cancelled: "border-border bg-card-bg text-muted",
 };
 
 export function runtimeV2WorkbenchSummary(
@@ -146,7 +146,7 @@ export function RuntimeV2Workbench({
     >
       {/* 1. 顶部：目标与状态 */}
       <div className="flex items-start gap-3 px-3 py-3 sm:px-3.5">
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-black/5 bg-white/70">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card-bg/70">
           <Icon size={16} className={cn(spinning && "animate-spin")} />
         </div>
         <div className="min-w-0 flex-1">
@@ -154,7 +154,7 @@ export function RuntimeV2Workbench({
             <span className="text-[13px] font-semibold tracking-tight">
               {assistantStatusLabel(run.status)}
             </span>
-            <span className="rounded-md bg-white/60 px-1.5 py-0.5 text-[11px] font-medium text-[#4a524e]">
+            <span className="rounded-md bg-card-bg/60 px-1.5 py-0.5 text-[11px] font-medium text-[#4a524e]">
               销售跟进
             </span>
           </div>
@@ -181,10 +181,10 @@ export function RuntimeV2Workbench({
       {/* 2. 分析结果 */}
       {customers.length > 0 ? (
         <div
-          className="border-t border-black/[0.06] bg-white/45 px-3 py-2.5 sm:px-3.5"
+          className="border-t border-border bg-card-bg/45 px-3 py-2.5 sm:px-3.5"
           data-testid="runtime-v2-analysis"
         >
-          <p className="text-[11px] font-medium text-[#68706c]">分析结果</p>
+          <p className="text-[11px] font-medium text-muted">分析结果</p>
           <p className="mt-1 text-[12px] text-[#4a524e]">
             {typeof analyzedOpportunityCount === "number"
               ? `已分析 ${analyzedOpportunityCount} 个商机，`
@@ -195,10 +195,10 @@ export function RuntimeV2Workbench({
             {customers.map((c) => (
               <li key={c.customerName} className="min-w-0">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[13px] font-semibold text-[#171a19]">
+                  <span className="text-[13px] font-semibold text-foreground">
                     {c.customerName}
                   </span>
-                  <span className="text-[12px] font-medium text-[#2b6055]">
+                  <span className="text-[12px] font-medium text-accent">
                     {c.score} 分
                   </span>
                 </div>
@@ -220,7 +220,7 @@ export function RuntimeV2Workbench({
 
       {/* 3. Inline Approval */}
       {approvalSlot ? (
-        <div className="border-t border-black/[0.06] bg-white/30 px-2 py-2 sm:px-2.5">
+        <div className="border-t border-border bg-card-bg/30 px-2 py-2 sm:px-2.5">
           {approvalSlot}
         </div>
       ) : run.status === "waiting_for_confirmation" ? (
@@ -233,16 +233,16 @@ export function RuntimeV2Workbench({
       ) : null}
 
       {/* 4–5. 简化进度 + 可展开技术步骤 */}
-      <div className="border-t border-black/[0.06] bg-white/40 px-3 py-2.5 sm:px-3.5">
-        <p className="mb-2 text-[11px] font-medium text-[#68706c]">进度</p>
+      <div className="border-t border-border bg-card-bg/40 px-3 py-2.5 sm:px-3.5">
+        <p className="mb-2 text-[11px] font-medium text-muted">进度</p>
         <ol className="space-y-1.5" data-testid="runtime-v2-user-progress">
           {progress.stages.map((s) => (
             <li
               key={s.id}
               className={cn(
                 "flex items-center gap-2 text-[12px]",
-                s.active && "font-semibold text-[#171a19]",
-                s.done && !s.active && "text-[#68706c]",
+                s.active && "font-semibold text-foreground",
+                s.done && !s.active && "text-muted",
                 !s.done && !s.active && "text-[#9aa19e]",
               )}
               data-active={s.active ? "true" : "false"}
@@ -250,8 +250,8 @@ export function RuntimeV2Workbench({
               <span
                 className={cn(
                   "h-2 w-2 shrink-0 rounded-full",
-                  s.active && "bg-[#2b6055]",
-                  s.done && !s.active && "bg-[#2b6055]/40",
+                  s.active && "bg-accent",
+                  s.done && !s.active && "bg-accent/40",
                   !s.done && !s.active && "bg-[#c5cac7]",
                 )}
               />
@@ -264,7 +264,7 @@ export function RuntimeV2Workbench({
           <>
             <button
               type="button"
-              className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-medium text-[#2b6055]"
+              className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-medium text-accent"
               onClick={() => setShowAllSteps((v) => !v)}
               data-testid="toggle-all-steps"
             >
@@ -276,7 +276,7 @@ export function RuntimeV2Workbench({
             </button>
             {showAllSteps ? (
               <ol
-                className="mt-2 space-y-1.5 border-t border-black/[0.05] pt-2"
+                className="mt-2 space-y-1.5 border-t border-border pt-2"
                 data-testid="runtime-v2-steps"
               >
                 {run.runtimeSteps!.map((step, i) => {
@@ -291,15 +291,15 @@ export function RuntimeV2Workbench({
                         <span className="min-w-0 flex-1">
                           {i + 1}. {step.title}
                           {tool ? (
-                            <span className="text-[#68706c]"> · {tool}</span>
+                            <span className="text-muted"> · {tool}</span>
                           ) : null}
                         </span>
-                        <span className="shrink-0 text-[11px] text-[#68706c]">
+                        <span className="shrink-0 text-[11px] text-muted">
                           {runtimeV2StepStatusLabel(step.status)}
                         </span>
                       </div>
                       {step.errorMessage ? (
-                        <p className="mt-0.5 pl-4 text-[11px] text-[#a63d3d]">
+                        <p className="mt-0.5 pl-4 text-[11px] text-danger">
                           {step.errorMessage}
                         </p>
                       ) : null}
@@ -315,22 +315,22 @@ export function RuntimeV2Workbench({
       {/* 6. Verifier */}
       {run.verificationLabel ? (
         <div
-          className="border-t border-black/[0.06] bg-white/50 px-3 py-2 text-[12px] leading-5 text-[#3d4541] sm:px-3.5"
+          className="border-t border-border bg-card-bg/50 px-3 py-2 text-[12px] leading-5 text-[#3d4541] sm:px-3.5"
           data-testid="runtime-v2-verifier"
         >
-          <span className="font-medium text-[#68706c]">验证结果 · </span>
+          <span className="font-medium text-muted">验证结果 · </span>
           {run.verificationLabel}
         </div>
       ) : null}
 
       {run.status === "failed" ? (
-        <div className="border-t border-black/[0.06] bg-white/50 px-3 py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:px-3.5">
+        <div className="border-t border-border bg-card-bg/50 px-3 py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:px-3.5">
           {run.canRetry && onRetry ? (
             <button
               type="button"
               onClick={() => void handleRetry()}
               disabled={retrying}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-[#2b6055]/25 bg-white px-3 text-[13px] font-medium text-[#2b6055] disabled:opacity-60"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-accent/25 bg-card-bg px-3 text-[13px] font-medium text-accent disabled:opacity-60"
             >
               {retrying ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -340,7 +340,7 @@ export function RuntimeV2Workbench({
               {retrying ? "重试中…" : "重试"}
             </button>
           ) : (
-            <p className="text-center text-[12px] text-[#68706c]">
+            <p className="text-center text-[12px] text-muted">
               请重新发送消息以生成新操作
             </p>
           )}

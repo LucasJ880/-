@@ -366,7 +366,7 @@ export function CalendarTimeGrid<
                 className="relative pr-2 text-right"
                 style={{ height: HOUR_HEIGHT }}
               >
-                <span className="absolute right-2 -top-1.5 bg-white/60 px-1">
+                <span className="absolute right-2 -top-1.5 bg-card-bg/60 px-1">
                   {h === 0 ? "" : `${h}:00`}
                 </span>
               </div>

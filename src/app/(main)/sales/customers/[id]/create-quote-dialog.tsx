@@ -178,7 +178,7 @@ export function CreateQuoteDialog({
   };
 
   const inputClass =
-    "w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-accent/20";
+    "w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-accent/20";
 
   const getFabrics = (productName: string) =>
     products.find((p) => p.name === productName)?.fabrics || [];
@@ -254,7 +254,7 @@ export function CreateQuoteDialog({
               {items.map((item, idx) => (
                 <div
                   key={idx}
-                  className="rounded-lg border border-border/60 bg-white/50 p-3 space-y-2"
+                  className="rounded-lg border border-border/60 bg-card-bg/50 p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-medium text-muted">#{idx + 1}</span>
@@ -356,7 +356,7 @@ export function CreateQuoteDialog({
             <div className="space-y-1.5">
               <Label>备注</Label>
               <textarea
-                className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 h-16 resize-none"
+                className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 h-16 resize-none"
                 placeholder="可选备注…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

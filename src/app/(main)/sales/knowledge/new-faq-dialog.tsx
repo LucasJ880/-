@@ -122,7 +122,7 @@ export function NewFAQDialog({
           <div className="space-y-1.5">
             <Label>最佳回答 *</Label>
             <textarea
-              className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-28 resize-none"
+              className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-28 resize-none"
               placeholder="标准回答内容…"
               value={form.answer}
               onChange={(e) => setForm({ ...form, answer: e.target.value })}

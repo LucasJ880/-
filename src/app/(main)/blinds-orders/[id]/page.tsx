@@ -66,7 +66,7 @@ interface BlindsOrder {
 
 const STATUS_MAP: Record<string, { label: string; color: string; next?: string; nextLabel?: string }> = {
   draft: { label: "草稿", color: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]", next: "confirmed", nextLabel: "确认工艺单" },
-  confirmed: { label: "已确认", color: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]", next: "completed", nextLabel: "标记完成" },
+  confirmed: { label: "已确认", color: "bg-accent-soft text-accent", next: "completed", nextLabel: "标记完成" },
   completed: { label: "已完成", color: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]" },
 };
 
@@ -145,7 +145,7 @@ export default function BlindsOrderDetailPage({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-[#2b6055]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-accent" />
       </div>
     );
   }
@@ -154,7 +154,7 @@ export default function BlindsOrderDetailPage({
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <p className="text-muted">工艺单不存在</p>
-        <Link href="/blinds-orders" className="mt-4 text-[#2b6055] hover:underline">
+        <Link href="/blinds-orders" className="mt-4 text-accent hover:underline">
           返回列表
         </Link>
       </div>
@@ -196,7 +196,7 @@ export default function BlindsOrderDetailPage({
           {st.next && (
             <button
               onClick={() => updateStatus(st.next!)}
-              className="rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90"
             >
               {st.nextLabel}
             </button>
@@ -210,7 +210,7 @@ export default function BlindsOrderDetailPage({
           </Link>
           <button
             onClick={handleDelete}
-            className="flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.15)] px-3 py-2 text-sm text-[#a63d3d] transition-colors hover:bg-[rgba(166,61,61,0.04)]"
+            className="flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.15)] px-3 py-2 text-sm text-danger transition-colors hover:bg-[rgba(166,61,61,0.04)]"
           >
             <Trash2 size={14} />
             删除
@@ -220,19 +220,19 @@ export default function BlindsOrderDetailPage({
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="rounded-lg border border-border bg-white p-4">
+        <div className="rounded-lg border border-border bg-card-bg p-4">
           <div className="text-xs text-muted">窗户数</div>
           <div className="mt-1 text-2xl font-bold text-foreground">{order.items.length}</div>
         </div>
-        <div className="rounded-lg border border-border bg-white p-4">
+        <div className="rounded-lg border border-border bg-card-bg p-4">
           <div className="text-xs text-muted">总面积</div>
           <div className="mt-1 text-2xl font-bold text-foreground">{totalSF.toFixed(2)} <span className="text-sm font-normal">SF</span></div>
         </div>
-        <div className="rounded-lg border border-border bg-white p-4">
+        <div className="rounded-lg border border-border bg-card-bg p-4">
           <div className="text-xs text-muted">规则版本</div>
           <div className="mt-1 font-mono text-sm text-foreground/80">{order.ruleVersion}</div>
         </div>
-        <div className="rounded-lg border border-border bg-white p-4">
+        <div className="rounded-lg border border-border bg-card-bg p-4">
           <div className="text-xs text-muted">创建时间</div>
           <div className="mt-1 text-sm text-foreground/80">
             {new Date(order.createdAt).toLocaleString("zh-CN", {
@@ -254,7 +254,7 @@ export default function BlindsOrderDetailPage({
             onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               tab === t.key
-                ? "border-[#2b6055] text-[#2b6055]"
+                ? "border-accent text-accent"
                 : "border-transparent text-muted hover:text-foreground/80"
             }`}
           >
@@ -274,7 +274,7 @@ export default function BlindsOrderDetailPage({
 
 function OverviewTab({ order }: { order: BlindsOrder }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-card-bg shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -323,7 +323,7 @@ function PartsCuttingTab({ items }: { items: BlindsOrderItem[] }) {
   const sorted = [...items].sort((a, b) => a.sortOrder - b.sortOrder);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-card-bg shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -386,7 +386,7 @@ function FabricCuttingTab({ items }: { items: BlindsOrderItem[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-border bg-card-bg shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>

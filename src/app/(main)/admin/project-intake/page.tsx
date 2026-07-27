@@ -133,7 +133,7 @@ export default function ProjectIntakePage() {
               setKeyword(e.target.value);
               setPage(1);
             }}
-            className="w-full rounded-lg border border-[rgba(26,36,32,0.12)] bg-white pl-10 pr-4 py-2.5 text-sm text-[#1a2420] shadow-sm placeholder:text-[#B8C4C0] outline-none focus:border-[#4F7C78] focus:ring-2 focus:ring-[#4F7C78]/20"
+            className="w-full rounded-lg border border-border bg-card-bg pl-10 pr-4 py-2.5 text-sm text-foreground shadow-sm placeholder:text-muted outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
           />
         </div>
         <div className="text-sm text-muted">
@@ -233,7 +233,7 @@ function ProjectIntakeCard({
   const pri = PRIORITY_LABELS[project.priority] ?? PRIORITY_LABELS.medium;
 
   return (
-    <div className="group rounded-xl border border-[rgba(26,36,32,0.1)] bg-[#faf8f4] p-4 sm:p-5 shadow-sm hover:shadow-md transition-all">
+    <div className="group rounded-xl border border-border bg-card-bg p-4 sm:p-5 shadow-sm hover:shadow-md transition-all">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         {/* Left */}
         <div className="min-w-0 flex-1 space-y-2">
@@ -311,7 +311,7 @@ function ProjectIntakeCard({
         <div className="flex-shrink-0">
           <button
             onClick={onDispatch}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-hover transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] shadow-sm hover:bg-primary-hover transition-colors"
           >
             分发项目
             <ArrowRight className="h-4 w-4" />

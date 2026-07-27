@@ -27,7 +27,7 @@ function CustomerCard({
   return (
     <Link
       href={`/sales/customers/${c.id}`}
-      className="block rounded-xl border border-border bg-white/70 p-3 transition-colors active:bg-white"
+      className="block rounded-xl border border-border bg-card-bg/70 p-3 transition-colors active:bg-card-bg"
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -83,7 +83,7 @@ export function CustomerList({
 }) {
   if (customers.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-white/40 py-16">
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card-bg/40 py-16">
         <Users className="h-10 w-10 text-muted/50" />
         <p className="mt-3 text-sm text-muted">暂无客户</p>
       </div>
@@ -104,10 +104,10 @@ export function CustomerList({
       </div>
 
       {/* Desktop：表格；仅表格区允许横向滚动 */}
-      <div className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-white/70 md:block">
+      <div className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card-bg/70 md:block">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
-            <tr className="border-b border-border bg-white/50 text-left text-xs text-muted">
+            <tr className="border-b border-border bg-card-bg/50 text-left text-xs text-muted">
               <th className="px-4 py-2.5 font-medium">客户</th>
               <th className="px-4 py-2.5 font-medium">联系方式</th>
               <th className="px-4 py-2.5 font-medium">漏斗</th>
@@ -128,7 +128,7 @@ export function CustomerList({
               return (
                 <tr
                   key={c.id}
-                  className="border-b border-border/50 transition-colors hover:bg-white/60"
+                  className="border-b border-border/50 transition-colors hover:bg-card-bg/60"
                 >
                   <td className="px-4 py-3">
                     <Link

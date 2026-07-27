@@ -108,7 +108,7 @@ export function MultiSelectCombobox({
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex min-h-[38px] w-full items-center gap-1 rounded-lg border border-border bg-white/80 px-2 py-1.5 text-left text-sm transition-colors",
+          "flex min-h-[38px] w-full items-center gap-1 rounded-lg border border-border bg-card-bg/80 px-2 py-1.5 text-left text-sm transition-colors",
           "hover:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/20",
           disabled && "opacity-50 cursor-not-allowed",
           open && "border-accent/40 ring-2 ring-accent/20",
@@ -176,7 +176,7 @@ export function MultiSelectCombobox({
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-border bg-white shadow-lg">
+        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card-bg shadow-float">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Search className="h-3.5 w-3.5 text-muted" />
             <input
@@ -218,7 +218,7 @@ export function MultiSelectCombobox({
                         "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
                         selected
                           ? "bg-accent border-accent text-white"
-                          : "border-border bg-white",
+                          : "border-border bg-card-bg",
                       )}
                     >
                       {selected && <Check className="h-3 w-3" />}

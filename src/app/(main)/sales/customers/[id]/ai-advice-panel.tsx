@@ -28,7 +28,7 @@ const PROFILE_LABELS: Record<string, string> = {
 function ProfileBadge({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
   return (
-    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-white/60 border border-border/50 px-2.5 py-1.5 min-w-[70px]">
+    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-card-bg/60 border border-border/50 px-2.5 py-1.5 min-w-[70px]">
       <span className="text-[10px] text-muted">{label}</span>
       <span className="text-xs font-medium text-foreground">{PROFILE_LABELS[value] || value}</span>
     </div>
@@ -129,7 +129,7 @@ export function AiAdvicePanel({ customerId }: { customerId: string }) {
                   <ProfileBadge label="决策" value={profile.decisionSpeed} />
                   <ProfileBadge label="沟通" value={profile.communicationStyle} />
                   {profile.winProbability != null && (
-                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-white/60 border border-border/50 px-2.5 py-1.5 min-w-[70px]">
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-card-bg/60 border border-border/50 px-2.5 py-1.5 min-w-[70px]">
                       <span className="text-[10px] text-muted">赢率</span>
                       <span className={cn(
                         "text-xs font-bold",
@@ -140,7 +140,7 @@ export function AiAdvicePanel({ customerId }: { customerId: string }) {
                     </div>
                   )}
                   {profile.priceSensitivity != null && (
-                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-white/60 border border-border/50 px-2.5 py-1.5 min-w-[70px]">
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-card-bg/60 border border-border/50 px-2.5 py-1.5 min-w-[70px]">
                       <span className="text-[10px] text-muted">价格敏感</span>
                       <span className="text-xs font-medium text-foreground">
                         {profile.priceSensitivity >= 0.7 ? "高" : profile.priceSensitivity >= 0.4 ? "中" : "低"}

@@ -169,7 +169,7 @@ export function MobileNavDrawer({
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 flex h-full max-h-dvh w-[min(300px,85vw)] flex-col bg-[#111b1d] text-white animate-in slide-in-from-left duration-200 pb-safe">
+      <div className="relative z-10 flex h-full max-h-dvh w-[min(300px,85vw)] flex-col bg-sidebar-bg text-sidebar-text animate-in slide-in-from-left duration-200 pb-safe">
         <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
           {drill ? (
             <button
@@ -231,7 +231,7 @@ export function MobileNavDrawer({
                           groupActive ||
                             pathname.startsWith(cat.href) ||
                             (cat.href === "/" && pathname === "/")
-                            ? "bg-white/10 text-white"
+                            ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
                             : "text-white/75 hover:bg-white/5",
                         )}
                       >
@@ -251,7 +251,7 @@ export function MobileNavDrawer({
                         className={cn(
                           "flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-[15px] hover:bg-white/5",
                           groupActive
-                            ? "bg-white/10 text-white"
+                            ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
                             : "text-white/75",
                         )}
                       >
@@ -281,9 +281,10 @@ export function MobileNavDrawer({
                       className={cn(
                         "flex min-h-10 items-center rounded-md px-3 text-sm",
                         item.active
-                          ? "bg-white/10 text-emerald-200"
+                          ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
                           : "text-white/75 hover:bg-white/5",
                       )}
+                      data-nav-active={item.active ? "true" : undefined}
                     >
                       {label}
                     </Link>

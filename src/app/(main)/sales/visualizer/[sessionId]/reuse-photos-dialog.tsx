@@ -135,7 +135,7 @@ export default function ReusePhotosDialog(props: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
+      <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-card-bg shadow-xl">
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold">复用已有现场照片</h3>
@@ -178,7 +178,7 @@ export default function ReusePhotosDialog(props: Props) {
                 const allSelected = ids.every((id) => selection.has(id));
                 const someSelected = !allSelected && ids.some((id) => selection.has(id));
                 return (
-                  <div key={g.sessionId} className="rounded-lg border border-border/60 bg-white/70">
+                  <div key={g.sessionId} className="rounded-lg border border-border/60 bg-card-bg/70">
                     <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-xs font-semibold text-foreground">
@@ -193,7 +193,7 @@ export default function ReusePhotosDialog(props: Props) {
                       <button
                         onClick={() => toggleGroup(g)}
                         disabled={importing}
-                        className="shrink-0 rounded-md border border-border bg-white px-2 py-1 text-[11px] text-muted hover:text-foreground disabled:opacity-60"
+                        className="shrink-0 rounded-md border border-border bg-card-bg px-2 py-1 text-[11px] text-muted hover:text-foreground disabled:opacity-60"
                       >
                         {allSelected ? "全部取消" : someSelected ? "反选" : "全选"}
                       </button>
@@ -255,7 +255,7 @@ export default function ReusePhotosDialog(props: Props) {
             <button
               onClick={onClose}
               disabled={importing}
-              className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
+              className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
             >
               取消
             </button>

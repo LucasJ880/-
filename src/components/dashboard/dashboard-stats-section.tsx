@@ -47,22 +47,22 @@ function ReminderSummaryCard({
           {
             label: "逾期",
             value: overdueItems.length,
-            color: overdueItems.length > 0 ? "text-[#a63d3d]" : "text-[#8a9590]",
+            color: overdueItems.length > 0 ? "text-danger" : "text-muted",
           },
           {
             label: "今天截止",
             value: todayDeadlines.length,
-            color: todayDeadlines.length > 0 ? "text-[#b06a28]" : "text-[#8a9590]",
+            color: todayDeadlines.length > 0 ? "text-warning" : "text-muted",
           },
           {
             label: "今日日程",
             value: todayEvents.length,
-            color: todayEvents.length > 0 ? "text-[#2b6055]" : "text-[#8a9590]",
+            color: todayEvents.length > 0 ? "text-accent" : "text-muted",
           },
           {
             label: "跟进",
             value: followups.length,
-            color: followups.length > 0 ? "text-[#805078]" : "text-[#8a9590]",
+            color: followups.length > 0 ? "text-info" : "text-muted",
           },
         ].map((c) => (
           <div key={c.label} className="bg-card-bg px-5 py-3 text-center">
@@ -83,14 +83,14 @@ function ReminderSummaryCard({
                 key={item.sourceKey}
                 type="button"
                 onClick={() => onItemClick?.(item)}
-                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-all duration-150 hover:bg-[rgba(43,96,85,0.03)]"
+                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-all duration-150 hover:bg-accent-soft/60"
               >
                 <span
                   className={cn(
                     "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                    isDeadline && "bg-[#a63d3d]",
-                    isEvent && "bg-[#2b6055]",
-                    !isDeadline && !isEvent && "bg-[#805078]"
+                    isDeadline && "bg-danger",
+                    isEvent && "bg-accent",
+                    !isDeadline && !isEvent && "bg-info"
                   )}
                 />
                 <div className="min-w-0 flex-1">
@@ -128,18 +128,18 @@ interface Props {
 
 export function DashboardStatsSection({ stats, reminderSummary, onReminderClick, onProjectClick }: Props) {
   const weekCards = [
-    { label: "本周新增", value: stats.week.created, color: "text-[#2b6055]" },
+    { label: "本周新增", value: stats.week.created, color: "text-accent" },
     {
       label: "本周完成",
       value: stats.week.completed,
-      color: "text-[#2e7a56]",
+      color: "text-success",
     },
-    { label: "进行中", value: stats.week.active, color: "text-[#9a6a2f]" },
+    { label: "进行中", value: stats.week.active, color: "text-warning" },
     {
       label: "已逾期",
       value: stats.week.overdue,
       color:
-        stats.week.overdue > 0 ? "text-[#a63d3d]" : "text-[#8a9590]",
+        stats.week.overdue > 0 ? "text-danger" : "text-muted",
     },
   ];
 
@@ -148,13 +148,13 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
       {(stats.pendingDispatchCount ?? 0) > 0 && (
         <Link
           href="/admin/project-intake"
-          className="card-hover flex items-center gap-3 rounded-[var(--radius-lg)] border border-[rgba(181,137,47,0.25)] bg-[rgba(181,137,47,0.04)] p-4 shadow-card transition-all duration-150"
+          className="card-hover flex items-center gap-3 rounded-[var(--radius-lg)] border border-warning/25 bg-warning-bg p-4 shadow-card transition-all duration-150"
         >
-          <div className="rounded-[var(--radius-md)] bg-[rgba(181,137,47,0.1)] p-2 text-[#b5892f]">
+          <div className="rounded-[var(--radius-md)] bg-warning-light p-2 text-warning">
             <PackageOpen size={20} />
           </div>
           <div>
-            <p className="text-xl font-bold tracking-[-0.01em] text-[#b5892f]">
+            <p className="text-xl font-bold tracking-[-0.01em] text-warning">
               {stats.pendingDispatchCount}
             </p>
             <p className="text-[13px] font-medium text-muted tracking-[-0.01em]">待分发项目</p>
@@ -218,7 +218,7 @@ function WeekProjectProgress({
               onClick={() => onProjectClick?.(p.id)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-[var(--radius-md)] px-2 py-1.5 text-left transition-all duration-150",
-                onProjectClick && "hover:bg-[rgba(43,96,85,0.03)]"
+                onProjectClick && "hover:bg-accent-soft/60"
               )}
             >
               <span
@@ -236,7 +236,7 @@ function WeekProjectProgress({
                 />
               </div>
               {prog.weekDelta > 0 && (
-                <span className="shrink-0 text-[11px] font-medium tracking-[-0.01em] text-[#2e7a56]">
+                <span className="shrink-0 text-[11px] font-medium tracking-[-0.01em] text-success">
                   +{prog.weekDelta}%
                 </span>
               )}

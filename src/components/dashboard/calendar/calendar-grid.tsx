@@ -145,7 +145,7 @@ function AllDayEventsRow({
   if (events.length === 0) return null;
 
   return (
-    <div className="border-b border-border bg-[rgba(43,96,85,0.015)] px-4 py-2.5">
+    <div className="border-b border-border bg-accent-soft/30 px-4 py-2.5">
       <div className="mb-1.5 flex items-center gap-1.5">
         <div className="h-1 w-1 rounded-full bg-accent/50" />
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted">
@@ -164,7 +164,7 @@ function AllDayEventsRow({
                 "group flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors",
                 selectedId === ev.id
                   ? "border-accent/40 bg-accent/10"
-                  : "border-accent/15 bg-[rgba(43,96,85,0.05)] hover:border-accent/30 hover:bg-[rgba(43,96,85,0.10)]"
+                  : "border-accent/15 bg-accent-soft hover:border-accent/30 hover:bg-accent-soft"
               )}
             >
               <span className="h-2 w-0.5 shrink-0 rounded-full bg-accent" />
@@ -173,7 +173,7 @@ function AllDayEventsRow({
                 {ev.title}
               </span>
               {ev.source === "google" && (
-                <span className="rounded bg-[rgba(166,61,61,0.06)] px-1 py-0.5 text-[9px] font-medium text-[#a63d3d]">
+                <span className="rounded bg-danger-bg px-1 py-0.5 text-[9px] font-medium text-danger">
                   G
                 </span>
               )}
@@ -240,7 +240,7 @@ function CurrentTimeLine({
       <div className="relative flex items-center">
         <div className="absolute -left-[5px] h-[10px] w-[10px] rounded-full border-2 border-accent bg-card-bg" />
         <div className="ml-[6px] h-[1.5px] w-full bg-accent/60" />
-        <span className="absolute -top-[7px] right-1 rounded bg-accent px-1 py-[1px] text-[9px] font-semibold tabular-nums text-white shadow-sm">
+        <span className="absolute -top-[7px] right-1 rounded bg-accent px-1 py-[1px] text-[9px] font-semibold tabular-nums text-[color:var(--on-accent)] shadow-sm">
           {timeStr}
         </span>
       </div>
@@ -282,7 +282,7 @@ export function TodayTimelineView({
         <Calendar size={14} className="text-accent" />
         <h2 className="text-sm font-semibold">日程</h2>
         <DateSwitcher date={date} onChange={onDateChange} />
-        <span className="ml-auto rounded-full bg-[rgba(43,96,85,0.06)] px-2 py-0.5 text-[11px] font-medium tabular-nums text-accent">
+        <span className="ml-auto rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium tabular-nums text-accent">
           {events.length} 项
         </span>
         <button
@@ -365,7 +365,7 @@ export function TodayTimelineView({
         </div>
       ) : allDayEvents.length === 0 ? (
         <div className="px-4 py-10 text-center">
-          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(43,96,85,0.05)]">
+          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft">
             <Calendar size={18} className="text-accent/40" />
           </div>
           <p className="text-sm text-muted">当天暂无日程安排</p>

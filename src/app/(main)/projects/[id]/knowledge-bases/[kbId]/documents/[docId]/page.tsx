@@ -249,7 +249,7 @@ export default function KnowledgeDocumentDetailPage() {
         >
           <ArrowLeft size={14} /> 返回
         </button>
-        <p className="text-[#a63d3d]">{error || "未找到文档"}</p>
+        <p className="text-danger">{error || "未找到文档"}</p>
       </div>
     );
   }
@@ -466,7 +466,7 @@ export default function KnowledgeDocumentDetailPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-[#a63d3d]">加载失败</p>
+                <p className="text-sm text-danger">加载失败</p>
               )}
             </div>
           </div>

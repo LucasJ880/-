@@ -170,7 +170,7 @@ function SalesPageInner() {
             {isSuperAdmin && (
               <Link
                 href="/sales/analytics"
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150"
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-accent-soft hover:border-border-strong transition-all duration-150"
                 title="销售 × 时段复盘交叉表"
               >
                 <BarChart3 className="h-3.5 w-3.5" />
@@ -181,7 +181,7 @@ function SalesPageInner() {
               onClick={() => setShowImport(true)}
               disabled={orgCreateBlocked}
               title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-white hover:border-border-strong transition-all duration-150 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xs hover:bg-accent-soft hover:border-border-strong transition-all duration-150 disabled:opacity-40"
             >
               <Upload className="h-3.5 w-3.5" />
               CSV 导入
@@ -213,7 +213,7 @@ function SalesPageInner() {
             className={cn(
               "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
               viewMode === "pipeline"
-                ? "bg-white text-foreground shadow-xs"
+                ? "bg-card-bg text-foreground shadow-xs"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setViewMode("pipeline")}
@@ -224,7 +224,7 @@ function SalesPageInner() {
             className={cn(
               "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
               viewMode === "customers"
-                ? "bg-white text-foreground shadow-xs"
+                ? "bg-card-bg text-foreground shadow-xs"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setViewMode("customers")}
@@ -241,7 +241,7 @@ function SalesPageInner() {
               placeholder="搜索客户…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="rounded-[var(--radius-md)] border border-border bg-white/80 py-1.5 pl-9 pr-3 text-[13px] placeholder:text-text-quaternary focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/30 transition-all duration-150"
+              className="rounded-[var(--radius-md)] border border-border bg-card-bg/80 py-1.5 pl-9 pr-3 text-[13px] placeholder:text-text-quaternary focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/30 transition-all duration-150"
             />
           </div>
         )}
@@ -271,14 +271,14 @@ function SalesPageInner() {
               {drillChips.map((c) => (
                 <span
                   key={c.key}
-                  className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs border border-border"
+                  className="inline-flex items-center gap-1 rounded-full bg-card-bg px-2 py-0.5 text-xs border border-border"
                 >
                   {c.label}
                 </span>
               ))}
               <button
                 onClick={clearDrillFilters}
-                className="ml-auto inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-border bg-white px-2 py-0.5 text-xs text-muted hover:text-foreground"
+                className="ml-auto inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-border bg-card-bg px-2 py-0.5 text-xs text-muted hover:text-foreground"
               >
                 <X className="h-3 w-3" />
                 清除筛选

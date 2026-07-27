@@ -67,7 +67,7 @@ export function SalesRepSettingsCard() {
 
   if (!loaded) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-white/60 p-4 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card-bg/60 p-4 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         加载销售个人设置中...
       </div>
@@ -81,7 +81,7 @@ export function SalesRepSettingsCard() {
           "rounded-xl border p-4 md:p-5 transition-colors",
           !current && editing
             ? "border-amber-300 bg-amber-50/60"
-            : "border-border bg-white/60",
+            : "border-border bg-card-bg/60",
         )}
       >
         <div className="flex items-start justify-between gap-4">
@@ -123,7 +123,7 @@ export function SalesRepSettingsCard() {
                 }
                 placeholder="如 LJ"
                 autoFocus
-                className="mt-1 block w-32 rounded-lg border border-border bg-white px-3 py-2 font-mono text-base tracking-widest uppercase focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="mt-1 block w-32 rounded-lg border border-border bg-card-bg px-3 py-2 font-mono text-base tracking-widest uppercase focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             ) : (
               <div className="mt-1 w-32 rounded-lg border border-border bg-muted/20 px-3 py-2 font-mono text-base tracking-widest">
@@ -149,7 +149,7 @@ export function SalesRepSettingsCard() {
                       setDraft(current);
                       setEditing(false);
                     }}
-                    className="rounded-lg border border-border bg-white px-4 py-2 text-sm text-muted-foreground hover:bg-muted/20"
+                    className="rounded-lg border border-border bg-card-bg px-4 py-2 text-sm text-muted-foreground hover:bg-muted/20"
                   >
                     取消
                   </button>
@@ -159,7 +159,7 @@ export function SalesRepSettingsCard() {
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="rounded-lg border border-border bg-white px-4 py-2 text-sm text-muted-foreground hover:bg-muted/20"
+                className="rounded-lg border border-border bg-card-bg px-4 py-2 text-sm text-muted-foreground hover:bg-muted/20"
               >
                 编辑
               </button>
@@ -178,7 +178,7 @@ export function SalesRepSettingsCard() {
           onClick={() => !saving && setConfirmOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+            className="w-full max-w-md rounded-xl bg-card-bg p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h4 className="text-base font-semibold">确认 Sales Rep 代号</h4>
@@ -193,7 +193,7 @@ export function SalesRepSettingsCard() {
               <button
                 onClick={() => setConfirmOpen(false)}
                 disabled={saving}
-                className="rounded-lg border border-border bg-white px-4 py-2 text-sm text-muted-foreground hover:bg-muted/20 disabled:opacity-50"
+                className="rounded-lg border border-border bg-card-bg px-4 py-2 text-sm text-muted-foreground hover:bg-muted/20 disabled:opacity-50"
               >
                 取消
               </button>

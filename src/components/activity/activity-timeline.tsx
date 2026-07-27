@@ -39,22 +39,22 @@ const TARGET_ICONS: Record<string, LucideIcon> = {
 
 const ACTION_COLORS: Record<string, string> = {
   create: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
-  update: "bg-[rgba(43,96,85,0.10)] text-[#2b6055]",
-  delete: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
+  update: "bg-[rgba(43,96,85,0.10)] text-accent",
+  delete: "bg-[rgba(166,61,61,0.10)] text-danger",
   status_change: "bg-[rgba(154,106,47,0.10)] text-[#9a6a2f]",
   role_change: "bg-[rgba(45,106,122,0.10)] text-[#2d6a7a]",
   invite: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
-  remove: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
+  remove: "bg-[rgba(166,61,61,0.10)] text-danger",
   ai_generate: "bg-[rgba(99,89,196,0.10)] text-[#6359c4]",
-  ai_send: "bg-[rgba(43,96,85,0.12)] text-[#2b6055]",
+  ai_send: "bg-[rgba(43,96,85,0.12)] text-accent",
   ai_analyze: "bg-[rgba(99,89,196,0.10)] text-[#6359c4]",
   stage_advanced: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
-  email_sent: "bg-[rgba(43,96,85,0.12)] text-[#2b6055]",
+  email_sent: "bg-[rgba(43,96,85,0.12)] text-accent",
   task_created: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
   event_created: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
   stage_changed: "bg-[rgba(154,106,47,0.10)] text-[#9a6a2f]",
   member_joined: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
-  member_removed: "bg-[rgba(166,61,61,0.10)] text-[#a63d3d]",
+  member_removed: "bg-[rgba(166,61,61,0.10)] text-danger",
 };
 
 import {

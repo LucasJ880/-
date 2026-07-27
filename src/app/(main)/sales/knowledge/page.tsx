@@ -70,7 +70,7 @@ export default function KnowledgePage() {
           <div className="flex items-center gap-2">
             <Link
               href="/sales"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-white transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent-soft transition-colors"
             >
               返回商机中心
             </Link>
@@ -90,12 +90,12 @@ export default function KnowledgePage() {
 
       {/* Tabs */}
       <div className="flex items-center justify-between gap-4">
-        <div className="inline-flex rounded-lg border border-border bg-white/60 p-0.5">
+        <div className="inline-flex rounded-lg border border-border bg-card-bg/60 p-0.5">
           <button
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               tab === "rag"
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card-bg text-foreground shadow-sm"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setTab("rag")}
@@ -107,7 +107,7 @@ export default function KnowledgePage() {
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               tab === "playbooks"
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card-bg text-foreground shadow-sm"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setTab("playbooks")}
@@ -119,7 +119,7 @@ export default function KnowledgePage() {
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               tab === "faqs"
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card-bg text-foreground shadow-sm"
                 : "text-muted hover:text-foreground"
             )}
             onClick={() => setTab("faqs")}
@@ -159,7 +159,7 @@ export default function KnowledgePage() {
               placeholder="搜索…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="rounded-lg border border-border bg-white/80 py-1.5 pl-9 pr-3 text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/20"
+              className="rounded-lg border border-border bg-card-bg/80 py-1.5 pl-9 pr-3 text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground/20"
             />
           </div>
         </div>

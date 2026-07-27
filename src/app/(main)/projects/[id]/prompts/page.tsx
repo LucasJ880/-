@@ -345,7 +345,7 @@ export default function ProjectPromptsListPage() {
         )}
       </div>
 
-      {listError && <p className="text-sm text-[#a63d3d]">{listError}</p>}
+      {listError && <p className="text-sm text-danger">{listError}</p>}
 
       {/* 新建表单 */}
       {showNew && canManage && (

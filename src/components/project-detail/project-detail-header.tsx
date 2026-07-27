@@ -80,8 +80,8 @@ export function ProjectDetailHeader({
                 project.status === "active"
                   ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
                   : project.status === "abandoned"
-                    ? "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]"
-                    : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+                    ? "bg-danger-bg text-danger"
+                    : "bg-[rgba(110,125,118,0.08)] text-muted"
               )}
             >
               {project.status === "active" ? "进行中" : project.status === "abandoned" ? "已放弃" : project.status}
@@ -191,7 +191,7 @@ export function ProjectDetailHeader({
                 project.intelligence.recommendation === "pursue"
                   ? "bg-[rgba(46,122,86,0.1)] text-[#2e7a56]"
                   : project.intelligence.recommendation === "skip"
-                    ? "bg-[rgba(166,61,61,0.1)] text-[#a63d3d]"
+                    ? "bg-danger-bg text-danger"
                     : "bg-[rgba(154,106,47,0.1)] text-[#9a6a2f]"
               )}>
                 {({"pursue":"建议跟进","review_carefully":"需仔细评估","low_probability":"低概率","skip":"建议跳过"} as Record<string,string>)[project.intelligence.recommendation] || project.intelligence.recommendation}
@@ -203,7 +203,7 @@ export function ProjectDetailHeader({
                   project.intelligence.reportStatus === "delivered" ? "bg-violet-50 text-violet-700" :
                   project.intelligence.reportStatus === "needs_revision" ? "bg-red-50 text-red-700" :
                   project.intelligence.reportStatus === "in_review" ? "bg-amber-50 text-amber-700" :
-                  "bg-gray-100 text-gray-600"
+                  "bg-muted/20 text-muted"
                 )}>
                   {({"in_review":"审核中","approved":"已通过","needs_revision":"需修改","delivered":"已交付","draft":"草稿"} as Record<string,string>)[project.intelligence.reportStatus] || project.intelligence.reportStatus}
                 </span>

@@ -89,7 +89,7 @@ function ToggleRow({
       >
         <span
           className={cn(
-            "absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform",
+            "absolute top-0.5 h-6 w-6 rounded-full bg-card-bg shadow transition-transform",
             checked ? "left-4" : "left-0.5"
           )}
         />
@@ -280,7 +280,7 @@ export default function NotificationSettingsPage() {
         </button>
         <Link
           href="/notifications"
-          className="inline-flex items-center rounded-lg border border-border px-5 py-2.5 text-sm text-muted transition-colors hover:bg-[rgba(43,96,85,0.04)]"
+          className="inline-flex items-center rounded-lg border border-border px-5 py-2.5 text-sm text-muted transition-colors hover:bg-accent-soft"
         >
           前往通知中心
         </Link>

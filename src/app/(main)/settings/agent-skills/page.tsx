@@ -268,7 +268,7 @@ export default function AgentSkillsSettingsPage() {
         <button
           type="button"
           onClick={() => void load()}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-[rgba(43,96,85,0.04)]"
+          className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent-soft"
         >
           <RefreshCw size={12} /> 刷新
         </button>

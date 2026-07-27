@@ -764,7 +764,7 @@ function AssistantPageInner() {
   };
 
   return (
-    <div className="flex h-full bg-[#f5f6f6] tracking-normal text-[#171a19]">
+    <div className="flex h-full bg-background tracking-normal text-foreground">
       <ThreadSidebar
         threads={threads}
         activeId={activeThreadId}
@@ -779,9 +779,9 @@ function AssistantPageInner() {
         onCloseMobile={() => setShowMobileSidebar(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col bg-white/70">
+      <div className="flex min-w-0 flex-1 flex-col bg-card-bg/70">
         {ambiguous && (
-          <div className="border-b border-black/[0.06] bg-white/90 px-3 py-2 backdrop-blur-xl sm:px-5">
+          <div className="border-b border-border bg-card-bg/90 px-3 py-2 backdrop-blur-xl sm:px-5">
             <OrgSelectBanner
               variant="assistant"
               onSelected={() => inputRef.current?.focus()}
@@ -789,7 +789,7 @@ function AssistantPageInner() {
           </div>
         )}
         {!orgLoading && !ambiguous && !orgId && (
-          <div className="border-b border-[#b54747]/15 bg-[#fff7f7] px-4 py-2.5 text-xs text-[#9e3e3e]">
+          <div className="border-b border-danger/15 bg-danger-bg px-4 py-2.5 text-xs text-danger">
             当前账号尚未关联可用组织，请联系管理员添加组织成员关系。
           </div>
         )}

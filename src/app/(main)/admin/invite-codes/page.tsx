@@ -176,7 +176,7 @@ export default function InviteCodesPage() {
         actions={
           <button
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover transition-colors"
           >
             <Plus size={16} />
             创建邀请码
@@ -278,7 +278,7 @@ export default function InviteCodesPage() {
             <button
               onClick={handleCreate}
               disabled={creating}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover transition-colors disabled:opacity-50"
             >
               {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               创建
@@ -315,10 +315,10 @@ export default function InviteCodesPage() {
               </tr>
             )}
             {codes.map((c) => (
-              <tr key={c.id} className="border-b border-border/20 last:border-0 hover:bg-white/[0.02] transition-colors">
+              <tr key={c.id} className="border-b border-border/20 last:border-0 hover:bg-accent-soft transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <code className="rounded bg-white/5 px-2 py-0.5 font-mono text-xs text-foreground">
+                    <code className="rounded bg-card-bg/5 px-2 py-0.5 font-mono text-xs text-foreground">
                       {c.code}
                     </code>
                     <button
@@ -375,7 +375,7 @@ export default function InviteCodesPage() {
                   <div className="flex items-center justify-end gap-1">
                     <button
                       onClick={() => handleToggle(c.id, c.isActive)}
-                      className="rounded-md p-1.5 text-muted hover:bg-white/5 hover:text-foreground transition-colors"
+                      className="rounded-md p-1.5 text-muted hover:bg-accent-soft hover:text-foreground transition-colors"
                       title={c.isActive ? "停用" : "启用"}
                     >
                       {c.isActive ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}

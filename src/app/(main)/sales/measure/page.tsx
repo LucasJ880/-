@@ -229,7 +229,7 @@ export default function MeasurePage() {
       />
 
       {/* Customer + install mode */}
-      <div className="rounded-xl border border-border bg-white/60 p-4 sm:p-5">
+      <div className="rounded-xl border border-border bg-card-bg/60 p-4 sm:p-5">
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-1.5">
             <Label>客户 *</Label>
@@ -237,7 +237,7 @@ export default function MeasurePage() {
               <select
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm appearance-none"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm appearance-none"
               >
                 <option value="">选择客户</option>
                 {customers.map((c) => (
@@ -272,7 +272,7 @@ export default function MeasurePage() {
             <input
               value={overallNotes}
               onChange={(e) => setOverallNotes(e.target.value)}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               placeholder="整体备注..."
             />
           </div>
@@ -289,7 +289,7 @@ export default function MeasurePage() {
           const canCordless = w.product === "Zebra" || w.product === "Roller";
 
           return (
-            <div key={w.id} className="rounded-xl border border-border bg-white/60 overflow-hidden">
+            <div key={w.id} className="rounded-xl border border-border bg-card-bg/60 overflow-hidden">
               {/* Header row */}
               <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-b border-border/50">
                 <span className="text-sm font-semibold text-foreground">
@@ -333,7 +333,7 @@ export default function MeasurePage() {
                       <select
                         value={w.roomName}
                         onChange={(e) => updateWindow(w.id, "roomName", e.target.value)}
-                        className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm appearance-none"
+                        className="w-full rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm appearance-none"
                       >
                         <option value="">选择房间</option>
                         {ROOM_PRESETS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -347,7 +347,7 @@ export default function MeasurePage() {
                     <input
                       value={w.windowLabel}
                       onChange={(e) => updateWindow(w.id, "windowLabel", e.target.value)}
-                      className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+                      className="w-full rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm"
                       placeholder="W1 / Bay L"
                     />
                   </div>
@@ -359,14 +359,14 @@ export default function MeasurePage() {
                         type="number"
                         value={w.widthWhole}
                         onChange={(e) => updateWindow(w.id, "widthWhole", e.target.value)}
-                        className="w-16 rounded-lg border border-border bg-white px-2 py-1.5 text-sm text-center"
+                        className="w-16 rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm text-center"
                         placeholder="48"
                         min="0"
                       />
                       <select
                         value={w.widthFrac}
                         onChange={(e) => updateWindow(w.id, "widthFrac", e.target.value)}
-                        className="flex-1 rounded-lg border border-border bg-white px-1 py-1.5 text-xs"
+                        className="flex-1 rounded-lg border border-border bg-card-bg px-1 py-1.5 text-xs"
                       >
                         {FRACTION_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                       </select>
@@ -380,14 +380,14 @@ export default function MeasurePage() {
                         type="number"
                         value={w.heightWhole}
                         onChange={(e) => updateWindow(w.id, "heightWhole", e.target.value)}
-                        className="w-16 rounded-lg border border-border bg-white px-2 py-1.5 text-sm text-center"
+                        className="w-16 rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm text-center"
                         placeholder="72"
                         min="0"
                       />
                       <select
                         value={w.heightFrac}
                         onChange={(e) => updateWindow(w.id, "heightFrac", e.target.value)}
-                        className="flex-1 rounded-lg border border-border bg-white px-1 py-1.5 text-xs"
+                        className="flex-1 rounded-lg border border-border bg-card-bg px-1 py-1.5 text-xs"
                       >
                         {FRACTION_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                       </select>
@@ -403,7 +403,7 @@ export default function MeasurePage() {
                       <select
                         value={w.product}
                         onChange={(e) => updateWindow(w.id, "product", e.target.value)}
-                        className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm appearance-none"
+                        className="w-full rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm appearance-none"
                       >
                         {ALL_PRODUCTS.map((p) => <option key={p} value={p}>{p}</option>)}
                       </select>
@@ -416,7 +416,7 @@ export default function MeasurePage() {
                       <select
                         value={w.fabric}
                         onChange={(e) => updateWindow(w.id, "fabric", e.target.value)}
-                        className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm appearance-none"
+                        className="w-full rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm appearance-none"
                       >
                         {fabrics.map((f) => <option key={f} value={f}>{f}</option>)}
                       </select>
@@ -429,7 +429,7 @@ export default function MeasurePage() {
                       <select
                         value={w.measureType}
                         onChange={(e) => updateWindow(w.id, "measureType", e.target.value)}
-                        className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm appearance-none"
+                        className="w-full rounded-lg border border-border bg-card-bg px-2 py-1.5 text-sm appearance-none"
                       >
                         <option value="IN">Inside (IN)</option>
                         <option value="OUT">Outside (OUT)</option>
@@ -486,7 +486,7 @@ export default function MeasurePage() {
       </button>
 
       {/* Sketch area (Apple Pencil) */}
-      <div className="rounded-xl border border-border bg-white/60 p-4">
+      <div className="rounded-xl border border-border bg-card-bg/60 p-4">
         <button
           onClick={() => setShowSketch((v) => !v)}
           className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -564,7 +564,7 @@ export default function MeasurePage() {
 
       {/* Action bar */}
       <div className="sticky bottom-[calc(1rem+var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] z-[var(--ui-z-sticky)] md:bottom-4">
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-white/95 p-4 shadow-lg backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card-bg/95 p-4 shadow-lg backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-muted-foreground">
             {!orgLoading && ambiguous && (
               <span className="block text-amber-700 mb-1">{salesOrgCreateBlockedHint(false, true, null)}</span>

@@ -562,7 +562,7 @@ export function Header() {
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
 
   return (
-    <header className="relative z-50 flex h-13 items-center justify-between border-b border-[rgba(26,36,32,0.05)] bg-[rgba(250,248,244,0.6)] px-4 md:px-6 backdrop-blur-xl supports-[backdrop-filter]:bg-[rgba(250,248,244,0.5)]">
+    <header className="relative z-50 flex h-13 items-center justify-between border-b border-[color:var(--header-border)] bg-[color:var(--header-bg)] px-4 backdrop-blur-xl md:px-6 supports-[backdrop-filter]:bg-[color:var(--header-bg-supported)]">
       <div className="flex items-center gap-3 md:gap-4">
         {/* Mobile hamburger */}
         <button
@@ -655,7 +655,7 @@ export function Header() {
             onClick={() => setUserMenuOpen(!userMenuOpen)}
             className="ml-1 flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 transition-all duration-150 hover:bg-foreground/[0.04]"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[12px] font-medium text-white">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[12px] font-medium text-[color:var(--on-accent)]">
               {currentUser?.name?.[0]?.toUpperCase() || <User size={14} />}
             </div>
             <span className="hidden md:inline text-[13px] font-medium text-foreground">

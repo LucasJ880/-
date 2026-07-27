@@ -43,15 +43,15 @@ function kindIcon(kind: AgentStepKind, status: AgentStep["status"]) {
 
 function statusTone(status: AgentStep["status"]) {
   if (status === "running") {
-    return "border-[#2b6055]/25 bg-[#2b6055] text-white shadow-[0_0_0_3px_rgba(43,96,85,0.14)]";
+    return "border-accent/25 bg-accent text-[color:var(--on-accent)] shadow-[0_0_0_3px_rgba(43,96,85,0.14)]";
   }
   if (status === "error") {
-    return "border-[rgba(166,61,61,0.35)] bg-[#fff7f7] text-[#a63d3d]";
+    return "border-[rgba(166,61,61,0.35)] bg-danger-bg text-danger";
   }
   if (status === "done") {
-    return "border-[#2b6055]/20 bg-[#edf3f1] text-[#2b6055]";
+    return "border-accent/20 bg-accent-soft text-accent";
   }
-  return "border-black/10 bg-white text-[#7c8480]";
+  return "border-border bg-card-bg text-[#7c8480]";
 }
 
 export function AgentRunPanel({
@@ -89,7 +89,7 @@ export function AgentRunPanel({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-[#2b6055]/12 bg-gradient-to-b from-[#f4f8f6] to-white shadow-[0_8px_24px_rgba(23,40,36,0.06)]",
+        "overflow-hidden rounded-xl border border-accent/12 bg-gradient-to-b from-[#f4f8f6] to-white shadow-[0_8px_24px_rgba(23,40,36,0.06)]",
         className
       )}
     >
@@ -102,14 +102,14 @@ export function AgentRunPanel({
           className={cn(
             "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
             isStreaming
-              ? "bg-[#2b6055] text-white"
-              : "bg-[#edf3f1] text-[#2b6055]"
+              ? "bg-accent text-[color:var(--on-accent)]"
+              : "bg-accent-soft text-accent"
           )}
         >
           {isStreaming ? (
             <>
               <Sparkles size={13} className="relative z-10" />
-              <span className="absolute inset-0 animate-ping rounded-lg bg-[#2b6055]/30" />
+              <span className="absolute inset-0 animate-ping rounded-lg bg-accent/30" />
             </>
           ) : (
             <Check size={14} strokeWidth={2.5} />
@@ -119,7 +119,7 @@ export function AgentRunPanel({
           <p className="truncate text-[12px] font-semibold text-[#1d2a27]">
             {isStreaming ? "青砚主助手" : "本轮执行"}
           </p>
-          <p className="truncate text-[11px] text-[#68706c]">{summary}</p>
+          <p className="truncate text-[11px] text-muted">{summary}</p>
         </div>
         <div className="flex items-center gap-1">
           {steps.slice(0, 6).map((s) => (
@@ -127,9 +127,9 @@ export function AgentRunPanel({
               key={s.id}
               className={cn(
                 "h-1.5 w-1.5 rounded-full transition-all",
-                s.status === "running" && "scale-125 animate-pulse bg-[#2b6055]",
-                s.status === "done" && "bg-[#2b6055]/55",
-                s.status === "error" && "bg-[#a63d3d]",
+                s.status === "running" && "scale-125 animate-pulse bg-accent",
+                s.status === "done" && "bg-accent/55",
+                s.status === "error" && "bg-danger",
                 s.status === "pending" && "bg-black/15"
               )}
             />
@@ -151,7 +151,7 @@ export function AgentRunPanel({
         )}
       >
         <div className="overflow-hidden">
-          <ol className="space-y-0 border-t border-[#2b6055]/08 px-2.5 py-2">
+          <ol className="space-y-0 border-t border-accent/08 px-2.5 py-2">
             {steps.map((step, index) => {
               const isLast = index === steps.length - 1;
               return (
@@ -165,7 +165,7 @@ export function AgentRunPanel({
                       className={cn(
                         "absolute left-[15px] top-7 h-[calc(100%-8px)] w-px",
                         step.status === "done"
-                          ? "bg-[#2b6055]/25"
+                          ? "bg-accent/25"
                           : "bg-black/[0.06]"
                       )}
                     />
@@ -182,10 +182,10 @@ export function AgentRunPanel({
                     <p
                       className={cn(
                         "text-[12px] font-medium leading-snug",
-                        step.status === "running" && "text-[#2b6055]",
-                        step.status === "error" && "text-[#a63d3d]",
+                        step.status === "running" && "text-accent",
+                        step.status === "error" && "text-danger",
                         (step.status === "done" || step.status === "pending") &&
-                          "text-[#252927]"
+                          "text-foreground"
                       )}
                     >
                       {step.label}
@@ -203,7 +203,7 @@ export function AgentRunPanel({
                       </p>
                     )}
                     {step.kind === "dispatch" && step.status === "done" && (
-                      <p className="mt-0.5 text-[10px] text-[#68706c]/90">
+                      <p className="mt-0.5 text-[10px] text-muted/90">
                         已把任务分给对应能力处理
                       </p>
                     )}

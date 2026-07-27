@@ -154,7 +154,7 @@ export function AddInteractionDialog({
           <div className="space-y-1.5">
             <Label>详细内容</Label>
             <textarea
-              className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 h-24 resize-none"
+              className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30 h-24 resize-none"
               placeholder="可选：详细内容…"
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}

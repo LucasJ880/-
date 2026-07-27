@@ -69,9 +69,9 @@ function formatDue(dueDate: string | null, taskStatus: string): { text: string; 
     const t = toToronto(new Date(dueDate));
     return { text: `${t.getMonth() + 1}/${t.getDate()}`, cls: "text-muted" };
   }
-  if (diff < 0) return { text: `逾期${Math.abs(diff)}天`, cls: "text-[#a63d3d] font-medium" };
-  if (diff === 0) return { text: "今天", cls: "text-[#b06a28] font-medium" };
-  if (diff === 1) return { text: "明天", cls: "text-[#9a6a2f]" };
+  if (diff < 0) return { text: `逾期${Math.abs(diff)}天`, cls: "text-danger font-medium" };
+  if (diff === 0) return { text: "今天", cls: "text-warning font-medium" };
+  if (diff === 1) return { text: "明天", cls: "text-warning" };
   const t = toToronto(new Date(dueDate));
   const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][t.getDay()];
   if (diff <= 6) return { text: weekday, cls: "text-muted" };
@@ -87,10 +87,10 @@ function TaskCheckButton({ task, onToggle }: { task: Task; onToggle: (id: string
     onToggle(task.id, task.status === "done" ? "todo" : "done");
     setTimeout(() => setAnimating(false), 400);
   };
-  if (task.status === "done") return <button onClick={handleClick} className="shrink-0 text-[#2e7a56] hover:scale-110 transition-transform"><CheckCircle2 size={18} /></button>;
-  if (task.status === "in_progress") return <button onClick={handleClick} className="shrink-0 text-[#2b6055] hover:scale-110 transition-transform"><Clock size={18} /></button>;
-  if (task.status === "cancelled") return <button onClick={handleClick} className="shrink-0 text-[#a63d3d] hover:scale-110 transition-transform"><XCircle size={18} /></button>;
-  return <button onClick={handleClick} className={cn("shrink-0 text-border transition-all hover:text-[#2e7a56] hover:scale-110", animating && "scale-125 text-[#2e7a56]")}><Circle size={18} /></button>;
+  if (task.status === "done") return <button onClick={handleClick} className="shrink-0 text-success hover:scale-110 transition-transform"><CheckCircle2 size={18} /></button>;
+  if (task.status === "in_progress") return <button onClick={handleClick} className="shrink-0 text-accent hover:scale-110 transition-transform"><Clock size={18} /></button>;
+  if (task.status === "cancelled") return <button onClick={handleClick} className="shrink-0 text-danger hover:scale-110 transition-transform"><XCircle size={18} /></button>;
+  return <button onClick={handleClick} className={cn("shrink-0 text-border transition-all hover:text-success hover:scale-110", animating && "scale-125 text-success")}><Circle size={18} /></button>;
 }
 
 /* ── AI next hint ── */
@@ -160,7 +160,7 @@ function TaskRow({
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-lg border border-border bg-card-bg py-1 shadow-lg">
                 <button onClick={() => { setMenuOpen(false); onEdit(task); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-background"><Pencil size={12} /> 编辑</button>
-                <button onClick={() => { setMenuOpen(false); onDelete(task.id); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[#a63d3d] hover:bg-[rgba(166,61,61,0.04)]"><Trash2 size={12} /> 删除</button>
+                <button onClick={() => { setMenuOpen(false); onDelete(task.id); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-danger hover:bg-danger-bg"><Trash2 size={12} /> 删除</button>
               </div>
             </>
           )}
@@ -198,8 +198,8 @@ export function TaskTimeView({
           <div key={group.key} className="rounded-xl border border-border bg-card-bg overflow-hidden">
             <button onClick={() => onToggleGroup(group.key)} className={cn("flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-background", group.isOverdue && "border-l-2 border-l-[#a63d3d]")}>
               {collapsed ? <ChevronRight size={14} className="text-muted" /> : <ChevronDown size={14} className="text-muted" />}
-              <span className={cn("text-sm font-semibold", group.isOverdue ? "text-[#a63d3d]" : "text-foreground")}>{group.label}</span>
-              {group.isOverdue && <AlertTriangle size={13} className="text-[#a63d3d]" />}
+              <span className={cn("text-sm font-semibold", group.isOverdue ? "text-danger" : "text-foreground")}>{group.label}</span>
+              {group.isOverdue && <AlertTriangle size={13} className="text-danger" />}
               <span className="ml-auto text-xs text-muted">{group.tasks.length} 项</span>
             </button>
             {!collapsed && (

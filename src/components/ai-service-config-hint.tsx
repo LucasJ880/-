@@ -35,7 +35,7 @@ export function AiServiceConfigHint({ variant = "full" }: { variant?: Variant })
 
   return (
     <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center gap-4 px-4 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-xl)] bg-gradient-to-br from-[#2d6a7a] to-[#2b6055] text-white shadow-card">
+      <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-xl)] bg-gradient-to-br from-[#2d6a7a] to-accent text-white shadow-card">
         <Bot size={32} />
       </div>
       <h2 className="text-xl font-bold tracking-tight text-foreground">配置 AI 服务</h2>

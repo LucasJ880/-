@@ -186,7 +186,7 @@ export default function InventoryPage() {
           { label: "偏低", value: lowCount, color: "text-amber-600" },
           { label: "缺货", value: outCount, color: "text-red-600" },
         ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-white/60 p-4">
+          <div key={s.label} className="rounded-xl border border-border bg-card-bg/60 p-4">
             <p className="text-xs text-muted-foreground">{s.label}</p>
             <p className={cn("mt-1 text-2xl font-bold", s.color)}>{s.value}</p>
           </div>
@@ -200,7 +200,7 @@ export default function InventoryPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="搜索 SKU、面料、产品..."
-          className="w-full rounded-lg border border-border bg-white/80 py-2 pl-9 pr-3 text-sm outline-none focus:border-primary/30 focus:ring-1 focus:ring-primary/20"
+          className="w-full rounded-lg border border-border bg-card-bg/80 py-2 pl-9 pr-3 text-sm outline-none focus:border-primary/30 focus:ring-1 focus:ring-primary/20"
         />
       </div>
 
@@ -208,7 +208,7 @@ export default function InventoryPage() {
       {loading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">加载中...</div>
       ) : (
-        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-white/60">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card-bg/60">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
@@ -271,7 +271,7 @@ export default function InventoryPage() {
       {/* Add dialog */}
       {showAdd && (
         <div className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-md rounded-2xl bg-card-bg shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">新增面料</h3>
               <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-muted rounded-md"><X size={18} /></button>
@@ -300,7 +300,7 @@ export default function InventoryPage() {
       {/* Edit dialog */}
       {editFabric && (
         <div className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-md rounded-2xl bg-card-bg shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">编辑面料 — {editFabric.sku}</h3>
               <button onClick={() => setEditFabric(null)} className="p-1 hover:bg-muted rounded-md"><X size={18} /></button>
@@ -329,7 +329,7 @@ export default function InventoryPage() {
       {/* Adjust dialog */}
       {adjustFabric && (
         <div className="fixed inset-0 z-[var(--ui-z-dialog-overlay)] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-sm rounded-2xl bg-card-bg shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">库存调整 — {adjustFabric.sku}</h3>
               <button onClick={() => setAdjustFabric(null)} className="p-1 hover:bg-muted rounded-md"><X size={18} /></button>

@@ -30,7 +30,7 @@ export function OrgSelectBanner({
       className={cn(
         "rounded-lg border px-3 py-2.5",
         assistant
-          ? "border-black/[0.07] bg-[#f6f7f7]"
+          ? "border-border bg-card-bg"
           : "border-amber-300 bg-amber-50",
       )}
     >
@@ -38,13 +38,13 @@ export function OrgSelectBanner({
         <div
           className={cn(
             "flex shrink-0 items-center gap-2 text-xs font-medium",
-            assistant ? "text-[#323735]" : "text-amber-900",
+            assistant ? "text-foreground" : "text-amber-900",
           )}
         >
           <span
             className={cn(
               "flex h-6 w-6 items-center justify-center rounded-md",
-              assistant ? "bg-white text-[#2b6055] shadow-xs" : "",
+              assistant ? "bg-card-bg text-accent shadow-xs" : "",
             )}
           >
             <Building2 size={13} />
@@ -62,9 +62,9 @@ export function OrgSelectBanner({
                 else window.location.reload();
               }}
               className={cn(
-                "min-h-8 rounded-md border bg-white px-3 py-1 text-xs font-medium transition-colors",
+                "min-h-8 rounded-md border bg-card-bg px-3 py-1 text-xs font-medium transition-colors",
                 assistant
-                  ? "border-black/10 text-[#252927] hover:border-[#2b6055]/30 hover:bg-[#edf3f1] hover:text-[#2b6055]"
+                  ? "border-border text-foreground hover:border-accent/30 hover:bg-accent-soft hover:text-accent"
                   : "border-amber-400/60 text-amber-900 hover:bg-amber-100",
               )}
             >

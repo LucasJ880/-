@@ -270,7 +270,7 @@ export default function MarketIntelligencePage() {
             onChange={(e) => updateField("objective", e.target.value)}
             rows={3}
             placeholder="例如：是否应先在 North York 用智能斑马帘验证线上获客？"
-            className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2.5 text-base text-foreground outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+            className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-2.5 text-base text-foreground outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
           />
         </label>
 
@@ -281,7 +281,7 @@ export default function MarketIntelligencePage() {
               value={form.targetGeography}
               onChange={(e) => updateField("targetGeography", e.target.value)}
               placeholder="Canada · North York"
-              className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+              className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
             />
           </label>
           <label className="block space-y-1.5">
@@ -290,7 +290,7 @@ export default function MarketIntelligencePage() {
               value={form.primaryProduct}
               onChange={(e) => updateField("primaryProduct", e.target.value)}
               placeholder="Motorized Zebra Shades"
-              className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+              className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
             />
           </label>
         </div>
@@ -300,7 +300,7 @@ export default function MarketIntelligencePage() {
           <select
             value={form.salesModel}
             onChange={(e) => updateField("salesModel", e.target.value)}
-            className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+            className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
           >
             <option>询价报价 + 预约量房</option>
             <option>线上直接下单</option>
@@ -316,7 +316,7 @@ export default function MarketIntelligencePage() {
             onChange={(e) => updateField("competitors", e.target.value)}
             rows={3}
             placeholder="每行一个：品牌、网址、对标原因"
-            className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2.5 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+            className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-2.5 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
           />
         </label>
 
@@ -327,7 +327,7 @@ export default function MarketIntelligencePage() {
             onChange={(e) => updateField("marketEvidence", e.target.value)}
             rows={3}
             placeholder="Google Ads、Instagram、Facebook、落地页或内容样本"
-            className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2.5 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
+            className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-2.5 text-base outline-none placeholder:text-text-quaternary focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm"
           />
         </label>
 
@@ -343,7 +343,7 @@ export default function MarketIntelligencePage() {
               rows={3}
               placeholder="询盘、报价、成交、客单价、安装能力"
               aria-label="一方数据"
-              className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2.5 text-base outline-none sm:text-sm"
+              className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-2.5 text-base outline-none sm:text-sm"
             />
             <textarea
               value={form.unitEconomics}
@@ -351,7 +351,7 @@ export default function MarketIntelligencePage() {
               rows={3}
               placeholder="预算、毛利、目标 CPL/CPA、可承受获客成本"
               aria-label="单位经济"
-              className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-white/80 px-3 py-2.5 text-base outline-none sm:text-sm"
+              className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 py-2.5 text-base outline-none sm:text-sm"
             />
           </div>
         </details>
@@ -361,7 +361,7 @@ export default function MarketIntelligencePage() {
           <select
             value={form.outputType}
             onChange={(e) => updateField("outputType", e.target.value as OutputType)}
-            className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white/80 px-3 text-base outline-none sm:text-sm"
+            className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg/80 px-3 text-base outline-none sm:text-sm"
           >
             {Object.entries(OUTPUT_LABELS).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
@@ -396,7 +396,7 @@ export default function MarketIntelligencePage() {
           type="button"
           onClick={loadWorkspace}
           disabled={loading || !orgId}
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border bg-white/70 px-3 text-sm font-medium text-foreground hover:bg-white disabled:opacity-50"
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border bg-card-bg/70 px-3 text-sm font-medium text-foreground hover:bg-card-bg disabled:opacity-50"
         >
           <RefreshCw size={14} className={cn(loading && "animate-spin")} />
           同步记录

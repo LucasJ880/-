@@ -84,7 +84,7 @@ const STATUS_COLOR: Record<VisualizerSessionStatus, string> = {
 
 function panelSection(title: string, icon: React.ReactNode, body: React.ReactNode) {
   return (
-    <section className="rounded-xl border border-border/60 bg-white/60 p-3">
+    <section className="rounded-xl border border-border/60 bg-card-bg/60 p-3">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-foreground">
         {icon}
         {title}
@@ -993,7 +993,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
         <ArrowLeft className="h-4 w-4" /> 返回客户
       </Link>
 
-      <div className="rounded-xl border border-border/60 bg-white/60 p-4 space-y-3">
+      <div className="rounded-xl border border-border/60 bg-card-bg/60 p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             {/* 顶部：标题 + 状态 + 导出按钮；导出按钮需要 selectedImage+selectedVariant 才启用 */}
@@ -1007,7 +1007,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                     if (e.key === "Enter") void saveTitle();
                     if (e.key === "Escape") setEditingTitle(false);
                   }}
-                  className="h-9 flex-1 rounded-md border border-border bg-white px-2 text-sm"
+                  className="h-9 flex-1 rounded-md border border-border bg-card-bg px-2 text-sm"
                 />
                 <button
                   onClick={saveTitle}
@@ -1024,7 +1024,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                 <button
                   onClick={() => setEditingTitle(false)}
                   disabled={savingTitle}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
                 >
                   <X className="h-3.5 w-3.5" /> 取消
                 </button>
@@ -1039,7 +1039,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                     setTitleDraft(session.title);
                     setEditingTitle(true);
                   }}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-xs text-muted hover:text-foreground"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card-bg px-2 py-1 text-xs text-muted hover:text-foreground"
                 >
                   <Pencil className="h-3 w-3" /> 改名
                 </button>
@@ -1156,7 +1156,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               disabled={
                 !selectedImage || !selectedVariant || exporting !== null
               }
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-xs text-foreground hover:bg-slate-50 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-card-bg px-2.5 py-1.5 text-xs text-foreground hover:bg-accent-soft disabled:opacity-60"
               title={
                 !selectedImage
                   ? "请先选择一张照片"
@@ -1225,7 +1225,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
         {/* 左：画布 */}
         <div className="flex flex-col gap-2">
           {/* 工具条 */}
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-white/60 p-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card-bg/60 p-2">
             <ToolBtn
               active={tool === "move"}
               onClick={() => setTool("move")}
@@ -1297,6 +1297,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             ) : (
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-center">
                 <div className="text-sm text-white/80">尚未上传现场照片</div>
+                {/* canvas 需白底 */}
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
@@ -1327,7 +1328,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
         {/* 右：面板 / 移动端底部抽屉 */}
         <div
           className={cn(
-            "fixed inset-x-0 bottom-0 z-40 max-h-[78dvh] overflow-y-auto rounded-t-2xl border border-border/70 bg-white p-3 shadow-2xl transition-transform lg:static lg:z-auto lg:max-h-none lg:translate-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
+            "fixed inset-x-0 bottom-0 z-40 max-h-[78dvh] overflow-y-auto rounded-t-2xl border border-border/70 bg-card-bg p-3 shadow-2xl transition-transform lg:static lg:z-auto lg:max-h-none lg:translate-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
             mobilePanelOpen ? "translate-y-0" : "translate-y-full",
           )}
         >
@@ -1341,7 +1342,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               onClick={() => setMobilePanelOpen(false)}
-              className="rounded-full border border-border bg-white p-2 text-muted"
+              className="rounded-full border border-border bg-card-bg p-2 text-muted"
               aria-label="关闭配置面板"
             >
               <X className="h-4 w-4" />
@@ -1371,7 +1372,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading || autoDetecting}
-                  className="flex items-center justify-center gap-1 rounded-md border border-dashed border-border/80 bg-white/40 px-2 py-2 text-xs text-muted hover:text-foreground disabled:opacity-60"
+                  className="flex items-center justify-center gap-1 rounded-md border border-dashed border-border/80 bg-card-bg/40 px-2 py-2 text-xs text-muted hover:text-foreground disabled:opacity-60"
                 >
                   {uploading || autoDetecting ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1424,7 +1425,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                           "flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs cursor-pointer",
                           active
                             ? "border-blue-400 bg-blue-50/60"
-                            : "border-border/60 bg-white/70 hover:bg-white",
+                            : "border-border/60 bg-card-bg/70 hover:bg-accent-soft",
                         )}
                         onClick={() => {
                           setSelectedImageId(img.id);
@@ -1492,7 +1493,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                         return (
                           <li
                             key={draft.id}
-                            className="rounded-md border border-purple-100 bg-white/80 px-2 py-1.5 text-xs"
+                            className="rounded-md border border-purple-100 bg-card-bg/80 px-2 py-1.5 text-xs"
                           >
                             <div className="flex items-center gap-2">
                               <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -1519,7 +1520,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                                     prev.filter((x) => x.id !== draft.id),
                                   )
                                 }
-                                className="rounded border border-border bg-white px-2 py-1 text-[10px] text-muted hover:text-foreground"
+                                className="rounded border border-border bg-card-bg px-2 py-1 text-[10px] text-muted hover:text-foreground"
                               >
                                 忽略
                               </button>
@@ -1556,7 +1557,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                             "flex items-center gap-2 rounded-md border px-2 py-1 text-xs cursor-pointer",
                             active
                               ? "border-blue-400 bg-blue-50/60"
-                              : "border-border/60 bg-white/70 hover:bg-white",
+                              : "border-border/60 bg-card-bg/70 hover:bg-accent-soft",
                           )}
                           onClick={() => {
                             setSelectedRegionId(region.id);
@@ -1624,7 +1625,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               <button
                 onClick={handleCreateVariant}
                 disabled={mutating}
-                className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border/80 bg-white/40 px-2 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border/80 bg-card-bg/40 px-2 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
               >
                 <Plus className="h-3.5 w-3.5" /> 新建方案
               </button>
@@ -1641,7 +1642,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                           "flex items-center gap-2 rounded-md border px-2 py-1 text-xs cursor-pointer",
                           active
                             ? "border-blue-400 bg-blue-50/60"
-                            : "border-border/60 bg-white/70 hover:bg-white",
+                            : "border-border/60 bg-card-bg/70 hover:bg-accent-soft",
                         )}
                         onClick={() => {
                           setSelectedVariantId(v.id);
@@ -1851,7 +1852,7 @@ function ToolBtn(props: {
         "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs",
         props.active
           ? "border-blue-500 bg-blue-50 text-blue-700"
-          : "border-border bg-white text-muted hover:text-foreground",
+          : "border-border bg-card-bg text-muted hover:text-foreground",
         props.disabled && "opacity-50 cursor-not-allowed",
       )}
     >

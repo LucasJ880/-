@@ -263,7 +263,7 @@ export function GoogleEventDialog({
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               disabled={!canEdit}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
             />
           </div>
 
@@ -291,7 +291,7 @@ export function GoogleEventDialog({
                   value={form.allDayStart}
                   onChange={(e) => setForm({ ...form, allDayStart: e.target.value })}
                   disabled={!canEdit}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
                 />
               </div>
               <div className="space-y-1.5">
@@ -303,7 +303,7 @@ export function GoogleEventDialog({
                   value={form.allDayEnd}
                   onChange={(e) => setForm({ ...form, allDayEnd: e.target.value })}
                   disabled={!canEdit}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
                 />
               </div>
             </div>
@@ -318,7 +318,7 @@ export function GoogleEventDialog({
                   value={form.startAt}
                   onChange={(e) => setForm({ ...form, startAt: e.target.value })}
                   disabled={!canEdit}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
                 />
               </div>
               <div className="space-y-1.5">
@@ -330,7 +330,7 @@ export function GoogleEventDialog({
                   value={form.endAt}
                   onChange={(e) => setForm({ ...form, endAt: e.target.value })}
                   disabled={!canEdit}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
                 />
               </div>
             </div>
@@ -345,7 +345,7 @@ export function GoogleEventDialog({
               onChange={(e) => setForm({ ...form, location: e.target.value })}
               disabled={!canEdit}
               placeholder="地点（可选）"
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
             />
           </div>
 
@@ -359,7 +359,7 @@ export function GoogleEventDialog({
               disabled={!canEdit}
               rows={3}
               placeholder="描述（可选）"
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm disabled:bg-muted/30"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm disabled:bg-muted/30"
             />
           </div>
 
@@ -387,7 +387,7 @@ export function GoogleEventDialog({
                   onClick={handleDelete}
                   disabled={deleting || saving}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50",
+                    "inline-flex items-center gap-1 rounded-lg border border-red-200 bg-card-bg px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50",
                   )}
                 >
                   {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}

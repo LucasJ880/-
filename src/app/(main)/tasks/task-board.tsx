@@ -42,9 +42,9 @@ function formatDue(dueDate: string | null, taskStatus: string): { text: string; 
 }
 
 const KANBAN_COLUMNS: { status: TaskStatus; label: string; icon: typeof Circle; color: string }[] = [
-  { status: "todo", label: "待办", icon: Circle, color: "#6e7d76" },
-  { status: "in_progress", label: "进行中", icon: Clock, color: "#2b6055" },
-  { status: "done", label: "已完成", icon: CheckCircle2, color: "#2e7a56" },
+  { status: "todo", label: "待办", icon: Circle, color: "var(--muted)" },
+  { status: "in_progress", label: "进行中", icon: Clock, color: "var(--accent)" },
+  { status: "done", label: "已完成", icon: CheckCircle2, color: "var(--success)" },
 ];
 
 function KanbanCard({

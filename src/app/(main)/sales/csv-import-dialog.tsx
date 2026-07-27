@@ -78,7 +78,7 @@ export function CsvImportDialog({
         {!result ? (
           <>
             <div
-              className="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-border bg-white/50 py-8 transition-colors hover:border-foreground/30"
+              className="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-border bg-card-bg/50 py-8 transition-colors hover:border-foreground/30"
               onClick={() => inputRef.current?.click()}
             >
               <FileSpreadsheet className="h-8 w-8 text-muted/50" />

@@ -151,21 +151,21 @@ export function RAGPanel() {
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-border bg-white/70 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-4">
           <div className="flex items-center gap-2 text-muted">
             <Database className="h-4 w-4" />
             <span className="text-xs font-medium">知识分块</span>
           </div>
           <p className="mt-1 text-2xl font-semibold">{stats?.chunks ?? "—"}</p>
         </div>
-        <div className="rounded-xl border border-border bg-white/70 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-4">
           <div className="flex items-center gap-2 text-muted">
             <Sparkles className="h-4 w-4" />
             <span className="text-xs font-medium">AI 洞察</span>
           </div>
           <p className="mt-1 text-2xl font-semibold">{stats?.insights ?? "—"}</p>
         </div>
-        <div className="rounded-xl border border-border bg-white/70 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-4">
           <div className="flex items-center gap-2 text-muted">
             <MessageSquare className="h-4 w-4" />
             <span className="text-xs font-medium">客户画像</span>
@@ -247,7 +247,7 @@ export function RAGPanel() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="w-full rounded-lg border border-border bg-white/80 py-2 pl-9 pr-3 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20"
+              className="w-full rounded-lg border border-border bg-card-bg/80 py-2 pl-9 pr-3 text-sm placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-foreground/20"
             />
           </div>
           <Button onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
@@ -285,7 +285,7 @@ export function RAGPanel() {
                   相关沟通片段 ({searchResults.chunks.length})
                 </h4>
                 {searchResults.chunks.map((chunk) => (
-                  <div key={chunk.id} className="rounded-lg border border-border bg-white/70 p-3">
+                  <div key={chunk.id} className="rounded-lg border border-border bg-card-bg/70 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm text-foreground line-clamp-4">{chunk.content}</p>
                       <span className="shrink-0 text-[10px] text-muted">
@@ -354,7 +354,7 @@ export function RAGPanel() {
             <div className="space-y-1.5">
               <Label>沟通内容 *</Label>
               <textarea
-                className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-64 resize-none font-mono"
+                className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-64 resize-none font-mono"
                 placeholder={`粘贴沟通内容，例：\n\nCustomer: Hi, I'm interested in zebra blinds for my living room.\nSales: Great choice! Zebra blinds offer both privacy and light control. What size windows do you have?\nCustomer: About 72 inches wide. What's the price range?\nSales: For 72" width, our premium zebra blinds start at $189. We're running a 15% off promotion this month.\n\n---\n\n（多段内容用 --- 分隔）`}
                 value={uploadText}
                 onChange={(e) => setUploadText(e.target.value)}

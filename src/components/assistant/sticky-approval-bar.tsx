@@ -43,7 +43,7 @@ export function StickyApprovalBar({
             type="button"
             onClick={onViewDetails}
             disabled={busy}
-            className="hidden min-h-12 items-center justify-center gap-1.5 rounded-lg border border-amber-300/80 bg-white px-3 text-[13px] font-medium text-amber-950 disabled:opacity-50 sm:inline-flex"
+            className="hidden min-h-12 items-center justify-center gap-1.5 rounded-lg border border-amber-300/80 bg-card-bg px-3 text-[13px] font-medium text-amber-950 disabled:opacity-50 sm:inline-flex"
           >
             <Eye size={14} />
             查看详情
@@ -53,7 +53,7 @@ export function StickyApprovalBar({
             data-testid="sticky-reject"
             onClick={onReject}
             disabled={busy || selectedCount === 0}
-            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-lg border border-black/10 bg-white px-3 text-[13px] font-medium text-[#4a524e] disabled:opacity-50 sm:flex-none sm:px-4"
+            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-[13px] font-medium text-[#4a524e] disabled:opacity-50 sm:flex-none sm:px-4"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
             拒绝
@@ -63,7 +63,7 @@ export function StickyApprovalBar({
             data-testid="sticky-confirm"
             onClick={onConfirm}
             disabled={busy || selectedCount === 0}
-            className="inline-flex min-h-12 flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-[#2b6055] px-3 text-[13px] font-semibold text-white disabled:opacity-50 sm:flex-none sm:min-w-[9.5rem]"
+            className="inline-flex min-h-12 flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-semibold text-[color:var(--on-accent)] disabled:opacity-50 sm:flex-none sm:min-w-[9.5rem]"
           >
             {busy ? (
               <Loader2 size={14} className="animate-spin" />

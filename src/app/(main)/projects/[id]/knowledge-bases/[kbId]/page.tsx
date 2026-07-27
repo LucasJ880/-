@@ -355,7 +355,7 @@ export default function KnowledgeBaseDetailPage() {
         >
           <ArrowLeft size={14} /> 返回
         </button>
-        <p className="text-[#a63d3d]">{error || "未找到知识库"}</p>
+        <p className="text-danger">{error || "未找到知识库"}</p>
       </div>
     );
   }

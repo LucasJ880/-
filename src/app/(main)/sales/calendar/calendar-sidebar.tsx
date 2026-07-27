@@ -95,7 +95,7 @@ export function CalendarSidebar({
   return (
     <div className="space-y-4">
       {/* Today */}
-      <div className="rounded-xl border border-border bg-white/60 p-4">
+      <div className="rounded-xl border border-border bg-card-bg/60 p-4">
         <h3 className="mb-3 text-sm font-semibold">今日日程 ({todayAppts.length + todayGEvents.length})</h3>
         {todayAppts.length === 0 && todayGEvents.length === 0 ? (
           <p className="text-xs text-muted-foreground">今天没有日程</p>
@@ -146,7 +146,7 @@ export function CalendarSidebar({
       </div>
 
       {/* Upcoming */}
-      <div className="rounded-xl border border-border bg-white/60 p-4">
+      <div className="rounded-xl border border-border bg-card-bg/60 p-4">
         <h3 className="mb-3 text-sm font-semibold">即将到来</h3>
         <div className="space-y-2">
           {upcomingAppts.slice(0, 5).map((a) => (
@@ -167,7 +167,7 @@ export function CalendarSidebar({
 
       {/* Google Calendar management */}
       {gcalConnected && (
-        <div className="rounded-xl border border-border bg-white/60 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/60 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold">Google 日历</h3>
             <button

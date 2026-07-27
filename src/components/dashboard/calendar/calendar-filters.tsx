@@ -66,7 +66,7 @@ export function DateSwitcher({
       <button
         type="button"
         onClick={() => onChange(addDays(date, -1))}
-        className="rounded-md p-1 text-muted transition-colors hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+        className="rounded-md p-1 text-muted transition-colors hover:bg-accent-soft hover:text-foreground"
         title="前一天"
       >
         <ChevronLeft size={14} />
@@ -89,7 +89,7 @@ export function DateSwitcher({
       <button
         type="button"
         onClick={() => onChange(addDays(date, 1))}
-        className="rounded-md p-1 text-muted transition-colors hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+        className="rounded-md p-1 text-muted transition-colors hover:bg-accent-soft hover:text-foreground"
         title="后一天"
       >
         <ChevronRight size={14} />
@@ -303,7 +303,7 @@ export function EventFormModal({
               id="event-form-task"
               value={taskId}
               onChange={(e) => setTaskId(e.target.value)}
-              className="flex h-9 w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30"
+              className="flex h-9 w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:border-accent/30"
             >
               <option value="">不关联任务</option>
               {tasks.map((t) => (
@@ -314,7 +314,7 @@ export function EventFormModal({
             </select>
           </div>
           {error && (
-            <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">
+            <p className="rounded-lg border border-danger/15 bg-danger-bg px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}

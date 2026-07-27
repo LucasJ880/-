@@ -44,6 +44,7 @@ import {
 import { TaskKanbanView } from "./task-board";
 import { TaskTimeView, TaskProjectView } from "./task-list";
 import { TaskFilters, BatchActionBar } from "./task-filters";
+import { TaskTimelineStrip } from "@/components/tasks/task-timeline-strip";
 
 const PROJECT_SELECT_NONE = "__none__";
 
@@ -207,7 +208,7 @@ function TaskFormModal({ open, onOpenChange, onSaved, editing, projects }: {
           </DialogHeader>
           <div>
             <Label htmlFor="task-form-title" className="mb-1 block text-sm font-medium text-foreground">
-              任务标题 <span className="text-[#a63d3d]">*</span>
+              任务标题 <span className="text-danger">*</span>
             </Label>
             <Input id="task-form-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="输入任务标题..." className="bg-background" autoFocus />
           </div>
@@ -220,7 +221,7 @@ function TaskFormModal({ open, onOpenChange, onSaved, editing, projects }: {
               <Label className="mb-1 block text-sm font-medium text-foreground">优先级</Label>
               <div className="flex flex-wrap gap-1.5">
                 {(Object.keys(TASK_PRIORITY) as TaskPriority[]).map((p) => (
-                  <Button key={p} type="button" size="sm" variant={priority === p ? "accent" : "outline"} onClick={() => setPriority(p)} className={cn("h-auto px-2.5 py-1 text-xs", priority === p && "text-white")}>
+                  <Button key={p} type="button" size="sm" variant={priority === p ? "accent" : "outline"} onClick={() => setPriority(p)} className={cn("h-auto px-2.5 py-1 text-xs", priority === p && "text-[color:var(--on-accent)]")}>
                     {TASK_PRIORITY[p].label}
                   </Button>
                 ))}
@@ -231,7 +232,7 @@ function TaskFormModal({ open, onOpenChange, onSaved, editing, projects }: {
                 <Label className="mb-1 block text-sm font-medium text-foreground">状态</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {(Object.keys(TASK_STATUS) as TaskStatus[]).map((s) => (
-                    <Button key={s} type="button" size="sm" variant={status === s ? "accent" : "outline"} onClick={() => setStatus(s)} className={cn("h-auto px-2.5 py-1 text-xs", status === s && "text-white")}>
+                    <Button key={s} type="button" size="sm" variant={status === s ? "accent" : "outline"} onClick={() => setStatus(s)} className={cn("h-auto px-2.5 py-1 text-xs", status === s && "text-[color:var(--on-accent)]")}>
                       {TASK_STATUS[s].label}
                     </Button>
                   ))}
@@ -260,12 +261,12 @@ function TaskFormModal({ open, onOpenChange, onSaved, editing, projects }: {
             </div>
           </div>
           <div>
-            <Button type="button" variant="outline" onClick={() => setNeedReminder(!needReminder)} className={cn("h-auto w-full justify-start gap-2 px-3 py-2 font-normal", needReminder ? "border-[rgba(154,106,47,0.15)] bg-[rgba(154,106,47,0.04)] text-[#9a6a2f]" : "text-muted")}>
+            <Button type="button" variant="outline" onClick={() => setNeedReminder(!needReminder)} className={cn("h-auto w-full justify-start gap-2 px-3 py-2 font-normal", needReminder ? "border-warning/15 bg-warning-bg text-warning" : "text-muted")}>
               {needReminder ? <Bell size={14} /> : <BellOff size={14} />}
               {needReminder ? "已开启到期提醒" : "开启到期提醒"}
             </Button>
           </div>
-          {saveError && <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">{saveError}</p>}
+          {saveError && <p className="rounded-lg border border-danger/15 bg-danger-bg px-3 py-2 text-sm text-danger">{saveError}</p>}
           <DialogFooter className="gap-2 sm:gap-0 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
             <Button type="submit" variant="accent" disabled={!title.trim() || saving}>
@@ -429,7 +430,7 @@ function TasksPageContent() {
               </button>
             )}
             <button type="button" onClick={() => { setEditingTask(null); setShowForm(true); }}
-              className="flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-accent-hover active:scale-[0.98]">
+              className="flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] shadow-sm transition-all hover:bg-accent-hover active:scale-[0.98]">
               <Plus size={16} /> 新建任务
             </button>
           </div>
@@ -456,6 +457,13 @@ function TasksPageContent() {
         statusCounts={statusCounts}
       />
 
+      {!loading && filteredTasks.length > 0 && (
+        <TaskTimelineStrip
+          tasks={filteredTasks}
+          onOpenTask={openDrawer}
+        />
+      )}
+
       {loading ? (
         <div className="space-y-2 rounded-[var(--radius-lg)] border border-border bg-card-bg p-4 shadow-card">
           {[1, 2, 3].map((i) => (<div key={i} className="flex animate-pulse items-center gap-4 border-b border-border py-3 last:border-0"><div className="h-4 flex-1 rounded bg-border" /><div className="h-5 w-16 rounded bg-border" /></div>))}
@@ -466,7 +474,7 @@ function TasksPageContent() {
           <h3 className="text-base font-semibold">暂无任务</h3>
           <p className="mt-1 max-w-sm text-sm text-muted">创建任务以跟踪工作进度，也可以在协同空间中用自然语言整理任务。</p>
           <div className="mt-6 flex items-center gap-3">
-            <button type="button" onClick={() => { setEditingTask(null); setShowForm(true); }} className="min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-hover active:scale-[0.98]">新建任务</button>
+            <button type="button" onClick={() => { setEditingTask(null); setShowForm(true); }} className="min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-[color:var(--on-accent)] shadow-sm hover:bg-accent-hover active:scale-[0.98]">新建任务</button>
             <Link href="/assistant" className="min-h-10 rounded-[var(--radius-md)] border border-border px-5 py-2 text-sm font-medium hover:bg-background/80">进入协同空间</Link>
           </div>
         </div>

@@ -88,8 +88,8 @@ function NavLink({
         nested && "ml-3 border-l border-white/10 pl-3",
         item.active
           ? nested
-            ? "bg-white/10 text-emerald-200"
-            : "bg-sidebar-active text-white"
+            ? "bg-white/10 text-[color:var(--sidebar-active-fg)]"
+            : "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
           : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
         collapsed && !nested && "justify-center px-0",
       )}
@@ -113,7 +113,7 @@ function NavLink({
             </span>
           )}
           {item.badgeKey && (
-            <span className="ml-auto shrink-0 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300/60">
+            <span className="ml-auto shrink-0 rounded-full border border-accent/25 bg-accent-soft px-1.5 py-0.5 text-[9px] font-medium text-[color:var(--sidebar-active-fg)] opacity-70">
               {m[item.badgeKey as MessageKey]}
             </span>
           )}
@@ -152,9 +152,10 @@ function CollapsibleNav({
         className={cn(
           "flex min-h-9 items-center justify-center rounded-md px-0 py-2 transition-colors",
           childActive || item.active
-            ? "bg-sidebar-active text-white"
+            ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
             : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
         )}
+        data-nav-active={childActive || item.active ? "true" : undefined}
         title={label}
       >
         {Icon && <Icon size={16} />}
@@ -345,7 +346,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   return (
     <aside
       className={cn(
-        "flex h-full min-h-0 flex-col border-r border-white/[0.06] bg-[#111b1d] text-sidebar-text transition-all duration-200 ease-out",
+        "flex h-full min-h-0 flex-col border-r border-white/[0.06] bg-sidebar-bg text-sidebar-text transition-all duration-200 ease-out",
         collapsed ? "w-[60px]" : "w-60",
       )}
     >

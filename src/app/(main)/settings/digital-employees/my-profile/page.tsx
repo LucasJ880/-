@@ -112,7 +112,7 @@ export default function MyAiProfilePage() {
         </div>
       )}
 
-      <section className="mt-6 rounded-xl border border-black/[0.06] bg-white p-4">
+      <section className="mt-6 rounded-xl border border-border bg-card-bg p-4">
         <h2 className="text-[14px] font-semibold">偏好设置</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-[12px]">
@@ -164,7 +164,7 @@ export default function MyAiProfilePage() {
         </button>
       </section>
 
-      <section className="mt-4 rounded-xl border border-black/[0.06] bg-white p-4">
+      <section className="mt-4 rounded-xl border border-border bg-card-bg p-4">
         <h2 className="text-[14px] font-semibold">待确认的推断偏好</h2>
         <p className="mt-1 text-[12px] text-[#68706c]">
           AI 不会自动确认；须你选择「是 / 否 / 不再学习」。
@@ -178,7 +178,7 @@ export default function MyAiProfilePage() {
           }))].map((s) => (
             <div
               key={s.preferenceKey}
-              className="rounded-lg border border-black/[0.06] p-3 text-[12px]"
+              className="rounded-lg border border-border p-3 text-[12px]"
             >
               <div className="font-medium text-[#171a19]">{s.preference}</div>
               {s.confidence > 0 && (
@@ -197,7 +197,7 @@ export default function MyAiProfilePage() {
                   <button
                     key={d}
                     type="button"
-                    className="rounded-md border px-2 py-1 hover:bg-[#f4f5f5]"
+                    className="rounded-md border px-2 py-1 hover:bg-accent-soft"
                     onClick={async () => {
                       await apiFetch("/api/me/ai-profile", {
                         method: "PATCH",
@@ -222,7 +222,7 @@ export default function MyAiProfilePage() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-xl border border-black/[0.06] bg-white p-4">
+      <section className="mt-4 rounded-xl border border-border bg-card-bg p-4">
         <h2 className="text-[14px] font-semibold">已确认偏好</h2>
         <ul className="mt-2 list-disc pl-5 text-[12px] text-[#202422]">
           {Object.entries(confirmed).map(([k, v]) => (
@@ -236,16 +236,16 @@ export default function MyAiProfilePage() {
         </ul>
       </section>
 
-      <section className="mt-4 rounded-xl border border-black/[0.06] bg-white p-4">
+      <section className="mt-4 rounded-xl border border-border bg-card-bg p-4">
         <h2 className="text-[14px] font-semibold">我的使用指标（非绩效排名）</h2>
         <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[12px]">
-          <div className="rounded-lg bg-[#f4f5f5] p-2">
+          <div className="rounded-lg bg-background p-2">
             接受率 {(data.metrics.acceptRate * 100).toFixed(0)}%
           </div>
-          <div className="rounded-lg bg-[#f4f5f5] p-2">
+          <div className="rounded-lg bg-background p-2">
             修改率 {(data.metrics.editRate * 100).toFixed(0)}%
           </div>
-          <div className="rounded-lg bg-[#f4f5f5] p-2">
+          <div className="rounded-lg bg-background p-2">
             已确认 {data.metrics.confirmedPreferenceCount}
           </div>
         </div>

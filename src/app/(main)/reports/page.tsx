@@ -86,14 +86,14 @@ const STATUS_STYLES = {
   red: {
     bg: "bg-[rgba(166,61,61,0.06)]",
     border: "border-[rgba(166,61,61,0.2)]",
-    text: "text-[#a63d3d]",
+    text: "text-danger",
     dot: "bg-[#a63d3d]",
     label: "风险",
   },
 } as const;
 
 const SEVERITY_STYLE = {
-  high: "text-[#a63d3d] bg-[rgba(166,61,61,0.06)]",
+  high: "text-danger bg-[rgba(166,61,61,0.06)]",
   medium: "text-[#9a6a2f] bg-[rgba(154,106,47,0.06)]",
   low: "text-muted bg-accent/5",
 } as const;
@@ -124,7 +124,7 @@ function OverviewBar({ report }: { report: WeeklyReport }) {
           </span>
         )}
         {red > 0 && (
-          <span className="flex items-center gap-1.5 rounded-full border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.06)] px-2.5 py-1 text-xs font-medium text-[#a63d3d]">
+          <span className="flex items-center gap-1.5 rounded-full border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.06)] px-2.5 py-1 text-xs font-medium text-danger">
             <AlertTriangle size={12} /> {red} 风险
           </span>
         )}
@@ -152,9 +152,9 @@ function ProjectReportCard({ report }: { report: ProjectReport }) {
     return (
       <div className="rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-5 py-4">
         <div className="flex items-center gap-2">
-          <AlertTriangle size={14} className="text-[#a63d3d]" />
+          <AlertTriangle size={14} className="text-danger" />
           <span className="text-sm font-medium">{report.projectName}</span>
-          <span className="text-xs text-[#a63d3d]">{report.error || "生成失败"}</span>
+          <span className="text-xs text-danger">{report.error || "生成失败"}</span>
         </div>
       </div>
     );
@@ -325,7 +325,7 @@ export default function ReportsPage() {
       )}
 
       {error && (
-        <div className="rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-5 py-4 text-sm text-[#a63d3d]">
+        <div className="rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-5 py-4 text-sm text-danger">
           {error}
         </div>
       )}

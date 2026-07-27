@@ -305,7 +305,7 @@ export function BlindsOrderForm({
       {/* Header info bar */}
       <div className="flex items-center gap-3 rounded-lg bg-[rgba(26,36,32,0.03)] px-4 py-2 text-xs text-muted">
         <span>规则版本:</span>
-        <span className="rounded bg-white px-2 py-0.5 font-mono">{RULE_VERSION}</span>
+        <span className="rounded bg-card-bg px-2 py-0.5 font-mono">{RULE_VERSION}</span>
         <span className="mx-2">|</span>
         <span>布纱比: 仅支持 {SUPPORTED_FABRIC_RATIOS.join(", ")}</span>
         <span className="mx-2">|</span>
@@ -313,7 +313,7 @@ export function BlindsOrderForm({
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-[#a63d3d]">
+        <div className="flex items-center gap-2 rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-danger">
           <AlertCircle size={16} className="shrink-0" />
           {error}
         </div>
@@ -332,31 +332,31 @@ export function BlindsOrderForm({
       )}
 
       {/* Order header form */}
-      <div className="rounded-xl border border-border bg-white p-5 shadow-sm">
+      <div className="rounded-xl border border-border bg-card-bg p-5 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-foreground">订单信息</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-muted">
-              订单号 <span className="text-[#a63d3d]">*</span>
+              订单号 <span className="text-danger">*</span>
             </label>
             <input
               type="text"
               value={form.code}
               onChange={(e) => updateForm("code", e.target.value)}
               placeholder="G0303-Z127L(P)"
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted">
-              客户名称 <span className="text-[#a63d3d]">*</span>
+              客户名称 <span className="text-danger">*</span>
             </label>
             <input
               type="text"
               value={form.customerName}
               onChange={(e) => updateForm("customerName", e.target.value)}
               placeholder="客户名称"
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
@@ -365,7 +365,7 @@ export function BlindsOrderForm({
               type="text"
               value={form.phone}
               onChange={(e) => updateForm("phone", e.target.value)}
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div className="sm:col-span-2">
@@ -374,7 +374,7 @@ export function BlindsOrderForm({
               type="text"
               value={form.address}
               onChange={(e) => updateForm("address", e.target.value)}
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
@@ -384,7 +384,7 @@ export function BlindsOrderForm({
               value={form.installDate}
               onChange={(e) => updateForm("installDate", e.target.value)}
               placeholder="2025-03-15"
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div className="sm:col-span-3">
@@ -393,14 +393,14 @@ export function BlindsOrderForm({
               type="text"
               value={form.remarks}
               onChange={(e) => updateForm("remarks", e.target.value)}
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
         </div>
       </div>
 
       {/* Items table */}
-      <div className="rounded-xl border border-border bg-white shadow-sm">
+      <div className="rounded-xl border border-border bg-card-bg shadow-sm">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-base font-semibold text-foreground">
             窗户明细 ({items.length} 扇)
@@ -409,7 +409,7 @@ export function BlindsOrderForm({
             <button
               onClick={calculate}
               disabled={calculating}
-              className="flex items-center gap-1.5 rounded-lg border border-[rgba(43,96,85,0.15)] bg-[rgba(43,96,85,0.04)] px-3 py-1.5 text-xs font-medium text-[#2b6055] transition-colors hover:bg-[rgba(43,96,85,0.08)] disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-[rgba(43,96,85,0.15)] bg-[rgba(43,96,85,0.04)] px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.08)] disabled:opacity-50"
             >
               <Calculator size={14} />
               {calculating ? "计算中..." : "计算裁切"}
@@ -454,7 +454,7 @@ export function BlindsOrderForm({
                       value={item.location}
                       onChange={(e) => updateItem(i, "location", e.target.value)}
                       placeholder="Kitchen"
-                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-accent"
                     />
                   </td>
                   <td className="px-1 py-1">
@@ -464,7 +464,7 @@ export function BlindsOrderForm({
                       value={item.width}
                       onChange={(e) => updateItem(i, "width", e.target.value)}
                       placeholder="85.1875"
-                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-accent"
                     />
                   </td>
                   <td className="px-1 py-1">
@@ -474,7 +474,7 @@ export function BlindsOrderForm({
                       value={item.height}
                       onChange={(e) => updateItem(i, "height", e.target.value)}
                       placeholder="87.75"
-                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-accent"
                     />
                   </td>
                   <td className="px-1 py-1">
@@ -483,14 +483,14 @@ export function BlindsOrderForm({
                       value={item.fabricSku}
                       onChange={(e) => updateItem(i, "fabricSku", e.target.value)}
                       placeholder="ECO BL201"
-                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-accent"
                     />
                   </td>
                   <td className="px-1 py-1">
                     <select
                       value={item.productType}
                       onChange={(e) => updateItem(i, "productType", e.target.value)}
-                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-accent"
                     >
                       {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -499,7 +499,7 @@ export function BlindsOrderForm({
                     <select
                       value={item.measureType}
                       onChange={(e) => updateItem(i, "measureType", e.target.value)}
-                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-accent"
                     >
                       {MEASURE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -508,7 +508,7 @@ export function BlindsOrderForm({
                     <select
                       value={item.controlType}
                       onChange={(e) => updateItem(i, "controlType", e.target.value)}
-                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-accent"
                     >
                       {CONTROL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -517,7 +517,7 @@ export function BlindsOrderForm({
                     <select
                       value={item.controlSide}
                       onChange={(e) => updateItem(i, "controlSide", e.target.value)}
-                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-accent"
                     >
                       {CONTROL_SIDES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -526,7 +526,7 @@ export function BlindsOrderForm({
                     <select
                       value={item.headrailType}
                       onChange={(e) => updateItem(i, "headrailType", e.target.value)}
-                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-accent"
                     >
                       {HEADRAIL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -535,7 +535,7 @@ export function BlindsOrderForm({
                     <select
                       value={item.mountType}
                       onChange={(e) => updateItem(i, "mountType", e.target.value)}
-                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-1 py-1.5 text-xs outline-none focus:border-accent"
                     >
                       {MOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -547,7 +547,7 @@ export function BlindsOrderForm({
                       value={item.bottomBarWidth}
                       onChange={(e) => updateItem(i, "bottomBarWidth", e.target.value)}
                       placeholder="手动"
-                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-accent"
                     />
                   </td>
                   <td className="px-1 py-1">
@@ -556,7 +556,7 @@ export function BlindsOrderForm({
                       value={item.itemRemark}
                       onChange={(e) => updateItem(i, "itemRemark", e.target.value)}
                       placeholder=""
-                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-[#2b6055]"
+                      className="w-full rounded border border-border px-2 py-1.5 text-xs outline-none focus:border-accent"
                     />
                   </td>
                   <td className="px-1 py-1">
@@ -571,7 +571,7 @@ export function BlindsOrderForm({
                       <button
                         onClick={() => removeItem(i)}
                         disabled={items.length <= 1}
-                        className="rounded p-1 text-muted transition-colors hover:bg-[rgba(166,61,61,0.04)] hover:text-[#a63d3d] disabled:opacity-30"
+                        className="rounded p-1 text-muted transition-colors hover:bg-[rgba(166,61,61,0.04)] hover:text-danger disabled:opacity-30"
                         title="删除"
                       >
                         <Trash2 size={13} />
@@ -587,7 +587,7 @@ export function BlindsOrderForm({
         <div className="border-t border-border px-5 py-3">
           <button
             onClick={addItem}
-            className="text-xs text-[#2b6055] hover:underline"
+            className="text-xs text-accent hover:underline"
           >
             + 添加一行
           </button>
@@ -596,7 +596,7 @@ export function BlindsOrderForm({
 
       {/* Calculation results preview */}
       {hasCalcResults && (
-        <div className="rounded-xl border border-border bg-white shadow-sm">
+        <div className="rounded-xl border border-border bg-card-bg shadow-sm">
           <div className="border-b border-border px-5 py-4">
             <h2 className="text-base font-semibold text-foreground">
               裁切计算结果预览
@@ -688,7 +688,7 @@ export function BlindsOrderForm({
           <button
             onClick={calculate}
             disabled={calculating}
-            className="flex items-center gap-2 rounded-lg border border-[rgba(43,96,85,0.15)] bg-[rgba(43,96,85,0.04)] px-4 py-2.5 text-sm font-medium text-[#2b6055] transition-colors hover:bg-[rgba(43,96,85,0.08)] disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg border border-[rgba(43,96,85,0.15)] bg-[rgba(43,96,85,0.04)] px-4 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.08)] disabled:opacity-50"
           >
             <Calculator size={16} />
             {calculating ? "计算中..." : "计算裁切"}
@@ -696,7 +696,7 @@ export function BlindsOrderForm({
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-[#2b6055] px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#2b6055]/90 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-[color:var(--on-accent)] shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
             <Save size={16} />
             {saving ? "保存中..." : mode === "edit" ? "更新工艺单" : "保存工艺单"}

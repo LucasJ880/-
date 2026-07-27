@@ -68,16 +68,16 @@ export default function TeamLearningPage() {
 
       {metrics && (
         <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-4">
-          <div className="rounded-lg bg-[#f4f5f5] p-2">
+          <div className="rounded-lg bg-background p-2">
             使用 {(metrics.usageCount as number) ?? 0}
           </div>
-          <div className="rounded-lg bg-[#f4f5f5] p-2">
+          <div className="rounded-lg bg-background p-2">
             候选 {(metrics.candidatePracticeCount as number) ?? 0}
           </div>
-          <div className="rounded-lg bg-[#f4f5f5] p-2">
+          <div className="rounded-lg bg-background p-2">
             Playbook {(metrics.activePlaybookCount as number) ?? 0}
           </div>
-          <div className="rounded-lg bg-[#f4f5f5] p-2">无个人排名</div>
+          <div className="rounded-lg bg-background p-2">无个人排名</div>
         </div>
       )}
 
@@ -85,11 +85,11 @@ export default function TeamLearningPage() {
         {candidates.map((c) => (
           <div
             key={c.id}
-            className="rounded-xl border border-black/[0.06] bg-white p-4 text-[13px]"
+            className="rounded-xl border border-border bg-card-bg p-4 text-[13px]"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="font-semibold text-[#171a19]">{c.title}</div>
-              <span className="shrink-0 rounded-md bg-[#f4f5f5] px-2 py-0.5 text-[11px]">
+              <span className="shrink-0 rounded-md bg-background px-2 py-0.5 text-[11px]">
                 {c.status}
               </span>
             </div>

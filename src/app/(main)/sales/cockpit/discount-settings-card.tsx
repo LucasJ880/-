@@ -218,7 +218,7 @@ export function DiscountSettingsCard() {
 
   if (!loaded) {
     return (
-      <div className="rounded-xl border border-border bg-white/60 p-4 flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-border bg-card-bg/60 p-4 flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="animate-spin" size={14} />
         加载折扣率设置…
       </div>
@@ -226,7 +226,7 @@ export function DiscountSettingsCard() {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-white/60 p-5">
+    <div className="rounded-xl border border-border bg-card-bg/60 p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Percent size={16} className="text-orange-600" />
@@ -282,14 +282,14 @@ export function DiscountSettingsCard() {
                   onChange={(e) =>
                     setDraft({ ...draft, [f.key as keyof DraftMap]: e.target.value })
                   }
-                  className="w-full rounded-lg border border-input bg-white px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                   %
                 </span>
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+              <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
                 {current ? `${Math.round(current[f.key] as number * 100)}%` : "—"}
               </div>
             )}
@@ -321,14 +321,14 @@ export function DiscountSettingsCard() {
                     onChange={(e) =>
                       setDraft({ ...draft, [f.key]: e.target.value })
                     }
-                    className="w-full rounded-lg border border-input bg-white px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                     %
                   </span>
                 </div>
               ) : (
-                <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+                <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
                   {current ? `${Math.round((current[f.key] as number) * 100)}%` : "—"}
                 </div>
               )}
@@ -353,14 +353,14 @@ export function DiscountSettingsCard() {
                 onChange={(e) =>
                   setDraft({ ...draft, depositOverrideCode: e.target.value })
                 }
-                className="w-full rounded-lg border border-input bg-white px-2 py-1.5 text-sm font-medium font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 text-sm font-medium font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
               <p className="text-[10px] text-muted-foreground">
                 销售低于最低阈值时需凭此码解锁。变更会立即对全公司生效。
               </p>
             </>
           ) : (
-            <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+            <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
               {current?.hasDepositOverrideCode ? "已配置（哈希存储，不可回显）" : "未配置"}
             </div>
           )}
@@ -383,14 +383,14 @@ export function DiscountSettingsCard() {
                 onChange={(e) =>
                   setDraft({ ...draft, lineDiscountUnlockCode: e.target.value })
                 }
-                className="w-full rounded-lg border border-input bg-white px-2 py-1.5 text-sm font-medium font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 text-sm font-medium font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
               <p className="text-[10px] text-muted-foreground">
                 报价单行折扣修改时使用。服务端仅存 bcrypt 哈希，永不回显。
               </p>
             </>
           ) : (
-            <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+            <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
               {current?.hasLineDiscountUnlockCode ? "已配置（哈希存储，不可回显）" : "未配置"}
             </div>
           )}
@@ -421,14 +421,14 @@ export function DiscountSettingsCard() {
                     onChange={(e) =>
                       setDraft({ ...draft, [f.key]: e.target.value })
                     }
-                    className="w-full rounded-lg border border-input bg-white px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                     %
                   </span>
                 </div>
               ) : (
-                <div className="rounded-lg border border-dashed border-border bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
+                <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
                   {current ? `${Math.round((current[f.key] as number) * 100)}%` : "—"}
                 </div>
               )}
@@ -454,7 +454,7 @@ export function DiscountSettingsCard() {
                 <button
                   onClick={handleCancel}
                   disabled={saving}
-                  className="rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent-soft disabled:opacity-50"
                 >
                   取消
                 </button>
