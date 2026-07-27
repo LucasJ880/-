@@ -28,6 +28,10 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/capabilities",
 ];
 
+function isOrgScopedPath(pathname: string): boolean {
+  return ORG_SCOPED_API_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
 /**
  * 多组织支持：请求 org-scoped API 时，若 query 未显式带 orgId，
  * 自动附加用户在组织切换器里选定的组织（localStorage）。
@@ -40,7 +44,7 @@ function withSelectedOrgId(input: RequestInfo | URL): RequestInfo | URL {
       input instanceof URL ? input.href : String(input),
       window.location.origin,
     );
-    if (!ORG_SCOPED_API_PREFIXES.some((p) => url.pathname.startsWith(p))) {
+    if (!isOrgScopedPath(url.pathname)) {
       return input;
     }
     if (url.searchParams.get("orgId")) return input;
@@ -50,6 +54,47 @@ function withSelectedOrgId(input: RequestInfo | URL): RequestInfo | URL {
     return url.pathname + url.search;
   } catch {
     return input;
+  }
+}
+
+/**
+ * POST/PUT/PATCH 的营销/销售等接口常从 body.orgId 解析组织（admin / 多组织强制要求）。
+ * 仅有 query 注入时，body 仍为 {} 会报「缺少 orgId，或您属于多个组织…」。
+ * 在 JSON object body 缺少 orgId 时补上当前选定组织。
+ */
+function withSelectedOrgIdInBody(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): RequestInit | undefined {
+  if (typeof window === "undefined" || !init) return init;
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD") return init;
+  if (typeof init.body !== "string" || !init.body) return init;
+
+  const path = getPathname(input);
+  if (!path || !isOrgScopedPath(path)) return init;
+
+  const stored = readStoredOrgId();
+  if (!stored) return init;
+
+  try {
+    const parsed: unknown = JSON.parse(init.body);
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      ("orgId" in parsed &&
+        (parsed as { orgId?: unknown }).orgId != null &&
+        String((parsed as { orgId?: unknown }).orgId).trim() !== "")
+    ) {
+      return init;
+    }
+    return {
+      ...init,
+      body: JSON.stringify({ ...(parsed as Record<string, unknown>), orgId: stored }),
+    };
+  } catch {
+    return init;
   }
 }
 const REDIRECT_COOLDOWN_MS = 10_000;
@@ -120,9 +165,10 @@ export async function apiFetch(
 ): Promise<Response> {
   const { skipAuthRedirect, ...rest } = init ?? {};
   const target = withSelectedOrgId(input);
+  const requestInit = withSelectedOrgIdInBody(target, rest) ?? rest;
   const res = await fetch(target, {
-    ...rest,
-    credentials: rest.credentials ?? "include",
+    ...requestInit,
+    credentials: requestInit.credentials ?? "include",
   });
 
   if (
