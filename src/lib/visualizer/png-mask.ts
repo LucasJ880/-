@@ -163,3 +163,64 @@ export function createTransparentEditMaskPng(args: {
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
 }
+
+/**
+ * 多区域（rect / polygon）编辑蒙版：任一区域内透明（可编辑），其余不透明。
+ * 语义与 createTransparentEditMaskPng / createMultiRectEditMaskPng 一致。
+ */
+export function createMultiRegionEditMaskPng(args: {
+  width: number;
+  height: number;
+  regions: Array<{
+    shape: "rect" | "polygon";
+    points: Array<[number, number]>;
+  }>;
+}): Buffer {
+  const { width, height, regions } = args;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error("Invalid image size");
+  }
+  if (regions.length === 0) throw new Error("Mask regions missing");
+
+  const normalized = regions.map((r) => {
+    if (r.points.length < 2) throw new Error("Mask points missing");
+    const clampedPoints = r.points.map(([x, y]) => {
+      const cx = Math.max(0, Math.min(width - 1, x));
+      const cy = Math.max(0, Math.min(height - 1, y));
+      return [cx, cy] as [number, number];
+    });
+    return { shape: r.shape, points: clampedPoints };
+  });
+
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width * 4 + 1);
+    raw[row] = 0;
+    for (let x = 0; x < width; x++) {
+      const off = row + 1 + x * 4;
+      const editable = normalized.some((r) =>
+        isInsideMask(x + 0.5, y + 0.5, r.shape, r.points),
+      );
+      raw[off] = 0;
+      raw[off + 1] = 0;
+      raw[off + 2] = 0;
+      raw[off + 3] = editable ? 0 : 255;
+    }
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw, { level: 6 })),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
