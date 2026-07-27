@@ -170,6 +170,7 @@ run_test "销售可视化产品素材就绪" "npx tsx src/lib/visualizer/__tests
 run_test "销售可视化AI安装模板" "npx tsx src/lib/visualizer/__tests__/catalog-template.test.ts"
 run_test "销售可视化AI模板门禁" "npx tsx src/lib/visualizer/__tests__/catalog-template-gate.test.ts"
 run_test "全站 UI 主题框架" "npx tsx src/lib/theme/__tests__/theme.test.ts"
+run_test "Workbench 工作队列派生" "npx tsx src/components/workbench/__tests__/derive-work-queue.test.ts"
 run_test "自动流本地时区调度" "npx tsx src/lib/automation/__tests__/local-time.test.ts"
 run_test "通用对话日历工具权限" "npx tsx src/lib/agent-core/tools/calendar-access.test.ts"
 run_test "工具调用模型参数适配" "npx tsx src/lib/ai/__tests__/client-tuning.test.ts"
