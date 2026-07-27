@@ -18,6 +18,8 @@ assert.equal(next.today[0]?.sourceKey, "deadline:c");
 assert.equal(next.immediate.length, 1);
 assert.equal(next.upcoming.length, 1);
 assert.equal(next.unreadCount, 3);
+assert.ok(next.suppressedFocusKeys?.includes("task-b"));
+assert.ok(next.suppressedFocusKeys?.includes("rem-deadline:b"));
 
 // 原对象不被原地修改
 assert.equal(layers.today.length, 2);

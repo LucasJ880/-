@@ -239,17 +239,36 @@ export async function DELETE(
   if (access instanceof NextResponse) return access;
   const { user, project: beforeProject } = access;
 
-  await db.task.updateMany({
-    where: { projectId: id },
-    data: { projectId: null },
-  });
+  try {
+    // 先断开无 onDelete 的可选外键，并清理必填关联，避免 Prisma FK 约束导致删除静默失败
+    await db.$transaction(async (tx) => {
+      await tx.task.updateMany({
+        where: { projectId: id },
+        data: { projectId: null },
+      });
+      await tx.blindsOrder.updateMany({
+        where: { projectId: id },
+        data: { projectId: null },
+      });
+      await tx.auditLog.updateMany({
+        where: { projectId: id },
+        data: { projectId: null },
+      });
+      await tx.agentTask.deleteMany({ where: { projectId: id } });
+      await tx.project.delete({ where: { id } });
+    });
+  } catch (err) {
+    console.error("[projects.DELETE] failed", id, err);
+    return NextResponse.json(
+      { error: "删除失败：项目仍有无法自动清理的关联数据" },
+      { status: 500 },
+    );
+  }
 
-  await db.project.delete({ where: { id } });
-
+  // projectId 已不存在，审计挂在 org 级
   await logAudit({
     userId: user.id,
     orgId: beforeProject.orgId ?? undefined,
-    projectId: id,
     action: AUDIT_ACTIONS.DELETE,
     targetType: AUDIT_TARGETS.PROJECT,
     targetId: id,

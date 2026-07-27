@@ -352,28 +352,37 @@ function ProjectModal({
 function ProjectMenu({
   onEdit,
   onDelete,
+  disabled,
 }: {
   onEdit: () => void;
   onDelete: () => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="relative">
       <button
+        type="button"
+        disabled={disabled}
         onClick={(e) => {
           e.stopPropagation();
           setOpen(!open);
         }}
-        className="rounded p-1.5 text-muted opacity-0 transition-all group-hover:opacity-100 hover:bg-background hover:text-foreground"
+        className="rounded p-1.5 text-muted opacity-100 transition-all hover:bg-background hover:text-foreground disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
       >
-        <MoreHorizontal size={16} />
+        {disabled ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : (
+          <MoreHorizontal size={16} />
+        )}
       </button>
-      {open && (
+      {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-border bg-card-bg py-1 shadow-lg">
             <button
+              type="button"
               onClick={() => {
                 setOpen(false);
                 onEdit();
@@ -384,6 +393,7 @@ function ProjectMenu({
               编辑
             </button>
             <button
+              type="button"
               onClick={() => {
                 setOpen(false);
                 onDelete();
@@ -412,9 +422,11 @@ export default function ProjectsPage() {
   const [intakeFilter, setIntakeFilter] = useState("all");
   const [lifecycleFilter, setLifecycleFilter] =
     useState<ProjectLifecycleFilter>("active");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
 
-  const loadProjects = useCallback(() => {
-    setLoading(true);
+  const loadProjects = useCallback((opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setLoadError("");
     const params = new URLSearchParams();
     params.set("lifecycle", lifecycleFilter);
@@ -422,7 +434,7 @@ export default function ProjectsPage() {
       params.set("intakeStatus", intakeFilter);
     }
     const qs = params.toString() ? `?${params}` : "";
-    Promise.all([
+    return Promise.all([
       apiJson<Project[]>(`/api/projects${qs}`),
       apiJson<{ organizations?: OrgOption[] }>("/api/organizations")
         .then((d) => d.organizations ?? []),
@@ -434,16 +446,40 @@ export default function ProjectsPage() {
       .catch(() => {
         setLoadError("加载失败，请检查网络或稍后重试。");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!opts?.silent) setLoading(false);
+      });
   }, [isAdmin, intakeFilter, lifecycleFilter]);
 
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
 
-  const handleDelete = async (id: string) => {
-    await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
-    loadProjects();
+  const handleDelete = async (id: string, name: string) => {
+    if (
+      !confirm(
+        `确定删除项目「${name}」？\n\n项目将被永久删除；其下任务会解除项目关联，不会随项目一起删除。`,
+      )
+    ) {
+      return;
+    }
+    setActionError("");
+    setDeletingId(id);
+    try {
+      const res = await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setActionError(j.error ?? "删除失败，请重试");
+        return;
+      }
+      // 乐观移除，避免「成功但列表看似没变」
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      void loadProjects({ silent: true });
+    } catch {
+      setActionError("删除失败，请检查网络后重试");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -515,6 +551,12 @@ export default function ProjectsPage() {
               {opt.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {actionError && (
+        <div className="rounded-xl border border-danger/30 bg-danger-bg px-4 py-3 text-sm text-danger">
+          {actionError}
         </div>
       )}
 
@@ -610,11 +652,12 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <ProjectMenu
+                  disabled={deletingId === project.id}
                   onEdit={() => {
                     setEditing(project);
                     setShowModal(true);
                   }}
-                  onDelete={() => handleDelete(project.id)}
+                  onDelete={() => handleDelete(project.id, project.name)}
                 />
               </div>
               {project.description && (

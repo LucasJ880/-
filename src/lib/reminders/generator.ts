@@ -21,6 +21,7 @@ import {
   eventReminderKey,
   isReminderRead,
 } from "@/lib/reminders/canonical-key";
+import { suppressedFocusKeysFromReadSet } from "@/lib/reminders/focus-keys";
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ export interface ReminderLayers {
   today: ReminderItem[];
   upcoming: ReminderItem[];
   unreadCount: number;
+  /** 已确认提醒对应的今日聚焦条目 id（跨刷新仍生效） */
+  suppressedFocusKeys: string[];
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -341,6 +344,7 @@ export async function generateReminderLayers(
   }
 
   const unreadCount = immediate.length + today.length + upcoming.length;
+  const suppressedFocusKeys = suppressedFocusKeysFromReadSet(readSet);
 
-  return { immediate, today, upcoming, unreadCount };
+  return { immediate, today, upcoming, unreadCount, suppressedFocusKeys };
 }

@@ -84,6 +84,8 @@ export interface ReminderSummaryData {
   today: ReminderItemData[];
   upcoming: ReminderItemData[];
   unreadCount: number;
+  /** 已确认提醒应对齐隐藏的今日聚焦条目 id */
+  suppressedFocusKeys?: string[];
 }
 
 export interface SimpleTask {
