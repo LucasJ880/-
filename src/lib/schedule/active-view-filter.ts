@@ -33,7 +33,8 @@ export type ScheduleFollowupInput = {
  * Calendar Event 是否进入 Active View 时间轴。
  * - Google/个人且无 projectId/taskId → 保留
  * - 关联 done/cancelled 任务 → 隐藏
- * - 关联非 actionable 项目（含 completed/archived/abandoned）→ 隐藏
+ * - 关联项目必须同时：在当前用户 actionableSet 内 AND 生命周期仍 actionable
+ *   （避免「项目仍 active、用户已被移出」仍污染时间轴）
  */
 export function isScheduleCalendarEventVisible(
   ev: ScheduleCalendarEventInput,
@@ -52,9 +53,10 @@ export function isScheduleCalendarEventVisible(
   }
 
   if (ev.projectId) {
-    if (ev.project) {
-      if (!isActionableProject(ev.project)) return false;
-    } else if (!actionableProjectIds.has(ev.projectId)) {
+    if (!actionableProjectIds.has(ev.projectId)) {
+      return false;
+    }
+    if (ev.project && !isActionableProject(ev.project)) {
       return false;
     }
   }

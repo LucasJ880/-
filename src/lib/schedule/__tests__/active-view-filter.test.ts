@@ -148,6 +148,22 @@ assert.equal(
   true
 );
 
+// 项目仍 active，但当前用户已无权（不在 actionableSet）→ 隐藏
+assert.equal(
+  isScheduleCalendarEventVisible(
+    {
+      source: "qingyan",
+      projectId: "proj-active-but-no-access",
+      project: {
+        status: "active",
+        abandonedAt: null,
+      },
+    },
+    new Set(["proj-other"])
+  ),
+  false
+);
+
 // 8. 无项目的个人/Google 日程继续正常显示
 assert.equal(
   isScheduleCalendarEventVisible(
