@@ -5,7 +5,37 @@
 
 import { deriveWorkQueue } from "../derive-work-queue";
 import { deriveAiHint } from "../derive-ai-hint";
-import type { Stats } from "@/components/dashboard/types";
+import { startOfDayToronto } from "@/lib/time";
+import type { ScheduleEvent, Stats } from "@/components/dashboard/types";
+
+function scheduleTaskDue(
+  id: string,
+  taskId: string,
+  at: Date,
+): ScheduleEvent {
+  const iso = at.toISOString();
+  return {
+    id,
+    title: `日程任务 ${taskId}`,
+    startAt: iso,
+    endAt: iso,
+    allDay: true,
+    type: "task_due",
+    source: "task",
+    priority: "medium",
+    status: "todo",
+    projectId: null,
+    projectName: null,
+    projectColor: null,
+    entityType: "task",
+    entityId: taskId,
+    taskId,
+    description: null,
+    location: null,
+    isEditable: false,
+    isDeletable: false,
+  };
+}
 
 let pass = 0;
 let fail = 0;
@@ -180,6 +210,78 @@ ok(deriveWorkQueue({
   scheduleEvents: [],
   pendingApprovalCount: 0,
 }).length === 0, "stats 空则空队列");
+
+// 7) scheduleEvents：Toronto 今天 00:00 → task_due_today，不是 overdue
+{
+  const todayStart = startOfDayToronto();
+  const q = deriveWorkQueue({
+    stats: baseStats(),
+    reminderSummary: null,
+    scheduleEvents: [scheduleTaskDue("ev-today", "sched-today", todayStart)],
+    pendingApprovalCount: 0,
+  });
+  const card = q.find((i) => i.entityId === "sched-today");
+  ok(!!card && card.kind === "task_due_today", "今天 00:00 → task_due_today");
+  ok(!q.some((i) => i.entityId === "sched-today" && i.kind === "task_overdue"), "今天 00:00 不是 overdue");
+}
+
+// 8) scheduleEvents：Toronto 昨天 23:59 → task_overdue
+{
+  const todayStart = startOfDayToronto();
+  const yesterday2359 = new Date(todayStart.getTime() - 60_000);
+  const q = deriveWorkQueue({
+    stats: baseStats(),
+    reminderSummary: null,
+    scheduleEvents: [scheduleTaskDue("ev-yday", "sched-yday", yesterday2359)],
+    pendingApprovalCount: 0,
+  });
+  const card = q.find((i) => i.entityId === "sched-yday");
+  ok(!!card && card.kind === "task_overdue", "昨天 23:59 → task_overdue");
+  ok(!q.some((i) => i.entityId === "sched-yday" && i.kind === "task_due_today"), "昨天不是 due_today");
+}
+
+// 9) Reminder 不合成 task；仅 followup 入队
+{
+  const q = deriveWorkQueue({
+    stats: baseStats(),
+    reminderSummary: {
+      immediate: [
+        {
+          sourceKey: "fu-1",
+          type: "followup",
+          title: "跟进客户 A",
+          subtitle: "电话",
+          taskId: "real-task-1",
+          projectId: "p1",
+          project: { id: "p1", name: "项目A", color: "#2b6055" },
+        },
+        {
+          sourceKey: "dl-1",
+          type: "deadline",
+          title: "截止提醒",
+          subtitle: "勿重复",
+          taskId: "t-deadline",
+        },
+      ],
+      today: [
+        {
+          sourceKey: "ev-1",
+          type: "event",
+          title: "日程提醒",
+          subtitle: "勿入队",
+        },
+      ],
+      upcoming: [],
+      unreadCount: 3,
+    },
+    scheduleEvents: [],
+    pendingApprovalCount: 0,
+  });
+  const rem = q.filter((i) => i.kind === "reminder_followup");
+  ok(rem.length === 1 && rem[0].id === "reminder:fu-1", "仅 followup 提醒入队");
+  ok(rem[0].task === undefined, "Reminder 不合成 task 对象");
+  ok(!!rem[0].reminder && rem[0].reminder.type === "followup", "保留真实 reminder 字段");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

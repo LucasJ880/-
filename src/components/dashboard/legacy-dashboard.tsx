@@ -105,7 +105,7 @@ export function LegacyDashboard() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />
       </div>
     );
@@ -118,8 +118,10 @@ export function LegacyDashboard() {
     stats.totalProjects <= 1 &&
     stats.projectBreakdown.length <= 1;
 
+  // AppShell 首页为 overflow-hidden；Legacy 长页需自带纵向滚动
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="h-full min-h-0 overflow-y-auto">
+    <div className="mx-auto max-w-7xl space-y-5 px-4 py-4 md:px-6 md:py-5">
       <section className="border-b border-border pb-5">
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0 flex-1">
@@ -304,6 +306,7 @@ export function LegacyDashboard() {
         open={taskDrawerOpen}
         onClose={() => { setTaskDrawerOpen(false); setTaskDrawerId(null); }}
       />
+    </div>
     </div>
   );
 }

@@ -116,19 +116,28 @@ function reminderCard(r: ReminderItemData, rank: number): WorkQueueItem {
     projectId,
     projectName: r.project?.name ?? null,
     projectColor: r.project?.color ?? null,
-    task: r.taskId
+    // 不合成 task：Inspector 仅展示提醒接口真实字段
+  };
+}
+
+function taskFromScheduleEvent(ev: ScheduleEvent): TaskItem | null {
+  if (ev.type !== "task_due" || !ev.taskId) return null;
+  if (ev.status === "done" || ev.status === "cancelled") return null;
+  const dueAt = ev.endAt || ev.startAt;
+  return {
+    id: ev.taskId,
+    title: ev.title,
+    status: ev.status || "todo",
+    priority: ev.priority,
+    dueDate: dueAt,
+    projectId: ev.projectId,
+    project: ev.projectName
       ? {
-          id: r.taskId,
-          title: r.title,
-          status: "todo",
-          priority: "medium",
-          dueDate: null,
-          projectId,
-          project: r.project
-            ? { id: r.project.id, name: r.project.name, color: r.project.color }
-            : null,
+          id: ev.projectId ?? undefined,
+          name: ev.projectName,
+          color: ev.projectColor || "#6e7d76",
         }
-      : undefined,
+      : null,
   };
 }
 
@@ -179,34 +188,15 @@ export function deriveWorkQueue(input: DeriveWorkQueueInput): WorkQueueItem[] {
       return da - db;
     });
 
-  // 日程里的逾期 task_due（真实对象）
+  // 日程 task_due：与普通任务统一用 Toronto 日差判断（禁止 Date.now 墙钟误判）
+  const scheduleTasks: TaskItem[] = [];
   for (const ev of scheduleEvents) {
-    if (ev.type !== "task_due" || !ev.taskId) continue;
-    if (seen.has(`task:${ev.taskId}`)) continue;
-    const end = new Date(ev.endAt || ev.startAt).getTime();
-    if (end >= Date.now()) continue;
-    if (ev.status === "done" || ev.status === "cancelled") continue;
-    push(
-      taskCard(
-        {
-          id: ev.taskId,
-          title: ev.title,
-          status: ev.status || "todo",
-          priority: ev.priority,
-          dueDate: ev.endAt || ev.startAt,
-          projectId: ev.projectId,
-          project: ev.projectName
-            ? {
-                id: ev.projectId ?? undefined,
-                name: ev.projectName,
-                color: ev.projectColor || "#6e7d76",
-              }
-            : null,
-        },
-        "task_overdue",
-        10,
-      ),
-    );
+    const t = taskFromScheduleEvent(ev);
+    if (t) scheduleTasks.push(t);
+  }
+
+  for (const t of scheduleTasks.filter(isOverdueTask)) {
+    push(taskCard(t, "task_overdue", 10));
   }
 
   for (const t of overdueTasks) {
@@ -252,9 +242,13 @@ export function deriveWorkQueue(input: DeriveWorkQueueInput): WorkQueueItem[] {
     );
   }
 
-  const dueToday = knownTasks
-    .filter(isDueTodayTask)
-    .sort((a, b) => (a.priority === "urgent" ? -1 : b.priority === "urgent" ? 1 : 0));
+  const dueTodayMap = new Map<string, TaskItem>();
+  for (const t of [...knownTasks, ...scheduleTasks].filter(isDueTodayTask)) {
+    if (!dueTodayMap.has(t.id)) dueTodayMap.set(t.id, t);
+  }
+  const dueToday = [...dueTodayMap.values()].sort((a, b) =>
+    a.priority === "urgent" ? -1 : b.priority === "urgent" ? 1 : 0,
+  );
   for (const t of dueToday) {
     push(taskCard(t, "task_due_today", 30));
   }
@@ -280,12 +274,12 @@ export function deriveWorkQueue(input: DeriveWorkQueueInput): WorkQueueItem[] {
     if (progress) push(projectRiskCard(p, progress, 40));
   }
 
-  // 客户待跟进：仅使用提醒接口返回的真实对象（immediate / today）
+  // 客户待跟进：仅 type === followup 的真实提醒（避免 deadline/event 重复入队）
   if (reminderSummary) {
     const pool = [
       ...reminderSummary.immediate,
       ...reminderSummary.today,
-    ];
+    ].filter((r) => r.type === "followup");
     for (const r of pool) {
       push(reminderCard(r, 50));
     }
