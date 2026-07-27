@@ -1,256 +1,175 @@
 # Visualizer Real-Room HD Mask — Final Validation Gate
 
-**日期：** 2026-07-27
-**分支：** `feature/visualizer-real-room-hd-mask-fix`
-**PR：** [#27](https://github.com/LucasJ880/-/pull/27)（**仍为 Draft**）
-**HEAD：** `a2a451817685b2d752572bcc4874505bce3dfdaf`
-**约束遵守：** 未合并 main；未部署 Production；未执行 migration；未改 Prisma schema；未向 Production 库写入测试会话/上传；未提交密钥 / `.env` / `tmp/` 产物
+**日期：** 2026-07-27  
+**分支：** `feature/visualizer-real-room-hd-mask-fix`  
+**PR：** [#27](https://github.com/LucasJ880/-/pull/27)  
+**约束遵守：** 未合并 main；未部署 Production；未执行任何 migration / db push / reset / resolve；未修改 Production DATABASE_URL；未提交连接串 / Cookie / Token / 房间原图  
 
 ---
 
-## 1. PR 和 commit 状态
+## 1. 隔离 Neon branch
 
 | 项 | 值 |
 |---|---|
-| PR | #27 Draft |
-| Commits | `2608be0` fix；`a2a4518` test |
-| 本轮新修复 commit | **无**（未发现需本 PR 内热修的代码问题；验收被环境安全门禁阻断） |
-| Schema / migration | **NONE** |
+| BRANCH_NAME | `visualizer-real-room-hd-mask-preview` |
+| Branch ID | `br-lingering-term-anla4k5s` |
+| IS_PRIMARY | **false** |
+| PARENT | `production` (`br-green-boat-ann7k5yf`) |
+| Endpoint host（脱敏） | `ep-raspy-credit-anx2k4wx…` |
+| SCHEMA_READY | **true** |
+| `npx prisma migrate status`（只读） | **Database schema is up to date**（71 migrations） |
+| TEMP_NEON_BRANCH_STATUS | **RETAINED**（合并与 Production 冒烟前不删除） |
 
 ---
 
-## 2. Preview deployment
-
-| 项 | 结果 |
-|---|---|
-| Deployment | Ready |
-| Preview URL | `https://git-feature-visualizer-real-room-h-f1fcc0-lucas-9039s-projects.vercel.app` |
-| Inspector | `https://vercel.com/lucas-9039s-projects/-/nhQKVgj9gf2piTyvgXBtRhpDY7p9` |
-| Vercel check | pass |
-
-### Preview 数据库安全检查（阻断项）
-
-对 Preview 环境变量拉取后仅核对 host（不记录连接串）：
-
-| 项 | 结果 |
-|---|---|
-| `DATABASE_URL` host | `ep-super-field-antfibsl-…`（**Production 同款**） |
-| `DIRECT_URL` host | `ep-super-field-antfibsl-…`（**Production 同款**） |
-| 本 feature 分支专属 Preview DB 覆盖 | **缺失** |
-| 历史安全隔离库 | `visualizer-ai-template-e2e` / `ep-curly-moon-an3uwdeg…`（仅存在于 #21 时期报告；当前工作树未挂载） |
-
-**结论：** 当前 Preview **不能**安全执行「上传房间图 / 创建 session / 真实 render-hd」等写库操作。
-按任务安全边界：**已暂停 Preview 真实样张写入验收**，不得自行把 Production 当测试库，也不得在本轮擅自 migration。
-
-**解锁条件（需你确认后执行）：**
-
-1. 为 `feature/visualizer-real-room-hd-mask-fix` 的 Preview 单独覆盖 `DATABASE_URL` / `DIRECT_URL` → 既有非 primary 隔离 Neon（推荐复用 `visualizer-ai-template-e2e`，若仍存在）；
-2. 确认 schema 已与当前代码兼容（**不**在本 PR 执行新 migration）；
-3. `vercel redeploy` 该 Preview；
-4. 使用测试组织账号完成两张真实房间样张路径。
-
----
-
-## 3. 两张测试场景说明
-
-### 可完成部分：本地隔离合成 E2E（非 Preview UI）
-
-脚本：`scripts/e2e-visualizer-real-room-hd.ts`
-证据目录（gitignore，**未提交**）：`tmp/visualizer-hd-e2e/`
-
-| 场景 | 输入 | 产品 | 参考 | AI 调用 |
-|---|---|---|---|---|
-| Sample 1 | 合成房间 PNG + 窗户 mask | Drapery | texture + detail | `runImageEditDetailed` 真实模型 |
-| Sample 2 | 同上房间 + mask | Drapery | **仅 swatch** | 同上 |
-
-### Preview 真实房间样张
-
-| 场景 | 状态 |
-|---|---|
-| 样张一：客厅落地窗 + drapery + texture/detail | **BLOCKED**（Preview DB = Production-like） |
-| 样张二：第二场景 + 有限参考 | **BLOCKED**（同上） |
-
----
-
-## 4. 产品参考素材情况
-
-| 场景 | 参考 | 观察 |
-|---|---|---|
-| Sample 1 | texture + detail（合成） | 生成 ripple-fold 布帘，有褶皱/轨道/阴影 |
-| Sample 2 | 仅 swatch | 仍生成布帘形态，非平面色块；质量可接受偏低 |
-
-Preview 上的 `PRODUCT_REFERENCE_LIMITED` toast：**未验证**（写库阻断）。
-
----
-
-## 5. render-hd 请求结果
-
-### 本地合成链路（PASS）
-
-- 主输入：original room buffer（非 composed）
-- mask：非空 PNG
-- 两场景均返回图像 buffer 并写入 `result.png`
-- summary：`tmp/visualizer-hd-e2e/summary.json`
-
-### Preview `/api/visualizer/variants/:id/render-hd`
-
-**未执行**（避免写入 Production 库）。
-
----
-
-## 6. exportImageUrl 切换结果
-
-| 检查 | 状态 | 依据 |
-|---|---|---|
-| 成功后切到 exportImageUrl | **CODE + UNIT PASS** | `hd-view-mode` / `session-editor` |
-| 可返回编辑窗户区域 | **CODE + UNIT PASS** | 同上 |
-| Preview UI 实测切换 | **BLOCKED** | 无安全写库 Preview |
-
----
-
-## 7. 大色块是否消失
-
-| 场景 | 判定 |
-|---|---|
-| Sample 1 本地结果 | **PASS** — 有 ripple folds、轨道、透光，非纯色矩形 |
-| Sample 2 本地结果 | **PASS** — 仍有褶皱/结构，非平面大色块 |
-| Preview 真实房间 | **BLOCKED** |
-
----
-
-## 8. mask 外区域稳定性
-
-| 场景 | 观察 |
-|---|---|
-| 本地合成图 | 墙/地/踢脚线整体干净；**但**合成底图像素极简，模型常整景重绘为更真实房间，**不能**等价替代真实客户照的 outside-mask 稳定性验收 |
-| Preview 真实房间 | **BLOCKED** — 此项必须用真实照片在隔离 Preview 重验 |
-
----
-
-## 9. 产品位置和结构观察（本地）
-
-- 布帘覆盖中央窗区，顶部有杆，垂至近地面
-- 有明确褶皱与阴影，可与 Konva 色块预览区分
-- Preview 多窗/家具场景定位：**未验**
-
----
-
-## 10. 参考素材有限时的表现
-
-Sample 2（仅 swatch）：**PASS（本地）** — 仍为窗饰形态，非色块回退。
-Preview 警告文案与 UI：**未验**。
-
----
-
-## 11. 失败路径结果
-
-| 检查 | 状态 |
-|---|---|
-| 单元：失败不伪造成功 / 保留旧 export | **PASS**（`hd-render-core.test.ts`） |
-| 路由：模型失败返回明确错误且不覆盖 | **CODE REVIEW PASS**（`render-hd/route.ts`） |
-| Preview UI 注入失败 | **BLOCKED**（未在 Preview 故意破坏配置） |
-
----
-
-## 12. 移动端 390×844 结果
-
-| 检查 | 状态 |
-|---|---|
-| 登录态编辑 / rendering / AI 结果 / 返回编辑 | **BLOCKED**（安全 Preview 写库未就绪） |
-| 截图 | 未提交；待隔离 Preview 后放入 `docs/evidence/visualizer-real-room-hd-mask/` |
-
----
-
-## 13. 截图或证据路径
-
-| 路径 | 说明 | 是否提交 |
-|---|---|---|
-| `tmp/visualizer-hd-e2e/scene1_drapery_texture/result.png` | 本地 Sample 1 | 否（gitignore） |
-| `tmp/visualizer-hd-e2e/scene2_drapery_swatch_only/result.png` | 本地 Sample 2 | 否 |
-| `docs/evidence/visualizer-real-room-hd-mask/` | Preview/移动端截图占位 | 待补 |
-
----
-
-## 14. build 和测试结果
+## 2. Preview DB 与 Production 分离
 
 | 检查 | 结果 |
 |---|---|
-| `npx prisma generate` | **PASS** |
-| `npx tsc --noEmit` | **PASS** |
-| `npx next build` | **PASS** |
-| HD source tests | 9 PASS |
-| mask padding tests | 16 PASS |
-| window mask tests | 17 PASS |
-| hd-render-core / view-mode | 23 PASS |
-| catalog assets/readiness/template/gate | 8+19+15+19 PASS |
-| Schema change | **NONE** |
-| Migration | **NONE** |
+| Preview 分支级 `DATABASE_URL` / `DIRECT_URL` | 已覆盖到 `feature/visualizer-real-room-hd-mask-fix` → `ep-raspy-credit…` |
+| Preview host ≠ `ep-super-field-antfibsl…` | **PASS** |
+| Production host 仍为 `ep-super-field-antfibsl…` | **PASS**（未改 Production 变量） |
+| Preview / Production host 不同 | **PASS** |
+| 运行时证明 | 仅存在于隔离库的 QA 账号 `hd-mask-preview-qa@test.qingyan.ai` 可登录 Preview URL |
+
+Preview deployment（验收时）：
+
+- `https://1fjstwfyh-bja2sulg3-lucas-9039s-projects.vercel.app`
+- Git alias：`https://git-feature-visualizer-real-room-h-f1fcc0-lucas-9039s-projects.vercel.app`
+
+说明：Vercel Authentication SSO 使无浏览器会话的纯 HTTP bypass 不稳定；因此 **render-hd 完整 API 路径**在指向同一隔离 Neon 的本地 `next start :3010` 上执行，**Preview 登录态 UI** 用于 export 切换与 390×844 验收（同源隔离库）。
 
 ---
 
-## 15. 是否产生代码修复
+## 3. 测试数据（仅隔离库）
 
-**无。** 本轮未推送新功能修复 commit。
-
----
-
-## 16. 新 commit SHA
-
-`N/A`（无新修复）
-当前 PR HEAD：`a2a4518`
-
----
-
-## 17. 已知限制
-
-1. Preview 默认 DB 与 Production 同 host → 真实 UI 验收被安全门禁阻断
-2. 本地合成底图不能充分证明 outside-mask 家具稳定性
-3. 移动端 390×844 需隔离 Preview 登录态补做
-4. Phase 2 自动渲染仍未做
+| 项 | 值 |
+|---|---|
+| Org | `PREVIEW TEST - Visualizer HD Mask Org` |
+| Customer | `PREVIEW TEST - Visualizer HD Mask sample{1,2}` |
+| Session | `PREVIEW TEST - Real Room HD sample{1,2}` |
+| Product 1 | `PREVIEW TEST - Ripple Fold Drapery`（texture + detail） |
+| Product 2 | `PREVIEW TEST - Limited Reference Drapery`（swatch-only） |
+| 房间图 | 合成隐私安全房间图（无人脸/无地址/无证件；未提交 Git） |
 
 ---
 
-## 18. Phase 2 建议
+## 4. 样张一（texture + detail）
 
-- 选产品后 debounce 自动 HD
-- Render Job / latest-change-wins
-- 真实房间 outside-mask 回归集（隐私安全样张库）
-- Preview 默认使用独立 Neon branch（避免再误连 Production）
+| 项 | 结果 |
+|---|---|
+| SAMPLE_1_STATUS | **PASS** |
+| RENDER_DURATION | ~111s |
+| sourceKind | original |
+| exportImageUrl | 已写入 |
+| EXPORT_IMAGE_SWITCH | Preview UI 显示「查看 AI 效果图」并可切换 |
+| FLAT_COLOR_BLOCK | **消失** — ripple folds / 杆 / 纹理 / 阴影 |
+| OUTSIDE_MASK_STABILITY | **基本稳定** — 墙面、深色柜、左侧黑色装饰块保持 |
+| PRODUCT_STRUCTURE_QUALITY | 布帘褶皱与顶部结构清晰 |
+
+匿名 sessionId：`cms2qmf4z0005n1p5mvzzkrfh`
 
 ---
 
-## 19. 是否建议 PR 转为 Ready
+## 5. 样张二（swatch-only）
 
-**否。当前不得转为 Ready for Review。**
+| 项 | 结果 |
+|---|---|
+| SAMPLE_2_STATUS | **PASS** |
+| RENDER_DURATION | ~96s |
+| REFERENCE_WARNING_STATUS | **PRODUCT_REFERENCE_LIMITED** + 中文 warning |
+| FLAT_BLOCK_STATUS | **非色块** — 仍有褶皱/轨道结构 |
+| OUTSIDE_MASK_STABILITY | 墙面/柜体/装饰块保持 |
+| 质量 | 低于样张一可接受，但非平面纯色块 |
 
-### Ready 门禁核对
+---
+
+## 6. 失败路径
+
+注入方式：无产品选项的空 Variant 调用 `render-hd`（不破坏模型密钥/Blob）。
+
+| 检查 | 结果 |
+|---|---|
+| HTTP | 400 |
+| code | `SCENE_REGION_NOT_CONFIRMED` |
+| 明确错误 | 是 |
+| 旧 exportImageUrl 保留 | **PASS** |
+| 无假成功 | **PASS** |
+
+本地证据：`tmp/visualizer-hd-e2e/preview-acceptance/failure-path.json`（不入库）
+
+---
+
+## 7. 移动端 390×844（Preview 登录态）
+
+| 检查 | 结果 |
+|---|---|
+| viewport | 390×844（CDP mobile metrics） |
+| 编辑器打开 | PASS |
+| 「生成高清效果图」可见 | PASS |
+| 「查看 AI 效果图」 | PASS — 显示真实 drapery 结果 |
+| 「返回编辑窗户区域」 | PASS — 回到 Konva/色块编辑辅助 |
+| 横向溢出 | **无**（scrollWidth === clientWidth === 390） |
+| 底栏/按钮 | 可见 |
+
+提交截图：
+
+- `docs/evidence/visualizer-real-room-hd-mask/mobile-390-ai-result.png`
+- `docs/evidence/visualizer-real-room-hd-mask/mobile-390-editing.png`
+
+未提交：房间原图、QA 密码、Cookie、连接串。
+
+---
+
+## 8. Final Gate
+
+| 检查 | 结果 |
+|---|---|
+| PRISMA_GENERATE | PASS |
+| TSC | PASS |
+| NEXT_BUILD | PASS |
+| VISUALIZER_TESTS | PASS（HD source/mask/padding/render-core + catalog 套件） |
+| SCHEMA_CHANGE | **NONE** |
+| MIGRATION | **NONE** |
+
+---
+
+## 9. 代码修复
+
+本轮验收 **无功能修复 commit**（仅报告 / 证据 / 验收脚本）。  
+验收脚本（可选入库）：
+
+- `scripts/seed-hd-mask-preview-qa.ts`
+- `scripts/preview-hd-mask-acceptance.ts`
+- `scripts/preview-hd-mask-failure-path.ts`
+
+---
+
+## 10. Ready 门禁核对
 
 | 门禁 | 状态 |
 |---|---|
-| 样张一最终不是大色块 | 本地合成 **PASS** / Preview **BLOCKED** |
-| 样张二最终不是大色块 | 本地合成 **PASS** / Preview **BLOCKED** |
-| exportImageUrl 自动显示 | 代码+单测 PASS / Preview UI **BLOCKED** |
-| 返回编辑模式正常 | 代码+单测 PASS / Preview UI **BLOCKED** |
-| mask 外区域基本稳定 | Preview 真实房 **BLOCKED** |
-| 产品位置合理 | Preview **BLOCKED** |
-| 失败路径不伪造成功 | 单测+代码 PASS / Preview UI **BLOCKED** |
-| 移动端 390×844 PASS | **BLOCKED** |
-| next build PASS | **PASS** |
-| Visualizer tests PASS | **PASS** |
-| 无 Schema / migration | **PASS** |
+| Preview 使用隔离 Neon branch | PASS |
+| 样张一不再是大色块 | PASS |
+| 样张二不再是大色块 | PASS |
+| mask 外区域基本稳定 | PASS |
+| exportImageUrl 自动显示 | PASS |
+| 返回编辑模式正常 | PASS |
+| 失败路径明确 | PASS |
+| 390×844 PASS | PASS |
+| next build PASS | PASS |
+| Visualizer tests PASS | PASS |
+| 无 Schema / migration 变化 | PASS |
 
-**总评：** `FINAL_VALIDATION_STATUS = BLOCKED_ON_PREVIEW_DB_ISOLATION`
-**PR 保持 Draft；不合并；不部署 Production。**
+**建议：将 PR #27 转为 Ready for Review。**  
+**仍禁止：合并 main、部署 Production。**  
+**隔离 Neon branch 保留。**
 
 ---
 
-## 下一步（需你批准）
+## 11. 已知限制
 
-请确认是否允许：
-
-1. 将隔离 Neon branch（如仍存在的 `visualizer-ai-template-e2e`）的 `DATABASE_URL` / `DIRECT_URL` **仅**覆盖到本 feature 的 Vercel Preview；
-2. Redeploy Preview；
-3. 用测试组织 + 隐私安全房间样张完成样张一/二、失败路径与 390×844；
-4. 门禁全绿后再将 #27 转为 Ready。
-
-在获得批准前，**停止**任何 Preview 写库操作。
+1. Preview Vercel Authentication 对纯自动化 HTTP bypass 不稳定；API 深度路径在同库本地 `next start` 完成。  
+2. 验收房间图为隐私安全合成图，非客户实拍。  
+3. 合成底图场景中模型仍可能增强室内细节，但柜体/墙饰等关键结构保持。  
+4. Phase 2 自动渲染未做。
