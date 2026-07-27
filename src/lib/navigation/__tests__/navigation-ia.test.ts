@@ -123,7 +123,7 @@ ok(
 
 const treeOps = resolveNavigationTree(
   NAVIGATION_REGISTRY,
-  ctx({ pathname: "/operations/center" }),
+  ctx({ pathname: "/operations/center", platformRole: "boss" }),
 );
 ok(
   treeOps.some((i) => i.key === "ops-center" && i.active),
@@ -257,6 +257,53 @@ ok(
   "企业经营与业务运营分组标题不合并",
 );
 ok(NAV_SECTION_LABEL.CAPABILITIES === "AI 能力", "中台分组标题=AI 能力");
+
+// —— 角色层级可见性（boss / operations / sales）——
+const salesNav = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({ platformRole: "sales" }),
+);
+ok(
+  !salesNav.some((i) => i.group === "OPERATIONS" || i.group === "CAPABILITIES"),
+  "销售不看企业经营与 AI 能力",
+);
+ok(!salesNav.some((i) => i.group === "GROWTH"), "销售不看品牌增长");
+ok(
+  !salesNav.some(
+    (i) => i.key === "mgmt-knowledge" || i.key === "mgmt-wechat",
+  ),
+  "销售不看企业知识与微信集成",
+);
+ok(
+  salesNav.some((i) => i.href === "/sales") &&
+    salesNav.some((i) => i.href === "/sales/quote-sheet"),
+  "销售保留业务完成入口",
+);
+
+const opsNav = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({ platformRole: "operations" }),
+);
+ok(
+  !opsNav.some((i) => i.group === "OPERATIONS" || i.group === "CAPABILITIES"),
+  "运营不看企业经营与 AI 能力",
+);
+ok(opsNav.some((i) => i.group === "GROWTH"), "运营保留品牌增长");
+ok(
+  opsNav.some((i) => i.group === "BUSINESS"),
+  "运营保留业务运营",
+);
+
+const bossNav = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({
+    platformRole: "boss",
+    orgRole: "org_admin",
+  }),
+);
+ok(bossNav.some((i) => i.group === "OPERATIONS"), "老板可见企业经营");
+ok(bossNav.some((i) => i.group === "CAPABILITIES"), "老板可见 AI 能力");
+ok(bossNav.some((i) => i.group === "GROWTH"), "老板可见品牌增长");
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -4,16 +4,26 @@
 
 // --- 平台级角色 ---
 
-export const PLATFORM_ROLES = ["admin", "manager", "sales", "trade", "user"] as const;
+export const PLATFORM_ROLES = [
+  "admin",
+  "boss",
+  "manager",
+  "operations",
+  "sales",
+  "trade",
+  "user",
+] as const;
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
 export const PLATFORM_ROLE_LABELS: Record<string, string> = {
-  admin: "管理员",
+  admin: "平台管理员",
+  boss: "老板",
   manager: "总经理",
+  operations: "运营",
   sales: "销售",
   trade: "外贸助手",
   user: "普通用户",
-  super_admin: "管理员（旧）",
+  super_admin: "超级管理员",
 };
 
 // --- 组织级角色 ---
@@ -87,11 +97,16 @@ export function isPlatformSuperAdmin(role: string | null | undefined): boolean {
 
 /**
  * 平台用户管理（/api/users、全局软删）。
- * Security-1：仅平台 admin / super_admin；manager 不再拥有跨组织用户列表权限。
- * 企业内成员管理走 /organizations/[orgId]/members。
+ * Security-1：平台 admin / super_admin；老板 boss 可管账号（企业最高业务权限）。
+ * manager 不再拥有跨组织用户列表；企业内成员管理走 /organizations/[orgId]/members。
  */
 export function canManageUsers(role: string | null | undefined): boolean {
-  return isAdmin(role ?? "");
+  return isAdmin(role ?? "") || role === "boss";
+}
+
+/** 老板：super_admin 之下的企业最高业务权限 */
+export function isBoss(role: string | null | undefined): boolean {
+  return role === "boss";
 }
 
 /**

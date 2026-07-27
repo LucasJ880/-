@@ -47,9 +47,22 @@ export default function Dashboard() {
     ? `${activeOrg.name} · 经营总览`
     : "经营总览";
   const userRole = user?.role || "user";
-  const showProjectModules = checkIsAdmin(userRole) || userRole === "user";
-  const showSalesModules = checkIsAdmin(userRole) || userRole === "sales";
-  const showTradeModules = checkIsAdmin(userRole) || userRole === "trade";
+  const showProjectModules =
+    checkIsAdmin(userRole) ||
+    userRole === "boss" ||
+    userRole === "manager" ||
+    userRole === "operations" ||
+    userRole === "user";
+  const showSalesModules =
+    checkIsAdmin(userRole) ||
+    userRole === "boss" ||
+    userRole === "manager" ||
+    userRole === "sales";
+  const showTradeModules =
+    checkIsAdmin(userRole) ||
+    userRole === "boss" ||
+    userRole === "manager" ||
+    userRole === "trade";
   const {
     stats,
     loading,

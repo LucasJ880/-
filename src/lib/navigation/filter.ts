@@ -3,6 +3,10 @@
  */
 
 import { navHrefAllowedByModules } from "@/lib/tenancy/modules";
+import {
+  isNavGroupHiddenForRole,
+  isNavItemHiddenForRole,
+} from "@/lib/rbac/nav-role-policy";
 import { pathMatches, isCapabilitiesPath } from "./active";
 import type {
   NavigationFilterContext,
@@ -90,6 +94,8 @@ export function isNavItemVisible(
   ) {
     return false;
   }
+  if (isNavGroupHiddenForRole(item.group, ctx.platformRole)) return false;
+  if (isNavItemHiddenForRole(item.key, ctx.platformRole)) return false;
   if (!platformRoleOk(item, ctx)) return false;
   if (!orgRoleOk(item, ctx)) return false;
   if (!capabilitiesOk(item, ctx)) return false;

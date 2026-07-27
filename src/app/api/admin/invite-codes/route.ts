@@ -35,7 +35,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const validRoles = ["admin", "sales", "trade", "user"];
+  const validRoles = [
+    "admin",
+    "boss",
+    "manager",
+    "operations",
+    "sales",
+    "trade",
+    "user",
+  ];
   if (!validRoles.includes(role)) {
     return NextResponse.json(
       { error: `无效角色，可选: ${validRoles.join(", ")}` },

@@ -36,6 +36,13 @@ import {
   MessageCircle,
 } from "lucide-react";
 import type { NavigationGroup, NavigationItem } from "./types";
+import {
+  NAV_ROLES_EXEC,
+  NAV_ROLES_OPERATIONS,
+  NAV_ROLES_PROJECTS,
+  NAV_ROLES_SALES,
+  NAV_ROLES_TRADE,
+} from "@/lib/rbac/nav-role-policy";
 
 export const NAV_GROUP_META: Record<
   NavigationGroup,
@@ -115,7 +122,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: CalendarDays,
     group: "WORK",
     moduleKey: "sales",
-    requiredPlatformRoles: ["admin", "super_admin", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
     displayOrder: 50,
   },
   {
@@ -128,7 +135,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 60,
   },
 
-  // ── 企业经营 ──
+  // ── 企业经营（销售/运营/外贸由 nav-role-policy 整组隐藏） ──
   {
     key: "ops-center",
     label: "经营中心",
@@ -138,11 +145,12 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "OPERATIONS",
     moduleKey: "operations",
     requireMembership: true,
+    requiredPlatformRoles: [...NAV_ROLES_EXEC],
     matchPaths: ["/operations/center"],
     displayOrder: 10,
   },
 
-  // ── 企业能力中台（可折叠） ──
+  // ── 企业能力中台 / AI 能力（销售/运营/外贸整组隐藏） ──
   {
     key: "capabilities",
     label: "企业能力中台",
@@ -153,6 +161,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     collapsible: true,
     requireMembership: true,
     capabilitiesAccess: "any_member",
+    requiredPlatformRoles: [...NAV_ROLES_EXEC, "user"],
     matchPaths: ["/capabilities"],
     displayOrder: 10,
     children: [
@@ -226,7 +235,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Handshake,
     group: "BUSINESS",
     moduleKey: "sales",
-    requiredPlatformRoles: ["admin", "super_admin", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
     displayOrder: 10,
   },
   {
@@ -237,7 +246,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: FileText,
     group: "BUSINESS",
     moduleKey: "sales",
-    requiredPlatformRoles: ["admin", "super_admin", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
     displayOrder: 11,
   },
   {
@@ -248,7 +257,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: ScrollText,
     group: "BUSINESS",
     moduleKey: "sales",
-    requiredPlatformRoles: ["admin", "super_admin", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
     displayOrder: 12,
   },
   {
@@ -259,7 +268,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: BarChart3,
     group: "BUSINESS",
     moduleKey: "sales",
-    requiredPlatformRoles: ["admin", "super_admin", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
     displayOrder: 13,
   },
   {
@@ -270,7 +279,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: ClipboardList,
     group: "BUSINESS",
     moduleKey: ["sales", "operations"],
-    requiredPlatformRoles: ["admin", "super_admin", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_SALES, "operations"],
     badgeKey: "sidebar_badge_industry",
     displayOrder: 14,
   },
@@ -282,7 +291,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Package,
     group: "BUSINESS",
     moduleKey: ["sales", "supply_chain"],
-    requiredPlatformRoles: ["admin", "super_admin"],
+    requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
     displayOrder: 15,
   },
 
@@ -295,7 +304,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Handshake,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: ["admin", "super_admin", "trade"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
     displayOrder: 20,
   },
   {
@@ -306,7 +315,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Users,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: ["admin", "super_admin", "trade"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
     displayOrder: 21,
   },
   {
@@ -317,7 +326,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Radar,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: ["admin", "super_admin", "trade"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
     displayOrder: 22,
   },
   {
@@ -328,7 +337,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: PackageCheck,
     group: "BUSINESS",
     moduleKey: ["trade", "supply_chain"],
-    requiredPlatformRoles: ["admin", "super_admin", "trade"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE, "operations"],
     displayOrder: 23,
   },
   {
@@ -339,7 +348,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Upload,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: ["admin", "super_admin", "trade"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
     displayOrder: 24,
   },
   {
@@ -350,7 +359,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Eye,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: ["admin", "super_admin", "trade"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE, "operations"],
     displayOrder: 25,
   },
 
@@ -363,7 +372,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: FolderKanban,
     group: "BUSINESS",
     moduleKey: ["bids", "projects"],
-    requiredPlatformRoles: ["admin", "super_admin", "user", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
     displayOrder: 30,
   },
   {
@@ -374,7 +383,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Lightbulb,
     group: "BUSINESS",
     moduleKey: ["bids", "projects"],
-    requiredPlatformRoles: ["admin", "super_admin", "user", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
     displayOrder: 31,
   },
   {
@@ -385,11 +394,11 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Package2,
     group: "BUSINESS",
     moduleKey: ["bids", "supply_chain", "projects"],
-    requiredPlatformRoles: ["admin", "super_admin", "user", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
     displayOrder: 32,
   },
 
-  // ── 品牌增长 ──
+  // ── 品牌增长（销售整组隐藏；运营保留） ──
   {
     key: "growth-hub",
     label: "品牌中心",
@@ -399,6 +408,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "GROWTH",
     moduleKey: ["marketing", "operations"],
     requireMembership: true,
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS],
     displayOrder: 10,
   },
   {
@@ -409,7 +419,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Megaphone,
     group: "GROWTH",
     moduleKey: ["operations", "marketing"],
-    requiredPlatformRoles: ["admin", "super_admin", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS],
     displayOrder: 20,
   },
   {
@@ -420,6 +430,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Layers,
     group: "GROWTH",
     moduleKey: ["product_content", "trade", "marketing"],
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "trade"],
     displayOrder: 30,
   },
   {
@@ -430,7 +441,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Radar,
     group: "GROWTH",
     moduleKey: ["operations", "marketing"],
-    requiredPlatformRoles: ["admin", "super_admin", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS],
     displayOrder: 40,
   },
   {
@@ -440,7 +451,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     href: "/reports",
     icon: FileText,
     group: "GROWTH",
-    requiredPlatformRoles: ["admin", "super_admin", "user", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "user"],
     displayOrder: 50,
   },
 
@@ -463,6 +474,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: BookOpen,
     group: "MANAGEMENT",
     requireMembership: true,
+    // 销售不展示（nav-role-policy + 角色白名单）
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "trade", "user"],
     displayOrder: 20,
   },
   {
@@ -483,6 +496,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     href: "/wechat",
     icon: MessageCircle,
     group: "MANAGEMENT",
+    requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "trade", "user"],
     displayOrder: 40,
   },
   {
@@ -503,7 +517,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     href: "/admin/users",
     icon: Users,
     group: "PLATFORM",
-    requiredPlatformRoles: ["admin", "super_admin", "manager"],
+    requiredPlatformRoles: [...NAV_ROLES_EXEC],
     displayOrder: 10,
   },
   {

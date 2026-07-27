@@ -39,11 +39,11 @@ export function canViewAdminPages(platformRole: string | null | undefined): bool
 }
 
 /**
- * 用户账号管理（用户管理页 / 删除账号）— admin + 总经理(manager)。
+ * 用户账号管理（用户管理页 / 删除账号）— 平台 admin + 老板 boss。
  * SYNC: 与 src/lib/rbac/roles.ts canManageUsers 保持一致。
  */
 export function canManageUsers(platformRole: string | null | undefined): boolean {
-  return isAdmin(platformRole) || platformRole === "manager";
+  return isAdmin(platformRole) || platformRole === "boss";
 }
 
 /**
@@ -58,28 +58,28 @@ export function canAccessModule(role: string | null | undefined, modulePath: str
     "/":              undefined,
     "/notifications": undefined,
     "/tasks":         undefined,
-    "/sales":           ["admin", "sales"],
-    "/sales/quote-sheet": ["admin", "sales"],
-    "/sales/quotes":    ["admin", "sales"],
-    "/sales/calendar":  ["admin", "sales"],
-    "/sales/measure":   ["admin", "sales"],
-    "/settings/email":  ["admin", "sales"],
-    "/inventory":       ["admin"],
-    "/sales/cockpit":   ["admin", "sales"],
-    "/sales/knowledge": ["admin", "sales"],
-    "/blinds-orders":   ["admin", "sales"],
-    "/trade":           ["admin", "trade"],
-    "/trade/knowledge": ["admin", "trade"],
-    "/organizations":   ["admin", "user"],
-    "/projects":        ["admin", "user"],
-    "/suppliers":       ["admin", "user"],
+    "/sales":           ["admin", "boss", "manager", "sales"],
+    "/sales/quote-sheet": ["admin", "boss", "manager", "sales"],
+    "/sales/quotes":    ["admin", "boss", "manager", "sales"],
+    "/sales/calendar":  ["admin", "boss", "manager", "sales"],
+    "/sales/measure":   ["admin", "boss", "manager", "sales"],
+    "/settings/email":  ["admin", "boss", "manager", "sales"],
+    "/inventory":       ["admin", "boss", "manager", "operations"],
+    "/sales/cockpit":   ["admin", "boss", "manager", "sales"],
+    "/sales/knowledge": ["admin", "boss", "manager", "sales"],
+    "/blinds-orders":   ["admin", "boss", "manager", "sales", "operations"],
+    "/trade":           ["admin", "boss", "manager", "trade"],
+    "/trade/knowledge": ["admin", "boss", "manager", "trade"],
+    "/organizations":   ["admin", "boss", "manager", "operations", "user"],
+    "/projects":        ["admin", "boss", "manager", "operations", "user"],
+    "/suppliers":       ["admin", "boss", "manager", "operations", "user"],
     "/assistant":       undefined,
-    "/wechat":          undefined,
+    "/wechat":          ["admin", "boss", "manager", "operations", "trade", "user"],
     "/agent-trace":     undefined,
     "/ai-activity":     undefined,
-    "/reports":         ["admin", "user"],
-    "/settings/wechat": undefined,
-    "/admin":           ["admin"],
+    "/reports":         ["admin", "boss", "manager", "operations", "user"],
+    "/settings/wechat": ["admin", "boss", "manager", "operations"],
+    "/admin":           ["admin", "boss"],
   };
 
   const roles = MODULE_ROLES[modulePath];
@@ -102,12 +102,14 @@ const PROJECT_ROLE_LABELS: Record<string, string> = {
 };
 
 const PLATFORM_ROLE_LABELS: Record<string, string> = {
-  admin: "管理员",
+  admin: "平台管理员",
+  boss: "老板",
   manager: "总经理",
+  operations: "运营",
   sales: "销售",
   trade: "外贸助手",
   user: "普通用户",
-  super_admin: "管理员",
+  super_admin: "超级管理员",
 };
 
 export function orgRoleLabel(role: string): string {
