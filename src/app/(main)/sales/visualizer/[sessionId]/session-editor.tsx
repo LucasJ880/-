@@ -145,6 +145,12 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
 
   const stageHandleRef = useRef<VisualizerStageHandle | null>(null);
   const [exporting, setExporting] = useState<null | "download" | "cover" | "hd">(null);
+  /** HD 主区域显示：editing | rendering | rendered | error（前端状态，无 DB 字段） */
+  const [hdViewMode, setHdViewMode] = useState<
+    "editing" | "rendering" | "rendered" | "error"
+  >("editing");
+  const [hdError, setHdError] = useState<string | null>(null);
+  const [hdQualityWarning, setHdQualityWarning] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -253,6 +259,19 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     if (!session) return null;
     return session.variants.find((v) => v.id === selectedVariantId) ?? null;
   }, [session, selectedVariantId]);
+
+  // 切换方案时：有成功效果图则进入 rendered，否则回到编辑；渲染中不打断
+  useEffect(() => {
+    if (hdViewMode === "rendering") return;
+    if (selectedVariant?.exportImageUrl) {
+      setHdViewMode("rendered");
+      setHdError(null);
+    } else {
+      setHdViewMode("editing");
+    }
+    // 仅随方案切换同步；勿依赖 hdViewMode 以免覆盖用户「返回编辑」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVariantId, selectedVariant?.exportImageUrl]);
 
   const selectedProductOption = useMemo<VisualizerProductOptionDetail | null>(() => {
     if (!selectedVariant) return null;
@@ -886,48 +905,65 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
   const handleRenderHdCover = useCallback(async () => {
     if (!selectedImage || !selectedVariant) return;
     const ok = confirm(
-      "AI 会基于当前画布生成高清写实封面，并替换该方案封面。原始照片和产品叠加不会被修改。继续吗？",
+      "AI 将基于客户房间原图（或已清理图）与已确认窗户区域生成高清实景效果图，并更新该方案封面。编辑预览中的色块不会作为最终效果。继续吗？",
     );
     if (!ok) return;
     setExporting("hd");
-    toast.info("AI 正在生成高清封面，请稍候…");
+    setHdViewMode("rendering");
+    setHdError(null);
+    setHdQualityWarning(null);
+    toast.info("正在生成 AI 实景效果图…");
     try {
-      const dataUrl = await captureDataUrl();
-      if (!dataUrl) {
-        toast.error("画布尚未就绪，请稍候再试");
-        return;
-      }
       const res = await apiFetch(
         `/api/visualizer/variants/${selectedVariant.id}/render-hd`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dataUrl }),
+          body: JSON.stringify({
+            sourceImageId: selectedImage.id,
+          }),
         },
       );
-      const raw = await res.json().catch(() => ({})) as {
+      const raw = (await res.json().catch(() => ({}))) as {
         error?: string;
+        code?: string;
         warning?: string | null;
+        warningCode?: string | null;
         referenceQuality?: string;
+        exportImageUrl?: string | null;
       };
-      if (!res.ok) {
-        toast.error(raw.error ?? "高清渲染失败");
+      if (!res.ok || !raw.exportImageUrl) {
+        const msg =
+          raw.error ??
+          "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。";
+        setHdError(msg);
+        setHdViewMode(
+          selectedVariant.exportImageUrl ? "rendered" : "error",
+        );
+        toast.error(msg);
         return;
       }
       await load();
-      if (raw.referenceQuality === "ai_only" && raw.warning) {
-        toast.success("高清封面已生成");
+      setHdViewMode("rendered");
+      setHdError(null);
+      if (raw.warning) {
+        setHdQualityWarning(raw.warning);
+        toast.success("高清效果图已生成");
         toast.info(raw.warning);
       } else {
-        toast.success("高清封面已生成");
+        toast.success("高清效果图已生成");
       }
     } catch (err) {
       console.error("Render HD cover failed:", err);
-      toast.error("高清渲染失败");
+      const msg =
+        "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。";
+      setHdError(msg);
+      setHdViewMode(selectedVariant.exportImageUrl ? "rendered" : "error");
+      toast.error(msg);
     } finally {
       setExporting(null);
     }
-  }, [captureDataUrl, load, selectedImage, selectedVariant, toast]);
+  }, [load, selectedImage, selectedVariant, toast]);
 
   const handleUpdateTransform = useCallback(
     (args: { id: string; transform: VisualizerProductOptionTransform }) => {
@@ -1206,7 +1242,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                   ? "请先选择一张照片"
                   : !selectedVariant
                   ? "请先选择/创建一个方案"
-                  : "AI 生成高清写实方案封面"
+                  : "基于房间原图与窗户 mask 生成 AI 高清实景效果图"
               }
             >
               {exporting === "hd" ? (
@@ -1214,7 +1250,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              高清渲染
+              生成高清效果图
             </button>
           </div>
         </div>
@@ -1271,12 +1307,79 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             </div>
           </div>
 
+          {selectedVariant?.exportImageUrl && hdViewMode !== "rendering" ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-card-bg/40 px-2 py-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setHdViewMode("rendered");
+                  setHdError(null);
+                }}
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs",
+                  hdViewMode === "rendered"
+                    ? "bg-amber-100 font-medium text-amber-900"
+                    : "text-muted hover:bg-accent-soft",
+                )}
+              >
+                查看 AI 效果图
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHdViewMode("editing");
+                  setHdError(null);
+                }}
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs",
+                  hdViewMode === "editing" || hdViewMode === "error"
+                    ? "bg-accent-soft font-medium text-foreground"
+                    : "text-muted hover:bg-accent-soft",
+                )}
+              >
+                返回编辑窗户区域
+              </button>
+              {hdQualityWarning ? (
+                <span className="text-[11px] text-amber-700">{hdQualityWarning}</span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {hdError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              {hdError}
+              <button
+                type="button"
+                onClick={() => void handleRenderHdCover()}
+                disabled={exporting === "hd"}
+                className="ml-2 underline disabled:opacity-50"
+              >
+                重试
+              </button>
+            </div>
+          ) : null}
+
           <div
             ref={canvasContainerRef}
             className="relative overflow-hidden rounded-xl border border-border/60 bg-black"
             style={{ height: "min(70dvh, 540px)", minHeight: 360 }}
           >
-            {selectedImage ? (
+            {hdViewMode === "rendering" ? (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-center text-white">
+                <Loader2 className="h-6 w-6 animate-spin text-amber-300" />
+                <div className="text-sm font-medium">正在生成 AI 实景效果图…</div>
+                <div className="max-w-sm text-[11px] text-white/70">
+                  使用客户房间原图与窗户区域 mask，不会把编辑预览色块当作最终结果。
+                </div>
+              </div>
+            ) : hdViewMode === "rendered" && selectedVariant?.exportImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={selectedVariant.exportImageUrl}
+                alt="AI 高清效果图"
+                className="h-full w-full object-contain"
+              />
+            ) : selectedImage ? (
               <VisualizerStage
                 image={selectedImage}
                 variant={selectedVariant}
@@ -1297,7 +1400,6 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             ) : (
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-center">
                 <div className="text-sm text-white/80">尚未上传现场照片</div>
-                {/* canvas 需白底 */}
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}

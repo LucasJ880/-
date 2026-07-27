@@ -71,3 +71,4 @@ cursor-agent-team
 # Local design explorations
 prototypes/
 .tmp/
+tmp/

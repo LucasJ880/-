@@ -66,14 +66,22 @@ export function pickCatalogReferencesForRender<T extends RankableAsset>(
   return out;
 }
 
+export type CatalogReferenceWarningCode = "PRODUCT_REFERENCE_LIMITED" | null;
+
 export function evaluateReferenceQuality(
   assets: RankableAsset[],
 ): {
   referenceQuality: CatalogReferenceQuality;
   warning: string | null;
+  warningCode: CatalogReferenceWarningCode;
 } {
   if (assets.length === 0) {
-    return { referenceQuality: "none", warning: null };
+    return {
+      referenceQuality: "none",
+      warning:
+        "当前产品缺少纹理或结构参考，生成结果可能与实际产品存在差异。",
+      warningCode: "PRODUCT_REFERENCE_LIMITED",
+    };
   }
   const hasReal = assets.some(
     (a) => a.role === "installed" && a.sourceType === "real",
@@ -81,17 +89,34 @@ export function evaluateReferenceQuality(
   const hasAi = assets.some(
     (a) => a.role === "style_reference" && a.sourceType === "ai_generated",
   );
+  const hasTextureOrStructure = assets.some(
+    (a) =>
+      a.role === "texture" ||
+      a.role === "detail" ||
+      a.role === "installed" ||
+      a.role === "style_reference",
+  );
+  if (!hasTextureOrStructure) {
+    return {
+      referenceQuality: "mixed",
+      warning:
+        "当前产品缺少纹理或结构参考，生成结果可能与实际产品存在差异。",
+      warningCode: "PRODUCT_REFERENCE_LIMITED",
+    };
+  }
   if (hasReal) {
     return {
       referenceQuality: hasAi ? "mixed" : "real_install",
       warning: null,
+      warningCode: null,
     };
   }
   if (hasAi) {
     return {
       referenceQuality: "ai_only",
       warning: "本次生成未使用真实安装案例，实际效果可能存在差异。",
+      warningCode: "PRODUCT_REFERENCE_LIMITED",
     };
   }
-  return { referenceQuality: "mixed", warning: null };
+  return { referenceQuality: "mixed", warning: null, warningCode: null };
 }
