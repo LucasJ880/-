@@ -24,6 +24,8 @@ import {
   Sparkles,
   FileClock,
   X,
+  Zap,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
@@ -79,10 +81,14 @@ import {
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
+import { RoughQuotePanel } from "./rough-quote-panel";
 
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
 type TabId = "partB" | "shades" | "shutters" | "drapes";
+/** 电子报价单工作区：快速报价 = July Rough Quote；详细订单 = 现有 Order Form */
+type WorkspaceMode = "rough" | "order";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "shades", label: "Shades", icon: <Blinds className="h-4 w-4" /> },
@@ -159,8 +165,19 @@ export default function QuoteSheetPage() {
 function QuoteSheetPageInner() {
   const searchParams = useSearchParams();
   const editingQuoteIdFromUrl = searchParams.get("quoteId");
+  const modeFromUrl = searchParams.get("mode");
+  const { isMobile } = useIsMobile();
 
   const [activeTab, setActiveTab] = useState<TabId>("shades");
+  // 新建默认快速报价；编辑已有单 / ?mode=order 则进详细订单（不另开导航类目）
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => {
+    if (editingQuoteIdFromUrl || modeFromUrl === "order") return "order";
+    return "rough";
+  });
+  useEffect(() => {
+    if (editingQuoteIdFromUrl) setWorkspaceMode("order");
+  }, [editingQuoteIdFromUrl]);
+
   // 编辑模式：当 URL 带 ?quoteId=xxx 时，加载已有报价单并切换到 PUT 保存
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
   const [editingQuoteVersion, setEditingQuoteVersion] = useState<number | null>(null);
@@ -1227,28 +1244,75 @@ function QuoteSheetPageInner() {
   }, [depositAmount, grandTotal, paymentMethod]);
 
   return (
-    <div className="space-y-4 pb-[calc(7.5rem+var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] md:space-y-6 md:pb-32">
+    <div
+      className={cn(
+        "space-y-4 md:space-y-6",
+        workspaceMode === "order"
+          ? "pb-[calc(7.5rem+var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] md:pb-32"
+          : "pb-8",
+      )}
+    >
       <PageHeader
         title={
           editingQuoteId
             ? `编辑报价单${editingQuoteVersion ? ` · v${editingQuoteVersion}` : ""}`
-            : "Quote Sheet"
+            : "电子报价单"
         }
         description={
           editingQuoteId
             ? "正在修改已保存的报价单；保存后会覆盖原报价单（不会新建版本）"
-            : "Sunny Shutter Inc. — Digital Quote & Order Form"
+            : workspaceMode === "rough"
+              ? "快速报价（July Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
+              : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />
       <OrgSelectBanner />
+
+      {/* 工作区切换：快速报价 / 详细订单（同一导航入口，不另开类目） */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-border bg-card-bg p-0.5">
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode("rough")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              workspaceMode === "rough"
+                ? "bg-teal-600 text-white shadow-sm"
+                : "text-muted-foreground hover:bg-muted/60",
+            )}
+          >
+            <Zap className="h-3.5 w-3.5" />
+            快速报价
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode("order")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              workspaceMode === "order"
+                ? "bg-teal-600 text-white shadow-sm"
+                : "text-muted-foreground hover:bg-muted/60",
+            )}
+          >
+            <ClipboardList className="h-3.5 w-3.5" />
+            详细订单
+          </button>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {workspaceMode === "rough"
+            ? "现场快速估价 · 保存进青砚"
+            : "完整 Order Form · 签字 / PDF / 成单"}
+        </span>
+      </div>
+
       {editingLoading && (
         <div className="rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-xs text-teal-700">
           正在加载已保存的报价单内容…
         </div>
       )}
 
-      {/* 草稿恢复横幅：检测到未保存的草稿时提示用户 */}
-      {pendingDraft && (
+      {/* 草稿恢复横幅：检测到未保存的草稿时提示用户（仅详细订单） */}
+      {workspaceMode === "order" && pendingDraft && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
           <FileClock className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
           <div className="flex-1">
@@ -1341,6 +1405,8 @@ function QuoteSheetPageInner() {
           )}
         </div>
 
+        {workspaceMode === "order" && (
+        <>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
           <div>
             <Label className="text-xs">Customer Name</Label>
@@ -1473,8 +1539,24 @@ function QuoteSheetPageInner() {
             </button>
           </div>
         )}
+        </>
+        )}
       </div>
 
+      {workspaceMode === "rough" && (
+        <RoughQuotePanel
+          customerId={customerId}
+          opportunityId={opportunityId}
+          discounts={discounts}
+          isMobile={isMobile}
+          onRequireCustomer={() => {
+            /* 顶部已有客户选择提示 */
+          }}
+        />
+      )}
+
+      {workspaceMode === "order" && (
+      <>
       {/* Tab navigation */}
       <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-4 md:-mx-1 px-4 md:px-1">
         {TABS.map((tab) => (
@@ -1789,6 +1871,8 @@ function QuoteSheetPageInner() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
