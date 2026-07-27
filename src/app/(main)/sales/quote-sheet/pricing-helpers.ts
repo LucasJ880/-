@@ -179,6 +179,22 @@ export interface DrapeLinePrice {
   error: string | null;
 }
 
+/** July 窗帘价表档位：Liner Y/N ↔ MSRP key（与 PRICE TABLE 窗帘报价2026.July 一致） */
+export function draperyFabricFromLiner(liner: boolean): string {
+  return liner ? "With liner (Black out)" : "Without liner";
+}
+
+export function draperyLinerFromFabric(fabric: string): boolean {
+  return /with\s*liner/i.test(fabric);
+}
+
+/** 优先用手填/下拉面料；空时按 Liner 开关落到 July 两档 */
+export function resolveDraperyFabric(line: Pick<DrapeOrderLine, "drapeFabricSku" | "drapeLiner">): string {
+  const sku = line.drapeFabricSku?.trim() ?? "";
+  if (sku) return sku;
+  return draperyFabricFromLiner(Boolean(line.drapeLiner));
+}
+
 export function computeDrapeLinePrice(
   line: DrapeOrderLine,
   installMode: InstallMode,
@@ -192,11 +208,12 @@ export function computeDrapeLinePrice(
   let error: string | null = null;
   let any = false;
 
-  if (line.drapeFabricSku && line.drapeWidthWhole && line.drapeHeightWhole) {
+  const draperyFabric = resolveDraperyFabric(line);
+  if (draperyFabric && line.drapeWidthWhole && line.drapeHeightWhole) {
     const w = fractionToInches(line.drapeWidthWhole, line.drapeWidthFrac);
     const h = fractionToInches(line.drapeHeightWhole, line.drapeHeightFrac);
     if (w && h) {
-      const r = priceFor("Drapery", line.drapeFabricSku, w, h, pick(discounts, "Drapery"));
+      const r = priceFor("Drapery", draperyFabric, w, h, pick(discounts, "Drapery"));
       if ("error" in r) {
         error = `Drape: ${r.error}`;
       } else {
