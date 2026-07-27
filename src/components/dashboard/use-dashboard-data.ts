@@ -9,6 +9,7 @@ import type {
   ScheduleEvent,
   Stats,
 } from "./types";
+import { removeReminderFromLayers } from "@/lib/reminders/remove-from-layers";
 
 function fmtDateISO(d: Date) {
   return formatISODateToronto(d);
@@ -125,11 +126,43 @@ export function useDashboardData() {
   );
 
   const loadReminders = useCallback(() => {
-    apiFetch("/api/reminders")
+    return apiFetch("/api/reminders")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setReminderSummary(d); })
-      .catch(() => {});
+      .then((d) => {
+        if (d) setReminderSummary(d);
+        return d as ReminderSummaryData | null;
+      })
+      .catch(() => null);
   }, []);
+
+  const removeReminderFromState = useCallback((sourceKey: string) => {
+    setReminderSummary((prev) =>
+      prev ? removeReminderFromLayers(prev, sourceKey) : prev
+    );
+  }, []);
+
+  const confirmReminder = useCallback(
+    async (sourceKey: string) => {
+      const snapshot = reminderSummary;
+      removeReminderFromState(sourceKey);
+      try {
+        const res = await apiFetch("/api/reminders/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceKey }),
+        });
+        if (!res.ok) {
+          throw new Error(`confirm ${res.status}`);
+        }
+        await loadReminders();
+        return { ok: true as const };
+      } catch {
+        if (snapshot) setReminderSummary(snapshot);
+        return { ok: false as const, error: "确认失败，请重试" };
+      }
+    },
+    [loadReminders, reminderSummary, removeReminderFromState]
+  );
 
   useEffect(() => {
     if (didInit.current) return;
@@ -169,6 +202,8 @@ export function useDashboardData() {
     reminderSummary,
     loadEvents,
     loadScheduleEvents,
+    loadReminders,
+    confirmReminder,
     handleDeleteEvent,
   };
 }

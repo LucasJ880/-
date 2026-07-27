@@ -3,7 +3,10 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { getWeekRangeToronto, endOfDayToronto } from "@/lib/time";
-import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import {
+  buildActionableTaskScope,
+  getActionableProjectIds,
+} from "@/lib/projects/visibility";
 
 export const GET = withAuth(async (_request, _ctx, user) => {
   const { weekStart, weekEnd } = getWeekRangeToronto();
@@ -11,20 +14,9 @@ export const GET = withAuth(async (_request, _ctx, user) => {
   const threeDaysRef = new Date(now.getTime() + 3 * 86_400_000);
   const threeDaysLater = endOfDayToronto(threeDaysRef);
 
-  const projectIds = await getVisibleProjectIds(user.id, user.role);
-
-  const taskScope =
-    projectIds === null
-      ? {}
-      : {
-          OR: [
-            { projectId: { in: projectIds } },
-            { projectId: null, creatorId: user.id },
-          ],
-        };
-
-  const projectScope =
-    projectIds === null ? {} : { id: { in: projectIds } };
+  const projectIds = await getActionableProjectIds(user.id, user.role);
+  const taskScope = buildActionableTaskScope(user.id, projectIds);
+  const projectScope = { id: { in: projectIds } };
 
   const [
     totalTasks,
@@ -44,9 +36,7 @@ export const GET = withAuth(async (_request, _ctx, user) => {
     db.task.count({ where: { ...taskScope, status: "todo" } }),
     db.task.count({ where: { ...taskScope, status: "in_progress" } }),
     db.task.count({ where: { ...taskScope, status: "done" } }),
-    projectIds === null
-      ? db.project.count()
-      : Promise.resolve(projectIds.length),
+    Promise.resolve(projectIds.length),
 
     db.task.count({
       where: { ...taskScope, createdAt: { gte: weekStart, lt: weekEnd } },

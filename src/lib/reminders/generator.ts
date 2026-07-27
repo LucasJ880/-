@@ -2,7 +2,7 @@
  * 提醒生成引擎
  *
  * P0 策略：deadline / event 即时计算，不写库；
- * followup 从 Reminder 表读取；read 状态统一通过 sourceKey 查 Reminder 表。
+ * followup 从 Reminder 表读取；read 状态统一通过 canonical sourceKey 查 Reminder 表。
  */
 
 import { db } from "@/lib/db";
@@ -11,6 +11,16 @@ import {
   endOfDayToronto,
   formatHHmmToronto,
 } from "@/lib/time";
+import {
+  buildActionableTaskScope,
+  getActionableProjectIds,
+} from "@/lib/projects/visibility";
+import {
+  buildReadKeySet,
+  deadlineReminderKey,
+  eventReminderKey,
+  isReminderRead,
+} from "@/lib/reminders/canonical-key";
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -58,12 +68,16 @@ export async function generateReminderLayers(
   const todayStart = startOfDayToronto(now);
   const todayEnd = endOfDayToronto(now);
 
-  const { getVisibleProjectIds: getVis } = await import("@/lib/projects/visibility");
-  const user = await (await import("@/lib/db")).db.user.findUnique({
+  const user = await db.user.findUnique({
     where: { id: userId },
     select: { role: true },
   });
-  const visibleProjectIds = await getVis(userId, user?.role ?? "user");
+  const actionableProjectIds = await getActionableProjectIds(
+    userId,
+    user?.role ?? "user"
+  );
+  const taskScope = buildActionableTaskScope(userId, actionableProjectIds);
+  const actionableSet = new Set(actionableProjectIds);
 
   const tomorrowRef = new Date(now.getTime() + 86_400_000);
   const tomorrowEnd = endOfDayToronto(tomorrowRef);
@@ -80,15 +94,7 @@ export async function generateReminderLayers(
     project: { select: { id: true, name: true, color: true } },
   } as const;
 
-  const taskScope = visibleProjectIds !== null
-    ? {
-        OR: [
-          { projectId: { in: visibleProjectIds } },
-          { projectId: null, creatorId: userId },
-          { assigneeId: userId },
-        ],
-      }
-    : {};
+  const openTaskStatus = { status: { notIn: ["done", "cancelled"] } };
 
   const [
     overdueTasks,
@@ -99,19 +105,31 @@ export async function generateReminderLayers(
     readRecords,
   ] = await Promise.all([
     db.task.findMany({
-      where: { ...taskScope, status: { notIn: ["done", "cancelled"] }, dueDate: { lt: todayStart } },
+      where: {
+        ...taskScope,
+        ...openTaskStatus,
+        dueDate: { lt: todayStart },
+      },
       select: taskSelect,
       orderBy: { dueDate: "asc" },
       take: 20,
     }),
     db.task.findMany({
-      where: { ...taskScope, status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayStart, lt: todayEnd } },
+      where: {
+        ...taskScope,
+        ...openTaskStatus,
+        dueDate: { gte: todayStart, lt: todayEnd },
+      },
       select: taskSelect,
       orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
       take: 20,
     }),
     db.task.findMany({
-      where: { ...taskScope, status: { notIn: ["done", "cancelled"] }, dueDate: { gte: todayEnd, lt: tomorrowEnd } },
+      where: {
+        ...taskScope,
+        ...openTaskStatus,
+        dueDate: { gte: todayEnd, lt: tomorrowEnd },
+      },
       select: taskSelect,
       orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
       take: 20,
@@ -131,13 +149,25 @@ export async function generateReminderLayers(
         allDay: true,
         location: true,
         reminderMinutes: true,
-        task: { select: { id: true } },
+        projectId: true,
+        task: {
+          select: {
+            id: true,
+            status: true,
+            projectId: true,
+          },
+        },
       },
       orderBy: { startTime: "asc" },
       take: 20,
     }),
     db.reminder.findMany({
-      where: { userId, type: "followup", status: "pending", triggerAt: { lte: weekEnd } },
+      where: {
+        userId,
+        type: "followup",
+        status: "pending",
+        triggerAt: { lte: weekEnd },
+      },
       select: {
         id: true,
         sourceKey: true,
@@ -145,7 +175,13 @@ export async function generateReminderLayers(
         message: true,
         triggerAt: true,
         taskId: true,
-        task: { select: { projectId: true, project: { select: { id: true, name: true, color: true } } } },
+        task: {
+          select: {
+            status: true,
+            projectId: true,
+            project: { select: { id: true, name: true, color: true } },
+          },
+        },
       },
       orderBy: { triggerAt: "asc" },
     }),
@@ -155,7 +191,10 @@ export async function generateReminderLayers(
     }),
   ]);
 
-  const readSet = new Set(readRecords.map((r) => r.sourceKey));
+  const readSet = buildReadKeySet(
+    userId,
+    readRecords.map((r) => r.sourceKey)
+  );
 
   const immediate: ReminderItem[] = [];
   const today: ReminderItem[] = [];
@@ -163,8 +202,8 @@ export async function generateReminderLayers(
 
   // ── Overdue tasks → immediate ──
   for (const t of overdueTasks) {
-    const key = `deadline:overdue:${t.id}`;
-    if (readSet.has(key)) continue;
+    const key = deadlineReminderKey(t.id);
+    if (isReminderRead(key, readSet)) continue;
     const days = daysBetween(new Date(t.dueDate!), todayStart);
     immediate.push({
       sourceKey: key,
@@ -182,8 +221,18 @@ export async function generateReminderLayers(
 
   // ── Today events → immediate or today ──
   for (const e of todayEvents) {
-    const key = `event:today:${e.id}`;
-    if (readSet.has(key)) continue;
+    if (e.projectId != null && !actionableSet.has(e.projectId)) continue;
+    if (e.task) {
+      if (e.task.status === "done" || e.task.status === "cancelled") continue;
+      if (
+        e.task.projectId != null &&
+        !actionableSet.has(e.task.projectId)
+      ) {
+        continue;
+      }
+    }
+    const key = eventReminderKey(e.id);
+    if (isReminderRead(key, readSet)) continue;
     const start = new Date(e.startTime);
     const end = new Date(e.endTime);
     const isSoon = !e.allDay && start.getTime() <= soonEnd.getTime();
@@ -218,8 +267,8 @@ export async function generateReminderLayers(
 
   // ── Today deadline tasks → today ──
   for (const t of todayTasks) {
-    const key = `deadline:today:${t.id}`;
-    if (readSet.has(key)) continue;
+    const key = deadlineReminderKey(t.id);
+    if (isReminderRead(key, readSet)) continue;
     today.push({
       sourceKey: key,
       type: "deadline",
@@ -236,8 +285,8 @@ export async function generateReminderLayers(
 
   // ── Tomorrow deadline tasks → upcoming ──
   for (const t of tomorrowTasks) {
-    const key = `deadline:tomorrow:${t.id}`;
-    if (readSet.has(key)) continue;
+    const key = deadlineReminderKey(t.id);
+    if (isReminderRead(key, readSet)) continue;
     upcoming.push({
       sourceKey: key,
       type: "deadline",
@@ -254,11 +303,21 @@ export async function generateReminderLayers(
 
   // ── Followup reminders → immediate / today / upcoming ──
   for (const f of followups) {
+    if (f.task) {
+      if (f.task.status === "done" || f.task.status === "cancelled") continue;
+      if (
+        f.task.projectId != null &&
+        !actionableSet.has(f.task.projectId)
+      ) {
+        continue;
+      }
+    }
+    if (isReminderRead(f.sourceKey, readSet)) continue;
+
     const triggerMs = new Date(f.triggerAt).getTime();
     const isPastDue = triggerMs <= now.getTime();
     const isToday =
-      triggerMs > now.getTime() &&
-      triggerMs < todayEnd.getTime();
+      triggerMs > now.getTime() && triggerMs < todayEnd.getTime();
 
     const item: ReminderItem = {
       sourceKey: f.sourceKey,

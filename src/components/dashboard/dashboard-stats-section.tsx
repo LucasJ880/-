@@ -15,9 +15,13 @@ import type { ReminderSummaryData, ReminderItemData, Stats, ProjectProgressData,
 function ReminderSummaryCard({
   data,
   onItemClick,
+  onConfirm,
+  confirmingKey,
 }: {
   data: ReminderSummaryData | null;
   onItemClick?: (item: ReminderItemData) => void;
+  onConfirm?: (item: ReminderItemData) => void;
+  confirmingKey?: string | null;
 }) {
   if (!data || data.unreadCount === 0) return null;
 
@@ -78,39 +82,54 @@ function ReminderSummaryCard({
           {allItems.map((item) => {
             const isDeadline = item.type === "deadline";
             const isEvent = item.type === "event";
+            const confirming = confirmingKey === item.sourceKey;
             return (
-              <button
+              <div
                 key={item.sourceKey}
-                type="button"
-                onClick={() => onItemClick?.(item)}
-                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-all duration-150 hover:bg-accent-soft/60"
+                className="flex w-full items-center gap-2 px-5 py-2.5 transition-all duration-150 hover:bg-accent-soft/60"
               >
-                <span
-                  className={cn(
-                    "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                    isDeadline && "bg-danger",
-                    isEvent && "bg-accent",
-                    !isDeadline && !isEvent && "bg-info"
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[14px] text-foreground tracking-[-0.01em]">{item.title}</p>
-                  <p className="flex items-center gap-1.5 text-[11px] text-muted tracking-[-0.01em]">
-                    <span>{item.subtitle}</span>
-                    {item.project && (
-                      <>
-                        <span>·</span>
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: item.project.color }}
-                        />
-                        <span>{item.project.name}</span>
-                      </>
+                <button
+                  type="button"
+                  onClick={() => onItemClick?.(item)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                      isDeadline && "bg-danger",
+                      isEvent && "bg-accent",
+                      !isDeadline && !isEvent && "bg-info"
                     )}
-                  </p>
-                </div>
-                <ChevronRight size={14} className="shrink-0 text-muted/40" />
-              </button>
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] text-foreground tracking-[-0.01em]">{item.title}</p>
+                    <p className="flex items-center gap-1.5 text-[11px] text-muted tracking-[-0.01em]">
+                      <span>{item.subtitle}</span>
+                      {item.project && (
+                        <>
+                          <span>·</span>
+                          <span
+                            className="inline-block h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: item.project.color }}
+                          />
+                          <span>{item.project.name}</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <ChevronRight size={14} className="shrink-0 text-muted/40" />
+                </button>
+                {onConfirm && (
+                  <button
+                    type="button"
+                    disabled={confirming}
+                    onClick={() => onConfirm(item)}
+                    className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                  >
+                    {confirming ? "…" : "知道了"}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -123,10 +142,19 @@ interface Props {
   stats: Stats;
   reminderSummary: ReminderSummaryData | null;
   onReminderClick?: (item: ReminderItemData) => void;
+  onReminderConfirm?: (item: ReminderItemData) => void;
+  confirmingReminderKey?: string | null;
   onProjectClick?: (projectId: string) => void;
 }
 
-export function DashboardStatsSection({ stats, reminderSummary, onReminderClick, onProjectClick }: Props) {
+export function DashboardStatsSection({
+  stats,
+  reminderSummary,
+  onReminderClick,
+  onReminderConfirm,
+  confirmingReminderKey,
+  onProjectClick,
+}: Props) {
   const weekCards = [
     { label: "本周新增", value: stats.week.created, color: "text-accent" },
     {
@@ -183,7 +211,12 @@ export function DashboardStatsSection({ stats, reminderSummary, onReminderClick,
         />
       </div>
 
-      <ReminderSummaryCard data={reminderSummary} onItemClick={onReminderClick} />
+      <ReminderSummaryCard
+        data={reminderSummary}
+        onItemClick={onReminderClick}
+        onConfirm={onReminderConfirm}
+        confirmingKey={confirmingReminderKey}
+      />
     </>
   );
 }
