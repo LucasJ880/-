@@ -44,9 +44,11 @@ function buildFocusItems(
 ): FocusItem[] {
   const items: FocusItem[] = [];
   const seen = new Set<string>();
+  const suppressed = new Set(reminderSummary?.suppressedFocusKeys ?? []);
 
   const todayTasks = [...highPriorityTasks, ...upcomingTasks].filter((t) => {
     if (seen.has(t.id)) return false;
+    if (suppressed.has(`task-${t.id}`)) return false;
     seen.add(t.id);
     if (t.status === "done" || t.status === "cancelled") return false;
     if (!t.dueDate) return t.priority === "urgent" || t.priority === "high";
@@ -73,7 +75,10 @@ function buildFocusItems(
   }
 
   const todayEvents = scheduleEvents.filter((e) => {
-    return e.type === "calendar" && !seen.has(`evt-${e.id}`);
+    const focusId = `evt-${e.id}`;
+    return (
+      e.type === "calendar" && !seen.has(focusId) && !suppressed.has(focusId)
+    );
   });
 
   for (const e of todayEvents) {
@@ -98,7 +103,9 @@ function buildFocusItems(
     const reminders = [...reminderSummary.immediate, ...reminderSummary.today];
     for (const r of reminders) {
       const key = `rem-${r.sourceKey}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key) || suppressed.has(key)) continue;
+      // 同源 deadline 任务已在上方展示时，不再重复挂提醒行
+      if (r.taskId && seen.has(r.taskId)) continue;
       seen.add(key);
       items.push({
         id: key,
