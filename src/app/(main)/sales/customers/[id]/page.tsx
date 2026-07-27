@@ -415,7 +415,7 @@ export default function CustomerDetailPage() {
       <div className="flex min-w-0 items-start gap-3">
         <Link
           href="/sales"
-          className="mt-1 shrink-0 rounded-lg border border-border bg-white/80 p-1.5 text-muted hover:text-foreground transition-colors"
+          className="mt-1 shrink-0 rounded-lg border border-border bg-card-bg/80 p-1.5 text-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -429,7 +429,7 @@ export default function CustomerDetailPage() {
                 type="button"
                 onClick={handleDeleteCustomer}
                 disabled={deleting}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-card-bg/70 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
                 title="管理员可删除客户（软删，客户将被归档）"
               >
                 {deleting ? (
@@ -472,7 +472,7 @@ export default function CustomerDetailPage() {
               href={`https://maps.apple.com/?q=${encodeURIComponent(customer.address)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/70 px-3 py-1.5 text-xs font-medium text-foreground/80 active:bg-white"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card-bg/70 px-3 py-1.5 text-xs font-medium text-foreground/80 active:bg-card-bg"
             >
               <MapPin size={13} />
               地图
@@ -483,7 +483,7 @@ export default function CustomerDetailPage() {
         <button
           type="button"
           onClick={() => setMobileSummaryOpen((v) => !v)}
-          className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-white/70 px-3 py-2.5 text-left active:bg-white"
+          className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-card-bg/70 px-3 py-2.5 text-left active:bg-card-bg"
         >
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
             <Target size={14} className="shrink-0 text-[var(--accent)]" />
@@ -513,7 +513,7 @@ export default function CustomerDetailPage() {
       <AiAdvicePanel customerId={customer.id} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-border bg-white/70 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-foreground">基本信息</h3>
             {canEditBasicInfo && !editingBasic && (
@@ -736,7 +736,7 @@ export default function CustomerDetailPage() {
                 </div>
               </div>
               {customer.notes && (
-                <div className="mt-4 rounded-lg bg-white/50 p-3 text-xs text-muted leading-relaxed">
+                <div className="mt-4 rounded-lg bg-card-bg/50 p-3 text-xs text-muted leading-relaxed">
                   {customer.notes}
                 </div>
               )}
@@ -754,7 +754,7 @@ export default function CustomerDetailPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-white/70 p-5 lg:col-span-2">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-5 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">
               销售机会 ({customer.opportunities.length})
@@ -769,7 +769,7 @@ export default function CustomerDetailPage() {
                 return (
                 <div
                   key={opp.id}
-                  className="flex items-center justify-between rounded-lg border border-border/50 bg-white/50 px-4 py-2.5"
+                  className="flex items-center justify-between rounded-lg border border-border/50 bg-card-bg/50 px-4 py-2.5"
                 >
                   {cover && cover.cover && (
                     <Link
@@ -877,7 +877,7 @@ export default function CustomerDetailPage() {
                 onClick={() => setShowImportConvo(true)}
                 disabled={orgCreateBlocked}
                 title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-white/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent-soft disabled:opacity-40"
               >
                 <Upload className="h-3.5 w-3.5" />
                 导入对话
@@ -898,7 +898,7 @@ export default function CustomerDetailPage() {
               onClick={() => setShowCreateQuote(true)}
               disabled={orgCreateBlocked}
               title={salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? undefined}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-40"
             >
               <Plus className="h-3.5 w-3.5" />
               新建报价
@@ -994,7 +994,7 @@ export default function CustomerDetailPage() {
 
       {sendingEmailFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-          <div className="flex items-center gap-3 rounded-xl bg-white px-6 py-4 shadow-xl">
+          <div className="flex items-center gap-3 rounded-xl bg-card-bg px-6 py-4 shadow-xl">
             <Loader2 className="h-5 w-5 animate-spin text-accent" />
             <span className="text-sm font-medium">正在发送报价邮件…</span>
           </div>

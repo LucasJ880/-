@@ -136,14 +136,14 @@ export default function Dashboard() {
           <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:shrink-0">
             <Link
               href="/operations/intelligence"
-              className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-white/70 px-3 text-sm font-medium text-foreground hover:bg-white"
+              className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-card-bg/70 px-3 text-sm font-medium text-foreground hover:bg-accent-soft"
             >
               <Radar size={15} />
               市场情报
             </Link>
             <Link
               href="/assistant"
-              className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover"
+              className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-3 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
             >
               <MessagesSquare size={15} />
               协同空间

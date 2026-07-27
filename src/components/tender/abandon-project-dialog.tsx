@@ -120,7 +120,7 @@ export function AbandonProjectDialog({
               onChange={(e) => setReason(e.target.value)}
               placeholder="例如：客户取消招标、不符合资质要求、价格无竞争力…"
               rows={3}
-              className="w-full resize-none rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted/60 focus-visible:border-danger focus-visible:ring-2 focus-visible:ring-danger/15"
+              className="w-full resize-none rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted/60 focus-visible:border-danger focus-visible:ring-2 focus-visible:ring-danger/15"
             />
           </div>
 

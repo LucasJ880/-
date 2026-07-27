@@ -323,7 +323,7 @@ function ProjectDetailContent() {
         >
           <ArrowLeft size={14} /> 返回项目列表
         </button>
-        <div className="rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-[#a63d3d]">
+        <div className="rounded-xl border border-border bg-danger-bg px-4 py-3 text-sm text-danger">
           {error || "项目不存在或无权访问"}
         </div>
       </div>
@@ -351,11 +351,11 @@ function ProjectDetailContent() {
 
       {/* Abandoned banner */}
       {project.status === "abandoned" && (
-        <div className="flex items-center gap-3 rounded-xl border border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.04)] px-5 py-4">
-          <Ban size={20} className="shrink-0 text-[#a63d3d]" />
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-danger-bg px-5 py-4">
+          <Ban size={20} className="shrink-0 text-danger" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-[#a63d3d]">该项目已放弃</p>
-            <p className="text-xs text-[#6e7d76] mt-0.5">
+            <p className="text-sm font-semibold text-danger">该项目已放弃</p>
+            <p className="text-xs text-muted mt-0.5">
               放弃阶段：{
                 { initiation: "立项", distribution: "项目分发", interpretation: "项目解读", supplier_inquiry: "供应商询价", supplier_quote: "供应商报价", submission: "项目提交" }[project.abandonedStage ?? ""] ?? project.abandonedStage
               }
@@ -374,7 +374,7 @@ function ProjectDetailContent() {
         return (
           <div className="flex justify-end">
             <button type="button" onClick={() => setShowAbandonDialog(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.2)] bg-white px-4 py-2 text-sm font-medium text-[#a63d3d] shadow-sm hover:bg-[rgba(166,61,61,0.04)] transition-colors">
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium text-danger shadow-sm hover:bg-danger-bg transition-colors">
               <Ban size={14} />放弃项目
             </button>
           </div>
@@ -510,7 +510,7 @@ function ProjectDetailContent() {
             {activities.length < activityTotal && (
               <div className="mt-4 flex justify-center">
                 <button type="button" disabled={activityLoading} onClick={() => loadActivity(activityPage + 1, activityFilter)}
-                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border px-4 py-2 text-xs font-medium text-muted transition-colors hover:bg-[rgba(43,96,85,0.04)] hover:text-foreground disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border px-4 py-2 text-xs font-medium text-muted transition-colors hover:bg-accent-soft hover:text-foreground disabled:opacity-50">
                   {activityLoading ? <Loader2 size={12} className="animate-spin" /> : <ChevronDown size={12} />}
                   加载更多
                 </button>
@@ -642,7 +642,7 @@ function ProjectDetailContent() {
                   <td className="py-2">
                     {m.status === "active" && m.duty !== "owner" && (
                       <button type="button" onClick={() => removeMember(m.id)} disabled={busy === m.id}
-                        className="text-[#a63d3d] hover:text-[#a63d3d] disabled:opacity-50"><Trash2 size={14} /></button>
+                        className="text-danger hover:text-danger disabled:opacity-50"><Trash2 size={14} /></button>
                     )}
                   </td>
                 )}

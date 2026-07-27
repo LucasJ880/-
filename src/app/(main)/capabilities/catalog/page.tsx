@@ -117,11 +117,11 @@ export default function CapabilitiesCatalogPage() {
         }
       />
 
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-white/60 p-3">
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card-bg/60 p-3">
         <label className="text-xs text-muted-foreground">
           类型
           <select
-            className="mt-1 block min-h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block min-h-9 rounded-md border border-border bg-card-bg px-2 text-sm"
             value={type}
             onChange={(e) => setType(e.target.value)}
           >
@@ -135,7 +135,7 @@ export default function CapabilitiesCatalogPage() {
         <label className="text-xs text-muted-foreground">
           状态
           <select
-            className="mt-1 block min-h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block min-h-9 rounded-md border border-border bg-card-bg px-2 text-sm"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
@@ -149,7 +149,7 @@ export default function CapabilitiesCatalogPage() {
         <label className="text-xs text-muted-foreground">
           需审批
           <select
-            className="mt-1 block min-h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block min-h-9 rounded-md border border-border bg-card-bg px-2 text-sm"
             value={requiresApproval}
             onChange={(e) => setRequiresApproval(e.target.value)}
           >
@@ -161,7 +161,7 @@ export default function CapabilitiesCatalogPage() {
         <label className="min-w-[180px] flex-1 text-xs text-muted-foreground">
           关键字
           <input
-            className="mt-1 block w-full min-h-9 rounded-md border border-border bg-white px-2 text-sm"
+            className="mt-1 block w-full min-h-9 rounded-md border border-border bg-card-bg px-2 text-sm"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="名称 / ID"
@@ -191,7 +191,7 @@ export default function CapabilitiesCatalogPage() {
       )}
 
       {!loading && items.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-border bg-white/70">
+        <div className="overflow-x-auto rounded-lg border border-border bg-card-bg/70">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-border text-xs text-muted-foreground">
               <tr>

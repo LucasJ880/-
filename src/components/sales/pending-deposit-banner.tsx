@@ -92,7 +92,7 @@ export function PendingDepositBanner() {
           </div>
           <Link
             href="/sales/quotes?status=signed"
-            className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-orange-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-orange-800 hover:bg-white transition-colors"
+            className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-orange-300 bg-card-bg/70 px-3 py-1.5 text-xs font-medium text-orange-800 hover:bg-accent-soft transition-colors"
           >
             全部报价
             <ChevronRight className="h-3 w-3" />
@@ -103,7 +103,7 @@ export function PendingDepositBanner() {
           {preview.map((q) => (
             <div
               key={q.id}
-              className="rounded-md border border-orange-200 bg-white/80 p-2.5 flex items-center justify-between gap-2"
+              className="rounded-md border border-orange-200 bg-card-bg/80 p-2.5 flex items-center justify-between gap-2"
             >
               <div className="min-w-0">
                 <Link

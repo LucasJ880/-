@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain, Building2 } from "lucide-react";
+import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain, Building2, Palette } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -106,9 +106,23 @@ function SettingsContent() {
       <div className="mb-6">
         <PageHeader
           title="设置"
-          description="管理外部服务连接、通知偏好与企业账号。"
+          description="管理外观、外部服务连接、通知偏好与企业账号。"
         />
       </div>
+
+      <Link
+        href="/settings/appearance"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft/60"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
+          <Palette size={20} className="text-accent" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold">外观</h2>
+          <p className="text-xs text-muted">经典版 / 新视觉版全站切换</p>
+        </div>
+        <span className="text-xs text-accent">去设置 →</span>
+      </Link>
 
       {googleResult === "success" && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.04)] px-4 py-3 text-sm text-[#2e7a56]">
@@ -152,9 +166,9 @@ function SettingsContent() {
       {isPlatformAdmin && (
         <Link
           href="/settings/digital-employees"
-          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
             <Brain size={20} className="text-accent" />
           </div>
           <div className="flex-1">
@@ -168,9 +182,9 @@ function SettingsContent() {
       {isPlatformAdmin && (
         <Link
           href="/settings/agent-skills"
-          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
             <Sparkles size={20} className="text-accent" />
           </div>
           <div className="flex-1">
@@ -183,9 +197,9 @@ function SettingsContent() {
 
       <Link
         href="/settings/account"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
           <Building2 size={20} className="text-accent" />
         </div>
         <div className="flex-1">
@@ -197,9 +211,9 @@ function SettingsContent() {
 
       <Link
         href="/settings/notifications"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
           <Bell size={20} className="text-accent" />
         </div>
         <div className="flex-1">
@@ -211,7 +225,7 @@ function SettingsContent() {
 
       <Link
         href="/settings/email"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50">
           <Send size={20} className="text-blue-600" />
@@ -225,7 +239,7 @@ function SettingsContent() {
 
       <Link
         href="/settings/wechat"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-[rgba(43,96,85,0.03)]"
+        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#07c160]/10">
           <MessageCircle size={20} className="text-[#07c160]" />
@@ -282,7 +296,7 @@ function SettingsContent() {
               </div>
               <a
                 href="/api/auth/google"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90"
               >
                 <Calendar size={14} />
                 连接 Google Calendar
@@ -350,7 +364,7 @@ function SettingsContent() {
       {/* Gmail 邮件服务 */}
       <div className="mt-4 rounded-xl border border-border bg-card-bg">
         <div className="flex items-center gap-3 border-b border-border px-5 py-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(43,96,85,0.08)]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
             <Mail size={20} className="text-accent" />
           </div>
           <div>
@@ -383,7 +397,7 @@ function SettingsContent() {
               <div className="flex flex-wrap gap-2">
                 <a
                   href="/api/auth/google-email?reauth=1&return_to=/settings"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(43,96,85,0.25)] px-3 py-1.5 text-xs font-medium text-[#2b6055] transition-colors hover:bg-[rgba(43,96,85,0.04)]"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent/25 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent-soft"
                 >
                   <Mail size={12} />
                   重新授权（草稿权限）
@@ -406,7 +420,7 @@ function SettingsContent() {
               </div>
               <a
                 href="/api/auth/google-email?return_to=/settings"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90"
               >
                 <Mail size={14} />
                 绑定 Gmail 邮件服务

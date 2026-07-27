@@ -70,16 +70,16 @@ export function TimelineEventBlock({
 
   const bgMap: Record<string, string> = {
     google:
-      "bg-[rgba(166,61,61,0.03)] hover:bg-[rgba(166,61,61,0.07)]",
-    task: "bg-[rgba(180,120,40,0.03)] hover:bg-[rgba(180,120,40,0.07)]",
-    system: "bg-[rgba(43,96,85,0.03)] hover:bg-[rgba(43,96,85,0.07)]",
-    local: "bg-[rgba(43,96,85,0.04)] hover:bg-[rgba(43,96,85,0.09)]",
+      "bg-danger-bg hover:bg-danger-bg",
+    task: "bg-warning-bg hover:bg-warning-bg",
+    system: "bg-accent-soft/60 hover:bg-accent-soft",
+    local: "bg-accent-soft hover:bg-accent-soft",
   };
   const bgClass = bgMap[ev.source] ?? bgMap.local;
 
   const borderOutline =
     ev.source === "google"
-      ? "border-[rgba(166,61,61,0.12)]"
+      ? "border-danger/15"
       : ev.source === "task"
         ? "border-warning/12"
         : "border-accent/10";
@@ -166,7 +166,7 @@ export function TimelineEventBlock({
 
         {/* source badge */}
         {ev.source === "google" && !isShort && (
-          <span className="mt-auto inline-flex w-fit rounded bg-[rgba(166,61,61,0.06)] px-1 py-0.5 text-[8px] font-medium text-[#a63d3d]">
+          <span className="mt-auto inline-flex w-fit rounded bg-danger-bg px-1 py-0.5 text-[8px] font-medium text-danger">
             Google
           </span>
         )}

@@ -149,7 +149,7 @@ export function DiscountStatsCard() {
   }, [data]);
 
   return (
-    <div className="rounded-xl border border-border bg-white/60 p-5">
+    <div className="rounded-xl border border-border bg-card-bg/60 p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <TrendingDown size={16} className="text-orange-600" />
@@ -163,14 +163,14 @@ export function DiscountStatsCard() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="rounded-md border border-input bg-white px-2 py-1 text-xs font-medium"
+              className="rounded-md border border-input bg-card-bg px-2 py-1 text-xs font-medium"
             />
             <span className="text-xs text-muted-foreground">→</span>
             <input
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="rounded-md border border-input bg-white px-2 py-1 text-xs font-medium"
+              className="rounded-md border border-input bg-card-bg px-2 py-1 text-xs font-medium"
             />
           </div>
 
@@ -180,7 +180,7 @@ export function DiscountStatsCard() {
               <select
                 value={salesRepId}
                 onChange={(e) => setSalesRepId(e.target.value)}
-                className="rounded-md border border-input bg-white px-2 py-1 text-xs font-medium"
+                className="rounded-md border border-input bg-card-bg px-2 py-1 text-xs font-medium"
               >
                 <option value="">全部销售</option>
                 {data.repOptions.map((r) => (

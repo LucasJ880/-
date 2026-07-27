@@ -28,7 +28,7 @@ interface BlindsOrder {
 
 const STATUS_MAP: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   draft: { label: "草稿", color: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]", icon: FileText },
-  confirmed: { label: "已确认", color: "bg-[rgba(43,96,85,0.08)] text-[#2b6055]", icon: CheckCircle },
+  confirmed: { label: "已确认", color: "bg-accent-soft text-accent", icon: CheckCircle },
   completed: { label: "已完成", color: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]", icon: CheckCircle },
 };
 
@@ -72,7 +72,7 @@ export default function BlindsOrdersPage() {
         </div>
         <Link
           href="/blinds-orders/new"
-          className="flex items-center gap-2 rounded-lg bg-[#2b6055] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#2b6055]/90"
+          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-[color:var(--on-accent)] shadow-sm transition-colors hover:bg-accent/90"
         >
           <Plus size={16} />
           新建工艺单
@@ -90,13 +90,13 @@ export default function BlindsOrdersPage() {
             placeholder="搜索订单号或客户名..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-border py-2 pl-9 pr-4 text-sm outline-none transition-colors focus:border-[#2b6055] focus:ring-1 focus:ring-[#2b6055]"
+            className="w-full rounded-lg border border-border py-2 pl-9 pr-4 text-sm outline-none transition-colors focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-border px-3 py-2 text-sm outline-none transition-colors focus:border-[#2b6055]"
+          className="rounded-lg border border-border px-3 py-2 text-sm outline-none transition-colors focus:border-accent"
         >
           <option value="">全部状态</option>
           <option value="draft">草稿</option>
@@ -107,7 +107,7 @@ export default function BlindsOrdersPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-20 text-muted">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-[#2b6055]" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-accent" />
           <span className="ml-2">加载中...</span>
         </div>
       ) : filtered.length === 0 ? (
@@ -119,14 +119,14 @@ export default function BlindsOrdersPage() {
           {!search && (
             <Link
               href="/blinds-orders/new"
-              className="mt-4 rounded-lg bg-[#2b6055] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b6055]/90"
+              className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90"
             >
               创建第一份工艺单
             </Link>
           )}
         </div>
       ) : (
-        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-white shadow-sm">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card-bg shadow-sm">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border bg-[rgba(26,36,32,0.02)] text-left text-muted">
@@ -150,7 +150,7 @@ export default function BlindsOrdersPage() {
                     <td className="px-4 py-3">
                       <Link
                         href={`/blinds-orders/${order.id}`}
-                        className="font-medium text-[#2b6055] hover:underline"
+                        className="font-medium text-accent hover:underline"
                       >
                         {order.code}
                       </Link>

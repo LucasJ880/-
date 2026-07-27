@@ -296,7 +296,7 @@ export function OrderShadesForm({
                             min={0}
                             value={line.manualPrice ?? ""}
                             onChange={(e) => updateLine(line.id, "manualPrice", e.target.value)}
-                            className="w-20 bg-white/60 border border-amber-300 rounded px-1 py-0.5 text-xs text-right font-mono min-h-[44px] outline-none focus:ring-1 focus:ring-amber-400"
+                            className="w-20 bg-card-bg/60 border border-amber-300 rounded px-1 py-0.5 text-xs text-right font-mono min-h-[44px] outline-none focus:ring-1 focus:ring-amber-400"
                             placeholder="Price"
                           />
                         </div>

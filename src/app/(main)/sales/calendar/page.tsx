@@ -332,7 +332,7 @@ export default function SalesCalendarPage() {
           </div>
           <a
             href="/settings"
-            className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow-sm border border-red-200 hover:bg-red-50 transition-colors"
+            className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-card-bg px-3 py-1.5 text-xs font-medium text-red-700 shadow-sm border border-red-200 hover:bg-red-50 transition-colors"
           >
             <ExternalLink size={12} />
             去重新连接
@@ -357,7 +357,7 @@ export default function SalesCalendarPage() {
             <span className="text-amber-700">尚未连接 Google Calendar — 连接后预约自动同步到你的日历</span>
             <a
               href="/api/auth/google"
-              className="ml-auto inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-amber-700 shadow-sm border border-amber-200 hover:bg-amber-50 transition-colors"
+              className="ml-auto inline-flex items-center gap-1 rounded-lg bg-card-bg px-3 py-1.5 text-xs font-medium text-amber-700 shadow-sm border border-amber-200 hover:bg-amber-50 transition-colors"
             >
               <ExternalLink size={12} />
               连接 Google Calendar
@@ -374,7 +374,7 @@ export default function SalesCalendarPage() {
           { label: "Google 事件", value: googleEvents.length, color: "text-indigo-600" },
           { label: "待安装", value: appointments.filter((a) => a.type === "install" && a.status === "scheduled").length, color: "text-purple-600" },
         ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-white/60 p-4">
+          <div key={s.label} className="rounded-xl border border-border bg-card-bg/60 p-4">
             <p className="text-xs text-muted-foreground">{s.label}</p>
             <p className={cn("mt-1 text-2xl font-bold", s.color)}>{s.value}</p>
           </div>
@@ -400,7 +400,7 @@ export default function SalesCalendarPage() {
             今天
           </button>
         </div>
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-white/60 p-0.5">
+        <div className="flex items-center gap-1 rounded-lg border border-border bg-card-bg/60 p-0.5">
           {(["month", "week", "day", "list"] as const).map((v) => (
             <button
               key={v}
@@ -418,7 +418,7 @@ export default function SalesCalendarPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_300px] md:gap-6">
         {/* Calendar grid */}
-        <div className="rounded-xl border border-border bg-white/60 overflow-hidden">
+        <div className="rounded-xl border border-border bg-card-bg/60 overflow-hidden">
           {viewMode === "month" ? (
             <CalendarMonthView
               year={year}

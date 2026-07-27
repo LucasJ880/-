@@ -366,7 +366,7 @@ export default function PromptDetailPage() {
         >
           <ArrowLeft size={14} /> 返回列表
         </button>
-        <p className="text-[#a63d3d]">{error || "未找到"}</p>
+        <p className="text-danger">{error || "未找到"}</p>
       </div>
     );
   }
@@ -717,7 +717,7 @@ export default function PromptDetailPage() {
                 </pre>
               </div>
             ) : (
-              <p className="mt-4 text-[#a63d3d]">加载失败</p>
+              <p className="mt-4 text-danger">加载失败</p>
             )}
           </div>
         </div>

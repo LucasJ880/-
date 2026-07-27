@@ -415,7 +415,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
         onClick={onClose}
       />
       <div
-        className="relative z-10 w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-white p-5 shadow-2xl"
+        className="relative z-10 w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card-bg p-5 shadow-2xl"
         style={{ maxHeight: "90vh" }}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -447,7 +447,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
             readiness.status === "source_ready" &&
               "border-amber-200 bg-amber-50 text-amber-900",
             readiness.status === "incomplete" &&
-              "border-slate-200 bg-slate-50 text-slate-700",
+              "border-slate-200 bg-accent-soft text-slate-700",
           )}
         >
           <p className="font-medium">
@@ -472,7 +472,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：客户带来的高端遮光卷帘"
-              className="mt-0.5 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs"
+              className="mt-0.5 w-full rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs"
             />
           </div>
 
@@ -482,7 +482,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="mt-0.5 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs"
+                className="mt-0.5 w-full rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs"
               >
                 {CATEGORY_OPTIONS.map((c) => (
                   <option key={c.value} value={c.value}>
@@ -515,7 +515,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
               <label className="text-[11px] font-medium text-muted">产品参考资产</label>
               <span className="text-[10px] text-muted">建议横向图片，长边 1600px 以上</span>
             </div>
-            <div className="divide-y divide-border rounded-md border border-border bg-slate-50/60">
+            <div className="divide-y divide-border rounded-md border border-border bg-accent-soft/60">
               {ASSET_SECTIONS.map((section) => {
                 const sectionAssets = assets.filter((asset) => asset.role === section.role);
                 const isUploading = uploadingRole === section.role;
@@ -533,7 +533,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                       {sectionAssets.map((asset) => (
                         <div
                           key={asset.fileUrl}
-                          className="group relative h-16 w-20 overflow-hidden rounded border border-border bg-white"
+                          className="group relative h-16 w-20 overflow-hidden rounded border border-border bg-white" /* canvas 需白底 */
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -561,7 +561,9 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                         </div>
                       ))}
                       {sectionAssets.length < section.limit ? (
-                        <label className="flex h-16 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-border bg-white text-[10px] text-muted hover:border-foreground/40 hover:text-foreground">
+                        <label
+                          className="flex h-16 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-border bg-white text-[10px] text-muted hover:border-foreground/40 hover:text-foreground" /* canvas 需白底 */
+                        >
                           <input
                             type="file"
                             accept="image/png,image/jpeg,image/webp"
@@ -595,7 +597,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
             </p>
           </div>
 
-          <div className="rounded-md border border-border bg-white p-3">
+          <div className="rounded-md border border-border bg-card-bg p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-medium text-foreground">
@@ -629,7 +631,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                     type="button"
                     disabled={generating}
                     onClick={() => void generateTemplate(opt.type)}
-                    className="rounded-md border border-border bg-slate-50 px-2.5 py-2 text-left hover:border-amber-300 hover:bg-amber-50 disabled:opacity-50"
+                    className="rounded-md border border-border bg-accent-soft px-2.5 py-2 text-left hover:border-amber-300 hover:bg-amber-50 disabled:opacity-50"
                   >
                     <p className="text-xs font-medium text-foreground">{opt.label}</p>
                     <p className="text-[10px] text-muted">{opt.description}</p>
@@ -657,7 +659,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
               {colors.map((c, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-white px-2 py-1.5"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-card-bg px-2 py-1.5"
                 >
                   <input
                     type="color"
@@ -680,7 +682,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                       )
                     }
                     placeholder="颜色名（如 White）"
-                    className="min-w-0 flex-1 rounded border border-border bg-white px-1.5 py-1 text-[11px]"
+                    className="min-w-0 flex-1 rounded border border-border bg-card-bg px-1.5 py-1 text-[11px]"
                   />
                   <input
                     value={c.hex}
@@ -692,7 +694,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                       )
                     }
                     placeholder="#RRGGBB"
-                    className="w-20 rounded border border-border bg-white px-1.5 py-1 text-[11px]"
+                    className="w-20 rounded border border-border bg-card-bg px-1.5 py-1 text-[11px]"
                   />
                   {colors.length > 1 && (
                     <button
@@ -729,7 +731,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
                       "rounded-md border px-2 py-1",
                       active
                         ? "border-amber-400 bg-amber-50 text-amber-800"
-                        : "border-border bg-white text-muted hover:text-foreground",
+                        : "border-border bg-card-bg text-muted hover:text-foreground",
                     )}
                   >
                     {m === "inside" ? "内装 Inside" : "外装 Outside"}
@@ -747,7 +749,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
               value={pricingProductName}
               onChange={(e) => setPricingProductName(e.target.value)}
               placeholder="例如：Zebra / Roller / Drapery"
-              className="mt-0.5 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs"
+              className="mt-0.5 w-full rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs"
             />
           </div>
 
@@ -758,7 +760,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
               onChange={(e) => setNotes(e.target.value)}
               placeholder="如：客户带来的某品牌系列"
               rows={2}
-              className="mt-0.5 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs"
+              className="mt-0.5 w-full rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs"
             />
           </div>
         </div>
@@ -768,7 +770,7 @@ export default function CatalogProductDialog(props: CatalogProductDialogProps) {
             type="button"
             onClick={onClose}
             disabled={busy || generating}
-            className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
+            className="rounded-md border border-border bg-card-bg px-3 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-60"
           >
             取消
           </button>

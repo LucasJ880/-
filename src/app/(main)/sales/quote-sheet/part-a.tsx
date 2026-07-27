@@ -382,7 +382,7 @@ export function PartAForm({
             <div key={line.id}
               className={cn(
                 "rounded-xl border p-4 space-y-3 transition-colors",
-                line.error ? "border-red-200 bg-red-50/30" : line.price ? "border-teal-200 bg-white/60" : "border-border bg-white/40"
+                line.error ? "border-red-200 bg-red-50/30" : line.price ? "border-teal-200 bg-card-bg/60" : "border-border bg-card-bg/40"
               )}>
               {/* Row 1: # + Room + Product + Fabric + Dimensions + Qty */}
               <div className="flex flex-wrap items-end gap-3">
@@ -398,7 +398,7 @@ export function PartAForm({
                   <label className="text-[10px] text-muted-foreground font-medium">Room / Location</label>
                   <input type="text" value={line.roomName}
                     onChange={(e) => updateLine(line.id, { roomName: e.target.value })}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm outline-none min-h-[44px]"
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm outline-none min-h-[44px]"
                     placeholder="e.g. Master Bedroom" />
                 </div>
 
@@ -406,7 +406,7 @@ export function PartAForm({
                   <label className="text-[10px] text-muted-foreground font-medium">Product</label>
                   <select value={line.product}
                     onChange={(e) => updateLine(line.id, { product: (e.target.value || "") as ProductName | "" })}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm outline-none min-h-[44px]">
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm outline-none min-h-[44px]">
                     <option value="">Select...</option>
                     {ALL_PRODUCTS.map((p) => <option key={p} value={p}>{p}</option>)}
                   </select>
@@ -417,7 +417,7 @@ export function PartAForm({
                   <select value={line.fabric}
                     onChange={(e) => updateLine(line.id, { fabric: e.target.value })}
                     disabled={!line.product}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm outline-none min-h-[44px] disabled:opacity-50">
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm outline-none min-h-[44px] disabled:opacity-50">
                     <option value="">Select fabric...</option>
                     {fabrics.map((f) => <option key={f} value={f}>{f}</option>)}
                   </select>
@@ -427,7 +427,7 @@ export function PartAForm({
                   <label className="text-[10px] text-muted-foreground font-medium">Width"</label>
                   <input type="number" step="0.0625" value={line.widthIn ?? ""}
                     onChange={(e) => updateLine(line.id, { widthIn: e.target.value ? parseFloat(e.target.value) : null })}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm text-center outline-none min-h-[44px]"
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm text-center outline-none min-h-[44px]"
                     placeholder="W" />
                 </div>
 
@@ -435,7 +435,7 @@ export function PartAForm({
                   <label className="text-[10px] text-muted-foreground font-medium">Height"</label>
                   <input type="number" step="0.0625" value={line.heightIn ?? ""}
                     onChange={(e) => updateLine(line.id, { heightIn: e.target.value ? parseFloat(e.target.value) : null })}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm text-center outline-none min-h-[44px]"
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm text-center outline-none min-h-[44px]"
                     placeholder="H" />
                 </div>
 
@@ -443,7 +443,7 @@ export function PartAForm({
                   <label className="text-[10px] text-muted-foreground font-medium">Qty</label>
                   <input type="number" min={1} value={line.panelCount || ""}
                     onChange={(e) => updateLine(line.id, { panelCount: parseInt(e.target.value) || 1 })}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm text-center outline-none min-h-[44px]"
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm text-center outline-none min-h-[44px]"
                     placeholder="1" />
                 </div>
 
@@ -451,7 +451,7 @@ export function PartAForm({
                   <label className="text-[10px] text-muted-foreground font-medium">Note</label>
                   <input type="text" value={line.note}
                     onChange={(e) => updateLine(line.id, { note: e.target.value })}
-                    className="w-full rounded border border-border bg-white/80 px-2 py-1.5 text-sm outline-none min-h-[44px]"
+                    className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm outline-none min-h-[44px]"
                     placeholder="—" />
                 </div>
               </div>

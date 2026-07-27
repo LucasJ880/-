@@ -224,7 +224,7 @@ export function SuiteStudioPanel({
 
   if (loading) {
     return (
-      <section className="rounded-xl border border-border bg-white p-4">
+      <section className="rounded-xl border border-border bg-card-bg p-4">
         <div className="flex items-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载套图模版库…
         </div>
@@ -233,7 +233,7 @@ export function SuiteStudioPanel({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-white p-4 md:p-5">
+    <section className="rounded-xl border border-border bg-card-bg p-4 md:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">套图工作室</h2>

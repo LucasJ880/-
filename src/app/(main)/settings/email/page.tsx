@@ -254,7 +254,7 @@ export default function EmailBindingPage() {
       {/* ─── Google OAuth 一键授权（主推） ─── */}
       <div className="rounded-xl border-2 border-accent/30 bg-gradient-to-br from-accent/5 to-transparent p-5">
         <div className="flex items-start gap-3">
-          <div className="shrink-0 rounded-lg bg-white p-2 shadow-sm">
+          <div className="shrink-0 rounded-lg bg-card-bg p-2 shadow-sm">
             <Sparkles size={22} className="text-accent" />
           </div>
           <div className="flex-1">
@@ -274,7 +274,7 @@ export default function EmailBindingPage() {
                     ，无法创建 AI 邮件草稿。请点击「重新授权」并完整同意权限。
                   </div>
                 )}
-                <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-white/60 px-3 py-2">
+                <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-card-bg/60 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <CheckCircle size={16} className="shrink-0 text-emerald-600" />
                     <div className="min-w-0">
@@ -291,7 +291,7 @@ export default function EmailBindingPage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleConnectGoogle(true)}
-                      className="rounded-md border border-border bg-white px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50"
+                      className="rounded-md border border-border bg-card-bg px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50"
                     >
                       重新授权
                     </button>
@@ -309,7 +309,7 @@ export default function EmailBindingPage() {
             ) : (
               <button
                 onClick={() => handleConnectGoogle(false)}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white border border-border px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:border-accent/50 hover:bg-accent/5 transition-colors"
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-card-bg border border-border px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:border-accent/50 hover:bg-accent/5 transition-colors"
               >
                 <svg viewBox="0 0 18 18" className="h-4 w-4" aria-hidden>
                   <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" />
@@ -331,7 +331,7 @@ export default function EmailBindingPage() {
       )}
 
       {/* ─── 高级：SMTP 手动配置（折叠） ─── */}
-      <div className="rounded-xl border border-border bg-white/60">
+      <div className="rounded-xl border border-border bg-card-bg/60">
         <button
           type="button"
           onClick={() => setShowSmtp((v) => !v)}
@@ -421,7 +421,7 @@ export default function EmailBindingPage() {
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                   placeholder="you@gmail.com"
                 />
               </div>
@@ -430,7 +430,7 @@ export default function EmailBindingPage() {
                 <input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                   placeholder="Kevin @ Sunny Blinds"
                 />
               </div>
@@ -442,7 +442,7 @@ export default function EmailBindingPage() {
                 <input
                   value={smtpHost}
                   onChange={(e) => setSmtpHost(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                   placeholder="smtp.gmail.com"
                 />
               </div>
@@ -452,7 +452,7 @@ export default function EmailBindingPage() {
                   type="number"
                   value={smtpPort}
                   onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                 />
               </div>
             </div>
@@ -463,7 +463,7 @@ export default function EmailBindingPage() {
                 <input
                   value={smtpUser}
                   onChange={(e) => setSmtpUser(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                   placeholder="通常是邮箱地址"
                 />
               </div>
@@ -473,7 +473,7 @@ export default function EmailBindingPage() {
                   type="password"
                   value={smtpPass}
                   onChange={(e) => setSmtpPass(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                   placeholder="••••••••"
                 />
               </div>

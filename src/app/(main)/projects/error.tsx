@@ -26,7 +26,7 @@ export default function ProjectsError({
         项目数据加载时遇到问题。可能是暂时的网络或服务异常，请重试。
       </p>
       {(error.message || error.digest) && (
-        <pre className="max-w-lg overflow-auto rounded-lg bg-gray-100 px-4 py-2 text-left text-xs text-red-700">
+        <pre className="max-w-lg overflow-auto rounded-lg bg-muted/20 px-4 py-2 text-left text-xs text-red-700">
           {error.message}
           {error.digest && `\ndigest: ${error.digest}`}
         </pre>
@@ -41,7 +41,7 @@ export default function ProjectsError({
         </button>
         <a
           href="/projects"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-card-bg"
         >
           <ArrowLeft className="h-4 w-4" />
           返回项目列表

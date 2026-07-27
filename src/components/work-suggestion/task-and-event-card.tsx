@@ -139,12 +139,12 @@ export function TaskAndEventCard({
 
   if (status === "done") {
     return (
-      <div className="my-2 flex items-center gap-3 rounded-xl border border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.04)] px-4 py-3">
-        <CheckCircle2 size={18} className="text-[#2e7a56]" />
-        <span className="text-sm font-medium text-[#2e7a56]">
+      <div className="my-2 flex items-center gap-3 rounded-xl border border-success/15 bg-success-bg px-4 py-3">
+        <CheckCircle2 size={18} className="text-success" />
+        <span className="text-sm font-medium text-success">
           任务「{taskForm.title}」+ 日程「{eventForm.title}」已创建并关联
         </span>
-        <Link href="/tasks" className="ml-auto flex items-center gap-1 text-xs text-[#2e7a56] hover:text-[#2e7a56]">
+        <Link href="/tasks" className="ml-auto flex items-center gap-1 text-xs text-success hover:text-success">
           查看 <ExternalLink size={12} />
         </Link>
       </div>
@@ -154,23 +154,23 @@ export function TaskAndEventCard({
   const isCreating = status === "creating_task" || status === "creating_event";
 
   return (
-    <div className="my-2 space-y-0 rounded-xl border border-[rgba(128,80,120,0.15)] bg-gradient-to-br from-[rgba(128,80,120,0.03)] to-[rgba(43,96,85,0.02)]">
+    <div className="my-2 space-y-0 rounded-xl border border-info/15 bg-gradient-to-br from-[rgba(128,80,120,0.03)] to-accent-soft/30">
       {/* Header */}
-      <div className="flex items-center gap-1.5 border-b border-[rgba(128,80,120,0.08)] px-4 py-2.5">
-        <Link2 size={13} className="text-[#805078]" />
-        <span className="text-xs font-semibold text-[#805078]">AI 识别到一个任务 + 一个关联日程</span>
+      <div className="flex items-center gap-1.5 border-b border-info/10 px-4 py-2.5">
+        <Link2 size={13} className="text-info" />
+        <span className="text-xs font-semibold text-info">AI 识别到一个任务 + 一个关联日程</span>
       </div>
 
       {/* Task Section */}
-      <div className="border-b border-[rgba(128,80,120,0.08)]">
+      <div className="border-b border-info/10">
         <div className="flex items-center justify-between px-4 py-2">
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#2b6055]">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-accent">
             <CheckCircle2 size={12} /> 任务
           </span>
           <button
             onClick={() => setTaskEditing(!taskEditing)}
             disabled={isCreating}
-            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-[#2b6055] transition-colors hover:bg-[rgba(43,96,85,0.04)] disabled:opacity-40"
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-accent transition-colors hover:bg-accent-soft disabled:opacity-40"
           >
             <Pencil size={10} /> {taskEditing ? "完成" : "修改"}
           </button>
@@ -181,19 +181,19 @@ export function TaskAndEventCard({
               <input
                 value={taskForm.title}
                 onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
-                className="w-full rounded-lg border border-[rgba(43,96,85,0.15)] bg-white px-3 py-1.5 text-sm font-semibold outline-none focus:border-accent"
+                className="w-full rounded-lg border border-accent/15 bg-card-bg px-3 py-1.5 text-sm font-semibold outline-none focus:border-accent"
               />
               <textarea
                 value={taskForm.description}
                 onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
                 rows={2}
-                className="w-full resize-none rounded-lg border border-[rgba(43,96,85,0.15)] bg-white px-3 py-1.5 text-sm outline-none focus:border-accent"
+                className="w-full resize-none rounded-lg border border-accent/15 bg-card-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
               />
               <div className="flex flex-wrap gap-2">
                 <select
                   value={taskForm.priority}
                   onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value as TaskSuggestion["priority"] })}
-                  className="rounded-lg border border-[rgba(43,96,85,0.15)] bg-white px-2 py-1 text-xs outline-none"
+                  className="rounded-lg border border-accent/15 bg-card-bg px-2 py-1 text-xs outline-none"
                 >
                   <option value="low">低优先级</option>
                   <option value="medium">中优先级</option>
@@ -204,12 +204,12 @@ export function TaskAndEventCard({
                   type="date"
                   value={taskForm.dueDate || ""}
                   onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value || null })}
-                  className="rounded-lg border border-[rgba(43,96,85,0.15)] bg-white px-2 py-1 text-xs outline-none"
+                  className="rounded-lg border border-accent/15 bg-card-bg px-2 py-1 text-xs outline-none"
                 />
                 <select
                   value={taskForm.projectId}
                   onChange={(e) => setTaskForm({ ...taskForm, projectId: e.target.value })}
-                  className="rounded-lg border border-[rgba(43,96,85,0.15)] bg-white px-2 py-1 text-xs outline-none"
+                  className="rounded-lg border border-accent/15 bg-card-bg px-2 py-1 text-xs outline-none"
                 >
                   <option value="">无所属项目</option>
                   {projects.map((p) => (
@@ -229,12 +229,12 @@ export function TaskAndEventCard({
                   <Flag size={10} /> {priorityInfo.label}
                 </span>
                 {taskForm.dueDate && (
-                  <span className="flex items-center gap-1 rounded-full border border-[rgba(110,125,118,0.15)] bg-[rgba(110,125,118,0.06)] px-2 py-0.5 text-[11px] font-medium text-[#6e7d76]">
+                  <span className="flex items-center gap-1 rounded-full border border-muted/15 bg-muted/10 px-2 py-0.5 text-[11px] font-medium text-muted">
                     <Calendar size={10} /> {taskForm.dueDate}
                   </span>
                 )}
                 {displayProjectName && (
-                  <span className="flex items-center gap-1 rounded-full border border-[rgba(128,80,120,0.15)] bg-[rgba(128,80,120,0.04)] px-2 py-0.5 text-[11px] font-medium text-[#805078]">
+                  <span className="flex items-center gap-1 rounded-full border border-info/15 bg-info-bg px-2 py-0.5 text-[11px] font-medium text-info">
                     <FolderKanban size={10} /> {displayProjectName}
                   </span>
                 )}
@@ -247,13 +247,13 @@ export function TaskAndEventCard({
       {/* Event Section */}
       <div className={cn(status === "task_ok_event_fail" && "ring-1 ring-[rgba(166,61,61,0.15)] rounded-b-xl")}>
         <div className="flex items-center justify-between px-4 py-2">
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#2e7a56]">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-success">
             <Calendar size={12} /> 日程
           </span>
           <button
             onClick={() => setEventEditing(!eventEditing)}
             disabled={isCreating}
-            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-[#2e7a56] transition-colors hover:bg-[rgba(46,122,86,0.04)] disabled:opacity-40"
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-success transition-colors hover:bg-success-bg disabled:opacity-40"
           >
             <Pencil size={10} /> {eventEditing ? "完成" : "修改"}
           </button>
@@ -264,21 +264,21 @@ export function TaskAndEventCard({
               <input
                 value={eventForm.title}
                 onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-                className="w-full rounded-lg border border-[rgba(46,122,86,0.15)] bg-white px-3 py-1.5 text-sm font-semibold outline-none focus:border-accent"
+                className="w-full rounded-lg border border-success/15 bg-card-bg px-3 py-1.5 text-sm font-semibold outline-none focus:border-accent"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
                   type="date"
                   value={eventForm.date}
                   onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })}
-                  className="rounded-lg border border-[rgba(46,122,86,0.15)] bg-white px-2 py-1 text-xs outline-none"
+                  className="rounded-lg border border-success/15 bg-card-bg px-2 py-1 text-xs outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setEventForm({ ...eventForm, allDay: !eventForm.allDay })}
                   className={cn(
                     "rounded-lg border px-2 py-1 text-xs transition-colors",
-                    eventForm.allDay ? "border-accent bg-accent/5 font-medium text-accent" : "border-[rgba(46,122,86,0.15)] text-muted"
+                    eventForm.allDay ? "border-accent bg-accent/5 font-medium text-accent" : "border-success/15 text-muted"
                   )}
                 >
                   {eventForm.allDay ? "✓ 全天" : "全天"}
@@ -290,13 +290,13 @@ export function TaskAndEventCard({
                     type="time"
                     value={eventForm.startTime}
                     onChange={(e) => setEventForm({ ...eventForm, startTime: e.target.value })}
-                    className="rounded-lg border border-[rgba(46,122,86,0.15)] bg-white px-2 py-1 text-xs outline-none"
+                    className="rounded-lg border border-success/15 bg-card-bg px-2 py-1 text-xs outline-none"
                   />
                   <input
                     type="time"
                     value={eventForm.endTime}
                     onChange={(e) => setEventForm({ ...eventForm, endTime: e.target.value })}
-                    className="rounded-lg border border-[rgba(46,122,86,0.15)] bg-white px-2 py-1 text-xs outline-none"
+                    className="rounded-lg border border-success/15 bg-card-bg px-2 py-1 text-xs outline-none"
                   />
                 </div>
               )}
@@ -304,21 +304,21 @@ export function TaskAndEventCard({
                 value={eventForm.location}
                 onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })}
                 placeholder="地点（可选）"
-                className="w-full rounded-lg border border-[rgba(46,122,86,0.15)] bg-white px-3 py-1.5 text-sm outline-none focus:border-accent"
+                className="w-full rounded-lg border border-success/15 bg-card-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
               />
             </div>
           ) : (
             <>
               <h4 className="text-sm font-semibold text-foreground">{eventForm.title}</h4>
               <div className="flex flex-wrap gap-1.5">
-                <span className="flex items-center gap-1 rounded-full border border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.04)] px-2 py-0.5 text-[11px] font-medium text-[#2e7a56]">
+                <span className="flex items-center gap-1 rounded-full border border-success/15 bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success">
                   <Calendar size={10} /> {formatDateLabel(eventForm.date ? `${eventForm.date}T00:00` : eventSuggestion.startTime)}
                 </span>
-                <span className="flex items-center gap-1 rounded-full border border-[rgba(110,125,118,0.15)] bg-[rgba(110,125,118,0.06)] px-2 py-0.5 text-[11px] font-medium text-[#6e7d76]">
+                <span className="flex items-center gap-1 rounded-full border border-muted/15 bg-muted/10 px-2 py-0.5 text-[11px] font-medium text-muted">
                   <Clock size={10} /> {eventForm.allDay ? "全天" : `${eventForm.startTime} - ${eventForm.endTime}`}
                 </span>
                 {eventForm.location && (
-                  <span className="flex items-center gap-1 rounded-full border border-[rgba(110,125,118,0.15)] bg-[rgba(110,125,118,0.06)] px-2 py-0.5 text-[11px] font-medium text-[#6e7d76]">
+                  <span className="flex items-center gap-1 rounded-full border border-muted/15 bg-muted/10 px-2 py-0.5 text-[11px] font-medium text-muted">
                     <MapPin size={10} /> {eventForm.location}
                   </span>
                 )}
@@ -329,23 +329,23 @@ export function TaskAndEventCard({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center gap-2 border-t border-[rgba(128,80,120,0.08)] px-4 py-2.5">
+      <div className="flex items-center gap-2 border-t border-info/10 px-4 py-2.5">
         {status === "task_ok_event_fail" ? (
           <>
-            <span className="text-xs text-[#9a6a2f]">任务已创建，日程创建失败</span>
+            <span className="text-xs text-warning">任务已创建，日程创建失败</span>
             <button
               onClick={handleRetryEvent}
-              className="flex items-center gap-1.5 rounded-lg bg-[#2e7a56] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2e7a56]/90"
+              className="flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-success/90"
             >
               <Calendar size={12} /> 重试创建日程
             </button>
           </>
         ) : status === "all_fail" ? (
           <>
-            <span className="text-xs text-[#a63d3d]">创建失败，请重试</span>
+            <span className="text-xs text-danger">创建失败，请重试</span>
             <button
               onClick={handleCreate}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
             >
               <Link2 size={12} /> 重试
             </button>
@@ -354,7 +354,7 @@ export function TaskAndEventCard({
           <button
             onClick={handleCreate}
             disabled={isCreating || !taskForm.title.trim() || !eventForm.title.trim()}
-            className="flex items-center gap-1.5 rounded-lg bg-[#805078] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#805078]/90 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-info px-3.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-info/90 disabled:opacity-50"
           >
             {isCreating ? (
               <>

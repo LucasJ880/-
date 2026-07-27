@@ -323,7 +323,7 @@ function UsersContent() {
           </select>
           <button
             type="submit"
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
           >
             搜索
           </button>
@@ -496,7 +496,7 @@ function UsersContent() {
                       <button
                         onClick={handleRoleUpdate}
                         disabled={roleUpdating || newRole === String(userDetail.role)}
-                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
                       >
                         {roleUpdating ? "保存中..." : "保存"}
                       </button>
@@ -570,7 +570,7 @@ function UsersContent() {
                             disabled={permUpdating}
                           />
                           <div className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-accent peer-disabled:opacity-50" />
-                          <div className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                          <div className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card-bg shadow transition-transform peer-checked:translate-x-4" />
                         </label>
                       </div>
                     </div>

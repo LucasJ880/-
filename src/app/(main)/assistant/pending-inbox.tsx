@@ -144,7 +144,7 @@ export function PendingInbox({ onOpenThread }: Props) {
           "flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors",
           count > 0
             ? "border-[#c85a3a]/40 bg-[#c85a3a]/10 text-[#c85a3a] hover:bg-[#c85a3a]/15"
-            : "border-black/[0.07] bg-white text-[#68706c] hover:bg-black/[0.03] hover:text-[#171a19]",
+            : "border-border bg-card-bg text-muted hover:bg-black/[0.03] hover:text-foreground",
         )}
         title="待我确认的 AI 草稿"
       >
@@ -158,7 +158,7 @@ export function PendingInbox({ onOpenThread }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-lg border border-black/10 bg-white shadow-dialog">
+        <div className="absolute right-0 top-full z-40 mt-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border bg-card-bg shadow-dialog">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-xs font-medium text-foreground">
               待我确认的草稿
@@ -183,7 +183,7 @@ export function PendingInbox({ onOpenThread }: Props) {
             )}
 
             {error && (
-              <div className="flex items-center gap-2 border-b border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.05)] px-3 py-2 text-xs text-[#a63d3d]">
+              <div className="flex items-center gap-2 border-b border-[rgba(166,61,61,0.2)] bg-[rgba(166,61,61,0.05)] px-3 py-2 text-xs text-danger">
                 <AlertCircle size={13} />
                 {error}
               </div>

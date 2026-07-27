@@ -148,7 +148,7 @@ export default function SalesCockpitPage() {
       />
 
       {reportResult && (
-        <div className="rounded-xl border border-border bg-white/60 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/60 p-4">
           <h3 className="text-sm font-semibold mb-2">经营周报</h3>
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">{reportResult}</p>
         </div>
@@ -200,7 +200,7 @@ export default function SalesCockpitPage() {
             color: data.weekTrend.growthPct >= 0 ? "text-emerald-600" : "text-red-600",
           },
         ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-border bg-white/60 p-4">
+          <div key={card.label} className="rounded-xl border border-border bg-card-bg/60 p-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <card.icon size={14} className={card.color} />
               {card.label}
@@ -213,7 +213,7 @@ export default function SalesCockpitPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Funnel */}
-        <div className="rounded-xl border border-border bg-white/60 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/60 p-5">
           <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
             <BarChart3 size={16} className="text-blue-600" />
             销售漏斗
@@ -256,7 +256,7 @@ export default function SalesCockpitPage() {
         </div>
 
         {/* Team leaderboard */}
-        <div className="rounded-xl border border-border bg-white/60 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/60 p-5">
           <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
             <Trophy size={16} className="text-amber-500" />
             团队业绩排行（本月）
@@ -299,7 +299,7 @@ export default function SalesCockpitPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Order distribution */}
-        <div className="rounded-xl border border-border bg-white/60 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/60 p-5">
           <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
             <Package size={16} className="text-indigo-600" />
             工单状态分布
@@ -335,7 +335,7 @@ export default function SalesCockpitPage() {
         </div>
 
         {/* Inventory alerts */}
-        <div className="rounded-xl border border-border bg-white/60 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/60 p-5">
           <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
             <AlertTriangle size={16} className="text-amber-500" />
             库存预警

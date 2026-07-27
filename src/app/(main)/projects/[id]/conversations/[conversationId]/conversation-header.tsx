@@ -144,9 +144,9 @@ export function ConversationHeader({
               {conv.runtimeStatus && conv.runtimeStatus !== "idle" && (
                 <span className={cn(
                   "rounded-md px-2 py-0.5 text-[10px] font-medium",
-                  conv.runtimeStatus === "running" && "bg-[rgba(43,96,85,0.08)] text-[#2b6055] animate-pulse",
+                  conv.runtimeStatus === "running" && "bg-accent-soft text-accent animate-pulse",
                   conv.runtimeStatus === "completed" && "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]",
-                  conv.runtimeStatus === "failed" && "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]",
+                  conv.runtimeStatus === "failed" && "bg-danger-bg text-danger",
                 )}>
                   {conv.runtimeStatus === "running" ? "运行中" : conv.runtimeStatus === "completed" ? "已运行" : "运行失败"}
                 </span>
@@ -190,7 +190,7 @@ export function ConversationHeader({
       </div>
 
       {(runtimeError || conv.lastErrorMessage) && (
-        <div className="flex items-start gap-2 rounded-[var(--radius-md)] border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] p-3">
+        <div className="flex items-start gap-2 rounded-[var(--radius-md)] border border-border bg-danger-bg p-3">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-danger" />
           <div className="text-sm text-danger">
             <p className="font-medium">Runtime 错误</p>

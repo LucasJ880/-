@@ -303,7 +303,7 @@ export default function CapabilitiesOverviewPage() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-white/50 px-4 py-3">
+    <div className="rounded-md border border-border bg-card-bg/50 px-4 py-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-xl font-semibold tracking-tight">{value}</div>
     </div>

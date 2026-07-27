@@ -85,7 +85,7 @@ export function FeedbackActions({
       deferred: "稍后处理",
     };
     return (
-      <div className={cn("text-[12px] text-[#68706c]", className)}>
+      <div className={cn("text-[12px] text-muted", className)}>
         反馈已保存：{label[done] || done}（默认仅用于个人学习）
       </div>
     );
@@ -93,7 +93,7 @@ export function FeedbackActions({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
-      <span className="mr-1 text-[11px] font-medium text-[#68706c]">对建议</span>
+      <span className="mr-1 text-[11px] font-medium text-muted">对建议</span>
       <button
         type="button"
         disabled={disabled || busy}
@@ -108,7 +108,7 @@ export function FeedbackActions({
         type="button"
         disabled={disabled || busy}
         onClick={() => setEditOpen(true)}
-        className="inline-flex min-h-7 items-center gap-1 rounded-md border border-black/[0.08] bg-[#f4f5f5] px-2.5 py-1 text-[11px] font-medium text-[#202422] hover:bg-[#e9ebea] disabled:opacity-50"
+        className="inline-flex min-h-7 items-center gap-1 rounded-md border border-border bg-card-bg px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent-soft disabled:opacity-50"
       >
         <Pencil size={12} /> 修改后使用
       </button>
@@ -126,7 +126,7 @@ export function FeedbackActions({
         onClick={() =>
           run({ ...base, humanDecision: "deferred", feedbackScope: "personal_only" })
         }
-        className="inline-flex min-h-7 items-center gap-1 rounded-md border border-black/[0.08] px-2.5 py-1 text-[11px] font-medium text-[#68706c] hover:bg-[#f4f5f5] disabled:opacity-50"
+        className="inline-flex min-h-7 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted hover:bg-accent-soft disabled:opacity-50"
       >
         <Clock size={12} /> 稍后
       </button>

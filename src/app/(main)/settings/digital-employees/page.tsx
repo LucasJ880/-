@@ -35,7 +35,7 @@ export default function DigitalEmployeesHubPage() {
       <div className="mt-6 space-y-3">
         <Link
           href="/settings/digital-employees/my-profile"
-          className="flex items-start gap-3 rounded-xl border border-black/[0.06] bg-white p-4 hover:bg-[#fafafa]"
+          className="flex items-start gap-3 rounded-xl border border-border bg-card-bg p-4 hover:bg-accent-soft"
         >
           <Brain className="mt-0.5 h-5 w-5 text-[#202422]" />
           <div>
@@ -47,7 +47,7 @@ export default function DigitalEmployeesHubPage() {
         </Link>
         <Link
           href="/settings/digital-employees/team-learning"
-          className="flex items-start gap-3 rounded-xl border border-black/[0.06] bg-white p-4 hover:bg-[#fafafa]"
+          className="flex items-start gap-3 rounded-xl border border-border bg-card-bg p-4 hover:bg-accent-soft"
         >
           <Users className="mt-0.5 h-5 w-5 text-[#202422]" />
           <div>
@@ -59,7 +59,7 @@ export default function DigitalEmployeesHubPage() {
         </Link>
         <Link
           href="/settings/digital-employees/playbooks"
-          className="flex items-start gap-3 rounded-xl border border-black/[0.06] bg-white p-4 hover:bg-[#fafafa]"
+          className="flex items-start gap-3 rounded-xl border border-border bg-card-bg p-4 hover:bg-accent-soft"
         >
           <BookOpen className="mt-0.5 h-5 w-5 text-[#202422]" />
           <div>

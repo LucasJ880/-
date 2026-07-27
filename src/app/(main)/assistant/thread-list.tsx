@@ -71,8 +71,8 @@ export function ThreadSidebar({
             className={cn(
               "group relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-2 text-sm transition-colors",
               t.id === activeId
-                ? "border-black/[0.06] bg-white font-medium text-[#171a19] shadow-xs"
-                : "border-transparent text-[#4b524f] hover:bg-black/[0.035] hover:text-[#171a19]"
+                ? "border-border bg-card-bg font-medium text-foreground shadow-xs"
+                : "border-transparent text-[#4b524f] hover:bg-black/[0.035] hover:text-foreground"
             )}
             onClick={() => { onSelect(t.id); onCloseMobile(); }}
           >
@@ -80,7 +80,7 @@ export function ThreadSidebar({
               className={cn(
                 "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
                 t.id === activeId
-                  ? "bg-[#edf3f1] text-[#2b6055]"
+                  ? "bg-accent-soft text-accent"
                   : "bg-black/[0.035] text-[#7c8480]",
               )}
             >
@@ -100,7 +100,7 @@ export function ThreadSidebar({
             </button>
             {menuOpen === t.id && (
               <div
-                className="absolute right-0 top-10 z-50 w-36 rounded-md border border-black/10 bg-white py-1 shadow-dialog"
+                className="absolute right-0 top-10 z-50 w-36 rounded-md border border-border bg-card-bg py-1 shadow-dialog"
                 onMouseLeave={() => setMenuOpen(null)}
               >
                 <button
@@ -140,11 +140,11 @@ export function ThreadSidebar({
           <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-normal text-[#8b928f]">
             Qingyan Workspace
           </p>
-          <h2 className="text-[15px] font-semibold tracking-normal text-[#171a19]">工作对话</h2>
+          <h2 className="text-[15px] font-semibold tracking-normal text-foreground">工作对话</h2>
         </div>
         <button
           onClick={() => onCreate()}
-          className="flex h-9 w-9 items-center justify-center rounded-md bg-[#171a19] text-white shadow-xs transition-colors hover:bg-[#2b6055]"
+          className="flex h-9 w-9 items-center justify-center rounded-md bg-[#171a19] text-white shadow-xs transition-colors hover:bg-accent"
           title="新建对话"
           aria-label="新建对话"
         >
@@ -153,7 +153,7 @@ export function ThreadSidebar({
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {threads.length === 0 && (
-          <div className="mx-2 rounded-md border border-dashed border-black/10 bg-white/50 px-4 py-8 text-center">
+          <div className="mx-2 rounded-md border border-dashed border-border bg-card-bg/50 px-4 py-8 text-center">
             <MessageSquare size={18} className="mx-auto mb-2 text-[#8b928f]" />
             <p className="text-xs font-medium text-[#4b524f]">还没有工作对话</p>
             <p className="mt-1 text-[11px] text-[#8b928f]">新建后会自动保存在这里</p>
@@ -169,7 +169,7 @@ export function ThreadSidebar({
   return (
     <>
       {/* Desktop */}
-      <div className="hidden w-[272px] shrink-0 border-r border-black/[0.06] bg-[#f0f2f1] lg:block">
+      <div className="hidden w-[272px] shrink-0 border-r border-border bg-background lg:block">
         {sidebar}
       </div>
       {/* Mobile overlay */}
@@ -184,7 +184,7 @@ export function ThreadSidebar({
             className="absolute inset-0 bg-black/50"
             onClick={onCloseMobile}
           />
-          <div className="relative w-[min(82vw,304px)] max-h-dvh overflow-y-auto overscroll-contain bg-[#f0f2f1] pb-safe shadow-dialog">
+          <div className="relative w-[min(82vw,304px)] max-h-dvh overflow-y-auto overscroll-contain bg-background pb-safe shadow-dialog">
             {sidebar}
           </div>
         </div>

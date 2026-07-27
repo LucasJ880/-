@@ -20,7 +20,7 @@ export function OrdersList({ orders }: { orders: BlindsOrder[] }) {
         <Link
           key={o.id}
           href={`/blinds-orders/${o.id}`}
-          className="flex items-center justify-between rounded-lg border border-border/50 bg-white/60 px-4 py-3 hover:bg-white/80 transition-colors"
+          className="flex items-center justify-between rounded-lg border border-border/50 bg-card-bg/60 px-4 py-3 hover:bg-accent-soft transition-colors"
         >
           <div>
             <span className="text-sm font-medium text-foreground">

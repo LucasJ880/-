@@ -149,7 +149,7 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
         {lines.map((line, i) => {
           const p = pricings[i];
           return (
-          <div key={line.id} className="border border-border rounded-lg p-3 space-y-2 bg-white/40">
+          <div key={line.id} className="border border-border rounded-lg p-3 space-y-2 bg-card-bg/40">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-bold text-teal-700 w-6">#{i + 1}</span>

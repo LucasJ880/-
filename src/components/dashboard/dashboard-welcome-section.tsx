@@ -111,7 +111,7 @@ export function DashboardWelcomeSection({
             className={cn(
               "group flex items-start gap-3 rounded-[var(--radius-lg)] border p-4 shadow-card transition-all duration-150",
               step.done
-                ? "border-[rgba(46,122,86,0.15)] bg-[rgba(46,122,86,0.02)]"
+                ? "border-success/15 bg-success-bg/50"
                 : "card-hover border-border bg-card-bg"
             )}
           >
@@ -119,7 +119,7 @@ export function DashboardWelcomeSection({
               className={cn(
                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)]",
                 step.done
-                  ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
+                  ? "bg-success-light text-success"
                   : "bg-accent/10 text-accent"
               )}
             >
@@ -130,13 +130,13 @@ export function DashboardWelcomeSection({
                 <p
                   className={cn(
                     "text-[13px] font-medium tracking-[-0.01em]",
-                    step.done && "text-[#2e7a56]"
+                    step.done && "text-success"
                   )}
                 >
                   {step.title}
                 </p>
                 {step.done && (
-                  <span className="text-[11px] font-medium tracking-[-0.01em] text-[#2e7a56]">
+                  <span className="text-[11px] font-medium tracking-[-0.01em] text-success">
                     已完成
                   </span>
                 )}

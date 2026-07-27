@@ -88,13 +88,13 @@ export function VisualizerList({ customerId, opportunities }: VisualizerListProp
   return (
     <div className="space-y-4">
       {/* 顶部操作条：可选挂机会 + 新建 */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-white/60 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-card-bg/60 px-3 py-2">
         <span className="text-xs text-muted shrink-0">关联机会（可选）：</span>
         <select
           value={selectedOppId}
           onChange={(e) => setSelectedOppId(e.target.value)}
           disabled={creating || !opportunities || opportunities.length === 0}
-          className="h-8 min-w-[160px] flex-1 rounded-md border border-border bg-white px-2 text-xs disabled:opacity-60"
+          className="h-8 min-w-[160px] flex-1 rounded-md border border-border bg-card-bg px-2 text-xs disabled:opacity-60"
         >
           <option value="">不挂机会</option>
           {opportunities?.map((o) => (
@@ -144,7 +144,7 @@ export function VisualizerList({ customerId, opportunities }: VisualizerListProp
               <Link
                 key={s.id}
                 href={`/sales/visualizer/${s.id}`}
-                className="flex items-start gap-3 rounded-lg border border-border/50 bg-white/60 px-4 py-3 hover:bg-white/80 transition-colors"
+                className="flex items-start gap-3 rounded-lg border border-border/50 bg-card-bg/60 px-4 py-3 hover:bg-accent-soft transition-colors"
               >
                 {/* 缩略图堆叠 */}
                 <div className="shrink-0">
@@ -167,7 +167,7 @@ export function VisualizerList({ customerId, opportunities }: VisualizerListProp
                       )}
                     </div>
                   ) : (
-                    <div className="flex h-14 w-20 items-center justify-center rounded border border-dashed border-border bg-slate-50 text-[10px] text-muted">
+                    <div className="flex h-14 w-20 items-center justify-center rounded border border-dashed border-border bg-accent-soft text-[10px] text-muted">
                       暂无封面
                     </div>
                   )}

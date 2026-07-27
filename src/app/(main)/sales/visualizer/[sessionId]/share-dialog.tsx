@@ -172,7 +172,7 @@ export default function ShareDialog(props: ShareDialogProps) {
         className="absolute inset-0 bg-black/40"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-white p-5 shadow-2xl">
+      <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card-bg p-5 shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h3 className="text-base font-semibold text-foreground">分享给客户</h3>
@@ -191,7 +191,7 @@ export default function ShareDialog(props: ShareDialogProps) {
         </div>
 
         {!shareUrl || expired ? (
-          <div className="space-y-3 rounded-lg border border-dashed border-border bg-slate-50/60 p-3">
+          <div className="space-y-3 rounded-lg border border-dashed border-border bg-accent-soft/60 p-3">
             <div className="text-xs text-muted">
               {expired
                 ? "原链接已过期，重新生成将覆盖旧 token。"
@@ -202,7 +202,7 @@ export default function ShareDialog(props: ShareDialogProps) {
               <select
                 value={ttlDays}
                 onChange={(e) => setTtlDays(parseInt(e.target.value, 10) || 7)}
-                className="rounded-md border border-border bg-white px-2 py-1 text-xs"
+                className="rounded-md border border-border bg-card-bg px-2 py-1 text-xs"
               >
                 <option value={3}>3 天</option>
                 <option value={7}>7 天（推荐）</option>
@@ -228,7 +228,7 @@ export default function ShareDialog(props: ShareDialogProps) {
                 readOnly
                 value={shareUrl}
                 onFocus={(e) => e.currentTarget.select()}
-                className="min-w-0 flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs text-foreground"
+                className="min-w-0 flex-1 rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs text-foreground"
               />
               <button
                 type="button"
@@ -258,7 +258,7 @@ export default function ShareDialog(props: ShareDialogProps) {
               <select
                 value={ttlDays}
                 onChange={(e) => setTtlDays(parseInt(e.target.value, 10) || 7)}
-                className="rounded-md border border-border bg-white px-2 py-1 text-xs"
+                className="rounded-md border border-border bg-card-bg px-2 py-1 text-xs"
               >
                 <option value={3}>3 天</option>
                 <option value={7}>7 天</option>
@@ -270,7 +270,7 @@ export default function ShareDialog(props: ShareDialogProps) {
                 type="button"
                 onClick={renew}
                 disabled={busy !== null}
-                className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-card-bg px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                 title="生成新 token 并重置有效期（旧链接立即失效）"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -280,7 +280,7 @@ export default function ShareDialog(props: ShareDialogProps) {
                 type="button"
                 onClick={revoke}
                 disabled={busy !== null}
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-200 bg-card-bg px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 {busy === "revoke" ? "撤销中…" : "撤销链接"}
@@ -297,7 +297,7 @@ export default function ShareDialog(props: ShareDialogProps) {
                   value={recipient}
                   onChange={(event) => setRecipient(event.target.value)}
                   placeholder="customer@example.com"
-                  className="min-w-0 flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs text-foreground"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-card-bg px-2 py-1.5 text-xs text-foreground"
                 />
                 <button
                   type="button"
@@ -325,7 +325,7 @@ export default function ShareDialog(props: ShareDialogProps) {
             </span>
           </div>
           {session.customerSelections.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-slate-50/40 px-3 py-4 text-center text-[11px] text-muted">
+            <div className="rounded-md border border-dashed border-border bg-accent-soft/40 px-3 py-4 text-center text-[11px] text-muted">
               尚未收到客户标记。把链接发给客户，他们点「我喜欢这套」后会显示在这里。
             </div>
           ) : (
@@ -336,7 +336,7 @@ export default function ShareDialog(props: ShareDialogProps) {
                 .map((s) => (
                   <li
                     key={s.variantId}
-                    className="flex items-center gap-2 rounded-md border border-border/60 bg-white px-2 py-1.5 text-xs"
+                    className="flex items-center gap-2 rounded-md border border-border/60 bg-card-bg px-2 py-1.5 text-xs"
                   >
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                       {s.variantName}

@@ -82,13 +82,13 @@ function TaskCheckButton({
   };
 
   if (task.status === "done") {
-    return <button onClick={handleClick} className="shrink-0 text-[#2e7a56]"><CheckCircle2 size={16} /></button>;
+    return <button onClick={handleClick} className="shrink-0 text-success"><CheckCircle2 size={16} /></button>;
   }
   if (task.status === "in_progress") {
-    return <button onClick={handleClick} className="shrink-0 text-[#2b6055]"><Clock size={16} /></button>;
+    return <button onClick={handleClick} className="shrink-0 text-accent"><Clock size={16} /></button>;
   }
   return (
-    <button onClick={handleClick} className="shrink-0 text-border transition-colors hover:text-[#2e7a56]">
+    <button onClick={handleClick} className="shrink-0 text-border transition-colors hover:text-success">
       <Circle size={16} />
     </button>
   );
@@ -140,7 +140,7 @@ function DashboardTaskRow({
           </button>
         )}
         {due && (
-          <span className={cn("whitespace-nowrap", isOverdue ? "text-[#a63d3d] font-medium" : "text-muted")}>
+          <span className={cn("whitespace-nowrap", isOverdue ? "text-danger font-medium" : "text-muted")}>
             {due}
           </span>
         )}
@@ -217,7 +217,7 @@ export function DashboardTasksSection({
             <div key={group.key}>
               <div className={cn(
                 "flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium",
-                group.isOverdue ? "text-[#a63d3d] bg-[rgba(166,61,61,0.03)]" : "text-muted"
+                group.isOverdue ? "text-danger bg-danger-bg" : "text-muted"
               )}>
                 {group.isOverdue && <AlertTriangle size={11} />}
                 {group.label}

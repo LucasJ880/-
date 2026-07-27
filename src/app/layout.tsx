@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { ThemeProvider, UI_THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -38,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className="h-full">
+    <html lang="zh-CN" className="h-full" data-theme="classic" suppressHydrationWarning>
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta
@@ -55,10 +56,15 @@ export default function RootLayout({
           rel="apple-touch-icon"
           href="/icons/apple-touch-icon.png"
         />
+        <script
+          dangerouslySetInnerHTML={{ __html: UI_THEME_BOOTSTRAP_SCRIPT }}
+        />
       </head>
       <body className="h-full">
-        <ToastProvider>{children}</ToastProvider>
-        <ServiceWorkerRegister />
+        <ThemeProvider>
+          <ToastProvider>{children}</ToastProvider>
+          <ServiceWorkerRegister />
+        </ThemeProvider>
       </body>
     </html>
   );

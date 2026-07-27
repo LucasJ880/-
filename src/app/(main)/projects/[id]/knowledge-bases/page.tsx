@@ -310,7 +310,7 @@ export default function ProjectKnowledgeBasesPage() {
         </div>
       )}
 
-      {listError && <p className="text-sm text-[#a63d3d]">{listError}</p>}
+      {listError && <p className="text-sm text-danger">{listError}</p>}
 
       {showNew && canManage && envId && (
         <form

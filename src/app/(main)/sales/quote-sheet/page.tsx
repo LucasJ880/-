@@ -1279,7 +1279,7 @@ function QuoteSheetPageInner() {
       )}
 
       {/* Customer selector + Order info */}
-      <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
+      <div className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-muted-foreground">Customer & Order Info</h2>
           <div className="flex items-center gap-2">
@@ -1301,7 +1301,7 @@ function QuoteSheetPageInner() {
               <select
                 value={customerId}
                 onChange={(e) => handleCustomerSelect(e.target.value)}
-                className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
+                className="w-full rounded-lg border border-border bg-card-bg px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
               >
                 <option value="">— Select customer —</option>
                 {customers.map((c) => (
@@ -1326,7 +1326,7 @@ function QuoteSheetPageInner() {
                 <select
                   value={opportunityId}
                   onChange={(e) => setOpportunityId(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
+                  className="w-full rounded-lg border border-border bg-card-bg px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
                 >
                   <option value="">— Auto-link —</option>
                   {opportunities.map((o) => (
@@ -1380,7 +1380,7 @@ function QuoteSheetPageInner() {
                       : ""
                   }
                   onChange={(e) => setCustomerAddress(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-2 pr-8 text-xs appearance-none"
+                  className="w-full rounded-lg border border-border bg-card-bg px-3 py-2 pr-8 text-xs appearance-none"
                 >
                   <option value="">— 选择历史地址或在下方自定义 —</option>
                   {customerAddressOptions.map((addr, i) => (
@@ -1436,7 +1436,7 @@ function QuoteSheetPageInner() {
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all",
                   installMode === "default"
                     ? "bg-teal-600 text-white border-teal-600 shadow-sm"
-                    : "bg-white text-muted-foreground border-border hover:bg-teal-50"
+                    : "bg-card-bg text-muted-foreground border-border hover:bg-teal-50"
                 )}
               >
                 <InstallIcon className="h-3.5 w-3.5" />
@@ -1449,7 +1449,7 @@ function QuoteSheetPageInner() {
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all",
                   installMode === "pickup"
                     ? "bg-amber-500 text-white border-amber-500 shadow-sm"
-                    : "bg-white text-muted-foreground border-border hover:bg-amber-50"
+                    : "bg-card-bg text-muted-foreground border-border hover:bg-amber-50"
                 )}
               >
                 <Truck className="h-3.5 w-3.5" />
@@ -1485,7 +1485,7 @@ function QuoteSheetPageInner() {
               "flex items-center gap-1.5 px-3 md:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all shrink-0",
               activeTab === tab.id
                 ? "bg-teal-600 text-white shadow-md"
-                : "bg-white/60 text-muted-foreground hover:bg-teal-50 border border-border"
+                : "bg-card-bg/60 text-muted-foreground hover:bg-teal-50 border border-border"
             )}
           >
             {tab.icon}
@@ -1545,7 +1545,7 @@ function QuoteSheetPageInner() {
       </div>
 
       {/* Tab content — mobile 下可横向滚动防止表格溢出 */}
-      <div className="rounded-xl border border-border bg-white/60 backdrop-blur p-3 md:p-5 overflow-x-auto">
+      <div className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 overflow-x-auto">
         {activeTab === "partB" && (
           <PartBForm
             addons={partBAddons} onAddonsChange={setPartBAddons}
@@ -1597,7 +1597,7 @@ function QuoteSheetPageInner() {
 
       {/* Sticky action bar — mobile 下避让底部 Tab Bar */}
       <div
-        className="fixed bottom-[calc(var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[var(--ui-z-sticky)] flex items-center justify-between gap-2 border-t border-border bg-white/95 px-3 py-2.5 backdrop-blur md:bottom-0 md:px-4 md:py-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
+        className="fixed bottom-[calc(var(--mobile-tabbar-height)+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[var(--ui-z-sticky)] flex items-center justify-between gap-2 border-t border-border bg-card-bg/95 px-3 py-2.5 backdrop-blur md:bottom-0 md:px-4 md:py-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
         style={
           actionBarBottom != null ? { bottom: `${actionBarBottom}px` } : undefined
         }
@@ -1716,7 +1716,7 @@ function QuoteSheetPageInner() {
           }}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white shadow-xl border border-border"
+            className="w-full max-w-md rounded-xl bg-card-bg shadow-xl border border-border"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between px-5 pt-5 pb-2">

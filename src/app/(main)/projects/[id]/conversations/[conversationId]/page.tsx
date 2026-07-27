@@ -740,7 +740,7 @@ function TraceCard({ trace }: { trace: ToolTrace }) {
   return (
     <div className={cn(
       "rounded-[var(--radius-md)] border p-3",
-      isError ? "border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.03)]" :
+      isError ? "border-border bg-danger-bg" :
       isSkipped ? "border-[rgba(154,106,47,0.15)] bg-[rgba(154,106,47,0.03)]" :
       "border-border bg-card-bg"
     )}>
@@ -750,7 +750,7 @@ function TraceCard({ trace }: { trace: ToolTrace }) {
         <code className="text-[10px] text-muted">{trace.toolKey}</code>
         <span className={cn(
           "rounded-md px-1.5 py-0.5 text-[10px] font-medium",
-          isError ? "bg-[rgba(166,61,61,0.08)] text-[#a63d3d]" : isSkipped ? "bg-[rgba(154,106,47,0.08)] text-[#9a6a2f]" : "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
+          isError ? "bg-danger-bg text-danger" : isSkipped ? "bg-[rgba(154,106,47,0.08)] text-[#9a6a2f]" : "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
         )}>
           {trace.status}
         </span>

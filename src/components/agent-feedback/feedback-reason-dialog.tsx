@@ -48,19 +48,19 @@ export function FeedbackReasonDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center">
-      <div className="w-full max-w-md rounded-xl border border-black/[0.08] bg-white p-4 shadow-lg">
-        <h3 className="text-[15px] font-semibold text-[#171a19]">{title}</h3>
-        <p className="mt-1 text-[12px] text-[#68706c]">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card-bg p-4 shadow-lg">
+        <h3 className="text-[15px] font-semibold text-foreground">{title}</h3>
+        <p className="mt-1 text-[12px] text-muted">
           默认只用于你的个人偏好学习；可选授权为部门经验候选，或标记不用于学习。
         </p>
 
-        <label className="mt-3 block text-[11px] font-medium text-[#68706c]">
+        <label className="mt-3 block text-[11px] font-medium text-muted">
           原因
         </label>
         <select
           value={reasonCode}
           onChange={(e) => setReasonCode(e.target.value)}
-          className="mt-1 w-full rounded-md border border-black/[0.1] px-2 py-1.5 text-[13px]"
+          className="mt-1 w-full rounded-md border border-border px-2 py-1.5 text-[13px]"
         >
           {REASONS.map((r) => (
             <option key={r.code} value={r.code}>
@@ -73,14 +73,14 @@ export function FeedbackReasonDialog({
           value={reasonText}
           onChange={(e) => setReasonText(e.target.value)}
           placeholder="可选补充（简短即可）"
-          className="mt-2 w-full rounded-md border border-black/[0.1] px-2 py-1.5 text-[13px]"
+          className="mt-2 w-full rounded-md border border-border px-2 py-1.5 text-[13px]"
           rows={2}
         />
 
-        <label className="mt-3 block text-[11px] font-medium text-[#68706c]">
+        <label className="mt-3 block text-[11px] font-medium text-muted">
           学习范围
         </label>
-        <div className="mt-1 space-y-1.5 text-[12px] text-[#202422]">
+        <div className="mt-1 space-y-1.5 text-[12px] text-foreground">
           {(
             [
               ["personal_only", "仅个人偏好（默认）"],
@@ -104,7 +104,7 @@ export function FeedbackReasonDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-[12px] text-[#68706c] hover:bg-[#f4f5f5]"
+            className="rounded-md px-3 py-1.5 text-[12px] text-muted hover:bg-accent-soft"
           >
             取消
           </button>

@@ -92,21 +92,21 @@ export function CoachingPanel({ customerId }: { customerId: string }) {
     <div className="space-y-4">
       {stats && stats.total > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-lg border border-border bg-white/70 p-3 text-center">
+          <div className="rounded-lg border border-border bg-card-bg/70 p-3 text-center">
             <p className="text-lg font-bold text-foreground">{stats.total}</p>
             <p className="text-[10px] text-muted">总建议</p>
           </div>
-          <div className="rounded-lg border border-border bg-white/70 p-3 text-center">
+          <div className="rounded-lg border border-border bg-card-bg/70 p-3 text-center">
             <p className="text-lg font-bold text-accent">
               {(stats.adoptionRate * 100).toFixed(0)}%
             </p>
             <p className="text-[10px] text-muted">采纳率</p>
           </div>
-          <div className="rounded-lg border border-border bg-white/70 p-3 text-center">
+          <div className="rounded-lg border border-border bg-card-bg/70 p-3 text-center">
             <p className="text-lg font-bold text-emerald-600">{stats.wonWithAdoption}</p>
             <p className="text-[10px] text-muted">采纳后成单</p>
           </div>
-          <div className="rounded-lg border border-border bg-white/70 p-3 text-center">
+          <div className="rounded-lg border border-border bg-card-bg/70 p-3 text-center">
             <p className="text-lg font-bold text-foreground">
               {(stats.avgContribution * 100).toFixed(0)}%
             </p>
@@ -116,7 +116,7 @@ export function CoachingPanel({ customerId }: { customerId: string }) {
       )}
 
       {records.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-white/40 py-12">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card-bg/40 py-12">
           <Brain className="h-8 w-8 text-muted/40" />
           <p className="mt-3 text-sm text-muted">暂无推进建议记录</p>
           <p className="mt-1 text-xs text-muted/60">
@@ -132,7 +132,7 @@ export function CoachingPanel({ customerId }: { customerId: string }) {
             return (
               <div
                 key={record.id}
-                className="rounded-lg border border-border bg-white/80 p-3"
+                className="rounded-lg border border-border bg-card-bg/80 p-3"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -180,7 +180,7 @@ export function CoachingPanel({ customerId }: { customerId: string }) {
                         <button
                           onClick={() => handleAdopt(record.id, false)}
                           disabled={isUpdating}
-                          className="rounded-md border border-border bg-white px-2 py-1 text-[10px] font-medium text-muted hover:text-foreground disabled:opacity-50 transition-colors"
+                          className="rounded-md border border-border bg-card-bg px-2 py-1 text-[10px] font-medium text-muted hover:text-foreground disabled:opacity-50 transition-colors"
                         >
                           忽略
                         </button>

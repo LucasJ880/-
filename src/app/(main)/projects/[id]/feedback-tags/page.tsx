@@ -307,7 +307,7 @@ export default function FeedbackTagsPage() {
 
                   <span className={cn(
                     "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                    "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+                    "bg-[rgba(110,125,118,0.08)] text-muted"
                   )}>
                     {CATEGORY_LABELS[tag.category] ?? tag.category}
                   </span>

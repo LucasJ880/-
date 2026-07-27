@@ -334,7 +334,7 @@ export function MonitoringWorkspace() {
             type="button"
             onClick={load}
             disabled={loading || !orgId}
-            className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-[var(--radius-md)] border border-border bg-white/70 text-foreground hover:bg-white disabled:opacity-50"
+            className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-[var(--radius-md)] border border-border bg-card-bg/70 text-foreground hover:bg-card-bg disabled:opacity-50"
             aria-label="刷新市场情报"
             title="刷新"
           >
@@ -585,23 +585,23 @@ export function MonitoringWorkspace() {
             <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-foreground">竞品名称 *</span>
-                <input value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="例如：SelectBlinds Canada" className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
+                <input value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="例如：SelectBlinds Canada" className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
               </label>
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-foreground">官网 *</span>
-                <input value={form.websiteUrl} onChange={(event) => updateForm("websiteUrl", event.target.value)} placeholder="https://example.com" inputMode="url" className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
+                <input value={form.websiteUrl} onChange={(event) => updateForm("websiteUrl", event.target.value)} placeholder="https://example.com" inputMode="url" className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
               </label>
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-foreground">目标市场</span>
-                <input value={form.targetGeography} onChange={(event) => updateForm("targetGeography", event.target.value)} className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
+                <input value={form.targetGeography} onChange={(event) => updateForm("targetGeography", event.target.value)} className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
               </label>
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-foreground">对标产品</span>
-                <input value={form.primaryProduct} onChange={(event) => updateForm("primaryProduct", event.target.value)} placeholder="Motorized Zebra Shades" className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
+                <input value={form.primaryProduct} onChange={(event) => updateForm("primaryProduct", event.target.value)} placeholder="Motorized Zebra Shades" className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
               </label>
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-foreground">转化链路</span>
-                <select value={form.salesModel} onChange={(event) => updateForm("salesModel", event.target.value)} className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none sm:text-sm">
+                <select value={form.salesModel} onChange={(event) => updateForm("salesModel", event.target.value)} className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none sm:text-sm">
                   <option>询价报价 + 预约量房</option>
                   <option>线上直接下单</option>
                   <option>线上线下混合模式</option>
@@ -609,14 +609,14 @@ export function MonitoringWorkspace() {
               </label>
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-foreground">巡检节奏</span>
-                <select value={form.scheduleText} onChange={(event) => updateForm("scheduleText", event.target.value)} className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-white px-3 text-base outline-none sm:text-sm">
+                <select value={form.scheduleText} onChange={(event) => updateForm("scheduleText", event.target.value)} className="min-h-11 w-full rounded-[var(--radius-md)] border border-border bg-card-bg px-3 text-base outline-none sm:text-sm">
                   <option value="weekly">每周</option>
                   <option value="daily">每日</option>
                 </select>
               </label>
               <label className="block space-y-1.5 sm:col-span-2">
                 <span className="text-xs font-medium text-foreground">关注重点</span>
-                <textarea value={form.watchFocus} onChange={(event) => updateForm("watchFocus", event.target.value)} rows={3} className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-white px-3 py-2.5 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
+                <textarea value={form.watchFocus} onChange={(event) => updateForm("watchFocus", event.target.value)} rows={3} className="w-full resize-y rounded-[var(--radius-md)] border border-border bg-card-bg px-3 py-2.5 text-base outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/10 sm:text-sm" />
               </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">

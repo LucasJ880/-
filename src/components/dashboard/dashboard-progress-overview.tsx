@@ -27,7 +27,7 @@ function DeadlineLabel({ prog }: { prog: ProjectProgressData }) {
 
   if (prog.isOverdue) {
     return (
-      <span className="flex items-center gap-1 text-[11px] font-semibold tracking-[-0.01em] text-[#a63d3d]">
+      <span className="flex items-center gap-1 text-[11px] font-semibold tracking-[-0.01em] text-danger">
         <AlertTriangle size={10} />
         已逾期
       </span>
@@ -36,7 +36,7 @@ function DeadlineLabel({ prog }: { prog: ProjectProgressData }) {
 
   if (prog.daysRemaining <= 3) {
     return (
-      <span className="flex items-center gap-1 text-[11px] font-semibold tracking-[-0.01em] text-[#b06a28]">
+      <span className="flex items-center gap-1 text-[11px] font-semibold tracking-[-0.01em] text-warning">
         <Clock size={10} />
         剩 {prog.daysRemaining} 天
       </span>
@@ -70,7 +70,7 @@ function ProjectProgressRow({
       onClick={() => onProjectClick?.(project.id)}
       className={cn(
         "w-full px-5 py-3.5 text-left transition-all duration-150",
-        onProjectClick && "hover:bg-[rgba(43,96,85,0.03)]"
+        onProjectClick && "hover:bg-accent-soft/60"
       )}
     >
       <div className="flex items-center gap-3">
@@ -93,7 +93,7 @@ function ProjectProgressRow({
         <DeadlineLabel prog={progress} />
 
         {progress.weekDelta > 0 && (
-          <span className="flex items-center gap-0.5 text-[11px] font-medium tracking-[-0.01em] text-[#2e7a56]">
+          <span className="flex items-center gap-0.5 text-[11px] font-medium tracking-[-0.01em] text-success">
             <TrendingUp size={10} />
             +{progress.weekDelta}%
           </span>
@@ -137,7 +137,7 @@ function ProjectSimpleRow({
       onClick={() => onProjectClick?.(project.id)}
       className={cn(
         "w-full px-5 py-3 text-left transition-all duration-150",
-        onProjectClick && "hover:bg-[rgba(43,96,85,0.03)]"
+        onProjectClick && "hover:bg-accent-soft/60"
       )}
     >
       <div className="flex items-center gap-3">
@@ -180,10 +180,10 @@ export function DashboardProgressOverview({
     <div className="rounded-[var(--radius-lg)] border border-border bg-card-bg shadow-card">
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div className="flex items-center gap-2">
-          <Gauge size={15} className="text-[#805078]" />
+          <Gauge size={15} className="text-info" />
           <h2 className="text-[13px] font-semibold tracking-[-0.01em]">项目进度一览</h2>
           {atRisk.length > 0 && (
-            <span className="rounded-full bg-[rgba(166,61,61,0.08)] px-2 py-0.5 text-[11px] font-semibold tracking-[-0.01em] text-[#a63d3d]">
+            <span className="rounded-full bg-danger-light px-2 py-0.5 text-[11px] font-semibold tracking-[-0.01em] text-danger">
               {atRisk.length} 项预警
             </span>
           )}
@@ -191,7 +191,7 @@ export function DashboardProgressOverview({
         <div className="flex items-center gap-3">
           {sorted.length > 0 && (
             <span className="flex items-center gap-1 text-[11px] text-muted tracking-[-0.01em]">
-              <CheckCircle2 size={10} className="text-[#2e7a56]" />
+              <CheckCircle2 size={10} className="text-success" />
               {healthy.length}/{sorted.length} 正常
             </span>
           )}

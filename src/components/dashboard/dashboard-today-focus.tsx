@@ -139,8 +139,8 @@ const TYPE_ICON = {
 
 const TYPE_COLOR = {
   task: "text-accent",
-  event: "text-[#2e7a56]",
-  reminder: "text-[#9a6a2f]",
+  event: "text-success",
+  reminder: "text-warning",
 } as const;
 
 function FocusItemRow({
@@ -161,7 +161,7 @@ function FocusItemRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className={cn("truncate text-[14px] font-medium tracking-[-0.01em]", item.isOverdue && "text-[#a63d3d]")}>
+          <span className={cn("truncate text-[14px] font-medium tracking-[-0.01em]", item.isOverdue && "text-danger")}>
             {item.title}
           </span>
           {item.priority && (
@@ -196,7 +196,7 @@ function FocusItemRow({
             e.stopPropagation();
             if (item.projectId && onProjectClick) onProjectClick(item.projectId);
           }}
-          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius-md)] px-2 py-1 text-[13px] font-medium tracking-[-0.01em] text-muted shadow-xs transition-all duration-150 hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius-md)] px-2 py-1 text-[13px] font-medium tracking-[-0.01em] text-muted shadow-xs transition-all duration-150 hover:bg-accent-soft hover:text-foreground"
         >
           <span
             className="h-2 w-2 rounded-full"

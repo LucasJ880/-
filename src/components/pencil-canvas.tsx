@@ -85,7 +85,7 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
           // 防御：任何 null/缺字段的坏元素直接跳过，避免整个签名板崩溃
           if (!s || !Array.isArray(s.points) || s.points.length < 2) continue;
           ctx.beginPath();
-          ctx.strokeStyle = s.tool === "eraser" ? "#faf8f4" : s.color;
+          ctx.strokeStyle = s.tool === "eraser" ? (getComputedStyle(document.documentElement).getPropertyValue("--card-bg").trim() || "#faf8f4") : s.color;
           ctx.lineWidth = s.tool === "eraser" ? s.lineWidth * 4 : s.lineWidth;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
@@ -188,7 +188,7 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
         const p1 = pts[pts.length - 1];
         const pressureFactor = 0.5 + p1.pressure * 1.5;
         ctx.beginPath();
-        ctx.strokeStyle = currentStroke.current.tool === "eraser" ? "#faf8f4" : currentStroke.current.color;
+        ctx.strokeStyle = currentStroke.current.tool === "eraser" ? (getComputedStyle(document.documentElement).getPropertyValue("--card-bg").trim() || "#faf8f4") : currentStroke.current.color;
         ctx.lineWidth = (currentStroke.current.tool === "eraser" ? lineWidth * 4 : lineWidth) * pressureFactor;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -282,7 +282,7 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
         )}
 
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-white/80 px-2 py-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-card-bg/80 px-2 py-1.5">
           {/* Tools */}
           <button
             onClick={() => setTool("pen")}
@@ -388,7 +388,7 @@ export const PencilCanvas = forwardRef<PencilCanvasRef, PencilCanvasProps>(
         </div>
 
         {/* Canvas */}
-        <div className="overflow-hidden rounded-lg border border-border bg-[#faf8f4]">
+        <div className="overflow-hidden rounded-lg border border-border bg-card-bg">
           <canvas
             ref={canvasRef}
             width={width}

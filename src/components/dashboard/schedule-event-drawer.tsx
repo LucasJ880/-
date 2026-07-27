@@ -162,7 +162,7 @@ export function ScheduleEventDrawer({
           </div>
           <button
             onClick={onClose}
-            className="mt-0.5 rounded-[var(--radius-sm)] p-1.5 text-muted transition-colors hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
+            className="mt-0.5 rounded-[var(--radius-sm)] p-1.5 text-muted transition-colors hover:bg-accent-soft hover:text-foreground"
           >
             <X size={18} />
           </button>
@@ -211,7 +211,7 @@ export function ScheduleEventDrawer({
 
           {/* description */}
           {event.description && (
-            <div className="rounded-lg border border-border/40 bg-[rgba(43,96,85,0.02)] px-4 py-3">
+            <div className="rounded-lg border border-border/40 bg-accent-soft/40 px-4 py-3">
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/70">
                 {event.description}
               </p>

@@ -93,7 +93,7 @@ export default function ProductPanel(props: ProductPanelProps) {
         <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/60 p-2">
           <div className="flex items-center gap-2 text-xs">
             <span
-              className="h-4 w-4 rounded border border-black/10"
+              className="h-4 w-4 rounded border border-border"
               style={{ background: currentOption.colorHex ?? "#ccc" }}
             />
             <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -158,7 +158,7 @@ export default function ProductPanel(props: ProductPanelProps) {
               type="button"
               onClick={onApplyToAll}
               disabled={!!applyAllBusy}
-              className="flex w-full items-center justify-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-1.5 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-1 rounded-md border border-amber-300 bg-card-bg px-2 py-1.5 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-60"
               title="把当前产品/颜色/透明度套用到本照片所有窗户"
             >
               <Wand2 className="h-3.5 w-3.5" />
@@ -176,7 +176,7 @@ export default function ProductPanel(props: ProductPanelProps) {
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             placeholder="搜索产品..."
-            className="w-full rounded-md border border-border bg-white py-1 pl-6 pr-2 text-[11px]"
+            className="w-full rounded-md border border-border bg-card-bg py-1 pl-6 pr-2 text-[11px]"
           />
         </div>
         <button
@@ -206,7 +206,7 @@ export default function ProductPanel(props: ProductPanelProps) {
           <span>本组织产品 · {filtered.org.length}</span>
         </div>
         {filtered.org.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border/60 bg-white/40 px-2 py-3 text-center text-[10px] text-muted">
+          <div className="rounded-md border border-dashed border-border/60 bg-card-bg/40 px-2 py-3 text-center text-[10px] text-muted">
             尚无本组织产品。点上方「+ 产品」添加客户带来的款式。
           </div>
         ) : (
@@ -271,7 +271,7 @@ function ProductGrid(props: {
               "group relative flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-left text-[11px]",
               isCurrent
                 ? "border-amber-400 bg-amber-50/80"
-                : "border-border/60 bg-white/70 hover:bg-white",
+                : "border-border/60 bg-card-bg/70 hover:bg-accent-soft",
             )}
           >
             <button
@@ -285,11 +285,11 @@ function ProductGrid(props: {
                 <img
                   src={p.previewImageUrl}
                   alt={p.name}
-                  className="mt-0.5 h-7 w-7 shrink-0 rounded border border-black/10 object-cover"
+                  className="mt-0.5 h-7 w-7 shrink-0 rounded border border-border object-cover"
                 />
               ) : (
                 <span
-                  className="mt-0.5 h-7 w-7 shrink-0 rounded border border-black/10"
+                  className="mt-0.5 h-7 w-7 shrink-0 rounded border border-border"
                   style={{ background: firstColor?.hex ?? "#ccc" }}
                 />
               )}
@@ -355,7 +355,7 @@ function ProductRowActions(props: {
             className="fixed inset-0 z-10 cursor-default"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 top-5 z-20 w-28 rounded-md border border-border bg-white py-1 text-[11px] shadow-md">
+          <div className="absolute right-0 top-5 z-20 w-28 rounded-md border border-border bg-card-bg py-1 text-[11px] shadow-md">
             {onEdit && (
               <button
                 type="button"
@@ -363,7 +363,7 @@ function ProductRowActions(props: {
                   onEdit(product);
                   setOpen(false);
                 }}
-                className="flex w-full items-center gap-1.5 px-2 py-1 text-foreground hover:bg-slate-50"
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-foreground hover:bg-accent-soft"
               >
                 <Pencil className="h-3 w-3" />
                 编辑

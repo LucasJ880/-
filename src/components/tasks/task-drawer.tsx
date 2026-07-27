@@ -79,10 +79,10 @@ interface TaskDrawerProps {
 }
 
 const STATUS_CONFIG: Record<TaskStatus, { icon: typeof Circle; label: string; activeClass: string }> = {
-  todo: { icon: Circle, label: "待办", activeClass: "border-[#6e7d76] bg-[rgba(110,125,118,0.08)] text-[#6e7d76]" },
-  in_progress: { icon: Clock, label: "进行中", activeClass: "border-[#2b6055] bg-[rgba(43,96,85,0.08)] text-[#2b6055]" },
-  done: { icon: CheckCircle2, label: "已完成", activeClass: "border-[#2e7a56] bg-[rgba(46,122,86,0.08)] text-[#2e7a56]" },
-  cancelled: { icon: XCircle, label: "已取消", activeClass: "border-[#a63d3d] bg-[rgba(166,61,61,0.08)] text-[#a63d3d]" },
+  todo: { icon: Circle, label: "待办", activeClass: "border-muted bg-muted/10 text-muted" },
+  in_progress: { icon: Clock, label: "进行中", activeClass: "border-accent bg-accent-soft text-accent" },
+  done: { icon: CheckCircle2, label: "已完成", activeClass: "border-success bg-success-light text-success" },
+  cancelled: { icon: XCircle, label: "已取消", activeClass: "border-danger bg-danger-light text-danger" },
 };
 
 function ProgressBar({ value, color = "bg-accent" }: { value: number; color?: string }) {
@@ -194,7 +194,7 @@ function CommentSection({ taskId }: { taskId: string }) {
             <button
               onClick={handleSend}
               disabled={!newComment.trim() || sending}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
             >
               {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             </button>
@@ -288,9 +288,9 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
   const dueInfo = task?.dueDate ? (() => {
     const diff = daysRemainingToronto(task.dueDate);
     if (task.status === "done" || task.status === "cancelled") return null;
-    if (diff < 0) return { text: `已逾期 ${Math.abs(diff)} 天`, cls: "text-[#a63d3d]" };
-    if (diff === 0) return { text: "今天到期", cls: "text-[#b06a28]" };
-    if (diff === 1) return { text: "明天到期", cls: "text-[#9a6a2f]" };
+    if (diff < 0) return { text: `已逾期 ${Math.abs(diff)} 天`, cls: "text-danger" };
+    if (diff === 0) return { text: "今天到期", cls: "text-warning" };
+    if (diff === 1) return { text: "明天到期", cls: "text-warning" };
     return null;
   })() : null;
 
@@ -364,18 +364,18 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
                     <div>
                       <div className="mb-1 flex items-center justify-between text-xs text-muted">
                         <span>任务完成 {progress.completedTasks}/{progress.totalTasks}</span>
-                        <span className={cn(progress.isAtRisk && "text-[#a63d3d] font-medium", progress.isOverdue && "text-[#a63d3d] font-medium")}>{Math.round(progress.taskProgress)}%</span>
+                        <span className={cn(progress.isAtRisk && "text-danger font-medium", progress.isOverdue && "text-danger font-medium")}>{Math.round(progress.taskProgress)}%</span>
                       </div>
-                      <ProgressBar value={progress.taskProgress} color={progress.isAtRisk ? "bg-[#b06a28]" : "bg-accent"} />
+                      <ProgressBar value={progress.taskProgress} color={progress.isAtRisk ? "bg-warning" : "bg-accent"} />
                     </div>
                     <div>
                       <div className="mb-1 flex items-center justify-between text-xs text-muted">
                         <span>时间进度</span>
                         <span>{progress.daysRemaining > 0 ? `剩余 ${progress.daysRemaining} 天` : "已逾期"}</span>
                       </div>
-                      <ProgressBar value={progress.timeProgress} color={progress.isOverdue ? "bg-[#a63d3d]" : "bg-[#6e7d76]"} />
+                      <ProgressBar value={progress.timeProgress} color={progress.isOverdue ? "bg-danger" : "bg-muted"} />
                     </div>
-                    {progress.riskLabel && <p className="text-[11px] font-medium text-[#b06a28]">{progress.riskLabel}</p>}
+                    {progress.riskLabel && <p className="text-[11px] font-medium text-warning">{progress.riskLabel}</p>}
                   </div>
                 ) : (
                   <p className="text-xs text-muted">加载项目进度中...</p>
@@ -460,7 +460,7 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
           <div className="flex items-center gap-3 border-t border-border px-5 py-4">
             {task.status !== "done" ? (
               <button onClick={() => handleStatusChange("done")} disabled={updating}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50">
                 <CheckCircle2 size={16} />标记完成
               </button>
             ) : (
@@ -470,7 +470,7 @@ export function TaskDrawer({ taskId, open, onClose, onStatusChange, onDeleted }:
               </button>
             )}
             <button onClick={handleDelete}
-              className="rounded-lg border border-border p-2.5 text-muted transition-colors hover:border-[rgba(166,61,61,0.3)] hover:bg-[rgba(166,61,61,0.04)] hover:text-[#a63d3d]">
+              className="rounded-lg border border-border p-2.5 text-muted transition-colors hover:border-danger/30 hover:bg-danger-bg hover:text-danger">
               <Trash2 size={16} />
             </button>
           </div>

@@ -246,7 +246,7 @@ export default function FeedbacksPage() {
             <div key={fb.id} className="flex items-center gap-3 rounded-xl border border-border bg-card-bg p-3">
               <span className={cn(
                 "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                fb.type === "conversation" ? "bg-[rgba(43,96,85,0.08)] text-[#2b6055]" : "bg-[rgba(128,80,120,0.08)] text-[#805078]"
+                fb.type === "conversation" ? "bg-accent-soft text-accent" : "bg-[rgba(128,80,120,0.08)] text-[#805078]"
               )}>
                 {fb.type === "conversation" ? <MessageSquare size={10} className="inline" /> : <FileText size={10} className="inline" />}
                 {" "}{fb.type === "conversation" ? "会话" : "消息"}

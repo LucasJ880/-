@@ -108,7 +108,7 @@ export function QuotesList({
               ? "border-amber-300 bg-amber-50/60"
               : depositPending
                 ? "border-orange-300 bg-orange-50/50"
-                : "border-border/50 bg-white/60",
+                : "border-border/50 bg-card-bg/60",
           )}
         >
           <div className="flex items-center justify-between">
@@ -225,7 +225,7 @@ export function QuotesList({
                     className="h-10 w-14 rounded object-cover"
                   />
                 ) : (
-                  <span className="flex h-10 w-14 items-center justify-center rounded border border-dashed border-purple-300 bg-white/70 text-[10px] text-purple-500">
+                  <span className="flex h-10 w-14 items-center justify-center rounded border border-dashed border-purple-300 bg-card-bg/70 text-[10px] text-purple-500">
                     暂无
                   </span>
                 )}
@@ -236,7 +236,7 @@ export function QuotesList({
               </Link>
             )}
           {depositPending && (
-            <p className="mt-2 text-[11px] text-orange-800 bg-white/70 rounded border border-orange-200 px-2 py-1.5 leading-relaxed">
+            <p className="mt-2 text-[11px] text-orange-800 bg-card-bg/70 rounded border border-orange-200 px-2 py-1.5 leading-relaxed">
               客户已签字成单。请在收到定金后点击「登记定金」，记录
               <span className="font-medium">本次实收</span>
               金额与支付方式，便于后续安排生产。
@@ -261,7 +261,7 @@ export function QuotesList({
             </p>
           )}
           {warn && q.notes && (
-            <details className="mt-2 rounded border border-amber-200 bg-white/60 px-2 py-1">
+            <details className="mt-2 rounded border border-amber-200 bg-card-bg/60 px-2 py-1">
               <summary className="cursor-pointer text-[11px] font-medium text-amber-800">
                 查看定价警告（需管理员补全）
               </summary>

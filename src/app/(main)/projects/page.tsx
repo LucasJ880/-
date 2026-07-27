@@ -221,7 +221,7 @@ function ProjectModal({
             {!editing && (
               <div>
                 <Label className="mb-1.5 block text-sm font-medium text-foreground">
-                  所属组织 <span className="text-[#a63d3d]">*</span>
+                  所属组织 <span className="text-danger">*</span>
                 </Label>
                 {activeOrgs.length === 0 ? (
                   <p className="text-sm text-[#9a6a2f]">
@@ -245,7 +245,7 @@ function ProjectModal({
             )}
             <div>
               <Label htmlFor="project-name" className="mb-1.5 block text-sm font-medium text-foreground">
-                项目名称 <span className="text-[#a63d3d]">*</span>
+                项目名称 <span className="text-danger">*</span>
               </Label>
               <Input
                 id="project-name"
@@ -303,7 +303,7 @@ function ProjectModal({
               </div>
             </div>
             {saveError && (
-              <p className="rounded-lg border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-3 py-2 text-sm text-[#a63d3d]">
+              <p className="rounded-lg border border-border bg-danger-bg px-3 py-2 text-sm text-danger">
                 {saveError}
               </p>
             )}
@@ -375,7 +375,7 @@ function ProjectMenu({
                 setOpen(false);
                 onDelete();
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-[#a63d3d] transition-colors hover:bg-[rgba(166,61,61,0.04)]"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-danger transition-colors hover:bg-danger-bg"
             >
               <Trash2 size={14} />
               删除
@@ -506,7 +506,7 @@ export default function ProjectsPage() {
           ))}
         </div>
       ) : loadError ? (
-        <div className="flex flex-col items-start gap-3 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-[#a63d3d]">
+        <div className="flex flex-col items-start gap-3 rounded-xl border border-border bg-danger-bg px-4 py-3 text-sm text-danger">
           <span>{loadError}</span>
           <button
             type="button"
@@ -609,7 +609,7 @@ export default function ProjectsPage() {
                     "ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium",
                     project.status === "active"
                       ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
-                      : "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]"
+                      : "bg-[rgba(110,125,118,0.08)] text-muted"
                   )}
                 >
                   {project.status === "active" ? "进行中" : "已归档"}

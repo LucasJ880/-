@@ -216,7 +216,7 @@ export function AppointmentDetailDialog({
               </span>
               <button
                 onClick={() => setEditing(true)}
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium hover:bg-muted/50 transition-colors"
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-card-bg px-2 py-1 text-[11px] font-medium hover:bg-muted/50 transition-colors"
               >
                 <Pencil size={10} /> 编辑
               </button>
@@ -248,7 +248,7 @@ export function AppointmentDetailDialog({
                 <button
                   onClick={() => onSyncToGoogle(appointment.id)}
                   disabled={syncing === appointment.id}
-                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-card-bg px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
                 >
                   {syncing === appointment.id ? (
                     <Loader2 size={10} className="animate-spin" />
@@ -264,7 +264,7 @@ export function AppointmentDetailDialog({
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-card-bg px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
               >
                 {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                 删除
@@ -297,7 +297,7 @@ export function AppointmentDetailDialog({
                 <select
                   value={form.type}
                   onChange={(e) => setForm({ ...form, type: e.target.value })}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                 >
                   {Object.entries(TYPE_CONFIG).map(([k, v]) => (
                     <option key={k} value={k}>{v.label}</option>
@@ -309,7 +309,7 @@ export function AppointmentDetailDialog({
                 <input
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                 />
               </div>
             </div>
@@ -320,7 +320,7 @@ export function AppointmentDetailDialog({
                   type="datetime-local"
                   value={form.startAt}
                   onChange={(e) => setForm({ ...form, startAt: e.target.value })}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                 />
               </div>
               <div className="space-y-1.5">
@@ -329,7 +329,7 @@ export function AppointmentDetailDialog({
                   type="datetime-local"
                   value={form.endAt}
                   onChange={(e) => setForm({ ...form, endAt: e.target.value })}
-                  className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                 />
               </div>
             </div>
@@ -338,7 +338,7 @@ export function AppointmentDetailDialog({
               <input
                 value={form.address}
                 onChange={(e) => setForm({ ...form, address: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               />
             </div>
             <div className="space-y-1.5">
@@ -346,7 +346,7 @@ export function AppointmentDetailDialog({
               <input
                 value={form.contactPhone}
                 onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               />
             </div>
             <div className="space-y-1.5">
@@ -355,7 +355,7 @@ export function AppointmentDetailDialog({
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={2}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               />
             </div>
             {error && (
@@ -474,7 +474,7 @@ export function CreateAppointmentDialog({
             <select
               value={form.customerId}
               onChange={(e) => handleCustomerChange(e.target.value)}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
             >
               <option value="">选择客户</option>
               {customers.map((c) => (
@@ -488,7 +488,7 @@ export function CreateAppointmentDialog({
               <select
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               >
                 {CREATE_TYPE_KEYS.map((k) => (
                   <option key={k} value={k}>{TYPE_CONFIG[k].label}</option>
@@ -500,7 +500,7 @@ export function CreateAppointmentDialog({
               <input
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
                 placeholder="如：张先生 安装"
               />
             </div>
@@ -519,7 +519,7 @@ export function CreateAppointmentDialog({
                     endAt: f.endAt || new Date(new Date(start).getTime() + 2 * 3600000).toISOString().slice(0, 16),
                   }));
                 }}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               />
             </div>
             <div className="space-y-1.5">
@@ -528,7 +528,7 @@ export function CreateAppointmentDialog({
                 type="datetime-local"
                 value={form.endAt}
                 onChange={(e) => setForm({ ...form, endAt: e.target.value })}
-                className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               />
             </div>
           </div>
@@ -537,7 +537,7 @@ export function CreateAppointmentDialog({
             <input
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
               placeholder="客户地址"
             />
           </div>
@@ -546,7 +546,7 @@ export function CreateAppointmentDialog({
             <input
               value={form.contactPhone}
               onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
             />
           </div>
           <div className="space-y-1.5">
@@ -555,7 +555,7 @@ export function CreateAppointmentDialog({
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={2}
-              className="w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm"
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">

@@ -97,7 +97,7 @@ export default function CapabilitiesHealthPage() {
             <button
               type="button"
               onClick={() => void load()}
-              className="min-h-9 rounded-md border border-border bg-white px-3 text-sm"
+              className="min-h-9 rounded-md border border-border bg-card-bg px-3 text-sm"
             >
               重新检查
             </button>
@@ -122,7 +122,7 @@ export default function CapabilitiesHealthPage() {
 
       {report && (
         <>
-          <div className="rounded-lg border border-border bg-white/70 p-4">
+          <div className="rounded-lg border border-border bg-card-bg/70 p-4">
             <p className="text-xs text-muted-foreground">
               检查时间 {new Date(report.checkedAt).toLocaleString("zh-CN")}
             </p>

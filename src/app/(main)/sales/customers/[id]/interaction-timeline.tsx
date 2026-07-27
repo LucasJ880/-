@@ -22,10 +22,10 @@ export function InteractionTimeline({
       <div className="absolute left-[11px] top-0 bottom-0 w-px bg-border" />
       {interactions.map((item) => (
         <div key={item.id} className="relative pb-5">
-          <div className="absolute -left-6 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-white text-xs shadow-sm">
+          <div className="absolute -left-6 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-card-bg text-xs shadow-sm">
             {INTERACTION_ICONS[item.type] || "📝"}
           </div>
-          <div className="rounded-lg border border-border/50 bg-white/60 px-4 py-3">
+          <div className="rounded-lg border border-border/50 bg-card-bg/60 px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-foreground">
                 {item.summary}

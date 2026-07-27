@@ -49,7 +49,7 @@ export default function SalesMaterialsPage() {
         actions={
           <Link
             href="/sales/cockpit"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft size={15} />
             返回销售分析
@@ -75,11 +75,11 @@ export default function SalesMaterialsPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-white/70 px-4 py-6 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-card-bg/70 px-4 py-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> 加载模版库…
           </div>
         ) : suites.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border bg-white/50 px-4 py-6 text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border bg-card-bg/50 px-4 py-6 text-sm text-muted-foreground">
             暂无已注册套图模板
           </div>
         ) : (
@@ -87,7 +87,7 @@ export default function SalesMaterialsPage() {
             {suites.map((suite) => (
               <div
                 key={suite.id}
-                className="overflow-hidden rounded-xl border border-border bg-white/80"
+                className="overflow-hidden rounded-xl border border-border bg-card-bg/80"
               >
                 {suite.previewImage ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -130,21 +130,21 @@ export default function SalesMaterialsPage() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-border bg-white/70 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-4">
           <Images className="h-6 w-6 text-blue-600" />
           <h3 className="mt-3 text-sm font-semibold text-foreground">现场照片</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             用于主画布预览、窗户区域识别和方案封面导出。
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-white/70 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-4">
           <ImagePlus className="h-6 w-6 text-sky-700" />
           <h3 className="mt-3 text-sm font-semibold text-foreground">建模参考照片</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             后续可上传房间全景、窗框侧面、轨道细节、旧窗帘现状等参考素材。
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-white/70 p-4">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-4">
           <Sparkles className="h-6 w-6 text-amber-600" />
           <h3 className="mt-3 text-sm font-semibold text-foreground">套图产出</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

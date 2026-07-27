@@ -180,7 +180,7 @@ export default function SupplierDetailPage() {
       <div className="flex items-center gap-3">
         <Link
           href="/suppliers"
-          className="rounded-lg border border-border bg-white/80 p-1.5 text-muted hover:text-foreground transition-colors"
+          className="rounded-lg border border-border bg-card-bg/80 p-1.5 text-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -203,7 +203,7 @@ export default function SupplierDetailPage() {
       {/* Top cards */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Contact info */}
-        <div className="rounded-xl border border-border bg-white/70 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-5">
           <h3 className="text-sm font-semibold text-foreground">联系信息</h3>
           <div className="mt-3 space-y-2.5 text-sm">
             {supplier.contactName && (
@@ -260,14 +260,14 @@ export default function SupplierDetailPage() {
             </div>
           )}
           {supplier.notes && (
-            <div className="mt-3 rounded-lg bg-white/50 p-3 text-xs text-muted leading-relaxed">
+            <div className="mt-3 rounded-lg bg-card-bg/50 p-3 text-xs text-muted leading-relaxed">
               {supplier.notes}
             </div>
           )}
         </div>
 
         {/* AI Classification */}
-        <div className="rounded-xl border border-border bg-white/70 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
               <Brain className="h-4 w-4 text-accent" />
@@ -349,7 +349,7 @@ export default function SupplierDetailPage() {
         </div>
 
         {/* Rating */}
-        <div className="rounded-xl border border-border bg-white/70 p-5">
+        <div className="rounded-xl border border-border bg-card-bg/70 p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
               <Star className="h-4 w-4 text-amber-500" />
@@ -460,7 +460,7 @@ export default function SupplierDetailPage() {
       </div>
 
       {/* History */}
-      <div className="rounded-xl border border-border bg-white/70 p-5">
+      <div className="rounded-xl border border-border bg-card-bg/70 p-5">
         <div className="flex items-center gap-2 mb-4">
           <FolderKanban className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-semibold text-foreground">合作历史</h3>

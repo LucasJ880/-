@@ -296,7 +296,7 @@ function FullReportSection({
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-accent hover:bg-accent/5 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium text-accent hover:bg-accent/5 transition-colors"
               >
                 <ExternalLink size={14} />
                 在新窗口查看完整报告

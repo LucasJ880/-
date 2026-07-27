@@ -179,7 +179,7 @@ export default function SuppliersPage() {
               type="button"
               onClick={() => setShowBatchImport(true)}
               disabled={noOrg}
-              className="flex items-center gap-2 rounded-lg border border-border bg-white/80 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent-soft disabled:opacity-50"
             >
               <Upload size={16} />
               批量导入
@@ -188,7 +188,7 @@ export default function SuppliersPage() {
               type="button"
               onClick={() => { setEditing(null); setShowForm(true); }}
               disabled={noOrg}
-              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-50"
             >
               <Plus size={16} />
               新建供应商
@@ -208,7 +208,7 @@ export default function SuppliersPage() {
           </div>
           <Link
             href="/organizations"
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
           >
             <Building2 size={16} />
             前往创建组织
@@ -235,7 +235,7 @@ export default function SuppliersPage() {
               加载中...
             </div>
           ) : loadError ? (
-            <div className="flex flex-col items-start gap-3 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-[#a63d3d]">
+            <div className="flex flex-col items-start gap-3 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] px-4 py-3 text-sm text-danger">
               <span>{loadError}</span>
               <button onClick={loadSuppliers} className="text-sm font-medium text-accent hover:underline">
                 重试
@@ -375,7 +375,7 @@ function BatchImportDialog({
                 <select
                   value={source}
                   onChange={(e) => setSource(e.target.value)}
-                  className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+                  className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 >
                   {Object.entries(SOURCE_LABELS).map(([key, label]) => (
                     <option key={key} value={key}>{label}</option>
@@ -389,7 +389,7 @@ function BatchImportDialog({
                   value={sourceDetail}
                   onChange={(e) => setSourceDetail(e.target.value)}
                   placeholder="如：2026广交会-3号馆"
-                  className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
+                  className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 />
               </div>
             </div>
@@ -397,7 +397,7 @@ function BatchImportDialog({
             <div className="space-y-1.5">
               <Label>供应商信息</Label>
               <textarea
-                className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-48 resize-none font-mono text-xs leading-relaxed"
+                className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-48 resize-none font-mono text-xs leading-relaxed"
                 placeholder={`粘贴供应商信息，支持多种格式：
 
 名片格式：

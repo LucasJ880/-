@@ -250,7 +250,7 @@ function DraftModal({
               disabled={sending || !to || !subject || !body}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-medium transition-colors",
-                "bg-accent text-white hover:bg-accent/90 disabled:opacity-50",
+                "bg-accent text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50",
               )}
             >
               {sending ? (

@@ -557,7 +557,7 @@ export function ProjectAiChat({
                       className={cn(
                         "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
                         msg.role === "assistant"
-                          ? "bg-gradient-to-br from-[#2b6055] to-[#2b6055] text-white"
+                          ? "bg-gradient-to-br from-accent to-accent text-white"
                           : "bg-[rgba(110,125,118,0.15)] text-[#6e7d76]"
                       )}
                     >

@@ -202,7 +202,7 @@ export function InlineApprovalPanel({
               type="button"
               onClick={selectAll}
               disabled={isBusy || allPendingSelected}
-              className="rounded-md border border-amber-300/80 bg-white/70 px-2 py-1 font-medium disabled:opacity-40"
+              className="rounded-md border border-amber-300/80 bg-card-bg/70 px-2 py-1 font-medium disabled:opacity-40"
             >
               全选
             </button>
@@ -210,7 +210,7 @@ export function InlineApprovalPanel({
               type="button"
               onClick={clearAll}
               disabled={isBusy || selectedIds.length === 0}
-              className="rounded-md border border-amber-300/80 bg-white/70 px-2 py-1 font-medium disabled:opacity-40"
+              className="rounded-md border border-amber-300/80 bg-card-bg/70 px-2 py-1 font-medium disabled:opacity-40"
             >
               取消全选
             </button>
@@ -219,7 +219,7 @@ export function InlineApprovalPanel({
       </div>
 
       {phaseLabel ? (
-        <div className="flex items-center gap-2 border-b border-amber-200/60 bg-white/50 px-3 py-2 text-[12px] text-[#2b6055] sm:px-3.5">
+        <div className="flex items-center gap-2 border-b border-amber-200/60 bg-card-bg/50 px-3 py-2 text-[12px] text-accent sm:px-3.5">
           <Loader2 size={14} className="animate-spin" />
           {phaseLabel}
         </div>
@@ -235,7 +235,7 @@ export function InlineApprovalPanel({
           return (
             <li
               key={action.actionId}
-              className="bg-white/40 px-3 py-2.5 sm:px-3.5"
+              className="bg-card-bg/40 px-3 py-2.5 sm:px-3.5"
               data-testid="inline-approval-item"
               data-action-id={action.actionId}
               data-status={action.status}
@@ -244,7 +244,7 @@ export function InlineApprovalPanel({
                 {canSelect ? (
                   <input
                     type="checkbox"
-                    className="mt-1 h-4 w-4 accent-[#2b6055]"
+                    className="mt-1 h-4 w-4 accent-[var(--accent)]"
                     checked={selectedIds.includes(action.actionId)}
                     disabled={isBusy}
                     onChange={() => toggle(action.actionId)}
@@ -255,30 +255,30 @@ export function InlineApprovalPanel({
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-[12px] font-semibold text-[#171a19]">
+                    <span className="text-[12px] font-semibold text-foreground">
                       {draftTypeLabel(action.draftType)}
                     </span>
-                    <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-[#4a524e]">
+                    <span className="rounded bg-card-bg/80 px-1.5 py-0.5 text-[10px] font-medium text-[#4a524e]">
                       {INLINE_ACTION_STATUS_LABEL[action.status] ?? action.status}
                     </span>
-                    <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-[#68706c]">
+                    <span className="rounded bg-card-bg/80 px-1.5 py-0.5 text-[10px] text-muted">
                       风险 {risk}
                     </span>
                     {isEmailDraftType(action.draftType) ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-[#edf3f1] px-1.5 py-0.5 text-[10px] font-medium text-[#2b6055]">
+                      <span className="inline-flex items-center gap-1 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
                         <Mail size={10} />
                         不会自动发送
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-[13px] font-medium text-[#252927]">
+                  <p className="mt-1 text-[13px] font-medium text-foreground">
                     {target}
                   </p>
                   <p className="mt-0.5 text-[12px] leading-5 text-[#4a524e]">
                     {change.summary}
                   </p>
                   {(change.before || change.after) && (
-                    <p className="mt-1 text-[11px] leading-4 text-[#68706c]">
+                    <p className="mt-1 text-[11px] leading-4 text-muted">
                       {change.before != null ? (
                         <>
                           <span className="text-[#9aa19e]">前 </span>
@@ -295,13 +295,13 @@ export function InlineApprovalPanel({
                     </p>
                   )}
                   {action.failureReason ? (
-                    <p className="mt-1 text-[11px] text-[#a63d3d]">
+                    <p className="mt-1 text-[11px] text-danger">
                       {action.failureReason}
                     </p>
                   ) : null}
                   <button
                     type="button"
-                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-[#2b6055]"
+                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-accent"
                     onClick={() =>
                       setExpandedId(open ? null : action.actionId)
                     }
@@ -310,12 +310,12 @@ export function InlineApprovalPanel({
                     {open ? "收起详情" : "查看详情"}
                   </button>
                   {open ? (
-                    <div className="mt-1.5 rounded-lg border border-black/[0.06] bg-white/80 px-2.5 py-2 text-[11px] leading-5 text-[#4a524e]">
+                    <div className="mt-1.5 rounded-lg border border-border bg-card-bg/80 px-2.5 py-2 text-[11px] leading-5 text-[#4a524e]">
                       <p>标题：{action.title}</p>
                       <p>类型：{action.draftType}</p>
                       <p>预览：{action.preview}</p>
                       {isEmailDraftType(action.draftType) ? (
-                        <p className="mt-1 font-medium text-[#2b6055]">
+                        <p className="mt-1 font-medium text-accent">
                           仅创建 Gmail 草稿，不会自动发送给客户。
                         </p>
                       ) : null}
@@ -329,13 +329,13 @@ export function InlineApprovalPanel({
       </ul>
 
       {pending.length > 0 ? (
-        <div className="flex flex-col gap-2 border-t border-amber-200/80 bg-white/55 px-3 py-3 sm:flex-row sm:px-3.5">
+        <div className="flex flex-col gap-2 border-t border-amber-200/80 bg-card-bg/55 px-3 py-3 sm:flex-row sm:px-3.5">
           <button
             type="button"
             data-testid="inline-approve-selected"
             disabled={isBusy || selectedPendingCount === 0}
             onClick={() => void runBatch("approve", selectedIds)}
-            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#2b6055] px-3 text-[13px] font-semibold text-white disabled:opacity-50"
+            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-semibold text-[color:var(--on-accent)] disabled:opacity-50"
           >
             {isBusy ? (
               <Loader2 size={15} className="animate-spin" />
@@ -349,7 +349,7 @@ export function InlineApprovalPanel({
             data-testid="inline-reject-selected"
             disabled={isBusy || selectedPendingCount === 0}
             onClick={() => void runBatch("reject", selectedIds)}
-            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-lg border border-black/10 bg-white px-3 text-[13px] font-medium text-[#4a524e] disabled:opacity-50"
+            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-[13px] font-medium text-[#4a524e] disabled:opacity-50"
           >
             <X size={15} />
             拒绝所选
@@ -359,7 +359,7 @@ export function InlineApprovalPanel({
             data-testid="inline-reject-all"
             disabled={isBusy || pending.length === 0}
             onClick={() => void runBatch("reject", pending.map((p) => p.actionId))}
-            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-lg border border-black/10 bg-white px-3 text-[13px] font-medium text-[#68706c] disabled:opacity-50 sm:px-4"
+            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-[13px] font-medium text-muted disabled:opacity-50 sm:px-4"
           >
             拒绝全部
           </button>
@@ -367,15 +367,15 @@ export function InlineApprovalPanel({
       ) : null}
 
       {criticalOpen ? (
-        <div className="border-t border-[rgba(166,61,61,0.25)] bg-[#fff7f7] px-3 py-3 sm:px-3.5">
-          <div className="mb-2 flex items-start gap-2 text-[12px] text-[#a63d3d]">
+        <div className="border-t border-[rgba(166,61,61,0.25)] bg-danger-bg px-3 py-3 sm:px-3.5">
+          <div className="mb-2 flex items-start gap-2 text-[12px] text-danger">
             <ShieldAlert size={14} className="mt-0.5 shrink-0" />
             <p>所选动作含 CRITICAL 风险，请再次确认后继续。</p>
           </div>
           <div className="flex gap-2">
             <button
               type="button"
-              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg bg-[#a63d3d] text-[13px] font-semibold text-white"
+              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg bg-danger text-[13px] font-semibold text-white"
               onClick={() => {
                 setCriticalOpen(false);
                 void (async () => {
@@ -404,7 +404,7 @@ export function InlineApprovalPanel({
             </button>
             <button
               type="button"
-              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg border border-black/10 bg-white text-[13px]"
+              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg border border-border bg-card-bg text-[13px]"
               onClick={() => setCriticalOpen(false)}
             >
               取消

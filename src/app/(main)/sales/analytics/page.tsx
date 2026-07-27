@@ -147,7 +147,7 @@ export default function SalesAnalyticsPage() {
       <div className="flex items-center gap-3">
         <Link
           href="/sales"
-          className="rounded-lg border border-border bg-white/80 p-1.5 text-muted hover:text-foreground transition-colors"
+          className="rounded-lg border border-border bg-card-bg/80 p-1.5 text-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -164,14 +164,14 @@ export default function SalesAnalyticsPage() {
       </div>
 
       {/* ── 视角切换 ── */}
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-white/70 p-2">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card-bg/70 p-2">
         <span className="pl-2 text-xs text-muted">视角：</span>
         <button
           type="button"
           onClick={() => setViewType("customer")}
           className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             viewType === "customer"
-              ? "bg-accent text-white"
+              ? "bg-accent text-[color:var(--on-accent)]"
               : "text-muted hover:text-foreground"
           }`}
         >
@@ -182,7 +182,7 @@ export default function SalesAnalyticsPage() {
           onClick={() => setViewType("activity")}
           className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             viewType === "activity"
-              ? "bg-accent text-white"
+              ? "bg-accent text-[color:var(--on-accent)]"
               : "text-muted hover:text-foreground"
           }`}
         >
@@ -196,7 +196,7 @@ export default function SalesAnalyticsPage() {
       </div>
 
       {/* ── 筛选器 ── */}
-      <div className="rounded-xl border border-border bg-white/70 p-4">
+      <div className="rounded-xl border border-border bg-card-bg/70 p-4">
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-1">
             <label className="text-xs text-muted">开始日期</label>
@@ -204,7 +204,7 @@ export default function SalesAnalyticsPage() {
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="block rounded-lg border border-border bg-white/80 px-3 py-1.5 text-sm"
+              className="block rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-sm"
             />
           </div>
           <div className="space-y-1">
@@ -213,12 +213,12 @@ export default function SalesAnalyticsPage() {
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="block rounded-lg border border-border bg-white/80 px-3 py-1.5 text-sm"
+              className="block rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-sm"
             />
           </div>
           <div className="space-y-1">
             <label className="text-xs text-muted">粒度</label>
-            <div className="inline-flex rounded-lg border border-border bg-white/80 p-0.5">
+            <div className="inline-flex rounded-lg border border-border bg-card-bg/80 p-0.5">
               {(["week", "month", "quarter"] as Granularity[]).map((g) => (
                 <button
                   key={g}
@@ -226,7 +226,7 @@ export default function SalesAnalyticsPage() {
                   onClick={() => setGranularity(g)}
                   className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                     granularity === g
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-[color:var(--on-accent)]"
                       : "text-muted hover:text-foreground"
                   }`}
                 >
@@ -257,7 +257,7 @@ export default function SalesAnalyticsPage() {
             type="button"
             onClick={loadMatrix}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -321,7 +321,7 @@ function StatTile({
   tone: "default" | "blue" | "orange" | "emerald" | "red";
 }) {
   const toneClass: Record<typeof tone, string> = {
-    default: "bg-white/70 text-foreground",
+    default: "bg-card-bg/70 text-foreground",
     blue: "bg-blue-50 text-blue-700 border-blue-100",
     orange: "bg-orange-50 text-orange-700 border-orange-100",
     emerald: "bg-emerald-50 text-emerald-700 border-emerald-100",
@@ -364,18 +364,18 @@ function MatrixTable({
 
   if (data.reps.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border bg-white/40 py-12 text-center text-sm text-muted">
+      <div className="rounded-xl border border-dashed border-border bg-card-bg/40 py-12 text-center text-sm text-muted">
         所选时间区间 / 销售范围内没有客户记录
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-white/70">
+    <div className="overflow-x-auto rounded-xl border border-border bg-card-bg/70">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border bg-white/50 text-xs text-muted">
-            <th className="sticky left-0 z-10 bg-white/80 px-4 py-2.5 text-left font-medium">
+          <tr className="border-b border-border bg-card-bg/50 text-xs text-muted">
+            <th className="sticky left-0 z-10 bg-card-bg/80 px-4 py-2.5 text-left font-medium">
               销售 / 指标
             </th>
             {data.periods.map((p) => (
@@ -509,7 +509,7 @@ function RepBlock({
           {idx === 0 && (
             <td
               rowSpan={metricRows.length}
-              className="sticky left-0 z-10 bg-white/80 px-4 py-2 align-top"
+              className="sticky left-0 z-10 bg-card-bg/80 px-4 py-2 align-top"
             >
               <p className="text-sm font-medium">{rep.name}</p>
               <p className="mt-0.5 text-[10px] text-muted">{rep.email}</p>

@@ -131,7 +131,7 @@ export function ImportConversationDialog({
                       "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
                       channel === ch.key
                         ? "border-foreground bg-foreground text-white"
-                        : "border-border bg-white/80 text-muted hover:text-foreground"
+                        : "border-border bg-card-bg/80 text-muted hover:text-foreground"
                     )}
                   >
                     {ch.label}
@@ -146,7 +146,7 @@ export function ImportConversationDialog({
             <div className="space-y-1.5">
               <Label>对话内容</Label>
               <textarea
-                className="flex w-full rounded-lg border border-border bg-white/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-48 resize-none font-mono text-xs leading-relaxed"
+                className="flex w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm transition-colors placeholder:text-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 h-48 resize-none font-mono text-xs leading-relaxed"
                 placeholder={
                   channel === "wechat"
                     ? "2024-03-15 14:23 张三\n你好，想问一下窗帘价格\n\n2024-03-15 14:25 Sunny Shutter\n您好！请问是什么窗型呢？\n\n或简化格式：\n客户: 你好，想问价格\n我: 您好！什么窗型？"

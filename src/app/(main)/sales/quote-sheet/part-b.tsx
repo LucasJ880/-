@@ -272,7 +272,7 @@ export function PartBForm({
           value={notes}
           onChange={(e) => onNotesChange(e.target.value)}
           rows={3}
-          className="mt-1 w-full rounded-lg border border-border bg-white/60 px-3 py-2 text-sm outline-none min-h-[66px]"
+          className="mt-1 w-full rounded-lg border border-border bg-card-bg/60 px-3 py-2 text-sm outline-none min-h-[66px]"
           placeholder="Additional notes..."
         />
       </div>
@@ -280,7 +280,7 @@ export function PartBForm({
       {/* Payment methods + totals side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Payment method */}
-        <div className="space-y-4 rounded-lg border border-border bg-white/60 p-4">
+        <div className="space-y-4 rounded-lg border border-border bg-card-bg/60 p-4">
           <h3 className="text-sm font-semibold">Payment Method</h3>
 
           <label
@@ -489,7 +489,7 @@ function SpecialPromotionRow({
               onChange={(e) => onChange(e.target.value)}
               placeholder="0.00"
               className={cn(
-                "w-28 rounded-md border bg-white px-2 py-1.5 pl-6 text-sm font-semibold outline-none focus:ring-2",
+                "w-28 rounded-md border bg-card-bg px-2 py-1.5 pl-6 text-sm font-semibold outline-none focus:ring-2",
                 overMax
                   ? "border-red-500 focus:ring-red-500"
                   : danger
@@ -699,7 +699,7 @@ function DirectPaymentBlock({
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => onDepositChange(e.target.value)}
               className={cn(
-                "mt-0.5 w-full rounded border px-2 py-1 text-xs min-h-[44px] bg-white",
+                "mt-0.5 w-full rounded border px-2 py-1 text-xs min-h-[44px] bg-card-bg",
                 below ? "border-red-400" : warn ? "border-amber-400" : "border-border",
               )}
               placeholder="$"
@@ -716,7 +716,7 @@ function DirectPaymentBlock({
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => handlePercentChange(e.target.value)}
                 className={cn(
-                  "w-full rounded border px-2 py-1 pr-6 text-xs min-h-[44px] bg-white",
+                  "w-full rounded border px-2 py-1 pr-6 text-xs min-h-[44px] bg-card-bg",
                   below ? "border-red-400" : warn ? "border-amber-400" : "border-border",
                 )}
                 placeholder="%"
@@ -755,7 +755,7 @@ function DirectPaymentBlock({
 
       {/* 状态提示条（仅当用户选中 Method 1 时高亮） */}
       {active && below && !isAdmin && !depositUnlocked && (
-        <div className="mt-2 rounded-md border border-red-300 bg-white p-2">
+        <div className="mt-2 rounded-md border border-red-300 bg-card-bg p-2">
           <div className="flex items-start gap-1.5 text-[11px] font-medium text-red-800">
             <Lock size={12} className="mt-0.5 shrink-0" />
             <span>
@@ -774,7 +774,7 @@ function DirectPaymentBlock({
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="输入解锁码"
-                className="flex-1 rounded border border-red-300 bg-white px-2 py-1 text-xs min-h-[36px]"
+                className="flex-1 rounded border border-red-300 bg-card-bg px-2 py-1 text-xs min-h-[36px]"
               />
               <button
                 type="button"

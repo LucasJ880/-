@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       value={{ mobileOpen, openMobileSidebar, closeMobileSidebar }}
     >
       <ActiveOrgHydrator />
-      <div className="flex h-screen-safe overflow-hidden bg-app-mesh pwa-safe-top">
+      <div className="flex h-screen-safe overflow-hidden bg-background bg-app-mesh pwa-safe-top">
         {/* Desktop sidebar — hidden on mobile */}
         <div className="hidden h-full min-h-0 md:flex">
           <Sidebar />
@@ -57,7 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileNavDrawer open={mobileOpen} onClose={closeMobileSidebar} />
 
         {/* Main content */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-white/[0.08] bg-[rgba(250,248,244,0.35)] backdrop-blur-sm">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-[color:var(--shell-divider)] bg-[color:var(--shell-main-bg)] backdrop-blur-md">
           {/* 对话页手机端隐藏全局顶栏，桌面保留 */}
           <div className={cn(isChatRoute && "hidden md:block")}>
             <Header />

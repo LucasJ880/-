@@ -80,9 +80,9 @@ export function DashboardAbandonedSection({
     <div className="rounded-xl border border-border bg-card-bg">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border px-5 py-3">
-        <Ban size={15} className="text-[#a63d3d]" />
+        <Ban size={15} className="text-danger" />
         <h2 className="font-semibold text-foreground">放弃项目统计</h2>
-        <span className="ml-1 rounded-full bg-[rgba(166,61,61,0.08)] px-2 py-0.5 text-xs font-medium text-[#a63d3d]">
+        <span className="ml-1 rounded-full bg-danger-light px-2 py-0.5 text-xs font-medium text-danger">
           {data.total}
         </span>
 
@@ -96,8 +96,8 @@ export function DashboardAbandonedSection({
               className={cn(
                 "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                 days === d
-                  ? "bg-[#a63d3d] text-white"
-                  : "text-[#6e7d76] hover:bg-[rgba(26,36,32,0.04)]"
+                  ? "bg-danger text-[color:var(--on-accent)]"
+                  : "text-muted hover:bg-accent-soft"
               )}
             >
               {d}天
@@ -111,7 +111,7 @@ export function DashboardAbandonedSection({
         <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 lg:grid-cols-6">
           {data.stageStats.map((s) => (
             <div key={s.stage} className="bg-card-bg px-4 py-3 text-center">
-              <p className="text-xl font-bold text-[#a63d3d]">{s.count}</p>
+              <p className="text-xl font-bold text-danger">{s.count}</p>
               <p className="mt-0.5 text-[11px] text-muted">{s.label}</p>
             </div>
           ))}
@@ -125,7 +125,7 @@ export function DashboardAbandonedSection({
             key={p.id}
             type="button"
             onClick={() => onProjectClick?.(p.id)}
-            className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-[rgba(166,61,61,0.02)]"
+            className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-danger-bg"
           >
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -136,7 +136,7 @@ export function DashboardAbandonedSection({
                 {p.name}
               </p>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
-                <span className="text-[#a63d3d] font-medium">
+                <span className="text-danger font-medium">
                   {p.abandonedStageLabel ?? p.abandonedStage}
                 </span>
                 <span>·</span>

@@ -238,7 +238,7 @@ export default function InboxPage() {
             <div>
               <p className="text-sm text-muted">写下工作事项，AI 帮你变成任务或日程</p>
               <div className="mt-2 flex flex-col gap-1 text-xs text-muted">
-                <span>创建<b className="text-[#2b6055]">任务</b>？试试 &ldquo;周五前完成季度报表&rdquo;</span>
+                <span>创建<b className="text-accent">任务</b>？试试 &ldquo;周五前完成季度报表&rdquo;</span>
                 <span>安排<b className="text-[#2e7a56]">日程</b>？试试 &ldquo;明天下午两点开产品评审会&rdquo;</span>
               </div>
             </div>
@@ -318,7 +318,7 @@ function InboxCard({
             ) : (
               <div className="space-y-1 text-xs text-muted">
                 <p>未识别出明确的工作事项。</p>
-                <p>创建<b className="text-[#2b6055]">任务</b>？试试 &ldquo;周五前完成XX&rdquo;</p>
+                <p>创建<b className="text-accent">任务</b>？试试 &ldquo;周五前完成XX&rdquo;</p>
                 <p>安排<b className="text-[#2e7a56]">日程</b>？试试 &ldquo;明天下午两点开会&rdquo;</p>
               </div>
             )}
