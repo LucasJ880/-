@@ -216,6 +216,57 @@ function UsersContent() {
   }
 
   const [deleting, setDeleting] = useState(false);
+  const [resetPw, setResetPw] = useState("");
+  const [resetPwConfirm, setResetPwConfirm] = useState("");
+  const [resetPwBusy, setResetPwBusy] = useState(false);
+  const [resetPwMsg, setResetPwMsg] = useState<string | null>(null);
+  const [resetPwErr, setResetPwErr] = useState<string | null>(null);
+  const [showResetPw, setShowResetPw] = useState(false);
+
+  async function handleResetPassword() {
+    if (!selectedUser || resetPwBusy) return;
+    setResetPwMsg(null);
+    setResetPwErr(null);
+    if (resetPw.length < 6) {
+      setResetPwErr("新密码至少 6 位");
+      return;
+    }
+    if (resetPw !== resetPwConfirm) {
+      setResetPwErr("两次输入不一致");
+      return;
+    }
+    if (
+      !window.confirm(
+        `确定为 ${selectedUser.email} 设置新密码？\n系统不会保存或回显明文密码，请私下告知对方。`,
+      )
+    ) {
+      return;
+    }
+    setResetPwBusy(true);
+    try {
+      const res = await apiFetch(`/api/users/${selectedUser.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          newPassword: resetPw,
+          confirmPassword: resetPwConfirm,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setResetPwErr(data.error || "重置失败");
+        return;
+      }
+      setResetPwMsg(data.message || "已设置新密码");
+      setResetPw("");
+      setResetPwConfirm("");
+      setShowResetPw(false);
+    } catch {
+      setResetPwErr("网络错误");
+    } finally {
+      setResetPwBusy(false);
+    }
+  }
 
   async function handleDeleteUser() {
     if (!selectedUser || deleting) return;
@@ -574,6 +625,87 @@ function UsersContent() {
                           <div className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card-bg shadow transition-transform peer-checked:translate-x-4" />
                         </label>
                       </div>
+                    </div>
+                  )}
+
+                {/* 重置密码：仅平台 admin；看不到旧密码，只能设新密码 */}
+                {isAdmin(currentUser?.role) &&
+                  selectedUser.id !== currentUser?.id &&
+                  String(userDetail.status) !== "deleted" && (
+                    <div className="rounded-lg border border-border p-3 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">重置登录密码</p>
+                          <p className="mt-1 text-xs text-muted leading-relaxed">
+                            密码经加密存储，管理员也无法查看任何人的旧密码。
+                            可在此为对方设置新密码，并私下告知。
+                          </p>
+                        </div>
+                        {!showResetPw && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowResetPw(true);
+                              setResetPwMsg(null);
+                              setResetPwErr(null);
+                            }}
+                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:border-accent/40 hover:text-accent"
+                          >
+                            设置新密码
+                          </button>
+                        )}
+                      </div>
+                      {showResetPw && (
+                        <div className="space-y-2">
+                          <input
+                            type="password"
+                            value={resetPw}
+                            onChange={(e) => setResetPw(e.target.value)}
+                            placeholder="新密码（至少 6 位）"
+                            autoComplete="new-password"
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                          />
+                          <input
+                            type="password"
+                            value={resetPwConfirm}
+                            onChange={(e) => setResetPwConfirm(e.target.value)}
+                            placeholder="再次确认新密码"
+                            autoComplete="new-password"
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                          />
+                          {resetPwErr && (
+                            <p className="text-xs text-[#a63d3d]">{resetPwErr}</p>
+                          )}
+                          {resetPwMsg && (
+                            <p className="text-xs text-emerald-700">{resetPwMsg}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleResetPassword()}
+                              disabled={resetPwBusy || !resetPw}
+                              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
+                            >
+                              {resetPwBusy ? "保存中…" : "确认重置"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowResetPw(false);
+                                setResetPw("");
+                                setResetPwConfirm("");
+                                setResetPwErr(null);
+                              }}
+                              className="text-xs text-muted hover:text-foreground"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {resetPwMsg && !showResetPw && (
+                        <p className="text-xs text-emerald-700">{resetPwMsg}</p>
+                      )}
                     </div>
                   )}
 
