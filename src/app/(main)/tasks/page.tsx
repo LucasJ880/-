@@ -101,7 +101,18 @@ function dateSort(a: Task, b: Task): number {
   return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
 }
 
-function groupByTime(tasks: Task[]): TimeGroup[] {
+/**
+ * 时间视图分组。
+ * Active View（默认「全部」）：已完成/已取消视为已归档，不出现在逾期/今天/无截止日期等栏；
+ * 刚完成的任务可短暂保留（keepVisibleId）以展示完成提示，随后自动消失。
+ * 显式筛选「已完成 / 已取消」时 includeClosed=true，仍按日期分栏展示。
+ */
+function groupByTime(
+  tasks: Task[],
+  opts?: { includeClosed?: boolean; keepVisibleId?: string | null },
+): TimeGroup[] {
+  const includeClosed = opts?.includeClosed ?? false;
+  const keepVisibleId = opts?.keepVisibleId ?? null;
   const overdue: Task[] = [];
   const today: Task[] = [];
   const thisWeek: Task[] = [];
@@ -109,9 +120,15 @@ function groupByTime(tasks: Task[]): TimeGroup[] {
   const noDue: Task[] = [];
 
   for (const t of tasks) {
-    if (!t.dueDate) { noDue.push(t); continue; }
+    const closed = t.status === "done" || t.status === "cancelled";
+    if (!includeClosed && closed && t.id !== keepVisibleId) continue;
+
+    if (!t.dueDate) {
+      noDue.push(t);
+      continue;
+    }
     const diff = daysRemainingToronto(t.dueDate);
-    if (diff < 0 && t.status !== "done" && t.status !== "cancelled") overdue.push(t);
+    if (diff < 0) overdue.push(t);
     else if (diff === 0) today.push(t);
     else if (diff >= 1 && diff <= 6) thisWeek.push(t);
     else later.push(t);
@@ -341,14 +358,27 @@ function TasksPageContent() {
   }, [allTasks, projectFilter, filter]);
 
   const filterProjectName = projectFilter ? projects.find((p) => p.id === projectFilter)?.name : null;
-  const timeGroups = useMemo(() => groupByTime(filteredTasks), [filteredTasks]);
+  const timeGroups = useMemo(
+    () =>
+      groupByTime(filteredTasks, {
+        includeClosed: filter === "done" || filter === "cancelled",
+        keepVisibleId: justCompletedId,
+      }),
+    [filteredTasks, filter, justCompletedId],
+  );
   const projectGroups = useMemo(() => groupByProject(filteredTasks, allTasks), [filteredTasks, allTasks]);
 
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("qy_task_view", viewMode); }, [viewMode]);
 
   const handleToggle = async (id: string, newStatus: TaskStatus) => {
     setAllTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
-    if (newStatus === "done") { setJustCompletedId(id); setTimeout(() => setJustCompletedId(null), 3500); }
+    if (newStatus === "done") {
+      setJustCompletedId(id);
+      // 短暂展示完成提示后从 Active View 归档消失
+      setTimeout(() => setJustCompletedId(null), 3500);
+    } else if (justCompletedId === id) {
+      setJustCompletedId(null);
+    }
     await apiFetch(`/api/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: newStatus }) });
   };
 
@@ -365,6 +395,12 @@ function TasksPageContent() {
 
   const handleDrawerStatusChange = (taskId: string, newStatus: TaskStatus) => {
     setAllTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
+    if (newStatus === "done") {
+      setJustCompletedId(taskId);
+      setTimeout(() => setJustCompletedId(null), 3500);
+    } else if (justCompletedId === taskId) {
+      setJustCompletedId(null);
+    }
   };
 
   const handleDrawerDeleted = (taskId: string) => {
