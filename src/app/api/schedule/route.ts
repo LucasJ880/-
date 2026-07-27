@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
-import { getVisibleProjectIds } from "@/lib/projects/visibility";
+import {
+  buildActionableTaskScope,
+  getActionableProjectIds,
+} from "@/lib/projects/visibility";
 import { withAuth } from "@/lib/common/api-helpers";
 
 interface ScheduleEventOut {
@@ -39,7 +42,8 @@ export const GET = withAuth(async (request, ctx, user) => {
   const dayStart = startOfDayToronto(ref);
   const dayEnd = endOfDayToronto(ref);
 
-  const projectIds = await getVisibleProjectIds(user.id, user.role);
+  const projectIds = await getActionableProjectIds(user.id, user.role);
+  const taskScope = buildActionableTaskScope(user.id, projectIds);
 
   const [calendarEvents, dueTasks, followupReminders] = await Promise.all([
     db.calendarEvent.findMany({
@@ -68,14 +72,7 @@ export const GET = withAuth(async (request, ctx, user) => {
 
     db.task.findMany({
       where: {
-        ...(projectIds === null
-          ? {}
-          : {
-              OR: [
-                { projectId: { in: projectIds } },
-                { projectId: null, creatorId: user.id },
-              ],
-            }),
+        ...taskScope,
         status: { notIn: ["done", "cancelled"] },
         dueDate: { gte: dayStart, lt: dayEnd },
       },

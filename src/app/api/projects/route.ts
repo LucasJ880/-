@@ -6,6 +6,11 @@ import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
 import type { IntakeStatusFilter } from "@/lib/projects/visibility";
+import {
+  buildProjectLifecycleWhere,
+  isProjectLifecycleFilter,
+  type ProjectLifecycleFilter,
+} from "@/lib/projects/lifecycle";
 import { onProjectCreated } from "@/lib/project-discussion/system-events";
 
 const projectInclude = {
@@ -15,10 +20,20 @@ const projectInclude = {
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const intakeFilter = (request.nextUrl.searchParams.get("intakeStatus") ?? "all") as IntakeStatusFilter;
+  const lifecycleParam = request.nextUrl.searchParams.get("lifecycle");
+  const lifecycle: ProjectLifecycleFilter = isProjectLifecycleFilter(lifecycleParam)
+    ? lifecycleParam
+    : "active";
 
-  const where = await buildProjectVisibilityWhere(user, {
+  const visibilityWhere = await buildProjectVisibilityWhere(user, {
     intakeStatusFilter: intakeFilter,
   });
+  const lifecycleWhere = buildProjectLifecycleWhere(lifecycle);
+
+  const where =
+    visibilityWhere == null
+      ? lifecycleWhere
+      : { AND: [visibilityWhere, lifecycleWhere] };
 
   const take = Math.min(
     parseInt(request.nextUrl.searchParams.get("take") ?? "50", 10) || 50,
@@ -26,7 +41,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   );
 
   const projects = await db.project.findMany({
-    where: where ?? undefined,
+    where,
     include: projectInclude,
     orderBy: { createdAt: "desc" },
     take,

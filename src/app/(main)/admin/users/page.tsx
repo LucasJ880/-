@@ -58,11 +58,12 @@ function parseCompanyIds(json: unknown): string[] {
 }
 
 const STATUS_OPTIONS = [
-  { value: "", label: "全部状态" },
-  { value: "active", label: "正常" },
+  { value: "active", label: "正常使用" },
+  { value: "", label: "全部（不含已删除）" },
   { value: "inactive", label: "已停用" },
   { value: "suspended", label: "已封禁" },
   { value: "deleted", label: "已删除" },
+  { value: "all", label: "全部（含已删除）" },
 ];
 
 export default function AdminUsersPage() {
@@ -83,7 +84,7 @@ function UsersContent() {
   const [error, setError] = useState("");
 
   const [keyword, setKeyword] = useState(searchParams.get("keyword") ?? "");
-  const [status, setStatus] = useState(searchParams.get("status") ?? "");
+  const [status, setStatus] = useState(searchParams.get("status") ?? "active");
   const [page, setPage] = useState(
     parseInt(searchParams.get("page") ?? "1", 10) || 1
   );

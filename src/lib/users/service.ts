@@ -57,14 +57,28 @@ const USER_DETAIL_SELECT = {
   },
 } as const;
 
-/** 获取用户列表（仅平台管理员使用） */
+/** Active View：默认排除 deleted；status=all 含已删除；其余精确匹配。 */
+export function buildUserListStatusWhere(
+  status?: string
+): Record<string, unknown> {
+  if (status === "all") return {};
+  if (status) return { status };
+  return { status: { not: "deleted" } };
+}
+
+/** 获取用户列表（仅平台管理员使用）
+ *
+ * 默认排除 status=deleted；仅当显式传入 status（含 deleted / all）时放宽。
+ * status=all 返回含已删除在内的全部用户。
+ */
 export async function listUsers(
   params: PaginationParams & { status?: string; search?: string }
 ): Promise<PaginatedResult<UserListItem>> {
   const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize);
 
-  const where: Record<string, unknown> = {};
-  if (params.status) where.status = params.status;
+  const where: Record<string, unknown> = {
+    ...buildUserListStatusWhere(params.status),
+  };
   if (params.search) {
     where.OR = [
       { email: { contains: params.search, mode: "insensitive" } },

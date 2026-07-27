@@ -65,6 +65,7 @@ export default function Dashboard() {
     reminderSummary,
     loadEvents,
     loadScheduleEvents,
+    confirmReminder,
     handleDeleteEvent,
   } = useDashboardData();
 
@@ -75,6 +76,8 @@ export default function Dashboard() {
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [confirmingReminderKey, setConfirmingReminderKey] = useState<string | null>(null);
+  const [reminderError, setReminderError] = useState("");
 
   const openProjectDrawer = useCallback((projectId: string) => {
     setDrawerProjectId(projectId);
@@ -89,6 +92,17 @@ export default function Dashboard() {
     setTaskDrawerId(taskId);
     setTaskDrawerOpen(true);
   }, []);
+
+  const handleReminderConfirm = useCallback(
+    async (item: ReminderItemData) => {
+      setReminderError("");
+      setConfirmingReminderKey(item.sourceKey);
+      const result = await confirmReminder(item.sourceKey);
+      setConfirmingReminderKey(null);
+      if (!result.ok) setReminderError(result.error);
+    },
+    [confirmReminder]
+  );
 
   const handleReminderClick = useCallback(
     (item: ReminderItemData) => {
@@ -175,10 +189,17 @@ export default function Dashboard() {
       )}
 
       {/* ─── 核心区块（所有角色都看到任务统计） ─── */}
+      {reminderError && (
+        <div className="rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
+          {reminderError}
+        </div>
+      )}
       <DashboardStatsSection
         stats={stats}
         reminderSummary={reminderSummary}
         onReminderClick={handleReminderClick}
+        onReminderConfirm={handleReminderConfirm}
+        confirmingReminderKey={confirmingReminderKey}
         onProjectClick={openProjectDrawer}
       />
       <DashboardTodayFocus

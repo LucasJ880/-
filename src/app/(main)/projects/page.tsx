@@ -33,6 +33,10 @@ import {
   type PendingImportFile,
 } from "@/components/project-create/folder-import-zone";
 import { enqueuePendingFolderImport } from "@/lib/projects/pending-folder-import";
+import {
+  projectLifecycleLabel,
+  type ProjectLifecycleFilter,
+} from "@/lib/projects/lifecycle";
 
 interface Project {
   id: string;
@@ -40,6 +44,7 @@ interface Project {
   description: string | null;
   color: string;
   status: string;
+  abandonedAt?: string | null;
   orgId: string | null;
   createdAt: string;
   intakeStatus?: string;
@@ -47,6 +52,14 @@ interface Project {
   owner: { id: string; name: string };
   _count: { tasks: number; environments?: number };
 }
+
+const LIFECYCLE_OPTIONS: { value: ProjectLifecycleFilter; label: string }[] = [
+  { value: "active", label: "进行中" },
+  { value: "completed", label: "已完成" },
+  { value: "archived", label: "已归档" },
+  { value: "abandoned", label: "已放弃" },
+  { value: "all", label: "全部历史" },
+];
 
 interface OrgOption {
   id: string;
@@ -397,11 +410,14 @@ export default function ProjectsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [intakeFilter, setIntakeFilter] = useState("all");
+  const [lifecycleFilter, setLifecycleFilter] =
+    useState<ProjectLifecycleFilter>("active");
 
   const loadProjects = useCallback(() => {
     setLoading(true);
     setLoadError("");
     const params = new URLSearchParams();
+    params.set("lifecycle", lifecycleFilter);
     if (isAdmin && intakeFilter !== "all") {
       params.set("intakeStatus", intakeFilter);
     }
@@ -419,7 +435,7 @@ export default function ProjectsPage() {
         setLoadError("加载失败，请检查网络或稍后重试。");
       })
       .finally(() => setLoading(false));
-  }, [isAdmin, intakeFilter]);
+  }, [isAdmin, intakeFilter, lifecycleFilter]);
 
   useEffect(() => {
     loadProjects();
@@ -458,15 +474,34 @@ export default function ProjectsPage() {
         }
       />
 
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        {LIFECYCLE_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setLifecycleFilter(opt.value)}
+            className={cn(
+              "rounded-lg px-3 py-1.5 font-medium transition-colors",
+              lifecycleFilter === opt.value
+                ? "bg-primary/10 text-primary"
+                : "text-muted hover:bg-card-hover"
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {isAdmin && (
         <div className="flex items-center gap-1.5 text-sm">
           {[
-            { value: "all", label: "全部项目" },
+            { value: "all", label: "全部分发态" },
             { value: "dispatched", label: "已分发" },
             { value: "pending_dispatch", label: "待分发" },
           ].map((opt) => (
             <button
               key={opt.value}
+              type="button"
               onClick={() => {
                 setIntakeFilter(opt.value);
               }}
@@ -522,9 +557,13 @@ export default function ProjectsPage() {
             <FolderKanban size={28} className="text-[#8a9590]" />
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-foreground">还没有项目</p>
+            <p className="text-sm font-medium text-foreground">
+              {lifecycleFilter === "active" ? "还没有进行中的项目" : "当前筛选下没有项目"}
+            </p>
             <p className="mt-1 text-sm text-muted">
-              需先有所属组织；若无组织请先到「组织」页面创建。
+              {lifecycleFilter === "active"
+                ? "需先有所属组织；若无组织请先到「组织」页面创建。历史项目可切换上方筛选查看。"
+                : "可切换「进行中」或「全部历史」查看其他项目。"}
             </p>
           </div>
           <button
@@ -607,12 +646,12 @@ export default function ProjectsPage() {
                 <span
                   className={cn(
                     "ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium",
-                    project.status === "active"
+                    project.status === "active" && !project.abandonedAt
                       ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]"
                       : "bg-[rgba(110,125,118,0.08)] text-muted"
                   )}
                 >
-                  {project.status === "active" ? "进行中" : "已归档"}
+                  {projectLifecycleLabel(project.status, project.abandonedAt)}
                 </span>
               </div>
             </div>
