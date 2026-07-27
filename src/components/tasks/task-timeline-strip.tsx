@@ -57,7 +57,7 @@ function barTone(task: TimelineTask, today: Date): string {
     return "bg-muted/30 border-border text-muted";
   }
   if (task.dueDate) {
-    const due = startOfDayToronto(task.dueDate);
+    const due = startOfDayToronto(new Date(task.dueDate));
     if (due.getTime() < today.getTime()) {
       return "bg-danger/70 border-danger/40 text-white shadow-[0_0_12px_rgba(255,107,107,0.22)]";
     }
@@ -93,8 +93,8 @@ export function TaskTimelineStrip({
     const dated = tasks
       .filter((t) => t.dueDate)
       .map((t) => {
-        const due = startOfDayToronto(t.dueDate!);
-        const created = startOfDayToronto(t.createdAt);
+        const due = startOfDayToronto(new Date(t.dueDate!));
+        const created = startOfDayToronto(new Date(t.createdAt));
         const start =
           created.getTime() < due.getTime() ? created : addDays(due, -3);
         return { task: t, start, end: due };
