@@ -73,11 +73,11 @@ export type OrgPlanType = (typeof ORG_PLAN_TYPES)[number];
 
 // --- 权限检查工具 ---
 
-export function isSuperAdmin(role: string): boolean {
+export function isSuperAdmin(role: string | null | undefined): boolean {
   return role === "admin" || role === "super_admin";
 }
 
-export function isAdmin(role: string): boolean {
+export function isAdmin(role: string | null | undefined): boolean {
   return role === "admin" || role === "super_admin";
 }
 
