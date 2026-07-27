@@ -5,6 +5,10 @@ import {
   buildActionableTaskScope,
   getActionableProjectIds,
 } from "@/lib/projects/visibility";
+import {
+  isScheduleCalendarEventVisible,
+  isScheduleFollowupVisible,
+} from "@/lib/schedule/active-view-filter";
 import { withAuth } from "@/lib/common/api-helpers";
 
 interface ScheduleEventOut {
@@ -36,13 +40,14 @@ function mapPriority(p?: string | null): ScheduleEventOut["priority"] {
   return "medium";
 }
 
-export const GET = withAuth(async (request, ctx, user) => {
+export const GET = withAuth(async (request, _ctx, user) => {
   const dateStr = request.nextUrl.searchParams.get("date");
   const ref = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
   const dayStart = startOfDayToronto(ref);
   const dayEnd = endOfDayToronto(ref);
 
   const projectIds = await getActionableProjectIds(user.id, user.role);
+  const actionableSet = new Set(projectIds);
   const taskScope = buildActionableTaskScope(user.id, projectIds);
 
   const [calendarEvents, dueTasks, followupReminders] = await Promise.all([
@@ -64,6 +69,15 @@ export const GET = withAuth(async (request, ctx, user) => {
             priority: true,
             projectId: true,
             project: { select: { id: true, name: true, color: true } },
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+            status: true,
+            abandonedAt: true,
           },
         },
       },
@@ -91,8 +105,9 @@ export const GET = withAuth(async (request, ctx, user) => {
     db.reminder.findMany({
       where: {
         userId: user.id,
+        type: "followup",
+        status: "pending",
         triggerAt: { gte: dayStart, lt: dayEnd },
-        status: { not: "dismissed" },
       },
       include: {
         task: {
@@ -113,6 +128,8 @@ export const GET = withAuth(async (request, ctx, user) => {
   const results: ScheduleEventOut[] = [];
 
   for (const ev of calendarEvents) {
+    if (!isScheduleCalendarEventVisible(ev, actionableSet)) continue;
+
     const isGoogle = ev.source === "google";
     results.push({
       id: `cal_${ev.id}`,
@@ -124,9 +141,9 @@ export const GET = withAuth(async (request, ctx, user) => {
       source: isGoogle ? "google" : "local",
       priority: ev.task ? mapPriority(ev.task.priority) : "medium",
       status: ev.task?.status ?? null,
-      projectId: ev.task?.projectId ?? null,
-      projectName: ev.task?.project?.name ?? null,
-      projectColor: ev.task?.project?.color ?? null,
+      projectId: ev.projectId ?? ev.task?.projectId ?? null,
+      projectName: ev.project?.name ?? ev.task?.project?.name ?? null,
+      projectColor: ev.project?.color ?? ev.task?.project?.color ?? null,
       entityType: "calendar_event",
       entityId: ev.id,
       taskId: ev.task?.id ?? null,
@@ -168,6 +185,8 @@ export const GET = withAuth(async (request, ctx, user) => {
   }
 
   for (const rem of followupReminders) {
+    if (!isScheduleFollowupVisible(rem, actionableSet)) continue;
+
     const start = rem.triggerAt;
     const end = new Date(start.getTime() + 15 * 60_000);
     results.push({

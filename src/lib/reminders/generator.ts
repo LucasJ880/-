@@ -149,6 +149,7 @@ export async function generateReminderLayers(
         allDay: true,
         location: true,
         reminderMinutes: true,
+        projectId: true,
         task: {
           select: {
             id: true,
@@ -190,7 +191,10 @@ export async function generateReminderLayers(
     }),
   ]);
 
-  const readSet = buildReadKeySet(readRecords.map((r) => r.sourceKey));
+  const readSet = buildReadKeySet(
+    userId,
+    readRecords.map((r) => r.sourceKey)
+  );
 
   const immediate: ReminderItem[] = [];
   const today: ReminderItem[] = [];
@@ -217,6 +221,7 @@ export async function generateReminderLayers(
 
   // ── Today events → immediate or today ──
   for (const e of todayEvents) {
+    if (e.projectId != null && !actionableSet.has(e.projectId)) continue;
     if (e.task) {
       if (e.task.status === "done" || e.task.status === "cancelled") continue;
       if (
