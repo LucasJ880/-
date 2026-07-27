@@ -130,7 +130,15 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   }
 
   if (body.role !== undefined && isAdmin) {
-    const validRoles = ["admin", "manager", "sales", "trade", "user"];
+    const validRoles = [
+      "admin",
+      "boss",
+      "manager",
+      "operations",
+      "sales",
+      "trade",
+      "user",
+    ];
     const newRole = String(body.role);
     if (!validRoles.includes(newRole)) {
       return NextResponse.json(
