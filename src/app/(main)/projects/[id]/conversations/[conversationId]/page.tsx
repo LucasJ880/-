@@ -565,7 +565,7 @@ export default function ConversationDetailPage() {
               <button
                 type="button"
                 onClick={() => { setShowFeedbackForm(!showFeedbackForm); if (!tagsLoaded) loadTags(); }}
-                className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
+                className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90"
               >
                 <Star size={12} />
                 提交会话反馈
@@ -682,7 +682,7 @@ export default function ConversationDetailPage() {
                     type="button"
                     onClick={submitConvFeedback}
                     disabled={fbRating < 1 || fbSubmitting}
-                    className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
                   >
                     {fbSubmitting ? <Loader2 size={12} className="animate-spin" /> : null}
                     提交

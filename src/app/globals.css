@@ -180,6 +180,15 @@ html[data-theme="glass"] [class*="bg-card"] {
   backdrop-filter: blur(14px);
 }
 
+/*
+ * Glass 霓虹绿底对比度：实心 accent 表面统一用 --on-accent（近黑），
+ * 避免残留 text-white / 浅色字在 #3dff9a 上发虚看不清。
+ */
+html[data-theme="glass"] .bg-accent,
+html[data-theme="glass"] .bg-accent-hover {
+  color: var(--on-accent);
+}
+
 /* Glass：侧栏 active 霓虹描边 */
 html[data-theme="glass"] [data-nav-active="true"] {
   box-shadow: inset 0 0 0 1px rgba(61, 255, 154, 0.28),

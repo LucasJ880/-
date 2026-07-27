@@ -445,7 +445,7 @@ export function TemplateEditor({ templateId, onSaved, onCancel }: Props) {
         <button
           onClick={handleSave}
           disabled={!canSave || saving}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50 transition-colors"
         >
           {saving ? (
             <Loader2 size={14} className="animate-spin" />

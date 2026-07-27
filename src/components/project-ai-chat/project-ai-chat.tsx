@@ -572,7 +572,7 @@ export function ProjectAiChat({
                         "max-w-[88%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed",
                         msg.role === "assistant"
                           ? "bg-background text-foreground"
-                          : "bg-accent text-white",
+                          : "bg-accent text-[color:var(--on-accent)]",
                         msg.isError &&
                           "border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] text-[#a63d3d]"
                       )}
@@ -701,7 +701,7 @@ export function ProjectAiChat({
                 type="button"
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
               >
                 {isLoading ? (
                   <Loader2 size={14} className="animate-spin" />

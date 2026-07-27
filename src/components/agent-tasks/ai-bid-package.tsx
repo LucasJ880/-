@@ -219,7 +219,7 @@ function StepActions({
             <button
               type="button"
               onClick={() => router.push(`/projects/${projectId}/quotes/${savedQuoteId}`)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover transition-colors"
             >
               <ExternalLink size={12} />
               打开报价编辑器
@@ -245,7 +245,7 @@ function StepActions({
                   setSaving(false);
                 }
               }}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
               保存为报价单
@@ -523,8 +523,8 @@ export function AiBidPackageSection({ projectId, onTabSwitch }: { projectId: str
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
                 isRunning
-                  ? "bg-accent/50 text-white cursor-not-allowed"
-                  : "bg-accent text-white hover:bg-accent-hover"
+                  ? "bg-accent/50 text-[color:var(--on-accent)] cursor-not-allowed"
+                  : "bg-accent text-[color:var(--on-accent)] hover:bg-accent-hover"
               )}
             >
               {creating ? (

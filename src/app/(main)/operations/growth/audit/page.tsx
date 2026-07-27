@@ -318,7 +318,7 @@ export default function MarketingAuditPage() {
           )}
         </section>
 
-        <button className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white">
+        <button className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-[color:var(--on-accent)]">
           保存可信体检
         </button>
       </form>

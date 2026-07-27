@@ -189,7 +189,7 @@ export default function FeedbacksPage() {
               onClick={() => { setTabFilter(t); setPage(1); }}
               className={cn(
                 "px-3 py-1.5 transition-colors",
-                tabFilter === t ? "bg-accent text-white" : "text-muted hover:text-foreground"
+                tabFilter === t ? "bg-accent text-[color:var(--on-accent)]" : "text-muted hover:text-foreground"
               )}
             >
               {t === "all" ? "全部" : t === "conversation" ? "会话" : "消息"}

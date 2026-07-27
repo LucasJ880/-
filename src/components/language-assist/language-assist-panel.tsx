@@ -208,7 +208,7 @@ export function LanguageAssistPanel({
                 className={cn(
                   "rounded-md px-2.5 py-1 font-medium transition-colors",
                   mode === "understand_and_reply"
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-[color:var(--on-accent)]"
                     : "text-muted hover:text-foreground"
                 )}
               >
@@ -220,7 +220,7 @@ export function LanguageAssistPanel({
                 className={cn(
                   "rounded-md px-2.5 py-1 font-medium transition-colors",
                   mode === "translate"
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-[color:var(--on-accent)]"
                     : "text-muted hover:text-foreground"
                 )}
               >

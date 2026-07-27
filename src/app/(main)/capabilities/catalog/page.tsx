@@ -170,7 +170,7 @@ export default function CapabilitiesCatalogPage() {
         <button
           type="button"
           onClick={() => void load()}
-          className="min-h-9 rounded-md bg-accent px-3 text-sm font-medium text-white"
+          className="min-h-9 rounded-md bg-accent px-3 text-sm font-medium text-[color:var(--on-accent)]"
         >
           刷新
         </button>

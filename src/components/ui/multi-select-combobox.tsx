@@ -217,7 +217,7 @@ export function MultiSelectCombobox({
                       className={cn(
                         "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
                         selected
-                          ? "bg-accent border-accent text-white"
+                          ? "bg-accent border-accent text-[color:var(--on-accent)]"
                           : "border-border bg-card-bg",
                       )}
                     >

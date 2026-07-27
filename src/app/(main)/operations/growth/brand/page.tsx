@@ -294,9 +294,9 @@ function MarketingBrandEditor({
                 {step > 0 && <button type="button" onClick={() => setStep((current) => current - 1)} className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-background">上一步</button>}
                 {canEdit && dirty && <button type="button" onClick={() => save(false)} disabled={saving} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm hover:bg-background disabled:opacity-50"><Save size={15} />保存草稿</button>}
                 {step < 3 ? (
-                  <button type="button" onClick={() => setStep((current) => current + 1)} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90">下一步 <ArrowRight size={15} /></button>
+                  <button type="button" onClick={() => setStep((current) => current + 1)} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:opacity-90">下一步 <ArrowRight size={15} /></button>
                 ) : canEdit ? (
-                  <button type="button" onClick={() => save(true)} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
+                  <button type="button" onClick={() => save(true)} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:opacity-90 disabled:opacity-50">
                     {saving ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />} 提交并重新校验
                   </button>
                 ) : null}

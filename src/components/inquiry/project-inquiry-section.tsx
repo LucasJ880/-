@@ -112,7 +112,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
             type="button"
             onClick={createRound}
             disabled={creating}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
           >
             {creating ? (
               <Loader2 size={12} className="animate-spin" />

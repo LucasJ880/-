@@ -188,7 +188,7 @@ export default function PublishReviewPage() {
                   type="button"
                   onClick={() => handleAction(j, "approve")}
                   disabled={busyId === j.id}
-                  className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
                 >
                   <Check size={14} />
                   {busyId === j.id ? "处理中…" : "通过并派发"}

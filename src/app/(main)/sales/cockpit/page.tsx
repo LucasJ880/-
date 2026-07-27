@@ -157,22 +157,24 @@ export default function SalesCockpitPage() {
       {/* 轻量入口：现场素材 / 建模参考照片后续从这里统一进入 */}
       <Link
         href="/sales/materials"
-        className="group flex items-center justify-between rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-white p-4 transition-colors hover:border-purple-300 hover:from-purple-100/70"
+        className="group flex items-center justify-between rounded-xl border border-accent/40 bg-accent p-4 transition-colors hover:bg-accent-hover"
       >
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color:var(--on-accent)]/15 text-[color:var(--on-accent)]">
             <Images size={20} />
           </span>
           <div>
-            <div className="text-sm font-semibold text-foreground">素材库</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-sm font-semibold text-[color:var(--on-accent)]">
+              素材库
+            </div>
+            <div className="text-xs text-[color:var(--on-accent)]/80">
               集中管理现场照片、建模参考图和后续 Visualizer 素材
             </div>
           </div>
         </div>
         <ArrowRight
           size={18}
-          className="text-purple-500 transition-transform group-hover:translate-x-0.5"
+          className="text-[color:var(--on-accent)] transition-transform group-hover:translate-x-0.5"
         />
       </Link>
 

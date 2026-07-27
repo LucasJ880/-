@@ -111,7 +111,7 @@ export function ProjectReviewCard({
           type="button"
           disabled={busy}
           onClick={() => void confirm()}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)]"
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : null}
           确认写入企业记忆

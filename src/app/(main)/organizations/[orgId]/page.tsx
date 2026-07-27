@@ -234,7 +234,7 @@ export default function OrganizationDetailPage() {
               type="button"
               onClick={saveOrgName}
               disabled={savingOrg}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
             >
               {savingOrg ? "保存中…" : "保存名称"}
             </button>
@@ -277,7 +277,7 @@ export default function OrganizationDetailPage() {
             <button
               type="submit"
               disabled={busyMemberId === "__add__"}
-              className="rounded-[var(--radius-sm)] bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-50"
+              className="rounded-[var(--radius-sm)] bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
             >
               添加
             </button>

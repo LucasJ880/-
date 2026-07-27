@@ -170,7 +170,7 @@ export function ProjectGenerateMenu({
                     </a>
                     <a
                       href={withDownloadParam(url, filename)}
-                      className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:bg-accent-hover"
+                      className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
                     >
                       <Download size={12} />
                       下载

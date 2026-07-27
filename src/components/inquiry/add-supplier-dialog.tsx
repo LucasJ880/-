@@ -145,7 +145,7 @@ export function AddSupplierDialog({
                       type="button"
                       onClick={() => addExisting(s.id)}
                       disabled={adding === s.id}
-                      className="rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                      className="rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
                     >
                       {adding === s.id ? (
                         <Loader2 size={10} className="animate-spin" />
@@ -187,7 +187,7 @@ export function AddSupplierDialog({
                     <button
                       type="submit"
                       disabled={creating || !newName.trim()}
-                      className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                      className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
                     >
                       {creating ? "创建中…" : "新建并添加"}
                     </button>

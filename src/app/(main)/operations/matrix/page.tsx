@@ -271,7 +271,7 @@ export default function MatrixAccountsPage() {
           <button
             type="button"
             onClick={() => setShowForm((v) => !v)}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] transition-opacity hover:opacity-90"
           >
             <Plus size={14} />
             登记账号
@@ -342,7 +342,7 @@ export default function MatrixAccountsPage() {
                   type="button"
                   onClick={handlePostizImport}
                   disabled={selectedPostizIds.size === 0 || postizImporting}
-                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
                 >
                   {postizImporting ? "导入中…" : "导入到矩阵账号"}
                 </button>
@@ -425,7 +425,7 @@ export default function MatrixAccountsPage() {
               type="button"
               onClick={handleCreate}
               disabled={saving || !fHandle.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
             >
               {saving ? "保存中…" : "保存"}
             </button>

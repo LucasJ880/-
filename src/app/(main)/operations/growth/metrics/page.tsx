@@ -282,7 +282,7 @@ export default function MarketingMetricsPage() {
           <button
             type="submit"
             disabled={busy === "account"}
-            className="rounded-lg bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50"
           >
             {busy === "account" ? "保存中…" : "登记账号"}
           </button>
@@ -348,7 +348,7 @@ export default function MarketingMetricsPage() {
             type="button"
             disabled={Boolean(busy)}
             onClick={() => syncProviders(["google_ads", "meta", "xiaohongshu"])}
-            className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs text-[color:var(--on-accent)] disabled:opacity-50"
           >
             同步三端付费渠道
           </button>
@@ -435,7 +435,7 @@ export default function MarketingMetricsPage() {
         <button
           type="submit"
           disabled={busy === "week"}
-          className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
         >
           {busy === "week" ? "保存中…" : "保存周快照"}
         </button>

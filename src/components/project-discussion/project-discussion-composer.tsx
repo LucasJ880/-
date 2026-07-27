@@ -228,7 +228,7 @@ export function ProjectDiscussionComposer({
           type="button"
           onClick={handleSend}
           disabled={!body.trim() || sending}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
         >
           {sending ? (
             <Loader2 size={16} className="animate-spin" />

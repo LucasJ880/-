@@ -44,7 +44,7 @@ export function Pagination({
             className={cn(
               "min-w-[32px] rounded-lg px-2 py-1 text-xs font-medium transition-colors",
               p === page
-                ? "bg-accent text-white"
+                ? "bg-accent text-[color:var(--on-accent)]"
                 : "text-muted hover:bg-[rgba(43,96,85,0.06)] hover:text-foreground"
             )}
           >

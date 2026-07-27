@@ -345,7 +345,7 @@ export function MonitoringWorkspace() {
               type="button"
               onClick={() => setCreateOpen(true)}
               disabled={!orgId || !workspace.configured || !workspace.webhookSecure}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-3 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
             >
               <Plus size={15} />
               新增竞品
@@ -621,7 +621,7 @@ export function MonitoringWorkspace() {
             </div>
             <div className="flex justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
               <Dialog.Close className="inline-flex min-h-10 items-center rounded-[var(--radius-md)] border border-border px-4 text-sm font-medium text-foreground hover:bg-background">取消</Dialog.Close>
-              <button type="button" onClick={createCompetitor} disabled={!form.name.trim() || !form.websiteUrl.trim() || submitting} className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+              <button type="button" onClick={createCompetitor} disabled={!form.name.trim() || !form.websiteUrl.trim() || submitting} className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50">
                 {submitting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
                 {submitting ? "建档中" : "建立监听"}
               </button>
@@ -681,7 +681,7 @@ export function MonitoringWorkspace() {
                     </label>
                     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                       <button type="button" onClick={() => reviewSignal(selectedSignal, "dismissed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border px-4 text-sm font-medium text-muted hover:bg-background disabled:opacity-50"><X size={14} />忽略信号</button>
-                      <button type="button" onClick={() => reviewSignal(selectedSignal, "reviewed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">{busyAction === `review:${selectedSignal.id}` ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}确认已阅</button>
+                      <button type="button" onClick={() => reviewSignal(selectedSignal, "reviewed")} disabled={busyAction === `review:${selectedSignal.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50">{busyAction === `review:${selectedSignal.id}` ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}确认已阅</button>
                     </div>
                   </div>
                 )}

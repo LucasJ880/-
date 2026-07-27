@@ -214,7 +214,7 @@ export default function MarketingMmmPage() {
           <button
             type="submit"
             disabled={busy === "dataset"}
-            className="rounded-lg bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50"
           >
             {busy === "dataset" ? "生成中…" : "生成数据集"}
           </button>
@@ -368,7 +368,7 @@ export default function MarketingMmmPage() {
                                     onClick={() =>
                                       updateScenario(scenario.id, scenario.name, "approved")
                                     }
-                                    className="rounded bg-accent px-2 py-1 text-xs text-white"
+                                    className="rounded bg-accent px-2 py-1 text-xs text-[color:var(--on-accent)]"
                                   >
                                     批准
                                   </button>

@@ -373,7 +373,7 @@ export default function MarketIntelligencePage() {
           type="button"
           onClick={runAnalysis}
           disabled={!orgId || !form.objective.trim() || running}
-          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
           {running ? "深度研究运行中" : "运行市场分析"}

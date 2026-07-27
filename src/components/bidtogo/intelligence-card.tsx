@@ -380,7 +380,7 @@ function IntelligenceReviewPanel({
             className={cn(
               "h-6 w-6 rounded text-xs font-medium transition-colors",
               score >= v
-                ? "bg-accent text-white"
+                ? "bg-accent text-[color:var(--on-accent)]"
                 : "bg-background border border-border text-muted hover:border-accent/50",
             )}
           >

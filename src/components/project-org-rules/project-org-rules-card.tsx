@@ -144,7 +144,7 @@ export function ProjectOrgRulesCard({
                     type="button"
                     disabled={busyId === r.id}
                     onClick={() => void decide(r.id, "activate")}
-                    className="rounded-md bg-accent px-2.5 py-1 text-[11px] text-white disabled:opacity-50"
+                    className="rounded-md bg-accent px-2.5 py-1 text-[11px] text-[color:var(--on-accent)] disabled:opacity-50"
                   >
                     确认为生效规则
                   </button>

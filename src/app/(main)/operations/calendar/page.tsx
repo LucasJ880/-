@@ -240,7 +240,7 @@ export default function ContentCalendarPage() {
           type="button"
           onClick={handleGenerate}
           disabled={generating}
-          className="flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-[color:var(--on-accent)] transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           <Sparkles size={14} />
           {generating ? "生成中…（约 1 分钟）" : "AI 生成选题"}
@@ -333,7 +333,7 @@ export default function ContentCalendarPage() {
                         setDispatchFor(dispatchFor === it.id ? null : it.id);
                         setDispatchAsset("");
                       }}
-                      className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90"
+                      className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-[color:var(--on-accent)] hover:opacity-90"
                     >
                       关联视频扇出
                     </button>
@@ -389,7 +389,7 @@ export default function ContentCalendarPage() {
                     type="button"
                     disabled={!dispatchAsset || busyId === it.id}
                     onClick={() => handleDispatch(it.id)}
-                    className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:opacity-90 disabled:opacity-50"
                   >
                     {busyId === it.id ? "扇出中…" : `扇出到「${it.groupName}」`}
                   </button>

@@ -90,7 +90,7 @@ export function ProjectInsightsPanel({
                     type="button"
                     disabled={busyId === i.id}
                     onClick={() => void decide(i.id, "confirm")}
-                    className="rounded-md bg-accent px-2.5 py-1 text-[11px] text-white disabled:opacity-50"
+                    className="rounded-md bg-accent px-2.5 py-1 text-[11px] text-[color:var(--on-accent)] disabled:opacity-50"
                   >
                     {busyId === i.id ? (
                       <Loader2 size={11} className="animate-spin" />

@@ -892,7 +892,7 @@ function DeadlineEditor({
         <button
           onClick={handleSave}
           disabled={!value || saving}
-          className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50 transition-colors"
         >
           {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
           保存

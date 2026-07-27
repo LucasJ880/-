@@ -133,7 +133,7 @@ export function InquiryDetail({
             type="button"
             onClick={startInquiry}
             disabled={busy === "start"}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
           >
             {busy === "start" ? (
               <Loader2 size={12} className="animate-spin" />
@@ -540,7 +540,7 @@ function InlineQuoteForm({
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
           >
             {saving ? "保存中…" : "保存报价"}
           </button>

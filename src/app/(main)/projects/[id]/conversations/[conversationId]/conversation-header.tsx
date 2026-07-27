@@ -165,7 +165,7 @@ export function ConversationHeader({
               type="button"
               onClick={onTriggerRun}
               disabled={running}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
             >
               {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {running ? "运行中..." : "运行 Agent"}

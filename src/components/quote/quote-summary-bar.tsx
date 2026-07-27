@@ -123,7 +123,7 @@ export function QuoteSummaryBar({ totals, currency, status, onConfirm, onSave, s
             <button
               type="button"
               onClick={onConfirm}
-              className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
+              className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent/90"
             >
               确认报价
             </button>

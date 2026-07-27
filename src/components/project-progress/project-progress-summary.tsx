@@ -178,7 +178,7 @@ function ReviewPanel({
             className={cn(
               "h-6 w-6 rounded text-[11px] font-medium transition-colors",
               score === n
-                ? "bg-accent text-white"
+                ? "bg-accent text-[color:var(--on-accent)]"
                 : "bg-accent/5 text-muted hover:bg-accent/10",
             )}
           >
@@ -347,7 +347,7 @@ export function ProjectProgressSummary({ projectId }: { projectId: string }) {
         <button
           onClick={generate}
           disabled={loading}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           {loading ? <Loader2 size={13} className="animate-spin" /> : data ? <RefreshCw size={13} /> : <TrendingUp size={13} />}
           {loading ? "生成中..." : data ? "重新生成" : "生成摘要"}

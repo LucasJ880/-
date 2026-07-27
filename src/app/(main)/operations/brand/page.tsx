@@ -223,7 +223,7 @@ export default function BrandProfilePage() {
             type="button"
             onClick={handleSave}
             disabled={!profile.brandName.trim() || saving}
-            className="flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-[color:var(--on-accent)] transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             <Save size={14} />
             {saving ? "保存中…" : "保存品牌档案"}

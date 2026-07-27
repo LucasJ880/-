@@ -289,7 +289,7 @@ export function EmailDraftDialog({
               type="button"
               onClick={handleSend}
               disabled={phase === "sending" || gmailConnected === false}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
             >
               {phase === "sending" ? (
                 <Loader2 size={12} className="animate-spin" />
