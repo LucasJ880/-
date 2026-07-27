@@ -19,7 +19,7 @@
     --shadow:0 14px 34px rgba(64,42,22,.08);
   }
   *{box-sizing:border-box}
-  html,body{height:auto;min-height:100%;overflow-x:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-y pinch-zoom}
+  html,body{height:auto;min-height:100%;overflow-x:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-y pinch-zoom;overscroll-behavior-x:none;overscroll-behavior-y:auto}
   body{
     font-family:"Aptos","Segoe UI","Helvetica Neue",Arial,sans-serif;
     background:
@@ -29,6 +29,7 @@
     margin:0;
     padding:24px;
     color:var(--ink);
+    overscroll-behavior-x:none;
     overscroll-behavior-y:auto;
   }
   .wrap{max-width:1120px;margin:0 auto;padding-bottom:32px}
@@ -250,13 +251,19 @@
       background:transparent;
       box-shadow:none;
     }
+    .quote-meta-grid{grid-template-columns:1fr;gap:8px}
     table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
   }
   @media print{ .no-print{display:none !important} body{background:#fff;padding:0} .card{box-shadow:none;border-radius:0} }
 
-  .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;width:100vw;height:100dvh;min-height:100dvh;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:flex-start;z-index:50;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:none;padding:18px;touch-action:pan-y}
   .modal.show{display:flex}
-  .modal .panel{background:#fff;max-width:640px;width:100%;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:18px}
+  .modal .panel{background:#fff;max-width:640px;width:100%;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:18px;margin:auto;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  html.modal-open, body.modal-open{overflow:hidden !important;overscroll-behavior:none}
+  body.modal-open{touch-action:none}
+  @supports (height: 100svh){
+    .modal{height:100svh;min-height:100svh}
+  }
   .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .panel h3{margin:4px 0 12px}
   .panel .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
@@ -283,6 +290,19 @@
     transform:none;
   }
 
+  #adminTapZone{
+    position:absolute;
+    top:8px;
+    left:8px;
+    width:72px;
+    height:72px;
+    z-index:5;
+    background:transparent;
+    border-radius:14px;
+    -webkit-tap-highlight-color:transparent;
+    user-select:none;
+  }
+
   #addonsBlock input[type="checkbox"]{ width:18px; height:18px; appearance:auto; -webkit-appearance:auto; accent-color: var(--brand);}
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;margin-left:6px}
   .hint{color:#6b7280;font-size:13px}
@@ -292,6 +312,9 @@
   .entry-status.error{border-color:#efc1c1;background:#fff3f3;color:#991b1b}
   .field-error{border-color:#ef4444 !important;box-shadow:0 0 0 3px rgba(239,68,68,.08)}
 
+  .quote-meta-panel{margin-top:14px;padding:14px 16px}
+  .quote-meta-grid{display:grid;grid-template-columns:minmax(280px,420px);gap:12px;align-items:end}
+
   /* --- SKU dropdown + thumbnail preview (retail) --- */
   .sku-cell{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .sku-select{min-width:160px;padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;background:#fff}
@@ -299,12 +322,83 @@
   .sku-thumb{width:34px;height:34px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;cursor:zoom-in;display:inline-block}
   .sku-thumb:active{transform:scale(.98)}
   /* Make Pricing Settings modal usable on small screens (scrollable) */
-  #settingsModal{overflow:auto;align-items:flex-start;padding:18px}
-  #settingsModal .panel{max-height:calc(100vh - 36px);overflow:auto}
+  #settingsModal{
+    overflow:auto;
+    align-items:flex-start;
+    justify-content:flex-start;
+    padding:18px;
+    -webkit-overflow-scrolling:touch;
+  }
+  #settingsModal .panel{
+    max-height:calc(100dvh - 36px);
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  #settingsModal .actions{
+    position:sticky;
+    bottom:calc(-18px - env(safe-area-inset-bottom, 0px));
+    margin:18px -18px calc(-18px - env(safe-area-inset-bottom, 0px));
+    padding:12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+    background:linear-gradient(180deg, rgba(255,255,255,.96), #fff);
+    border-top:1px solid #eadfce;
+    z-index:3;
+  }
   .mini-toast{position:fixed;right:18px;bottom:18px;z-index:9999;background:#ecfdf5;color:#166534;border:1px solid #86efac;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;box-shadow:0 10px 25px rgba(15,23,42,.10);opacity:0;transform:translateY(8px);pointer-events:none;transition:all .18s ease}
   .mini-toast.show{opacity:1;transform:translateY(0)}
   @media (max-width:680px){
     .grid-2{grid-template-columns:1fr}
+    #bulkEditModal{padding:12px;align-items:flex-start;justify-content:flex-start}
+    #bulkEditModal .panel{
+      max-height:calc(100dvh - 24px);
+      padding:14px;
+      margin:0 auto;
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+    }
+    #bulkEditModal .actions{
+      position:static;
+      bottom:auto;
+      margin-top:16px;
+      padding-top:0;
+      background:transparent;
+      border-top:none;
+    }
+    #bulkEditModal .actions .btn,
+    #bulkEditModal .actions .btn-secondary{
+      flex:1 1 0;
+      min-width:0;
+    }
+    #settingsModal{
+      padding:10px;
+      align-items:flex-start;
+      justify-content:flex-start;
+    }
+    #settingsModal .panel{
+      width:min(100%, 640px);
+      max-height:calc(100dvh - 20px);
+      padding:14px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+      margin:0 auto;
+    }
+    #settingsModal .actions{
+      position:sticky;
+      bottom:calc(-14px - env(safe-area-inset-bottom, 0px));
+      margin:16px -14px calc(-14px - env(safe-area-inset-bottom, 0px));
+      padding:12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:8px;
+      background:linear-gradient(180deg, rgba(255,255,255,.96), #fff);
+      border-top:1px solid #eadfce;
+    }
+    #settingsModal .actions .btn,
+    #settingsModal .actions .btn-secondary{
+      width:100%;
+      min-width:0;
+      flex:none;
+    }
   }
 
   /* SKU image preview modal */
@@ -421,6 +515,9 @@
     .actions .btn-secondary,
     .ai-actions .btn,
     .ai-actions .btn-secondary{width:100%}
+    .modal{align-items:flex-start;justify-content:center;padding:12px}
+    .modal .panel{width:min(100%, calc(100vw - 24px));max-width:min(680px, calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;margin:0 auto}
+    .modal .actions{position:sticky;bottom:-14px;background:#fff;padding-top:12px;border-top:1px solid #f0e4d5}
   }
 
 
@@ -431,7 +528,8 @@
 .bulk-toolbar .bulk-count{font-weight:800}
 .item-select-cell,.item-select-head{width:42px;text-align:center}
 .cordless-cell{text-align:center;white-space:nowrap}
-#bulkEditModal .panel{max-width:760px}
+#bulkEditModal{overflow:auto;align-items:flex-start;justify-content:flex-start;padding:18px;overscroll-behavior:none}
+#bulkEditModal .panel{max-width:min(760px, calc(100vw - 36px));width:100%;max-height:calc(100dvh - 36px);overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 
   .addon-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
   .addon-toolbar-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -461,213 +559,509 @@
     .addon-row .addon-qty{padding:6px 6px;font-size:13px}
   }
 
-  /* ──────────── 青砚 Mobile Enhancements (iOS-first) ──────────── */
-  @media (max-width: 640px){
-    body{
-      padding:12px 10px 96px !important;
-      font-size:15px;
-      -webkit-text-size-adjust:100%;
+
+  .edit-dimension-block{display:flex;flex-direction:column;gap:8px}
+  .edit-dimension-slider-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+  .edit-dimension-slider-row input[type="range"],
+  .discount-range-wrap input[type="range"]{
+    width:100%;
+    min-width:0;
+    height:38px;
+    padding:8px 0;
+    border:none;
+    background:transparent;
+    box-shadow:none;
+    accent-color:var(--brand);
+    cursor:pointer;
+    touch-action:pan-x;
+  }
+  .edit-dimension-slider-row input[type="range"]::-webkit-slider-runnable-track,
+  .discount-range-wrap input[type="range"]::-webkit-slider-runnable-track{
+    height:8px;
+    border-radius:999px;
+    background:linear-gradient(90deg,#ffd7ae 0%, #f2c28e 100%);
+  }
+  .edit-dimension-slider-row input[type="range"]::-webkit-slider-thumb,
+  .discount-range-wrap input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    appearance:none;
+    width:26px;
+    height:26px;
+    border-radius:50%;
+    background:var(--brand);
+    border:2px solid #fff;
+    box-shadow:0 3px 10px rgba(64,42,22,.18);
+    margin-top:-9px;
+  }
+  .edit-dimension-slider-row input[type="range"]::-moz-range-track,
+  .discount-range-wrap input[type="range"]::-moz-range-track{
+    height:8px;
+    border:none;
+    border-radius:999px;
+    background:linear-gradient(90deg,#ffd7ae 0%, #f2c28e 100%);
+  }
+  .edit-dimension-slider-row input[type="range"]::-moz-range-thumb,
+  .discount-range-wrap input[type="range"]::-moz-range-thumb{
+    width:26px;
+    height:26px;
+    border-radius:50%;
+    background:var(--brand);
+    border:2px solid #fff;
+    box-shadow:0 3px 10px rgba(64,42,22,.18);
+  }
+  .edit-dimension-slider-row input[type="range"]:focus,
+  .discount-range-wrap input[type="range"]:focus{
+    box-shadow:none;
+    border:none;
+    outline:none;
+  }
+  .edit-range-chip{
+    min-width:116px;
+    text-align:center;
+    font-size:12px;
+    font-weight:700;
+    color:#6b7280;
+    background:#f7f4ef;
+    border:1px solid #eadfce;
+    border-radius:999px;
+    padding:6px 10px;
+    white-space:nowrap;
+  }
+  .edit-range-chip.is-over{color:#9a3412;background:#fff7ed;border-color:#fdba74}
+  .discount-editor{
+    margin-top:10px;
+    padding:14px;
+    border:1px solid #eadfce;
+    border-radius:16px;
+    background:linear-gradient(180deg,#fffdfa 0%,#fff7ef 100%);
+  }
+  .discount-meta{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+  .discount-meta-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:5px 10px;
+    border-radius:999px;
+    background:#f3f4f6;
+    border:1px solid #e5e7eb;
+    color:#6b7280;
+    font-size:12px;
+    line-height:1.2;
+  }
+  .discount-meta-chip strong{color:#111827;font-weight:800}
+  .discount-input-row{display:grid;grid-template-columns:minmax(0,1fr) 116px;gap:10px;align-items:center}
+  .discount-range-wrap{display:flex;flex-direction:column;gap:8px}
+  .discount-number-wrap{position:relative}
+  .discount-number-wrap input{
+    text-align:right;
+    padding-right:30px;
+  }
+  .discount-number-wrap .suffix{
+    position:absolute;
+    right:12px;
+    top:50%;
+    transform:translateY(-50%);
+    font-weight:700;
+    color:#6b7280;
+    pointer-events:none;
+  }
+  .discount-actions-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .discount-live-note{font-size:12px;color:#6b7280;line-height:1.45}
+
+  #editModal{
+    overflow:auto;
+    align-items:flex-start;
+    justify-content:flex-start;
+    padding:18px;
+    -webkit-overflow-scrolling:touch;
+  }
+  #editModal .panel{
+    max-height:calc(100dvh - 36px);
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  #editModal .actions{
+    position:sticky;
+    bottom:calc(-18px - env(safe-area-inset-bottom, 0px));
+    margin:18px -18px calc(-18px - env(safe-area-inset-bottom, 0px));
+    padding:12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+    background:linear-gradient(180deg, rgba(255,255,255,.96), #fff);
+    border-top:1px solid #eadfce;
+    z-index:4;
+  }
+  @media (max-width: 680px){
+    .edit-dimension-slider-row,
+    .discount-input-row{grid-template-columns:1fr}
+    .edit-range-chip{min-width:0;width:100%}
+    .discount-actions-row{align-items:stretch}
+    .discount-actions-row .btn-secondary{width:100%}
+    .edit-dimension-slider-row input[type="range"],
+    .discount-range-wrap input[type="range"]{
+      height:46px;
+      padding:12px 0;
     }
-    .wrap{max-width:100%;padding-bottom:24px}
-    .card{border-radius:12px;padding:14px !important}
-    h1{font-size:18px !important;line-height:1.3}
-    h2{font-size:16px !important}
-
-    /* 防止 iOS 自动放大 input/select/textarea */
-    input,select,textarea,button{font-size:16px !important}
-
-    /* 主录入行 — 单列流式 */
-    .row{grid-template-columns:1fr !important;gap:10px !important}
-    .field-inline{grid-template-columns:1fr 88px !important}
-
-    /* 工具栏多列 -> 双列 */
-    .toolbar{grid-template-columns:1fr 1fr !important;gap:8px !important}
-
-    /* AI 网格 -> 单列 */
-    .ai-grid{grid-template-columns:1fr !important}
-
-    /* AI 语音按钮行 */
-    .ai-voice-row{grid-template-columns:1fr 1fr !important;gap:8px !important}
-
-    /* Grid-2 表单 -> 单列 */
-    .grid-2{grid-template-columns:1fr !important;gap:10px !important}
-
-    /* 弹窗 — 全屏感，边缘留 8px */
-    .modal .panel{
-      max-width:calc(100vw - 16px) !important;
-      max-height:calc(100dvh - 32px) !important;
-      border-radius:14px;
-      padding:14px !important;
+    .edit-dimension-slider-row input[type="range"]::-webkit-slider-thumb,
+    .discount-range-wrap input[type="range"]::-webkit-slider-thumb{
+      width:30px;
+      height:30px;
+      margin-top:-11px;
     }
-    #ocrModal .panel{
-      max-width:calc(100vw - 16px) !important;
-      max-height:calc(100dvh - 24px) !important;
+    .edit-dimension-slider-row input[type="range"]::-moz-range-thumb,
+    .discount-range-wrap input[type="range"]::-moz-range-thumb{
+      width:30px;
+      height:30px;
     }
-    .addon-picker-panel{
-      max-width:calc(100vw - 16px) !important;
-      width:calc(100vw - 16px) !important;
+    #editModal{
+      padding:10px;
+      align-items:flex-start;
+      justify-content:flex-start;
     }
+    #editModal .panel{
+      width:min(100%, 640px);
+      max-height:calc(100dvh - 20px);
+      padding:14px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+      margin:0 auto;
+    }
+    #editModal .actions{
+      position:sticky;
+      bottom:calc(-14px - env(safe-area-inset-bottom, 0px));
+      margin:16px -14px calc(-14px - env(safe-area-inset-bottom, 0px));
+      padding:12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      background:linear-gradient(180deg, rgba(255,255,255,.96), #fff);
+      border-top:1px solid #eadfce;
+    }
+    #editModal .actions .btn,
+    #editModal .actions .btn-secondary{
+      width:100%;
+      min-width:0;
+      flex:none;
+    }
+  }
 
-    /* 表格基础样式（非关键表） */
-    table{font-size:13px}
-    table th,table td{padding:6px 6px !important}
-    .quote-shell, .card{overflow-x:auto}
 
-    /* ── #itemsTable 卡片化：每行一张卡，字段标签+值上下排 ── */
-    #itemsTable{display:block !important;min-width:0 !important;background:transparent !important;box-shadow:none !important}
-    #itemsTable thead{display:none !important}
-    #itemsTable tbody{display:block !important;width:100% !important}
-    #itemsTable tr{
-      display:block !important;
-      background:#fff !important;
-      border:1px solid #eadfce !important;
-      border-radius:14px !important;
-      padding:10px 12px !important;
-      margin:0 0 10px !important;
-      box-shadow:0 2px 8px rgba(60,45,25,.04) !important;
+
+  .mobile-only{display:none}
+  .desktop-only{display:inline}
+
+  /* --- Mobile item cards: collapsed + compact for phone use --- */
+  @media (max-width: 860px){
+    .mobile-only{display:block}
+    .desktop-only{display:none !important}
+
+    #itemsTable{
+      display:block;
+      border:none;
+      background:transparent;
+      overflow:visible;
+      margin-top:12px;
+    }
+    #itemsTable thead{display:none}
+    #itemsTable tbody{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    #itemsTable tr.quote-item-row{
+      position:relative;
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:8px;
+      padding:12px;
+      border:1px solid rgba(229,221,210,.95);
+      border-radius:16px;
+      background:#fff;
+      box-shadow:0 8px 20px rgba(64,42,22,.06);
     }
     #itemsTable td{
-      display:flex !important;
-      justify-content:space-between !important;
-      align-items:center !important;
-      gap:12px !important;
-      padding:4px 0 !important;
-      border:none !important;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      width:100%;
+      padding:0;
+      border:none;
       text-align:left !important;
-      font-size:13px !important;
-      width:auto !important;
+      white-space:normal;
     }
-    #itemsTable td.right{text-align:right !important}
     #itemsTable td::before{
-      color:#6e7d76;
+      content:attr(data-label);
+      flex:0 0 64px;
+      max-width:64px;
+      font-size:11px;
+      line-height:1.3;
+      font-weight:800;
+      color:#6b7280;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+      padding-top:3px;
+    }
+    #itemsTable td.item-select-cell{
+      position:absolute;
+      top:12px;
+      right:12px;
+      width:auto;
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+      z-index:2;
+    }
+    #itemsTable td.item-select-cell::before{content:none}
+    #itemsTable td.item-select-cell input{
+      width:18px;
+      height:18px;
+      margin:0;
+    }
+    #itemsTable td[data-label="#"],
+    #itemsTable td[data-label="Fabric"]{
+      display:none;
+    }
+    #itemsTable td.product-cell{
+      display:block;
+      padding-right:34px;
+      min-width:0;
+    }
+    #itemsTable td.product-cell::before{content:none}
+    #itemsTable .mobile-item-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+    #itemsTable .mobile-item-main{min-width:0;flex:1 1 auto}
+    #itemsTable .mobile-item-title{
+      font-size:15px;
+      line-height:1.3;
+      font-weight:800;
+      color:#111827;
+      word-break:break-word;
+    }
+    #itemsTable .mobile-item-sub{
+      margin-top:3px;
       font-size:12px;
-      font-weight:500;
+      line-height:1.35;
+      color:#6b7280;
+      word-break:break-word;
+    }
+    #itemsTable .mobile-toggle{
+      min-height:30px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid #ead6be;
+      background:#fff6eb;
+      color:#9a5412;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
       flex:0 0 auto;
     }
-    /* JS 渲染的 td 没有 data-label，这里按列顺序注入标签 */
-    #itemsTable td:nth-child(1)::before{content:'选择'}
-    #itemsTable td:nth-child(2)::before{content:'#'}
-    #itemsTable td:nth-child(3)::before{content:'Product'}
-    #itemsTable td:nth-child(4)::before{content:'Fabric'}
-    #itemsTable td:nth-child(5)::before{content:'SKU'}
-    #itemsTable td:nth-child(6)::before{content:'Cordless'}
-    #itemsTable td:nth-child(7)::before{content:'Width'}
-    #itemsTable td:nth-child(8)::before{content:'Height'}
-    #itemsTable td:nth-child(9)::before{content:'MSRP'}
-    #itemsTable td:nth-child(10)::before{content:'Discount'}
-    #itemsTable td:nth-child(11)::before{content:'Price';color:#111;font-weight:700}
-    #itemsTable td:nth-child(11){font-weight:800 !important;color:#b45309 !important;font-size:15px !important}
-    #itemsTable td:nth-child(12)::before{content:'Install'}
-    #itemsTable td:nth-child(13)::before{content:''}
-    #itemsTable td:nth-child(13){padding-top:8px !important;margin-top:6px !important;border-top:1px dashed #eadfce !important}
-    #itemsTable td .row-actions{
-      display:flex !important;justify-content:flex-end !important;gap:10px !important;flex:1 1 auto !important;flex-wrap:wrap;
+    #itemsTable .mobile-toggle:hover{
+      border-color:#efc28f;
+      background:#fff0de;
+      color:#8a470d;
     }
-    #itemsTable td .row-actions .btn-link{
-      padding:6px 10px !important;min-height:36px !important;font-size:13px !important;
+    #itemsTable tr.is-mobile-collapsed td.mobile-detail{
+      display:none;
     }
-    #itemsTable td.item-select-cell{width:auto !important;text-align:left !important}
+    #itemsTable td.mobile-key{
+      align-items:center;
+      gap:10px;
+    }
+    #itemsTable td.mobile-key::before{
+      flex:0 0 58px;
+      max-width:58px;
+    }
+    #itemsTable td.mobile-price{
+      margin-top:2px;
+      padding-top:8px;
+      border-top:1px dashed #eee1cf;
+    }
+    #itemsTable td.mobile-price .value-strong{
+      font-weight:800;
+      color:#9a3412;
+      font-size:16px;
+    }
+    #itemsTable td.actions-cell,
+    #itemsTable td[data-label="Actions"]{
+      display:block;
+      margin-top:2px;
+    }
+    #itemsTable td.actions-cell::before,
+    #itemsTable td[data-label="Actions"]::before{content:none}
+    #itemsTable .sku-cell{
+      flex:1 1 auto;
+      min-width:0;
+      align-items:flex-start;
+    }
+    #itemsTable .sku-select,
+    #itemsTable .sku-custom{
+      width:100%;
+      max-width:none !important;
+      min-width:0;
+    }
+    #itemsTable .sku-thumb{
+      width:38px;
+      height:38px;
+      flex:0 0 auto;
+    }
+    #itemsTable .cordless-cell input[type="checkbox"]{
+      width:18px;
+      height:18px;
+      margin-top:1px;
+    }
+    #itemsTable .row-actions{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:7px;
+      width:100%;
+      min-width:0;
+      padding:0;
+      border:none;
+      background:transparent;
+      box-shadow:none;
+    }
+    #itemsTable .row-actions .btn-link{
+      justify-content:center;
+      min-height:34px;
+      padding:8px 6px;
+      font-size:12px;
+    }
 
-    /* ── #summary 卡片化：左标签右金额 ── */
-    #summary{display:block !important;width:100% !important;margin-top:6px !important}
-    #summary tbody{display:block !important;width:100% !important}
+    #summary{
+      display:block;
+      border:none;
+      background:transparent;
+      overflow:visible;
+    }
+    #summary tbody{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
     #summary tr{
-      display:flex !important;
-      justify-content:space-between !important;
-      align-items:flex-start !important;
-      gap:10px !important;
-      padding:8px 12px !important;
-      border-bottom:1px dashed #eadfce !important;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      padding:10px 12px;
+      border:1px solid rgba(229,221,210,.95);
+      border-radius:14px;
       background:#fff;
     }
-    #summary tr:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
-    #summary tr:last-of-type{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
     #summary td{
-      display:block !important;
-      padding:0 !important;
-      border:none !important;
-      white-space:normal !important;
-      width:auto !important;
-    }
-    #summary td[colspan]{
-      flex:1 1 auto !important;
+      display:block;
+      width:100%;
+      padding:0;
+      border:none;
       text-align:left !important;
-      color:#4b5563 !important;
-      font-size:13px !important;
-      line-height:1.4 !important;
+      white-space:normal;
+      font-size:13px;
+      line-height:1.4;
     }
-    #summary td[colspan] .hint{
-      display:block !important;
-      margin-top:3px !important;
-      font-size:11px !important;
-      background:transparent !important;
-      padding:0 !important;
-      border-radius:0 !important;
+    #summary td.right:last-child,
+    #summary td:last-child{
+      font-weight:800;
+      font-size:15px;
     }
-    #summary td:not([colspan]){
-      flex:0 0 auto !important;
-      text-align:right !important;
-      font-weight:700 !important;
-      white-space:nowrap !important;
-      font-size:14px !important;
-    }
-    #summary td:nth-child(3):empty{display:none !important}
-    #summary tr.total{
-      background:linear-gradient(180deg,#fff7ed 0%,#fffbeb 100%) !important;
-      border:1px solid #fdba74 !important;
-      border-radius:12px !important;
-      padding:12px 14px !important;
-      margin-top:10px !important;
-    }
-    #summary tr.total td[colspan]{
-      font-weight:800 !important;color:#7c2d12 !important;font-size:15px !important;
-    }
-    #summary tr.total td:not([colspan]){
-      color:#9a3412 !important;font-size:18px !important;font-weight:900 !important;
-    }
-
-    /* 汇总页面在手机上的关键 grid */
-    .page{max-width:100% !important;margin:8px 0 !important}
-    .hero, .summary-grid, .totals-layout, .contact-list,
-    .sheet-grid, .sheet-two, .mini-list{
-      grid-template-columns:1fr !important;
-    }
-
-    /* 预览图限制高度 */
-    .ai-preview{max-height:140px}
-
-    /* 底部保存按钮悬浮 */
-    .mobile-sticky-save{
-      position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);
-      z-index:120;
-      padding:14px 16px;border-radius:14px;
-      background:linear-gradient(135deg,#f58220,#d96a0b);color:#fff;
-      font-weight:650;font-size:15px;letter-spacing:.02em;
-      border:none;box-shadow:0 10px 28px rgba(245,130,32,.35);
-      display:flex;align-items:center;justify-content:center;gap:8px;
-    }
-    .mobile-sticky-save:active{transform:scale(.98)}
   }
 
-  /* 平板 — 保证主列宽度不溢出 */
-  @media (min-width: 641px) and (max-width: 900px){
-    body{padding:16px !important}
-    .wrap{max-width:100%}
-    .hero, .summary-grid, .totals-layout{grid-template-columns:1fr !important}
+  @media (max-width: 560px){
+    #itemsTable tr.quote-item-row{padding:11px}
+    #itemsTable td.mobile-key{align-items:flex-start;gap:6px}
+    #itemsTable td.mobile-key::before{flex:none;max-width:none;padding-top:0}
+    #itemsTable td.mobile-detail{flex-direction:column;align-items:stretch;gap:6px}
+    #itemsTable td.mobile-detail::before{flex:none;max-width:none;padding-top:0}
+    #itemsTable .sku-cell{width:100%;flex-direction:column;align-items:stretch}
+    #itemsTable .row-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+    #itemsTable .mobile-toggle{padding:6px 9px;font-size:11.5px}
   }
+
+
+  .mobile-totals-bar{display:none}
+  body.modal-open .mobile-totals-bar{display:none !important}
+  @media (max-width: 860px){
+    body.has-mobile-totals-bar{padding-bottom:110px}
+    body.modal-open.has-mobile-totals-bar{padding-bottom:12px}
+    .mobile-totals-bar{
+      position:fixed;
+      left:12px;
+      right:12px;
+      bottom:calc(10px + env(safe-area-inset-bottom, 0px));
+      z-index:40;
+      border:1px solid rgba(229,221,210,.98);
+      border-radius:18px;
+      background:rgba(255,253,250,.94);
+      backdrop-filter:blur(14px);
+      -webkit-backdrop-filter:blur(14px);
+      box-shadow:0 14px 30px rgba(64,42,22,.16);
+      padding:10px 12px;
+    }
+    .mobile-totals-bar.show{display:block}
+    .mobile-totals-bar .inner{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0,1fr));
+      gap:10px;
+      align-items:stretch;
+    }
+    .mobile-totals-bar .cell{
+      min-width:0;
+      border:1px solid #eee3d4;
+      border-radius:14px;
+      background:rgba(255,255,255,.9);
+      padding:8px 10px;
+    }
+    .mobile-totals-bar .cell.total{
+      background:linear-gradient(180deg,#fff7ed 0%,#fffbeb 100%);
+      border-color:#fdba74;
+    }
+    .mobile-totals-bar .k{
+      font-size:10px;
+      line-height:1.2;
+      font-weight:800;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:#6b7280;
+    }
+    .mobile-totals-bar .v{
+      margin-top:4px;
+      font-size:16px;
+      line-height:1.2;
+      font-weight:800;
+      color:#0f172a;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .mobile-totals-bar .cell.total .v{color:#9a3412}
+  }
+  @media (max-width: 420px){
+    .mobile-totals-bar{left:10px;right:10px;padding:9px 10px}
+    .mobile-totals-bar .inner{gap:8px}
+    .mobile-totals-bar .cell{padding:7px 8px}
+    .mobile-totals-bar .v{font-size:14px}
+  }
+
 </style>
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#f58220">
 </head>
 <body>
 <div class="wrap">
   <div class="card quote-shell">
     <div class="flex-between shell-header">
+      <div id="adminTapZone" class="no-print" aria-hidden="true"></div>
       <div>
         <h1>SUNNY SHUTTER INC — ROUGH QUOTE</h1>
-        <p class="sub">Default 30% OFF from MSRP for all categories. Sizes rounded up to nearest bracket.</p>
+        <p class="sub">Blinds reflect 45% OFF from MSRP. Drapery &amp; Sheer 35% OFF. Shutters 35% OFF. Sizes rounded up to nearest bracket.</p>
       </div>
       <div class="toolbar toolbar-main no-print">
-        <button class="btn-secondary" id="settingsBtn" title="需访问码 / Code required">Pricing Settings</button>
+        <button class="btn-secondary admin-only" id="settingsBtn">Pricing Settings</button>
         <button class="btn" id="generate">Generate Rough Quote</button>
+        <button class="btn-secondary" id="copyClientSummary" type="button">Copy Summary</button>
         <button class="btn-secondary" id="resetAll">Reset All</button>
       </div>
     </div>
@@ -693,14 +1087,14 @@
       <div class="field">
         <label>Width (in)</label>
         <div class="field-inline">
-          <input id="width" min="0" placeholder="e.g., 72" step="1" type="number"/>
+          <input id="width" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" autocomplete="off" spellcheck="false" enterkeyhint="next" placeholder="e.g., 72"/>
           <select class="frac" id="widthFrac"></select>
         </div>
       </div>
       <div class="field">
         <label>Height (in)</label>
         <div class="field-inline">
-          <input id="height" min="0" placeholder="e.g., 108" step="1" type="number"/>
+          <input id="height" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="e.g., 108"/>
           <select class="frac" id="heightFrac"></select>
         </div>
       </div>
@@ -710,6 +1104,15 @@
       </div>
     </div>
     <div class="entry-status no-print" id="entryStatus">Select product and fabric, enter width and height, then press Enter or click Add Item.</div>
+
+    <div class="no-print surface-panel quote-meta-panel">
+      <div class="quote-meta-grid">
+        <div class="field">
+          <label for="quoteMark">MARK (optional)</label>
+          <input id="quoteMark" type="text" maxlength="80" placeholder="e.g., Beverley Law / Job code / Internal mark"/>
+        </div>
+      </div>
+    </div>
 
     <div class="bulk-toolbar no-print" id="bulkToolbar">
       <div class="bulk-inner">
@@ -784,6 +1187,7 @@
         <tr><td class="right" colspan="7">Installation (<span class="hint" style="background:#e5e7eb;padding:2px 6px;border-radius:999px;">Zebra/Roller: $18 standard, $26 if width &gt; 70"; Drapery/Sheer: $55 if ≤70", $90 if &gt;70"; Shutters: $18 per 35" panel (e.g., 75" → 3 panels = $54)</span>)</td><td class="right" id="installSubtotal">$0.00</td><td></td></tr>
         <tr><td class="right" colspan="7">Installation Minimum <span class="hint">(Minimum $200 per project. If per-unit installation total is less than $200, the $200 minimum will apply instead — not in addition.)</span></td><td class="right" id="installMin">$0.00</td><td></td></tr>
         <tr><td class="right" colspan="7">Delivery Fee <span class="hint">GTA only; long distance surcharge may apply.</span></td><td class="right" id="deliveryFeeCell">$50.00</td><td></td></tr>
+        <tr id="downtownServiceFeeRow" style="display:none"><td class="right" colspan="7">Downtown Service Fee <span class="hint">Service fee for downtown / special access jobs.</span></td><td class="right" id="downtownServiceFeeCell">$0.00</td><td></td></tr>
         <tr><td class="right" colspan="7">Subtotal (before tax)</td><td class="right" id="preTaxTotal">$0.00</td><td></td></tr>
         <tr><td class="right" colspan="7">Tax (13%)</td><td class="right" id="taxAmount">$0.00</td><td></td></tr>
         <tr class="total"><td class="right" colspan="7">Grand Total</td><td class="right" id="grandTotal">$0.00</td><td></td></tr>
@@ -874,6 +1278,14 @@
         <div class="grid-2">
           <div><label for="deliveryFee">Delivery fee ($)</label><input id="deliveryFee" min="0" step="1" type="number" value="50"/></div>
           <div>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <input id="downtownServiceFeeEnabled" type="checkbox" style="width:18px;height:18px;appearance:auto;-webkit-appearance:auto;accent-color:var(--brand);"/>
+              <span>Apply Downtown Service Fee</span>
+            </label>
+            <input id="downtownServiceFee" min="0" step="1" type="number" value="150"/>
+            <div class="hint" style="margin-top:6px">Service fee for downtown / special access jobs. Default amount is <b>$150</b>.</div>
+          </div>
+          <div>
             <label>Add-on catalog source</label>
             <div class="hint" id="addonCsvStatus">Add-on CSV source: (loading...)</div>
           </div>
@@ -954,6 +1366,24 @@
   </div>
 </div>
 
+
+<div id="mobileTotalsBar" class="mobile-totals-bar no-print" aria-live="polite">
+  <div class="inner">
+    <div class="cell">
+      <div class="k">Items</div>
+      <div class="v" id="mobileTotalsItems">0</div>
+    </div>
+    <div class="cell">
+      <div class="k">Before Tax</div>
+      <div class="v" id="mobileTotalsPreTax">$0.00</div>
+    </div>
+    <div class="cell total">
+      <div class="k">Grand Total</div>
+      <div class="v" id="mobileTotalsGrand">$0.00</div>
+    </div>
+  </div>
+</div>
+
 <!-- Edit item modal (can edit product/fabric + sizes) -->
 <div aria-label="Edit Item" aria-modal="true" class="modal no-print" id="editModal" role="dialog">
   <div class="panel">
@@ -974,24 +1404,53 @@
     <div class="grid-2" style="margin-top:10px">
       <div>
         <label>Width (in)</label>
-        <div class="field-inline">
-          <input id="editWidth" min="0" step="1" type="number"/>
-          <select class="frac" id="editWidthFrac"></select>
+        <div class="edit-dimension-block">
+          <div class="field-inline">
+            <input id="editWidth" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" autocomplete="off" spellcheck="false" enterkeyhint="next"/>
+            <select class="frac" id="editWidthFrac"></select>
+          </div>
+          <div class="edit-dimension-slider-row">
+            <input id="editWidthRange" type="range" min="0" max="200" step="1" value="0"/>
+            <div class="edit-range-chip" id="editWidthRangeValue">0 in</div>
+          </div>
         </div>
       </div>
       <div>
         <label>Height (in)</label>
-        <div class="field-inline">
-          <input id="editHeight" min="0" step="1" type="number"/>
-          <select class="frac" id="editHeightFrac"></select>
+        <div class="edit-dimension-block">
+          <div class="field-inline">
+            <input id="editHeight" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" autocomplete="off" spellcheck="false" enterkeyhint="done"/>
+            <select class="frac" id="editHeightFrac"></select>
+          </div>
+          <div class="edit-dimension-slider-row">
+            <input id="editHeightRange" type="range" min="0" max="200" step="1" value="0"/>
+            <div class="edit-range-chip" id="editHeightRangeValue">0 in</div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div style="margin-top:10px">
-      <label for="editDiscountOverride">Discount Override (% OFF)</label>
-      <input id="editDiscountOverride" type="text" inputmode="decimal" placeholder="Leave blank to use Price Settings default"/>
-      <div class="hint" style="margin-top:6px">Example: 35 means 35% off. Leave blank to use the current product default from Price Settings.</div>
+    <div class="discount-editor">
+      <label for="editDiscountPercent" style="margin-top:0">Discount Override (% OFF)</label>
+      <div class="discount-meta">
+        <div class="discount-meta-chip" id="editDiscountDefaultInfo">Current default <strong>0%</strong></div>
+        <div class="discount-meta-chip" id="editDiscountAppliedInfo">Current applied <strong>0%</strong></div>
+      </div>
+      <div class="discount-input-row">
+        <div class="discount-range-wrap">
+          <input id="editDiscountRange" type="range" min="0" max="100" step="1" value="0"/>
+          <div class="discount-live-note" id="editDiscountModeInfo">Using current default discount. Move the slider or type a number to create an override.</div>
+        </div>
+        <div class="discount-number-wrap">
+          <input id="editDiscountPercent" type="text" inputmode="decimal" pattern="[0-9]*[.]?[0-9]*" autocomplete="off" spellcheck="false" placeholder="45"/>
+          <span class="suffix">%</span>
+        </div>
+      </div>
+      <div class="discount-actions-row">
+        <div class="hint">Gray labels show the current default and what is currently applied.</div>
+        <button class="btn-secondary" id="editDiscountUseDefault" type="button">Use Current Default</button>
+      </div>
+      <input id="editDiscountOverride" type="hidden"/>
     </div>
 
     <div class="actions">
@@ -1225,15 +1684,15 @@ const DATA = {
     Drapery: {
       brackets: { widths: [25,37.5,50,62.5,75,87.5,100,112.5,125,137.5,150,162.5,175,187.5,200], heights: [108,120,216,324] },
       fabrics: {
-        "Without liner (Light filtering)": { msrp: [[234,353,469,587,703,822,938,1056,1172,1290,1407,1525,1641,1759,1876],[351,530,704,881,1055,1233,1407,1584,1758,1935,2111,2288,2462,2639,2814],[468,706,938,1174,1406,1644,1876,2112,2344,2580,2814,3050,3282,3518,3752],[702,1059,1407,1761,2109,2466,2814,3168,3516,3870,4221,4575,4923,5277,5628]], discount: 0.35 },
-        "With liner (Black out)":         { msrp: [[281,424,563,705,844,987,1126,1268,1407,1548,1689,1830,1970,2111,2252],[422,636,845,1057,1266,1480,1689,1901,2110,2322,2533,2745,2954,3167,3377],[562,848,1126,1409,1688,1973,2252,2535,2813,3096,3377,3660,3939,4222,4503],[843,1271,1689,2114,2531,2960,3377,3802,4220,4644,5066,5490,5908,6333,6754]], discount: 0.35 }
+        "Without liner": { msrp: [[234,353,469,587,703,822,938,1056,1172,1290,1407,1525,1641,1759,1876],[280.8,423.6,562.8,704.4,843.6,986.4,1125.6,1267.2,1406.4,1548,1688.4,1830,1969.2,2110.8,2251.2],[468,706,938,1174,1406,1644,1876,2112,2344,2580,2814,3050,3282,3518,3752],[702,1059,1407,1761,2109,2466,2814,3168,3516,3870,4221,4575,4923,5277,5628]], discount: 0.35 },
+        "With liner (Black out)":         { msrp: [[281,424,563,705,844,987,1126,1268,1407,1548,1689,1830,1970,2111,2252],[337.2,508.8,675.6,846,1012.8,1184.4,1351.2,1521.6,1688.4,1857.6,2026.8,2196,2364,2533.2,2702.4],[562,848,1126,1409,1688,1973,2252,2535,2813,3096,3377,3660,3939,4222,4503],[843,1271,1689,2114,2531,2960,3377,3802,4220,4644,5066,5490,5908,6333,6754]], discount: 0.35 }
       }
     },
     Sheer: {
       brackets: { widths: [25,37.5,50,62.5,75,87.5,100,112.5,125,137.5,150,162.5,175,187.5,200], heights: [108,120,216,324] },
       fabrics: {
-        "Light Filtering": { msrp: [[132,199,265,332,397,464,530,596,662,730,796,862,928,995,1061],[198,299,398,499,596,697,796,895,994,1094,1193,1292,1391,1492,1591],[264,398,530,665,794,929,1061,1193,1325,1459,1591,1723,1855,1990,2122],[396,598,796,997,1192,1393,1591,1789,1987,2189,2387,2585,2783,2984,3182]], discount: 0.35 },
-        "LF Prime": { msrp: [[159,240,319,399,477,558,637,716,795,876,955,1034,1114,1194,1273],[238,359,478,599,715,836,955,1074,1193,1314,1433,1551,1670,1791,1910],[317,479,637,798,954,1115,1273,1432,1590,1752,1910,2068,2227,2388,2546],[476,718,955,1197,1430,1672,1910,2148,2385,2627,2865,3102,3340,3582,3819]], discount: 0.35 },
+        "Light Filtering": { msrp: [[132,199,265,332,397,464,530,596,662,730,796,862,928,995,1061],[158.4,239.04,318.24,398.88,476.64,557.28,636.48,715.68,794.88,875.52,954.72,1033.92,1113.12,1193.76,1272.96],[264,398,530,665,794,929,1061,1193,1325,1459,1591,1723,1855,1990,2122],[396,598,796,997,1192,1393,1591,1789,1987,2189,2387,2585,2783,2984,3182]], discount: 0.35 },
+        "LF Prime": { msrp: [[159,240,319,399,477,558,637,716,795,876,955,1034,1114,1194,1273],[190.8,288,382.8,478.8,572.4,669.6,764.4,859.2,954,1051.2,1146,1240.8,1336.8,1432.8,1527.6],[317,479,637,798,954,1115,1273,1432,1590,1752,1910,2068,2227,2388,2546],[476,718,955,1197,1430,1672,1910,2148,2385,2627,2865,3102,3340,3582,3819]], discount: 0.35 },
         "Door Screen Sheer": { special:"door_screen_sheer", discount: 0 }
       }
     },
@@ -1241,32 +1700,59 @@ const DATA = {
       brackets: { widths: [10,24,30,36,42,48,54,60,66,72,78,84,90,96,102,108,114,120,126], heights: [24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92,96,100,104,108,112,116,120] },
       fabrics: {
         "Vinyl": { msrp: [
-  [126.5,126.5,132.25,158.7,185.15,211.6,238.05,264.5,290.95,317.4,342.7,369.15,395.6,422.05,448.5,474.95,501.4,527.85,554.3],
-  [148.35,148.35,154.1,185.15,216.2,246.1,277.15,308.2,339.25,369.15,400.2,431.25,462.3,492.2,523.25,554.3,585.35,615.25,646.3],
-  [169.05,169.05,175.95,211.6,246.1,281.75,317.4,351.9,387.55,422.05,457.7,492.2,527.85,562.35,598,633.65,668.15,703.8,738.3],
-  [189.75,189.75,197.8,238.05,277.15,317.4,356.5,395.6,435.85,474.95,514.05,554.3,593.4,633.65,672.75,711.85,752.1,791.2,831.45],
-  [211.6,211.6,220.8,264.5,308.2,351.9,395.6,440.45,484.15,527.85,571.55,615.25,660.1,703.8,747.5,791.2,834.9,879.75,923.45],
-  [232.3,232.3,242.65,290.95,339.25,387.55,435.85,484.15,532.45,580.75,629.05,677.35,725.65,773.95,822.25,870.55,918.85,967.15,1015.45],
-  [253,253,264.5,317.4,369.15,422.05,474.95,527.85,580.75,633.65,685.4,738.3,791.2,844.1,897,949.9,1002.8,1054.55,1107.45],
-  [274.85,274.85,286.35,342.7,400.2,457.7,514.05,571.55,629.05,685.4,742.9,800.4,856.75,914.25,971.75,1028.1,1085.6,1143.1,1199.45],
-  [295.55,295.55,308.2,369.15,431.25,492.2,554.3,615.25,677.35,738.3,800.4,861.35,923.45,984.4,1046.5,1107.45,1169.55,1230.5,1292.6],
-  [316.25,316.25,330.05,395.6,462.3,527.85,593.4,660.1,725.65,791.2,856.75,923.45,989,1054.55,1121.25,1186.8,1252.35,1319.05,1384.6],
-  [338.1,338.1,351.9,422.05,492.2,562.35,633.65,703.8,773.95,844.1,914.25,984.4,1054.55,1124.7,1196,1266.15,1336.3,1406.45,1476.6],
-  [358.8,358.8,373.75,448.5,523.25,598,672.75,747.5,822.25,897,971.75,1046.5,1121.25,1196,1270.75,1344.35,1419.1,1493.85,1568.6],
-  [379.5,379.5,395.6,474.95,554.3,633.65,711.85,791.2,870.55,949.9,1028.1,1107.45,1186.8,1266.15,1344.35,1423.7,1503.05,1582.4,1661.75],
-  [401.35,401.35,417.45,501.4,585.35,668.15,752.1,834.9,918.85,1002.8,1085.6,1169.55,1252.35,1336.3,1419.1,1503.05,1587,1669.8,1753.75],
-  [422.05,422.05,440.45,527.85,615.25,703.8,791.2,879.75,967.15,1054.55,1143.1,1230.5,1319.05,1406.45,1493.85,1582.4,1669.8,1758.35,1845.75],
-  [442.75,442.75,462.3,554.3,646.3,738.3,831.45,923.45,1015.45,1107.45,1199.45,1292.6,1384.6,1476.6,1568.6,1661.75,1753.75,1845.75,1937.75],
-  [464.6,464.6,484.15,580.75,677.35,773.95,870.55,967.15,1063.75,1160.35,1256.95,1353.55,1450.15,1546.75,1643.35,1739.95,1836.55,1933.15,2029.75],
-  [485.3,485.3,506,607.2,708.4,808.45,909.65,1010.85,1112.05,1213.25,1314.45,1415.65,1515.7,1616.9,1718.1,1819.3,1920.5,2021.7,2122.9],
-  [506,506,527.85,633.65,738.3,844.1,949.9,1054.55,1160.35,1266.15,1370.8,1476.6,1582.4,1687.05,1792.85,1898.65,2004.45,2109.1,2214.9],
-  [527.85,527.85,549.7,660.1,769.35,879.75,989,1099.4,1208.65,1319.05,1428.3,1538.7,1647.95,1758.35,1867.6,1978,2087.25,2197.65,2306.9],
-  [548.55,548.55,571.55,685.4,800.4,914.25,1028.1,1143.1,1256.95,1370.8,1485.8,1599.65,1713.5,1828.5,1942.35,2056.2,2171.2,2285.05,2398.9],
-  [569.25,569.25,593.4,711.85,831.45,949.9,1068.35,1186.8,1305.25,1423.7,1542.15,1661.75,1780.2,1898.65,2017.1,2135.55,2254,2372.45,2492.05],
-  [591.1,591.1,615.25,738.3,861.35,984.4,1107.45,1230.5,1353.55,1476.6,1599.65,1722.7,1845.75,1968.8,2091.85,2214.9,2337.95,2461,2584.05],
-  [611.8,611.8,637.1,764.75,892.4,1020.05,1147.7,1274.2,1401.85,1529.5,1657.15,1784.8,1911.3,2038.95,2166.6,2294.25,2420.75,2548.4,2676.05],
-  [632.5,632.5,660.1,791.2,923.45,1054.55,1186.8,1319.05,1450.15,1582.4,1713.5,1845.75,1978,2109.1,2241.35,2372.45,2504.7,2636.95,2768.05]
-], discount: 0.35 }
+          [151.8,151.8,158.7,190.44,222.18,253.92,285.66,317.4,349.14,380.88,411.24,442.98,474.72,506.46,538.2,569.94,601.68,633.42,665.16],
+          [178.02,178.02,184.92,222.18,259.44,295.32,332.58,369.84,407.1,442.98,480.24,517.5,554.76,590.64,627.9,665.16,702.42,738.3,775.56],
+          [202.86,202.86,211.14,253.92,295.32,338.1,380.88,422.28,465.06,506.46,549.24,590.64,633.42,674.82,717.6,760.38,801.78,844.56,885.96],
+          [227.7,227.7,237.36,285.66,332.58,380.88,427.8,474.72,523.02,569.94,616.86,665.16,712.08,760.38,807.3,854.22,902.52,949.44,997.74],
+          [253.92,253.92,264.96,317.4,369.84,422.28,474.72,528.54,580.98,633.42,685.86,738.3,792.12,844.56,897,949.44,1001.88,1055.7,1108.14],
+          [278.76,278.76,291.18,349.14,407.1,465.06,523.02,580.98,638.94,696.9,754.86,812.82,870.78,928.74,986.7,1044.66,1102.62,1160.58,1218.54],
+          [303.6,303.6,317.4,380.88,442.98,506.46,569.94,633.42,696.9,760.38,822.48,885.96,949.44,1012.92,1076.4,1139.88,1203.36,1265.46,1328.94],
+          [329.82,329.82,343.62,411.24,480.24,549.24,616.86,685.86,754.86,822.48,891.48,960.48,1028.1,1097.1,1166.1,1233.72,1302.72,1371.72,1439.34],
+          [354.66,354.66,369.84,442.98,517.5,590.64,665.16,738.3,812.82,885.96,960.48,1033.62,1108.14,1181.28,1255.8,1328.94,1403.46,1476.6,1551.12],
+          [379.5,379.5,396.06,474.72,554.76,633.42,712.08,792.12,870.78,949.44,1028.1,1108.14,1186.8,1265.46,1345.5,1424.16,1502.82,1582.86,1661.52],
+          [405.72,405.72,422.28,506.46,590.64,674.82,760.38,844.56,928.74,1012.92,1097.1,1181.28,1265.46,1349.64,1435.2,1519.38,1603.56,1687.74,1771.92],
+          [430.56,430.56,448.5,538.2,627.9,717.6,807.3,897,986.7,1076.4,1166.1,1255.8,1345.5,1435.2,1524.9,1613.22,1702.92,1792.62,1882.32],
+          [455.4,455.4,474.72,569.94,665.16,760.38,854.22,949.44,1044.66,1139.88,1233.72,1328.94,1424.16,1519.38,1613.22,1708.44,1803.66,1898.88,1994.1],
+          [481.62,481.62,500.94,601.68,702.42,801.78,902.52,1001.88,1102.62,1203.36,1302.72,1403.46,1502.82,1603.56,1702.92,1803.66,1904.4,2003.76,2104.5],
+          [506.46,506.46,528.54,633.42,738.3,844.56,949.44,1055.7,1160.58,1265.46,1371.72,1476.6,1582.86,1687.74,1792.62,1898.88,2003.76,2110.02,2214.9],
+          [531.3,531.3,554.76,665.16,775.56,885.96,997.74,1108.14,1218.54,1328.94,1439.34,1551.12,1661.52,1771.92,1882.32,1994.1,2104.5,2214.9,2325.3],
+          [557.52,557.52,580.98,696.9,812.82,928.74,1044.66,1160.58,1276.5,1392.42,1508.34,1624.26,1740.18,1856.1,1972.02,2087.94,2203.86,2319.78,2435.7],
+          [582.36,582.36,607.2,728.64,850.08,970.14,1091.58,1213.02,1334.46,1455.9,1577.34,1698.78,1818.84,1940.28,2061.72,2183.16,2304.6,2426.04,2547.48],
+          [607.2,607.2,633.42,760.38,885.96,1012.92,1139.88,1265.46,1392.42,1519.38,1644.96,1771.92,1898.88,2024.46,2151.42,2278.38,2405.34,2530.92,2657.88],
+          [633.42,633.42,659.64,792.12,923.22,1055.7,1186.8,1319.28,1450.38,1582.86,1713.96,1846.44,1977.54,2110.02,2241.12,2373.6,2504.7,2637.18,2768.28],
+          [658.26,658.26,685.86,822.48,960.48,1097.1,1233.72,1371.72,1508.34,1644.96,1782.96,1919.58,2056.2,2194.2,2330.82,2467.44,2605.44,2742.06,2878.68],
+          [683.1,683.1,712.08,854.22,997.74,1139.88,1282.02,1424.16,1566.3,1708.44,1850.58,1994.1,2136.24,2278.38,2420.52,2562.66,2704.8,2846.94,2990.46],
+          [709.32,709.32,738.3,885.96,1033.62,1181.28,1328.94,1476.6,1624.26,1771.92,1919.58,2067.24,2214.9,2362.56,2510.22,2657.88,2805.54,2953.2,3100.86],
+          [734.16,734.16,764.52,917.7,1070.88,1224.06,1377.24,1529.04,1682.22,1835.4,1988.58,2141.76,2293.56,2446.74,2599.92,2753.1,2904.9,3058.08,3211.26],
+          [759,759,792.12,949.44,1108.14,1265.46,1424.16,1582.86,1740.18,1898.88,2056.2,2214.9,2373.6,2530.92,2689.62,2846.94,3005.64,3164.34,3321.66]
+        ], discount: 0.35 },
+        "Wood": { msrp: [
+          [212,212,265,317,370,423,476,529,582,635,688,741,794,846,899,952,1005,1058,1173],
+          [247,247,309,370,432,495,555,618,680,741,803,865,926,988,1050,1111,1173,1235,1369],
+          [283,283,353,423,495,565,635,706,776,846,918,988,1058,1129,1199,1270,1341,1411,1564],
+          [317,317,397,476,555,635,714,794,873,952,1032,1111,1190,1270,1349,1428,1508,1587,1760],
+          [353,353,442,529,618,706,794,882,971,1058,1147,1235,1323,1411,1500,1587,1676,1764,1955],
+          [389,389,485,582,680,776,873,971,1067,1164,1262,1358,1455,1553,1649,1746,1843,1940,2151],
+          [423,423,529,635,741,846,952,1058,1164,1270,1375,1481,1587,1693,1799,1904,2010,2116,2346],
+          [459,459,574,688,803,918,1032,1147,1262,1375,1490,1605,1719,1834,1949,2063,2178,2293,2542],
+          [495,495,618,741,865,988,1111,1235,1358,1481,1605,1728,1852,1976,2099,2222,2346,2469,2737],
+          [529,529,661,794,926,1058,1190,1323,1455,1587,1719,1852,1984,2116,2248,2381,2513,2645,2933],
+          [565,565,706,846,988,1129,1270,1411,1553,1693,1834,1976,2116,2257,2399,2539,2681,2822,3128],
+          [600,600,750,899,1050,1199,1349,1500,1649,1799,1949,2099,2248,2399,2548,2698,2849,2998,3324],
+          [635,635,794,952,1111,1270,1428,1587,1746,1904,2063,2222,2381,2539,2698,2857,3015,3174,3519],
+          [670,670,838,1005,1173,1341,1508,1676,1843,2010,2178,2346,2513,2681,2849,3015,3183,3351,3715],
+          [706,706,882,1058,1235,1411,1587,1764,1940,2116,2293,2469,2645,2822,2998,3174,3351,3527,3910],
+          [741,741,926,1111,1296,1481,1666,1852,2037,2222,2407,2592,2777,2962,3148,3333,3518,3703,4106],
+          [776,776,971,1164,1358,1553,1746,1940,2134,2328,2522,2716,2910,3104,3298,3491,3686,3880,4301],
+          [812,812,1014,1217,1420,1623,1825,2029,2231,2433,2637,2839,3042,3245,3448,3650,3854,4056,4497],
+          [846,846,1058,1270,1481,1693,1904,2116,2328,2539,2751,2962,3174,3386,3597,3809,4020,4232,4692],
+          [882,882,1103,1323,1543,1764,1984,2205,2425,2645,2866,3087,3306,3527,3748,3968,4188,4409,4888],
+          [918,918,1147,1375,1605,1834,2063,2293,2522,2751,2981,3210,3439,3669,3897,4126,4356,4585,5083],
+          [952,952,1190,1428,1666,1904,2142,2381,2619,2857,3095,3333,3571,3809,4047,4285,4523,4761,5279],
+          [988,988,1235,1481,1728,1976,2222,2469,2716,2962,3210,3457,3703,3950,4198,4444,4691,4938,5474],
+          [1024,1024,1279,1534,1791,2046,2301,2558,2813,3068,3325,3580,3835,4092,4347,4602,4859,5114,5670],
+          [1058,1058,1323,1587,1852,2116,2381,2645,2910,3174,3439,3703,3968,4232,4497,4761,5026,5290,5865]
+        ], discount: 0.35 }
       }
     }
   },
@@ -1286,8 +1772,8 @@ const DATA = {
 
 const MAX_ITEMS = 60;
 const TAX_RATE = 0.13;
-const DEFAULT_DISCOUNTS = { Zebra: 0.30, SHANGRILA: 0.30, 'Cordless Cellular': 0.30, Roller: 0.30, Drapery: 0.30, Sheer: 0.30, Shutters: 0.30, SkylightHoneycomb: 0.30 };
-const DEFAULT_ADDONS = { delivery:50 };
+const DEFAULT_DISCOUNTS = { Zebra: 0.45, SHANGRILA: 0.35, 'Cordless Cellular': 0.35, Roller: 0.45, Drapery: 0.35, Sheer: 0.35, Shutters: 0.35, SkylightHoneycomb: 0.35 };
+const DEFAULT_ADDONS = { delivery:50, downtownServiceFeeEnabled:false, downtownServiceFee:150 };
 const ADDON_CSV_URL = 'ADDONS.csv';
 const LS_ADDON_CSV_OVERRIDE = 'sunny_quote_addon_csv_override_v1';
 const EMBEDDED_ADDON_CSV = `addon_key,display_name,print_label,unit_price,enabled,display_order,default_qty,max_qty,eligible_products_csv,hint_text
@@ -1309,6 +1795,7 @@ let ADDON_UI_MAP = {};
 const DEFAULT_INSTALL_MODE = 'default'; // 'default' or 'pickup'
 let INSTALL_MODE = DEFAULT_INSTALL_MODE;
 const DEFAULT_CORDLESS_MULTIPLIER = 1.15;
+const DEFAULT_CORDLESS_DISCOUNT_OFF = 0.30;
 const CORDLESS_MULTIPLIER_LS_KEY = 'sunny_quote_cordless_multiplier_v1';
 let CORDLESS_MULTIPLIER = DEFAULT_CORDLESS_MULTIPLIER;
 
@@ -1319,6 +1806,12 @@ function formatInches(value){ const s=Math.round(value*16), w=Math.floor(s/16), 
 function isCordlessEligibleProduct(product){ return product === 'Zebra' || product === 'Roller'; }
 function normalizeCordlessFlag(product, requested){ return !!requested && isCordlessEligibleProduct(product); }
 function cordlessMultiplierValue(){ const n = Number(CORDLESS_MULTIPLIER); return (Number.isFinite(n) && n > 0) ? n : DEFAULT_CORDLESS_MULTIPLIER; }
+function getEffectiveDiscountRate(product, discountOverridePct = null, cordless = false, fallbackRate = 0){
+  if(typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)) return discountOverridePct;
+  if(cordless && isCordlessEligibleProduct(product)) return DEFAULT_CORDLESS_DISCOUNT_OFF;
+  const configured = DISCOUNTS[product];
+  return (typeof configured === 'number' && Number.isFinite(configured)) ? configured : (fallbackRate || 0);
+}
 function isCordlessWithinLimit(w, h){ return Number(w) <= 75 && Number(h) <= 75; }
 function parseCordlessToken(token){
   const s = String(token || '').trim().toLowerCase();
@@ -1459,7 +1952,14 @@ function parseAddonCsvText(text){
 }
 function rebuildAddonPriceMap(){
   const parsedDelivery = Number(ADDONS.delivery);
-  const next = { delivery: Math.max(0, Number.isFinite(parsedDelivery) ? parsedDelivery : DEFAULT_ADDONS.delivery) };
+  const parsedDowntownFee = Number(ADDONS.downtownServiceFee);
+  const next = {
+    delivery: Math.max(0, Number.isFinite(parsedDelivery) ? parsedDelivery : DEFAULT_ADDONS.delivery),
+    // Keep project-level settings when rebuilding add-on prices from CSV / built-in catalog.
+    // Without this, loading the add-on catalog wipes the Downtown Service Fee setting after it is saved.
+    downtownServiceFeeEnabled: !!(ADDONS && ADDONS.downtownServiceFeeEnabled),
+    downtownServiceFee: Math.max(0, Number.isFinite(parsedDowntownFee) ? parsedDowntownFee : DEFAULT_ADDONS.downtownServiceFee)
+  };
   ADDON_CATALOG.forEach(cfg => { next[cfg.key] = cfg.unitPrice; });
   ADDONS = next;
 }
@@ -1639,18 +2139,19 @@ function initAddonPickerControls(){
   if(openBtn && modal){
     openBtn.addEventListener('click', ()=>{
       if(!items.length) return;
-      modal.classList.add('show');
+      openAnyModal(modal);
       filterAddonPickerRows();
-      setTimeout(()=>{ try{ search && search.focus(); }catch(e){} }, 20);
+      const shouldAutoFocusSearch = !!(search && window.innerWidth > 860 && !isTouchLikeDevice());
+      if(shouldAutoFocusSearch){ setTimeout(()=>{ try{ search.focus(); }catch(e){} }, 20); }
     });
   }
   if(clearBtn) clearBtn.addEventListener('click', clearSelectedAddons);
-  if(closeBtn && modal) closeBtn.addEventListener('click', ()=> modal.classList.remove('show'));
-  if(doneBtn && modal) doneBtn.addEventListener('click', ()=> modal.classList.remove('show'));
+  if(closeBtn && modal) closeBtn.addEventListener('click', ()=> closeAnyModal(modal));
+  if(doneBtn && modal) doneBtn.addEventListener('click', ()=> closeAnyModal(modal));
   if(clearModalBtn) clearModalBtn.addEventListener('click', clearSelectedAddons);
   if(search) search.addEventListener('input', filterAddonPickerRows);
   if(modal){
-    modal.addEventListener('click', (e)=>{ if(e.target === modal) modal.classList.remove('show'); });
+    modal.addEventListener('click', (e)=>{ if(e.target === modal) closeAnyModal(modal); });
   }
 }
 function getSelectedAddonEntries(){
@@ -1737,24 +2238,7 @@ function initAddonCsvControls(){
 }
 
 // -------- Admin (hidden) --------
-const ADMIN_PIN = 'sunny2026';
-const SETTINGS_AUTH_LS = 'sunny_quote_settings_auth_until_v1';
-const SETTINGS_AUTH_TTL_MS = 30 * 60 * 1000;
-function isSettingsAuthed(){
-  try{
-    const t = parseInt(localStorage.getItem(SETTINGS_AUTH_LS) || '0', 10);
-    return Number.isFinite(t) && Date.now() < t;
-  }catch(e){ return false; }
-}
-function grantSettingsAuth(){
-  try{ localStorage.setItem(SETTINGS_AUTH_LS, String(Date.now() + SETTINGS_AUTH_TTL_MS)); }catch(e){}
-}
-function requireSettingsAuth(onOk){
-  if(isSettingsAuthed()){ onOk(); return; }
-  const pin = prompt('修改折扣率需要访问码 / Enter code to edit pricing:');
-  if(pin === ADMIN_PIN){ grantSettingsAuth(); onOk(); }
-  else if(pin !== null){ alert('访问码错误 / Incorrect code'); }
-}
+const ADMIN_PIN = 'sunny2025';
 function setAdmin(show){
   document.body.classList.toggle('admin-show', !!show);
   try{ localStorage.setItem('sunny_quote_admin', show ? '1' : '0'); }catch(e){}
@@ -1770,9 +2254,93 @@ window.addEventListener('keydown', (e)=>{
     e.preventDefault(); tryAdminUnlock();
   }
 });
-document.querySelector('h1').addEventListener('dblclick', tryAdminUnlock);
+const adminTitleEl = document.querySelector('h1');
+if(adminTitleEl) adminTitleEl.addEventListener('dblclick', tryAdminUnlock);
+const adminTapZone = document.getElementById('adminTapZone');
+let adminTapCount = 0;
+let adminTapTimer = null;
+function handleAdminTapSequence(e){
+  if(e){
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  adminTapCount += 1;
+  clearTimeout(adminTapTimer);
+  if(adminTapCount >= 3){
+    adminTapCount = 0;
+    tryAdminUnlock();
+    return;
+  }
+  adminTapTimer = setTimeout(()=>{ adminTapCount = 0; }, 1200);
+}
+if(adminTapZone){
+  if(window.PointerEvent){
+    adminTapZone.addEventListener('pointerup', handleAdminTapSequence);
+  }else{
+    adminTapZone.addEventListener('click', handleAdminTapSequence);
+  }
+  adminTapZone.addEventListener('dblclick', (e)=>{ e.preventDefault(); e.stopPropagation(); tryAdminUnlock(); });
+}
 const url = new URL(location.href);
 if(url.searchParams.get('admin')==='1' || location.hash==='#admin' || isAdmin()){ setAdmin(true); }
+
+// -------- Shared modal helpers --------
+let ACTIVE_MODAL = null;
+let PAGE_SCROLL_Y = 0;
+function lockPageScrollForModal(){
+  PAGE_SCROLL_Y = window.scrollY || document.documentElement.scrollTop || 0;
+  document.body.dataset.modalScrollY = String(PAGE_SCROLL_Y);
+  document.documentElement.classList.add('modal-open');
+  document.body.classList.add('modal-open');
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${PAGE_SCROLL_Y}px`;
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.style.width = '100%';
+}
+function unlockPageScrollForModal(){
+  const savedY = Number(document.body.dataset.modalScrollY || PAGE_SCROLL_Y || 0) || 0;
+  document.documentElement.classList.remove('modal-open');
+  document.body.classList.remove('modal-open');
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  document.body.style.width = '';
+  window.scrollTo(0, savedY);
+}
+function openAnyModal(modalEl){
+  if(!modalEl) return;
+  if(ACTIVE_MODAL && ACTIVE_MODAL !== modalEl){
+    ACTIVE_MODAL.classList.remove('show');
+  }
+  ACTIVE_MODAL = modalEl;
+  lockPageScrollForModal();
+  modalEl.classList.add('show');
+  requestAnimationFrame(()=>{
+    try{ modalEl.scrollTop = 0; }catch(e){}
+    const panel = modalEl.querySelector('.panel');
+    if(panel){
+      try{ panel.scrollTop = 0; }catch(e){}
+      if(!panel.dataset.modalTouchBound){
+        panel.addEventListener('touchmove', (ev)=>{ ev.stopPropagation(); }, { passive:true });
+        panel.dataset.modalTouchBound = '1';
+      }
+    }
+  });
+}
+function closeAnyModal(modalEl){
+  const target = modalEl || ACTIVE_MODAL;
+  if(!target) return;
+  target.classList.remove('show');
+  if(target === ACTIVE_MODAL) ACTIVE_MODAL = null;
+  unlockPageScrollForModal();
+}
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape' && ACTIVE_MODAL){
+    closeAnyModal(ACTIVE_MODAL);
+  }
+});
 
 // -------- Settings load/save --------
 function applyDiscountsToData(){
@@ -1850,9 +2418,7 @@ function updateSubheading(){
 
 function loadSettings(){
   try{
-    // v2 默认折扣率 30% 基线；老版本 v1 (Zebra/Roller 45% 默认) 主动丢弃，避免覆盖新默认值
-    try{ localStorage.removeItem('sunny_quote_discounts_v1'); }catch(e){}
-    const rawD = localStorage.getItem('sunny_quote_discounts_v2');
+    const rawD = localStorage.getItem('sunny_quote_discounts_v1');
     if(rawD){ DISCOUNTS = { ...DEFAULT_DISCOUNTS, ...JSON.parse(rawD) }; }
 
     const rawA = localStorage.getItem('sunny_quote_addons_v1');
@@ -1905,6 +2471,16 @@ function loadSettings(){
     df.value = Math.max(0, Number.isFinite(parsedDelivery) ? parsedDelivery : DEFAULT_ADDONS.delivery);
   }
 
+  const downtownFeeEnabledEl = document.getElementById('downtownServiceFeeEnabled');
+  if(downtownFeeEnabledEl){
+    downtownFeeEnabledEl.checked = !!ADDONS.downtownServiceFeeEnabled;
+  }
+  const downtownFeeEl = document.getElementById('downtownServiceFee');
+  if(downtownFeeEl){
+    const parsedDowntownFee = Number(ADDONS.downtownServiceFee);
+    downtownFeeEl.value = Math.max(0, Number.isFinite(parsedDowntownFee) ? parsedDowntownFee : DEFAULT_ADDONS.downtownServiceFee);
+  }
+
   const installSel = document.getElementById('installMode');
   if(installSel){
     installSel.value = INSTALL_MODE;
@@ -1931,7 +2507,13 @@ function saveSettingsFromUI(){
   };
 
   const getDollar = id => Math.max(0, parseFloat(document.getElementById(id).value)||0);
-  ADDONS = { ...ADDONS, delivery:getDollar('deliveryFee') };
+  const downtownFeeEnabledEl = document.getElementById('downtownServiceFeeEnabled');
+  ADDONS = {
+    ...ADDONS,
+    delivery:getDollar('deliveryFee'),
+    downtownServiceFeeEnabled: !!(downtownFeeEnabledEl && downtownFeeEnabledEl.checked),
+    downtownServiceFee:getDollar('downtownServiceFee')
+  };
 
   const installSel = document.getElementById('installMode');
   if(installSel){
@@ -1944,8 +2526,12 @@ function saveSettingsFromUI(){
   CORDLESS_MULTIPLIER = Math.round(parsedCordlessMultiplier * 1000) / 1000;
   try{ localStorage.setItem(CORDLESS_MULTIPLIER_LS_KEY, String(CORDLESS_MULTIPLIER)); }catch(e){}
 
-  try{ localStorage.setItem('sunny_quote_discounts_v2', JSON.stringify(DISCOUNTS)); }catch(e){}
-  try{ localStorage.setItem('sunny_quote_addons_v1', JSON.stringify({ delivery: ADDONS.delivery })); }catch(e){}
+  try{ localStorage.setItem('sunny_quote_discounts_v1', JSON.stringify(DISCOUNTS)); }catch(e){}
+  try{ localStorage.setItem('sunny_quote_addons_v1', JSON.stringify({
+    delivery: ADDONS.delivery,
+    downtownServiceFeeEnabled: ADDONS.downtownServiceFeeEnabled,
+    downtownServiceFee: ADDONS.downtownServiceFee
+  })); }catch(e){}
   try{ aiSaveSettingsLocal(); }catch(e){}
 
   forceFullQuoteRecalc();
@@ -1959,7 +2545,6 @@ function resetSettings(){
   CORDLESS_MULTIPLIER = DEFAULT_CORDLESS_MULTIPLIER;
   try{
     localStorage.removeItem('sunny_quote_discounts_v1');
-    localStorage.removeItem('sunny_quote_discounts_v2');
     localStorage.removeItem('sunny_quote_addons_v1');
     localStorage.removeItem('sunny_quote_install_mode_v1');
     localStorage.removeItem(CORDLESS_MULTIPLIER_LS_KEY);
@@ -1979,61 +2564,20 @@ const modal = document.getElementById('settingsModal');
 const saveBtn = document.getElementById('saveSettings');
 const cancelBtn = document.getElementById('cancelSettings');
 const resetBtn = document.getElementById('resetSettings');
-let __DISCOUNTS_BEFORE__ = null;
-function snapshotDiscounts(){
-  try{ return JSON.parse(JSON.stringify(DISCOUNTS)); }catch(e){ return null; }
-}
-function discountsChanged(before, after){
-  if(!before || !after) return false;
-  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-  for(const k of keys){ if(Number(before[k]) !== Number(after[k])) return true; }
-  return false;
-}
-function postDiscountAudit(before, after){
-  try{
-    if(!window.parent || window.parent === window) return;
-    // 新语义：QINGYAN_DISCOUNT_SAVE → 父窗口 PUT /api/sales/quote-settings/discounts
-    // （服务端会 RBAC 校验 + 审计日志；非 admin 保存失败时父窗口会回 SAVE_RESULT 并触发回滚）
-    window.parent.postMessage({
-      type: 'QINGYAN_DISCOUNT_SAVE',
-      payload: { before, after, at: Date.now() }
-    }, '*');
-  }catch(e){}
-}
 if(settingsBtn){
-  settingsBtn.addEventListener('click', ()=>{
-    requireSettingsAuth(()=>{
-      __DISCOUNTS_BEFORE__ = snapshotDiscounts();
-      modal.classList.add('show');
-    });
-  });
-  cancelBtn.addEventListener('click', ()=> modal.classList.remove('show'));
+  settingsBtn.addEventListener('click', ()=> openAnyModal(modal));
+  cancelBtn.addEventListener('click', ()=> closeAnyModal(modal));
   saveBtn.addEventListener('click', (e)=> {
     if(e){ e.preventDefault(); e.stopPropagation(); }
-    const before = __DISCOUNTS_BEFORE__;
     saveSettingsFromUI();
-    const after = snapshotDiscounts();
-    if(discountsChanged(before, after)){
-      postDiscountAudit(before, after);
-    }
-    __DISCOUNTS_BEFORE__ = null;
     saveUiSnapshotForReload();
-    modal.classList.remove('show');
+    closeAnyModal(modal);
     showMiniToast('Pricing settings saved. Refreshing quote…');
     setTimeout(() => {
       hardReloadQuotePage();
     }, 180);
   });
-  resetBtn.addEventListener('click', ()=> {
-    requireSettingsAuth(()=>{
-      const before = __DISCOUNTS_BEFORE__ || snapshotDiscounts();
-      resetSettings();
-      const after = snapshotDiscounts();
-      if(discountsChanged(before, after)){
-        postDiscountAudit(before, after);
-      }
-    });
-  });
+  resetBtn.addEventListener('click', ()=> resetSettings());
 }
 // init settings now (ensures hints & discounts seeded)
 loadSettings();
@@ -2093,6 +2637,7 @@ function updateAddonStatusText(){
     if(ui.root) ui.root.classList.toggle('is-selected', !!ui.checkbox.checked && enabled);
   });
   renderAddonSelectionSummary();
+  queueLiveDraftSave();
 }
 
 
@@ -2116,23 +2661,158 @@ const widthEl = document.getElementById('width');
 const widthFracEl = document.getElementById('widthFrac');
 const heightEl = document.getElementById('height');
 const heightFracEl = document.getElementById('heightFrac');
+const quoteMarkEl = document.getElementById('quoteMark');
 const addItemBtn = document.getElementById('addItem');
 const entryStatusEl = document.getElementById('entryStatus');
 
+
+function sanitizeDecimalKeyboardInput(el){
+  if(!el) return;
+  let value = String(el.value || '');
+  value = value.replace(/,/g, '.').replace(/[^\d.]/g, '');
+  const firstDot = value.indexOf('.');
+  if(firstDot !== -1){
+    value = value.slice(0, firstDot + 1) + value.slice(firstDot + 1).replace(/\./g, '');
+  }
+  if(value.startsWith('.')) value = '0' + value;
+  el.value = value;
+}
+
 setFabricOptions('Zebra'); // INITIALIZE dropdown!
-if(productEl) productEl.addEventListener('change', e=> { setFabricOptions(e.target.value); updateMainEntryStatus(); });
-if(fabricEl) fabricEl.addEventListener('change', updateMainEntryStatus);
-if(widthEl) widthEl.addEventListener('input', updateMainEntryStatus);
-if(heightEl) heightEl.addEventListener('input', updateMainEntryStatus);
-if(widthFracEl) widthFracEl.addEventListener('change', updateMainEntryStatus);
-if(heightFracEl) heightFracEl.addEventListener('change', updateMainEntryStatus);
+if(productEl) productEl.addEventListener('change', e=> { setFabricOptions(e.target.value); updateMainEntryStatus(); queueLiveDraftSave(); });
+if(fabricEl) fabricEl.addEventListener('change', ()=> { updateMainEntryStatus(); queueLiveDraftSave(); });
+if(widthEl) widthEl.addEventListener('input', ()=> { sanitizeDecimalKeyboardInput(widthEl); updateMainEntryStatus(); queueLiveDraftSave(); });
+if(heightEl) heightEl.addEventListener('input', ()=> { sanitizeDecimalKeyboardInput(heightEl); updateMainEntryStatus(); queueLiveDraftSave(); });
+if(widthFracEl) widthFracEl.addEventListener('change', ()=> { updateMainEntryStatus(); queueLiveDraftSave(); });
+if(heightFracEl) heightFracEl.addEventListener('change', ()=> { updateMainEntryStatus(); queueLiveDraftSave(); });
+if(quoteMarkEl) quoteMarkEl.addEventListener('input', queueLiveDraftSave);
 
 // -------- Pricing Logic --------
 const items = [];
 const BULK_SELECTED_IDS = new Set();
+const MOBILE_EXPANDED_IDS = new Set();
 let ITEM_UID_SEQ = 1;
 const PRICE_FLOOR_BY_PRODUCT = { Zebra:100, SHANGRILA:100, 'Cordless Cellular':100, SkylightHoneycomb:100, Roller:100, Drapery:100, Sheer:100, Shutters:100 };
 const UI_SNAPSHOT_KEY = 'sunny_quote_ui_snapshot_v2';
+
+const LIVE_DRAFT_KEY = 'sunny_quote_live_draft_v1';
+let AUTO_SAVE_ENABLED = false;
+let LIVE_DRAFT_RESTORE_DONE = false;
+let LIVE_DRAFT_TIMER = null;
+
+function buildLiveDraftSnapshot(){
+  return {
+    items: Array.isArray(items) ? items.map(it => ({ ...it })) : [],
+    currentProduct: productEl ? String(productEl.value || '') : '',
+    currentFabric: fabricEl ? String(fabricEl.value || '') : '',
+    widthValue: widthEl ? String(widthEl.value || '') : '',
+    widthFrac: widthFracEl ? String(widthFracEl.value || '0') : '0',
+    heightValue: heightEl ? String(heightEl.value || '') : '',
+    heightFrac: heightFracEl ? String(heightFracEl.value || '0') : '0',
+    quoteMark: quoteMarkEl ? String(quoteMarkEl.value || '') : '',
+    bulkText: (typeof bulkText !== 'undefined' && bulkText) ? String(bulkText.value || '') : '',
+    aiPrompt: (typeof aiPromptEl !== 'undefined' && aiPromptEl) ? String(aiPromptEl.value || '') : '',
+    orderAddons: (typeof getAddonUiStateMap === 'function') ? getAddonUiStateMap() : {},
+    installMode: INSTALL_MODE,
+    savedAt: Date.now()
+  };
+}
+
+function clearLiveDraft(){
+  try{ localStorage.removeItem(LIVE_DRAFT_KEY); }catch(err){}
+}
+
+function saveLiveDraftNow(){
+  if(!AUTO_SAVE_ENABLED) return;
+  try{
+    const snapshot = buildLiveDraftSnapshot();
+    const hasMeaningfulState = (
+      (snapshot.items && snapshot.items.length > 0) ||
+      String(snapshot.widthValue || '').trim() ||
+      String(snapshot.heightValue || '').trim() ||
+      String(snapshot.bulkText || '').trim() ||
+      String(snapshot.aiPrompt || '').trim() ||
+      String(snapshot.quoteMark || '').trim() ||
+      (snapshot.orderAddons && Object.keys(snapshot.orderAddons).some(key => snapshot.orderAddons[key] && snapshot.orderAddons[key].enabled))
+    );
+    if(!hasMeaningfulState){
+      clearLiveDraft();
+      return;
+    }
+    localStorage.setItem(LIVE_DRAFT_KEY, JSON.stringify(snapshot));
+  }catch(err){}
+}
+
+function queueLiveDraftSave(){
+  if(!AUTO_SAVE_ENABLED) return;
+  try{ if(LIVE_DRAFT_TIMER) clearTimeout(LIVE_DRAFT_TIMER); }catch(err){}
+  LIVE_DRAFT_TIMER = setTimeout(saveLiveDraftNow, 120);
+}
+
+function restoreLiveDraftIfAny(){
+  if(LIVE_DRAFT_RESTORE_DONE) return false;
+  LIVE_DRAFT_RESTORE_DONE = true;
+  try{
+    const raw = localStorage.getItem(LIVE_DRAFT_KEY);
+    if(!raw) return false;
+    const snapshot = JSON.parse(raw || '{}');
+    if(!snapshot || typeof snapshot !== 'object') return false;
+
+    const hasCurrentWork = (
+      items.length > 0 ||
+      !!String((widthEl && widthEl.value) || '').trim() ||
+      !!String((heightEl && heightEl.value) || '').trim() ||
+      ((typeof bulkText !== 'undefined' && bulkText) ? !!String(bulkText.value || '').trim() : false) ||
+      ((typeof aiPromptEl !== 'undefined' && aiPromptEl) ? !!String(aiPromptEl.value || '').trim() : false) ||
+      (quoteMarkEl ? !!String(quoteMarkEl.value || '').trim() : false)
+    );
+    if(hasCurrentWork) return false;
+
+    if(productEl && snapshot.currentProduct){
+      productEl.value = snapshot.currentProduct;
+      try{ setFabricOptions(snapshot.currentProduct); }catch(err){}
+    }
+    if(fabricEl && snapshot.currentFabric){
+      const hasFabric = Array.from(fabricEl.options || []).some(opt => opt.value === snapshot.currentFabric);
+      if(hasFabric) fabricEl.value = snapshot.currentFabric;
+    }
+
+    if(widthEl) widthEl.value = String(snapshot.widthValue || '');
+    if(widthFracEl) widthFracEl.value = String(snapshot.widthFrac || '0');
+    if(heightEl) heightEl.value = String(snapshot.heightValue || '');
+    if(heightFracEl) heightFracEl.value = String(snapshot.heightFrac || '0');
+    if(typeof bulkText !== 'undefined' && bulkText) bulkText.value = String(snapshot.bulkText || '');
+    if(typeof aiPromptEl !== 'undefined' && aiPromptEl) aiPromptEl.value = String(snapshot.aiPrompt || '');
+    if(quoteMarkEl) quoteMarkEl.value = String(snapshot.quoteMark || '');
+
+    items.splice(0, items.length);
+    if(Array.isArray(snapshot.items)){
+      snapshot.items.forEach(rawItem => {
+        const it = { ...rawItem };
+        ensureItemId(it);
+        items.push(it);
+      });
+    }
+
+    if(snapshot.installMode === 'pickup' || snapshot.installMode === 'default'){
+      INSTALL_MODE = snapshot.installMode;
+      const installSel = document.getElementById('installMode');
+      if(installSel) installSel.value = INSTALL_MODE;
+    }
+
+    const addonMap = snapshot.orderAddons || {};
+    if(typeof setAddonUiState === 'function') setAddonUiState(addonMap);
+
+    updateAddonEligibility();
+    updateAddonStatusText();
+    forceFullQuoteRecalc();
+    updateMainEntryStatus();
+    try{ showMiniToast('Recovered unsaved quote draft.'); }catch(err){}
+    return true;
+  }catch(err){
+    return false;
+  }
+}
 
 
 function hardReloadQuotePage(){
@@ -2222,6 +2902,7 @@ function addMainEntryItem(){
   refreshTables();
   clearMainEntrySizeInputs();
   updateMainEntryStatus();
+  clearLiveDraft();
   if(widthEl) widthEl.focus();
   try{ showMiniToast(`Added ${product} ${formatInches(dims.width)} × ${formatInches(dims.height)}.`); }catch(e){}
   return true;
@@ -2245,6 +2926,7 @@ function saveUiSnapshotForReload(){
       items: Array.isArray(items) ? items.map(it => ({ ...it })) : [],
       currentProduct: document.getElementById('product') ? document.getElementById('product').value : '',
       currentFabric: document.getElementById('fabric') ? document.getElementById('fabric').value : '',
+      quoteMark: document.getElementById('quoteMark') ? document.getElementById('quoteMark').value : '',
       orderAddons: getAddonUiStateMap(),
       savedAt: Date.now()
     };
@@ -2276,6 +2958,7 @@ function restoreUiSnapshotIfAny(){
       const hasFabric = Array.from(fabricEl.options || []).some(opt => opt.value === snapshot.currentFabric);
       if(hasFabric) fabricEl.value = snapshot.currentFabric;
     }
+    if(quoteMarkEl) quoteMarkEl.value = String(snapshot.quoteMark || '');
 
     items.splice(0, items.length);
     if(Array.isArray(snapshot.items)){
@@ -2311,6 +2994,16 @@ const editHF = document.getElementById('editHeightFrac');
 
 const editProduct = document.getElementById('editProduct');
 const editFabric  = document.getElementById('editFabric');
+const editWidthRange = document.getElementById('editWidthRange');
+const editWidthRangeValue = document.getElementById('editWidthRangeValue');
+const editHeightRange = document.getElementById('editHeightRange');
+const editHeightRangeValue = document.getElementById('editHeightRangeValue');
+const editDiscountRange = document.getElementById('editDiscountRange');
+const editDiscountPercent = document.getElementById('editDiscountPercent');
+const editDiscountDefaultInfo = document.getElementById('editDiscountDefaultInfo');
+const editDiscountAppliedInfo = document.getElementById('editDiscountAppliedInfo');
+const editDiscountModeInfo = document.getElementById('editDiscountModeInfo');
+const editDiscountUseDefaultBtn = document.getElementById('editDiscountUseDefault');
 const editDiscountOverride = document.getElementById('editDiscountOverride');
 const bulkToolbar = document.getElementById('bulkToolbar');
 const bulkSelectedCountEl = document.getElementById('bulkSelectedCount');
@@ -2326,6 +3019,156 @@ const bulkHeightValue = document.getElementById('bulkHeightValue');
 const bulkDiscountMode = document.getElementById('bulkDiscountMode');
 const bulkDiscountValue = document.getElementById('bulkDiscountValue');
 
+
+if(editW) editW.addEventListener('input', ()=> sanitizeDecimalKeyboardInput(editW));
+if(editH) editH.addEventListener('input', ()=> sanitizeDecimalKeyboardInput(editH));
+if(editDiscountPercent) editDiscountPercent.addEventListener('input', ()=> sanitizeDecimalKeyboardInput(editDiscountPercent));
+
+const EDIT_DISCOUNT_STATE = { hasOverride:false, defaultPct:0, valuePct:0 };
+
+function clampNumber(v, min, max){
+  let n = Number(v);
+  if(!Number.isFinite(n)) n = min;
+  if(Number.isFinite(min)) n = Math.max(min, n);
+  if(Number.isFinite(max)) n = Math.min(max, n);
+  return n;
+}
+function roundToSixteenth(v){
+  const n = Number(v);
+  if(!Number.isFinite(n)) return 0;
+  return Math.round(n * 16) / 16;
+}
+function formatPctInputValue(v){
+  const n = Number(v);
+  if(!Number.isFinite(n)) return '';
+  const rounded = Math.round(n * 100) / 100;
+  return String(rounded).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1');
+}
+function getProductDimensionMax(product, axis){
+  const prod = DATA.products[product];
+  const list = prod && prod.brackets && (axis === 'w' ? prod.brackets.widths : prod.brackets.heights);
+  if(!Array.isArray(list) || !list.length) return 200;
+  return Math.max(...list);
+}
+function getCurrentEditDimension(axis){
+  if(axis === 'w') return (parseFloat(editW && editW.value || '0') || 0) + (parseInt(editWF && editWF.value || '0', 10) || 0) / 16;
+  return (parseFloat(editH && editH.value || '0') || 0) + (parseInt(editHF && editHF.value || '0', 10) || 0) / 16;
+}
+function getCurrentEditDimensionFraction(axis){
+  return Math.max(0, Math.min(15, parseInt(axis === 'w' ? (editWF && editWF.value || '0') : (editHF && editHF.value || '0'), 10) || 0));
+}
+function setEditDimensionFromValue(axis, rawVal){
+  const product = (editProduct && editProduct.value) || (EDIT_INDEX !== null && items[EDIT_INDEX] ? items[EDIT_INDEX].product : 'Zebra');
+  const max = getProductDimensionMax(product, axis);
+  const whole = clampNumber(Math.round(Number(rawVal) || 0), 0, Math.ceil(max));
+  const frac = getCurrentEditDimensionFraction(axis);
+  const safe = clampNumber(roundToSixteenth(whole + (frac / 16)), 0, max);
+  const parts = splitToIntFrac(safe);
+  if(axis === 'w'){
+    if(editW) editW.value = parts.i;
+    if(editWF) editWF.value = parts.f;
+  }else{
+    if(editH) editH.value = parts.i;
+    if(editHF) editHF.value = parts.f;
+  }
+  syncEditDimensionSlider(axis);
+}
+function syncEditDimensionSlider(axis){
+  const product = (editProduct && editProduct.value) || (EDIT_INDEX !== null && items[EDIT_INDEX] ? items[EDIT_INDEX].product : 'Zebra');
+  const max = getProductDimensionMax(product, axis);
+  const current = roundToSixteenth(getCurrentEditDimension(axis));
+  const whole = Math.floor(Math.max(0, current));
+  const rangeEl = axis === 'w' ? editWidthRange : editHeightRange;
+  const chipEl = axis === 'w' ? editWidthRangeValue : editHeightRangeValue;
+  if(rangeEl){
+    rangeEl.min = '0';
+    rangeEl.max = String(Math.max(1, Math.ceil(max)));
+    rangeEl.step = '1';
+    rangeEl.value = String(clampNumber(whole, 0, Math.ceil(max)));
+  }
+  if(chipEl){
+    chipEl.textContent = current > max ? `${formatInches(current)} (max ${formatInches(max)})` : `${formatInches(current)}`;
+    chipEl.classList.toggle('is-over', current > max);
+  }
+}
+function refreshEditDimensionSliders(){
+  syncEditDimensionSlider('w');
+  syncEditDimensionSlider('h');
+}
+function getEditDefaultDiscountRate(product, fabric, cordlessRequested){
+  const prod = DATA.products[product];
+  if(!prod || !prod.fabrics) return 0;
+  const cfg = prod.fabrics[fabric];
+  if(!cfg) return 0;
+  if(product === 'Sheer' && cfg.special === 'door_screen_sheer') return 0;
+  const rate = getEffectiveDiscountRate(product, null, !!cordlessRequested, cfg.discount || 0);
+  return Number.isFinite(rate) ? rate : 0;
+}
+function syncHiddenEditDiscount(){
+  if(!editDiscountOverride) return;
+  editDiscountOverride.value = EDIT_DISCOUNT_STATE.hasOverride ? formatPctInputValue(EDIT_DISCOUNT_STATE.valuePct) : '';
+}
+function refreshEditDiscountUi(){
+  const shownPct = EDIT_DISCOUNT_STATE.hasOverride ? EDIT_DISCOUNT_STATE.valuePct : EDIT_DISCOUNT_STATE.defaultPct;
+  if(editDiscountRange) editDiscountRange.value = String(clampNumber(shownPct, 0, 100));
+  if(editDiscountPercent) editDiscountPercent.value = formatPctInputValue(shownPct);
+  if(editDiscountDefaultInfo) editDiscountDefaultInfo.innerHTML = `Current default <strong>${formatPctInputValue(EDIT_DISCOUNT_STATE.defaultPct)}%</strong>`;
+  if(editDiscountAppliedInfo){
+    editDiscountAppliedInfo.innerHTML = EDIT_DISCOUNT_STATE.hasOverride
+      ? `Current override <strong>${formatPctInputValue(EDIT_DISCOUNT_STATE.valuePct)}%</strong>`
+      : `Current applied <strong>${formatPctInputValue(EDIT_DISCOUNT_STATE.defaultPct)}%</strong>`;
+  }
+  if(editDiscountModeInfo){
+    editDiscountModeInfo.textContent = EDIT_DISCOUNT_STATE.hasOverride
+      ? 'Override is on. Save will use the value below for this item.'
+      : 'Using current default discount. Move the slider or type a number to create an override.';
+  }
+  if(editDiscountUseDefaultBtn) editDiscountUseDefaultBtn.disabled = !EDIT_DISCOUNT_STATE.hasOverride;
+  syncHiddenEditDiscount();
+}
+function setEditDiscountOverridePct(rawPct){
+  EDIT_DISCOUNT_STATE.hasOverride = true;
+  EDIT_DISCOUNT_STATE.valuePct = clampNumber(rawPct, 0, 100);
+  refreshEditDiscountUi();
+}
+function clearEditDiscountOverrideUi(){
+  EDIT_DISCOUNT_STATE.hasOverride = false;
+  EDIT_DISCOUNT_STATE.valuePct = EDIT_DISCOUNT_STATE.defaultPct;
+  refreshEditDiscountUi();
+}
+function refreshEditDiscountDefaults(){
+  const product = (editProduct && editProduct.value) || (EDIT_INDEX !== null && items[EDIT_INDEX] ? items[EDIT_INDEX].product : 'Zebra');
+  const fabric = (editFabric && editFabric.value) || (EDIT_INDEX !== null && items[EDIT_INDEX] ? items[EDIT_INDEX].fabric : '');
+  const cordless = !!(EDIT_INDEX !== null && items[EDIT_INDEX] && items[EDIT_INDEX].cordless);
+  EDIT_DISCOUNT_STATE.defaultPct = Math.round(getEditDefaultDiscountRate(product, fabric, cordless) * 10000) / 100;
+  if(!EDIT_DISCOUNT_STATE.hasOverride) EDIT_DISCOUNT_STATE.valuePct = EDIT_DISCOUNT_STATE.defaultPct;
+  refreshEditDiscountUi();
+}
+if(editWidthRange) editWidthRange.addEventListener('input', ()=> setEditDimensionFromValue('w', editWidthRange.value));
+if(editHeightRange) editHeightRange.addEventListener('input', ()=> setEditDimensionFromValue('h', editHeightRange.value));
+if(editW) editW.addEventListener('input', ()=> syncEditDimensionSlider('w'));
+if(editWF) editWF.addEventListener('change', ()=> syncEditDimensionSlider('w'));
+if(editH) editH.addEventListener('input', ()=> syncEditDimensionSlider('h'));
+if(editHF) editHF.addEventListener('change', ()=> syncEditDimensionSlider('h'));
+if(editDiscountRange) editDiscountRange.addEventListener('input', ()=> setEditDiscountOverridePct(editDiscountRange.value));
+if(editDiscountPercent) editDiscountPercent.addEventListener('input', ()=> {
+  const raw = String(editDiscountPercent.value || '').trim();
+  if(!raw) return;
+  const pct = Number(raw);
+  if(Number.isFinite(pct)) setEditDiscountOverridePct(pct);
+});
+if(editDiscountPercent) editDiscountPercent.addEventListener('change', ()=> {
+  const raw = String(editDiscountPercent.value || '').trim();
+  if(!raw){
+    refreshEditDiscountUi();
+    return;
+  }
+  const pct = Number(raw);
+  if(Number.isFinite(pct)) setEditDiscountOverridePct(pct);
+  else refreshEditDiscountUi();
+});
+if(editDiscountUseDefaultBtn) editDiscountUseDefaultBtn.addEventListener('click', ()=> clearEditDiscountOverrideUi());
+
 function ensureItemId(it){
   if(!it.__id) it.__id = `it_${ITEM_UID_SEQ++}`;
   return it.__id;
@@ -2334,25 +3177,72 @@ function sanitizeBulkSelection(){
   const valid = new Set(items.map(it => ensureItemId(it)));
   Array.from(BULK_SELECTED_IDS).forEach(id => { if(!valid.has(id)) BULK_SELECTED_IDS.delete(id); });
 }
+function sanitizeMobileExpandedState(){
+  const valid = new Set(items.map(it => ensureItemId(it)));
+  Array.from(MOBILE_EXPANDED_IDS).forEach(id => { if(!valid.has(id)) MOBILE_EXPANDED_IDS.delete(id); });
+}
 function getSelectedItems(){
   sanitizeBulkSelection();
   return items.filter(it => BULK_SELECTED_IDS.has(ensureItemId(it)));
+}
+function syncSelectAllCheckboxVisual(){
+  if(!selectAllItemsEl) return;
+  sanitizeBulkSelection();
+  const total = items.length;
+  const count = BULK_SELECTED_IDS.size;
+  const shouldCheck = !!total && count === total;
+  const shouldIndeterminate = !!total && count > 0 && count < total;
+
+  selectAllItemsEl.indeterminate = false;
+  selectAllItemsEl.checked = false;
+  selectAllItemsEl.removeAttribute('checked');
+  selectAllItemsEl.setAttribute('aria-checked', 'false');
+
+  // Force a visual reset first so some browsers do not keep the blue checked state.
+  void selectAllItemsEl.offsetWidth;
+
+  selectAllItemsEl.checked = shouldCheck;
+  selectAllItemsEl.indeterminate = shouldIndeterminate;
+  if(shouldCheck) selectAllItemsEl.setAttribute('checked', 'checked');
+  else selectAllItemsEl.removeAttribute('checked');
+  selectAllItemsEl.setAttribute('aria-checked', shouldIndeterminate ? 'mixed' : (shouldCheck ? 'true' : 'false'));
 }
 function updateBulkToolbar(){
   sanitizeBulkSelection();
   const count = BULK_SELECTED_IDS.size;
   if(bulkSelectedCountEl) bulkSelectedCountEl.textContent = String(count);
   if(bulkToolbar) bulkToolbar.classList.toggle('show', count > 0);
-  if(selectAllItemsEl){
-    const total = items.length;
-    selectAllItemsEl.checked = !!total && count === total;
-    selectAllItemsEl.indeterminate = count > 0 && count < total;
-  }
+  syncSelectAllCheckboxVisual();
 }
 function clearBulkSelection(refresh=false){
   BULK_SELECTED_IDS.clear();
+  syncSelectAllCheckboxVisual();
   if(refresh) refreshTables();
   else updateBulkToolbar();
+}
+function toggleSelectAllItems(forceSelect){
+  sanitizeBulkSelection();
+  const total = items.length;
+  if(!total){
+    BULK_SELECTED_IDS.clear();
+    updateBulkToolbar();
+    return;
+  }
+  const count = BULK_SELECTED_IDS.size;
+  const shouldSelect = typeof forceSelect === 'boolean' ? forceSelect : !(count === total);
+  if(shouldSelect){
+    items.forEach(it => BULK_SELECTED_IDS.add(ensureItemId(it)));
+  }else{
+    BULK_SELECTED_IDS.clear();
+  }
+  refreshTables();
+  requestAnimationFrame(syncSelectAllCheckboxVisual);
+}
+if(selectAllItemsEl){
+  selectAllItemsEl.addEventListener('change', () => {
+    const shouldSelect = !!items.length && !!selectAllItemsEl.checked;
+    toggleSelectAllItems(shouldSelect);
+  });
 }
 function fillBulkProductOptions(){
   const mainProductEl = document.getElementById('product');
@@ -2399,10 +3289,10 @@ function openBulkEditModal(){
   if(bulkHeightValue) bulkHeightValue.value = '';
   if(bulkDiscountMode) bulkDiscountMode.value = '';
   if(bulkDiscountValue) bulkDiscountValue.value = '';
-  if(bulkEditModal) bulkEditModal.classList.add('show');
+  if(bulkEditModal) openAnyModal(bulkEditModal);
 }
 function closeBulkEditModal(){
-  if(bulkEditModal) bulkEditModal.classList.remove('show');
+  if(bulkEditModal) closeAnyModal(bulkEditModal);
 }
 function applyBulkDimension(base, mode, raw){
   if(!mode) return base;
@@ -2545,19 +3435,31 @@ function openEditModal(idx){
   editWF.value = sw.f;
   editH.value = sh.i;
   editHF.value = sh.f;
-  if(editDiscountOverride) editDiscountOverride.value = formatDiscountOverrideInput(it.discountOverridePct);
+  EDIT_DISCOUNT_STATE.hasOverride = (typeof it.discountOverridePct === 'number' && Number.isFinite(it.discountOverridePct));
+  EDIT_DISCOUNT_STATE.defaultPct = Math.round(getEditDefaultDiscountRate(it.product, it.fabric, !!it.cordless) * 10000) / 100;
+  EDIT_DISCOUNT_STATE.valuePct = EDIT_DISCOUNT_STATE.hasOverride ? (Math.round(Number(it.discountOverridePct) * 10000) / 100) : EDIT_DISCOUNT_STATE.defaultPct;
+  refreshEditDimensionSliders();
+  refreshEditDiscountUi();
 
-  editModal.classList.add('show');
+  openAnyModal(editModal);
 }
 function closeEditModal(){
   EDIT_INDEX = null;
-  editModal.classList.remove('show');
+  if(editDiscountOverride) editDiscountOverride.value = '';
+  closeAnyModal(editModal);
 }
 
-// when product changes in edit modal, refresh fabric list
+// when product/fabric changes in edit modal, refresh fabric list / slider bounds / default discount
 if(editProduct){
   editProduct.addEventListener('change', (e)=>{
     setEditFabricOptions(e.target.value);
+    refreshEditDimensionSliders();
+    refreshEditDiscountDefaults();
+  });
+}
+if(editFabric){
+  editFabric.addEventListener('change', ()=>{
+    refreshEditDiscountDefaults();
   });
 }
 document.getElementById('editCancel').addEventListener('click', closeEditModal);
@@ -2773,6 +3675,7 @@ function parseBulkLine(line, fallbackProduct, fallbackFabric){
 }
 
 const bulkText = document.getElementById('bulkText');
+if(bulkText) bulkText.addEventListener('input', queueLiveDraftSave);
 const bulkAdd = document.getElementById('bulkAdd');
 const bulkClear = document.getElementById('bulkClear');
 const bulkResult = document.getElementById('bulkResult');
@@ -3220,7 +4123,7 @@ function priceFor(product, fabric, w, h, discountOverridePct = null, cordlessReq
     }
     const baseKey = fCfg.msrpRef; // 'LF' or 'BO'
     const baseMsrp = prod.msrpTables[baseKey][hIdx][wIdx];
-    discount = (typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)) ? discountOverridePct : DISCOUNTS.Roller;
+    discount = getEffectiveDiscountRate(product, discountOverridePct, cordless, fCfg.discount || 0);
 
     // Cassette surcharge is applied AFTER discount (not discounted)
     const bump = fCfg.cassette ? (w >= 50 ? 50 : 25) : 0;
@@ -3237,7 +4140,7 @@ function priceFor(product, fabric, w, h, discountOverridePct = null, cordlessReq
   }else{
     const fCfg = prod.fabrics[fabric];
     if(!fCfg || !fCfg.msrp){ return {error:'Pricing for this fabric is not set yet.'}; }
-    discount = (typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)) ? discountOverridePct : (DISCOUNTS[product] ?? (fCfg.discount || 0));
+    discount = getEffectiveDiscountRate(product, discountOverridePct, cordless, fCfg.discount || 0);
     msrp = fCfg.msrp[hIdx][wIdx];
     price = msrp * (1 - (discount || 0));
   }
@@ -3298,12 +4201,136 @@ function getDeliveryNoteText(){
   return String((DATA.delivery && DATA.delivery.note) || '');
 }
 
+function isDowntownServiceFeeEnabled(){
+  return !!(ADDONS && ADDONS.downtownServiceFeeEnabled);
+}
+
+function getDowntownServiceFeeAmount(){
+  if(!isDowntownServiceFeeEnabled()) return 0;
+  const amount = Number(ADDONS && ADDONS.downtownServiceFee);
+  return Math.max(0, Number.isFinite(amount) ? amount : DEFAULT_ADDONS.downtownServiceFee);
+}
+
+function getDowntownServiceFeeDisplayText(){
+  return money(getDowntownServiceFeeAmount());
+}
+
+function getDowntownServiceFeeNoteText(){
+  return 'Service fee for downtown / special access jobs.';
+}
+
 function getTaxLineLabel(){
   return `Tax (${percentLabel(TAX_RATE)})`;
 }
 
 function getTaxSummaryText(){
   return `HST ${percentLabel(TAX_RATE)}`;
+}
+
+function getQuoteMarkValue(){
+  return quoteMarkEl ? String(quoteMarkEl.value || '').trim() : '';
+}
+
+function buildProductMixSummary(){
+  if(!Array.isArray(items) || !items.length) return '';
+  const counts = new Map();
+  items.forEach(it => {
+    const key = String((it && it.product) || 'Item').trim() || 'Item';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return Array.from(counts.entries()).map(([name, count]) => `${count} ${name}`).join(', ');
+}
+
+function buildClientSummaryText(){
+  if(!Array.isArray(items) || !items.length) return '';
+  const merch = document.getElementById('merchSubtotal') ? document.getElementById('merchSubtotal').textContent : money(0);
+  const addons = document.getElementById('addonsSubtotal') ? document.getElementById('addonsSubtotal').textContent : money(0);
+  const install = INSTALL_MODE === 'pickup'
+    ? `${money(0)} (Pickup only)`
+    : (document.getElementById('installMin') ? document.getElementById('installMin').textContent : money(0));
+  const delivery = document.getElementById('deliveryFeeCell') ? document.getElementById('deliveryFeeCell').textContent : money(0);
+  const downtownServiceFee = getDowntownServiceFeeDisplayText();
+  const downtownServiceFeeEnabled = isDowntownServiceFeeEnabled();
+  const preTax = document.getElementById('preTaxTotal') ? document.getElementById('preTaxTotal').textContent : money(0);
+  const tax = document.getElementById('taxAmount') ? document.getElementById('taxAmount').textContent : money(0);
+  const grand = document.getElementById('grandTotal') ? document.getElementById('grandTotal').textContent : money(0);
+  const mark = getQuoteMarkValue();
+  const productMix = buildProductMixSummary();
+  const orderType = INSTALL_MODE === 'pickup' ? 'Pickup' : 'Supply + Install';
+  const addonEntries = (typeof getSelectedAddonEntries === 'function') ? getSelectedAddonEntries() : [];
+  const addonDetailLines = addonEntries.length
+    ? ['Add-on Details:', ...addonEntries.map(entry => {
+        const cfg = entry && entry.cfg ? entry.cfg : {};
+        const label = String(cfg.printLabel || cfg.displayName || entry.key || 'Add-on').trim();
+        const qty = Number(entry && entry.qty ? entry.qty : 0) || 0;
+        const unitPrice = Number(cfg.unitPrice || 0) || 0;
+        return `- ${label} × ${qty}: ${money(qty * unitPrice)}`;
+      })]
+    : [];
+  const lines = [
+    'Hello, here is your rough quote from SUNNY SHUTTER INC:',
+    mark ? `Reference / Mark: ${mark}` : null,
+    `Items: ${productMix || `${items.length} line item(s)`}`,
+    `Order Type: ${orderType}`,
+    `Merchandise: ${merch}`,
+    `Add-ons: ${addons}`,
+    ...addonDetailLines,
+    `Installation: ${install}`,
+    `Delivery: ${delivery}`,
+    downtownServiceFeeEnabled ? `Downtown Service Fee: ${downtownServiceFee}` : null,
+    `Before Tax: ${preTax}`,
+    `${getTaxSummaryText()}: ${tax}`,
+    `Grand Total: ${grand}`,
+    '',
+    'This is a rough quote based on the provided sizes and selections. Final pricing remains subject to confirmation after measurement and project review.',
+    'Book online: calendly.com/sunnyconsultation/free_in_home',
+    'Call / Text: 647-857-8669'
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+async function copyTextToClipboard(text){
+  const value = String(text || '');
+  if(!value) return false;
+  if(navigator.clipboard && window.isSecureContext){
+    try{
+      await navigator.clipboard.writeText(value);
+      return true;
+    }catch(err){}
+  }
+  const ta = document.createElement('textarea');
+  ta.value = value;
+  ta.setAttribute('readonly', 'readonly');
+  ta.style.position = 'fixed';
+  ta.style.top = '-1000px';
+  ta.style.left = '-1000px';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  let ok = false;
+  try{ ok = document.execCommand('copy'); }catch(err){}
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function sanitizeFilenamePart(v){
+  return String(v ?? '')
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+    .slice(0, 80);
+}
+
+function buildQuotePdfTitle(quoteRef){
+  const markPart = sanitizeFilenamePart(getQuoteMarkValue());
+  return markPart
+    ? `SUNNY SHUTTER INC - ${quoteRef}-${markPart}`
+    : `SUNNY SHUTTER INC - ${quoteRef}`;
 }
 
 function applyRuleTextToSummaryTable(){
@@ -3329,7 +4356,7 @@ function applyRuleTextToSummaryTable(){
 // -----------------------------
 // Retail SKU CSV -> dropdown + thumbnail preview
 // -----------------------------
-const SKU_CSV_URL = '/sku-catalog.csv'; // Shared catalog with qingyan quote-sheet. See public/sku-catalog.csv.
+const SKU_CSV_URL = '零售用.csv'; // If CSV is in same folder as this HTML, keep as-is. Otherwise use a full URL.
 const EMBEDDED_SKU_CSV = `Product,FabricName,ThumbUrl
 Zebra,AQUAWIDE3-BEIGE-LF,https://sunnyshutter.ca/wp-content/uploads/fabric-sku/AQUAWIDE3-BEIGE-LF.jpg
 Zebra,AQUAWIDE3-CHARCOAL-LF,https://sunnyshutter.ca/wp-content/uploads/fabric-sku/AQUAWIDE3-CHARCOAL-LF.jpg
@@ -3865,7 +4892,12 @@ function applyFabricCsvText(text){
         newFabrics[r.fabric] = { special:"door_screen_sheer", discount:0 };
         return;
       }
-      const baseKey = pickBaseKey(r.tier);
+      // Preserve an explicitly configured built-in fabric table (for example,
+      // Sheer "LF Prime") before falling back to the generic LF/BO tier.
+      const exactBaseKey = baseKeys.find(key =>
+        String(key).trim().toLowerCase() === String(r.fabric).trim().toLowerCase()
+      );
+      const baseKey = exactBaseKey || pickBaseKey(r.tier);
       const baseCfg = baseFabrics[baseKey] || prod.fabrics[baseKey];
       if(!baseCfg) return;
       // Shallow clone so different fabric keys don't share a mutable object
@@ -4152,7 +5184,13 @@ Promise.all([loadSkuCsv(), loadFabricCsv(), loadAddonCatalog()]).then(()=>{
   try{ renderAddonCatalogPreview(); }catch(e){}
   try{ applyRuleTextToSummaryTable(); }catch(e){}
   try{ refreshTables(); }catch(e){}
-  try{ restoreUiSnapshotIfAny(); }catch(e){}
+  let restoredSnapshot = false;
+  try{ restoredSnapshot = restoreUiSnapshotIfAny(); }catch(e){}
+  if(!restoredSnapshot){
+    try{ restoreLiveDraftIfAny(); }catch(e){}
+  }
+  AUTO_SAVE_ENABLED = true;
+  try{ queueLiveDraftSave(); }catch(e){}
 });
 
 function cordlessCellHtml(it, idx){
@@ -4160,24 +5198,47 @@ function cordlessCellHtml(it, idx){
   return `<input class="cordless-toggle" data-cordless-idx="${idx}" type="checkbox" ${it && it.cordless ? 'checked' : ''} aria-label="Cordless for item ${idx+1}" title="Cordless"/>`;
 }
 
+
+function updateMobileTotalsBar(){
+  const bar = document.getElementById('mobileTotalsBar');
+  if(!bar) return;
+  const hasItems = Array.isArray(items) && items.length > 0;
+  bar.classList.toggle('show', hasItems);
+  try{ document.body.classList.toggle('has-mobile-totals-bar', hasItems); }catch(err){}
+
+  const itemsEl = document.getElementById('mobileTotalsItems');
+  const preTaxEl = document.getElementById('mobileTotalsPreTax');
+  const grandEl = document.getElementById('mobileTotalsGrand');
+  if(itemsEl) itemsEl.textContent = String(items.length || 0);
+  if(preTaxEl) preTaxEl.textContent = document.getElementById('preTaxTotal') ? document.getElementById('preTaxTotal').textContent : money(0);
+  if(grandEl) grandEl.textContent = document.getElementById('grandTotal') ? document.getElementById('grandTotal').textContent : money(0);
+}
+
 function refreshTables(){
   const table = document.getElementById('itemsTable');
   const tbody = table.querySelector('tbody');
+  sanitizeMobileExpandedState();
   tbody.innerHTML = '';
   if(items.length === 0){
     table.style.display = 'none';
     document.getElementById('summary').style.display = 'none';
     document.getElementById('emptyHint').style.display = 'block';
+    const copyBtn = document.getElementById('copyClientSummary');
+    if(copyBtn) copyBtn.disabled = true;
+    MOBILE_EXPANDED_IDS.clear();
     clearBulkSelection(false);
     updateBulkToolbar();
     updateTotals();
     updateAddonEligibility();
     updateMainEntryStatus();
+    queueLiveDraftSave();
     return;
   }
   document.getElementById('emptyHint').style.display = 'none';
   table.style.display = '';
   document.getElementById('summary').style.display = '';
+  const copyBtn = document.getElementById('copyClientSummary');
+  if(copyBtn) copyBtn.disabled = false;
 
   let merchSubtotal = 0;
   let installSubtotal = 0;
@@ -4188,21 +5249,33 @@ function refreshTables(){
     const effectiveInstall = getEffectiveInstallValue(it.install);
     merchSubtotal += it.price; installSubtotal += effectiveInstall;
     const checked = BULK_SELECTED_IDS.has(it.__id) ? 'checked' : '';
+    const isExpandedMobile = MOBILE_EXPANDED_IDS.has(it.__id);
     const tr = document.createElement('tr');
+    tr.className = `quote-item-row${isExpandedMobile ? '' : ' is-mobile-collapsed'}`;
+    tr.setAttribute('data-item-id', it.__id);
     tr.innerHTML = `
-      <td class="item-select-cell no-print"><input class="item-select" data-item-id="${it.__id}" type="checkbox" ${checked} aria-label="Select item ${idx+1}"/></td>
-      <td>${idx+1}</td>
-      <td>${escHtml(it.product)}</td>
-      <td>${escHtml(it.fabric)}</td>
-      <td>${skuCellHtml(it, idx)}</td>
-      <td class="cordless-cell">${cordlessCellHtml(it, idx)}</td>
-      <td class="right">${escHtml(it.wDisp)}</td>
-      <td class="right">${escHtml(it.hDisp)}</td>
-      <td class="right">${escHtml(money(it.msrp))}</td>
-      <td class="right">-${escHtml(money(it.discountValue))}</td>
-      <td class="right">${escHtml(money(it.price))}</td>
-      <td class="right">${escHtml(money(effectiveInstall))}</td>
-      <td class="right actions-cell">
+      <td class="item-select-cell no-print" data-label="Select"><input class="item-select" data-item-id="${it.__id}" type="checkbox" ${checked} aria-label="Select item ${idx+1}"/></td>
+      <td data-label="#">${idx+1}</td>
+      <td class="product-cell" data-label="Product">
+        <span class="desktop-only">${escHtml(it.product)}</span>
+        <div class="mobile-only mobile-item-head">
+          <div class="mobile-item-main">
+            <div class="mobile-item-title">#${idx+1} · ${escHtml(it.product)}</div>
+            <div class="mobile-item-sub">${escHtml(it.fabric)}</div>
+          </div>
+          <button class="btn-link mobile-toggle no-print" type="button" data-toggle-details="${it.__id}" aria-expanded="${isExpandedMobile ? 'true' : 'false'}">${isExpandedMobile ? 'Less' : 'More'}</button>
+        </div>
+      </td>
+      <td data-label="Fabric"><span class="desktop-only">${escHtml(it.fabric)}</span></td>
+      <td class="mobile-detail" data-label="SKU">${skuCellHtml(it, idx)}</td>
+      <td class="cordless-cell mobile-detail" data-label="Cordless">${cordlessCellHtml(it, idx)}</td>
+      <td class="right mobile-key" data-label="Width">${escHtml(it.wDisp)}</td>
+      <td class="right mobile-key" data-label="Height">${escHtml(it.hDisp)}</td>
+      <td class="right mobile-detail" data-label="MSRP">${escHtml(money(it.msrp))}</td>
+      <td class="right mobile-detail" data-label="Discount">-${escHtml(money(it.discountValue))}</td>
+      <td class="right mobile-key mobile-price" data-label="Price"><span class="value-strong">${escHtml(money(it.price))}</span></td>
+      <td class="right mobile-detail" data-label="Install">${escHtml(money(effectiveInstall))}</td>
+      <td class="right actions-cell" data-label="Actions">
         <div class="row-actions no-print">
           <button class="btn-link" data-edit="${idx}">Edit</button>
           <button class="btn-link" data-dup="${idx}">Duplicate</button>
@@ -4216,6 +5289,7 @@ function refreshTables(){
   updateAddonEligibility();
   addonsSubtotal = getSelectedAddonEntries().reduce((sum, entry) => sum + (entry.qty * entry.cfg.unitPrice), 0);
   updateTotals(merchSubtotal, installSubtotal, addonsSubtotal);
+  queueLiveDraftSave();
 }
 
 function updateTotals(merchSubtotal=0, installSubtotal=0, addonsSubtotal=0){
@@ -4243,7 +5317,13 @@ function updateTotals(merchSubtotal=0, installSubtotal=0, addonsSubtotal=0){
   const deliveryCell = document.getElementById('deliveryFeeCell');
   if(deliveryCell) deliveryCell.textContent = money(delivery);
 
-  const preTax = merchSubtotal + addonsSubtotal + installMinApplied + delivery;
+  const downtownServiceFee = getDowntownServiceFeeAmount();
+  const downtownRow = document.getElementById('downtownServiceFeeRow');
+  const downtownCell = document.getElementById('downtownServiceFeeCell');
+  if(downtownCell) downtownCell.textContent = money(downtownServiceFee);
+  if(downtownRow) downtownRow.style.display = isDowntownServiceFeeEnabled() ? '' : 'none';
+
+  const preTax = merchSubtotal + addonsSubtotal + installMinApplied + delivery + downtownServiceFee;
   const tax = preTax * TAX_RATE;
   const grand = preTax + tax;
 
@@ -4273,10 +5353,25 @@ function updateTotals(merchSubtotal=0, installSubtotal=0, addonsSubtotal=0){
   })();
   // ---- End rule ----
   updateMainEntryStatus();
+  updateMobileTotalsBar();
 }
 
 // row deletion
 document.getElementById('itemsTable').addEventListener('click', (e) => { 
+  const toggleId = e.target.getAttribute('data-toggle-details');
+  if(toggleId!==null){
+    const row = e.target.closest('tr.quote-item-row');
+    if(row){
+      const willExpand = row.classList.contains('is-mobile-collapsed');
+      row.classList.toggle('is-mobile-collapsed');
+      if(willExpand) MOBILE_EXPANDED_IDS.add(String(toggleId));
+      else MOBILE_EXPANDED_IDS.delete(String(toggleId));
+      e.target.textContent = willExpand ? 'Less' : 'More';
+      e.target.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+    }
+    return;
+  }
+
   const ed = e.target.getAttribute('data-edit');
   if(ed!==null){ openEditModal(parseInt(ed,10)); return; }
 
@@ -4287,7 +5382,9 @@ document.getElementById('itemsTable').addEventListener('click', (e) => {
   if(del!==null){
     const idx = parseInt(del,10);
     if(Number.isFinite(idx) && items[idx]){
-      BULK_SELECTED_IDS.delete(ensureItemId(items[idx]));
+      const itemIdToRemove = ensureItemId(items[idx]);
+      BULK_SELECTED_IDS.delete(itemIdToRemove);
+      MOBILE_EXPANDED_IDS.delete(itemIdToRemove);
       items.splice(idx,1);
       refreshTables();
       updateMainEntryStatus();
@@ -4344,6 +5441,7 @@ let AI_VOICE_CANCELLED = false;
 let AI_TRANSCRIBE_ABORTER = null;
 
 const aiPromptEl = document.getElementById('aiPrompt');
+if(aiPromptEl) aiPromptEl.addEventListener('input', queueLiveDraftSave);
 const aiImageEl = document.getElementById('aiImage');
 const aiImagePreviewEl = document.getElementById('aiImagePreview');
 const aiUploadTextEl = document.getElementById('aiUploadText');
@@ -5653,15 +6751,78 @@ function sunnySetupEmbeddedFrameResize(){
 }
 sunnySetupEmbeddedFrameResize();
 
+// When this quote is embedded, the iframe is expanded to the full document
+// height. That leaves no scrollable area inside the iframe, and some desktop
+// browsers keep mouse-wheel input trapped here instead of scrolling the host
+// page. Forward only otherwise-unused vertical wheel movement to the nearest
+// same-origin parent that can actually scroll.
+function sunnyWheelDeltaPixels(event){
+  const raw = Number(event && event.deltaY) || 0;
+  if(!raw) return 0;
+  if(event.deltaMode === 1) return raw * 18;
+  if(event.deltaMode === 2) return raw * Math.max(320, window.innerHeight || 0);
+  return raw;
+}
+
+function sunnyCanScrollElementInDirection(element, deltaY){
+  if(!element || !deltaY) return false;
+  const maxScroll = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
+  if(maxScroll < 2) return false;
+  const current = Number(element.scrollTop || 0);
+  return deltaY < 0 ? current > 1 : current < maxScroll - 1;
+}
+
+function sunnyWheelTargetCanScroll(target, deltaY){
+  let node = target && target.nodeType === 1 ? target : target && target.parentElement;
+  while(node && node !== document.body && node !== document.documentElement){
+    try{
+      const overflowY = window.getComputedStyle(node).overflowY;
+      if(/^(auto|scroll|overlay)$/i.test(overflowY) && sunnyCanScrollElementInDirection(node, deltaY)){
+        return true;
+      }
+    }catch(err){}
+    node = node.parentElement;
+  }
+  const root = document.scrollingElement || document.documentElement;
+  return sunnyCanScrollElementInDirection(root, deltaY);
+}
+
+function sunnyScrollNearestParent(deltaY){
+  let currentWindow = window;
+  for(let depth = 0; depth < 4; depth += 1){
+    let parentWindow;
+    try{
+      parentWindow = currentWindow.parent;
+      if(!parentWindow || parentWindow === currentWindow) return false;
+      const parentDocument = parentWindow.document;
+      const root = parentDocument.scrollingElement || parentDocument.documentElement || parentDocument.body;
+      if(sunnyCanScrollElementInDirection(root, deltaY)){
+        const before = Number(root.scrollTop || 0);
+        root.scrollTop = before + deltaY;
+        if(Math.abs(Number(root.scrollTop || 0) - before) > 0.5) return true;
+      }
+    }catch(err){
+      // Cross-origin parents cannot be controlled safely from this file.
+      return false;
+    }
+    currentWindow = parentWindow;
+  }
+  return false;
+}
+
+window.addEventListener('wheel', (event) => {
+  if(window.parent === window || event.ctrlKey || event.metaKey) return;
+  if(document.querySelector('.modal.show')) return;
+  const deltaY = sunnyWheelDeltaPixels(event);
+  if(!deltaY || Math.abs(deltaY) < Math.abs(Number(event.deltaX) || 0)) return;
+  if(sunnyWheelTargetCanScroll(event.target, deltaY)) return;
+  if(sunnyScrollNearestParent(deltaY)) event.preventDefault();
+}, { passive:false });
+
 document.getElementById('itemsTable').addEventListener('change', (e) => {
   const selectAll = e.target && e.target.id === 'selectAllItems' ? e.target : null;
   if(selectAll){
-    if(selectAll.checked){
-      items.forEach(it => BULK_SELECTED_IDS.add(ensureItemId(it)));
-    }else{
-      BULK_SELECTED_IDS.clear();
-    }
-    refreshTables();
+    updateBulkToolbar();
     return;
   }
 
@@ -5748,12 +6909,36 @@ document.getElementById('addItem').addEventListener('click', addMainEntryItem);
 });
 
 // reset
+const copyClientSummaryBtn = document.getElementById('copyClientSummary');
+if(copyClientSummaryBtn){
+  copyClientSummaryBtn.addEventListener('click', async () => {
+    if(!Array.isArray(items) || !items.length){
+      alert('Please add at least one item first.');
+      return;
+    }
+    const summaryText = buildClientSummaryText();
+    if(!summaryText){
+      alert('Unable to build the client summary right now.');
+      return;
+    }
+    const copied = await copyTextToClipboard(summaryText);
+    if(copied){
+      try{ showMiniToast('Client summary copied.'); }catch(err){}
+      return;
+    }
+    try{
+      window.prompt('Copy the client summary below:', summaryText);
+    }catch(err){}
+  });
+}
+
 document.getElementById('resetAll').addEventListener('click', () => {
   const hasWork =
     items.length > 0 ||
     !!((bulkText && String(bulkText.value || '').trim())) ||
     (typeof getSelectedAddonEntries === 'function' && getSelectedAddonEntries().length > 0) ||
-    !!String((document.getElementById('aiPrompt') && document.getElementById('aiPrompt').value) || '').trim();
+    !!String((document.getElementById('aiPrompt') && document.getElementById('aiPrompt').value) || '').trim() ||
+    !!String((document.getElementById('quoteMark') && document.getElementById('quoteMark').value) || '').trim();
   if(hasWork && !confirm('Clear the current quote, bulk paste text, AI preview, and selected add-ons?')) return;
   aiClearQuoteState({ resetInstall:true });
   clearMainEntrySizeInputs();
@@ -5762,6 +6947,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
   aiClearPreview(true);
   if(bulkText) bulkText.value = '';
   if(bulkResult) bulkResult.textContent = '';
+  if(quoteMarkEl) quoteMarkEl.value = '';
   updateMainEntryStatus();
   if(widthEl) widthEl.focus();
   try{ showMiniToast('Quote reset.'); }catch(e){}
@@ -5774,6 +6960,11 @@ document.getElementById('generate').addEventListener('click', () => {
   const install = document.getElementById('installSubtotal').textContent;
   const installMin = document.getElementById('installMin').textContent;
   const delivery = document.getElementById('deliveryFeeCell').textContent;
+  const downtownServiceFee = getDowntownServiceFeeDisplayText();
+  const downtownServiceFeeEnabled = isDowntownServiceFeeEnabled();
+  const downtownServiceFeePrintRow = downtownServiceFeeEnabled ? `<tr><td>Downtown Service Fee <span class='install-note'>${escHtml(getDowntownServiceFeeNoteText())}</span></td><td class='right nowrap'>${escHtml(downtownServiceFee)}</td></tr>` : '';
+  const downtownServiceFeeNote = downtownServiceFeeEnabled ? `<li>Downtown service fee is included for downtown / special access service coverage.</li>` : '';
+  const downtownServiceFeeSnapshotLine = downtownServiceFeeEnabled ? `<div><strong>Downtown Service</strong>${escHtml(downtownServiceFee)}</div>` : '';
   const preTax = document.getElementById('preTaxTotal').textContent;
   const tax = document.getElementById('taxAmount').textContent;
   const grand = document.getElementById('grandTotal').textContent;
@@ -5827,9 +7018,12 @@ document.getElementById('generate').addEventListener('click', () => {
   const grandNum = parseCAD(grand);
   const quoteRefTail = String(Math.round(grandNum || 0)).padStart(4,'0');
   const quoteRef = `RQ-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${quoteRefTail}`;
+  const quoteMarkRaw = getQuoteMarkValue();
+  const quoteMarkHtml = quoteMarkRaw ? `<span class='k' style='margin-top:10px'>Mark</span><span class='v'>${escHtml(quoteMarkRaw)}</span>` : ''; // shown on generated quote pages and used in PDF filename
+  const quotePdfTitle = buildQuotePdfTitle(quoteRef);
   const win = window.open('', '_blank');
   const genDate = new Date().toLocaleDateString('en-CA', {year:'numeric', month:'short', day:'numeric'});
-  win.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>SUNNY SHUTTER INC — ROUGH QUOTE</title>
+  win.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${escHtml(quotePdfTitle)}</title>
     <style>
       @page{size:auto;margin:11mm 10mm}
       :root{
@@ -5982,6 +7176,7 @@ document.getElementById('generate').addEventListener('click', () => {
             <span class='v'>${quoteRef}</span>
             <span class='k' style='margin-top:10px'>Generated</span>
             <span class='v'>${genDate}</span>
+            ${quoteMarkHtml}
           </div>
         </div>
 
@@ -6040,6 +7235,7 @@ document.getElementById('generate').addEventListener('click', () => {
               <li>This is a rough quote based on the information currently provided. Final measurements, control details, installation conditions, and fabric confirmation may affect the final contract amount.</li>
               <li>Installation pricing is shown separately and follows the current rough quote rules in the system.${INSTALL_MODE === 'pickup' ? ' Pickup orders do not include installation.' : ''}</li>
               <li>Delivery is quoted for ${deliveryNote} Additional distance or site conditions may affect final delivery or installation charges.</li>
+              ${downtownServiceFeeNote}
               <li>Please review product type, fabric, and dimensions carefully before confirming the next step.</li>
             </ul>
           </div>
@@ -6052,6 +7248,7 @@ document.getElementById('generate').addEventListener('click', () => {
               <tr><td>Installation <span class='install-note'>Zebra/Roller: $18 standard, $26 if width &gt; 70&quot;; Drapery/Sheer: $55 if ≤70&quot;, $90 if &gt;70&quot;; Shutters: $18 per 35&quot; panel.${installModeNote}</span></td><td class='right nowrap'>${installPrint}</td></tr>
               <tr><td>Installation Minimum <span class='install-note'>${installMinLabel}</span></td><td class='right nowrap'>${installMinPrint}</td></tr>
               <tr><td>Delivery Fee</td><td class='right nowrap'>${delivery}</td></tr>
+              ${downtownServiceFeePrintRow}
               <tr><td>Subtotal (before tax)</td><td class='right nowrap'>${preTax}</td></tr>
               <tr><td>${taxLabel}</td><td class='right nowrap'>${tax}</td></tr>
               <tr class='grand'><td>Grand Total</td><td class='right nowrap'>${grand}</td></tr>
@@ -6087,6 +7284,7 @@ document.getElementById('generate').addEventListener('click', () => {
             <span class='v'>${quoteRef}</span>
             <span class='k' style='margin-top:10px'>Generated</span>
             <span class='v'>${genDate}</span>
+            ${quoteMarkHtml}
           </div>
         </div>
 
@@ -6105,6 +7303,7 @@ document.getElementById('generate').addEventListener('click', () => {
               <div><strong>Order Type</strong>${INSTALL_MODE === 'pickup' ? 'Pickup' : 'Supply + Install'}</div>
               <div><strong>Tax</strong>${taxSummary}</div>
               <div><strong>Add-ons</strong>${document.getElementById('addonsSubtotal').textContent}</div>
+              ${downtownServiceFeeSnapshotLine}
               <div><strong>Status</strong><span style='color:var(--ok);font-weight:700'>Ready for review</span></div>
               <div><strong>Phone</strong>647-857-8669</div>
               <div><strong>Website</strong>www.sunnyshutter.ca</div>
@@ -6119,6 +7318,7 @@ document.getElementById('generate').addEventListener('click', () => {
               <div><strong>Add-ons</strong>${document.getElementById('addonsSubtotal').textContent}</div>
               <div><strong>${installSummaryLabel}</strong>${installSummaryValue}</div>
               <div><strong>Delivery</strong>${delivery}</div>
+              ${downtownServiceFeeSnapshotLine}
               <div><strong>Before Tax</strong>${preTax}</div>
               <div><strong>Grand Total</strong><span style='font-weight:800;color:#9a3412'>${grand}</span></div>
             </div>
@@ -6145,10 +7345,23 @@ document.getElementById('generate').addEventListener('click', () => {
   const printInstallNotes = win.document.querySelectorAll('.totals-card .install-note');
   if(printInstallNotes[0]) printInstallNotes[0].innerHTML = `${installRuleSummary}${installModeNote}`;
   if(printInstallNotes[1]) printInstallNotes[1].innerHTML = installMinLabel;
+  try{ win.document.title = quotePdfTitle; }catch(err){}
   win.document.close();
 });
 
+
+window.addEventListener('pagehide', () => {
+  try{ saveLiveDraftNow(); }catch(err){}
+});
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden'){
+    try{ saveLiveDraftNow(); }catch(err){}
+  }
+});
+
 // Restore is handled after CSV sources finish loading so dynamic Add-ons are ready.
+
+
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -6318,6 +7531,8 @@ window._qy_collectPayload = function(){
     }
   });
 })();
+
+
 
 </script>
 </body>
