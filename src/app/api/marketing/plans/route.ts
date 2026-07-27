@@ -15,7 +15,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json().catch(() => ({}));
-  const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
+  // body 优先；兼容 apiFetch 仅把选定组织注入到 query 的情况（admin / 多组织）
+  const orgRes = await resolveRequestOrgIdForUser(
+    user,
+    body.orgId ?? request.nextUrl.searchParams.get("orgId"),
+  );
   if (!orgRes.ok) return orgRes.response;
   const denied = await requireMarketingWriteAccess(user, orgRes.orgId);
   if (denied) return denied;

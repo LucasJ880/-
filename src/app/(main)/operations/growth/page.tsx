@@ -31,25 +31,45 @@ export default function GrowthCenterPage() {
   const [brief, setBrief] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!orgId) {
+      setLoading(false);
+      setData(null);
+      setError("缺少当前组织：请先在上方选择工作组织后再试。");
+      return;
+    }
     setLoading(true); setError(null);
     try {
-      const response = await apiFetch("/api/marketing/dashboard");
+      const response = await apiFetch(
+        `/api/marketing/dashboard?orgId=${encodeURIComponent(orgId)}`,
+      );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "增长中心加载失败");
       setData(body);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "增长中心加载失败"); }
     finally { setLoading(false); }
-  }, []);
+  }, [orgId]);
 
-  useEffect(() => { if (!orgLoading && !ambiguous) load(); }, [orgId, orgLoading, ambiguous, load]);
+  useEffect(() => {
+    if (orgLoading) return;
+    if (ambiguous || !orgId) {
+      setLoading(false);
+      setData(null);
+      if (ambiguous) {
+        setError("您属于多个组织，请先在上方选择当前工作组织后再使用增长中心。");
+      }
+      return;
+    }
+    void load();
+  }, [orgId, orgLoading, ambiguous, load]);
 
   async function convertFinding(id: string, title: string) {
+    if (!orgId) return setError("请先选择当前工作组织");
     if (!window.confirm(`确认将问题「${title}」转为增长任务？\n将指派给你，并回填相关计划项。`)) return;
     setError(null);
     const response = await apiFetch(`/api/marketing/findings/${id}/task`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ orgId }),
     });
     const body = await response.json();
     if (!response.ok) return setError(body.error || "任务创建失败");
@@ -62,12 +82,13 @@ export default function GrowthCenterPage() {
   }
 
   async function convertPlanItem(id: string, title: string) {
+    if (!orgId) return setError("请先选择当前工作组织");
     if (!window.confirm(`确认将计划项「${title}」转为任务？`)) return;
     setError(null);
     const response = await apiFetch(`/api/marketing/plan-items/${id}/task`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ orgId }),
     });
     const body = await response.json();
     if (!response.ok) return setError(body.error || "计划项转任务失败");
@@ -76,14 +97,25 @@ export default function GrowthCenterPage() {
   }
 
   async function generatePlan() {
-    const response = await apiFetch("/api/marketing/plans", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    if (!orgId) {
+      return setError("缺少当前组织：请先在上方选择工作组织后再生成 30 天推广计划。");
+    }
+    setError(null);
+    const response = await apiFetch("/api/marketing/plans", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orgId }),
+    });
     const body = await response.json();
     if (!response.ok) return setError(body.error || "计划生成失败");
     await load();
   }
 
   async function previewBrief() {
-    const response = await apiFetch("/api/marketing/daily-brief");
+    if (!orgId) return setError("请先选择当前工作组织");
+    const response = await apiFetch(
+      `/api/marketing/daily-brief?orgId=${encodeURIComponent(orgId)}`,
+    );
     const body = await response.json();
     if (!response.ok) return setError(body.error || "日报生成失败");
     setBrief(body.text);
