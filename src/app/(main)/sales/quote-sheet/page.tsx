@@ -145,7 +145,8 @@ function makeDrapeLines(count: number): DrapeOrderLine[] {
   return Array.from({ length: count }, () => ({
     id: crypto.randomUUID(), location: "",
     drapeWidthWhole: "", drapeWidthFrac: "0", drapeHeightWhole: "", drapeHeightFrac: "0",
-    drapeFabricSku: "", drapeFullness: "180" as const, drapePanels: "S" as const,
+    // July 价表默认档：Without liner（与 Liner=N 同步）
+    drapeFabricSku: "Without liner", drapeFullness: "180" as const, drapePanels: "S" as const,
     drapePleatStyle: "" as const, drapeLiner: false, drapeBracket: "" as const,
     sheerWidthWhole: "", sheerWidthFrac: "0", sheerHeightWhole: "", sheerHeightFrac: "0",
     sheerFabricSku: "", sheerFullness: "180" as const, sheerPanels: "S" as const,

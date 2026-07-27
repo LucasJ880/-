@@ -9,10 +9,17 @@ import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById } from "./order-helpers";
-import { computeDrapeLinePrice, type DiscountsOverride } from "./pricing-helpers";
+import {
+  computeDrapeLinePrice,
+  draperyFabricFromLiner,
+  draperyLinerFromFabric,
+  type DiscountsOverride,
+} from "./pricing-helpers";
 
+/** July 2026 窗帘价表档位（pricing-data MSRP keys） */
 const DRAPERY_FABRICS = getAvailableFabrics("Drapery");
-const SHEER_FABRICS = getAvailableFabrics("Sheer");
+const SHEER_FABRICS = getAvailableFabrics("Sheer").filter((f) => f !== "Door Screen Sheer");
+const SHEER_OPTIONS = [...SHEER_FABRICS, "Door Screen Sheer"];
 
 function ToggleBtn({
   value,
@@ -56,7 +63,7 @@ function emptyLine(): DrapeOrderLine {
     drapeWidthFrac: "0",
     drapeHeightWhole: "",
     drapeHeightFrac: "0",
-    drapeFabricSku: "",
+    drapeFabricSku: draperyFabricFromLiner(false),
     drapeFullness: "180",
     drapePanels: "S",
     drapePleatStyle: "",
@@ -117,6 +124,41 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
     [lines, onChange]
   );
 
+  /** Liner ↔ July 价表两档同步，避免开关与面料脱节导致「算不出价」 */
+  const setDrapeLiner = useCallback(
+    (id: string, liner: boolean) => {
+      onChange(
+        lines.map((l) =>
+          l.id === id
+            ? {
+                ...l,
+                drapeLiner: liner,
+                drapeFabricSku: draperyFabricFromLiner(liner),
+              }
+            : l,
+        ),
+      );
+    },
+    [lines, onChange],
+  );
+
+  const setDrapeFabric = useCallback(
+    (id: string, fabric: string) => {
+      onChange(
+        lines.map((l) =>
+          l.id === id
+            ? {
+                ...l,
+                drapeFabricSku: fabric,
+                drapeLiner: fabric ? draperyLinerFromFabric(fabric) : l.drapeLiner,
+              }
+            : l,
+        ),
+      );
+    },
+    [lines, onChange],
+  );
+
   const addLine = () => onChange([...lines, emptyLine()]);
   const removeLine = (id: string) => {
     onChange(removeLineById(lines, id));
@@ -130,19 +172,24 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold">DRAPES & SHEER — ORDER FORM</h2>
           <p className="text-xs text-muted-foreground">
-            Warranty: 1 year Labour, 5 years fabric, 15 years components
+            自动计价：PRICE TABLE 窗帘报价 2026.July（35% OFF）· Warranty: 1yr labour / 5yr fabric / 15yr components
           </p>
         </div>
         <button
           onClick={addLine}
-          className="flex items-center gap-1 text-xs text-teal-700 hover:text-teal-800 font-medium"
+          className="flex shrink-0 items-center gap-1 text-xs text-teal-700 hover:text-teal-800 font-medium"
         >
           <Plus className="h-3.5 w-3.5" /> Add Row
         </button>
+      </div>
+
+      <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2 text-xs text-teal-900">
+        填好宽高 + 选择价档后右侧会显示成交价。完整价表网格请用顶部「快速报价」。
+        Drape 价档：Without liner / With liner (Black out)；Sheer：Light Filtering / LF Prime。
       </div>
 
       <div className="space-y-3">
@@ -161,10 +208,10 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
                   placeholder="Location / Room"
                 />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex max-w-[55%] items-center gap-3">
                 {p?.error ? (
-                  <span className="text-[10px] text-red-500" title={p.error}>
-                    Err
+                  <span className="text-[10px] leading-snug text-red-600" title={p.error}>
+                    {p.error}
                   </span>
                 ) : p ? (
                   <div className="text-right leading-tight">
@@ -213,21 +260,21 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
                     onFracChange={(v) => updateLine(line.id, "drapeHeightFrac", v)}
                   />
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Fabric:</span>
-                  <input
-                    type="text"
-                    value={line.drapeFabricSku}
-                    onChange={(e) => updateLine(line.id, "drapeFabricSku", e.target.value)}
-                    list={`drape-fabric-${line.id}`}
-                    placeholder="fabric name"
-                    className="bg-transparent border-b border-dashed border-border outline-none text-[10px] px-1 min-h-[44px] min-w-[120px]"
-                  />
-                  <datalist id={`drape-fabric-${line.id}`}>
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground shrink-0">价档:</span>
+                  <select
+                    value={
+                      DRAPERY_FABRICS.includes(line.drapeFabricSku)
+                        ? line.drapeFabricSku
+                        : draperyFabricFromLiner(line.drapeLiner)
+                    }
+                    onChange={(e) => setDrapeFabric(line.id, e.target.value)}
+                    className="min-h-[44px] min-w-[160px] rounded border border-border bg-card-bg px-1 text-[10px]"
+                  >
                     {DRAPERY_FABRICS.map((f) => (
-                      <option key={f} value={f} />
+                      <option key={f} value={f}>{f}</option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">Full:</span>
@@ -248,8 +295,8 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">Liner:</span>
-                  <ToggleBtn value="Y" current={line.drapeLiner ? "Y" : "N"} onToggle={() => updateLine(line.id, "drapeLiner", !line.drapeLiner)} />
-                  <ToggleBtn value="N" current={line.drapeLiner ? "Y" : "N"} onToggle={() => updateLine(line.id, "drapeLiner", !line.drapeLiner)} />
+                  <ToggleBtn value="Y" current={line.drapeLiner ? "Y" : "N"} onToggle={() => setDrapeLiner(line.id, true)} />
+                  <ToggleBtn value="N" current={line.drapeLiner ? "Y" : "N"} onToggle={() => setDrapeLiner(line.id, false)} />
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">Bracket:</span>
@@ -283,21 +330,18 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
                     onFracChange={(v) => updateLine(line.id, "sheerHeightFrac", v)}
                   />
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Fabric:</span>
-                  <input
-                    type="text"
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground shrink-0">价档:</span>
+                  <select
                     value={line.sheerFabricSku}
                     onChange={(e) => updateLine(line.id, "sheerFabricSku", e.target.value)}
-                    list={`sheer-fabric-${line.id}`}
-                    placeholder="fabric name"
-                    className="bg-transparent border-b border-dashed border-border outline-none text-[10px] px-1 min-h-[44px] min-w-[120px]"
-                  />
-                  <datalist id={`sheer-fabric-${line.id}`}>
-                    {SHEER_FABRICS.map((f) => (
-                      <option key={f} value={f} />
+                    className="min-h-[44px] min-w-[140px] rounded border border-border bg-card-bg px-1 text-[10px]"
+                  >
+                    <option value="">— 选 Sheer 价档 —</option>
+                    {SHEER_OPTIONS.map((f) => (
+                      <option key={f} value={f}>{f}</option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-muted-foreground">Full:</span>
@@ -367,9 +411,10 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
       </div>
 
       <div className="text-xs text-muted-foreground space-y-0.5 bg-muted/10 rounded-lg p-3">
+        <p><strong>价档来源:</strong> PRICE TABLE 窗帘报价 2026.July（与快速报价同一套 MSRP）</p>
         <p><strong>Pleat Style:</strong> G = Grommet, P = Pinch Pleat, R = Ripple Fold</p>
         <p><strong>Bracket:</strong> C = Ceiling, W = Wall</p>
-        <p><strong>Fullness:</strong> Standard 180%, Premium 230%</p>
+        <p><strong>Fullness:</strong> Standard 180%, Premium 230%（订单信息；当前不改 MSRP）</p>
       </div>
 
     </div>
