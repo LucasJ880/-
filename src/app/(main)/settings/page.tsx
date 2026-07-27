@@ -203,8 +203,8 @@ function SettingsContent() {
           <Building2 size={20} className="text-accent" />
         </div>
         <div className="flex-1">
-          <h2 className="text-sm font-semibold">账号与企业</h2>
-          <p className="text-xs text-muted">查看当前工作企业；获授权后可在此切换</p>
+          <h2 className="text-sm font-semibold">账号与企业 / 修改密码</h2>
+          <p className="text-xs text-muted">修改登录密码；查看/切换当前工作企业</p>
         </div>
         <span className="text-xs text-accent">去设置 →</span>
       </Link>

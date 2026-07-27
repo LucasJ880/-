@@ -92,6 +92,8 @@ export const AUDIT_ACTIONS = {
   REMOVE: "remove",
   ROLE_CHANGE: "role_change",
   STATUS_CHANGE: "status_change",
+  PASSWORD_CHANGE: "password_change",
+  PASSWORD_RESET: "password_reset",
   EXPORT: "export",
   RUNTIME_RUN: "runtime_run",
   RUNTIME_TOOL: "runtime_tool",
