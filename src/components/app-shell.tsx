@@ -40,6 +40,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // AI 对话页：手机端全屏沉浸（隐藏全局顶栏、去内边距），页面自管滚动
   const isChatRoute = pathname === "/assistant";
+  // 首页 Workbench：避免 AppShell 与页面双重滚动
+  const isHomeRoute = pathname === "/";
+  const containScroll = isChatRoute || isHomeRoute;
 
   return (
     <LocaleProvider>
@@ -64,16 +67,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <main
             className={cn(
-              "flex-1 pb-tabbar md:pb-0",
-              isChatRoute ? "overflow-hidden" : "overflow-y-auto"
+              "flex min-h-0 flex-1 pb-tabbar md:pb-0",
+              containScroll ? "overflow-hidden" : "overflow-y-auto"
             )}
           >
             <div
               className={cn(
-                "mx-auto w-full max-w-7xl",
-                isChatRoute
-                  ? "flex h-full flex-col p-0 md:px-6 md:py-5"
-                  : "px-4 py-4 md:px-6 md:py-5"
+                "mx-auto w-full",
+                isHomeRoute
+                  ? "flex h-full min-h-0 max-w-none flex-col p-0"
+                  : isChatRoute
+                    ? "flex h-full max-w-7xl flex-col p-0 md:px-6 md:py-5"
+                    : "max-w-7xl px-4 py-4 md:px-6 md:py-5"
               )}
             >
               {children}
