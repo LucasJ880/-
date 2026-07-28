@@ -96,6 +96,14 @@ export function isNavItemVisible(
   }
   if (isNavGroupHiddenForRole(item.group, ctx.platformRole)) return false;
   if (isNavItemHiddenForRole(item.key, ctx.platformRole)) return false;
+  // 销售工作区：仅展示显式标记项 + SYSTEM（不复制第二份侧栏）
+  if (
+    ctx.platformRole === "sales" &&
+    item.group !== "SYSTEM" &&
+    !item.salesWorkspaceVisible
+  ) {
+    return false;
+  }
   if (!platformRoleOk(item, ctx)) return false;
   if (!orgRoleOk(item, ctx)) return false;
   if (!capabilitiesOk(item, ctx)) return false;

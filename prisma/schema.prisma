@@ -37,6 +37,8 @@ model User {
 
   // 销售个人配置 — 在驾驶舱"销售个人设置"里一次性填写
   salesRepInitials String? // 如 "LJ"，用于自动生成报价单编号
+  /// 本月个人销售目标金额（CAD）；未设置时首页显示「设置目标」
+  salesMonthlyTargetCad Float?
 
   // admin 可在用户管理页对每个销售单独开关"是否允许修改客户信息"
   // 仅对 sales/trade/user 生效；admin/super_admin 永远可改

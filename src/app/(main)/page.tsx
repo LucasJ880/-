@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronUp, Loader2, MessagesSquare, Radar } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DashboardDailyBriefing } from "@/components/dashboard/dashboard-daily-briefing";
 import { DashboardAiSuggestions } from "@/components/dashboard/dashboard-ai-suggestions";
 import { DashboardAutoInspections } from "@/components/dashboard/dashboard-auto-inspections";
@@ -34,7 +35,8 @@ function subscribeOrgStorage(cb: () => void) {
 }
 
 export default function Dashboard() {
-  const { user } = useCurrentUser();
+  const router = useRouter();
+  const { user, loading: userLoading } = useCurrentUser();
   const { organizations } = useOrganizations();
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -47,6 +49,14 @@ export default function Dashboard() {
     ? `${activeOrg.name} · 经营总览`
     : "经营总览";
   const userRole = user?.role || "user";
+  const isSalesRole = userRole === "sales";
+
+  useEffect(() => {
+    if (!userLoading && isSalesRole) {
+      router.replace("/sales/home");
+    }
+  }, [userLoading, isSalesRole, router]);
+
   const showProjectModules =
     checkIsAdmin(userRole) ||
     userRole === "boss" ||
@@ -129,6 +139,14 @@ export default function Dashboard() {
     },
     [openProjectDrawer, openTaskDrawer]
   );
+
+  if (userLoading || isSalesRole) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (

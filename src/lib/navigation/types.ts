@@ -41,6 +41,11 @@ export type NavigationItem = {
   /** 可折叠父级：默认折叠，匹配子路径时展开 */
   collapsible?: boolean;
   badgeKey?: MessageKey;
+  /**
+   * 销售工作区可见：platformRole === "sales" 时，
+   * 非 SYSTEM 条目必须为 true 才会显示（助手/设置走 SYSTEM 或显式标记）。
+   */
+  salesWorkspaceVisible?: boolean;
 };
 
 export type NavigationFilterContext = {

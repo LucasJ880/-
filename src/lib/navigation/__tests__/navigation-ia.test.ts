@@ -206,9 +206,9 @@ const mengxinLike = resolveNavigationTree(
   }),
 );
 ok(
-  sunnyLike.some((i) => i.href === "/sales") &&
+  sunnyLike.some((i) => i.href === "/sales/home") &&
     !sunnyLike.some((i) => i.href === "/trade"),
-  "销售模块企业显示销售不显示外贸",
+  "销售模块企业显示销售工作区首页不显示外贸",
 );
 ok(
   mengxinLike.some((i) => i.href === "/trade") &&
@@ -274,10 +274,44 @@ ok(
   ),
   "销售不看企业知识与微信集成",
 );
+const salesHrefs = salesNav.flatMap((i) => [
+  i.href,
+  ...(i.children?.map((c) => c.href) ?? []),
+]);
 ok(
-  salesNav.some((i) => i.href === "/sales") &&
-    salesNav.some((i) => i.href === "/sales/quote-sheet"),
-  "销售保留业务完成入口",
+  [
+    "/sales/home",
+    "/sales?view=customers",
+    "/sales?view=pipeline",
+    "/sales/quote-sheet",
+    "/sales/quotes",
+    "/sales/calendar",
+    "/sales/performance",
+    "/assistant",
+  ].every((h) => salesHrefs.includes(h)),
+  "销售工作区含首页/客户/商机/报价/日历/业绩/助手",
+);
+ok(
+  !salesNav.some(
+    (i) =>
+      i.key === "biz-cockpit" ||
+      i.key === "biz-work-orders" ||
+      i.key === "biz-sales" ||
+      i.key === "ops-center" ||
+      i.href === "/trade",
+  ),
+  "销售不看团队分析/工艺单/经营中心/外贸",
+);
+ok(
+  resolveNavigationTree(
+    NAVIGATION_REGISTRY,
+    ctx({
+      platformRole: "admin",
+      orgRole: "org_admin",
+      isPlatformAdmin: true,
+    }),
+  ).some((i) => i.key === "biz-cockpit" && i.label === "团队销售分析"),
+  "管理员可见团队销售分析",
 );
 
 const opsNav = resolveNavigationTree(
