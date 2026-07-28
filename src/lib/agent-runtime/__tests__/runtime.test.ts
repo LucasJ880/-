@@ -103,6 +103,10 @@ async function dbTests() {
 
   const { db } = await import("@/lib/db");
   const {
+    ensureTestUserOrg,
+    cleanupTestUserOrg,
+  } = await import("@/lib/test-fixtures/org-user");
+  const {
     getOrCreateAgentSession,
     createAgentRun,
     appendAgentRunEvent,
@@ -113,11 +117,26 @@ async function dbTests() {
     isAgentRunCancelled,
   } = await import("../index");
 
-  const orgA = `test_org_a_${Date.now()}`;
-  const orgB = `test_org_b_${Date.now()}`;
-  const userId = `test_user_${Date.now()}`;
+  const stamp = Date.now();
+  const orgA = `test_org_a_${stamp}`;
+  const orgB = `test_org_b_${stamp}`;
+  const userId = `test_user_${stamp}`;
 
   try {
+    // orgB 先建（同一 user 作 owner），再挂 orgA，避免第二次 upsert 改掉 owner
+    await ensureTestUserOrg(db, {
+      userId,
+      orgId: orgB,
+      email: `runtime_${stamp}@test.local`,
+      orgCode: `rtb_${stamp}`,
+    });
+    await ensureTestUserOrg(db, {
+      userId,
+      orgId: orgA,
+      email: `runtime_${stamp}@test.local`,
+      orgCode: `rta_${stamp}`,
+    });
+
     const s1 = await getOrCreateAgentSession({
       orgId: orgA,
       userId,
@@ -227,6 +246,9 @@ async function dbTests() {
     throw e;
   } finally {
     // 清理测试数据
+    await db.capabilityQuotaReservation
+      .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
+      .catch(() => {});
     await db.agentRunEvent
       .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
       .catch(() => {});
@@ -236,6 +258,10 @@ async function dbTests() {
     await db.agentSession
       .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
       .catch(() => {});
+    await cleanupTestUserOrg(db, {
+      userIds: [userId],
+      orgIds: [orgA, orgB],
+    });
   }
 }
 

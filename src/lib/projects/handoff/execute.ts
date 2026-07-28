@@ -13,6 +13,7 @@ import {
 } from "./conflict";
 import { evaluateHandoffEligibility } from "./eligibility";
 import { HandoffError } from "./errors";
+import { maybeInjectHandoffFault } from "./fault-injection";
 import {
   buildHandoffIdempotencyKey,
   buildHandoffTaskBatchKey,
@@ -221,6 +222,8 @@ export async function executeAwardHandoff(input: {
     } as Prisma.InputJsonValue,
   };
 
+  maybeInjectHandoffFault("before_processing");
+
   let handoff: ProjectHandoff;
   try {
     handoff = existing
@@ -348,6 +351,9 @@ export async function executeAwardHandoff(input: {
         },
         select: { id: true, name: true },
       });
+      maybeInjectHandoffFault("after_delivery_created");
+      // sourceTenderProjectId 已在 create data 中写入
+      maybeInjectHandoffFault("after_source_link");
 
       if (deliveryOwnerId !== input.actorUserId) {
         await tx.projectMember.upsert({
@@ -405,7 +411,11 @@ export async function executeAwardHandoff(input: {
           },
         });
         createdTasks += 1;
+        if (createdTasks === 1) {
+          maybeInjectHandoffFault("after_first_task");
+        }
       }
+      maybeInjectHandoffFault("after_all_tasks");
 
       const transferredSnapshot = {
         sourceTenderProjectId: source.id,
@@ -428,6 +438,7 @@ export async function executeAwardHandoff(input: {
         overrideReason: input.payload.overrideReason?.trim() || null,
       };
 
+      maybeInjectHandoffFault("before_completed_update");
       await tx.projectHandoff.update({
         where: { id: handoff.id },
         data: {
@@ -441,6 +452,7 @@ export async function executeAwardHandoff(input: {
         },
       });
 
+      maybeInjectHandoffFault("on_audit_log");
       await writeAuditLog(tx, {
         userId: input.actorUserId,
         orgId: source.orgId,
@@ -462,6 +474,8 @@ export async function executeAwardHandoff(input: {
         created: true,
       };
     });
+
+    maybeInjectHandoffFault("after_completed_before_response");
 
     return {
       handoffId: handoff.id,
@@ -501,18 +515,23 @@ export async function executeAwardHandoff(input: {
       return completedResult(current);
     }
 
-    const code =
+    const injected =
+      err instanceof Error && err.message.startsWith("HANDOFF_FAULT_INJECTED:");
+    const code: HandoffFailureCode =
       err instanceof HandoffError
         ? err.code
-        : ("INTERNAL" as HandoffFailureCode);
-    const message =
-      err instanceof Error ? err.message : "交接失败，请稍后重试";
+        : "INTERNAL";
+    const message = injected
+      ? "交接失败（测试故障注入）"
+      : err instanceof Error
+        ? err.message
+        : "交接失败，请稍后重试";
     await markHandoffFailed({
       handoffId: handoff.id,
       actorUserId: input.actorUserId,
       orgId: source.orgId,
       sourceProjectId: source.id,
-      code,
+      code: injected ? "INTERNAL" : code,
       message,
     });
     if (err instanceof HandoffError) throw err;

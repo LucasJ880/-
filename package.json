@@ -14,6 +14,8 @@
     "test": "bash scripts/test-all.sh",
     "test:api": "bash scripts/test-all.sh --api",
     "test:release-safety": "npx tsx scripts/check-release-safety.test.ts",
+    "test:handoff-integration": "npx tsx scripts/phase5b-handoff-integration.test.ts",
+    "verify:phase5-integrity": "npx tsx scripts/verify-phase5-data-integrity.ts",
     "audit:trade-p0": "tsx scripts/trade-p0-audit.ts",
     "audit:trade-stage": "tsx scripts/trade-stage-audit.ts",
     "audit:trade-research": "tsx scripts/trade-research-confidence-audit.ts",

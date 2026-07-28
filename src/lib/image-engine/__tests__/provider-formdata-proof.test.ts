@@ -68,7 +68,12 @@ async function main() {
     Number(result.metadata.referenceCount) === 1,
     "metadata.referenceCount 记录",
   );
-  ok(!JSON.stringify(result.metadata).includes("http"), "metadata 不含 URL");
+  // httpStatus 字段名含 "http"，不得误判；只禁止真实 URL scheme
+  const metaJson = JSON.stringify(result.metadata);
+  ok(
+    !/https?:\/\//i.test(metaJson),
+    "metadata 不含 http(s) URL",
+  );
   void modelUsed;
 
   console.log(`\nprovider-formdata-proof: ${pass} passed, ${fail} failed`);
