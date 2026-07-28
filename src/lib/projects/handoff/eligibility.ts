@@ -68,20 +68,17 @@ export function evaluateHandoffEligibility(
   }
 
   let requiresHistoricalOverride = false;
-  if (input.bidData.hasRevisions) {
-    if (!input.bidData.ready) {
-      blockers.push({
-        code: "BID_DATA_INCOMPLETE",
-        message: input.bidData.message || "Bid Data 审批/锁定未完成",
-      });
-    }
-  } else {
+
+  const pushOverrideGate = (primaryCode: "BID_DATA_UNAVAILABLE" | "OVERRIDE_REQUIRED") => {
     requiresHistoricalOverride = true;
-    warnings.push("无完整 Bid Data Layer，需管理层历史项目交接 override");
     if (!input.useHistoricalOverride) {
       blockers.push({
-        code: "OVERRIDE_REQUIRED",
-        message: "历史项目交接需要明确 override 并填写原因",
+        code: primaryCode,
+        message:
+          input.bidData.message ||
+          (primaryCode === "BID_DATA_UNAVAILABLE"
+            ? "Bid Data 不可用，需历史项目交接 override"
+            : "历史项目交接需要明确 override 并填写原因"),
       });
     } else if (!input.canOverride) {
       blockers.push({
@@ -94,6 +91,22 @@ export function evaluateHandoffEligibility(
         message: "使用历史项目交接必须填写 override reason",
       });
     }
+  };
+
+  if (!input.bidData.layerAvailable) {
+    // 表不存在/查询失败：明确 BID_DATA_UNAVAILABLE，不得当作「无 revision 历史项目」静默放行
+    warnings.push("Bid Data Layer 不可用，需管理层历史项目交接 override");
+    pushOverrideGate("BID_DATA_UNAVAILABLE");
+  } else if (input.bidData.hasRevisions) {
+    if (!input.bidData.ready) {
+      blockers.push({
+        code: "BID_DATA_INCOMPLETE",
+        message: input.bidData.message || "Bid Data 审批/锁定未完成",
+      });
+    }
+  } else {
+    warnings.push("无完整 Bid Data Layer，需管理层历史项目交接 override");
+    pushOverrideGate("OVERRIDE_REQUIRED");
   }
 
   return {

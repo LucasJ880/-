@@ -20,6 +20,8 @@ import {
   canOverrideHandoff,
   canPreviewHandoff,
 } from "../access";
+import { resolveHandoffAfterUniqueConflict } from "../conflict";
+import type { ProjectHandoff } from "@prisma/client";
 
 let passed = 0;
 let failed = 0;
@@ -82,6 +84,7 @@ ok(
 
 console.log("\neligibility");
 const baseBid = {
+  layerAvailable: true,
   hasRevisions: false,
   finalRevisionId: null,
   finalStatus: null,
@@ -90,6 +93,7 @@ const baseBid = {
   locked: null,
   ready: false,
   message: null,
+  failureCode: null as null | "BID_DATA_UNAVAILABLE" | "BID_DATA_INCOMPLETE",
 };
 ok(
   !evaluateHandoffEligibility({
@@ -231,6 +235,88 @@ ok(
     overrideReason: "x",
   }).ok,
   "有 Revision 但未锁定拒绝（不可用历史 override 绕过）",
+);
+
+const unavailable = evaluateHandoffEligibility({
+  workDomain: "tender",
+  tenderStatus: "won",
+  orgId: "o1",
+  expectedOrgId: "o1",
+  bidData: {
+    ...baseBid,
+    layerAvailable: false,
+    failureCode: "BID_DATA_UNAVAILABLE",
+    message: "Bid Data 表不可用",
+  },
+  existingHandoffStatus: null,
+  useHistoricalOverride: false,
+  canOverride: true,
+  overrideReason: null,
+});
+ok(!unavailable.ok, "Bid Data 不可用默认拒绝");
+ok(
+  unavailable.blockers.some((b) => b.code === "BID_DATA_UNAVAILABLE"),
+  "返回 BID_DATA_UNAVAILABLE 而非静默放行",
+);
+ok(
+  evaluateHandoffEligibility({
+    workDomain: "tender",
+    tenderStatus: "won",
+    orgId: "o1",
+    expectedOrgId: "o1",
+    bidData: {
+      ...baseBid,
+      layerAvailable: false,
+      failureCode: "BID_DATA_UNAVAILABLE",
+      message: "Bid Data 表不可用",
+    },
+    existingHandoffStatus: null,
+    useHistoricalOverride: true,
+    canOverride: true,
+    overrideReason: "表不可用历史交接",
+  }).ok,
+  "管理层 override 可绕过 BID_DATA_UNAVAILABLE",
+);
+
+console.log("\nconflict recovery");
+function stubHandoff(
+  partial: Pick<ProjectHandoff, "id" | "status" | "targetDeliveryProjectId">,
+): ProjectHandoff {
+  return partial as ProjectHandoff;
+}
+ok(
+  resolveHandoffAfterUniqueConflict(
+    stubHandoff({
+      id: "h1",
+      status: "completed",
+      targetDeliveryProjectId: "d1",
+    }),
+  ).kind === "completed",
+  "P2002 后 completed 可恢复",
+);
+ok(
+  resolveHandoffAfterUniqueConflict(
+    stubHandoff({
+      id: "h2",
+      status: "processing",
+      targetDeliveryProjectId: null,
+    }),
+  ).kind === "processing",
+  "P2002 后 processing 可识别",
+);
+ok(
+  resolveHandoffAfterUniqueConflict(
+    stubHandoff({
+      id: "h3",
+      status: "failed",
+      targetDeliveryProjectId: null,
+    }),
+  ).kind === "retryable",
+  "P2002 后 failed 可重试",
+);
+ok(
+  resolveHandoffAfterUniqueConflict(null).kind === "missing",
+  "P2002 后无记录 → missing",
 );
 
 console.log("\ntasks");

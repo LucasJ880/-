@@ -1,168 +1,64 @@
 # Migration History Reconciliation Report
 
-**日期：** 2026-07-28  
-**环境：** Neon `neondb`（`ep-raspy-credit-anx2k4wx`）  
-**分支：** `feat/ops-bids-workspace-phase1`  
-**目的：** 记录本地 Prisma migrations 与共享 Neon `_prisma_migrations` 的分叉，作为 Phase 5 发布前置条件。
+**日期：** 2026-07-28（Phase 5A 更新）  
+**相关：** [`PHASE5A_MIGRATION_RELEASE_SAFETY_REPORT.md`](./PHASE5A_MIGRATION_RELEASE_SAFETY_REPORT.md) · [`INCIDENT_BUILD_TRIGGERED_DATABASE_MIGRATION.md`](./INCIDENT_BUILD_TRIGGERED_DATABASE_MIGRATION.md)
 
 ---
 
-## 1. 当前状态摘要
+## 1. 当前状态摘要（Phase 5A 后）
 
-| 项 | 结果 |
-|---|---|
-| 本地 migration 目录数量 | 74 |
-| DB `_prisma_migrations`（未回滚） | 84 |
-| 仅 DB 有、本地缺失 | 10 |
-| 仅本地有、DB 未记录 | 0（截至本报告；含已手工落地并 resolve 的 Phase 3/4） |
-| Phase 5 migration 文件 | `20260728180000_project_handoff` |
-
-`prisma migrate status` 在本地曾显示 “Database schema is up to date”，含义是：**本地目录中的 migration 均已在 DB 标记 applied**。  
-这**不**表示历史已对齐——DB 仍有 10 条本地缺失的 migration 记录。
+| 项 | 共享库 `ep-raspy-credit` | 生产主库 `ep-super-field` | 隔离分支 `migration-reconciliation-phase5` |
+|---|---|---|---|
+| 本地 migration 文件 | 85 | 85 | 85 |
+| `_prisma_migrations` 唯一名 | 85（行数 86，baseline 重复） | （未直接改） | deploy 后与本地对齐 |
+| Phase 4/5 | 已在库中（事故/开发） | 分支创建时**未**应用 | 受控 deploy **成功** |
+| `migrate status` | up to date | 见隔离分支验证 | up to date |
 
 ---
 
-## 2. 仅数据库存在、本地缺失的 migration
+## 2. 原「仅 DB 有、本地缺失」10 条 — 已全部恢复
 
-必须从历史 commit / 已部署分支 / CI artifact **恢复原始文件**，禁止按当前 Schema 重新编造同名 migration。
-
-```text
-20260318200000_add_project_discussion
-20260319230000_init_postgresql
-20260320120000_add_auth_provider_and_indexes
-20260724160000_project_fact_memory_phase2
-20260724170000_project_orchestrator_task_lease
-20260724190000_project_orchestrator_3i_persistence
-20260724200000_agent_task_cancel_requested_at
-20260725010000_phase4_bid_data_layer
-20260725020000_phase4a2_bid_data_review
-20260725030000_phase4a2_pricing_line_reviewer_note
-```
-
-说明：
-
-- Bid Data Layer 相关表（如 `BidDataRevision`）**已存在于 Neon**，但本地 `schema.prisma` 未完整建模。
-- Phase 5 交接对 Bid Data 的校验通过安全 raw SQL 完成；无 revision 时走历史 override，不伪造审批。
-
----
-
-## 3. 已手工应用并验证的 migration（Phase 3 / 4）
-
-| Migration | 应用方式 | 验证 |
+| Migration | 恢复来源 | 处理方式 |
 |---|---|---|
-| `20260728010000_task_waiting_blocked_fields` | `prisma db execute`（IF NOT EXISTS） | Task 列存在；138 条任务未丢；旧状态可读 |
-| `20260728120000_project_work_domain` | `prisma db execute` | workDomain 回填 tender=13 / general=4；deliveryStage 全空 |
+| `20260318200000_add_project_discussion` | 本仓 Git | 恢复文件；checksum 一致 |
+| `20260319230000_init_postgresql` | 本仓 Git | 同上 |
+| `20260320120000_add_auth_provider_and_indexes` | 本仓 Git | 同上 |
+| `20260724160000_project_fact_memory_phase2` | 姊妹仓 `青砚/prisma/migrations` | 同上 |
+| `20260724170000_project_orchestrator_task_lease` | 姊妹仓 | 同上 |
+| `20260724190000_project_orchestrator_3i_persistence` | 姊妹仓 | 同上 |
+| `20260724200000_agent_task_cancel_requested_at` | 姊妹仓 | 同上 |
+| `20260725010000_phase4_bid_data_layer` | 姊妹仓 | 同上；Bid Data 表来源 |
+| `20260725020000_phase4a2_bid_data_review` | 姊妹仓 | 同上 |
+| `20260725030000_phase4a2_pricing_line_reviewer_note` | 姊妹仓 | 同上 |
 
-二者现已出现在 `_prisma_migrations`（finished）。若未来在其他环境复现，必须：
-
-1. 核对列/类型/nullability/index 与 SQL 完全一致  
-2. 再考虑 `prisma migrate resolve --applied <name>`  
-3. **禁止**仅因“列看起来存在”就标记 applied
+**禁止事项（已遵守）：** 未按当前 Schema 重写同名 migration；未对未核验项 `migrate resolve`。
 
 ---
 
-## 4. Phase 5 migration 与意外应用事故
+## 3. Phase 3 / 4 / 5
 
-文件：
+| Migration | 共享库 | 生产→隔离分支 |
+|---|---|---|
+| `20260728010000_task_waiting_blocked_fields` | 结构+history OK；Task=138 | 结构+history OK |
+| `20260728120000_project_work_domain` | 已应用；tender=13/general=4 | 隔离分支受控 deploy；tender=11/general=2 |
+| `20260728180000_project_handoff` | 已应用（build 事故路径）；Handoff=0 | 隔离分支受控 deploy 成功 |
+
+---
+
+## 4. 构建与迁移策略（强制）
 
 ```text
-prisma/migrations/20260728180000_project_handoff/migration.sql
+npm run build              → prisma generate && next build   # 禁止改库
+npm run db:migrate:deploy  → scripts/safe-migrate-deploy.ts  # 显式受控
 ```
 
-内容：
-
-- `Project.sourceTenderProjectId` + FK/index  
-- `ProjectHandoff` 表 + 唯一约束  
-- `Task.sourceType/sourceId/sourceBatchKey/sourceTemplateKey` + 去重唯一索引  
-
-### 4.1 事故记录（必须透明）
-
-本仓库 `package.json` 的 `build` 脚本为：
-
-```text
-prisma generate && prisma migrate deploy && next build
-```
-
-在 Phase 5 验收构建时执行了 `npm run build`，导致 **`migrate deploy` 将 Phase 5 migration 应用到了当前 DATABASE_URL 指向的 Neon 共享库**（2026-07-28T19:22:49Z）。
-
-这违反了「历史对齐完成前不得应用到共享库」的流程要求。
-
-### 4.2 影响评估
-
-| 项 | 结果 |
-|---|---|
-| 变更类型 | 纯增量（新列 + 新表 + 新索引） |
-| 既有 Task / Project 数据 | 未删除、未改写业务字段 |
-| `sourceTenderProjectId` | 历史行为 NULL |
-| `ProjectHandoff` | 空表 |
-| Task source 字段 | 历史行为 NULL |
-| 是否 `migrate reset` | 否 |
-| 是否破坏 Phase 3/4 | 否 |
-
-### 4.3 后续约束
-
-- 本地验证 build 优先使用：`npx prisma generate && npx next build`（跳过 deploy）
-- 生产 / 共享库部署前仍须完成第 5 节历史对齐
-- **禁止** `prisma migrate reset`
-- **禁止** 删除或手工改 checksum
-- 回滚 Phase 5 仅在隔离快照验证后、且确认无依赖时按 SQL 头部注释执行
+事故根因与防护见独立事故文档，**不要**仅依赖本报告。
 
 ---
 
-## 5. 安全对齐步骤（发布前仍必做）
+## 5. 剩余治理项
 
-### 5.1 创建 Neon 隔离分支或快照
-
-在隔离分支操作，不要先动生产主分支。
-
-### 5.2 收集状态
-
-```bash
-npx prisma migrate status
-# 并导出 _prisma_migrations
-```
-
-记录：仅 DB / 仅本地 / checksum 不一致 / 手工 SQL 未入史。
-
-### 5.3 恢复本地缺失的 10 个 migration 文件
-
-来源优先级：对应 git commit → 已部署分支 → CI artifact → 可靠备份。
-
-### 5.4 在隔离分支验证
-
-```bash
-npx prisma migrate deploy
-npx prisma generate
-# 跑 Phase 3/4/5 测试 + build
-```
-
-验证：数据未丢失、Client 正常、migration status 干净。
-
-### 5.5 再将 Phase 5 应用到隔离分支
-
-确认后再规划生产窗口。
-
----
-
-## 6. 回滚说明（Phase 5）
-
-见 migration SQL 头部注释。回滚前需确认无应用依赖；回滚会丢失：
-
-- ProjectHandoff 记录  
-- `sourceTenderProjectId` 链接  
-- Task 来源字段  
-
----
-
-## 7. 结论
-
-| 结论 | 状态 |
-|---|---|
-| 历史分叉已识别 | 是 |
-| 本地缺失 migration 文件清单 | 已列出（10） |
-| Phase 3/4 数据验证 | 已在开发库完成 |
-| Phase 5 已因 build 脚本意外落入当前共享 Neon | **是（事故，见 §4）** |
-| 历史 10 条本地缺失 migration 仍未恢复 | **是** |
-| 生产部署前置 | 完成隔离分支对齐 + 恢复缺失文件 + 全量验证 |
-
-**本地缺失的 10 条 migration 文件恢复与隔离分支验证完成前，不得将当前分支视为生产可发布状态。**
+1. `20260416120000_baseline_before_launch` 在共享库重复 2 行 — 独立方案，禁止直接删表行  
+2. 空库全链 `migrate deploy` 重放未完成  
+3. 生产主库 Phase 4/5 需发布审批后受控执行（**不要**用共享库状态代替）  
+4. Bid Data 仍主要靠 raw SQL；模型回 Prisma schema 属后续债  

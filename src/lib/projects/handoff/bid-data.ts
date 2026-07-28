@@ -1,11 +1,13 @@
 /**
  * Bid Data Layer 校验（表可能存在于 DB 但不在本地 Prisma schema）
- * 使用原始 SQL；无 revision 时返回 hasRevisions=false，不伪造审批状态。
+ * 使用参数化 raw SQL；表不可用时返回 BID_DATA_UNAVAILABLE，不伪造审批、不自动放行。
  */
 
 import { db } from "@/lib/db";
 
 export type BidDataGateResult = {
+  /** false = 表/关系不可用（与「无 revision」区分） */
+  layerAvailable: boolean;
   hasRevisions: boolean;
   finalRevisionId: string | null;
   finalStatus: string | null;
@@ -14,6 +16,7 @@ export type BidDataGateResult = {
   locked: boolean | null;
   ready: boolean;
   message: string | null;
+  failureCode: "BID_DATA_UNAVAILABLE" | "BID_DATA_INCOMPLETE" | null;
 };
 
 type RevisionRow = {
@@ -26,10 +29,35 @@ type RevisionRow = {
   financialReviewStatus: string | null;
 };
 
+function isMissingRelationError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /relation .* does not exist/i.test(msg) ||
+    /does not exist/i.test(msg) ||
+    /undefined_table/i.test(msg)
+  );
+}
+
+function unavailableResult(message: string): BidDataGateResult {
+  return {
+    layerAvailable: false,
+    hasRevisions: false,
+    finalRevisionId: null,
+    finalStatus: null,
+    technicalApproved: null,
+    financialApproved: null,
+    locked: null,
+    ready: false,
+    message,
+    failureCode: "BID_DATA_UNAVAILABLE",
+  };
+}
+
 export async function inspectBidDataGate(
   projectId: string,
 ): Promise<BidDataGateResult> {
   try {
+    // 参数化绑定 projectId，禁止拼接用户输入
     const rows = await db.$queryRaw<RevisionRow[]>`
       SELECT
         id,
@@ -47,6 +75,7 @@ export async function inspectBidDataGate(
 
     if (!rows.length) {
       return {
+        layerAvailable: true,
         hasRevisions: false,
         finalRevisionId: null,
         finalStatus: null,
@@ -55,10 +84,10 @@ export async function inspectBidDataGate(
         locked: null,
         ready: false,
         message: "无 Bid Data Revision，需历史项目交接 override",
+        failureCode: null,
       };
     }
 
-    // 优先取 locked / approved 终态 revision
     const final =
       rows.find((r) => r.lockedAt) ||
       rows.find((r) => String(r.status || "").toLowerCase() === "locked") ||
@@ -71,8 +100,10 @@ export async function inspectBidDataGate(
     );
     const financialApproved = Boolean(
       final.financialApprovedAt ||
-        String(final.financialReviewStatus || "").toLowerCase() === "approved" ||
-        String(final.financialReviewStatus || "").toLowerCase() === "not_applicable",
+        String(final.financialReviewStatus || "").toLowerCase() ===
+          "approved" ||
+        String(final.financialReviewStatus || "").toLowerCase() ===
+          "not_applicable",
     );
     const locked = Boolean(
       final.lockedAt || String(final.status || "").toLowerCase() === "locked",
@@ -85,6 +116,7 @@ export async function inspectBidDataGate(
     else if (!locked) message = "最终 Revision 尚未锁定";
 
     return {
+      layerAvailable: true,
       hasRevisions: true,
       finalRevisionId: final.id,
       finalStatus: final.status,
@@ -93,18 +125,16 @@ export async function inspectBidDataGate(
       locked,
       ready,
       message,
+      failureCode: ready ? null : "BID_DATA_INCOMPLETE",
     };
-  } catch {
-    // 表不存在或无权：视为无 Bid Data Layer
-    return {
-      hasRevisions: false,
-      finalRevisionId: null,
-      finalStatus: null,
-      technicalApproved: null,
-      financialApproved: null,
-      locked: null,
-      ready: false,
-      message: "Bid Data Layer 不可用，需历史项目交接 override",
-    };
+  } catch (err) {
+    if (isMissingRelationError(err)) {
+      return unavailableResult(
+        "Bid Data 表不可用（BID_DATA_UNAVAILABLE），需管理层历史项目交接 override",
+      );
+    }
+    return unavailableResult(
+      "Bid Data Layer 查询失败（BID_DATA_UNAVAILABLE），需管理层历史项目交接 override",
+    );
   }
 }

@@ -1,11 +1,18 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, ProjectHandoff } from "@prisma/client";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { onProjectCreated } from "@/lib/project-discussion/system-events";
 import { PROJECT_WORK_DOMAIN } from "@/lib/projects/work-domain";
 import { resolveHandoffContractAmount } from "./amount";
 import { inspectBidDataGate } from "./bid-data";
+import {
+  findHandoffByBusinessKey,
+  isPrismaUniqueConflict,
+  resolveHandoffAfterUniqueConflict,
+  throwResolvedHandoffConflict,
+} from "./conflict";
 import { evaluateHandoffEligibility } from "./eligibility";
+import { HandoffError } from "./errors";
 import {
   buildHandoffIdempotencyKey,
   buildHandoffTaskBatchKey,
@@ -23,16 +30,6 @@ import {
   type HandoffFailureCode,
 } from "./types";
 
-class HandoffError extends Error {
-  code: HandoffFailureCode;
-  status: number;
-  constructor(code: HandoffFailureCode, message: string, status = 400) {
-    super(message);
-    this.code = code;
-    this.status = status;
-  }
-}
-
 async function markHandoffFailed(input: {
   handoffId: string;
   actorUserId: string;
@@ -42,8 +39,12 @@ async function markHandoffFailed(input: {
   message: string;
 }) {
   try {
-    await db.projectHandoff.update({
-      where: { id: input.handoffId },
+    // 绝不覆盖已完成的 handoff
+    const updated = await db.projectHandoff.updateMany({
+      where: {
+        id: input.handoffId,
+        status: { not: "completed" },
+      },
       data: {
         status: "failed",
         failedAt: new Date(),
@@ -51,6 +52,8 @@ async function markHandoffFailed(input: {
         failureMessage: input.message.slice(0, 500),
       },
     });
+    if (updated.count === 0) return;
+
     await writeAuditLog(db, {
       userId: input.actorUserId,
       orgId: input.orgId,
@@ -63,6 +66,16 @@ async function markHandoffFailed(input: {
   } catch {
     // 独立失败更新不可阻断
   }
+}
+
+function completedResult(handoff: ProjectHandoff): HandoffExecuteResult {
+  return {
+    handoffId: handoff.id,
+    status: "completed",
+    targetDeliveryProjectId: handoff.targetDeliveryProjectId!,
+    created: false,
+    message: "已完成交接，返回既有执行项目",
+  };
 }
 
 export async function executeAwardHandoff(input: {
@@ -128,24 +141,13 @@ export async function executeAwardHandoff(input: {
     sourceTenderProjectId: source.id,
   });
 
-  const existing = await db.projectHandoff.findUnique({
-    where: {
-      orgId_sourceTenderProjectId_handoffType: {
-        orgId: source.orgId,
-        sourceTenderProjectId: source.id,
-        handoffType: HANDOFF_TYPE_AWARD_TO_DELIVERY,
-      },
-    },
+  let existing = await findHandoffByBusinessKey({
+    orgId: source.orgId,
+    sourceTenderProjectId: source.id,
   });
 
   if (existing?.status === "completed" && existing.targetDeliveryProjectId) {
-    return {
-      handoffId: existing.id,
-      status: "completed",
-      targetDeliveryProjectId: existing.targetDeliveryProjectId,
-      created: false,
-      message: "已完成交接，返回既有执行项目",
-    };
+    return completedResult(existing);
   }
   if (existing?.status === "processing") {
     throw new HandoffError("IN_PROGRESS", "交接正在处理中，请勿重复提交", 409);
@@ -158,6 +160,7 @@ export async function executeAwardHandoff(input: {
     );
   }
 
+  // Execute 必须重新验证 Bid Data，不能信任 Preview
   const bidData = await inspectBidDataGate(source.id);
   const eligibility = evaluateHandoffEligibility({
     workDomain: source.workDomain,
@@ -202,45 +205,65 @@ export async function executeAwardHandoff(input: {
       ? input.payload.description
       : source.description;
 
-  // upsert handoff → processing
-  const handoff = existing
-    ? await db.projectHandoff.update({
-        where: { id: existing.id },
-        data: {
-          status: "processing",
-          deliveryOwnerId,
-          initiatedById: input.actorUserId,
-          overrideReason: input.payload.overrideReason?.trim() || null,
-          failedAt: null,
-          failureCode: null,
-          failureMessage: null,
-          retryCount: { increment: 1 },
-          previewSnapshot: {
-            deliveryName,
-            flags,
-            amount,
-            plannedCompletionDate: plannedCompletionDate?.toISOString() ?? null,
-          } as Prisma.InputJsonValue,
-        },
-      })
-    : await db.projectHandoff.create({
-        data: {
-          orgId: source.orgId,
-          sourceTenderProjectId: source.id,
-          handoffType: HANDOFF_TYPE_AWARD_TO_DELIVERY,
-          status: "processing",
-          idempotencyKey,
-          initiatedById: input.actorUserId,
-          deliveryOwnerId,
-          overrideReason: input.payload.overrideReason?.trim() || null,
-          previewSnapshot: {
-            deliveryName,
-            flags,
-            amount,
-            plannedCompletionDate: plannedCompletionDate?.toISOString() ?? null,
+  const processingData = {
+    status: "processing" as const,
+    deliveryOwnerId,
+    initiatedById: input.actorUserId,
+    overrideReason: input.payload.overrideReason?.trim() || null,
+    failedAt: null,
+    failureCode: null,
+    failureMessage: null,
+    previewSnapshot: {
+      deliveryName,
+      flags,
+      amount,
+      plannedCompletionDate: plannedCompletionDate?.toISOString() ?? null,
+    } as Prisma.InputJsonValue,
+  };
+
+  let handoff: ProjectHandoff;
+  try {
+    handoff = existing
+      ? await db.projectHandoff.update({
+          where: { id: existing.id },
+          data: {
+            ...processingData,
+            retryCount: { increment: 1 },
           },
-        },
-      });
+        })
+      : await db.projectHandoff.create({
+          data: {
+            orgId: source.orgId,
+            sourceTenderProjectId: source.id,
+            handoffType: HANDOFF_TYPE_AWARD_TO_DELIVERY,
+            idempotencyKey,
+            ...processingData,
+          },
+        });
+  } catch (err) {
+    if (!isPrismaUniqueConflict(err)) throw err;
+    const recovered = await findHandoffByBusinessKey({
+      orgId: source.orgId,
+      sourceTenderProjectId: source.id,
+    });
+    const resolved = resolveHandoffAfterUniqueConflict(recovered);
+    if (resolved.kind === "completed" && resolved.handoff) {
+      return completedResult(resolved.handoff);
+    }
+    if (resolved.kind === "processing" || resolved.kind === "missing") {
+      throwResolvedHandoffConflict(resolved);
+    }
+    // retryable (failed/cancelled)：抢到的既有记录，转为 processing 继续
+    if (!resolved.handoff) throwResolvedHandoffConflict(resolved);
+    handoff = await db.projectHandoff.update({
+      where: { id: resolved.handoff.id },
+      data: {
+        ...processingData,
+        retryCount: { increment: 1 },
+      },
+    });
+    existing = handoff;
+  }
 
   await writeAuditLog(db, {
     userId: input.actorUserId,
@@ -258,7 +281,6 @@ export async function executeAwardHandoff(input: {
 
   try {
     const result = await db.$transaction(async (tx) => {
-      // 再次验证来源
       const locked = await tx.project.findFirst({
         where: {
           id: source.id,
@@ -306,7 +328,6 @@ export async function executeAwardHandoff(input: {
           deliveryStage: "handoff",
           plannedCompletionDate,
           sourceTenderProjectId: source.id,
-          // 金额：仅可靠中标价带入 estimatedValue 作参考，不复制 tenderStatus
           estimatedValue: amount.confirmed ? amount.amount : null,
           currency: amount.currency,
           status: "active",
@@ -453,8 +474,37 @@ export async function executeAwardHandoff(input: {
         : "已完成交接，返回既有执行项目",
     };
   } catch (err) {
+    // 并发唯一约束：恢复既有 handoff，不暴露 P2002
+    if (isPrismaUniqueConflict(err)) {
+      const recovered = await findHandoffByBusinessKey({
+        orgId: source.orgId,
+        sourceTenderProjectId: source.id,
+      });
+      const resolved = resolveHandoffAfterUniqueConflict(recovered);
+      if (resolved.kind === "completed" && resolved.handoff) {
+        return completedResult(resolved.handoff);
+      }
+      if (resolved.kind === "processing") {
+        throw new HandoffError(
+          "IN_PROGRESS",
+          "交接正在处理中，请勿重复提交",
+          409,
+        );
+      }
+    }
+
+    // 若另一请求已完成，禁止用 failed 覆盖
+    const current = await db.projectHandoff.findUnique({
+      where: { id: handoff.id },
+    });
+    if (current?.status === "completed" && current.targetDeliveryProjectId) {
+      return completedResult(current);
+    }
+
     const code =
-      err instanceof HandoffError ? err.code : ("INTERNAL" as HandoffFailureCode);
+      err instanceof HandoffError
+        ? err.code
+        : ("INTERNAL" as HandoffFailureCode);
     const message =
       err instanceof Error ? err.message : "交接失败，请稍后重试";
     await markHandoffFailed({

@@ -21,6 +21,7 @@ export type HandoffFailureCode =
   | "ALREADY_COMPLETED"
   | "IN_PROGRESS"
   | "BID_DATA_INCOMPLETE"
+  | "BID_DATA_UNAVAILABLE"
   | "OVERRIDE_REQUIRED"
   | "OVERRIDE_FORBIDDEN"
   | "VALIDATION"
@@ -84,12 +85,14 @@ export type HandoffPreview = {
   blockers: Array<{ code: HandoffFailureCode; message: string }>;
   requiresHistoricalOverride: boolean;
   bidDataSummary: {
+    layerAvailable: boolean;
     hasRevisions: boolean;
     finalRevisionId: string | null;
     finalStatus: string | null;
     technicalApproved: boolean | null;
     financialApproved: boolean | null;
     locked: boolean | null;
+    failureCode: "BID_DATA_UNAVAILABLE" | "BID_DATA_INCOMPLETE" | null;
   };
   existingHandoff: {
     id: string;

@@ -149,12 +149,14 @@ export async function buildHandoffPreview(input: {
     blockers: eligibility.blockers,
     requiresHistoricalOverride: eligibility.requiresHistoricalOverride,
     bidDataSummary: {
+      layerAvailable: bidData.layerAvailable,
       hasRevisions: bidData.hasRevisions,
       finalRevisionId: bidData.finalRevisionId,
       finalStatus: bidData.finalStatus,
       technicalApproved: bidData.technicalApproved,
       financialApproved: bidData.financialApproved,
       locked: bidData.locked,
+      failureCode: bidData.failureCode,
     },
     existingHandoff: existing
       ? {

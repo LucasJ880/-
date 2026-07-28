@@ -64,11 +64,12 @@
 | `OPENAI_MODEL` | 模型名 |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google 登录；`GOOGLE_REDIRECT_URI` 必须为 **`https://你的域名/...`** |
 
-5. 点击 **Deploy**。首次构建会执行：  
-   `prisma generate` → `prisma migrate deploy` → `next build`。  
+5. 点击 **Deploy**。普通构建只执行：  
+   `prisma generate` → `next build`（**不会**跑 `migrate deploy`）。  
+   数据库迁移必须作为单独、受控发布步骤：`ALLOW_DATABASE_MIGRATION=true npm run db:migrate:deploy`（见 `scripts/safe-migrate-deploy.ts`）。  
 6. 若构建失败：  
    - 打开 **Deployment → Building → 日志**，查看 Prisma 或 Next 报错。  
-   - 常见原因：`DATABASE_URL` / `DIRECT_URL` 错误、Neon 项目暂停、迁移与数据库状态不一致。
+   - 常见原因：`DATABASE_URL` / `DIRECT_URL` 错误、Neon 项目暂停、Prisma Client 生成失败。
 
 ---
 
@@ -152,14 +153,16 @@ NEXT_PUBLIC_WECHAT_PUBLIC_ORIGIN=https://wechat.mengxinhometextile.com
 
 ## 八、后续发版
 
-推送代码到 Git 默认分支后，Vercel 会自动触发新部署；`prisma migrate deploy` 会在每次 build 中应用**尚未执行**的迁移。  
+推送代码到 Git 默认分支后，Vercel 会自动触发新部署；**build 不再自动 migrate**。  
+发布顺序建议：备份或 Neon 分支 → `npm run db:migrate:status` → 受控 `npm run db:migrate:deploy` → migration smoke → `npm run build` → 部署应用 → 部署后 smoke。  
+
 新增表或字段时，在本地改 `schema.prisma` 后执行：
 
 ```bash
 npx prisma migrate dev --name 描述本次变更
 ```
 
-将生成的 `prisma/migrations/` 新目录提交并推送，再部署即可。
+将生成的 `prisma/migrations/` 新目录提交并推送；**先在隔离库完成 migrate deploy，再部署应用**。
 
 ---
 
