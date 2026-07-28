@@ -100,6 +100,7 @@ run_test "Task Status Transition" "npx tsx src/lib/tasks/__tests__/status-transi
 run_test "Phase5 Handoff Domain" "npx tsx src/lib/projects/handoff/__tests__/handoff-domain.test.ts"
 run_test "Phase5A Handoff Failure Recovery" "npx tsx src/lib/projects/handoff/__tests__/handoff-failure-recovery.test.ts"
 run_test "Phase5A Release Safety" "npx tsx scripts/check-release-safety.test.ts"
+run_test "Phase5C Migration History" "npx tsx scripts/verify-migration-history.ts"
 run_test "Phase3A-5 Stream/Settle Unit" "npx tsx src/lib/capabilities/__tests__/phase3a5-stream-settle.test.ts"
 run_test "Phase3A-5 Settle DB" "npx tsx src/lib/capabilities/__tests__/phase3a5-settle-db.test.ts"
 run_test "Phase3A-5 Catalog/Health" "npx tsx src/lib/capabilities/__tests__/phase3a5-catalog-health.test.ts"

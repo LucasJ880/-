@@ -32,12 +32,21 @@ const required = [
   "src/app/api/team/playbooks/route.ts",
   "src/components/agent-feedback/feedback-actions.tsx",
   "src/app/(main)/settings/digital-employees/page.tsx",
-  "prisma/migrations/20260721010000_employee_ai_learning_phase1/migration.sql",
 ];
 
 for (const f of required) {
   ok(existsSync(join(root, f)), `存在 ${f}`);
 }
+
+// Phase 5C：旧 migration 已归档；active 仅保留 greenfield baseline + Phase4/5
+const employeeAiMigrationCandidates = [
+  "prisma/migrations/20260721010000_employee_ai_learning_phase1/migration.sql",
+  "prisma/migrations_legacy_pre_greenfield_baseline/20260721010000_employee_ai_learning_phase1/migration.sql",
+];
+ok(
+  employeeAiMigrationCandidates.some((f) => existsSync(join(root, f))),
+  "存在 employee_ai_learning_phase1 migration（active 或 legacy 归档）",
+);
 
 const schema = readFileSync(join(root, "prisma/schema.prisma"), "utf8");
 for (const m of [

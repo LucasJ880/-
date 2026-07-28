@@ -13,6 +13,10 @@ BLOCKED
 **是否允许开始 Phase 6：否**  
 **是否已对生产执行 migration：否**
 
+> **Phase 5C 后续：** 空库硬阻塞已通过 greenfield baseline 解除。  
+> 最新 Gate 见 `docs/PHASE5C_RELEASE_GATE.md`（`READY_FOR_PRODUCTION_MIGRATION`）。  
+> 本文件保留 Phase 5B 当时结论，不作篡改。
+
 ---
 
 ## 阻塞主因

@@ -64,21 +64,26 @@ ok(
   "prepare 不含 migration（或不存在）",
 );
 
-console.log("\nmigration files");
+console.log("\nmigration files (Phase 5C active + legacy)");
 const migrationsDir = join(root, "prisma/migrations");
+const legacyDir = join(root, "prisma/migrations_legacy_pre_greenfield_baseline");
 const migrationNames = readdirSync(migrationsDir).filter((name) => {
   const p = join(migrationsDir, name);
-  return statSync(p).isDirectory() && /^\d{14}_/.test(name);
+  return statSync(p).isDirectory() && /^\d+_/.test(name);
 });
 const unique = new Set(migrationNames);
-ok(unique.size === migrationNames.length, "migration 名称唯一");
+ok(unique.size === migrationNames.length, "active migration 名称唯一");
 const sorted = [...migrationNames].sort();
-let ordered = true;
-for (let i = 1; i < sorted.length; i++) {
-  if (sorted[i]! <= sorted[i - 1]!) ordered = false;
-}
-ok(ordered, "migration 时间戳严格递增");
-ok(migrationNames.length >= 85, `migration 数量 >= 85（实际 ${migrationNames.length}）`);
+ok(
+  sorted.join("|") ===
+    [
+      "00000000000000_greenfield_baseline_pre_phase4",
+      "20260728120000_project_work_domain",
+      "20260728180000_project_handoff",
+    ].join("|"),
+  "active 仅为 baseline + Phase4 + Phase5",
+);
+ok(existsSync(legacyDir), "legacy 归档目录存在");
 
 const requiredRestored = [
   "20260318200000_add_project_discussion",
@@ -94,8 +99,8 @@ const requiredRestored = [
 ];
 for (const name of requiredRestored) {
   ok(
-    existsSync(join(migrationsDir, name, "migration.sql")),
-    `已恢复 ${name}`,
+    existsSync(join(legacyDir, name, "migration.sql")),
+    `legacy 已归档 ${name}`,
   );
 }
 

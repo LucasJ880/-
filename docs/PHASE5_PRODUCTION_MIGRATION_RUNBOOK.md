@@ -1,7 +1,17 @@
-# Phase 3–5 生产 Migration Runbook
+# Phase 3–5 生产 Migration Runbook（Phase 5C 更新）
 
-**适用范围：** 将 Phase 3 / 4 / 5 相关 schema 变更受控发布到 Neon **production** 主库。  
-**不自动执行：** 本文仅流程；执行必须人工审批后手动跑命令。
+**适用范围：** 在 **Greenfield baseline 主链** 下，将 Phase 4 / 5 受控发布到 Neon **production**。  
+**不自动执行：** 须 Gate=`READY_FOR_PRODUCTION_MIGRATION` + 单独批准。
+
+Active migrations：
+
+```text
+00000000000000_greenfield_baseline_pre_phase4
+20260728120000_project_work_domain
+20260728180000_project_handoff
+```
+
+Legacy 审计副本：`prisma/migrations_legacy_pre_greenfield_baseline/`（不执行）。
 
 ---
 
@@ -9,24 +19,24 @@
 
 | 角色 | 职责 |
 |---|---|
-| 执行人 | 运行受控 migrate、记录日志、跑验证脚本 |
-| 批准人 | 确认 Gate、备份、回滚决策 |
-| 回滚负责人 | 决定应用回滚 vs 保留 DB 结构 |
+| 执行人 | 备份、resolve baseline、受控 deploy、验证 |
+| 批准人 | 确认 Gate、Schema diff、回滚决策 |
+| 回滚负责人 | 应用回滚 vs 保留 DB |
 
 ---
 
-## 1. 发布前检查清单
+## 1. 发布前
 
-1. 确认发布 commit（含 Phase 5A/5B）  
-2. `git status` 干净  
-3. `bash scripts/test-all.sh` 结果归档  
-4. `npx tsc --noEmit` / eslint / `npm run build`（build **不含** migrate）  
-5. 空库全链重放结果（见 Phase 5B 报告；**当前失败则不得宣称 READY_FOR_PRODUCTION_MIGRATION**）  
-6. 隔离分支 `migration-reconciliation-phase5` deploy 结果：成功且 status 干净  
-7. 生产 `npm run db:migrate:status`（只读）— 预期待应用含 Phase 4/5  
-8. 创建生产备份：**Neon branch** `pre-phase5-prod-<YYYYMMDD>`（parent=production）  
-9. 记录生产基线计数：Task / Project / ProjectHandoff / workDomain 分布  
-10. 确认回滚负责人与批准人在线  
+1. 确认发布 commit（含 Phase 5C）  
+2. 工作区干净；`npm run verify:migration-history` 通过  
+3. `bash scripts/test-all.sh` → 145+ 通过  
+4. tsc / eslint / `npm run build`（**不含** migrate）  
+5. 空库三轨记录有效（`docs/PHASE5C_THREE_TRACK_VALIDATION.md`）  
+6. 创建生产备份 Neon branch：`pre-phase5-prod-<YYYYMMDD>`（parent=production）  
+7. 生产只读：`npm run db:migrate:status`  
+8. **Schema 等价确认：** 生产结构 ≈ pre-Phase-4 baseline（无 workDomain / 无 ProjectHandoff；有 Phase3 Task 与 Bid Data）  
+9. 记录计数：Task / Project / User / Organization / BidDataRevision  
+10. 回滚负责人与批准人在线  
 
 ---
 
@@ -34,95 +44,77 @@
 
 | 项 | 值 |
 |---|---|
-| Neon project | `polished-thunder-16018212`（青砚-AI工作助手） |
+| Neon project | `polished-thunder-16018212` |
 | Neon branch | `production` |
-| Endpoint 主机（脱敏） | `ep-super-field-*` |
+| Endpoint（脱敏） | `ep-super-field-*` |
 | database | `neondb` |
-| 预期 migration | `20260728120000_project_work_domain`、`20260728180000_project_handoff`（若 Phase 3 已在生产则不会再次应用） |
-| 执行人 | |
-| 批准人 | |
-| 备份 branch | |
+| 预期 | resolve greenfield baseline → deploy Phase4+Phase5 |
+| 执行人 / 批准人 / 备份 branch | |
 
 ---
 
 ## 3. 迁移执行（受控）
 
 ```bash
-# 1) 指向生产 DIRECT/DATABASE（本地临时 env，勿提交）
-export DATABASE_URL="..."   # 生产连接，勿写入仓库
+export DATABASE_URL="..."   # 生产，勿提交
 export DIRECT_URL="..."
 
-# 2) 状态
 npm run db:migrate:status
 
-# 3) 双确认后 deploy
+# A) 仅登记 baseline（不执行 baseline DDL）— 再次确认结构等价后
+npx prisma migrate resolve --applied 00000000000000_greenfield_baseline_pre_phase4
+
+npm run db:migrate:status
+# 预期：待应用仅为 Phase4 + Phase5
+
+# B) 双确认 deploy
 export ALLOW_DATABASE_MIGRATION=true
 export CONFIRM_PRODUCTION_MIGRATION=I_UNDERSTAND_PRODUCTION_MIGRATION
 npm run db:migrate:deploy
 
-# 4) 再次 status
 npm run db:migrate:status
+# 预期：up to date
 ```
 
-**禁止：** 用 `npm run build` 触发 migrate；对生产 `migrate reset`；删除 `_prisma_migrations`。
+**禁止：**
+
+- `npm run build` 触发 migrate  
+- `migrate reset` / 删除 `_prisma_migrations`  
+- 修改 Phase4/5 或 baseline SQL  
+- 删除旧 baseline 重复行  
+- 在结构不等价时 resolve baseline  
 
 ---
 
 ## 4. 迁移后验证
 
 ```bash
-npx tsx scripts/verify-phase5-data-integrity.ts
-# 期望：无 BLOCKER
+npx tsx scripts/verify-phase5-data-integrity.ts   # 无 BLOCKER
 ```
 
-手工/脚本核对：
-
-- Phase 3 Task 列与索引  
-- Phase 4 `workDomain` / 索引 / 回填分布合理  
-- Phase 5 `ProjectHandoff` 表与唯一约束  
-- Task / Project 数量与迁移前基线对比（允许 workDomain 回填变化，不允许无故丢行）  
-- 应用健康：登录、`/ops`、`/ops/projects`、`/bids`、`/tasks`  
-- 只读 handoff **preview**（禁止未经批准的生产 execute）  
-
-如需交接冒烟：仅内部测试 tender 项目 + 批准人书面同意。
+核对：Task/Project 计数；workDomain 分布；ProjectHandoff 表与约束；Bid Data 仍在；  
+应用：登录、`/ops`、`/ops/projects`、`/bids`、`/tasks`；只读 handoff preview。  
+**禁止**未经批准的生产 execute 交接。
 
 ---
 
-## 5. 回滚策略
+## 5. 回滚
 
-### 应用回滚
+### resolve 后、deploy 前发现问题
 
-可部署上一应用版本。新增列/表通常向前兼容，旧代码可忽略。
+停止；不继续 deploy；调查 `_prisma_migrations` 新 baseline 行；**不直接 DELETE**；形成修复方案。
 
-### 数据库回滚
-
-**默认不 DROP。**
-
-优先：
+### Phase 4/5 deploy 后应用问题
 
 ```text
-停止新交接入口
-→ 回滚应用版本
-→ 保留 DB 结构
-→ 调查
+停止新交接 → 回滚应用版本 → 保留向前兼容 DB 结构 → 调查
 ```
 
-仅在数据损坏且有备份 branch 时，考虑从 Neon branch 恢复；不把 `DROP COLUMN` 作为第一动作。
+不默认 DROP Phase 4/5 列/表。
 
 ---
 
-## 6. 失败中止
+## 6. 旧历史共存
 
-任一步失败：
-
-1. 停止继续部署新应用（若尚未部署）  
-2. 保留 migrate 错误日志  
-3. 批准人决定：修复前向 migration vs 自备份恢复  
-4. 更新事故/发布记录  
-
----
-
-## 7. Gate 引用
-
-最终是否允许进入本节第 3 步，以 `docs/PHASE5B_PRODUCTION_RELEASE_GATE.md` 结论为准。  
-即使 Gate 为 READY，也必须完成第 1 节清单后再执行。  
+生产 `_prisma_migrations` 将同时包含旧 legacy 名、旧重复 baseline、以及新 greenfield baseline + Phase4/5。  
+**允许共存。** 不以「表干净」为由删除旧行。
