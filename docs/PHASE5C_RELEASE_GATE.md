@@ -1,7 +1,7 @@
 # Phase 5C 发布 Gate 报告
 
 **开始 commit：** `0ff47087e9b49cd6ae6ad27ecbe89ff0290e66d7`  
-**Phase 5C commit：** （提交后回填）  
+**Phase 5C commit：** `f04b88aadf56f588fce6e00a4c324a90b7499081`  
 **日期：** 2026-07-28  
 
 ## 最终 Gate
@@ -23,7 +23,7 @@ READY_FOR_PRODUCTION_MIGRATION
 | # | 项 | 结果 |
 |---|---|---|
 | 1 | 开始 commit | `0ff47087e9b49cd6ae6ad27ecbe89ff0290e66d7` |
-| 2 | Phase 5C commit | （回填） |
+| 2 | Phase 5C commit | `f04b88aadf56f588fce6e00a4c324a90b7499081` |
 | 3 | 旧 migration 归档 | `prisma/migrations_legacy_pre_greenfield_baseline/`（85） |
 | 4 | Active 目录 | baseline + Phase4 + Phase5 |
 | 5 | Baseline 名称 | `00000000000000_greenfield_baseline_pre_phase4` |
