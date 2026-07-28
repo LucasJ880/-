@@ -27,12 +27,12 @@ const MODULE_CARDS: Array<{
     module: "bids",
     title: "招投标",
     description: "项目受理、投标与供应商协同",
-    href: "/projects",
+    href: "/bids",
   },
   {
     module: "projects",
     title: "项目执行",
-    description: "项目推进与交付协作",
+    description: "现有项目列表（兼容入口）；成交后执行见运营中心",
     href: "/projects",
   },
   {
@@ -154,11 +154,11 @@ export default function OperationsCenterPage() {
   return (
     <div className="space-y-6 p-6">
       <PageHeader
-        title="经营中心"
+        title="管理模块"
         description={
           orgName
-            ? `${orgName} 的企业经营管理入口（按已启用模块展示）`
-            : "当前企业的经营管理入口（按已启用模块展示）"
+            ? `${orgName} 的管理模块启动页（按已启用模块展示）。成交后执行请使用「运营中心」/ops；投标请使用「招投标中心」/bids。`
+            : "管理模块启动页（按已启用模块展示）。成交后执行请使用「运营中心」/ops；投标请使用「招投标中心」/bids。"
         }
       />
 

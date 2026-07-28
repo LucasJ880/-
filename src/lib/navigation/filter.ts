@@ -7,12 +7,45 @@ import {
   isNavGroupHiddenForRole,
   isNavItemHiddenForRole,
 } from "@/lib/rbac/nav-role-policy";
+import {
+  canAccessBidWorkspace,
+  canAccessManagementWorkspace,
+  canAccessOperationsWorkspace,
+  canAccessSalesWorkspace,
+  workspaceContextFromNav,
+} from "@/lib/rbac/workspace-policy";
 import { pathMatches, isCapabilitiesPath } from "./active";
 import type {
   NavigationFilterContext,
   NavigationItem,
   ResolvedNavItem,
 } from "./types";
+
+function workspaceAccessOk(
+  item: NavigationItem,
+  ctx: NavigationFilterContext,
+): boolean {
+  if (!item.workspaceAccess) return true;
+  const ws = workspaceContextFromNav({
+    platformRole: ctx.platformRole,
+    orgRole: ctx.orgRole,
+    modules: ctx.modules,
+    hasMembership: ctx.hasMembership,
+    hasBidCapability: ctx.hasBidCapability,
+  });
+  switch (item.workspaceAccess) {
+    case "management":
+      return canAccessManagementWorkspace(ws);
+    case "operations":
+      return canAccessOperationsWorkspace(ws);
+    case "bids":
+      return canAccessBidWorkspace(ws);
+    case "sales":
+      return canAccessSalesWorkspace(ws);
+    default:
+      return true;
+  }
+}
 
 function modulesOk(
   item: NavigationItem,
@@ -106,6 +139,7 @@ export function isNavItemVisible(
   }
   if (!platformRoleOk(item, ctx)) return false;
   if (!orgRoleOk(item, ctx)) return false;
+  if (!workspaceAccessOk(item, ctx)) return false;
   if (!capabilitiesOk(item, ctx)) return false;
   if (!modulesOk(item, ctx)) return false;
   return true;

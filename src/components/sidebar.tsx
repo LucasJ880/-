@@ -232,6 +232,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [apiHasMembership, setApiHasMembership] = useState<boolean | null>(
     null,
   );
+  const [hasBidCapability, setHasBidCapability] = useState(false);
   const [capExpanded, setCapExpanded] = useState<boolean | null>(null);
 
   const storedOrgId = useSyncExternalStore(
@@ -260,6 +261,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           workspaceIds?: string[];
           orgRole?: string | null;
           hasMembership?: boolean;
+          hasBidCapability?: boolean;
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
@@ -270,6 +272,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               ? data.hasMembership
               : Boolean(data.orgRole),
           );
+          setHasBidCapability(Boolean(data.hasBidCapability));
         }
       } catch {
         if (!cancelled) {
@@ -277,6 +280,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           setWorkspaceIds([]);
           setApiOrgRole(null);
           setApiHasMembership(null);
+          setHasBidCapability(false);
         }
       }
     })();
@@ -301,6 +305,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       workspaceIds,
       modules: orgModules,
       isPlatformAdmin,
+      hasBidCapability,
     }),
     [
       pathname,
@@ -310,6 +315,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       workspaceIds,
       orgModules,
       isPlatformAdmin,
+      hasBidCapability,
     ],
   );
 

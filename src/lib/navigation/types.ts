@@ -46,6 +46,11 @@ export type NavigationItem = {
    * 非 SYSTEM 条目必须为 true 才会显示（助手/设置走 SYSTEM 或显式标记）。
    */
   salesWorkspaceVisible?: boolean;
+  /**
+   * Phase 1 工作区门禁：与 workspace-policy 对齐。
+   * 未设置时不额外按工作区过滤。
+   */
+  workspaceAccess?: "management" | "operations" | "bids" | "sales";
 };
 
 export type NavigationFilterContext = {
@@ -56,6 +61,8 @@ export type NavigationFilterContext = {
   workspaceIds: string[];
   modules: import("@/lib/tenancy/modules").OrgModulesConfig | null;
   isPlatformAdmin: boolean;
+  /** 有效项目成员关系等投标能力信号（来自 active-org） */
+  hasBidCapability?: boolean;
 };
 
 export type ResolvedNavItem = Omit<NavigationItem, "children"> & {

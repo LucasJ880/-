@@ -70,12 +70,12 @@ ok(
 );
 
 const ops = NAVIGATION_REGISTRY.find((i) => i.key === "ops-center");
-ok(ops?.group === "OPERATIONS", "经营中心在 OPERATIONS");
-ok(ops?.href === "/operations/center", "经营中心路由正确");
+ok(ops?.group === "OPERATIONS", "管理模块在 OPERATIONS");
+ok(ops?.href === "/operations/center", "管理模块路由正确");
 
 ok(isCapabilitiesPath("/capabilities/runs"), "/capabilities/* 识别为中台");
-ok(isOperationsCenterPath("/operations/center"), "经营中心 path");
-ok(!isGrowthPath("/operations/center"), "经营中心不属于增长高亮");
+ok(isOperationsCenterPath("/operations/center"), "管理模块 path");
+ok(!isGrowthPath("/operations/center"), "管理模块不属于增长高亮");
 ok(isGrowthPath("/operations/growth"), "增长中心属于增长");
 ok(isGrowthPath("/product-content"), "产品内容属于增长");
 
@@ -256,7 +256,10 @@ ok(
   NAV_SECTION_LABEL.OPERATIONS !== NAV_SECTION_LABEL.BUSINESS,
   "企业经营与业务运营分组标题不合并",
 );
-ok(NAV_SECTION_LABEL.CAPABILITIES === "AI 能力", "中台分组标题=AI 能力");
+ok(
+  NAV_SECTION_LABEL.CAPABILITIES === "AI 工作中心",
+  "中台分组标题=AI 工作中心",
+);
 
 // —— 角色层级可见性（boss / operations / sales）——
 const salesNav = resolveNavigationTree(
@@ -289,7 +292,7 @@ ok(
     "/sales/performance",
     "/assistant",
   ].every((h) => salesHrefs.includes(h)),
-  "销售工作区含首页/客户/商机/报价/日历/业绩/助手",
+  "销售工作区含销售中心/客户/商机/报价/日历/业绩/助手",
 );
 ok(
   !salesNav.some(

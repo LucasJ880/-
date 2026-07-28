@@ -67,27 +67,52 @@ export const NAV_GROUP_META: Record<
  * 因此「企业经营」与「业务运营」不得合并为同一标题（中间夹着中台）。
  */
 export const NAV_SECTION_LABEL: Partial<Record<NavigationGroup, string>> = {
-  WORK: "日常工作",
-  OPERATIONS: "企业经营",
-  CAPABILITIES: "AI 能力",
+  WORK: "工作区",
+  OPERATIONS: "管理入口",
+  CAPABILITIES: "AI 工作中心",
   BUSINESS: "业务运营",
   GROWTH: "品牌增长",
-  MANAGEMENT: "企业管理",
+  MANAGEMENT: "系统管理",
   PLATFORM: "平台运营",
   SYSTEM: "系统",
 };
 
 export const NAVIGATION_REGISTRY: NavigationItem[] = [
-  // ── 工作台 ──
+  // ── 工作区（一级：管理总览 / 运营 / 招投标）──
   {
     key: "work-home",
-    label: "首页",
+    label: "管理总览",
     labelKey: "nav_dashboard",
     href: "/",
     icon: LayoutDashboard,
     group: "WORK",
     exact: true,
     displayOrder: 10,
+  },
+  {
+    key: "ws-ops",
+    label: "运营中心",
+    labelKey: "nav_ops_workspace",
+    href: "/ops",
+    icon: PackageCheck,
+    group: "WORK",
+    workspaceAccess: "operations",
+    requireMembership: true,
+    matchPaths: ["/ops"],
+    displayOrder: 12,
+  },
+  {
+    key: "ws-bids",
+    label: "招投标中心",
+    labelKey: "nav_bids_workspace",
+    href: "/bids",
+    icon: FolderKanban,
+    group: "WORK",
+    moduleKey: ["bids", "projects"],
+    workspaceAccess: "bids",
+    requireMembership: true,
+    matchPaths: ["/bids"],
+    displayOrder: 14,
   },
   {
     key: "work-tasks",
@@ -140,10 +165,10 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 60,
   },
 
-  // ── 企业经营（销售/运营/外贸由 nav-role-policy 整组隐藏） ──
+  // ── 管理入口：旧经营模块启动页（非新运营中心 /ops）──
   {
     key: "ops-center",
-    label: "经营中心",
+    label: "管理模块",
     labelKey: "nav_operations_center",
     href: "/operations/center",
     icon: BarChart3,
@@ -155,10 +180,10 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 10,
   },
 
-  // ── 企业能力中台 / AI 能力（销售/运营/外贸整组隐藏） ──
+  // ── AI 工作中心（销售/运营/外贸整组隐藏） ──
   {
     key: "capabilities",
-    label: "企业能力中台",
+    label: "AI 工作中心",
     labelKey: "nav_capabilities_hub",
     href: "/capabilities",
     icon: Layers,
@@ -234,13 +259,15 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   // ── 业务运营：销售（含 Sales Command Center 工作区条目）──
   {
     key: "sales-home",
-    label: "首页",
+    label: "销售中心",
+    labelKey: "nav_sales_workspace",
     href: "/sales/home",
     icon: Home,
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
     salesWorkspaceVisible: true,
+    workspaceAccess: "sales",
     matchPaths: ["/sales/home"],
     displayOrder: 8,
   },
@@ -453,10 +480,10 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 32,
   },
 
-  // ── 品牌增长（销售整组隐藏；运营保留） ──
+  // ── 品牌增长（不属于运营中心；销售整组隐藏；运营保留） ──
   {
     key: "growth-hub",
-    label: "品牌中心",
+    label: "品牌增长",
     labelKey: "nav_growth_hub",
     href: "/operations/growth",
     icon: Megaphone,
@@ -523,7 +550,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "mgmt-knowledge",
-    label: "企业知识",
+    label: "知识库",
     labelKey: "nav_org_knowledge",
     href: "/knowledge",
     icon: BookOpen,
@@ -647,11 +674,11 @@ export const MOBILE_TOP_CATEGORIES: Array<{
   href?: string;
   matchPrefix?: string;
 }> = [
-  { key: "WORK", label: "工作台", href: "/" },
-  { key: "OPERATIONS", label: "经营", href: "/operations/center" },
-  { key: "CAPABILITIES", label: "能力中台", href: "/capabilities" },
+  { key: "WORK", label: "工作区", href: "/" },
+  { key: "OPERATIONS", label: "管理入口", href: "/operations/center" },
+  { key: "CAPABILITIES", label: "AI 工作中心", href: "/capabilities" },
   // 无默认落地页：有二级入口时进入 drill；modules 未就绪或无业务模块时不展示
   { key: "BUSINESS", label: "业务" },
-  { key: "GROWTH", label: "增长", href: "/operations/growth" },
-  { key: "MANAGEMENT", label: "管理", href: "/organizations" },
+  { key: "GROWTH", label: "品牌增长", href: "/operations/growth" },
+  { key: "MANAGEMENT", label: "系统管理", href: "/organizations" },
 ];
