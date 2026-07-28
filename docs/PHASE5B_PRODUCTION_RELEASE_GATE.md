@@ -1,7 +1,7 @@
 # Phase 5B 生产发布验证门报告
 
 **开始 commit：** `626db2e9fa369b05d583fc4134f227f4eb785265`  
-**Phase 5B commit：** （提交后回填）  
+**Phase 5B commit：** `e7941687fedbb8e1d5ca0ca8605fdefd6c668e55`  
 **日期：** 2026-07-28  
 
 ## 最终发布 Gate 结论
