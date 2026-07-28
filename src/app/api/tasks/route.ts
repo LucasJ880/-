@@ -4,10 +4,8 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { onTaskCreated } from "@/lib/project-discussion/system-events";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
-import {
-  isManagementWorkspaceUser,
-  type WorkspacePolicyContext,
-} from "@/lib/rbac/workspace-policy";
+import { type WorkspacePolicyContext } from "@/lib/rbac/workspace-policy";
+import { canViewTeamTasks } from "@/lib/operations/projects";
 import {
   buildTaskFilterWhere,
   buildTaskVisibilityWhere,
@@ -15,6 +13,7 @@ import {
   mergeTaskWhere,
   normalizeTaskStatus,
   transitionTaskStatus,
+  type TaskProjectDomainFilter,
 } from "@/lib/tasks";
 
 const taskInclude = {
@@ -60,7 +59,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     orgRole,
     hasMembership: Boolean(orgRole),
   };
-  const canTeam = isManagementWorkspaceUser(wsCtx);
+  const canTeam = canViewTeamTasks({ ...wsCtx, userId: user.id });
   const wantTeam = viewParam === "team";
   if (wantTeam && !canTeam) {
     return NextResponse.json(
@@ -69,6 +68,13 @@ export const GET = withAuth(async (request, _ctx, user) => {
     );
   }
   const ownOnly = canTeam ? !wantTeam : true;
+
+  const domainRaw = searchParams.get("projectDomain");
+  const projectDomain = (
+    ["delivery", "tender", "general", "unassigned"] as const
+  ).includes(domainRaw as TaskProjectDomainFilter)
+    ? (domainRaw as TaskProjectDomainFilter)
+    : null;
 
   // 项目筛选越权防护
   if (projectId) {
@@ -93,6 +99,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     bucket,
     assigneeId,
     projectId,
+    projectDomain,
     search,
     priority,
   });
@@ -176,10 +183,11 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const resolved = await resolvePreferredOrgId(user.id, user.role);
   const orgRole = await resolveOrgRole(user.id, resolved.orgId);
-  const canAssignOthers = isManagementWorkspaceUser({
+  const canAssignOthers = canViewTeamTasks({
     platformRole: user.role,
     orgRole,
     hasMembership: Boolean(orgRole),
+    userId: user.id,
   });
 
   let assigneeId = user.id;

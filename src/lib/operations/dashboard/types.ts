@@ -54,6 +54,15 @@ export type OpsRelatedProjectSummary = {
   openTaskCount: number;
   overdueTaskCount: number;
   updatedAt: string;
+  /** Phase 4：正式执行项目字段 */
+  deliveryStage?: string | null;
+  deliveryStageLabel?: string | null;
+  health?: string | null;
+  healthLabel?: string | null;
+  ownerName?: string | null;
+  plannedCompletionDate?: string | null;
+  primaryRisk?: string | null;
+  href?: string;
 };
 
 export type OpsDashboardCounts = {
@@ -73,7 +82,10 @@ export type OpsDashboardData = {
   todayTasks: OpsTaskSummary[];
   waitingItems: OpsDashboardItem[];
   pendingActions: OpsPendingActionSummary[];
+  /** @deprecated Phase 4 起由 focusDeliveryProjects 替代；保留兼容 */
   relatedProjects: OpsRelatedProjectSummary[];
+  /** Phase 4：仅 workDomain=delivery 的重点执行项目 */
+  focusDeliveryProjects: OpsRelatedProjectSummary[];
   counts: OpsDashboardCounts;
   notes: string[];
 };

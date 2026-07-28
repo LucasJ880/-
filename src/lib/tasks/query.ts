@@ -15,6 +15,12 @@ import {
 
 export type TaskListView = "mine" | "team";
 
+export type TaskProjectDomainFilter =
+  | "delivery"
+  | "tender"
+  | "general"
+  | "unassigned";
+
 export type TaskListFilters = {
   view: TaskListView;
   status?: string | null;
@@ -22,6 +28,11 @@ export type TaskListFilters = {
   due?: string | null;
   assigneeId?: string | null;
   projectId?: string | null;
+  /**
+   * 通过关联 Project.workDomain 筛选；无 projectId → unassigned
+   * 不写入 Task 自身字段
+   */
+  projectDomain?: TaskProjectDomainFilter | null;
   search?: string | null;
   /** waiting | blocked | open | closed */
   bucket?: string | null;
@@ -125,6 +136,18 @@ export function buildTaskFilterWhere(
 
   if (filters.projectId) {
     parts.push({ projectId: filters.projectId });
+  }
+
+  if (filters.projectDomain === "unassigned") {
+    parts.push({ projectId: null });
+  } else if (
+    filters.projectDomain === "delivery" ||
+    filters.projectDomain === "tender" ||
+    filters.projectDomain === "general"
+  ) {
+    parts.push({
+      project: { workDomain: filters.projectDomain },
+    });
   }
 
   if (filters.priority) {

@@ -77,6 +77,7 @@ export function WorkQueue() {
   const search = searchParams.get("search") || searchParams.get("q") || "";
   const projectId =
     searchParams.get("projectId") || searchParams.get("project") || "";
+  const projectDomain = searchParams.get("projectDomain") || "";
   const focusId = searchParams.get("focus") || searchParams.get("open") || "";
 
   const [data, setData] = useState<ListResponse | null>(null);
@@ -119,6 +120,7 @@ export function WorkQueue() {
       if (bucket) sp.set("bucket", bucket);
       if (search) sp.set("search", search);
       if (projectId) sp.set("projectId", projectId);
+      if (projectDomain) sp.set("projectDomain", projectDomain);
       const res = await apiFetch(`/api/tasks?${sp.toString()}`);
       if (res.status === 403) {
         setError("无权查看该视图");
@@ -134,7 +136,7 @@ export function WorkQueue() {
     } finally {
       setLoading(false);
     }
-  }, [view, status, due, bucket, search, projectId]);
+  }, [view, status, due, bucket, search, projectId, projectDomain]);
 
   useEffect(() => {
     void load();
@@ -465,6 +467,19 @@ export function WorkQueue() {
             <option value="waiting">等待中</option>
             <option value="blocked">阻塞</option>
             <option value="closed">已完成/取消</option>
+          </select>
+          <select
+            value={projectDomain}
+            onChange={(e) =>
+              setParams({ projectDomain: e.target.value || null })
+            }
+            className="rounded-md border border-[var(--border)] px-2 py-1.5 text-[13px]"
+          >
+            <option value="">全部工作域</option>
+            <option value="delivery">执行项目</option>
+            <option value="tender">招投标</option>
+            <option value="general">通用</option>
+            <option value="unassigned">无项目</option>
           </select>
           <button
             type="button"

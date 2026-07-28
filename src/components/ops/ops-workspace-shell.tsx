@@ -10,6 +10,7 @@ import type {
   OpsRelatedProjectSummary,
   OpsTaskSummary,
 } from "@/lib/operations/dashboard";
+import { OpsSubnav } from "@/components/ops/ops-subnav";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
 
@@ -130,23 +131,27 @@ function PendingRow({ item }: { item: OpsPendingActionSummary }) {
 }
 
 function ProjectRow({ project }: { project: OpsRelatedProjectSummary }) {
+  const href = project.href || `/ops/projects/${project.id}`;
   return (
     <li className="border-b border-[var(--border)] py-2.5 last:border-b-0">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-[13px] font-medium">{project.name}</p>
           <p className="text-[12px] text-[var(--muted)]">
-            关联任务 {project.openTaskCount}
-            {project.overdueTaskCount > 0
-              ? ` · 逾期 ${project.overdueTaskCount}`
+            {project.deliveryStageLabel || "未设阶段"}
+            {project.healthLabel ? ` · ${project.healthLabel}` : ""}
+            {project.ownerName ? ` · ${project.ownerName}` : ""}
+            {project.plannedCompletionDate
+              ? ` · 计划 ${new Date(project.plannedCompletionDate).toLocaleDateString("zh-CN")}`
               : ""}
+            {project.primaryRisk ? ` · ${project.primaryRisk}` : ""}
           </p>
         </div>
         <Link
-          href={`/projects/${project.id}`}
+          href={href}
           className="shrink-0 text-[12px] text-[var(--accent)] hover:underline"
         >
-          打开
+          打开执行项目
         </Link>
       </div>
     </li>
@@ -248,13 +253,19 @@ export function OpsWorkspaceShell() {
 
   if (!data) return null;
 
+  const focusProjects =
+    data.focusDeliveryProjects ?? data.relatedProjects ?? [];
+
   const emptyAll =
     data.urgentItems.length === 0 &&
     data.todayTasks.length === 0 &&
     data.waitingItems.length === 0 &&
-    data.pendingActions.length === 0;
+    data.pendingActions.length === 0 &&
+    focusProjects.length === 0;
 
   return (
+    <div>
+      <OpsSubnav />
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 md:px-6 md:py-8">
       <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
@@ -404,21 +415,27 @@ export function OpsWorkspaceShell() {
               )}
             </Section>
 
-            <Section title="重点工作对象" count={data.relatedProjects.length}>
+            <Section title="重点执行项目" count={focusProjects.length}>
               <p className="text-[12px] text-[var(--muted)]">
-                由当前任务关联投影，不是正式运营执行项目列表。
+                仅展示 workDomain=delivery 的正式执行项目；招投标项目不会出现在此。
               </p>
-              {data.relatedProjects.length ? (
+              {focusProjects.length ? (
                 <ul>
-                  {data.relatedProjects.map((p) => (
+                  {focusProjects.map((p) => (
                     <ProjectRow key={p.id} project={p} />
                   ))}
                 </ul>
               ) : (
                 <p className="py-4 text-[13px] text-[var(--muted)]">
-                  暂无关联项目
+                  当前还没有执行项目。可在「执行项目」中手动创建；中标自动交接将在后续阶段开放。
                 </p>
               )}
+              <Link
+                href="/ops/projects"
+                className="mt-2 inline-block text-[12px] text-[var(--accent)] hover:underline"
+              >
+                查看全部执行项目
+              </Link>
             </Section>
           </div>
 
@@ -445,6 +462,7 @@ export function OpsWorkspaceShell() {
           </aside>
         </div>
       )}
+    </div>
     </div>
   );
 }

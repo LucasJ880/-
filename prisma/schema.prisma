@@ -241,6 +241,14 @@ model Project {
   status      String        @default("active")
   startDate   DateTime?
   dueDate     DateTime?
+  /// 工作域：tender | delivery | general（与 projectTypes 业务形态标签正交）
+  workDomain  String        @default("general")
+  /// 交付阶段（仅 workDomain=delivery 有业务含义）
+  deliveryStage String?
+  /// 执行项目计划完成日（勿复用 closeDate / awardDate）
+  plannedCompletionDate DateTime?
+  /// 执行项目实际完成日
+  actualCompletionDate  DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -332,6 +340,8 @@ model Project {
   @@index([tenderStatus])
   @@index([intakeStatus])
   @@index([status, createdAt])
+  @@index([orgId, workDomain])
+  @@index([orgId, workDomain, deliveryStage])
 }
 
 model Task {

@@ -26,6 +26,7 @@ export {
   TASK_PAGE_SIZE_DEFAULT,
   type TaskListFilters,
   type TaskListView,
+  type TaskProjectDomainFilter,
 } from "./query";
 
 export {

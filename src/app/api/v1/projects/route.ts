@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
         status: "active",
         priority,
         category: project.category ? String(project.category) : "tender_opportunity",
+        workDomain: "tender",
         tenderStatus: "new",
         sourceSystem,
         sourcePlatform: project.source_platform ? String(project.source_platform) : null,

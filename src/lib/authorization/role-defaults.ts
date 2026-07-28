@@ -87,6 +87,10 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
     bindings: [
       { permissionKey: "operations.read", dataScope: "ORG" },
       { permissionKey: "operations.manage", dataScope: "ORG" },
+      { permissionKey: "operations.tasks.team.read", dataScope: "ORG" },
+      { permissionKey: "operations.tasks.team.manage", dataScope: "ORG" },
+      { permissionKey: "operations.projects.team.read", dataScope: "ORG" },
+      { permissionKey: "operations.projects.manage", dataScope: "ORG" },
       { permissionKey: "identity.member.read", dataScope: "ORG" },
     ],
   },

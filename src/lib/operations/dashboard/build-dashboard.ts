@@ -22,6 +22,10 @@ import {
   isWaitingUntilDue,
 } from "@/lib/tasks";
 import {
+  listFocusDeliveryProjects,
+  type OpsAccessContext,
+} from "@/lib/operations/projects";
+import {
   isDueTodayDueDate,
   isOpenTaskStatus,
   isOverdueDueDate,
@@ -143,6 +147,8 @@ export async function buildOpsDashboard(params: {
   /** true = 仅本人相关任务；false = 可见项目内团队任务 */
   ownOnly: boolean;
   canToggleTeamView: boolean;
+  /** Phase 4：团队/执行项目权限上下文 */
+  opsCtx?: OpsAccessContext;
 }): Promise<OpsDashboardData> {
   const {
     userId,
@@ -151,6 +157,7 @@ export async function buildOpsDashboard(params: {
     orgId,
     ownOnly,
     canToggleTeamView,
+    opsCtx,
   } = params;
 
   const now = new Date();
@@ -459,49 +466,33 @@ export async function buildOpsDashboard(params: {
       href: "/capabilities/approvals",
     }));
 
-  // 重点工作对象：仅来自当前可见任务关联的项目投影
-  const projectAgg = new Map<
-    string,
-    {
-      name: string;
-      open: number;
-      overdue: number;
-      updatedAt: Date;
-    }
-  >();
-  for (const t of tasks) {
-    const pid = t.project?.id ?? t.projectId;
-    if (!pid || !t.project) continue;
-    if (orgProjectIds.length && !orgProjectIds.includes(pid)) continue;
-    const cur = projectAgg.get(pid) ?? {
-      name: t.project.name,
-      open: 0,
-      overdue: 0,
-      updatedAt: t.project.updatedAt,
-    };
-    cur.open += 1;
-    if (isOverdueDueDate(t.dueDate, todayStart)) cur.overdue += 1;
-    if (t.updatedAt.getTime() > cur.updatedAt.getTime()) {
-      cur.updatedAt = t.updatedAt;
-    }
-    projectAgg.set(pid, cur);
-  }
-
-  const relatedProjects: OpsRelatedProjectSummary[] = [...projectAgg.entries()]
-    .map(([id, v]) => ({
-      id,
-      name: v.name,
-      openTaskCount: v.open,
-      overdueTaskCount: v.overdue,
-      updatedAt: v.updatedAt.toISOString(),
-    }))
-    .sort((a, b) => {
-      if (b.overdueTaskCount !== a.overdueTaskCount) {
-        return b.overdueTaskCount - a.overdueTaskCount;
-      }
-      return b.openTaskCount - a.openTaskCount;
-    })
-    .slice(0, 6);
+  // Phase 4：重点执行项目仅来自 workDomain=delivery
+  const focusCtx: OpsAccessContext = opsCtx ?? {
+    platformRole: userRole,
+    userId,
+  };
+  const focusRows = await listFocusDeliveryProjects({
+    orgId,
+    ctx: focusCtx,
+    limit: 6,
+  });
+  const focusDeliveryProjects: OpsRelatedProjectSummary[] = focusRows.map(
+    (p) => ({
+      id: p.id,
+      name: p.name,
+      openTaskCount: p.openTaskCount,
+      overdueTaskCount: p.overdueTaskCount,
+      updatedAt: p.updatedAt,
+      deliveryStage: p.deliveryStage,
+      deliveryStageLabel: p.deliveryStageLabel,
+      health: p.health,
+      healthLabel: p.healthLabel,
+      ownerName: p.ownerName,
+      plannedCompletionDate: p.plannedCompletionDate,
+      primaryRisk: p.primaryRisk,
+      href: p.href,
+    }),
+  );
 
   const counts = {
     overdue: overdueTasks.length,
@@ -520,11 +511,12 @@ export async function buildOpsDashboard(params: {
     todayTasks,
     waitingItems: waitingItems.slice(0, 16),
     pendingActions,
-    relatedProjects,
+    relatedProjects: focusDeliveryProjects,
+    focusDeliveryProjects,
     counts,
     notes: [
-      "重点工作对象由当前可见任务关联投影，不是正式运营执行项目列表。",
-      "当前任务模型不支持独立 BLOCKED 状态；阻塞类信号仅在有可靠字段时展示。",
+      "重点执行项目仅包含 workDomain=delivery 的正式执行项目。",
+      "招投标项目任务可出现在「我的工作」，但不会投影为执行项目。",
     ],
   };
 }

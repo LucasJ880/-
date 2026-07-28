@@ -13,8 +13,11 @@ import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { buildOpsDashboard } from "@/lib/operations/dashboard";
 import {
   canAccessOperationsWorkspace,
-  isManagementWorkspaceUser,
 } from "@/lib/rbac/workspace-policy";
+import {
+  canViewTeamTasks,
+  type OpsAccessContext,
+} from "@/lib/operations/projects";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const resolved = await resolvePreferredOrgId(user.id, user.role);
@@ -40,6 +43,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
     hasMembership: Boolean(orgRole),
     enabledModules: null as string[] | null,
   };
+  const opsCtx: OpsAccessContext = {
+    ...wsCtx,
+    userId: user.id,
+  };
 
   if (!canAccessOperationsWorkspace(wsCtx)) {
     return NextResponse.json(
@@ -48,7 +55,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     );
   }
 
-  const canTeam = isManagementWorkspaceUser(wsCtx);
+  const canTeam = canViewTeamTasks(opsCtx);
   const viewParam = request.nextUrl.searchParams.get("view");
   const wantTeam = viewParam === "team";
   const ownOnly = canTeam ? !wantTeam : true;
@@ -65,6 +72,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     orgId: resolved.orgId,
     ownOnly,
     canToggleTeamView: canTeam,
+    opsCtx,
   });
 
   return NextResponse.json(data);

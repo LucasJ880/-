@@ -76,6 +76,10 @@ ok(
   "运营不显示项目智能",
 );
 ok(opsNav.some((i) => i.href === "/tasks" || i.key === "work-tasks"), "运营仍可见任务");
+ok(
+  opsNav.some((i) => i.key === "ws-ops-projects" && i.href === "/ops/projects"),
+  "运营可见执行项目入口 /ops/projects",
+);
 ok(opsNav.some((i) => i.group === "GROWTH"), "运营仍可见品牌增长");
 ok(
   !opsNav.some((i) => i.key === "ops-center"),
