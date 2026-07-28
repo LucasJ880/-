@@ -86,24 +86,93 @@ export const GET = withAuth(async (request, _ctx, user) => {
   // funnelStatus 过滤无法直接下沉到 Prisma where（需要先聚合机会 + 报价数），
   // 所以先查出候选集、再在内存里过滤 + 重新分页。
   // 在 funnelStatus 无值时走原来的分页路径，性能最佳。
+  const listInclude = {
+    opportunities: {
+      select: {
+        id: true,
+        title: true,
+        stage: true,
+        estimatedValue: true,
+        nextFollowupAt: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: "desc" as const },
+    },
+    interactions: {
+      orderBy: { createdAt: "desc" as const },
+      take: 1,
+      select: { createdAt: true },
+    },
+    quotes: {
+      orderBy: { createdAt: "desc" as const },
+      take: 1,
+      select: {
+        id: true,
+        status: true,
+        viewedAt: true,
+        grandTotal: true,
+      },
+    },
+    createdBy: { select: { id: true, name: true, email: true } },
+    _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
+  };
+
+  function enrichCustomerListItem(
+    c: {
+      opportunities: Array<{
+        id: string;
+        title: string;
+        stage: string;
+        estimatedValue: number | null;
+        nextFollowupAt: Date | null;
+        updatedAt: Date;
+      }>;
+      interactions: Array<{ createdAt: Date }>;
+      quotes: Array<{
+        id: string;
+        status: string;
+        viewedAt: Date | null;
+        grandTotal: number;
+      }>;
+      _count: { interactions: number; quotes: number; blindsOrders: number };
+    } & Record<string, unknown>,
+  ) {
+    const activeOpps = c.opportunities.filter(
+      (o) => !["lost", "completed"].includes(o.stage),
+    );
+    const primary = activeOpps[0] ?? c.opportunities[0] ?? null;
+    const latestQuote = c.quotes[0] ?? null;
+    return {
+      ...c,
+      funnelStatus: deriveFunnelStatus(
+        c.opportunities.map((o) => o.stage),
+        c._count.quotes,
+      ),
+      primaryStage: primary?.stage ?? null,
+      primaryOpportunityId: primary?.id ?? null,
+      estimatedValue:
+        primary?.estimatedValue ?? latestQuote?.grandTotal ?? null,
+      lastContactAt: c.interactions[0]?.createdAt?.toISOString() ?? null,
+      nextFollowupAt: primary?.nextFollowupAt?.toISOString() ?? null,
+      latestQuoteStatus: latestQuote?.status ?? null,
+      quoteViewed: Boolean(latestQuote?.viewedAt),
+      suggestedAction: deriveSuggestedAction(
+        primary?.stage ?? null,
+        latestQuote?.status ?? null,
+        Boolean(latestQuote?.viewedAt),
+        primary?.nextFollowupAt ?? null,
+      ),
+    };
+  }
+
   if (funnelStatusFilter && !ownOnly) {
     const all = await db.salesCustomer.findMany({
       where,
-      include: {
-        opportunities: { select: { id: true, title: true, stage: true, estimatedValue: true } },
-        createdBy: { select: { id: true, name: true, email: true } },
-        _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
-      },
+      include: listInclude,
       orderBy: { updatedAt: 'desc' },
     });
     const filtered = all
-      .map((c) => ({
-        ...c,
-        funnelStatus: deriveFunnelStatus(
-          c.opportunities.map((o) => o.stage),
-          c._count.quotes,
-        ),
-      }))
+      .map((c) => enrichCustomerListItem(c))
       .filter((c) => c.funnelStatus === funnelStatusFilter);
     const total = filtered.length;
     const sliced = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -113,11 +182,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const [customers, total] = await Promise.all([
     db.salesCustomer.findMany({
       where,
-      include: {
-        opportunities: { select: { id: true, title: true, stage: true, estimatedValue: true } },
-        createdBy: { select: { id: true, name: true, email: true } },
-        _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
-      },
+      include: listInclude,
       orderBy: { updatedAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -125,16 +190,28 @@ export const GET = withAuth(async (request, _ctx, user) => {
     db.salesCustomer.count({ where }),
   ]);
 
-  const customersWithFunnel = customers.map((c) => ({
-    ...c,
-    funnelStatus: deriveFunnelStatus(
-      c.opportunities.map((o) => o.stage),
-      c._count.quotes,
-    ),
-  }));
+  const customersWithFunnel = customers.map((c) => enrichCustomerListItem(c));
 
   return NextResponse.json({ customers: customersWithFunnel, total, page, pageSize });
 });
+
+function deriveSuggestedAction(
+  stage: string | null,
+  quoteStatus: string | null,
+  quoteViewed: boolean,
+  nextFollowupAt: Date | null,
+): string {
+  const now = Date.now();
+  if (nextFollowupAt && nextFollowupAt.getTime() <= now) {
+    return "跟进已逾期，今天联系";
+  }
+  if (stage === "new_lead") return "新线索，尽快首次联系";
+  if (quoteViewed && quoteStatus !== "signed") return "客户已看报价，电话确认";
+  if (quoteStatus === "sent") return "跟进报价回复";
+  if (stage === "quoted" || stage === "negotiation") return "推进谈判或约见面";
+  if (stage === "measure_booked") return "确认量房安排";
+  return "记录跟进并设定下一步";
+}
 
 /** 归一化电话（只保留数字），用于唯一性比对 */
 function normalizePhone(raw: string | null | undefined): string | null {

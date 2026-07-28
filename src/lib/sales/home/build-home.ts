@@ -313,6 +313,109 @@ export async function buildSalesHome(params: {
     },
   });
 
+  const customerOwn = ownOnly ? { createdById: userId } : {};
+  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+
+  const [
+    quotesSentCount,
+    quotesSignedCount,
+    cycleOpps,
+    sourceGroups,
+    compareSigned,
+  ] = await Promise.all([
+    db.salesQuote.count({
+      where: {
+        orgId,
+        ...quoteOwn,
+        status: { in: ["sent", "viewed", "signed", "accepted"] },
+        createdAt: { gte: monthStart },
+      },
+    }),
+    db.salesQuote.count({
+      where: {
+        orgId,
+        ...quoteOwn,
+        status: { in: ["signed", "accepted"] },
+        signedAt: { gte: monthStart },
+      },
+    }),
+    db.salesOpportunity.findMany({
+      where: {
+        orgId,
+        ...oppOwn,
+        stage: { in: ["signed", "completed"] },
+        wonAt: { gte: monthStart },
+      },
+      select: { createdAt: true, wonAt: true },
+      take: 100,
+    }),
+    db.salesCustomer.groupBy({
+      by: ["source"],
+      where: { orgId, archivedAt: null, ...customerOwn },
+      _count: true,
+    }),
+    db.salesOpportunity.findMany({
+      where: {
+        orgId,
+        ...oppOwn,
+        stage: { in: ["signed", "completed"] },
+        wonAt: { gte: threeMonthsAgo },
+      },
+      select: { wonAt: true, estimatedValue: true },
+    }),
+  ]);
+
+  const cycleDays = cycleOpps
+    .map((o) => {
+      if (!o.wonAt) return null;
+      return (o.wonAt.getTime() - o.createdAt.getTime()) / DAY_MS;
+    })
+    .filter((d): d is number => d != null && d >= 0);
+  const avgCycleDays =
+    cycleDays.length > 0
+      ? Math.round(
+          (cycleDays.reduce((a, b) => a + b, 0) / cycleDays.length) * 10,
+        ) / 10
+      : null;
+
+  const quoteToSignRate =
+    quotesSentCount > 0
+      ? Math.round((quotesSignedCount / quotesSentCount) * 100)
+      : null;
+
+  const sourceDistribution = sourceGroups
+    .map((g) => ({
+      source: g.source?.trim() || "未填写",
+      count: g._count,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  const monthBuckets: Array<{
+    yearMonth: string;
+    label: string;
+    signedAmount: number;
+    signedCount: number;
+  }> = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    monthBuckets.push({
+      yearMonth: key,
+      label: `${d.getMonth() + 1}月`,
+      signedAmount: 0,
+      signedCount: 0,
+    });
+  }
+  for (const opp of compareSigned) {
+    if (!opp.wonAt) continue;
+    const key = `${opp.wonAt.getFullYear()}-${String(opp.wonAt.getMonth() + 1).padStart(2, "0")}`;
+    const bucket = monthBuckets.find((b) => b.yearMonth === key);
+    if (!bucket) continue;
+    bucket.signedCount += 1;
+    bucket.signedAmount += opp.estimatedValue ?? 0;
+  }
+
   const funnelMap = new Map(
     funnelGroup.map((g) => [
       g.stage,
@@ -532,5 +635,13 @@ export async function buildSalesHome(params: {
         signedAt: (q.signedAt ?? q.updatedAt).toISOString(),
       })),
     },
+    conversion: {
+      quotesSent: quotesSentCount,
+      quotesSigned: quotesSignedCount,
+      quoteToSignRate,
+      avgCycleDays,
+    },
+    sourceDistribution,
+    monthlyCompare: monthBuckets,
   };
 }

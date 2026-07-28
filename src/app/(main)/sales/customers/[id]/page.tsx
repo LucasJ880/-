@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -109,8 +109,23 @@ function customerToDraft(c: CustomerDetail): BasicInfoDraft {
 }
 
 export default function CustomerDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-40 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted" />
+        </div>
+      }
+    >
+      <CustomerDetailPageInner />
+    </Suspense>
+  );
+}
+
+function CustomerDetailPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
   const orgCreateBlocked = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
   const { user, loading: userLoading, isSuperAdmin } = useCurrentUser();
@@ -187,6 +202,17 @@ export default function CustomerDetailPage() {
     loadCustomer();
     loadVisualizerSessions();
   }, [loadCustomer, loadVisualizerSessions]);
+
+  useEffect(() => {
+    if (searchParams.get("followup") !== "1") return;
+    setShowAddInteraction(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("followup");
+    const qs = next.toString();
+    router.replace(
+      qs ? `/sales/customers/${id}?${qs}` : `/sales/customers/${id}`,
+    );
+  }, [searchParams, router, id]);
 
   // opp → 最新 session 封面（sessions 已按 updatedAt desc）
   const oppIdToCover = useMemo(() => {

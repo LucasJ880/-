@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
-import { STAGES, PRIORITIES } from "./types";
+import { STAGES } from "./types";
 import type { Opportunity, HealthInfo } from "./types";
 import { NewOpportunityDialog } from "./new-opportunity-dialog";
 import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
@@ -21,16 +21,11 @@ import {
   salesOrgCreateBlockedHint,
 } from "@/lib/sales/sales-client-org";
 
-function healthColor(score: number): string {
-  if (score >= 70) return "text-emerald-500";
-  if (score >= 40) return "text-amber-500";
-  return "text-red-500";
-}
-
-function healthBg(score: number): string {
-  if (score >= 70) return "bg-emerald-500";
-  if (score >= 40) return "bg-amber-500";
-  return "bg-red-500";
+function stayTone(days: number): string {
+  // 严重超时浅红；过久浅橙；正常无底色
+  if (days >= 14) return "border-red-200/80 bg-red-50/50 dark:border-red-900/40 dark:bg-red-950/20";
+  if (days >= 7) return "border-amber-200/80 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/20";
+  return "border-border bg-card-bg/80";
 }
 
 function OpportunityCard({
@@ -46,9 +41,18 @@ function OpportunityCard({
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
 }) {
-  const pri = PRIORITIES[opp.priority as keyof typeof PRIORITIES] || PRIORITIES.warm;
   const [showTip, setShowTip] = useState(false);
   const [now] = useState(() => Date.now());
+  const stayDays = opp.updatedAt
+    ? Math.max(
+        0,
+        Math.floor((now - new Date(opp.updatedAt).getTime()) / 86400000),
+      )
+    : 0;
+  const amount = opp.latestQuoteTotal ?? opp.estimatedValue;
+  const lastInteract = opp.lastInteractionAt || opp.updatedAt;
+  const stageLabel =
+    STAGES.find((s) => s.key === opp.stage)?.label ?? opp.stage;
 
   return (
     <Link
@@ -57,91 +61,90 @@ function OpportunityCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={cn(
-        "group cursor-grab rounded-[var(--radius-lg)] border border-border bg-card-bg/80 p-3 transition-all duration-150 hover:shadow-card hover:border-border-strong active:cursor-grabbing",
-        isDragging && "opacity-40 ring-2 ring-accent/25"
+        "group cursor-grab rounded-[var(--radius-lg)] border p-3 transition-all duration-150 hover:shadow-card hover:border-border-strong active:cursor-grabbing",
+        stayTone(stayDays),
+        isDragging && "opacity-40 ring-2 ring-accent/25",
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <h4 className="text-sm font-medium text-foreground line-clamp-2">
-          {opp.title}
-        </h4>
-        <div className="flex items-center gap-1 shrink-0">
-          {health && health.score > 0 && (
-            <span className={cn("text-[10px] font-bold", healthColor(health.score))}>
-              {health.score}
-            </span>
-          )}
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[10px] font-bold",
-              pri.class
-            )}
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground line-clamp-1">
+            {opp.customer?.name || opp.title}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted">{stageLabel}</p>
+        </div>
+        {health?.tip && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowTip(!showTip);
+            }}
+            className="shrink-0 rounded-full p-0.5 hover:bg-accent/10"
+            title="推进建议"
           >
-            {pri.label}
-          </span>
-        </div>
+            <Zap className="h-3 w-3 text-accent" />
+          </button>
+        )}
       </div>
-      {opp.customer && (
-        <p className="mt-1 text-xs text-muted">{opp.customer.name}</p>
-      )}
-
-      {health && health.score > 0 && (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <div className="h-1.5 flex-1 rounded-full bg-muted/20 overflow-hidden">
-            <div
-              className={cn("h-full rounded-full transition-all", healthBg(health.score))}
-              style={{ width: `${health.score}%` }}
-            />
-          </div>
-          {health.tip && (
-            <button
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowTip(!showTip); }}
-              className="shrink-0 rounded-full p-0.5 hover:bg-accent/10 transition-colors"
-              title="推进建议"
-            >
-              <Zap className="h-3 w-3 text-accent" />
-            </button>
-          )}
-        </div>
-      )}
 
       {showTip && health?.tip && (
-        <div className="mt-1.5 rounded-md bg-accent/5 border border-accent/20 px-2 py-1.5">
-          <p className="text-[10px] text-accent leading-relaxed line-clamp-3">
-            <Sparkles className="inline h-2.5 w-2.5 mr-0.5" />
+        <div className="mt-1.5 rounded-md border border-accent/20 bg-accent/5 px-2 py-1.5">
+          <p className="line-clamp-3 text-[10px] leading-relaxed text-accent">
+            <Sparkles className="mr-0.5 inline h-2.5 w-2.5" />
             {health.tip}
           </p>
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-3 text-xs text-muted">
-        {(opp.latestQuoteTotal ?? opp.estimatedValue) != null && (
-          <span className="flex items-center gap-0.5">
+      <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+        {amount != null && (
+          <span className="flex items-center gap-0.5 font-medium text-foreground">
             <DollarSign className="h-3 w-3" />
-            {(opp.latestQuoteTotal ?? opp.estimatedValue ?? 0).toLocaleString()}
+            {amount.toLocaleString("en-CA", {
+              style: "currency",
+              currency: "CAD",
+              maximumFractionDigits: 0,
+            })}
           </span>
         )}
-        {opp.productTypes && (
-          <span className="truncate">{opp.productTypes}</span>
-        )}
+        <span
+          className={cn(
+            "inline-flex items-center gap-0.5 text-[11px]",
+            stayDays >= 14
+              ? "text-red-700"
+              : stayDays >= 7
+                ? "text-amber-700"
+                : "text-muted",
+          )}
+        >
+          <Clock className="h-3 w-3" />
+          停留 {stayDays} 天
+        </span>
       </div>
-      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-        {opp.latestQuoteTotal != null && (
-          <span className="inline-flex items-center rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-700">
-            报价 ${opp.latestQuoteTotal.toLocaleString()}
-          </span>
-        )}
-        {opp.nextFollowupAt && (
-          <span className="inline-flex items-center gap-0.5 text-[11px] text-amber-600">
-            <Clock className="h-3 w-3" />
-            {new Date(opp.nextFollowupAt).toLocaleDateString("zh-CN")}
-          </span>
-        )}
-        {opp.updatedAt && (
-          <span className="text-[10px] text-muted/60">
-            {Math.floor((now - new Date(opp.updatedAt).getTime()) / 86400000)}天
-          </span>
-        )}
+
+      <div className="mt-1.5 space-y-0.5 text-[11px] text-muted">
+        <p>
+          最近互动：
+          {lastInteract
+            ? new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" }).format(
+                -Math.max(
+                  0,
+                  Math.floor(
+                    (now - new Date(lastInteract).getTime()) / 86400000,
+                  ),
+                ),
+                "day",
+              )
+            : "暂无"}
+        </p>
+        <p>
+          下次跟进：
+          {opp.nextFollowupAt
+            ? new Date(opp.nextFollowupAt).toLocaleDateString("zh-CN")
+            : "未设置"}
+        </p>
       </div>
     </Link>
   );

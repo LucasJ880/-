@@ -122,5 +122,12 @@ export const POST = withAuth(async (request, ctx, user) => {
     },
   });
 
-  return NextResponse.json({ messageId: result.messageId, status: "sent" });
+  return NextResponse.json({
+    messageId: result.messageId,
+    status: "sent",
+    quoteUrl,
+    shareToken,
+    customerId: quote.customerId,
+    opportunityId: quote.opportunityId,
+  });
 });

@@ -104,4 +104,23 @@ export interface SalesHomeResponse {
     pendingBalanceAmount: number;
     pendingDeposits: SalesHomePendingDeposit[];
   };
+
+  /** Phase 3：报价转化（已签约 / 已发送类报价） */
+  conversion: {
+    quotesSent: number;
+    quotesSigned: number;
+    quoteToSignRate: number | null;
+    avgCycleDays: number | null;
+  };
+
+  /** 客户来源分布（本人授权范围） */
+  sourceDistribution: Array<{ source: string; count: number }>;
+
+  /** 近三个自然月签单对比 */
+  monthlyCompare: Array<{
+    yearMonth: string;
+    label: string;
+    signedAmount: number;
+    signedCount: number;
+  }>;
 }

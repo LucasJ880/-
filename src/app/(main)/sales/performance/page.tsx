@@ -56,6 +56,15 @@ export default function SalesPerformancePage() {
   }
 
   const p = data.performance;
+  const c = data.conversion;
+  const maxSource = Math.max(
+    ...data.sourceDistribution.map((s) => s.count),
+    1,
+  );
+  const maxMonth = Math.max(
+    ...data.monthlyCompare.map((m) => m.signedAmount),
+    1,
+  );
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-6 pb-8">
@@ -65,7 +74,7 @@ export default function SalesPerformancePage() {
         </p>
         <h1 className="text-[26px] font-semibold tracking-tight">我的业绩</h1>
         <p className="text-[14px] text-[var(--muted)]">
-          仅展示你授权范围内的个人销售数据。
+          仅展示你授权范围内的个人销售数据，不含团队排行与管理配置。
         </p>
       </header>
 
@@ -93,6 +102,14 @@ export default function SalesPerformancePage() {
             {[
               ["签单数量", `${p.signedCount} 单`],
               ["平均订单金额", formatSalesMoney(p.averageOrderValue)],
+              [
+                "报价转化率",
+                c.quoteToSignRate != null ? `${c.quoteToSignRate}%` : "–",
+              ],
+              [
+                "平均成交周期",
+                c.avgCycleDays != null ? `${c.avgCycleDays} 天` : "–",
+              ],
               ["本周新增", formatSalesMoney(p.weeklySignedAmount)],
               ["活跃商机", String(data.activity.activeOpportunities)],
             ].map(([k, v]) => (
@@ -105,7 +122,62 @@ export default function SalesPerformancePage() {
               </div>
             ))}
           </dl>
+          <p className="mt-2 text-[11px] text-[var(--muted)]">
+            本月报价 {c.quotesSent} 份 · 签约 {c.quotesSigned} 份
+          </p>
           <SalesMiniTrend points={data.trend} />
+        </SalesCard>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <SalesCard title="近三个月对比">
+          <ul className="space-y-3">
+            {data.monthlyCompare.map((m) => (
+              <li key={m.yearMonth}>
+                <div className="mb-1 flex items-center justify-between text-[12px]">
+                  <span className="font-medium">{m.label}</span>
+                  <span className="text-[var(--muted)]">
+                    {m.signedCount} 单 · {formatSalesMoney(m.signedAmount)}
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--muted)]/15">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)]/70"
+                    style={{
+                      width: `${Math.max(4, (m.signedAmount / maxMonth) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SalesCard>
+
+        <SalesCard title="客户来源分布">
+          {data.sourceDistribution.length === 0 ? (
+            <p className="py-6 text-[13px] text-[var(--muted)]">
+              暂无来源数据，可在客户资料中补充来源。
+            </p>
+          ) : (
+            <ul className="space-y-2.5">
+              {data.sourceDistribution.map((s) => (
+                <li key={s.source}>
+                  <div className="mb-1 flex items-center justify-between text-[12px]">
+                    <span className="font-medium">{s.source}</span>
+                    <span className="text-[var(--muted)]">{s.count}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-[var(--muted)]/15">
+                    <div
+                      className="h-full rounded-full bg-[var(--accent)]/60"
+                      style={{
+                        width: `${Math.max(4, (s.count / maxSource) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </SalesCard>
       </div>
 
