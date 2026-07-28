@@ -1,7 +1,7 @@
 # Phase 5A 完成报告：数据库迁移历史修复与发布安全加固
 
 **开始 commit：** `15c357caac05cd853ee1867b9159bfb58857fb91`（Phase 5 handoff）  
-**Phase 5A commit：** （提交后回填）  
+**Phase 5A commit：** `ba752758972243b1630e2783e80651a248a44ecf`  
 **日期：** 2026-07-28  
 **结论：****可以认为 Phase 5A 工程目标基本达成；生产 migrate 与 Phase 6 仍禁止自动进入。**
 
