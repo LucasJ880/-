@@ -92,6 +92,43 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
   def("project.create", "project", "create", "创建项目", "创建项目", ["ORG"], "MEDIUM"),
   def("project.update", "project", "update", "更新项目", "修改项目", ["PRINCIPAL", "ORG"], "MEDIUM"),
 
+  def(
+    "bids.handoff.preview",
+    "bids.handoff",
+    "preview",
+    "预览中标交接",
+    "预览中标项目转执行项目",
+    ["ORG"],
+    "MEDIUM",
+  ),
+  def(
+    "bids.handoff.execute",
+    "bids.handoff",
+    "execute",
+    "执行中标交接",
+    "将中标项目交接为执行项目",
+    ["ORG"],
+    "HIGH",
+  ),
+  def(
+    "bids.handoff.override",
+    "bids.handoff",
+    "override",
+    "历史交接 override",
+    "无完整 Bid Data 时的管理层交接 override",
+    ["ORG"],
+    "CRITICAL",
+  ),
+  def(
+    "operations.projects.create",
+    "operations.projects",
+    "create",
+    "创建执行项目",
+    "创建运营执行项目",
+    ["ORG"],
+    "MEDIUM",
+  ),
+
   def("authorization.policy.read", "authorization.policy", "read", "查看权限策略", "读取权限蓝图", ["ORG"], "MEDIUM"),
   def("authorization.policy.manage", "authorization.policy", "manage", "管理权限策略", "修改权限蓝图", ["ORG"], "CRITICAL"),
 

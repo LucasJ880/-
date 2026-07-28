@@ -276,6 +276,8 @@ export async function getDeliveryProjectDetail(input: {
   ctx: OpsAccessContext;
   canManage: boolean;
   canReopenCompleted: boolean;
+  /** 是否可查看来源投标项目（不因能看执行项目而自动放行） */
+  canReadSourceTender?: boolean;
 }): Promise<DeliveryProjectDetail | null> {
   const project = await db.project.findFirst({
     where: {
@@ -295,6 +297,10 @@ export async function getDeliveryProjectDetail(input: {
       plannedCompletionDate: true,
       actualCompletionDate: true,
       updatedAt: true,
+      sourceTenderProjectId: true,
+      sourceTenderProject: {
+        select: { id: true, name: true, workDomain: true },
+      },
       owner: { select: { id: true, name: true } },
       members: {
         where: { status: "active" },
@@ -401,11 +407,19 @@ export async function getDeliveryProjectDetail(input: {
     });
   }
 
+  const sourceId = project.sourceTenderProjectId;
+  const canLinkSource = Boolean(
+    sourceId && input.canReadSourceTender && project.sourceTenderProject,
+  );
+
   return {
     ...base,
     description: project.description,
     orgId: project.orgId,
     workDomain: "delivery",
+    sourceTenderProjectId: sourceId,
+    sourceTenderProjectName: project.sourceTenderProject?.name ?? null,
+    sourceTenderHref: canLinkSource ? `/projects/${sourceId}` : null,
     nextStepSuggestion: suggestDeliveryNextStep({
       deliveryStage: project.deliveryStage,
       openTasks: project.tasks,

@@ -8,6 +8,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { PROJECT_WORK_DOMAIN } from "@/lib/projects/work-domain";
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import {
   canAccessOperationsWorkspace,
   type WorkspacePolicyContext,
@@ -103,12 +104,29 @@ export const GET = withAuth(async (_request, ctx, user) => {
     );
   }
 
+  const deliveryRow = await db.project.findFirst({
+    where: {
+      id,
+      orgId: resolved.orgId,
+      workDomain: PROJECT_WORK_DOMAIN.DELIVERY,
+    },
+    select: { sourceTenderProjectId: true },
+  });
+  let canReadSourceTender = false;
+  if (deliveryRow?.sourceTenderProjectId) {
+    const visible = await getVisibleProjectIds(user.id, user.role);
+    canReadSourceTender =
+      visible === null ||
+      visible.includes(deliveryRow.sourceTenderProjectId);
+  }
+
   const detail = await getDeliveryProjectDetail({
     orgId: resolved.orgId,
     projectId: id,
     ctx: opsCtx,
     canManage: canManageDeliveryProjects(opsCtx),
     canReopenCompleted: canReopenCompletedDelivery(opsCtx),
+    canReadSourceTender,
   });
 
   if (!detail) {

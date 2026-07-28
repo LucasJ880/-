@@ -25,6 +25,10 @@ export type DeliveryProjectDetail = DeliveryProjectListItem & {
   description: string | null;
   orgId: string | null;
   workDomain: "delivery";
+  sourceTenderProjectId: string | null;
+  sourceTenderProjectName: string | null;
+  /** 仅当当前用户可读取来源投标项目时为可点击链接 */
+  sourceTenderHref: string | null;
   nextStepSuggestion: string | null;
   recentActivity: Array<{
     id: string;

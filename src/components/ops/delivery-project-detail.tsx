@@ -123,6 +123,23 @@ export function DeliveryProjectDetailView({ projectId }: { projectId: string }) 
             {" · "}
             健康度：{data.healthLabel}
           </p>
+          {data.sourceTenderProjectId ? (
+            <p className="text-[13px] text-[var(--muted)]">
+              来源投标项目：
+              {data.sourceTenderHref ? (
+                <Link
+                  href={data.sourceTenderHref}
+                  className="text-[var(--accent)] hover:underline"
+                >
+                  {data.sourceTenderProjectName || data.sourceTenderProjectId}
+                </Link>
+              ) : (
+                <span>
+                  {data.sourceTenderProjectName || "已关联（无查看权限）"}
+                </span>
+              )}
+            </p>
+          ) : null}
         </header>
 
         <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] pb-2">

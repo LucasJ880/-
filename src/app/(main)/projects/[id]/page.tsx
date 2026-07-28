@@ -29,6 +29,7 @@ import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card"
 import { ProjectProgressSection } from "@/components/tender/project-progress-section";
 import { ProjectDiscussionSection } from "@/components/project-discussion/project-discussion-section";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
+import { HandoffDialog } from "@/components/projects/handoff-dialog";
 import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
 import { ProjectProgressSummary } from "@/components/project-progress/project-progress-summary";
 import { BidChecklist } from "@/components/project-checklist/bid-checklist";
@@ -164,6 +165,11 @@ function ProjectDetailContent() {
   const [activityFilter, setActivityFilter] = useState("");
   const [progress, setProgress] = useState<ProjectProgress | null>(null);
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
+  const [showHandoffDialog, setShowHandoffDialog] = useState(false);
+  const [handoffInfo, setHandoffInfo] = useState<{
+    status: string;
+    targetDeliveryProjectId: string | null;
+  } | null>(null);
   const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
   const [showQuestionDialog, setShowQuestionDialog] = useState(false);
   const [orgRulesRefreshKey, setOrgRulesRefreshKey] = useState(0);
@@ -193,8 +199,14 @@ function ProjectDetailContent() {
       apiJson<{ progress?: ProjectProgress }>(
         `/api/projects/${id}/overview`
       ).catch(() => null),
+      apiJson<{
+        handoff?: {
+          status: string;
+          targetDeliveryProjectId: string | null;
+        } | null;
+      }>(`/api/projects/${id}/handoff`).catch(() => ({ handoff: null })),
     ])
-      .then(([p, m, ov]) => {
+      .then(([p, m, ov, ho]) => {
         if (p.error) {
           setError(p.error);
           setProject(null);
@@ -205,6 +217,7 @@ function ProjectDetailContent() {
         }
         setMembers(m.members ?? []);
         if (ov?.progress) setProgress(ov.progress);
+        setHandoffInfo(ho?.handoff ?? null);
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -365,21 +378,60 @@ function ProjectDetailContent() {
         </div>
       )}
 
-      {/* Abandon button */}
-      {project.status !== "abandoned" && canManage && (() => {
-        const tenderProps = buildTenderProps(project);
-        const stage = getProjectStage(tenderProps);
-        const canAbandon = ["interpretation", "supplier_inquiry", "supplier_quote", "submission"].includes(stage);
-        if (!canAbandon) return null;
-        return (
-          <div className="flex justify-end">
-            <button type="button" onClick={() => setShowAbandonDialog(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium text-danger shadow-sm hover:bg-danger-bg transition-colors">
-              <Ban size={14} />放弃项目
-            </button>
+      {handoffInfo?.status === "completed" && handoffInfo.targetDeliveryProjectId ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card-bg px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold">已转为执行项目</p>
+            <p className="mt-0.5 text-xs text-muted">
+              原投标项目保留不变，交付请在执行项目中跟进
+            </p>
           </div>
-        );
-      })()}
+          <Link
+            href={`/ops/projects/${handoffInfo.targetDeliveryProjectId}`}
+            className="inline-flex items-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)]"
+          >
+            打开执行项目
+          </Link>
+        </div>
+      ) : null}
+
+      {/* Abandon / Handoff actions */}
+      {project.status !== "abandoned" && canManage && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {project.tenderStatus === "won" &&
+          handoffInfo?.status !== "completed" ? (
+            <button
+              type="button"
+              onClick={() => setShowHandoffDialog(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] shadow-sm"
+            >
+              转为执行项目
+            </button>
+          ) : null}
+          {(() => {
+            const tenderProps = buildTenderProps(project);
+            const stage = getProjectStage(tenderProps);
+            const canAbandon = ["interpretation", "supplier_inquiry", "supplier_quote", "submission"].includes(stage);
+            if (!canAbandon) return null;
+            return (
+              <button type="button" onClick={() => setShowAbandonDialog(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium text-danger shadow-sm hover:bg-danger-bg transition-colors">
+                <Ban size={14} />放弃项目
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
+      <HandoffDialog
+        projectId={id}
+        open={showHandoffDialog}
+        onClose={() => {
+          setShowHandoffDialog(false);
+          load();
+        }}
+        tenderStatus={project.tenderStatus ?? null}
+      />
 
       {/* ═══ Tab Navigation ═══ */}
       <div className="overflow-x-auto -mx-1 px-1">

@@ -35,6 +35,10 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
       { permissionKey: "sales.analytics.read", dataScope: "ORG" },
       { permissionKey: "operations.read", dataScope: "ORG" },
       { permissionKey: "project.read", dataScope: "ORG" },
+      { permissionKey: "bids.handoff.preview", dataScope: "ORG" },
+      { permissionKey: "bids.handoff.execute", dataScope: "ORG" },
+      { permissionKey: "bids.handoff.override", dataScope: "ORG" },
+      { permissionKey: "operations.projects.create", dataScope: "ORG" },
     ],
   },
   {
@@ -91,6 +95,7 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
       { permissionKey: "operations.tasks.team.manage", dataScope: "ORG" },
       { permissionKey: "operations.projects.team.read", dataScope: "ORG" },
       { permissionKey: "operations.projects.manage", dataScope: "ORG" },
+      { permissionKey: "operations.projects.create", dataScope: "ORG" },
       { permissionKey: "identity.member.read", dataScope: "ORG" },
     ],
   },
@@ -111,6 +116,9 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
       { permissionKey: "project.read", dataScope: "ORG" },
       { permissionKey: "project.create", dataScope: "ORG" },
       { permissionKey: "project.update", dataScope: "ORG" },
+      { permissionKey: "bids.handoff.preview", dataScope: "ORG" },
+      { permissionKey: "bids.handoff.execute", dataScope: "ORG" },
+      { permissionKey: "operations.projects.create", dataScope: "ORG" },
     ],
   },
   {

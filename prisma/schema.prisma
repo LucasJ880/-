@@ -57,6 +57,8 @@ model User {
   purchasedProjects        Project[]                   @relation("ProjectPurchaser")
   tasks                    Task[]                      @relation("TaskAssignee")
   createdTasks             Task[]                      @relation("TaskCreator")
+  handoffsInitiated        ProjectHandoff[]            @relation("HandoffInitiator")
+  handoffsAsDeliveryOwner  ProjectHandoff[]            @relation("HandoffDeliveryOwner")
   comments                 TaskComment[]
   activities               TaskActivity[]
   calendarEvents           CalendarEvent[]
@@ -333,6 +335,14 @@ model Project {
   reviews              ProjectReview[]
   generatedDocs        ProjectGeneratedDocument[]
 
+  /// Phase 5：执行项目来源投标项目（仅 workDomain=delivery 可填）
+  sourceTenderProjectId String?
+  sourceTenderProject   Project?  @relation("DeliveryFromTender", fields: [sourceTenderProjectId], references: [id], onDelete: SetNull)
+  deliveryProjectsFrom  Project[] @relation("DeliveryFromTender")
+
+  handoffsAsSource  ProjectHandoff[] @relation("HandoffSourceTender")
+  handoffsAsTarget  ProjectHandoff[] @relation("HandoffTargetDelivery")
+
   @@index([orgId])
   @@index([workspaceId])
   @@index([purchaserId])
@@ -342,6 +352,52 @@ model Project {
   @@index([status, createdAt])
   @@index([orgId, workDomain])
   @@index([orgId, workDomain, deliveryStage])
+  @@index([orgId, sourceTenderProjectId])
+  @@index([sourceTenderProjectId])
+}
+
+/// Phase 5：中标 → 执行项目交接审计与幂等记录
+model ProjectHandoff {
+  id        String @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  sourceTenderProjectId   String
+  sourceTenderProject     Project  @relation("HandoffSourceTender", fields: [sourceTenderProjectId], references: [id], onDelete: Restrict)
+  targetDeliveryProjectId String?  @unique
+  targetDeliveryProject   Project? @relation("HandoffTargetDelivery", fields: [targetDeliveryProjectId], references: [id], onDelete: SetNull)
+
+  /// award_to_delivery
+  handoffType String @default("award_to_delivery")
+  /// pending | processing | completed | failed | cancelled
+  status String @default("pending")
+
+  /// 服务端确定性业务键（hash 或明文）
+  idempotencyKey String @unique
+
+  initiatedById   String
+  initiatedBy     User @relation("HandoffInitiator", fields: [initiatedById], references: [id])
+  deliveryOwnerId String
+  deliveryOwner   User @relation("HandoffDeliveryOwner", fields: [deliveryOwnerId], references: [id])
+
+  previewSnapshot     Json?
+  transferredSnapshot Json?
+  overrideReason      String?
+
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  failedAt       DateTime?
+  failureCode    String?
+  failureMessage String?
+  retryCount     Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, sourceTenderProjectId, handoffType])
+  @@index([orgId, status])
+  @@index([sourceTenderProjectId])
+  @@index([status])
 }
 
 model Task {
@@ -361,6 +417,12 @@ model Task {
   waitingOn     String?
   /// 等待跟进/截止时间（可选）
   waitingUntil  DateTime?
+  /// Phase 5：任务来源（如 project_handoff）；手动任务可空
+  sourceType        String?
+  sourceId          String?
+  sourceBatchKey    String?
+  /// 交接模板稳定键，用于 handoffId + templateKey 去重
+  sourceTemplateKey String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -386,6 +448,9 @@ model Task {
   @@index([dueDate])
   @@index([status, createdAt])
   @@index([waitingUntil])
+  @@index([sourceType, sourceId])
+  @@index([sourceBatchKey])
+  @@unique([sourceId, sourceTemplateKey])
 }
 
 model TaskComment {
@@ -678,6 +743,7 @@ model Organization {
   activeUsers       User[]                    @relation("UserActiveOrg")
   roleProfiles      RoleProfile[]
   positionTemplates PositionTemplate[]
+  projectHandoffs   ProjectHandoff[]
 
   // 人机协作学习 Phase 1
   employeeAiProfiles  EmployeeAiProfile[]

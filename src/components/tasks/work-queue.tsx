@@ -26,10 +26,16 @@ type TaskRow = {
   blockedReason: string | null;
   completedAt: string | null;
   updatedAt: string;
+  sourceType?: string | null;
   project: { id: string; name: string; color: string } | null;
   assignee: { id: string; name: string } | null;
   creator?: { id: string; name: string } | null;
 };
+
+function taskSourceLabel(t: TaskRow): string {
+  if (t.sourceType === "project_handoff") return "中标交接";
+  return "来源未记录";
+}
 
 type ListResponse = {
   items: TaskRow[];
@@ -244,7 +250,7 @@ export function WorkQueue() {
               {formatDue(t.dueDate)}
               {t.assignee ? ` · ${t.assignee.name}` : " · 未指派"}
               {t.project ? ` · ${t.project.name}` : " · 无项目"}
-              {" · 来源未记录"}
+              {` · ${taskSourceLabel(t)}`}
               {` · 更新 ${formatDue(t.updatedAt)}`}
             </p>
             {summary ? (
