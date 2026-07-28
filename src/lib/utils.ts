@@ -1,16 +1,16 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import {
+  TASK_STATUS_META,
+  type TaskStatusValue,
+} from "@/lib/tasks/status";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const TASK_STATUS = {
-  todo: { label: "待办", color: "bg-muted/15 text-muted" },
-  in_progress: { label: "进行中", color: "bg-accent-soft text-accent" },
-  done: { label: "已完成", color: "bg-success-bg text-success" },
-  cancelled: { label: "已取消", color: "bg-danger-bg text-danger" },
-} as const;
+/** @deprecated 优先使用 @/lib/tasks；保留兼容现有导入 */
+export const TASK_STATUS = TASK_STATUS_META;
 
 export const TASK_PRIORITY = {
   low: { label: "低", color: "bg-muted/15 text-muted" },
@@ -19,5 +19,5 @@ export const TASK_PRIORITY = {
   urgent: { label: "紧急", color: "bg-danger-bg text-danger" },
 } as const;
 
-export type TaskStatus = keyof typeof TASK_STATUS;
+export type TaskStatus = TaskStatusValue;
 export type TaskPriority = keyof typeof TASK_PRIORITY;

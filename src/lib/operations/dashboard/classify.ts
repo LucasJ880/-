@@ -1,10 +1,17 @@
-/** 运营首页任务归类纯函数（便于单测，无 DB） */
+/** 运营首页归类 — 复用 Task 领域状态层 */
 
-const CLOSED = new Set(["done", "cancelled"]);
+import {
+  isTaskOpen,
+  isUrgentTask,
+  isWaitingUntilDue,
+  taskStatusLabel,
+  type GroupableTask,
+} from "@/lib/tasks";
+
 const STALE_DAYS = 7;
 
 export function isOpenTaskStatus(status: string): boolean {
-  return !CLOSED.has(status);
+  return isTaskOpen(status);
 }
 
 export function isOverdueDueDate(
@@ -34,20 +41,8 @@ export function isStaleOpenTask(
   return ageMs >= days * 86_400_000;
 }
 
-export function taskStatusLabel(status: string): string {
-  switch (status) {
-    case "todo":
-      return "待办";
-    case "in_progress":
-      return "进行中";
-    case "done":
-      return "已完成";
-    case "cancelled":
-      return "已取消";
-    default:
-      return status;
-  }
-}
+export { taskStatusLabel, isUrgentTask, isWaitingUntilDue };
+export type { GroupableTask };
 
 export function truncatePreview(
   text: string | null | undefined,
@@ -60,4 +55,4 @@ export function truncatePreview(
   return `${cleaned.slice(0, max)}…`;
 }
 
-export { STALE_DAYS, CLOSED as CLOSED_TASK_STATUSES };
+export { STALE_DAYS };

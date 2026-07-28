@@ -44,6 +44,10 @@ function formatDue(dueDate: string | null, taskStatus: string): { text: string; 
 const KANBAN_COLUMNS: { status: TaskStatus; label: string; icon: typeof Circle; color: string }[] = [
   { status: "todo", label: "待办", icon: Circle, color: "var(--muted)" },
   { status: "in_progress", label: "进行中", icon: Clock, color: "var(--accent)" },
+  { status: "waiting_external", label: "等待外部", icon: Clock, color: "var(--warning)" },
+  { status: "waiting_internal", label: "等待内部", icon: Clock, color: "var(--warning)" },
+  { status: "blocked", label: "阻塞", icon: Circle, color: "var(--danger)" },
+  { status: "needs_approval", label: "待审批", icon: Clock, color: "var(--warning)" },
   { status: "done", label: "已完成", icon: CheckCircle2, color: "var(--success)" },
 ];
 

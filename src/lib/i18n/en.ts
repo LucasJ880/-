@@ -48,7 +48,7 @@ export const en: Messages = {
   nav_bids_workspace: "Bids",
   nav_sales_workspace: "Sales Center",
   nav_notifications: "To-dos",
-  nav_tasks: "My tasks",
+  nav_tasks: "My Work",
   nav_sales_pipeline: "Opportunity Center",
   nav_all_quotes: "All Quotes",
   nav_appointment_calendar: "Appointments",

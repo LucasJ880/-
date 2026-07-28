@@ -116,7 +116,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "work-tasks",
-    label: "我的任务",
+    label: "我的工作",
     labelKey: "nav_tasks",
     href: "/tasks",
     icon: CheckSquare,

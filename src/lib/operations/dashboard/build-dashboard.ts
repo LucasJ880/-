@@ -14,6 +14,14 @@ import {
   startOfDayToronto,
 } from "@/lib/time";
 import {
+  CLOSED_TASK_STATUSES,
+  isTaskActiveWork,
+  isTaskBlocked,
+  isTaskWaiting,
+  isUrgentTask,
+  isWaitingUntilDue,
+} from "@/lib/tasks";
+import {
   isDueTodayDueDate,
   isOpenTaskStatus,
   isOverdueDueDate,
@@ -35,6 +43,9 @@ type TaskRow = {
   priority: string;
   dueDate: Date | null;
   updatedAt: Date;
+  waitingOn: string | null;
+  waitingUntil: Date | null;
+  blockedReason: string | null;
   projectId: string | null;
   project: { id: string; name: string; updatedAt: Date } | null;
   assignee: { id: string; name: string } | null;
@@ -115,7 +126,10 @@ function taskUrgentItem(
     dueAt: task.dueDate?.toISOString() ?? null,
     statusLabel,
     sourceLabel: "项目任务",
-    href: `/tasks?focus=${task.id}`,
+    href: `/tasks?focus=${task.id}&due=${kind === "overdue_task" ? "overdue" : kind === "due_today_task" ? "today" : ""}`.replace(
+      /&due=$/,
+      "",
+    ),
     secondaryHref: projectId ? `/projects/${projectId}` : null,
     priority: task.priority,
   };
@@ -150,7 +164,7 @@ export async function buildOpsDashboard(params: {
     db.task.findMany({
       where: {
         ...taskWhere,
-        status: { notIn: ["done", "cancelled"] },
+        status: { notIn: [...CLOSED_TASK_STATUSES] },
       },
       select: {
         id: true,
@@ -159,6 +173,9 @@ export async function buildOpsDashboard(params: {
         priority: true,
         dueDate: true,
         updatedAt: true,
+        waitingOn: true,
+        waitingUntil: true,
+        blockedReason: true,
         projectId: true,
         creatorId: true,
         project: { select: { id: true, name: true, updatedAt: true } },
@@ -226,12 +243,18 @@ export async function buildOpsDashboard(params: {
   const dueTodayTasks = tasks.filter((t) =>
     isDueTodayDueDate(t.dueDate, todayStart, todayEnd),
   );
-  const inProgressTasks = tasks.filter((t) => t.status === "in_progress");
+  const inProgressTasks = tasks.filter((t) => isTaskActiveWork(t.status));
+  const blockedTasks = tasks.filter((t) => isTaskBlocked(t.status));
+  const waitingDueTasks = tasks.filter(
+    (t) => isTaskWaiting(t.status) && isWaitingUntilDue(t.waitingUntil, now),
+  );
+  const waitingNotDueTasks = tasks.filter(
+    (t) => isTaskWaiting(t.status) && !isWaitingUntilDue(t.waitingUntil, now),
+  );
   const staleTasks = tasks.filter(
     (t) =>
       isOpenTaskStatus(t.status) &&
-      !isOverdueDueDate(t.dueDate, todayStart) &&
-      !isDueTodayDueDate(t.dueDate, todayStart, todayEnd) &&
+      !isUrgentTask(t, now) &&
       isStaleOpenTask(t.updatedAt, now),
   );
 
@@ -264,9 +287,29 @@ export async function buildOpsDashboard(params: {
   for (const t of overdueTasks.slice(0, 8)) {
     urgentItems.push(taskUrgentItem(t, "overdue_task", "已经逾期"));
   }
+  for (const t of blockedTasks.slice(0, 6)) {
+    if (urgentItems.some((u) => u.id.startsWith(`task:${t.id}:`))) continue;
+    urgentItems.push(
+      taskUrgentItem(
+        t,
+        "stale_task",
+        t.blockedReason ? `阻塞：${t.blockedReason}` : "阻塞",
+      ),
+    );
+  }
   for (const t of dueTodayTasks.slice(0, 6)) {
     if (urgentItems.some((u) => u.id.startsWith(`task:${t.id}:`))) continue;
     urgentItems.push(taskUrgentItem(t, "due_today_task", "今天到期"));
+  }
+  for (const t of waitingDueTasks.slice(0, 4)) {
+    if (urgentItems.some((u) => u.id.startsWith(`task:${t.id}:`))) continue;
+    urgentItems.push(
+      taskUrgentItem(
+        t,
+        "stale_task",
+        t.waitingOn ? `等待到期：${t.waitingOn}` : "等待跟进已到期",
+      ),
+    );
   }
   for (const t of staleTasks.slice(0, 4)) {
     if (urgentItems.some((u) => u.id.startsWith(`task:${t.id}:`))) continue;
@@ -306,6 +349,15 @@ export async function buildOpsDashboard(params: {
   const todayTasks = [...todayQueueMap.values()].slice(0, 12);
 
   const waitingItems: OpsDashboardItem[] = [];
+  for (const t of waitingNotDueTasks.slice(0, 8)) {
+    waitingItems.push(
+      taskUrgentItem(
+        t,
+        "stale_task",
+        t.waitingOn ? `等待：${t.waitingOn}` : "等待中（缺少等待对象）",
+      ),
+    );
+  }
   for (const a of pendingRaw.slice(0, 10)) {
     waitingItems.push({
       id: `wait-pa:${a.id}`,
@@ -325,17 +377,51 @@ export async function buildOpsDashboard(params: {
     });
   }
 
-  const followups = [
+  // follow-up：immediate/today/高优先级 → 立即处理；其余 → 等待中
+  const urgentFollowups = [
     ...reminderLayers.immediate,
     ...reminderLayers.today,
-    ...reminderLayers.upcoming,
-  ].filter((r) => r.type === "followup" && !r.isRead);
+  ].filter(
+    (r) =>
+      r.type === "followup" &&
+      !r.isRead &&
+      (!r.projectId ||
+        !orgProjectIds.length ||
+        orgProjectIds.includes(r.projectId)),
+  );
+  for (const r of urgentFollowups.slice(0, 4)) {
+    urgentItems.push({
+      id: `urg-rem:${r.sourceKey}`,
+      kind: "followup_reminder",
+      title: r.title,
+      projectId: r.projectId ?? null,
+      projectName: r.project?.name ?? null,
+      assigneeName: null,
+      dueAt: null,
+      statusLabel:
+        r.priority === "urgent" || r.priority === "high"
+          ? "高优先跟进"
+          : "今日跟进",
+      sourceLabel: "系统提醒",
+      href: r.taskId
+        ? `/tasks?focus=${r.taskId}`
+        : r.projectId
+          ? `/projects/${r.projectId}`
+          : "/notifications",
+      secondaryHref: r.projectId ? `/projects/${r.projectId}` : null,
+      priority: r.priority ?? null,
+    });
+  }
 
-  for (const r of followups.slice(0, 8)) {
-    // 仅展示用户可见项目上的提醒，避免串项目
-    if (r.projectId && !orgProjectIds.includes(r.projectId) && orgProjectIds.length) {
-      continue;
-    }
+  const laterFollowups = reminderLayers.upcoming.filter(
+    (r) =>
+      r.type === "followup" &&
+      !r.isRead &&
+      (!r.projectId ||
+        !orgProjectIds.length ||
+        orgProjectIds.includes(r.projectId)),
+  );
+  for (const r of laterFollowups.slice(0, 8)) {
     waitingItems.push({
       id: `wait-rem:${r.sourceKey}`,
       kind: "followup_reminder",

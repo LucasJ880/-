@@ -48,7 +48,7 @@ export const zh: Messages = {
   nav_bids_workspace: "招投标中心",
   nav_sales_workspace: "销售中心",
   nav_notifications: "待处理事项",
-  nav_tasks: "我的任务",
+  nav_tasks: "我的工作",
   nav_sales_pipeline: "商机中心",
   nav_all_quotes: "全部报价",
   nav_appointment_calendar: "预约日历",

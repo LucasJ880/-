@@ -318,15 +318,31 @@ export function OpsWorkspaceShell() {
 
       <div className="grid grid-cols-2 gap-3 border-b border-[var(--border)] pb-4 sm:grid-cols-4">
         {[
-          { label: "已逾期", value: data.counts.overdue },
-          { label: "今天到期", value: data.counts.dueToday },
-          { label: "进行中", value: data.counts.inProgress },
-          { label: "待审批", value: data.counts.pendingApproval },
+          {
+            label: "已逾期",
+            value: data.counts.overdue,
+            href: "/tasks?due=overdue",
+          },
+          {
+            label: "今天到期",
+            value: data.counts.dueToday,
+            href: "/tasks?due=today",
+          },
+          {
+            label: "进行中",
+            value: data.counts.inProgress,
+            href: "/tasks?bucket=open",
+          },
+          {
+            label: "待审批",
+            value: data.counts.pendingApproval,
+            href: "/capabilities/approvals",
+          },
         ].map((c) => (
-          <div key={c.label} className="px-1 py-1">
+          <Link key={c.label} href={c.href} className="px-1 py-1 hover:opacity-80">
             <p className="text-[11px] text-[var(--muted)]">{c.label}</p>
             <p className="text-xl font-semibold tabular-nums">{c.value}</p>
-          </div>
+          </Link>
         ))}
       </div>
 

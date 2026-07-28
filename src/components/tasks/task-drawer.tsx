@@ -81,6 +81,10 @@ interface TaskDrawerProps {
 const STATUS_CONFIG: Record<TaskStatus, { icon: typeof Circle; label: string; activeClass: string }> = {
   todo: { icon: Circle, label: "待办", activeClass: "border-muted bg-muted/10 text-muted" },
   in_progress: { icon: Clock, label: "进行中", activeClass: "border-accent bg-accent-soft text-accent" },
+  waiting_external: { icon: Clock, label: "等待外部", activeClass: "border-warning bg-warning-bg text-warning" },
+  waiting_internal: { icon: Clock, label: "等待内部", activeClass: "border-warning bg-warning-bg text-warning" },
+  blocked: { icon: XCircle, label: "阻塞", activeClass: "border-danger bg-danger-light text-danger" },
+  needs_approval: { icon: Clock, label: "待审批", activeClass: "border-warning bg-warning-bg text-warning" },
   done: { icon: CheckCircle2, label: "已完成", activeClass: "border-success bg-success-light text-success" },
   cancelled: { icon: XCircle, label: "已取消", activeClass: "border-danger bg-danger-light text-danger" },
 };

@@ -338,12 +338,19 @@ model Task {
   id           String    @id @default(cuid())
   title        String
   description  String?
+  /// 存储小写蛇形：todo | in_progress | waiting_external | waiting_internal | blocked | needs_approval | done | cancelled
   status       String    @default("todo")
   priority     String    @default("medium")
   dueDate      DateTime?
   needReminder Boolean   @default(false)
   followupAt   DateTime?
   completedAt  DateTime?
+  /// BLOCKED 原因（必填于状态转换层）
+  blockedReason String?
+  /// WAITING_EXTERNAL / WAITING_INTERNAL 等待对象说明
+  waitingOn     String?
+  /// 等待跟进/截止时间（可选）
+  waitingUntil  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -368,6 +375,7 @@ model Task {
   @@index([assigneeId])
   @@index([dueDate])
   @@index([status, createdAt])
+  @@index([waitingUntil])
 }
 
 model TaskComment {

@@ -96,6 +96,7 @@ run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.tes
 run_test "Default Workspace" "npx tsx src/lib/rbac/__tests__/default-workspace.test.ts"
 run_test "Home Redirect" "npx tsx src/lib/rbac/__tests__/home-redirect.test.ts"
 run_test "Ops Dashboard Classify" "npx tsx src/lib/operations/dashboard/__tests__/classify.test.ts"
+run_test "Task Status Transition" "npx tsx src/lib/tasks/__tests__/status-transition.test.ts"
 run_test "Phase3A-5 Stream/Settle Unit" "npx tsx src/lib/capabilities/__tests__/phase3a5-stream-settle.test.ts"
 run_test "Phase3A-5 Settle DB" "npx tsx src/lib/capabilities/__tests__/phase3a5-settle-db.test.ts"
 run_test "Phase3A-5 Catalog/Health" "npx tsx src/lib/capabilities/__tests__/phase3a5-catalog-health.test.ts"
