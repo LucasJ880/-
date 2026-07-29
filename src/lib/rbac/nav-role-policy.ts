@@ -7,9 +7,12 @@
  *   → manager（总经理，兼容旧账号，导航视同 boss）
  *   → operations（运营）/ sales（销售）/ trade（外贸）/ user
  *
- * 销售、运营：不看「企业经营」「AI 能力」
- * 销售额外：不看「品牌增长」、企业知识、微信集成；聚焦业务完成
- * 运营：保留「业务运营」与「品牌增长」
+ * 销售、运营：不看「管理入口 /operations/center」「AI 工作中心」整组
+ * 销售额外：不看「品牌增长」、知识库、微信集成；聚焦业务完成
+ * 运营：保留「业务运营」与「品牌增长」；运营中心入口见 workspace-policy（/ops）
+ *
+ * 工作区级门禁（/ops、/bids、默认入口）以 workspace-policy 为准，
+ * 本文件不单独用 operations 推断招投标权限。
  */
 
 import type { NavigationGroup } from "@/lib/navigation/types";
@@ -64,6 +67,14 @@ export function isNavItemHiddenForRole(
   if (!role) return false;
   if (isSalesStaff(role)) {
     return itemKey === "mgmt-knowledge" || itemKey === "mgmt-wechat";
+  }
+  // 运营：隐藏招投标项目域入口（深链与 API 权限不变）
+  if (isOperationsStaff(role)) {
+    return (
+      itemKey === "biz-projects" ||
+      itemKey === "biz-project-intel" ||
+      itemKey === "ws-bids"
+    );
   }
   return false;
 }

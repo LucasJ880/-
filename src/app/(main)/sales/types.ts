@@ -44,6 +44,15 @@ export interface Customer {
   createdBy?: { id: string; name: string; email: string };
   /** 后端根据机会和报价推导的漏斗状态 */
   funnelStatus?: FunnelStatus;
+  /** 列表增强字段（/api/sales/customers） */
+  primaryStage?: string | null;
+  primaryOpportunityId?: string | null;
+  estimatedValue?: number | null;
+  lastContactAt?: string | null;
+  nextFollowupAt?: string | null;
+  latestQuoteStatus?: string | null;
+  quoteViewed?: boolean;
+  suggestedAction?: string;
   _count?: { interactions: number; quotes: number; blindsOrders: number };
   _offlinePending?: boolean;
 }
@@ -62,6 +71,8 @@ export interface Opportunity {
   createdAt: string;
   latestQuoteTotal: number | null;
   latestQuoteStatus: string | null;
+  quoteViewedAt?: string | null;
+  lastInteractionAt?: string | null;
 }
 
 export interface ImportResult {

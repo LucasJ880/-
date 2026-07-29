@@ -54,6 +54,7 @@ export function MobileNavDrawer({
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
   const [orgRole, setOrgRole] = useState<string | null>(null);
   const [hasMembership, setHasMembership] = useState(false);
+  const [hasBidCapability, setHasBidCapability] = useState(false);
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -91,12 +92,14 @@ export function MobileNavDrawer({
           workspaceIds?: string[];
           orgRole?: string | null;
           hasMembership?: boolean;
+          hasBidCapability?: boolean;
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
           setWorkspaceIds(data.workspaceIds ?? []);
           setOrgRole(data.orgRole ?? null);
           setHasMembership(Boolean(data.hasMembership ?? data.orgRole));
+          setHasBidCapability(Boolean(data.hasBidCapability));
         }
       } catch {
         /* ignore */
@@ -124,6 +127,7 @@ export function MobileNavDrawer({
       workspaceIds,
       modules: orgModules,
       isPlatformAdmin,
+      hasBidCapability,
     }),
     [
       pathname,
@@ -133,6 +137,7 @@ export function MobileNavDrawer({
       workspaceIds,
       orgModules,
       isPlatformAdmin,
+      hasBidCapability,
       organizations,
       storedOrgId,
     ],

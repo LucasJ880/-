@@ -104,6 +104,7 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
         color,
         orgId,
         ownerId: user.id,
+        workDomain: "general",
         members: {
           create: {
             userId: user.id,

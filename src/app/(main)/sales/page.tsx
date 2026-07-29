@@ -54,12 +54,19 @@ function SalesPageInner() {
   const urlEndDate = searchParams.get("endDate") || "";
   const urlFunnelStatus = (searchParams.get("funnelStatus") || "") as FunnelStatus | "";
   const urlViewMode = searchParams.get("view") as ViewMode | null;
+  const urlStage = searchParams.get("stage") || "";
+  const urlNew = searchParams.get("new") === "1";
+  const urlFollowup = searchParams.get("followup") === "1";
   const hasDrillFilters = Boolean(
     urlCreatedById || urlStartDate || urlEndDate || urlFunnelStatus,
   );
 
   const [viewMode, setViewMode] = useState<ViewMode>(
-    urlViewMode === "customers" || hasDrillFilters ? "customers" : "pipeline",
+    urlViewMode === "customers" || hasDrillFilters
+      ? "customers"
+      : urlViewMode === "pipeline" || urlStage
+        ? "pipeline"
+        : "pipeline",
   );
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -67,6 +74,7 @@ function SalesPageInner() {
   const [search, setSearch] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [followupHint, setFollowupHint] = useState(false);
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -159,6 +167,45 @@ function SalesPageInner() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 同步 URL view / stage
+  useEffect(() => {
+    if (urlViewMode === "customers" || hasDrillFilters) {
+      setViewMode("customers");
+    } else if (urlViewMode === "pipeline" || urlStage) {
+      setViewMode("pipeline");
+    }
+  }, [urlViewMode, hasDrillFilters, urlStage]);
+
+  // Command Center 快捷入口：?new=1 / ?followup=1
+  useEffect(() => {
+    if (urlNew) {
+      setViewMode("customers");
+      setShowNewCustomer(true);
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("new");
+      if (!next.get("view")) next.set("view", "customers");
+      const qs = next.toString();
+      router.replace(qs ? `/sales?${qs}` : "/sales?view=customers");
+    }
+  }, [urlNew, router, searchParams]);
+
+  useEffect(() => {
+    if (urlFollowup) {
+      setViewMode("customers");
+      setFollowupHint(true);
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("followup");
+      if (!next.get("view")) next.set("view", "customers");
+      const qs = next.toString();
+      router.replace(qs ? `/sales?${qs}` : "/sales?view=customers");
+    }
+  }, [urlFollowup, router, searchParams]);
+
+  const visibleOpportunities = useMemo(() => {
+    if (!urlStage) return opportunities;
+    return opportunities.filter((o) => o.stage === urlStage);
+  }, [opportunities, urlStage]);
 
   return (
     <PullToRefresh onRefresh={loadData} enabled={isMobile} className="space-y-5">
@@ -262,9 +309,40 @@ function SalesPageInner() {
           </button>
         </div>
       ) : viewMode === "pipeline" ? (
-        <PipelineBoard opportunities={opportunities} onRefresh={loadData} />
+        <>
+          {urlStage && (
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-accent/30 bg-accent/5 px-3 py-2 text-xs">
+              <span>阶段筛选：{urlStage}</span>
+              <button
+                type="button"
+                onClick={() => router.replace("/sales?view=pipeline")}
+                className="ml-auto inline-flex items-center gap-1 rounded border border-border bg-card-bg px-2 py-0.5"
+              >
+                <X className="h-3 w-3" />
+                清除
+              </button>
+            </div>
+          )}
+          <PipelineBoard
+            opportunities={visibleOpportunities}
+            onRefresh={loadData}
+          />
+        </>
       ) : (
         <>
+          {followupHint && (
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-900">
+              <span>请选择一位客户，使用「记录跟进」快捷操作。</span>
+              <button
+                type="button"
+                onClick={() => setFollowupHint(false)}
+                className="ml-auto inline-flex items-center gap-1 rounded border border-border bg-card-bg px-2 py-0.5"
+              >
+                <X className="h-3 w-3" />
+                知道了
+              </button>
+            </div>
+          )}
           {drillChips.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-accent/30 bg-accent/5 px-3 py-2">
               <span className="text-xs text-muted">来自复盘分析的筛选：</span>

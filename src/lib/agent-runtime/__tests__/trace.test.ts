@@ -5,6 +5,10 @@
 
 import { db } from "@/lib/db";
 import {
+  cleanupTestUserOrg,
+  ensureTestUserOrg,
+} from "@/lib/test-fixtures/org-user";
+import {
   getOrCreateAgentSession,
   createAgentRun,
   appendAgentRunEvent,
@@ -41,6 +45,25 @@ async function main() {
   const userB = `smoke_trace_user_b_${stamp}`;
 
   try {
+    await ensureTestUserOrg(db, {
+      userId: userA,
+      orgId: orgA,
+      email: `trace_a_${stamp}@test.local`,
+      orgCode: `tra_${stamp}`,
+    });
+    await ensureTestUserOrg(db, {
+      userId: userB,
+      orgId: orgA,
+      email: `trace_b_${stamp}@test.local`,
+      orgCode: `tra_${stamp}`,
+    });
+    await ensureTestUserOrg(db, {
+      userId: userA,
+      orgId: orgB,
+      email: `trace_a_${stamp}@test.local`,
+      orgCode: `trb_${stamp}`,
+    });
+
     const session = await getOrCreateAgentSession({
       orgId: orgA,
       userId: userA,
@@ -182,9 +205,8 @@ async function main() {
     });
     ok(otherUser === null, "self 不能读他人 Run");
 
-    // PendingAction preview 截断（需真实 User FK；无用户则跳过）
-    const anyUser = await db.user.findFirst({ select: { id: true } });
-    if (anyUser) {
+    // PendingAction preview 截断
+    {
       const longPreview = "预览".repeat(300);
       const pending = await db.pendingAction.create({
         data: {
@@ -193,7 +215,7 @@ async function main() {
           preview: longPreview,
           payload: {},
           status: "pending",
-          createdById: anyUser.id,
+          createdById: userA,
           orgId: orgA,
           agentRunId: run.id,
           expiresAt: new Date(Date.now() + 3600_000),
@@ -211,8 +233,6 @@ async function main() {
       ok(!!row?.expiresAt, "expiresAt 回传");
       ok(row?.type === "smoke.test", "type 回传");
       await db.pendingAction.delete({ where: { id: pending.id } }).catch(() => {});
-    } else {
-      console.log("  · 跳过 Pending preview（库中无 User）");
     }
 
     console.log(`  ${pass} passed, ${fail} failed`);
@@ -224,6 +244,12 @@ async function main() {
     }
     throw e;
   } finally {
+    await db.capabilityQuotaReservation
+      .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
+      .catch(() => {});
+    await db.pendingAction
+      .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
+      .catch(() => {});
     await db.agentRunEvent
       .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
       .catch(() => {});
@@ -233,6 +259,10 @@ async function main() {
     await db.agentSession
       .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
       .catch(() => {});
+    await cleanupTestUserOrg(db, {
+      userIds: [userA, userB],
+      orgIds: [orgA, orgB],
+    });
     await db.$disconnect().catch(() => {});
   }
 

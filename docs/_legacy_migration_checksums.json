@@ -1,0 +1,438 @@
+{
+  "generated_at": "2026-07-28",
+  "archive_root": "prisma/migrations_legacy_pre_greenfield_baseline",
+  "count": 85,
+  "known_order_issue": {
+    "earlier": "20260318200000_add_project_discussion",
+    "later_init": "20260319230000_init_postgresql",
+    "problem": "discussion requires Project; init creates Project; empty replay fails on old chain"
+  },
+  "duplicate_baseline_note": "20260416120000_baseline_before_launch may appear twice in _prisma_migrations (rolled_back + finished); see docs/BASELINE_MIGRATION_DUPLICATE_ASSESSMENT.md",
+  "migrations": [
+    {
+      "migration": "20260318200000_add_project_discussion",
+      "checksum": "50548c3593a6721ad930ca444f622337483aa67220c6b34fce8c6d75ec662671",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260318200000_add_project_discussion/migration.sql"
+    },
+    {
+      "migration": "20260319230000_init_postgresql",
+      "checksum": "95d93b28053b9519a9898299af0c9030222ddec538730d8665e14e687d35727a",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260319230000_init_postgresql/migration.sql"
+    },
+    {
+      "migration": "20260320120000_add_auth_provider_and_indexes",
+      "checksum": "ef413f234a9deb8acc0ac24aac6e640f2dcb03f53c9956b207616eaf3a7d9a27",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260320120000_add_auth_provider_and_indexes/migration.sql"
+    },
+    {
+      "migration": "20260416120000_baseline_before_launch",
+      "checksum": "7e3991b2b2692bc5ca402cf91f2800bb42f448e36980324569c44107f3d0f059",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260416120000_baseline_before_launch/migration.sql"
+    },
+    {
+      "migration": "20260417000000_user_sales_rep_initials",
+      "checksum": "e00be5989e8f1d712a821c3d8be83d21ec051a497b9436f34117dffd99e9423d",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260417000000_user_sales_rep_initials/migration.sql"
+    },
+    {
+      "migration": "20260417010000_quote_discount_settings",
+      "checksum": "d3cbd1d20239892398f64c99e044baeecc1ee5f6596bbbf17949edf5a6b8c9a4",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260417010000_quote_discount_settings/migration.sql"
+    },
+    {
+      "migration": "20260417020000_quote_discount_tracking",
+      "checksum": "d6c095358dfcce8b45529189e5b93d5f2f67e6df971f9e9d6a269b4b88bbc75a",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260417020000_quote_discount_tracking/migration.sql"
+    },
+    {
+      "migration": "20260418010000_promo_thresholds",
+      "checksum": "f5e06be61805ae14015315e3905ee5a0bf5c85ba4ece1abf1f7b8e75285b09aa",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260418010000_promo_thresholds/migration.sql"
+    },
+    {
+      "migration": "20260419010000_pending_action",
+      "checksum": "cc3e9713128377aa8321e4e3615d1a0e142076c14ef5abbb4c9c3c676572e147",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260419010000_pending_action/migration.sql"
+    },
+    {
+      "migration": "20260420010000_customer_permissions",
+      "checksum": "16148276a7d31e41c946423d226a3d5f078223c6cf43ce207a053a3c68ce8e99",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260420010000_customer_permissions/migration.sql"
+    },
+    {
+      "migration": "20260421010000_deposit_thresholds",
+      "checksum": "f1879dd36fe39aa4da03008e1641dd8d8ea118af61544f91d2883ce19eae3f72",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260421010000_deposit_thresholds/migration.sql"
+    },
+    {
+      "migration": "20260422010000_sales_quote_deposit",
+      "checksum": "9406ca0aa1df88216c7450ea179e7f458109b8a6d6f6a5b5681a6159afc24c18",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260422010000_sales_quote_deposit/migration.sql"
+    },
+    {
+      "migration": "20260422130000_quote_agreed_payment",
+      "checksum": "038aab291fa498e8828694d6aee7d4f7f62f0de4eaa30d545fb5f66693004286",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260422130000_quote_agreed_payment/migration.sql"
+    },
+    {
+      "migration": "20260423090000_trade_watch_p1_alpha",
+      "checksum": "7dbbd7ba84dcb9093222779d507f6c3a1b33dbc9553fd2c4a77d3625603529e9",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260423090000_trade_watch_p1_alpha/migration.sql"
+    },
+    {
+      "migration": "20260424180000_add_visualizer_mvp",
+      "checksum": "46713120edbb123f298f744d59b42411e3edc653d7ac63f1954fb5919312da9f",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260424180000_add_visualizer_mvp/migration.sql"
+    },
+    {
+      "migration": "20260429120000_trade_research_confidence",
+      "checksum": "55d39096723a10aa1efe61e5ad1ca24c742262cdd09a5b01ed509882ec17e42a",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260429120000_trade_research_confidence/migration.sql"
+    },
+    {
+      "migration": "20260429140000_trade_prospect_sales_conversion",
+      "checksum": "fac921769e92ce673fc8b1a2b291514a7f928f6970a9494644b28cd46edba456",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260429140000_trade_prospect_sales_conversion/migration.sql"
+    },
+    {
+      "migration": "20260429180000_sales_core_org_id",
+      "checksum": "476899e54ece426670ba65ea612983960f4ff179eec3a88ac0852f6a50403741",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260429180000_sales_core_org_id/migration.sql"
+    },
+    {
+      "migration": "20260429200000_sales_quote_source_trade_quote_id",
+      "checksum": "c7a9910c8bedb1af1b3c10f5271a546f74b6ee8b0c76bd83ad90202684f89fbc",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260429200000_sales_quote_source_trade_quote_id/migration.sql"
+    },
+    {
+      "migration": "20260429210000_trade_intelligence_case",
+      "checksum": "39546cd3105386aae7e4f3f7c9eaae64b0be4ec4910840507f92d74143789ed1",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260429210000_trade_intelligence_case/migration.sql"
+    },
+    {
+      "migration": "20260430103000_trade_intelligence_asset",
+      "checksum": "10358d35d5a7bd335435c535fdc05289f1c302c3342a7362cde9b9012ba400f3",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260430103000_trade_intelligence_asset/migration.sql"
+    },
+    {
+      "migration": "20260507150000_visualizer_catalog_product",
+      "checksum": "7ca916cdaef4071fc6188abcfd9ce5c4157d415e2ea5e2a434fa7908346ca8a9",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260507150000_visualizer_catalog_product/migration.sql"
+    },
+    {
+      "migration": "20260618000000_sales_orgid_not_null",
+      "checksum": "b3f06fa4c5a282552b737245725ffcf7d64a9a95d0494f5084725b3918c3173e",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260618000000_sales_orgid_not_null/migration.sql"
+    },
+    {
+      "migration": "20260618200000_trade_service_request",
+      "checksum": "3eacf5f9e3b02720eba2310dfbbf30dd06ee63d1df175a1c9607cadd94a6b2fc",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260618200000_trade_service_request/migration.sql"
+    },
+    {
+      "migration": "20260618210000_wechat_gateway_trade_intake",
+      "checksum": "d7b47bdc291f1172b5ddc4c7eab9698a6a39b60b212e5a460b2b5b0c28709745",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260618210000_wechat_gateway_trade_intake/migration.sql"
+    },
+    {
+      "migration": "20260618220000_wechat_context",
+      "checksum": "d40f39170bdc3366df7a75a88ba755825a44280902a3c196e6fb5ff60373dd8e",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260618220000_wechat_context/migration.sql"
+    },
+    {
+      "migration": "20260623180000_wechat_grader_context",
+      "checksum": "c7c40dcd0a0dc237b216b2e67e1a1496013050ff7436bf1b0855e19673651219",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260623180000_wechat_grader_context/migration.sql"
+    },
+    {
+      "migration": "20260705000000_drop_tool_execution",
+      "checksum": "fad6b3677edb846a3924323ded55ca9be1de6f970fe2a6751672dadcc22084f2",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260705000000_drop_tool_execution/migration.sql"
+    },
+    {
+      "migration": "20260708040000_service_inbox",
+      "checksum": "ddd2e5082ac7b408f8c69e5964fa9301fad139f9837b07e9c3f5820a66957dca",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260708040000_service_inbox/migration.sql"
+    },
+    {
+      "migration": "20260708160000_quote_pdf_paths",
+      "checksum": "ba07228dfa37438551dc46e2ef99b1ec9c59aa47d366f11b9a2502b37f6589d7",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260708160000_quote_pdf_paths/migration.sql"
+    },
+    {
+      "migration": "20260712200000_ops_matrix_pipeline",
+      "checksum": "be0909de0e29f994674ad4b17fa621ef13223cb609eeec279b1fa16e94d0998a",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260712200000_ops_matrix_pipeline/migration.sql"
+    },
+    {
+      "migration": "20260712230000_brand_profile",
+      "checksum": "6b6d7da3e9eefe07b3e0ed7e36f2df7b8c33ac54e2f326c0db874b1901b4c8c5",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260712230000_brand_profile/migration.sql"
+    },
+    {
+      "migration": "20260713000000_content_plan",
+      "checksum": "2659d9fc5c792d8c3240977a4fcb3f33b691504f0b94785c07fb9f3c5ea2c430",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260713000000_content_plan/migration.sql"
+    },
+    {
+      "migration": "20260713010000_account_tier",
+      "checksum": "d222e64dc4c3a0b966f958df38d5f61eae4b7c5633471ad566e5930cb2ca1973",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260713010000_account_tier/migration.sql"
+    },
+    {
+      "migration": "20260713030000_company_cobrand",
+      "checksum": "73d18c1114eb7df81bd63f27d86cd94264a9e39321e0c979c21c20d07f143745",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260713030000_company_cobrand/migration.sql"
+    },
+    {
+      "migration": "20260715010000_market_intelligence_monitoring",
+      "checksum": "b5636369efee21e5f7a2287c8d666143e0e2687ce41c4483b3dc135b330ed1c6",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260715010000_market_intelligence_monitoring/migration.sql"
+    },
+    {
+      "migration": "20260715020000_automation_reliability",
+      "checksum": "78aae8188724d7df132adb4cabcfc58802530e2f8db4230955f1b920f52b0ebd",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260715020000_automation_reliability/migration.sql"
+    },
+    {
+      "migration": "20260715030000_visualizer_catalog_assets",
+      "checksum": "c8e7c095a98f43367974ecad7f08f5a42a3f8113ab658dc25b4fefb69b6acca4",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260715030000_visualizer_catalog_assets/migration.sql"
+    },
+    {
+      "migration": "20260717090000_growth_center_phase1",
+      "checksum": "f5830e6dc23f8c83bc1a1e3fa409819370703a6e744a9e8b33bdfe7588347d5f",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260717090000_growth_center_phase1/migration.sql"
+    },
+    {
+      "migration": "20260718110000_marketing_automation_mmm",
+      "checksum": "525b391ffbabba28cc8583e1a561497a82fbb0a214a41fa799c6b715bec154a2",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260718110000_marketing_automation_mmm/migration.sql"
+    },
+    {
+      "migration": "20260718170000_market_research_jobs",
+      "checksum": "c4d28d860c746aff85293de21297c7cd44ece5e4f7a4d56d981ddb8386562d50",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260718170000_market_research_jobs/migration.sql"
+    },
+    {
+      "migration": "20260718193000_marketing_team_approval",
+      "checksum": "eac6a18630032d1967b1f998444f7aec99c4d02111ee850b38b9a3974b40aab2",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260718193000_marketing_team_approval/migration.sql"
+    },
+    {
+      "migration": "20260719193000_content_plan_intel_source",
+      "checksum": "a3dccfbd2bc3961ea0b66fa0f6c177232729c732ee3e2977bd119942e36f10aa",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719193000_content_plan_intel_source/migration.sql"
+    },
+    {
+      "migration": "20260719210000_org_knowledge_vector",
+      "checksum": "fb6f24d7310201db4743742f4a9244e55bcd85e21c476444bd1e9b1f88b399ee",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719210000_org_knowledge_vector/migration.sql"
+    },
+    {
+      "migration": "20260719220000_agent_session_run",
+      "checksum": "93976fb54955ee32b966fdbdb7a493b5809200a2d327015a90c5ef4b927ae6ef",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719220000_agent_session_run/migration.sql"
+    },
+    {
+      "migration": "20260719230000_user_memory_org_id",
+      "checksum": "b6aa3471eaa9fc7b948cf2946fab37670804785b5eabb4b72f17a3f94bf11bb8",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719230000_user_memory_org_id/migration.sql"
+    },
+    {
+      "migration": "20260719240000_agent_run_queue",
+      "checksum": "21d50b07f7535d8e06dd3af85bc3a5b4642839eee929936dbb53ff6d26a0a672",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719240000_agent_run_queue/migration.sql"
+    },
+    {
+      "migration": "20260719250000_pending_action_agent_run",
+      "checksum": "a9294616cc0a4619b0f85b6ff8759e9ef90bdfd8c778fdba28b2a6ebba25a0dc",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719250000_pending_action_agent_run/migration.sql"
+    },
+    {
+      "migration": "20260719260000_project_ai_phase1",
+      "checksum": "f89c22fd07b5c4c67a1357dc96404308f6e5fb4b9ce4c6358140863780222132",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719260000_project_ai_phase1/migration.sql"
+    },
+    {
+      "migration": "20260719270000_org_project_rules_phase2",
+      "checksum": "ff8f16f523e01c8194cb212ebaad7a87ec90f75e4eca1203a30eb772b1e5a0e1",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260719270000_org_project_rules_phase2/migration.sql"
+    },
+    {
+      "migration": "20260720010000_project_duty_and_milestones",
+      "checksum": "ad32e76aee29aaca81c9103adb885777bc6925767fd0b73731c84e1222cd0cd1",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260720010000_project_duty_and_milestones/migration.sql"
+    },
+    {
+      "migration": "20260720020000_user_active_org",
+      "checksum": "2a4047b7e082ffa916d558bdd801a39ab67a80b763743b685a4a4286c3cffd64",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260720020000_user_active_org/migration.sql"
+    },
+    {
+      "migration": "20260720150000_marketing_pmc_json",
+      "checksum": "28fbfdca3dff594c5b453ffeaa1b4f46fd8fe2855eb1839e267bafe033559629",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260720150000_marketing_pmc_json/migration.sql"
+    },
+    {
+      "migration": "20260720180000_agent_run_supervisor_state",
+      "checksum": "84f61088262f6e5064ea0f65932cec3322d7108451e1b6a8e395470d416da9e4",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260720180000_agent_run_supervisor_state/migration.sql"
+    },
+    {
+      "migration": "20260721010000_employee_ai_learning_phase1",
+      "checksum": "9c17f5e50943c7236ba146ec10025f70f41b115b7616472e26f46cf97bb34a0a",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721010000_employee_ai_learning_phase1/migration.sql"
+    },
+    {
+      "migration": "20260721020000_user_memory_supersede_timeline",
+      "checksum": "7c8f8455cb2756a05af6e4033e8abe43bbfb421b40832ce32fc56aba384bc6de",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721020000_user_memory_supersede_timeline/migration.sql"
+    },
+    {
+      "migration": "20260721120000_product_content_director_phase1",
+      "checksum": "5753d5e9d3d12609a3de3fdb2665e4debd1bc0d9ab1296a08a29303899d1a6e5",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721120000_product_content_director_phase1/migration.sql"
+    },
+    {
+      "migration": "20260721140000_product_content_acceptance",
+      "checksum": "7c82723e655a3ad6c43281ccb95f463ced1fd5b6add8a6308ac34bb381c9b551",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721140000_product_content_acceptance/migration.sql"
+    },
+    {
+      "migration": "20260721180000_tenancy_workspace_modules",
+      "checksum": "9344c4748b31d6fb6393d7ad03147346494cfeeadca93a7ed54cc395a6eef2d6",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721180000_tenancy_workspace_modules/migration.sql"
+    },
+    {
+      "migration": "20260721190000_phase2a_org_rules_industry_pack",
+      "checksum": "34ee1e1c8a94b8d9d766e6892985b8bf8d4de61d01ad50d1534f30b9f9e4ca6d",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721190000_phase2a_org_rules_industry_pack/migration.sql"
+    },
+    {
+      "migration": "20260721200000_phase2b_business_semantics",
+      "checksum": "2dbd695e6c33a8f9a43d76cba2f32913696a4bdcf0be9b2578b05ee4ca8f7a33",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721200000_phase2b_business_semantics/migration.sql"
+    },
+    {
+      "migration": "20260721210000_rename_line_discount_unlock_hash",
+      "checksum": "2051ce346cf1d7ab79ba3b12128b55be7036a7a5d1aa4aac3092eac102032b4c",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260721210000_rename_line_discount_unlock_hash/migration.sql"
+    },
+    {
+      "migration": "20260722190000_phase3a1_agent_run_trace_ids",
+      "checksum": "0d92643eca717aecda0e58937455b3b643b035e7d475d62464ca04728f8eda34",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260722190000_phase3a1_agent_run_trace_ids/migration.sql"
+    },
+    {
+      "migration": "20260722195000_phase3a2_ai_usage_ledger",
+      "checksum": "ff28109613b5283dc42174fe55d420fc27e3e227fd22fa8cff6ec29d05034334",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260722195000_phase3a2_ai_usage_ledger/migration.sql"
+    },
+    {
+      "migration": "20260722198000_phase3a3_approvals_integrity",
+      "checksum": "1b90228eaea7dd42c06ce05308e3a78d72dc65051b689ed24326e7b429dfd723",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260722198000_phase3a3_approvals_integrity/migration.sql"
+    },
+    {
+      "migration": "20260722201000_phase3a4_governance_quotas_audit",
+      "checksum": "ff54d4c9a339b7ecbdc3ce42f4f8d51c14873caccba46eb00c3cd499de65e188",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260722201000_phase3a4_governance_quotas_audit/migration.sql"
+    },
+    {
+      "migration": "20260723010000_security1_org_access_mode",
+      "checksum": "4c9e748ce9aad0b57836a84bd345e933c052b4efff10fd0b336f006ee8c5d7a5",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260723010000_security1_org_access_mode/migration.sql"
+    },
+    {
+      "migration": "20260723020000_security1_org_owner",
+      "checksum": "1e1ac30487042f621c4b987450a9cfb7b83ad73cdb391295608836c98b8c650c",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260723020000_security1_org_owner/migration.sql"
+    },
+    {
+      "migration": "20260723030000_security1_role_profiles",
+      "checksum": "592c82fb350545099052f1a83bd08d96ab7dffdaef27d2b0d3167e3d55c9ca80",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260723030000_security1_role_profiles/migration.sql"
+    },
+    {
+      "migration": "20260723040000_security1_fix_org_switch_grants",
+      "checksum": "7f85b42a2f7c4284468666b8a3f362546fc72265c5236c2090d683dc47c80626",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260723040000_security1_fix_org_switch_grants/migration.sql"
+    },
+    {
+      "migration": "20260723120000_phase3b_bind_ai_threads_to_org",
+      "checksum": "7d85e2bd1a870c8b9e81e5b93c279b0da4009e79dd307d56fae03f9bbb5f3fb1",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260723120000_phase3b_bind_ai_threads_to_org/migration.sql"
+    },
+    {
+      "migration": "20260724120000_agent_runtime_v2_steps",
+      "checksum": "72fcab97f2fc94ed5bc0d77c80ffb74bf44bb87572d0c2015b55cf588efa8804",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260724120000_agent_runtime_v2_steps/migration.sql"
+    },
+    {
+      "migration": "20260724160000_project_fact_memory_phase2",
+      "checksum": "6238c8b34e55f7c48351b98261aae8944ed21d87396d8966645cdf0be674054f",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260724160000_project_fact_memory_phase2/migration.sql"
+    },
+    {
+      "migration": "20260724170000_project_orchestrator_task_lease",
+      "checksum": "9868c2478ce422f8908f6d3a7f61c2716b39e69b524598ab977727684e72c576",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260724170000_project_orchestrator_task_lease/migration.sql"
+    },
+    {
+      "migration": "20260724180000_pending_action_idempotency_key",
+      "checksum": "b904be8b6cb01535be7413d5ec302cd0fd7aee6a29b4d116633d2330a2a52df7",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260724180000_pending_action_idempotency_key/migration.sql"
+    },
+    {
+      "migration": "20260724190000_project_orchestrator_3i_persistence",
+      "checksum": "75412b77ca2962fb0724d848315b44def32c9b431d06a2f1ffdb7059dc47c41b",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260724190000_project_orchestrator_3i_persistence/migration.sql"
+    },
+    {
+      "migration": "20260724200000_agent_task_cancel_requested_at",
+      "checksum": "1fa3667c00f5963250a6035b99b7245cda2c4158a5a09433ca2433e55c43752b",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260724200000_agent_task_cancel_requested_at/migration.sql"
+    },
+    {
+      "migration": "20260725010000_phase4_bid_data_layer",
+      "checksum": "9bbc642939bc7a42651a386c268bde6c0b35449b5f74ad49db8f3dbd5231b7b4",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260725010000_phase4_bid_data_layer/migration.sql"
+    },
+    {
+      "migration": "20260725020000_phase4a2_bid_data_review",
+      "checksum": "62930b824f81718876be3c9a4f767a2bd3f88be7588f9acd2e9f409c5a0e034d",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260725020000_phase4a2_bid_data_review/migration.sql"
+    },
+    {
+      "migration": "20260725030000_phase4a2_pricing_line_reviewer_note",
+      "checksum": "c0a292699b4ee4d72f6eedaf304a452a2d3ff4a027382eb136d853a4daba0b3e",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260725030000_phase4a2_pricing_line_reviewer_note/migration.sql"
+    },
+    {
+      "migration": "20260725120000_visualizer_catalog_template",
+      "checksum": "03e3afaa9e1e64b2d88415939b17d279d14d1e48f66d651b9d6c998183e2144b",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260725120000_visualizer_catalog_template/migration.sql"
+    },
+    {
+      "migration": "20260727200000_sales_monthly_target",
+      "checksum": "206696b5aa3ff952e22f5d28c9eeabd721f6b45517db5ddbf80c6e22d3c9c4f2",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260727200000_sales_monthly_target/migration.sql"
+    },
+    {
+      "migration": "20260728010000_task_waiting_blocked_fields",
+      "checksum": "e4a9cce1f7275625d58dae1f3051b4fb2f28454e3f408b5c460fc0caad8c3fc7",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260728010000_task_waiting_blocked_fields/migration.sql"
+    },
+    {
+      "migration": "20260728120000_project_work_domain",
+      "checksum": "194cf361ad0281cbf961a9dfe963807a9c92da656786afe03c8e3e1569b4696a",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260728120000_project_work_domain/migration.sql"
+    },
+    {
+      "migration": "20260728180000_project_handoff",
+      "checksum": "6581b9056fb1f5537e497ac204505fa71e76e2596adb0abd2ae7743940a9784b",
+      "archive_path": "prisma/migrations_legacy_pre_greenfield_baseline/20260728180000_project_handoff/migration.sql"
+    }
+  ]
+}

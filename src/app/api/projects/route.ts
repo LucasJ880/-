@@ -102,6 +102,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
         color: body.color || "#3B82F6",
         ownerId: user.id,
         orgId,
+        workDomain: "general",
         members: {
           create: {
             userId: user.id,

@@ -83,6 +83,7 @@ import {
 import { OrgSelectBanner } from "@/components/org-select-banner";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { RoughQuotePanel } from "./rough-quote-panel";
+import { QuoteSentNextSteps } from "@/components/sales-command-center/quote-sent-next-steps";
 
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
@@ -208,6 +209,11 @@ function QuoteSheetPageInner() {
         )
       : null;
   const [lastSaved, setLastSaved] = useState<{ time: string; orderNum: string; statusAdvanced?: boolean; quoteId?: string } | null>(null);
+  const [sentNextOpen, setSentNextOpen] = useState(false);
+  const [sentNext, setSentNext] = useState<{
+    quoteUrl: string | null;
+    opportunityId: string | null;
+  }>({ quoteUrl: null, opportunityId: null });
 
   // Customer selector
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -1184,6 +1190,9 @@ function QuoteSheetPageInner() {
         }
       }
 
+      let nextQuoteUrl: string | null = null;
+      let nextOpportunityId: string | null = null;
+
       if (mode === "email") {
         try {
           const res = await apiFetch(`/api/sales/quotes/${saved.quoteId}/send-email`, {
@@ -1196,6 +1205,15 @@ function QuoteSheetPageInner() {
           if (!res.ok) {
             throw new Error(data?.error || `HTTP ${res.status}`);
           }
+          nextQuoteUrl =
+            typeof (data as { quoteUrl?: string }).quoteUrl === "string"
+              ? (data as { quoteUrl: string }).quoteUrl
+              : null;
+          nextOpportunityId =
+            typeof (data as { opportunityId?: string | null }).opportunityId ===
+            "string"
+              ? (data as { opportunityId: string }).opportunityId
+              : null;
           setLastSaved((prev) => (prev ? { ...prev, emailSent: true } as typeof prev : prev));
           setGeneratedFlash(`Quote 已发送到 ${customerEmail} · 客户状态「已报价 · 跟单中」`);
         } catch (err) {
@@ -1219,15 +1237,45 @@ function QuoteSheetPageInner() {
           console.error("mark-sent failed:", err);
           // 状态推进失败不影响 PDF 已下载的事实，仅记录
         }
+        try {
+          const detail = await apiFetch(`/api/sales/quotes/${saved.quoteId}`);
+          if (detail.ok) {
+            const body = await detail.json();
+            const q = body?.quote ?? body;
+            if (q?.shareToken) {
+              nextQuoteUrl = `${window.location.origin}/quote/${q.shareToken}`;
+            }
+            if (typeof q?.opportunityId === "string") {
+              nextOpportunityId = q.opportunityId;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
         setGeneratedFlash("Quote PDF 已下载到本地 · 客户状态「已报价 · 跟单中」");
       }
 
       setTimeout(() => setGeneratedFlash(null), 5000);
       setSendQuoteOpen(false);
+      setSentNext({
+        quoteUrl: nextQuoteUrl,
+        opportunityId: nextOpportunityId || opportunityId || null,
+      });
+      setSentNextOpen(true);
     } finally {
       setSendQuoteBusy(null);
     }
-  }, [customerId, customerEmail, handleSave, handleExportPDF, uploadQuotePdf, orgId, orgLoading, ambiguous]);
+  }, [
+    customerId,
+    customerEmail,
+    opportunityId,
+    handleSave,
+    handleExportPDF,
+    uploadQuotePdf,
+    orgId,
+    orgLoading,
+    ambiguous,
+  ]);
 
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * HST_RATE * 100) / 100;
@@ -1875,6 +1923,14 @@ function QuoteSheetPageInner() {
       )}
       </>
       )}
+
+      <QuoteSentNextSteps
+        open={sentNextOpen}
+        onOpenChange={setSentNextOpen}
+        customerId={customerId || null}
+        opportunityId={sentNext.opportunityId}
+        quoteUrl={sentNext.quoteUrl}
+      />
     </div>
   );
 }

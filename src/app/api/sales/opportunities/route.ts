@@ -41,7 +41,17 @@ export const GET = withAuth(async (request, _ctx, user) => {
         quotes: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { grandTotal: true, status: true, createdAt: true },
+          select: {
+            grandTotal: true,
+            status: true,
+            createdAt: true,
+            viewedAt: true,
+          },
+        },
+        interactions: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { createdAt: true },
         },
         _count: { select: { interactions: true, quotes: true, blindsOrders: true } },
       },
@@ -56,7 +66,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
     ...o,
     latestQuoteTotal: o.quotes[0]?.grandTotal ?? null,
     latestQuoteStatus: o.quotes[0]?.status ?? null,
+    quoteViewedAt: o.quotes[0]?.viewedAt?.toISOString() ?? null,
+    lastInteractionAt: o.interactions[0]?.createdAt?.toISOString() ?? null,
     quotes: undefined,
+    interactions: undefined,
   }));
 
   return NextResponse.json({ opportunities: enriched, total, page, pageSize });

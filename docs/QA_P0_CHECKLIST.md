@@ -8,7 +8,9 @@
 | 步骤 | 预期 | 实际 |
 |------|------|------|
 | `npm run qa`（lint + prisma generate + next build） | 退出码 0；**ESLint 无 error、无 warning** | |
-| `npm run build`（含 migrate deploy）`[ENV]` | 生产构建成功；数据库可连 | |
+| `npm run build`（仅 generate + next build，**不含** migrate）`[ENV]` | 生产构建成功；不得改库 | |
+| `npm run test:release-safety` | build/postinstall 无 migrate；缺失 migration 已恢复 | |
+| 受控 `npm run db:migrate:deploy`（隔离库 / 已审批目标）`[ENV]` | 需 `ALLOW_DATABASE_MIGRATION=true`；生产另需确认变量 | |
 
 ## 认证
 

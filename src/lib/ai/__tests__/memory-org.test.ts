@@ -49,15 +49,33 @@ async function dbTests() {
   }
 
   const { db } = await import("@/lib/db");
+  const {
+    ensureTestUserOrg,
+    cleanupTestUserOrg,
+  } = await import("@/lib/test-fixtures/org-user");
   const { saveMemory, listMemories, getWakeUpMemories } = await import(
     "@/lib/ai/user-memory"
   );
 
-  const orgA = `mem_org_a_${Date.now()}`;
-  const orgB = `mem_org_b_${Date.now()}`;
-  const userId = `mem_user_${Date.now()}`;
+  const stamp = Date.now();
+  const orgA = `mem_org_a_${stamp}`;
+  const orgB = `mem_org_b_${stamp}`;
+  const userId = `mem_user_${stamp}`;
 
   try {
+    await ensureTestUserOrg(db, {
+      userId,
+      orgId: orgA,
+      email: `mem_${stamp}@test.local`,
+      orgCode: `mema_${stamp}`,
+    });
+    await ensureTestUserOrg(db, {
+      userId,
+      orgId: orgB,
+      email: `mem_${stamp}@test.local`,
+      orgCode: `memb_${stamp}`,
+    });
+
     await saveMemory({
       orgId: orgA,
       userId,
@@ -125,6 +143,10 @@ async function dbTests() {
     await db.userMemory
       .deleteMany({ where: { orgId: { in: [orgA, orgB] } } })
       .catch(() => {});
+    await cleanupTestUserOrg(db, {
+      userIds: [userId],
+      orgIds: [orgA, orgB],
+    });
   }
 }
 

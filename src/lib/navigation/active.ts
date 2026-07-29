@@ -14,6 +14,11 @@ export function pathMatches(
     });
   }
   if (!href) return false;
+  // 带 query 的入口（如 /sales?view=customers）：仅在精确 pathname 匹配时高亮，避免吞掉 /sales/home
+  if (href.includes("?")) {
+    const hrefPath = href.split("?")[0] || href;
+    return pathname === hrefPath;
+  }
   if (opts?.exact || href === "/") return pathname === href;
 
   // /projects 不吞掉 /projects/intelligence

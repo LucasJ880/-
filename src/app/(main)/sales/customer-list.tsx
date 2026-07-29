@@ -1,75 +1,141 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   Users,
   Phone,
   Mail,
   Eye,
   ChevronRight,
+  MessageSquare,
+  FileText,
+  CalendarPlus,
+  MoreHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { STAGES, FUNNEL_STATUS_META } from "./types";
+import { formatCAD } from "@/lib/blinds/pricing-engine";
+import { relativeTimeLabel } from "@/lib/sales/home";
+import {
+  quoteStatusLabel,
+  sortCustomersForSalesList,
+} from "@/lib/sales/customer-list-sort";
+import { STAGES } from "./types";
 import type { Customer } from "./types";
+import { SalesBottomSheet } from "@/components/sales-command-center/sales-bottom-sheet";
+
+function stageLabel(stage: string | null | undefined): string {
+  if (!stage) return "–";
+  return STAGES.find((s) => s.key === stage)?.label ?? stage;
+}
+
+function RowActions({
+  customer,
+  className,
+}: {
+  customer: Customer;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1", className)}>
+      {customer.phone ? (
+        <a
+          href={`tel:${customer.phone}`}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--border)] px-2 text-[11px] hover:bg-[var(--muted)]/10"
+        >
+          <Phone className="h-3 w-3" />
+          联系
+        </a>
+      ) : null}
+      <Link
+        href={`/sales/customers/${customer.id}?followup=1`}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--border)] px-2 text-[11px] hover:bg-[var(--muted)]/10"
+      >
+        <MessageSquare className="h-3 w-3" />
+        记录跟进
+      </Link>
+      <Link
+        href={`/sales/quote-sheet?customerId=${customer.id}`}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--border)] px-2 text-[11px] hover:bg-[var(--muted)]/10"
+      >
+        <FileText className="h-3 w-3" />
+        新建报价
+      </Link>
+      <Link
+        href={`/sales/calendar?new=1&customerId=${customer.id}`}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--border)] px-2 text-[11px] hover:bg-[var(--muted)]/10"
+      >
+        <CalendarPlus className="h-3 w-3" />
+        新建预约
+      </Link>
+    </div>
+  );
+}
 
 function CustomerCard({
   customer: c,
-  showOwnerColumn,
+  onOpenActions,
+  nowMs,
 }: {
   customer: Customer;
-  showOwnerColumn: boolean;
+  onOpenActions: (c: Customer) => void;
+  nowMs: number;
 }) {
-  const funnel = c.funnelStatus
-    ? FUNNEL_STATUS_META[c.funnelStatus]
-    : null;
-
+  const overdue =
+    !!c.nextFollowupAt && new Date(c.nextFollowupAt).getTime() <= nowMs;
   return (
-    <Link
-      href={`/sales/customers/${c.id}`}
-      className="block rounded-xl border border-border bg-card-bg/70 p-3 transition-colors active:bg-card-bg"
-    >
+    <div className="rounded-xl border border-border bg-card-bg/70 p-3">
       <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
+        <Link href={`/sales/customers/${c.id}`} className="min-w-0 flex-1">
+          <p className="break-words text-sm font-medium text-foreground">
             {c.name}
           </p>
-          {c.address ? (
-            <p className="mt-0.5 line-clamp-2 text-xs text-muted">{c.address}</p>
-          ) : null}
-        </div>
-        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+          <p className="mt-0.5 text-xs text-muted">
+            {stageLabel(c.primaryStage)}
+            {c.estimatedValue != null
+              ? ` · ${formatCAD(c.estimatedValue)}`
+              : ""}
+          </p>
+        </Link>
+        <button
+          type="button"
+          onClick={() => onOpenActions(c)}
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-muted"
+          aria-label="更多操作"
+        >
+          <MoreHorizontal className="h-5 w-5" />
+        </button>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {funnel ? (
-          <Badge variant="outline" className={cn(funnel.color)}>
-            {funnel.label}
-          </Badge>
-        ) : null}
-        {(c._count?.quotes ?? 0) > 0 ? (
-          <span className="text-[11px] text-muted">{c._count!.quotes} 份报价</span>
-        ) : null}
-        {showOwnerColumn && c.createdBy ? (
-          <span className="text-[11px] text-muted">
-            {c.createdBy.name}
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
+        <span>
+          报价：
+          {quoteStatusLabel(c.latestQuoteStatus, c.quoteViewed)}
+        </span>
+        <span>联系：{relativeTimeLabel(c.lastContactAt)}</span>
+        {c.nextFollowupAt && (
+          <span className={overdue ? "text-amber-700" : undefined}>
+            下次：{new Date(c.nextFollowupAt).toLocaleDateString("zh-CN")}
           </span>
-        ) : null}
+        )}
       </div>
-      <div className="mt-2 flex min-w-0 flex-col gap-0.5 text-xs text-muted">
-        {c.phone ? (
-          <span className="flex items-center gap-1 break-all">
-            <Phone className="h-3 w-3 shrink-0" />
-            {c.phone}
-          </span>
-        ) : null}
-        {c.email ? (
-          <span className="flex items-center gap-1 break-all">
-            <Mail className="h-3 w-3 shrink-0" />
-            {c.email}
-          </span>
-        ) : null}
-      </div>
-    </Link>
+      {c.suggestedAction && (
+        <p className="mt-1.5 text-[12px] text-foreground">
+          下一步：{c.suggestedAction}
+        </p>
+      )}
+      <Link
+        href={`/sales/customers/${c.id}`}
+        className="mt-2 inline-flex items-center gap-0.5 text-xs text-accent"
+      >
+        查看详情
+        <ChevronRight className="h-3 w-3" />
+      </Link>
+    </div>
   );
 }
 
@@ -78,10 +144,16 @@ export function CustomerList({
   showOwnerColumn = false,
 }: {
   customers: Customer[];
-  /** admin 视角下显示"归属销售"列 */
   showOwnerColumn?: boolean;
 }) {
-  if (customers.length === 0) {
+  const [actionCustomer, setActionCustomer] = useState<Customer | null>(null);
+  const [nowMs] = useState(() => Date.now());
+  const sorted = useMemo(
+    () => sortCustomersForSalesList(customers),
+    [customers],
+  );
+
+  if (sorted.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card-bg/40 py-16">
         <Users className="h-10 w-10 text-muted/50" />
@@ -92,48 +164,48 @@ export function CustomerList({
 
   return (
     <>
-      {/* Mobile：卡片列表（策略 A） */}
       <div className="space-y-2 md:hidden">
-        {customers.map((c) => (
+        {sorted.map((c) => (
           <CustomerCard
             key={c.id}
             customer={c}
-            showOwnerColumn={showOwnerColumn}
+            onOpenActions={setActionCustomer}
+            nowMs={nowMs}
           />
         ))}
       </div>
 
-      {/* Desktop：表格；仅表格区允许横向滚动 */}
       <div className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-card-bg/70 md:block">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[960px] text-sm">
           <thead>
             <tr className="border-b border-border bg-card-bg/50 text-left text-xs text-muted">
               <th className="px-4 py-2.5 font-medium">客户</th>
-              <th className="px-4 py-2.5 font-medium">联系方式</th>
-              <th className="px-4 py-2.5 font-medium">漏斗</th>
-              <th className="px-4 py-2.5 font-medium">机会</th>
-              <th className="px-4 py-2.5 font-medium">报价</th>
+              <th className="px-4 py-2.5 font-medium">当前阶段</th>
+              <th className="px-4 py-2.5 font-medium">预计金额</th>
+              <th className="px-4 py-2.5 font-medium">最后联系</th>
+              <th className="px-4 py-2.5 font-medium">下次跟进</th>
+              <th className="px-4 py-2.5 font-medium">报价状态</th>
+              <th className="px-4 py-2.5 font-medium">下一步动作</th>
               {showOwnerColumn && (
                 <th className="px-4 py-2.5 font-medium">归属销售</th>
               )}
-              <th className="px-4 py-2.5 font-medium">来源</th>
-              <th className="px-4 py-2.5 font-medium"></th>
+              <th className="px-4 py-2.5 font-medium">快捷操作</th>
             </tr>
           </thead>
           <tbody>
-            {customers.map((c) => {
-              const funnel = c.funnelStatus
-                ? FUNNEL_STATUS_META[c.funnelStatus]
-                : null;
+            {sorted.map((c) => {
+              const overdue =
+                !!c.nextFollowupAt &&
+                new Date(c.nextFollowupAt).getTime() <= nowMs;
               return (
                 <tr
                   key={c.id}
-                  className="border-b border-border/50 transition-colors hover:bg-card-bg/60"
+                  className="group border-b border-border/50 transition-colors hover:bg-card-bg/60"
                 >
                   <td className="px-4 py-3">
                     <Link
                       href={`/sales/customers/${c.id}`}
-                      className="break-words font-medium text-foreground hover:underline [overflow-wrap:anywhere]"
+                      className="font-medium text-foreground hover:underline"
                     >
                       {c.name}
                     </Link>
@@ -142,85 +214,67 @@ export function CustomerList({
                         {c.address}
                       </p>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-0.5 text-xs text-muted">
-                      {c.phone && (
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {c.phone}
-                        </span>
-                      )}
-                      {c.email && (
-                        <span className="flex items-center gap-1 break-all">
-                          <Mail className="h-3 w-3" />
-                          {c.email}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {funnel ? (
-                      <Badge variant="outline" className={cn(funnel.color)}>
-                        {funnel.label}
-                      </Badge>
-                    ) : (
-                      <span className="text-xs text-muted/50">–</span>
+                    {(c.phone || c.email) && (
+                      <div className="mt-1 flex flex-col gap-0.5 text-[11px] text-muted">
+                        {c.phone && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {c.phone}
+                          </span>
+                        )}
+                        {c.email && (
+                          <span className="inline-flex items-center gap-1">
+                            <Mail className="h-3 w-3" />
+                            {c.email}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {(c.opportunities ?? []).map((opp) => {
-                        const stage = STAGES.find((s) => s.key === opp.stage);
-                        return (
-                          <Badge
-                            key={opp.id}
-                            variant="outline"
-                            className={cn(
-                              stage?.color ||
-                                "border-gray-200 bg-gray-100 text-gray-600"
-                            )}
-                          >
-                            {stage?.label || opp.stage}
-                          </Badge>
-                        );
-                      })}
-                      {(c.opportunities ?? []).length === 0 && (
-                        <span className="text-xs text-muted/50">–</span>
-                      )}
-                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {stageLabel(c.primaryStage)}
+                    </Badge>
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted">
-                    {(c._count?.quotes ?? 0) > 0
-                      ? `${c._count!.quotes} 份`
+                  <td className="px-4 py-3 text-xs tabular-nums">
+                    {c.estimatedValue != null
+                      ? formatCAD(c.estimatedValue)
                       : "–"}
                   </td>
+                  <td className="px-4 py-3 text-xs text-muted">
+                    {relativeTimeLabel(c.lastContactAt)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-4 py-3 text-xs",
+                      overdue ? "font-medium text-amber-700" : "text-muted",
+                    )}
+                  >
+                    {c.nextFollowupAt
+                      ? new Date(c.nextFollowupAt).toLocaleDateString("zh-CN")
+                      : "–"}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted">
+                    {quoteStatusLabel(c.latestQuoteStatus, c.quoteViewed)}
+                  </td>
+                  <td className="max-w-[180px] px-4 py-3 text-xs text-foreground">
+                    {c.suggestedAction || "–"}
+                  </td>
                   {showOwnerColumn && (
-                    <td className="px-4 py-3">
-                      {c.createdBy ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs font-medium text-foreground">
-                            {c.createdBy.name}
-                          </span>
-                          <span className="max-w-[160px] truncate text-[10px] text-muted">
-                            {c.createdBy.email}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted/50">–</span>
-                      )}
+                    <td className="px-4 py-3 text-xs text-muted">
+                      {c.createdBy?.name || "–"}
                     </td>
                   )}
-                  <td className="px-4 py-3 text-xs text-muted">
-                    {c.source || "–"}
-                  </td>
                   <td className="px-4 py-3">
-                    <Link
-                      href={`/sales/customers/${c.id}`}
-                      className="inline-flex items-center gap-0.5 text-xs text-muted hover:text-foreground"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </Link>
+                    <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                      <RowActions customer={c} />
+                      <Link
+                        href={`/sales/customers/${c.id}`}
+                        className="inline-flex items-center text-xs text-muted hover:text-foreground"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               );
@@ -228,6 +282,21 @@ export function CustomerList({
           </tbody>
         </table>
       </div>
+
+      <SalesBottomSheet
+        open={!!actionCustomer}
+        onClose={() => setActionCustomer(null)}
+        title={actionCustomer?.name || "客户操作"}
+      >
+        {actionCustomer && (
+          <div className="grid grid-cols-1 gap-2">
+            <RowActions
+              customer={actionCustomer}
+              className="flex-col items-stretch [&>a]:justify-center [&>a]:min-h-12"
+            />
+          </div>
+        )}
+      </SalesBottomSheet>
     </>
   );
 }

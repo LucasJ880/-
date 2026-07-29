@@ -70,12 +70,12 @@ ok(
 );
 
 const ops = NAVIGATION_REGISTRY.find((i) => i.key === "ops-center");
-ok(ops?.group === "OPERATIONS", "经营中心在 OPERATIONS");
-ok(ops?.href === "/operations/center", "经营中心路由正确");
+ok(ops?.group === "OPERATIONS", "管理模块在 OPERATIONS");
+ok(ops?.href === "/operations/center", "管理模块路由正确");
 
 ok(isCapabilitiesPath("/capabilities/runs"), "/capabilities/* 识别为中台");
-ok(isOperationsCenterPath("/operations/center"), "经营中心 path");
-ok(!isGrowthPath("/operations/center"), "经营中心不属于增长高亮");
+ok(isOperationsCenterPath("/operations/center"), "管理模块 path");
+ok(!isGrowthPath("/operations/center"), "管理模块不属于增长高亮");
 ok(isGrowthPath("/operations/growth"), "增长中心属于增长");
 ok(isGrowthPath("/product-content"), "产品内容属于增长");
 
@@ -206,9 +206,9 @@ const mengxinLike = resolveNavigationTree(
   }),
 );
 ok(
-  sunnyLike.some((i) => i.href === "/sales") &&
+  sunnyLike.some((i) => i.href === "/sales/home") &&
     !sunnyLike.some((i) => i.href === "/trade"),
-  "销售模块企业显示销售不显示外贸",
+  "销售模块企业显示销售工作区首页不显示外贸",
 );
 ok(
   mengxinLike.some((i) => i.href === "/trade") &&
@@ -256,7 +256,10 @@ ok(
   NAV_SECTION_LABEL.OPERATIONS !== NAV_SECTION_LABEL.BUSINESS,
   "企业经营与业务运营分组标题不合并",
 );
-ok(NAV_SECTION_LABEL.CAPABILITIES === "AI 能力", "中台分组标题=AI 能力");
+ok(
+  NAV_SECTION_LABEL.CAPABILITIES === "AI 工作中心",
+  "中台分组标题=AI 工作中心",
+);
 
 // —— 角色层级可见性（boss / operations / sales）——
 const salesNav = resolveNavigationTree(
@@ -274,10 +277,44 @@ ok(
   ),
   "销售不看企业知识与微信集成",
 );
+const salesHrefs = salesNav.flatMap((i) => [
+  i.href,
+  ...(i.children?.map((c) => c.href) ?? []),
+]);
 ok(
-  salesNav.some((i) => i.href === "/sales") &&
-    salesNav.some((i) => i.href === "/sales/quote-sheet"),
-  "销售保留业务完成入口",
+  [
+    "/sales/home",
+    "/sales?view=customers",
+    "/sales?view=pipeline",
+    "/sales/quote-sheet",
+    "/sales/quotes",
+    "/sales/calendar",
+    "/sales/performance",
+    "/assistant",
+  ].every((h) => salesHrefs.includes(h)),
+  "销售工作区含销售中心/客户/商机/报价/日历/业绩/助手",
+);
+ok(
+  !salesNav.some(
+    (i) =>
+      i.key === "biz-cockpit" ||
+      i.key === "biz-work-orders" ||
+      i.key === "biz-sales" ||
+      i.key === "ops-center" ||
+      i.href === "/trade",
+  ),
+  "销售不看团队分析/工艺单/经营中心/外贸",
+);
+ok(
+  resolveNavigationTree(
+    NAVIGATION_REGISTRY,
+    ctx({
+      platformRole: "admin",
+      orgRole: "org_admin",
+      isPlatformAdmin: true,
+    }),
+  ).some((i) => i.key === "biz-cockpit" && i.label === "团队销售分析"),
+  "管理员可见团队销售分析",
 );
 
 const opsNav = resolveNavigationTree(

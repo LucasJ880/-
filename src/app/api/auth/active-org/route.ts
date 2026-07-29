@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   let orgCode: string | null = null;
   let workspaceIds: string[] = [];
   let orgRole: string | null = null;
+  let hasBidCapability = false;
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     });
     orgCode = org?.code ?? null;
     modules = parseOrgModulesJson(org?.modulesJson);
-    const [member, workspaces] = await Promise.all([
+    const [member, workspaces, projectMember] = await Promise.all([
       db.organizationMember.findUnique({
         where: {
           orgId_userId: { orgId: resolved.orgId, userId: user.id },
@@ -55,9 +56,18 @@ export async function GET(request: NextRequest) {
         },
         select: { workspaceId: true },
       }),
+      db.projectMember.findFirst({
+        where: {
+          userId: user.id,
+          status: "active",
+          project: { orgId: resolved.orgId },
+        },
+        select: { id: true },
+      }),
     ]);
     if (member?.status === "active") orgRole = member.role;
     workspaceIds = workspaces.map((w) => w.workspaceId);
+    hasBidCapability = Boolean(projectMember);
   }
 
   const canSwitch = access ? canSelfSwitchOrganizations(access) : false;
@@ -72,6 +82,7 @@ export async function GET(request: NextRequest) {
     orgRole,
     workspaceIds,
     hasMembership: Boolean(orgRole),
+    hasBidCapability,
     needsSelection,
     orgAccessMode: access?.orgAccessMode ?? "FIXED",
     canSelfSwitchOrg: access?.canSelfSwitchOrg ?? false,
