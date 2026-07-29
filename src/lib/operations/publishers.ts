@@ -1,13 +1,10 @@
 /**
- * 发布通道适配器
+ * 发布通道适配器（Phase C）
  *
- * - postiz：英文社媒（IG/FB/TikTok），走自托管 Postiz 的官方 API 排期
- * - postflow：小红书浏览器自动化。青砚不直接执行，只把 PublishJob 置为
- *   queued，由自建服务器上的 PostFlow worker 轮询 DB 队列消费并回写状态
- *
- * 环境变量（postiz）：
- * - POSTIZ_API_URL：自托管 Postiz 地址（如 https://postiz.example.com）
- * - POSTIZ_API_KEY：Postiz 设置页生成的 API Key
+ * Postiz：创建排期 ≠ 平台已发布
+ * - schedule / 仅获 postId → queued + providerStatus=scheduled
+ * - now 且有明确 published 证据 → published
+ * - 否则保持 queued，由 webhook/轮询回写
  */
 
 import type { MatrixAccount, PublishJob, VideoAsset } from "@prisma/client";
@@ -19,12 +16,17 @@ import {
 } from "./postiz";
 
 export type DispatchResult =
-  | { ok: true; externalJobId: string | null }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      externalJobId: string | null;
+      providerStatus?: "scheduled" | "processing" | "published" | "failed";
+      providerResponse?: unknown;
+      externalPostUrl?: string | null;
+    }
+  | { ok: false; error: string; httpStatus?: number; retryable?: boolean };
 
 export { isPostizConfigured } from "./postiz";
 
-/** 派发到 Postiz：创建定时帖（视频由 Postiz 从外部 URL 拉取，不经青砚） */
 async function dispatchToPostiz(
   job: PublishJob,
   asset: VideoAsset,
@@ -36,9 +38,26 @@ async function dispatchToPostiz(
   if (!account.externalChannelId) {
     return { ok: false, error: `账号 ${account.handle} 未绑定 Postiz integration id` };
   }
+  if (job.status === "published") {
+    return { ok: false, error: "任务已发布，禁止重复发送" };
+  }
+  if (job.status === "canceled") {
+    return { ok: false, error: "任务已取消，禁止发送" };
+  }
+  // 幂等：已有 externalJobId 则不再创建
+  if (job.externalJobId) {
+    return {
+      ok: true,
+      externalJobId: job.externalJobId,
+      providerStatus: (job.providerStatus as "scheduled") || "scheduled",
+      providerResponse: { idempotentReuse: true },
+      externalPostUrl: job.externalPostUrl,
+    };
+  }
 
   try {
     const media = await uploadPostizMediaFromUrl(asset.videoUrl);
+    const isScheduled = Boolean(job.scheduledAt);
     const payload = buildPostizPostPayload({
       scheduledAt: job.scheduledAt,
       captionText: job.captionText,
@@ -46,21 +65,44 @@ async function dispatchToPostiz(
       platform: account.platform,
       integrationId: account.externalChannelId,
       media,
+      idempotencyKey: job.idempotencyKey,
     });
     if (!payload) {
       return { ok: false, error: `${account.platform} 暂未配置 Postiz 发布参数` };
     }
-    return { ok: true, externalJobId: await createPostizPost(payload) };
+    const created = await createPostizPost(payload);
+    const externalJobId = created.postId;
+    const providerResponse = created.raw;
+
+    // 仅当明确拿到平台 release 证据才标 published；API 成功 ≠ 平台发布成功
+    const publishedEvidence = created.releaseId || created.publishedUrl;
+    if (!isScheduled && publishedEvidence) {
+      return {
+        ok: true,
+        externalJobId,
+        providerStatus: "published",
+        providerResponse,
+        externalPostUrl: created.publishedUrl ?? null,
+      };
+    }
+
+    return {
+      ok: true,
+      externalJobId,
+      providerStatus: isScheduled ? "scheduled" : "processing",
+      providerResponse,
+      externalPostUrl: created.publishedUrl ?? null,
+    };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Postiz 请求失败" };
+    const msg = e instanceof Error ? e.message : "Postiz 请求失败";
+    const httpStatus = /Postiz API (\d+)/.exec(msg);
+    const status = httpStatus ? Number(httpStatus[1]) : undefined;
+    const retryable =
+      status === 429 || (typeof status === "number" && status >= 500);
+    return { ok: false, error: msg, httpStatus: status, retryable };
   }
 }
 
-/**
- * 派发发布任务到对应通道。
- * postflow 通道仅返回成功——job 状态改为 queued 后即视为进入 DB 队列，
- * 真正执行由服务器端 PostFlow worker 完成（拉取 queued 任务 → CLI 发布 → 回写）。
- */
 export async function dispatchPublishJob(
   job: PublishJob,
   asset: VideoAsset,
@@ -70,7 +112,7 @@ export async function dispatchPublishJob(
     case "postiz":
       return dispatchToPostiz(job, asset, account);
     case "postflow":
-      return { ok: true, externalJobId: null };
+      return { ok: true, externalJobId: null, providerStatus: "scheduled" };
     default:
       return { ok: false, error: `未知发布通道: ${job.channel}` };
   }

@@ -43,6 +43,7 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
       assetId,
       groupName: item.groupName,
       captionText,
+      actorUserId: user.id,
       hashtags: item.hashtags ?? undefined,
       scheduledAt: item.plannedDate > new Date() ? item.plannedDate : undefined,
     });

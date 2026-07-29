@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { transitionPublishJob } from "@/lib/operations/publish-events";
 
 function checkWorkerAuth(request: NextRequest): boolean {
   const token = process.env.POSTFLOW_WORKER_TOKEN;
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
 
   const job = await db.publishJob.findFirst({
     where: { id: jobId, channel: "postflow", status: "processing", leaseToken },
-    select: { id: true, attemptCount: true },
+    select: { id: true, orgId: true, attemptCount: true },
   });
   if (!job) {
     return NextResponse.json({ error: "任务不存在、租约已失效或不在 processing 状态" }, { status: 409 });
@@ -37,27 +38,35 @@ export async function POST(request: NextRequest) {
 
   const retryDelayMinutes = [5, 30, 120][Math.min(Math.max(job.attemptCount - 1, 0), 2)];
   const exhausted = job.attemptCount >= 3;
-  await db.publishJob.update({
-    where: { id: jobId },
+  const result = await transitionPublishJob({
+    orgId: job.orgId,
+    jobId,
+    toStatus: body.ok ? "published" : "failed",
+    actorType: "worker",
+    reasonCode: body.ok ? "POSTFLOW_OK" : "POSTFLOW_FAIL",
+    reason: body.ok ? undefined : String(body.error ?? "worker 未提供失败原因").slice(0, 1000),
     data: body.ok
       ? {
-          status: "published",
           externalJobId: body.externalJobId ? String(body.externalJobId) : null,
           errorMessage: null,
           nextAttemptAt: null,
           leaseToken: null,
           leaseExpiresAt: null,
+          providerStatus: "published",
         }
       : {
-          status: "failed",
           errorMessage: String(body.error ?? "worker 未提供失败原因").slice(0, 1000),
           nextAttemptAt: exhausted
             ? null
             : new Date(Date.now() + retryDelayMinutes * 60 * 1000),
           leaseToken: null,
           leaseExpiresAt: null,
+          providerStatus: "failed",
         },
   });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
 
   return NextResponse.json({ ok: true });
 }

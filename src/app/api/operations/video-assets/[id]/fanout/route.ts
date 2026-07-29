@@ -47,6 +47,7 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
       groupName,
       accountIds,
       captionText,
+      actorUserId: user.id,
       hashtags: body.hashtags ? String(body.hashtags).trim() : undefined,
       scheduledAt,
     });

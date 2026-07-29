@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { canManageUsers } from "@/lib/rbac/roles";
+import { ensureMatrixAccountGroup } from "@/lib/operations/playbook/groups";
 
 const PLATFORMS = ["instagram", "facebook", "tiktok", "youtube", "xiaohongshu"];
 const CHANNELS = ["postiz", "postflow", "manual"];
@@ -24,8 +25,48 @@ export const GET = withAuth(async (request, _ctx, user) => {
     where: { orgId: orgRes.orgId },
     orderBy: [{ groupName: "asc" }, { platform: "asc" }, { handle: "asc" }],
     take: 500,
+    include: {
+      group: { select: { id: true, groupKey: true, displayName: true } },
+      playbooks: {
+        where: {
+          OR: [
+            { isEffective: true, status: "approved" },
+            { status: { in: ["draft", "submitted", "rejected"] } },
+          ],
+        },
+        orderBy: { version: "desc" },
+        take: 3,
+        select: {
+          id: true,
+          version: true,
+          status: true,
+          isEffective: true,
+          completenessScore: true,
+          validationResult: true,
+          updatedAt: true,
+        },
+      },
+    },
   });
-  return NextResponse.json({ accounts });
+
+  const enriched = accounts.map((a) => {
+    const effective = a.playbooks.find(
+      (p) => p.isEffective && p.status === "approved",
+    );
+    const latest = a.playbooks[0] ?? null;
+    return {
+      ...a,
+      playbookSummary: {
+        effectiveStatus: effective?.status ?? null,
+        latestStatus: latest?.status ?? null,
+        completenessScore:
+          effective?.completenessScore ?? latest?.completenessScore ?? 0,
+        version: effective?.version ?? latest?.version ?? null,
+      },
+    };
+  });
+
+  return NextResponse.json({ accounts: enriched });
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {
@@ -48,6 +89,11 @@ export const POST = withAuth(async (request, _ctx, user) => {
     ? (body.publishChannel as string)
     : "manual";
   const tier = body.tier === "premium" ? "premium" : "matrix";
+  const groupName = body.groupName ? String(body.groupName).trim() : "默认组";
+  const group = await ensureMatrixAccountGroup({
+    orgId: orgRes.orgId,
+    displayName: groupName,
+  });
 
   const existing = await db.matrixAccount.findUnique({
     where: {
@@ -65,7 +111,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
       platform,
       handle,
       displayName: body.displayName ? String(body.displayName).trim() : null,
-      groupName: body.groupName ? String(body.groupName).trim() : "默认组",
+      groupName: group.displayName,
+      groupId: group.id,
       personaNotes: body.personaNotes ? String(body.personaNotes) : null,
       publishChannel,
       tier,

@@ -127,6 +127,8 @@ run_test "Phase3B-A Run Reconcile" "npx tsx src/lib/assistant/__tests__/run-reco
 run_test "Phase3B-A Run Retry Policy" "npx tsx src/lib/assistant/__tests__/run-retry-policy.test.ts"
 run_test "Phase3B-A PA-Run Integration" "npx tsx src/lib/assistant/__tests__/pending-action-run-integration.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
+run_test "Matrix Playbook 权限/校验/合并" "npx tsx src/lib/operations/__tests__/playbook.test.ts"
+run_test "Publish Pipeline Phase C" "npx tsx src/lib/operations/__tests__/publish-pipeline.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"
 run_test "企业数字员工技能结构/安全" "npx tsx src/lib/agent-core/skills/__tests__/enterprise-skills.test.ts"
