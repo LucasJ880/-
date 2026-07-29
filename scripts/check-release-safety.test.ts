@@ -80,8 +80,10 @@ ok(
       "00000000000000_greenfield_baseline_pre_phase4",
       "20260728120000_project_work_domain",
       "20260728180000_project_handoff",
+      "20260729120000_matrix_account_playbook",
+      "20260729180000_phase_c_publish_job_pipeline",
     ].join("|"),
-  "active 仅为 baseline + Phase4 + Phase5",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob",
 );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

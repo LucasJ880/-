@@ -4779,6 +4779,24 @@ model ContentPlanItem {
   @@index([orgId, sourceSignalId])
 }
 
+/// 矩阵账号组（稳定实体；displayName 可改，groupKey 创建后不因改名而变）
+model MatrixAccountGroup {
+  id          String @id @default(cuid())
+  orgId       String
+  /// 稳定内部键（slug），禁止用可改显示名当外键
+  groupKey    String
+  displayName String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts  MatrixAccount[]
+  playbooks MatrixGroupPlaybook[]
+
+  @@unique([orgId, groupKey])
+  @@index([orgId])
+}
+
 model MatrixAccount {
   id    String @id @default(cuid())
   orgId String
@@ -4787,9 +4805,13 @@ model MatrixAccount {
   handle      String // 平台账号名 / 唯一标识
   displayName String?
 
-  /// 账号组：同组共享 persona 模板与内容支柱（如「多伦多华人家居」「EN 智能家居」）
-  groupName    String  @default("默认组")
-  /// 组内差异化说明（昵称口吻、细分定位等）
+  /// 兼容旧字段：显示用组名；稳定关联请用 groupId
+  groupName String @default("默认组")
+  /// 稳定账号组外键（可空：旧数据兼容）
+  groupId   String?
+  group     MatrixAccountGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  /// 组内差异化说明（昵称口吻、细分定位等）— 兼容降级输入，不自动迁移到 Playbook
   personaNotes String? @db.Text
 
   /// 账号档位：matrix（矩阵号，全自动+抽检）/ premium（精品号，发布 100% 人工审核）
@@ -4809,10 +4831,132 @@ model MatrixAccount {
   updatedAt DateTime @updatedAt
 
   publishJobs PublishJob[]
+  playbooks   MatrixAccountPlaybook[]
 
   @@unique([orgId, platform, handle])
   @@index([orgId, status])
   @@index([orgId, groupName])
+  @@index([orgId, groupId])
+}
+
+/// 账号组级运营策略（可版本化；approved 后不可原地改）
+model MatrixGroupPlaybook {
+  id      String @id @default(cuid())
+  orgId   String
+  groupId String
+  group   MatrixAccountGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  version        Int     @default(1)
+  basedOnVersion Int?
+  /// draft | submitted | approved | rejected | archived
+  status         String  @default("draft")
+  /// 同一 group 最多一个 isEffective=true（approved）
+  isEffective    Boolean @default(false)
+
+  completenessScore Int    @default(0)
+  /// unchecked | pass | warn | fail
+  validationResult  String @default("unchecked")
+  validationIssues  Json   @default("[]")
+
+  accountRole         String?
+  businessObjective   String? @db.Text
+  positioning         String? @db.Text
+  personaBackground   String? @db.Text
+  personality         String? @db.Text
+  toneOfVoice         String? @db.Text
+  operatingLanguage   String?
+  operatingRegion     String?
+  primaryProducts     String? @db.Text
+
+  targetAudienceJson  Json?
+  contentPillarsJson  Json?
+  contentMixJson      Json?
+  visualStyleJson     Json?
+  postingRulesJson    Json?
+  ctaStrategyJson     Json?
+  conversionPathJson  Json?
+  kpiTargetsJson      Json?
+  forbiddenTopicsJson Json?
+  exampleContentJson  Json?
+  /// 字段覆盖规则：{ field: "replace"|"append"|"merge-by-key" }
+  mergeRulesJson      Json?
+
+  changeSummary  String? @db.Text
+  rejectedReason String? @db.Text
+
+  createdById   String
+  submittedById String?
+  submittedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([groupId, version])
+  @@index([orgId, groupId, status])
+  @@index([orgId, groupId, isEffective])
+}
+
+/// 单账号运营方案（版本化；approved 不可覆盖，改则新版本）
+model MatrixAccountPlaybook {
+  id        String        @id @default(cuid())
+  orgId     String
+  accountId String
+  account   MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  version        Int     @default(1)
+  basedOnVersion Int?
+  /// draft | submitted | approved | rejected | archived
+  status         String  @default("draft")
+  /// 同一账号最多一个 isEffective=true（approved）
+  isEffective    Boolean @default(false)
+
+  completenessScore Int    @default(0)
+  /// unchecked | pass | warn | fail
+  validationResult  String @default("unchecked")
+  validationIssues  Json   @default("[]")
+
+  accountRole         String?
+  businessObjective   String? @db.Text
+  positioning         String? @db.Text
+  personaBackground   String? @db.Text
+  personality         String? @db.Text
+  toneOfVoice         String? @db.Text
+  operatingLanguage   String?
+  operatingRegion     String?
+  primaryProducts     String? @db.Text
+
+  targetAudienceJson  Json?
+  contentPillarsJson  Json?
+  contentMixJson      Json?
+  visualStyleJson     Json?
+  postingRulesJson    Json?
+  ctaStrategyJson     Json?
+  conversionPathJson  Json?
+  kpiTargetsJson      Json?
+  forbiddenTopicsJson Json?
+  exampleContentJson  Json?
+  /// 相对账号组：字段级覆盖声明 { fieldKey: "replace"|"append"|"merge-by-key"|"disabled" }
+  overridesJson       Json?
+
+  changeSummary  String? @db.Text
+  rejectedReason String? @db.Text
+
+  /// AI 草稿元数据：model / promptVersion / sources / missingInformation / riskFlags
+  aiDraftMetaJson Json?
+
+  createdById   String
+  submittedById String?
+  submittedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([accountId, version])
+  @@index([orgId, accountId, status])
+  @@index([orgId, accountId, isEffective])
+  @@index([orgId, status])
 }
 
 /// 视频资产 — 只存元数据与外部 URL，视频文件不经过青砚存储（成本与 serverless 限制）
@@ -4856,17 +5000,27 @@ model PublishJob {
   accountId String
   account   MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
-  /// 本账号的差异化文案（变体引擎产出）
+  /// 本账号的差异化正文（变体引擎产出）
   captionText String  @db.Text
   hashtags    String?
+  /// Phase C：结构化差异化字段
+  hookText         String?
+  titleText        String?
+  ctaText          String?
+  firstCommentText String? @db.Text
+  platformFieldsJson Json?
 
   channel     String // postiz / postflow
   scheduledAt DateTime?
 
-  /// draft / review（抽检或高敏滞留）/ blocked（规则拦截）/ queued（已派发到通道）/
-  /// processing（postflow worker 已认领）/ published / failed / canceled
+  /// Phase C 状态机（应用层兼容旧 review → pending_human_approval）：
+  /// draft | ai_reviewed | needs_revision | pending_human_approval | approved |
+  /// blocked | queued | processing | published | failed | canceled | paused_by_safety
   status         String    @default("draft")
   externalJobId  String? // Postiz post id / PostFlow worker 回执
+  externalPostUrl String?
+  providerStatus  String? // scheduled | processing | published | failed
+  providerResponseJson Json?
   errorMessage   String?
   attemptCount   Int       @default(0)
   nextAttemptAt  DateTime?
@@ -4876,8 +5030,27 @@ model PublishJob {
   /// 抽检标记：true 表示进入人工抽检队列
   sampledForReview Boolean @default(false)
 
+  /// 内容版本（人工改文案递增）；与 orgId+jobId 组成幂等键
+  contentVersion Int @default(1)
+  /// orgId:publishJobId:contentVersion — 防重复创建外部帖
+  idempotencyKey String? @unique
+
+  contextSnapshotJson      Json?
+  generationMetadataJson   Json?
+  riskAssessmentJson       Json?
+  approvalSnapshotJson     Json?
+  similarityScore          Float?
+  similarityJson           Json?
+  playbookEnforcementMode  String?
+
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  statusEvents PublishJobStatusEvent[]
 
   @@unique([assetId, accountId])
   @@unique([channel, externalJobId])
@@ -4885,6 +5058,28 @@ model PublishJob {
   @@index([accountId, status])
   @@index([channel, status, nextAttemptAt])
   @@index([channel, leaseExpiresAt])
+  @@index([orgId, providerStatus])
+}
+
+/// PublishJob 状态流转审计（Phase C）
+model PublishJobStatusEvent {
+  id           String     @id @default(cuid())
+  orgId        String
+  publishJobId String
+  publishJob   PublishJob @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+
+  fromStatus String?
+  toStatus   String
+  actorType  String // user | ai | system | worker | webhook
+  actorId    String?
+  reasonCode String?
+  reason     String?
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, publishJobId, createdAt])
+  @@index([orgId, toStatus, createdAt])
 }
 
 /// 自动流统一运行账本。业务数据仍归各自模型所有，此表只记录执行健康度。

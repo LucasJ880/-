@@ -105,6 +105,7 @@ export function buildPostizPostPayload(input: {
   platform: string;
   integrationId: string;
   media: PostizMediaAsset;
+  idempotencyKey?: string | null;
 }): Record<string, unknown> | null {
   const settings = postizSettings(input.platform);
   if (!settings) return null;
@@ -117,6 +118,9 @@ export function buildPostizPostPayload(input: {
     date: (input.scheduledAt ?? new Date()).toISOString(),
     shortLink: false,
     tags: [],
+    ...(input.idempotencyKey
+      ? { order: input.idempotencyKey, idempotencyKey: input.idempotencyKey }
+      : {}),
     posts: [{
       integration: { id: input.integrationId },
       value: [{ content, image: [input.media] }],
@@ -125,19 +129,80 @@ export function buildPostizPostPayload(input: {
   };
 }
 
-export async function createPostizPost(payload: Record<string, unknown>): Promise<string | null> {
+export type CreatePostizPostResult = {
+  postId: string | null;
+  releaseId?: string | null;
+  publishedUrl?: string | null;
+  state?: string | null;
+  raw: unknown;
+};
+
+function extractPostizResult(data: unknown): CreatePostizPostResult {
+  const pick = (obj: Record<string, unknown>): CreatePostizPostResult => ({
+    postId:
+      (typeof obj.postId === "string" && obj.postId) ||
+      (typeof obj.id === "string" && obj.id) ||
+      null,
+    releaseId:
+      typeof obj.releaseId === "string"
+        ? obj.releaseId
+        : typeof obj.release_id === "string"
+          ? obj.release_id
+          : null,
+    publishedUrl:
+      typeof obj.url === "string"
+        ? obj.url
+        : typeof obj.postUrl === "string"
+          ? obj.postUrl
+          : typeof obj.publishedUrl === "string"
+            ? obj.publishedUrl
+            : null,
+    state: typeof obj.state === "string" ? obj.state : typeof obj.status === "string" ? obj.status : null,
+    raw: data,
+  });
+
+  if (Array.isArray(data)) {
+    const first = data[0];
+    if (first && typeof first === "object") return pick(first as Record<string, unknown>);
+    return { postId: null, raw: data };
+  }
+  if (data && typeof data === "object") return pick(data as Record<string, unknown>);
+  return { postId: null, raw: data };
+}
+
+export async function createPostizPost(
+  payload: Record<string, unknown>,
+): Promise<CreatePostizPostResult> {
   const response = await postizFetch("/posts", {
     method: "POST",
     body: JSON.stringify(payload),
   });
   const data = await response.json().catch(() => null) as unknown;
-  if (Array.isArray(data)) {
-    const first = data[0] as { postId?: string; id?: string } | undefined;
-    return first?.postId ?? first?.id ?? null;
+  return extractPostizResult(data);
+}
+
+/** 查询 Postiz 帖子状态（用于轮询回写；接口因版本而异，容错解析） */
+export async function getPostizPost(postId: string): Promise<CreatePostizPostResult> {
+  const response = await postizFetch(`/posts/${encodeURIComponent(postId)}`);
+  const data = await response.json().catch(() => null) as unknown;
+  const result = extractPostizResult(data);
+  if (!result.postId) result.postId = postId;
+  return result;
+}
+
+export function classifyPostizProviderState(state: string | null | undefined): {
+  providerStatus: "scheduled" | "processing" | "published" | "failed";
+  publishJobStatus?: "queued" | "processing" | "published" | "failed";
+} {
+  const s = (state ?? "").toLowerCase();
+  if (["published", "posted", "success", "done", "completed"].includes(s)) {
+    return { providerStatus: "published", publishJobStatus: "published" };
   }
-  if (data && typeof data === "object") {
-    const result = data as { postId?: string; id?: string };
-    return result.postId ?? result.id ?? null;
+  if (["failed", "error", "canceled", "cancelled"].includes(s)) {
+    return { providerStatus: "failed", publishJobStatus: "failed" };
   }
-  return null;
+  if (["processing", "publishing", "in_progress", "working"].includes(s)) {
+    return { providerStatus: "processing", publishJobStatus: "processing" };
+  }
+  return { providerStatus: "scheduled", publishJobStatus: "queued" };
 }

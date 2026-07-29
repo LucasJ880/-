@@ -14,6 +14,8 @@ const EXPECTED_ACTIVE = [
   "00000000000000_greenfield_baseline_pre_phase4",
   "20260728120000_project_work_domain",
   "20260728180000_project_handoff",
+  "20260729120000_matrix_account_playbook",
+  "20260729180000_phase_c_publish_job_pipeline",
 ] as const;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
@@ -24,6 +26,10 @@ const IMMUTABLE: Record<string, string> = {
     "194cf361ad0281cbf961a9dfe963807a9c92da656786afe03c8e3e1569b4696a",
   "20260728180000_project_handoff":
     "6581b9056fb1f5537e497ac204505fa71e76e2596adb0abd2ae7743940a9784b",
+  "20260729120000_matrix_account_playbook":
+    "a5c3ad3450048c938ee37447fb75cbf16d7d5b02c558209a178eba30fcd2e0d0",
+  "20260729180000_phase_c_publish_job_pipeline":
+    "1c6743c5b8abe2b06923e15b3c884340947299e4685be58bf1a93bb12e084e94",
 };
 
 let passed = 0;

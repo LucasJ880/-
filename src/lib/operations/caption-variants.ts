@@ -1,121 +1,256 @@
 /**
- * 文案变体引擎
+ * 文案变体引擎（Phase C）
  *
- * 矩阵账号发同一条视频时，文案必须差异化（平台查重会集体降权）。
- * 一次 LLM 调用为一组账号批量生成变体：保留核心卖点与 CTA 意图，
- * 换句式、换开头钩子、换表达顺序；语气跟随账号组 persona。
- *
- * AI 未配置或调用失败时回退为母版文案（宁可重复也不阻塞发布）。
+ * 必须依据每账号 effective Playbook 上下文生成真实差异化结构：
+ * hook / title / body / cta / hashtags / firstComment / platformFields
+ * 禁止仅同义词/emoji/换账号名。
  */
 
-import type { MatrixAccount, VideoAsset } from "@prisma/client";
+import type { VideoAsset } from "@prisma/client";
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 
-/** 单次调用最多生成的变体数，超出则分批 */
-const MAX_VARIANTS_PER_CALL = 20;
+const MAX_VARIANTS_PER_CALL = 12;
+export const CAPTION_PROMPT_VERSION = "matrix-caption-diff-v2";
 
-const SYSTEM_PROMPT = `你是社媒矩阵运营的文案改写引擎。给定一条母版文案和若干账号，为每个账号生成一条差异化变体。
+const SYSTEM_PROMPT = `你是社媒矩阵差异化文案引擎。同一视频母版扇出到多个账号时，必须为每个账号生成**显著不同**的完整文案结构。
 
-要求：
-- 保留核心卖点、事实信息和行动号召的意图，禁止编造母版中没有的功能、价格或承诺
-- 每条变体之间显著不同：换开头钩子、换句式结构、换表达顺序，避免同义词替换式的伪差异
-- 语言跟随母版（英文母版出英文，中文母版出中文），长度与母版相当
-- 语气贴合各账号的 persona 描述；无描述则用自然、口语化的品牌声音
-- 不添加母版之外的 hashtag
-- 如提供了品牌语料：语气与卖点表述须与之一致，绝不出现「内容禁忌」中列出的表述或承诺
+硬性要求：
+- 保留母版事实与卖点意图，禁止编造价格、业绩、承诺
+- 禁止只做同义词替换、随机句式微调、增删 emoji、只改账号名、同正文不同 hashtag
+- Hook、正文结构、CTA 表达必须因账号 Playbook（角色/语气/支柱/CTA 策略）而不同
+- 语言跟随母版
+- 输出严格 JSON 数组，按输入顺序
 
-输出严格 JSON 数组，按输入账号顺序，每项：{"accountId": "...", "caption": "..."}，不要输出其他内容。`;
+每项字段：
+{
+  "accountId": "",
+  "hook": "",
+  "title": "",
+  "body": "",
+  "cta": "",
+  "hashtags": ["#a"],
+  "firstComment": "",
+  "platformFields": {}
+}`;
 
-export interface CaptionVariantResult {
-  /** accountId → 变体文案；未命中的账号回退母版 */
-  captions: Map<string, string>;
-  /** true 表示全部或部分回退了母版文案 */
+export type AccountCaptionBrief = {
+  accountId: string;
+  platform: string;
+  handle: string;
+  playbookSummary: {
+    accountRole?: string | null;
+    positioning?: string | null;
+    toneOfVoice?: string | null;
+    personaSummary?: string | null;
+    contentPillars?: unknown;
+    ctaStrategy?: unknown;
+    forbiddenTopics?: unknown;
+    hasApprovedPlaybook: boolean;
+  };
+};
+
+export type StructuredCaption = {
+  accountId: string;
+  hook: string;
+  title: string;
+  body: string;
+  cta: string;
+  hashtags: string[];
+  firstComment: string;
+  platformFields: Record<string, unknown>;
+};
+
+export type CaptionVariantResult = {
+  variants: Map<string, StructuredCaption>;
   usedFallback: boolean;
-}
+  promptVersion: string;
+  model: string | null;
+};
 
-function parseVariants(raw: string): Array<{ accountId: string; caption: string }> {
+function parseVariants(raw: string): StructuredCaption[] {
   const jsonText = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   const parsed = JSON.parse(jsonText) as unknown;
   if (!Array.isArray(parsed)) throw new Error("变体输出不是数组");
-  return parsed
-    .filter(
-      (it): it is { accountId: string; caption: string } =>
-        typeof it === "object" &&
-        it !== null &&
-        typeof (it as Record<string, unknown>).accountId === "string" &&
-        typeof (it as Record<string, unknown>).caption === "string" &&
-        Boolean((it as Record<string, unknown>).caption),
-    )
-    .map((it) => ({ accountId: it.accountId, caption: it.caption.trim() }));
+  const out: StructuredCaption[] = [];
+  for (const it of parsed) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    if (typeof o.accountId !== "string") continue;
+    const body =
+      typeof o.body === "string"
+        ? o.body.trim()
+        : typeof o.caption === "string"
+          ? o.caption.trim()
+          : "";
+    if (!body) continue;
+    out.push({
+      accountId: o.accountId,
+      hook: typeof o.hook === "string" ? o.hook.trim() : "",
+      title: typeof o.title === "string" ? o.title.trim() : "",
+      body,
+      cta: typeof o.cta === "string" ? o.cta.trim() : "",
+      hashtags: Array.isArray(o.hashtags)
+        ? o.hashtags.filter((h): h is string => typeof h === "string")
+        : [],
+      firstComment:
+        typeof o.firstComment === "string" ? o.firstComment.trim() : "",
+      platformFields:
+        o.platformFields && typeof o.platformFields === "object"
+          ? (o.platformFields as Record<string, unknown>)
+          : {},
+    });
+  }
+  return out;
+}
+
+function fallbackVariant(
+  accountId: string,
+  baseCaption: string,
+  baseHashtags?: string,
+): StructuredCaption {
+  return {
+    accountId,
+    hook: "",
+    title: "",
+    body: baseCaption,
+    cta: "",
+    hashtags: baseHashtags
+      ? baseHashtags.split(/[\s,]+/).filter(Boolean)
+      : [],
+    firstComment: "",
+    platformFields: {},
+  };
 }
 
 async function generateBatch(
   asset: Pick<VideoAsset, "title" | "topic" | "language">,
   baseCaption: string,
-  accounts: Array<Pick<MatrixAccount, "id" | "groupName" | "personaNotes" | "platform">>,
-  brandContext: string | null,
-): Promise<Map<string, string>> {
+  baseHashtags: string | undefined,
+  accounts: AccountCaptionBrief[],
+): Promise<Map<string, StructuredCaption>> {
   const userPrompt = JSON.stringify(
     {
       video: { title: asset.title, topic: asset.topic, language: asset.language },
       baseCaption,
-      accounts: accounts.map((a) => ({
-        accountId: a.id,
-        platform: a.platform,
-        group: a.groupName,
-        persona: a.personaNotes ?? null,
-      })),
+      baseHashtags: baseHashtags ?? null,
+      accounts,
     },
     null,
     2,
   );
 
   const content = await createCompletion({
-    systemPrompt: brandContext
-      ? `${SYSTEM_PROMPT}\n\n【品牌语料】\n${brandContext}`
-      : SYSTEM_PROMPT,
+    systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     mode: "normal",
-    timeoutMs: 60_000,
+    timeoutMs: 90_000,
   });
 
   const variants = parseVariants(content);
-  const map = new Map<string, string>();
-  for (const v of variants) map.set(v.accountId, v.caption);
+  const map = new Map<string, StructuredCaption>();
+  for (const v of variants) map.set(v.accountId, v);
   return map;
 }
 
+/**
+ * @deprecated 保留签名兼容；新代码请用 generateStructuredCaptionVariants
+ */
 export async function generateCaptionVariants(
   asset: Pick<VideoAsset, "title" | "topic" | "language">,
   baseCaption: string,
-  accounts: Array<Pick<MatrixAccount, "id" | "groupName" | "personaNotes" | "platform">>,
-  brandContext: string | null = null,
-): Promise<CaptionVariantResult> {
+  accounts: Array<{
+    id: string;
+    groupName: string;
+    personaNotes: string | null;
+    platform: string;
+  }>,
+  _brandContext: string | null = null,
+): Promise<{ captions: Map<string, string>; usedFallback: boolean }> {
+  const briefs: AccountCaptionBrief[] = accounts.map((a) => ({
+    accountId: a.id,
+    platform: a.platform,
+    handle: a.id,
+    playbookSummary: {
+      personaSummary: a.personaNotes,
+      hasApprovedPlaybook: false,
+    },
+  }));
+  const result = await generateStructuredCaptionVariants(
+    asset,
+    baseCaption,
+    undefined,
+    briefs,
+  );
   const captions = new Map<string, string>();
+  for (const [id, v] of result.variants) captions.set(id, v.body);
+  return { captions, usedFallback: result.usedFallback };
+}
+
+export async function generateStructuredCaptionVariants(
+  asset: Pick<VideoAsset, "title" | "topic" | "language">,
+  baseCaption: string,
+  baseHashtags: string | undefined,
+  accounts: AccountCaptionBrief[],
+): Promise<CaptionVariantResult> {
+  const variants = new Map<string, StructuredCaption>();
   if (!isAIConfigured() || accounts.length === 0) {
-    for (const a of accounts) captions.set(a.id, baseCaption);
-    return { captions, usedFallback: accounts.length > 0 };
+    for (const a of accounts) {
+      variants.set(a.accountId, fallbackVariant(a.accountId, baseCaption, baseHashtags));
+    }
+    return {
+      variants,
+      usedFallback: accounts.length > 0,
+      promptVersion: CAPTION_PROMPT_VERSION,
+      model: null,
+    };
   }
 
   let usedFallback = false;
   for (let i = 0; i < accounts.length; i += MAX_VARIANTS_PER_CALL) {
     const batch = accounts.slice(i, i + MAX_VARIANTS_PER_CALL);
     try {
-      const generated = await generateBatch(asset, baseCaption, batch, brandContext);
+      const generated = await generateBatch(
+        asset,
+        baseCaption,
+        baseHashtags,
+        batch,
+      );
       for (const a of batch) {
-        const caption = generated.get(a.id);
-        if (caption) {
-          captions.set(a.id, caption);
-        } else {
-          captions.set(a.id, baseCaption);
+        const v = generated.get(a.accountId);
+        if (v) variants.set(a.accountId, v);
+        else {
+          variants.set(
+            a.accountId,
+            fallbackVariant(a.accountId, baseCaption, baseHashtags),
+          );
           usedFallback = true;
         }
       }
     } catch {
-      for (const a of batch) captions.set(a.id, baseCaption);
+      for (const a of batch) {
+        variants.set(
+          a.accountId,
+          fallbackVariant(a.accountId, baseCaption, baseHashtags),
+        );
+      }
       usedFallback = true;
     }
   }
-  return { captions, usedFallback };
+
+  return {
+    variants,
+    usedFallback,
+    promptVersion: CAPTION_PROMPT_VERSION,
+    model: isAIConfigured() ? "configured" : null,
+  };
+}
+
+export function structuredToCaptionText(v: StructuredCaption): string {
+  return [v.hook, v.title, v.body, v.cta].filter(Boolean).join("\n\n");
+}
+
+export function structuredHashtags(v: StructuredCaption, fallback?: string): string {
+  if (v.hashtags.length) return v.hashtags.join(" ");
+  return fallback ?? "";
 }

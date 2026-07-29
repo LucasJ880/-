@@ -7,7 +7,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cloud, Crown, Plus, RefreshCw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, Cloud, Crown, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
@@ -25,6 +26,12 @@ interface MatrixAccount {
   status: string;
   tier: string;
   dailyQuota: number;
+  playbookSummary?: {
+    effectiveStatus: string | null;
+    latestStatus: string | null;
+    completenessScore: number;
+    version: number | null;
+  };
 }
 
 interface PostizIntegration {
@@ -466,6 +473,23 @@ export default function MatrixAccountsPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted">配额 {a.dailyQuota}/天</td>
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/operations/matrix/${a.id}/playbook`}
+                        className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-700 hover:bg-stone-200"
+                        title="账号 Playbook"
+                      >
+                        <BookOpen size={12} />
+                        {a.playbookSummary?.effectiveStatus === "approved"
+                          ? `v${a.playbookSummary.version} 生效`
+                          : a.playbookSummary?.latestStatus
+                            ? a.playbookSummary.latestStatus
+                            : "未配置"}
+                        {typeof a.playbookSummary?.completenessScore === "number" && (
+                          <span className="text-muted">{a.playbookSummary.completenessScore}%</span>
+                        )}
+                      </Link>
+                    </td>
                     <td className="px-4 py-2.5">
                       <select
                         value={a.status}
