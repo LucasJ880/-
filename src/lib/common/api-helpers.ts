@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 
 import { getCurrentUser, type AuthUser } from "@/lib/auth";
 import { logger } from "./logger";
@@ -6,6 +7,14 @@ import {
   generateRequestId,
   runWithRequestContext,
 } from "./request-context";
+
+/** Schema/DB 漂移类错误：不掩盖为普通 500，便于运维定位（不自动 migrate）。 */
+function isSchemaDriftPrismaError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    (err.code === "P2021" || err.code === "P2022")
+  );
+}
 
 // ============================================================
 // API 路由通用辅助工具
@@ -103,11 +112,26 @@ export function withAuth<P = Record<string, string>>(handler: AuthHandler<P>) {
             method,
             err,
             durationMs: Date.now() - startedAt,
+            prismaCode:
+              err instanceof Prisma.PrismaClientKnownRequestError
+                ? err.code
+                : undefined,
           });
-          response = NextResponse.json(
-            { error: "服务器内部错误", requestId },
-            { status: 500 },
-          );
+          if (isSchemaDriftPrismaError(err)) {
+            response = NextResponse.json(
+              {
+                error: "数据模型与数据库不一致，请联系管理员",
+                code: err.code,
+                requestId,
+              },
+              { status: 503 },
+            );
+          } else {
+            response = NextResponse.json(
+              { error: "服务器内部错误", requestId },
+              { status: 500 },
+            );
+          }
         }
 
         response.headers.set("x-request-id", requestId);
