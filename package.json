@@ -2,6 +2,9 @@
   "name": "qingyan-ai",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "dev": "next dev",
     "wechat:worker": "tsx scripts/wechat-worker.ts",
@@ -10,9 +13,11 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "qa": "npm run lint && npx prisma generate && npx next build",
     "test": "bash scripts/test-all.sh",
     "test:api": "bash scripts/test-all.sh --api",
+    "test:ci": "bash scripts/test-ci-unit.sh",
     "test:release-safety": "npx tsx scripts/check-release-safety.test.ts",
     "test:handoff-integration": "npx tsx scripts/phase5b-handoff-integration.test.ts",
     "verify:phase5-integrity": "npx tsx scripts/verify-phase5-data-integrity.ts",

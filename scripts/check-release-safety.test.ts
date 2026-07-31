@@ -124,13 +124,17 @@ if (existsSync(ghDir)) {
   let clean = true;
   for (const f of files) {
     const body = readFileSync(join(ghDir, f), "utf8");
-    // PR 检查不得 migrate deploy；允许注释提及
-    if (
+    // PR 检查不得 *执行* migrate deploy。
+    // 允许：隔离测试库、以及明确「禁止 migrate」的 CI Guard 文案。
+    const mentionsMigrate =
       /prisma\s+migrate\s+deploy|db:migrate:deploy|build:with-migrations/.test(
         body,
-      ) &&
-      !/temporary|isolated|ephemeral|test.?db/i.test(body)
-    ) {
+      );
+    const isAllowlisted =
+      /temporary|isolated|ephemeral|test.?db|must not migrate|migrate-free|Forbidden migration|no migrate\/db push/i.test(
+        body,
+      );
+    if (mentionsMigrate && !isAllowlisted) {
       clean = false;
       console.log(`    可疑 workflow: ${f}`);
     }
