@@ -18,8 +18,8 @@
  *     }
  *   }
  *
- * 注意：此接口故意放在 middleware 公开白名单外，依赖 middleware 配置。
- * 如需完全公开，请将 /api/health 加入 PUBLIC_PATHS。
+ * 注意：此接口在 middleware PUBLIC_PATHS 中（/api/health），无需登录。
+ * 仅返回聚合健康状态，不返回业务数据行。
  */
 
 import { NextResponse } from "next/server";
