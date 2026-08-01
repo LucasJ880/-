@@ -47,6 +47,23 @@ ok(
   "build 仅 generate + next build",
 );
 ok(
+  typeof scripts.qa === "string" &&
+    !/\bmigrate\s+deploy\b/.test(scripts.qa) &&
+    !/\bdb:migrate:deploy\b/.test(scripts.qa) &&
+    !/\bbuild:with-migrations\b/.test(scripts.qa),
+  "qa 不含 migrate / build:with-migrations",
+);
+ok(
+  typeof scripts["test:ci"] === "string" &&
+    !/\bmigrate\s+deploy\b/.test(scripts["test:ci"]) &&
+    !/\bdb:migrate:deploy\b/.test(scripts["test:ci"]),
+  "test:ci 不含 migrate",
+);
+ok(
+  typeof scripts["build:with-migrations"] === "string",
+  "build:with-migrations 仍为显式受控入口（不得接入 CI）",
+);
+ok(
   typeof scripts["db:migrate:deploy"] === "string" &&
     scripts["db:migrate:deploy"].includes("safe-migrate-deploy"),
   "db:migrate:deploy 走 safe-migrate-deploy",
