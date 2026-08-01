@@ -123,6 +123,15 @@ async function main() {
     "helper: env secret + Authorization + 503/401 fail-closed",
   );
   ok(
+    /timingSafeEqual/.test(tradeAccess) && /createHash\(\s*["']sha256["']\s*\)/.test(tradeAccess),
+    "helper uses sha256 digest + timingSafeEqual",
+  );
+  ok(
+    !/authHeader\s*!==\s*`Bearer \$\{secret\}`/.test(tradeAccess) &&
+      !/authorization["']\s*\)\s*!==\s*`Bearer/.test(tradeAccess),
+    "helper no longer uses plaintext !== Bearer compare",
+  );
+  ok(
     !/searchParams\.get\(["'](?:secret|cron)/i.test(tradeAccess) &&
       !/cookie/i.test(
         tradeAccess.slice(tradeAccess.indexOf("requireTradeCronSecret")),
@@ -180,6 +189,7 @@ async function main() {
   {
     const prev = process.env.CRON_SECRET;
     const secret = "unit-test-cron-secret-do-not-leak";
+    const sameLenWrong = "x".repeat(secret.length);
     try {
       delete process.env.CRON_SECRET;
       const unset = requireTradeCronSecret(
@@ -200,17 +210,67 @@ async function main() {
       );
       ok(noAuth instanceof Response && noAuth.status === 401, "no Authorization → 401");
 
-      const wrong = requireTradeCronSecret(
+      const wrongSameLen = requireTradeCronSecret(
         new NextRequest("http://localhost/api/trade/cron", {
-          headers: { authorization: "Bearer wrong-secret" },
+          headers: { authorization: `Bearer ${sameLenWrong}` },
         }),
       );
-      ok(wrong instanceof Response && wrong.status === 401, "wrong Bearer → 401");
-      if (wrong) {
-        const text = JSON.stringify(await readJson(wrong));
+      ok(
+        wrongSameLen instanceof Response && wrongSameLen.status === 401,
+        "wrong same-length token → 401",
+      );
+
+      const wrongDiffLen = requireTradeCronSecret(
+        new NextRequest("http://localhost/api/trade/cron", {
+          headers: { authorization: "Bearer short" },
+        }),
+      );
+      ok(
+        wrongDiffLen instanceof Response && wrongDiffLen.status === 401,
+        "wrong different-length token → 401",
+      );
+      if (wrongDiffLen) {
+        const text = JSON.stringify(await readJson(wrongDiffLen));
         ok(!text.includes(secret), "wrong-auth response does not contain secret");
-        ok(!text.includes("wrong-secret"), "wrong-auth response does not echo wrong secret");
+        ok(!text.includes("short"), "wrong-auth response does not echo wrong secret");
       }
+
+      const emptyBearer = requireTradeCronSecret(
+        new NextRequest("http://localhost/api/trade/cron", {
+          headers: { authorization: "Bearer " },
+        }),
+      );
+      ok(emptyBearer instanceof Response && emptyBearer.status === 401, "empty Bearer token → 401");
+
+      const lowerBearer = requireTradeCronSecret(
+        new NextRequest("http://localhost/api/trade/cron", {
+          headers: { authorization: `bearer ${secret}` },
+        }),
+      );
+      ok(
+        lowerBearer instanceof Response && lowerBearer.status === 401,
+        "lowercase bearer scheme → 401 (strict)",
+      );
+
+      // Headers API 会剥离 header 值首尾 OWS；helper 仍要求与 `Bearer ${secret}` 精确匹配。
+      const extraSpace = requireTradeCronSecret(
+        new NextRequest("http://localhost/api/trade/cron", {
+          headers: { authorization: `Bearer  ${secret}` },
+        }),
+      );
+      ok(
+        extraSpace instanceof Response && extraSpace.status === 401,
+        "extra space after Bearer → 401",
+      );
+      const trailing = requireTradeCronSecret(
+        new NextRequest("http://localhost/api/trade/cron", {
+          headers: { authorization: `Bearer ${secret} trailing` },
+        }),
+      );
+      ok(
+        trailing instanceof Response && trailing.status === 401,
+        "trailing content after token → 401",
+      );
 
       const queryAttempt = requireTradeCronSecret(
         new NextRequest(
@@ -248,13 +308,13 @@ async function main() {
 
   console.log("\n覆盖说明");
   console.log(
-    "  · 已覆盖：helper 四态鉴权 + middleware session bypass + 静态契约",
+    "  · 已覆盖：helper 常量时间鉴权（含同长/异长错误 token）+ middleware session bypass + 静态契约",
   );
   console.log(
     "  · 未覆盖：完整 Next route handler + runDailyCron 集成（需 stub 业务与 DB，本 PR 不做）",
   );
   console.log(
-    "  · 已知缺口：requireTradeCronSecret 使用普通字符串比较，非 crypto.timingSafeEqual；仓库无共用 Bearer 安全比较 helper，修复超出本 PR 文件范围",
+    "  · 技术债：其他 /api/cron/* 尚未统一常量时间比较（不在本 PR 批量修复）",
   );
 
   console.log(`\n结果: ${passed} passed, ${failed} failed`);

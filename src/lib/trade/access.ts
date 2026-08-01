@@ -8,6 +8,7 @@
  * - 平台管理员：必须显式传 orgId，且组织须存在
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type { AuthUser } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/auth";
@@ -21,6 +22,13 @@ import type {
   TradeProspect,
   TradeQuote,
 } from "@prisma/client";
+
+/** SHA-256 摘要后比较，避免 timingSafeEqual 等长限制，且不先做明文长度短路。 */
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftDigest = createHash("sha256").update(left, "utf8").digest();
+  const rightDigest = createHash("sha256").update(right, "utf8").digest();
+  return timingSafeEqual(leftDigest, rightDigest);
+}
 
 export type TradeOrgResolution =
   | { ok: true; orgId: string }
@@ -250,6 +258,7 @@ export async function loadTradeEmailTemplateForOrg(
 
 /**
  * Cron / 类后台任务：必须配置 CRON_SECRET，且请求头 Authorization: Bearer <secret> 完全匹配。
+ * 使用固定长度摘要 + timingSafeEqual，避免明文 !== 比较泄露时序。
  */
 export function requireTradeCronSecret(request: NextRequest): NextResponse | null {
   const secret = process.env.CRON_SECRET?.trim();
@@ -259,8 +268,9 @@ export function requireTradeCronSecret(request: NextRequest): NextResponse | nul
       { status: 503 },
     );
   }
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${secret}`) {
+  const expected = `Bearer ${secret}`;
+  const actual = request.headers.get("authorization") ?? "";
+  if (!constantTimeEqual(actual, expected)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return null;
