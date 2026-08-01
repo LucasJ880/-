@@ -1,0 +1,38 @@
+
+wave15-smoke self-check
+  ✓ localhost ipv4 allowed
+  ✓ localhost allowed
+  ✓ ::1 allowed
+  ✓ git preview allowed
+  ✓ qingyan.ai blocked
+  ✓ www.qingyan.ai blocked
+  ✓ qingyan.ca blocked
+  ✓ www.qingyan.ca blocked
+  ✓ app.qingyan.ca blocked
+  ✓ non-git vercel.app blocked
+  ✓ arbitrary external host blocked
+  ✓ assertSafeBaseUrl rejects qingyan.ai
+  ✓ assertSafeBaseUrl rejects qingyan.ca
+  ✓ assertSafeBaseUrl rejects www.qingyan.ca
+  ✓ assertSafeBaseUrl rejects app.qingyan.ca
+  ✓ assertSafeBaseUrl rejects non-git vercel.app
+  ✓ assertSafeBaseUrl rejects arbitrary external host
+  ✓ assertSafeBaseUrl rejects HTTP remote Preview
+  ✓ assertSafeBaseUrl rejects URL username/password
+  ✓ assertSafeBaseUrl accepts localhost http
+  ✓ assertSafeBaseUrl accepts HTTPS git Preview
+
+wave15-smoke readonly against https://git-stabilization-wave15-productio-17b699-lucas-9039s-projects.vercel.app
+  (timeout=12000ms; network errors are FAIL)
+  ✗ GET /api/health → 302 (expect 200|503)
+  ✓ /api/health body has no obvious secrets/SQL
+  ✗ GET /api/ai/pending-actions unauthenticated → 302 (expect 401|403)
+  ✓ unauth body has no secrets/SQL
+  ✗ POST /api/trade/cron no auth → 302 (expect 401|503)
+  ✓ cron no-auth body has no secrets
+  ✗ POST /api/trade/cron wrong bearer → 302 (expect 401|503)
+  ✓ wrong bearer not echoed
+  ✓ wrong bearer body has no secrets/SQL
+  ✓ no customer/quote/email/wechat/cron-business write attempted
+
+结果: 27 passed, 4 failed

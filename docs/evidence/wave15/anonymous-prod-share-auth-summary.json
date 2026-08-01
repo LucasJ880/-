@@ -1,0 +1,33 @@
+{
+  "captured_at_utc": "2026-08-01T20:25:26.301690+00:00",
+  "base_host": "qingyan.ca",
+  "probes": [
+    {
+      "id": "S9_SHARE_API",
+      "status": 404,
+      "sql_leak": false,
+      "secretish": false,
+      "body_snip_safe": "{\"error\":\"报价不存在或链接已失效\"}"
+    },
+    {
+      "id": "S9_SHARE_PAGE",
+      "status": 200,
+      "sql_leak": false,
+      "secretish": false
+    },
+    {
+      "id": "E1_CUSTOMERS",
+      "status": 401,
+      "sql_leak": false,
+      "secretish": false,
+      "body_snip_safe": "{\"error\":\"未登录\"}"
+    },
+    {
+      "id": "E1_PROJECTS",
+      "status": 401,
+      "sql_leak": false,
+      "secretish": false,
+      "body_snip_safe": "{\"error\":\"未登录\"}"
+    }
+  ]
+}
