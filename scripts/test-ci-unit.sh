@@ -11,6 +11,7 @@ echo "  青砚 CI unit subset"
 echo "═══════════════════════════════════════════════════"
 
 npx tsx scripts/check-release-safety.test.ts
+npx tsx src/lib/common/__tests__/with-auth-schema-drift.test.ts
 
 echo ""
 echo "CI unit subset PASS"
