@@ -1,0 +1,217 @@
+{
+  "captured_at_utc": "2026-08-01T21:49:04.302168+00:00",
+  "base_host": "qingyan.ca",
+  "note": "phase1 production read-only; passwords/cookies/tokens excluded; PII redacted (names/emails/phones/orgCode); resource ids truncated",
+  "counts": {
+    "PASS": 17,
+    "FAIL": 1,
+    "BLOCKED": 4
+  },
+  "results": [
+    {
+      "id": "A2",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"user\":{\"id\":\"cmmy6zim…3yqv\",\"email\":\"[email]\",\"name\":\"[redacted]\",\"role\":\"admin\"},\"activeOrgId\":\"c",
+      "error": null
+    },
+    {
+      "id": "A3",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 401,
+      "leak": false,
+      "body_snip_safe": "{\"error\":\"邮箱或密码错误\"}",
+      "error": null
+    },
+    {
+      "id": "O1",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"activeOrgId\":\"cmrtcnz1…emyl\",\"orgCode\":\"[redacted]\",\"modules\":{\"enabled\":[\"sales\",\"bids\",\"projects",
+      "error": null
+    },
+    {
+      "id": "S1",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"customers\":[{\"id\":\"cms7y5ti…wakp\",\"orgId\":\"cmrtcnz1…emyl\",\"name\":\"[redacted]\",\"phone\":\"[phone]\",\"e",
+      "error": null
+    },
+    {
+      "id": "S2",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"id\":\"cms7y5ti…wakp\",\"orgId\":\"cmrtcnz1…emyl\",\"name\":\"[redacted]\",\"phone\":\"[phone]\",\"email\":\"[email]",
+      "error": null
+    },
+    {
+      "id": "S5",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"quotes\":[{\"id\":\"cms7yic5…q791\",\"customerId\":\"cms7y5ti…wakp\",\"version\":2,\"status\":\"viewed\",\"install",
+      "error": null
+    },
+    {
+      "id": "S7",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"quote\":{\"id\":\"cms7yic5…q791\",\"orgId\":\"cmrtcnz1…emyl\",\"opportunityId\":null,\"customerId\":\"cms7y5ti…w",
+      "error": null
+    },
+    {
+      "id": "S8",
+      "role": "anon",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"quote\":{\"id\":\"cms7yic5…q791\",\"customerName\":\"[redacted]\",\"version\":2,\"status\":\"viewed\",\"installMod",
+      "error": null
+    },
+    {
+      "id": "S9",
+      "role": "anon",
+      "status": "PASS",
+      "http_status": 404,
+      "leak": false,
+      "body_snip_safe": "{\"error\":\"报价不存在或链接已失效\"}",
+      "error": null
+    },
+    {
+      "id": "P1",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "[{\"id\":\"cms8yayl…5w3u\",\"orgId\":\"cmrtcnz1…emyl\",\"workspaceId\":null,\"name\":\"[redacted]\",\"code\":null,\"d",
+      "error": null
+    },
+    {
+      "id": "P2",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"project\":{\"id\":\"cms8yayl…5w3u\",\"orgId\":\"cmrtcnz1…emyl\",\"workspaceId\":null,\"name\":\"[redacted]\",\"cod",
+      "error": null
+    },
+    {
+      "id": "A2_MEMBER",
+      "role": "member",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"user\":{\"id\":\"cmo76z97…p9n5\",\"email\":\"[email]\",\"name\":\"[redacted]\",\"role\":\"sales\"},\"activeOrgId\":\"c",
+      "error": null
+    },
+    {
+      "id": "O6",
+      "role": "member",
+      "status": "PASS",
+      "http_status": 403,
+      "leak": false,
+      "body_snip_safe": "{\"error\":\"当前账号不允许自行切换工作企业\",\"code\":\"[redacted]\"}",
+      "error": null
+    },
+    {
+      "id": "P5",
+      "role": "member",
+      "status": "PASS",
+      "http_status": 404,
+      "leak": false,
+      "body_snip_safe": "{\"error\":\"项目不存在\"}",
+      "error": null
+    },
+    {
+      "id": "A2_OUTSIDER",
+      "role": "outsider",
+      "status": "FAIL",
+      "http_status": 401,
+      "leak": false,
+      "body_snip_safe": "{\"error\":\"邮箱或密码错误\"}",
+      "error": null
+    },
+    {
+      "id": "O4",
+      "role": "outsider",
+      "status": "BLOCKED_BY_TEST_ACCOUNT",
+      "http_status": null,
+      "leak": false,
+      "body_snip_safe": "",
+      "error": null
+    },
+    {
+      "id": "O5",
+      "role": "admin",
+      "status": "BLOCKED_BY_TEST_DATA",
+      "http_status": null,
+      "leak": false,
+      "body_snip_safe": "",
+      "error": null
+    },
+    {
+      "id": "P6",
+      "role": "admin",
+      "status": "BLOCKED_BY_TEST_DATA",
+      "http_status": null,
+      "leak": false,
+      "body_snip_safe": "",
+      "error": null
+    },
+    {
+      "id": "O2",
+      "role": "admin",
+      "status": "BLOCKED_BY_TEST_DATA",
+      "http_status": null,
+      "leak": false,
+      "body_snip_safe": "",
+      "error": null
+    },
+    {
+      "id": "A4",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 200,
+      "leak": false,
+      "body_snip_safe": "{\"ok\":true}",
+      "error": null
+    },
+    {
+      "id": "A5",
+      "role": "admin",
+      "status": "PASS",
+      "http_status": 401,
+      "leak": false,
+      "body_snip_safe": "{\"error\":\"未登录\"}",
+      "error": null
+    },
+    {
+      "id": "E7",
+      "role": "all",
+      "status": "PASS",
+      "http_status": 0,
+      "leak": false,
+      "body_snip_safe": "aggregate",
+      "error": null
+    }
+  ],
+  "roles_used": {
+    "admin": "SET",
+    "member": "SET",
+    "outsider": "LOGIN_FAILED_401"
+  },
+  "go_recommendation": "NO-GO",
+  "go_reason": "Outsider login failed; O4/O5/P6/O2 blocked; cross-org isolation not proven; Preview/Pending Action not executed"
+}

@@ -9,3 +9,5 @@
 | `preview-anonymous-smoke-2026-08-01.log` | Preview 匿名 smoke（302 → Deployment Protection） |
 
 执行记录：`docs/QINGYAN_WAVE15_ACCEPTANCE_EXECUTION_2026-08-01.md`
+| `phase1-prod-login-readonly-summary.json` | 生产只读登录态 Phase1 状态码摘要（已脱敏） |
+
