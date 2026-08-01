@@ -15,6 +15,21 @@
 
 本波自动化仅覆盖只读 smoke（见 `scripts/wave15-smoke-readonly.ts`）。下列业务矩阵默认均为 **MANUAL_VERIFICATION_REQUIRED**，直至人工填写。
 
+### 只读 smoke 契约（防假绿）
+
+| 模式 | 命令 | 网络错误语义 |
+|---|---|---|
+| CI / 自检 | `npx tsx scripts/wave15-smoke-readonly.ts --self-check-only` | **不发网络请求** |
+| 本地网络 | `npx tsx scripts/wave15-smoke-readonly.ts --allow-network --base-url http://127.0.0.1:3000` | 连接失败/DNS/TLS/超时/断言失败 → **FAIL exit 1** |
+| Preview 网络 | `npx tsx scripts/wave15-smoke-readonly.ts --allow-network --base-url https://git-<preview>.vercel.app` | 同上（必须 HTTPS + `git-*.vercel.app`） |
+
+- `--base-url` 未配 `--allow-network` → **报错 exit 1**（不得静默跳过）  
+- `--self-check-only` 与 `--allow-network` 同时出现 → **报错 exit 1**  
+- 「未请求网络」≠ PASS；**skipped 不代表探测通过**  
+- 显式网络 smoke **不能替代**人工业务验收  
+- 生产域名（`qingyan.ai` / `qingyan.ca` 等）与非 `git-` Vercel 主机 **fail-closed**  
+- 若 Preview 启用 Vercel Deployment Protection，匿名请求可能返回 **302**：网络 smoke 记为 **FAIL**（非 skip），需关闭保护或提供可匿名探活的 Preview 后再验
+
 ---
 
 ## 0. 执行环境与证据
@@ -144,9 +159,10 @@
 
 | 类型 | 覆盖 |
 |---|---|
-| 已自动化（CI） | release-safety；schema-drift P2021/P2022；public-route 契约；SWC；wave15 只读 smoke（health/未认证/错 token/敏感信息） |
-| 必须人工 | 登录 UX、org 切换、销售/项目主路径、分享链接真实打开、AI 批准/拒绝、Webhook 真签名、生产健康巡检 |
-| 禁止自动化/人工 | 生产写客户/报价、真邮件、真微信发送、生产 cron 业务执行、migration |
+| 已自动化（CI） | release-safety；schema-drift；public-route 契约；SWC；wave15 smoke **仅** `--self-check-only`（allowlist/fail-closed，不发网） |
+| 须显式网络 smoke | Preview/localhost：`--allow-network --base-url …` 测 health / 未认证拒绝 / cron 无凭据与错 Bearer；失败必须 exit 1 |
+| 必须人工 | 登录 UX、org 切换、销售/项目主路径、分享链接、AI 批准/拒绝、Webhook 真签名、生产健康巡检 |
+| 禁止 | 生产写客户/报价、真邮件、真微信、生产 cron 业务、migration；网络 smoke 使用正确 CRON_SECRET |
 
 ---
 

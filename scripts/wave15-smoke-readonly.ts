@@ -1,21 +1,29 @@
 /**
  * Wave1.5 只读 smoke（非破坏性）
  *
- * 默认：http://127.0.0.1:3000
- * 远程：必须显式 --base-url，且不得为生产域名（fail-closed）
+ * 模式：
+ *   # CI / 本地安全自检（不发网络请求）
+ *   npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
+ *
+ *   # 本地网络 smoke（严格：不可达/超时/TLS/DNS 均 FAIL）
+ *   npx tsx scripts/wave15-smoke-readonly.ts \
+ *     --allow-network \
+ *     --base-url http://127.0.0.1:3000
+ *
+ *   # Preview 网络 smoke（仅 git-*.vercel.app + HTTPS）
+ *   npx tsx scripts/wave15-smoke-readonly.ts \
+ *     --allow-network \
+ *     --base-url https://git-xxx.vercel.app
  *
  * 不写业务、不发邮件/微信、不执行 cron 业务、不打印 cookie/token/Secret。
- *
- * 运行：
- *   npx tsx scripts/wave15-smoke-readonly.ts
- *   npx tsx scripts/wave15-smoke-readonly.ts --base-url https://xxx.vercel.app
- *   npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
+ * 不用正确 CRON_SECRET，不读生产 token。
  */
 import { parseArgs } from "node:util";
 
+const FETCH_TIMEOUT_MS = 12_000;
+
 let passed = 0;
 let failed = 0;
-let skipped = 0;
 
 function ok(cond: boolean, name: string) {
   if (cond) {
@@ -27,26 +35,48 @@ function ok(cond: boolean, name: string) {
   }
 }
 
-function skip(name: string, reason: string) {
-  skipped += 1;
-  console.log(`  · skip ${name} (${reason})`);
+function fail(name: string, detail: string) {
+  failed += 1;
+  console.log(`  ✗ ${name}: ${detail}`);
 }
 
-/** 生产/疑似生产主机 — 一律拒绝 */
+function usage(): string {
+  return [
+    "Usage:",
+    "  npx tsx scripts/wave15-smoke-readonly.ts --self-check-only",
+    "  npx tsx scripts/wave15-smoke-readonly.ts --allow-network --base-url http://127.0.0.1:3000",
+    "  npx tsx scripts/wave15-smoke-readonly.ts --allow-network --base-url https://git-<preview>.vercel.app",
+    "",
+    "Rules:",
+    "  --base-url requires --allow-network",
+    "  --self-check-only cannot combine with --allow-network",
+    "  remote hosts must be https://git-*.vercel.app",
+    "  production / non-allowlisted hosts are refused",
+  ].join("\n");
+}
+
+/** 本地或 git Preview 以外一律视为阻断主机 */
 export function isBlockedProductionHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   if (h === "localhost" || h === "127.0.0.1" || h === "::1") return false;
-  // 明确生产形态（可按环境扩展；宁可误杀远程，不可误放生产）
   if (h === "qingyan.ai" || h.endsWith(".qingyan.ai")) return true;
-  if (h === "www.qingyan.ai") return true;
-  // Vercel 生产别名常见形态；Preview 为 git-*-*.vercel.app，允许显式传入
+  if (h === "qingyan.ca" || h.endsWith(".qingyan.ca")) return true;
   if (h.endsWith(".vercel.app")) {
-    if (h.startsWith("git-")) return false;
-    // 非 git- 前缀的 vercel.app 视为可能生产/主部署，fail-closed
-    return true;
+    // 仅 git- 前缀 Preview 允许；其余 vercel.app fail-closed
+    return !h.startsWith("git-");
   }
-  // 其他裸域名默认拒绝（需显式允许列表时再开）
+  // 任意其他外部裸域名
   return true;
+}
+
+function isLocalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1";
+}
+
+function isGitVercelPreview(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h.endsWith(".vercel.app") && h.startsWith("git-");
 }
 
 export function assertSafeBaseUrl(raw: string): URL {
@@ -56,6 +86,9 @@ export function assertSafeBaseUrl(raw: string): URL {
   } catch {
     throw new Error(`invalid base url: ${raw}`);
   }
+  if (url.username || url.password) {
+    throw new Error("refusing URL with embedded username/password");
+  }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`unsupported protocol: ${url.protocol}`);
   }
@@ -63,6 +96,15 @@ export function assertSafeBaseUrl(raw: string): URL {
     throw new Error(
       `refusing production or non-allowlisted host: ${url.hostname} (Wave1.5 smoke is fail-closed)`,
     );
+  }
+  if (isGitVercelPreview(url.hostname) && url.protocol !== "https:") {
+    throw new Error("remote Preview must use HTTPS (http://git-*.vercel.app refused)");
+  }
+  if (!isLocalHost(url.hostname) && !isGitVercelPreview(url.hostname)) {
+    throw new Error(`host not in allowlist: ${url.hostname}`);
+  }
+  if (!isLocalHost(url.hostname) && url.protocol !== "https:") {
+    throw new Error("non-local base-url must use HTTPS");
   }
   return url;
 }
@@ -84,84 +126,131 @@ async function fetchSafe(
   base: URL,
   path: string,
   init?: RequestInit,
-): Promise<{ status: number; bodyText: string; headers: Headers }> {
+): Promise<{ status: number; bodyText: string }> {
   const url = new URL(path, base);
   const res = await fetch(url, {
     ...init,
     redirect: "manual",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: {
       ...(init?.headers || {}),
-      // 不发送真实凭据
     },
   });
   const bodyText = await res.text();
-  return { status: res.status, bodyText, headers: res.headers };
+  return { status: res.status, bodyText };
 }
 
 function selfCheck() {
   console.log("\nwave15-smoke self-check");
   ok(!isBlockedProductionHost("127.0.0.1"), "localhost ipv4 allowed");
   ok(!isBlockedProductionHost("localhost"), "localhost allowed");
-  ok(!isBlockedProductionHost("git-stabilization-wave15-xxx.vercel.app"), "git preview allowed");
+  ok(!isBlockedProductionHost("::1"), "::1 allowed");
+  ok(
+    !isBlockedProductionHost("git-stabilization-wave15-xxx.vercel.app"),
+    "git preview allowed",
+  );
+
   ok(isBlockedProductionHost("qingyan.ai"), "qingyan.ai blocked");
   ok(isBlockedProductionHost("www.qingyan.ai"), "www.qingyan.ai blocked");
+  ok(isBlockedProductionHost("qingyan.ca"), "qingyan.ca blocked");
+  ok(isBlockedProductionHost("www.qingyan.ca"), "www.qingyan.ca blocked");
+  ok(isBlockedProductionHost("app.qingyan.ca"), "app.qingyan.ca blocked");
   ok(isBlockedProductionHost("qingyan-ai.vercel.app"), "non-git vercel.app blocked");
+  ok(isBlockedProductionHost("example.com"), "arbitrary external host blocked");
+
+  const mustThrow = (raw: string, label: string) => {
+    try {
+      assertSafeBaseUrl(raw);
+      ok(false, label);
+    } catch {
+      ok(true, label);
+    }
+  };
+  const mustAccept = (raw: string, label: string) => {
+    try {
+      assertSafeBaseUrl(raw);
+      ok(true, label);
+    } catch {
+      ok(false, label);
+    }
+  };
+
+  mustThrow("https://qingyan.ai", "assertSafeBaseUrl rejects qingyan.ai");
+  mustThrow("https://qingyan.ca", "assertSafeBaseUrl rejects qingyan.ca");
+  mustThrow("https://www.qingyan.ca", "assertSafeBaseUrl rejects www.qingyan.ca");
+  mustThrow("https://app.qingyan.ca", "assertSafeBaseUrl rejects app.qingyan.ca");
+  mustThrow("https://qingyan-ai.vercel.app", "assertSafeBaseUrl rejects non-git vercel.app");
+  mustThrow("https://example.com", "assertSafeBaseUrl rejects arbitrary external host");
+  mustThrow(
+    "http://git-stabilization-wave15-xxx.vercel.app",
+    "assertSafeBaseUrl rejects HTTP remote Preview",
+  );
+  mustThrow(
+    "https://user:pass@git-stabilization-wave15-xxx.vercel.app",
+    "assertSafeBaseUrl rejects URL username/password",
+  );
+  mustAccept("http://127.0.0.1:3000", "assertSafeBaseUrl accepts localhost http");
+  mustAccept(
+    "https://git-stabilization-wave15-xxx.vercel.app",
+    "assertSafeBaseUrl accepts HTTPS git Preview",
+  );
+}
+
+async function probe(
+  name: string,
+  fn: () => Promise<void>,
+): Promise<void> {
   try {
-    assertSafeBaseUrl("https://qingyan.ai");
-    ok(false, "assertSafeBaseUrl must throw on production");
-  } catch {
-    ok(true, "assertSafeBaseUrl throws on production");
-  }
-  try {
-    assertSafeBaseUrl("http://127.0.0.1:3000");
-    ok(true, "assertSafeBaseUrl accepts localhost");
-  } catch {
-    ok(false, "assertSafeBaseUrl accepts localhost");
+    await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // 不打印可能含敏感信息的完整 URL/头；仅短错误类型
+    const short =
+      /abort|timeout/i.test(msg)
+        ? "timeout"
+        : /ENOTFOUND|getaddrinfo/i.test(msg)
+          ? "dns_error"
+          : /ECONNREFUSED|connect/i.test(msg)
+            ? "connection_refused"
+            : /certificate|TLS|SSL/i.test(msg)
+              ? "tls_error"
+              : "fetch_failed";
+    fail(name, short);
   }
 }
 
 async function runAgainst(base: URL) {
   console.log(`\nwave15-smoke readonly against ${base.origin}`);
+  console.log(`  (timeout=${FETCH_TIMEOUT_MS}ms; network errors are FAIL)`);
 
-  // 1) health
-  try {
+  await probe("GET /api/health", async () => {
     const health = await fetchSafe(base, "/api/health");
     ok(
       health.status === 200 || health.status === 503,
       `GET /api/health → ${health.status} (expect 200|503)`,
     );
     ok(!looksSensitive(health.bodyText), "/api/health body has no obvious secrets/SQL");
-  } catch (err) {
-    skip("GET /api/health", err instanceof Error ? err.message : "fetch failed");
-  }
+  });
 
-  // 2) 受保护 API：未认证应拒绝（非 public）
-  try {
+  await probe("GET /api/ai/pending-actions unauthenticated", async () => {
     const unauth = await fetchSafe(base, "/api/ai/pending-actions");
     ok(
       unauth.status === 401 || unauth.status === 403,
       `GET /api/ai/pending-actions unauthenticated → ${unauth.status} (expect 401|403)`,
     );
     ok(!looksSensitive(unauth.bodyText), "unauth body has no secrets/SQL");
-  } catch (err) {
-    skip("unauthenticated pending-actions", err instanceof Error ? err.message : "fetch failed");
-  }
+  });
 
-  // 3) trade cron：无 Authorization → 拒绝（不执行业务）
-  try {
+  await probe("POST /api/trade/cron no auth", async () => {
     const cron = await fetchSafe(base, "/api/trade/cron", { method: "POST" });
     ok(
       cron.status === 401 || cron.status === 503,
       `POST /api/trade/cron no auth → ${cron.status} (expect 401|503)`,
     );
     ok(!looksSensitive(cron.bodyText), "cron no-auth body has no secrets");
-    ok(!/unit-test-cron|CRON_SECRET\s*=/.test(cron.bodyText), "cron response does not echo secret material");
-  } catch (err) {
-    skip("trade cron no auth", err instanceof Error ? err.message : "fetch failed");
-  }
+  });
 
-  // 4) 错误 Bearer → 拒绝
-  try {
+  await probe("POST /api/trade/cron wrong bearer", async () => {
     const bad = await fetchSafe(base, "/api/trade/cron", {
       method: "POST",
       headers: { authorization: "Bearer definitely-wrong-token" },
@@ -172,11 +261,8 @@ async function runAgainst(base: URL) {
     );
     ok(!bad.bodyText.includes("definitely-wrong-token"), "wrong bearer not echoed");
     ok(!looksSensitive(bad.bodyText), "wrong bearer body has no secrets/SQL");
-  } catch (err) {
-    skip("trade cron wrong bearer", err instanceof Error ? err.message : "fetch failed");
-  }
+  });
 
-  // 5) public health ≠ 业务写：确认 smoke 未调用写客户/报价等
   ok(true, "no customer/quote/email/wechat/cron-business write attempted");
 }
 
@@ -190,28 +276,59 @@ async function main() {
     strict: true,
   });
 
+  const selfOnly = Boolean(values["self-check-only"]);
+  const allowNetwork = Boolean(values["allow-network"]);
+  const baseUrl = values["base-url"];
+
+  if (selfOnly && allowNetwork) {
+    console.error("error: --self-check-only cannot be combined with --allow-network\n");
+    console.error(usage());
+    process.exit(1);
+  }
+
+  if (baseUrl && !allowNetwork) {
+    console.error("error: --base-url requires --allow-network\n");
+    console.error(usage());
+    process.exit(1);
+  }
+
+  if (selfOnly) {
+    selfCheck();
+    console.log(`\n结果: ${passed} passed, ${failed} failed`);
+    console.log("(network probes not requested — CI/self-check mode)");
+    if (failed) process.exit(1);
+    return;
+  }
+
+  if (!allowNetwork) {
+    // 未请求网络：仅自检；skip 语义仅表示“未请求”，不是探测失败
+    selfCheck();
+    console.log("\n(network probes not requested — pass --allow-network --base-url … to run)");
+    console.log(`\n结果: ${passed} passed, ${failed} failed`);
+    if (failed) process.exit(1);
+    return;
+  }
+
+  // 严格网络模式
   selfCheck();
-  if (values["self-check-only"]) {
-    console.log(`\n结果: ${passed} passed, ${failed} failed, ${skipped} skipped`);
-    if (failed) process.exit(1);
-    return;
+  if (failed) {
+    console.log(`\n结果: ${passed} passed, ${failed} failed`);
+    process.exit(1);
   }
 
-  // CI 默认只跑 self-check；远程/本地探活需显式 --allow-network
-  if (!values["allow-network"]) {
-    console.log(
-      "\n(network probes skipped — pass --allow-network --base-url <localhost|git-preview> to run)",
-    );
-    console.log(`\n结果: ${passed} passed, ${failed} failed, ${skipped} skipped`);
-    if (failed) process.exit(1);
-    return;
+  const raw = baseUrl || "http://127.0.0.1:3000";
+  let base: URL;
+  try {
+    base = assertSafeBaseUrl(raw);
+  } catch (err) {
+    console.error(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+    console.error(usage());
+    process.exit(1);
   }
 
-  const raw = values["base-url"] || "http://127.0.0.1:3000";
-  const base = assertSafeBaseUrl(raw);
   await runAgainst(base);
 
-  console.log(`\n结果: ${passed} passed, ${failed} failed, ${skipped} skipped`);
+  console.log(`\n结果: ${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);
 }
 

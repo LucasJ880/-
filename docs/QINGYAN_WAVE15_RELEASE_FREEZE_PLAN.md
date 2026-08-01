@@ -119,7 +119,9 @@ git push origin qingyan-stable-wave1-2026-08-01
 - [ ] CI 在 tip 上绿：prisma validate / typecheck / test:ci / lint:baseline / build  
 - [ ] build 日志无 migrate / db push  
 - [ ] 生产验收矩阵（`QINGYAN_WAVE15_PRODUCTION_ACCEPTANCE.md`）关键项完成或 BLOCKED 已接受  
-- [ ] 只读 smoke（若启用）对 Preview/localhost PASS，且未指向生产写路径  
+- [ ] CI：`wave15-smoke-readonly.ts --self-check-only` PASS  
+- [ ] 显式网络 smoke（若执行）：`--allow-network --base-url <localhost|https://git-*.vercel.app>` 必须 PASS；连接失败计 FAIL 而非 skip  
+
 - [ ] Branch Protection 已按建议启用 **或** 负责人书面接受风险  
 - [ ] Tag 创建已获批准并执行  
 - [ ] 明确 **Wave2 仍未批准**  
