@@ -30,10 +30,32 @@ const SOURCE_COMMIT = "2255f8da919c883bc9e2f210209782c40ee5eaae";
 
 const mode = process.argv.includes("--generate") ? "generate" : "check";
 
+/**
+ * 稳定化 message：去掉机器相关绝对路径与尾部 code frame。
+ * 某些规则（如 react-hooks/purity）会把 `/home/runner/.../file.tsx:L:C` 和源码片段塞进 message，
+ * 若不剥离，同一债务在本地与 CI 会变成不同 fingerprint。
+ */
 function normalizeMessage(message) {
-  return String(message || "")
+  let m = String(message || "")
     .replace(/\s+/g, " ")
     .trim();
+
+  // 截断：绝对路径锚点 + 行号列号 + 后续 code frame
+  m = m.replace(
+    /\s+(?:[A-Za-z]:\\|\/(?:Users|home|private|var|tmp)\/)\S+\.(?:tsx?|jsx?):[\d:]+(?:\s[\s\S]*)?$/,
+    "",
+  );
+
+  // 截断：仓库相对路径锚点 + code frame（`src/foo.tsx:12:3 10 | ...`）
+  m = m.replace(/\s+\S+\.(?:tsx?|jsx?):[\d:]+\s+\d+\s+\|[\s\S]*$/, "");
+
+  // 再清一次残留绝对路径片段（不含行号的偶发形式）
+  m = m.replace(
+    /(?:[A-Za-z]:\\|\/(?:Users|home|private|var|tmp)\/)[^\s]+/g,
+    "<PATH>",
+  );
+
+  return m.replace(/\s+/g, " ").trim();
 }
 
 function toRepoPath(absPath) {

@@ -26,14 +26,17 @@
 ```
 fingerprint = repoRelativePath + "\0" + ruleId + "\0" + normalize(message)
 
-normalize(message) = trim + 折叠连续空白
+normalize(message) =
+  trim + 折叠连续空白
+  + 去掉绝对/相对文件锚点（path:line:col）及其后 code frame
+  + 去掉残留绝对路径片段
 ```
 
 | 包含 | 不包含 |
 |---|---|
-| 仓库相对路径 | 行号 |
-| ESLint `ruleId` | 列号 |
-| 稳定化后的 message 文本 | 绝对磁盘路径 |
+| 仓库相对路径（fingerprint 第一段） | 行号 / 列号 |
+| ESLint `ruleId` | CI/本地绝对磁盘路径 |
+| 稳定化后的 message 语义文本 | code frame 源码摘录 |
 
 同一 fingerprint 记录 `count`（出现次数）。  
 **不得**用「总 errors ≤ 53」作为通过条件。

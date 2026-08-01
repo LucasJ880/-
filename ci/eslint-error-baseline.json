@@ -1,7 +1,7 @@
 {
   "version": 1,
   "sourceCommit": "2255f8da919c883bc9e2f210209782c40ee5eaae",
-  "generatedAt": "2026-07-31T23:57:47.467Z",
+  "generatedAt": "2026-08-01T00:19:40.740Z",
   "fingerprintRule": "repoRelativePath + NUL + ruleId + NUL + whitespace-normalized message (line/column excluded)",
   "errorCount": 53,
   "warningCount": 111,
@@ -91,16 +91,16 @@
       "message": "Unexpected any. Specify a different type.",
       "count": 1
     },
-    "src/components/project-detail/project-detail-header.tsx\u0000react-hooks/purity\u0000Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent). /Users/user/Desktop/青砚-stabilization-wave0/src/components/project-detail/project-detail-header.tsx:141:83 139 | </Link> 140 | {project.closeDate ? (() => { > 141 | const daysLeft = Math.ceil((new Date(project.closeDate).getTime() - Date.now()) / 86400000); | ^^^^^^^^^^ Cannot call impure function 142 | return ( 143 | <div className=\"flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2\"> 144 | <Clock size={15} className={cn(\"shrink-0\", daysLeft <= 7 ? \"text-warning-text\" : \"text-accent/60\")} />": {
+    "src/components/project-detail/project-detail-header.tsx\u0000react-hooks/purity\u0000Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).": {
       "filePath": "src/components/project-detail/project-detail-header.tsx",
       "ruleId": "react-hooks/purity",
-      "message": "Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent). /Users/user/Desktop/青砚-stabilization-wave0/src/components/project-detail/project-detail-header.tsx:141:83 139 | </Link> 140 | {project.closeDate ? (() => { > 141 | const daysLeft = Math.ceil((new Date(project.closeDate).getTime() - Date.now()) / 86400000); | ^^^^^^^^^^ Cannot call impure function 142 | return ( 143 | <div className=\"flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2\"> 144 | <Clock size={15} className={cn(\"shrink-0\", daysLeft <= 7 ? \"text-warning-text\" : \"text-accent/60\")} />",
+      "message": "Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).",
       "count": 1
     },
-    "src/components/project-files/project-file-manager.tsx\u0000react-hooks/purity\u0000Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent). /Users/user/Desktop/青砚-stabilization-wave0/src/components/project-files/project-file-manager.tsx:847:52 845 | 846 | const daysLeft = currentDate > 847 | ? Math.ceil((new Date(currentDate).getTime() - Date.now()) / 86400000) | ^^^^^^^^^^ Cannot call impure function 848 | : null; 849 | 850 | const handleSave = useCallback(async () => {": {
+    "src/components/project-files/project-file-manager.tsx\u0000react-hooks/purity\u0000Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).": {
       "filePath": "src/components/project-files/project-file-manager.tsx",
       "ruleId": "react-hooks/purity",
-      "message": "Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent). /Users/user/Desktop/青砚-stabilization-wave0/src/components/project-files/project-file-manager.tsx:847:52 845 | 846 | const daysLeft = currentDate > 847 | ? Math.ceil((new Date(currentDate).getTime() - Date.now()) / 86400000) | ^^^^^^^^^^ Cannot call impure function 848 | : null; 849 | 850 | const handleSave = useCallback(async () => {",
+      "message": "Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).",
       "count": 1
     },
     "src/lib/assistant/dispatch.ts\u0000prefer-const\u0000'binding' is never reassigned. Use 'const' instead.": {
