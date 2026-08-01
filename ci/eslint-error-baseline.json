@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "sourceCommit": "2255f8da919c883bc9e2f210209782c40ee5eaae",
+  "generatedAt": "2026-08-01T00:19:40.740Z",
+  "fingerprintRule": "repoRelativePath + NUL + ruleId + NUL + whitespace-normalized message (line/column excluded)",
+  "errorCount": 53,
+  "warningCount": 111,
+  "fingerprintCount": 24,
+  "fingerprints": {
+    "scripts/ar2-preview-acceptance.ts\u0000@typescript-eslint/no-explicit-any\u0000Unexpected any. Specify a different type.": {
+      "filePath": "scripts/ar2-preview-acceptance.ts",
+      "ruleId": "@typescript-eslint/no-explicit-any",
+      "message": "Unexpected any. Specify a different type.",
+      "count": 2
+    },
+    "scripts/preview-hd-mask-acceptance.ts\u0000@typescript-eslint/no-explicit-any\u0000Unexpected any. Specify a different type.": {
+      "filePath": "scripts/preview-hd-mask-acceptance.ts",
+      "ruleId": "@typescript-eslint/no-explicit-any",
+      "message": "Unexpected any. Specify a different type.",
+      "count": 2
+    },
+    "src/app/(main)/assistant/page.tsx\u0000prefer-const\u0000'content' is never reassigned. Use 'const' instead.": {
+      "filePath": "src/app/(main)/assistant/page.tsx",
+      "ruleId": "prefer-const",
+      "message": "'content' is never reassigned. Use 'const' instead.",
+      "count": 1
+    },
+    "src/app/(main)/error.tsx\u0000@next/next/no-html-link-for-pages\u0000Do not use an `<a>` element to navigate to `/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages": {
+      "filePath": "src/app/(main)/error.tsx",
+      "ruleId": "@next/next/no-html-link-for-pages",
+      "message": "Do not use an `<a>` element to navigate to `/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages",
+      "count": 1
+    },
+    "src/app/(main)/projects/[id]/prompts/[promptId]/page.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/projects/[id]/prompts/[promptId]/page.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 4
+    },
+    "src/app/(main)/projects/error.tsx\u0000@next/next/no-html-link-for-pages\u0000Do not use an `<a>` element to navigate to `/projects/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages": {
+      "filePath": "src/app/(main)/projects/error.tsx",
+      "ruleId": "@next/next/no-html-link-for-pages",
+      "message": "Do not use an `<a>` element to navigate to `/projects/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages",
+      "count": 10
+    },
+    "src/app/(main)/sales/knowledge/playbook-grid.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/sales/knowledge/playbook-grid.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 2
+    },
+    "src/app/(main)/sales/quote-sheet/order-shutters.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/sales/quote-sheet/order-shutters.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 5
+    },
+    "src/app/(main)/sales/quote-sheet/part-a.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/sales/quote-sheet/part-a.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 2
+    },
+    "src/app/(main)/sales/quote-sheet/part-c.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/sales/quote-sheet/part-c.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 5
+    },
+    "src/app/(main)/suppliers/[id]/page.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/suppliers/[id]/page.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 4
+    },
+    "src/app/(main)/trade/error.tsx\u0000@next/next/no-html-link-for-pages\u0000Do not use an `<a>` element to navigate to `/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages": {
+      "filePath": "src/app/(main)/trade/error.tsx",
+      "ruleId": "@next/next/no-html-link-for-pages",
+      "message": "Do not use an `<a>` element to navigate to `/`. Use `<Link />` from `next/link` instead. See: https://nextjs.org/docs/messages/no-html-link-for-pages",
+      "count": 1
+    },
+    "src/app/(main)/trade/import/page.tsx\u0000react/no-unescaped-entities\u0000`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.": {
+      "filePath": "src/app/(main)/trade/import/page.tsx",
+      "ruleId": "react/no-unescaped-entities",
+      "message": "`\"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.",
+      "count": 2
+    },
+    "src/app/api/sales/measurements/[id]/generate-quote/route.ts\u0000@typescript-eslint/no-explicit-any\u0000Unexpected any. Specify a different type.": {
+      "filePath": "src/app/api/sales/measurements/[id]/generate-quote/route.ts",
+      "ruleId": "@typescript-eslint/no-explicit-any",
+      "message": "Unexpected any. Specify a different type.",
+      "count": 1
+    },
+    "src/components/project-detail/project-detail-header.tsx\u0000react-hooks/purity\u0000Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).": {
+      "filePath": "src/components/project-detail/project-detail-header.tsx",
+      "ruleId": "react-hooks/purity",
+      "message": "Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).",
+      "count": 1
+    },
+    "src/components/project-files/project-file-manager.tsx\u0000react-hooks/purity\u0000Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).": {
+      "filePath": "src/components/project-files/project-file-manager.tsx",
+      "ruleId": "react-hooks/purity",
+      "message": "Error: Cannot call impure function during render `Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).",
+      "count": 1
+    },
+    "src/lib/assistant/dispatch.ts\u0000prefer-const\u0000'binding' is never reassigned. Use 'const' instead.": {
+      "filePath": "src/lib/assistant/dispatch.ts",
+      "ruleId": "prefer-const",
+      "message": "'binding' is never reassigned. Use 'const' instead.",
+      "count": 1
+    },
+    "src/lib/assistant/reconcile-run.ts\u0000prefer-const\u0000'nextMeta' is never reassigned. Use 'const' instead.": {
+      "filePath": "src/lib/assistant/reconcile-run.ts",
+      "ruleId": "prefer-const",
+      "message": "'nextMeta' is never reassigned. Use 'const' instead.",
+      "count": 1
+    },
+    "src/lib/assistant/scenarios/entity-parse.ts\u0000prefer-const\u0000'name' is never reassigned. Use 'const' instead.": {
+      "filePath": "src/lib/assistant/scenarios/entity-parse.ts",
+      "ruleId": "prefer-const",
+      "message": "'name' is never reassigned. Use 'const' instead.",
+      "count": 1
+    },
+    "src/lib/email/sender.ts\u0000@typescript-eslint/no-explicit-any\u0000Unexpected any. Specify a different type.": {
+      "filePath": "src/lib/email/sender.ts",
+      "ruleId": "@typescript-eslint/no-explicit-any",
+      "message": "Unexpected any. Specify a different type.",
+      "count": 2
+    },
+    "src/lib/files/blob-access.ts\u0000react-hooks/rules-of-hooks\u0000React Hook \"useLocalBlobStore\" is called in function \"putPrivateBlob\" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word \"use\".": {
+      "filePath": "src/lib/files/blob-access.ts",
+      "ruleId": "react-hooks/rules-of-hooks",
+      "message": "React Hook \"useLocalBlobStore\" is called in function \"putPrivateBlob\" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word \"use\".",
+      "count": 1
+    },
+    "src/lib/files/blob-access.ts\u0000react-hooks/rules-of-hooks\u0000React Hook \"useLocalBlobStore\" is called in function \"readBlobBuffer\" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word \"use\".": {
+      "filePath": "src/lib/files/blob-access.ts",
+      "ruleId": "react-hooks/rules-of-hooks",
+      "message": "React Hook \"useLocalBlobStore\" is called in function \"readBlobBuffer\" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word \"use\".",
+      "count": 1
+    },
+    "src/lib/trade/intelligence-service.ts\u0000prefer-const\u0000'conf' is never reassigned. Use 'const' instead.": {
+      "filePath": "src/lib/trade/intelligence-service.ts",
+      "ruleId": "prefer-const",
+      "message": "'conf' is never reassigned. Use 'const' instead.",
+      "count": 1
+    },
+    "src/lib/trade/research-service.ts\u0000prefer-const\u0000'campaign' is never reassigned. Use 'const' instead.": {
+      "filePath": "src/lib/trade/research-service.ts",
+      "ruleId": "prefer-const",
+      "message": "'campaign' is never reassigned. Use 'const' instead.",
+      "count": 1
+    }
+  }
+}

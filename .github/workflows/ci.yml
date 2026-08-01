@@ -1,0 +1,129 @@
+# 青砚稳定化 CI — Wave 0
+# 禁止：访问生产数据库、执行 prisma migrate deploy / db push
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - stabilization/**
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: validate-lint-typecheck-test-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      # 占位连接串：仅满足 Prisma 配置解析；本 workflow 不启动 DB、不 migrate
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
+      DIRECT_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
+      JWT_SECRET: ci-only-jwt-secret-not-for-production
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Guard — CI must not run migrations
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+          const dir = ".github/workflows";
+          const bad =
+            /(?:npm run build:with-migrations|npx prisma migrate deploy|prisma migrate deploy|npm run db:migrate:deploy|prisma db push)/;
+          for (const f of fs.readdirSync(dir)) {
+            if (!/\.ya?ml$/i.test(f)) continue;
+            const lines = fs.readFileSync(path.join(dir, f), "utf8").split("\n");
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+              // 仅拦截 workflow 单行 run: 调用；本 Guard 的 heredoc 不算
+              if (/^\s+run:\s+\S/.test(line) && bad.test(line)) {
+                console.error(`::error::Forbidden migration invoke in ${f}:${i + 1}`);
+                console.error(line);
+                process.exit(1);
+              }
+            }
+          }
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          if (/\bmigrate\b/.test(pkg.scripts.build || "")) {
+            console.error("::error::package.json build must not migrate");
+            process.exit(1);
+          }
+          console.log("OK: no migrate/db push in CI run steps; build is migrate-free");
+          NODE
+
+      - name: Prisma validate
+        run: npx prisma validate
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      # 完整 ESLint 日志（既有债务会 exit 1；continue-on-error 仅用于收齐后续步骤）
+      - name: Lint (full log)
+        id: lint_log
+        continue-on-error: true
+        run: npm run lint
+
+      # 真实 lint 门禁：相对 main@2255f8d 基线不允许新增 error fingerprint
+      - name: ESLint baseline gate
+        id: lint_baseline
+        run: npm run lint:baseline
+
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: npm run typecheck
+
+      - name: Unit tests (CI subset)
+        id: test_ci
+        continue-on-error: true
+        run: npm run test:ci
+
+      - name: Next.js build (no migrate)
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      - name: Publish step outcomes
+        if: always()
+        run: |
+          echo "lint_log=${{ steps.lint_log.outcome }}"
+          echo "lint_baseline=${{ steps.lint_baseline.outcome }}"
+          echo "typecheck=${{ steps.typecheck.outcome }}"
+          echo "test_ci=${{ steps.test_ci.outcome }}"
+          echo "build=${{ steps.build.outcome }}"
+
+      - name: Fail job if any required check failed
+        if: always()
+        run: |
+          set -euo pipefail
+          # lint_log 允许失败（历史债务）；lint_baseline / typecheck / test_ci / build 必须成功
+          if [ "${{ steps.lint_baseline.outcome }}" != "success" ] || \
+             [ "${{ steps.typecheck.outcome }}" != "success" ] || \
+             [ "${{ steps.test_ci.outcome }}" != "success" ] || \
+             [ "${{ steps.build.outcome }}" != "success" ]; then
+            echo "::error::One or more CI checks failed. See step logs above."
+            echo "Rules: no production DB, no migrate deploy, no auto-fix."
+            echo "Lint gate = eslint baseline (not raw error count)."
+            exit 1
+          fi
+          echo "All required CI checks passed (eslint baseline + typecheck + test:ci + build)."
