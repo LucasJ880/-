@@ -61,8 +61,12 @@
 
 在不改变业务规则的前提下：
 
-- 当捕获 Prisma `P2021`（表不存在）/ `P2022`（列不存在）时，返回 **503** + 明确 `code` + `requestId`，避免误判为普通 500。  
-- **不** 降级查询字段、**不** optional chain 绕过、**不** 自动 migrate。
+- 识别方式：`err instanceof Prisma.PrismaClientKnownRequestError` 且 `code` 为 `P2021` / `P2022`（**不**靠 message 模糊匹配）。  
+- 客户端：`503` + 稳定文案 + `code` + `requestId`；**不**返回表名/列名/SQL/stack。  
+- 服务端日志：保留 `route` / `method` / `prismaCode` / `requestId` / `err`（不含连接串）。  
+- 认证/停用账号仍为 401/403，不进入 drift 映射。  
+- **不** 降级查询字段、**不** optional chain 绕过、**不** 自动 migrate。  
+- 测试：`src/lib/common/__tests__/with-auth-schema-drift.test.ts`（已接入 `test:ci`）。
 
 若未来再次出现 P2021/P2022：**暂停**，提交 Migration Plan，等待人工批准后再迁库。
 

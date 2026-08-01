@@ -8,11 +8,37 @@ import {
   runWithRequestContext,
 } from "./request-context";
 
-/** Schema/DB 漂移类错误：不掩盖为普通 500，便于运维定位（不自动 migrate）。 */
-function isSchemaDriftPrismaError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+/**
+ * Schema/DB 漂移类错误（表/列不存在）。
+ * 仅认 PrismaClientKnownRequestError + 稳定 code，不靠 message 模糊匹配。
+ */
+export function isSchemaDriftPrismaError(
+  err: unknown,
+): err is Prisma.PrismaClientKnownRequestError {
   return (
     err instanceof Prisma.PrismaClientKnownRequestError &&
     (err.code === "P2021" || err.code === "P2022")
+  );
+}
+
+/** withAuth catch 的客户端安全响应（不含表名/列名/SQL/stack）。 */
+export function jsonForWithAuthCatch(
+  err: unknown,
+  requestId: string,
+): NextResponse {
+  if (isSchemaDriftPrismaError(err)) {
+    return NextResponse.json(
+      {
+        error: "数据模型与数据库不一致，请联系管理员",
+        code: err.code,
+        requestId,
+      },
+      { status: 503 },
+    );
+  }
+  return NextResponse.json(
+    { error: "服务器内部错误", requestId },
+    { status: 500 },
   );
 }
 
@@ -116,22 +142,9 @@ export function withAuth<P = Record<string, string>>(handler: AuthHandler<P>) {
               err instanceof Prisma.PrismaClientKnownRequestError
                 ? err.code
                 : undefined,
+            requestId,
           });
-          if (isSchemaDriftPrismaError(err)) {
-            response = NextResponse.json(
-              {
-                error: "数据模型与数据库不一致，请联系管理员",
-                code: err.code,
-                requestId,
-              },
-              { status: 503 },
-            );
-          } else {
-            response = NextResponse.json(
-              { error: "服务器内部错误", requestId },
-              { status: 500 },
-            );
-          }
+          response = jsonForWithAuthCatch(err, requestId);
         }
 
         response.headers.set("x-request-id", requestId);
