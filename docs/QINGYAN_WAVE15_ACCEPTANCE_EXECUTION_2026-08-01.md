@@ -207,3 +207,20 @@
 纪律：生产只读；写测试仅非生产；不用正确 `CRON_SECRET`；不发真实邮件/微信；不入库 Secret；不改产品代码/Schema/migration；不触碰 #24；不合并 #47；不启动 Wave2。
 
 **本轮状态检查（2026-08-01）：** Outsider / `WAVE15_ORG_B_*` / 第二组织 / Preview 非生产库书面确认 → **均未就绪**；下一轮**未启动**。
+
+### 11.1 恢复验收门禁检查（2026-08-01T22:25Z UTC）
+
+按产品要求恢复 O2/O4/O5/P5/P6/I*/T4–T6 前，逐项确认；**任一未满足则立即停止，不得重跑占位测试**。
+
+| 条件 | 结果 |
+|---|---|
+| Outsider 可登录且仅属组织 B | **未满足**（`WAVE15_OUTSIDER_*` MISSING；未做登录探测） |
+| 已设置组织 B 脱敏客户 ID | **未满足**（`WAVE15_ORG_B_CUSTOMER_ID` MISSING） |
+| 已设置组织 B 脱敏项目 ID | **未满足**（`WAVE15_ORG_B_PROJECT_ID` MISSING） |
+| Admin 同时属于两个测试组织 | **未满足**（无 `WAVE15_ADMIN_*` / 无第二组织上下文；Phase1 时 O2 为单组织 BLOCKED） |
+| Preview/Staging 书面确认非生产数据库 | **未满足**（无书面确认；无 `WAVE15_PREVIEW_*_CONFIRMED`） |
+| Preview/Staging 不发送真实邮件/微信 | **未满足**（无书面确认） |
+| Preview/Staging 不触发生产 cron/worker | **未满足**（无书面确认） |
+
+**处置：** 全部剩余验收（O2/O4/O5/P5/P6/I2/I6–I9/T4–T6）**未执行**。  
+统计与结论不变：PASS **16** / FAIL **0** / BLOCKED **6**；Product Owner **NO-GO**；Technical Owner **NO-GO**；Wave2 **未批准**；#47 保持 Draft。
