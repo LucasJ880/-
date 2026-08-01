@@ -84,3 +84,34 @@
 
 - **证据：** ~549 命中（含 input placeholder）  
 - **分级：** P2；需清洗后再评估真实 mock  
+
+## TD-016 | npm audit 漏洞积压（Wave0 CI 顺带记录）
+
+- **证据：** `npm audit` ≈ 30 vulnerabilities（2 low / 12 moderate / 16 high）  
+- **处置：** **本次不修复**；不执行 `npm audit fix`、不升级依赖  
+- **分级：** P1（安全债）  
+
+## TD-017 | Next.js / Turbopack NFT tracing 警告
+
+- **证据：** build 日志提及 `next.config.ts`、`src/lib/files/blob-access.ts` 动态文件系统路径可能导致追踪范围过大  
+- **处置：** 本次不改；后续评估静态化路径或显式 outputFileTracingExcludes  
+- **分级：** P2  
+
+## TD-018 | GitHub Actions Node 20→24 runtime 强制切换提示
+
+- **证据：** Actions 提示部分 Action 的 Node 20 runtime 已被强制切换到 Node 24  
+- **处置：** 本次不升级 Action 主版本；跟进 upstream  
+- **分级：** P2  
+
+## TD-019 | Prisma `package.json#prisma` 配置弃用（Prisma 7）
+
+- **证据：** `prisma validate` / generate 警告将在 Prisma 7 移除该配置方式  
+- **处置：** 本次不做 Prisma 7 迁移；跟踪 `prisma.config.ts` 迁移窗口  
+- **分级：** P2  
+
+## TD-020 | ESLint 历史债务基线（53 errors / 111 warnings）
+
+- **证据：** `ci/eslint-error-baseline.json`（sourceCommit=`2255f8d`）  
+- **门禁：** 新增 fingerprint 阻断；旧债允许暂时保留（见 `docs/QINGYAN_ESLINT_BASELINE.md`）  
+- **处置：** **不在 Wave0 清零**；后续按模块分 PR 消化  
+- **分级：** P1（质量债）  

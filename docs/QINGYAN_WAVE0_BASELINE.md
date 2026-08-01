@@ -79,6 +79,7 @@
 | GitHub Actions 已添加 | ✅ |
 | 未改变业务行为 | ✅（仅 docs/CI/脚本钉扎） |
 | prisma validate / typecheck / CI 运行结果 | 见本分支后续提交与 Actions 运行记录 |
+| ESLint 债务基线门禁 | ✅ `ci/eslint-error-baseline.json` + `lint:baseline`（见 `docs/QINGYAN_ESLINT_BASELINE.md`） |
 
 ---
 

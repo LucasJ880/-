@@ -13,6 +13,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "lint:baseline": "node scripts/check-eslint-baseline.mjs",
+    "lint:baseline:generate": "node scripts/check-eslint-baseline.mjs --generate",
     "typecheck": "tsc --noEmit",
     "qa": "npm run lint && npx prisma generate && npx next build",
     "test": "bash scripts/test-all.sh",
