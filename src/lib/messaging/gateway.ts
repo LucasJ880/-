@@ -789,6 +789,11 @@ export async function pushMessage(
   content: string,
   options?: { channels?: ChannelType[] },
 ): Promise<{ sent: number; failed: number }> {
+  const { isRealWechatSendAllowed } = await import("@/lib/env/runtime-isolation");
+  if (!isRealWechatSendAllowed()) {
+    return { sent: 0, failed: 0 };
+  }
+
   const bindings = await db.weChatBinding.findMany({
     where: {
       userId,

@@ -14,6 +14,7 @@ import { AUTOMATION_TIMEZONE } from "@/lib/automation/registry";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { db } from "@/lib/db";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 import {
   pushBriefingToAllUsers,
   pushFollowupsToAllUsers,
@@ -22,6 +23,9 @@ import {
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
+  const isolationBlock = assertNonProdSideEffectsAllowed("cron");
+  if (isolationBlock) return isolationBlock;
+
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 

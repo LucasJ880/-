@@ -71,7 +71,14 @@ function envBool(v: string | undefined): boolean {
 export function isGmailDraftEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return envBool(env.GMAIL_DRAFT_ENABLED);
+  // Wave1.5：staging/preview 默认关闭；需 GMAIL_DRAFT_ENABLED + QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD
+  if (!envBool(env.GMAIL_DRAFT_ENABLED)) return false;
+  const runtime = (env.QINGYAN_RUNTIME_ENV || env.VERCEL_ENV || env.NODE_ENV || "")
+    .toLowerCase();
+  if (runtime === "production" || runtime === "test" || runtime === "") {
+    return true;
+  }
+  return envBool(env.QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD);
 }
 
 /** 解析 OAuth scope 字符串是否包含目标 scope（支持完整 URL 或短名） */

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { AuthUser } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 import { isAdmin } from "@/lib/rbac/roles";
 import type {
   Prisma,
@@ -261,6 +262,9 @@ export async function loadTradeEmailTemplateForOrg(
  * 使用固定长度摘要 + timingSafeEqual，避免明文 !== 比较泄露时序。
  */
 export function requireTradeCronSecret(request: NextRequest): NextResponse | null {
+  const isolationBlock = assertNonProdSideEffectsAllowed("cron");
+  if (isolationBlock) return isolationBlock;
+
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
     return NextResponse.json(
