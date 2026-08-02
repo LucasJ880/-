@@ -1,5 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
+import { myTasksWhere } from "@/lib/tasks/access";
+import { visibleProjectsWhere } from "@/lib/projects/visibility";
 
 function getWeekRange() {
   const now = new Date();
@@ -15,7 +18,14 @@ function getWeekRange() {
   return { weekStart: monday, weekEnd: sunday };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+  const mine = myTasksWhere(user.id);
+  const visibleProjects = await visibleProjectsWhere(user);
+
   const { weekStart, weekEnd } = getWeekRange();
 
   const now = new Date();
@@ -37,23 +47,25 @@ export async function GET() {
     projectStats,
     recentTasks,
   ] = await Promise.all([
-    db.task.count(),
-    db.task.count({ where: { status: "todo" } }),
-    db.task.count({ where: { status: "in_progress" } }),
-    db.task.count({ where: { status: "done" } }),
-    db.project.count(),
+    db.task.count({ where: mine }),
+    db.task.count({ where: { ...mine, status: "todo" } }),
+    db.task.count({ where: { ...mine, status: "in_progress" } }),
+    db.task.count({ where: { ...mine, status: "done" } }),
+    db.project.count({ where: visibleProjects }),
 
     db.task.count({
-      where: { createdAt: { gte: weekStart, lt: weekEnd } },
+      where: { ...mine, createdAt: { gte: weekStart, lt: weekEnd } },
     }),
     db.task.count({
       where: {
+        ...mine,
         status: "done",
         updatedAt: { gte: weekStart, lt: weekEnd },
       },
     }),
     db.task.count({
       where: {
+        ...mine,
         status: { notIn: ["done", "cancelled"] },
         dueDate: { lt: now },
       },
@@ -61,6 +73,7 @@ export async function GET() {
 
     db.task.findMany({
       where: {
+        ...mine,
         priority: { in: ["high", "urgent"] },
         status: { notIn: ["done", "cancelled"] },
       },
@@ -78,6 +91,7 @@ export async function GET() {
 
     db.task.findMany({
       where: {
+        ...mine,
         status: { notIn: ["done", "cancelled"] },
         dueDate: { gte: now, lte: threeDaysLater },
       },
@@ -94,7 +108,7 @@ export async function GET() {
     }),
 
     db.project.findMany({
-      where: { status: "active" },
+      where: { ...visibleProjects, status: "active" },
       select: {
         id: true,
         name: true,
@@ -111,6 +125,7 @@ export async function GET() {
     }),
 
     db.task.findMany({
+      where: mine,
       take: 5,
       orderBy: { updatedAt: "desc" },
       include: {

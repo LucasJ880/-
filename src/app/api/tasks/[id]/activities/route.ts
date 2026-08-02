@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { requireTaskAccess } from "@/lib/tasks/access";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const access = await requireTaskAccess(request, id);
+  if (access instanceof NextResponse) return access;
+
   const activities = await db.taskActivity.findMany({
     where: { taskId: id },
     include: { actor: { select: { id: true, name: true } } },

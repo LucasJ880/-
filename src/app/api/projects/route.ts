@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
 import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { visibleProjectsWhere } from "@/lib/projects/visibility";
 
 const projectInclude = {
   owner: { select: { id: true, name: true } },
@@ -16,32 +17,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  if (isSuperAdmin(user.role)) {
-    const projects = await db.project.findMany({
-      include: projectInclude,
-      orderBy: { createdAt: "desc" },
-    });
-    return NextResponse.json(projects);
-  }
-
-  const memberships = await db.organizationMember.findMany({
-    where: { userId: user.id, status: "active" },
-    select: { orgId: true },
-  });
-  const orgIds = memberships.map((m) => m.orgId);
-
   const projects = await db.project.findMany({
-    where: {
-      OR: [
-        { ownerId: user.id, orgId: null },
-        ...(orgIds.length ? [{ orgId: { in: orgIds } }] : []),
-        {
-          members: {
-            some: { userId: user.id, status: "active" },
-          },
-        },
-      ],
-    },
+    where: await visibleProjectsWhere(user),
     include: projectInclude,
     orderBy: { createdAt: "desc" },
   });

@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getAuthUrl } from "@/lib/google-calendar";
+import { getAuthUrl, GOOGLE_OAUTH_STATE_COOKIE } from "@/lib/google-calendar";
 
 export async function GET() {
   const id = process.env.GOOGLE_CLIENT_ID?.trim();
@@ -15,6 +16,16 @@ export async function GET() {
     );
   }
 
-  const url = getAuthUrl();
-  return NextResponse.redirect(url);
+  // state 防 CSRF：随机值走 HttpOnly cookie，callback 侧比对
+  const state = randomUUID();
+  const url = getAuthUrl(state);
+  const response = NextResponse.redirect(url);
+  response.cookies.set(GOOGLE_OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 600,
+  });
+  return response;
 }

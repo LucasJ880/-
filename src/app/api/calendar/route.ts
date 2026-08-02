@@ -4,23 +4,25 @@ import { getCurrentUser } from "@/lib/auth";
 import { pushEventToGoogle, getGoogleProvider } from "@/lib/google-calendar";
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
 
-  let dayStart: Date;
-
-  if (dateStr) {
-    dayStart = new Date(dateStr);
-    dayStart.setHours(0, 0, 0, 0);
-  } else {
+  let dayStart = dateStr ? new Date(dateStr) : new Date();
+  if (Number.isNaN(dayStart.getTime())) {
     dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
   }
+  dayStart.setHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayStart.getDate() + 1);
 
   const events = await db.calendarEvent.findMany({
     where: {
+      userId: user.id,
       OR: [
         { startTime: { gte: dayStart, lt: dayEnd } },
         { endTime: { gt: dayStart, lte: dayEnd } },
@@ -52,6 +54,9 @@ export async function POST(request: NextRequest) {
   }
 
   const startTime = new Date(body.startTime);
+  if (Number.isNaN(startTime.getTime())) {
+    return NextResponse.json({ error: "开始时间格式无效" }, { status: 400 });
+  }
   let endTime: Date;
 
   if (body.allDay) {
@@ -59,6 +64,9 @@ export async function POST(request: NextRequest) {
     endTime.setHours(23, 59, 59, 999);
   } else if (body.endTime) {
     endTime = new Date(body.endTime);
+    if (Number.isNaN(endTime.getTime())) {
+      return NextResponse.json({ error: "结束时间格式无效" }, { status: 400 });
+    }
   } else {
     endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
   }

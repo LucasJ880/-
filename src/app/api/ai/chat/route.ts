@@ -1,18 +1,26 @@
 import { NextRequest } from "next/server";
 import { getAIClient, getModel } from "@/lib/ai";
 import { getSystemPrompt, buildContextBlock } from "@/lib/prompts";
+import { getCurrentUser } from "@/lib/auth";
+import type { AuthUser } from "@/lib/auth";
+import { myTasksWhere } from "@/lib/tasks/access";
+import { visibleProjectsWhere } from "@/lib/projects/visibility";
 import { db } from "@/lib/db";
 
-async function getWorkContext() {
+async function getWorkContext(user: AuthUser) {
+  const visibleProjects = await visibleProjectsWhere(user);
   const [projects, recentTasks] = await Promise.all([
     db.project.findMany({
-      where: { status: "active" },
+      where: { ...visibleProjects, status: "active" },
       select: { id: true, name: true },
       orderBy: { updatedAt: "desc" },
       take: 15,
     }),
     db.task.findMany({
-      where: { status: { notIn: ["done", "cancelled"] } },
+      where: {
+        ...myTasksWhere(user.id),
+        status: { notIn: ["done", "cancelled"] },
+      },
       select: {
         title: true,
         priority: true,
@@ -34,7 +42,22 @@ async function getWorkContext() {
 }
 
 export async function POST(request: NextRequest) {
-  const { messages } = await request.json();
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return new Response(JSON.stringify({ error: "未登录" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const body = await request.json().catch(() => null);
+  const messages = Array.isArray(body?.messages) ? body.messages : null;
+  if (!messages || messages.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "messages 必须是非空数组" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   if (!process.env.OPENAI_API_KEY) {
     return new Response(
@@ -48,7 +71,7 @@ export async function POST(request: NextRequest) {
   const client = getAIClient();
   const model = getModel();
 
-  const workContext = await getWorkContext();
+  const workContext = await getWorkContext(user);
   const contextBlock = buildContextBlock(workContext);
 
   const systemMessage = {

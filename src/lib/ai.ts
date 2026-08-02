@@ -94,6 +94,8 @@ function fmtTime(h: number, m: number): string {
 
 function addOneHour(time: string): string {
   const [h, m] = time.split(":").map(Number);
+  // 23:xx +1h 会越过当天（endTime 与 startTime 同日），封顶到 23:59
+  if (h >= 23) return "23:59";
   return fmtTime(h + 1, m);
 }
 

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireTaskAccess } from "@/lib/tasks/access";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const access = await requireTaskAccess(request, id);
+  if (access instanceof NextResponse) return access;
+
   const comments = await db.taskComment.findMany({
     where: { taskId: id },
     include: { author: { select: { id: true, name: true } } },
@@ -20,15 +24,15 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const access = await requireTaskAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  const { user } = access;
+
   const body = await request.json();
 
   if (!body.content?.trim()) {
     return NextResponse.json({ error: "评论内容不能为空" }, { status: 400 });
-  }
-
-  const user = await getCurrentUser(request);
-  if (!user) {
-    return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
   const [comment] = await Promise.all([

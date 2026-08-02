@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { myTasksWhere } from "@/lib/tasks/access";
+import type { Prisma } from "@prisma/client";
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const priority = searchParams.get("priority");
 
-  const where: Record<string, string> = {};
+  const where: Prisma.TaskWhereInput = { ...myTasksWhere(user.id) };
   if (status) where.status = status;
   if (priority) where.priority = priority;
 

@@ -23,12 +23,16 @@ function getOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getAuthUrl(): string {
+/** OAuth state 防 CSRF 用的 HttpOnly cookie 名（授权跳转时写入，callback 比对） */
+export const GOOGLE_OAUTH_STATE_COOKIE = "qy_google_oauth_state";
+
+export function getAuthUrl(state?: string): string {
   const client = getOAuth2Client();
   return client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: SCOPES,
+    ...(state ? { state } : {}),
   });
 }
 
