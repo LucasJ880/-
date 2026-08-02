@@ -463,37 +463,118 @@ export function isNonProdWriteAllowed(
 export function isRealEmailSendAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (isProductionRuntimeEnv(env)) return true;
+  const a = assessRuntimeIsolation(env);
+  if (!a.ok) return false;
+  if (a.runtimeEnv === "production") return true;
   return envFlag("QINGYAN_ALLOW_REAL_EMAIL_NON_PROD", env);
 }
 
-/** Gmail Draft 唯一判定入口 */
+/**
+ * Gmail Draft 唯一判定入口。
+ * 必须先评估隔离；test 仅本地 CI（无 VERCEL_ENV）在 isolation.ok 后允许。
+ */
 export function isGmailDraftAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  const a = assessRuntimeIsolation(env);
+  if (!a.ok) return false;
   if (!envFlag("GMAIL_DRAFT_ENABLED", env)) return false;
-  if (isProductionRuntimeEnv(env)) return true;
-  // 本地 CI test：GMAIL_DRAFT_ENABLED 已通过即可（不跑真实 API）
-  if (resolveQingyanRuntimeEnv(env) === "test") {
+  if (a.runtimeEnv === "production") return true;
+  // 本地 CI test：VERCEL_ENV 冲突已使 isolation.ok=false；此处仅无 mock/测试路径
+  if (a.runtimeEnv === "test") {
     return true;
   }
-  const a = assessRuntimeIsolation(env);
-  if (!a.ok || a.usingProductionDb) return false;
+  if (a.usingProductionDb) return false;
   return envFlag("QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD", env);
 }
 
 export function isRealWechatSendAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (isProductionRuntimeEnv(env)) return true;
+  const a = assessRuntimeIsolation(env);
+  if (!a.ok) return false;
+  if (a.runtimeEnv === "production") return true;
   return envFlag("QINGYAN_ALLOW_REAL_WECHAT_NON_PROD", env);
 }
 
 export function isExternalWebhookSideEffectAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (isProductionRuntimeEnv(env)) return true;
+  const a = assessRuntimeIsolation(env);
+  if (!a.ok) return false;
+  if (a.runtimeEnv === "production") return true;
   return envFlag("QINGYAN_ALLOW_EXTERNAL_WEBHOOK_NON_PROD", env);
+}
+
+export type Wave15SeedTargetGuardResult =
+  | {
+      ok: true;
+      runtimeEnv: "staging";
+      dbPlane: "staging";
+      expectedDbPlane: "staging";
+      dbFingerprint: string | null;
+    }
+  | {
+      ok: false;
+      reason: IsolationViolationCode | "SEED_TARGET_REJECTED";
+      message: string;
+    };
+
+/**
+ * Wave1.5 Staging Seed 目标门禁（纯函数，可在 Prisma 初始化前调用）。
+ * 必须 runtime=staging、isolation.ok、dbPlane/expected=staging，且无关键违规。
+ */
+export function assertWave15SeedTargetAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): Wave15SeedTargetGuardResult {
+  const a = assessRuntimeIsolation(env);
+  const dbUrl = env.DATABASE_URL || env.DIRECT_URL || null;
+  const fp = dbEndpointFingerprint(dbUrl);
+
+  if (a.runtimeEnv !== "staging") {
+    return {
+      ok: false,
+      reason: "SEED_TARGET_REJECTED",
+      message: `Seed 拒绝：runtimeEnv 必须为 staging（当前 ${a.runtimeEnv}）`,
+    };
+  }
+  if (!a.ok) {
+    const code = primaryViolation(a);
+    return {
+      ok: false,
+      reason: code,
+      message: SAFE_MESSAGES[code] || "Seed 拒绝：环境隔离检查失败",
+    };
+  }
+  if (a.dbPlane !== "staging" || a.expectedDbPlane !== "staging") {
+    return {
+      ok: false,
+      reason: "DB_PLANE_MISMATCH",
+      message: "Seed 拒绝：dbPlane/expectedDbPlane 必须为 staging",
+    };
+  }
+  // endpoint 必须属于 Staging 默认/扩展 allowlist（dbPlane=staging 已蕴含）
+  const prefix = a.dbEndpointPrefix;
+  const stagingOk =
+    !!prefix &&
+    stagingDbEndpointPrefixes(env).some(
+      (p) => prefix === p || prefix.startsWith(p),
+    );
+  if (!stagingOk) {
+    return {
+      ok: false,
+      reason: "DB_PLANE_MISMATCH",
+      message: "Seed 拒绝：endpoint 不在 Staging allowlist",
+    };
+  }
+
+  return {
+    ok: true,
+    runtimeEnv: "staging",
+    dbPlane: "staging",
+    expectedDbPlane: "staging",
+    dbFingerprint: fp,
+  };
 }
 
 export function isCronExecutionAllowed(

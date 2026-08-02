@@ -425,6 +425,186 @@ async function main() {
     },
   );
 
+  // ── Gmail Draft：Vercel test mismatch → API 0 ──
+  await withEnvAsync(
+    {
+      QINGYAN_RUNTIME_ENV: "test",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: STAGING_DB,
+      GMAIL_DRAFT_ENABLED: "true",
+      QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD: "true",
+    },
+    async () => {
+      const { isGmailDraftAllowed } = await import(
+        "@/lib/env/runtime-isolation"
+      );
+      const { createGmailDraft } = await import("@/lib/google-email");
+      assert.equal(isGmailDraftAllowed(), false);
+      let gmailApiCalls = 0;
+      await assert.rejects(
+        () =>
+          createGmailDraft(
+            "u1",
+            {
+              to: "a@b.com",
+              from: "me@b.com",
+              subject: "s",
+              body: "b",
+            },
+            {
+              getProvider: async () =>
+                ({
+                  accessToken: "tok",
+                  grantedScopes:
+                    "https://www.googleapis.com/auth/gmail.compose",
+                  accountEmail: "me@b.com",
+                }) as never,
+              getGmail: async () => {
+                gmailApiCalls++;
+                return {
+                  users: {
+                    drafts: {
+                      create: async () => {
+                        gmailApiCalls++;
+                        return { data: { id: "d1" } };
+                      },
+                    },
+                  },
+                } as never;
+              },
+            },
+          ),
+        (e: unknown) => errCode(e) === "GMAIL_DRAFT_DISABLED",
+      );
+      assert.equal(gmailApiCalls, 0);
+      const { assertSideEffectOrThrow } = await import(
+        "@/lib/env/runtime-isolation"
+      );
+      assert.throws(
+        () => assertSideEffectOrThrow("gmail_draft"),
+        (e: unknown) => errCode(e) === "RUNTIME_ENV_MISMATCH",
+      );
+    },
+  );
+
+  // ── 真实邮件 sendGmail：Staging 默认 messages.send = 0 ──
+  await withEnvAsync(
+    {
+      QINGYAN_RUNTIME_ENV: "staging",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: STAGING_DB,
+    },
+    async () => {
+      const { sendGmail } = await import("@/lib/google-email");
+      const { sendSalesEmail } = await import("@/lib/email/sender");
+      let sendApiCalls = 0;
+      const counts: Counts = {};
+      const restores = [
+        installCounter(db.emailBinding, "update", counts, "emailBinding.update"),
+      ];
+      try {
+        await assert.rejects(
+          () =>
+            sendGmail(
+              "u1",
+              {
+                to: "real@example.com",
+                from: "me@b.com",
+                subject: "s",
+                body: "b",
+              },
+              {
+                getProvider: async () =>
+                  ({
+                    id: "p1",
+                    accessToken: "tok",
+                    refreshToken: "r",
+                    tokenExpiry: null,
+                    accountEmail: "me@b.com",
+                  }) as never,
+                getGmail: async () => {
+                  sendApiCalls++;
+                  return {
+                    users: {
+                      messages: {
+                        send: async () => {
+                          sendApiCalls++;
+                          return { data: { id: "m1" } };
+                        },
+                      },
+                    },
+                  };
+                },
+              },
+            ),
+          (e: unknown) => errCode(e) === "SIDE_EFFECT_DISABLED",
+        );
+        assert.equal(sendApiCalls, 0);
+
+        const sales = await sendSalesEmail("u1", {
+          to: "real@example.com",
+          subject: "s",
+          html: "<p>x</p>",
+        });
+        assert.equal(sales.success, false);
+        assert.equal(sendApiCalls, 0);
+        assert.equal(counts["emailBinding.update"] || 0, 0);
+      } finally {
+        for (const r of restores) r();
+      }
+    },
+  );
+
+  // ── Vercel test mismatch：真实邮件 API 0 ──
+  await withEnvAsync(
+    {
+      QINGYAN_RUNTIME_ENV: "test",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: STAGING_DB,
+      QINGYAN_ALLOW_REAL_EMAIL_NON_PROD: "true",
+    },
+    async () => {
+      const { sendGmail } = await import("@/lib/google-email");
+      let sendApiCalls = 0;
+      await assert.rejects(
+        () =>
+          sendGmail(
+            "u1",
+            {
+              to: "a@b.com",
+              from: "me@b.com",
+              subject: "s",
+              body: "b",
+            },
+            {
+              getProvider: async () =>
+                ({
+                  id: "p1",
+                  accessToken: "tok",
+                  refreshToken: null,
+                  tokenExpiry: null,
+                }) as never,
+              getGmail: async () => {
+                sendApiCalls++;
+                return {
+                  users: {
+                    messages: {
+                      send: async () => {
+                        sendApiCalls++;
+                        return { data: { id: "m1" } };
+                      },
+                    },
+                  },
+                };
+              },
+            },
+          ),
+        (e: unknown) => errCode(e) === "RUNTIME_ENV_MISMATCH",
+      );
+      assert.equal(sendApiCalls, 0);
+    },
+  );
+
   // assertSideEffectOrThrow 保留真实平面错误码
   await withEnvAsync(
     {

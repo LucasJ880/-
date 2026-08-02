@@ -49,7 +49,7 @@ Migrations：已在 Staging 空库执行（greenfield baseline + 后续）。
 
 | 通道 | Staging 默认 | 开启条件 |
 |---|---|---|
-| 真实邮件 | 关闭 | `QINGYAN_ALLOW_REAL_EMAIL_NON_PROD=true` |
+| 真实邮件（`sendGmail` / `sendSalesEmail` / SMTP） | 关闭（入口 `assertSideEffectOrThrow("email")`） | `QINGYAN_ALLOW_REAL_EMAIL_NON_PROD=true` + 测试 OAuth；禁止真实收件人假成功 |
 | Gmail Draft | 关闭 | `GMAIL_DRAFT_ENABLED` **且** `QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD` |
 | 微信 / 企微 `pushMessage` | 关闭 | `QINGYAN_ALLOW_REAL_WECHAT_NON_PROD=true` |
 | Cron 执行 | 关闭 | `QINGYAN_ALLOW_CRON_NON_PROD=true` + 非生产库 |

@@ -328,23 +328,57 @@ export interface SendEmailParams {
   replyTo?: string;
 }
 
+export type GmailSendApi = {
+  users: {
+    messages: {
+      send: (args: {
+        userId: string;
+        requestBody: { raw: string };
+      }) => Promise<{ data: { id?: string | null } }>;
+    };
+  };
+};
+
+export type SendGmailDeps = {
+  getProvider?: typeof getEmailProvider;
+  getGmail?: (provider: {
+    id: string;
+    accessToken: string;
+    refreshToken: string | null;
+    tokenExpiry: Date | null;
+  }) => Promise<GmailSendApi>;
+};
+
 /**
  * 通过 Gmail API 发送邮件（非 AI 草稿路径）。
  *
  * 需要 gmail.compose（或历史 gmail.send）。AI 路径禁止调用本函数。
+ * Wave1.5：messages.send 前 fail-closed（非生产默认 SIDE_EFFECT_DISABLED）。
  */
 export async function sendGmail(
   userId: string,
   params: SendEmailParams,
+  deps: SendGmailDeps = {},
 ): Promise<{ messageId: string }> {
-  const provider = await getEmailProvider(userId);
+  const { assertSideEffectOrThrow } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  assertSideEffectOrThrow("email");
+
+  const getProvider = deps.getProvider ?? getEmailProvider;
+  const provider = await getProvider(userId);
   if (!provider) {
     throw new Error("用户未绑定 Gmail 邮件服务");
   }
 
-  const client = await getAuthedGmailClient(provider);
-  const gmail = google.gmail({ version: "v1", auth: client });
+  const getGmail =
+    deps.getGmail ??
+    (async (p: NonNullable<Awaited<ReturnType<typeof getEmailProvider>>>) => {
+      const client = await getAuthedGmailClient(p);
+      return google.gmail({ version: "v1", auth: client }) as unknown as GmailSendApi;
+    });
 
+  const gmail = await getGmail(provider);
   const rawMessage = buildRawEmail(params);
 
   const res = await gmail.users.messages.send({

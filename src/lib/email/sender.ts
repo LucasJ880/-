@@ -48,6 +48,19 @@ function createTransport(binding: {
  * 用指定用户的绑定邮箱发送邮件
  */
 export async function sendMailAs(userId: string, opts: SendMailOptions): Promise<SendResult> {
+  // Wave1.5：SMTP 发送前 fail-closed（非生产默认禁止真实发信）
+  const { assertSideEffectOrThrow, RuntimeIsolationError } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  try {
+    assertSideEffectOrThrow("email");
+  } catch (e) {
+    if (e instanceof RuntimeIsolationError) {
+      return { success: false, error: e.message };
+    }
+    throw e;
+  }
+
   const binding = await db.emailBinding.findUnique({ where: { userId } });
   if (!binding || !binding.verified) {
     return { success: false, error: "邮箱未绑定或未验证" };
@@ -98,6 +111,19 @@ export async function sendSalesEmail(
   userId: string,
   opts: SendMailOptions,
 ): Promise<SendResult & { channel?: "gmail_oauth" | "smtp" }> {
+  // Wave1.5：统一发信入口先 fail-closed（隔离错误不得回落 SMTP）
+  const { assertSideEffectOrThrow, RuntimeIsolationError } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  try {
+    assertSideEffectOrThrow("email");
+  } catch (e) {
+    if (e instanceof RuntimeIsolationError) {
+      return { success: false, error: e.message };
+    }
+    throw e;
+  }
+
   // —— 1. 优先使用 Gmail OAuth 一键授权通道 ——
   const provider = await getEmailProvider(userId);
   if (provider && provider.accessToken) {
@@ -117,6 +143,9 @@ export async function sendSalesEmail(
       });
       return { success: true, messageId, channel: "gmail_oauth" };
     } catch (err) {
+      if (err instanceof RuntimeIsolationError) {
+        return { success: false, error: err.message };
+      }
       const msg = err instanceof Error ? err.message : "Gmail 发送失败";
       // Gmail 授权失效 / token 过期等情况：回落到 SMTP（若有绑定）
       console.error("[sendSalesEmail] Gmail OAuth failed, falling back to SMTP:", msg);

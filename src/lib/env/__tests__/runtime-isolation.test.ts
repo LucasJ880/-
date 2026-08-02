@@ -11,7 +11,9 @@ import {
   isExternalWebhookSideEffectAllowed,
   isGmailDraftAllowed,
   isProductionDatabaseUrl,
+  isRealEmailSendAllowed,
   isRealWechatSendAllowed,
+  isExternalWebhookSideEffectAllowed,
   isWorkerExecutionAllowed,
   NON_PROD_SIDE_EFFECT_DISABLED,
   NonProdSideEffectDisabledError,
@@ -318,6 +320,45 @@ async function main() {
     },
     () => {
       assert.equal(isGmailDraftAllowed(), false);
+    },
+  );
+
+  // Vercel 上 test runtime：Gmail / email / wechat / webhook 一律 false
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "test",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: STAGING_DB,
+      GMAIL_DRAFT_ENABLED: "true",
+      QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD: "true",
+      QINGYAN_ALLOW_REAL_EMAIL_NON_PROD: "true",
+      QINGYAN_ALLOW_REAL_WECHAT_NON_PROD: "true",
+      QINGYAN_ALLOW_EXTERNAL_WEBHOOK_NON_PROD: "true",
+    },
+    () => {
+      assert.ok(
+        assessRuntimeIsolation().violations.includes("RUNTIME_ENV_MISMATCH"),
+      );
+      assert.equal(isGmailDraftAllowed(), false);
+      assert.equal(isRealEmailSendAllowed(), false);
+      assert.equal(isRealWechatSendAllowed(), false);
+      assert.equal(isExternalWebhookSideEffectAllowed(), false);
+    },
+  );
+
+  // 本地 CI test（无 VERCEL_ENV）+ GMAIL_DRAFT_ENABLED → Draft 允许
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "test",
+      VERCEL_ENV: undefined,
+      GMAIL_DRAFT_ENABLED: "true",
+      DATABASE_URL: undefined,
+      DIRECT_URL: undefined,
+    },
+    () => {
+      assert.equal(assessRuntimeIsolation().ok, true);
+      assert.equal(isGmailDraftAllowed(), true);
+      assert.equal(isRealEmailSendAllowed(), false);
     },
   );
 

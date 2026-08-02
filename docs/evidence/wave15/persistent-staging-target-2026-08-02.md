@@ -23,7 +23,7 @@
 | Neon endpoint 前缀 | `ep-floral-sea-au07ycff`（≠ Production `ep-super-field-antfibsl`） |
 | Neon project | `qingyan-wave15-staging` / `super-scene-97779903` |
 | `QINGYAN_RUNTIME_ENV` | `staging` |
-| `QINGYAN_EXPECTED_DB_PLANE` | `staging`（推荐显式） |
+| `QINGYAN_EXPECTED_DB_PLANE` | `staging`（**必须显式**；PR Preview 亦须设置） |
 | `VERCEL_ENV` | Vercel Preview 平面（勿声明 production） |
 | `CRON_SECRET` | **独立新值**（≠ Production；不入库） |
 | `POSTFLOW_WORKER_TOKEN` | **不配置**生产 token |
