@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { runTrackedResponse } from "@/lib/automation/runner";
 import {
@@ -15,12 +16,8 @@ export const maxDuration = 60;
  * 通过 CRON_SECRET 鉴权，不走用户 session。
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   return runTrackedResponse("project-inspection", runInspection);
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { expireOverdueApprovals } from "@/lib/approval/port";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 
@@ -13,12 +14,8 @@ export const maxDuration = 60;
  * - 没有 deadlineAt 但超过 48 小时的 → 发提醒通知（幂等）
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   const data = await runTrackedAutomation("approval-timeout", async () => {
     const now = new Date();

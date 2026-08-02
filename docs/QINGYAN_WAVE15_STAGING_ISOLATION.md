@@ -95,6 +95,7 @@ Migrations：已在 Staging 空库执行（greenfield baseline + 后续）。
 - `PATCH /api/projects/[id]`
 - `POST /api/tasks`
 - `POST /api/operations/worker/claim` / `report`
+- 全部 `/api/cron/*` 与 `/api/trade/cron`：统一 `requireCronSecret`（`src/lib/cron/auth.ts`，隔离 fail-closed + 常量时间比较）
 - `dispatchPublishJob` → Postiz（出站 webhook）
 - `pushMessage`（抛错，禁止假成功）
 - Gmail Draft：`isGmailDraftEnabled` → 唯一 `isGmailDraftAllowed`

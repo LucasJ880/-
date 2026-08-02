@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { AUTOMATION_TIMEZONE } from "@/lib/automation/registry";
 import { isLocalScheduleHour } from "@/lib/automation/local-time";
 import { runTrackedAutomation } from "@/lib/automation/runner";
@@ -22,12 +23,8 @@ interface FollowupCronResponse {
 }
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   const now = new Date();
   if (!isLocalScheduleHour(now, AUTOMATION_TIMEZONE, [9, 14])) {

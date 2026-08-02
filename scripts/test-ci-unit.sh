@@ -6,6 +6,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# 与 .github/workflows/ci.yml 对齐：runtime-isolation 在非 test 环境默认禁 cron，
+# 本地不设 NODE_ENV 会让鉴权契约测试被 503 淹没（CI 绿、本地红）。
+export NODE_ENV=test
+
 echo "═══════════════════════════════════════════════════"
 echo "  青砚 CI unit subset"
 echo "═══════════════════════════════════════════════════"

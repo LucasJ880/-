@@ -10,11 +10,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { AUTOMATION_TIMEZONE } from "@/lib/automation/registry";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { db } from "@/lib/db";
-import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 import {
   pushBriefingToAllUsers,
   pushFollowupsToAllUsers,
@@ -23,15 +23,8 @@ import {
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  const isolationBlock = assertNonProdSideEffectsAllowed("cron");
-  if (isolationBlock) return isolationBlock;
-
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   const now = new Date();
   if (getLocalTimeParts(now, AUTOMATION_TIMEZONE).hour !== 7) {

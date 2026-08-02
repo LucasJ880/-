@@ -4,17 +4,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { syncPostizPublishJobs } from "@/lib/operations/postiz-sync";
 
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   try {
     const data = await runTrackedAutomation("postiz-sync", async () => {
