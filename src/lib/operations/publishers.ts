@@ -32,6 +32,22 @@ async function dispatchToPostiz(
   asset: VideoAsset,
   account: MatrixAccount,
 ): Promise<DispatchResult> {
+  // Wave1.5：出站 webhook 副作用默认关闭（不发 HTTP、不标 completed）
+  const { assertSideEffectOrThrow, NonProdSideEffectDisabledError } =
+    await import("@/lib/env/runtime-isolation");
+  try {
+    assertSideEffectOrThrow("webhook");
+  } catch (e) {
+    if (e instanceof NonProdSideEffectDisabledError) {
+      return {
+        ok: false,
+        error: e.message,
+        retryable: false,
+      };
+    }
+    throw e;
+  }
+
   if (!isPostizConfigured()) {
     return { ok: false, error: "Postiz 未配置（POSTIZ_API_URL / POSTIZ_API_KEY）" };
   }

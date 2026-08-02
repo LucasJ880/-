@@ -83,6 +83,23 @@ export async function executePendingAction(
   actionId: string,
   ctx: ExecuteContext,
 ): Promise<ExecuteResult> {
+  // Wave1.5：任何 DB 写入前 fail-closed（生产库挂非 prod / mismatch / DB 未解析）
+  const { assertNonProdSideEffectsAllowed } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) {
+    const body = (await isolationBlock.clone().json().catch(() => ({}))) as {
+      code?: string;
+      error?: string;
+    };
+    return {
+      ok: false,
+      error: body.error || "环境隔离检查失败，已拒绝执行",
+      errorCode: body.code || "ISOLATION_VIOLATION",
+    };
+  }
+
   const action = await db.pendingAction.findUnique({
     where: { id: actionId },
   });
@@ -212,10 +229,21 @@ export async function executePendingAction(
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }
   } catch (err) {
-    exec = {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    const { NonProdSideEffectDisabledError } = await import(
+      "@/lib/env/runtime-isolation"
+    );
+    if (err instanceof NonProdSideEffectDisabledError) {
+      exec = {
+        ok: false,
+        error: err.message,
+        errorCode: err.code,
+      };
+    } else {
+      exec = {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   if (exec.ok) {
@@ -488,6 +516,22 @@ export async function rejectPendingAction(
   ctx: ExecuteContext,
   reason?: string,
 ): Promise<ExecuteResult> {
+  const { assertNonProdSideEffectsAllowed } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) {
+    const body = (await isolationBlock.clone().json().catch(() => ({}))) as {
+      code?: string;
+      error?: string;
+    };
+    return {
+      ok: false,
+      error: body.error || "环境隔离检查失败，已拒绝执行",
+      errorCode: body.code || "ISOLATION_VIOLATION",
+    };
+  }
+
   const action = await db.pendingAction.findUnique({
     where: { id: actionId },
   });

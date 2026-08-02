@@ -15,6 +15,7 @@ import {
   transitionTaskStatus,
   type TaskProjectDomainFilter,
 } from "@/lib/tasks";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 
 const taskInclude = {
   project: { select: { id: true, name: true, color: true } },
@@ -151,6 +152,9 @@ export const GET = withAuth(async (request, _ctx, user) => {
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) return isolationBlock;
+
   const body = await request.json();
 
   if (body.projectId) {

@@ -20,8 +20,13 @@ import { canDecideTeamApproval } from "@/lib/marketing/team";
 import { getOrgMembership } from "@/lib/auth";
 import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 import { canConfirmPendingActionInActiveOrg } from "@/lib/assistant/thread-org-backfill";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 
 export const POST = withAuth(async (request, ctx, user) => {
+  // Wave1.5：approve / reject / retry(再批准) 在任何 DB 写入前 fail-closed
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) return isolationBlock;
+
   const { id } = await ctx.params;
 
   const body = await request.json().catch(() => ({}));

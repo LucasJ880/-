@@ -64,25 +64,54 @@ Migrations：已在 Staging 空库执行（greenfield baseline + 后续）。
 
 模块：`src/lib/env/runtime-isolation.ts`
 
-- 非 Production 命中生产 DB endpoint allowlist（默认 `ep-super-field-antfibsl`）→ `/api/health` **503 misconfigured**；cron fail-closed  
-- 可选：`QINGYAN_PRODUCTION_CRON_SECRET_SHA256` 防止非 prod 复用生产 CRON_SECRET  
-- 不打印连接串 / Secret  
+### 5.1 评估与违规码
+
+| 违规 | 含义 |
+|---|---|
+| `PROD_DB_ON_NON_PROD_RUNTIME` | 非 prod 连接生产 Neon |
+| `RUNTIME_ENV_MISMATCH` | 如 `VERCEL_ENV=preview` + `QINGYAN_RUNTIME_ENV=production` |
+| `DB_ENDPOINT_UNRESOLVED` | staging/preview 下 DATABASE_URL 缺失/无法解析 |
+| `WORKER_DISABLED_NON_PROD` | 未设 `QINGYAN_ALLOW_WORKER_NON_PROD` |
+| `SIDE_EFFECT_DISABLED` | webhook / email / gmail 默认关闭 |
+| `NON_PROD_SIDE_EFFECT_DISABLED` | 微信/企微 `pushMessage` 明确阻断（非 `{sent:0,failed:0}`） |
+| `CRON_DISABLED_NON_PROD` | cron 未显式允许 |
+
+### 5.2 已接线写入口（自身 503，不依赖 health）
+
+- `POST /api/ai/pending-actions/[id]`（approve / reject / retry）
+- `executePendingAction` / `rejectPendingAction`（含 `grader.internal_note` / `grader.project_task` 等）
+- `PATCH /api/projects/[id]`
+- `POST /api/tasks`
+- `POST /api/operations/worker/claim` / `report`
+- `dispatchPublishJob` → Postiz（出站 webhook）
+- `pushMessage`（抛错，禁止假成功）
+- Gmail Draft：`isGmailDraftEnabled` → 唯一 `isGmailDraftAllowed`
+
+### 5.3 匿名 health 脱敏
+
+生产匿名响应仅：`runtimeEnv` / `dbPlane` / `isolation`（**不**暴露 Neon endpoint 前缀）。  
+Staging/Preview 可附带不可逆 `dbFingerprint`（12 位 sha256）。
 
 ---
 
-## 6. Vercel Staging 配置清单（运维）
+## 6. 持久 Staging 目标（合并前运维）
 
-为固定分支（建议 `staging/wave15` 或本隔离分支）配置 **Preview 分支级** 环境变量：
+**优先：** 独立 Vercel 项目 `qingyan-staging`，或长期分支 `staging`（勿只绑临时 PR 分支）。
 
-1. `DATABASE_URL` / `DIRECT_URL` → Staging Neon（`ep-floral-sea-*`）  
+必须绑定：
+
+1. `DATABASE_URL` / `DIRECT_URL` → Staging Neon（`ep-floral-sea-au07ycff*`）  
 2. `QINGYAN_RUNTIME_ENV=staging`  
-3. `CRON_SECRET` → **新随机值**（≠ Production）  
-4. 不设置 / 设为 false：`GMAIL_DRAFT_ENABLED`  
-5. 不设置任何 `QINGYAN_ALLOW_*`（除非做受控测试）  
-6. 不配置生产 `POSTFLOW_WORKER_TOKEN`  
-7. 可选：设置 `QINGYAN_PRODUCTION_CRON_SECRET_SHA256` 为生产 cron 的 sha256  
+3. `VERCEL_ENV` 正常为 preview（与 staging 声明一致，勿声明 production）  
+4. `CRON_SECRET` → **新随机值**（≠ Production）  
+5. 不设置 / 设为 false：`GMAIL_DRAFT_ENABLED`；微信/企微默认关闭  
+6. 不设置任何 `QINGYAN_ALLOW_*`（除非受控测试）  
+7. 无生产 `POSTFLOW_WORKER_TOKEN`  
+8. **不得**复制生产环境变量全集  
 
-部署后用 `/api/health` 确认：`runtimeEnv=staging`、`dbEndpointPrefix=ep-floral-sea-au07ycff`、`isolation=ok`。
+可选：`QINGYAN_PRODUCTION_CRON_SECRET_SHA256` / `QINGYAN_PRODUCTION_WORKER_TOKEN_SHA256`。
+
+部署后 `/api/health` 期望：`runtimeEnv=staging`、`dbPlane=staging`、`isolation=ok`、HTTP 200。
 
 ---
 

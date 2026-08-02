@@ -21,7 +21,7 @@
 |---|---|
 | 真实邮件 | 关闭 |
 | Gmail Draft | 关闭 |
-| 微信/企微 | 关闭（`pushMessage` early-return） |
+| 微信/企微 | 关闭（`pushMessage` 抛 `NON_PROD_SIDE_EFFECT_DISABLED`，禁止假成功） |
 | Cron | 关闭（需 `QINGYAN_ALLOW_CRON_NON_PROD`） |
 | Worker | 关闭（需 `QINGYAN_ALLOW_WORKER_NON_PROD`） |
 

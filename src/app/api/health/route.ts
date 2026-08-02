@@ -1,15 +1,8 @@
 /**
  * 健康检查接口
  *
- * 用于 Vercel 监控探活、外部 uptime 服务（UptimeRobot 等）、
- * 或自行编写的告警脚本。
- *
- * 返回：
- *   200 — 服务正常（DB 可连通）
- *   503 — DB 不可用 / 环境隔离失败
- *
- * 注意：此接口在 middleware PUBLIC_PATHS 中（/api/health），无需登录。
- * 仅返回聚合健康状态与脱敏隔离摘要，不返回业务数据或连接串。
+ * 匿名生产响应不暴露 Neon endpoint 前缀；仅返回 dbPlane。
+ * Staging/Preview 可附带不可逆短指纹便于运维核对。
  */
 
 import { NextResponse } from "next/server";
@@ -32,8 +25,11 @@ export async function GET() {
           database: "error",
           isolation: "error",
           runtimeEnv: isolation.runtimeEnv,
-          dbEndpointPrefix: isolation.dbEndpointPrefix,
+          dbPlane: isolation.dbPlane,
           violations: isolation.violations,
+          ...(isolation.dbFingerprint
+            ? { dbFingerprint: isolation.dbFingerprint }
+            : {}),
         },
       },
       {
@@ -65,7 +61,10 @@ export async function GET() {
         latencyMs,
         isolation: "ok",
         runtimeEnv: isolation.runtimeEnv,
-        dbEndpointPrefix: isolation.dbEndpointPrefix,
+        dbPlane: isolation.dbPlane,
+        ...(isolation.dbFingerprint
+          ? { dbFingerprint: isolation.dbFingerprint }
+          : {}),
         ...(dbError ? { error: dbError } : {}),
       },
     },

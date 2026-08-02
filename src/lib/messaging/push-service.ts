@@ -308,6 +308,10 @@ async function pushToBindings(
   bindings: EligibleBinding[],
   content: string,
 ): Promise<{ sent: number; failed: number }> {
+  // 与 pushMessage 同防线：禁止绕过 gateway 在非生产真实外发
+  const { assertSideEffectOrThrow } = await import("@/lib/env/runtime-isolation");
+  assertSideEffectOrThrow("wechat");
+
   const { getAdapter } = await import("./gateway");
   let sent = 0;
   let failed = 0;

@@ -33,6 +33,7 @@
 import { google } from "googleapis";
 import { db } from "@/lib/db";
 import { encryptField, decryptField } from "@/lib/crypto";
+import { isGmailDraftAllowed } from "@/lib/env/runtime-isolation";
 
 // ── Scopes ──────────────────────────────────────────────────
 
@@ -61,24 +62,11 @@ export class GmailOAuthError extends Error {
   }
 }
 
-function envBool(v: string | undefined): boolean {
-  if (!v) return false;
-  const s = v.trim().toLowerCase();
-  return s === "1" || s === "true" || s === "on" || s === "yes";
-}
-
-/** Gmail 草稿功能总开关；未开启时禁止创建 PendingAction 与执行 drafts.create */
+/** Gmail 草稿功能总开关；统一走 runtime-isolation（未知 runtime 默认不允许） */
 export function isGmailDraftEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  // Wave1.5：staging/preview 默认关闭；需 GMAIL_DRAFT_ENABLED + QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD
-  if (!envBool(env.GMAIL_DRAFT_ENABLED)) return false;
-  const runtime = (env.QINGYAN_RUNTIME_ENV || env.VERCEL_ENV || env.NODE_ENV || "")
-    .toLowerCase();
-  if (runtime === "production" || runtime === "test" || runtime === "") {
-    return true;
-  }
-  return envBool(env.QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD);
+  return isGmailDraftAllowed(env);
 }
 
 /** 解析 OAuth scope 字符串是否包含目标 scope（支持完整 URL 或短名） */

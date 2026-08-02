@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transitionPublishJob } from "@/lib/operations/publish-events";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 
 function checkWorkerAuth(request: NextRequest): boolean {
   const token = process.env.POSTFLOW_WORKER_TOKEN;
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
   if (!checkWorkerAuth(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const isolationBlock = assertNonProdSideEffectsAllowed("worker");
+  if (isolationBlock) return isolationBlock;
 
   const body = await request.json().catch(() => ({}));
   const jobId = String(body.jobId ?? "");
