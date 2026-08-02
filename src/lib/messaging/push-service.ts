@@ -270,6 +270,10 @@ async function getEligibleBindings(
   pushField: "pushBriefing" | "pushFollowup" | "pushReport" | "pushSales",
   domain: PushDomain,
 ): Promise<EligibleBinding[]> {
+  // Wave1.5：查询绑定前 fail-closed，禁止非生产假成功 {sent:0,failed:0}
+  const { assertSideEffectOrThrow } = await import("@/lib/env/runtime-isolation");
+  assertSideEffectOrThrow("wechat");
+
   const bindings = await db.weChatBinding.findMany({
     where: {
       userId,

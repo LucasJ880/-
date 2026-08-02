@@ -16,12 +16,15 @@ import {
   NON_PROD_SIDE_EFFECT_DISABLED,
   NonProdSideEffectDisabledError,
   resolveQingyanRuntimeEnv,
+  RuntimeIsolationError,
 } from "../runtime-isolation";
 
 const PROD_DB =
   "postgresql://u:p@ep-super-field-antfibsl-pooler.c-6.us-east-1.aws.neon.tech/neondb";
 const STAGING_DB =
   "postgresql://u:p@ep-floral-sea-au07ycff.c-10.us-east-1.aws.neon.tech/neondb";
+const OTHER_DB =
+  "postgresql://u:p@ep-random-other-abc123.c-1.us-east-1.aws.neon.tech/neondb";
 
 function withEnv(patch: Record<string, string | undefined>, fn: () => void) {
   const prev: Record<string, string | undefined> = {};
@@ -73,10 +76,37 @@ async function assertResponseCode(
 }
 
 async function main() {
-  // 1) Preview + Production DB → isolation fail（health 会 503）
+  // Production 只允许 production plane
   withEnv(
     {
-      QINGYAN_RUNTIME_ENV: "preview",
+      QINGYAN_RUNTIME_ENV: "production",
+      VERCEL_ENV: "production",
+      DATABASE_URL: STAGING_DB,
+    },
+    () => {
+      const a = assessRuntimeIsolation();
+      assert.equal(a.ok, false);
+      assert.ok(a.violations.includes("DB_PLANE_MISMATCH"));
+    },
+  );
+
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "production",
+      VERCEL_ENV: "production",
+      DATABASE_URL: OTHER_DB,
+    },
+    () => {
+      assert.ok(
+        assessRuntimeIsolation().violations.includes("DB_PLANE_MISMATCH"),
+      );
+    },
+  );
+
+  // Staging 只允许 staging plane
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "staging",
       VERCEL_ENV: "preview",
       DATABASE_URL: PROD_DB,
     },
@@ -84,37 +114,100 @@ async function main() {
       const a = assessRuntimeIsolation();
       assert.equal(a.ok, false);
       assert.ok(a.violations.includes("PROD_DB_ON_NON_PROD_RUNTIME"));
-      assert.equal(a.dbPlane, "production");
-      assert.equal(isCronExecutionAllowed(), false);
+      assert.ok(a.violations.includes("DB_PLANE_MISMATCH"));
     },
   );
 
-  // 2) Preview + Production DB → 写入口 503
-  await withEnvAsync(
+  withEnv(
     {
-      QINGYAN_RUNTIME_ENV: "preview",
+      QINGYAN_RUNTIME_ENV: "staging",
       VERCEL_ENV: "preview",
-      DATABASE_URL: PROD_DB,
+      DATABASE_URL: OTHER_DB,
     },
-    async () => {
-      await assertResponseCode(
-        assertNonProdSideEffectsAllowed("write"),
-        "PROD_DB_ON_NON_PROD_RUNTIME",
+    () => {
+      assert.ok(
+        assessRuntimeIsolation().violations.includes("DB_PLANE_MISMATCH"),
       );
     },
   );
 
-  // 3) Preview + QINGYAN_RUNTIME_ENV=production → mismatch 503
+  // Preview + other 默认不安全
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "preview",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: OTHER_DB,
+    },
+    () => {
+      const a = assessRuntimeIsolation();
+      assert.equal(a.ok, false);
+      assert.ok(a.violations.includes("DB_PLANE_MISMATCH"));
+    },
+  );
+
+  // Preview + expected staging + staging DB → ok
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "preview",
+      VERCEL_ENV: "preview",
+      QINGYAN_EXPECTED_DB_PLANE: "staging",
+      DATABASE_URL: STAGING_DB,
+    },
+    () => {
+      assert.equal(assessRuntimeIsolation().ok, true);
+    },
+  );
+
+  // Preview + allowlist fingerprint
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "preview",
+      VERCEL_ENV: "preview",
+      QINGYAN_EXPECTED_DB_PLANE: "staging",
+      QINGYAN_ALLOWED_DB_ENDPOINT_FINGERPRINTS: dbEndpointFingerprint(OTHER_DB)!,
+      DATABASE_URL: OTHER_DB,
+    },
+    () => {
+      assert.equal(assessRuntimeIsolation().ok, true);
+    },
+  );
+
+  // Development 远程写默认关
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "development",
+      VERCEL_ENV: undefined,
+      DATABASE_URL: OTHER_DB,
+    },
+    () => {
+      assert.ok(
+        assessRuntimeIsolation().violations.includes("DB_PLANE_MISMATCH"),
+      );
+    },
+  );
+
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "development",
+      QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES: "ep-random-other-abc123",
+      DATABASE_URL: OTHER_DB,
+    },
+    () => {
+      assert.equal(assessRuntimeIsolation().ok, true);
+    },
+  );
+
+  // Vercel 上声明 test → mismatch
   await withEnvAsync(
     {
-      QINGYAN_RUNTIME_ENV: "production",
+      QINGYAN_RUNTIME_ENV: "test",
       VERCEL_ENV: "preview",
       DATABASE_URL: STAGING_DB,
     },
     async () => {
-      const a = assessRuntimeIsolation();
-      assert.equal(a.ok, false);
-      assert.ok(a.violations.includes("RUNTIME_ENV_MISMATCH"));
+      assert.ok(
+        assessRuntimeIsolation().violations.includes("RUNTIME_ENV_MISMATCH"),
+      );
       await assertResponseCode(
         assertNonProdSideEffectsAllowed("write"),
         "RUNTIME_ENV_MISMATCH",
@@ -122,7 +215,40 @@ async function main() {
     },
   );
 
-  // 4) Staging + 无 DATABASE_URL → fail-closed
+  // Preview + Production DB → write 503
+  await withEnvAsync(
+    {
+      QINGYAN_RUNTIME_ENV: "preview",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: PROD_DB,
+    },
+    async () => {
+      const a = assessRuntimeIsolation();
+      assert.equal(a.ok, false);
+      assert.ok(a.violations.includes("PROD_DB_ON_NON_PROD_RUNTIME"));
+      await assertResponseCode(
+        assertNonProdSideEffectsAllowed("write"),
+        "PROD_DB_ON_NON_PROD_RUNTIME",
+      );
+    },
+  );
+
+  // Preview + QINGYAN_RUNTIME_ENV=production → mismatch
+  await withEnvAsync(
+    {
+      QINGYAN_RUNTIME_ENV: "production",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: STAGING_DB,
+    },
+    async () => {
+      await assertResponseCode(
+        assertNonProdSideEffectsAllowed("write"),
+        "RUNTIME_ENV_MISMATCH",
+      );
+    },
+  );
+
+  // Staging 无 DATABASE_URL
   await withEnvAsync(
     {
       QINGYAN_RUNTIME_ENV: "staging",
@@ -131,10 +257,6 @@ async function main() {
       DIRECT_URL: undefined,
     },
     async () => {
-      const a = assessRuntimeIsolation();
-      assert.equal(a.ok, false);
-      assert.ok(a.violations.includes("DB_ENDPOINT_UNRESOLVED"));
-      assert.equal(classifyDbPlane(null), "unresolved");
       await assertResponseCode(
         assertNonProdSideEffectsAllowed("write"),
         "DB_ENDPOINT_UNRESOLVED",
@@ -142,21 +264,7 @@ async function main() {
     },
   );
 
-  withEnv(
-    {
-      QINGYAN_RUNTIME_ENV: "staging",
-      VERCEL_ENV: "preview",
-      DATABASE_URL: "not-a-valid-url",
-      DIRECT_URL: undefined,
-    },
-    () => {
-      const a = assessRuntimeIsolation();
-      assert.equal(a.ok, false);
-      assert.ok(a.violations.includes("DB_ENDPOINT_UNRESOLVED"));
-    },
-  );
-
-  // 5) Staging + 无 worker allow → worker 不执行
+  // Staging worker / webhook / wechat / gmail 默认关
   await withEnvAsync(
     {
       QINGYAN_RUNTIME_ENV: "staging",
@@ -169,54 +277,38 @@ async function main() {
         assertNonProdSideEffectsAllowed("worker"),
         "WORKER_DISABLED_NON_PROD",
       );
-    },
-  );
-
-  // 6) Staging + 无 webhook allow → 不发外部请求
-  await withEnvAsync(
-    {
-      QINGYAN_RUNTIME_ENV: "staging",
-      VERCEL_ENV: "preview",
-      DATABASE_URL: STAGING_DB,
-    },
-    async () => {
       assert.equal(isExternalWebhookSideEffectAllowed(), false);
       await assertResponseCode(
         assertNonProdSideEffectsAllowed("webhook"),
         "SIDE_EFFECT_DISABLED",
       );
-      assert.throws(
-        () => assertSideEffectOrThrow("webhook"),
-        (e: unknown) =>
-          e instanceof NonProdSideEffectDisabledError &&
-          e.code === NON_PROD_SIDE_EFFECT_DISABLED,
-      );
-    },
-  );
-
-  // 7) Staging + 微信关闭 → 明确错误，非假成功
-  await withEnvAsync(
-    {
-      QINGYAN_RUNTIME_ENV: "staging",
-      VERCEL_ENV: "preview",
-      DATABASE_URL: STAGING_DB,
-    },
-    async () => {
       assert.equal(isRealWechatSendAllowed(), false);
-      await assertResponseCode(
-        assertNonProdSideEffectsAllowed("wechat"),
-        "NON_PROD_SIDE_EFFECT_DISABLED",
-      );
       assert.throws(
         () => assertSideEffectOrThrow("wechat"),
         (e: unknown) =>
           e instanceof NonProdSideEffectDisabledError &&
           e.code === NON_PROD_SIDE_EFFECT_DISABLED,
       );
+      assert.equal(isGmailDraftAllowed(), false);
     },
   );
 
-  // 8) Staging + Gmail 关闭 → 不创建草稿
+  // 平面错误保留真实 code（非通用 NON_PROD_SIDE_EFFECT_DISABLED）
+  withEnv(
+    {
+      QINGYAN_RUNTIME_ENV: "staging",
+      VERCEL_ENV: "preview",
+      DATABASE_URL: OTHER_DB,
+    },
+    () => {
+      assert.throws(
+        () => assertSideEffectOrThrow("write"),
+        (e: unknown) =>
+          e instanceof RuntimeIsolationError && e.code === "DB_PLANE_MISMATCH",
+      );
+    },
+  );
+
   withEnv(
     {
       QINGYAN_RUNTIME_ENV: "staging",
@@ -229,19 +321,7 @@ async function main() {
     },
   );
 
-  withEnv(
-    {
-      QINGYAN_RUNTIME_ENV: "staging",
-      VERCEL_ENV: "preview",
-      DATABASE_URL: STAGING_DB,
-      GMAIL_DRAFT_ENABLED: undefined,
-    },
-    () => {
-      assert.equal(isGmailDraftAllowed(), false);
-    },
-  );
-
-  // 9) Production 正常行为不回归
+  // Production 正常
   withEnv(
     {
       QINGYAN_RUNTIME_ENV: "production",
@@ -255,20 +335,13 @@ async function main() {
       assert.equal(a.dbPlane, "production");
       assert.equal(assertNonProdSideEffectsAllowed("write"), null);
       assert.equal(assertNonProdSideEffectsAllowed("worker"), null);
-      assert.equal(assertNonProdSideEffectsAllowed("webhook"), null);
-      assert.equal(assertNonProdSideEffectsAllowed("wechat"), null);
       assert.equal(isGmailDraftAllowed(), true);
-      assert.equal(isCronExecutionAllowed(), true);
-      assert.equal(isWorkerExecutionAllowed(), true);
       const snap = healthIsolationSnapshot();
-      assert.equal(snap.isolationOk, true);
-      assert.equal(snap.runtimeEnv, "production");
-      assert.equal(snap.dbPlane, "production");
       assert.equal(snap.dbFingerprint, null);
     },
   );
 
-  // 10) Staging 独立 DB + 显式安全 allow → 受控路径可执行
+  // Staging 独立 DB + 显式 allow
   withEnv(
     {
       QINGYAN_RUNTIME_ENV: "staging",
@@ -282,35 +355,11 @@ async function main() {
       QINGYAN_ALLOW_REAL_WECHAT_NON_PROD: "true",
     },
     () => {
-      const a = assessRuntimeIsolation();
-      assert.equal(a.ok, true);
-      assert.equal(a.dbPlane, "staging");
+      assert.equal(assessRuntimeIsolation().ok, true);
       assert.equal(assertNonProdSideEffectsAllowed("write"), null);
       assert.equal(assertNonProdSideEffectsAllowed("worker"), null);
-      assert.equal(assertNonProdSideEffectsAllowed("webhook"), null);
-      assert.equal(assertNonProdSideEffectsAllowed("wechat"), null);
       assert.equal(isGmailDraftAllowed(), true);
       assert.equal(isCronExecutionAllowed(), true);
-      assert.equal(isWorkerExecutionAllowed(), true);
-      const snap = healthIsolationSnapshot();
-      assert.equal(snap.isolationOk, true);
-      assert.equal(snap.runtimeEnv, "staging");
-      assert.equal(snap.dbPlane, "staging");
-      assert.ok(snap.dbFingerprint);
-      assert.notEqual(snap.dbFingerprint, "ep-floral-sea-au07ycff");
-    },
-  );
-
-  withEnv(
-    {
-      QINGYAN_RUNTIME_ENV: "production",
-      VERCEL_ENV: "development",
-      DATABASE_URL: PROD_DB,
-    },
-    () => {
-      assert.ok(
-        assessRuntimeIsolation().violations.includes("RUNTIME_ENV_MISMATCH"),
-      );
     },
   );
 

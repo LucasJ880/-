@@ -229,10 +229,10 @@ export async function executePendingAction(
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }
   } catch (err) {
-    const { NonProdSideEffectDisabledError } = await import(
+    const { RuntimeIsolationError } = await import(
       "@/lib/env/runtime-isolation"
     );
-    if (err instanceof NonProdSideEffectDisabledError) {
+    if (err instanceof RuntimeIsolationError) {
       exec = {
         ok: false,
         error: err.message,

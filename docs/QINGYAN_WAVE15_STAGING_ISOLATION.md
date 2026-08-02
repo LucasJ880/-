@@ -64,17 +64,29 @@ Migrations：已在 Staging 空库执行（greenfield baseline + 后续）。
 
 模块：`src/lib/env/runtime-isolation.ts`
 
-### 5.1 评估与违规码
+### 5.1 评估与违规码（白名单矩阵）
+
+| runtime | 允许 dbPlane | 说明 |
+|---|---|---|
+| `production` | **仅** `production` | staging/other/unresolved → 503 |
+| `staging` | **仅** `staging` | production/other/unresolved → 503 |
+| `preview` | 须 `QINGYAN_EXPECTED_DB_PLANE` 或 prefix/fingerprint allowlist 且完全匹配 | 默认 `other` **不安全** |
+| `development` | 须开发测试 DB allowlist | 远程写默认关 |
+| `test` | 本地 CI 可控；**禁止**出现在 Vercel production/preview/development | 否则 `RUNTIME_ENV_MISMATCH` |
 
 | 违规 | 含义 |
 |---|---|
-| `PROD_DB_ON_NON_PROD_RUNTIME` | 非 prod 连接生产 Neon |
-| `RUNTIME_ENV_MISMATCH` | 如 `VERCEL_ENV=preview` + `QINGYAN_RUNTIME_ENV=production` |
-| `DB_ENDPOINT_UNRESOLVED` | staging/preview 下 DATABASE_URL 缺失/无法解析 |
+| `DB_PLANE_MISMATCH` | 实际平面与运行环境预期不匹配 |
+| `PROD_DB_ON_NON_PROD_RUNTIME` | 非 prod 连接生产 Neon（保留） |
+| `RUNTIME_ENV_MISMATCH` | 环境声明冲突（含 Vercel 上的 `test`） |
+| `DB_ENDPOINT_UNRESOLVED` | DATABASE_URL 缺失/无法解析 |
 | `WORKER_DISABLED_NON_PROD` | 未设 `QINGYAN_ALLOW_WORKER_NON_PROD` |
 | `SIDE_EFFECT_DISABLED` | webhook / email / gmail 默认关闭 |
-| `NON_PROD_SIDE_EFFECT_DISABLED` | 微信/企微 `pushMessage` 明确阻断（非 `{sent:0,failed:0}`） |
+| `NON_PROD_SIDE_EFFECT_DISABLED` | 微信/企微明确阻断（非 `{sent:0,failed:0}`） |
 | `CRON_DISABLED_NON_PROD` | cron 未显式允许 |
+
+配置：`QINGYAN_EXPECTED_DB_PLANE` / `QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES` / `QINGYAN_ALLOWED_DB_ENDPOINT_FINGERPRINTS`。  
+`assertSideEffectOrThrow` 对平面/环境错误抛 `RuntimeIsolationError`（保留真实 code）；通道关闭可用 `NON_PROD_SIDE_EFFECT_DISABLED`。
 
 ### 5.2 已接线写入口（自身 503，不依赖 health）
 

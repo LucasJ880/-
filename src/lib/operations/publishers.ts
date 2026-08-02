@@ -33,12 +33,13 @@ async function dispatchToPostiz(
   account: MatrixAccount,
 ): Promise<DispatchResult> {
   // Wave1.5：出站 webhook 副作用默认关闭（不发 HTTP、不标 completed）
-  const { assertSideEffectOrThrow, NonProdSideEffectDisabledError } =
-    await import("@/lib/env/runtime-isolation");
+  const { assertSideEffectOrThrow, RuntimeIsolationError } = await import(
+    "@/lib/env/runtime-isolation"
+  );
   try {
     assertSideEffectOrThrow("webhook");
   } catch (e) {
-    if (e instanceof NonProdSideEffectDisabledError) {
+    if (e instanceof RuntimeIsolationError) {
       return {
         ok: false,
         error: e.message,

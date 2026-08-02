@@ -16,6 +16,7 @@ import {
   type TaskProjectDomainFilter,
 } from "@/lib/tasks";
 import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
+import type { NextRequest } from "next/server";
 
 const taskInclude = {
   project: { select: { id: true, name: true, color: true } },
@@ -151,10 +152,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   });
 });
 
-export const POST = withAuth(async (request, _ctx, user) => {
-  const isolationBlock = assertNonProdSideEffectsAllowed("write");
-  if (isolationBlock) return isolationBlock;
-
+const authenticatedPost = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
 
   if (body.projectId) {
@@ -248,3 +246,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   return NextResponse.json(task, { status: 201 });
 });
+
+/** Wave1.5：隔离检查在 withAuth / DB 之前 */
+export async function POST(
+  request: NextRequest,
+  ctx: { params: Promise<Record<string, string>> },
+) {
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) return isolationBlock;
+  return authenticatedPost(request, ctx);
+}
