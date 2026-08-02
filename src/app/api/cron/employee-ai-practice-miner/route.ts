@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { mineCandidatePractices } from "@/lib/employee-ai";
@@ -12,11 +13,8 @@ import { mineCandidatePractices } from "@/lib/employee-ai";
 export const maxDuration = 120;
 
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET?.trim();
-  const auth = request.headers.get("authorization") || "";
-  if (!secret || auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   if (process.env.EMPLOYEE_AI_LEARNING_ENABLED !== "1") {
     return NextResponse.json({ ok: true, skipped: true, reason: "flag_off" });
