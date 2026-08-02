@@ -44,4 +44,22 @@
 | Staging 邮件/微信不触达真实接收方 | **PASS（默认代码路径）** | 非 prod 默认关闭；无真实绑定数据 |
 | Staging/Production worker 互不消费 | **PASS（默认）** | Staging 未配置生产 worker token；worker 默认非 prod 拒绝 |
 
-**未自动恢复 #47 写验收。**
+## 2026-08-02 续修（head `30d7186`）
+
+| 项 | 结果 |
+|---|---|
+| PR | #48 Draft（未合并） |
+| head | `30d7186267387ccf7b9287d768afe34626c5ac30` |
+| CI (push) | [30758274249](https://github.com/LucasJ880/-/actions/runs/30758274249) **success** |
+| CI (PR) | [30758275773](https://github.com/LucasJ880/-/actions/runs/30758275773) **success** |
+| Preview URL | `https://git-stabilization-wave15-staging-isolation-lucas-9039s-projects.vercel.app` |
+| Deployment URL | `https://1fjstwfyh-8sjrtm7y6-lucas-9039s-projects.vercel.app` |
+| 匿名 `/api/health` 探针 | **BLOCKED_BY_ENVIRONMENT**（Vercel Deployment Protection → SSO 302；非产品 FAIL） |
+| 期望 health（SSO 后） | `runtimeEnv=staging` / `dbPlane=staging` / `isolation=ok` / HTTP 200；指纹 `e0d93a32b6a2`（≠ 生产 `c5ef22efc58d`） |
+| 写入口接线 | Pending Action approve/reject + executor + createDraft；projects PATCH；tasks POST；worker claim/report；Postiz webhook；pushMessage/pushToBindings |
+| 持久 Staging 目标 | 优先独立 Vercel 项目 `qingyan-staging` 或长期分支 `staging`（勿只绑临时 PR） |
+
+历史运维错误（不计产品 FAIL）：分支未 push / DSN `&` 被 shell 解析 / Vercel `branch_not_found`。
+
+**未自动恢复 #47 写验收；未启动 Wave2；未合并 #48。**
+
