@@ -224,3 +224,41 @@
 
 **处置：** 全部剩余验收（O2/O4/O5/P5/P6/I2/I6–I9/T4–T6）**未执行**。  
 统计与结论不变：PASS **16** / FAIL **0** / BLOCKED **6**；Product Owner **NO-GO**；Technical Owner **NO-GO**；Wave2 **未批准**；#47 保持 Draft。
+
+### 11.2 Preview 隔离评估（2026-08-01）— production-adjacent
+
+证据：`docs/evidence/wave15/vercel-preview-isolation-assessment-2026-08-01.md`
+
+| 项 | 结论 |
+|---|---|
+| Preview vs Production `DATABASE_URL` endpoint | **相同**（`ep-super-field-antfibsl-pooler`） |
+| `HOSTS_EQUAL` | **true** |
+| 环境定性 | **production-adjacent environment** |
+| 默认 Preview 写验收 | **禁止** |
+| `P5` / `I2` / `I6`–`I9` / `T4`–`T6` | **BLOCKED_BY_ENVIRONMENT** |
+| Product Owner | **NO-GO** |
+| Technical Owner | **NO-GO** |
+| #47 | **Draft，不得合并** |
+| Wave2 | **未批准** |
+
+整改路径：独立 Staging 隔离 PR（`stabilization/wave15-staging-isolation`）；**不得**在当前默认 Preview 执行写操作；**不得**在 #47 修改产品代码。
+
+### 11.3 历史 Preview 写路径审计（2026-08-01）
+
+证据：`docs/evidence/wave15/preview-write-path-audit-2026-08-01.md`
+
+| 项 | 结论 |
+|---|---|
+| Pending Action / Note / Task / Gmail / 微信 / cron / worker | **NO_EVIDENCE_FOUND** |
+| 是否等于「从未发生写」 | **否**（不得写成 `NO_WRITES_OCCURRED`） |
+| 生产-like DB live 查询 | **跳过**（避免对 `ep-super-field*` 做 agent 侧操作） |
+
+### 11.4 当前验收统计（环境证据更新后，仍不变）
+
+| 状态 | 数量 |
+|---|---:|
+| PASS | **16** |
+| FAIL | **0** |
+| BLOCKED | **6**（含 `P5`/`I*`/`T4–T6` 的环境阻塞） |
+
+Product Owner **NO-GO** · Technical Owner **NO-GO** · #47 Draft · Wave2 未批准 · **未自动恢复写验收**
