@@ -7,6 +7,7 @@ import {
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 
 const detailInclude = {
   owner: { select: { id: true, name: true, email: true } },
@@ -71,6 +72,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) return isolationBlock;
+
   const { id } = await params;
 
   const access = await requireProjectWriteAccess(request, id);

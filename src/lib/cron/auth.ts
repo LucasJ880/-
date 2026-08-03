@@ -1,6 +1,7 @@
 /**
  * Cron 路由统一鉴权（/api/cron/* 与 /api/trade/cron 共用）
  *
+ * - 先过非生产隔离防线（fail-closed：非生产默认禁 cron，见 runtime-isolation）
  * - CRON_SECRET 未配置 → 503（拒绝执行而非放行）
  * - Authorization 必须与 `Bearer <secret>` 完全一致；
  *   sha256 摘要后 timingSafeEqual，恒定时间比较，不因长度不同短路
@@ -9,6 +10,7 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 
 /** SHA-256 摘要后比较，避免 timingSafeEqual 等长限制，且不先做明文长度短路。 */
 function constantTimeEqual(left: string, right: string): boolean {
@@ -22,6 +24,9 @@ function constantTimeEqual(left: string, right: string): boolean {
  * 用法：`const denied = requireCronSecret(request); if (denied) return denied;`
  */
 export function requireCronSecret(request: NextRequest): NextResponse | null {
+  const isolationBlock = assertNonProdSideEffectsAllowed("cron");
+  if (isolationBlock) return isolationBlock;
+
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
     return NextResponse.json(

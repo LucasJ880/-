@@ -20,8 +20,10 @@ import { canDecideTeamApproval } from "@/lib/marketing/team";
 import { getOrgMembership } from "@/lib/auth";
 import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 import { canConfirmPendingActionInActiveOrg } from "@/lib/assistant/thread-org-backfill";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
+import type { NextRequest } from "next/server";
 
-export const POST = withAuth(async (request, ctx, user) => {
+const authenticatedPost = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
 
   const body = await request.json().catch(() => ({}));
@@ -145,3 +147,13 @@ export const POST = withAuth(async (request, ctx, user) => {
     { status: 400 },
   );
 });
+
+/** Wave1.5：隔离检查在 withAuth / DB 之前，保证写入口 fail-closed */
+export async function POST(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) return isolationBlock;
+  return authenticatedPost(request, ctx);
+}

@@ -250,7 +250,7 @@ export async function loadTradeEmailTemplateForOrg(
 }
 
 /**
- * Cron / 类后台任务：委托统一 requireCronSecret（常量时间比较）。
+ * Cron / 类后台任务：委托统一 requireCronSecret（隔离 fail-closed + 常量时间比较）。
  * 保留导出以兼容既有调用方（trade/cron 路由、审计脚本）。
  */
 export function requireTradeCronSecret(request: NextRequest): NextResponse | null {

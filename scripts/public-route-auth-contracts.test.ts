@@ -79,7 +79,7 @@ async function main() {
     "non-public API still requires session cookie",
   );
 
-  console.log("\n/api/cron/* — 统一 requireCronSecret（常量时间比较），不依赖 session");
+  console.log("\n/api/cron/* — 统一 requireCronSecret（常量时间 + 隔离 fail-closed），不依赖 session");
   const cronRoutes = listRoutes(join(root, "src/app/api/cron"));
   ok(cronRoutes.length >= 10, `cron route count >= 10 (got ${cronRoutes.length})`);
   for (const abs of cronRoutes) {
@@ -131,6 +131,10 @@ async function main() {
     "requireTradeCronSecret delegates to shared requireCronSecret",
   );
   const cronAuth = read("src/lib/cron/auth.ts");
+  ok(
+    /assertNonProdSideEffectsAllowed\(\s*["']cron["']\s*\)/.test(cronAuth),
+    "shared helper enforces non-prod isolation gate first",
+  );
   ok(
     /process\.env\.CRON_SECRET/.test(cronAuth) &&
       /authorization/i.test(cronAuth) &&
@@ -196,8 +200,27 @@ async function main() {
     );
   }
 
-  console.log("\n动态：requireTradeCronSecret（无生产 DB）");
+  console.log("\n动态：requireTradeCronSecret / requireCronSecret（无生产 DB，环境固定为 test）");
   {
+    // 固定 runtime=test 并清除影响隔离评估的变量，保证本地直跑与 CI（NODE_ENV=test）结果一致；
+    // 否则非 prod 默认禁 cron，所有断言会被 503 淹没。结束后恢复原值。
+    const pinnedKeys = [
+      "QINGYAN_RUNTIME_ENV",
+      "VERCEL_ENV",
+      "DATABASE_URL",
+      "DIRECT_URL",
+      "QINGYAN_EXPECTED_DB_PLANE",
+      "QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES",
+      "QINGYAN_ALLOWED_DB_ENDPOINT_FINGERPRINTS",
+      "QINGYAN_PRODUCTION_CRON_SECRET_SHA256",
+      "QINGYAN_ALLOW_CRON_NON_PROD",
+    ];
+    const pinnedPrev = new Map<string, string | undefined>();
+    for (const key of pinnedKeys) {
+      pinnedPrev.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    process.env.QINGYAN_RUNTIME_ENV = "test";
     const prev = process.env.CRON_SECRET;
     const secret = "unit-test-cron-secret-do-not-leak";
     const sameLenWrong = "x".repeat(secret.length);
@@ -318,6 +341,11 @@ async function main() {
     } finally {
       if (prev === undefined) delete process.env.CRON_SECRET;
       else process.env.CRON_SECRET = prev;
+      for (const key of pinnedKeys) {
+        const value = pinnedPrev.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   }
 
@@ -341,7 +369,7 @@ async function main() {
     "  · 未覆盖：完整 Next route handler + runDailyCron 集成（需 stub 业务与 DB，本 PR 不做）",
   );
   console.log(
-    "  · 已还技术债：全部 /api/cron/* 与 /api/trade/cron 统一 requireCronSecret（常量时间比较）",
+    "  · 已还技术债：全部 /api/cron/* 与 /api/trade/cron 统一 requireCronSecret（常量时间 + 隔离 fail-closed）",
   );
 
   console.log(`\n结果: ${passed} passed, ${failed} failed`);

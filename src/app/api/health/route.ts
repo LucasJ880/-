@@ -1,35 +1,43 @@
 /**
  * 健康检查接口
  *
- * 用于 Vercel 监控探活、外部 uptime 服务（UptimeRobot 等）、
- * 或自行编写的告警脚本。
- *
- * 返回：
- *   200 — 服务正常（DB 可连通）
- *   503 — DB 不可用或其他关键依赖不可用
- *
- * 响应体：
- *   {
- *     status: "ok" | "degraded",
- *     timestamp: "2026-04-16T12:00:00.000Z",
- *     checks: {
- *       database: "ok" | "error",
- *       latencyMs: number
- *     }
- *   }
- *
- * 注意：此接口在 middleware PUBLIC_PATHS 中（/api/health），无需登录。
- * 仅返回聚合健康状态，不返回业务数据行。
+ * 匿名生产响应不暴露 Neon endpoint 前缀；仅返回 dbPlane。
+ * Staging/Preview 可附带不可逆短指纹便于运维核对。
  */
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { healthIsolationSnapshot } from "@/lib/env/runtime-isolation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
   const startedAt = Date.now();
+  const isolation = healthIsolationSnapshot();
+
+  if (!isolation.isolationOk) {
+    return NextResponse.json(
+      {
+        status: "misconfigured",
+        timestamp: new Date().toISOString(),
+        checks: {
+          database: "error",
+          isolation: "error",
+          runtimeEnv: isolation.runtimeEnv,
+          dbPlane: isolation.dbPlane,
+          violations: isolation.violations,
+          ...(isolation.dbFingerprint
+            ? { dbFingerprint: isolation.dbFingerprint }
+            : {}),
+        },
+      },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
 
   let dbStatus: "ok" | "error" = "error";
   let dbError: string | undefined;
@@ -51,12 +59,18 @@ export async function GET() {
       checks: {
         database: dbStatus,
         latencyMs,
+        isolation: "ok",
+        runtimeEnv: isolation.runtimeEnv,
+        dbPlane: isolation.dbPlane,
+        ...(isolation.dbFingerprint
+          ? { dbFingerprint: isolation.dbFingerprint }
+          : {}),
         ...(dbError ? { error: dbError } : {}),
       },
     },
     {
       status: healthy ? 200 : 503,
       headers: { "Cache-Control": "no-store" },
-    }
+    },
   );
 }

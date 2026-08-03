@@ -279,6 +279,18 @@ export async function createDraftBatch(
     return { success: true, actions: [] };
   }
 
+  // Wave1.5：草稿落库前 fail-closed（生产库挂非 prod / mismatch / DB 未解析）
+  const { assertNonProdSideEffectsAllowed } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  if (assertNonProdSideEffectsAllowed("write")) {
+    return {
+      success: false,
+      errorCode: "DRAFT_CREATION_FAILED",
+      compensatedActionIds: [],
+    };
+  }
+
   const userId = inputs[0].userId;
   const orgId = inputs[0].orgId;
   const agentRunId = inputs.find((i) => i.agentRunId)?.agentRunId;
