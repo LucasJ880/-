@@ -21,6 +21,7 @@ npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
 npx tsx src/lib/env/__tests__/wave15-seed-target-guard.test.ts
 npx tsx scripts/public-route-auth-contracts.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
+npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 # QM Phase 1（纯逻辑，无 DB）
 npx tsx src/lib/scope/__tests__/scope-context.test.ts

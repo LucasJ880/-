@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useCallback, createContext, useContext, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  createContext,
+  useContext,
+  useEffect,
+  Suspense,
+} from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
@@ -48,13 +55,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     >
       <ActiveOrgHydrator />
       <div className="flex h-screen-safe overflow-hidden bg-background bg-app-mesh pwa-safe-top">
-        {/* Desktop sidebar — hidden on mobile */}
+        {/* Desktop sidebar — hidden on mobile；Suspense 包裹 useSearchParams */}
         <div className="hidden h-full min-h-0 md:flex">
-          <Sidebar />
+          <Suspense
+            fallback={
+              <aside className="h-full w-60 border-r border-white/[0.06] bg-sidebar-bg" />
+            }
+          >
+            <Sidebar />
+          </Suspense>
         </div>
 
         {/* Mobile：一级分类 → 二级菜单（不用超长桌面侧栏） */}
-        <MobileNavDrawer open={mobileOpen} onClose={closeMobileSidebar} />
+        <Suspense fallback={null}>
+          <MobileNavDrawer open={mobileOpen} onClose={closeMobileSidebar} />
+        </Suspense>
 
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-[color:var(--shell-divider)] bg-[color:var(--shell-main-bg)] backdrop-blur-md">

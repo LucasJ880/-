@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import {
   useState,
@@ -80,6 +80,7 @@ function NavLink({
       href={item.href || "#"}
       onClick={onNavigate}
       data-nav-active={item.active ? "true" : undefined}
+      aria-current={item.active ? "page" : undefined}
       className={cn(
         "flex min-h-9 items-center gap-2.5 rounded-md text-[13px] transition-colors duration-150",
         nested
@@ -87,9 +88,7 @@ function NavLink({
           : "px-2.5 py-2 font-medium",
         nested && "ml-3 border-l border-white/10 pl-3",
         item.active
-          ? nested
-            ? "bg-white/10 text-[color:var(--sidebar-active-fg)]"
-            : "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
+          ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
           : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
         collapsed && !nested && "justify-center px-0",
       )}
@@ -142,7 +141,10 @@ function CollapsibleNav({
   const label = itemLabel(item, m as unknown as Record<string, string>);
   const Icon = item.icon;
   const expanded = manualExpanded ?? item.expanded;
-  const childActive = item.children?.some((c) => c.active) ?? false;
+  const hasActiveDescendant =
+    item.children?.some(
+      (c) => c.active || c.children?.some((gc) => gc.active),
+    ) ?? false;
 
   if (collapsed) {
     return (
@@ -151,11 +153,11 @@ function CollapsibleNav({
         onClick={onNavigate}
         className={cn(
           "flex min-h-9 items-center justify-center rounded-md px-0 py-2 transition-colors",
-          childActive || item.active
-            ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
+          // 折叠态父级：有活跃后代时仅中性强调，不用叶子绿色
+          hasActiveDescendant
+            ? "text-white/85 hover:bg-sidebar-hover"
             : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
         )}
-        data-nav-active={childActive || item.active ? "true" : undefined}
         title={label}
       >
         {Icon && <Icon size={16} />}
@@ -171,12 +173,10 @@ function CollapsibleNav({
           onClick={onNavigate}
           className={cn(
             "flex min-h-9 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
-            // 父级仅轻度强调；子级承担明确 active
-            childActive
-              ? "text-white/75"
-              : item.active
-                ? "bg-white/[0.06] text-white/90"
-                : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
+            // 父级分组：永不使用叶子绿色 active；仅中性色 + chevron 展开
+            hasActiveDescendant
+              ? "text-white/75 hover:bg-sidebar-hover hover:text-white/85"
+              : "text-white/60 hover:bg-sidebar-hover hover:text-white/85",
           )}
         >
           {Icon && <Icon size={16} className="shrink-0" />}
@@ -187,6 +187,7 @@ function CollapsibleNav({
           onClick={onToggle}
           className="rounded-md p-1.5 text-white/35 hover:bg-sidebar-hover hover:text-white/70"
           aria-label={expanded ? "折叠" : "展开"}
+          aria-expanded={expanded}
         >
           <ChevronDown
             size={14}
@@ -222,6 +223,10 @@ const GROUP_RENDER_ORDER: NavigationGroup[] = [
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { m } = useLocale();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString()
+    ? `?${searchParams.toString()}`
+    : "";
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useCurrentUser();
   const { organizations } = useOrganizations();
@@ -299,6 +304,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const filterCtx: NavigationFilterContext = useMemo(
     () => ({
       pathname,
+      search,
       platformRole,
       orgRole,
       hasMembership,
@@ -309,6 +315,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     }),
     [
       pathname,
+      search,
       platformRole,
       orgRole,
       hasMembership,
