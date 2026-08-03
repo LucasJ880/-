@@ -3,8 +3,8 @@
 **性质：** 执行副本（非模板原文）  
 **模板来源：** `docs/QINGYAN_WAVE15_PRODUCTION_ACCEPTANCE.md`（未改写模板）  
 **Stable Tag：** `qingyan-stable-wave1-2026-08-01` → `bc132fd8e9306e6f9905facf17f6ab4c8a280e8b`  
-**当前 main：** `dbcd73a2f4640b14a3e3a81b60d266fe69bfeeac`  
-**PR：** #47  
+**当前 main（含 #48）：** `4e28b98a2b1dc8e7ffcf260222fd15318d2f6b01`  
+**PR：** #47（head 见 §11.5；Draft）  
 **纪律：** 不伪造 PASS；生产禁止写操作；Wave2 **未批准**
 
 ---
@@ -262,3 +262,63 @@
 | BLOCKED | **6**（含 `P5`/`I*`/`T4–T6` 的环境阻塞） |
 
 Product Owner **NO-GO** · Technical Owner **NO-GO** · #47 Draft · Wave2 未批准 · **未自动恢复写验收**
+
+### 11.5 恢复验收（#48 合并后 · 2026-08-03）— **未完成，停止于环境门禁**
+
+证据：`docs/evidence/wave15/staging-acceptance-resume-2026-08-03.md`
+
+#### 第一步：同步 main
+
+| 项 | 结果 |
+|---|---|
+| `origin/main` | `4e28b98…`（Merge #48） |
+| #47 合并 commit | `3457eaf979d25baadf13e98b9f4a0e4f4462d8e6` |
+| 冲突 | 仅 `docs/evidence/wave15/README.md`；保留 #47 + #48 证据索引；**未删除** Staging isolation evidence |
+| 冲突标记残留 | 首次 merge 提交中 README 曾含 `<<<<<<<`；已在后续提交清除 |
+| Draft | **保持** |
+| required CI（sync 后） | [30780337816](https://github.com/LucasJ880/-/actions/runs/30780337816) **success** |
+
+#### 第二步：Staging 合成数据
+
+| 项 | 结果 |
+|---|---|
+| Admin / Member / Outsider 合成邮箱 | **已确认**（`*.test.qingyan.local`） |
+| Org A/B + 客户/项目/Pending Action ID | **已确认**（仅 ID，无 PII） |
+| Staging DB 前缀 | `ep-floral-sea-au07ycff`（非生产） |
+| 测试密码 env | **MISSING**（agent 未持有；**未输出**任何口令） |
+
+#### 第三步：剩余项执行结果
+
+| 组 | ID | 结果 |
+|---|---|---|
+| 组织权限 | O2 / O4 / O5 / P6 | **未执行**（缺登录凭据 + Staging Deployment Protection） |
+| 项目权限 | P5 | **未执行**（无 mutation 前后证明） |
+| Pending Action | I2 / I6 / I7 / I8 / I9 | **未执行** |
+| Cron/Worker | T4 / T5 / T6 | **BLOCKED_BY_ENVIRONMENT**（SSO `401 Protected deployment`，未到达应用 fail-closed） |
+
+未使用 Production `CRON_SECRET` / worker token；未开真实外部通道；Production **未写**。
+
+#### 停止条件
+
+未触发跨 org 泄漏 / Member 写入成功 / PA 重复副作用 / 无凭据放行 / 外部消息 / Production 修改 / Secret·SQL·DSN 泄漏。  
+**主动停止原因：** 无法在应用层真实执行剩余验收（凭据 MISSING + Vercel SSO）。
+
+#### 完成标准（本轮未达标）
+
+| 标准 | 状态 |
+|---|---|
+| confirmed product P0 FAIL = 0 | 仍成立（无新产品 FAIL） |
+| BLOCKED = 0 | **未满足**（剩余项仍阻塞） |
+| required CI green | sync 后 CI green；文档修补后需再跑 |
+| Product Owner GO | **NO-GO** |
+| Technical Owner GO | **NO-GO** |
+| #47 Ready for Review | **否**（保持 Draft） |
+| 自动合并 #47 | **否** |
+| Wave2 | **仍未批准** |
+
+#### 下一轮继续条件（须同时）
+
+1. 交互注入 Staging 合成账号密码（不入库）  
+2. 提供 `VERCEL_AUTOMATION_BYPASS_SECRET`（或浏览器 SSO 会话）使请求到达应用  
+3. 重跑 O2/O4/O5/P5/P6/I2/I6–I9/T4–T6 并留下脱敏证据  
+4. 全部 PASS 后才改汇总统计与双 GO，并标 Ready + 请求 reviewer  
