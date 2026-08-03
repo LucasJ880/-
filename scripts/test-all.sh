@@ -131,6 +131,7 @@ run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/conten
 run_test "Matrix Playbook 权限/校验/合并" "npx tsx src/lib/operations/__tests__/playbook.test.ts"
 run_test "Publish Pipeline Phase C" "npx tsx src/lib/operations/__tests__/publish-pipeline.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
+run_test "Aivora 契约适配器" "npx tsx src/lib/operations/__tests__/aivora.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"
 run_test "企业数字员工技能结构/安全" "npx tsx src/lib/agent-core/skills/__tests__/enterprise-skills.test.ts"
 run_test "技能PendingAction提案桥" "npx tsx src/lib/agent-core/skills/__tests__/pending-action-bridge.test.ts"

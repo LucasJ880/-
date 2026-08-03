@@ -24,7 +24,24 @@ export async function GET(request: NextRequest) {
         return { data: { skipped: true, reason: "AIVORA_ORG_ID 未配置" }, status: "skipped" } as const;
       }
       const result = await syncAivoraVideosForOrg(orgId);
-      return { data: { syncedAt: new Date().toISOString(), ...result } };
+      if (!result.configured) {
+        return {
+          data: { skipped: true, reason: "AIVORA_API_URL / AIVORA_API_KEY 未配置" },
+          status: "skipped",
+        } as const;
+      }
+      return {
+        data: { syncedAt: new Date().toISOString(), ...result },
+        processedCount: result.fetched,
+        succeededCount: result.created + result.updated,
+        // skippedUnbranded 持续偏高 = Aivora 品牌封装管线掉队（契约 §6 观测指标）
+        metadata: {
+          pages: result.pages,
+          skippedUnbranded: result.skippedUnbranded,
+          since: result.since,
+          nextSince: result.nextSince,
+        },
+      };
     });
     return NextResponse.json(data);
   } catch (e) {

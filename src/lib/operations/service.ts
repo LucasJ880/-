@@ -7,7 +7,12 @@
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
-import { fetchAivoraVideos, isAivoraConfigured } from "./aivora";
+import {
+  AIVORA_PAGE_LIMIT,
+  fetchAivoraPageWithRetry,
+  isAivoraConfigured,
+  type AivoraVideo,
+} from "./aivora";
 import { dispatchPublishJob } from "./publishers";
 import {
   CAPTION_PROMPT_VERSION,
@@ -37,44 +42,163 @@ const SAMPLE_EVERY_N = 20;
 /** 默认关闭矩阵号自动批准；仅当 org settings 显式开启 */
 const AUTO_APPROVE_SETTING_KEY = "matrixAutoApproveEnabled";
 
-export async function syncAivoraVideosForOrg(orgId: string): Promise<{
+/** 单轮最多续拉页数：正常量级（约 200 条/天）用不满；历史补拉靠游标自愈跨轮续接 */
+const AIVORA_MAX_PAGES_PER_RUN = 10;
+/** since 语义为"严格之后"：起点回退 1s 防同刻边界漏拉（upsert 幂等，重复无害） */
+const AIVORA_SINCE_OVERLAP_MS = 1_000;
+
+export interface AivoraSyncResult {
   configured: boolean;
   fetched: number;
   created: number;
-  skipped: number;
-}> {
-  if (!isAivoraConfigured()) {
-    return { configured: false, fetched: 0, created: 0, skipped: 0 };
-  }
+  updated: number;
+  /** 已完成但未品牌封装的条数（累计各页 meta.skipped_unbranded；持续偏高 = Aivora 封装管线掉队） */
+  skippedUnbranded: number;
+  pages: number;
+  since: string | null;
+  nextSince: string | null;
+}
 
-  const videos = await fetchAivoraVideos();
-  let created = 0;
+/**
+ * 增量游标不落新表：从已入库资产 metadataJson.completedAt 派生 max。
+ * 游标状态与数据本身一致（自愈）：无论 cron / 手动触发 / 中途失败，下轮都能续接。
+ */
+async function deriveAivoraSince(): Promise<string | null> {
+  const rows = await db.$queryRaw<{ max: Date | null }[]>`
+    SELECT max((("metadataJson"->>'completedAt'))::timestamptz) AS max
+    FROM "VideoAsset"
+    WHERE "source" = 'aivora'
+      AND "metadataJson"->>'completedAt' ~ '^\d{4}-\d{2}-\d{2}T'
+  `;
+  const max = rows[0]?.max;
+  if (!max) return null;
+  return new Date(max.getTime() - AIVORA_SINCE_OVERLAP_MS).toISOString();
+}
+
+/** 配方维度与 completedAt 存 metadataJson（无需迁移）；null = 未知，配方统计时必须排除 */
+function buildAivoraMetadata(v: AivoraVideo): Prisma.InputJsonObject {
+  return {
+    completedAt: v.completedAt,
+    recipeId: v.recipeId,
+    hookType: v.hookType,
+    templateId: v.templateId,
+    aspectRatio: v.aspectRatio,
+    brandPlacement: v.brandPlacement,
+    aivoraSyncedAt: new Date().toISOString(),
+  };
+}
+
+async function upsertAivoraPage(
+  orgId: string,
+  videos: AivoraVideo[],
+): Promise<{ created: number; updated: number }> {
+  if (videos.length === 0) return { created: 0, updated: 0 };
+
+  const existing = await db.videoAsset.findMany({
+    where: { source: "aivora", externalId: { in: videos.map((v) => v.externalId) } },
+    select: { id: true, externalId: true, metadataJson: true },
+  });
+  const byExternalId = new Map(existing.map((row) => [row.externalId, row]));
+
+  const fresh = videos.filter((v) => !byExternalId.has(v.externalId));
+  // skipDuplicates：与并发触发（cron × 手动）竞态安全，count 为真实插入数
+  const createRes = await db.videoAsset.createMany({
+    data: fresh.map((v) => ({
+      orgId,
+      source: "aivora",
+      externalId: v.externalId,
+      title: v.title,
+      topic: v.topic,
+      language: v.language ?? "en",
+      videoUrl: v.videoUrl,
+      coverUrl: v.coverUrl,
+      durationSec: v.durationSec,
+      metadataJson: buildAivoraMetadata(v),
+    })),
+    skipDuplicates: true,
+  });
+
+  let updated = 0;
   for (const v of videos) {
-    const existing = await db.videoAsset.findUnique({
-      where: { source_externalId: { source: "aivora", externalId: v.externalId } },
-      select: { id: true },
-    });
-    if (existing) continue;
-    await db.videoAsset.create({
+    const row = byExternalId.get(v.externalId);
+    if (!row) continue;
+    const prevMeta =
+      row.metadataJson && typeof row.metadataJson === "object" && !Array.isArray(row.metadataJson)
+        ? (row.metadataJson as Prisma.JsonObject)
+        : {};
+    // 只更新 Aivora 侧字段；status/blockReason/orgId 等青砚工作流字段不动。
+    // 可空字段 null = 未知 → 不覆盖已有值。
+    await db.videoAsset.update({
+      where: { id: row.id },
       data: {
-        orgId,
-        source: "aivora",
-        externalId: v.externalId,
         title: v.title,
-        topic: v.topic,
-        language: v.language ?? "en",
         videoUrl: v.videoUrl,
-        coverUrl: v.coverUrl,
-        durationSec: v.durationSec,
+        ...(v.topic !== null ? { topic: v.topic } : {}),
+        ...(v.language !== null ? { language: v.language } : {}),
+        ...(v.coverUrl !== null ? { coverUrl: v.coverUrl } : {}),
+        ...(v.durationSec !== null ? { durationSec: v.durationSec } : {}),
+        metadataJson: { ...prevMeta, ...buildAivoraMetadata(v) },
       },
     });
-    created += 1;
+    updated += 1;
   }
+
+  return { created: createRes.count, updated };
+}
+
+/**
+ * Aivora 增量同步（契约见 docs/AIVORA_SYNC_CONTRACT.md §6）：
+ * 以派生游标起拉 → 满页立即用 meta.next_since 续拉 → 不满页收工。
+ * 接口只读幂等；任何一轮失败下轮以相同起点重来，无副作用。
+ */
+export async function syncAivoraVideosForOrg(orgId: string): Promise<AivoraSyncResult> {
+  if (!isAivoraConfigured()) {
+    return {
+      configured: false,
+      fetched: 0,
+      created: 0,
+      updated: 0,
+      skippedUnbranded: 0,
+      pages: 0,
+      since: null,
+      nextSince: null,
+    };
+  }
+
+  const startSince = await deriveAivoraSince();
+  let since: string | null = startSince;
+  let pages = 0;
+  let fetched = 0;
+  let created = 0;
+  let updated = 0;
+  let skippedUnbranded = 0;
+  let lastNextSince: string | null = null;
+
+  while (pages < AIVORA_MAX_PAGES_PER_RUN) {
+    const page = await fetchAivoraPageWithRetry({ since, limit: AIVORA_PAGE_LIMIT });
+    pages += 1;
+    fetched += page.videos.length;
+    skippedUnbranded += page.skippedUnbranded;
+
+    const result = await upsertAivoraPage(orgId, page.videos);
+    created += result.created;
+    updated += result.updated;
+
+    if (page.nextSince) lastNextSince = page.nextSince;
+    // 满页且有新游标 → 立即续拉；否则回到定时节奏（next_since 为 null 时下轮沿用派生游标）
+    if (!page.isFull || !page.nextSince) break;
+    since = page.nextSince;
+  }
+
   return {
     configured: true,
-    fetched: videos.length,
+    fetched,
     created,
-    skipped: videos.length - created,
+    updated,
+    skippedUnbranded,
+    pages,
+    since: startSince,
+    nextSince: lastNextSince,
   };
 }
 
