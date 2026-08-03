@@ -290,9 +290,17 @@ export function CustomerList({
       >
         {actionCustomer && (
           <div className="grid grid-cols-1 gap-2">
+            <Link
+              href={`/sales/customers/${actionCustomer.id}`}
+              onClick={() => setActionCustomer(null)}
+              className="inline-flex min-h-12 items-center justify-center gap-1 rounded-lg border border-border bg-[var(--card-bg)] px-3 text-sm font-medium text-foreground"
+            >
+              <Eye className="h-4 w-4" />
+              查看客户详情
+            </Link>
             <RowActions
               customer={actionCustomer}
-              className="flex-col items-stretch [&>a]:justify-center [&>a]:min-h-12"
+              className="flex-col items-stretch [&>a]:justify-center [&>a]:min-h-12 [&>a]:bg-[var(--card-bg)]"
             />
           </div>
         )}
