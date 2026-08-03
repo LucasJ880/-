@@ -14,6 +14,7 @@
 | `preview-write-path-audit-2026-08-01.md` | 历史 Preview 写路径只读审计（无 Secret/客户数据） |
 | `staging-acceptance-resume-2026-08-03.md` | #48 合并后恢复写验收：门禁与阻塞（无 Secret） |
 | `staging-env-pull-gate-2026-08-03.md` | Vercel CLI pull Staging Preview env：Sensitive 空值门禁（无 Secret） |
+| `staging-acceptance-results-2026-08-03.md` | Staging 剩余 O/P/I/T 验收结果（脱敏；含 mutation/幂等） |
 
 执行记录：`docs/QINGYAN_WAVE15_ACCEPTANCE_EXECUTION_2026-08-01.md`
 

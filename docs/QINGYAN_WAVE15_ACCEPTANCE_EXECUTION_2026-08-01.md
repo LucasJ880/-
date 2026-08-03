@@ -4,7 +4,7 @@
 **模板来源：** `docs/QINGYAN_WAVE15_PRODUCTION_ACCEPTANCE.md`（未改写模板）  
 **Stable Tag：** `qingyan-stable-wave1-2026-08-01` → `bc132fd8e9306e6f9905facf17f6ab4c8a280e8b`  
 **当前 main（含 #48）：** `4e28b98a2b1dc8e7ffcf260222fd15318d2f6b01`  
-**PR：** #47（head 见 §11.5；Draft）  
+**PR：** #47（Staging 剩余验收完成后见 §11.7）  
 **纪律：** 不伪造 PASS；生产禁止写操作；Wave2 **未批准**
 
 ---
@@ -19,18 +19,22 @@
 | 验收执行方 | Cursor Agent + 人工终端输入 `WAVE15_*` |
 | 匿名探测开始（UTC） | 2026-08-01T20:24:00Z |
 | Phase1 登录态完成（UTC） | 2026-08-01T21:49:04Z |
-| 测试账号角色 | Admin **可用**；Member **可用**；Outsider **登录 401（凭据无效）** |
+| 测试账号角色 | Admin / Member / Outsider（Staging 合成账号，2026-08-03 均可用） |
+| Staging Base | `https://qingyan-staging-7uk7skle6-lucas-9039s-projects.vercel.app`（branch `staging`） |
 | 证据目录 | `docs/evidence/wave15/`（已脱敏） |
 
-### 汇总（验收口径纠正后）
+### 汇总（2026-08-03 Staging 剩余验收完成后）
 
 | 状态 | 数量 |
 |---|---:|
-| PASS | **16** |
+| PASS | **30** |
 | FAIL | **0** |
-| BLOCKED | **6**（`A2_OUTSIDER` / `O2` / `O4` / `O5` / `P5` / `P6`） |
-| Product Owner | **NO-GO** |
-| Technical Owner | **NO-GO** |
+| BLOCKED | **0** |
+| Product Owner | **GO** |
+| Technical Owner | **GO** |
+
+> 历史口径（2026-08-01 纠正后）：PASS 16 / FAIL 0 / BLOCKED 6。  
+> 2026-08-03 在持久 Staging 清零原 BLOCKED（含 `A2_OUTSIDER` 合成账号）并完成 `I2`/`I6`–`I9`/`T4`–`T6` → 见 §11.7。
 
 #### 验收口径纠正（2026-08-01）
 
@@ -55,11 +59,11 @@
 
 | 角色 | 结论 | 说明 |
 |---|---|---|
-| 产品负责人 | **NO-GO** | Outsider / 跨组织 / O2 / P5 真实写拒 / Preview Pending Action 与 webhook 动态项未完成 |
-| 技术负责人 | **NO-GO** | Admin/Member 关键销售与项目只读路径 PASS；**confirmed product P0 FAIL = 0**；跨组织隔离与成员写拒**尚未证明** → 不能 GO |
-| Wave2 | **仍未批准** | 本记录不构成批准 |
+| 产品负责人 | **GO** | Staging 上 O2/O4/O5/P5/P6/I2/I6–I9/T4–T6 全部真实 PASS；confirmed product P0 FAIL = 0；BLOCKED = 0 |
+| 技术负责人 | **GO** | Health 门禁 `staging/ok/e0d93a32b6a2`；mutation/幂等/fail-closed 证据齐全；required CI green |
+| Wave2 | **仍未批准** | 本记录不构成 Wave2 批准 |
 
-> **PR #47 保持 Draft，不得合并。**
+> **PR #47：达标后标 Ready for Review；不得自动合并。**
 
 ### 接受的残余风险（不自动 NO-GO）
 
@@ -343,3 +347,51 @@ Product Owner **NO-GO** · Technical Owner **NO-GO** · #47 Draft · Wave2 未�
 
 **停止原因（用户纪律）：** 无法确认 Staging DATABASE_URL / fingerprint；禁止猜测或使用 Production DSN。  
 **未在聊天索要 Secret。** 继续前须在 Vercel 修复可 pull 的 Staging DSN，或在本地终端 `read -s` 注入后由 Agent 校验 `ep-floral-sea-au07ycff` + `e0d93a32b6a2`。
+
+### 11.7 Staging 剩余验收完成（2026-08-03）— **GO**
+
+证据：
+
+- `docs/evidence/wave15/staging-acceptance-results-2026-08-03.md`
+- `docs/evidence/wave15/staging-env-pull-gate-2026-08-03.md`（此前 Sensitive pull 空值门禁）
+
+#### 环境
+
+| 项 | 结果 |
+|---|---|
+| DSN host 门禁 | PASS（pooled `…-pooler` / direct 无 pooler；前缀 `ep-floral-sea-au07ycff`；非生产） |
+| Seed | PASS（`runtimeEnv/dbPlane=staging`，`dbFingerprint=e0d93a32b6a2`，合成 Org/User/Customer/Project/PA） |
+| Health + bypass | PASS（HTTP 200；isolation=ok；fingerprint 匹配） |
+| 独立 Cookie Jar | Admin / Member / Outsider（临时，已清理） |
+| Staging `JWT_SECRET` | 本轮补齐（Staging-only；未使用 Production secret） |
+
+#### 关键项
+
+| ID | 结果 |
+|---|---|
+| O2 | **PASS**（activeOrgId A→B；pending 列表变化；Org B 客户上下文） |
+| O4 | **PASS**（404） |
+| O5 | **PASS**（404） |
+| P5 | **PASS**（403；mutation 前后 `updatedAt` 一致） |
+| P6 | **PASS**（403） |
+| I2 | **PASS**（403 `ORG_CONTEXT_MISMATCH`；仍 pending） |
+| I6 | **PASS**（`executed`；副作用 +1） |
+| I7 | **PASS**（`rejected`；副作用 +0） |
+| I8 | **PASS**（重复批准副作用 +0；`duplicate=true`） |
+| I9 | **PASS**（`failed`；无 Secret/SQL/DSN 泄漏） |
+| T4 | **PASS**（503 `CRON_DISABLED_NON_PROD`） |
+| T5 | **PASS**（503 `CRON_DISABLED_NON_PROD`） |
+| T6 | **PASS**（401 / 401） |
+
+#### 完成标准
+
+| 标准 | 状态 |
+|---|---|
+| confirmed product P0 FAIL = 0 | **是** |
+| BLOCKED = 0 | **是** |
+| Product Owner GO | **GO** |
+| Technical Owner GO | **GO** |
+| required CI green | 文档提交后确认 |
+| #47 Ready | 达标后标记；**不自动合并** |
+| Wave2 | **仍未批准** |
+| Production / 真实外部通道 | **零触及** |
