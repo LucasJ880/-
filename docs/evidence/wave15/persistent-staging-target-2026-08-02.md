@@ -45,7 +45,7 @@
 | PR 分支 Preview 绑定 Staging DSN + 独立 CRON_SECRET | **DONE**（运维侧） |
 | 代码 fail-closed 白名单矩阵 | **DONE**（本 PR） |
 | 独立 Vercel 项目 `qingyan-staging` | **TODO（合并前）** |
-| 浏览器人工 `/api/health` 验证 | **PENDING_HUMAN**（SSO；不得标 PASS） |
+| 浏览器人工 `/api/health` 验证 | **PASS**（`2026-08-03T01:29:02.333Z`；见 staging-isolation-proof） |
 
 ---
 

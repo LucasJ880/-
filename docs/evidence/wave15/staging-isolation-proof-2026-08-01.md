@@ -61,5 +61,32 @@
 
 历史运维错误（不计产品 FAIL）：分支未 push / DSN `&` 被 shell 解析 / Vercel `branch_not_found`。
 
+## 2026-08-03 人工 Browser health 验证
+
+| 项 | 值 |
+|---|---|
+| 验证时间（UTC） | `2026-08-03T01:29:02.333Z` |
+| 目标 | PR #48 branch Preview `/api/health`（Vercel SSO 登录后） |
+| `BROWSER_HEALTH_GATE` | **PASS** |
+| HTTP | 200（推断自 `status=ok`） |
+| `status` | `ok` |
+| `checks.database` | `ok` |
+| `checks.isolation` | `ok` |
+| `checks.runtimeEnv` | `staging` |
+| `checks.dbPlane` | `staging` |
+| `checks.dbFingerprint` | `e0d93a32b6a2` |
+| `checks.latencyMs` | `800` |
+
+未记录：Cookie、连接串、Neon endpoint 全称、密码、OAuth 或任何 Secret。  
+指纹 `e0d93a32b6a2` ≠ 生产指纹 `c5ef22efc58d`。
+
+| 门禁 | 状态 |
+|---|---|
+| Browser `/api/health` | **PASS** |
+| 持久 Staging（`qingyan-staging` / 长期 `staging`） | **未完成**（仍未勾选） |
+| #48 Ready / 合并 | **禁止**（保持 Draft） |
+| #47 写验收恢复 | **未启动** |
+| Wave2 | **未批准** |
+
 **未自动恢复 #47 写验收；未启动 Wave2；未合并 #48。**
 
