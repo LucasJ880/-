@@ -21,6 +21,7 @@ npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
 npx tsx src/lib/env/__tests__/wave15-seed-target-guard.test.ts
 npx tsx scripts/public-route-auth-contracts.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
+npx tsx src/components/sales-command-center/__tests__/sales-bottom-sheet.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 echo ""
