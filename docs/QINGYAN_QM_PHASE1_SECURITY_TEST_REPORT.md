@@ -61,10 +61,23 @@
 - 未跑完整 `test-all.sh` 回归（基线已有 9 预存失败）
 - 未跑需 COOKIE 的 API / 核心 E2E 分类
 - 未在真实 Postgres 上执行 additive migration
-- 主聊天 `/api/ai/threads/...` 尚未强制走 Harness（兼容期）
+- 主聊天 `/api/ai/threads/...` 尚未强制走 Harness（兼容期；属 Phase 2）
 
 ---
 
-## 4. 禁止项复核
+## 4. 隔离库 Migration 验证
+
+**`BLOCKED_PENDING_ISOLATED_STAGING_DATABASE`**
+
+- 无安全一次性/隔离 Postgres 可用（环境变量未设置；无 Docker/psql）。
+- **未**连接生产库，**未**连接共享测试业务库。
+- 因此未能验证：migrate status 前后差、旧代码兼容新列默认值、新代码写 scope 字段、跨租户拒绝在真实 DB 上的行为。
+- 应用层 QM 纯逻辑测试仍为 PASS；**不足以**将状态提升为 `READY_FOR_MERGE`。
+
+---
+
+## 5. 禁止项复核
 
 未引入：QM Web UI、Slack、第二身份、第二审批表、第二 Runtime、Shell、浏览器自动操作、生产凭证沙箱、公开 Skill Marketplace、Coze 数字员工。
+
+**合并判定：`READY_FOR_REVIEW`（Draft）≠ `READY_FOR_MERGE`。**

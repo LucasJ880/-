@@ -113,20 +113,45 @@ npx tsx scripts/verify-migration-history.ts
 
 ---
 
-## 10. 未解决风险
+## 10. 隔离库 Migration 验证
 
-- 主聊天入口尚未强制注入 ScopeContext（兼容适配，渐进接入）
-- requestId 与 correlationId/traceId 仍未全库统一
-- Sandbox 明确不做
-- PoC 尚未挂真实 cron 路由（避免默认开启副作用）
-- 无隔离临时库时未做完整 migrate+build-with-migrations
+**状态：`BLOCKED_PENDING_ISOLATED_STAGING_DATABASE`**
+
+| 检查 | 结果 |
+|---|---|
+| 尝试时间 | 2026-08-03（Draft PR #52 创建后） |
+| `DATABASE_URL` / `DIRECT_URL` | UNSET（刻意未连接业务库） |
+| `ISOLATED_DATABASE_URL` / `ISOLATED_DIRECT_URL` | UNSET |
+| Docker / 本地 Postgres | 不可用 |
+| 是否改用生产或共享测试业务库 | **否**（纪律禁止） |
+| `20260803120000_qm_phase1_scoped_skills` 是否已对业务库执行 | **否** |
+
+待提供一次性隔离库（建议从 main Schema 初始化）后补做：
+
+1. migrate 前后 `prisma migrate status`
+2. 旧代码读取带默认值的 `AgentSkill`
+3. 新代码创建带 scope 字段的 skill + 权限交集 + 跨租户拒绝
+4. QM 单元测试 + smoke
+5. 可销毁该库；回滚以 Flag 关闭 + 保留 nullable/default 字段为主（不做 destructive down）
 
 ---
 
-## 11. 合并建议
+## 11. 未解决风险
+
+- 主聊天入口尚未强制注入 ScopeContext（兼容适配，渐进接入；**Phase 2**）
+- requestId 与 correlationId/traceId 仍未全库统一
+- Sandbox 明确不做
+- PoC 尚未挂真实 cron 路由（避免默认开启副作用）
+- 隔离库 migrate 验证阻塞（见 §10）
+
+---
+
+## 12. 合并建议
 
 | 项 | 结论 |
 |---|---|
-| 是否建议进入测试环境 | **是**（Preview/Staging + 隔离库 migrate） |
-| 是否建议合并 main | **READY_FOR_REVIEW**；需人工审阅后合并；**不自行合并/推送** |
-| 完成门槛 | 见 Security Test Report；库内门槛满足，生产接入需单独门禁 |
+| Draft PR | https://github.com/LucasJ880/-/pull/52 |
+| Commit | `1108b2b`（docs 补记可能有后续 commit） |
+| 是否建议进入测试环境 | **条件是**：先有隔离库完成 §10 |
+| 是否 `READY_FOR_MERGE` | **否** — 当前仅 **`READY_FOR_REVIEW`** |
+| 完成门槛 | 见 Security Test Report；隔离 migrate 未完成前不得合并依赖新列的生产路径 |
