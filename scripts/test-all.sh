@@ -92,6 +92,7 @@ run_test "Phase3A-4 Governance Smoke" "npx tsx src/lib/capabilities/__tests__/ph
 run_test "Phase3A-4 Acceptance" "npx tsx src/lib/capabilities/__tests__/phase3a4-acceptance.test.ts"
 run_test "Navigation IA" "npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts"
 run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts"
+run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
 run_test "Default Workspace" "npx tsx src/lib/rbac/__tests__/default-workspace.test.ts"
 run_test "Home Redirect" "npx tsx src/lib/rbac/__tests__/home-redirect.test.ts"

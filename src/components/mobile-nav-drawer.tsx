@@ -5,7 +5,7 @@
  */
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,10 @@ export function MobileNavDrawer({
   onClose: () => void;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString()
+    ? `?${searchParams.toString()}`
+    : "";
   const { m } = useLocale();
   const { user } = useCurrentUser();
   const { organizations } = useOrganizations();
@@ -116,6 +120,7 @@ export function MobileNavDrawer({
   const ctx: NavigationFilterContext = useMemo(
     () => ({
       pathname,
+      search,
       platformRole,
       orgRole:
         orgRole ??
@@ -131,6 +136,7 @@ export function MobileNavDrawer({
     }),
     [
       pathname,
+      search,
       platformRole,
       orgRole,
       hasMembership,
@@ -220,7 +226,7 @@ export function MobileNavDrawer({
                 ) {
                   return null;
                 }
-                const groupActive = resolved.some(
+                const groupHasActiveLeaf = resolved.some(
                   (i) =>
                     i.group === cat.key &&
                     (i.active || i.children?.some((c) => c.active)),
@@ -233,10 +239,9 @@ export function MobileNavDrawer({
                         onClick={onClose}
                         className={cn(
                           "flex min-h-11 items-center rounded-md px-3 text-[15px]",
-                          groupActive ||
-                            pathname.startsWith(cat.href) ||
-                            (cat.href === "/" && pathname === "/")
-                            ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
+                          // 一级分类：有活跃叶子时仅中性强调，绿色留给二级叶子
+                          groupHasActiveLeaf
+                            ? "text-white/90 hover:bg-white/5"
                             : "text-white/75 hover:bg-white/5",
                         )}
                       >
@@ -255,8 +260,8 @@ export function MobileNavDrawer({
                         }}
                         className={cn(
                           "flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-[15px] hover:bg-white/5",
-                          groupActive
-                            ? "bg-sidebar-active text-[color:var(--sidebar-active-fg)]"
+                          groupHasActiveLeaf
+                            ? "text-white/90"
                             : "text-white/75",
                         )}
                       >
@@ -290,6 +295,7 @@ export function MobileNavDrawer({
                           : "text-white/75 hover:bg-white/5",
                       )}
                       data-nav-active={item.active ? "true" : undefined}
+                      aria-current={item.active ? "page" : undefined}
                     >
                       {label}
                     </Link>

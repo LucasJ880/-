@@ -14,7 +14,12 @@ import {
   canAccessSalesWorkspace,
   workspaceContextFromNav,
 } from "@/lib/rbac/workspace-policy";
-import { pathMatches, isCapabilitiesPath } from "./active";
+import {
+  pathMatches,
+  isCapabilitiesPath,
+  pickActiveNavKey,
+  type ActiveCandidate,
+} from "./active";
 import type {
   NavigationFilterContext,
   NavigationItem,
@@ -162,11 +167,12 @@ function resolveItem(
     return null;
   }
 
+  // 初值；最终 active 由 resolveNavigationTree 最长匹配统一裁定
   const selfActive = pathMatches(ctx.pathname, item.href, {
     exact: item.exact,
     matchPaths: item.matchPaths,
+    search: ctx.search,
   });
-  // 仅看子级 active；叶子项 expanded 恒为 false，不可据此冒泡展开父级
   const childActive = childResolved.some((c) => c.active);
   const inCapabilities =
     item.group === "CAPABILITIES" && isCapabilitiesPath(ctx.pathname);
@@ -187,7 +193,65 @@ function resolveItem(
   };
 }
 
-/** 修正父/子 active：父轻度、子明确 */
+/** 仅叶子参与最长匹配（可折叠父级不抢 active） */
+function flattenLeafCandidates(items: ResolvedNavItem[]): ActiveCandidate[] {
+  const out: ActiveCandidate[] = [];
+  for (const item of items) {
+    if (item.children?.length) {
+      out.push(...flattenLeafCandidates(item.children));
+    } else if (item.href || item.matchPaths?.length) {
+      out.push({
+        key: item.key,
+        href: item.href,
+        exact: item.exact,
+        matchPaths: item.matchPaths,
+      });
+    }
+  }
+  return out;
+}
+
+function hasActiveDescendant(item: ResolvedNavItem): boolean {
+  if (item.active) return true;
+  return item.children?.some((c) => hasActiveDescendant(c)) ?? false;
+}
+
+function applyActiveKey(
+  items: ResolvedNavItem[],
+  activeKey: string | null,
+  opts?: { expandCapabilities?: boolean; pathname?: string },
+): ResolvedNavItem[] {
+  return items.map((item): ResolvedNavItem => {
+    const children = item.children?.length
+      ? applyActiveKey(item.children, activeKey, opts)
+      : undefined;
+    const descendantActive =
+      children?.some((c) => hasActiveDescendant(c)) ?? false;
+    const isParent = Boolean(children?.length);
+    const selfActive = !isParent && activeKey != null && item.key === activeKey;
+    // 父级：永不强 active；仅用 descendant 控制展开
+    const active = selfActive;
+    const autoExpandCapabilities =
+      item.key === "capabilities" &&
+      (opts?.expandCapabilities === true ||
+        descendantActive ||
+        (opts?.pathname != null && isCapabilitiesPath(opts.pathname)));
+    const expanded = Boolean(
+      item.collapsible &&
+        (opts?.expandCapabilities === true ||
+          descendantActive ||
+          autoExpandCapabilities),
+    );
+    return {
+      ...item,
+      children,
+      active,
+      expanded,
+    };
+  });
+}
+
+/** 修正父/子 active：全局最长匹配唯一叶子；父级只展开 */
 export function resolveNavigationTree(
   items: NavigationItem[],
   ctx: NavigationFilterContext,
@@ -204,52 +268,15 @@ export function resolveNavigationTree(
     .filter((i): i is ResolvedNavItem => i != null)
     .sort((a, b) => a.displayOrder - b.displayOrder);
 
-  return tree.map((item): ResolvedNavItem => {
-    if (!item.children?.length) {
-      return {
-        ...item,
-        children: undefined,
-        active: pathMatches(ctx.pathname, item.href, {
-          exact: item.exact,
-          matchPaths: item.matchPaths,
-        }),
-        expanded: false,
-      };
-    }
-    const children: ResolvedNavItem[] = item.children.map((c) => ({
-      ...c,
-      children: undefined,
-      active: pathMatches(ctx.pathname, c.href, {
-        exact: c.exact,
-        matchPaths: c.matchPaths,
-      }),
-      expanded: false,
-    }));
-    const childActive = children.some((c) => c.active);
-    const selfExact =
-      item.href === "/capabilities"
-        ? pathMatches(ctx.pathname, item.href, { exact: true })
-        : pathMatches(ctx.pathname, item.href, {
-            exact: item.exact,
-            matchPaths: item.matchPaths,
-          });
-    const autoExpandCapabilities =
-      item.key === "capabilities" && isCapabilitiesPath(ctx.pathname);
-    return {
-      ...item,
-      children,
-      // 父级：仅在自身总览页时标记；子级 active 由 children 承担
-      active: selfExact && !childActive,
-      // 可折叠项：子级 active / 中台路径 / 显式 forceExpand 才展开
-      // 禁止因叶子 !collapsible 误把父级常开
-      expanded: Boolean(
-        item.collapsible &&
-          (opts?.expandCapabilities === true ||
-            childActive ||
-            autoExpandCapabilities ||
-            (selfExact && !childActive && item.key === "capabilities")),
-      ),
-    };
+  const activeKey = pickActiveNavKey(
+    ctx.pathname,
+    flattenLeafCandidates(tree),
+    ctx.search,
+  );
+
+  return applyActiveKey(tree, activeKey, {
+    ...opts,
+    pathname: ctx.pathname,
   });
 }
 

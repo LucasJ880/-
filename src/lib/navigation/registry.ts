@@ -302,6 +302,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
     salesWorkspaceVisible: true,
+    // 兼容 /sales/opportunities 深链；默认 /sales 管道视图由 search=view=pipeline 命中
+    matchPaths: ["/sales/opportunities"],
     displayOrder: 10,
   },
   {
@@ -313,6 +315,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "sales",
     // 管理/高管入口；销售工作区改用首页/客户/商机，不标 salesWorkspaceVisible
+    // exact：禁止 /sales 前缀吞掉 /sales/* 子页（最长匹配仍会兜底）
+    exact: true,
     requiredPlatformRoles: [...NAV_ROLES_EXEC],
     displayOrder: 11,
   },
