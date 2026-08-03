@@ -498,6 +498,7 @@ async function main() {
       const { sendGmail } = await import("@/lib/google-email");
       const { sendSalesEmail } = await import("@/lib/email/sender");
       let sendApiCalls = 0;
+      let oauthProviderCalls = 0;
       const counts: Counts = {};
       const restores = [
         installCounter(db.emailBinding, "update", counts, "emailBinding.update"),
@@ -514,14 +515,16 @@ async function main() {
                 body: "b",
               },
               {
-                getProvider: async () =>
-                  ({
+                getProvider: async () => {
+                  oauthProviderCalls++;
+                  return {
                     id: "p1",
                     accessToken: "tok",
                     refreshToken: "r",
                     tokenExpiry: null,
                     accountEmail: "me@b.com",
-                  }) as never,
+                  } as never;
+                },
                 getGmail: async () => {
                   sendApiCalls++;
                   return {
@@ -540,6 +543,7 @@ async function main() {
           (e: unknown) => errCode(e) === "SIDE_EFFECT_DISABLED",
         );
         assert.equal(sendApiCalls, 0);
+        assert.equal(oauthProviderCalls, 0);
 
         const sales = await sendSalesEmail("u1", {
           to: "real@example.com",
