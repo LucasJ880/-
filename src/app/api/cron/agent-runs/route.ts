@@ -4,17 +4,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { processQueuedAgentRuns } from "@/lib/agent-runtime/queue";
 
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET?.trim();
-  const auth = request.headers.get("authorization") || "";
-  if (!secret || auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   const data = await runTrackedAutomation("agent-runs", async () => {
     const result = await processQueuedAgentRuns(2);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { isAIConfigured } from "@/lib/ai/config";
 import { generateProgressSummary } from "@/lib/progress/generate-summary";
@@ -13,12 +14,8 @@ export const maxDuration = 60;
  * 跳过 24 小时内已生成过摘要的项目。
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   return runTrackedResponse("progress-summary", runProgressSummary);
 }
