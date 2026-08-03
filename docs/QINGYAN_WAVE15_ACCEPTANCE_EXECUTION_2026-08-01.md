@@ -322,3 +322,24 @@ Product Owner **NO-GO** · Technical Owner **NO-GO** · #47 Draft · Wave2 未�
 2. 提供 `VERCEL_AUTOMATION_BYPASS_SECRET`（或浏览器 SSO 会话）使请求到达应用  
 3. 重跑 O2/O4/O5/P5/P6/I2/I6–I9/T4–T6 并留下脱敏证据  
 4. 全部 PASS 后才改汇总统计与双 GO，并标 Ready + 请求 reviewer  
+
+### 11.6 Staging env pull 门禁（2026-08-03）— **STOP**
+
+证据：`docs/evidence/wave15/staging-env-pull-gate-2026-08-03.md`
+
+| 项 | 结果 |
+|---|---|
+| Vercel CLI 登录 | OK（`lucas-9039`） |
+| 项目 | `qingyan-staging` / Preview / branch `staging` |
+| `QINGYAN_RUNTIME_ENV` / `QINGYAN_EXPECTED_DB_PLANE` | `staging` / `staging`（可读） |
+| `DATABASE_URL` / `DIRECT_URL` / `CRON_SECRET` | pull 后 **EMPTY**（Encrypted/Sensitive，无法本地确认 endpoint） |
+| dbFingerprint | **无法计算** |
+| Seed | **未运行** |
+| O/P/I/T | **未执行** |
+| 统计 / 双 GO | **不变**（PASS 16 / FAIL 0 / BLOCKED 6；双 NO-GO） |
+| #47 | **Draft** |
+| Wave2 | **未批准** |
+| Production / 外部通道 | **未触及** |
+
+**停止原因（用户纪律）：** 无法确认 Staging DATABASE_URL / fingerprint；禁止猜测或使用 Production DSN。  
+**未在聊天索要 Secret。** 继续前须在 Vercel 修复可 pull 的 Staging DSN，或在本地终端 `read -s` 注入后由 Agent 校验 `ep-floral-sea-au07ycff` + `e0d93a32b6a2`。
