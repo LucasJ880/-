@@ -16,6 +16,14 @@ const detailInclude = {
   _count: { select: { tasks: true, environments: true, members: true } },
   externalRef: true,
   intelligence: true,
+  intelligenceRoom: {
+    select: {
+      id: true,
+      goDecision: true,
+      summaryStatus: true,
+      summaryText: true,
+    },
+  },
   documents: {
     select: {
       id: true,

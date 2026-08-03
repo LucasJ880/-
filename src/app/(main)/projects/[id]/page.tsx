@@ -51,6 +51,8 @@ import { ProjectGenerateMenu } from "@/components/project-generate/project-gener
 import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
 import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
 import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
+import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
+import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -120,6 +122,13 @@ interface ProjectDetail {
     reviewScore?: number | null;
   } | null;
   documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
+  bidPhaseStatus?: string | null;
+  intelligenceRoom?: {
+    id: string;
+    goDecision: string | null;
+    summaryStatus: string | null;
+    summaryText: string | null;
+  } | null;
 }
 
 interface MemberRow {
@@ -481,6 +490,15 @@ function ProjectDetailContent() {
             projectId={id}
             refreshKey={orgRulesRefreshKey}
           />
+
+          <StartIntelligencePanel
+            projectId={id}
+            hasRoom={!!project.intelligenceRoom}
+            goDecision={project.intelligenceRoom?.goDecision ?? null}
+            bidPhaseStatus={project.bidPhaseStatus ?? null}
+          />
+
+          <ProjectSupplierLinks projectId={id} orgId={project.orgId} />
 
           {/* AI 情报分析 */}
           {(project.sourceSystem === "bidtogo" || project.intelligence) && (

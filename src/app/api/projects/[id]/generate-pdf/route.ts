@@ -9,6 +9,7 @@ import {
 import { isProxyUrl, toProxyUrl } from "@/lib/files/blob-access";
 
 const ALLOWED: GenerateDocType[] = [
+  "china_supplier_brief",
   "supplier_rfq",
   "internal_analysis",
   "teammate_tasks",

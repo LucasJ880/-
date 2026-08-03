@@ -14,6 +14,7 @@ import { computePriceGap } from "@/lib/projects/price-gap";
 
 export type GenerateDocType =
   | "supplier_rfq"
+  | "china_supplier_brief"
   | "internal_analysis"
   | "teammate_tasks"
   | "tech_confirm"
@@ -21,6 +22,7 @@ export type GenerateDocType =
 
 const DOC_TITLES: Record<GenerateDocType, string> = {
   supplier_rfq: "国内供应商询价",
+  china_supplier_brief: "China Supplier Sourcing Brief",
   internal_analysis: "内部项目分析",
   teammate_tasks: "同事执行任务单",
   tech_confirm: "供应商技术确认表",
@@ -40,6 +42,7 @@ export async function generateProjectDocument(input: {
       name: true,
       description: true,
       location: true,
+      clientOrganization: true,
       currency: true,
       ourBidPrice: true,
       winningBidPrice: true,
@@ -120,6 +123,79 @@ export async function generateProjectDocument(input: {
         "3) Certifications available?",
         ctx.slice(0, 1800),
       ].join("\n\n"),
+    );
+    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+  } else if (input.docType === "china_supplier_brief") {
+    // 复用既有 jspdf 引擎；中文字体仍为 helvetica（已知限制，Phase2 增强）
+    let roomBits = "";
+    try {
+      const room = await db.bidIntelligenceRoom.findUnique({
+        where: { projectId: project.id },
+        select: {
+          summaryText: true,
+          modules: {
+            where: {
+              moduleKey: {
+                in: ["project_understanding", "historical_awards", "contract_value"],
+              },
+            },
+            select: { moduleKey: true, dataJson: true },
+          },
+          facts: {
+            take: 12,
+            orderBy: { extractedAt: "desc" },
+            select: { content: true, confidence: true, sourceType: true },
+          },
+        },
+      });
+      if (room) {
+        roomBits = [
+          `Summary: ${room.summaryText || "-"}`,
+          "Facts (with confidence):",
+          ...room.facts.map(
+            (f) => `- [${f.confidence}/${f.sourceType}] ${f.content.slice(0, 200)}`,
+          ),
+          "Modules:",
+          ...room.modules.map(
+            (m) => `- ${m.moduleKey}: ${JSON.stringify(m.dataJson).slice(0, 280)}`,
+          ),
+        ].join("\n");
+      }
+    } catch {
+      roomBits = "(intelligence room unavailable)";
+    }
+    const body = sanitizeSupplierFacing(
+      [
+        "China Supplier Sourcing Brief / 国内供应商询价简报",
+        "=== Legend ===",
+        "[CONFIRMED from tender] / [HISTORICAL] / [AI_INFERRED] / [PENDING]",
+        "",
+        `1) Project: ${project.name}`,
+        `2) Procuring agency: ${project.clientOrganization || "[PENDING]"}`,
+        `3) Product / qty: see context (AI_INFERRED if not confirmed)`,
+        `4) Delivery timing: closeDate / lead-time TBD`,
+        "5) Technical requirements (CN summary): pending human edit after preview",
+        "6) English original excerpts: see tender documents",
+        "7) Source file + page: attach from ProjectDocument titles below",
+        `   Documents: ${project.documents.map((d) => d.title).join("; ") || "(none)"}`,
+        "8) Questions factory MUST answer:",
+        "   - Spec compliance Y/N + deviation",
+        "   - Certifications & test reports",
+        "   - MOQ / lead time / sample policy",
+        "9) Required certificates: list from tender (CONFIRMED) only",
+        "10) Quote format: unit price, currency, Incoterms, validity",
+        "11) MOQ: [PENDING]",
+        "12) Lead time: [PENDING]",
+        "13) FOB / CIF / DDP: [PENDING]",
+        "14) Sample requirements: [PENDING]",
+        "15) Reply deadline: [PENDING]",
+        "16) Historical price reference (HISTORICAL / INFERRED — not a commitment):",
+        roomBits.slice(0, 1600),
+        "17) Confidentiality: do not share customer budget / our margin / competitor notes.",
+        "",
+        "Context excerpt:",
+        ctx.slice(0, 1600),
+      ].join("\n"),
     );
     y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
   } else if (input.docType === "internal_analysis") {

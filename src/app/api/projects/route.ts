@@ -12,10 +12,23 @@ import {
   type ProjectLifecycleFilter,
 } from "@/lib/projects/lifecycle";
 import { onProjectCreated } from "@/lib/project-discussion/system-events";
+import {
+  bidListFilterStatuses,
+  isBidListFilterKey,
+} from "@/lib/bid-workflow/labels";
 
 const projectInclude = {
   owner: { select: { id: true, name: true } },
   _count: { select: { tasks: true, environments: true } },
+  intelligenceRoom: {
+    select: {
+      id: true,
+      goDecision: true,
+      summaryStatus: true,
+      summaryJson: true,
+      updatedAt: true,
+    },
+  },
 } as const;
 
 export const GET = withAuth(async (request, _ctx, user) => {
@@ -24,16 +37,25 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const lifecycle: ProjectLifecycleFilter = isProjectLifecycleFilter(lifecycleParam)
     ? lifecycleParam
     : "active";
+  const bidFilterParam = request.nextUrl.searchParams.get("bidListFilter");
+  const bidListFilter = isBidListFilterKey(bidFilterParam)
+    ? bidFilterParam
+    : "all";
+  const bidStatuses = bidListFilterStatuses(bidListFilter);
 
   const visibilityWhere = await buildProjectVisibilityWhere(user, {
     intakeStatusFilter: intakeFilter,
   });
   const lifecycleWhere = buildProjectLifecycleWhere(lifecycle);
+  const bidWhere =
+    bidStatuses == null
+      ? null
+      : { bidPhaseStatus: { in: [...bidStatuses] } };
 
-  const where =
-    visibilityWhere == null
-      ? lifecycleWhere
-      : { AND: [visibilityWhere, lifecycleWhere] };
+  const clauses = [visibilityWhere, lifecycleWhere, bidWhere].filter(
+    (c): c is NonNullable<typeof c> => c != null,
+  );
+  const where = clauses.length === 0 ? {} : clauses.length === 1 ? clauses[0] : { AND: clauses };
 
   const take = Math.min(
     parseInt(request.nextUrl.searchParams.get("take") ?? "50", 10) || 50,
@@ -43,7 +65,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const projects = await db.project.findMany({
     where,
     include: projectInclude,
-    orderBy: { createdAt: "desc" },
+    orderBy: { updatedAt: "desc" },
     take,
   });
 

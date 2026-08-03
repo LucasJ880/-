@@ -37,6 +37,13 @@ import {
   projectLifecycleLabel,
   type ProjectLifecycleFilter,
 } from "@/lib/projects/lifecycle";
+import {
+  BID_LIST_FILTERS,
+  bidPhaseLabel,
+  goDecisionLabel,
+  type BidListFilterKey,
+} from "@/lib/bid-workflow/labels";
+import { formatCountdown } from "@/lib/tender/stage";
 
 interface Project {
   id: string;
@@ -47,10 +54,29 @@ interface Project {
   abandonedAt?: string | null;
   orgId: string | null;
   createdAt: string;
+  updatedAt?: string;
   intakeStatus?: string;
   sourceSystem?: string | null;
+  solicitationNumber?: string | null;
+  clientOrganization?: string | null;
+  closeDate?: string | null;
+  bidPhaseStatus?: string | null;
   owner: { id: string; name: string };
   _count: { tasks: number; environments?: number };
+  intelligenceRoom?: {
+    id: string;
+    goDecision: string | null;
+    summaryStatus: string | null;
+    summaryJson: unknown;
+    updatedAt: string;
+  } | null;
+}
+
+function extractMajorBlockers(summaryJson: unknown): string[] {
+  if (!summaryJson || typeof summaryJson !== "object") return [];
+  const blockers = (summaryJson as { majorBlockers?: unknown }).majorBlockers;
+  if (!Array.isArray(blockers)) return [];
+  return blockers.filter((b): b is string => typeof b === "string").slice(0, 2);
 }
 
 const LIFECYCLE_OPTIONS: { value: ProjectLifecycleFilter; label: string }[] = [
@@ -422,6 +448,7 @@ export default function ProjectsPage() {
   const [intakeFilter, setIntakeFilter] = useState("all");
   const [lifecycleFilter, setLifecycleFilter] =
     useState<ProjectLifecycleFilter>("active");
+  const [bidListFilter, setBidListFilter] = useState<BidListFilterKey>("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
 
@@ -430,6 +457,9 @@ export default function ProjectsPage() {
     setLoadError("");
     const params = new URLSearchParams();
     params.set("lifecycle", lifecycleFilter);
+    if (bidListFilter !== "all") {
+      params.set("bidListFilter", bidListFilter);
+    }
     if (isAdmin && intakeFilter !== "all") {
       params.set("intakeStatus", intakeFilter);
     }
@@ -449,7 +479,7 @@ export default function ProjectsPage() {
       .finally(() => {
         if (!opts?.silent) setLoading(false);
       });
-  }, [isAdmin, intakeFilter, lifecycleFilter]);
+  }, [isAdmin, intakeFilter, lifecycleFilter, bidListFilter]);
 
   useEffect(() => {
     loadProjects();
@@ -485,8 +515,8 @@ export default function ProjectsPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
-        title="项目管理"
-        description="项目归属在组织之下，用于承载任务与知识资源。"
+        title="项目"
+        description="投标与执行项目推进；调查室、供应商关联挂在同一 Project 主对象下。"
         actions={
           <div className="flex items-center gap-2">
             <Link
@@ -509,6 +539,24 @@ export default function ProjectsPage() {
           </div>
         }
       />
+
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        {BID_LIST_FILTERS.map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => setBidListFilter(opt.key)}
+            className={cn(
+              "rounded-lg px-3 py-1.5 font-medium transition-colors",
+              bidListFilter === opt.key
+                ? "bg-accent/15 text-accent"
+                : "text-muted hover:bg-card-hover"
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       <div className="flex flex-wrap items-center gap-1.5 text-sm">
         {LIFECYCLE_OPTIONS.map((opt) => (
@@ -622,7 +670,21 @@ export default function ProjectsPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => (
+          {projects.map((project) => {
+            const countdown = project.closeDate
+              ? formatCountdown(new Date(project.closeDate))
+              : null;
+            const blockers = extractMajorBlockers(
+              project.intelligenceRoom?.summaryJson,
+            );
+            const go =
+              project.intelligenceRoom?.goDecision ||
+              (project.bidPhaseStatus === "GO" ||
+              project.bidPhaseStatus === "HOLD" ||
+              project.bidPhaseStatus === "NO_GO"
+                ? project.bidPhaseStatus
+                : null);
+            return (
             <div
               key={project.id}
               className="group rounded-xl border border-border bg-card-bg p-5 transition-shadow hover:shadow-md"
@@ -645,6 +707,9 @@ export default function ProjectsPage() {
                     </Link>
                     <p className="text-xs text-muted">
                       {project.owner.name}
+                      {project.solicitationNumber && (
+                        <span className="ml-1">· {project.solicitationNumber}</span>
+                      )}
                       {project.orgId == null && (
                         <span className="ml-1 text-[#9a6a2f]">· 未绑定组织</span>
                       )}
@@ -660,12 +725,44 @@ export default function ProjectsPage() {
                   onDelete={() => handleDelete(project.id, project.name)}
                 />
               </div>
+              {project.clientOrganization && (
+                <p className="mt-2 text-xs text-muted line-clamp-1">
+                  采购机构：{project.clientOrganization}
+                </p>
+              )}
               {project.description && (
-                <p className="mt-3 text-sm text-muted line-clamp-2">
+                <p className="mt-2 text-sm text-muted line-clamp-2">
                   {project.description}
                 </p>
               )}
-              <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-border pt-3">
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className="rounded-full bg-[rgba(79,124,120,0.1)] px-2 py-0.5 text-[10px] font-medium text-primary">
+                  {bidPhaseLabel(project.bidPhaseStatus)}
+                </span>
+                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted">
+                  {goDecisionLabel(go)}
+                </span>
+                {countdown && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                      countdown.isOverdue
+                        ? "bg-danger-bg text-danger"
+                        : countdown.isDueSoon
+                          ? "bg-[rgba(181,137,47,0.1)] text-[#b5892f]"
+                          : "bg-[rgba(110,125,118,0.08)] text-muted",
+                    )}
+                  >
+                    {countdown.text}
+                  </span>
+                )}
+              </div>
+              {blockers.length > 0 && (
+                <p className="mt-2 text-[11px] text-[#9a6a2f] line-clamp-2">
+                  阻塞：{blockers.join("；")}
+                </p>
+              )}
+              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-3">
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                   <CheckSquare size={13} />
                   <span>{project._count.tasks} 个任务</span>
@@ -676,14 +773,17 @@ export default function ProjectsPage() {
                 >
                   详情
                 </Link>
+                {project.intelligenceRoom && (
+                  <Link
+                    href={`/projects/${project.id}/intelligence-room`}
+                    className="text-xs text-accent hover:text-accent-hover"
+                  >
+                    调查室
+                  </Link>
+                )}
                 {project.intakeStatus === "pending_dispatch" && (
                   <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(181,137,47,0.1)] text-[#b5892f]">
                     待分发
-                  </span>
-                )}
-                {project.sourceSystem && (
-                  <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(79,124,120,0.1)] text-primary">
-                    {project.sourceSystem === "bidtogo" ? "BidToGo" : project.sourceSystem}
                   </span>
                 )}
                 <span
@@ -697,8 +797,14 @@ export default function ProjectsPage() {
                   {projectLifecycleLabel(project.status, project.abandonedAt)}
                 </span>
               </div>
+              {project.updatedAt && (
+                <p className="mt-2 text-[10px] text-muted">
+                  更新 {new Date(project.updatedAt).toLocaleString("zh-CN")}
+                </p>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

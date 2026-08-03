@@ -247,10 +247,33 @@ const orderKeys = NAVIGATION_REGISTRY.map((i) => i.group);
 const idxOps = orderKeys.indexOf("OPERATIONS");
 const idxCap = orderKeys.indexOf("CAPABILITIES");
 const idxBiz = orderKeys.indexOf("BUSINESS");
+const idxProjects = orderKeys.indexOf("PROJECTS");
 const idxGrowth = orderKeys.indexOf("GROWTH");
 ok(
   idxOps < idxCap && idxCap < idxBiz && idxBiz < idxGrowth,
   "registry 中 经营→中台→业务→增长 顺序",
+);
+ok(
+  idxProjects > idxBiz && idxProjects < idxGrowth,
+  "项目一级栏目位于业务运营之后、品牌增长之前",
+);
+ok(
+  NAVIGATION_REGISTRY.some((i) => i.key === "nav-projects" && i.group === "PROJECTS") &&
+    NAVIGATION_REGISTRY.some(
+      (i) => i.key === "nav-project-intel" && i.group === "PROJECT_INTEL",
+    ) &&
+    NAVIGATION_REGISTRY.some((i) => i.key === "nav-suppliers" && i.group === "SUPPLIERS"),
+  "项目/项目智能/供应商为独立一级分组",
+);
+ok(
+  !NAVIGATION_REGISTRY.some(
+    (i) =>
+      (i.key === "biz-projects" ||
+        i.key === "biz-project-intel" ||
+        i.key === "biz-suppliers") &&
+      i.group === "BUSINESS",
+  ),
+  "业务运营下不再挂项目/项目智能/供应商",
 );
 ok(
   NAV_SECTION_LABEL.OPERATIONS !== NAV_SECTION_LABEL.BUSINESS,

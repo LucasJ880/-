@@ -26,6 +26,11 @@ const ACTION_LABELS: Record<string, string> = {
   ai_generate: "AI 生成了",
   ai_send: "发送了",
   ai_analyze: "AI 分析了",
+  bid_intelligence_started: "启动了投标调查",
+  bid_go_decision: "记录了 Go/Hold/No-Go 决定",
+  project_join_brief_created: "生成了成员加入简报",
+  project_supplier_linked: "关联了项目供应商",
+  bid_fact_saved: "保存了调查事实",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -54,6 +59,10 @@ const TARGET_LABELS: Record<string, string> = {
   project_question: "问题邮件",
   report: "周报",
   quote_analysis: "报价分析",
+  bid_intelligence_room: "投标调查室",
+  project_supplier_link: "项目供应商关联",
+  project_join_brief: "成员加入简报",
+  bid_intelligence_fact: "调查事实",
 };
 
 export interface FormattedActivity {
