@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Wave1.5 验收证据（脱敏）
 
 本目录只保存状态码摘要与安全元数据，**不含**密码、Cookie、Authorization、连接串或客户隐私。
@@ -14,3 +15,9 @@
 执行记录：`docs/QINGYAN_WAVE15_ACCEPTANCE_EXECUTION_2026-08-01.md`
 | `phase1-prod-login-readonly-summary.json` | 生产只读登录态 Phase1 状态码摘要（已脱敏） |
 
+=======
+# Wave1.5 Staging isolation evidence (this branch)
+
+See also PR #47 docs/evidence for Preview production-adjacent assessment.
+Staging proof: `staging-isolation-proof-2026-08-01.md`
+>>>>>>> origin/main

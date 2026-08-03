@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { processQueuedMarketAnalyses } from "@/lib/market-intelligence/service";
 import { processQueuedMarketResearchRuns } from "@/lib/market-intelligence/research-runtime";
 import { runTrackedAutomation } from "@/lib/automation/runner";
@@ -7,10 +8,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
   const result = await runTrackedAutomation("market-intelligence", async () => {
     const manualRuns = await processQueuedMarketResearchRuns(1);
     const outcome = manualRuns.length > 0

@@ -6,12 +6,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# 与 .github/workflows/ci.yml 对齐：runtime-isolation 在非 test 环境默认禁 cron，
+# 本地不设 NODE_ENV 会让鉴权契约测试被 503 淹没（CI 绿、本地红）。
+export NODE_ENV=test
+
 echo "═══════════════════════════════════════════════════"
 echo "  青砚 CI unit subset"
 echo "═══════════════════════════════════════════════════"
 
 npx tsx scripts/check-release-safety.test.ts
 npx tsx src/lib/common/__tests__/with-auth-schema-drift.test.ts
+npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
+npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
+npx tsx src/lib/env/__tests__/wave15-seed-target-guard.test.ts
 npx tsx scripts/public-route-auth-contracts.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only

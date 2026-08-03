@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { runTrackedAutomation } from "@/lib/automation/runner";
@@ -21,10 +22,8 @@ const AUTOMATION_KEY: Record<Exclude<MarketingFlowKey, "mmm-run">, AutomationKey
 };
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret || request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = requireCronSecret(request);
+  if (denied) return denied;
 
   const now = new Date();
   const dueFlows = scheduledMarketingFlows(now);

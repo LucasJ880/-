@@ -789,6 +789,12 @@ export async function pushMessage(
   content: string,
   options?: { channels?: ChannelType[] },
 ): Promise<{ sent: number; failed: number }> {
+  const { assertSideEffectOrThrow } = await import(
+    "@/lib/env/runtime-isolation"
+  );
+  // 非生产默认抛 NON_PROD_SIDE_EFFECT_DISABLED，禁止假成功 {sent:0,failed:0}
+  assertSideEffectOrThrow("wechat");
+
   const bindings = await db.weChatBinding.findMany({
     where: {
       userId,

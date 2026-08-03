@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 
 const STALE_PROCESSING_MS = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -26,6 +27,10 @@ export async function POST(request: NextRequest) {
   if (!checkWorkerAuth(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Wave1.5：认领/改状态前 fail-closed（默认 WORKER_DISABLED_NON_PROD）
+  const isolationBlock = assertNonProdSideEffectsAllowed("worker");
+  if (isolationBlock) return isolationBlock;
 
   const body = await request.json().catch(() => ({}));
   const limit = Math.min(Math.max(Number(body.limit) || 5, 1), 20);

@@ -8,6 +8,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
+import { requireCronSecret } from "../src/lib/cron/auth";
 import { requireTradeCronSecret } from "../src/lib/trade/access";
 import { middleware } from "../src/middleware";
 
@@ -78,14 +79,24 @@ async function main() {
     "non-public API still requires session cookie",
   );
 
-  console.log("\n/api/cron/* — CRON_SECRET，不依赖 session");
+  console.log("\n/api/cron/* — 统一 requireCronSecret（常量时间 + 隔离 fail-closed），不依赖 session");
   const cronRoutes = listRoutes(join(root, "src/app/api/cron"));
   ok(cronRoutes.length >= 10, `cron route count >= 10 (got ${cronRoutes.length})`);
   for (const abs of cronRoutes) {
     const rel = abs.slice(root.length + 1);
     const body = readFileSync(abs, "utf8");
-    ok(/CRON_SECRET/.test(body), `${rel} checks CRON_SECRET`);
-    ok(/status:\s*401/.test(body), `${rel} returns 401`);
+    ok(
+      /import \{ requireCronSecret \} from "@\/lib\/cron\/auth";/.test(body),
+      `${rel} imports shared requireCronSecret`,
+    );
+    ok(
+      /const denied = requireCronSecret\(request\);\s*\n\s*if \(denied\) return denied;/.test(body),
+      `${rel} fail-closed gate before business logic`,
+    );
+    ok(
+      !/process\.env\.CRON_SECRET/.test(body) && !/!==\s*`Bearer/.test(body),
+      `${rel} no inline plaintext secret compare`,
+    );
     ok(!/getCurrentUser|qy_session|requireAuth/.test(body), `${rel} no browser session gate`);
   }
 
@@ -116,33 +127,37 @@ async function main() {
     "requireTradeCronSecret defined in trade/access",
   );
   ok(
-    /process\.env\.CRON_SECRET/.test(tradeAccess) &&
-      /authorization/i.test(tradeAccess) &&
-      /status:\s*503/.test(tradeAccess) &&
-      /status:\s*401/.test(tradeAccess),
-    "helper: env secret + Authorization + 503/401 fail-closed",
+    /return requireCronSecret\(request\);/.test(tradeAccess),
+    "requireTradeCronSecret delegates to shared requireCronSecret",
+  );
+  const cronAuth = read("src/lib/cron/auth.ts");
+  ok(
+    /assertNonProdSideEffectsAllowed\(\s*["']cron["']\s*\)/.test(cronAuth),
+    "shared helper enforces non-prod isolation gate first",
   );
   ok(
-    /timingSafeEqual/.test(tradeAccess) && /createHash\(\s*["']sha256["']\s*\)/.test(tradeAccess),
-    "helper uses sha256 digest + timingSafeEqual",
+    /process\.env\.CRON_SECRET/.test(cronAuth) &&
+      /authorization/i.test(cronAuth) &&
+      /status:\s*503/.test(cronAuth) &&
+      /status:\s*401/.test(cronAuth),
+    "shared helper: env secret + Authorization + 503/401 fail-closed",
   );
   ok(
-    !/authHeader\s*!==\s*`Bearer \$\{secret\}`/.test(tradeAccess) &&
-      !/authorization["']\s*\)\s*!==\s*`Bearer/.test(tradeAccess),
-    "helper no longer uses plaintext !== Bearer compare",
+    /timingSafeEqual/.test(cronAuth) && /createHash\(\s*["']sha256["']\s*\)/.test(cronAuth),
+    "shared helper uses sha256 digest + timingSafeEqual",
   );
   ok(
-    !/searchParams\.get\(["'](?:secret|cron)/i.test(tradeAccess) &&
-      !/cookie/i.test(
-        tradeAccess.slice(tradeAccess.indexOf("requireTradeCronSecret")),
-      ),
-    "helper does not take cron secret from query/cookie",
+    !/authHeader\s*!==\s*`Bearer \$\{secret\}`/.test(cronAuth) &&
+      !/authorization["']\s*\)\s*!==\s*`Bearer/.test(cronAuth),
+    "shared helper no plaintext !== Bearer compare",
   );
   ok(
-    !/request\.(?:json|text|formData)\(/.test(
-      tradeAccess.slice(tradeAccess.indexOf("requireTradeCronSecret")),
-    ),
-    "helper does not take cron secret from body",
+    !/searchParams\.get\(["'](?:secret|cron)/i.test(cronAuth) && !/cookie/i.test(cronAuth),
+    "shared helper does not take cron secret from query/cookie",
+  );
+  ok(
+    !/request\.(?:json|text|formData)\(/.test(cronAuth),
+    "shared helper does not take cron secret from body",
   );
 
   console.log("\n/api/v1/* — API Token + 权限/组织，非匿名");
@@ -185,8 +200,27 @@ async function main() {
     );
   }
 
-  console.log("\n动态：requireTradeCronSecret（无生产 DB）");
+  console.log("\n动态：requireTradeCronSecret / requireCronSecret（无生产 DB，环境固定为 test）");
   {
+    // 固定 runtime=test 并清除影响隔离评估的变量，保证本地直跑与 CI（NODE_ENV=test）结果一致；
+    // 否则非 prod 默认禁 cron，所有断言会被 503 淹没。结束后恢复原值。
+    const pinnedKeys = [
+      "QINGYAN_RUNTIME_ENV",
+      "VERCEL_ENV",
+      "DATABASE_URL",
+      "DIRECT_URL",
+      "QINGYAN_EXPECTED_DB_PLANE",
+      "QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES",
+      "QINGYAN_ALLOWED_DB_ENDPOINT_FINGERPRINTS",
+      "QINGYAN_PRODUCTION_CRON_SECRET_SHA256",
+      "QINGYAN_ALLOW_CRON_NON_PROD",
+    ];
+    const pinnedPrev = new Map<string, string | undefined>();
+    for (const key of pinnedKeys) {
+      pinnedPrev.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    process.env.QINGYAN_RUNTIME_ENV = "test";
     const prev = process.env.CRON_SECRET;
     const secret = "unit-test-cron-secret-do-not-leak";
     const sameLenWrong = "x".repeat(secret.length);
@@ -288,9 +322,30 @@ async function main() {
         }),
       );
       ok(okAuth === null, "correct Bearer → auth pass (null = proceed)");
+
+      const genericWrong = requireCronSecret(
+        new NextRequest("http://localhost/api/cron/daily-brief", {
+          headers: { authorization: `Bearer ${sameLenWrong}` },
+        }),
+      );
+      ok(
+        genericWrong instanceof Response && genericWrong.status === 401,
+        "generic requireCronSecret wrong token → 401",
+      );
+      const genericOk = requireCronSecret(
+        new NextRequest("http://localhost/api/cron/daily-brief", {
+          headers: { authorization: `Bearer ${secret}` },
+        }),
+      );
+      ok(genericOk === null, "generic requireCronSecret correct Bearer → pass");
     } finally {
       if (prev === undefined) delete process.env.CRON_SECRET;
       else process.env.CRON_SECRET = prev;
+      for (const key of pinnedKeys) {
+        const value = pinnedPrev.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   }
 
@@ -314,7 +369,7 @@ async function main() {
     "  · 未覆盖：完整 Next route handler + runDailyCron 集成（需 stub 业务与 DB，本 PR 不做）",
   );
   console.log(
-    "  · 技术债：其他 /api/cron/* 尚未统一常量时间比较（不在本 PR 批量修复）",
+    "  · 已还技术债：全部 /api/cron/* 与 /api/trade/cron 统一 requireCronSecret（常量时间 + 隔离 fail-closed）",
   );
 
   console.log(`\n结果: ${passed} passed, ${failed} failed`);
