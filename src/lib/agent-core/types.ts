@@ -116,6 +116,21 @@ export interface ToolExecutionContext {
   };
   /** 会话风险上限（与 AgentRunOptions.maxRisk 对齐） */
   maxRisk?: ToolRisk;
+  /**
+   * QM Phase1：执行前 allowlist。
+   * - undefined：不按名称拦截（兼容旧调用）
+   * - []：禁止全部工具
+   * - ["a"]：仅允许列出的工具
+   */
+  allowedToolNames?: string[];
+  /**
+   * QM Phase1：权威 Scope（服务端构造）。若设置，args 不得覆盖 org/user/project。
+   */
+  scopeGuard?: {
+    orgId: string;
+    principalUserId: string;
+    projectId?: string;
+  };
 }
 
 export interface ToolExecutionResult {
@@ -159,7 +174,12 @@ export interface CoreToolCall {
 // ── Agent 运行选项 ───────────────────────────────────────────────
 
 export interface AgentRunOptions {
-  /** 可用工具集（按名称过滤，空则全部可用） */
+  /**
+   * 可用工具集（按名称过滤）
+   * - undefined：不按名称筛选（兼容旧调用，registry 全量再按其它过滤器收紧）
+   * - []：明确零工具
+   * - ["toolA"]：仅暴露列出的工具
+   */
   tools?: string[];
   /** 按域过滤可用工具 */
   domains?: ToolDomain[];
@@ -228,6 +248,10 @@ export interface AgentRunOptions {
    * 与 registry 工具同名时优先使用 extraTools。
    */
   extraTools?: ToolDefinition[];
+  /**
+   * QM Phase1：权威 Scope，透传至每次 tool execute 的 scopeGuard。
+   */
+  scopeGuard?: ToolExecutionContext["scopeGuard"];
 }
 
 export interface AgentRunResult {
@@ -243,6 +267,16 @@ export interface AgentRunResult {
   model: string;
   /** 总轮数 */
   rounds: number;
+  /**
+   * 是否业务成功。超时/失败路径应为 false。
+   * 旧调用方未设置时，Harness 结合 timedOut/finishReason 判定。
+   */
+  ok?: boolean;
+  timedOut?: boolean;
+  finishReason?: "completed" | "timeout" | "error" | "aborted";
+  errorClass?: "none" | "timeout" | "provider_error" | "aborted" | "unknown";
+  errorMessage?: string;
+  retryable?: boolean;
 }
 
 // ── 观测 hooks（A-P0：统一观测，不动业务逻辑）────────────────────

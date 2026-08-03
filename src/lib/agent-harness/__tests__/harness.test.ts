@@ -126,7 +126,7 @@ async function main() {
     assert.equal(out.pendingActionProposals[0].type, "project.add_note");
   }
 
-  // timeout classification
+  // timeout classification（throw）
   {
     const out = await runWithHarness(baseInput(), {
       audit: false,
@@ -137,6 +137,50 @@ async function main() {
     assert.equal(out.ok, false);
     assert.equal(out.errorClass, "timeout");
     assert.equal(out.finishReason, "timeout");
+  }
+
+  // timeout / failed result 形状（真实 Runtime 返回，非 throw）
+  {
+    const out = await runWithHarness(baseInput(), {
+      audit: false,
+      runAgentFn: async () => ({
+        content: "timed out",
+        model: "gpt-test",
+        rounds: 1,
+        toolCalls: [],
+        ok: false,
+        timedOut: true,
+        finishReason: "timeout",
+        errorClass: "timeout",
+        errorMessage: "total timeout",
+        retryable: true,
+      }),
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.errorClass, "timeout");
+    assert.equal(out.finishReason, "timeout");
+    assert.ok(out.latencyMs >= 0);
+    assert.equal(out.correlationId, "tr_test_corr_1");
+  }
+
+  {
+    const out = await runWithHarness(baseInput(), {
+      audit: false,
+      runAgentFn: async () => ({
+        content: "provider failed",
+        model: "gpt-test",
+        rounds: 0,
+        toolCalls: [],
+        ok: false,
+        finishReason: "error",
+        errorClass: "provider_error",
+        errorMessage: "OpenAI provider failure",
+        retryable: true,
+      }),
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.finishReason, "error");
+    assert.notEqual(out.finishReason, "completed");
   }
 
   // provider error classification

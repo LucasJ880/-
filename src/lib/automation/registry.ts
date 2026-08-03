@@ -12,6 +12,14 @@ export interface AutomationDefinition {
 export const AUTOMATION_REGISTRY = [
   { key: "project-inspection", name: "项目智能巡检", category: "projects", cadence: "每日", timezone: "UTC" },
   { key: "daily-brief", name: "每日经营简报", category: "sales", cadence: "每日 07:00", timezone: AUTOMATION_TIMEZONE },
+  {
+    key: "qm-project-daily-brief",
+    name: "QM 项目每日简报（Phase1 PoC）",
+    category: "projects",
+    cadence: "每日（Flag 默认关）",
+    timezone: AUTOMATION_TIMEZONE,
+  },
+
   { key: "approval-timeout", name: "审批超时检查", category: "operations", cadence: "每 2 小时", timezone: "UTC" },
   { key: "trade-followup", name: "客户跟进建议", category: "sales", cadence: "每日 09:00、14:00", timezone: AUTOMATION_TIMEZONE },
   { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: AUTOMATION_TIMEZONE },

@@ -1271,8 +1271,12 @@ model AuditLog {
   workspaceId String?
   traceId     String?
   riskLevel   String?
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
+  /// QM Phase1：service principal 审计允许为空（不伪造普通用户）
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id])
+  /// human | service
+  actorType   String?
+  servicePrincipal String?
   action      String
   targetType  String
   targetId    String?
@@ -1290,7 +1294,37 @@ model AuditLog {
   @@index([createdAt])
   @@index([orgId, workspaceId, createdAt])
   @@index([traceId])
+  @@index([servicePrincipal, createdAt])
 }
+
+/// QM Phase1：项目每日简报原子 claim / 幂等记录
+model ProjectDailyBriefRun {
+  id               String    @id @default(cuid())
+  orgId            String
+  projectId        String
+  briefType        String
+  /// 项目时区下的自然日 YYYY-MM-DD
+  localDate        String
+  /// STARTED | COMPLETED | FAILED
+  status           String    @default("STARTED")
+  correlationId    String?
+  servicePrincipal String?
+  triggerSource    String?
+  /// stale claim 恢复：超过该时间可被重试接管
+  claimExpiresAt   DateTime?
+  briefMarkdown    String?   @db.Text
+  inputDataVersion String?
+  errorMessage     String?   @db.Text
+  agentRunId       String?
+  pendingActionId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([orgId, projectId, briefType, localDate])
+  @@index([orgId, status, claimExpiresAt])
+  @@index([projectId, localDate])
+}
+
 
 // ============================================================
 // Agent 配置与编排

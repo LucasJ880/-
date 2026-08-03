@@ -25,8 +25,8 @@
 | migrate 未绑 build | PASS |
 | 无 Shell/浏览器/生产凭证沙箱 | PASS（未引入） |
 
-**状态：`READY_FOR_REVIEW`**
-（未推送、未合并、未跑生产迁移；Staging 接入前需隔离库 migrate。）
+**状态：`NOT_READY_FOR_MERGE`**
+（审查阻塞项已在代码侧修复并推 Draft #52；隔离库 migrate 仍未验证；未 Ready for Review。）
 
 ---
 
@@ -36,23 +36,30 @@
 |---|---|
 | `src/lib/scope/__tests__/scope-context.test.ts` | PASS |
 | `src/lib/scope/__tests__/tenant-isolation.test.ts` | PASS |
+| `src/lib/scope/__tests__/service-audit.test.ts` | PASS |
 | `src/lib/agent-harness/__tests__/harness.test.ts` | PASS |
 | `src/lib/agent-core/skills/__tests__/scoped-registry.test.ts` | PASS |
+| `src/lib/agent-core/__tests__/pre-execute-guard.test.ts` | PASS |
 | `src/lib/qm-phase1/__tests__/project-daily-brief.test.ts` | PASS |
-| `npm run test:ci`（含上述） | PASS |
-| `npm run typecheck` | PASS |
+| `src/lib/qm-phase1/__tests__/brief-claim.test.ts` | PASS |
+| `src/lib/qm-phase1/__tests__/skill-migration-semantics.test.ts` | PASS |
+| `src/lib/qm-phase1/__tests__/project-snapshot-isolation.test.ts` | PASS |
+| `npm run test:ci` | PASS |
+| `npm run typecheck` / `lint:baseline` / `verify:migration-history` / `build` | PASS |
 
-覆盖要点：
+覆盖要点（审查要求 1–15）：
 
-- ORG / USER / PROJECT / THREAD scope
-- 缺 org / 无效 project / org-project 不匹配
-- 伪造 org / user
-- Org A ↛ Org B 项目/线程/Memory
-- Tool 参数不得覆盖 Scope
-- 后台无 service principal 不得跳过租户
-- Harness allowlist / PendingAction 提案 / 超时与 provider 错误分类
-- Skill SYSTEM/ORG/PROJECT/USER、未批准、跨项目、工具交集、suspended
-- PoC Flag / allowlist / Kill Switch / Shadow / 幂等 / 不重复 PA
+1. 空 allowlist = 零工具（Registry 集成）
+2. allowlist 仅暴露指定工具
+3–5. Scope 冲突 / 参数覆盖在 executor 前拒绝；流式与非流式共用 `executeToolUnified`
+6. forceApproval 不直执；不支持映射 → `APPROVAL_REQUIRED_UNSUPPORTED`
+7. PendingAction 幂等不重复（brief + draft key）
+8–9. 并发 claim 仅一胜；stale/FAILED 可安全重试
+10. Builtin → SYSTEM migration fixture
+11. service principal 无 userId 仍审计（不 skip）
+12. timeout/provider failure 不返回 `ok=true/completed`（真实 result 形状）
+13–14. Flag / Kill Switch / Shadow / allowlist
+15. Org A ↛ Org B 项目快照
 
 ---
 
@@ -60,8 +67,9 @@
 
 - 未跑完整 `test-all.sh` 回归（基线已有 9 预存失败）
 - 未跑需 COOKIE 的 API / 核心 E2E 分类
-- 未在真实 Postgres 上执行 additive migration
-- 主聊天 `/api/ai/threads/...` 尚未强制走 Harness（兼容期；属 Phase 2）
+- **未在真实 Postgres 上执行 additive migration**（含 brief claim 表）
+- Prisma 并发 claim 的 DB 级 P2002 竞态：内存 store 已测；真实 DB 待隔离库
+- 主聊天尚未强制走 Harness（Phase 2）
 
 ---
 
@@ -69,15 +77,15 @@
 
 **`BLOCKED_PENDING_ISOLATED_STAGING_DATABASE`**
 
-- 无安全一次性/隔离 Postgres 可用（环境变量未设置；无 Docker/psql）。
+- 无安全一次性/隔离 Postgres 可用。
 - **未**连接生产库，**未**连接共享测试业务库。
-- 因此未能验证：migrate status 前后差、旧代码兼容新列默认值、新代码写 scope 字段、跨租户拒绝在真实 DB 上的行为。
-- 应用层 QM 纯逻辑测试仍为 PASS；**不足以**将状态提升为 `READY_FOR_MERGE`。
+- Preview / 普通 build **不能**替代 migrate 验证。
+- 应用层测试 PASS **不足以** `READY_FOR_MERGE`。
 
 ---
 
 ## 5. 禁止项复核
 
-未引入：QM Web UI、Slack、第二身份、第二审批表、第二 Runtime、Shell、浏览器自动操作、生产凭证沙箱、公开 Skill Marketplace、Coze 数字员工。
+未引入：第二审批表/route/executor、第二 Runtime/Registry、Shell/浏览器沙箱、生产迁移、Phase 2 主聊天强制切换。
 
-**合并判定：`READY_FOR_REVIEW`（Draft）≠ `READY_FOR_MERGE`。**
+**合并判定：`NOT_READY_FOR_MERGE`（Draft 保持；未经确认不得 Ready for Review）。**

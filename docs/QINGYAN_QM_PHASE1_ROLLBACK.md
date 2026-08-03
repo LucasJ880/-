@@ -12,9 +12,10 @@ Flag 关闭后：PoC 不运行；Harness/Scope 新入口不被调用则对业务
 
 ## 2. Schema 回滚（仅在已对某库执行 migration 后）
 
-Migration：`20260803120000_qm_phase1_scoped_skills`
+### 2a. `20260803120000_qm_phase1_scoped_skills`
 
-**正向（additive）：** 仅 ADD COLUMN / CREATE INDEX。
+**正向（additive）：** ADD COLUMN / CREATE INDEX + builtin→SYSTEM 回填。  
+**注意：** 该 migration **尚未**在任何业务库执行；语义已按审查修正（builtin→SYSTEM）。
 
 **回滚 SQL（人工、隔离库验证后再用于目标库）：**
 
@@ -32,9 +33,35 @@ ALTER TABLE "AgentSkill" DROP COLUMN IF EXISTS "ownerScopeId";
 ALTER TABLE "AgentSkill" DROP COLUMN IF EXISTS "ownerScopeType";
 ```
 
-然后从 `_prisma_migrations` 删除对应记录（仅在确认应用已不再依赖新字段后）。
+### 2b. `20260803140000_qm_phase1_brief_claim_and_audit`
+
+**正向：** `AuditLog.userId` DROP NOT NULL；新增 `actorType`/`servicePrincipal`；新建 `ProjectDailyBriefRun`。
+
+**回滚 SQL（仅隔离库演练；生产需额外评估历史 service 审计行）：**
+
+```sql
+DROP INDEX IF EXISTS "ProjectDailyBriefRun_projectId_localDate_idx";
+DROP INDEX IF EXISTS "ProjectDailyBriefRun_orgId_status_claimExpiresAt_idx";
+DROP INDEX IF EXISTS "ProjectDailyBriefRun_orgId_projectId_briefType_localDate_key";
+DROP TABLE IF EXISTS "ProjectDailyBriefRun";
+
+DROP INDEX IF EXISTS "AuditLog_servicePrincipal_createdAt_idx";
+ALTER TABLE "AuditLog" DROP COLUMN IF EXISTS "servicePrincipal";
+ALTER TABLE "AuditLog" DROP COLUMN IF EXISTS "actorType";
+-- 恢复 userId NOT NULL 前须先清理/回填 null 行，否则会失败
+-- UPDATE "AuditLog" SET "userId" = '<system-placeholder>' WHERE "userId" IS NULL;
+-- ALTER TABLE "AuditLog" ALTER COLUMN "userId" SET NOT NULL;
+```
+
+然后从 `_prisma_migrations` 删除对应记录（仅在确认应用已不再依赖后）。
 
 **禁止：** 在生产自动执行上述 DROP；禁止把 migrate 绑回 `npm run build`。
+
+### 2c. 应用层急停（优先于 Schema 回滚）
+
+1. `QINGYAN_QM_SCOPE_PHASE1_ENABLED=0`
+2. 清空 org/project allowlist
+3. 可选：从 `vercel.json` 移除 `/api/cron/qm-project-daily-brief` 或依赖 Flag 早退
 
 ## 3. 迁移执行纪律
 

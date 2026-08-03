@@ -216,6 +216,7 @@ export async function syncAuditToNotifications(userId: string): Promise<void> {
       projectId: true,
       afterData: true,
       createdAt: true,
+      servicePrincipal: true,
       user: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -321,7 +322,7 @@ export async function syncAuditToNotifications(userId: string): Promise<void> {
     if (!ok) continue;
 
     const targetName = extractName(l.afterData);
-    const actorName = l.user.name;
+    const actorName = l.user?.name ?? l.servicePrincipal ?? "系统服务";
     const typeLabel = notifType;
 
     toCreate.push({

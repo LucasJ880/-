@@ -26,9 +26,14 @@ npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 # QM Phase 1（纯逻辑，无 DB）
 npx tsx src/lib/scope/__tests__/scope-context.test.ts
 npx tsx src/lib/scope/__tests__/tenant-isolation.test.ts
+npx tsx src/lib/scope/__tests__/service-audit.test.ts
 npx tsx src/lib/agent-harness/__tests__/harness.test.ts
 npx tsx src/lib/agent-core/skills/__tests__/scoped-registry.test.ts
+npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts
 npx tsx src/lib/qm-phase1/__tests__/project-daily-brief.test.ts
+npx tsx src/lib/qm-phase1/__tests__/brief-claim.test.ts
+npx tsx src/lib/qm-phase1/__tests__/skill-migration-semantics.test.ts
+npx tsx src/lib/qm-phase1/__tests__/project-snapshot-isolation.test.ts
 
 echo ""
 echo "CI unit subset PASS"

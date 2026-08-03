@@ -1,5 +1,8 @@
 /**
  * Scope / Harness / PoC 结构化审计（不写敏感正文）
+ *
+ * - human：需要 userId
+ * - service：可用 servicePrincipal，userId 可空（依赖 AuditLog.userId nullable migration）
  */
 
 import { logAudit } from "@/lib/audit/logger";
@@ -15,7 +18,10 @@ export type QmAuditEvent =
   | "scope.kill_switch_activated"
   | "scope.automation_skipped"
   | "scope.duplicate_run_prevented"
-  | "scope.harness_failure";
+  | "scope.harness_failure"
+  | "scope.brief_claimed"
+  | "scope.brief_completed"
+  | "scope.brief_failed";
 
 export async function writeQmAuditEvent(input: {
   event: QmAuditEvent;
@@ -24,13 +30,29 @@ export async function writeQmAuditEvent(input: {
   projectId?: string | null;
   correlationId?: string | null;
   reason?: string;
+  servicePrincipal?: string | null;
+  actorType?: "human" | "service";
   meta?: Record<string, unknown>;
 }): Promise<void> {
-  const userId = input.userId?.trim();
-  if (!userId) {
-    // AuditLog.userId 必填；无用户时跳过（测试/纯服务路径用 console 结构化替代）
+  const actorType =
+    input.actorType ?? (input.servicePrincipal ? "service" : "human");
+  const userId = input.userId?.trim() || undefined;
+  const servicePrincipal = input.servicePrincipal?.trim() || undefined;
+
+  if (!userId && !servicePrincipal) {
+    // 既无用户也无 service principal：结构化 console（不含敏感正文）
+    console.info(
+      JSON.stringify({
+        type: "qm_audit_skip_no_actor",
+        event: input.event,
+        orgId: input.orgId ?? null,
+        correlationId: input.correlationId ?? null,
+        reason: input.reason ?? null,
+      }),
+    );
     return;
   }
+
   await logAudit({
     action: input.event,
     userId,
@@ -39,6 +61,8 @@ export async function writeQmAuditEvent(input: {
     targetType: "qm_scope_phase1",
     targetId: input.correlationId ?? undefined,
     afterData: {
+      actorType,
+      servicePrincipal: servicePrincipal ?? null,
       correlationId: input.correlationId ?? null,
       reason: input.reason ?? null,
       ...(input.meta ?? {}),
@@ -53,6 +77,7 @@ export async function auditScopeDenied(input: {
   projectId?: string | null;
   correlationId?: string | null;
   detail?: string;
+  servicePrincipal?: string | null;
 }): Promise<void> {
   await writeQmAuditEvent({
     event: "scope.resolution_denied",
@@ -60,6 +85,7 @@ export async function auditScopeDenied(input: {
     userId: input.userId,
     projectId: input.projectId,
     correlationId: input.correlationId,
+    servicePrincipal: input.servicePrincipal,
     reason: input.reason,
     meta: { detail: input.detail ?? null },
   });

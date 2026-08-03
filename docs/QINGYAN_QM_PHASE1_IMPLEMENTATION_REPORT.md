@@ -87,9 +87,10 @@
 
 ## 7. 权限 / 审批 / 幂等
 
-- 权限：用户权限 ∩ Scope ∩ Skill tools ∩ org 政策（Skill 取交集）
-- 审批：不新增表；PoC 仅可提议 PendingAction（注入 store）
-- 幂等键：`qm.project_daily_brief:{orgId}:{projectId}:{YYYY-MM-DD}`
+- 权限：用户权限 ∩ Scope ∩ Skill tools ∩ org 政策（Skill 取交集）；工具执行前 guard
+- 审批：复用现有 PendingAction `createDraft`；不新增审批表/route/executor
+- 原子幂等：`ProjectDailyBriefRun` 唯一键 `(orgId, projectId, briefType, localDate)`；模型前 claim
+- PendingAction 幂等键：`qm.project_daily_brief:{org}:{project}:{date}:pa_suggest_note`
 
 ---
 
@@ -141,8 +142,8 @@ npx tsx scripts/verify-migration-history.ts
 - 主聊天入口尚未强制注入 ScopeContext（兼容适配，渐进接入；**Phase 2**）
 - requestId 与 correlationId/traceId 仍未全库统一
 - Sandbox 明确不做
-- PoC 尚未挂真实 cron 路由（避免默认开启副作用）
-- 隔离库 migrate 验证阻塞（见 §10）
+- PoC 已挂 cron，但 Flag 默认关 + 空 allowlist 时零副作用
+- 隔离库 migrate 验证阻塞（见 §10；含 brief claim migration）
 
 ---
 
@@ -153,5 +154,45 @@ npx tsx scripts/verify-migration-history.ts
 | Draft PR | https://github.com/LucasJ880/-/pull/52 |
 | Commit | `1108b2b`（docs 补记可能有后续 commit） |
 | 是否建议进入测试环境 | **条件是**：先有隔离库完成 §10 |
-| 是否 `READY_FOR_MERGE` | **否** — 当前仅 **`READY_FOR_REVIEW`** |
+| 是否 `READY_FOR_MERGE` | **否** — 正式审查修复后为 **`NOT_READY_FOR_MERGE`**（隔离 migrate 仍阻塞） |
 | 完成门槛 | 见 Security Test Report；隔离 migrate 未完成前不得合并依赖新列的生产路径 |
+
+---
+
+## 13. 正式审查阻塞项修复（2026-08-03）
+
+**状态：`REQUEST_CHANGES` → 代码侧已修；合并仍 `NOT_READY_FOR_MERGE`（隔离库未验证）**
+
+| # | 根因 | 修复 |
+|---|---|---|
+| 1 空 allowlist | `registry.list` 用 `.length` 把 `[]` 当不过滤 | `names !== undefined`；`[]`=零工具；Harness 始终传数组 |
+| 2 Scope 在执行后 | `onToolCall` 仅观测 | `pre-execute-guard` + `executeToolUnified`（流式/非流式共用） |
+| 3 forceApproval 仍执行 | registry 忽略 `requiresApproval` | `approval-gate`：映射 PendingAction 或 `APPROVAL_REQUIRED_UNSUPPORTED`；executor 不调用 |
+| 4 简报竞态 | `hasRun→generate→markRun` | `ProjectDailyBriefRun` 唯一键原子 claim（STARTED/COMPLETED/FAILED + stale TTL） |
+| 5 Builtin migration | 全量 ORG | 修正 `20260803120000`：builtin→SYSTEM/`ownerScopeId=NULL` |
+| 6 PoC 不可运行 | 仅库函数+占位 snapshot | Cron `/api/cron/qm-project-daily-brief` + 真实 project/task/document/progress 快照 |
+| 补 timeout | Harness 把失败当 completed | 识别 Runtime `ok/timedOut/finishReason`；不返回成功 |
+| 补 service 审计 | 无 userId 跳过 | `AuditLog.userId` 可空 + `actorType`/`servicePrincipal`；不伪造用户 |
+
+### 本轮新增/修改要点
+
+- `src/lib/agent-core/{pre-execute-guard,approval-gate}.ts`
+- `src/lib/qm-phase1/{brief-claim,project-snapshot,adapters}.ts`
+- `src/app/api/cron/qm-project-daily-brief/route.ts` + `vercel.json` cron
+- migrations：`20260803120000`（语义修正）+ `20260803140000_qm_phase1_brief_claim_and_audit`
+- 审计 UI/通知兼容可空 `user`
+
+### 本地回归（本轮真实结果）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run typecheck` | PASS |
+| `npm run lint:baseline` | PASS |
+| `npm run test:ci` | PASS |
+| `npm run verify:migration-history` | PASS |
+| `npm run build` | PASS |
+
+### 仍阻塞
+
+- **`BLOCKED_PENDING_ISOLATED_STAGING_DATABASE`**（含两则 QM migration）
+- 不得 Ready for Review / 合并 / 生产 migrate / Phase 2 / 强制主聊天 Harness

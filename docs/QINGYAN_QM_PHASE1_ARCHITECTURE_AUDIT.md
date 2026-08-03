@@ -146,3 +146,30 @@
 | Org `modulesJson.agentAutomationEnabled` | 缺省视为 `true`（兼容）；显式 `false` 为 Kill Switch | 组织级急停 |
 
 实际解析优先遵循现有 env bool / allowlist 模式（见 `feature-flags.ts`）。
+
+---
+
+## 7. 审查修复后的安全边界（2026-08-03）
+
+```
+Harness / Cron / 调用方
+        │
+        ▼
+agent-core.runAgent / runAgentStream
+        │
+        ▼
+executeToolUnified ──► pre-execute-guard（allowlist + Scope 参数冲突）
+        │
+        ├── deny → 不进入 executor
+        ▼
+canInvokeTool（租户 / maxRisk / forceApproval）
+        │
+        ├── requiresApproval → approval-gate → 现有 createDraft / UNSUPPORTED
+        ▼
+tool.execute（仅直接允许时）
+        │
+        ▼
+onToolCall（仅观测/审计）
+```
+
+PoC 入口：`GET /api/cron/qm-project-daily-brief`（`requireCronSecret`；Flag 默认关；allowlist；service principal；原子 claim 后读真实项目数据）。

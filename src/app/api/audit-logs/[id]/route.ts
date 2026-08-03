@@ -74,6 +74,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
       ip: log.ip,
       userAgent: log.userAgent,
       createdAt: log.createdAt,
+      servicePrincipal: log.servicePrincipal,
       user: log.user,
     },
   });

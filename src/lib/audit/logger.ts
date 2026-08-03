@@ -7,7 +7,11 @@ import { db } from "@/lib/db";
 // ============================================================
 
 export interface AuditLogParams {
-  userId: string;
+  /**
+   * 人类主体。服务/cron 审计在 AuditLog.userId 可空后可省略，
+   * 并在 afterData 中携带 servicePrincipal / actorType。
+   */
+  userId?: string;
   orgId?: string | null;
   projectId?: string | null;
   action: string;
@@ -40,9 +44,20 @@ export async function writeAuditLog(
     request,
   } = params;
 
+  const after =
+    afterData && typeof afterData === "object" && !Array.isArray(afterData)
+      ? (afterData as Record<string, unknown>)
+      : null;
+  const actorType =
+    after && typeof after.actorType === "string" ? after.actorType : undefined;
+  const servicePrincipal =
+    after && typeof after.servicePrincipal === "string"
+      ? after.servicePrincipal
+      : undefined;
+
   await client.auditLog.create({
     data: {
-      userId,
+      userId: userId?.trim() ? userId.trim() : undefined,
       orgId: orgId ?? undefined,
       projectId: projectId ?? undefined,
       action,
@@ -50,6 +65,8 @@ export async function writeAuditLog(
       targetId: targetId ?? undefined,
       beforeData: beforeData ? JSON.stringify(beforeData) : undefined,
       afterData: afterData ? JSON.stringify(afterData) : undefined,
+      actorType,
+      servicePrincipal,
       ip: extractIp(request),
       userAgent: request?.headers.get("user-agent") ?? undefined,
     },

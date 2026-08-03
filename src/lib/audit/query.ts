@@ -13,7 +13,8 @@ export interface AuditLogListItem {
   targetId: string | null;
   ip: string | null;
   createdAt: Date;
-  user: { id: string; name: string; email: string };
+  servicePrincipal: string | null;
+  user: { id: string; name: string; email: string } | null;
 }
 
 export interface AuditLogQuery extends PaginationParams {
@@ -52,6 +53,7 @@ export async function listAuditLogs(
         targetId: true,
         ip: true,
         createdAt: true,
+        servicePrincipal: true,
         user: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: "desc" },
