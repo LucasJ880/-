@@ -1,0 +1,236 @@
+{
+  "captured_at_utc": "2026-08-01T20:25:11.795397+00:00",
+  "note": "status-only anonymous probes; no cookies/tokens/passwords stored",
+  "hosts": [
+    {
+      "base_host": "qingyan.ca",
+      "probes": [
+        {
+          "id": "A1_HOME",
+          "path": "/",
+          "method": "GET",
+          "status": 200,
+          "final_url_host": "qingyan.ca",
+          "body_len": 500,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": null
+        },
+        {
+          "id": "A6_HEALTH",
+          "path": "/api/health",
+          "method": "GET",
+          "status": 200,
+          "final_url_host": "qingyan.ca",
+          "body_len": 95,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": null
+        },
+        {
+          "id": "E1_PENDING",
+          "path": "/api/ai/pending-actions",
+          "method": "GET",
+          "status": 401,
+          "final_url_host": null,
+          "body_len": 21,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": "HTTPError:401"
+        },
+        {
+          "id": "T7_CRON",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": 401,
+          "final_url_host": null,
+          "body_len": 24,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": "HTTPError:401"
+        },
+        {
+          "id": "T9_CRON_BAD",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": 401,
+          "final_url_host": null,
+          "body_len": 24,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": "HTTPError:401"
+        }
+      ]
+    },
+    {
+      "base_host": "www.qingyan.ca",
+      "probes": [
+        {
+          "id": "A1_HOME",
+          "path": "/",
+          "method": "GET",
+          "status": 200,
+          "final_url_host": "www.qingyan.ca",
+          "body_len": 500,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": null
+        },
+        {
+          "id": "A6_HEALTH",
+          "path": "/api/health",
+          "method": "GET",
+          "status": 200,
+          "final_url_host": "www.qingyan.ca",
+          "body_len": 95,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": null
+        },
+        {
+          "id": "E1_PENDING",
+          "path": "/api/ai/pending-actions",
+          "method": "GET",
+          "status": 401,
+          "final_url_host": null,
+          "body_len": 21,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": "HTTPError:401"
+        },
+        {
+          "id": "T7_CRON",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": 401,
+          "final_url_host": null,
+          "body_len": 24,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": "HTTPError:401"
+        },
+        {
+          "id": "T9_CRON_BAD",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": 401,
+          "final_url_host": null,
+          "body_len": 24,
+          "has_sql_leak": false,
+          "has_cron_echo": false,
+          "error": "HTTPError:401"
+        }
+      ]
+    },
+    {
+      "base_host": "qingyan.ai",
+      "probes": [
+        {
+          "id": "A1_HOME",
+          "path": "/",
+          "method": "GET",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "A6_HEALTH",
+          "path": "/api/health",
+          "method": "GET",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "E1_PENDING",
+          "path": "/api/ai/pending-actions",
+          "method": "GET",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "T7_CRON",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "T9_CRON_BAD",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        }
+      ]
+    },
+    {
+      "base_host": "www.qingyan.ai",
+      "probes": [
+        {
+          "id": "A1_HOME",
+          "path": "/",
+          "method": "GET",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "A6_HEALTH",
+          "path": "/api/health",
+          "method": "GET",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "E1_PENDING",
+          "path": "/api/ai/pending-actions",
+          "method": "GET",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "T7_CRON",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        },
+        {
+          "id": "T9_CRON_BAD",
+          "path": "/api/trade/cron",
+          "method": "POST",
+          "status": null,
+          "error": "URLError",
+          "body_len": 0,
+          "has_sql_leak": false,
+          "has_cron_echo": false
+        }
+      ]
+    }
+  ]
+}
