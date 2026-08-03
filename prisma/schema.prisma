@@ -3826,6 +3826,21 @@ model AgentSkill {
   lastOptimizedAt   DateTime?
   optimizationCount Int       @default(0)
 
+  // QM Phase 1：Scope-owned Skill（additive，不改既有字段语义）
+  /// SYSTEM | ORG | PROJECT | USER
+  ownerScopeType String @default("ORG")
+  /// ORG 时通常等于 orgId；PROJECT/USER 时为对应 id；SYSTEM 可为 null
+  ownerScopeId   String?
+  /// DRAFT | TESTING | ACTIVE | SUSPENDED | ARCHIVED（与 isActive 并存：isActive 为历史开关）
+  lifecycleStatus String @default("ACTIVE")
+  /// low | medium | high | critical
+  riskLevel       String @default("low")
+  /// inherit | always_pending | auto_safe
+  approvalMode    String @default("inherit")
+  publishedBy     String?
+  approvedBy      String?
+  approvedAt      DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3835,6 +3850,8 @@ model AgentSkill {
   @@unique([orgId, slug])
   @@index([orgId, domain])
   @@index([orgId, isActive])
+  @@index([orgId, ownerScopeType, ownerScopeId])
+  @@index([orgId, lifecycleStatus])
 }
 
 /// 技能执行记录 — 每次 AgentSkill 运行的输入/输出/评分
