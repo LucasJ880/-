@@ -20,6 +20,8 @@ export {
 } from "./filter";
 export {
   pathMatches,
+  matchSpecificity,
+  pickActiveNavKey,
   isCapabilitiesPath,
   isOperationsCenterPath,
   isGrowthPath,

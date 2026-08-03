@@ -55,6 +55,8 @@ export type NavigationItem = {
 
 export type NavigationFilterContext = {
   pathname: string;
+  /** 当前 URL search（含或不含 `?`），用于 `/sales?view=` 等叶子匹配 */
+  search?: string;
   platformRole: string | null | undefined;
   orgRole: string | null | undefined;
   hasMembership: boolean;
