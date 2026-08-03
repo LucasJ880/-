@@ -80,13 +80,33 @@
 未记录：Cookie、连接串、Neon endpoint 全称、密码、OAuth 或任何 Secret。  
 指纹 `e0d93a32b6a2` ≠ 生产指纹 `c5ef22efc58d`。
 
+## 2026-08-03 持久 Staging 验证
+
+| 项 | 值 |
+|---|---|
+| 验证时间（UTC） | `2026-08-03T02:34:37.607Z` |
+| Vercel project | `qingyan-staging` |
+| Git branch | `staging` |
+| Deployment | Preview |
+| Commit | `9f389a90c19b32a6d85515f7ffbf4a602837a7de` |
+| `PERSISTENT_STAGING_GATE` | **PASS** |
+| `status` | `ok` |
+| `checks.database` | `ok` |
+| `checks.isolation` | `ok` |
+| `checks.runtimeEnv` | `staging` |
+| `checks.dbPlane` | `staging` |
+| `checks.dbFingerprint` | `e0d93a32b6a2` |
+| `checks.latencyMs` | `803` |
+
+未记录：连接串、Cookie、数据库密码、`CRON_SECRET` 或其他 Secret。
+
 | 门禁 | 状态 |
 |---|---|
-| Browser `/api/health` | **PASS** |
-| 持久 Staging（`qingyan-staging` / 长期 `staging`） | **未完成**（仍未勾选） |
-| #48 Ready / 合并 | **禁止**（保持 Draft） |
-| #47 写验收恢复 | **未启动** |
+| Browser `/api/health`（PR Preview） | **PASS** |
+| 持久 Staging（`qingyan-staging` + `staging`） | **PASS** |
+| #48 Ready for Review | 门禁通过后可 Ready；**不自动合并** |
+| #47 写验收恢复 | **未启动**（须 #48 批准并明确授权合并后） |
 | Wave2 | **未批准** |
 
-**未自动恢复 #47 写验收；未启动 Wave2；未合并 #48。**
+**未自动恢复 #47 写验收；未启动 Wave2；不自动合并 #48。**
 
