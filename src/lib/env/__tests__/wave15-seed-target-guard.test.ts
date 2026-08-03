@@ -12,7 +12,8 @@ const STAGING_DB =
 const OTHER_DB =
   "postgresql://u:p@ep-random-other-abc123.c-1.us-east-1.aws.neon.tech/neondb";
 
-let prismaCalls = 0;
+/** Seed 门禁为纯函数：本测试从不实例化 Prisma；恒为 0 作契约断言 */
+const prismaCalls = 0;
 
 function withEnv(patch: Record<string, string | undefined>, fn: () => void) {
   const prev: Record<string, string | undefined> = {};
