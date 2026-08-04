@@ -12,6 +12,7 @@ import {
   type BidPhaseStatus,
 } from "./constants";
 import { resolveBidPhaseOnIntelligenceStart } from "./phase-transition";
+import { isPrismaUniqueViolation } from "./prisma-errors";
 import { buildInitialSummary } from "./summary";
 
 export type StartIntelligenceInput = {
@@ -23,6 +24,8 @@ export type StartIntelligenceInput = {
 export type StartIntelligenceResult = {
   ok: true;
   created: boolean;
+  /** true = 首次创建调查室；false = 幂等补齐 */
+  ensuredOnly: boolean;
   roomId: string;
   correlationId: string;
   bidPhaseStatus: BidPhaseStatus;
@@ -128,11 +131,7 @@ export async function startBidIntelligence(
         });
         created = true;
       } catch (err) {
-        const code =
-          err && typeof err === "object" && "code" in err
-            ? String((err as { code: string }).code)
-            : "";
-        if (code !== "P2002") throw err;
+        if (!isPrismaUniqueViolation(err)) throw err;
         room = await tx.bidIntelligenceRoom.findUniqueOrThrow({
           where: { projectId: project.id },
         });
@@ -155,7 +154,8 @@ export async function startBidIntelligence(
           roomId_moduleKey: { roomId: room.id, moduleKey: mod.key },
         },
       });
-      if (!existing) {
+      if (existing) continue;
+      try {
         await tx.bidIntelligenceModule.create({
           data: {
             roomId: room.id,
@@ -167,6 +167,9 @@ export async function startBidIntelligence(
           },
         });
         modulesEnsured += 1;
+      } catch (err) {
+        // 并发下另一请求已写入同一 moduleKey：安全回收，不整单失败
+        if (!isPrismaUniqueViolation(err)) throw err;
       }
     }
 
@@ -216,31 +219,35 @@ export async function startBidIntelligence(
     ];
 
     for (const spec of taskSpecs) {
+      // 幂等键：sourceId(room) + sourceTemplateKey（DB unique）
       const exists = await tx.task.findFirst({
         where: {
-          projectId: project.id,
-          sourceType: "bid_intelligence",
+          sourceId: room.id,
           sourceTemplateKey: spec.templateKey,
         },
         select: { id: true },
       });
       if (exists) continue;
-      await tx.task.create({
-        data: {
-          title: spec.title,
-          description: spec.description,
-          status: "todo",
-          priority: "high",
-          projectId: project.id,
-          creatorId: input.actorUserId,
-          assigneeId: project.ownerId,
-          sourceType: "bid_intelligence",
-          sourceId: room.id,
-          sourceTemplateKey: spec.templateKey,
-          sourceBatchKey: `bid_intel:${project.id}`,
-        },
-      });
-      tasksCreated += 1;
+      try {
+        await tx.task.create({
+          data: {
+            title: spec.title,
+            description: spec.description,
+            status: "todo",
+            priority: "high",
+            projectId: project.id,
+            creatorId: input.actorUserId,
+            assigneeId: project.ownerId,
+            sourceType: "bid_intelligence",
+            sourceId: room.id,
+            sourceTemplateKey: spec.templateKey,
+            sourceBatchKey: `bid_intel:${project.id}`,
+          },
+        });
+        tasksCreated += 1;
+      } catch (err) {
+        if (!isPrismaUniqueViolation(err)) throw err;
+      }
     }
 
     return {
@@ -251,16 +258,21 @@ export async function startBidIntelligence(
     };
   });
 
+  const ensuredOnly = !result.created;
+  // 首次创建写 started；重复补齐写 ensured（避免活动流刷屏「已启动」）
   await logAudit({
     userId: input.actorUserId,
     orgId: input.orgId,
     projectId: project.id,
-    action: "bid_intelligence_started",
+    action: result.created
+      ? "bid_intelligence_started"
+      : "bid_intelligence_ensured",
     targetType: "bid_intelligence_room",
     targetId: result.roomId,
     afterData: {
       correlationId,
       created: result.created,
+      ensuredOnly,
       modulesEnsured: result.modulesEnsured,
       tasksCreated: result.tasksCreated,
       bidPhaseStatus: phaseResolution.bidPhaseStatus,
@@ -272,6 +284,7 @@ export async function startBidIntelligence(
   return {
     ok: true,
     created: result.created,
+    ensuredOnly,
     roomId: result.roomId,
     correlationId,
     bidPhaseStatus: phaseResolution.bidPhaseStatus as BidPhaseStatus,

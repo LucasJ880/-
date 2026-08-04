@@ -27,6 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   ai_send: "发送了",
   ai_analyze: "AI 分析了",
   bid_intelligence_started: "启动了投标调查",
+  bid_intelligence_ensured: "确认了投标调查室（幂等补齐）",
   bid_go_decision: "记录了 Go/Hold/No-Go 决定",
   project_join_brief_created: "生成了成员加入简报",
   project_supplier_linked: "关联了项目供应商",

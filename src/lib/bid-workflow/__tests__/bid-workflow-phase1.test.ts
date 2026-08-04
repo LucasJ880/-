@@ -16,7 +16,9 @@ import {
   assertKnownBidPhasesComplete,
   resolveBidPhaseOnIntelligenceStart,
 } from "../phase-transition";
+import { isPrismaUniqueViolation } from "../prisma-errors";
 import { buildInitialSummary } from "../summary";
+import { TASK_TEMPLATE_KEYS } from "../constants";
 
 /** Cotton Towelling Fabric fixture（结构校验，不连 DB） */
 const COTTON_TOWELLING = {
@@ -127,6 +129,16 @@ async function main() {
   );
   assert.equal(fromReady.bidPhaseStatus, "INTELLIGENCE_IN_PROGRESS");
   assert.equal(fromReady.shouldWrite, true);
+
+  // 幂等：Prisma P2002 识别 + 稳定 task template keys
+  assert.equal(isPrismaUniqueViolation({ code: "P2002" }), true);
+  assert.equal(isPrismaUniqueViolation({ code: "P2003" }), false);
+  assert.equal(isPrismaUniqueViolation(null), false);
+  const templateKeys = Object.values(TASK_TEMPLATE_KEYS);
+  assert.equal(new Set(templateKeys).size, templateKeys.length);
+  for (const k of templateKeys) {
+    assert.ok(k.startsWith("bid_intel:"));
+  }
 
   console.log("bid-workflow-phase1: all passed");
 }
