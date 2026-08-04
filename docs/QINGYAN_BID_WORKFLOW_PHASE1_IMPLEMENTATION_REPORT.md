@@ -4,7 +4,70 @@
 **工作区：** `/Users/user/Desktop/青砚-bid-workflow`  
 **基线：** `origin/main` @ `f277518`  
 **日期：** 2026-08-04  
-**状态：** Draft PR / 待审查（不合并 main，不跑生产 migrate）
+**状态：** Draft PR / `READY_FOR_REVIEW`（不自行 Ready、不 merge、不跑生产 migrate）  
+**修复 Head（推送前以 git 为准）：** 见 PR #53 最新 commits
+
+---
+
+## 0. ADOPT_AFTER_CLEANUP 修复轮次（2026-08-04）
+
+决策：采用 PR #53，不重建、不混入 PR #52 / agent-runtime-2 / Bid Data Lock。
+
+### P0 修复结果
+
+| 项 | 结果 |
+|---|---|
+| GO/HOLD/NO_GO 后 start 回退 `INTELLIGENCE_IN_PROGRESS` | **已修** — `phase-transition.ts` 保护终态/后续态 |
+| 隔离库 migration 验证 | **PASS** — Neon 临时空项目 greenfield deploy |
+
+### P1 完成情况
+
+| 项 | 结果 |
+|---|---|
+| 幂等/并发（Room/Module/Task/Activity） | 已硬化；`started` vs `ensured` |
+| 调查室可读性（去 raw JSON、可信度中文） | 已完成 |
+| GO/HOLD/NO_GO + 备注 + Audit | 已完成；不写 `aiAdviceStatus`/`tenderStatus` |
+| Supplier M2M POST/PATCH/DELETE | 已完成 |
+| JoinBrief UI 入口 | 已完成 |
+| China Supplier Brief 交付流 | 已完成（Helvetica 中文限制保留） |
+| 列表筛选分桶 + 无关 engines/`orderBy` 清理 | 已完成 |
+
+### 隔离数据库验证证据（无 Secret）
+
+| 字段 | 值 |
+|---|---|
+| 数据库类型 | PostgreSQL 16 / Neon **ephemeral project**（验证后已删除） |
+| 环境标签 | `DATABASE_ENVIRONMENT=isolated` |
+| Host hint | `ep-morning-sky-au82j7fo`（非 `ep-super-field` / 非 Staging 名） |
+| URL fingerprint (sha256前12) | `d1476e0f5643` |
+| 开始/结束 (UTC) | `2026-08-04T05:15:15Z` → `2026-08-04T05:16:20Z` |
+| `prisma migrate deploy` #1 | PASS（6 migrations 全量应用，含 `20260803200000_bid_workflow_phase1`） |
+| `prisma migrate deploy` #2 | PASS（No pending） |
+| `prisma generate` | PASS |
+| 表/约束抽查 | PASS（`BidIntelligenceRoom_projectId_key`、`moduleKey` unique、SupplierLink unique 等） |
+| Cotton Towelling fixture | PASS（见下） |
+| 脚本 | `scripts/bid-workflow-isolated-migrate-verify.ts`、`scripts/bid-workflow-cotton-iso-fixture.ts` |
+
+### Cotton Towelling 隔离验收
+
+在临时库执行 domain 流程：**1 Room / 8 Modules**；二次 start `ensuredOnly`；Cox’s Bazar + CAD 886,410 上限说明 + INFERRED 供应链事实；两供应商关联→SHORTLISTED→解绑且 Supplier 保留；JoinBrief；人工 HOLD 后重启不回退；`ProjectGeneratedDocument` + fileUrl；模拟 AI 失败后 Project 仍可读。
+
+### 门禁（本机 worktree）
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc --noEmit` | PASS |
+| `npm run lint:baseline` | PASS |
+| `npm run test:ci` | PASS |
+| `npm run verify:migration-history` | PASS |
+| `npm run build` | PASS |
+
+### 已知限制（仍存在）
+
+1. `china_supplier_brief` 中文 PDF 仍为 Helvetica（未嵌入中文字体）
+2. 情报子页（周期/中标等）为「尚未启用」空状态
+3. Cotton 验收为隔离库 **domain/fixture** 级，非完整 HTTP E2E 浏览器流
+4. 判定 **不得** 自行标 `READY_FOR_MERGE` / 切换 PR Ready / merge
 
 ---
 
@@ -96,11 +159,12 @@
 
 `startBidIntelligence`（`POST .../bid-intelligence/start`）：
 
-1. 设 `bidPhaseStatus = INTELLIGENCE_IN_PROGRESS`
-2. upsert 唯一 `BidIntelligenceRoom`
-3. 创建缺失的八模块（已存在跳过）
-4. 写初始摘要 / 任务 / Activity Log
-5. 重复点击 `created: false`，不重复造模块/任务
+1. **仅当**当前阶段允许时才写入 `INTELLIGENCE_IN_PROGRESS`（GO/HOLD/NO_GO/BID_PREPARATION/SUBMITTED/AWARDED/LOST/WITHDRAWN **不回退**）
+2. upsert 唯一 `BidIntelligenceRoom`（P2002 后重读）
+3. 创建缺失的八模块（P2002 安全回收）
+4. 初始 Task 以 `sourceId + sourceTemplateKey` 幂等
+5. Activity：首次 `bid_intelligence_started`，重复 `bid_intelligence_ensured`
+6. 重复点击 `created: false` / `ensuredOnly: true`，不重复造模块/任务
 
 ---
 
@@ -144,12 +208,11 @@
 
 ## 13. 测试结果
 
-（本地门禁运行结果见 PR 描述 / 下方验收节；以 CI 与本机命令输出为准。）
+见上文 **§0** 门禁与隔离验证。额外：
 
-最低覆盖：
-- `src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts`（Cotton Towelling 结构 + 幂等语义常量 + 列表筛选）
+- `src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts`（状态机 / 幂等语义 / 筛选分桶 / 显示标签）
 - navigation IA / workspace 测试已更新 key
-- migration history checksum
+- `npm run verify:migration-history` checksum 含 `20260803200000_bid_workflow_phase1`
 
 ---
 
@@ -161,12 +224,13 @@
 - 全量摘要刷新队列与 Firecrawl/Apify 深度编排
 - Bid Data Layer（Requirement/Lock）应用层全面接线
 - 中文 PDF 字体嵌入
+- 完整 HTTP/浏览器 E2E（权限否定路径浏览器断言）
 
 ---
 
 ## 15. 已知风险
 
-1. Migration 未在隔离库验证前不可上生产  
+1. ~~Migration 未在隔离库验证~~ → 本轮 ephemeral Neon 已 PASS；**生产仍禁止自动 migrate**  
 2. 超长会话 Remote Control 可能因 missing blob 失败（与本功能无关）  
 3. `china_supplier_brief` 中文渲染受限  
 4. 供应商分桶为启发式（region/tags），非严格 companyType 字段  
@@ -176,8 +240,8 @@
 
 ## 16. 下一阶段建议
 
-1. 隔离库跑 migration + Cotton Towelling E2E  
+1. 人工审查 Draft PR #53 → 再决定是否 Ready / merge  
 2. 调查室模块写入/编辑 API 与事实「建议保存」UX  
 3. 摘要刷新去抖队列  
 4. 中文 PDF 字体  
-5. 情报子页从空状态接到真实 Trade Intelligence 数据  
+5. 情报子页从「尚未启用」接到真实 Trade Intelligence 数据  
