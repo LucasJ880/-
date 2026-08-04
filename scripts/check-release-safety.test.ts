@@ -99,8 +99,10 @@ ok(
       "20260728180000_project_handoff",
       "20260729120000_matrix_account_playbook",
       "20260729180000_phase_c_publish_job_pipeline",
+      "20260803120000_qm_phase1_scoped_skills",
+      "20260803140000_qm_phase1_brief_claim_and_audit",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + QM Phase1 scoped skills + brief claim",
 );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

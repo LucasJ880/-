@@ -2,7 +2,7 @@
  * 统一工具注册表
  *
  * Phase 2A：execute 层以 TenantContext.orgRole + membership 授权（canInvokeTool）。
- * 平台 role 仅作 list 兼容过滤与工具内数据范围遗留用途。
+ * QM Phase1：执行前 allowlist + ScopeGuard；requiresApproval 不直执。
  */
 
 import type {
@@ -15,6 +15,8 @@ import type {
 } from "./types";
 import type { PlatformRole } from "@/lib/rbac/roles";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
+import { runPreExecuteGuards } from "./pre-execute-guard";
+import { handleRequiresApproval } from "./approval-gate";
 
 /** 未声明 allowRoles 的工具视为 admin-only（安全默认） */
 const DEFAULT_ALLOW_ROLES: ToolAllowRoles = ["admin"];
@@ -45,6 +47,12 @@ function roleCanCall(tool: ToolDefinition, role: PlatformRole): boolean {
 
 export interface RegistryFilters {
   domains?: ToolDomain[];
+  /**
+   * 工具名过滤：
+   * - undefined：不按名称过滤
+   * - []：零工具
+   * - 非空：仅列出名称
+   */
   names?: string[];
   /** 遗留：按平台角色过滤（list 可见性） */
   role?: PlatformRole | string;
@@ -81,7 +89,8 @@ class ToolRegistry {
     if (filters?.domains?.length) {
       result = result.filter((t) => filters.domains!.includes(t.domain));
     }
-    if (filters?.names?.length) {
+    // 关键：names === undefined 不过滤；names === [] → 零工具
+    if (filters?.names !== undefined) {
       const nameSet = new Set(filters.names);
       result = result.filter((t) => nameSet.has(t.name));
     }
@@ -118,7 +127,7 @@ class ToolRegistry {
   }
 
   /**
-   * 执行工具：canInvokeTool（membership + orgRole + modules + risk）
+   * 执行工具：pre-guard → canInvokeTool → requiresApproval 闸 → execute
    */
   async execute(
     name: string,
@@ -127,6 +136,18 @@ class ToolRegistry {
     const tool = this.tools.get(name);
     if (!tool) {
       return { success: false, data: null, error: `未知工具: ${name}` };
+    }
+
+    const pre = runPreExecuteGuards({ toolName: name, ctx });
+    if (!pre.ok) {
+      console.warn(
+        `[ToolRegistry] Pre-execute deny: ${pre.code} tool=${name} org=${ctx.orgId}`,
+      );
+      return {
+        success: false,
+        data: { code: pre.code },
+        error: pre.error,
+      };
     }
 
     const decision = canInvokeTool({
@@ -152,6 +173,11 @@ class ToolRegistry {
         `[ToolRegistry] Tenant/orgRole reject: ${decision.code} tool=${name} org=${ctx.orgId} orgRole=${ctx.orgRole}`,
       );
       return { success: false, data: null, error: decision.error };
+    }
+
+    // 关键：需要审批时绝不调用原工具 executor
+    if (decision.requiresApproval || decision.needsApproval) {
+      return handleRequiresApproval({ tool, ctx });
     }
 
     // Phase 3A-4：高风险 Tool 配额（l2+）
@@ -213,7 +239,6 @@ class ToolRegistry {
       }
     }
 
-    // 遗留：归一化平台 role 供工具内数据范围使用
     const role = normalizeRole(ctx.role);
 
     try {

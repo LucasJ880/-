@@ -16,6 +16,8 @@ const EXPECTED_ACTIVE = [
   "20260728180000_project_handoff",
   "20260729120000_matrix_account_playbook",
   "20260729180000_phase_c_publish_job_pipeline",
+  "20260803120000_qm_phase1_scoped_skills",
+  "20260803140000_qm_phase1_brief_claim_and_audit",
 ] as const;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
@@ -30,6 +32,10 @@ const IMMUTABLE: Record<string, string> = {
     "a5c3ad3450048c938ee37447fb75cbf16d7d5b02c558209a178eba30fcd2e0d0",
   "20260729180000_phase_c_publish_job_pipeline":
     "1c6743c5b8abe2b06923e15b3c884340947299e4685be58bf1a93bb12e084e94",
+  "20260803120000_qm_phase1_scoped_skills":
+    "48124f213ebfc01a0d9dc1393f59e2644c65b82d3c32f3c588619c76313cc265",
+  "20260803140000_qm_phase1_brief_claim_and_audit":
+    "0721ed1c589c88fb1f26b48bcce28f43af80210a930eee6873b20f5955042f45",
 };
 
 let passed = 0;

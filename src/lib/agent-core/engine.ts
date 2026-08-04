@@ -140,8 +140,41 @@ async function executeToolUnified(
   ctx: ToolExecutionContext,
   extraTools: ToolDefinition[] | undefined,
 ): Promise<ToolExecutionResult> {
+  // extraTools 与 registry 共用执行前 guard（不允许绕过 Scope/allowlist）
+  const { runPreExecuteGuards } = await import("./pre-execute-guard");
+  const pre = runPreExecuteGuards({ toolName: name, ctx });
+  if (!pre.ok) {
+    return { success: false, data: { code: pre.code }, error: pre.error };
+  }
+
   const extra = extraTools?.find((t) => t.name === name);
   if (extra) {
+    // extraTools 仍须尊重 forceApproval（经 registry 政策字段）
+    const { canInvokeTool } = await import("@/lib/tenancy/tool-auth");
+    const decision = canInvokeTool({
+      tenant: {
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole ?? "org_viewer",
+        isPlatformAdmin: ctx.role === "admin" || ctx.role === "super_admin",
+        workspaceIds: ctx.workspaceIds,
+      },
+      hasMembership: ctx.hasMembership === true,
+      tool: extra,
+      workspaceId: ctx.workspaceId,
+      workspaceRole: ctx.workspaceRole,
+      maxRisk: ctx.maxRisk,
+      modulesJson: ctx.modulesJson,
+      toolPolicy: ctx.toolPolicy,
+      workspaceToolPolicy: ctx.workspaceToolPolicy,
+    });
+    if (!decision.ok) {
+      return { success: false, data: null, error: decision.error };
+    }
+    if (decision.requiresApproval || decision.needsApproval) {
+      const { handleRequiresApproval } = await import("./approval-gate");
+      return handleRequiresApproval({ tool: extra, ctx });
+    }
     try {
       return await extra.execute(ctx);
     } catch (e) {
@@ -198,6 +231,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
     workspaceIds,
     toolPolicy,
     maxRisk: options.maxRisk,
+    allowedToolNames: options.tools,
+    scopeGuard: options.scopeGuard,
   };
 
   // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤；A-P1：附加 run 级临时工具）
@@ -265,19 +300,22 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       const assistantMessage: any = choice.message;
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-        const result: AgentRunResult = {
-          content: assistantMessage.content ?? "",
-          toolCalls: toolCallLog,
-          model,
-          rounds,
-        };
-        fireFinishHook(hooks, {
-          ...result,
-          latencyMs: Date.now() - runStartedAt,
-          success: true,
-        });
-        return result;
-      }
+    const result: AgentRunResult = {
+      content: assistantMessage.content ?? "",
+      toolCalls: toolCallLog,
+      model,
+      rounds,
+      ok: true,
+      finishReason: "completed",
+      errorClass: "none",
+    };
+    fireFinishHook(hooks, {
+      ...result,
+      latencyMs: Date.now() - runStartedAt,
+      success: true,
+    });
+    return result;
+  }
 
       messages.push({
         role: "assistant",
@@ -360,6 +398,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       toolCalls: toolCallLog,
       model,
       rounds,
+      ok: true,
+      finishReason: "completed",
+      errorClass: "none",
     };
     fireFinishHook(hooks, {
       ...result,
@@ -374,6 +415,12 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         toolCalls: toolCallLog,
         model,
         rounds,
+        ok: false,
+        timedOut: true,
+        finishReason: "timeout",
+        errorClass: "timeout",
+        errorMessage: err.message,
+        retryable: true,
       };
       fireFinishHook(hooks, {
         ...result,
@@ -463,6 +510,8 @@ export async function* runAgentStream(
     workspaceIds,
     toolPolicy,
     maxRisk: options.maxRisk,
+    allowedToolNames: options.tools,
+    scopeGuard: options.scopeGuard,
   };
 
   const openaiTools = [

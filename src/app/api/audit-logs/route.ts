@@ -152,6 +152,7 @@ async function queryGlobalAuditLogs(
         targetId: true,
         ip: true,
         createdAt: true,
+        servicePrincipal: true,
         user: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: "desc" },

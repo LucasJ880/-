@@ -31,7 +31,8 @@ interface AuditLogRow {
   targetId: string | null;
   ip: string | null;
   createdAt: string;
-  user: { id: string; name: string; email: string };
+  servicePrincipal?: string | null;
+  user: { id: string; name: string; email: string } | null;
 }
 
 interface AuditLogsResponse {
@@ -54,7 +55,8 @@ interface AuditLogDetail {
   ip: string | null;
   userAgent: string | null;
   createdAt: string;
-  user: { id: string; name: string; email: string };
+  servicePrincipal?: string | null;
+  user: { id: string; name: string; email: string } | null;
 }
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
@@ -324,7 +326,7 @@ function AuditLogsContent() {
                     <div className="mt-1 flex items-center gap-3 text-xs text-muted">
                       <span className="flex items-center gap-1">
                         <User size={10} />
-                        {log.user.name}
+                        {log.user?.name ?? log.servicePrincipal ?? "系统服务"}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock size={10} />
@@ -372,7 +374,12 @@ function AuditLogsContent() {
                     ["操作", (ACTION_LABELS[selectedLog.action]?.label ?? selectedLog.action)],
                     ["对象类型", (TARGET_LABELS[selectedLog.targetType] ?? selectedLog.targetType)],
                     ["对象 ID", selectedLog.targetId ?? "—"],
-                    ["操作人", `${selectedLog.user.name} (${selectedLog.user.email})`],
+                    [
+                      "操作人",
+                      selectedLog.user
+                        ? `${selectedLog.user.name} (${selectedLog.user.email})`
+                        : selectedLog.servicePrincipal ?? "系统服务",
+                    ],
                     ["IP", selectedLog.ip ?? "—"],
                     ["时间", new Date(selectedLog.createdAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })],
                     ["User-Agent", selectedLog.userAgent ?? "—"],
