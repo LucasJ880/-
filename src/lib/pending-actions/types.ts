@@ -10,6 +10,7 @@
 export type PendingActionType =
   | "sales.update_followup"
   | "sales.update_stage"
+  | "sales.approve_quote_promotion"
   | "calendar.create_event"
   // ── Grader 内部备注（已接入真实执行器，写入对应业务对象）──
   | "grader.internal_note"
@@ -79,6 +80,20 @@ export interface SalesUpdateStagePayload {
   previousStage: string;
   newStage: string;
   note?: string;
+}
+
+export interface SalesApproveQuotePromotionPayload {
+  quoteId: string;
+  orderLabel: string;
+  customerName: string;
+  promotionAmount: number;
+  promotionRatio: number;
+  maxPct: number;
+  requestedById: string;
+  resourceType: "sales_quote";
+  resourceId: string;
+  riskLevel: "HIGH";
+  metadata: PendingActionMetadata & { orgId: string; quoteId: string; customerId: string };
 }
 
 export interface CalendarCreateEventPayload {
@@ -220,6 +235,7 @@ export interface MarketingCreateCampaignDraftPayload {
 export type PendingActionPayload =
   | ({ type: "sales.update_followup" } & SalesUpdateFollowupPayload)
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
+  | ({ type: "sales.approve_quote_promotion" } & SalesApproveQuotePromotionPayload)
   | ({ type: "calendar.create_event" } & CalendarCreateEventPayload)
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)

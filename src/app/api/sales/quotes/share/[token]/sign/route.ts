@@ -11,6 +11,7 @@ import { deriveQuoteDisplayAmounts } from "@/lib/sales/quote-display-amounts";
 import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import { resolveOrgIdForQuoteLinkedInteraction } from "@/lib/sales/org-context";
+import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
 
 export async function POST(
   request: NextRequest,
@@ -40,6 +41,18 @@ export async function POST(
 
   if (quote.signedAt) {
     return NextResponse.json({ error: "Already signed" }, { status: 409 });
+  }
+
+  const settings = await db.quoteDiscountSettings.findUnique({
+    where: { orgId: quote.orgId },
+    select: { promoMaxPct: true },
+  });
+  const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
+  if (promotion.required && !promotion.approved) {
+    return NextResponse.json(
+      { error: "This quote is awaiting internal promotion approval.", code: "PROMOTION_APPROVAL_REQUIRED" },
+      { status: 409 },
+    );
   }
 
   const now = new Date();

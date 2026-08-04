@@ -102,6 +102,7 @@ ok(
       "20260804130000_sunny_motor_price",
       "20260804190000_sales_action_loop",
       "20260804200000_sales_action_auto_sync",
+      "20260804210000_sales_effectiveness_promotion_approval",
     ].join("|"),
   "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob",
 );

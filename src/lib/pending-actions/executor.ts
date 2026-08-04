@@ -25,6 +25,7 @@ import type {
   PendingActionMetadata,
   SalesUpdateFollowupPayload,
   SalesUpdateStagePayload,
+  SalesApproveQuotePromotionPayload,
   CalendarCreateEventPayload,
   InternalNotePayload,
   ProjectTaskPayload,
@@ -175,6 +176,13 @@ export async function executePendingAction(
         exec = await execSalesUpdateStage(
           action.payload as unknown as SalesUpdateStagePayload,
           ctx,
+        );
+        break;
+      case "sales.approve_quote_promotion":
+        exec = await execSalesApproveQuotePromotion(
+          action.payload as unknown as SalesApproveQuotePromotionPayload,
+          ctx,
+          action.id,
         );
         break;
       case "calendar.create_event":
@@ -543,15 +551,34 @@ export async function rejectPendingAction(
     return { ok: false, error: `该草稿状态为 ${action.status}，不能拒绝` };
   }
 
-  await db.pendingAction.update({
-    where: { id: actionId },
-    data: {
-      status: "rejected",
-      decidedAt: new Date(),
-      decidedById: ctx.userId,
-      failureReason: reason ?? undefined,
-    },
-  });
+  const rejectionData = {
+    status: "rejected",
+    decidedAt: new Date(),
+    decidedById: ctx.userId,
+    failureReason: reason ?? undefined,
+  };
+  if (action.type === "sales.approve_quote_promotion") {
+    const payload = action.payload as unknown as SalesApproveQuotePromotionPayload;
+    await db.$transaction([
+      db.pendingAction.update({ where: { id: actionId }, data: rejectionData }),
+      db.salesQuote.updateMany({
+        where: {
+          id: payload.quoteId,
+          orgId: payload.metadata?.orgId,
+          promotionApprovalActionId: action.id,
+          promotionApprovalStatus: "pending",
+        },
+        data: {
+          promotionApprovalStatus: "rejected",
+          promotionRejectedAt: new Date(),
+          promotionRejectedById: ctx.userId,
+          promotionRejectionReason: reason?.slice(0, 2000) || "管理员未批准本次超额让利",
+        },
+      }),
+    ]);
+  } else {
+    await db.pendingAction.update({ where: { id: actionId }, data: rejectionData });
+  }
 
   if (action.type === "marketing.approve_research_plan") {
     const payload = action.payload as unknown as MarketingApproveResearchPlanPayload;
@@ -587,6 +614,35 @@ export async function rejectPendingAction(
     }
   }
 
+  if (action.type === "sales.approve_quote_promotion") {
+    const payload = action.payload as unknown as SalesApproveQuotePromotionPayload;
+    const orgId = payload.metadata?.orgId;
+    if (orgId) {
+      await logAudit({
+        userId: ctx.userId,
+        orgId,
+        action: "quote_promotion_rejected",
+        targetType: "sales_quote",
+        targetId: payload.quoteId,
+        afterData: { status: "rejected", reason: reason || "管理员未批准本次超额让利" },
+      });
+      if (payload.requestedById !== ctx.userId) {
+        await createNotification({
+          userId: payload.requestedById,
+          orgId,
+          type: "quote_promotion_rejected",
+          category: "approval",
+          title: `报价 ${payload.orderLabel} 的超额让利未获批准`,
+          summary: reason || "请调整 Special Promotion 后重新提交。",
+          entityType: "sales_quote",
+          entityId: payload.quoteId,
+          priority: "high",
+          sourceKey: `quote-promotion:${payload.quoteId}:${action.id}:rejected`,
+        });
+      }
+    }
+  }
+
   await logAudit({
     userId: ctx.userId,
     orgId: action.orgId,
@@ -603,6 +659,77 @@ export async function rejectPendingAction(
 // ─────────────────────────────────────────────────────────────
 // 各类动作的具体执行
 // ─────────────────────────────────────────────────────────────
+
+async function execSalesApproveQuotePromotion(
+  payload: SalesApproveQuotePromotionPayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId;
+  if (!orgId || !payload.quoteId || payload.resourceId !== payload.quoteId) {
+    return { ok: false, error: "报价让利审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const quote = await db.salesQuote.findFirst({
+    where: { id: payload.quoteId, orgId },
+    select: {
+      id: true,
+      specialPromotion: true,
+      finalDiscountPct: true,
+      promotionApprovalStatus: true,
+      promotionApprovalActionId: true,
+    },
+  });
+  if (!quote) return { ok: false, error: "报价单不存在或不属于当前组织" };
+  if (quote.promotionApprovalStatus !== "pending" || quote.promotionApprovalActionId !== actionId) {
+    return { ok: false, error: "该报价审批已失效或已被其他申请替代" };
+  }
+  const amountMatches = Math.abs((quote.specialPromotion ?? 0) - payload.promotionAmount) <= 0.0001;
+  const ratioMatches = Math.abs((quote.finalDiscountPct ?? 0) - payload.promotionRatio) <= 0.0001;
+  if (!amountMatches || !ratioMatches) {
+    return { ok: false, error: "报价让利内容已变化，请销售重新提交审批" };
+  }
+  await db.salesQuote.update({
+    where: { id: quote.id },
+    data: {
+      promotionApprovalStatus: "approved",
+      promotionApprovedAt: new Date(),
+      promotionApprovedById: ctx.userId,
+      promotionRejectedAt: null,
+      promotionRejectedById: null,
+      promotionRejectionReason: null,
+    },
+  });
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "quote_promotion_approved",
+    targetType: "sales_quote",
+    targetId: quote.id,
+    beforeData: { status: quote.promotionApprovalStatus },
+    afterData: {
+      status: "approved",
+      promotionAmount: payload.promotionAmount,
+      promotionRatio: payload.promotionRatio,
+      maxPct: payload.maxPct,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "quote_promotion_approved",
+      category: "approval",
+      title: `报价 ${payload.orderLabel} 的超额让利已批准`,
+      summary: "可以返回报价单检查并发送给客户。",
+      entityType: "sales_quote",
+      entityId: quote.id,
+      priority: "high",
+      sourceKey: `quote-promotion:${quote.id}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: quote.id, message: "超额让利已批准，报价可以发送" };
+}
 
 async function execSalesUpdateFollowup(
   payload: SalesUpdateFollowupPayload,

@@ -11,6 +11,7 @@ import {
   assertSalesCustomerInOrgForMutation,
   resolveSalesOrgIdForRequest,
 } from "@/lib/sales/org-context";
+import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
@@ -52,6 +53,17 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
     return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
+  }
+
+  if (!isSuperAdmin(user.role)) {
+    const settings = await db.quoteDiscountSettings.findUnique({
+      where: { orgId: requestOrgId },
+      select: { promoMaxPct: true },
+    });
+    const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
+    if (promotion.required && !promotion.approved) {
+      return NextResponse.json({ error: promotion.reason, code: "PROMOTION_APPROVAL_REQUIRED" }, { status: 409 });
+    }
   }
 
   let shareToken = quote.shareToken;

@@ -63,8 +63,12 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
   if (body.status !== undefined) {
     data.status = nextStatus;
-    if (nextStatus === "in_progress" && !current.assignedToId) data.assignedToId = user.id;
+    if (nextStatus === "in_progress") {
+      if (!current.assignedToId) data.assignedToId = user.id;
+      if (!current.startedAt) data.startedAt = new Date();
+    }
     if (nextStatus === "completed") {
+      if (!current.startedAt) data.startedAt = new Date();
       data.completedAt = new Date();
       data.completedById = user.id;
       data.resolutionNote = resolutionNote;

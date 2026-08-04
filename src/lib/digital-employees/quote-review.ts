@@ -23,6 +23,7 @@ export interface QuoteWorkflowReviewInput {
   promoMaxPct: number;
   promoBlocked: boolean;
   promotionApprovalRequested: boolean;
+  promotionApprovalApproved?: boolean;
   paymentMethod: "direct" | "finance";
   depositAmount: number;
   grandTotal: number;
@@ -130,13 +131,15 @@ export function reviewQuoteWorkflow(
   if (input.promoBlocked) {
     items.push({
       key: "promotion",
-      status: input.promotionApprovalRequested ? "attention" : "blocked",
-      title: input.promotionApprovalRequested
-        ? "超额让利已提交管理员"
-        : "Special Promotion 超过公司上限",
+      status: input.promotionApprovalApproved ? "ready" : input.promotionApprovalRequested ? "attention" : "blocked",
+      title: input.promotionApprovalApproved
+        ? "超额让利已获管理员批准"
+        : input.promotionApprovalRequested
+          ? "超额让利已提交管理员"
+          : "Special Promotion 超过公司上限",
       detail: `${(input.promoRatio * 100).toFixed(1)}% > ${(input.promoMaxPct * 100).toFixed(
         0,
-      )}%；${input.promotionApprovalRequested ? "等待管理员处理" : "需先申请管理员确认"}`,
+      )}%；${input.promotionApprovalApproved ? "本次金额快照已批准" : input.promotionApprovalRequested ? "等待管理员处理" : "需先申请管理员确认"}`,
       action: "part_b",
     });
   } else if (input.specialPromotion > 0) {

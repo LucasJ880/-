@@ -3259,6 +3259,7 @@ model SalesAction {
   priority      String @default("medium") // urgent | high | medium | low
   status        String @default("open") // open | in_progress | completed | dismissed | auto_resolved
   dueAt         DateTime?
+  startedAt      DateTime?
   lastObservedAt DateTime?
   autoResolvedAt DateTime?
 
@@ -3345,6 +3346,21 @@ model SalesQuote {
   specialPromotion Float? @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
   finalDiscountPct Float? // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
 
+  // 超额 Special Promotion 审批闭环；批准只对审批时的金额与比例快照有效。
+  promotionApprovalStatus      String   @default("not_required") // not_required | required | pending | approved | rejected
+  promotionApprovalActionId    String?  @unique
+  promotionApprovalAmount      Float?
+  promotionApprovalRatio       Float?
+  promotionApprovalMaxPct      Float?
+  promotionApprovalRequestedAt DateTime?
+  promotionApprovalExpiresAt   DateTime?
+  promotionApprovalRequestedById String?
+  promotionApprovedAt          DateTime?
+  promotionApprovedById        String?
+  promotionRejectedAt          DateTime?
+  promotionRejectedById        String?
+  promotionRejectionReason     String?  @db.Text
+
   // 定金登记（线上签字 → 销售补录收款情况）
   //   - depositAmount / depositMethod / depositCollectedAt 三者同时写入，空表示未登记
   //   - method 取值：cash | check | etransfer（前端下拉固定）
@@ -3380,6 +3396,7 @@ model SalesQuote {
   @@index([status])
   @@index([createdAt])
   @@index([orgId])
+  @@index([orgId, promotionApprovalStatus, createdAt])
 }
 
 /// 企业级报价折扣/促销/定金规则（每 org 一行当前生效配置）
