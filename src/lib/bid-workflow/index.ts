@@ -26,3 +26,8 @@ export {
 } from "./start-intelligence";
 export { setGoHoldNoGo } from "./go-decision";
 export { ensureProjectJoinBrief } from "./join-brief";
+export {
+  isPrismaSchemaDriftError,
+  withBidWorkflowSchemaFallback,
+  bidWorkflowUnavailableFields,
+} from "./schema-drift";

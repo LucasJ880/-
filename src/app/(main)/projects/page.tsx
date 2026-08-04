@@ -61,6 +61,8 @@ interface Project {
   clientOrganization?: string | null;
   closeDate?: string | null;
   bidPhaseStatus?: string | null;
+  /** false = 当前环境尚未 migrate / 投标智能不可用 */
+  intelligenceAvailable?: boolean;
   owner: { id: string; name: string };
   _count: { tasks: number; environments?: number };
   intelligenceRoom?: {
@@ -557,6 +559,12 @@ export default function ProjectsPage() {
           </button>
         ))}
       </div>
+
+      {projects.some((p) => p.intelligenceAvailable === false) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          当前环境尚未启用投标智能（数据库未完成迁移）。项目列表仍可使用；投标阶段筛选与调查室暂不可用。
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5 text-sm">
         {LIFECYCLE_OPTIONS.map((opt) => (
