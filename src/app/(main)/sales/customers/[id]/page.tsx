@@ -46,6 +46,7 @@ import type { VisualizerSessionSummary } from "@/lib/visualizer/types";
 import { AddInteractionDialog } from "./add-interaction-dialog";
 import { ImportConversationDialog } from "./import-conversation-dialog";
 import { CreateQuoteDialog } from "./create-quote-dialog";
+import { CustomerDigitalEmployeePanel } from "./digital-employee-panel";
 import { useSwipeable } from "@/lib/hooks/use-swipeable";
 import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
 import {
@@ -471,6 +472,16 @@ function CustomerDetailPageInner() {
       </div>
 
       <OrgSelectBanner />
+
+      <CustomerDigitalEmployeePanel
+        customer={customer}
+        onRecordFollowup={() => setShowAddInteraction(true)}
+        onCreateQuote={() => setShowCreateQuote(true)}
+        onEditProfile={() => {
+          setMobileSummaryOpen(true);
+          startBasicEdit();
+        }}
+      />
 
       {/* ───────── Mobile summary bar (默认收起) ───────── */}
       <div className="md:hidden -mt-1 space-y-2">

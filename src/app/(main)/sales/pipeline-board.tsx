@@ -20,6 +20,7 @@ import {
   isSalesOrgCreateBlocked,
   salesOrgCreateBlockedHint,
 } from "@/lib/sales/sales-client-org";
+import { reviewCrmRecord } from "@/lib/digital-employees/crm-review";
 
 function stayTone(days: number): string {
   // 严重超时浅红；过久浅橙；正常无底色
@@ -53,6 +54,23 @@ function OpportunityCard({
   const lastInteract = opp.lastInteractionAt || opp.updatedAt;
   const stageLabel =
     STAGES.find((s) => s.key === opp.stage)?.label ?? opp.stage;
+  const digitalEmployeeReview = reviewCrmRecord({
+    createdAt: opp.createdAt,
+    updatedAt: opp.updatedAt,
+    phone: opp.customer?.phone,
+    email: opp.customer?.email,
+    address: opp.customer?.address,
+    stage: opp.stage,
+    nextFollowupAt: opp.nextFollowupAt,
+    lastContactAt: opp.lastInteractionAt,
+    quoteStatus: opp.latestQuoteStatus,
+    quoteViewedAt: opp.quoteViewedAt,
+  }, now);
+  const reviewTone = digitalEmployeeReview.urgency === "critical"
+    ? "bg-red-100 text-red-700"
+    : digitalEmployeeReview.urgency === "warning"
+      ? "bg-amber-100 text-amber-700"
+      : "bg-emerald-100 text-emerald-700";
 
   return (
     <Link
@@ -76,7 +94,12 @@ function OpportunityCard({
               {opp.title}
             </p>
           )}
-          <p className="mt-0.5 text-[11px] text-muted">{stageLabel}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted">{stageLabel}</span>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", reviewTone)}>
+              数字员工 · {digitalEmployeeReview.label}
+            </span>
+          </div>
         </div>
         {health?.tip && (
           <button
@@ -149,6 +172,9 @@ function OpportunityCard({
           {opp.nextFollowupAt
             ? new Date(opp.nextFollowupAt).toLocaleDateString("zh-CN")
             : "未设置"}
+        </p>
+        <p className="pt-1 font-medium text-foreground">
+          下一步：{digitalEmployeeReview.actionLabel}
         </p>
       </div>
     </Link>

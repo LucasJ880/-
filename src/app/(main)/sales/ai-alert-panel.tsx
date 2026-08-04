@@ -215,7 +215,7 @@ export function AiAlertPanel() {
             </span>
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-foreground">销售行动台</span>
+                <span className="text-sm font-semibold text-foreground">销售数字员工行动队列</span>
                 {urgentCount > 0 && (
                   <span className="rounded-full bg-danger-bg px-2 py-0.5 text-[10px] font-semibold text-danger">
                     {urgentCount} 项高优先
@@ -228,7 +228,7 @@ export function AiAlertPanel() {
                 )}
               </span>
               <span className="mt-0.5 block text-xs text-muted">
-                基于 CRM 信号整理，所有外发内容均需人工确认
+                自动识别逾期、报价和商机信号；所有外发内容均需人工确认
               </span>
             </span>
           </button>

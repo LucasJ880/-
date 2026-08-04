@@ -44,6 +44,7 @@ export interface Quote {
   id: string;
   version: number;
   status: string;
+  viewedAt?: string | null;
   grandTotal: number;
   createdAt: string;
   /** 关联的销售机会（可为空；用于关联 Visualizer 封面） */
