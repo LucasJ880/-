@@ -6,6 +6,7 @@ import {
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { normalizeSupplierLinkRole } from "@/lib/bid-workflow/supplier-link-roles";
+import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 
 export async function GET(
   request: NextRequest,
@@ -92,25 +93,53 @@ export async function POST(
     return NextResponse.json({ link: existing, created: false });
   }
 
-  const link = await db.projectSupplierLink.create({
-    data: {
+  let link;
+  let created = true;
+  try {
+    link = await db.projectSupplierLink.create({
+      data: {
+        orgId: project.orgId,
+        projectId: id,
+        supplierId: body.supplierId,
+        role,
+        selected: role === "selected",
+      },
+    });
+  } catch (err) {
+    // 并发下另一请求已写入同一 (projectId, supplierId)：安全回收
+    if (!isPrismaUniqueViolation(err)) throw err;
+    const recovered = await db.projectSupplierLink.findUnique({
+      where: {
+        projectId_supplierId: { projectId: id, supplierId: body.supplierId },
+      },
+    });
+    if (
+      !recovered ||
+      recovered.projectId !== id ||
+      recovered.supplierId !== body.supplierId ||
+      recovered.orgId !== project.orgId
+    ) {
+      // 非本项目/本 org 的唯一冲突：不得误报成功
+      return NextResponse.json(
+        { error: "供应商关联冲突，请重试" },
+        { status: 409 },
+      );
+    }
+    link = recovered;
+    created = false;
+  }
+
+  if (created) {
+    await logAudit({
+      userId: user.id,
       orgId: project.orgId,
       projectId: id,
-      supplierId: body.supplierId,
-      role,
-      selected: role === "selected",
-    },
-  });
+      action: "project_supplier_linked",
+      targetType: "project_supplier_link",
+      targetId: link.id,
+      afterData: { supplierId: body.supplierId, role },
+    });
+  }
 
-  await logAudit({
-    userId: user.id,
-    orgId: project.orgId,
-    projectId: id,
-    action: "project_supplier_linked",
-    targetType: "project_supplier_link",
-    targetId: link.id,
-    afterData: { supplierId: body.supplierId, role },
-  });
-
-  return NextResponse.json({ link, created: true });
+  return NextResponse.json({ link, created });
 }

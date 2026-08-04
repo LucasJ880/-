@@ -26,6 +26,7 @@ npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts
 npx tsx src/lib/bid-workflow/__tests__/schema-drift.test.ts
+npx tsx src/lib/bid-workflow/__tests__/supplier-link-idempotency.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 echo ""
