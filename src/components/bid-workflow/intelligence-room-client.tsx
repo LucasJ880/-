@@ -9,6 +9,7 @@ import {
   sourceTypeLabel,
 } from "@/lib/bid-workflow/display-labels";
 import { bidPhaseLabel, goDecisionLabel } from "@/lib/bid-workflow/labels";
+import { ChinaSupplierBriefPanel } from "./china-supplier-brief-panel";
 import { ModuleDataView } from "./module-data-view";
 import { StartIntelligencePanel } from "./start-intelligence-panel";
 
@@ -85,7 +86,6 @@ export function IntelligenceRoomClient({
   const [factSourceUrl, setFactSourceUrl] = useState("");
   const [factSourcePage, setFactSourcePage] = useState("");
   const [recentChanges, setRecentChanges] = useState<string[]>([]);
-  const [chatHint, setChatHint] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -208,36 +208,6 @@ export function IntelligenceRoomClient({
             <Link href="/suppliers" className="underline">
               查看供应商
             </Link>
-            <Link
-              href={`/projects/${projectId}/generate-pdf`}
-              className="underline"
-              onClick={(e) => {
-                e.preventDefault();
-                void apiFetch(`/api/projects/${projectId}/generate-pdf`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ docType: "china_supplier_brief" }),
-                }).then(async (res) => {
-                  const data = await res.json();
-                  if (!res.ok) {
-                    setLoadError(data.error || "PDF 生成失败");
-                    return;
-                  }
-                  const url =
-                    data.document?.fileUrl ||
-                    data.document?.blobUrl ||
-                    null;
-                  if (url) {
-                    setChatHint("国内供应商 PDF 已生成");
-                    window.open(url, "_blank", "noopener,noreferrer");
-                  } else {
-                    setChatHint("国内供应商 PDF 已生成，请在项目文件中查看");
-                  }
-                });
-              }}
-            >
-              生成国内供应商 PDF
-            </Link>
           </div>
         </div>
         <p className="text-sm text-[var(--muted)]">
@@ -264,7 +234,7 @@ export function IntelligenceRoomClient({
           {loadError}
         </p>
       )}
-      {chatHint && <p className="text-sm text-green-700">{chatHint}</p>}
+      <ChinaSupplierBriefPanel projectId={projectId} />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">30 秒看懂项目</h2>

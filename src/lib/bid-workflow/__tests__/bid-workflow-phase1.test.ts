@@ -25,6 +25,10 @@ import {
   PROJECT_AI_TAB_HREF_SUFFIX,
 } from "../display-labels";
 import { normalizeSupplierLinkRole } from "../supplier-link-roles";
+import {
+  isProjectPdfDocType,
+  PROJECT_PDF_DOC_TYPES,
+} from "../pdf-doc-types";
 
 /** Cotton Towelling Fabric fixture（结构校验，不连 DB） */
 const COTTON_TOWELLING = {
@@ -159,6 +163,10 @@ async function main() {
   assert.equal(normalizeSupplierLinkRole("SHORTLISTED"), "shortlisted");
   assert.equal(normalizeSupplierLinkRole("candidate"), "candidate");
   assert.equal(normalizeSupplierLinkRole("bogus"), null);
+
+  assert.ok(PROJECT_PDF_DOC_TYPES.includes("china_supplier_brief"));
+  assert.equal(isProjectPdfDocType("china_supplier_brief"), true);
+  assert.equal(isProjectPdfDocType("evil"), false);
 
   console.log("bid-workflow-phase1: all passed");
 }
