@@ -23,7 +23,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "marketing-daily-brief", name: "微信推广日报", category: "marketing", cadence: "每日 08:00，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_DAILY_BRIEF_WEBHOOK_URL"] },
   { key: "marketing-experiment-review", name: "营销实验复盘", category: "marketing", cadence: "每周一 09:00，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_EXPERIMENT_WEBHOOK_URL"] },
   { key: "marketing-mmm", name: "Meridian MMM", category: "marketing", cadence: "按需/月度", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MMM_RUN_WEBHOOK_URL"] },
-  { key: "aivora-sync", name: "Aivora 视频同步", category: "operations", cadence: "每小时", timezone: "UTC", requiredEnv: ["AIVORA_ORG_ID"] },
+  { key: "aivora-sync", name: "Aivora 视频同步", category: "operations", cadence: "每 15 分钟", timezone: "UTC", requiredEnv: ["AIVORA_ORG_ID", "AIVORA_API_URL", "AIVORA_API_KEY"] },
   {
     key: "postiz-sync",
     name: "Postiz 发布状态回写",

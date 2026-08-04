@@ -30,7 +30,7 @@
     },
     {
       "path": "/api/cron/aivora-sync",
-      "schedule": "15 * * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/postiz-sync",
