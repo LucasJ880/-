@@ -53,6 +53,7 @@ import { ProjectImportBanner } from "@/components/project-create/project-import-
 import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
 import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
 import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
+import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -155,7 +156,7 @@ function ProjectDetailContent() {
   const searchParams = useSearchParams();
   const id = params.id as string;
   const highlightActivityId = searchParams.get("activity") ?? undefined;
-  const { isPlatformAdmin } = useCurrentUser();
+  const { isPlatformAdmin, user: currentUser } = useCurrentUser();
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
@@ -725,6 +726,13 @@ function ProjectDetailContent() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-4">
+        <ProjectJoinBriefs
+          projectId={id}
+          currentUserId={currentUser?.id ?? null}
+        />
       </div>
 
       <ProjectNotificationRuleCard projectId={id} />
