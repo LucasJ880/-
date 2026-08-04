@@ -25,6 +25,7 @@ import {
   salesOrgCreateBlockedHint,
 } from "@/lib/sales/sales-client-org";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { SalesActionLoopPanel } from "./sales-action-loop-panel";
 
 export default function SalesPage() {
   return (
@@ -251,6 +252,8 @@ function SalesPageInner() {
       <StatsCards opportunities={opportunities} customers={customers} viewMode={viewMode} />
 
       <PendingDepositBanner />
+
+      <SalesActionLoopPanel />
 
       <AiAlertPanel />
 

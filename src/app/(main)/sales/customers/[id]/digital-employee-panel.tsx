@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -10,10 +11,16 @@ import {
   MessageSquare,
   Phone,
   UserRoundPen,
+  ClipboardPlus,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { reviewCrmRecord } from "@/lib/digital-employees/crm-review";
 import type { CustomerDetail } from "./types";
+import { apiFetch } from "@/lib/api-fetch";
+import { useSalesCurrentOrgId } from "@/lib/hooks/use-sales-current-org-id";
+import { withSalesOrgId } from "@/lib/sales/sales-client-org";
+import type { SalesActionDto } from "../../sales-action-types";
 
 export function CustomerDigitalEmployeePanel({
   customer,
@@ -26,6 +33,10 @@ export function CustomerDigitalEmployeePanel({
   onCreateQuote: () => void;
   onEditProfile: () => void;
 }) {
+  const { orgId } = useSalesCurrentOrgId();
+  const [activeAction, setActiveAction] = useState<SalesActionDto | null>(null);
+  const [queueLoading, setQueueLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
   const activeOpportunity = customer.opportunities.find(
     (opportunity) => !["completed", "lost"].includes(opportunity.stage),
   ) ?? customer.opportunities[0];
@@ -43,6 +54,45 @@ export function CustomerDigitalEmployeePanel({
     quoteStatus: latestQuote?.status,
     quoteViewedAt: latestQuote?.viewedAt,
   });
+
+  useEffect(() => {
+    let active = true;
+    setQueueLoading(true);
+    apiFetch(`/api/sales/actions?status=active&customerId=${encodeURIComponent(customer.id)}`)
+      .then((response) => response.ok ? response.json() : { actions: [] })
+      .then((data) => {
+        if (active) setActiveAction(Array.isArray(data.actions) ? data.actions[0] ?? null : null);
+      })
+      .finally(() => { if (active) setQueueLoading(false); });
+    return () => { active = false; };
+  }, [customer.id]);
+
+  async function addToActionQueue() {
+    if (!orgId || review.action === "none") return;
+    setAdding(true);
+    try {
+      const response = await apiFetch("/api/sales/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(withSalesOrgId(orgId, {
+          customerId: customer.id,
+          opportunityId: activeOpportunity?.id ?? null,
+          signalKey: review.code,
+          category: review.action,
+          title: `${customer.name}：${review.actionLabel}`,
+          description: review.summary,
+          priority: review.urgency === "critical" ? "urgent" : review.urgency === "warning" ? "high" : "low",
+        })),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "加入行动队列失败");
+      setActiveAction(data.action ?? null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "加入行动队列失败");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   const tone = review.urgency === "critical"
     ? "border-red-200 bg-red-50/60 dark:border-red-900/50 dark:bg-red-950/20"
@@ -105,6 +155,28 @@ export function CustomerDigitalEmployeePanel({
             </div>
           )}
           <p className="mt-2 text-[10px] text-muted">只提供判断与草稿；发邮件、改商机状态仍由销售确认。</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {queueLoading ? (
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted"><Loader2 className="h-3 w-3 animate-spin" />同步行动状态</span>
+            ) : activeAction ? (
+              <>
+                <span className="rounded-full bg-blue-100 px-2 py-1 text-[11px] font-medium text-blue-700">
+                  已进入行动队列 · {activeAction.status === "in_progress" ? "处理中" : "待处理"}
+                </span>
+                <Link href="/sales" className="text-[11px] font-medium text-accent hover:underline">查看行动队列</Link>
+              </>
+            ) : review.action !== "none" ? (
+              <button
+                type="button"
+                onClick={() => void addToActionQueue()}
+                disabled={adding || !orgId}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-xs font-medium text-foreground hover:bg-background disabled:opacity-50"
+              >
+                {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardPlus className="h-3.5 w-3.5" />}
+                加入行动队列
+              </button>
+            ) : null}
+          </div>
         </div>
         {action}
       </div>

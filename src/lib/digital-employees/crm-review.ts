@@ -26,6 +26,7 @@ export type CrmReviewInput = {
 };
 
 export type CrmReview = {
+  code: string;
   urgency: CrmReviewUrgency;
   label: string;
   summary: string;
@@ -64,6 +65,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
 
   if (isClosed) {
     return {
+      code: stage === "lost" ? "closed_lost" : "closed_won",
       urgency: "ready",
       label: stage === "lost" ? "已结束" : "进展正常",
       summary: stage === "lost" ? "商机已流失，保留记录供复盘" : "当前阶段无需销售紧急介入",
@@ -75,6 +77,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
 
   if (!contactable) {
     return {
+      code: "missing_contact",
       urgency: "critical",
       label: "资料阻塞",
       summary: "先补齐联系方式，数字员工才能协助生成和发送跟进内容",
@@ -87,6 +90,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   if (nextFollowup != null && nextFollowup <= nowMs) {
     reasons.unshift("计划跟进时间已到");
     return {
+      code: "overdue_followup",
       urgency: "critical",
       label: "跟进逾期",
       summary: "建议今天联系客户，并在沟通后重新设定下一步",
@@ -99,6 +103,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   if (quoteViewed && input.quoteStatus !== "signed" && input.quoteStatus !== "accepted") {
     reasons.unshift("客户已经查看报价，但尚未签约");
     return {
+      code: "viewed_not_signed",
       urgency: "critical",
       label: "成交窗口",
       summary: "客户刚释放购买信号，优先确认价格、交期和安装疑问",
@@ -111,6 +116,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   if (stage === "new_lead" && lastContactDays == null && recordAgeDays >= 2) {
     reasons.unshift("新线索已超过 48 小时没有首次联系记录");
     return {
+      code: "new_lead_stale",
       urgency: "critical",
       label: "首次联系超时",
       summary: "尽快完成首次联系，避免线索继续降温",
@@ -123,6 +129,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   if (input.quoteStatus === "sent" && updatedDays >= 3) {
     reasons.unshift("报价已发送超过 3 天，尚未记录回复");
     return {
+      code: "quote_pending",
       urgency: "warning",
       label: "报价待跟进",
       summary: "确认客户是否收到报价，并处理主要异议",
@@ -136,6 +143,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   if (updatedDays >= staleLimit || (lastContactDays != null && lastContactDays >= staleLimit)) {
     reasons.unshift(`商机已至少 ${staleLimit} 天没有有效推进`);
     return {
+      code: "stale_opportunity",
       urgency: "warning",
       label: "商机停滞",
       summary: "重新确认客户意向，并约定一个明确的时间节点",
@@ -147,6 +155,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
 
   if (stage === "needs_confirmed" && !input.address) {
     return {
+      code: "measurement_needed",
       urgency: "warning",
       label: "待预约量房",
       summary: "补齐地址后安排量房，把需求转成可报价信息",
@@ -159,6 +168,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   if (!input.nextFollowupAt) {
     reasons.unshift("当前没有设定下次跟进时间");
     return {
+      code: "next_step_missing",
       urgency: "warning",
       label: "缺少下一步",
       summary: stage === "measure_booked" ? "确认量房时间和到场信息" : "每个活跃商机都应有明确的下一步",
@@ -169,6 +179,7 @@ export function reviewCrmRecord(input: CrmReviewInput, nowMs = Date.now()): CrmR
   }
 
   return {
+    code: "healthy",
     urgency: "ready",
     label: "推进正常",
     summary: "客户资料和跟进节奏正常，按计划执行即可",

@@ -48,6 +48,7 @@ export function AddInteractionDialog({
     summary: "",
     content: "",
     opportunityId: "",
+    nextFollowupAt: "",
   });
   const [saving, setSaving] = useState(false);
   const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
@@ -57,7 +58,7 @@ export function AddInteractionDialog({
     if (isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId)) return;
     setSaving(true);
     try {
-      await apiFetch(`/api/sales/customers/${customerId}/interactions`, {
+      const response = await apiFetch(`/api/sales/customers/${customerId}/interactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
@@ -68,9 +69,11 @@ export function AddInteractionDialog({
           }),
         ),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "保存互动失败");
       onSuccess();
     } catch (err) {
-      console.error(err);
+      alert(err instanceof Error ? err.message : "保存互动失败");
     } finally {
       setSaving(false);
     }
@@ -139,6 +142,20 @@ export function AddInteractionDialog({
                   ))}
                 </SelectContent>
               </ShadSelect>
+            </div>
+          )}
+
+          {form.opportunityId && (
+            <div className="space-y-1.5">
+              <Label htmlFor="interaction-next-followup">下次跟进时间</Label>
+              <Input
+                id="interaction-next-followup"
+                type="datetime-local"
+                value={form.nextFollowupAt}
+                min={new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)}
+                onChange={(e) => setForm({ ...form, nextFollowupAt: e.target.value })}
+              />
+              <p className="text-[11px] text-muted">数字员工会用这个时间安排下一次行动，避免跟进后再次失联。</p>
             </div>
           )}
 
