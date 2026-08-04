@@ -14,6 +14,8 @@ import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
 import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
+import { isAdmin } from '@/lib/rbac/roles';
+import { logAudit } from '@/lib/audit/logger';
 
 /**
  * POST /api/sales/quotes
@@ -224,6 +226,18 @@ export const POST = withAuth(async (request, _ctx, user) => {
         typeof finalDiscountPct === 'number' && Number.isFinite(finalDiscountPct)
           ? Math.max(0, Math.min(1, finalDiscountPct))
           : null,
+      ...(typeof finalDiscountPct === 'number' && finalDiscountPct > quoteSettings.promoMaxPct
+        ? isAdmin(user.role)
+          ? {
+              promotionApprovalStatus: 'approved',
+              promotionApprovalAmount: Math.max(0, specialPromotion ?? 0),
+              promotionApprovalRatio: Math.max(0, Math.min(1, finalDiscountPct)),
+              promotionApprovalMaxPct: quoteSettings.promoMaxPct,
+              promotionApprovedAt: new Date(),
+              promotionApprovedById: user.id,
+            }
+          : { promotionApprovalStatus: 'required' }
+        : { promotionApprovalStatus: 'not_required' }),
       agreedDepositAmount: agreed.agreedDepositAmount,
       agreedBalanceAmount: agreed.agreedBalanceAmount,
       createdById: user.id,
@@ -267,6 +281,17 @@ export const POST = withAuth(async (request, _ctx, user) => {
     },
     include: { items: true, addons: true },
   });
+
+  if (isAdmin(user.role) && typeof finalDiscountPct === 'number' && finalDiscountPct > quoteSettings.promoMaxPct) {
+    await logAudit({
+      userId: user.id,
+      orgId: requestOrgId,
+      action: 'quote_promotion_approved',
+      targetType: 'sales_quote',
+      targetId: quote.id,
+      afterData: { via: 'admin_direct_confirmation', promotionAmount: specialPromotion ?? 0, promotionRatio: finalDiscountPct, maxPct: quoteSettings.promoMaxPct },
+    });
+  }
 
   // —— 只有 full 模式才推进商机 lifecycle，避免"半成品"误升到 quoted ——
   let lifecycleResult = { opportunityId: null as string | null, advanced: false };

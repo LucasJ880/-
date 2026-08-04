@@ -148,6 +148,9 @@ function NotificationsContent() {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";
         router.push(`/sales/quote-sheet?mode=order&quoteId=${encodeURIComponent(item.entityId)}${orgQuery}`);
+      } else if (item.entityType === "approval" && item.entityId) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(`/capabilities/approvals/${encodeURIComponent(item.entityId)}`);
       } else if (item.projectId && item.activityId) {
         router.push(`/projects/${item.projectId}?activity=${item.activityId}`);
       } else if (item.projectId) {

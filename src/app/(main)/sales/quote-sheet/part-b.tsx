@@ -38,6 +38,7 @@ interface PartBProps {
   onRequestPromotionApproval?: () => void;
   requestingPromotionApproval?: boolean;
   promotionApprovalRequested?: boolean;
+  promotionApprovalApproved?: boolean;
   totalMsrp: number; // 用于预览"相对 MSRP 的折扣率"
   productsPreTax: number; // = productsSubtotal + 安装补差（不含 Part B 自身）用于校验上限
   // Special Promotion 阈值（0~1 小数，从全局折扣设置拉取）
@@ -85,6 +86,7 @@ export function PartBForm({
   onRequestPromotionApproval,
   requestingPromotionApproval = false,
   promotionApprovalRequested = false,
+  promotionApprovalApproved = false,
   totalMsrp,
   productsPreTax,
   promoWarnPct,
@@ -275,6 +277,7 @@ export function PartBForm({
         onRequestApproval={onRequestPromotionApproval}
         requestingApproval={requestingPromotionApproval}
         approvalRequested={promotionApprovalRequested}
+        approvalApproved={promotionApprovalApproved}
       />
 
       <TaxRateRow value={taxRate} onChange={onTaxRateChange} />
@@ -522,6 +525,7 @@ function SpecialPromotionRow({
   onRequestApproval,
   requestingApproval = false,
   approvalRequested = false,
+  approvalApproved = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -535,6 +539,7 @@ function SpecialPromotionRow({
   onRequestApproval?: () => void;
   requestingApproval?: boolean;
   approvalRequested?: boolean;
+  approvalApproved?: boolean;
 }) {
   const amount = Math.max(0, parseFloat(value) || 0);
   // 让利占产品税前比例（销售端统一看这一口径，不再与 MSRP 比较）
@@ -604,7 +609,12 @@ function SpecialPromotionRow({
               。
             </span>
           </div>
-          {!isAdmin && onRequestApproval && (
+          {!isAdmin && approvalApproved && (
+            <div className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white">
+              <ShieldCheck size={13} />管理员已批准本次让利
+            </div>
+          )}
+          {!isAdmin && !approvalApproved && onRequestApproval && (
             <button
               type="button"
               onClick={onRequestApproval}

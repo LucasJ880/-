@@ -189,7 +189,10 @@ function QuoteSheetPageInner() {
   const [editingLoading, setEditingLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [requestingPromotionApproval, setRequestingPromotionApproval] = useState(false);
-  const [promotionApprovalRequested, setPromotionApprovalRequested] = useState(false);
+  const [promotionApprovalStatus, setPromotionApprovalStatus] = useState("not_required");
+  const [promotionApprovalAmount, setPromotionApprovalAmount] = useState<number | null>(null);
+  const [promotionApprovalRatio, setPromotionApprovalRatio] = useState<number | null>(null);
+  const [promotionApprovalExpiresAt, setPromotionApprovalExpiresAt] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatedFlash, setGeneratedFlash] = useState<string | null>(null);
   // 发送 Quote 弹窗（让销售选择：发邮件 / 本地保存 PDF）
@@ -498,7 +501,16 @@ function QuoteSheetPageInner() {
   const finalDiscountPct = productsPreTax > 0
     ? Math.max(0, Math.min(1, specialPromotionNum / productsPreTax))
     : 0;
-  const promoBlocked = !isSuperAdmin && promoRatio > promoMaxPct;
+  const promotionSnapshotMatches = promotionApprovalAmount != null
+    && promotionApprovalRatio != null
+    && Math.abs(promotionApprovalAmount - specialPromotionNum) <= 0.0001
+    && Math.abs(promotionApprovalRatio - promoRatio) <= 0.0001;
+  const promotionApprovalRequested = promotionApprovalStatus === "pending"
+    && promotionSnapshotMatches
+    && Boolean(promotionApprovalExpiresAt && new Date(promotionApprovalExpiresAt).getTime() > Date.now());
+  const promotionApproved = promotionApprovalStatus === "approved" && promotionSnapshotMatches;
+  const promotionOverMax = !isSuperAdmin && promoRatio > promoMaxPct;
+  const promoBlocked = promotionOverMax && !promotionApproved;
 
   // 客户当日序号（由后端按「该销售今日接触的 distinct 客户顺序」分配）
   // - 选中客户 + date 变化时拉取
@@ -695,6 +707,10 @@ function QuoteSheetPageInner() {
             formDataJson: string | null;
             notes: string | null;
             specialPromotion: number | null;
+            promotionApprovalStatus: string;
+            promotionApprovalAmount: number | null;
+            promotionApprovalRatio: number | null;
+            promotionApprovalExpiresAt: string | null;
           };
         };
         const res = await apiJson<QuoteResp>(
@@ -724,6 +740,10 @@ function QuoteSheetPageInner() {
         ) {
           setSpecialPromotion(String(res.quote.specialPromotion));
         }
+        setPromotionApprovalStatus(res.quote.promotionApprovalStatus ?? "not_required");
+        setPromotionApprovalAmount(res.quote.promotionApprovalAmount ?? null);
+        setPromotionApprovalRatio(res.quote.promotionApprovalRatio ?? null);
+        setPromotionApprovalExpiresAt(res.quote.promotionApprovalExpiresAt ?? null);
       } catch (err) {
         console.error("Load quote for editing failed:", err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -1046,7 +1066,10 @@ function QuoteSheetPageInner() {
       if (!response.ok) {
         throw new Error(data?.error || "提交审核失败");
       }
-      setPromotionApprovalRequested(true);
+      setPromotionApprovalStatus("pending");
+      setPromotionApprovalAmount(specialPromotionNum);
+      setPromotionApprovalRatio(promoRatio);
+      setPromotionApprovalExpiresAt(new Date(Date.now() + 7 * 86_400_000).toISOString());
       alert(`已保存报价草稿并通知 ${data?.notified ?? 0} 位管理员。管理员可从通知中心直接打开审核。`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1054,11 +1077,7 @@ function QuoteSheetPageInner() {
     } finally {
       setRequestingPromotionApproval(false);
     }
-  }, [promoBlocked, requestingPromotionApproval, saveQuote]);
-
-  useEffect(() => {
-    setPromotionApprovalRequested(false);
-  }, [specialPromotion, productsPreTax, promoMaxPct]);
+  }, [promoBlocked, requestingPromotionApproval, saveQuote, specialPromotionNum, promoRatio]);
 
   /**
    * 打开"发送 Quote"弹窗：
@@ -1418,8 +1437,9 @@ function QuoteSheetPageInner() {
       specialPromotion: specialPromotionNum,
       promoRatio,
       promoMaxPct,
-      promoBlocked,
+      promoBlocked: promotionOverMax,
       promotionApprovalRequested,
+      promotionApprovalApproved: promotionApproved,
       paymentMethod,
       depositAmount: Math.max(0, parseFloat(depositAmount) || 0),
       grandTotal,
@@ -1443,8 +1463,9 @@ function QuoteSheetPageInner() {
     specialPromotionNum,
     promoRatio,
     promoMaxPct,
-    promoBlocked,
+    promotionOverMax,
     promotionApprovalRequested,
+    promotionApproved,
     paymentMethod,
     depositAmount,
     grandTotal,
@@ -1882,6 +1903,7 @@ function QuoteSheetPageInner() {
             onRequestPromotionApproval={handleRequestPromotionApproval}
             requestingPromotionApproval={requestingPromotionApproval}
             promotionApprovalRequested={promotionApprovalRequested}
+            promotionApprovalApproved={promotionApproved}
             totalMsrp={totalMsrp}
             productsPreTax={productsPreTax}
             promoWarnPct={promoWarnPct}
