@@ -70,9 +70,9 @@ const opsNav = resolveNavigationTree(
 );
 ok(opsNav.some((i) => i.key === "ws-ops"), "运营可见运营中心");
 ok(!opsNav.some((i) => i.key === "ws-bids"), "运营默认不看招投标中心");
-ok(!opsNav.some((i) => i.key === "biz-projects"), "运营不显示 /projects");
+ok(!opsNav.some((i) => i.key === "nav-projects"), "运营不显示 /projects");
 ok(
-  !opsNav.some((i) => i.key === "biz-project-intel"),
+  !opsNav.some((i) => i.key === "nav-project-intel"),
   "运营不显示项目智能",
 );
 ok(opsNav.some((i) => i.href === "/tasks" || i.key === "work-tasks"), "运营仍可见任务");

@@ -51,6 +51,9 @@ import { ProjectGenerateMenu } from "@/components/project-generate/project-gener
 import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
 import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
 import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
+import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
+import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
+import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
 import { getProjectStage } from "@/lib/tender/stage";
 import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS } from "@/lib/i18n/labels";
 import type { FormattedActivity } from "@/lib/activity/formatter";
@@ -120,6 +123,17 @@ interface ProjectDetail {
     reviewScore?: number | null;
   } | null;
   documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
+  bidPhaseStatus?: string | null;
+  /** AI 建议态（与人工 goDecision 分离，不作真相来源） */
+  aiAdviceStatus?: string | null;
+  /** false = 当前环境尚未 migrate / 投标智能不可用 */
+  intelligenceAvailable?: boolean;
+  intelligenceRoom?: {
+    id: string;
+    goDecision: string | null;
+    summaryStatus: string | null;
+    summaryText: string | null;
+  } | null;
 }
 
 interface MemberRow {
@@ -146,7 +160,7 @@ function ProjectDetailContent() {
   const searchParams = useSearchParams();
   const id = params.id as string;
   const highlightActivityId = searchParams.get("activity") ?? undefined;
-  const { isPlatformAdmin } = useCurrentUser();
+  const { isPlatformAdmin, user: currentUser } = useCurrentUser();
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
@@ -482,6 +496,26 @@ function ProjectDetailContent() {
             refreshKey={orgRulesRefreshKey}
           />
 
+          {project.intelligenceAvailable === false ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              当前环境尚未启用投标智能（数据库未完成迁移）。项目文件、成员与询价等主链仍可用；调查室需在迁移后初始化。
+            </div>
+          ) : (
+            <StartIntelligencePanel
+              projectId={id}
+              hasRoom={!!project.intelligenceRoom}
+              goDecision={project.intelligenceRoom?.goDecision ?? null}
+              bidPhaseStatus={project.bidPhaseStatus ?? null}
+              aiSuggestion={
+                project.intelligence?.recommendation ??
+                project.aiAdviceStatus ??
+                null
+              }
+            />
+          )}
+
+          <ProjectSupplierLinks projectId={id} orgId={project.orgId} />
+
           {/* AI 情报分析 */}
           {(project.sourceSystem === "bidtogo" || project.intelligence) && (
             <BidToGoIntelligenceCard
@@ -702,6 +736,13 @@ function ProjectDetailContent() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-4">
+        <ProjectJoinBriefs
+          projectId={id}
+          currentUserId={currentUser?.id ?? null}
+        />
       </div>
 
       <ProjectNotificationRuleCard projectId={id} />

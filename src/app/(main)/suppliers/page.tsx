@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -27,7 +27,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { SupplierFilters } from "./supplier-filters";
+import {
+  matchSupplierBucket,
+  SupplierFilters,
+  type SupplierBucketKey,
+} from "./supplier-filters";
 import { SupplierTable } from "./supplier-table";
 
 interface SupplierStats {
@@ -88,6 +92,7 @@ export default function SuppliersPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [selectedOrgId, setSelectedOrgId] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [bucketFilter, setBucketFilter] = useState<SupplierBucketKey>("all");
   const [showForm, setShowForm] = useState(false);
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
@@ -168,11 +173,16 @@ export default function SuppliersPage() {
 
   const noOrg = !orgsLoading && activeOrgs.length === 0;
 
+  const visibleSuppliers = useMemo(
+    () => suppliers.filter((s) => matchSupplierBucket(s, bucketFilter)),
+    [suppliers, bucketFilter],
+  );
+
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
-        title="供应商管理"
-        description="管理组织内的供应商库，查看合作历史和报价记录。"
+        title="供应商"
+        description="独立公共供应商库；可与多个投标项目多对多关联。"
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -226,7 +236,9 @@ export default function SuppliersPage() {
             onStatusFilterChange={setStatusFilter}
             sourceFilter={sourceFilter}
             onSourceFilterChange={setSourceFilter}
-            total={total}
+            bucketFilter={bucketFilter}
+            onBucketFilterChange={setBucketFilter}
+            total={bucketFilter === "all" ? total : visibleSuppliers.length}
           />
 
           {loading ? (
@@ -241,23 +253,27 @@ export default function SuppliersPage() {
                 重试
               </button>
             </div>
-          ) : suppliers.length === 0 ? (
+          ) : visibleSuppliers.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border py-16">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[rgba(110,125,118,0.08)]">
                 <Package size={28} className="text-[#8a9590]" />
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-foreground">
-                  {search ? "未找到匹配的供应商" : "还没有供应商"}
+                  {search || bucketFilter !== "all"
+                    ? "未找到匹配的供应商"
+                    : "还没有供应商"}
                 </p>
                 <p className="mt-1 text-sm text-muted">
-                  {search ? "请尝试其他搜索条件" : "点击「新建供应商」添加第一家"}
+                  {search || bucketFilter !== "all"
+                    ? "请尝试其他筛选条件"
+                    : "点击「新建供应商」添加第一家"}
                 </p>
               </div>
             </div>
           ) : (
             <SupplierTable
-              suppliers={suppliers}
+              suppliers={visibleSuppliers}
               onEdit={(s) => { setEditing(s); setShowForm(true); }}
               onToggleStatus={handleToggleStatus}
               onDelete={handleDelete}

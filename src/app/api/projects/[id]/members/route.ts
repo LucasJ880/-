@@ -18,6 +18,7 @@ import {
 } from "@/lib/projects/duty";
 import { onMemberJoined } from "@/lib/project-discussion/system-events";
 import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
+import { ensureProjectJoinBrief } from "@/lib/bid-workflow/join-brief";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -201,6 +202,22 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   syncProjectMilestoneCalendars(projectId).catch(() => null);
 
+  let joinBrief: { id: string; created: boolean } | null = null;
+  if (project.orgId) {
+    try {
+      const brief = await ensureProjectJoinBrief({
+        orgId: project.orgId,
+        projectId,
+        userId,
+        roleHint: duty || member.role,
+        actorUserId: user.id,
+      });
+      joinBrief = { id: brief.id, created: brief.created };
+    } catch (err) {
+      console.error("[members POST] join-brief failed", err);
+    }
+  }
+
   const refreshed = await db.project.findUnique({
     where: { id: projectId },
     select: { ownerId: true, purchaserId: true },
@@ -220,6 +237,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         status: member.status,
         user: member.user,
       },
+      joinBrief,
     },
     { status: 201 }
   );

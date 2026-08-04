@@ -15,6 +15,8 @@ import { PageHeader } from "@/components/page-header";
 import { apiJson } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { cn } from "@/lib/utils";
+import { IntelHubShell } from "@/components/bid-workflow/intel-hub-shell";
+import { bidPhaseLabel } from "@/lib/bid-workflow/labels";
 
 type Rule = {
   id: string;
@@ -93,6 +95,15 @@ type CompareRow = {
   intelligenceSummary: string | null;
 };
 
+type RoomProject = {
+  id: string;
+  name: string;
+  solicitationNumber?: string | null;
+  bidPhaseStatus?: string | null;
+  clientOrganization?: string | null;
+  intelligenceRoom?: { id: string; goDecision: string | null } | null;
+};
+
 export default function ProjectIntelligencePage() {
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
   const [data, setData] = useState<IntelPayload | null>(null);
@@ -104,6 +115,7 @@ export default function ProjectIntelligencePage() {
   const [compareIds, setCompareIds] = useState("");
   const [compareRows, setCompareRows] = useState<CompareRow[]>([]);
   const [compareError, setCompareError] = useState<string | null>(null);
+  const [rooms, setRooms] = useState<RoomProject[]>([]);
 
   const load = useCallback(async () => {
     if (!orgId) {
@@ -123,9 +135,25 @@ export default function ProjectIntelligencePage() {
     setLoading(false);
   }, [orgId]);
 
+  const loadRooms = useCallback(async () => {
+    try {
+      const projects = await apiJson<RoomProject[]>(
+        `/api/projects?lifecycle=active&bidListFilter=investigating&take=50`,
+      );
+      const list = Array.isArray(projects) ? projects : [];
+      setRooms(list.filter((p) => p.intelligenceRoom?.id));
+    } catch {
+      // 调查中列表失败不阻断组织智能页
+      setRooms([]);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!orgLoading) void load();
-  }, [orgLoading, load]);
+    if (!orgLoading) {
+      void load();
+      void loadRooms();
+    }
+  }, [orgLoading, load, loadRooms]);
 
   const proposed = useMemo(
     () => data?.rules.filter((r) => r.status === "proposed") ?? [],
@@ -179,20 +207,73 @@ export default function ProjectIntelligencePage() {
 
   if (ambiguous) {
     return (
-      <div className="p-6">
-        <PageHeader
-          title="项目智能中心"
-          description="请先在左上角选择组织。"
-        />
-      </div>
+      <IntelHubShell title="智能调查室">
+        <p className="text-sm text-[var(--muted)]">请先在左上角选择组织。</p>
+      </IntelHubShell>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 p-6">
+    <IntelHubShell title="智能调查室 / 组织智能">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <section className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">进行中的调查室</h2>
+            <p className="text-xs text-[var(--muted)] mt-0.5">
+              每项目唯一调查室；从项目详情「确认进入投标调查」创建。
+            </p>
+          </div>
+          <Link href="/projects" className="text-xs text-accent hover:underline">
+            全部项目
+          </Link>
+        </div>
+        {rooms.length === 0 ? (
+          <p className="text-xs text-[var(--muted)]">
+            暂无调查中项目。可在项目详情启动调查后在此汇总查看。
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {rooms.map((p) => (
+              <li
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs"
+              >
+                <div>
+                  <Link
+                    href={`/projects/${p.id}/intelligence-room`}
+                    className="font-medium hover:text-accent"
+                  >
+                    {p.name}
+                  </Link>
+                  <p className="text-[var(--muted)] mt-0.5">
+                    {[
+                      p.solicitationNumber,
+                      p.clientOrganization,
+                      bidPhaseLabel(p.bidPhaseStatus),
+                      p.intelligenceRoom?.goDecision
+                        ? `决定 ${p.intelligenceRoom.goDecision}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <Link
+                  href={`/projects/${p.id}`}
+                  className="text-accent hover:underline"
+                >
+                  项目
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <PageHeader
-        title="项目智能中心"
-        description="Phase 2：企业规则、供应商表现、价格趋势、客户/竞争规律与批量对比。规则须人工确认后生效。"
+        title="组织智能（既有）"
+        description="企业规则、供应商表现、价格趋势与批量对比。规则须人工确认后生效。"
         actions={
           <button
             type="button"
@@ -521,5 +602,6 @@ export default function ProjectIntelligencePage() {
         </div>
       )}
     </div>
+    </IntelHubShell>
   );
 }

@@ -1,0 +1,145 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  requireProjectReadAccess,
+  requireProjectWriteAccess,
+} from "@/lib/projects/access";
+import { db } from "@/lib/db";
+import { logAudit } from "@/lib/audit/logger";
+import { normalizeSupplierLinkRole } from "@/lib/bid-workflow/supplier-link-roles";
+import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+
+  try {
+    const links = await db.projectSupplierLink.findMany({
+      where: { projectId: id },
+      include: {
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+            region: true,
+            category: true,
+            contactName: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+    return NextResponse.json({ links });
+  } catch (err) {
+    console.error("[supplier-links GET]", err);
+    return NextResponse.json({ links: [], unavailable: true });
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  const { user, project } = access;
+  if (!project.orgId) {
+    return NextResponse.json({ error: "项目缺少组织" }, { status: 422 });
+  }
+
+  let body: { supplierId?: string; role?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+  }
+  if (!body.supplierId) {
+    return NextResponse.json({ error: "supplierId 必填" }, { status: 422 });
+  }
+
+  const role = normalizeSupplierLinkRole(body.role || "candidate");
+  if (!role) {
+    return NextResponse.json(
+      { error: "role 必须是 candidate|shortlisted|selected|rejected" },
+      { status: 422 },
+    );
+  }
+
+  const supplier = await db.supplier.findFirst({
+    where: { id: body.supplierId, orgId: project.orgId },
+    select: { id: true, orgId: true },
+  });
+  if (!supplier) {
+    return NextResponse.json(
+      { error: "供应商不存在或不属于本组织" },
+      { status: 404 },
+    );
+  }
+  if (supplier.orgId !== project.orgId) {
+    return NextResponse.json({ error: "跨组织供应商不可关联" }, { status: 403 });
+  }
+
+  const existing = await db.projectSupplierLink.findUnique({
+    where: {
+      projectId_supplierId: { projectId: id, supplierId: body.supplierId },
+    },
+  });
+  if (existing) {
+    return NextResponse.json({ link: existing, created: false });
+  }
+
+  let link;
+  let created = true;
+  try {
+    link = await db.projectSupplierLink.create({
+      data: {
+        orgId: project.orgId,
+        projectId: id,
+        supplierId: body.supplierId,
+        role,
+        selected: role === "selected",
+      },
+    });
+  } catch (err) {
+    // 并发下另一请求已写入同一 (projectId, supplierId)：安全回收
+    if (!isPrismaUniqueViolation(err)) throw err;
+    const recovered = await db.projectSupplierLink.findUnique({
+      where: {
+        projectId_supplierId: { projectId: id, supplierId: body.supplierId },
+      },
+    });
+    if (
+      !recovered ||
+      recovered.projectId !== id ||
+      recovered.supplierId !== body.supplierId ||
+      recovered.orgId !== project.orgId
+    ) {
+      // 非本项目/本 org 的唯一冲突：不得误报成功
+      return NextResponse.json(
+        { error: "供应商关联冲突，请重试" },
+        { status: 409 },
+      );
+    }
+    link = recovered;
+    created = false;
+  }
+
+  if (created) {
+    await logAudit({
+      userId: user.id,
+      orgId: project.orgId,
+      projectId: id,
+      action: "project_supplier_linked",
+      targetType: "project_supplier_link",
+      targetId: link.id,
+      afterData: { supplierId: body.supplierId, role },
+    });
+  }
+
+  return NextResponse.json({ link, created });
+}
