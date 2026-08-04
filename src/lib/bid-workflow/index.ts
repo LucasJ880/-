@@ -14,6 +14,11 @@ export {
   sourceTypeLabel,
 } from "./display-labels";
 export {
+  normalizeSupplierLinkRole,
+  SUPPLIER_LINK_ROLES,
+  SUPPLIER_LINK_ROLE_LABELS,
+} from "./supplier-link-roles";
+export {
   startBidIntelligence,
   StartIntelligenceError,
   type StartIntelligenceInput,

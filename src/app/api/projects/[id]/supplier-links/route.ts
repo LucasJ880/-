@@ -5,6 +5,7 @@ import {
 } from "@/lib/projects/access";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
+import { normalizeSupplierLinkRole } from "@/lib/bid-workflow/supplier-link-roles";
 
 export async function GET(
   request: NextRequest,
@@ -60,12 +61,26 @@ export async function POST(
     return NextResponse.json({ error: "supplierId 必填" }, { status: 422 });
   }
 
+  const role = normalizeSupplierLinkRole(body.role || "candidate");
+  if (!role) {
+    return NextResponse.json(
+      { error: "role 必须是 candidate|shortlisted|selected|rejected" },
+      { status: 422 },
+    );
+  }
+
   const supplier = await db.supplier.findFirst({
     where: { id: body.supplierId, orgId: project.orgId },
-    select: { id: true },
+    select: { id: true, orgId: true },
   });
   if (!supplier) {
-    return NextResponse.json({ error: "供应商不存在" }, { status: 404 });
+    return NextResponse.json(
+      { error: "供应商不存在或不属于本组织" },
+      { status: 404 },
+    );
+  }
+  if (supplier.orgId !== project.orgId) {
+    return NextResponse.json({ error: "跨组织供应商不可关联" }, { status: 403 });
   }
 
   const existing = await db.projectSupplierLink.findUnique({
@@ -82,7 +97,8 @@ export async function POST(
       orgId: project.orgId,
       projectId: id,
       supplierId: body.supplierId,
-      role: body.role || "candidate",
+      role,
+      selected: role === "selected",
     },
   });
 
@@ -93,7 +109,7 @@ export async function POST(
     action: "project_supplier_linked",
     targetType: "project_supplier_link",
     targetId: link.id,
-    afterData: { supplierId: body.supplierId },
+    afterData: { supplierId: body.supplierId, role },
   });
 
   return NextResponse.json({ link, created: true });

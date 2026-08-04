@@ -24,6 +24,7 @@ import {
   projectAiTabHref,
   PROJECT_AI_TAB_HREF_SUFFIX,
 } from "../display-labels";
+import { normalizeSupplierLinkRole } from "../supplier-link-roles";
 
 /** Cotton Towelling Fabric fixture（结构校验，不连 DB） */
 const COTTON_TOWELLING = {
@@ -154,6 +155,10 @@ async function main() {
   assert.equal(PROJECT_AI_TAB_HREF_SUFFIX, "?tab=ai");
   assert.equal(projectAiTabHref("proj_1"), "/projects/proj_1?tab=ai");
   assert.ok(!projectAiTabHref("proj_1").includes("tab=workspace"));
+
+  assert.equal(normalizeSupplierLinkRole("SHORTLISTED"), "shortlisted");
+  assert.equal(normalizeSupplierLinkRole("candidate"), "candidate");
+  assert.equal(normalizeSupplierLinkRole("bogus"), null);
 
   console.log("bid-workflow-phase1: all passed");
 }

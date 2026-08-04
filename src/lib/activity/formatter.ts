@@ -31,6 +31,8 @@ const ACTION_LABELS: Record<string, string> = {
   bid_go_decision: "记录了 Go/Hold/No-Go 决定",
   project_join_brief_created: "生成了成员加入简报",
   project_supplier_linked: "关联了项目供应商",
+  project_supplier_link_updated: "更新了项目供应商关联",
+  project_supplier_unlinked: "解除了项目供应商关联",
   bid_fact_saved: "保存了调查事实",
 };
 
