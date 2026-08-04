@@ -35,5 +35,6 @@ test("紧急行动默认八小时内到期并可汇总闭环指标", () => {
     { status: "in_progress", dueAt: "2026-08-05T10:00:00.000Z" },
     { status: "completed", dueAt: null },
     { status: "dismissed", dueAt: null },
-  ], now), { open: 2, overdue: 1, completed: 1, dismissed: 1, completionRate: 50 });
+    { status: "auto_resolved", dueAt: null },
+  ], now), { open: 2, overdue: 1, completed: 1, dismissed: 1, autoResolved: 1, completionRate: 50 });
 });

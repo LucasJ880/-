@@ -57,12 +57,13 @@ const STALE_DAYS: Record<string, number> = {
 export async function scanSalesDomain(
   userId: string,
   orgId: string,
-  options?: { ownOnly?: boolean },
+  options?: { ownOnly?: boolean; maxOpportunities?: number },
 ): Promise<DomainScanResult> {
   const now = new Date();
   const items: BriefingItem[] = [];
   const stats: Record<string, number> = {};
   const ownOnly = options?.ownOnly ?? true;
+  const maxOpportunities = Math.min(Math.max(options?.maxOpportunities ?? 50, 1), 500);
 
   const ownerFilter = ownOnly
     ? {
@@ -92,7 +93,7 @@ export async function scanSalesDomain(
         select: { createdAt: true, status: true, grandTotal: true, viewedAt: true, signedAt: true },
       },
     },
-    take: 50,
+    take: maxOpportunities,
   });
 
   const seenKeys = new Set<string>();
@@ -206,7 +207,7 @@ export async function scanSalesDomain(
             action: {
               type: "view_sales_customer",
               label: "联系客户",
-              payload: { customerId: opp.customer.id },
+              payload: { customerId: opp.customer.id, opportunityId: opp.id },
             },
             entityType: "sales_customer",
             entityId: opp.customer.id,
@@ -240,7 +241,7 @@ export async function scanSalesDomain(
           action: {
             type: "view_sales_customer",
             label: "查看详情",
-            payload: { customerId: opp.customer.id },
+            payload: { customerId: opp.customer.id, opportunityId: opp.id },
           },
           entityType: "sales_customer",
           entityId: opp.customer.id,
@@ -509,6 +510,8 @@ export async function scanSalesDomain(
     }),
   ]);
   stats.activeOpportunities = totalActive;
+  stats.scannedOpportunities = opportunities.length;
+  stats.scanLimitReached = totalActive > opportunities.length ? 1 : 0;
   stats.newInquiries = newInquiries;
   stats.signedThisMonth = wonThisMonth;
 

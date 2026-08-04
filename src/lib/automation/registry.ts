@@ -14,6 +14,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "daily-brief", name: "每日经营简报", category: "sales", cadence: "每日 07:00", timezone: AUTOMATION_TIMEZONE },
   { key: "approval-timeout", name: "审批超时检查", category: "operations", cadence: "每 2 小时", timezone: "UTC" },
   { key: "trade-followup", name: "客户跟进建议", category: "sales", cadence: "每日 09:00、14:00", timezone: AUTOMATION_TIMEZONE },
+  { key: "sales-action-sync", name: "销售行动自动同步", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: AUTOMATION_TIMEZONE },
   { key: "progress-summary", name: "项目进度摘要", category: "projects", cadence: "每日", timezone: "UTC" },
   { key: "service-inbox-sla", name: "客服 SLA 提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
