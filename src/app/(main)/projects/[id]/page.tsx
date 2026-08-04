@@ -124,6 +124,8 @@ interface ProjectDetail {
   } | null;
   documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
   bidPhaseStatus?: string | null;
+  /** AI 建议态（与人工 goDecision 分离，不作真相来源） */
+  aiAdviceStatus?: string | null;
   intelligenceRoom?: {
     id: string;
     goDecision: string | null;
