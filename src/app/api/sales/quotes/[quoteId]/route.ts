@@ -10,6 +10,7 @@ import {
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
+import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
 import type {
   QuoteItemInput,
   QuoteAddonInput,
@@ -186,6 +187,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
   }
 
   // —— pricing 兜底，行为与 POST 完全一致 ——
+  const quoteSettings = await loadDiscountsDto(orgRes.orgId);
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
@@ -194,6 +196,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
       installMode,
       deliveryFee,
       taxRate,
+      sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
     });
   } catch (err) {
     console.error("[quotes.PUT] pricing engine threw:", err);

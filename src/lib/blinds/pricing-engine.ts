@@ -9,7 +9,6 @@ import type {
   ProductName,
   PriceResult,
   PriceError,
-  QuoteItemInput,
   QuoteTotalInput,
   QuoteTotalResult,
   InstallMode,
@@ -23,6 +22,7 @@ import {
   INSTALL_RULES,
   DEFAULT_DELIVERY_FEE,
   DEFAULT_TAX_RATE,
+  DEFAULT_SUNNY_MOTOR_PRICE,
   DEFAULT_CORDLESS_MULTIPLIER,
   CORDLESS_MAX_WIDTH,
   CORDLESS_MAX_HEIGHT,
@@ -241,6 +241,12 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   const installMode: InstallMode = input.installMode ?? 'default';
   const deliveryFee = input.deliveryFee ?? DEFAULT_DELIVERY_FEE;
   const taxRate = input.taxRate ?? DEFAULT_TAX_RATE;
+  const sunnyMotorPrice =
+    typeof input.sunnyMotorPrice === 'number' &&
+    Number.isFinite(input.sunnyMotorPrice) &&
+    input.sunnyMotorPrice >= 0
+      ? input.sunnyMotorPrice
+      : DEFAULT_SUNNY_MOTOR_PRICE;
 
   const itemResults: QuoteTotalResult['itemResults'] = [];
   const errors: QuoteTotalResult['errors'] = [];
@@ -264,18 +270,19 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
         item.widthIn > INSTALL_RULES.wideThresholdIn
           ? INSTALL_RULES.wide
           : INSTALL_RULES.regular;
+      const motorSurcharge = item.motorized ? sunnyMotorPrice : 0;
       const result: PriceResult = {
-        msrp: manual,
+        msrp: manual + motorSurcharge,
         discountPct: 0,
         discountValue: 0,
-        price: manual,
+        price: manual + motorSurcharge,
         install,
         cordless: false,
         bracketWidth: 0,
         bracketHeight: 0,
       };
       const effectiveInstall = installMode === 'pickup' ? 0 : install;
-      merchSubtotal += manual;
+      merchSubtotal += result.price;
       installSubtotal += effectiveInstall;
       itemResults.push({ ...result, input: item });
       return;
@@ -295,11 +302,19 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
       return;
     }
 
-    const effectiveInstall = installMode === 'pickup' ? 0 : result.install;
-    merchSubtotal += result.price;
+    const motorSurcharge = item.motorized ? sunnyMotorPrice : 0;
+    const pricedResult: PriceResult = motorSurcharge
+      ? {
+          ...result,
+          msrp: result.msrp + motorSurcharge,
+          price: result.price + motorSurcharge,
+        }
+      : result;
+    const effectiveInstall = installMode === 'pickup' ? 0 : pricedResult.install;
+    merchSubtotal += pricedResult.price;
     installSubtotal += effectiveInstall;
 
-    itemResults.push({ ...result, input: item });
+    itemResults.push({ ...pricedResult, input: item });
   });
 
   const addonsSubtotal = input.addons ? calcAddonSubtotal(input.addons) : 0;

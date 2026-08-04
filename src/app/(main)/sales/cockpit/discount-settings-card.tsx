@@ -23,6 +23,7 @@ interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
+  sunnyMotorPrice: number;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -56,6 +57,14 @@ const DEPOSIT_FIELDS: { key: "depositWarnPct" | "depositMinPct"; label: string; 
   { key: "depositMinPct", label: "定金最低阈值", hint: "低于此比例销售需输入解锁码；可设为 0 表示不限制" },
 ];
 
+const PRICE_FIELDS = [
+  {
+    key: "sunnyMotorPrice" as const,
+    label: "Sunny Motor",
+    hint: "Shade Order Form 的 Lift 选择 M 时，每行自动加入此税前价格",
+  },
+];
+
 type NumericDraftKey =
   | "zebra" | "shangrila" | "cellular" | "roller"
   | "drapery" | "sheer" | "shutters" | "honeycomb"
@@ -76,6 +85,7 @@ interface DraftMap {
   promoMaxPct: string;
   depositWarnPct: string;
   depositMinPct: string;
+  sunnyMotorPrice: string;
   // 解锁码：空串表示"清空"；undefined 表示"不改动"（保存时不发送）；永不回显服务端值
   depositOverrideCode?: string;
   lineDiscountUnlockCode?: string;
@@ -96,6 +106,9 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),
     depositWarnPct: Math.round(d.depositWarnPct * 100).toString(),
     depositMinPct: Math.round(d.depositMinPct * 100).toString(),
+    sunnyMotorPrice: Number(d.sunnyMotorPrice).toFixed(
+      Number.isInteger(d.sunnyMotorPrice) ? 0 : 2,
+    ),
     depositOverrideCode: undefined,
     lineDiscountUnlockCode: undefined,
   };
@@ -147,6 +160,12 @@ export function DiscountSettingsCard() {
       }
       payload[f.key as string] = Math.round(n) / 100;
     }
+    const motorPrice = Number(draft.sunnyMotorPrice);
+    if (!Number.isFinite(motorPrice) || motorPrice < 0 || motorPrice > 10000) {
+      setError("Sunny Motor 必须是 0~10000 之间的 CAD 金额");
+      return;
+    }
+    payload.sunnyMotorPrice = Math.round(motorPrice * 100) / 100;
     // 顺序校验：warn <= danger <= max
     const w = payload.promoWarnPct as number | undefined;
     const d2 = payload.promoDangerPct as number | undefined;
@@ -293,6 +312,51 @@ export function DiscountSettingsCard() {
                 {current ? `${Math.round(current[f.key] as number * 100)}%` : "—"}
               </div>
             )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 border-t border-border pt-4">
+        <h4 className="mb-1 text-xs font-semibold text-foreground">报价附加价格</h4>
+        <p className="mb-3 text-[11px] text-muted-foreground">
+          该金额不参与产品折扣，选择电机 Lift 后直接加入每行产品价格。
+        </p>
+        {PRICE_FIELDS.map((field) => (
+          <div key={field.key} className="max-w-xs space-y-1">
+            <label className="block text-[11px] font-medium text-muted-foreground">
+              {field.label}
+            </label>
+            {editing && draft && canEdit ? (
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  $
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  step="0.01"
+                  value={draft.sunnyMotorPrice}
+                  onChange={(event) =>
+                    setDraft({ ...draft, sunnyMotorPrice: event.target.value })
+                  }
+                  className="w-full rounded-lg border border-input bg-card-bg py-1.5 pl-6 pr-12 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  CAD
+                </span>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
+                {current
+                  ? new Intl.NumberFormat("en-CA", {
+                      style: "currency",
+                      currency: "CAD",
+                    }).format(current.sunnyMotorPrice)
+                  : "—"}
+              </div>
+            )}
+            <p className="text-[10px] text-muted-foreground">{field.hint}</p>
           </div>
         ))}
       </div>

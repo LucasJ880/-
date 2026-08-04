@@ -3328,6 +3328,8 @@ model QuoteDiscountSettings {
   sheer                      Float        @default(0.35)
   shutters                   Float        @default(0.35)
   honeycomb                  Float        @default(0.35)
+  /// Shade Order Form 选择 Lift=M 时，每行税前加收的电机价格（CAD）
+  sunnyMotorPrice            Float        @default(150)
   promoWarnPct               Float        @default(0.06)
   promoDangerPct             Float        @default(0.15)
   promoMaxPct                Float        @default(0.25)

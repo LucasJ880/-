@@ -13,6 +13,7 @@ import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
+import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
 
 /**
  * POST /api/sales/quotes
@@ -126,6 +127,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   // —— 尝试 pricing 计算；失败也不抛错 ——
+  const quoteSettings = await loadDiscountsDto(requestOrgId);
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
@@ -134,6 +136,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       installMode,
       deliveryFee,
       taxRate,
+      sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
     });
   } catch (err) {
     // 极端情况：pricing 引擎自己 throw 了（理论上不会，但保险起见）

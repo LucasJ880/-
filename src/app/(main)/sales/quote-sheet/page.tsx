@@ -36,6 +36,7 @@ import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
+import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 
 import type {
   PartALine,
@@ -343,6 +344,9 @@ function QuoteSheetPageInner() {
 
   // 拉取全局折扣率 & Special Promotion 阈值（Order Form / AI 工具 共用数据源）
   const [discounts, setDiscounts] = useState<DiscountsOverride | undefined>(undefined);
+  const [sunnyMotorPrice, setSunnyMotorPrice] = useState(
+    DEFAULT_SUNNY_MOTOR_PRICE,
+  );
   const [promoWarnPct, setPromoWarnPct] = useState(0.06);
   const [promoDangerPct, setPromoDangerPct] = useState(0.15);
   const [promoMaxPct, setPromoMaxPct] = useState(0.25);
@@ -360,6 +364,7 @@ function QuoteSheetPageInner() {
           drapery: number; sheer: number; shutters: number; honeycomb: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
+          sunnyMotorPrice?: number;
           hasDepositOverrideCode?: boolean;
         }>("/api/sales/quote-settings/discounts");
         setDiscounts({
@@ -377,6 +382,13 @@ function QuoteSheetPageInner() {
         if (typeof d.promoMaxPct === "number") setPromoMaxPct(d.promoMaxPct);
         if (typeof d.depositWarnPct === "number") setDepositWarnPct(d.depositWarnPct);
         if (typeof d.depositMinPct === "number") setDepositMinPct(d.depositMinPct);
+        if (
+          typeof d.sunnyMotorPrice === "number" &&
+          Number.isFinite(d.sunnyMotorPrice) &&
+          d.sunnyMotorPrice >= 0
+        ) {
+          setSunnyMotorPrice(d.sunnyMotorPrice);
+        }
         if (typeof d.hasDepositOverrideCode === "boolean") setHasDepositOverrideCode(d.hasDepositOverrideCode);
       } catch {
         // 拉取失败时保留默认值
@@ -431,8 +443,14 @@ function QuoteSheetPageInner() {
   );
   // 新主档：三个电子订单表的小计
   const shadeTotals = useMemo(
-    () => sumShadeTotals(shadeOrders, installMode, discounts),
-    [shadeOrders, installMode, discounts]
+    () =>
+      sumShadeTotals(
+        shadeOrders,
+        installMode,
+        discounts,
+        sunnyMotorPrice,
+      ),
+    [shadeOrders, installMode, discounts, sunnyMotorPrice]
   );
   const shutterTotals = useMemo(
     () => sumShutterTotals(shutterOrders, shutterMaterial, installMode, discounts),
@@ -457,8 +475,15 @@ function QuoteSheetPageInner() {
   // Step 4：折扣率追踪 —— 提前计算，供 handleSave 引用
   const specialPromotionNum = Math.max(0, parseFloat(specialPromotion) || 0);
   const totalMsrp = useMemo(
-    () => sumAllMsrp(shadeOrders, shutterOrders, shutterMaterial, drapeOrders),
-    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders],
+    () =>
+      sumAllMsrp(
+        shadeOrders,
+        shutterOrders,
+        shutterMaterial,
+        drapeOrders,
+        sunnyMotorPrice,
+      ),
+    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
   );
 
   // Special Promotion 硬门槛：ratio > promoMaxPct 时，非 admin 禁止保存/生成
@@ -544,6 +569,7 @@ function QuoteSheetPageInner() {
           shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
           installMode,
           taxRate,
+          sunnyMotorPrice,
           specialPromotion,
         },
         orgId,
@@ -562,7 +588,7 @@ function QuoteSheetPageInner() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode, taxRate, specialPromotion,
+    installMode, taxRate, sunnyMotorPrice, specialPromotion,
   ]);
 
   // 当 customerId 或 customers 变化时派生候选地址列表
@@ -628,6 +654,13 @@ function QuoteSheetPageInner() {
       typeof d.taxRate === "number" && Number.isFinite(d.taxRate)
         ? Math.min(1, Math.max(0, d.taxRate))
         : HST_RATE,
+    );
+    setSunnyMotorPrice(
+      typeof d.sunnyMotorPrice === "number" &&
+        Number.isFinite(d.sunnyMotorPrice) &&
+        d.sunnyMotorPrice >= 0
+        ? d.sunnyMotorPrice
+        : DEFAULT_SUNNY_MOTOR_PRICE,
     );
     if (typeof (d as QuoteDraftV1).specialPromotion === "string") {
       setSpecialPromotion((d as QuoteDraftV1).specialPromotion as string);
@@ -755,6 +788,7 @@ function QuoteSheetPageInner() {
             location: l.location,
             sku: l.sku || l.product,
             manualPrice: manual,
+            motorized: l.lift === "M",
           });
           continue;
         }
@@ -772,6 +806,7 @@ function QuoteSheetPageInner() {
           widthIn: w,
           heightIn: h,
           cordless: l.lift === "L" || l.lift === "R",
+          motorized: l.lift === "M",
           location: l.location,
           sku: l.sku,
         });
@@ -864,7 +899,7 @@ function QuoteSheetPageInner() {
         shutterOrders: shutterOrders.filter((l) => l.location || l.widthWhole),
         drapeOrders: drapeOrders.filter((l) => l.location || l.drapeFabricSku || l.sheerFabricSku),
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-        installMode, taxRate,
+        installMode, taxRate, sunnyMotorPrice,
       };
 
       // 编辑模式下走 PUT /api/sales/quotes/[quoteId]，否则 POST 新建
@@ -975,7 +1010,7 @@ function QuoteSheetPageInner() {
   }, [
     orderNumber, date, customerId, opportunityId, customerName, customerPhone,
     customerEmail, customerAddress, heardUsOn, salesRep, measureSequence,
-    installMode, taxRate,
+    installMode, taxRate, sunnyMotorPrice,
     partALines, partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
     financeEligible, financeApproved, financeDifference, partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
@@ -1080,6 +1115,7 @@ function QuoteSheetPageInner() {
       signatureDataUrl,
       logoDataUrl,
       discounts,
+      sunnyMotorPrice,
       specialPromotion: specialPromotionNum,
       totalMsrp,
       finalDiscountPct,
@@ -1091,7 +1127,7 @@ function QuoteSheetPageInner() {
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
-    discounts,
+    discounts, sunnyMotorPrice,
     specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,
   ]);
 
@@ -1785,7 +1821,8 @@ function QuoteSheetPageInner() {
             valanceType={shadeValanceType} onValanceTypeChange={setShadeValanceType}
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
             installMode={installMode}
-            discounts={discounts} />
+            discounts={discounts}
+            sunnyMotorPrice={sunnyMotorPrice} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
