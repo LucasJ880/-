@@ -12,6 +12,10 @@ import {
   bidPhaseLabel,
   isBidListFilterKey,
 } from "../labels";
+import {
+  assertKnownBidPhasesComplete,
+  resolveBidPhaseOnIntelligenceStart,
+} from "../phase-transition";
 import { buildInitialSummary } from "../summary";
 
 /** Cotton Towelling Fabric fixture（结构校验，不连 DB） */
@@ -89,6 +93,40 @@ async function main() {
   ]);
   assert.equal(bidListFilterStatuses("all"), null);
   assert.equal(bidPhaseLabel("INTELLIGENCE_IN_PROGRESS"), "调查中");
+
+  // 状态机：start 不得回退人工决策 / 后续态
+  assertKnownBidPhasesComplete();
+  const first = resolveBidPhaseOnIntelligenceStart(null);
+  assert.equal(first.bidPhaseStatus, "INTELLIGENCE_IN_PROGRESS");
+  assert.equal(first.shouldWrite, true);
+  assert.equal(first.advancedToIntelligence, true);
+
+  const second = resolveBidPhaseOnIntelligenceStart("INTELLIGENCE_IN_PROGRESS");
+  assert.equal(second.bidPhaseStatus, "INTELLIGENCE_IN_PROGRESS");
+  assert.equal(second.shouldWrite, false);
+  assert.equal(second.advancedToIntelligence, false);
+
+  for (const locked of [
+    "GO",
+    "HOLD",
+    "NO_GO",
+    "BID_PREPARATION",
+    "SUBMITTED",
+    "AWARDED",
+    "LOST",
+    "WITHDRAWN",
+  ] as const) {
+    const r = resolveBidPhaseOnIntelligenceStart(locked);
+    assert.equal(r.bidPhaseStatus, locked, `${locked} must not regress`);
+    assert.equal(r.shouldWrite, false, `${locked} must not write`);
+    assert.equal(r.advancedToIntelligence, false);
+  }
+
+  const fromReady = resolveBidPhaseOnIntelligenceStart(
+    "READY_FOR_QUALIFICATION",
+  );
+  assert.equal(fromReady.bidPhaseStatus, "INTELLIGENCE_IN_PROGRESS");
+  assert.equal(fromReady.shouldWrite, true);
 
   console.log("bid-workflow-phase1: all passed");
 }

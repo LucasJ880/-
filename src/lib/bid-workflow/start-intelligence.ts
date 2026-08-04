@@ -11,6 +11,7 @@ import {
   TASK_TEMPLATE_KEYS,
   type BidPhaseStatus,
 } from "./constants";
+import { resolveBidPhaseOnIntelligenceStart } from "./phase-transition";
 import { buildInitialSummary } from "./summary";
 
 export type StartIntelligenceInput = {
@@ -101,6 +102,9 @@ export async function startBidIntelligence(
 
   const correlationId = randomUUID();
   const summary = buildInitialSummary(project);
+  const phaseResolution = resolveBidPhaseOnIntelligenceStart(
+    project.bidPhaseStatus,
+  );
 
   const result = await db.$transaction(async (tx) => {
     let created = false;
@@ -166,14 +170,22 @@ export async function startBidIntelligence(
       }
     }
 
-    await tx.project.update({
-      where: { id: project.id },
-      data: {
-        bidPhaseStatus: "INTELLIGENCE_IN_PROGRESS",
-        workDomain:
-          project.workDomain === "general" ? "tender" : project.workDomain,
-      },
-    });
+    const projectUpdate: {
+      bidPhaseStatus?: string;
+      workDomain?: string;
+    } = {};
+    if (phaseResolution.shouldWrite) {
+      projectUpdate.bidPhaseStatus = phaseResolution.bidPhaseStatus;
+    }
+    if (project.workDomain === "general") {
+      projectUpdate.workDomain = "tender";
+    }
+    if (Object.keys(projectUpdate).length > 0) {
+      await tx.project.update({
+        where: { id: project.id },
+        data: projectUpdate,
+      });
+    }
 
     let tasksCreated = 0;
     const taskSpecs: Array<{
@@ -251,7 +263,9 @@ export async function startBidIntelligence(
       created: result.created,
       modulesEnsured: result.modulesEnsured,
       tasksCreated: result.tasksCreated,
-      bidPhaseStatus: "INTELLIGENCE_IN_PROGRESS",
+      bidPhaseStatus: phaseResolution.bidPhaseStatus,
+      phaseAdvanced: phaseResolution.advancedToIntelligence,
+      phaseWritten: phaseResolution.shouldWrite,
     },
   });
 
@@ -260,7 +274,7 @@ export async function startBidIntelligence(
     created: result.created,
     roomId: result.roomId,
     correlationId,
-    bidPhaseStatus: "INTELLIGENCE_IN_PROGRESS",
+    bidPhaseStatus: phaseResolution.bidPhaseStatus as BidPhaseStatus,
     modulesEnsured: result.modulesEnsured,
     tasksCreated: result.tasksCreated,
     summaryText: summary.text,
