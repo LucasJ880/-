@@ -65,7 +65,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const projects = await db.project.findMany({
     where,
     include: projectInclude,
-    orderBy: { updatedAt: "desc" },
+    orderBy: { createdAt: "desc" },
     take,
   });
 

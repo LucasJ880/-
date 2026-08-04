@@ -9,6 +9,7 @@ import {
 } from "../constants";
 import {
   bidListFilterStatuses,
+  assertBidFilterCoverage,
   bidPhaseLabel,
   isBidListFilterKey,
 } from "../labels";
@@ -106,8 +107,17 @@ async function main() {
   assert.deepEqual(bidListFilterStatuses("investigating"), [
     "INTELLIGENCE_IN_PROGRESS",
   ]);
+  assert.deepEqual(bidListFilterStatuses("prep"), [
+    "DISCOVERED",
+    "INTAKE_INCOMPLETE",
+    "READY_FOR_QUALIFICATION",
+    "HOLD",
+  ]);
+  assert.deepEqual(bidListFilterStatuses("bidding"), ["GO", "BID_PREPARATION"]);
+  assert.deepEqual(bidListFilterStatuses("lost"), ["LOST", "NO_GO", "WITHDRAWN"]);
   assert.equal(bidListFilterStatuses("all"), null);
   assert.equal(bidPhaseLabel("INTELLIGENCE_IN_PROGRESS"), "调查中");
+  assertBidFilterCoverage();
 
   // 状态机：start 不得回退人工决策 / 后续态
   assertKnownBidPhasesComplete();

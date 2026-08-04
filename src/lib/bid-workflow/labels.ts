@@ -1,7 +1,14 @@
 import type { BidPhaseStatus } from "./constants";
 import { BID_PHASE_STATUSES } from "./constants";
 
-/** 项目列表投标阶段筛选项（映射到 bidPhaseStatus IN） */
+/**
+ * 项目列表投标阶段筛选项（统一分桶，禁止页面硬编码）
+ *
+ * - 准备投标：发现/资料/资格 + HOLD
+ * - 调查中：INTELLIGENCE_IN_PROGRESS
+ * - 投标进行中：GO + BID_PREPARATION
+ * - 未中标：LOST + NO_GO + WITHDRAWN
+ */
 export const BID_LIST_FILTERS = [
   { key: "all", label: "全部项目", statuses: null as BidPhaseStatus[] | null },
   {
@@ -11,9 +18,7 @@ export const BID_LIST_FILTERS = [
       "DISCOVERED",
       "INTAKE_INCOMPLETE",
       "READY_FOR_QUALIFICATION",
-      "GO",
       "HOLD",
-      "NO_GO",
     ] as BidPhaseStatus[],
   },
   {
@@ -24,7 +29,7 @@ export const BID_LIST_FILTERS = [
   {
     key: "bidding",
     label: "投标进行中",
-    statuses: ["BID_PREPARATION"] as BidPhaseStatus[],
+    statuses: ["GO", "BID_PREPARATION"] as BidPhaseStatus[],
   },
   {
     key: "submitted",
@@ -39,12 +44,7 @@ export const BID_LIST_FILTERS = [
   {
     key: "lost",
     label: "未中标",
-    statuses: ["LOST"] as BidPhaseStatus[],
-  },
-  {
-    key: "withdrawn",
-    label: "已撤回",
-    statuses: ["WITHDRAWN"] as BidPhaseStatus[],
+    statuses: ["LOST", "NO_GO", "WITHDRAWN"] as BidPhaseStatus[],
   },
 ] as const;
 
@@ -59,6 +59,20 @@ export function bidListFilterStatuses(
 ): BidPhaseStatus[] | null {
   const found = BID_LIST_FILTERS.find((f) => f.key === key);
   return found?.statuses ?? null;
+}
+
+/** 所有已知状态必须落入某一筛选项（all 除外） */
+export function assertBidFilterCoverage(): void {
+  const covered = new Set<string>();
+  for (const f of BID_LIST_FILTERS) {
+    if (!f.statuses) continue;
+    for (const s of f.statuses) covered.add(s);
+  }
+  for (const s of BID_PHASE_STATUSES) {
+    if (!covered.has(s)) {
+      throw new Error(`bidPhaseStatus ${s} missing from BID_LIST_FILTERS`);
+    }
+  }
 }
 
 const PHASE_LABELS: Record<BidPhaseStatus, string> = {
