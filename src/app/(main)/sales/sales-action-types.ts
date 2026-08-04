@@ -5,7 +5,7 @@ export type SalesActionDto = {
   title: string;
   description: string | null;
   priority: string;
-  status: "open" | "in_progress" | "completed" | "dismissed";
+  status: "open" | "in_progress" | "completed" | "dismissed" | "auto_resolved";
   dueAt: string | null;
   resolutionNote: string | null;
   dismissedReason: string | null;
@@ -20,5 +20,16 @@ export type SalesActionMetrics = {
   overdue: number;
   completed: number;
   dismissed: number;
+  autoResolved: number;
   completionRate: number | null;
+};
+
+export type SalesActionSyncDto = {
+  status: "running" | "completed" | "failed";
+  scannedCount: number;
+  createdCount: number;
+  autoResolvedCount: number;
+  truncated: boolean;
+  startedAt: string;
+  completedAt: string | null;
 };

@@ -3,6 +3,7 @@ export const SALES_ACTION_STATUSES = [
   "in_progress",
   "completed",
   "dismissed",
+  "auto_resolved",
 ] as const;
 
 export type SalesActionStatus = (typeof SALES_ACTION_STATUSES)[number];
@@ -16,7 +17,7 @@ export function canTransitionSalesAction(
   next: SalesActionStatus,
 ): boolean {
   if (current === next) return true;
-  if (current === "completed" || current === "dismissed") return false;
+  if (current === "completed" || current === "dismissed" || current === "auto_resolved") return false;
   return ["open", "in_progress", "completed", "dismissed"].includes(next);
 }
 
@@ -66,6 +67,7 @@ export function summarizeSalesActions(items: SalesActionMetricInput[], now = new
   const active = items.filter((item) => item.status === "open" || item.status === "in_progress");
   const completed = items.filter((item) => item.status === "completed");
   const dismissed = items.filter((item) => item.status === "dismissed");
+  const autoResolved = items.filter((item) => item.status === "auto_resolved");
   const overdue = active.filter((item) => item.dueAt && new Date(item.dueAt).getTime() < nowMs);
   const resolvedCount = completed.length + dismissed.length;
   return {
@@ -73,6 +75,7 @@ export function summarizeSalesActions(items: SalesActionMetricInput[], now = new
     overdue: overdue.length,
     completed: completed.length,
     dismissed: dismissed.length,
+    autoResolved: autoResolved.length,
     completionRate: resolvedCount > 0 ? Math.round((completed.length / resolvedCount) * 100) : null,
   };
 }

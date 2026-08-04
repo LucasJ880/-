@@ -40,3 +40,20 @@ test("客户建议可进入行动队列且首页提供处理结果入口", () =>
   assert.match(actionPanel, /行动负责人/);
   assert.match(interaction, /下次跟进时间/);
 });
+
+test("第四阶段自动扫描有组织隔离、幂等和保守收口边界", () => {
+  const service = source("src/lib/sales/auto-action-sync.ts");
+  const cron = source("src/app/api/cron/sales-actions/route.ts");
+  const manual = source("src/app/api/sales/actions/sync/route.ts");
+  assert.match(cron, /requireCronSecret/);
+  assert.match(cron, /runTrackedAutomation\("sales-action-sync"/);
+  assert.match(cron, /db\.salesAction\.groupBy/);
+  assert.match(service, /where: \{ orgId, id: \{ in: opportunityIds \} \}/);
+  assert.match(service, /buildSalesActionActiveKey/);
+  assert.match(service, /source: SALES_AUTO_ACTION_SOURCE/);
+  assert.match(service, /if \(!truncated\)/);
+  assert.match(service, /status: "auto_resolved"/);
+  assert.match(service, /existing\.source === SALES_AUTO_ACTION_SOURCE/);
+  assert.doesNotMatch(service, /sendEmail|email\.send|stage:\s*"/);
+  assert.match(manual, /只有销售经理可以立即扫描全部销售行动/);
+});

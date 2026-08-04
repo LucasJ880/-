@@ -64,7 +64,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   };
 
   const metricSince = new Date(Date.now() - 90 * 86_400_000);
-  const [actions, metricRows] = await Promise.all([
+  const [actions, metricRows, latestSync] = await Promise.all([
     db.salesAction.findMany({
       where,
       include: actionInclude,
@@ -76,9 +76,22 @@ export const GET = withAuth(async (request, _ctx, user) => {
       select: { status: true, dueAt: true, completedAt: true },
       take: 500,
     }),
+    db.salesActionSyncRun.findFirst({
+      where: { orgId: orgRes.orgId },
+      orderBy: { startedAt: "desc" },
+      select: {
+        status: true,
+        scannedCount: true,
+        createdCount: true,
+        autoResolvedCount: true,
+        truncated: true,
+        startedAt: true,
+        completedAt: true,
+      },
+    }),
   ]);
 
-  return NextResponse.json({ actions, metrics: summarizeSalesActions(metricRows) });
+  return NextResponse.json({ actions, metrics: summarizeSalesActions(metricRows), latestSync });
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {

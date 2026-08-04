@@ -779,6 +779,7 @@ model Organization {
   // Phase 3B-A：助手线程租户绑定
   aiThreads AiThread[]
   salesActions SalesAction[]
+  salesActionSyncRuns SalesActionSyncRun[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -3256,8 +3257,10 @@ model SalesAction {
   title         String
   description   String? @db.Text
   priority      String @default("medium") // urgent | high | medium | low
-  status        String @default("open") // open | in_progress | completed | dismissed
+  status        String @default("open") // open | in_progress | completed | dismissed | auto_resolved
   dueAt         DateTime?
+  lastObservedAt DateTime?
+  autoResolvedAt DateTime?
 
   assignedToId  String?
   assignedTo    User? @relation("SalesActionAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
@@ -3278,6 +3281,26 @@ model SalesAction {
   @@index([customerId, status])
   @@index([opportunityId, status])
   @@index([signalKey])
+}
+
+/// 数字员工销售行动扫描记录。只记录任务同步，不执行外发或商机阶段变更。
+model SalesActionSyncRun {
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  trigger           String       @default("cron") // cron | manual
+  status            String       @default("running") // running | completed | failed
+  scannedCount      Int          @default(0)
+  createdCount      Int          @default(0)
+  updatedCount      Int          @default(0)
+  autoResolvedCount Int          @default(0)
+  truncated         Boolean      @default(false)
+  error             String?      @db.Text
+  startedAt         DateTime     @default(now())
+  completedAt       DateTime?
+
+  @@index([orgId, startedAt])
+  @@index([status, startedAt])
 }
 
 model SalesQuote {
