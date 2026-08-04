@@ -104,7 +104,24 @@ const salesNav = resolveNavigationTree(
 );
 ok(!salesNav.some((i) => i.key === "ws-ops"), "销售不看运营中心");
 ok(!salesNav.some((i) => i.key === "ws-bids"), "销售不看招投标中心");
-ok(salesNav.some((i) => i.key === "sales-home"), "销售可见销售中心");
+ok(salesNav.some((i) => i.key === "sales-home"), "销售可见销售首页");
+ok(
+  salesNav.some((i) => i.key === "sales-crm"),
+  "销售可见统一的客户与商机入口",
+);
+ok(
+  !salesNav.some(
+    (i) =>
+      i.key === "sales-customers" ||
+      i.key === "sales-pipeline" ||
+      i.key === "biz-sales",
+  ),
+  "销售不再显示拆分的客户/商机/销售入口",
+);
+ok(
+  salesNav.some((i) => i.key === "sales-email-settings"),
+  "销售可见邮箱绑定入口",
+);
 
 const userNav = resolveNavigationTree(
   NAVIGATION_REGISTRY,

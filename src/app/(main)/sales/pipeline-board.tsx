@@ -71,6 +71,11 @@ function OpportunityCard({
           <p className="text-sm font-medium text-foreground line-clamp-1">
             {opp.customer?.name || opp.title}
           </p>
+          {opp.customer?.name && opp.title !== opp.customer.name && (
+            <p className="mt-0.5 line-clamp-1 text-[11px] text-muted">
+              {opp.title}
+            </p>
+          )}
           <p className="mt-0.5 text-[11px] text-muted">{stageLabel}</p>
         </div>
         {health?.tip && (

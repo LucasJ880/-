@@ -84,6 +84,8 @@ export interface QuoteDraftV1 {
   shadeValanceType: string;
   shadeBracketType: string;
   installMode: InstallMode;
+  /** 适用税率（0~1）；历史草稿缺失时按 13% 恢复 */
+  taxRate?: number;
 
   // Step 4：销售手填的 Special Promotion
   specialPromotion?: string;

@@ -118,6 +118,16 @@ export const PUT = withAuth(async (request, ctx, user) => {
     opportunityId?: string;
   };
 
+  if (
+    taxRate !== undefined &&
+    (typeof taxRate !== "number" || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1)
+  ) {
+    return NextResponse.json(
+      { error: "税率必须是 0% 到 100% 之间的数字" },
+      { status: 400 },
+    );
+  }
+
   const existing = await db.salesQuote.findFirst({
     where: { id: quoteId, orgId: orgRes.orgId },
     select: {

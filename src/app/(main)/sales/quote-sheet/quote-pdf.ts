@@ -240,6 +240,7 @@ export interface QuotePdfInput {
   specialPromotion?: number; // Step 4：销售手填让利（税前直减）
   totalMsrp?: number; // Step 4：产品 MSRP 合计，用于展示折扣率
   finalDiscountPct?: number; // Step 4：实际成交折扣率（0~1）
+  taxRate?: number; // 适用税率（0~1），默认 13%
 }
 
 // ── 工具：加载 /logo.png（客户端调用，失败时返回 null） ───────────────
@@ -632,7 +633,10 @@ export async function exportQuotePdf(
     0,
     input.productsSubtotal + input.subtotalB + input.subtotalC - promoAmount,
   );
-  const hst = Math.round(preTax * HST_RATE * 100) / 100;
+  const taxRate = input.taxRate ?? HST_RATE;
+  const taxPercent = taxRate * 100;
+  const taxLabel = `Tax ${taxPercent.toFixed(Number.isInteger(taxPercent) ? 0 : 1)}%`;
+  const hst = Math.round(preTax * taxRate * 100) / 100;
   const grandTotal = preTax + hst;
 
   // ────────────────────────────────────────────────────
@@ -688,7 +692,7 @@ export async function exportQuotePdf(
       label: input.installMode === "pickup" ? "Install (Pickup)" : "Install Min Adj.",
       value: formatCAD(input.subtotalC),
     },
-    { label: "HST 13%", value: formatCAD(hst) },
+    { label: taxLabel, value: formatCAD(hst) },
   ]);
 
   drawGrandTotalBar(ctx, "Grand Total", formatCAD(grandTotal));
@@ -975,7 +979,7 @@ export async function exportQuotePdf(
       ? [{ label: "Special Promotion", value: `− ${formatCAD(promoAmount)}`, hint: "Pre-tax discount applied" }]
       : []),
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
-    { label: "HST 13%", value: formatCAD(hst) },
+    { label: taxLabel, value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
   ]);
 
@@ -1046,7 +1050,7 @@ export async function exportQuotePdf(
     [
       { label: "Line Items", value: String(lineItemCount) },
       { label: "Order Type", value: input.installMode === "pickup" ? "Supply (Pickup)" : "Supply + Install" },
-      { label: "Tax", value: "HST 13%" },
+      { label: "Tax", value: taxLabel },
       { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
       { label: "Before Tax", value: formatCAD(preTax) },
       { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
@@ -1078,7 +1082,7 @@ export async function exportQuotePdf(
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
     { label: "Install Min Adj.", value: formatCAD(input.subtotalC) },
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
-    { label: "HST 13%", value: formatCAD(hst) },
+    { label: taxLabel, value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
   ]);
 

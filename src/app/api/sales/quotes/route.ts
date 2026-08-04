@@ -69,6 +69,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
     finalDiscountPct?: number;
   };
 
+  if (
+    taxRate !== undefined &&
+    (typeof taxRate !== 'number' || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1)
+  ) {
+    return NextResponse.json({ error: '税率必须是 0% 到 100% 之间的数字' }, { status: 400 });
+  }
+
   // —— 兜底最低要求：customerId 必须有；没 items 也要有 formDataJson 才能救回来 ——
   if (!customerId) {
     return NextResponse.json({ error: '缺少 customerId' }, { status: 400 });

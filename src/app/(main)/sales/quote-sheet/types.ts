@@ -232,6 +232,8 @@ export interface QuoteFormState {
   shadeValanceType: string;
   shadeBracketType: string;
   installMode: InstallMode;
+  /** 适用税率（0~1），默认 0.13；不同省份/地区可在 Part B 修改 */
+  taxRate?: number;
   /** 表单实算总价（含税，减让利后）— 对客展示的权威金额，服务端不可重算 */
   displayGrandTotal?: number;
 }
