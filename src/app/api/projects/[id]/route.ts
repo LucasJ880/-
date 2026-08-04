@@ -8,6 +8,11 @@ import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
 import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
+import {
+  bidWorkflowUnavailableFields,
+  withBidWorkflowSchemaFallback,
+} from "@/lib/bid-workflow/schema-drift";
+import { LEGACY_PROJECT_DETAIL_SELECT } from "@/lib/bid-workflow/legacy-project-select";
 
 const detailInclude = {
   owner: { select: { id: true, name: true, email: true } },
@@ -50,14 +55,37 @@ export async function GET(
   const access = await requireProjectReadAccess(request, id);
   if (access instanceof NextResponse) return access;
 
-  const project = await db.project.findUnique({
-    where: { id },
-    include: detailInclude,
+  const { value: project, usedFallback } = await withBidWorkflowSchemaFallback({
+    logLabel: "projects.detail",
+    primary: () =>
+      db.project.findUnique({
+        where: { id },
+        include: detailInclude,
+      }),
+    fallback: () =>
+      db.project.findUnique({
+        where: { id },
+        select: LEGACY_PROJECT_DETAIL_SELECT,
+      }),
   });
 
   if (!project) {
+    // 鉴权已通过但主体读不到：仍按不存在处理（非 schema drift 误报）
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
+
+  const unavailable = bidWorkflowUnavailableFields();
+  const projectPayload = usedFallback
+    ? {
+        ...project,
+        bidPhaseStatus: unavailable.bidPhaseStatus,
+        intelligenceRoom: unavailable.intelligenceRoom,
+        intelligenceAvailable: unavailable.intelligenceAvailable,
+      }
+    : {
+        ...project,
+        intelligenceAvailable: true,
+      };
 
   const { user, projectRole, orgRole } = access;
   const canManage =
@@ -69,10 +97,11 @@ export async function GET(
     (!!projectRole && hasProjectRole(projectRole, "project_admin"));
 
   return NextResponse.json({
-    project,
+    project: projectPayload,
     myProjectRole: access.projectRole,
     myOrgRole: access.orgRole,
     canManage,
+    intelligenceAvailable: !usedFallback,
   });
 }
 

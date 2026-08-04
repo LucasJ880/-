@@ -3,6 +3,21 @@
  * Prisma 默认会 SELECT 全部标量列，故必须显式 select 排除 bidPhaseStatus。
  */
 
+/** 鉴权用：足够判断 owner/org/intake，不读 bidPhaseStatus */
+export const LEGACY_PROJECT_ACCESS_SELECT = {
+  id: true,
+  orgId: true,
+  ownerId: true,
+  purchaserId: true,
+  name: true,
+  status: true,
+  intakeStatus: true,
+  workDomain: true,
+  tenderStatus: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 /** 列表用：与历史 projectInclude 对齐，无 intelligenceRoom / bidPhaseStatus */
 export const LEGACY_PROJECT_LIST_SELECT = {
   id: true,

@@ -126,6 +126,8 @@ interface ProjectDetail {
   bidPhaseStatus?: string | null;
   /** AI 建议态（与人工 goDecision 分离，不作真相来源） */
   aiAdviceStatus?: string | null;
+  /** false = 当前环境尚未 migrate / 投标智能不可用 */
+  intelligenceAvailable?: boolean;
   intelligenceRoom?: {
     id: string;
     goDecision: string | null;
@@ -494,17 +496,23 @@ function ProjectDetailContent() {
             refreshKey={orgRulesRefreshKey}
           />
 
-          <StartIntelligencePanel
-            projectId={id}
-            hasRoom={!!project.intelligenceRoom}
-            goDecision={project.intelligenceRoom?.goDecision ?? null}
-            bidPhaseStatus={project.bidPhaseStatus ?? null}
-            aiSuggestion={
-              project.intelligence?.recommendation ??
-              project.aiAdviceStatus ??
-              null
-            }
-          />
+          {project.intelligenceAvailable === false ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              当前环境尚未启用投标智能（数据库未完成迁移）。项目文件、成员与询价等主链仍可用；调查室需在迁移后初始化。
+            </div>
+          ) : (
+            <StartIntelligencePanel
+              projectId={id}
+              hasRoom={!!project.intelligenceRoom}
+              goDecision={project.intelligenceRoom?.goDecision ?? null}
+              bidPhaseStatus={project.bidPhaseStatus ?? null}
+              aiSuggestion={
+                project.intelligence?.recommendation ??
+                project.aiAdviceStatus ??
+                null
+              }
+            />
+          )}
 
           <ProjectSupplierLinks projectId={id} orgId={project.orgId} />
 
