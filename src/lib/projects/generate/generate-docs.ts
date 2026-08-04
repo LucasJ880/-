@@ -11,6 +11,7 @@ import {
 } from "./pdf-common";
 import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
+import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 
 export type GenerateDocType =
   | "supplier_rfq"
@@ -34,6 +35,12 @@ export async function generateProjectDocument(input: {
   orgId: string | null;
   userId: string;
   docType: GenerateDocType;
+  /** china_supplier_brief：是否纳入公开历史金额（默认 false） */
+  includePublicHistoricalAmounts?: boolean;
+  /** china_supplier_brief：生成前备注 */
+  confirmNotes?: string | null;
+  /** 仅预览正文，不写 Blob / ProjectGeneratedDocument */
+  previewOnly?: boolean;
 }) {
   const project = await db.project.findUnique({
     where: { id: input.projectId },
@@ -43,6 +50,7 @@ export async function generateProjectDocument(input: {
       description: true,
       location: true,
       clientOrganization: true,
+      closeDate: true,
       currency: true,
       ourBidPrice: true,
       winningBidPrice: true,
@@ -90,12 +98,38 @@ export async function generateProjectDocument(input: {
   });
   if (!project) throw new Error("项目不存在");
 
-  const ctx = await buildProjectAiContextBlock(project.id);
+  // china_supplier_brief：禁止把 AI context / estimatedValue 拼进厂家文件
+  const ctx =
+    input.docType === "china_supplier_brief"
+      ? ""
+      : await buildProjectAiContextBlock(project.id);
   const addendumFingerprint = project.documents
     .map((d: { id: string; title: string }) => `${d.id}:${d.title}`)
     .sort()
     .join("|")
     .slice(0, 500);
+
+  if (input.docType === "china_supplier_brief" && input.previewOnly) {
+    const facts = await loadChinaBriefFacts(project.id);
+    const previewText = buildChinaSupplierBriefText({
+      projectName: project.name,
+      clientOrganization: project.clientOrganization,
+      closeDate: project.closeDate
+        ? project.closeDate.toISOString().slice(0, 10)
+        : null,
+      documentTitles: project.documents.map((d) => d.title),
+      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
+      facts,
+      confirmNotes: input.confirmNotes,
+    });
+    return {
+      id: null,
+      previewText,
+      previewOnly: true as const,
+      fileUrl: null,
+      blobUrl: null,
+    };
+  }
 
   const doc = await createProjectPdfDoc();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -126,77 +160,19 @@ export async function generateProjectDocument(input: {
     );
     y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
   } else if (input.docType === "china_supplier_brief") {
-    // 复用既有 jspdf 引擎；中文字体仍为 helvetica（已知限制，Phase2 增强）
-    let roomBits = "";
-    try {
-      const room = await db.bidIntelligenceRoom.findUnique({
-        where: { projectId: project.id },
-        select: {
-          summaryText: true,
-          modules: {
-            where: {
-              moduleKey: {
-                in: ["project_understanding", "historical_awards", "contract_value"],
-              },
-            },
-            select: { moduleKey: true, dataJson: true },
-          },
-          facts: {
-            take: 12,
-            orderBy: { extractedAt: "desc" },
-            select: { content: true, confidence: true, sourceType: true },
-          },
-        },
-      });
-      if (room) {
-        roomBits = [
-          `Summary: ${room.summaryText || "-"}`,
-          "Facts (with confidence):",
-          ...room.facts.map(
-            (f) => `- [${f.confidence}/${f.sourceType}] ${f.content.slice(0, 200)}`,
-          ),
-          "Modules:",
-          ...room.modules.map(
-            (m) => `- ${m.moduleKey}: ${JSON.stringify(m.dataJson).slice(0, 280)}`,
-          ),
-        ].join("\n");
-      }
-    } catch {
-      roomBits = "(intelligence room unavailable)";
-    }
-    const body = sanitizeSupplierFacing(
-      [
-        "China Supplier Sourcing Brief / 国内供应商询价简报",
-        "=== Legend ===",
-        "[CONFIRMED from tender] / [HISTORICAL] / [AI_INFERRED] / [PENDING]",
-        "",
-        `1) Project: ${project.name}`,
-        `2) Procuring agency: ${project.clientOrganization || "[PENDING]"}`,
-        `3) Product / qty: see context (AI_INFERRED if not confirmed)`,
-        `4) Delivery timing: closeDate / lead-time TBD`,
-        "5) Technical requirements (CN summary): pending human edit after preview",
-        "6) English original excerpts: see tender documents",
-        "7) Source file + page: attach from ProjectDocument titles below",
-        `   Documents: ${project.documents.map((d) => d.title).join("; ") || "(none)"}`,
-        "8) Questions factory MUST answer:",
-        "   - Spec compliance Y/N + deviation",
-        "   - Certifications & test reports",
-        "   - MOQ / lead time / sample policy",
-        "9) Required certificates: list from tender (CONFIRMED) only",
-        "10) Quote format: unit price, currency, Incoterms, validity",
-        "11) MOQ: [PENDING]",
-        "12) Lead time: [PENDING]",
-        "13) FOB / CIF / DDP: [PENDING]",
-        "14) Sample requirements: [PENDING]",
-        "15) Reply deadline: [PENDING]",
-        "16) Historical price reference (HISTORICAL / INFERRED — not a commitment):",
-        roomBits.slice(0, 1600),
-        "17) Confidentiality: do not share customer budget / our margin / competitor notes.",
-        "",
-        "Context excerpt:",
-        ctx.slice(0, 1600),
-      ].join("\n"),
-    );
+    // allowlist 组装；默认不含 estimatedValue / 成本 / 利润 / 原始 AI context
+    const facts = await loadChinaBriefFacts(project.id);
+    const body = buildChinaSupplierBriefText({
+      projectName: project.name,
+      clientOrganization: project.clientOrganization,
+      closeDate: project.closeDate
+        ? project.closeDate.toISOString().slice(0, 10)
+        : null,
+      documentTitles: project.documents.map((d) => d.title),
+      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
+      facts,
+      confirmNotes: input.confirmNotes,
+    });
     y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
   } else if (input.docType === "internal_analysis") {
     const gap = computePriceGap({
@@ -360,6 +336,31 @@ export async function generateProjectDocument(input: {
   });
 
   return row;
+}
+
+async function loadChinaBriefFacts(projectId: string) {
+  try {
+    const room = await db.bidIntelligenceRoom.findUnique({
+      where: { projectId },
+      select: {
+        facts: {
+          take: 40,
+          orderBy: { extractedAt: "desc" },
+          select: {
+            content: true,
+            confidence: true,
+            sourceType: true,
+            sourceUrl: true,
+            sourcePage: true,
+            humanConfirmed: true,
+          },
+        },
+      },
+    });
+    return room?.facts ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** 文件变更后标记生成文档可能过期 */

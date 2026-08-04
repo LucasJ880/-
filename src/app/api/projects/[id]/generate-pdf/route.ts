@@ -57,6 +57,11 @@ export const POST = withAuth(async (request, ctx, user) => {
     );
   }
   const docType = docTypeRaw as GenerateDocType;
+  const previewOnly = body.previewOnly === true;
+  const includePublicHistoricalAmounts =
+    body.includePublicHistoricalAmounts === true;
+  const confirmNotes =
+    typeof body.confirmNotes === "string" ? body.confirmNotes : null;
 
   try {
     const doc = await generateProjectDocument({
@@ -64,7 +69,21 @@ export const POST = withAuth(async (request, ctx, user) => {
       orgId: access.project.orgId,
       userId: user.id,
       docType,
+      previewOnly,
+      includePublicHistoricalAmounts,
+      confirmNotes,
     });
+    if (previewOnly && "previewText" in doc) {
+      return NextResponse.json({
+        previewOnly: true,
+        previewText: doc.previewText,
+        includePublicHistoricalAmounts,
+        fontLimitation:
+          docType === "china_supplier_brief"
+            ? "Chinese text may render poorly under Helvetica; full CJK font embed deferred."
+            : null,
+      });
+    }
     const fileUrl = asBrowserUrl(doc.fileUrl);
     const blobUrl = asBrowserUrl(doc.blobUrl);
     if (!doc.id) {
