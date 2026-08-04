@@ -61,9 +61,12 @@ async function main() {
   // 状态与 GO 映射
   assert.ok(isBidPhaseStatus("INTELLIGENCE_IN_PROGRESS"));
   assert.ok(isGoDecision("GO"));
+  // AI 建议映射仅用于展示/建议层，不得当作人工决定真相
   assert.equal(goDecisionToAiAdvice("GO"), "advance");
   assert.equal(goDecisionToAiAdvice("HOLD"), "conditional");
   assert.equal(goDecisionToAiAdvice("NO_GO"), "abandon");
+  assert.ok(isGoDecision("HOLD"));
+  assert.equal(isGoDecision("MAYBE"), false);
   assert.ok(BID_PHASE_STATUSES.includes("DISCOVERED"));
   assert.ok(FACT_CONFIDENCE.includes("INFERRED"));
 

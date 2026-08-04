@@ -496,6 +496,11 @@ function ProjectDetailContent() {
             hasRoom={!!project.intelligenceRoom}
             goDecision={project.intelligenceRoom?.goDecision ?? null}
             bidPhaseStatus={project.bidPhaseStatus ?? null}
+            aiSuggestion={
+              project.intelligence?.recommendation ??
+              project.aiAdviceStatus ??
+              null
+            }
           />
 
           <ProjectSupplierLinks projectId={id} orgId={project.orgId} />

@@ -51,6 +51,7 @@ type Props = {
   ownerName: string | null;
   bidPhaseStatus: string | null;
   projectTypeLabel?: string | null;
+  aiSuggestion?: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -74,6 +75,7 @@ export function IntelligenceRoomClient({
   ownerName,
   bidPhaseStatus,
   projectTypeLabel,
+  aiSuggestion,
 }: Props) {
   const [room, setRoom] = useState<Room | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -183,6 +185,11 @@ export function IntelligenceRoomClient({
           (summary.recentChanges as unknown[]).length > 0
         ? (summary.recentChanges as string[]).join("；")
         : "暂无新的重要变化";
+  const resolvedAiSuggestion =
+    aiSuggestion ||
+    (typeof summary.recommendation === "string"
+      ? summary.recommendation
+      : null);
 
   const aiHref = projectAiTabHref(projectId);
 
@@ -245,6 +252,7 @@ export function IntelligenceRoomClient({
         hasRoom={!!room}
         goDecision={room?.goDecision}
         bidPhaseStatus={bidPhaseStatus}
+        aiSuggestion={resolvedAiSuggestion}
         onChanged={() => {
           void load();
           void loadRecent();

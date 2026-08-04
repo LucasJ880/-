@@ -17,6 +17,8 @@ export default async function IntelligenceRoomPage({ params }: Props) {
       bidPhaseStatus: true,
       category: true,
       projectTypes: true,
+      aiAdviceStatus: true,
+      intelligence: { select: { recommendation: true } },
       owner: { select: { name: true } },
     },
   });
@@ -44,6 +46,9 @@ export default async function IntelligenceRoomPage({ params }: Props) {
       ownerName={project.owner?.name ?? null}
       bidPhaseStatus={project.bidPhaseStatus}
       projectTypeLabel={projectTypeLabel}
+      aiSuggestion={
+        project.intelligence?.recommendation ?? project.aiAdviceStatus ?? null
+      }
     />
   );
 }
