@@ -175,7 +175,7 @@ export function ManagementDashboardClient() {
               className="inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-3 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
             >
               <MessagesSquare size={15} />
-              协同空间
+              数字员工
             </Link>
           </div>
         </div>

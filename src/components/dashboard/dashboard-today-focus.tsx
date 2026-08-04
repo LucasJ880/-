@@ -299,7 +299,7 @@ export function DashboardTodayFocus({
             href="/assistant"
             className="flex items-center gap-1 font-medium text-muted transition-all duration-150 hover:text-foreground"
           >
-            协同空间 <ArrowRight size={10} />
+            数字员工 <ArrowRight size={10} />
           </Link>
         </div>
       </div>

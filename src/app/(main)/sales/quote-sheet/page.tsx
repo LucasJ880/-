@@ -85,6 +85,8 @@ import { OrgSelectBanner } from "@/components/org-select-banner";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { RoughQuotePanel } from "./rough-quote-panel";
 import { QuoteSentNextSteps } from "@/components/sales-command-center/quote-sent-next-steps";
+import { reviewQuoteWorkflow } from "@/lib/digital-employees/quote-review";
+import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
 
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
@@ -1386,6 +1388,72 @@ function QuoteSheetPageInner() {
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
   const hst = Math.round(preTax * taxRate * 100) / 100;
   const grandTotal = preTax + hst;
+  const quoteWorkflowReview = useMemo(() => {
+    const enteredLineCount =
+      shadeOrders.filter(
+        (line) =>
+          Boolean(line.widthWhole && line.heightWhole) &&
+          Boolean(line.sku || line.manualPrice),
+      ).length +
+      shutterOrders.filter((line) => Boolean(line.widthWhole && line.heightWhole)).length +
+      drapeOrders.filter(
+        (line) =>
+          Boolean(line.drapeWidthWhole && line.drapeHeightWhole) ||
+          Boolean(line.sheerWidthWhole && line.sheerHeightWhole),
+      ).length;
+    const motorizedLineCount = shadeOrders.filter(
+      (line) => line.lift === "M" && Boolean(line.widthWhole && line.heightWhole),
+    ).length;
+
+    return reviewQuoteWorkflow({
+      customerId,
+      customerName,
+      customerEmail,
+      customerAddress,
+      productsSubtotal,
+      enteredLineCount,
+      motorizedLineCount,
+      sunnyMotorPrice,
+      taxRate,
+      specialPromotion: specialPromotionNum,
+      promoRatio,
+      promoMaxPct,
+      promoBlocked,
+      promotionApprovalRequested,
+      paymentMethod,
+      depositAmount: Math.max(0, parseFloat(depositAmount) || 0),
+      grandTotal,
+      depositMinPct,
+      depositUnlocked,
+      isAdmin: isSuperAdmin,
+      emailChannel,
+      hasSignature: hasAnySignature,
+    });
+  }, [
+    customerId,
+    customerName,
+    customerEmail,
+    customerAddress,
+    productsSubtotal,
+    shadeOrders,
+    shutterOrders,
+    drapeOrders,
+    sunnyMotorPrice,
+    taxRate,
+    specialPromotionNum,
+    promoRatio,
+    promoMaxPct,
+    promoBlocked,
+    promotionApprovalRequested,
+    paymentMethod,
+    depositAmount,
+    grandTotal,
+    depositMinPct,
+    depositUnlocked,
+    isSuperAdmin,
+    emailChannel,
+    hasAnySignature,
+  ]);
 
   // Direct Payment 模式：balance 总是派生 = Grand Total − Deposit（只读）
   // 销售修改 deposit 或总价变化时自动同步 balance 状态，
@@ -1498,7 +1566,7 @@ function QuoteSheetPageInner() {
       )}
 
       {/* Customer selector + Order info */}
-      <div className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
+      <div id="quote-customer-info" className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-muted-foreground">Customer & Order Info</h2>
           <div className="flex items-center gap-2">
@@ -1730,6 +1798,18 @@ function QuoteSheetPageInner() {
           </button>
         ))}
       </div>
+
+      <QuoteDigitalEmployeeReview
+        review={quoteWorkflowReview}
+        onOpenCustomer={() => {
+          document.getElementById("quote-customer-info")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }}
+        onOpenProducts={() => setActiveTab("shades")}
+        onOpenPartB={() => setActiveTab("partB")}
+      />
 
       {/* Products Summary — 让用户实时看到三类订单小计 */}
       <div className="rounded-xl border border-teal-200 bg-teal-50/40 px-3 md:px-4 py-2.5 md:py-3">

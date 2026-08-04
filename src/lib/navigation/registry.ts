@@ -167,7 +167,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "work-assistant",
-    label: "AI 助手",
+    label: "数字员工",
     labelKey: "nav_ai_assistant",
     href: "/assistant",
     icon: MessageSquare,

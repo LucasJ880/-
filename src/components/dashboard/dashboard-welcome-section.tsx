@@ -64,10 +64,10 @@ export function DashboardWelcomeSection({
     {
       id: "assistant",
       icon: <FileText size={20} />,
-      title: "进入协同空间",
+      title: "进入数字员工工作台",
       description: "用自然语言描述工作，快速创建任务、日程和业务草稿。",
       href: "/assistant",
-      linkLabel: "打开协同空间",
+      linkLabel: "打开数字员工",
       done: false,
     },
   ];
