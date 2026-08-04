@@ -19,6 +19,11 @@ import {
 import { isPrismaUniqueViolation } from "../prisma-errors";
 import { buildInitialSummary } from "../summary";
 import { TASK_TEMPLATE_KEYS } from "../constants";
+import {
+  confidenceLabel,
+  projectAiTabHref,
+  PROJECT_AI_TAB_HREF_SUFFIX,
+} from "../display-labels";
 
 /** Cotton Towelling Fabric fixture（结构校验，不连 DB） */
 const COTTON_TOWELLING = {
@@ -139,6 +144,13 @@ async function main() {
   for (const k of templateKeys) {
     assert.ok(k.startsWith("bid_intel:"));
   }
+
+  // 展示标签与 AI Tab 链接（禁止 ?tab=workspace）
+  assert.equal(confidenceLabel("CONFIRMED"), "已确认");
+  assert.equal(confidenceLabel("INFERRED"), "推断");
+  assert.equal(PROJECT_AI_TAB_HREF_SUFFIX, "?tab=ai");
+  assert.equal(projectAiTabHref("proj_1"), "/projects/proj_1?tab=ai");
+  assert.ok(!projectAiTabHref("proj_1").includes("tab=workspace"));
 
   console.log("bid-workflow-phase1: all passed");
 }

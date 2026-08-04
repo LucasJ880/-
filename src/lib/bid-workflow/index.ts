@@ -8,6 +8,12 @@ export {
   START_ADVANCEABLE_BID_PHASES,
 } from "./phase-transition";
 export {
+  confidenceLabel,
+  projectAiTabHref,
+  PROJECT_AI_TAB_HREF_SUFFIX,
+  sourceTypeLabel,
+} from "./display-labels";
+export {
   startBidIntelligence,
   StartIntelligenceError,
   type StartIntelligenceInput,

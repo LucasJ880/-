@@ -9,6 +9,7 @@ type Props = {
   hasRoom?: boolean;
   goDecision?: string | null;
   bidPhaseStatus?: string | null;
+  onChanged?: () => void;
 };
 
 export function StartIntelligencePanel({
@@ -16,6 +17,7 @@ export function StartIntelligencePanel({
   hasRoom: initialHasRoom,
   goDecision: initialGo,
   bidPhaseStatus,
+  onChanged,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,14 +44,15 @@ export function StartIntelligencePanel({
       setMsg(
         data.created
           ? "已创建调查室并生成八个模块"
-          : "调查室已存在（幂等，未重复创建）",
+          : "调查室已存在（幂等补齐，未重复创建）",
       );
+      onChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
-  }, [projectId]);
+  }, [projectId, onChanged]);
 
   const decide = useCallback(
     async (decision: "GO" | "HOLD" | "NO_GO") => {
@@ -69,13 +72,14 @@ export function StartIntelligencePanel({
         setGoDecision(decision);
         setPhase(decision);
         setMsg(`已记录人工决定：${decision}`);
+        onChanged?.();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(false);
       }
     },
-    [projectId],
+    [projectId, onChanged],
   );
 
   return (

@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
+import {
+  confidenceLabel,
+  projectAiTabHref,
+  sourceTypeLabel,
+} from "@/lib/bid-workflow/display-labels";
+import { bidPhaseLabel, goDecisionLabel } from "@/lib/bid-workflow/labels";
+import { ModuleDataView } from "./module-data-view";
 import { StartIntelligencePanel } from "./start-intelligence-panel";
 
 type Module = {
@@ -18,8 +25,13 @@ type Fact = {
   content: string;
   confidence: string;
   sourceType: string;
+  sourceUrl?: string | null;
+  sourceFileId?: string | null;
+  sourcePage?: string | null;
   moduleKey: string | null;
   humanConfirmed: boolean;
+  extractedBy?: string | null;
+  extractedAt?: string;
 };
 
 type Room = {
@@ -38,6 +50,7 @@ type Props = {
   closeDate: string | null;
   ownerName: string | null;
   bidPhaseStatus: string | null;
+  projectTypeLabel?: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -47,18 +60,29 @@ const STATUS_LABEL: Record<string, string> = {
   unknown: "暂时未知",
 };
 
+function confidenceTone(code: string): string {
+  if (code === "CONFIRMED") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+  if (code === "HIGH_CONFIDENCE") return "bg-sky-50 text-sky-800 border-sky-200";
+  if (code === "INFERRED") return "bg-amber-50 text-amber-900 border-amber-200";
+  return "bg-stone-50 text-stone-700 border-stone-200";
+}
+
 export function IntelligenceRoomClient({
   projectId,
   projectName,
   closeDate,
   ownerName,
   bidPhaseStatus,
+  projectTypeLabel,
 }: Props) {
   const [room, setRoom] = useState<Room | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [factContent, setFactContent] = useState("");
   const [factModule, setFactModule] = useState("historical_awards");
   const [factConfidence, setFactConfidence] = useState("INFERRED");
+  const [factSourceUrl, setFactSourceUrl] = useState("");
+  const [factSourcePage, setFactSourcePage] = useState("");
+  const [recentChanges, setRecentChanges] = useState<string[]>([]);
   const [chatHint, setChatHint] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -78,9 +102,38 @@ export function IntelligenceRoomClient({
     }
   }, [projectId]);
 
+  const loadRecent = useCallback(async () => {
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/activity?page=1&pageSize=5`,
+      );
+      const data = await res.json();
+      const rows = Array.isArray(data.data) ? data.data : [];
+      const lines = rows
+        .map((r: { summary?: string; actionLabel?: string; timestamp?: string }) => {
+          const when = r.timestamp
+            ? new Date(r.timestamp).toLocaleString("zh-CN", {
+                month: "numeric",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "";
+          const text = r.summary || r.actionLabel || "";
+          return text ? `${when} ${text}`.trim() : "";
+        })
+        .filter(Boolean)
+        .slice(0, 5);
+      setRecentChanges(lines);
+    } catch {
+      setRecentChanges([]);
+    }
+  }, [projectId]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadRecent();
+  }, [load, loadRecent]);
 
   const saveFact = async () => {
     if (!factContent.trim()) return;
@@ -95,7 +148,10 @@ export function IntelligenceRoomClient({
             content: factContent,
             moduleKey: factModule,
             confidence: factConfidence,
-            sourceType: "manual",
+            sourceType:
+              factConfidence === "INFERRED" ? "ai_inference" : "manual",
+            sourceUrl: factSourceUrl.trim() || undefined,
+            sourcePage: factSourcePage.trim() || undefined,
             humanConfirmed: factConfidence === "CONFIRMED",
             extractedBy: "human",
           }),
@@ -104,7 +160,10 @@ export function IntelligenceRoomClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存失败");
       setFactContent("");
+      setFactSourceUrl("");
+      setFactSourcePage("");
       await load();
+      await loadRecent();
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -113,6 +172,19 @@ export function IntelligenceRoomClient({
   };
 
   const summary = (room?.summaryJson || {}) as Record<string, unknown>;
+  const projectType =
+    projectTypeLabel ||
+    (typeof summary.projectType === "string" && summary.projectType) ||
+    "暂未分类";
+  const recentText =
+    recentChanges.length > 0
+      ? recentChanges.slice(0, 3).join("；")
+      : Array.isArray(summary.recentChanges) &&
+          (summary.recentChanges as unknown[]).length > 0
+        ? (summary.recentChanges as string[]).join("；")
+        : "暂无新的重要变化";
+
+  const aiHref = projectAiTabHref(projectId);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
@@ -144,7 +216,16 @@ export function IntelligenceRoomClient({
                     setLoadError(data.error || "PDF 生成失败");
                     return;
                   }
-                  setChatHint("国内供应商 PDF 已生成，请在项目文件中查看");
+                  const url =
+                    data.document?.fileUrl ||
+                    data.document?.blobUrl ||
+                    null;
+                  if (url) {
+                    setChatHint("国内供应商 PDF 已生成");
+                    window.open(url, "_blank", "noopener,noreferrer");
+                  } else {
+                    setChatHint("国内供应商 PDF 已生成，请在项目文件中查看");
+                  }
                 });
               }}
             >
@@ -154,7 +235,8 @@ export function IntelligenceRoomClient({
         </div>
         <p className="text-sm text-[var(--muted)]">
           截止：{closeDate || "暂时未知"} · 负责人：{ownerName || "未指定"} ·
-          状态：{bidPhaseStatus || "—"} · Go：{room?.goDecision || "未决定"}
+          阶段：{bidPhaseLabel(bidPhaseStatus)} · 人工决定：
+          {goDecisionLabel(room?.goDecision)}
         </p>
       </header>
 
@@ -163,6 +245,10 @@ export function IntelligenceRoomClient({
         hasRoom={!!room}
         goDecision={room?.goDecision}
         bidPhaseStatus={bidPhaseStatus}
+        onChanged={() => {
+          void load();
+          void loadRecent();
+        }}
       />
 
       {loadError && (
@@ -172,7 +258,6 @@ export function IntelligenceRoomClient({
       )}
       {chatHint && <p className="text-sm text-green-700">{chatHint}</p>}
 
-      {/* 30 秒看懂项目 */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">30 秒看懂项目</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -180,24 +265,30 @@ export function IntelligenceRoomClient({
             ["一句话摘要", room?.summaryText || "调查中"],
             ["采购单位", String(summary.procuringAgency || "暂时未知")],
             ["产品或服务", String(summary.product || "调查中")],
+            ["项目类型", projectType],
             [
               "周期采购可能",
               summary.possiblyRecurring == null
                 ? "暂时未知"
-                : String(summary.possiblyRecurring),
+                : summary.possiblyRecurring === true
+                  ? "可能是"
+                  : summary.possiblyRecurring === false
+                    ? "不太像"
+                    : String(summary.possiblyRecurring),
             ],
             ["上一轮中标方", String(summary.previousWinner || "暂时未知")],
             [
               "历史合同金额",
               String(summary.historicalContractValue || "暂时未知"),
             ],
-            ["当前建议", String(summary.recommendation || "调查中")],
+            ["当前建议（AI）", String(summary.recommendation || "调查中")],
             [
               "重大阻塞",
               Array.isArray(summary.majorBlockers)
                 ? (summary.majorBlockers as string[]).join("；") || "无"
                 : "调查中",
             ],
+            ["最近变化", recentText],
             [
               "下一步",
               Array.isArray(summary.nextActions)
@@ -219,7 +310,6 @@ export function IntelligenceRoomClient({
         </div>
       </section>
 
-      {/* 八模块 */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">八个调查模块</h2>
         <div className="grid gap-3 md:grid-cols-2">
@@ -231,12 +321,10 @@ export function IntelligenceRoomClient({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold">{m.title}</h3>
                 <span className="text-[10px] rounded-full border px-2 py-0.5">
-                  {STATUS_LABEL[m.status] || m.status}
+                  {STATUS_LABEL[m.status] || "暂时未知"}
                 </span>
               </div>
-              <pre className="text-[11px] text-[var(--muted)] whitespace-pre-wrap max-h-40 overflow-auto">
-                {JSON.stringify(m.dataJson ?? {}, null, 2)}
-              </pre>
+              <ModuleDataView moduleKey={m.moduleKey} dataJson={m.dataJson} />
             </div>
           ))}
           {!room && (
@@ -247,7 +335,6 @@ export function IntelligenceRoomClient({
         </div>
       </section>
 
-      {/* 事实沉淀 */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">事实来源与可信度</h2>
         <div className="flex flex-wrap gap-2 items-end">
@@ -272,17 +359,29 @@ export function IntelligenceRoomClient({
               value={factConfidence}
               onChange={(e) => setFactConfidence(e.target.value)}
             >
-              <option value="CONFIRMED">CONFIRMED</option>
-              <option value="HIGH_CONFIDENCE">HIGH_CONFIDENCE</option>
-              <option value="INFERRED">INFERRED</option>
-              <option value="UNKNOWN">UNKNOWN</option>
+              <option value="CONFIRMED">已确认</option>
+              <option value="HIGH_CONFIDENCE">高可信</option>
+              <option value="INFERRED">推断</option>
+              <option value="UNKNOWN">未确认</option>
             </select>
           </label>
           <input
-            className="min-w-[240px] flex-1 rounded border px-2 py-1.5 text-sm"
+            className="min-w-[200px] flex-1 rounded border px-2 py-1.5 text-sm"
             placeholder="例如：Cox’s Bazar Trading Inc. 于某年中标…"
             value={factContent}
             onChange={(e) => setFactContent(e.target.value)}
+          />
+          <input
+            className="w-40 rounded border px-2 py-1.5 text-sm"
+            placeholder="来源 URL（可选）"
+            value={factSourceUrl}
+            onChange={(e) => setFactSourceUrl(e.target.value)}
+          />
+          <input
+            className="w-24 rounded border px-2 py-1.5 text-sm"
+            placeholder="页码"
+            value={factSourcePage}
+            onChange={(e) => setFactSourcePage(e.target.value)}
           />
           <button
             type="button"
@@ -297,32 +396,57 @@ export function IntelligenceRoomClient({
           {(room?.facts || []).map((f) => (
             <li
               key={f.id}
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              className={`rounded-lg border px-3 py-2 text-sm ${confidenceTone(f.confidence)}`}
             >
-              <div className="flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
-                <span>{f.confidence}</span>
-                <span>{f.sourceType}</span>
-                <span>{f.moduleKey || "—"}</span>
-                {f.humanConfirmed && <span>人工确认</span>}
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <span className="font-medium">
+                  {confidenceLabel(f.confidence)}
+                </span>
+                <span>{sourceTypeLabel(f.sourceType)}</span>
+                {f.humanConfirmed && <span>已人工确认</span>}
+                {f.extractedAt && (
+                  <span>
+                    {new Date(f.extractedAt).toLocaleString("zh-CN")}
+                  </span>
+                )}
               </div>
-              <p className="mt-1">{f.content}</p>
+              <p className="mt-1 text-[var(--foreground)]">{f.content}</p>
+              <p className="mt-1 text-[11px] text-[var(--muted)]">
+                来源：{sourceTypeLabel(f.sourceType)}
+                {f.sourceUrl ? (
+                  <>
+                    {" · "}
+                    <a
+                      href={f.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      打开链接
+                    </a>
+                  </>
+                ) : null}
+                {f.sourcePage ? ` · 页码 ${f.sourcePage}` : ""}
+                {f.sourceFileId ? ` · 文件 ${f.sourceFileId.slice(0, 8)}…` : ""}
+                {f.extractedBy ? ` · 提取：${f.extractedBy}` : ""}
+              </p>
+              {f.confidence === "INFERRED" && (
+                <p className="mt-1 text-[11px] text-amber-900">
+                  该内容为基于现有来源的推断，不代表官方确认。
+                </p>
+              )}
             </li>
           ))}
         </ul>
       </section>
 
-      {/* AI 对话入口（统一入口占位：链到项目助手） */}
       <section className="rounded-xl border border-[var(--border)] p-4 space-y-2">
         <h2 className="text-lg font-semibold">主 AI 对话</h2>
         <p className="text-sm text-[var(--muted)]">
-          统一 AI 入口：在项目工作台继续提问（周期采购、中标方、合同金额、生成国内
-          PDF）。回答中的可沉淀事实请用上方「建议保存」写入结构化字段，勿只留在聊天里。
+          在项目 AI 工作台继续提问。可沉淀事实请用上方「建议保存」写入，勿只留在聊天里。
         </p>
-        <Link
-          href={`/projects/${projectId}?tab=workspace`}
-          className="inline-block text-sm underline"
-        >
-          打开项目工作台对话
+        <Link href={aiHref} className="inline-block text-sm underline" data-testid="project-ai-tab-link">
+          打开项目 AI 工作台
         </Link>
       </section>
     </div>

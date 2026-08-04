@@ -15,6 +15,8 @@ export default async function IntelligenceRoomPage({ params }: Props) {
       name: true,
       closeDate: true,
       bidPhaseStatus: true,
+      category: true,
+      projectTypes: true,
       owner: { select: { name: true } },
     },
   });
@@ -26,6 +28,14 @@ export default async function IntelligenceRoomPage({ params }: Props) {
     notFound();
   }
 
+  const types = Array.isArray(project.projectTypes)
+    ? (project.projectTypes as unknown[]).filter((t) => typeof t === "string")
+    : [];
+  const projectTypeLabel =
+    types.length > 0
+      ? types.join(" / ")
+      : project.category?.trim() || null;
+
   return (
     <IntelligenceRoomClient
       projectId={project.id}
@@ -33,6 +43,7 @@ export default async function IntelligenceRoomPage({ params }: Props) {
       closeDate={project.closeDate?.toISOString().slice(0, 10) ?? null}
       ownerName={project.owner?.name ?? null}
       bidPhaseStatus={project.bidPhaseStatus}
+      projectTypeLabel={projectTypeLabel}
     />
   );
 }

@@ -81,7 +81,8 @@ export function buildInitialSummary(project: ProjectLike): InitialSummary {
       currency: project.currency,
       recommendation: project.intelligence?.recommendation ?? project.aiAdviceStatus,
       majorBlockers: blockers,
-      recentChanges: [],
+      recentChanges: [] as string[],
+      projectType: structured.projectType ?? null,
       nextActions: [
         "完善项目理解模块",
         "开展历史中标调查",
