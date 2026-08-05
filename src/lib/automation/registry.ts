@@ -36,6 +36,13 @@ export const AUTOMATION_REGISTRY = [
   { key: "proactive-scan", name: "主动工作提醒", category: "projects", cadence: "每小时", timezone: AUTOMATION_TIMEZONE },
   { key: "agent-runs", name: "Agent 后台任务队列", category: "operations", cadence: "每 2 分钟", timezone: "UTC" },
   {
+    key: "tender-auto-analysis",
+    name: "招标自动分析队列",
+    category: "projects",
+    cadence: "每 2 分钟",
+    timezone: "UTC",
+  },
+  {
     key: "employee-ai-practice-miner",
     name: "数字员工候选方法挖掘",
     category: "operations",

@@ -1,0 +1,544 @@
+/**
+ * TenderAnalysisRun 租约 worker（cron 分段推进，HTTP 不跑 LLM）
+ *
+ * workerStep 顺序对齐 Phase A constants.WORKER_STEPS：
+ * CLAIMED → ENSURE_PAGES → EXTRACT_FACTS → GENERATE_SECTIONS →
+ * EXTRACT_REQUIREMENTS → BUILD_DELIVERABLES → BUILD_CLARIFICATIONS →
+ * CREATE_TASKS → PROJECT_ROOM → FINALIZE
+ */
+
+import { randomUUID } from "node:crypto";
+import { db } from "@/lib/db";
+import {
+  WORKER_STEPS,
+  type TenderAnalysisStatus,
+  type WorkerStep,
+} from "./constants";
+import { canClaim, canTransition } from "./status";
+import { parseDocumentPagesAndStore } from "./page-parse";
+import { extractFromPages } from "./extract";
+import { generateReportSections } from "./report";
+import { projectAnalysisToRoom } from "./project-room";
+import { createAnalysisTasks } from "./tasks";
+
+export const LEASE_MS = 90_000;
+export const MAX_ATTEMPTS = 5;
+/** 单次 cron tick 内继续推进的时间预算；不足则交还队列 */
+export const TIME_BUDGET_MS = 50_000;
+
+const RETRY_BACKOFF_MS = [15_000, 60_000, 180_000, 600_000, 1_800_000];
+
+const STEP_ORDER: WorkerStep[] = [...WORKER_STEPS];
+
+function stepIndex(step: string | null | undefined): number {
+  if (!step) return -1;
+  return STEP_ORDER.indexOf(step as WorkerStep);
+}
+
+function nextStep(current: string | null | undefined): WorkerStep | null {
+  const idx = stepIndex(current);
+  if (idx < 0) return STEP_ORDER[0] ?? null;
+  if (idx >= STEP_ORDER.length - 1) return null;
+  return STEP_ORDER[idx + 1] ?? null;
+}
+
+export function sanitizeWorkerError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  return raw
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/api[_-]?key[=:]\s*\S+/gi, "api_key=[redacted]")
+    .replace(/[\r\n\t]+/g, " ")
+    .slice(0, 800);
+}
+
+function leaseExpiresAt(now = new Date()): Date {
+  return new Date(now.getTime() + LEASE_MS);
+}
+
+function backoffMs(attemptCount: number): number {
+  const idx = Math.max(0, Math.min(attemptCount - 1, RETRY_BACKOFF_MS.length - 1));
+  return RETRY_BACKOFF_MS[idx] ?? 60_000;
+}
+
+async function renewLease(runId: string, leaseOwner: string): Promise<boolean> {
+  const now = new Date();
+  const updated = await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: runId,
+      leaseOwner,
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+    },
+    data: {
+      leaseExpiresAt: leaseExpiresAt(now),
+    },
+  });
+  return updated.count > 0;
+}
+
+async function persistStep(
+  runId: string,
+  leaseOwner: string,
+  workerStep: WorkerStep,
+  extra?: {
+    status?: TenderAnalysisStatus;
+    workerCursor?: unknown;
+  },
+): Promise<void> {
+  await db.tenderAnalysisRun.updateMany({
+    where: { id: runId, leaseOwner },
+    data: {
+      workerStep,
+      leaseExpiresAt: leaseExpiresAt(),
+      ...(extra?.status ? { status: extra.status } : {}),
+      ...(extra?.workerCursor !== undefined
+        ? { workerCursor: extra.workerCursor as object }
+        : {}),
+    },
+  });
+}
+
+async function markFailed(
+  runId: string,
+  attemptCount: number,
+  error: unknown,
+  errorCode = "worker_failed",
+): Promise<void> {
+  const now = new Date();
+  const exhausted = attemptCount >= MAX_ATTEMPTS;
+  await db.tenderAnalysisRun.update({
+    where: { id: runId },
+    data: {
+      status: "FAILED",
+      failedAt: now,
+      errorCode,
+      errorMessageSanitized: sanitizeWorkerError(error),
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      nextAttemptAt: exhausted
+        ? null
+        : new Date(now.getTime() + backoffMs(attemptCount)),
+      workerStep: null,
+    },
+  });
+}
+
+type ClaimedRun = {
+  id: string;
+  orgId: string;
+  projectId: string;
+  roomId: string | null;
+  status: string;
+  workerStep: string | null;
+  attemptCount: number;
+  createdById: string | null;
+  leaseOwner: string;
+};
+
+async function claimRun(runId: string): Promise<ClaimedRun | null> {
+  const now = new Date();
+  const leaseOwner = `tender-worker:${randomUUID()}`;
+
+  const current = await db.tenderAnalysisRun.findUnique({
+    where: { id: runId },
+    select: {
+      id: true,
+      orgId: true,
+      projectId: true,
+      roomId: true,
+      status: true,
+      workerStep: true,
+      attemptCount: true,
+      createdById: true,
+      leaseExpiresAt: true,
+      nextAttemptAt: true,
+    },
+  });
+  if (!current) return null;
+  if (current.attemptCount >= MAX_ATTEMPTS) return null;
+  if (
+    !canClaim({
+      status: current.status as TenderAnalysisStatus,
+      leaseExpiresAt: current.leaseExpiresAt,
+      nextAttemptAt: current.nextAttemptAt,
+    }, now)
+  ) {
+    return null;
+  }
+
+  const fromStatus = current.status as TenderAnalysisStatus;
+  let toStatus: TenderAnalysisStatus = fromStatus;
+  if (fromStatus === "PENDING" || fromStatus === "FAILED") {
+    toStatus = "EXTRACTING";
+  } else if (fromStatus === "EXTRACTING" || fromStatus === "ANALYZING") {
+    toStatus = fromStatus;
+  } else {
+    return null;
+  }
+
+  if (fromStatus !== toStatus && !canTransition(fromStatus, toStatus)) {
+    return null;
+  }
+
+  const claimed = await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: runId,
+      status: fromStatus,
+      attemptCount: current.attemptCount,
+      OR: [
+        { leaseExpiresAt: null },
+        { leaseExpiresAt: { lte: now } },
+        { status: { in: ["PENDING", "FAILED"] } },
+      ],
+    },
+    data: {
+      status: toStatus,
+      attemptCount: { increment: 1 },
+      leaseOwner,
+      leaseExpiresAt: leaseExpiresAt(now),
+      nextAttemptAt: null,
+      startedAt: current.status === "PENDING" ? now : undefined,
+      errorCode: null,
+      errorMessageSanitized: null,
+      failedAt: null,
+      workerStep: current.workerStep ?? "CLAIMED",
+    },
+  });
+
+  if (claimed.count === 0) return null;
+
+  const run = await db.tenderAnalysisRun.findUnique({
+    where: { id: runId },
+    select: {
+      id: true,
+      orgId: true,
+      projectId: true,
+      roomId: true,
+      status: true,
+      workerStep: true,
+      attemptCount: true,
+      createdById: true,
+      leaseOwner: true,
+    },
+  });
+  if (!run?.leaseOwner) return null;
+  return { ...run, leaseOwner: run.leaseOwner };
+}
+
+async function loadRunDocumentIds(runId: string): Promise<string[]> {
+  const docs = await db.tenderAnalysisRunDocument.findMany({
+    where: { runId },
+    orderBy: { createdAt: "asc" },
+    select: { documentId: true },
+  });
+  return docs.map((d) => d.documentId);
+}
+
+async function stepEnsurePages(run: ClaimedRun): Promise<void> {
+  const documentIds = await loadRunDocumentIds(run.id);
+  for (const documentId of documentIds) {
+    const result = await parseDocumentPagesAndStore(documentId);
+    if (!result.ok) {
+      throw new Error(`ENSURE_PAGES failed: ${result.error}`);
+    }
+  }
+  await persistStep(run.id, run.leaseOwner, "ENSURE_PAGES", {
+    status: "EXTRACTING",
+  });
+}
+
+async function stepExtractFacts(run: ClaimedRun): Promise<void> {
+  const documentIds = await loadRunDocumentIds(run.id);
+  await extractFromPages({ runId: run.id, documentIds });
+  await persistStep(run.id, run.leaseOwner, "EXTRACT_FACTS", {
+    status: "ANALYZING",
+  });
+}
+
+async function stepGenerateSections(run: ClaimedRun): Promise<void> {
+  await generateReportSections({ runId: run.id });
+  await persistStep(run.id, run.leaseOwner, "GENERATE_SECTIONS", {
+    status: "ANALYZING",
+  });
+}
+
+async function stepNoopPersist(
+  run: ClaimedRun,
+  step: WorkerStep,
+): Promise<void> {
+  await persistStep(run.id, run.leaseOwner, step, { status: "ANALYZING" });
+}
+
+async function stepCreateTasks(run: ClaimedRun): Promise<void> {
+  await createAnalysisTasks({
+    runId: run.id,
+    projectId: run.projectId,
+    orgId: run.orgId,
+    createdById: run.createdById,
+  });
+  await persistStep(run.id, run.leaseOwner, "CREATE_TASKS", {
+    status: "ANALYZING",
+  });
+}
+
+async function stepProjectRoom(run: ClaimedRun): Promise<void> {
+  await projectAnalysisToRoom({
+    runId: run.id,
+    projectId: run.projectId,
+    orgId: run.orgId,
+    roomId: run.roomId,
+  });
+  await persistStep(run.id, run.leaseOwner, "PROJECT_ROOM", {
+    status: "ANALYZING",
+  });
+}
+
+async function stepFinalize(run: ClaimedRun): Promise<void> {
+  const now = new Date();
+  const from = (await db.tenderAnalysisRun.findUnique({
+    where: { id: run.id },
+    select: { status: true },
+  }))?.status as TenderAnalysisStatus | undefined;
+
+  if (from && from !== "REVIEW_REQUIRED" && !canTransition(from, "REVIEW_REQUIRED")) {
+    throw new Error(`FINALIZE invalid transition ${from} → REVIEW_REQUIRED`);
+  }
+
+  await db.tenderAnalysisRun.updateMany({
+    where: { id: run.id, leaseOwner: run.leaseOwner },
+    data: {
+      status: "REVIEW_REQUIRED",
+      workerStep: "FINALIZE",
+      completedAt: now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      nextAttemptAt: null,
+    },
+  });
+}
+
+async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
+  switch (step) {
+    case "CLAIMED":
+      await persistStep(run.id, run.leaseOwner, "CLAIMED", {
+        status: "EXTRACTING",
+      });
+      return;
+    case "ENSURE_PAGES":
+      await stepEnsurePages(run);
+      return;
+    case "EXTRACT_FACTS":
+      await stepExtractFacts(run);
+      return;
+    case "GENERATE_SECTIONS":
+      await stepGenerateSections(run);
+      return;
+    case "EXTRACT_REQUIREMENTS":
+    case "BUILD_DELIVERABLES":
+    case "BUILD_CLARIFICATIONS":
+      await stepNoopPersist(run, step);
+      return;
+    case "CREATE_TASKS":
+      await stepCreateTasks(run);
+      return;
+    case "PROJECT_ROOM":
+      await stepProjectRoom(run);
+      return;
+    case "FINALIZE":
+      await stepFinalize(run);
+      return;
+    default:
+      throw new Error(`Unknown workerStep: ${step}`);
+  }
+}
+
+/**
+ * 执行单个已认领 Run：按 workerStep 推进，时间预算不足则提前返回。
+ * 失败时标 FAILED + backoff，不向 batch 抛出。
+ */
+export async function executeTenderAnalysisRun(runId: string): Promise<{
+  runId: string;
+  status: string | null;
+  workerStep: string | null;
+  ok: boolean;
+  reason?: string;
+}> {
+  const claimed = await claimRun(runId);
+  if (!claimed) {
+    const cur = await db.tenderAnalysisRun.findUnique({
+      where: { id: runId },
+      select: { status: true, workerStep: true },
+    });
+    return {
+      runId,
+      status: cur?.status ?? null,
+      workerStep: cur?.workerStep ?? null,
+      ok: false,
+      reason: "not_claimable",
+    };
+  }
+
+  const started = Date.now();
+  try {
+    let cursorStep: string | null = claimed.workerStep;
+
+    // 若尚无步骤，从 CLAIMED 开始
+    if (!cursorStep) {
+      await runStep(claimed, "CLAIMED");
+      cursorStep = "CLAIMED";
+    } else if (stepIndex(cursorStep) < 0) {
+      await runStep(claimed, "CLAIMED");
+      cursorStep = "CLAIMED";
+    }
+
+    // 当前已持久化的 step 视为完成，推进下一步
+    while (Date.now() - started < TIME_BUDGET_MS) {
+      const renewed = await renewLease(claimed.id, claimed.leaseOwner);
+      if (!renewed) {
+        return {
+          runId: claimed.id,
+          status: null,
+          workerStep: cursorStep,
+          ok: false,
+          reason: "lease_lost",
+        };
+      }
+
+      const upcoming = nextStep(cursorStep);
+      if (!upcoming) break;
+
+      await runStep(claimed, upcoming);
+      cursorStep = upcoming;
+
+      if (upcoming === "FINALIZE") {
+        break;
+      }
+    }
+
+    const latest = await db.tenderAnalysisRun.findUnique({
+      where: { id: claimed.id },
+      select: { status: true, workerStep: true, leaseOwner: true },
+    });
+
+    // 未终态则释放租约，留给下次 cron（保持 EXTRACTING/ANALYZING）
+    if (
+      latest &&
+      latest.status !== "REVIEW_REQUIRED" &&
+      latest.status !== "FAILED" &&
+      latest.status !== "SUPERSEDED" &&
+      latest.leaseOwner === claimed.leaseOwner
+    ) {
+      await db.tenderAnalysisRun.updateMany({
+        where: { id: claimed.id, leaseOwner: claimed.leaseOwner },
+        data: {
+          leaseOwner: null,
+          leaseExpiresAt: new Date(), // 立即过期，便于下次认领
+        },
+      });
+    }
+
+    return {
+      runId: claimed.id,
+      status: latest?.status ?? null,
+      workerStep: latest?.workerStep ?? cursorStep,
+      ok: true,
+    };
+  } catch (error) {
+    await markFailed(claimed.id, claimed.attemptCount, error);
+    return {
+      runId: claimed.id,
+      status: "FAILED",
+      workerStep: null,
+      ok: false,
+      reason: sanitizeWorkerError(error),
+    };
+  }
+}
+
+/** cron / worker 批量消费 */
+export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
+  processed: number;
+  succeeded: number;
+  failed: number;
+  runIds: string[];
+  results: Array<{
+    runId: string;
+    status: string | null;
+    workerStep: string | null;
+    ok: boolean;
+    reason?: string;
+  }>;
+}> {
+  const now = new Date();
+  const take = Math.max(1, Math.min(limit, 2));
+
+  // 租约过期且尝试耗尽 → FAILED
+  await db.tenderAnalysisRun.updateMany({
+    where: {
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+      attemptCount: { gte: MAX_ATTEMPTS },
+      leaseExpiresAt: { lte: now },
+    },
+    data: {
+      status: "FAILED",
+      errorCode: "lease_exhausted",
+      errorMessageSanitized: "分析任务超时且已达最大尝试次数",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      failedAt: now,
+    },
+  });
+
+  const candidates = await db.tenderAnalysisRun.findMany({
+    where: {
+      attemptCount: { lt: MAX_ATTEMPTS },
+      OR: [
+        {
+          status: "PENDING",
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+        },
+        {
+          status: "FAILED",
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+        },
+        {
+          status: "EXTRACTING",
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+        },
+        {
+          status: "ANALYZING",
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+        },
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+    take,
+    select: { id: true },
+  });
+
+  const results = [];
+  for (const row of candidates) {
+    try {
+      results.push(await executeTenderAnalysisRun(row.id));
+    } catch (error) {
+      // 单条异常不得打断 batch
+      results.push({
+        runId: row.id,
+        status: "FAILED",
+        workerStep: null,
+        ok: false,
+        reason: sanitizeWorkerError(error),
+      });
+    }
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  const failed = results.filter((r) => !r.ok && r.reason !== "not_claimable").length;
+
+  return {
+    processed: results.length,
+    succeeded,
+    failed,
+    runIds: candidates.map((c) => c.id),
+    results,
+  };
+}
