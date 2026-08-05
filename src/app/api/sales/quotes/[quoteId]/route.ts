@@ -10,11 +10,13 @@ import {
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
+import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
 import type {
   QuoteItemInput,
   QuoteAddonInput,
   InstallMode,
 } from "@/lib/blinds/pricing-types";
+import { logAudit } from "@/lib/audit/logger";
 
 /**
  * GET /api/sales/quotes/[quoteId]
@@ -118,6 +120,16 @@ export const PUT = withAuth(async (request, ctx, user) => {
     opportunityId?: string;
   };
 
+  if (
+    taxRate !== undefined &&
+    (typeof taxRate !== "number" || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1)
+  ) {
+    return NextResponse.json(
+      { error: "税率必须是 0% 到 100% 之间的数字" },
+      { status: 400 },
+    );
+  }
+
   const existing = await db.salesQuote.findFirst({
     where: { id: quoteId, orgId: orgRes.orgId },
     select: {
@@ -127,6 +139,11 @@ export const PUT = withAuth(async (request, ctx, user) => {
       status: true,
       signedAt: true,
       signedPdfPath: true,
+      promotionApprovalStatus: true,
+      promotionApprovalActionId: true,
+      promotionApprovalAmount: true,
+      promotionApprovalRatio: true,
+      promotionApprovalMaxPct: true,
     },
   });
 
@@ -176,6 +193,19 @@ export const PUT = withAuth(async (request, ctx, user) => {
   }
 
   // —— pricing 兜底，行为与 POST 完全一致 ——
+  const quoteSettings = await loadDiscountsDto(orgRes.orgId);
+  const nextPromotionAmount = typeof specialPromotion === "number" && Number.isFinite(specialPromotion)
+    ? Math.max(0, specialPromotion)
+    : 0;
+  const nextPromotionRatio = typeof finalDiscountPct === "number" && Number.isFinite(finalDiscountPct)
+    ? Math.max(0, Math.min(1, finalDiscountPct))
+    : 0;
+  const approvalSnapshotMatches = ["pending", "approved"].includes(existing.promotionApprovalStatus)
+    && existing.promotionApprovalAmount != null
+    && existing.promotionApprovalRatio != null
+    && Math.abs(existing.promotionApprovalAmount - nextPromotionAmount) <= 0.0001
+    && Math.abs(existing.promotionApprovalRatio - nextPromotionRatio) <= 0.0001;
+  const adminPromotionApproval = isAdmin(user.role) && nextPromotionRatio > quoteSettings.promoMaxPct;
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
@@ -184,6 +214,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
       installMode,
       deliveryFee,
       taxRate,
+      sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
     });
   } catch (err) {
     console.error("[quotes.PUT] pricing engine threw:", err);
@@ -256,6 +287,19 @@ export const PUT = withAuth(async (request, ctx, user) => {
   const updated = await db.$transaction(async (tx) => {
     await tx.salesQuoteItem.deleteMany({ where: { quoteId } });
     await tx.salesQuoteAddon.deleteMany({ where: { quoteId } });
+    if (existing.promotionApprovalActionId) {
+      if (adminPromotionApproval) {
+        await tx.pendingAction.updateMany({
+          where: { id: existing.promotionApprovalActionId, orgId: orgRes.orgId, status: "pending" },
+          data: { status: "executed", decidedAt: new Date(), decidedById: user.id, executedAt: new Date(), resultRef: quoteId },
+        });
+      } else if (!approvalSnapshotMatches) {
+        await tx.pendingAction.updateMany({
+          where: { id: existing.promotionApprovalActionId, orgId: orgRes.orgId, status: "pending" },
+          data: { status: "failed", failureReason: "报价让利内容已变化，请重新提交审批" },
+        });
+      }
+    }
 
     const q = await tx.salesQuote.update({
       where: { id: quoteId },
@@ -279,14 +323,42 @@ export const PUT = withAuth(async (request, ctx, user) => {
           typeof totalMsrp === "number" && Number.isFinite(totalMsrp)
             ? totalMsrp
             : null,
-        specialPromotion:
-          typeof specialPromotion === "number" && Number.isFinite(specialPromotion)
-            ? Math.max(0, specialPromotion)
-            : 0,
-        finalDiscountPct:
-          typeof finalDiscountPct === "number" && Number.isFinite(finalDiscountPct)
-            ? Math.max(0, Math.min(1, finalDiscountPct))
-            : null,
+        specialPromotion: nextPromotionAmount,
+        finalDiscountPct: nextPromotionRatio,
+        ...(adminPromotionApproval
+          ? {
+              promotionApprovalStatus: "approved",
+              promotionApprovalActionId: existing.promotionApprovalActionId,
+              promotionApprovalAmount: nextPromotionAmount,
+              promotionApprovalRatio: nextPromotionRatio,
+              promotionApprovalMaxPct: quoteSettings.promoMaxPct,
+              promotionApprovalRequestedAt: null,
+              promotionApprovalExpiresAt: null,
+              promotionApprovalRequestedById: null,
+              promotionApprovedAt: new Date(),
+              promotionApprovedById: user.id,
+              promotionRejectedAt: null,
+              promotionRejectedById: null,
+              promotionRejectionReason: null,
+            }
+          : !approvalSnapshotMatches
+          ? {
+              promotionApprovalStatus:
+                nextPromotionRatio > quoteSettings.promoMaxPct ? "required" : "not_required",
+              promotionApprovalActionId: null,
+              promotionApprovalAmount: null,
+              promotionApprovalRatio: null,
+              promotionApprovalMaxPct: null,
+              promotionApprovalRequestedAt: null,
+              promotionApprovalExpiresAt: null,
+              promotionApprovalRequestedById: null,
+              promotionApprovedAt: null,
+              promotionApprovedById: null,
+              promotionRejectedAt: null,
+              promotionRejectedById: null,
+              promotionRejectionReason: null,
+            }
+          : {}),
         ...(invalidateSignature
           ? {
               signatureUrl: null,
@@ -347,6 +419,17 @@ export const PUT = withAuth(async (request, ctx, user) => {
   if (invalidateSignature && existing.signedPdfPath) {
     const { deleteBlob } = await import("@/lib/files/blob-access");
     await deleteBlob(existing.signedPdfPath).catch(() => undefined);
+  }
+
+  if (adminPromotionApproval) {
+    await logAudit({
+      userId: user.id,
+      orgId: orgRes.orgId,
+      action: "quote_promotion_approved",
+      targetType: "sales_quote",
+      targetId: quoteId,
+      afterData: { via: "admin_direct_confirmation", promotionAmount: nextPromotionAmount, promotionRatio: nextPromotionRatio, maxPct: quoteSettings.promoMaxPct },
+    });
   }
 
   return NextResponse.json({

@@ -3,6 +3,8 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { putPrivateBlob, deleteBlob } from "@/lib/files/blob-access";
+import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
+import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
 
 /**
  * POST /api/sales/quotes/[quoteId]/pdf
@@ -18,15 +20,23 @@ const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
 
-  const quote = await db.salesQuote.findUnique({
-    where: { id: quoteId },
+  const quote = await db.salesQuote.findFirst({
+    where: { id: quoteId, orgId: orgRes.orgId },
     select: {
       id: true,
       version: true,
       createdById: true,
       pdfPath: true,
       signedPdfPath: true,
+      specialPromotion: true,
+      finalDiscountPct: true,
+      promotionApprovalStatus: true,
+      promotionApprovalAmount: true,
+      promotionApprovalRatio: true,
+      promotionApprovalMaxPct: true,
     },
   });
 
@@ -35,6 +45,13 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
   if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
     return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
+  }
+  if (!isSuperAdmin(user.role)) {
+    const settings = await db.quoteDiscountSettings.findUnique({ where: { orgId: orgRes.orgId }, select: { promoMaxPct: true } });
+    const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
+    if (promotion.required && !promotion.approved) {
+      return NextResponse.json({ error: promotion.reason, code: "PROMOTION_APPROVAL_REQUIRED" }, { status: 409 });
+    }
   }
   if (quote.signedPdfPath) {
     return NextResponse.json(

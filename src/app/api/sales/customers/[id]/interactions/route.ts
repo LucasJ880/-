@@ -34,6 +34,20 @@ export const POST = withAuth(async (request, ctx, user) => {
   });
   if (denied) return denied;
 
+  const opportunityId = typeof body.opportunityId === 'string' && body.opportunityId ? body.opportunityId : null;
+  if (opportunityId) {
+    const matches = await db.salesOpportunity.count({
+      where: { id: opportunityId, customerId, orgId: orgRes.orgId },
+    });
+    if (!matches) {
+      return NextResponse.json({ error: '商机与当前客户不匹配' }, { status: 400 });
+    }
+  }
+  const nextFollowupAt = body.nextFollowupAt ? new Date(body.nextFollowupAt) : null;
+  if (nextFollowupAt && (Number.isNaN(nextFollowupAt.getTime()) || nextFollowupAt.getTime() <= Date.now())) {
+    return NextResponse.json({ error: '下次跟进时间必须晚于当前时间' }, { status: 400 });
+  }
+
   const textForAnalysis = `${body.summary} ${body.content || ""}`;
   const autoLanguage = detectLanguage(textForAnalysis);
   const autoTags = extractTopicTags(textForAnalysis);
@@ -42,7 +56,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     data: {
       orgId: orgRes.orgId,
       customerId,
-      opportunityId: body.opportunityId || null,
+      opportunityId,
       type: body.type || 'note',
       direction: body.direction || null,
       summary: body.summary.trim(),
@@ -59,10 +73,10 @@ export const POST = withAuth(async (request, ctx, user) => {
     },
   });
 
-  if (body.opportunityId) {
+  if (opportunityId) {
     await db.salesOpportunity.update({
-      where: { id: body.opportunityId },
-      data: { updatedAt: new Date() },
+      where: { id: opportunityId },
+      data: { updatedAt: new Date(), ...(nextFollowupAt ? { nextFollowupAt } : {}) },
     });
   }
 
@@ -72,7 +86,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       sourceType: (body.channel as "email" | "wechat" | "call_transcript" | "note") || "note",
       content: textContent,
       customerId,
-      opportunityId: body.opportunityId || undefined,
+      opportunityId: opportunityId || undefined,
       interactionId: interaction.id,
       metadata: {
         direction: body.direction || undefined,

@@ -113,6 +113,9 @@ model User {
   salesOpportunitiesCreated   SalesOpportunity[]    @relation("SalesOpportunityCreatedBy")
   customerInteractionsCreated CustomerInteraction[] @relation("CustomerInteractionCreatedBy")
   salesQuotesCreated          SalesQuote[]          @relation("SalesQuoteCreatedBy")
+  salesActionsAssigned       SalesAction[]         @relation("SalesActionAssignee")
+  salesActionsCreated        SalesAction[]         @relation("SalesActionCreatedBy")
+  salesActionsCompleted      SalesAction[]         @relation("SalesActionCompletedBy")
 
   // Appointments
   appointmentsAssigned Appointment[] @relation("AppointmentAssignee")
@@ -783,6 +786,8 @@ model Organization {
 
   // Phase 3B-A：助手线程租户绑定
   aiThreads AiThread[]
+  salesActions SalesAction[]
+  salesActionSyncRuns SalesActionSyncRun[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -3252,6 +3257,7 @@ model SalesCustomer {
   blindsOrders  BlindsOrder[]
   appointments  Appointment[]
   measurements  MeasurementRecord[]
+  salesActions   SalesAction[]
 
   // RAG
   profile         CustomerProfile?
@@ -3302,6 +3308,7 @@ model SalesOpportunity {
   quotes       SalesQuote[]
   blindsOrders BlindsOrder[]
   appointments Appointment[]
+  salesActions SalesAction[]
 
   // RAG
   knowledgeChunks SalesKnowledgeChunk[]
@@ -3360,6 +3367,71 @@ model CustomerInteraction {
   @@index([orgId])
 }
 
+/// 数字员工建议转成的可追踪销售行动。
+/// activeKey 仅在 open / in_progress 时保留，确保同一信号不会重复进入行动队列。
+model SalesAction {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      SalesCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  source        String @default("digital_employee")
+  signalKey     String
+  activeKey     String? @unique
+  category      String
+  title         String
+  description   String? @db.Text
+  priority      String @default("medium") // urgent | high | medium | low
+  status        String @default("open") // open | in_progress | completed | dismissed | auto_resolved
+  dueAt         DateTime?
+  startedAt      DateTime?
+  lastObservedAt DateTime?
+  autoResolvedAt DateTime?
+
+  assignedToId  String?
+  assignedTo    User? @relation("SalesActionAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdById   String
+  createdBy     User @relation("SalesActionCreatedBy", fields: [createdById], references: [id])
+  completedById String?
+  completedBy   User? @relation("SalesActionCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  resolutionNote  String? @db.Text
+  dismissedReason String? @db.Text
+  completedAt     DateTime?
+  dismissedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orgId, status, dueAt])
+  @@index([orgId, assignedToId, status])
+  @@index([customerId, status])
+  @@index([opportunityId, status])
+  @@index([signalKey])
+}
+
+/// 数字员工销售行动扫描记录。只记录任务同步，不执行外发或商机阶段变更。
+model SalesActionSyncRun {
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  trigger           String       @default("cron") // cron | manual
+  status            String       @default("running") // running | completed | failed
+  scannedCount      Int          @default(0)
+  createdCount      Int          @default(0)
+  updatedCount      Int          @default(0)
+  autoResolvedCount Int          @default(0)
+  truncated         Boolean      @default(false)
+  error             String?      @db.Text
+  startedAt         DateTime     @default(now())
+  completedAt       DateTime?
+
+  @@index([orgId, startedAt])
+  @@index([status, startedAt])
+}
+
 model SalesQuote {
   id              String            @id @default(cuid())
   orgId           String
@@ -3402,6 +3474,21 @@ model SalesQuote {
   specialPromotion Float? @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
   finalDiscountPct Float? // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
 
+  // 超额 Special Promotion 审批闭环；批准只对审批时的金额与比例快照有效。
+  promotionApprovalStatus      String   @default("not_required") // not_required | required | pending | approved | rejected
+  promotionApprovalActionId    String?  @unique
+  promotionApprovalAmount      Float?
+  promotionApprovalRatio       Float?
+  promotionApprovalMaxPct      Float?
+  promotionApprovalRequestedAt DateTime?
+  promotionApprovalExpiresAt   DateTime?
+  promotionApprovalRequestedById String?
+  promotionApprovedAt          DateTime?
+  promotionApprovedById        String?
+  promotionRejectedAt          DateTime?
+  promotionRejectedById        String?
+  promotionRejectionReason     String?  @db.Text
+
   // 定金登记（线上签字 → 销售补录收款情况）
   //   - depositAmount / depositMethod / depositCollectedAt 三者同时写入，空表示未登记
   //   - method 取值：cash | check | etransfer（前端下拉固定）
@@ -3437,6 +3524,7 @@ model SalesQuote {
   @@index([status])
   @@index([createdAt])
   @@index([orgId])
+  @@index([orgId, promotionApprovalStatus, createdAt])
 }
 
 /// 企业级报价折扣/促销/定金规则（每 org 一行当前生效配置）
@@ -3456,6 +3544,8 @@ model QuoteDiscountSettings {
   sheer                      Float        @default(0.35)
   shutters                   Float        @default(0.35)
   honeycomb                  Float        @default(0.35)
+  /// Shade Order Form 选择 Lift=M 时，每行税前加收的电机价格（CAD）
+  sunnyMotorPrice            Float        @default(150)
   promoWarnPct               Float        @default(0.06)
   promoDangerPct             Float        @default(0.15)
   promoMaxPct                Float        @default(0.25)

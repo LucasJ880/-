@@ -64,6 +64,7 @@ interface Props {
   installMode: InstallMode;
   onSignatureChange?: (strokeCount: number) => void;
   discounts?: DiscountsOverride;
+  sunnyMotorPrice: number;
 }
 
 function emptyLine(): ShadeOrderLine {
@@ -94,6 +95,7 @@ export function OrderShadesForm({
   onBracketTypeChange,
   installMode,
   discounts,
+  sunnyMotorPrice,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShadeOrderLine, value: unknown) => {
@@ -109,8 +111,11 @@ export function OrderShadesForm({
   };
 
   const pricings = useMemo(
-    () => lines.map((l) => computeShadeLinePrice(l, installMode, discounts)),
-    [lines, installMode, discounts]
+    () =>
+      lines.map((l) =>
+        computeShadeLinePrice(l, installMode, discounts, sunnyMotorPrice),
+      ),
+    [lines, installMode, discounts, sunnyMotorPrice]
   );
   const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
   const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);
@@ -305,13 +310,20 @@ export function OrderShadesForm({
                             {p.error}
                           </div>
                         ) : p ? (
-                          installMode === "pickup" ? (
-                            <div className="text-[9px] text-amber-600">Pickup</div>
-                          ) : (
-                            <div className="text-[9px] text-muted-foreground">
-                              +Install {formatCAD(p.install)}
-                            </div>
-                          )
+                          <>
+                            {line.lift === "M" && (
+                              <div className="text-[9px] font-medium text-blue-600">
+                                Motor +{formatCAD(sunnyMotorPrice)}
+                              </div>
+                            )}
+                            {installMode === "pickup" ? (
+                              <div className="text-[9px] text-amber-600">Pickup</div>
+                            ) : (
+                              <div className="text-[9px] text-muted-foreground">
+                                +Install {formatCAD(p.install)}
+                              </div>
+                            )}
+                          </>
                         ) : null}
                       </div>
                     ) : p?.error ? (
@@ -323,6 +335,11 @@ export function OrderShadesForm({
                         <div className="font-mono text-[11px] font-semibold text-teal-700">
                           {formatCAD(p.merch)}
                         </div>
+                        {line.lift === "M" && (
+                          <div className="text-[9px] font-medium text-blue-600">
+                            Motor +{formatCAD(sunnyMotorPrice)}
+                          </div>
+                        )}
                         {installMode === "pickup" ? (
                           <div className="text-[9px] text-amber-600">Pickup</div>
                         ) : (

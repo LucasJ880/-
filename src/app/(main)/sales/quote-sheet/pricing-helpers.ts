@@ -1,7 +1,10 @@
 import type { ShadeOrderLine, ShutterOrderLine, DrapeOrderLine, InstallMode } from "./types";
 import { fractionToInches } from "./types";
 import { priceFor } from "@/lib/blinds/pricing-engine";
-import { INSTALL_RULES } from "@/lib/blinds/pricing-data";
+import {
+  DEFAULT_SUNNY_MOTOR_PRICE,
+  INSTALL_RULES,
+} from "@/lib/blinds/pricing-data";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
@@ -43,8 +46,14 @@ export function sumAllMsrp(
   shutterOrders: ShutterOrderLine[],
   shutterMaterial: "Wooden" | "Vinyl",
   drapeOrders: DrapeOrderLine[],
+  sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
 ): number {
-  const shades = sumShadeTotals(shadeOrders, "pickup", ZERO_DISCOUNTS).merch;
+  const shades = sumShadeTotals(
+    shadeOrders,
+    "pickup",
+    ZERO_DISCOUNTS,
+    sunnyMotorPrice,
+  ).merch;
   const shutters = sumShutterTotals(shutterOrders, shutterMaterial, "pickup", ZERO_DISCOUNTS).merch;
   const drapes = sumDrapeTotals(drapeOrders, "pickup", ZERO_DISCOUNTS).merch;
   return shades + shutters + drapes;
@@ -78,7 +87,9 @@ export function computeShadeLinePrice(
   line: ShadeOrderLine,
   installMode: InstallMode,
   discounts?: DiscountsOverride,
+  sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
 ): LinePrice | null {
+  const motorSurcharge = line.lift === "M" ? Math.max(0, sunnyMotorPrice) : 0;
   // Allusion / Roman：销售手填单价，跳过 MSRP 表
   if (isManualPriceShadeProduct(line.product)) {
     if (!line.widthWhole || !line.heightWhole) return null;
@@ -94,7 +105,8 @@ export function computeShadeLinePrice(
       installMode === "pickup"
         ? 0
         : (w > INSTALL_RULES.wideThresholdIn ? INSTALL_RULES.wide : INSTALL_RULES.regular);
-    return { merch: manual, install, total: manual + install, error: null };
+    const merch = manual + motorSurcharge;
+    return { merch, install, total: merch + install, error: null };
   }
 
   if (!line.sku || !line.widthWhole || !line.heightWhole) return null;
@@ -107,7 +119,7 @@ export function computeShadeLinePrice(
   if ("error" in result) {
     return { merch: 0, install: 0, total: 0, error: result.error };
   }
-  const merch = result.price;
+  const merch = result.price + motorSurcharge;
   const install = installMode === "pickup" ? 0 : result.install;
   return { merch, install, total: merch + install, error: null };
 }
@@ -116,10 +128,16 @@ export function sumShadeTotals(
   lines: ShadeOrderLine[],
   installMode: InstallMode,
   discounts?: DiscountsOverride,
+  sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
 ): SectionTotals {
   const totals = emptyTotals();
   for (const line of lines) {
-    const p = computeShadeLinePrice(line, installMode, discounts);
+    const p = computeShadeLinePrice(
+      line,
+      installMode,
+      discounts,
+      sunnyMotorPrice,
+    );
     if (!p || p.error) continue;
     totals.merch += p.merch;
     totals.install += p.install;

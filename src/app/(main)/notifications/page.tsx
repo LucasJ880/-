@@ -18,6 +18,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { NotificationListItem } from "@/components/notification/notification-list-item";
 import type { NotificationItem } from "@/components/notification/types";
 import { Suspense } from "react";
+import { persistSelectedOrgId } from "@/lib/org-selection";
 
 function NotificationsContent() {
   const router = useRouter();
@@ -143,6 +144,13 @@ function NotificationsContent() {
         router.push(`/tasks/${item.entityId}`);
       } else if (item.entityType === "project" && item.entityId) {
         router.push(`/projects/${item.entityId}`);
+      } else if (item.entityType === "sales_quote" && item.entityId) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";
+        router.push(`/sales/quote-sheet?mode=order&quoteId=${encodeURIComponent(item.entityId)}${orgQuery}`);
+      } else if (item.entityType === "approval" && item.entityId) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(`/capabilities/approvals/${encodeURIComponent(item.entityId)}`);
       } else if (item.projectId && item.activityId) {
         router.push(`/projects/${item.projectId}?activity=${item.activityId}`);
       } else if (item.projectId) {
@@ -176,6 +184,7 @@ function NotificationsContent() {
     { key: "followup", label: "跟进" },
     { key: "project_update", label: "项目更新" },
     { key: "project_dispatched", label: "项目分发" },
+    { key: "quote_promotion_approval", label: "报价让利审核" },
   ];
 
   const totalPages = Math.ceil(total / 20);

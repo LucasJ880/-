@@ -36,6 +36,7 @@ import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
+import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 
 import type {
   PartALine,
@@ -84,6 +85,8 @@ import { OrgSelectBanner } from "@/components/org-select-banner";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { RoughQuotePanel } from "./rough-quote-panel";
 import { QuoteSentNextSteps } from "@/components/sales-command-center/quote-sent-next-steps";
+import { reviewQuoteWorkflow } from "@/lib/digital-employees/quote-review";
+import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
 
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
@@ -185,11 +188,17 @@ function QuoteSheetPageInner() {
   const [editingQuoteVersion, setEditingQuoteVersion] = useState<number | null>(null);
   const [editingLoading, setEditingLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [requestingPromotionApproval, setRequestingPromotionApproval] = useState(false);
+  const [promotionApprovalStatus, setPromotionApprovalStatus] = useState("not_required");
+  const [promotionApprovalAmount, setPromotionApprovalAmount] = useState<number | null>(null);
+  const [promotionApprovalRatio, setPromotionApprovalRatio] = useState<number | null>(null);
+  const [promotionApprovalExpiresAt, setPromotionApprovalExpiresAt] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatedFlash, setGeneratedFlash] = useState<string | null>(null);
   // 发送 Quote 弹窗（让销售选择：发邮件 / 本地保存 PDF）
   const [sendQuoteOpen, setSendQuoteOpen] = useState(false);
   const [sendQuoteBusy, setSendQuoteBusy] = useState<null | "email" | "local">(null);
+  const [emailChannel, setEmailChannel] = useState<"loading" | "connected" | "disconnected">("loading");
   useAppScrollLock(sendQuoteOpen, "quote-sheet-send-dialog");
   const [narrowViewport, setNarrowViewport] = useState(false);
   useEffect(() => {
@@ -200,6 +209,22 @@ function QuoteSheetPageInner() {
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
+
+  const refreshEmailChannel = useCallback(async () => {
+    setEmailChannel("loading");
+    try {
+      const status = await apiJson<{ activeChannel?: "gmail" | "smtp" | null }>(
+        "/api/sales/email-status",
+      );
+      setEmailChannel(status.activeChannel ? "connected" : "disconnected");
+    } catch {
+      setEmailChannel("disconnected");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshEmailChannel();
+  }, [refreshEmailChannel]);
   const viewport = useVisualViewport(narrowViewport);
   const actionBarBottom =
     narrowViewport && viewport.keyboardOpen
@@ -250,6 +275,7 @@ function QuoteSheetPageInner() {
   const [financeApproved, setFinanceApproved] = useState("");
   const [financeDifference, setFinanceDifference] = useState("");
   const [specialPromotion, setSpecialPromotion] = useState(""); // Step 4：销售手填让利金额（税前直减）
+  const [taxRate, setTaxRate] = useState(HST_RATE); // 默认 13%，Part B 可按地区修改
 
   // Part C
   const [partCServices, setPartCServices] = useState<PartCService[]>(makeDefaultServices);
@@ -323,6 +349,9 @@ function QuoteSheetPageInner() {
 
   // 拉取全局折扣率 & Special Promotion 阈值（Order Form / AI 工具 共用数据源）
   const [discounts, setDiscounts] = useState<DiscountsOverride | undefined>(undefined);
+  const [sunnyMotorPrice, setSunnyMotorPrice] = useState(
+    DEFAULT_SUNNY_MOTOR_PRICE,
+  );
   const [promoWarnPct, setPromoWarnPct] = useState(0.06);
   const [promoDangerPct, setPromoDangerPct] = useState(0.15);
   const [promoMaxPct, setPromoMaxPct] = useState(0.25);
@@ -340,6 +369,7 @@ function QuoteSheetPageInner() {
           drapery: number; sheer: number; shutters: number; honeycomb: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
+          sunnyMotorPrice?: number;
           hasDepositOverrideCode?: boolean;
         }>("/api/sales/quote-settings/discounts");
         setDiscounts({
@@ -357,6 +387,13 @@ function QuoteSheetPageInner() {
         if (typeof d.promoMaxPct === "number") setPromoMaxPct(d.promoMaxPct);
         if (typeof d.depositWarnPct === "number") setDepositWarnPct(d.depositWarnPct);
         if (typeof d.depositMinPct === "number") setDepositMinPct(d.depositMinPct);
+        if (
+          typeof d.sunnyMotorPrice === "number" &&
+          Number.isFinite(d.sunnyMotorPrice) &&
+          d.sunnyMotorPrice >= 0
+        ) {
+          setSunnyMotorPrice(d.sunnyMotorPrice);
+        }
         if (typeof d.hasDepositOverrideCode === "boolean") setHasDepositOverrideCode(d.hasDepositOverrideCode);
       } catch {
         // 拉取失败时保留默认值
@@ -411,8 +448,14 @@ function QuoteSheetPageInner() {
   );
   // 新主档：三个电子订单表的小计
   const shadeTotals = useMemo(
-    () => sumShadeTotals(shadeOrders, installMode, discounts),
-    [shadeOrders, installMode, discounts]
+    () =>
+      sumShadeTotals(
+        shadeOrders,
+        installMode,
+        discounts,
+        sunnyMotorPrice,
+      ),
+    [shadeOrders, installMode, discounts, sunnyMotorPrice]
   );
   const shutterTotals = useMemo(
     () => sumShutterTotals(shutterOrders, shutterMaterial, installMode, discounts),
@@ -437,8 +480,15 @@ function QuoteSheetPageInner() {
   // Step 4：折扣率追踪 —— 提前计算，供 handleSave 引用
   const specialPromotionNum = Math.max(0, parseFloat(specialPromotion) || 0);
   const totalMsrp = useMemo(
-    () => sumAllMsrp(shadeOrders, shutterOrders, shutterMaterial, drapeOrders),
-    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders],
+    () =>
+      sumAllMsrp(
+        shadeOrders,
+        shutterOrders,
+        shutterMaterial,
+        drapeOrders,
+        sunnyMotorPrice,
+      ),
+    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
   );
 
   // Special Promotion 硬门槛：ratio > promoMaxPct 时，非 admin 禁止保存/生成
@@ -451,7 +501,16 @@ function QuoteSheetPageInner() {
   const finalDiscountPct = productsPreTax > 0
     ? Math.max(0, Math.min(1, specialPromotionNum / productsPreTax))
     : 0;
-  const promoBlocked = !isSuperAdmin && promoRatio > promoMaxPct;
+  const promotionSnapshotMatches = promotionApprovalAmount != null
+    && promotionApprovalRatio != null
+    && Math.abs(promotionApprovalAmount - specialPromotionNum) <= 0.0001
+    && Math.abs(promotionApprovalRatio - promoRatio) <= 0.0001;
+  const promotionApprovalRequested = promotionApprovalStatus === "pending"
+    && promotionSnapshotMatches
+    && Boolean(promotionApprovalExpiresAt && new Date(promotionApprovalExpiresAt).getTime() > Date.now());
+  const promotionApproved = promotionApprovalStatus === "approved" && promotionSnapshotMatches;
+  const promotionOverMax = !isSuperAdmin && promoRatio > promoMaxPct;
+  const promoBlocked = promotionOverMax && !promotionApproved;
 
   // 客户当日序号（由后端按「该销售今日接触的 distinct 客户顺序」分配）
   // - 选中客户 + date 变化时拉取
@@ -523,6 +582,8 @@ function QuoteSheetPageInner() {
           shadeOrders, shutterOrders, drapeOrders,
           shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
           installMode,
+          taxRate,
+          sunnyMotorPrice,
           specialPromotion,
         },
         orgId,
@@ -541,7 +602,7 @@ function QuoteSheetPageInner() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode, specialPromotion,
+    installMode, taxRate, sunnyMotorPrice, specialPromotion,
   ]);
 
   // 当 customerId 或 customers 变化时派生候选地址列表
@@ -603,6 +664,18 @@ function QuoteSheetPageInner() {
     setShadeValanceType(d.shadeValanceType);
     setShadeBracketType(d.shadeBracketType);
     setInstallMode(d.installMode);
+    setTaxRate(
+      typeof d.taxRate === "number" && Number.isFinite(d.taxRate)
+        ? Math.min(1, Math.max(0, d.taxRate))
+        : HST_RATE,
+    );
+    setSunnyMotorPrice(
+      typeof d.sunnyMotorPrice === "number" &&
+        Number.isFinite(d.sunnyMotorPrice) &&
+        d.sunnyMotorPrice >= 0
+        ? d.sunnyMotorPrice
+        : DEFAULT_SUNNY_MOTOR_PRICE,
+    );
     if (typeof (d as QuoteDraftV1).specialPromotion === "string") {
       setSpecialPromotion((d as QuoteDraftV1).specialPromotion as string);
     }
@@ -634,6 +707,10 @@ function QuoteSheetPageInner() {
             formDataJson: string | null;
             notes: string | null;
             specialPromotion: number | null;
+            promotionApprovalStatus: string;
+            promotionApprovalAmount: number | null;
+            promotionApprovalRatio: number | null;
+            promotionApprovalExpiresAt: string | null;
           };
         };
         const res = await apiJson<QuoteResp>(
@@ -663,6 +740,10 @@ function QuoteSheetPageInner() {
         ) {
           setSpecialPromotion(String(res.quote.specialPromotion));
         }
+        setPromotionApprovalStatus(res.quote.promotionApprovalStatus ?? "not_required");
+        setPromotionApprovalAmount(res.quote.promotionApprovalAmount ?? null);
+        setPromotionApprovalRatio(res.quote.promotionApprovalRatio ?? null);
+        setPromotionApprovalExpiresAt(res.quote.promotionApprovalExpiresAt ?? null);
       } catch (err) {
         console.error("Load quote for editing failed:", err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -673,7 +754,7 @@ function QuoteSheetPageInner() {
     })();
   }, [editingQuoteIdFromUrl, draftReady, applyFormState]);
 
-  const handleSave = useCallback(async (): Promise<
+  const saveQuote = useCallback(async (allowPromotionApprovalDraft = false): Promise<
     { quoteId: string; saveMode: "full" | "partial" | "shell" } | null
   > => {
     if (!customerId) return null;
@@ -682,7 +763,7 @@ function QuoteSheetPageInner() {
       return null;
     }
     // 硬门槛：Special Promotion 超过公司上限，非 admin 禁止提交
-    if (promoBlocked) {
+    if (promoBlocked && !allowPromotionApprovalDraft) {
       alert(
         `Special Promotion 已达产品税前小计的 ${(promoRatio * 100).toFixed(1)}%，超过公司设定的最高让利上限 ${Math.round(promoMaxPct * 100)}%。\n\n请降低让利金额，或由管理员账号登录后提交。`,
       );
@@ -695,7 +776,7 @@ function QuoteSheetPageInner() {
         0,
         productsSubtotal + subtotalB + subtotalC - specialPromotionNum,
       );
-      const _grandTotal = _preTax + Math.round(_preTax * HST_RATE * 100) / 100;
+      const _grandTotal = _preTax + Math.round(_preTax * taxRate * 100) / 100;
       const _deposit = Math.max(0, parseFloat(depositAmount) || 0);
       const _depositPct = _grandTotal > 0 ? _deposit / _grandTotal : 0;
       if (_grandTotal > 0 && _depositPct < depositMinPct) {
@@ -729,6 +810,7 @@ function QuoteSheetPageInner() {
             location: l.location,
             sku: l.sku || l.product,
             manualPrice: manual,
+            motorized: l.lift === "M",
           });
           continue;
         }
@@ -746,6 +828,7 @@ function QuoteSheetPageInner() {
           widthIn: w,
           heightIn: h,
           cordless: l.lift === "L" || l.lift === "R",
+          motorized: l.lift === "M",
           location: l.location,
           sku: l.sku,
         });
@@ -817,7 +900,7 @@ function QuoteSheetPageInner() {
         productsSubtotal + subtotalB + subtotalC - specialPromotionNum,
       );
       const displayGrandTotal = Number(
-        (preTaxForSave + Math.round(preTaxForSave * HST_RATE * 100) / 100).toFixed(2),
+        (preTaxForSave + Math.round(preTaxForSave * taxRate * 100) / 100).toFixed(2),
       );
 
       const fullFormData: QuoteFormState = {
@@ -838,7 +921,7 @@ function QuoteSheetPageInner() {
         shutterOrders: shutterOrders.filter((l) => l.location || l.widthWhole),
         drapeOrders: drapeOrders.filter((l) => l.location || l.drapeFabricSku || l.sheerFabricSku),
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-        installMode,
+        installMode, taxRate, sunnyMotorPrice,
       };
 
       // 编辑模式下走 PUT /api/sales/quotes/[quoteId]，否则 POST 新建
@@ -858,6 +941,7 @@ function QuoteSheetPageInner() {
                 opportunityId: opportunityId || undefined,
                 items,
                 installMode,
+                taxRate,
                 orderNumber,
                 formDataJson: JSON.stringify(fullFormData),
                 totalMsrp,
@@ -869,6 +953,7 @@ function QuoteSheetPageInner() {
                 opportunityId: opportunityId || undefined,
                 items,
                 installMode,
+                taxRate,
                 orderNumber,
                 formDataJson: JSON.stringify(fullFormData),
                 totalMsrp,
@@ -947,7 +1032,7 @@ function QuoteSheetPageInner() {
   }, [
     orderNumber, date, customerId, opportunityId, customerName, customerPhone,
     customerEmail, customerAddress, heardUsOn, salesRep, measureSequence,
-    installMode,
+    installMode, taxRate, sunnyMotorPrice,
     partALines, partBAddons, partBNotes, paymentMethod, depositAmount, balanceAmount,
     financeEligible, financeApproved, financeDifference, partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
@@ -959,6 +1044,40 @@ function QuoteSheetPageInner() {
     editingQuoteId,
     orgId, orgLoading, ambiguous,
   ]);
+
+  const handleSave = useCallback(() => saveQuote(false), [saveQuote]);
+
+  const handleRequestPromotionApproval = useCallback(async () => {
+    if (!promoBlocked || requestingPromotionApproval) return;
+    setRequestingPromotionApproval(true);
+    try {
+      // 审批必须绑定一份可复查的服务端草稿，不能只发送浏览器里的临时数据。
+      const saved = await saveQuote(true);
+      if (!saved) return;
+      setEditingQuoteId(saved.quoteId);
+
+      const response = await apiFetch(
+        `/api/sales/quotes/${saved.quoteId}/request-promotion-approval`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; notified?: number }
+        | null;
+      if (!response.ok) {
+        throw new Error(data?.error || "提交审核失败");
+      }
+      setPromotionApprovalStatus("pending");
+      setPromotionApprovalAmount(specialPromotionNum);
+      setPromotionApprovalRatio(promoRatio);
+      setPromotionApprovalExpiresAt(new Date(Date.now() + 7 * 86_400_000).toISOString());
+      alert(`已保存报价草稿并通知 ${data?.notified ?? 0} 位管理员。管理员可从通知中心直接打开审核。`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`提交管理员审核失败：${message}`);
+    } finally {
+      setRequestingPromotionApproval(false);
+    }
+  }, [promoBlocked, requestingPromotionApproval, saveQuote, specialPromotionNum, promoRatio]);
 
   /**
    * 打开"发送 Quote"弹窗：
@@ -973,7 +1092,8 @@ function QuoteSheetPageInner() {
       return;
     }
     setSendQuoteOpen(true);
-  }, [customerId]);
+    void refreshEmailChannel();
+  }, [customerId, refreshEmailChannel]);
 
   // PDF input — 从当前表单状态构建（导出下载与服务器存档共用，保证同一份内容）
   const buildPdfInput = useCallback(async () => {
@@ -1016,9 +1136,11 @@ function QuoteSheetPageInner() {
       signatureDataUrl,
       logoDataUrl,
       discounts,
+      sunnyMotorPrice,
       specialPromotion: specialPromotionNum,
       totalMsrp,
       finalDiscountPct,
+      taxRate,
     };
   }, [
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
@@ -1026,8 +1148,8 @@ function QuoteSheetPageInner() {
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
-    discounts,
-    specialPromotionNum, totalMsrp, finalDiscountPct,
+    discounts, sunnyMotorPrice,
+    specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,
   ]);
 
   // PDF export — 下载到本地（委托给 ./quote-pdf 模块，橙色品牌四页式设计）
@@ -1168,6 +1290,10 @@ function QuoteSheetPageInner() {
       alert("该客户没有填写邮箱，请先在客户信息中补充邮箱，或改为下载到本地。");
       return;
     }
+    if (mode === "email" && emailChannel !== "connected") {
+      alert("尚未绑定可用的发信邮箱。请先点击“邮箱绑定”，连接 Google 邮箱或配置并验证 SMTP。");
+      return;
+    }
 
     setSendQuoteBusy(mode);
     try {
@@ -1273,13 +1399,82 @@ function QuoteSheetPageInner() {
     handleExportPDF,
     uploadQuotePdf,
     orgId,
+    emailChannel,
     orgLoading,
     ambiguous,
   ]);
 
   const preTax = Math.max(0, productsSubtotal + subtotalB + subtotalC - specialPromotionNum);
-  const hst = Math.round(preTax * HST_RATE * 100) / 100;
+  const hst = Math.round(preTax * taxRate * 100) / 100;
   const grandTotal = preTax + hst;
+  const quoteWorkflowReview = useMemo(() => {
+    const enteredLineCount =
+      shadeOrders.filter(
+        (line) =>
+          Boolean(line.widthWhole && line.heightWhole) &&
+          Boolean(line.sku || line.manualPrice),
+      ).length +
+      shutterOrders.filter((line) => Boolean(line.widthWhole && line.heightWhole)).length +
+      drapeOrders.filter(
+        (line) =>
+          Boolean(line.drapeWidthWhole && line.drapeHeightWhole) ||
+          Boolean(line.sheerWidthWhole && line.sheerHeightWhole),
+      ).length;
+    const motorizedLineCount = shadeOrders.filter(
+      (line) => line.lift === "M" && Boolean(line.widthWhole && line.heightWhole),
+    ).length;
+
+    return reviewQuoteWorkflow({
+      customerId,
+      customerName,
+      customerEmail,
+      customerAddress,
+      productsSubtotal,
+      enteredLineCount,
+      motorizedLineCount,
+      sunnyMotorPrice,
+      taxRate,
+      specialPromotion: specialPromotionNum,
+      promoRatio,
+      promoMaxPct,
+      promoBlocked: promotionOverMax,
+      promotionApprovalRequested,
+      promotionApprovalApproved: promotionApproved,
+      paymentMethod,
+      depositAmount: Math.max(0, parseFloat(depositAmount) || 0),
+      grandTotal,
+      depositMinPct,
+      depositUnlocked,
+      isAdmin: isSuperAdmin,
+      emailChannel,
+      hasSignature: hasAnySignature,
+    });
+  }, [
+    customerId,
+    customerName,
+    customerEmail,
+    customerAddress,
+    productsSubtotal,
+    shadeOrders,
+    shutterOrders,
+    drapeOrders,
+    sunnyMotorPrice,
+    taxRate,
+    specialPromotionNum,
+    promoRatio,
+    promoMaxPct,
+    promotionOverMax,
+    promotionApprovalRequested,
+    promotionApproved,
+    paymentMethod,
+    depositAmount,
+    grandTotal,
+    depositMinPct,
+    depositUnlocked,
+    isSuperAdmin,
+    emailChannel,
+    hasAnySignature,
+  ]);
 
   // Direct Payment 模式：balance 总是派生 = Grand Total − Deposit（只读）
   // 销售修改 deposit 或总价变化时自动同步 balance 状态，
@@ -1392,7 +1587,7 @@ function QuoteSheetPageInner() {
       )}
 
       {/* Customer selector + Order info */}
-      <div className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
+      <div id="quote-customer-info" className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-muted-foreground">Customer & Order Info</h2>
           <div className="flex items-center gap-2">
@@ -1625,6 +1820,18 @@ function QuoteSheetPageInner() {
         ))}
       </div>
 
+      <QuoteDigitalEmployeeReview
+        review={quoteWorkflowReview}
+        onOpenCustomer={() => {
+          document.getElementById("quote-customer-info")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }}
+        onOpenProducts={() => setActiveTab("shades")}
+        onOpenPartB={() => setActiveTab("partB")}
+      />
+
       {/* Products Summary — 让用户实时看到三类订单小计 */}
       <div className="rounded-xl border border-teal-200 bg-teal-50/40 px-3 md:px-4 py-2.5 md:py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs md:text-sm">
@@ -1691,6 +1898,12 @@ function QuoteSheetPageInner() {
             onSignatureChange={setSigPartBCount}
             specialPromotion={specialPromotion}
             onSpecialPromotionChange={setSpecialPromotion}
+            taxRate={taxRate}
+            onTaxRateChange={setTaxRate}
+            onRequestPromotionApproval={handleRequestPromotionApproval}
+            requestingPromotionApproval={requestingPromotionApproval}
+            promotionApprovalRequested={promotionApprovalRequested}
+            promotionApprovalApproved={promotionApproved}
             totalMsrp={totalMsrp}
             productsPreTax={productsPreTax}
             promoWarnPct={promoWarnPct}
@@ -1710,7 +1923,8 @@ function QuoteSheetPageInner() {
             valanceType={shadeValanceType} onValanceTypeChange={setShadeValanceType}
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
             installMode={installMode}
-            discounts={discounts} />
+            discounts={discounts}
+            sunnyMotorPrice={sunnyMotorPrice} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
@@ -1874,10 +2088,26 @@ function QuoteSheetPageInner() {
             </div>
 
             <div className="px-5 pb-5 pt-2 space-y-2.5">
+              {emailChannel === "disconnected" && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <div className="font-semibold">发送前需要先绑定邮箱</div>
+                  <p className="mt-1 text-xs leading-relaxed">
+                    连接你的 Google 邮箱，或配置并验证 SMTP。绑定完成后，报价会从你的邮箱发给客户。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { window.location.href = "/settings/email"; }}
+                    className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-md bg-amber-700 px-3 text-xs font-semibold text-white hover:bg-amber-800"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    去绑定邮箱
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => handleSendQuote("email")}
-                disabled={!!sendQuoteBusy || !customerEmail}
+                disabled={!!sendQuoteBusy || !customerEmail || emailChannel !== "connected"}
                 className="w-full text-left rounded-lg border border-border hover:border-teal-500 hover:bg-teal-50/60 px-4 py-3 flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed transition"
               >
                 <div className="shrink-0 h-9 w-9 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center">
@@ -1890,7 +2120,11 @@ function QuoteSheetPageInner() {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">发送到客户邮箱</div>
                   <div className="text-xs text-muted-foreground truncate">
-                    {customerEmail
+                    {emailChannel === "loading"
+                      ? "正在检查发信邮箱…"
+                      : emailChannel === "disconnected"
+                        ? <span className="text-amber-700">请先绑定发信邮箱</span>
+                        : customerEmail
                       ? <>收件人：{customerEmail}</>
                       : <span className="text-amber-700">该客户未填写邮箱，请选择下载到本地</span>}
                   </div>

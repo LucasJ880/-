@@ -42,6 +42,7 @@ export default function CapabilityApprovalDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [decisionNote, setDecisionNote] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -78,7 +79,7 @@ export default function CapabilityApprovalDetailPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             idempotencyKey: `${action}:${approvalId}:${Date.now()}`,
-            note: action === "reject" ? "能力中台拒绝" : undefined,
+            note: action === "reject" ? decisionNote.trim() : undefined,
           }),
         },
       );
@@ -201,6 +202,18 @@ export default function CapabilityApprovalDetailPage() {
             ) : null}
           </section>
 
+          {detail.capabilities.canReject ? (
+            <label className="block rounded-xl border p-4 text-sm">
+              <span className="font-medium">驳回原因</span>
+              <textarea
+                value={decisionNote}
+                onChange={(event) => setDecisionNote(event.target.value)}
+                placeholder="说明需要销售调整的内容"
+                className="mt-2 min-h-20 w-full rounded-md border bg-background px-3 py-2"
+              />
+            </label>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
             {detail.capabilities.canApprove ? (
               <button
@@ -215,7 +228,7 @@ export default function CapabilityApprovalDetailPage() {
             {detail.capabilities.canReject ? (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !decisionNote.trim()}
                 className="rounded-md border px-3 py-1.5 text-sm"
                 onClick={() => void act("reject")}
               >

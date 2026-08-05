@@ -49,6 +49,7 @@ import {
   trimDuplicatedRuntimeV2Body,
 } from "@/lib/assistant/runtime-v2-ui";
 import { defaultSelectedActionIds } from "@/lib/assistant/inline-approval-model";
+import { DigitalEmployeeWorkbench } from "./digital-employee-workbench";
 
 // ── AI Markdown 增强渲染 ─────────────────────────────────────
 
@@ -425,13 +426,13 @@ export function ChatPanel({
         </span>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold tracking-normal text-foreground">
-            {activeThread?.title || "青砚"}
+            {activeThread?.title || "青砚数字员工"}
           </h1>
           <p className="flex items-center gap-1.5 truncate text-[11px] text-[#7c8480]">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#3d8a68]" />
             {activeThread?.project
               ? `项目 · ${activeThread.project.name}`
-              : "销售协作已就绪"}
+              : "客户、商机、报价与审批工作流已连接"}
           </p>
         </div>
         {/* 语音播报开关：开启后 AI 回复自动朗读 */}
@@ -455,33 +456,7 @@ export function ChatPanel({
       {/* Messages */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {!activeThreadId && messages.length === 0 && (
-          <div className="mx-auto flex min-h-full w-full max-w-[840px] flex-col justify-center px-5 py-10 sm:px-10">
-            <div className="mb-6 flex h-11 w-11 items-center justify-center rounded-lg border border-border bg-card-bg text-accent shadow-card">
-              <Sparkles size={19} />
-            </div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-accent">
-              Qingyan Intelligence
-            </p>
-            <h2 className="mb-3 text-2xl font-semibold tracking-normal text-foreground sm:text-[28px]">
-              今天要推进什么？
-            </h2>
-            <p className="mb-7 max-w-xl text-sm leading-6 text-muted">
-              从客户跟进、项目判断到销售内容，直接告诉青砚你的目标。
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {QUICK_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  onClick={() => trySend(prompt)}
-                  disabled={isLoading || !orgReady}
-                  className="group flex min-h-12 items-center justify-between gap-3 rounded-lg border border-border bg-card-bg px-3.5 py-2.5 text-left text-xs font-medium text-[#4b524f] shadow-xs transition-colors hover:border-accent/25 hover:bg-accent-soft hover:text-foreground disabled:opacity-50"
-                >
-                  <span>{prompt}</span>
-                  <ArrowUpRight size={14} className="shrink-0 text-[#9aa19e] group-hover:text-accent" />
-                </button>
-              ))}
-            </div>
-          </div>
+          <DigitalEmployeeWorkbench orgReady={orgReady} onPrompt={trySend} />
         )}
 
         {loadingThread && (

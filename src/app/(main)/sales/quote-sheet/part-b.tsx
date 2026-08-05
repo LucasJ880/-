@@ -2,9 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { PartBAddon, PaymentMethod } from "./types";
-import { HST_RATE } from "./types";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, AlertTriangle, Lock, Unlock, ShieldCheck, Loader2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Lock, Unlock, ShieldCheck, Loader2, Pencil } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
@@ -34,6 +33,12 @@ interface PartBProps {
   // Special Promotion（税前直减，销售可手填）
   specialPromotion: string;
   onSpecialPromotionChange: (v: string) => void;
+  taxRate: number;
+  onTaxRateChange: (v: number) => void;
+  onRequestPromotionApproval?: () => void;
+  requestingPromotionApproval?: boolean;
+  promotionApprovalRequested?: boolean;
+  promotionApprovalApproved?: boolean;
   totalMsrp: number; // 用于预览"相对 MSRP 的折扣率"
   productsPreTax: number; // = productsSubtotal + 安装补差（不含 Part B 自身）用于校验上限
   // Special Promotion 阈值（0~1 小数，从全局折扣设置拉取）
@@ -76,6 +81,12 @@ export function PartBForm({
   onSignatureChange,
   specialPromotion,
   onSpecialPromotionChange,
+  taxRate,
+  onTaxRateChange,
+  onRequestPromotionApproval,
+  requestingPromotionApproval = false,
+  promotionApprovalRequested = false,
+  promotionApprovalApproved = false,
   totalMsrp,
   productsPreTax,
   promoWarnPct,
@@ -133,7 +144,7 @@ export function PartBForm({
   const installMinimumAdjustment = subtotalC;
   const promoNum = Math.max(0, parseFloat(specialPromotion) || 0);
   const preTax = Math.max(0, grandSubtotal + installMinimumAdjustment - promoNum);
-  const hst = Math.round(preTax * HST_RATE * 100) / 100;
+  const hst = Math.round(preTax * taxRate * 100) / 100;
   const total = preTax + hst;
 
   return (
@@ -263,7 +274,13 @@ export function PartBForm({
         dangerPct={promoDangerPct}
         maxPct={promoMaxPct}
         isAdmin={isAdmin}
+        onRequestApproval={onRequestPromotionApproval}
+        requestingApproval={requestingPromotionApproval}
+        approvalRequested={promotionApprovalRequested}
+        approvalApproved={promotionApprovalApproved}
       />
+
+      <TaxRateRow value={taxRate} onChange={onTaxRateChange} />
 
       {/* Notes */}
       <div>
@@ -400,7 +417,7 @@ export function PartBForm({
             )}
             <div className="flex justify-between border-t border-teal-200 pt-2">
               <span className="text-muted-foreground">
-                HST (13%):
+                Tax ({Number((taxRate * 100).toFixed(3))}%):
               </span>
               <span>{formatCAD(hst)}</span>
             </div>
@@ -431,6 +448,66 @@ export function PartBForm({
   );
 }
 
+function TaxRateRow({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const percent = Number((value * 100).toFixed(3));
+
+  return (
+    <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-teal-900">Tax rate</div>
+          <div className="text-[11px] text-muted-foreground">
+            默认为 13%，可按客户所在地区修改
+          </div>
+        </div>
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={percent}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next)) onChange(Math.min(1, Math.max(0, next / 100)));
+                }}
+                className="w-24 rounded-md border border-teal-300 bg-card-bg px-2 py-1.5 pr-7 text-right text-sm font-semibold outline-none focus:ring-2 focus:ring-teal-500"
+                aria-label="Tax rate percentage"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-teal-800">%</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="min-h-9 rounded-md border border-teal-300 bg-white px-3 text-xs font-medium text-teal-800 hover:bg-teal-100"
+            >
+              完成
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="flex min-h-9 items-center gap-1.5 rounded-md border border-teal-300 bg-white px-3 text-sm font-semibold text-teal-800 hover:bg-teal-100"
+          >
+            <Pencil size={13} />
+            {percent}% · 修改税率
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Special Promotion 输入行 —— 销售在现场可手填的额外让利（税前直减）
  * - 不走折扣率系统，就是从 pre-tax 里直接扣钱
@@ -445,6 +522,10 @@ function SpecialPromotionRow({
   dangerPct = 0.15,
   maxPct = 0.25,
   isAdmin = false,
+  onRequestApproval,
+  requestingApproval = false,
+  approvalRequested = false,
+  approvalApproved = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -455,6 +536,10 @@ function SpecialPromotionRow({
   dangerPct?: number;
   maxPct?: number;
   isAdmin?: boolean;
+  onRequestApproval?: () => void;
+  requestingApproval?: boolean;
+  approvalRequested?: boolean;
+  approvalApproved?: boolean;
 }) {
   const amount = Math.max(0, parseFloat(value) || 0);
   // 让利占产品税前比例（销售端统一看这一口径，不再与 MSRP 比较）
@@ -511,17 +596,39 @@ function SpecialPromotionRow({
         </div>
       </div>
       {overMax && (
-        <div className="mt-2 flex items-start gap-1.5 text-[11px] font-medium text-red-800">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-          <span>
-            Special Promotion 已达产品税前小计的{" "}
-            <strong>{(ratio * 100).toFixed(1)}%</strong>
-            （&gt;{Math.round(maxPct * 100)}%），
-            {isAdmin
-              ? "已超过公司设定的最高让利上限，请确认是否继续"
-              : "已超过公司设定的最高让利上限，请联系管理员审核，或由管理员账号登录提交"}
-            。
-          </span>
+        <div className="mt-2 space-y-2">
+          <div className="flex items-start gap-1.5 text-[11px] font-medium text-red-800">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <span>
+              Special Promotion 已达产品税前小计的{" "}
+              <strong>{(ratio * 100).toFixed(1)}%</strong>
+              （&gt;{Math.round(maxPct * 100)}%），
+              {isAdmin
+                ? "已超过公司设定的最高让利上限，请确认是否继续"
+                : "已超过公司设定的最高让利上限，请提交管理员审核"}
+              。
+            </span>
+          </div>
+          {!isAdmin && approvalApproved && (
+            <div className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white">
+              <ShieldCheck size={13} />管理员已批准本次让利
+            </div>
+          )}
+          {!isAdmin && !approvalApproved && onRequestApproval && (
+            <button
+              type="button"
+              onClick={onRequestApproval}
+              disabled={requestingApproval || approvalRequested}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-red-700 px-3 text-xs font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {requestingApproval ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <ShieldCheck size={13} />
+              )}
+              {approvalRequested ? "已提交管理员审核" : requestingApproval ? "正在提交…" : "提交管理员审核"}
+            </button>
+          )}
         </div>
       )}
       {(warning || danger) && !overMax && (

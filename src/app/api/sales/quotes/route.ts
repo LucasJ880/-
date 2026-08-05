@@ -13,6 +13,9 @@ import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
+import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
+import { isAdmin } from '@/lib/rbac/roles';
+import { logAudit } from '@/lib/audit/logger';
 
 /**
  * POST /api/sales/quotes
@@ -69,6 +72,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
     finalDiscountPct?: number;
   };
 
+  if (
+    taxRate !== undefined &&
+    (typeof taxRate !== 'number' || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1)
+  ) {
+    return NextResponse.json({ error: '税率必须是 0% 到 100% 之间的数字' }, { status: 400 });
+  }
+
   // —— 兜底最低要求：customerId 必须有；没 items 也要有 formDataJson 才能救回来 ——
   if (!customerId) {
     return NextResponse.json({ error: '缺少 customerId' }, { status: 400 });
@@ -119,6 +129,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   // —— 尝试 pricing 计算；失败也不抛错 ——
+  const quoteSettings = await loadDiscountsDto(requestOrgId);
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
@@ -127,6 +138,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       installMode,
       deliveryFee,
       taxRate,
+      sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
     });
   } catch (err) {
     // 极端情况：pricing 引擎自己 throw 了（理论上不会，但保险起见）
@@ -214,6 +226,18 @@ export const POST = withAuth(async (request, _ctx, user) => {
         typeof finalDiscountPct === 'number' && Number.isFinite(finalDiscountPct)
           ? Math.max(0, Math.min(1, finalDiscountPct))
           : null,
+      ...(typeof finalDiscountPct === 'number' && finalDiscountPct > quoteSettings.promoMaxPct
+        ? isAdmin(user.role)
+          ? {
+              promotionApprovalStatus: 'approved',
+              promotionApprovalAmount: Math.max(0, specialPromotion ?? 0),
+              promotionApprovalRatio: Math.max(0, Math.min(1, finalDiscountPct)),
+              promotionApprovalMaxPct: quoteSettings.promoMaxPct,
+              promotionApprovedAt: new Date(),
+              promotionApprovedById: user.id,
+            }
+          : { promotionApprovalStatus: 'required' }
+        : { promotionApprovalStatus: 'not_required' }),
       agreedDepositAmount: agreed.agreedDepositAmount,
       agreedBalanceAmount: agreed.agreedBalanceAmount,
       createdById: user.id,
@@ -257,6 +281,17 @@ export const POST = withAuth(async (request, _ctx, user) => {
     },
     include: { items: true, addons: true },
   });
+
+  if (isAdmin(user.role) && typeof finalDiscountPct === 'number' && finalDiscountPct > quoteSettings.promoMaxPct) {
+    await logAudit({
+      userId: user.id,
+      orgId: requestOrgId,
+      action: 'quote_promotion_approved',
+      targetType: 'sales_quote',
+      targetId: quote.id,
+      afterData: { via: 'admin_direct_confirmation', promotionAmount: specialPromotion ?? 0, promotionRatio: finalDiscountPct, maxPct: quoteSettings.promoMaxPct },
+    });
+  }
 
   // —— 只有 full 模式才推进商机 lifecycle，避免"半成品"误升到 quoted ——
   let lifecycleResult = { opportunityId: null as string | null, advanced: false };

@@ -307,15 +307,15 @@ const salesHrefs = salesNav.flatMap((i) => [
 ok(
   [
     "/sales/home",
-    "/sales?view=customers",
-    "/sales?view=pipeline",
+    "/sales",
     "/sales/quote-sheet",
     "/sales/quotes",
     "/sales/calendar",
     "/sales/performance",
+    "/settings/email",
     "/assistant",
   ].every((h) => salesHrefs.includes(h)),
-  "销售工作区含销售中心/客户/商机/报价/日历/业绩/助手",
+  "销售工作区含销售首页/客户与商机/报价/日历/业绩/邮箱绑定/助手",
 );
 ok(
   !salesNav.some(
@@ -323,10 +323,12 @@ ok(
       i.key === "biz-cockpit" ||
       i.key === "biz-work-orders" ||
       i.key === "biz-sales" ||
+      i.key === "sales-customers" ||
+      i.key === "sales-pipeline" ||
       i.key === "ops-center" ||
       i.href === "/trade",
   ),
-  "销售不看团队分析/工艺单/经营中心/外贸",
+  "销售不看团队分析/工艺单/旧销售入口/经营中心/外贸",
 );
 ok(
   resolveNavigationTree(

@@ -316,7 +316,7 @@ export function OpsWorkspaceShell() {
             href="/assistant"
             className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px]"
           >
-            AI 助手
+            数字员工
           </Link>
           <Link
             href="/tasks"

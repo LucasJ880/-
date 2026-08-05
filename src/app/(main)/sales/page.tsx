@@ -25,6 +25,7 @@ import {
   salesOrgCreateBlockedHint,
 } from "@/lib/sales/sales-client-org";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import { SalesActionLoopPanel } from "./sales-action-loop-panel";
 
 export default function SalesPage() {
   return (
@@ -66,7 +67,7 @@ function SalesPageInner() {
       ? "customers"
       : urlViewMode === "pipeline" || urlStage
         ? "pipeline"
-        : "pipeline",
+        : "customers",
   );
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -210,8 +211,8 @@ function SalesPageInner() {
   return (
     <PullToRefresh onRefresh={loadData} enabled={isMobile} className="space-y-5">
       <PageHeader
-        title="商机中心"
-        description="客户、商机、报价与跟进动作统一推进"
+        title="客户与商机"
+        description="统一管理客户资料、商机阶段、报价与跟进动作"
         actions={
           <div className="flex items-center gap-2">
             {isSuperAdmin && (
@@ -252,6 +253,8 @@ function SalesPageInner() {
 
       <PendingDepositBanner />
 
+      <SalesActionLoopPanel />
+
       <AiAlertPanel />
 
       <div className="flex items-center justify-between gap-4">
@@ -259,24 +262,24 @@ function SalesPageInner() {
           <button
             className={cn(
               "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
-              viewMode === "pipeline"
-                ? "bg-card-bg text-foreground shadow-xs"
-                : "text-muted hover:text-foreground"
-            )}
-            onClick={() => setViewMode("pipeline")}
-          >
-            商机看板
-          </button>
-          <button
-            className={cn(
-              "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
               viewMode === "customers"
                 ? "bg-card-bg text-foreground shadow-xs"
                 : "text-muted hover:text-foreground"
             )}
-            onClick={() => setViewMode("customers")}
+            onClick={() => router.replace("/sales?view=customers")}
           >
             客户列表
+          </button>
+          <button
+            className={cn(
+              "rounded-[var(--radius-sm)] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150",
+              viewMode === "pipeline"
+                ? "bg-card-bg text-foreground shadow-xs"
+                : "text-muted hover:text-foreground"
+            )}
+            onClick={() => router.replace("/sales?view=pipeline")}
+          >
+            商机看板
           </button>
         </div>
 

@@ -70,7 +70,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
             <MessagesSquare size={18} />
           </div>
           <div>
-            <p className="text-sm font-semibold">协同空间</p>
+            <p className="text-sm font-semibold">数字员工</p>
             <p className="text-[11px] text-muted">对话式协作</p>
           </div>
         </Link>
@@ -147,7 +147,7 @@ export function DashboardLinksRecentSection({ recentTasks, onProjectClick }: Pro
             })
           ) : (
             <div className="px-5 py-8 text-center text-sm text-muted">
-              暂无任务，可从收件箱或协同空间开始创建
+              暂无任务，可从收件箱或数字员工开始创建
             </div>
           )}
         </div>

@@ -22,7 +22,7 @@ export default function AssistantError({
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-100">
         <AlertTriangle className="h-7 w-7 text-red-600" />
       </div>
-      <h2 className="text-lg font-semibold text-foreground">协同空间暂不可用</h2>
+      <h2 className="text-lg font-semibold text-foreground">数字员工暂不可用</h2>
       <p className="max-w-sm text-sm text-muted">
         协同服务加载时遇到问题。请稍后重试，若问题持续请联系管理员。
       </p>

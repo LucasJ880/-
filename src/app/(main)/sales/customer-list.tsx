@@ -11,6 +11,7 @@ import {
   FileText,
   CalendarPlus,
   MoreHorizontal,
+  Bot,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,43 @@ import {
 import { STAGES } from "./types";
 import type { Customer } from "./types";
 import { SalesBottomSheet } from "@/components/sales-command-center/sales-bottom-sheet";
+import {
+  findPotentialDuplicateCustomerIds,
+  reviewCrmRecord,
+  type CrmReview,
+} from "@/lib/digital-employees/crm-review";
+
+function reviewCustomer(customer: Customer, nowMs: number): CrmReview {
+  return reviewCrmRecord({
+    createdAt: customer.createdAt,
+    updatedAt: customer.updatedAt,
+    phone: customer.phone,
+    email: customer.email,
+    address: customer.address,
+    stage: customer.primaryStage,
+    nextFollowupAt: customer.nextFollowupAt,
+    lastContactAt: customer.lastContactAt,
+    quoteStatus: customer.latestQuoteStatus,
+    quoteViewed: customer.quoteViewed,
+  }, nowMs);
+}
+
+function DigitalEmployeeBadge({ review, duplicate = false }: { review: CrmReview; duplicate?: boolean }) {
+  const tone = duplicate || review.urgency === "critical"
+    ? "bg-red-100 text-red-700"
+    : review.urgency === "warning"
+      ? "bg-amber-100 text-amber-700"
+      : "bg-emerald-100 text-emerald-700";
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold", tone)}
+      title={duplicate ? "当前加载的客户中存在相同电话或邮箱，请人工核对" : review.summary}
+    >
+      <Bot className="h-3 w-3" />
+      {duplicate ? "疑似重复" : review.label}
+    </span>
+  );
+}
 
 function stageLabel(stage: string | null | undefined): string {
   if (!stage) return "–";
@@ -81,20 +119,24 @@ function CustomerCard({
   customer: c,
   onOpenActions,
   nowMs,
+  duplicate,
 }: {
   customer: Customer;
   onOpenActions: (c: Customer) => void;
   nowMs: number;
+  duplicate: boolean;
 }) {
   const overdue =
     !!c.nextFollowupAt && new Date(c.nextFollowupAt).getTime() <= nowMs;
+  const review = reviewCustomer(c, nowMs);
   return (
     <div className="rounded-xl border border-border bg-card-bg/70 p-3">
       <div className="flex min-w-0 items-start justify-between gap-2">
         <Link href={`/sales/customers/${c.id}`} className="min-w-0 flex-1">
-          <p className="break-words text-sm font-medium text-foreground">
-            {c.name}
-          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="break-words text-sm font-medium text-foreground">{c.name}</p>
+            <DigitalEmployeeBadge review={review} duplicate={duplicate} />
+          </div>
           <p className="mt-0.5 text-xs text-muted">
             {stageLabel(c.primaryStage)}
             {c.estimatedValue != null
@@ -123,11 +165,9 @@ function CustomerCard({
           </span>
         )}
       </div>
-      {c.suggestedAction && (
-        <p className="mt-1.5 text-[12px] text-foreground">
-          下一步：{c.suggestedAction}
-        </p>
-      )}
+      <p className="mt-1.5 text-[12px] text-foreground">
+        下一步：{review.action === "none" ? c.suggestedAction || review.summary : review.actionLabel}
+      </p>
       <Link
         href={`/sales/customers/${c.id}`}
         className="mt-2 inline-flex items-center gap-0.5 text-xs text-accent"
@@ -152,6 +192,10 @@ export function CustomerList({
     () => sortCustomersForSalesList(customers),
     [customers],
   );
+  const duplicateIds = useMemo(
+    () => findPotentialDuplicateCustomerIds(customers),
+    [customers],
+  );
 
   if (sorted.length === 0) {
     return (
@@ -171,6 +215,7 @@ export function CustomerList({
             customer={c}
             onOpenActions={setActionCustomer}
             nowMs={nowMs}
+            duplicate={duplicateIds.has(c.id)}
           />
         ))}
       </div>
@@ -197,6 +242,7 @@ export function CustomerList({
               const overdue =
                 !!c.nextFollowupAt &&
                 new Date(c.nextFollowupAt).getTime() <= nowMs;
+              const review = reviewCustomer(c, nowMs);
               return (
                 <tr
                   key={c.id}
@@ -209,6 +255,9 @@ export function CustomerList({
                     >
                       {c.name}
                     </Link>
+                    <div className="mt-1">
+                      <DigitalEmployeeBadge review={review} duplicate={duplicateIds.has(c.id)} />
+                    </div>
                     {c.address && (
                       <p className="mt-0.5 max-w-[200px] truncate text-xs text-muted">
                         {c.address}
@@ -258,7 +307,9 @@ export function CustomerList({
                     {quoteStatusLabel(c.latestQuoteStatus, c.quoteViewed)}
                   </td>
                   <td className="max-w-[180px] px-4 py-3 text-xs text-foreground">
-                    {c.suggestedAction || "–"}
+                    {review.action === "none"
+                      ? c.suggestedAction || review.summary
+                      : review.actionLabel}
                   </td>
                   {showOwnerColumn && (
                     <td className="px-4 py-3 text-xs text-muted">

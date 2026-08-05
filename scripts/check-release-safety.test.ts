@@ -100,6 +100,10 @@ ok(
       "20260729120000_matrix_account_playbook",
       "20260729180000_phase_c_publish_job_pipeline",
       "20260803200000_bid_workflow_phase1",
+      "20260804130000_sunny_motor_price",
+      "20260804190000_sales_action_loop",
+      "20260804200000_sales_action_auto_sync",
+      "20260804210000_sales_effectiveness_promotion_approval",
     ].join("|"),
   "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob + BidWorkflow Phase1",
 );

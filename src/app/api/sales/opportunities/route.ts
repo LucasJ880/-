@@ -37,7 +37,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     db.salesOpportunity.findMany({
       where,
       include: {
-        customer: { select: { id: true, name: true, phone: true } },
+        customer: { select: { id: true, name: true, phone: true, email: true, address: true } },
         quotes: {
           orderBy: { createdAt: "desc" },
           take: 1,
