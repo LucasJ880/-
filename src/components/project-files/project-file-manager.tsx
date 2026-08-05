@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { isFolderImportPipelineActive } from "@/lib/projects/pending-folder-import";
 import { requestAutoAiPanels } from "@/lib/projects/auto-ai-panels";
+import { AnalysisProgressBanner } from "@/components/tender-analysis/analysis-progress-banner";
 
 interface ProjectDocument {
   id: string;
@@ -120,6 +121,10 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
     step: "",
     remaining: 0,
   });
+  const [tenderSeed, setTenderSeed] = useState<{
+    runId: string | null;
+    status: string | null;
+  }>({ runId: null, status: null });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
 
@@ -290,6 +295,16 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
           setUploadError(data.error);
         }
 
+        const ta = data.tenderAnalysis as
+          | { runId?: string; status?: string; enqueued?: boolean }
+          | undefined;
+        if (ta?.runId || ta?.status) {
+          setTenderSeed({
+            runId: ta.runId ?? null,
+            status: ta.status ?? null,
+          });
+        }
+
         await fetchFiles();
         onProjectUpdate?.();
 
@@ -390,6 +405,14 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         closeDate={closeDate}
         onSaved={onProjectUpdate}
       />
+
+      <div className="mx-4 mt-3">
+        <AnalysisProgressBanner
+          projectId={projectId}
+          seedRunId={tenderSeed.runId}
+          seedStatus={tenderSeed.status}
+        />
+      </div>
 
       {/* 拖拽上传区域 — 始终可见 */}
       <div
