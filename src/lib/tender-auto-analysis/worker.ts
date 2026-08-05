@@ -16,7 +16,7 @@ import {
 } from "./constants";
 import { canClaim, canTransition } from "./status";
 import { parseDocumentPagesAndStore } from "./page-parse";
-import { extractFromPages } from "./extract";
+import { extractFromPages, extractRequirements } from "./extract";
 import { generateReportSections } from "./report";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
@@ -261,6 +261,13 @@ async function stepGenerateSections(run: ClaimedRun): Promise<void> {
   });
 }
 
+async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
+  await extractRequirements({ runId: run.id });
+  await persistStep(run.id, run.leaseOwner, "EXTRACT_REQUIREMENTS", {
+    status: "ANALYZING",
+  });
+}
+
 async function stepNoopPersist(
   run: ClaimedRun,
   step: WorkerStep,
@@ -333,6 +340,8 @@ async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
       await stepGenerateSections(run);
       return;
     case "EXTRACT_REQUIREMENTS":
+      await stepExtractRequirements(run);
+      return;
     case "BUILD_DELIVERABLES":
     case "BUILD_CLARIFICATIONS":
       await stepNoopPersist(run, step);
