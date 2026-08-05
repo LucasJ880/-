@@ -125,6 +125,9 @@ export function isNavItemVisible(
   if (
     !ctx.hasMembership &&
     (item.group === "BUSINESS" ||
+      item.group === "PROJECTS" ||
+      item.group === "PROJECT_INTEL" ||
+      item.group === "SUPPLIERS" ||
       item.group === "OPERATIONS" ||
       item.group === "GROWTH" ||
       item.group === "MANAGEMENT" ||

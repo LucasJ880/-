@@ -11,9 +11,11 @@ import {
 } from "./pdf-common";
 import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
+import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 
 export type GenerateDocType =
   | "supplier_rfq"
+  | "china_supplier_brief"
   | "internal_analysis"
   | "teammate_tasks"
   | "tech_confirm"
@@ -21,6 +23,7 @@ export type GenerateDocType =
 
 const DOC_TITLES: Record<GenerateDocType, string> = {
   supplier_rfq: "国内供应商询价",
+  china_supplier_brief: "China Supplier Sourcing Brief",
   internal_analysis: "内部项目分析",
   teammate_tasks: "同事执行任务单",
   tech_confirm: "供应商技术确认表",
@@ -32,6 +35,12 @@ export async function generateProjectDocument(input: {
   orgId: string | null;
   userId: string;
   docType: GenerateDocType;
+  /** china_supplier_brief：是否纳入公开历史金额（默认 false） */
+  includePublicHistoricalAmounts?: boolean;
+  /** china_supplier_brief：生成前备注 */
+  confirmNotes?: string | null;
+  /** 仅预览正文，不写 Blob / ProjectGeneratedDocument */
+  previewOnly?: boolean;
 }) {
   const project = await db.project.findUnique({
     where: { id: input.projectId },
@@ -40,6 +49,8 @@ export async function generateProjectDocument(input: {
       name: true,
       description: true,
       location: true,
+      clientOrganization: true,
+      closeDate: true,
       currency: true,
       ourBidPrice: true,
       winningBidPrice: true,
@@ -87,12 +98,38 @@ export async function generateProjectDocument(input: {
   });
   if (!project) throw new Error("项目不存在");
 
-  const ctx = await buildProjectAiContextBlock(project.id);
+  // china_supplier_brief：禁止把 AI context / estimatedValue 拼进厂家文件
+  const ctx =
+    input.docType === "china_supplier_brief"
+      ? ""
+      : await buildProjectAiContextBlock(project.id);
   const addendumFingerprint = project.documents
     .map((d: { id: string; title: string }) => `${d.id}:${d.title}`)
     .sort()
     .join("|")
     .slice(0, 500);
+
+  if (input.docType === "china_supplier_brief" && input.previewOnly) {
+    const facts = await loadChinaBriefFacts(project.id);
+    const previewText = buildChinaSupplierBriefText({
+      projectName: project.name,
+      clientOrganization: project.clientOrganization,
+      closeDate: project.closeDate
+        ? project.closeDate.toISOString().slice(0, 10)
+        : null,
+      documentTitles: project.documents.map((d) => d.title),
+      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
+      facts,
+      confirmNotes: input.confirmNotes,
+    });
+    return {
+      id: null,
+      previewText,
+      previewOnly: true as const,
+      fileUrl: null,
+      blobUrl: null,
+    };
+  }
 
   const doc = await createProjectPdfDoc();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -121,6 +158,21 @@ export async function generateProjectDocument(input: {
         ctx.slice(0, 1800),
       ].join("\n\n"),
     );
+    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+  } else if (input.docType === "china_supplier_brief") {
+    // allowlist 组装；默认不含 estimatedValue / 成本 / 利润 / 原始 AI context
+    const facts = await loadChinaBriefFacts(project.id);
+    const body = buildChinaSupplierBriefText({
+      projectName: project.name,
+      clientOrganization: project.clientOrganization,
+      closeDate: project.closeDate
+        ? project.closeDate.toISOString().slice(0, 10)
+        : null,
+      documentTitles: project.documents.map((d) => d.title),
+      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
+      facts,
+      confirmNotes: input.confirmNotes,
+    });
     y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
   } else if (input.docType === "internal_analysis") {
     const gap = computePriceGap({
@@ -284,6 +336,31 @@ export async function generateProjectDocument(input: {
   });
 
   return row;
+}
+
+async function loadChinaBriefFacts(projectId: string) {
+  try {
+    const room = await db.bidIntelligenceRoom.findUnique({
+      where: { projectId },
+      select: {
+        facts: {
+          take: 40,
+          orderBy: { extractedAt: "desc" },
+          select: {
+            content: true,
+            confidence: true,
+            sourceType: true,
+            sourceUrl: true,
+            sourcePage: true,
+            humanConfirmed: true,
+          },
+        },
+      },
+    });
+    return room?.facts ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** 文件变更后标记生成文档可能过期 */

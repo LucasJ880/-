@@ -12,10 +12,28 @@ import {
   type ProjectLifecycleFilter,
 } from "@/lib/projects/lifecycle";
 import { onProjectCreated } from "@/lib/project-discussion/system-events";
+import {
+  bidListFilterStatuses,
+  isBidListFilterKey,
+} from "@/lib/bid-workflow/labels";
+import {
+  bidWorkflowUnavailableFields,
+  withBidWorkflowSchemaFallback,
+} from "@/lib/bid-workflow/schema-drift";
+import { LEGACY_PROJECT_LIST_SELECT } from "@/lib/bid-workflow/legacy-project-select";
 
 const projectInclude = {
   owner: { select: { id: true, name: true } },
   _count: { select: { tasks: true, environments: true } },
+  intelligenceRoom: {
+    select: {
+      id: true,
+      goDecision: true,
+      summaryStatus: true,
+      summaryJson: true,
+      updatedAt: true,
+    },
+  },
 } as const;
 
 export const GET = withAuth(async (request, _ctx, user) => {
@@ -24,30 +42,77 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const lifecycle: ProjectLifecycleFilter = isProjectLifecycleFilter(lifecycleParam)
     ? lifecycleParam
     : "active";
+  const bidFilterParam = request.nextUrl.searchParams.get("bidListFilter");
+  const bidListFilter = isBidListFilterKey(bidFilterParam)
+    ? bidFilterParam
+    : "all";
+  const bidStatuses = bidListFilterStatuses(bidListFilter);
 
   const visibilityWhere = await buildProjectVisibilityWhere(user, {
     intakeStatusFilter: intakeFilter,
   });
   const lifecycleWhere = buildProjectLifecycleWhere(lifecycle);
+  const bidWhere =
+    bidStatuses == null
+      ? null
+      : { bidPhaseStatus: { in: [...bidStatuses] } };
 
-  const where =
-    visibilityWhere == null
-      ? lifecycleWhere
-      : { AND: [visibilityWhere, lifecycleWhere] };
+  const clauses = [visibilityWhere, lifecycleWhere, bidWhere].filter(
+    (c): c is NonNullable<typeof c> => c != null,
+  );
+  const where = clauses.length === 0 ? {} : clauses.length === 1 ? clauses[0] : { AND: clauses };
+
+  // legacy：不得引用 bidPhaseStatus / BidIntelligenceRoom
+  const legacyWhereClauses = [visibilityWhere, lifecycleWhere].filter(
+    (c): c is NonNullable<typeof c> => c != null,
+  );
+  const legacyWhere =
+    legacyWhereClauses.length === 0
+      ? {}
+      : legacyWhereClauses.length === 1
+        ? legacyWhereClauses[0]
+        : { AND: legacyWhereClauses };
 
   const take = Math.min(
     parseInt(request.nextUrl.searchParams.get("take") ?? "50", 10) || 50,
     200
   );
 
-  const projects = await db.project.findMany({
-    where,
-    include: projectInclude,
-    orderBy: { createdAt: "desc" },
-    take,
+  const { value: projects, usedFallback } = await withBidWorkflowSchemaFallback({
+    logLabel: "projects.list",
+    primary: () =>
+      db.project.findMany({
+        where,
+        include: projectInclude,
+        orderBy: { createdAt: "desc" },
+        take,
+      }),
+    fallback: () =>
+      db.project.findMany({
+        where: legacyWhere,
+        select: LEGACY_PROJECT_LIST_SELECT,
+        orderBy: { createdAt: "desc" },
+        take,
+      }),
   });
 
-  return NextResponse.json(projects);
+  const unavailable = bidWorkflowUnavailableFields();
+  const mapped = projects.map((p) => {
+    if (!usedFallback) {
+      return {
+        ...p,
+        intelligenceAvailable: true,
+      };
+    }
+    return {
+      ...p,
+      bidPhaseStatus: unavailable.bidPhaseStatus,
+      intelligenceRoom: unavailable.intelligenceRoom,
+      intelligenceAvailable: unavailable.intelligenceAvailable,
+    };
+  });
+
+  return NextResponse.json(mapped);
 });
 
 /**

@@ -7,14 +7,12 @@ import {
   type GenerateDocType,
 } from "@/lib/projects/generate/generate-docs";
 import { isProxyUrl, toProxyUrl } from "@/lib/files/blob-access";
+import {
+  isProjectPdfDocType,
+  PROJECT_PDF_DOC_TYPES,
+} from "@/lib/bid-workflow/pdf-doc-types";
 
-const ALLOWED: GenerateDocType[] = [
-  "supplier_rfq",
-  "internal_analysis",
-  "teammate_tasks",
-  "tech_confirm",
-  "owner_clarification",
-];
+const ALLOWED: GenerateDocType[] = [...PROJECT_PDF_DOC_TYPES];
 
 function asBrowserUrl(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -51,10 +49,19 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (access instanceof NextResponse) return access;
 
   const body = await request.json().catch(() => ({}));
-  const docType = body.docType as GenerateDocType;
-  if (!ALLOWED.includes(docType)) {
-    return NextResponse.json({ error: "docType 无效" }, { status: 400 });
+  const docTypeRaw = String(body.docType || "");
+  if (!isProjectPdfDocType(docTypeRaw) || !ALLOWED.includes(docTypeRaw)) {
+    return NextResponse.json(
+      { error: "docType 无效", allowed: ALLOWED },
+      { status: 400 },
+    );
   }
+  const docType = docTypeRaw as GenerateDocType;
+  const previewOnly = body.previewOnly === true;
+  const includePublicHistoricalAmounts =
+    body.includePublicHistoricalAmounts === true;
+  const confirmNotes =
+    typeof body.confirmNotes === "string" ? body.confirmNotes : null;
 
   try {
     const doc = await generateProjectDocument({
@@ -62,13 +69,40 @@ export const POST = withAuth(async (request, ctx, user) => {
       orgId: access.project.orgId,
       userId: user.id,
       docType,
+      previewOnly,
+      includePublicHistoricalAmounts,
+      confirmNotes,
     });
+    if (previewOnly && "previewText" in doc) {
+      return NextResponse.json({
+        previewOnly: true,
+        previewText: doc.previewText,
+        includePublicHistoricalAmounts,
+        fontLimitation:
+          docType === "china_supplier_brief"
+            ? "Chinese text may render poorly under Helvetica; full CJK font embed deferred."
+            : null,
+      });
+    }
+    const fileUrl = asBrowserUrl(doc.fileUrl);
+    const blobUrl = asBrowserUrl(doc.blobUrl);
+    if (!doc.id) {
+      return NextResponse.json(
+        { error: "生成未写入 ProjectGeneratedDocument" },
+        { status: 500 },
+      );
+    }
     return NextResponse.json({
       document: {
         ...doc,
-        fileUrl: asBrowserUrl(doc.fileUrl),
-        blobUrl: asBrowserUrl(doc.blobUrl),
+        id: doc.id,
+        fileUrl,
+        blobUrl,
       },
+      fontLimitation:
+        docType === "china_supplier_brief"
+          ? "Chinese text may render poorly under Helvetica; full CJK font embed deferred."
+          : null,
     });
   } catch (e) {
     console.error("[generate-pdf]", e);

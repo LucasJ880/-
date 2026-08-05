@@ -346,6 +346,13 @@ model Project {
   handoffsAsSource  ProjectHandoff[] @relation("HandoffSourceTender")
   handoffsAsTarget  ProjectHandoff[] @relation("HandoffTargetDelivery")
 
+  /// Phase1 投标工作流状态（DISCOVERED / INTELLIGENCE_IN_PROGRESS / GO…）；不覆盖 tenderStatus
+  bidPhaseStatus String?
+
+  intelligenceRoom BidIntelligenceRoom?
+  supplierLinks    ProjectSupplierLink[]
+  joinBriefs       ProjectJoinBrief[]
+
   @@index([orgId])
   @@index([workspaceId])
   @@index([purchaserId])
@@ -357,6 +364,7 @@ model Project {
   @@index([orgId, workDomain, deliveryStage])
   @@index([orgId, sourceTenderProjectId])
   @@index([sourceTenderProjectId])
+  @@index([orgId, bidPhaseStatus])
 }
 
 /// Phase 5：中标 → 执行项目交接审计与幂等记录
@@ -2098,12 +2106,132 @@ model Supplier {
   brochureParseResult  Json?
   brochureParseWarning String?
 
-  inquiryItems InquiryItem[]
+  inquiryItems  InquiryItem[]
+  projectLinks  ProjectSupplierLink[]
 
   @@index([orgId, status])
   @@index([orgId, name])
   @@index([orgId, source])
   @@index([orgId, tags])
+}
+
+/// Phase1：项目 ↔ 供应商多对多（候选/询价/入选），与 InquiryItem 并存
+model ProjectSupplierLink {
+  id         String   @id @default(cuid())
+  orgId      String
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  /// candidate | shortlisted | selected | rejected
+  role           String  @default("candidate")
+  inquiryStatus  String  @default("not_started")
+  quoteStatus    String  @default("none")
+  evidenceStatus String  @default("missing")
+  sampleStatus   String  @default("none")
+  techMatch      String?
+  selected       Boolean @default(false)
+  rejectReason   String?
+  notes          String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, supplierId])
+  @@index([orgId, projectId])
+  @@index([orgId, supplierId])
+  @@index([orgId, role])
+}
+
+/// Phase1：内部成员加入项目简报（不做外部门户）
+model ProjectJoinBrief {
+  id            String   @id @default(cuid())
+  orgId         String
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId        String
+  roleHint      String?
+  briefMarkdown String   @db.Text
+  createdAt     DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([orgId, userId])
+}
+
+/// Phase1：投标智能调查室（每项目唯一）
+model BidIntelligenceRoom {
+  id     String  @id @default(cuid())
+  orgId  String
+  projectId String @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  status           String  @default("active")
+  summaryText      String? @db.Text
+  summaryJson      Json?
+  /// confirmed | investigating | risk | unknown
+  summaryStatus    String  @default("unknown")
+  /// GO | HOLD | NO_GO
+  goDecision       String?
+  goDecisionById   String?
+  goDecidedAt      DateTime?
+  goDecisionNote   String? @db.Text
+  startedAt        DateTime @default(now())
+  startedById      String?
+  correlationId    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  modules BidIntelligenceModule[]
+  facts   BidIntelligenceFact[]
+
+  @@index([orgId, status])
+  @@index([orgId, goDecision])
+}
+
+model BidIntelligenceModule {
+  id        String              @id @default(cuid())
+  roomId    String
+  room      BidIntelligenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  /// 固定八模块 key
+  moduleKey String
+  title     String
+  /// confirmed | investigating | risk | unknown
+  status    String              @default("unknown")
+  dataJson  Json                @default("{}")
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([roomId, moduleKey])
+  @@index([roomId, sortOrder])
+}
+
+model BidIntelligenceFact {
+  id              String              @id @default(cuid())
+  roomId          String
+  room            BidIntelligenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  orgId           String
+  projectId       String
+  moduleKey       String?
+  content         String              @db.Text
+  /// tender_document | historical | ai_inference | manual
+  sourceType      String
+  sourceUrl       String?
+  sourceFileId    String?
+  sourcePage      String?
+  /// CONFIRMED | HIGH_CONFIDENCE | INFERRED | UNKNOWN
+  confidence      String              @default("UNKNOWN")
+  extractedBy     String?
+  humanConfirmed  Boolean             @default(false)
+  confirmedById   String?
+  confirmedAt     DateTime?
+  extractedAt     DateTime            @default(now())
+  createdAt       DateTime            @default(now())
+
+  @@index([roomId, moduleKey])
+  @@index([projectId, confidence])
+  @@index([orgId, projectId])
 }
 
 model ProjectInquiry {

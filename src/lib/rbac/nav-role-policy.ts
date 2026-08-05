@@ -71,8 +71,15 @@ export function isNavItemHiddenForRole(
   // 运营：隐藏招投标项目域入口（深链与 API 权限不变）
   if (isOperationsStaff(role)) {
     return (
-      itemKey === "biz-projects" ||
-      itemKey === "biz-project-intel" ||
+      itemKey === "nav-projects" ||
+      itemKey === "nav-project-intel" ||
+      itemKey === "nav-intel-series" ||
+      itemKey === "nav-intel-awards" ||
+      itemKey === "nav-intel-competitors" ||
+      itemKey === "nav-intel-agencies" ||
+      itemKey === "nav-intel-supply" ||
+      itemKey === "nav-intel-monitor" ||
+      itemKey === "nav-suppliers" ||
       itemKey === "ws-bids"
     );
   }

@@ -4,6 +4,25 @@ import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import type { Project } from "@prisma/client";
+import { withBidWorkflowSchemaFallback } from "@/lib/bid-workflow/schema-drift";
+import { LEGACY_PROJECT_ACCESS_SELECT } from "@/lib/bid-workflow/legacy-project-select";
+
+/** 鉴权加载 Project：schema drift 时不读 bidPhaseStatus，避免整链 503 */
+async function findProjectForAccess(projectId: string): Promise<Project | null> {
+  const { value } = await withBidWorkflowSchemaFallback({
+    logLabel: "project.access",
+    primary: () => db.project.findUnique({ where: { id: projectId } }),
+    fallback: async () => {
+      const row = await db.project.findUnique({
+        where: { id: projectId },
+        select: LEGACY_PROJECT_ACCESS_SELECT,
+      });
+      if (!row) return null;
+      return { ...row, bidPhaseStatus: null } as Project;
+    },
+  });
+  return value;
+}
 
 /**
  * 项目可见性统一入口 — 所有面向用户的项目查询/鉴权必须使用这些函数。
@@ -41,7 +60,7 @@ export async function requireProjectWriteAccess(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const project = await db.project.findUnique({ where: { id: projectId } });
+  const project = await findProjectForAccess(projectId);
   if (!project) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
@@ -103,7 +122,7 @@ export async function requireProjectReadAccess(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const project = await db.project.findUnique({ where: { id: projectId } });
+  const project = await findProjectForAccess(projectId);
   if (!project) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
