@@ -325,6 +325,19 @@ export type ChangeCandidateStatus = (typeof CHANGE_CANDIDATE_STATUSES)[number];
 
 /** 任务 sourceTemplateKey：重试/幂等不重复创建 */
 export const TASK_TEMPLATE_KEYS = {
+  review_ai_analysis: "tender_analysis:review_ai_analysis",
+  review_m1_m15: "tender_analysis:review_m1_m15",
+  contact_backpack_factory: "tender_analysis:contact_backpack_factory",
+  get_formal_spec: "tender_analysis:get_formal_spec",
+  get_oem_en_certificate: "tender_analysis:get_oem_en_certificate",
+  confirm_inventory_plan: "tender_analysis:confirm_inventory_plan",
+  get_ddp_regina_quote: "tender_analysis:get_ddp_regina_quote",
+  prepare_eco_packaging_declaration:
+    "tender_analysis:prepare_eco_packaging_declaration",
+  submit_clarifications: "tender_analysis:submit_clarifications",
+  prepare_three_pdfs: "tender_analysis:prepare_three_pdfs",
+  check_email_under_5mb: "tender_analysis:check_email_under_5mb",
+  /** 保留旧键以防既有数据引用 */
   review_report: "tender_analysis:review_report",
   confirm_requirements: "tender_analysis:confirm_requirements",
   answer_clarifications: "tender_analysis:answer_clarifications",
@@ -334,6 +347,81 @@ export const TASK_TEMPLATE_KEYS = {
 
 export type TaskTemplateKey =
   (typeof TASK_TEMPLATE_KEYS)[keyof typeof TASK_TEMPLATE_KEYS];
+
+/** 本阶段实际创建的任务模板（稳定顺序） */
+export const ANALYSIS_TASK_SPECS: ReadonlyArray<{
+  templateKey: TaskTemplateKey;
+  title: string;
+  description: string;
+  priority: "urgent" | "high" | "medium" | "low";
+}> = [
+  {
+    templateKey: TASK_TEMPLATE_KEYS.review_ai_analysis,
+    title: "复核 AI 标书分析报告",
+    description: "审阅自动生成的中文分析各章节，确认无编造内容并标记人工修订。",
+    priority: "high",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.review_m1_m15,
+    title: "复核 M1–M15 强制技术要求",
+    description: "对照原文核对 M1–M15；合规状态保持未评估，直至人工确认。",
+    priority: "high",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.contact_backpack_factory,
+    title: "联系背包工厂",
+    description: "接触具备制式/户外背包能力的工厂，确认打样与产能窗口。",
+    priority: "high",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.get_formal_spec,
+    title: "获取正式产品规格",
+    description: "向买方/附件渠道确认正式规格与图纸版本。",
+    priority: "high",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.get_oem_en_certificate,
+    title: "获取 OEM / EN 相关证书路径",
+    description: "确认 OEM 证明及适用 EN/测试报告的获取路径（以原文要求为准）。",
+    priority: "medium",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.confirm_inventory_plan,
+    title: "确认库存与备货计划",
+    description: "在数量歧义澄清前先做情景化库存计划，勿按 7,500 保证销量备货。",
+    priority: "medium",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.get_ddp_regina_quote,
+    title: "获取 DDP Regina 物流报价",
+    description: "核算完税交货至 Regina 的端到端物流与关税成本。",
+    priority: "high",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.prepare_eco_packaging_declaration,
+    title: "准备环保包装声明",
+    description: "按 Environmentally Preferable Packaging 要求准备声明文本。",
+    priority: "medium",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.submit_clarifications,
+    title: "提交澄清问题",
+    description: "在询价截止日前汇总并提交数量/样品/测试标准/海外制造等澄清。",
+    priority: "urgent",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.prepare_three_pdfs,
+    title: "准备三份投标 PDF",
+    description: "按 three PDFs 结构准备技术/商务/证书等提交文件。",
+    priority: "high",
+  },
+  {
+    templateKey: TASK_TEMPLATE_KEYS.check_email_under_5mb,
+    title: "检查投标邮件 <5MB",
+    description: "打包后验证邮件总附件大小严格小于 5MB。",
+    priority: "high",
+  },
+];
 
 export const WORKER_STEPS = [
   "CLAIMED",

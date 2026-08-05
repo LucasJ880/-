@@ -18,6 +18,8 @@ import { canClaim, canTransition } from "./status";
 import { parseDocumentPagesAndStore } from "./page-parse";
 import { extractFromPages, extractRequirements } from "./extract";
 import { generateReportSections } from "./report";
+import { buildDeliverables } from "./deliverables";
+import { buildClarifications } from "./clarifications";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 
@@ -268,11 +270,18 @@ async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
   });
 }
 
-async function stepNoopPersist(
-  run: ClaimedRun,
-  step: WorkerStep,
-): Promise<void> {
-  await persistStep(run.id, run.leaseOwner, step, { status: "ANALYZING" });
+async function stepBuildDeliverables(run: ClaimedRun): Promise<void> {
+  await buildDeliverables({ runId: run.id });
+  await persistStep(run.id, run.leaseOwner, "BUILD_DELIVERABLES", {
+    status: "ANALYZING",
+  });
+}
+
+async function stepBuildClarifications(run: ClaimedRun): Promise<void> {
+  await buildClarifications({ runId: run.id });
+  await persistStep(run.id, run.leaseOwner, "BUILD_CLARIFICATIONS", {
+    status: "ANALYZING",
+  });
 }
 
 async function stepCreateTasks(run: ClaimedRun): Promise<void> {
@@ -343,8 +352,10 @@ async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
       await stepExtractRequirements(run);
       return;
     case "BUILD_DELIVERABLES":
+      await stepBuildDeliverables(run);
+      return;
     case "BUILD_CLARIFICATIONS":
-      await stepNoopPersist(run, step);
+      await stepBuildClarifications(run);
       return;
     case "CREATE_TASKS":
       await stepCreateTasks(run);

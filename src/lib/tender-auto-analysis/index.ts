@@ -11,6 +11,8 @@ export * from "./enqueue-helpers";
 export * from "./enqueue";
 export * from "./extract";
 export * from "./report";
+export * from "./deliverables";
+export * from "./clarifications";
 export * from "./project-room";
 export * from "./tasks";
 export * from "./worker";
