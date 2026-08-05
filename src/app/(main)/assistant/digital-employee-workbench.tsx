@@ -130,12 +130,12 @@ export function DigitalEmployeeWorkbench({
     { label: "待我确认", value: pending.length, icon: ClipboardCheck },
     {
       label: "活跃商机",
-      value: briefing?.stats.activeOpportunities ?? 0,
+      value: briefing?.stats?.activeOpportunities ?? 0,
       icon: Target,
     },
     {
       label: "本月签单",
-      value: briefing?.stats.signedThisMonth ?? 0,
+      value: briefing?.stats?.signedThisMonth ?? 0,
       icon: CheckCircle2,
     },
   ];

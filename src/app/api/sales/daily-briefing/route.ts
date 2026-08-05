@@ -20,14 +20,10 @@ import {
   resolveSalesOrgIdForRequest,
   resolveSalesScope,
 } from "@/lib/sales/org-context";
-
-interface SalesBriefing {
-  date: string;
-  stats: Record<string, number>;
-  urgentItems: Array<{ title: string; description: string; severity: string; category: string }>;
-  aiSummary: string;
-  generatedAt: string;
-}
+import {
+  parseCachedSalesBriefing,
+  type SalesBriefing,
+} from "@/lib/sales/daily-briefing";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
@@ -42,14 +38,24 @@ export const GET = withAuth(async (request, _ctx, user) => {
       type: "sales_daily_briefing",
       sourceKey: `sales_briefing:${today}`,
     },
-    select: { metadata: true, createdAt: true },
+    select: { id: true, metadata: true },
   });
 
-  if (cached?.metadata) {
-    return NextResponse.json({ briefing: cached.metadata, cached: true });
+  const cachedBriefing = parseCachedSalesBriefing(cached?.metadata ?? null);
+  if (cachedBriefing) {
+    return NextResponse.json({ briefing: cachedBriefing, cached: true });
   }
 
   const briefing = await generateBriefing(user.id, orgRes.orgId, ownOnly);
+  if (cached) {
+    await db.notification.update({
+      where: { id: cached.id },
+      data: {
+        summary: briefing.aiSummary.slice(0, 200),
+        metadata: JSON.stringify(briefing),
+      },
+    }).catch(() => {});
+  }
   return NextResponse.json({ briefing, cached: false });
 });
 
