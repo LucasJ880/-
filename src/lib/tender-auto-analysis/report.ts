@@ -2,6 +2,7 @@
  * Phase F — 基于已抽取事实生成中文标书分析章节（模板优先，LLM 可选）
  */
 
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { SECTION_KEYS, type SectionKey } from "./constants";
 import { shouldUseTenderAnalysisLlm } from "./extract/llm-enrich";
@@ -364,6 +365,8 @@ export async function generateReportSections(
   for (const sectionKey of SECTION_KEYS) {
     const draft = built[sectionKey];
     const contentZh = await maybePolishSection(sectionKey, draft.contentZh);
+    const structuredJson =
+      draft.structuredJson as unknown as Prisma.InputJsonValue;
     await db.tenderAnalysisSection.upsert({
       where: {
         runId_sectionKey: { runId: input.runId, sectionKey },
@@ -372,13 +375,13 @@ export async function generateReportSections(
         runId: input.runId,
         sectionKey,
         contentZh,
-        structuredJson: draft.structuredJson,
+        structuredJson,
         confidence: draft.confidence,
         reviewStatus: "AI_DRAFT",
       },
       update: {
         contentZh,
-        structuredJson: draft.structuredJson,
+        structuredJson,
         confidence: draft.confidence,
         reviewStatus: "AI_DRAFT",
       },
@@ -397,7 +400,7 @@ export async function generateReportSections(
   await db.tenderAnalysisRun.update({
     where: { id: input.runId },
     data: {
-      summaryJson: summaryJson as object,
+      summaryJson: summaryJson as unknown as Prisma.InputJsonValue,
       summaryText,
     },
   });

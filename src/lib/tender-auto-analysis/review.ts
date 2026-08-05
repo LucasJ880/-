@@ -3,6 +3,7 @@
  * 批准绝不写入 GO 决策。
  */
 
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
   ANALYSIS_VERSION,
@@ -270,12 +271,17 @@ export async function editSectionContent(input: EditSectionInput): Promise<
     afterLen: input.contentZh.length,
   });
 
+  const structuredJson = {
+    ...prev,
+    _edits: edits,
+  } as unknown as Prisma.InputJsonValue;
+
   await db.tenderAnalysisSection.update({
     where: { id: section.id },
     data: {
       contentZh: input.contentZh,
       reviewStatus: "HUMAN_EDITED",
-      structuredJson: { ...prev, _edits: edits },
+      structuredJson,
     },
   });
 
