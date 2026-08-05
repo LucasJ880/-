@@ -71,7 +71,7 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { id: true },
+    select: { id: true, orgId: true, workDomain: true },
   });
   if (!project) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -94,6 +94,14 @@ export const POST = withAuth(async (request, ctx, user) => {
     .getAll("relativePaths")
     .map((v) => (typeof v === "string" ? v.trim() : ""));
 
+  type TenderAnalysisResponse = {
+    enqueued: boolean;
+    runId?: string;
+    status?: string;
+    reason?: string;
+    suggestion?: "mark_as_tender";
+  };
+
   const results: Array<{
     id: string;
     title: string;
@@ -101,9 +109,11 @@ export const POST = withAuth(async (request, ctx, user) => {
     blobUrl: string;
     fileType: string;
     fileSize: number;
+    tenderAnalysis?: TenderAnalysisResponse;
   }> = [];
 
   const errors: Array<{ name: string; reason: string }> = [];
+  let tenderAnalysis: TenderAnalysisResponse | undefined;
 
   let index = 0;
   for (const entry of files) {
@@ -158,6 +168,40 @@ export const POST = withAuth(async (request, ctx, user) => {
         },
       });
 
+      let fileTenderAnalysis: TenderAnalysisResponse | undefined;
+      try {
+        const { maybeEnqueueTenderAnalysisAfterUpload } = await import(
+          "@/lib/tender-auto-analysis/enqueue"
+        );
+        fileTenderAnalysis = await maybeEnqueueTenderAnalysisAfterUpload({
+          projectId,
+          documentId: doc.id,
+          buffer,
+          fileType: ext,
+          title: doc.title,
+          userId: user.id,
+          orgId: project.orgId ?? "",
+        });
+        // 优先保留已成功入队的结果；否则用最近一次结果
+        if (!tenderAnalysis || fileTenderAnalysis.enqueued) {
+          tenderAnalysis = fileTenderAnalysis;
+        }
+      } catch (enqueueErr) {
+        console.error("[files] tender analysis enqueue failed", {
+          projectId,
+          documentId: doc.id,
+          error:
+            enqueueErr instanceof Error
+              ? enqueueErr.message
+              : String(enqueueErr),
+        });
+        fileTenderAnalysis = {
+          enqueued: false,
+          reason: "enqueue_error",
+        };
+        if (!tenderAnalysis) tenderAnalysis = fileTenderAnalysis;
+      }
+
       results.push({
         id: doc.id,
         title: doc.title,
@@ -165,6 +209,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         blobUrl: blob.proxyUrl,
         fileType: ext,
         fileSize: file.size,
+        tenderAnalysis: fileTenderAnalysis,
       });
     } catch (err) {
       errors.push({
@@ -182,7 +227,12 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   return NextResponse.json(
-    { uploaded: results, errors, total: results.length },
+    {
+      uploaded: results,
+      errors,
+      total: results.length,
+      ...(tenderAnalysis ? { tenderAnalysis } : {}),
+    },
     { status: results.length > 0 ? 201 : 400 }
   );
 });
