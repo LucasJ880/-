@@ -350,6 +350,12 @@ model Project {
   supplierLinks    ProjectSupplierLink[]
   joinBriefs       ProjectJoinBrief[]
 
+  /// Phase 1.1 Tender Auto Analysis
+  tenderAnalysisRuns            TenderAnalysisRun[]
+  tenderExtractedRequirements   TenderExtractedRequirement[]
+  tenderDeliverables            TenderDeliverable[]
+  tenderClarificationQuestions  TenderClarificationQuestion[]
+
   @@index([orgId])
   @@index([workspaceId])
   @@index([purchaserId])
@@ -1818,8 +1824,36 @@ model ProjectDocument {
   sortOrder       Int      @default(0)
   createdAt       DateTime @default(now())
 
+  /// Phase 1.1：内容指纹 / 页级解析元数据
+  contentHash  String?
+  pageCount    Int?
+  parseVersion String?
+
+  pages                ProjectDocumentPage[]
+  analysisRunDocuments TenderAnalysisRunDocument[]
+
   @@index([projectId])
   @@index([source])
+  @@index([contentHash])
+  @@index([projectId, contentHash])
+}
+
+/// Phase 1.1：招标文件页级文本（不把全文塞进单一 JSON）
+model ProjectDocumentPage {
+  id               String          @id @default(cuid())
+  documentId       String
+  document         ProjectDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pageNumber       Int
+  contentText      String          @db.Text
+  charCount        Int             @default(0)
+  extractionMethod String          @default("unpdf")
+  parseStatus      String          @default("pending") // pending | done | failed | OCR_REQUIRED
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([documentId, pageNumber])
+  @@index([documentId])
+  @@index([documentId, parseStatus])
 }
 
 model ApiToken {
@@ -2227,6 +2261,287 @@ model BidIntelligenceFact {
   @@index([roomId, moduleKey])
   @@index([projectId, confidence])
   @@index([orgId, projectId])
+}
+
+// ─────────────────────────────────────────
+// Phase 1.1 Tender Auto Analysis
+// ─────────────────────────────────────────
+
+/// 招标文件自动分析 Run（租约 + 分段 cron）
+model TenderAnalysisRun {
+  id     String @id @default(cuid())
+  /// organization id（与全库 orgId 约定一致，非 organizationId）
+  orgId  String
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 可选关联 BidIntelligenceRoom.id（松耦合，不强制 FK）
+  roomId String?
+
+  /// PENDING | EXTRACTING | ANALYZING | REVIEW_REQUIRED | APPROVED | FAILED | SUPERSEDED
+  status String @default("PENDING")
+  /// FULL | INCREMENTAL
+  runKind String @default("FULL")
+
+  analysisVersion String @default("tender-auto-analysis-v1")
+  promptVersion   String @default("tender-analysis-prompt-v1")
+  model           String?
+
+  idempotencyKey       String @unique
+  sourceHashFingerprint String
+
+  /// 分段 cron 步骤游标
+  workerStep   String?
+  workerCursor Json?
+
+  summaryJson Json?
+  summaryText String? @db.Text
+
+  startedAt            DateTime?
+  completedAt          DateTime?
+  failedAt             DateTime?
+  errorCode            String?
+  errorMessageSanitized String? @db.Text
+
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+
+  parentRunId String?
+  parentRun   TenderAnalysisRun?  @relation("TenderAnalysisRunParent", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns   TenderAnalysisRun[] @relation("TenderAnalysisRunParent")
+
+  supersedesRunId String?
+  supersedesRun   TenderAnalysisRun?  @relation("TenderAnalysisRunSupersedes", fields: [supersedesRunId], references: [id], onDelete: SetNull)
+  supersededBy    TenderAnalysisRun[] @relation("TenderAnalysisRunSupersedes")
+
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  nextAttemptAt  DateTime?
+  attemptCount   Int       @default(0)
+
+  tokenUsageJson Json?
+  durationMs     Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents        TenderAnalysisRunDocument[]
+  sections         TenderAnalysisSection[]
+  facts            TenderAnalysisFact[]
+  requirements     TenderExtractedRequirement[]
+  deliverables     TenderDeliverable[]
+  clarifications   TenderClarificationQuestion[]
+  changeCandidates TenderAnalysisChangeCandidate[]
+  sourceRefs       TenderAnalysisSourceRef[]
+
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([orgId, projectId, status])
+  @@index([projectId, status])
+  @@index([orgId, status])
+}
+
+model TenderAnalysisRunDocument {
+  id          String             @id @default(cuid())
+  runId       String
+  run         TenderAnalysisRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  documentId  String
+  document    ProjectDocument    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  contentHash String
+  /// PRIMARY | ATTACHMENT | ADDENDUM
+  role        String             @default("PRIMARY")
+  createdAt   DateTime           @default(now())
+
+  @@unique([runId, documentId])
+  @@index([runId])
+  @@index([documentId])
+  @@index([contentHash])
+}
+
+model TenderAnalysisSection {
+  id             String            @id @default(cuid())
+  runId          String
+  run            TenderAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sectionKey     String
+  contentZh      String            @db.Text
+  structuredJson Json?
+  /// CONFIRMED | HIGH_CONFIDENCE | INFERRED | UNKNOWN
+  confidence     String            @default("UNKNOWN")
+  /// AI_DRAFT | HUMAN_EDITED | APPROVED
+  reviewStatus   String            @default("AI_DRAFT")
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  facts      TenderAnalysisFact[]
+  sourceRefs TenderAnalysisSourceRef[]
+
+  @@unique([runId, sectionKey])
+  @@index([runId])
+}
+
+model TenderAnalysisFact {
+  id                String                @id @default(cuid())
+  runId             String
+  run               TenderAnalysisRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sectionId         String?
+  section           TenderAnalysisSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  /// CONFIRMED_FACT | DOCUMENT_INTERPRETATION | AI_INFERENCE | RECOMMENDATION
+  statementKind     String
+  contentZh         String                @db.Text
+  contentOriginal   String?               @db.Text
+  confidence        String                @default("UNKNOWN")
+  manuallyConfirmed Boolean               @default(false)
+  confirmedById     String?
+  confirmedAt       DateTime?
+  createdAt         DateTime              @default(now())
+
+  sourceRefs TenderAnalysisSourceRef[]
+
+  @@index([runId])
+  @@index([runId, statementKind])
+  @@index([sectionId])
+}
+
+/// 统一来源引用（Fact / Section / Requirement / Clarification / Deliverable）
+model TenderAnalysisSourceRef {
+  id                    String  @id @default(cuid())
+  runId                 String
+  run                   TenderAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  documentId            String
+  pageNumber            Int?
+  sectionLabel          String?
+  originalTextSnippet   String  @db.Text
+  extractionMethod      String
+  confidence            String  @default("UNKNOWN")
+
+  factId                  String?
+  fact                    TenderAnalysisFact?            @relation(fields: [factId], references: [id], onDelete: SetNull)
+  sectionId               String?
+  section                 TenderAnalysisSection?         @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  requirementId           String?
+  requirement             TenderExtractedRequirement?    @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  clarificationQuestionId String?
+  clarificationQuestion   TenderClarificationQuestion?   @relation(fields: [clarificationQuestionId], references: [id], onDelete: SetNull)
+  deliverableId           String?
+  deliverable             TenderDeliverable?             @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+  @@index([documentId])
+  @@index([factId])
+  @@index([sectionId])
+  @@index([requirementId])
+  @@index([clarificationQuestionId])
+  @@index([deliverableId])
+}
+
+model TenderExtractedRequirement {
+  id                   String            @id @default(cuid())
+  projectId            String
+  project              Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analysisRunId        String
+  analysisRun          TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  requirementCode      String
+  category             String
+  originalRequirement  String            @db.Text
+  chineseTranslation   String            @db.Text
+  mandatory            Boolean           @default(true)
+  evidenceRequired     Boolean           @default(false)
+  /// NOT_ASSESSED | PARTIAL | COMPLIANT | NON_COMPLIANT | NEEDS_CLARIFICATION
+  complianceStatus     String            @default("NOT_ASSESSED")
+  /// AI_EXTRACTED | CONFIRMED | REJECTED
+  reviewStatus         String            @default("AI_EXTRACTED")
+  ownerId              String?
+  sourcePage           Int?
+  /// NOT_PROJECTED | PROJECTED | SKIPPED
+  projectionStatus     String            @default("NOT_PROJECTED")
+  projectedRequirementId String?
+  projectedAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  sourceRefs TenderAnalysisSourceRef[]
+
+  @@unique([analysisRunId, requirementCode])
+  @@index([projectId])
+  @@index([analysisRunId])
+  @@index([projectId, reviewStatus])
+}
+
+model TenderDeliverable {
+  id                 String            @id @default(cuid())
+  projectId          String
+  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analysisRunId      String
+  analysisRun        TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  deliverableKey     String
+  title              String
+  mandatory          Boolean           @default(true)
+  sourcePage         Int?
+  ownerId            String?
+  dueAt              DateTime?
+  /// PENDING | IN_PROGRESS | DONE | WAIVED
+  status             String            @default("PENDING")
+  relatedDocumentId  String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  sourceRefs TenderAnalysisSourceRef[]
+
+  @@unique([analysisRunId, deliverableKey])
+  @@index([projectId])
+  @@index([analysisRunId])
+}
+
+model TenderClarificationQuestion {
+  id                 String            @id @default(cuid())
+  projectId          String
+  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analysisRunId      String
+  analysisRun        TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  question           String            @db.Text
+  reason             String            @db.Text
+  /// LOW | MEDIUM | HIGH | BLOCKING
+  priority           String            @default("MEDIUM")
+  enquiryDeadline    DateTime?
+  /// OPEN | SENT | ANSWERED | WITHDRAWN
+  status             String            @default("OPEN")
+  sentAt             DateTime?
+  responseText       String?           @db.Text
+  responseDocumentId String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  sourceRefs TenderAnalysisSourceRef[]
+
+  @@index([projectId])
+  @@index([analysisRunId])
+  @@index([analysisRunId, status])
+}
+
+/// Addendum 变更候选（Phase 1.1 skeleton）
+model TenderAnalysisChangeCandidate {
+  id          String            @id @default(cuid())
+  runId       String
+  run         TenderAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  parentRunId String?
+  /// ADDED | REMOVED | MODIFIED | DATE_CHANGED | QUANTITY_CHANGED | PRICING_CHANGED
+  changeType  String
+  entityType  String
+  entityKey   String?
+  beforeJson  Json?
+  afterJson   Json?
+  summaryZh   String            @db.Text
+  /// PENDING_REVIEW | APPLIED | REJECTED
+  status      String            @default("PENDING_REVIEW")
+  appliedAt   DateTime?
+  createdAt   DateTime          @default(now())
+
+  @@index([runId])
+  @@index([runId, status])
+  @@index([parentRunId])
 }
 
 model ProjectInquiry {
