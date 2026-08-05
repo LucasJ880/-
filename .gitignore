@@ -72,3 +72,6 @@ cursor-agent-team
 prototypes/
 .tmp/
 tmp/
+
+# Private local fixtures (real tender PDFs — never commit)
+fixtures/private/
