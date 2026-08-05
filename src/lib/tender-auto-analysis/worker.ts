@@ -22,6 +22,7 @@ import { buildDeliverables } from "./deliverables";
 import { buildClarifications } from "./clarifications";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
+import { computeAndPersistAddendumDiff } from "./addendum-diff";
 
 export const LEASE_MS = 90_000;
 export const MAX_ATTEMPTS = 5;
@@ -130,6 +131,8 @@ type ClaimedRun = {
   projectId: string;
   roomId: string | null;
   status: string;
+  runKind: string;
+  parentRunId: string | null;
   workerStep: string | null;
   attemptCount: number;
   createdById: string | null;
@@ -148,6 +151,8 @@ async function claimRun(runId: string): Promise<ClaimedRun | null> {
       projectId: true,
       roomId: true,
       status: true,
+      runKind: true,
+      parentRunId: true,
       workerStep: true,
       attemptCount: true,
       createdById: true,
@@ -216,6 +221,8 @@ async function claimRun(runId: string): Promise<ClaimedRun | null> {
       projectId: true,
       roomId: true,
       status: true,
+      runKind: true,
+      parentRunId: true,
       workerStep: true,
       attemptCount: true,
       createdById: true,
@@ -297,6 +304,16 @@ async function stepCreateTasks(run: ClaimedRun): Promise<void> {
 }
 
 async function stepProjectRoom(run: ClaimedRun): Promise<void> {
+  // 增量分析：在投影前写出变更候选（骨架）
+  if (run.runKind === "INCREMENTAL" && run.parentRunId) {
+    await computeAndPersistAddendumDiff({
+      runId: run.id,
+      parentRunId: run.parentRunId,
+      projectId: run.projectId,
+      orgId: run.orgId,
+    });
+  }
+
   await projectAnalysisToRoom({
     runId: run.id,
     projectId: run.projectId,

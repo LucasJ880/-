@@ -19,5 +19,7 @@ export * from "./display-labels";
 export * from "./serializers";
 export * from "./review-pure";
 export * from "./review";
+export * from "./addendum-diff-pure";
+export * from "./addendum-diff";
 export * from "./api-access";
 export * from "./worker";

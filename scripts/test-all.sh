@@ -196,6 +196,7 @@ run_test "Growth Center 研究转计划/团队审批隔离" "npx tsx src/lib/mar
 run_test "Growth Center Activepieces 签名与配置" "npx tsx src/lib/marketing/__tests__/activepieces.test.ts"
 run_test "招标自动分析状态机" "npx tsx src/lib/tender-auto-analysis/__tests__/status.test.ts"
 run_test "招标自动分析审核标签" "npx tsx src/lib/tender-auto-analysis/__tests__/review-helpers.test.ts"
+run_test "招标自动分析补遗对比" "npx tsx src/lib/tender-auto-analysis/__tests__/addendum-diff.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 
