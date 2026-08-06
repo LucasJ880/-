@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Quote } from "./types";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { RecordDepositDialog } from "@/components/sales/record-deposit-dialog";
+import { getDepositPaymentMethodLabel } from "@/lib/sales/deposit-payment-methods";
 
 /** 来自 customer 页的 opp→封面映射（展示方案效果图用） */
 export type OppCoverMap = Record<
@@ -31,12 +32,6 @@ const QUOTE_STATUS_COLOR: Record<string, string> = {
   signed: "bg-emerald-100 text-emerald-800",
   accepted: "bg-emerald-100 text-emerald-800",
   rejected: "bg-red-100 text-red-800",
-};
-
-const DEPOSIT_METHOD_LABEL: Record<string, string> = {
-  cash: "现金",
-  check: "支票",
-  etransfer: "E-Transfer",
 };
 
 function hasPricingWarnings(notes: string | null | undefined): boolean {
@@ -140,7 +135,7 @@ export function QuotesList({
                 <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
                   <CheckCircle2 className="h-3 w-3" />
                   定金 ${q.depositAmount.toFixed(0)}
-                  {q.depositMethod ? ` · ${DEPOSIT_METHOD_LABEL[q.depositMethod] || q.depositMethod}` : ""}
+                  {q.depositMethod ? ` · ${getDepositPaymentMethodLabel(q.depositMethod)}` : ""}
                 </span>
               )}
             </div>

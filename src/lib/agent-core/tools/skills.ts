@@ -7,6 +7,23 @@
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
+/**
+ * The user-facing marketing workspace is backed by the operations skill pack.
+ * Accept the natural aliases an LLM is likely to use instead of returning an
+ * empty skill list for a valid marketing request.
+ */
+export function normalizeSkillDomainFilter(domain: unknown): string | undefined {
+  if (typeof domain !== "string") return undefined;
+
+  const normalized = domain.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["marketing", "growth", "营销", "增长"].includes(normalized)) {
+    return "operations";
+  }
+
+  return normalized;
+}
+
 registry.register({
   name: "skill_list",
   description: "列出当前组织的所有可用 AI 技能",
@@ -16,14 +33,15 @@ registry.register({
     properties: {
       domain: {
         type: "string",
-        description: "按域过滤（trade/sales/project/secretary）",
+        description:
+          "按域过滤（trade/sales/project/secretary/operations；marketing/growth 会自动映射到 operations）",
       },
     },
   },
   execute: async (ctx: ToolExecutionContext): Promise<ToolExecutionResult> => {
     const { listOrgSkills } = await import("../skills/runtime");
     const skills = await listOrgSkills(ctx.orgId, {
-      domain: ctx.args.domain as string | undefined,
+      domain: normalizeSkillDomainFilter(ctx.args.domain),
     });
     return {
       success: true,

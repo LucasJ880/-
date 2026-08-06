@@ -12,6 +12,7 @@ export const UI_LAYERS = {
   drawerPanel: 60,
   dialogOverlay: 70,
   dialogPanel: 80,
+  dialogPopover: 85,
   toast: 90,
   critical: 100,
 } as const;
@@ -27,6 +28,7 @@ export const UI_Z_CSS_VARS = {
   "--ui-z-drawer-panel": String(UI_LAYERS.drawerPanel),
   "--ui-z-dialog-overlay": String(UI_LAYERS.dialogOverlay),
   "--ui-z-dialog-panel": String(UI_LAYERS.dialogPanel),
+  "--ui-z-dialog-popover": String(UI_LAYERS.dialogPopover),
   "--ui-z-toast": String(UI_LAYERS.toast),
   "--ui-z-critical": String(UI_LAYERS.critical),
 } as const;

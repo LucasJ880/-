@@ -656,6 +656,7 @@ select {
   --ui-z-drawer-panel: 60;
   --ui-z-dialog-overlay: 70;
   --ui-z-dialog-panel: 80;
+  --ui-z-dialog-popover: 85;
   --ui-z-toast: 90;
   --ui-z-critical: 100;
 }

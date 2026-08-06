@@ -16,6 +16,7 @@ import type { SimpleProject } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
+import { SseLineBuffer } from "@/lib/assistant/sse-line-buffer";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
 import { ThreadSidebar, type AiThread } from "./thread-list";
@@ -273,7 +274,7 @@ function AssistantPageInner() {
         : null;
 
   const handleSend = async (text?: string) => {
-    let content = (text || input).trim();
+    const content = (text || input).trim();
     if (!content || isLoading) return;
     if (!orgReady) return;
 
@@ -340,15 +341,15 @@ function AssistantPageInner() {
       if (!reader) throw new Error("无法读取响应流");
 
       const decoder = new TextDecoder();
+      const sseLines = new SseLineBuffer();
       let fullText = "";
       let runtimeV2Mode = false;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        const lines = done
+          ? [...sseLines.push(decoder.decode()), ...sseLines.flush()]
+          : sseLines.push(decoder.decode(value, { stream: true }));
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
@@ -578,12 +579,38 @@ function AssistantPageInner() {
             );
           }
         }
+
+        if (done) break;
       }
 
       const { cleanText, suggestion, parseError } = extractWorkSuggestion(fullText);
-      const finalContent = parseError
+      let finalContent = parseError
         ? `${cleanText}\n\n> [AI 建议解析异常] ${parseError.reason}`
         : cleanText;
+
+      // 上游可能已经正常落库，但浏览器响应流被代理提前截断。
+      // 此时恢复服务端最终消息，避免界面只留下“思考”后出现空白。
+      if (!finalContent.trim() && threadId) {
+        try {
+          const recovered = await apiJson<{ messages?: AiMsg[] }>(
+            `/api/ai/threads/${threadId}/messages`,
+          );
+          const recoveredMessages = recovered.messages ?? [];
+          const latestMessage = recoveredMessages.at(-1);
+          const latestAssistant =
+            latestMessage?.role === "assistant" ? latestMessage : null;
+          const recoveredContent = latestAssistant?.content?.trim() ?? "";
+          if (recoveredContent && !recoveredContent.startsWith("正在")) {
+            finalContent = recoveredContent;
+          }
+        } catch {
+          /* 下方统一显示可重试错误 */
+        }
+      }
+
+      if (!finalContent.trim()) {
+        throw new Error("回复流已结束，但没有收到完整内容，请重试");
+      }
 
       setMessages((prev) =>
         prev.map((m) =>
