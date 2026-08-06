@@ -3,18 +3,18 @@
 import { useEffect, useState } from "react";
 import { Percent, Check, Loader2, ShieldCheck, RefreshCcw } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
-import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 
 /**
  * 折扣率全局设置卡片 — 驾驶舱
  *
- * - admin/super_admin 可编辑所有产品的默认百分比折扣
+ * - 企业负责人可编辑所有产品的默认百分比折扣
  * - 其他销售只读
  * - 电子报价单统一从此数据源读取
  */
 
 interface DiscountsDto {
+  canEdit: boolean;
   zebra: number;
   shangrila: number;
   cellular: number;
@@ -115,9 +115,6 @@ function toDraftMap(d: DiscountsDto): DraftMap {
 }
 
 export function DiscountSettingsCard() {
-  const { user } = useCurrentUser();
-  const canEdit = user?.role === "admin" || user?.role === "super_admin";
-
   const [loaded, setLoaded] = useState(false);
   const [current, setCurrent] = useState<DiscountsDto | null>(null);
   const [draft, setDraft] = useState<DraftMap | null>(null);
@@ -125,6 +122,7 @@ export function DiscountSettingsCard() {
   const [saving, setSaving] = useState(false);
   const [flash, setFlash] = useState<"saved" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const canEdit = current?.canEdit === true;
 
   const load = () => {
     apiJson<DiscountsDto>("/api/sales/quote-settings/discounts")
@@ -281,7 +279,7 @@ export function DiscountSettingsCard() {
         电子报价单使用这套折扣率作为默认值。
         {canEdit
           ? "修改后立即对全公司生效，每次变更都会记录审计日志。"
-          : "如需调整请联系管理员。"}
+          : "如需调整请联系企业负责人。"}
       </p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

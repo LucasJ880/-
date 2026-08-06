@@ -182,7 +182,7 @@ export default function SalesCockpitPage() {
       {/* 销售个人设置 — 首次进入会高亮提示未填写 */}
       <SalesRepSettingsCard />
 
-      {/* 全局折扣率设置 — 销售只读，admin/super_admin 可编辑 */}
+      {/* 全局折扣率设置 — 企业负责人可编辑，其他角色只读 */}
       <DiscountSettingsCard />
 
       {/* 折扣率数统 — 按时间区间、按销售、三档平均 */}

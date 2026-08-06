@@ -9,12 +9,9 @@ import {
   type DiscountSavePatch,
 } from "@/lib/blinds/discount-settings";
 import { requireTenantContext } from "@/lib/tenancy";
+import { canManageQuoteDiscountSettings } from "@/lib/blinds/discount-permissions";
 
 const TARGET_TYPE = "quote_discount_settings";
-
-function canWriteOrgRules(orgRole: string): boolean {
-  return orgRole === "org_admin";
-}
 
 function parseUnlockPlain(
   body: Record<string, unknown>,
@@ -48,7 +45,10 @@ export async function GET(request: Request) {
   if (tenant instanceof NextResponse) return tenant;
 
   const dto = await loadDiscountsDto(tenant.orgId);
-  return NextResponse.json(dto);
+  return NextResponse.json({
+    ...dto,
+    canEdit: canManageQuoteDiscountSettings(tenant.orgRole),
+  });
 }
 
 /**
@@ -59,8 +59,8 @@ export async function PUT(request: Request) {
   const tenant = await requireTenantContext(request as import("next/server").NextRequest);
   if (tenant instanceof NextResponse) return tenant;
 
-  if (!canWriteOrgRules(tenant.orgRole)) {
-    return NextResponse.json({ error: "仅企业管理员可修改折扣率" }, { status: 403 });
+  if (!canManageQuoteDiscountSettings(tenant.orgRole)) {
+    return NextResponse.json({ error: "仅企业负责人可修改折扣率" }, { status: 403 });
   }
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -138,6 +138,7 @@ export async function PUT(request: Request) {
 
   return NextResponse.json({
     ...after,
+    canEdit: true,
     changed:
       Object.keys(diff).length > 0 || depositCodeChanged || lineCodeChanged,
     diff,
