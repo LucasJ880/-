@@ -114,6 +114,7 @@ export async function writeMarketingMetricSnapshot(input: {
     objective: optionalString(input.values.objective),
     ...counts,
     spend: nonNegativeMoney(input.values.spend),
+    otherMarketingCost: nonNegativeMoney(input.values.otherMarketingCost),
     revenue: nonNegativeMoney(input.values.revenue),
     currency,
     baseCurrency,

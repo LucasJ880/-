@@ -21,6 +21,7 @@ const EXPECTED_ACTIVE = [
   "20260804190000_sales_action_loop",
   "20260804200000_sales_action_auto_sync",
   "20260804210000_sales_effectiveness_promotion_approval",
+  "20260805090000_marketing_economics",
   "20260805180000_tender_auto_analysis_phase1_1",
 ] as const;
 
@@ -46,6 +47,8 @@ const IMMUTABLE: Record<string, string> = {
     "93c594162365cf5b57f896fcba214f2fb2d67b4e8fa92525adf107df75d3c387",
   "20260804210000_sales_effectiveness_promotion_approval":
     "ffcd014dbc480dd7dafd2d6f4c31ec1ad229ac83822ca297727678c58ff91ca2",
+  "20260805090000_marketing_economics":
+    "0b7d73e255d05f40a26f6dc96f5cae94d964319c12726701c651228bc5cf7873",
   "20260805180000_tender_auto_analysis_phase1_1":
     "8d48341aed38eb0b3b21b9950449edc40e812e7a446bd645cdc5603637fa1d31",
 };

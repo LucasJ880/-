@@ -179,6 +179,8 @@ export function NewCustomerDialog({
               <SelectContent>
                 <SelectItem value="referral">转介绍</SelectItem>
                 <SelectItem value="google_ads">Google Ads</SelectItem>
+                <SelectItem value="meta">Facebook / Instagram</SelectItem>
+                <SelectItem value="xiaohongshu">小红书</SelectItem>
                 <SelectItem value="walk_in">上门</SelectItem>
                 <SelectItem value="wechat">微信</SelectItem>
                 <SelectItem value="phone">电话</SelectItem>

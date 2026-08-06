@@ -10,12 +10,34 @@ import { logAudit } from "@/lib/audit/logger";
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
-  const runs = await db.marketingWorkflowRun.findMany({
-    where: { orgId: orgRes.orgId },
-    orderBy: { createdAt: "desc" },
-    take: 50,
+  const [runs, crmAttributionRun] = await Promise.all([
+    db.marketingWorkflowRun.findMany({
+      where: { orgId: orgRes.orgId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    db.automationRun.findFirst({
+      where: { automationKey: "marketing-crm-attribution" },
+      orderBy: { startedAt: "desc" },
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        processedCount: true,
+        failedCount: true,
+        error: true,
+      },
+    }),
+  ]);
+  return NextResponse.json({
+    readiness: getActivepiecesReadiness(),
+    crmAttribution: {
+      configured: true,
+      cadence: "每日 07:00（America/Toronto）",
+      lastRun: crmAttributionRun,
+    },
+    runs,
   });
-  return NextResponse.json({ readiness: getActivepiecesReadiness(), runs });
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {

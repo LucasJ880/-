@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import {
+  canAccessMarketingWorkspace,
+  isMarketingApiPath,
+  isMarketingWorkspacePath,
+} from "@/lib/marketing/route-access";
 
 const COOKIE_NAME = "qy_session";
 
@@ -35,18 +40,18 @@ function isPublicPath(pathname: string): boolean {
   );
 }
 
-async function isValidToken(token: string): Promise<boolean> {
+async function verifiedRole(token: string): Promise<string | null> {
   try {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       console.error("[middleware] JWT_SECRET is not set — rejecting request");
-      return false;
+      return null;
     }
     const key = new TextEncoder().encode(secret);
-    await jwtVerify(token, key);
-    return true;
+    const { payload } = await jwtVerify(token, key);
+    return typeof payload.role === "string" ? payload.role : "";
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -58,7 +63,8 @@ export async function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get(COOKIE_NAME)?.value;
-  if (!token || !(await isValidToken(token))) {
+  const role = token ? await verifiedRole(token) : null;
+  if (!token || role === null) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
         { error: "未登录" },
@@ -66,6 +72,16 @@ export async function middleware(request: NextRequest) {
       );
     }
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  if (isMarketingWorkspacePath(pathname) && !canAccessMarketingWorkspace(role)) {
+    if (isMarketingApiPath(pathname)) {
+      return NextResponse.json(
+        { error: "销售账号无权访问营销工作区" },
+        { status: 403 },
+      );
+    }
+    return NextResponse.redirect(new URL("/sales", request.url));
   }
 
   return NextResponse.next();

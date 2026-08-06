@@ -7,9 +7,11 @@ import { getActivepiecesReadiness, type MarketingFlowKey } from "@/lib/marketing
 import {
   scheduledMarketingFlows,
   scheduledMarketingRequestId,
+  isCrmAttributionSyncDue,
 } from "@/lib/marketing/automation-schedule";
 import { dispatchMarketingWorkflow } from "@/lib/marketing/workflows";
 import type { AutomationKey } from "@/lib/automation/registry";
+import { syncCrmSourceAttributions } from "@/lib/marketing/crm-source-attribution";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -27,7 +29,8 @@ export async function GET(request: NextRequest) {
 
   const now = new Date();
   const dueFlows = scheduledMarketingFlows(now);
-  if (dueFlows.length === 0) {
+  const crmAttributionDue = isCrmAttributionSyncDue(now);
+  if (dueFlows.length === 0 && !crmAttributionDue) {
     return NextResponse.json({ skipped: true, reason: "当前小时无到期营销自动流", checkedAt: now.toISOString() });
   }
 
@@ -39,15 +42,78 @@ export async function GET(request: NextRequest) {
     select: { orgId: true },
     distinct: ["orgId"],
   });
-  const orgIds = brandProfiles.map((profile) => profile.orgId);
-  const organizations = orgIds.length
-    ? await db.organization.findMany({
-      where: { id: { in: orgIds }, status: "active" },
-      select: { id: true, ownerId: true },
-    })
+  const opportunityOrganizations = crmAttributionDue
+    ? await db.salesOpportunity.groupBy({ by: ["orgId"] })
     : [];
+  const flowOrgIds = brandProfiles.map((profile) => profile.orgId);
+  const attributionOrgIds = opportunityOrganizations.map((row) => row.orgId);
+  const [flowOrganizations, attributionOrganizations] = await Promise.all([
+    flowOrgIds.length
+      ? db.organization.findMany({
+          where: { id: { in: flowOrgIds }, status: "active" },
+          select: { id: true, ownerId: true },
+        })
+      : [],
+    attributionOrgIds.length
+      ? db.organization.findMany({
+          where: { id: { in: attributionOrgIds }, status: "active" },
+          select: { id: true, ownerId: true },
+        })
+      : [],
+  ]);
 
   const results = [];
+  if (crmAttributionDue) {
+    const attributionResult = await runTrackedAutomation(
+      "marketing-crm-attribution",
+      async () => {
+        const organizationResults = [];
+        let failedCount = 0;
+        for (const organization of attributionOrganizations) {
+          try {
+            const economics = await db.marketingEconomicsSetting.findUnique({
+              where: { orgId: organization.id },
+              select: { attributionWindowDays: true },
+            });
+            const periodStart = new Date(
+              now.getTime() -
+                Math.max(1, economics?.attributionWindowDays ?? 90) *
+                  24 *
+                  3600 *
+                  1000,
+            );
+            organizationResults.push({
+              orgId: organization.id,
+              ...(await syncCrmSourceAttributions({
+                orgId: organization.id,
+                userId: organization.ownerId,
+                periodStart,
+                periodEnd: now,
+              })),
+            });
+          } catch (error) {
+            failedCount += 1;
+            organizationResults.push({
+              orgId: organization.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        return {
+          data: organizationResults,
+          status: failedCount > 0 ? "partial" : "succeeded",
+          processedCount: organizationResults.length,
+          succeededCount: organizationResults.length - failedCount,
+          failedCount,
+        };
+      },
+    );
+    results.push({
+      flowKey: "crm-source-attribution",
+      status: "completed",
+      organizations: attributionResult,
+    });
+  }
   for (const flowKey of dueFlows) {
     if (!configuredFlows.has(flowKey)) {
       results.push({ flowKey, status: "skipped", reason: "Activepieces Webhook 未配置" });
@@ -56,7 +122,7 @@ export async function GET(request: NextRequest) {
 
     const flowResult = await runTrackedAutomation(AUTOMATION_KEY[flowKey], async () => {
       const orgResults = [];
-      for (const organization of organizations) {
+      for (const organization of flowOrganizations) {
         try {
           const run = await dispatchMarketingWorkflow({
             orgId: organization.id,
@@ -100,7 +166,10 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     checkedAt: now.toISOString(),
-    organizationCount: organizations.length,
+    organizationCount: new Set([
+      ...flowOrganizations.map((row) => row.id),
+      ...attributionOrganizations.map((row) => row.id),
+    ]).size,
     results,
   });
 }

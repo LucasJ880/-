@@ -53,7 +53,8 @@ export function mapGa4RowToMetricValues(row: Ga4RawMetricRow): Record<string, un
     engagements,
     clicks: sessions,
     leads,
-    qualifiedLeads: Math.round(leads * 0.4),
+    // GA4 只能证明发生了网站转化，是否为有效线索必须由青砚 CRM 确认。
+    qualifiedLeads: 0,
     appointments: 0,
     quotes: 0,
     wins: 0,
