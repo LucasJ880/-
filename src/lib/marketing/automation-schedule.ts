@@ -32,6 +32,14 @@ export function scheduledMarketingFlows(
   return flows;
 }
 
+/** CRM 来源归因属于青砚内部账本同步，不依赖 Activepieces。 */
+export function isCrmAttributionSyncDue(
+  now: Date,
+  timeZone = MARKETING_AUTOMATION_TIMEZONE,
+): boolean {
+  return getLocalTimeParts(now, timeZone).hour === 7;
+}
+
 export function scheduledMarketingRequestId(input: {
   orgId: string;
   flowKey: ScheduledMarketingFlowKey;

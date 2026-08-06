@@ -46,6 +46,24 @@ interface Snapshot {
   channelAccount?: { id: string; name: string; provider: string } | null;
 }
 
+interface CrmAttributionResult {
+  scannedCount: number;
+  matchedCount: number;
+  createdCount: number;
+  refreshedCount: number;
+  skippedManualCount: number;
+  truncated: boolean;
+  dryRun: boolean;
+  byProvider: Array<{
+    provider: string;
+    label: string;
+    matched: number;
+    created: number;
+    refreshed: number;
+    attributedRevenue: number;
+  }>;
+}
+
 const SYNC_PROVIDERS = [
   { key: "google_ads", label: "同步 Google Ads" },
   { key: "meta", label: "同步 Meta" },
@@ -86,6 +104,16 @@ export default function MarketingMetricsPage() {
     start.setDate(start.getDate() - 90);
     return { periodStart: start.toISOString().slice(0, 10), periodEnd: end.toISOString().slice(0, 10) };
   });
+  const [crmRange, setCrmRange] = useState(() => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setFullYear(start.getFullYear() - 2);
+    return {
+      periodStart: start.toISOString().slice(0, 10),
+      periodEnd: end.toISOString().slice(0, 10),
+    };
+  });
+  const [crmPreview, setCrmPreview] = useState<CrmAttributionResult | null>(null);
   const [economics, setEconomics] = useState({
     defaultGrossMarginPercent: "",
     targetRoas: "",
@@ -289,6 +317,36 @@ export default function MarketingMetricsPage() {
     await load();
   }
 
+  async function syncCrmFeedback(dryRun: boolean) {
+    if (
+      !dryRun &&
+      !window.confirm(
+        "确认按 CRM 中的客户/商机来源归总历史反馈？\n\n人工归因不会被覆盖；系统归因会标记为“来源推断”，后续仍可人工修正。",
+      )
+    ) {
+      return;
+    }
+    setBusy(dryRun ? "crm-preview" : "crm-sync");
+    setError(null);
+    setMessage(null);
+    const response = await apiFetch("/api/marketing/attributions/backfill", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...crmRange, dryRun }),
+    });
+    const body = await response.json();
+    setBusy(null);
+    if (!response.ok) return setError(body.error || "CRM 反馈归总失败");
+    const result = body.result as CrmAttributionResult;
+    setCrmPreview(result);
+    setMessage(
+      dryRun
+        ? `预览完成：扫描 ${result.scannedCount} 个商机，可识别 ${result.matchedCount} 个营销来源。`
+        : `CRM 反馈已归总：新增 ${result.createdCount} 条，刷新 ${result.refreshedCount} 条；人工归因保持不变。`,
+    );
+    if (!dryRun) await load();
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-10">
       <div>
@@ -455,8 +513,55 @@ export default function MarketingMetricsPage() {
         </div>
       </section>
 
+      <section className="rounded-xl border border-border bg-card-bg p-5">
+        <h2 className="font-semibold">4. 归总 CRM 历史反馈</h2>
+        <p className="mt-1 text-xs leading-5 text-muted">
+          根据销售端已填写的客户/商机来源，识别 Google Ads、Facebook / Instagram 和小红书，
+          汇总有效线索与已成交金额。系统每天自动刷新近 {economics.attributionWindowDays || "90"} 天；
+          人工归因优先，不会被覆盖。
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="text-xs">
+            <span className="mb-1 block text-muted">开始日期</span>
+            <input type="date" value={crmRange.periodStart} onChange={(e) => { setCrmRange({ ...crmRange, periodStart: e.target.value }); setCrmPreview(null); }} className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+          </label>
+          <label className="text-xs">
+            <span className="mb-1 block text-muted">结束日期</span>
+            <input type="date" value={crmRange.periodEnd} onChange={(e) => { setCrmRange({ ...crmRange, periodEnd: e.target.value }); setCrmPreview(null); }} className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+          </label>
+          <button type="button" disabled={Boolean(busy)} onClick={() => syncCrmFeedback(true)} className="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
+            {busy === "crm-preview" ? "分析中…" : "先预览"}
+          </button>
+          <button type="button" disabled={Boolean(busy) || !crmPreview} onClick={() => syncCrmFeedback(false)} className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50">
+            {busy === "crm-sync" ? "归总中…" : "确认归总"}
+          </button>
+        </div>
+        {crmPreview && (
+          <div className="mt-4 space-y-2 rounded-lg border border-border bg-background p-3 text-sm">
+            {crmPreview.byProvider.length === 0 ? (
+              <p className="text-muted">该时间范围内暂未识别到 Google Ads、Meta 或小红书来源。</p>
+            ) : (
+              crmPreview.byProvider.map((row) => (
+                <div key={row.provider} className="flex flex-wrap justify-between gap-2">
+                  <strong>{row.label}</strong>
+                  <span className="text-muted">
+                    商机 {row.matched} · 待新增 {row.created} · 已有 {row.refreshed} · 成交金额 {row.attributedRevenue.toLocaleString()} {economics.currency || "CAD"}
+                  </span>
+                </div>
+              ))
+            )}
+            {crmPreview.skippedManualCount > 0 && (
+              <p className="text-xs text-muted">另有 {crmPreview.skippedManualCount} 个商机已有人工归因，系统已跳过。</p>
+            )}
+            {crmPreview.truncated && (
+              <p className="text-xs text-amber-700">本次达到 5,000 条扫描上限，请缩小日期范围后分批归总。</p>
+            )}
+          </div>
+        )}
+      </section>
+
       <form onSubmit={submitWeek} className="space-y-4 rounded-xl border border-border bg-card-bg p-5">
-        <h2 className="font-semibold">4. 录入单周数据</h2>
+        <h2 className="font-semibold">5. 录入单周数据</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-sm sm:col-span-2">
             <span className="mb-1 block text-muted">渠道账号</span>
@@ -546,7 +651,7 @@ export default function MarketingMetricsPage() {
       </form>
 
       <form onSubmit={submitBulk} className="space-y-3 rounded-xl border border-border bg-card-bg p-5">
-        <h2 className="font-semibold">5. 历史数据回填（CSV / JSON）</h2>
+        <h2 className="font-semibold">6. 历史平台数据回填（CSV / JSON）</h2>
         <label className="inline-flex cursor-pointer items-center rounded-lg border border-border px-4 py-2 text-sm">
           选择平台导出的 CSV
           <input type="file" accept=".csv,text/csv" className="sr-only" onChange={(e) => loadCsv(e.target.files?.[0] || null)} />

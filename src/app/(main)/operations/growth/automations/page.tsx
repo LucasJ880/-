@@ -9,6 +9,11 @@ interface FlowReadiness { key: string; env: string; configured: boolean }
 interface WorkflowRun { id: string; flowKey: string; status: string; error: string | null; createdAt: string }
 interface AutomationData {
   readiness: { configured: boolean; secretConfigured: boolean; flows: FlowReadiness[] };
+  crmAttribution: {
+    configured: boolean;
+    cadence: string;
+    lastRun: { status: string; startedAt: string; completedAt: string | null; processedCount: number; failedCount: number; error: string | null } | null;
+  };
   runs: WorkflowRun[];
 }
 
@@ -60,6 +65,17 @@ export default function MarketingAutomationsPage() {
         <div className="mt-4 flex items-center gap-2 text-sm">{data.readiness.configured ? <CheckCircle2 className="text-emerald-600" size={18}/> : <CircleAlert className="text-amber-600" size={18}/>}<strong>{data.readiness.configured ? "Activepieces 已接入" : "等待配置 Activepieces"}</strong></div>
       </section>
       <section className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-medium">CRM 营销反馈归总</h3>
+              <p className="mt-1 text-sm">根据客户/商机来源归总 Google Ads、Meta 与小红书反馈；人工归因不会被覆盖。</p>
+            </div>
+            <CheckCircle2 className="shrink-0 text-emerald-600" size={18}/>
+          </div>
+          <p className="mt-3 text-xs">{data.crmAttribution.cadence}{data.crmAttribution.lastRun ? ` · 最近 ${new Date(data.crmAttribution.lastRun.startedAt).toLocaleString()}（${data.crmAttribution.lastRun.status}）` : " · 等待首次运行"}</p>
+          <Link href="/operations/growth/metrics" className="mt-4 inline-flex text-sm font-medium text-emerald-800">预览或回填历史反馈 →</Link>
+        </div>
         {data.readiness.flows.map((flow) => <div key={flow.key} className="rounded-xl border border-border bg-card-bg p-4"><div className="flex items-start justify-between gap-3"><div><h3 className="font-medium">{FLOW_LABELS[flow.key]?.name || flow.key}</h3><p className="mt-1 text-sm text-muted">{FLOW_LABELS[flow.key]?.description}</p></div>{flow.configured ? <CheckCircle2 className="shrink-0 text-emerald-600" size={18}/> : <CircleAlert className="shrink-0 text-amber-600" size={18}/>}</div>{flow.key === "mmm-run" ? <Link href="/operations/growth/mmm" className="mt-4 inline-flex text-sm text-accent">前往 MMM →</Link> : <button onClick={() => run(flow.key)} disabled={running === flow.key} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-[color:var(--on-accent)] disabled:opacity-50">{running === flow.key ? <Loader2 size={14} className="animate-spin"/> : <Play size={14}/>}运行一次</button>}</div>)}
       </section>
       <section className="rounded-xl border border-border bg-card-bg p-5"><h2 className="font-semibold">最近运行</h2><div className="mt-3 space-y-2">{data.runs.length === 0 ? <p className="text-sm text-muted">暂无运行记录。</p> : data.runs.map((run) => <div key={run.id} className="flex items-start justify-between gap-3 rounded-lg bg-background p-3 text-sm"><div><div className="font-medium">{FLOW_LABELS[run.flowKey]?.name || run.flowKey}</div>{run.error && <div className="mt-1 text-xs text-amber-700">{run.error}</div>}</div><div className="text-right"><div className="rounded-full border border-border px-2 py-0.5 text-xs">{run.status}</div><div className="mt-1 text-xs text-muted">{new Date(run.createdAt).toLocaleString()}</div></div></div>)}</div></section>

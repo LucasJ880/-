@@ -4,6 +4,7 @@ import {
   verifyActivepiecesSignature,
 } from "../activepieces";
 import {
+  isCrmAttributionSyncDue,
   scheduledMarketingFlows,
   scheduledMarketingRequestId,
 } from "../automation-schedule";
@@ -59,10 +60,18 @@ expect(
   scheduledMarketingFlows(monday7amToronto).join(",") === "sync-metrics,health-scan",
   "多伦多 07:00 会启动渠道同步和健康检查",
 );
+expect(
+  isCrmAttributionSyncDue(monday7amToronto),
+  "多伦多 07:00 会执行青砚内部 CRM 来源归因",
+);
 const monday9amToronto = new Date("2026-07-20T13:00:00.000Z");
 expect(
   scheduledMarketingFlows(monday9amToronto).join(",") === "experiment-review",
   "周一 09:00 会启动实验复盘",
+);
+expect(
+  !isCrmAttributionSyncDue(monday9amToronto),
+  "CRM 来源归因不会在其他小时重复执行",
 );
 expect(
   scheduledMarketingRequestId({

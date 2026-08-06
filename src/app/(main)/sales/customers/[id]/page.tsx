@@ -59,6 +59,8 @@ import { OrgSelectBanner } from "@/components/org-select-banner";
 const CUSTOMER_SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "referral", label: "转介绍" },
   { value: "google_ads", label: "Google Ads" },
+  { value: "meta", label: "Facebook / Instagram" },
+  { value: "xiaohongshu", label: "小红书" },
   { value: "walk_in", label: "上门" },
   { value: "wechat", label: "微信" },
   { value: "phone", label: "电话" },

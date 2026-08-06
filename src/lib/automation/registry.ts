@@ -20,6 +20,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "service-inbox-sla", name: "客服 SLA 提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "market-intelligence", name: "市场情报分析", category: "marketing", cadence: "每 15 分钟", timezone: "UTC", requiredEnv: ["FIRECRAWL_API_KEY"] },
   { key: "marketing-channel-sync", name: "增长中心渠道同步", category: "marketing", cadence: "每日 4 次，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_SYNC_WEBHOOK_URL"] },
+  { key: "marketing-crm-attribution", name: "CRM 营销反馈归总", category: "marketing", cadence: "每日 07:00", timezone: AUTOMATION_TIMEZONE },
   { key: "marketing-health", name: "增长中心健康检查", category: "marketing", cadence: "每日 07:00，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_HEALTH_WEBHOOK_URL"] },
   { key: "marketing-daily-brief", name: "微信推广日报", category: "marketing", cadence: "每日 08:00，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_DAILY_BRIEF_WEBHOOK_URL"] },
   { key: "marketing-experiment-review", name: "营销实验复盘", category: "marketing", cadence: "每周一 09:00，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_EXPERIMENT_WEBHOOK_URL"] },

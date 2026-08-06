@@ -23,7 +23,7 @@ interface DashboardData {
     inconsistent: boolean;
     economics: { spend: number; otherMarketingCost: number; totalMarketingCost: number; revenue: number; grossMarginRate: number | null; attributedGrossProfit: number | null; costPerLead: number | null; costPerQualifiedLead: number | null; costPerWin: number | null; roas: number | null; roi: number | null; breakEvenRoas: number | null; targetRoas: number | null; targetRoi: number | null };
   };
-  measurement: { snapshotCount: number; unverifiedSnapshotCount: number; channelAccountCount: number; connectedChannelAccountCount: number; latestDataAt: string | null; latestSyncAt: string | null; platformReportedLeads: number; platformReportedRevenue: number; crmAttributedLeads: number; crmAttributedRevenue: number };
+  measurement: { snapshotCount: number; unverifiedSnapshotCount: number; channelAccountCount: number; connectedChannelAccountCount: number; latestDataAt: string | null; latestSyncAt: string | null; platformReportedLeads: number; platformReportedRevenue: number; crmAttributedLeads: number; crmAttributedRevenue: number; crmManualAttributedLeads: number; crmAutoAttributedLeads: number; crmManualAttributedRevenue: number; crmSourceInferredRevenue: number };
   recommendations: Array<{ id: string; priority: "urgent" | "high" | "medium"; title: string; reason: string; href: string; action: string }>;
 }
 
@@ -233,7 +233,7 @@ export default function GrowthCenterPage() {
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <div className="rounded-lg border border-border bg-background p-3 text-xs"><strong className="block text-sm">平台报告</strong><span className="text-muted">线索 {data.measurement.platformReportedLeads} · 转化价值 {formatCad(data.measurement.platformReportedRevenue)}</span></div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950"><strong className="block text-sm">CRM 确认</strong><span>归因商机 {data.measurement.crmAttributedLeads} · 确认成交贡献 {formatCad(data.measurement.crmAttributedRevenue)}</span></div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950"><strong className="block text-sm">CRM 反馈</strong><span>人工归因 {data.measurement.crmManualAttributedLeads} · 来源推断 {data.measurement.crmAutoAttributedLeads} · 成交贡献 {formatCad(data.measurement.crmAttributedRevenue)}</span>{data.measurement.crmAutoAttributedLeads > 0 && <span className="mt-1 block opacity-75">其中来源推断金额 {formatCad(data.measurement.crmSourceInferredRevenue)}，置信度 70%，可由人工归因替代。</span>}</div>
         </div>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
           <span>本月数据 {data.measurement.snapshotCount} 条</span>

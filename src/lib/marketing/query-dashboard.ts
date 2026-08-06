@@ -16,7 +16,7 @@ export async function getMarketingDashboard(orgId: string) {
   });
 
   const weekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-  const [profile, economicsSetting, findings, campaigns, runningExperiments, pendingContent, publications, metrics, unverifiedSnapshots, channelAccounts, attributions, plans, pendingTeamApprovals, pendingIntelTopics] = await Promise.all([
+  const [profile, economicsSetting, findings, campaigns, runningExperiments, pendingContent, publications, metrics, unverifiedSnapshots, channelAccounts, crmOpportunityCohort, plans, pendingTeamApprovals, pendingIntelTopics] = await Promise.all([
     db.marketingBrandProfile.findUnique({ where: { orgId }, select: { id: true, brandName: true, validationStatus: true, validationScore: true, validationIssues: true, updatedAt: true } }),
     db.marketingEconomicsSetting.findUnique({ where: { orgId } }),
     db.marketingFinding.findMany({ where: { orgId, status: { in: ["open", "tasked"] } }, orderBy: [{ createdAt: "desc" }], take: 100 }),
@@ -52,7 +52,22 @@ export async function getMarketingDashboard(orgId: string) {
       where: { orgId },
       select: { status: true, lastSyncedAt: true },
     }),
-    db.marketingLeadAttribution.findMany({ where: { orgId, createdAt: { gte: monthStart } }, select: { attributedRevenue: true, salesOpportunityId: true } }),
+    // 先确定本月 CRM 商机 cohort，再查询这些商机的归因；避免历史回填
+    // 在创建当天把多年收入误计入本月，也避免无上限扫描全部历史归因。
+    db.salesOpportunity.findMany({
+      where: {
+        orgId,
+        createdAt: { gte: monthStart },
+        customer: { archivedAt: null },
+      },
+      select: {
+        id: true,
+        stage: true,
+        estimatedValue: true,
+        wonAt: true,
+        createdAt: true,
+      },
+    }),
     db.marketingPlan.findMany({ where: { orgId, status: { in: ["awaiting_approval", "draft", "active"] } }, include: { items: { where: { status: { notIn: ["done", "completed", "canceled"] } }, orderBy: { dueDate: "asc" }, take: 8 } }, orderBy: { createdAt: "desc" }, take: 1 }),
     db.pendingAction.findMany({
       where: { orgId, type: "marketing.approve_research_plan", status: "pending", expiresAt: { gt: now } },
@@ -79,17 +94,44 @@ export async function getMarketingDashboard(orgId: string) {
     }),
   ]);
 
-  const attributedOpportunityIds = attributions.map((row) => row.salesOpportunityId);
-  const crmOpportunities = attributedOpportunityIds.length > 0
-    ? await db.salesOpportunity.findMany({
+  const cohortOpportunityIds = crmOpportunityCohort.map((row) => row.id);
+  const attributions = cohortOpportunityIds.length
+    ? await db.marketingLeadAttribution.findMany({
         where: {
           orgId,
-          id: { in: attributedOpportunityIds },
-          customer: { archivedAt: null },
+          salesOpportunityId: { in: cohortOpportunityIds },
         },
-        select: { id: true, stage: true, estimatedValue: true, wonAt: true },
+        select: {
+          attributedRevenue: true,
+          salesOpportunityId: true,
+          attributionModel: true,
+        },
+        orderBy: { createdAt: "desc" },
       })
     : [];
+  // 同一商机若存在多条历史归因，人工确认优先；同级取最近一条，避免重复计入。
+  const attributionByOpportunity = new Map<
+    string,
+    (typeof attributions)[number]
+  >();
+  for (const row of attributions) {
+    const current = attributionByOpportunity.get(row.salesOpportunityId);
+    if (
+      !current ||
+      (current.attributionModel === "crm_source_auto" &&
+        row.attributionModel !== "crm_source_auto")
+    ) {
+      attributionByOpportunity.set(row.salesOpportunityId, row);
+    }
+  }
+  const effectiveAttributions = [...attributionByOpportunity.values()];
+  const attributedOpportunityIds = effectiveAttributions.map(
+    (row) => row.salesOpportunityId,
+  );
+  const attributedOpportunityIdSet = new Set(attributedOpportunityIds);
+  const crmOpportunities = crmOpportunityCohort.filter((row) =>
+    attributedOpportunityIdSet.has(row.id),
+  );
   const qualifiedStages = new Set(["needs_confirmed", "measure_booked", "quoted", "negotiation", "signed", "producing", "installing", "completed"]);
   const appointmentStages = new Set(["measure_booked", "quoted", "negotiation", "signed", "producing", "installing", "completed"]);
   const quoteStages = new Set(["quoted", "negotiation", "signed", "producing", "installing", "completed"]);
@@ -102,8 +144,20 @@ export async function getMarketingDashboard(orgId: string) {
       .filter((row) => row.wonAt || ["signed", "producing", "installing", "completed"].includes(row.stage))
       .map((row) => row.id),
   );
-  const attributedRevenue = attributions
+  const attributedRevenue = effectiveAttributions
     .filter((row) => wonOpportunityIds.has(row.salesOpportunityId))
+    .reduce((sum, row) => sum + (row.attributedRevenue ?? 0), 0);
+  const crmAutoAttributedLeads = effectiveAttributions.filter(
+    (row) =>
+      row.attributionModel === "crm_source_auto" &&
+      attributedOpportunityIdSet.has(row.salesOpportunityId),
+  ).length;
+  const crmSourceInferredRevenue = effectiveAttributions
+    .filter(
+      (row) =>
+        row.attributionModel === "crm_source_auto" &&
+        wonOpportunityIds.has(row.salesOpportunityId),
+    )
     .reduce((sum, row) => sum + (row.attributedRevenue ?? 0), 0);
   const effectiveLeads = Math.max(metrics._sum.qualifiedLeads ?? 0, crmQualified);
   const wins = Math.max(metrics._sum.wins ?? 0, crmWins);
@@ -172,6 +226,16 @@ export async function getMarketingDashboard(orgId: string) {
       platformReportedRevenue: metrics._sum.revenue ?? 0,
       crmAttributedLeads: crmOpportunities.length,
       crmAttributedRevenue: attributedRevenue,
+      crmManualAttributedLeads: Math.max(
+        0,
+        crmOpportunities.length - crmAutoAttributedLeads,
+      ),
+      crmAutoAttributedLeads,
+      crmManualAttributedRevenue: Math.max(
+        0,
+        attributedRevenue - crmSourceInferredRevenue,
+      ),
+      crmSourceInferredRevenue,
     },
     recommendations,
     latestAudit: latestAudit ? { id: latestAudit.id, totalScore: latestAudit.totalScore, confidence: latestAudit.confidence, completedAt: latestAudit.completedAt, dimensions: latestAudit.scores } : null,
