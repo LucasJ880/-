@@ -7,6 +7,10 @@ export const ANALYSIS_VERSION = "tender-auto-analysis-v1" as const;
 export const PROMPT_VERSION = "tender-analysis-prompt-v1" as const;
 export const PARSE_VERSION = "tender-page-parse-v1" as const;
 
+/** 同一项目短时间重新分析上限（防成本放大） */
+export const REANALYZE_RATE_WINDOW_MS = 5 * 60_000;
+export const REANALYZE_RATE_MAX = 3;
+
 export const TENDER_ANALYSIS_STATUSES = [
   "PENDING",
   "EXTRACTING",

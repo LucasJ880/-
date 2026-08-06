@@ -1,16 +1,10 @@
 /**
- * 可选 LLM  enrichment —— 仅当显式开启或存在 API Key；失败不影响主路径。
+ * 可选 LLM enrichment —— 仅显式 TENDER_ANALYSIS_LLM=1 时开启。
+ * 默认关闭：确定性抽取 + 模板报告，避免生产因存在 API Key 自动触发 16 章润色。
  */
 
 export function shouldUseTenderAnalysisLlm(): boolean {
-  if (process.env.TENDER_ANALYSIS_LLM === "1") return true;
-  if (process.env.TENDER_ANALYSIS_LLM === "0") return false;
-  if (process.env.NODE_ENV === "test") return false;
-  return Boolean(
-    process.env.OPENAI_API_KEY?.trim() ||
-      process.env.AZURE_OPENAI_API_KEY?.trim() ||
-      process.env.AZURE_OPENAI_KEY?.trim(),
-  );
+  return process.env.TENDER_ANALYSIS_LLM === "1";
 }
 
 /**

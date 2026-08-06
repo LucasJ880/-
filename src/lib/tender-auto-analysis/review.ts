@@ -5,15 +5,19 @@
 
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { writeAuditLog } from "@/lib/audit/logger";
 import {
   ANALYSIS_VERSION,
   PROMPT_VERSION,
+  REANALYZE_RATE_MAX,
+  REANALYZE_RATE_WINDOW_MS,
 } from "./constants";
 import { buildIdempotencyKey } from "./idempotency";
 import { fingerprintOrderedHashes } from "./hash";
 import { canApproveRun } from "./review-pure";
 
 export { canApproveRun, assertCanApprove } from "./review-pure";
+export { REANALYZE_RATE_MAX, REANALYZE_RATE_WINDOW_MS };
 
 export type ApproveRunInput = {
   runId: string;
@@ -31,11 +35,13 @@ export type ApproveRunResult =
       status: "APPROVED";
       confirmedRequirementCount: number;
       leftAiExtractedCount: number;
+      idempotent?: boolean;
     }
   | { ok: false; error: string; code: string };
 
 /**
  * REVIEW_REQUIRED → APPROVED。
+ * - CAS：仅当 status 仍为 REVIEW_REQUIRED 时批准
  * - 仅确认 manuallyConfirmed 的要求，或 confirmAllRequirements
  * - 未确认保持 AI_EXTRACTED
  * - NEVER 写入 BidIntelligenceRoom.goDecision / Project.bidPhaseStatus=GO
@@ -49,11 +55,30 @@ export async function approveAnalysisRun(
       projectId: input.projectId,
       orgId: input.orgId,
     },
-    select: { id: true, status: true, approvedById: true },
+    select: { id: true, status: true, approvedById: true, approvedAt: true },
   });
   if (!run) {
     return { ok: false, error: "分析记录不存在", code: "not_found" };
   }
+
+  // 重复批准：幂等成功，不改写 approvedBy
+  if (run.status === "APPROVED") {
+    const confirmedRequirementCount = await db.tenderExtractedRequirement.count({
+      where: { analysisRunId: run.id, reviewStatus: "CONFIRMED" },
+    });
+    const leftAiExtractedCount = await db.tenderExtractedRequirement.count({
+      where: { analysisRunId: run.id, reviewStatus: "AI_EXTRACTED" },
+    });
+    return {
+      ok: true,
+      runId: run.id,
+      status: "APPROVED",
+      confirmedRequirementCount,
+      leftAiExtractedCount,
+      idempotent: true,
+    };
+  }
+
   if (!canApproveRun(run.status)) {
     return {
       ok: false,
@@ -64,43 +89,107 @@ export async function approveAnalysisRun(
 
   const now = new Date();
   let confirmedRequirementCount = 0;
+  let wonCas = false;
 
-  await db.$transaction(async (tx) => {
-    if (input.confirmAllRequirements) {
-      const updated = await tx.tenderExtractedRequirement.updateMany({
+  try {
+    await db.$transaction(async (tx) => {
+      const cas = await tx.tenderAnalysisRun.updateMany({
         where: {
-          analysisRunId: run.id,
-          reviewStatus: "AI_EXTRACTED",
+          id: run.id,
+          projectId: input.projectId,
+          orgId: input.orgId,
+          status: "REVIEW_REQUIRED",
         },
-        data: { reviewStatus: "CONFIRMED" },
+        data: {
+          status: "APPROVED",
+          approvedById: input.actorUserId,
+          approvedAt: now,
+        },
       });
-      confirmedRequirementCount = updated.count;
-    } else {
-      // 仅将「事实已人工确认」关联要求保持不动；
-      // 要求确认走独立 confirm API；此处不批量改写
-      confirmedRequirementCount = await tx.tenderExtractedRequirement.count({
-        where: { analysisRunId: run.id, reviewStatus: "CONFIRMED" },
+      if (cas.count === 0) {
+        const cur = await tx.tenderAnalysisRun.findFirst({
+          where: {
+            id: run.id,
+            projectId: input.projectId,
+            orgId: input.orgId,
+          },
+          select: { status: true },
+        });
+        if (cur?.status === "APPROVED") {
+          wonCas = false;
+          return;
+        }
+        throw new Error("approve_cas_failed");
+      }
+      wonCas = true;
+
+      if (input.confirmAllRequirements) {
+        const updated = await tx.tenderExtractedRequirement.updateMany({
+          where: {
+            analysisRunId: run.id,
+            reviewStatus: "AI_EXTRACTED",
+          },
+          data: { reviewStatus: "CONFIRMED" },
+        });
+        confirmedRequirementCount = updated.count;
+      } else {
+        confirmedRequirementCount = await tx.tenderExtractedRequirement.count({
+          where: { analysisRunId: run.id, reviewStatus: "CONFIRMED" },
+        });
+      }
+
+      await tx.tenderAnalysisSection.updateMany({
+        where: {
+          runId: run.id,
+          reviewStatus: { in: ["AI_DRAFT", "HUMAN_EDITED"] },
+        },
+        data: { reviewStatus: "APPROVED" },
       });
+
+      await writeAuditLog(tx, {
+        userId: input.actorUserId,
+        orgId: input.orgId,
+        projectId: input.projectId,
+        action: "tender_analysis_approve",
+        targetType: "tender_analysis_run",
+        targetId: run.id,
+        beforeData: { status: "REVIEW_REQUIRED" },
+        afterData: {
+          status: "APPROVED",
+          confirmAllRequirements: Boolean(input.confirmAllRequirements),
+          confirmedRequirementCount,
+          goDecisionUntouched: true,
+        },
+      });
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "approve_cas_failed") {
+      return {
+        ok: false,
+        error: "批准冲突，请刷新后重试",
+        code: "conflict",
+      };
     }
-
-    await tx.tenderAnalysisSection.updateMany({
-      where: { runId: run.id, reviewStatus: { in: ["AI_DRAFT", "HUMAN_EDITED"] } },
-      data: { reviewStatus: "APPROVED" },
-    });
-
-    await tx.tenderAnalysisRun.update({
-      where: { id: run.id },
-      data: {
-        status: "APPROVED",
-        approvedById: input.actorUserId,
-        approvedAt: now,
-      },
-    });
-  });
+    throw err;
+  }
 
   const leftAiExtractedCount = await db.tenderExtractedRequirement.count({
     where: { analysisRunId: run.id, reviewStatus: "AI_EXTRACTED" },
   });
+
+  if (!wonCas) {
+    const confirmed = await db.tenderExtractedRequirement.count({
+      where: { analysisRunId: run.id, reviewStatus: "CONFIRMED" },
+    });
+    return {
+      ok: true,
+      runId: run.id,
+      status: "APPROVED",
+      confirmedRequirementCount: confirmed,
+      leftAiExtractedCount,
+      idempotent: true,
+    };
+  }
 
   return {
     ok: true,
@@ -162,6 +251,50 @@ export async function reanalyzeRun(
     };
   }
 
+  if (
+    current.status === "PENDING" ||
+    current.status === "EXTRACTING" ||
+    current.status === "ANALYZING"
+  ) {
+    return {
+      ok: false,
+      error: "当前分析仍在进行中，请等待完成或失败后再重新分析",
+      code: "active_run",
+    };
+  }
+
+  const otherActive = await db.tenderAnalysisRun.findFirst({
+    where: {
+      projectId: input.projectId,
+      orgId: input.orgId,
+      id: { not: current.id },
+      status: { in: ["PENDING", "EXTRACTING", "ANALYZING"] },
+    },
+    select: { id: true },
+  });
+  if (otherActive) {
+    return {
+      ok: false,
+      error: "项目已有进行中的分析任务，请稍后再试",
+      code: "active_run_exists",
+    };
+  }
+
+  const recentCount = await db.tenderAnalysisRun.count({
+    where: {
+      projectId: input.projectId,
+      orgId: input.orgId,
+      createdAt: { gte: new Date(Date.now() - REANALYZE_RATE_WINDOW_MS) },
+    },
+  });
+  if (recentCount >= REANALYZE_RATE_MAX) {
+    return {
+      ok: false,
+      error: "重新分析过于频繁，请稍后再试",
+      code: "rate_limited",
+    };
+  }
+
   const hashes = current.documents.map((d) => d.contentHash).sort();
   const fingerprint = fingerprintOrderedHashes(
     hashes.length > 0 ? hashes : [`reanalyze:${current.id}:${Date.now()}`],
@@ -181,7 +314,12 @@ export async function reanalyzeRun(
           id: current.id,
           status: { not: "APPROVED" },
         },
-        data: { status: "SUPERSEDED" },
+        data: {
+          status: "SUPERSEDED",
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          nextAttemptAt: null,
+        },
       });
       if (updated.count > 0) supersededRunId = current.id;
     }

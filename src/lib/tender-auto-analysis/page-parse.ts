@@ -10,6 +10,9 @@ import { sha256Content } from "./hash";
 /** 与 legacy parse-content 对齐的全文存储上限 */
 export const MAX_CONTENT_TEXT_CHARS = 200_000;
 
+/** 单份 PDF 最大页数（含 RCMP 43 页余量；阻止超大文件撑爆 DB/cron） */
+export const MAX_PDF_PAGES = 80;
+
 /** trim 后字符数低于此阈值视为近空页，标记 OCR_REQUIRED */
 export const NEAR_EMPTY_PAGE_CHARS = 16;
 
@@ -198,6 +201,20 @@ export async function parseDocumentPagesAndStore(
 
     if (fileType === "pdf") {
       const extracted = await extractPdfPagesFromBuffer(buffer);
+      if (extracted.totalPages > MAX_PDF_PAGES) {
+        const error = `PDF 页数超过上限（${extracted.totalPages} > ${MAX_PDF_PAGES}）`;
+        await db.projectDocument.update({
+          where: { id: documentId },
+          data: {
+            parseStatus: "failed",
+            parseError: error,
+            parseVersion: PARSE_VERSION,
+            contentHash,
+            pageCount: extracted.totalPages,
+          },
+        });
+        return { ok: false, documentId, parseStatus: "failed", error };
+      }
       const contentText = joinPagesForDocument(extracted.pages) || null;
 
       await db.$transaction(async (tx) => {
