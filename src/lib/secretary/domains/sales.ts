@@ -57,12 +57,13 @@ const STALE_DAYS: Record<string, number> = {
 export async function scanSalesDomain(
   userId: string,
   orgId: string,
-  options?: { ownOnly?: boolean },
+  options?: { ownOnly?: boolean; maxOpportunities?: number },
 ): Promise<DomainScanResult> {
   const now = new Date();
   const items: BriefingItem[] = [];
   const stats: Record<string, number> = {};
   const ownOnly = options?.ownOnly ?? true;
+  const maxOpportunities = Math.min(Math.max(options?.maxOpportunities ?? 50, 1), 500);
 
   const ownerFilter = ownOnly
     ? {
@@ -76,6 +77,7 @@ export async function scanSalesDomain(
   const opportunities = await db.salesOpportunity.findMany({
     where: {
       orgId,
+      customer: { archivedAt: null },
       stage: { in: ACTIVE_STAGES },
       ...ownerFilter,
     },
@@ -92,7 +94,7 @@ export async function scanSalesDomain(
         select: { createdAt: true, status: true, grandTotal: true, viewedAt: true, signedAt: true },
       },
     },
-    take: 50,
+    take: maxOpportunities,
   });
 
   const seenKeys = new Set<string>();
@@ -206,7 +208,7 @@ export async function scanSalesDomain(
             action: {
               type: "view_sales_customer",
               label: "联系客户",
-              payload: { customerId: opp.customer.id },
+              payload: { customerId: opp.customer.id, opportunityId: opp.id },
             },
             entityType: "sales_customer",
             entityId: opp.customer.id,
@@ -240,7 +242,7 @@ export async function scanSalesDomain(
           action: {
             type: "view_sales_customer",
             label: "查看详情",
-            payload: { customerId: opp.customer.id },
+            payload: { customerId: opp.customer.id, opportunityId: opp.id },
           },
           entityType: "sales_customer",
           entityId: opp.customer.id,
@@ -256,6 +258,7 @@ export async function scanSalesDomain(
   const upcomingMeasures = await db.salesOpportunity.findMany({
     where: {
       orgId,
+      customer: { archivedAt: null },
       ...ownerFilter,
       measureDate: { gte: now, lte: threeDaysLater },
       stage: { in: ["needs_confirmed", "measure_booked"] },
@@ -299,6 +302,7 @@ export async function scanSalesDomain(
   const upcomingInstalls = await db.salesOpportunity.findMany({
     where: {
       orgId,
+      customer: { archivedAt: null },
       ...ownerFilter,
       installDate: { gte: now, lte: threeDaysLater },
     },
@@ -345,7 +349,7 @@ export async function scanSalesDomain(
   // Appointment 无 orgId，通过 customer.orgId 关系限定；ownOnly 时再加 own 维度
   const todayAppointments = await db.appointment.findMany({
     where: {
-      customer: { orgId },
+      customer: { orgId, archivedAt: null },
       startAt: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()), lte: tomorrowEnd },
       status: { in: ["scheduled", "confirmed"] },
       ...(ownOnly
@@ -422,7 +426,7 @@ export async function scanSalesDomain(
   // BlindsOrder 无 orgId，通过 customer.orgId 关系限定（无客户工单将被排除）
   const overdueOrders = await db.blindsOrder.findMany({
     where: {
-      customer: { orgId },
+      customer: { orgId, archivedAt: null },
       ...(ownOnly ? { creatorId: userId } : {}),
       status: { in: ["confirmed", "in_production", "ready"] },
       expectedInstallDate: { lt: now },
@@ -487,11 +491,17 @@ export async function scanSalesDomain(
   // ── 7. 管道统计 ──
   const [totalActive, newInquiries, wonThisMonth] = await Promise.all([
     db.salesOpportunity.count({
-      where: { orgId, ...ownerFilter, stage: { in: ACTIVE_STAGES } },
+      where: {
+        orgId,
+        customer: { archivedAt: null },
+        ...ownerFilter,
+        stage: { in: ACTIVE_STAGES },
+      },
     }),
     db.salesOpportunity.count({
       where: {
         orgId,
+        customer: { archivedAt: null },
         ...ownerFilter,
         stage: "new_lead",
         createdAt: { gt: new Date(now.getTime() - DAY_MS) },
@@ -500,6 +510,7 @@ export async function scanSalesDomain(
     db.salesOpportunity.count({
       where: {
         orgId,
+        customer: { archivedAt: null },
         ...ownerFilter,
         stage: { in: ["signed", "completed"] },
         wonAt: {
@@ -509,6 +520,8 @@ export async function scanSalesDomain(
     }),
   ]);
   stats.activeOpportunities = totalActive;
+  stats.scannedOpportunities = opportunities.length;
+  stats.scanLimitReached = totalActive > opportunities.length ? 1 : 0;
   stats.newInquiries = newInquiries;
   stats.signedThisMonth = wonThisMonth;
 

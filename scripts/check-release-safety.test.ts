@@ -100,9 +100,13 @@ ok(
       "20260729120000_matrix_account_playbook",
       "20260729180000_phase_c_publish_job_pipeline",
       "20260803200000_bid_workflow_phase1",
+      "20260804130000_sunny_motor_price",
+      "20260804190000_sales_action_loop",
+      "20260804200000_sales_action_auto_sync",
+      "20260804210000_sales_effectiveness_promotion_approval",
       "20260805180000_tender_auto_analysis_phase1_1",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob + BidWorkflow Phase1 + TenderAutoAnalysis Phase1.1",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + TenderAutoAnalysis Phase1.1",
 );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

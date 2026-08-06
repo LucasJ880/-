@@ -27,7 +27,7 @@ import { CoBrand } from "@/components/co-brand";
 import { useLocale, LOCALE_LABELS } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/messages";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
-import { readStoredOrgId } from "@/lib/org-selection";
+import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
 import { orgRoleLabel } from "@/lib/permissions-client";
 
 /* ── Search types ── */
@@ -550,6 +550,10 @@ export function Header() {
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
     if (item.entityType === "task" && item.entityId) {
       window.location.href = `/tasks?open=${item.entityId}`;
+    } else if (item.entityType === "sales_quote" && item.entityId) {
+      if (item.orgId) persistSelectedOrgId(item.orgId);
+      const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";
+      window.location.href = `/sales/quote-sheet?mode=order&quoteId=${encodeURIComponent(item.entityId)}${orgQuery}`;
     } else if (item.projectId && item.activityId) {
       window.location.href = `/projects/${item.projectId}?activity=${item.activityId}`;
     } else if (item.projectId) {

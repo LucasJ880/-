@@ -84,6 +84,10 @@ export interface QuoteDraftV1 {
   shadeValanceType: string;
   shadeBracketType: string;
   installMode: InstallMode;
+  /** 适用税率（0~1）；历史草稿缺失时按 13% 恢复 */
+  taxRate?: number;
+  /** 草稿创建时采用的 Sunny Motor 税前单价（CAD） */
+  sunnyMotorPrice?: number;
 
   // Step 4：销售手填的 Special Promotion
   specialPromotion?: string;

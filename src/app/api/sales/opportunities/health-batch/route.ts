@@ -17,6 +17,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const opportunities = await db.salesOpportunity.findMany({
     where: {
       orgId,
+      customer: { archivedAt: null },
       stage: { notIn: ["completed", "lost"] },
       ...(ownOnly
         ? { OR: [{ assignedToId: user.id }, { createdById: user.id }] }

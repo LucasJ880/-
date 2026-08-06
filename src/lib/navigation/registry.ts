@@ -34,9 +34,9 @@ import {
   CircleHelp,
   Brain,
   MessageCircle,
+  Mail,
   Home,
   Target,
-  Kanban,
 } from "lucide-react";
 import type { NavigationGroup, NavigationItem } from "./types";
 import {
@@ -173,7 +173,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "work-assistant",
-    label: "AI 助手",
+    label: "数字员工",
     labelKey: "nav_ai_assistant",
     href: "/assistant",
     icon: MessageSquare,
@@ -276,7 +276,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   // ── 业务运营：销售（含 Sales Command Center 工作区条目）──
   {
     key: "sales-home",
-    label: "销售中心",
+    label: "销售首页",
     labelKey: "nav_sales_workspace",
     href: "/sales/home",
     icon: Home,
@@ -289,42 +289,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 8,
   },
   {
-    key: "sales-customers",
-    label: "客户",
-    href: "/sales?view=customers",
+    key: "sales-crm",
+    label: "客户与商机",
+    labelKey: "nav_customer_opportunities",
+    href: "/sales",
     icon: Users,
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
     salesWorkspaceVisible: true,
+    // 客户与商机共用一个工作区；旧商机深链仍保持可用。
+    matchPaths: ["/sales/opportunities", "/sales/customers"],
     displayOrder: 9,
-  },
-  {
-    key: "sales-pipeline",
-    label: "商机",
-    href: "/sales?view=pipeline",
-    icon: Kanban,
-    group: "BUSINESS",
-    moduleKey: "sales",
-    requiredPlatformRoles: [...NAV_ROLES_SALES],
-    salesWorkspaceVisible: true,
-    // 兼容 /sales/opportunities 深链；默认 /sales 管道视图由 search=view=pipeline 命中
-    matchPaths: ["/sales/opportunities"],
-    displayOrder: 10,
-  },
-  {
-    key: "biz-sales",
-    label: "销售",
-    labelKey: "nav_sales_pipeline",
-    href: "/sales",
-    icon: Handshake,
-    group: "BUSINESS",
-    moduleKey: "sales",
-    // 管理/高管入口；销售工作区改用首页/客户/商机，不标 salesWorkspaceVisible
-    // exact：禁止 /sales 前缀吞掉 /sales/* 子页（最长匹配仍会兜底）
-    exact: true,
-    requiredPlatformRoles: [...NAV_ROLES_EXEC],
-    displayOrder: 11,
   },
   {
     key: "biz-quotes",
@@ -363,6 +339,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 14,
   },
   {
+    key: "sales-email-settings",
+    label: "邮箱绑定",
+    href: "/settings/email",
+    icon: Mail,
+    group: "BUSINESS",
+    moduleKey: "sales",
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
+    salesWorkspaceVisible: true,
+    matchPaths: ["/settings/email"],
+    displayOrder: 15,
+  },
+  {
     key: "biz-cockpit",
     label: "团队销售分析",
     labelKey: "nav_cockpit",
@@ -371,7 +359,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_EXEC],
-    displayOrder: 15,
+    displayOrder: 16,
   },
   {
     key: "biz-work-orders",
@@ -384,7 +372,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     // 销售工作区不暴露；运营/高管仍可见
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
     badgeKey: "sidebar_badge_industry",
-    displayOrder: 16,
+    displayOrder: 17,
   },
   {
     key: "biz-inventory",

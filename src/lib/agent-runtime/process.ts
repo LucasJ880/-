@@ -29,6 +29,7 @@ import { resolvePlanCapability, runNamedCapability } from "./dispatch";
 import { enqueueBackgroundAgentRun } from "./queue";
 import { completeAgentRunRespectingApprovals } from "./pending-link";
 import type { AgentSession } from "@prisma/client";
+import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
 
 export type ConversationRunResult = {
   text: string;
@@ -305,6 +306,19 @@ export async function executeConversationRun(input: {
 
   // ── 营销数字员工：Plan 命中 marketing-* 时走现有 runSkill（无第二套 Runtime）──
   const marketingSlug = pickMarketingSkillSlug(plan);
+  if (marketingSlug && !canUseMarketingDigitalEmployee(input.userRole)) {
+    const reply =
+      "当前销售账号只启用销售与报价数字员工。营销策划、广告和增长实验请交由运营或管理账号处理。";
+    await persistSuccess({
+      orgId,
+      runId,
+      session: input.session,
+      userText: input.content,
+      assistantText: reply,
+      plan,
+    });
+    return { text: reply };
+  }
   if (marketingSlug) {
     try {
       await appendAgentRunEvent({

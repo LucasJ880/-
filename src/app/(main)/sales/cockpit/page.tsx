@@ -23,6 +23,7 @@ import {
 import { SalesRepSettingsCard } from "./sales-rep-settings-card";
 import { DiscountSettingsCard } from "./discount-settings-card";
 import { DiscountStatsCard } from "./discount-stats-card";
+import { SalesActionEffectivenessCard } from "./sales-action-effectiveness-card";
 
 interface FunnelItem {
   stage: string;
@@ -186,6 +187,9 @@ export default function SalesCockpitPage() {
 
       {/* 折扣率数统 — 按时间区间、按销售、三档平均 */}
       <DiscountStatsCard />
+
+      {/* 数字员工行动效果 — 响应、完成、辅助签约与团队对比 */}
+      <SalesActionEffectivenessCard />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">

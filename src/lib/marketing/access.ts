@@ -28,3 +28,13 @@ export async function requireMarketingWriteAccess(
     { status: 403 },
   );
 }
+
+/**
+ * 销售账号只使用销售 / 报价数字员工，不开放营销数字员工。
+ * 其他角色沿用现有组织成员权限，避免影响运营与管理账号。
+ */
+export function canUseMarketingDigitalEmployee(
+  role: string | null | undefined,
+): boolean {
+  return Boolean(role && role !== "sales");
+}

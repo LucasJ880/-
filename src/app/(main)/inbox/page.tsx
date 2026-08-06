@@ -179,7 +179,7 @@ export default function InboxPage() {
           <span className="font-medium text-foreground">与协同空间的区别：</span>
           收件箱适合「马上记下来」；若需要补充背景、拆步骤或连续讨论，请使用{" "}
           <Link href="/assistant" className="text-accent hover:underline">
-            协同空间
+            数字员工
           </Link>
           （保留完整对话上下文）。
         </p>
@@ -247,7 +247,7 @@ export default function InboxPage() {
               className="flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-accent"
             >
               <Bot size={12} />
-              需要多轮讨论或规划？进入协同空间
+              需要多轮讨论或规划？交给数字员工
             </Link>
           </div>
         )}

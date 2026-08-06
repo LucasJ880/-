@@ -67,49 +67,27 @@ ok(
   "/sales exact 不吞 opportunities",
 );
 ok(
-  pathMatches("/sales/opportunities", "/sales?view=pipeline", {
+  pathMatches("/sales/opportunities", "/sales", {
     matchPaths: ["/sales/opportunities"],
   }),
-  "商机 matchPaths 命中 /sales/opportunities",
-);
-ok(
-  pathMatches("/sales", "/sales?view=pipeline", { search: "" }),
-  "裸 /sales 默认视为 pipeline",
-);
-ok(
-  pathMatches("/sales", "/sales?view=pipeline", { search: "?view=pipeline" }),
-  "view=pipeline 命中商机",
-);
-ok(
-  !pathMatches("/sales", "/sales?view=pipeline", {
-    search: "?view=customers",
-  }),
-  "view=customers 不命中商机",
-);
-ok(
-  pathMatches("/sales", "/sales?view=customers", {
-    search: "?view=customers",
-  }),
-  "view=customers 命中客户",
+  "客户与商机 matchPaths 命中旧商机深链",
 );
 
 console.log("\n== pickActiveNavKey 最长匹配 ==");
 const salesCandidates = [
-  { key: "biz-sales", href: "/sales", exact: true },
   { key: "sales-home", href: "/sales/home", matchPaths: ["/sales/home"] },
   {
-    key: "sales-pipeline",
-    href: "/sales?view=pipeline",
-    matchPaths: ["/sales/opportunities"],
+    key: "sales-crm",
+    href: "/sales",
+    matchPaths: ["/sales/opportunities", "/sales/customers"],
   },
-  { key: "sales-customers", href: "/sales?view=customers" },
   { key: "biz-quotes", href: "/sales/quote-sheet" },
   { key: "biz-all-quotes", href: "/sales/quotes" },
 ];
 ok(
   pickActiveNavKey("/sales/opportunities", salesCandidates) ===
-    "sales-pipeline",
-  "opportunities → 仅商机",
+    "sales-crm",
+  "opportunities → 客户与商机",
 );
 ok(
   pickActiveNavKey("/sales/home", salesCandidates) === "sales-home",
@@ -125,24 +103,24 @@ ok(
 );
 ok(
   pickActiveNavKey("/sales", salesCandidates, "?view=pipeline") ===
-    "sales-pipeline",
-  "view=pipeline → 商机优于 /sales",
+    "sales-crm",
+  "view=pipeline → 客户与商机",
 );
 ok(
   pickActiveNavKey("/sales", salesCandidates, "?view=customers") ===
-    "sales-customers",
-  "view=customers → 客户",
+    "sales-crm",
+  "view=customers → 客户与商机",
 );
 ok(
-  pickActiveNavKey("/sales", salesCandidates, "") === "sales-pipeline",
-  "裸 /sales → 默认商机",
+  pickActiveNavKey("/sales", salesCandidates, "") === "sales-crm",
+  "裸 /sales → 客户与商机",
 );
 
 console.log("\n== resolveNavigationTree 唯一强 active ==");
 ok(
   JSON.stringify(activeKeys("/sales/opportunities")) ===
-    JSON.stringify(["sales-pipeline"]),
-  "tree: /sales/opportunities 仅 sales-pipeline",
+    JSON.stringify(["sales-crm"]),
+  "tree: /sales/opportunities 仅 sales-crm",
 );
 ok(
   JSON.stringify(activeKeys("/sales/home")) ===
@@ -156,13 +134,13 @@ ok(
 );
 ok(
   JSON.stringify(activeKeys("/sales", "?view=pipeline")) ===
-    JSON.stringify(["sales-pipeline"]),
-  "tree: view=pipeline 仅商机",
+    JSON.stringify(["sales-crm"]),
+  "tree: view=pipeline 仅客户与商机",
 );
 ok(
   JSON.stringify(activeKeys("/sales", "?view=customers")) ===
-    JSON.stringify(["sales-customers"]),
-  "tree: view=customers 仅客户",
+    JSON.stringify(["sales-crm"]),
+  "tree: view=customers 仅客户与商机",
 );
 
 const opsKeys = activeKeys("/ops/projects");

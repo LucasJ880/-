@@ -38,6 +38,8 @@ export interface QuoteItemInput {
   widthIn: number;
   heightIn: number;
   cordless?: boolean;
+  /** Shade Lift=M；服务端按企业 Sunny Motor 设置加价，不信任客户端传入金额。 */
+  motorized?: boolean;
   discountOverridePct?: number | null;
   location?: string;
   sku?: string;
@@ -59,6 +61,8 @@ export interface QuoteTotalInput {
   installMode?: InstallMode;
   deliveryFee?: number;
   taxRate?: number;
+  /** 企业 Sunny Motor 税前单价（CAD）；缺省 150。 */
+  sunnyMotorPrice?: number;
 }
 
 export interface QuoteTotalResult {

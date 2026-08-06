@@ -50,6 +50,7 @@ export interface Messages {
   nav_ops_workspace: string;
   nav_bids_workspace: string;
   nav_sales_workspace: string;
+  nav_customer_opportunities: string;
   nav_notifications: string;
   nav_tasks: string;
   nav_sales_pipeline: string;

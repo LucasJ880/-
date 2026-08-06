@@ -64,7 +64,13 @@ export interface Opportunity {
   estimatedValue: number | null;
   priority: string;
   productTypes: string | null;
-  customer?: { id: string; name: string; phone: string | null };
+  customer?: {
+    id: string;
+    name: string;
+    phone: string | null;
+    email?: string | null;
+    address?: string | null;
+  };
   _count?: { interactions: number; quotes: number; blindsOrders: number };
   nextFollowupAt: string | null;
   updatedAt: string;

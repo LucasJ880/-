@@ -28,7 +28,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
     Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10)),
   );
 
-  const where: Record<string, unknown> = { ...authz.where };
+  const where: Record<string, unknown> = {
+    ...authz.where,
+    customer: { archivedAt: null },
+  };
   if (stage) where.stage = stage;
   if (priority) where.priority = priority;
   if (customerId) where.customerId = customerId;
@@ -37,7 +40,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     db.salesOpportunity.findMany({
       where,
       include: {
-        customer: { select: { id: true, name: true, phone: true } },
+        customer: { select: { id: true, name: true, phone: true, email: true, address: true } },
         quotes: {
           orderBy: { createdAt: "desc" },
           take: 1,

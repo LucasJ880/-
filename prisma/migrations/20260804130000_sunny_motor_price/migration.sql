@@ -1,0 +1,2 @@
+ALTER TABLE "QuoteDiscountSettings"
+ADD COLUMN "sunnyMotorPrice" DOUBLE PRECISION NOT NULL DEFAULT 150;

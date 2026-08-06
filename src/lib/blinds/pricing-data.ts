@@ -95,6 +95,8 @@ export const INSTALL_RULES = {
 
 export const DEFAULT_DELIVERY_FEE = 0;
 export const DEFAULT_TAX_RATE = 0.13;
+/** Shade Order Form 选择 Lift=M 时的默认税前加价（CAD）。 */
+export const DEFAULT_SUNNY_MOTOR_PRICE = 150;
 export const DEFAULT_CORDLESS_MULTIPLIER = 1.15;
 export const CORDLESS_MAX_WIDTH = 75;
 export const CORDLESS_MAX_HEIGHT = 75;

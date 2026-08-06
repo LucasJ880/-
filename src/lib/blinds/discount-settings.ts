@@ -7,7 +7,7 @@
 
 import { db } from "@/lib/db";
 import type { ProductName } from "./pricing-types";
-import { DEFAULT_DISCOUNTS } from "./pricing-data";
+import { DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE } from "./pricing-data";
 import type { ConfigLoadResult } from "@/lib/org-rules/types";
 import { publishOrgRule } from "@/lib/org-rules/service";
 import { hashUnlockCode } from "./unlock-code";
@@ -42,6 +42,7 @@ export interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
+  sunnyMotorPrice: number;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -67,10 +68,12 @@ const PRODUCT_KEYS = [
 ] as const;
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
 const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
+const PRICE_KEYS = ["sunnyMotorPrice"] as const;
 export const DTO_NUMERIC_KEYS = [
   ...PRODUCT_KEYS,
   ...THRESHOLD_KEYS,
   ...DEPOSIT_KEYS,
+  ...PRICE_KEYS,
 ] as const;
 
 function rowToProductMap(row: Record<string, unknown> | null): DiscountsByProduct {
@@ -141,6 +144,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       sheer: DEFAULT_DISCOUNTS.Sheer,
       shutters: DEFAULT_DISCOUNTS.Shutters,
       honeycomb: DEFAULT_DISCOUNTS.SkylightHoneycomb,
+      sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
       promoWarnPct: 0.06,
       promoDangerPct: 0.15,
       promoMaxPct: 0.25,
@@ -166,6 +170,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     sheer: row.sheer,
     shutters: row.shutters,
     honeycomb: row.honeycomb,
+    sunnyMotorPrice: row.sunnyMotorPrice,
     promoWarnPct: row.promoWarnPct,
     promoDangerPct: row.promoDangerPct,
     promoMaxPct: row.promoMaxPct,
@@ -260,6 +265,7 @@ export async function saveDiscountsForOrg(params: {
       sheer: updated.sheer,
       shutters: updated.shutters,
       honeycomb: updated.honeycomb,
+      sunnyMotorPrice: updated.sunnyMotorPrice,
       promoWarnPct: updated.promoWarnPct,
       promoDangerPct: updated.promoDangerPct,
       promoMaxPct: updated.promoMaxPct,
@@ -284,7 +290,7 @@ export function validateDiscountsInput(
     }
   | { ok: false; error: string } {
   const out: Record<string, number> = {};
-  for (const k of DTO_NUMERIC_KEYS) {
+  for (const k of [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS]) {
     if (input[k] === undefined) continue;
     const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 1) {
@@ -294,6 +300,16 @@ export function validateDiscountsInput(
       };
     }
     out[k] = Math.round(n * 10000) / 10000;
+  }
+  if (input.sunnyMotorPrice !== undefined) {
+    const n = Number(input.sunnyMotorPrice);
+    if (!Number.isFinite(n) || n < 0 || n > 10000) {
+      return {
+        ok: false,
+        error: "字段 sunnyMotorPrice 必须为 0~10000 之间的 CAD 金额",
+      };
+    }
+    out.sunnyMotorPrice = Math.round(n * 100) / 100;
   }
   const w = out.promoWarnPct;
   const d = out.promoDangerPct;

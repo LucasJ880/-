@@ -17,7 +17,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
   );
   if (!authz.ok) return authz.response;
 
-  const where: Record<string, unknown> = { ...authz.where };
+  const where: Record<string, unknown> = {
+    ...authz.where,
+    customer: { archivedAt: null },
+  };
 
   const quotes = await db.salesQuote.findMany({
     where,

@@ -69,6 +69,10 @@ export async function buildSalesHome(params: {
         ],
       }
     : {};
+  const activeCustomer = { customer: { archivedAt: null } } as const;
+  const activeCustomerOrg = {
+    customer: { orgId, archivedAt: null },
+  } as const;
 
   const [
     scan,
@@ -90,6 +94,7 @@ export async function buildSalesHome(params: {
     db.salesOpportunity.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ["signed", "completed"] },
         wonAt: { gte: monthStart },
@@ -100,6 +105,7 @@ export async function buildSalesHome(params: {
     db.salesOpportunity.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ["signed", "completed"] },
         wonAt: { gte: weekAgo },
@@ -107,11 +113,17 @@ export async function buildSalesHome(params: {
       _sum: { estimatedValue: true },
     }),
     db.salesOpportunity.count({
-      where: { orgId, ...oppOwn, stage: { in: ACTIVE_STAGES } },
+      where: {
+        orgId,
+        ...activeCustomer,
+        ...oppOwn,
+        stage: { in: ACTIVE_STAGES },
+      },
     }),
     db.salesOpportunity.count({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ACTIVE_STAGES },
         nextFollowupAt: { lte: todayEnd },
@@ -119,7 +131,7 @@ export async function buildSalesHome(params: {
     }),
     db.appointment.count({
       where: {
-        customer: { orgId },
+        ...activeCustomerOrg,
         startAt: { gte: todayStart, lte: todayEnd },
         status: { not: "cancelled" },
         ...apptOwn,
@@ -129,6 +141,7 @@ export async function buildSalesHome(params: {
       by: ["stage"],
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: HOME_FUNNEL_STAGES.map((s) => s.stage) },
       },
@@ -138,6 +151,7 @@ export async function buildSalesHome(params: {
     db.salesOpportunity.findMany({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ACTIVE_STAGES },
       },
@@ -167,7 +181,7 @@ export async function buildSalesHome(params: {
     }),
     db.appointment.findMany({
       where: {
-        customer: { orgId },
+        ...activeCustomerOrg,
         startAt: { gte: now, lte: todayEnd },
         status: { not: "cancelled" },
         ...apptOwn,
@@ -186,13 +200,14 @@ export async function buildSalesHome(params: {
     }),
     db.salesQuote.groupBy({
       by: ["status"],
-      where: { orgId, ...quoteOwn },
+      where: { orgId, ...activeCustomer, ...quoteOwn },
       _count: true,
       _sum: { grandTotal: true },
     }),
     db.salesQuote.findMany({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["signed", "accepted"] },
         depositCollectedAt: null,
@@ -213,6 +228,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["signed", "accepted"] },
         depositCollectedAt: { not: null },
@@ -223,6 +239,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["signed", "accepted"] },
         signedAt: { gte: monthStart },
@@ -232,6 +249,7 @@ export async function buildSalesHome(params: {
     db.salesOpportunity.findMany({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ["signed", "completed"] },
         wonAt: { gte: new Date(now.getTime() - 30 * DAY_MS) },
@@ -266,6 +284,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["sent", "viewed"] },
         viewedAt: { not: null },
@@ -277,6 +296,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: "sent",
         viewedAt: null,
@@ -288,6 +308,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.aggregate({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["sent", "viewed"] },
         signedAt: null,
@@ -307,6 +328,7 @@ export async function buildSalesHome(params: {
   const pendingDepositTotalCount = await db.salesQuote.count({
     where: {
       orgId,
+      ...activeCustomer,
       ...quoteOwn,
       status: { in: ["signed", "accepted"] },
       depositCollectedAt: null,
@@ -326,6 +348,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.count({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["sent", "viewed", "signed", "accepted"] },
         createdAt: { gte: monthStart },
@@ -334,6 +357,7 @@ export async function buildSalesHome(params: {
     db.salesQuote.count({
       where: {
         orgId,
+        ...activeCustomer,
         ...quoteOwn,
         status: { in: ["signed", "accepted"] },
         signedAt: { gte: monthStart },
@@ -342,6 +366,7 @@ export async function buildSalesHome(params: {
     db.salesOpportunity.findMany({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ["signed", "completed"] },
         wonAt: { gte: monthStart },
@@ -357,6 +382,7 @@ export async function buildSalesHome(params: {
     db.salesOpportunity.findMany({
       where: {
         orgId,
+        ...activeCustomer,
         ...oppOwn,
         stage: { in: ["signed", "completed"] },
         wonAt: { gte: threeMonthsAgo },

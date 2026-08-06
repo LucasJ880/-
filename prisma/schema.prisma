@@ -36,7 +36,7 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   // 销售个人配置 — 在驾驶舱"销售个人设置"里一次性填写
-  salesRepInitials String? // 如 "LJ"，用于自动生成报价单编号
+  salesRepInitials      String? // 如 "LJ"，用于自动生成报价单编号
   /// 本月个人销售目标金额（CAD）；未设置时首页显示「设置目标」
   salesMonthlyTargetCad Float?
 
@@ -113,6 +113,9 @@ model User {
   salesOpportunitiesCreated   SalesOpportunity[]    @relation("SalesOpportunityCreatedBy")
   customerInteractionsCreated CustomerInteraction[] @relation("CustomerInteractionCreatedBy")
   salesQuotesCreated          SalesQuote[]          @relation("SalesQuoteCreatedBy")
+  salesActionsAssigned        SalesAction[]         @relation("SalesActionAssignee")
+  salesActionsCreated         SalesAction[]         @relation("SalesActionCreatedBy")
+  salesActionsCompleted       SalesAction[]         @relation("SalesActionCompletedBy")
 
   // Appointments
   appointmentsAssigned Appointment[] @relation("AppointmentAssignee")
@@ -230,29 +233,29 @@ model InviteCode {
 }
 
 model Project {
-  id          String        @id @default(cuid())
-  orgId       String?
-  org         Organization? @relation(fields: [orgId], references: [id])
+  id                    String        @id @default(cuid())
+  orgId                 String?
+  org                   Organization? @relation(fields: [orgId], references: [id])
   /// 可选归属工作空间（部门级）；空=仅挂在企业下
-  workspaceId String?
-  workspace   Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  name        String
-  code        String?       @unique
-  description String?
-  color       String        @default("#3B82F6")
-  status      String        @default("active")
-  startDate   DateTime?
-  dueDate     DateTime?
+  workspaceId           String?
+  workspace             Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  name                  String
+  code                  String?       @unique
+  description           String?
+  color                 String        @default("#3B82F6")
+  status                String        @default("active")
+  startDate             DateTime?
+  dueDate               DateTime?
   /// 工作域：tender | delivery | general（与 projectTypes 业务形态标签正交）
-  workDomain  String        @default("general")
+  workDomain            String        @default("general")
   /// 交付阶段（仅 workDomain=delivery 有业务含义）
-  deliveryStage String?
+  deliveryStage         String?
   /// 执行项目计划完成日（勿复用 closeDate / awardDate）
   plannedCompletionDate DateTime?
   /// 执行项目实际完成日
   actualCompletionDate  DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
   // BidToGo / 外部集成字段
   category           String?
@@ -340,8 +343,8 @@ model Project {
   sourceTenderProject   Project?  @relation("DeliveryFromTender", fields: [sourceTenderProjectId], references: [id], onDelete: SetNull)
   deliveryProjectsFrom  Project[] @relation("DeliveryFromTender")
 
-  handoffsAsSource  ProjectHandoff[] @relation("HandoffSourceTender")
-  handoffsAsTarget  ProjectHandoff[] @relation("HandoffTargetDelivery")
+  handoffsAsSource ProjectHandoff[] @relation("HandoffSourceTender")
+  handoffsAsTarget ProjectHandoff[] @relation("HandoffTargetDelivery")
 
   /// Phase1 投标工作流状态（DISCOVERED / INTELLIGENCE_IN_PROGRESS / GO…）；不覆盖 tenderStatus
   bidPhaseStatus String?
@@ -351,10 +354,10 @@ model Project {
   joinBriefs       ProjectJoinBrief[]
 
   /// Phase 1.1 Tender Auto Analysis
-  tenderAnalysisRuns            TenderAnalysisRun[]
-  tenderExtractedRequirements   TenderExtractedRequirement[]
-  tenderDeliverables            TenderDeliverable[]
-  tenderClarificationQuestions  TenderClarificationQuestion[]
+  tenderAnalysisRuns           TenderAnalysisRun[]
+  tenderExtractedRequirements  TenderExtractedRequirement[]
+  tenderDeliverables           TenderDeliverable[]
+  tenderClarificationQuestions TenderClarificationQuestion[]
 
   @@index([orgId])
   @@index([workspaceId])
@@ -372,9 +375,9 @@ model Project {
 
 /// Phase 5：中标 → 执行项目交接审计与幂等记录
 model ProjectHandoff {
-  id        String @id @default(cuid())
-  orgId     String
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   sourceTenderProjectId   String
   sourceTenderProject     Project  @relation("HandoffSourceTender", fields: [sourceTenderProjectId], references: [id], onDelete: Restrict)
@@ -384,15 +387,15 @@ model ProjectHandoff {
   /// award_to_delivery
   handoffType String @default("award_to_delivery")
   /// pending | processing | completed | failed | cancelled
-  status String @default("pending")
+  status      String @default("pending")
 
   /// 服务端确定性业务键（hash 或明文）
   idempotencyKey String @unique
 
   initiatedById   String
-  initiatedBy     User @relation("HandoffInitiator", fields: [initiatedById], references: [id])
+  initiatedBy     User   @relation("HandoffInitiator", fields: [initiatedById], references: [id])
   deliveryOwnerId String
-  deliveryOwner   User @relation("HandoffDeliveryOwner", fields: [deliveryOwnerId], references: [id])
+  deliveryOwner   User   @relation("HandoffDeliveryOwner", fields: [deliveryOwnerId], references: [id])
 
   previewSnapshot     Json?
   transferredSnapshot Json?
@@ -415,30 +418,30 @@ model ProjectHandoff {
 }
 
 model Task {
-  id           String    @id @default(cuid())
-  title        String
-  description  String?
+  id                String    @id @default(cuid())
+  title             String
+  description       String?
   /// 存储小写蛇形：todo | in_progress | waiting_external | waiting_internal | blocked | needs_approval | done | cancelled
-  status       String    @default("todo")
-  priority     String    @default("medium")
-  dueDate      DateTime?
-  needReminder Boolean   @default(false)
-  followupAt   DateTime?
-  completedAt  DateTime?
+  status            String    @default("todo")
+  priority          String    @default("medium")
+  dueDate           DateTime?
+  needReminder      Boolean   @default(false)
+  followupAt        DateTime?
+  completedAt       DateTime?
   /// BLOCKED 原因（必填于状态转换层）
-  blockedReason String?
+  blockedReason     String?
   /// WAITING_EXTERNAL / WAITING_INTERNAL 等待对象说明
-  waitingOn     String?
+  waitingOn         String?
   /// 等待跟进/截止时间（可选）
-  waitingUntil  DateTime?
+  waitingUntil      DateTime?
   /// Phase 5：任务来源（如 project_handoff）；手动任务可空
   sourceType        String?
   sourceId          String?
   sourceBatchKey    String?
   /// 交接模板稳定键，用于 handoffId + templateKey 去重
   sourceTemplateKey String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id])
@@ -455,6 +458,7 @@ model Task {
   calendarEvents CalendarEvent[]
   reminders      Reminder[]
 
+  @@unique([sourceId, sourceTemplateKey])
   @@index([projectId, status])
   @@index([projectId, createdAt])
   @@index([creatorId])
@@ -464,7 +468,6 @@ model Task {
   @@index([waitingUntil])
   @@index([sourceType, sourceId])
   @@index([sourceBatchKey])
-  @@unique([sourceId, sourceTemplateKey])
 }
 
 model TaskComment {
@@ -788,7 +791,9 @@ model Organization {
   capabilityQuotaReservations CapabilityQuotaReservation[]
 
   // Phase 3B-A：助手线程租户绑定
-  aiThreads AiThread[]
+  aiThreads           AiThread[]
+  salesActions        SalesAction[]
+  salesActionSyncRuns SalesActionSyncRun[]
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -2135,8 +2140,8 @@ model Supplier {
   brochureParseResult  Json?
   brochureParseWarning String?
 
-  inquiryItems  InquiryItem[]
-  projectLinks  ProjectSupplierLink[]
+  inquiryItems InquiryItem[]
+  projectLinks ProjectSupplierLink[]
 
   @@index([orgId, status])
   @@index([orgId, name])
@@ -2190,26 +2195,26 @@ model ProjectJoinBrief {
 
 /// Phase1：投标智能调查室（每项目唯一）
 model BidIntelligenceRoom {
-  id     String  @id @default(cuid())
-  orgId  String
-  projectId String @unique
+  id        String  @id @default(cuid())
+  orgId     String
+  projectId String  @unique
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  status           String  @default("active")
-  summaryText      String? @db.Text
-  summaryJson      Json?
+  status         String    @default("active")
+  summaryText    String?   @db.Text
+  summaryJson    Json?
   /// confirmed | investigating | risk | unknown
-  summaryStatus    String  @default("unknown")
+  summaryStatus  String    @default("unknown")
   /// GO | HOLD | NO_GO
-  goDecision       String?
-  goDecisionById   String?
-  goDecidedAt      DateTime?
-  goDecisionNote   String? @db.Text
-  startedAt        DateTime @default(now())
-  startedById      String?
-  correlationId    String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  goDecision     String?
+  goDecisionById String?
+  goDecidedAt    DateTime?
+  goDecisionNote String?   @db.Text
+  startedAt      DateTime  @default(now())
+  startedById    String?
+  correlationId  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   modules BidIntelligenceModule[]
   facts   BidIntelligenceFact[]
@@ -2237,26 +2242,26 @@ model BidIntelligenceModule {
 }
 
 model BidIntelligenceFact {
-  id              String              @id @default(cuid())
-  roomId          String
-  room            BidIntelligenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  orgId           String
-  projectId       String
-  moduleKey       String?
-  content         String              @db.Text
+  id             String              @id @default(cuid())
+  roomId         String
+  room           BidIntelligenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  orgId          String
+  projectId      String
+  moduleKey      String?
+  content        String              @db.Text
   /// tender_document | historical | ai_inference | manual
-  sourceType      String
-  sourceUrl       String?
-  sourceFileId    String?
-  sourcePage      String?
+  sourceType     String
+  sourceUrl      String?
+  sourceFileId   String?
+  sourcePage     String?
   /// CONFIRMED | HIGH_CONFIDENCE | INFERRED | UNKNOWN
-  confidence      String              @default("UNKNOWN")
-  extractedBy     String?
-  humanConfirmed  Boolean             @default(false)
-  confirmedById   String?
-  confirmedAt     DateTime?
-  extractedAt     DateTime            @default(now())
-  createdAt       DateTime            @default(now())
+  confidence     String              @default("UNKNOWN")
+  extractedBy    String?
+  humanConfirmed Boolean             @default(false)
+  confirmedById  String?
+  confirmedAt    DateTime?
+  extractedAt    DateTime            @default(now())
+  createdAt      DateTime            @default(now())
 
   @@index([roomId, moduleKey])
   @@index([projectId, confidence])
@@ -2269,24 +2274,24 @@ model BidIntelligenceFact {
 
 /// 招标文件自动分析 Run（租约 + 分段 cron）
 model TenderAnalysisRun {
-  id     String @id @default(cuid())
+  id        String  @id @default(cuid())
   /// organization id（与全库 orgId 约定一致，非 organizationId）
-  orgId  String
+  orgId     String
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   /// 可选关联 BidIntelligenceRoom.id（松耦合，不强制 FK）
-  roomId String?
+  roomId    String?
 
   /// PENDING | EXTRACTING | ANALYZING | REVIEW_REQUIRED | APPROVED | FAILED | SUPERSEDED
-  status String @default("PENDING")
+  status  String @default("PENDING")
   /// FULL | INCREMENTAL
   runKind String @default("FULL")
 
-  analysisVersion String @default("tender-auto-analysis-v1")
-  promptVersion   String @default("tender-analysis-prompt-v1")
+  analysisVersion String  @default("tender-auto-analysis-v1")
+  promptVersion   String  @default("tender-analysis-prompt-v1")
   model           String?
 
-  idempotencyKey       String @unique
+  idempotencyKey        String @unique
   sourceHashFingerprint String
 
   /// 分段 cron 步骤游标
@@ -2296,11 +2301,11 @@ model TenderAnalysisRun {
   summaryJson Json?
   summaryText String? @db.Text
 
-  startedAt            DateTime?
-  completedAt          DateTime?
-  failedAt             DateTime?
-  errorCode            String?
-  errorMessageSanitized String? @db.Text
+  startedAt             DateTime?
+  completedAt           DateTime?
+  failedAt              DateTime?
+  errorCode             String?
+  errorMessageSanitized String?   @db.Text
 
   createdById  String?
   approvedById String?
@@ -2342,15 +2347,15 @@ model TenderAnalysisRun {
 }
 
 model TenderAnalysisRunDocument {
-  id          String             @id @default(cuid())
+  id          String            @id @default(cuid())
   runId       String
-  run         TenderAnalysisRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run         TenderAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   documentId  String
-  document    ProjectDocument    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document    ProjectDocument   @relation(fields: [documentId], references: [id], onDelete: Cascade)
   contentHash String
   /// PRIMARY | ATTACHMENT | ADDENDUM
-  role        String             @default("PRIMARY")
-  createdAt   DateTime           @default(now())
+  role        String            @default("PRIMARY")
+  createdAt   DateTime          @default(now())
 
   @@unique([runId, documentId])
   @@index([runId])
@@ -2380,20 +2385,20 @@ model TenderAnalysisSection {
 }
 
 model TenderAnalysisFact {
-  id                String                @id @default(cuid())
+  id                String                 @id @default(cuid())
   runId             String
-  run               TenderAnalysisRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run               TenderAnalysisRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
   sectionId         String?
   section           TenderAnalysisSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   /// CONFIRMED_FACT | DOCUMENT_INTERPRETATION | AI_INFERENCE | RECOMMENDATION
   statementKind     String
-  contentZh         String                @db.Text
-  contentOriginal   String?               @db.Text
-  confidence        String                @default("UNKNOWN")
-  manuallyConfirmed Boolean               @default(false)
+  contentZh         String                 @db.Text
+  contentOriginal   String?                @db.Text
+  confidence        String                 @default("UNKNOWN")
+  manuallyConfirmed Boolean                @default(false)
   confirmedById     String?
   confirmedAt       DateTime?
-  createdAt         DateTime              @default(now())
+  createdAt         DateTime               @default(now())
 
   sourceRefs TenderAnalysisSourceRef[]
 
@@ -2404,27 +2409,27 @@ model TenderAnalysisFact {
 
 /// 统一来源引用（Fact / Section / Requirement / Clarification / Deliverable）
 model TenderAnalysisSourceRef {
-  id                    String  @id @default(cuid())
-  runId                 String
-  run                   TenderAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  id    String            @id @default(cuid())
+  runId String
+  run   TenderAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
-  documentId            String
-  pageNumber            Int?
-  sectionLabel          String?
-  originalTextSnippet   String  @db.Text
-  extractionMethod      String
-  confidence            String  @default("UNKNOWN")
+  documentId          String
+  pageNumber          Int?
+  sectionLabel        String?
+  originalTextSnippet String  @db.Text
+  extractionMethod    String
+  confidence          String  @default("UNKNOWN")
 
   factId                  String?
-  fact                    TenderAnalysisFact?            @relation(fields: [factId], references: [id], onDelete: SetNull)
+  fact                    TenderAnalysisFact?          @relation(fields: [factId], references: [id], onDelete: SetNull)
   sectionId               String?
-  section                 TenderAnalysisSection?         @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  section                 TenderAnalysisSection?       @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   requirementId           String?
-  requirement             TenderExtractedRequirement?    @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  requirement             TenderExtractedRequirement?  @relation(fields: [requirementId], references: [id], onDelete: SetNull)
   clarificationQuestionId String?
-  clarificationQuestion   TenderClarificationQuestion?   @relation(fields: [clarificationQuestionId], references: [id], onDelete: SetNull)
+  clarificationQuestion   TenderClarificationQuestion? @relation(fields: [clarificationQuestionId], references: [id], onDelete: SetNull)
   deliverableId           String?
-  deliverable             TenderDeliverable?             @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+  deliverable             TenderDeliverable?           @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
@@ -2438,29 +2443,29 @@ model TenderAnalysisSourceRef {
 }
 
 model TenderExtractedRequirement {
-  id                   String            @id @default(cuid())
-  projectId            String
-  project              Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  analysisRunId        String
-  analysisRun          TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  requirementCode      String
-  category             String
-  originalRequirement  String            @db.Text
-  chineseTranslation   String            @db.Text
-  mandatory            Boolean           @default(true)
-  evidenceRequired     Boolean           @default(false)
+  id                     String            @id @default(cuid())
+  projectId              String
+  project                Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analysisRunId          String
+  analysisRun            TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  requirementCode        String
+  category               String
+  originalRequirement    String            @db.Text
+  chineseTranslation     String            @db.Text
+  mandatory              Boolean           @default(true)
+  evidenceRequired       Boolean           @default(false)
   /// NOT_ASSESSED | PARTIAL | COMPLIANT | NON_COMPLIANT | NEEDS_CLARIFICATION
-  complianceStatus     String            @default("NOT_ASSESSED")
+  complianceStatus       String            @default("NOT_ASSESSED")
   /// AI_EXTRACTED | CONFIRMED | REJECTED
-  reviewStatus         String            @default("AI_EXTRACTED")
-  ownerId              String?
-  sourcePage           Int?
+  reviewStatus           String            @default("AI_EXTRACTED")
+  ownerId                String?
+  sourcePage             Int?
   /// NOT_PROJECTED | PROJECTED | SKIPPED
-  projectionStatus     String            @default("NOT_PROJECTED")
+  projectionStatus       String            @default("NOT_PROJECTED")
   projectedRequirementId String?
-  projectedAt          DateTime?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  projectedAt            DateTime?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
   sourceRefs TenderAnalysisSourceRef[]
 
@@ -2471,22 +2476,22 @@ model TenderExtractedRequirement {
 }
 
 model TenderDeliverable {
-  id                 String            @id @default(cuid())
-  projectId          String
-  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  analysisRunId      String
-  analysisRun        TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  deliverableKey     String
-  title              String
-  mandatory          Boolean           @default(true)
-  sourcePage         Int?
-  ownerId            String?
-  dueAt              DateTime?
+  id                String            @id @default(cuid())
+  projectId         String
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analysisRunId     String
+  analysisRun       TenderAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  deliverableKey    String
+  title             String
+  mandatory         Boolean           @default(true)
+  sourcePage        Int?
+  ownerId           String?
+  dueAt             DateTime?
   /// PENDING | IN_PROGRESS | DONE | WAIVED
-  status             String            @default("PENDING")
-  relatedDocumentId  String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  status            String            @default("PENDING")
+  relatedDocumentId String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   sourceRefs TenderAnalysisSourceRef[]
 
@@ -3567,6 +3572,7 @@ model SalesCustomer {
   blindsOrders  BlindsOrder[]
   appointments  Appointment[]
   measurements  MeasurementRecord[]
+  salesActions  SalesAction[]
 
   // RAG
   profile         CustomerProfile?
@@ -3617,6 +3623,7 @@ model SalesOpportunity {
   quotes       SalesQuote[]
   blindsOrders BlindsOrder[]
   appointments Appointment[]
+  salesActions SalesAction[]
 
   // RAG
   knowledgeChunks SalesKnowledgeChunk[]
@@ -3675,6 +3682,71 @@ model CustomerInteraction {
   @@index([orgId])
 }
 
+/// 数字员工建议转成的可追踪销售行动。
+/// activeKey 仅在 open / in_progress 时保留，确保同一信号不会重复进入行动队列。
+model SalesAction {
+  id            String            @id @default(cuid())
+  orgId         String
+  org           Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      SalesCustomer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  source         String    @default("digital_employee")
+  signalKey      String
+  activeKey      String?   @unique
+  category       String
+  title          String
+  description    String?   @db.Text
+  priority       String    @default("medium") // urgent | high | medium | low
+  status         String    @default("open") // open | in_progress | completed | dismissed | auto_resolved
+  dueAt          DateTime?
+  startedAt      DateTime?
+  lastObservedAt DateTime?
+  autoResolvedAt DateTime?
+
+  assignedToId  String?
+  assignedTo    User?   @relation("SalesActionAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdById   String
+  createdBy     User    @relation("SalesActionCreatedBy", fields: [createdById], references: [id])
+  completedById String?
+  completedBy   User?   @relation("SalesActionCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  resolutionNote  String?   @db.Text
+  dismissedReason String?   @db.Text
+  completedAt     DateTime?
+  dismissedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([orgId, status, dueAt])
+  @@index([orgId, assignedToId, status])
+  @@index([customerId, status])
+  @@index([opportunityId, status])
+  @@index([signalKey])
+}
+
+/// 数字员工销售行动扫描记录。只记录任务同步，不执行外发或商机阶段变更。
+model SalesActionSyncRun {
+  id                String       @id @default(cuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  trigger           String       @default("cron") // cron | manual
+  status            String       @default("running") // running | completed | failed
+  scannedCount      Int          @default(0)
+  createdCount      Int          @default(0)
+  updatedCount      Int          @default(0)
+  autoResolvedCount Int          @default(0)
+  truncated         Boolean      @default(false)
+  error             String?      @db.Text
+  startedAt         DateTime     @default(now())
+  completedAt       DateTime?
+
+  @@index([orgId, startedAt])
+  @@index([status, startedAt])
+}
+
 model SalesQuote {
   id              String            @id @default(cuid())
   orgId           String
@@ -3717,6 +3789,21 @@ model SalesQuote {
   specialPromotion Float? @default(0) // 销售手填的「Special Promotion」让利金额（税前直减）
   finalDiscountPct Float? // = 1 - (preTaxProducts - specialPromotion) / totalMsrp
 
+  // 超额 Special Promotion 审批闭环；批准只对审批时的金额与比例快照有效。
+  promotionApprovalStatus        String    @default("not_required") // not_required | required | pending | approved | rejected
+  promotionApprovalActionId      String?   @unique
+  promotionApprovalAmount        Float?
+  promotionApprovalRatio         Float?
+  promotionApprovalMaxPct        Float?
+  promotionApprovalRequestedAt   DateTime?
+  promotionApprovalExpiresAt     DateTime?
+  promotionApprovalRequestedById String?
+  promotionApprovedAt            DateTime?
+  promotionApprovedById          String?
+  promotionRejectedAt            DateTime?
+  promotionRejectedById          String?
+  promotionRejectionReason       String?   @db.Text
+
   // 定金登记（线上签字 → 销售补录收款情况）
   //   - depositAmount / depositMethod / depositCollectedAt 三者同时写入，空表示未登记
   //   - method 取值：cash | check | etransfer（前端下拉固定）
@@ -3752,6 +3839,7 @@ model SalesQuote {
   @@index([status])
   @@index([createdAt])
   @@index([orgId])
+  @@index([orgId, promotionApprovalStatus, createdAt])
 }
 
 /// 企业级报价折扣/促销/定金规则（每 org 一行当前生效配置）
@@ -3771,6 +3859,8 @@ model QuoteDiscountSettings {
   sheer                      Float        @default(0.35)
   shutters                   Float        @default(0.35)
   honeycomb                  Float        @default(0.35)
+  /// Shade Order Form 选择 Lift=M 时，每行税前加收的电机价格（CAD）
+  sunnyMotorPrice            Float        @default(150)
   promoWarnPct               Float        @default(0.06)
   promoDangerPct             Float        @default(0.15)
   promoMaxPct                Float        @default(0.25)
@@ -5100,19 +5190,19 @@ model VisualizerCatalogAsset {
   product   VisualizerCatalogProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   /// installed / texture / detail / style_reference / swatch
-  role       String
-  fileUrl    String
-  fileName   String
-  mimeType   String
-  width      Int?
-  height     Int?
-  bytes      Int?
-  sortOrder  Int     @default(0)
-  isPrimary  Boolean @default(false)
+  role               String
+  fileUrl            String
+  fileName           String
+  mimeType           String
+  width              Int?
+  height             Int?
+  bytes              Int?
+  sortOrder          Int     @default(0)
+  isPrimary          Boolean @default(false)
   /// real / ai_generated
-  sourceType String  @default("real")
+  sourceType         String  @default("real")
   /// draft / ai_reference / real_unverified / real_verified
-  verificationStatus String @default("draft")
+  verificationStatus String  @default("draft")
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -5249,7 +5339,7 @@ model MatrixAccount {
   displayName String?
 
   /// 兼容旧字段：显示用组名；稳定关联请用 groupId
-  groupName String @default("默认组")
+  groupName String              @default("默认组")
   /// 稳定账号组外键（可空：旧数据兼容）
   groupId   String?
   group     MatrixAccountGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
@@ -5284,7 +5374,7 @@ model MatrixAccount {
 
 /// 账号组级运营策略（可版本化；approved 后不可原地改）
 model MatrixGroupPlaybook {
-  id      String @id @default(cuid())
+  id      String             @id @default(cuid())
   orgId   String
   groupId String
   group   MatrixAccountGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -5301,15 +5391,15 @@ model MatrixGroupPlaybook {
   validationResult  String @default("unchecked")
   validationIssues  Json   @default("[]")
 
-  accountRole         String?
-  businessObjective   String? @db.Text
-  positioning         String? @db.Text
-  personaBackground   String? @db.Text
-  personality         String? @db.Text
-  toneOfVoice         String? @db.Text
-  operatingLanguage   String?
-  operatingRegion     String?
-  primaryProducts     String? @db.Text
+  accountRole       String?
+  businessObjective String? @db.Text
+  positioning       String? @db.Text
+  personaBackground String? @db.Text
+  personality       String? @db.Text
+  toneOfVoice       String? @db.Text
+  operatingLanguage String?
+  operatingRegion   String?
+  primaryProducts   String? @db.Text
 
   targetAudienceJson  Json?
   contentPillarsJson  Json?
@@ -5332,8 +5422,8 @@ model MatrixGroupPlaybook {
   submittedAt   DateTime?
   approvedById  String?
   approvedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@unique([groupId, version])
   @@index([orgId, groupId, status])
@@ -5359,15 +5449,15 @@ model MatrixAccountPlaybook {
   validationResult  String @default("unchecked")
   validationIssues  Json   @default("[]")
 
-  accountRole         String?
-  businessObjective   String? @db.Text
-  positioning         String? @db.Text
-  personaBackground   String? @db.Text
-  personality         String? @db.Text
-  toneOfVoice         String? @db.Text
-  operatingLanguage   String?
-  operatingRegion     String?
-  primaryProducts     String? @db.Text
+  accountRole       String?
+  businessObjective String? @db.Text
+  positioning       String? @db.Text
+  personaBackground String? @db.Text
+  personality       String? @db.Text
+  toneOfVoice       String? @db.Text
+  operatingLanguage String?
+  operatingRegion   String?
+  primaryProducts   String? @db.Text
 
   targetAudienceJson  Json?
   contentPillarsJson  Json?
@@ -5393,8 +5483,8 @@ model MatrixAccountPlaybook {
   submittedAt   DateTime?
   approvedById  String?
   approvedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@unique([accountId, version])
   @@index([orgId, accountId, status])
@@ -5444,13 +5534,13 @@ model PublishJob {
   account   MatrixAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   /// 本账号的差异化正文（变体引擎产出）
-  captionText String  @db.Text
-  hashtags    String?
+  captionText        String  @db.Text
+  hashtags           String?
   /// Phase C：结构化差异化字段
-  hookText         String?
-  titleText        String?
-  ctaText          String?
-  firstCommentText String? @db.Text
+  hookText           String?
+  titleText          String?
+  ctaText            String?
+  firstCommentText   String? @db.Text
   platformFieldsJson Json?
 
   channel     String // postiz / postflow
@@ -5459,32 +5549,32 @@ model PublishJob {
   /// Phase C 状态机（应用层兼容旧 review → pending_human_approval）：
   /// draft | ai_reviewed | needs_revision | pending_human_approval | approved |
   /// blocked | queued | processing | published | failed | canceled | paused_by_safety
-  status         String    @default("draft")
-  externalJobId  String? // Postiz post id / PostFlow worker 回执
-  externalPostUrl String?
-  providerStatus  String? // scheduled | processing | published | failed
+  status               String    @default("draft")
+  externalJobId        String? // Postiz post id / PostFlow worker 回执
+  externalPostUrl      String?
+  providerStatus       String? // scheduled | processing | published | failed
   providerResponseJson Json?
-  errorMessage   String?
-  attemptCount   Int       @default(0)
-  nextAttemptAt  DateTime?
-  leaseToken     String?
-  leaseExpiresAt DateTime?
+  errorMessage         String?
+  attemptCount         Int       @default(0)
+  nextAttemptAt        DateTime?
+  leaseToken           String?
+  leaseExpiresAt       DateTime?
 
   /// 抽检标记：true 表示进入人工抽检队列
   sampledForReview Boolean @default(false)
 
   /// 内容版本（人工改文案递增）；与 orgId+jobId 组成幂等键
-  contentVersion Int @default(1)
+  contentVersion Int     @default(1)
   /// orgId:publishJobId:contentVersion — 防重复创建外部帖
   idempotencyKey String? @unique
 
-  contextSnapshotJson      Json?
-  generationMetadataJson   Json?
-  riskAssessmentJson       Json?
-  approvalSnapshotJson     Json?
-  similarityScore          Float?
-  similarityJson           Json?
-  playbookEnforcementMode  String?
+  contextSnapshotJson     Json?
+  generationMetadataJson  Json?
+  riskAssessmentJson      Json?
+  approvalSnapshotJson    Json?
+  similarityScore         Float?
+  similarityJson          Json?
+  playbookEnforcementMode String?
 
   createdById  String?
   approvedById String?

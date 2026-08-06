@@ -39,6 +39,7 @@ import {
 } from "./pricing-helpers";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 
 // ── Design tokens ────────────────────────────────────────────────────
 
@@ -237,9 +238,11 @@ export interface QuotePdfInput {
   signatureDataUrl?: string | null; // Part B 签名（可选）
   logoDataUrl?: string | null; // 公司 Logo（可选，加载失败时用文字 logo 降级）
   discounts?: DiscountsOverride; // 来自全局折扣率设置（缺省使用 pricing-data.ts 内置默认）
+  sunnyMotorPrice?: number; // Lift=M 时每行税前加价；历史报价缺省按 150
   specialPromotion?: number; // Step 4：销售手填让利（税前直减）
   totalMsrp?: number; // Step 4：产品 MSRP 合计，用于展示折扣率
   finalDiscountPct?: number; // Step 4：实际成交折扣率（0~1）
+  taxRate?: number; // 适用税率（0~1），默认 13%
 }
 
 // ── 工具：加载 /logo.png（客户端调用，失败时返回 null） ───────────────
@@ -607,7 +610,12 @@ export async function exportQuotePdf(
 
   // 计算线项数量
   const filledShades = input.shadeOrders.filter((l) => {
-    const p = computeShadeLinePrice(l, input.installMode, input.discounts);
+    const p = computeShadeLinePrice(
+      l,
+      input.installMode,
+      input.discounts,
+      input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
+    );
     return (
       p &&
       !p.error &&
@@ -632,7 +640,10 @@ export async function exportQuotePdf(
     0,
     input.productsSubtotal + input.subtotalB + input.subtotalC - promoAmount,
   );
-  const hst = Math.round(preTax * HST_RATE * 100) / 100;
+  const taxRate = input.taxRate ?? HST_RATE;
+  const taxPercent = taxRate * 100;
+  const taxLabel = `Tax ${taxPercent.toFixed(Number.isInteger(taxPercent) ? 0 : 1)}%`;
+  const hst = Math.round(preTax * taxRate * 100) / 100;
   const grandTotal = preTax + hst;
 
   // ────────────────────────────────────────────────────
@@ -688,7 +699,7 @@ export async function exportQuotePdf(
       label: input.installMode === "pickup" ? "Install (Pickup)" : "Install Min Adj.",
       value: formatCAD(input.subtotalC),
     },
-    { label: "HST 13%", value: formatCAD(hst) },
+    { label: taxLabel, value: formatCAD(hst) },
   ]);
 
   drawGrandTotalBar(ctx, "Grand Total", formatCAD(grandTotal));
@@ -813,7 +824,12 @@ export async function exportQuotePdf(
       startY: ctx.y,
       head: [["#", "Room", "Product", "SKU", "W\"", "H\"", "Mount/Lift", "Valance", "Merch", "Install", "Line"]],
       body: filledShades.map((l, i) => {
-        const p = computeShadeLinePrice(l, input.installMode, input.discounts);
+        const p = computeShadeLinePrice(
+          l,
+          input.installMode,
+          input.discounts,
+          input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
+        );
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
         const skuLabel = isManualPriceShadeProduct(l.product) ? (l.sku || "Custom") : l.sku;
@@ -824,7 +840,14 @@ export async function exportQuotePdf(
           skuLabel,
           formatInches16(w),
           formatInches16(h),
-          [l.mount, l.lift].filter(Boolean).join("/"),
+          [
+            l.mount,
+            l.lift === "M"
+              ? `M (+${formatCAD(input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE)})`
+              : l.lift,
+          ]
+            .filter(Boolean)
+            .join("/"),
           l.valance || "—",
           `$${p!.merch.toFixed(2)}`,
           `$${p!.install.toFixed(2)}`,
@@ -975,7 +998,7 @@ export async function exportQuotePdf(
       ? [{ label: "Special Promotion", value: `− ${formatCAD(promoAmount)}`, hint: "Pre-tax discount applied" }]
       : []),
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
-    { label: "HST 13%", value: formatCAD(hst) },
+    { label: taxLabel, value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
   ]);
 
@@ -1046,7 +1069,7 @@ export async function exportQuotePdf(
     [
       { label: "Line Items", value: String(lineItemCount) },
       { label: "Order Type", value: input.installMode === "pickup" ? "Supply (Pickup)" : "Supply + Install" },
-      { label: "Tax", value: "HST 13%" },
+      { label: "Tax", value: taxLabel },
       { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
       { label: "Before Tax", value: formatCAD(preTax) },
       { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
@@ -1078,7 +1101,7 @@ export async function exportQuotePdf(
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
     { label: "Install Min Adj.", value: formatCAD(input.subtotalC) },
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
-    { label: "HST 13%", value: formatCAD(hst) },
+    { label: taxLabel, value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
   ]);
 

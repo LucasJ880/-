@@ -17,6 +17,10 @@ const EXPECTED_ACTIVE = [
   "20260729120000_matrix_account_playbook",
   "20260729180000_phase_c_publish_job_pipeline",
   "20260803200000_bid_workflow_phase1",
+  "20260804130000_sunny_motor_price",
+  "20260804190000_sales_action_loop",
+  "20260804200000_sales_action_auto_sync",
+  "20260804210000_sales_effectiveness_promotion_approval",
   "20260805180000_tender_auto_analysis_phase1_1",
 ] as const;
 
@@ -34,6 +38,14 @@ const IMMUTABLE: Record<string, string> = {
     "1c6743c5b8abe2b06923e15b3c884340947299e4685be58bf1a93bb12e084e94",
   "20260803200000_bid_workflow_phase1":
     "4053173c9e3af0015e773b8067a1e130ee5e6e2273830745bfb8b47958adfcc4",
+  "20260804130000_sunny_motor_price":
+    "9c5007805dd6cf642b6544fab9035a2c501b90986e9a26522f0410bb7b1c495e",
+  "20260804190000_sales_action_loop":
+    "478bc82413ca1f2a67bd7828f3605ae0ee106097de52a615d66d13cccbf4e673",
+  "20260804200000_sales_action_auto_sync":
+    "93c594162365cf5b57f896fcba214f2fb2d67b4e8fa92525adf107df75d3c387",
+  "20260804210000_sales_effectiveness_promotion_approval":
+    "ffcd014dbc480dd7dafd2d6f4c31ec1ad229ac83822ca297727678c58ff91ca2",
   "20260805180000_tender_auto_analysis_phase1_1":
     "8d48341aed38eb0b3b21b9950449edc40e812e7a446bd645cdc5603637fa1d31",
 };
