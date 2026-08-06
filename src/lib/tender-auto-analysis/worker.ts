@@ -25,9 +25,12 @@ import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
 
 export const LEASE_MS = 90_000;
+/** 失败重试上限（仅 PENDING/FAILED 认领或 markFailed 时递增） */
 export const MAX_ATTEMPTS = 5;
 /** 单次 cron tick 内继续推进的时间预算；不足则交还队列 */
 export const TIME_BUDGET_MS = 50_000;
+/** 进行中但长期无进展的 Run 视为陈旧失败，防止无限续跑 */
+export const STALE_RUN_MS = 30 * 60_000;
 
 const RETRY_BACKOFF_MS = [15_000, 60_000, 180_000, 600_000, 1_800_000];
 
@@ -86,9 +89,14 @@ async function persistStep(
     status?: TenderAnalysisStatus;
     workerCursor?: unknown;
   },
-): Promise<void> {
-  await db.tenderAnalysisRun.updateMany({
-    where: { id: runId, leaseOwner },
+): Promise<boolean> {
+  const updated = await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: runId,
+      leaseOwner,
+      // 已被 SUPERSEDED / APPROVED 等终结时禁止写回进行中状态
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+    },
     data: {
       workerStep,
       leaseExpiresAt: leaseExpiresAt(),
@@ -98,6 +106,7 @@ async function persistStep(
         : {}),
     },
   });
+  return updated.count > 0;
 }
 
 async function markFailed(
@@ -107,9 +116,13 @@ async function markFailed(
   errorCode = "worker_failed",
 ): Promise<void> {
   const now = new Date();
+  // attemptCount 已在 PENDING/FAILED 认领时递增；此处不再二次 +1
   const exhausted = attemptCount >= MAX_ATTEMPTS;
-  await db.tenderAnalysisRun.update({
-    where: { id: runId },
+  await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: runId,
+      status: { in: ["PENDING", "EXTRACTING", "ANALYZING", "FAILED"] },
+    },
     data: {
       status: "FAILED",
       failedAt: now,
@@ -138,6 +151,13 @@ type ClaimedRun = {
   createdById: string | null;
   leaseOwner: string;
 };
+
+class LeaseLostError extends Error {
+  constructor(step: string) {
+    super(`lease_lost_or_superseded at ${step}`);
+    this.name = "LeaseLostError";
+  }
+}
 
 async function claimRun(runId: string): Promise<ClaimedRun | null> {
   const now = new Date();
@@ -186,6 +206,10 @@ async function claimRun(runId: string): Promise<ClaimedRun | null> {
     return null;
   }
 
+  // attemptCount 只在新开跑 / 失败重试时递增；成功路径分段续跑不消耗重试额度
+  const shouldIncrementAttempt =
+    fromStatus === "PENDING" || fromStatus === "FAILED";
+
   const claimed = await db.tenderAnalysisRun.updateMany({
     where: {
       id: runId,
@@ -199,7 +223,7 @@ async function claimRun(runId: string): Promise<ClaimedRun | null> {
     },
     data: {
       status: toStatus,
-      attemptCount: { increment: 1 },
+      ...(shouldIncrementAttempt ? { attemptCount: { increment: 1 } } : {}),
       leaseOwner,
       leaseExpiresAt: leaseExpiresAt(now),
       nextAttemptAt: null,
@@ -250,45 +274,51 @@ async function stepEnsurePages(run: ClaimedRun): Promise<void> {
       throw new Error(`ENSURE_PAGES failed: ${result.error}`);
     }
   }
-  await persistStep(run.id, run.leaseOwner, "ENSURE_PAGES", {
+  const ok = await persistStep(run.id, run.leaseOwner, "ENSURE_PAGES", {
     status: "EXTRACTING",
   });
+  if (!ok) throw new LeaseLostError("ENSURE_PAGES");
 }
 
 async function stepExtractFacts(run: ClaimedRun): Promise<void> {
   const documentIds = await loadRunDocumentIds(run.id);
   await extractFromPages({ runId: run.id, documentIds });
-  await persistStep(run.id, run.leaseOwner, "EXTRACT_FACTS", {
+  const ok = await persistStep(run.id, run.leaseOwner, "EXTRACT_FACTS", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("EXTRACT_FACTS");
 }
 
 async function stepGenerateSections(run: ClaimedRun): Promise<void> {
   await generateReportSections({ runId: run.id });
-  await persistStep(run.id, run.leaseOwner, "GENERATE_SECTIONS", {
+  const ok = await persistStep(run.id, run.leaseOwner, "GENERATE_SECTIONS", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("GENERATE_SECTIONS");
 }
 
 async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
   await extractRequirements({ runId: run.id });
-  await persistStep(run.id, run.leaseOwner, "EXTRACT_REQUIREMENTS", {
+  const ok = await persistStep(run.id, run.leaseOwner, "EXTRACT_REQUIREMENTS", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("EXTRACT_REQUIREMENTS");
 }
 
 async function stepBuildDeliverables(run: ClaimedRun): Promise<void> {
   await buildDeliverables({ runId: run.id });
-  await persistStep(run.id, run.leaseOwner, "BUILD_DELIVERABLES", {
+  const ok = await persistStep(run.id, run.leaseOwner, "BUILD_DELIVERABLES", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("BUILD_DELIVERABLES");
 }
 
 async function stepBuildClarifications(run: ClaimedRun): Promise<void> {
   await buildClarifications({ runId: run.id });
-  await persistStep(run.id, run.leaseOwner, "BUILD_CLARIFICATIONS", {
+  const ok = await persistStep(run.id, run.leaseOwner, "BUILD_CLARIFICATIONS", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("BUILD_CLARIFICATIONS");
 }
 
 async function stepCreateTasks(run: ClaimedRun): Promise<void> {
@@ -298,12 +328,28 @@ async function stepCreateTasks(run: ClaimedRun): Promise<void> {
     orgId: run.orgId,
     createdById: run.createdById,
   });
-  await persistStep(run.id, run.leaseOwner, "CREATE_TASKS", {
+  const ok = await persistStep(run.id, run.leaseOwner, "CREATE_TASKS", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("CREATE_TASKS");
+}
+
+async function assertRunStillOwned(run: ClaimedRun): Promise<void> {
+  const cur = await db.tenderAnalysisRun.findFirst({
+    where: {
+      id: run.id,
+      leaseOwner: run.leaseOwner,
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+    },
+    select: { id: true },
+  });
+  if (!cur) throw new LeaseLostError("pre_side_effect");
 }
 
 async function stepProjectRoom(run: ClaimedRun): Promise<void> {
+  // 副作用前再次确认未被 SUPERSEDE
+  await assertRunStillOwned(run);
+
   // 增量分析：在投影前写出变更候选（骨架）
   if (run.runKind === "INCREMENTAL" && run.parentRunId) {
     await computeAndPersistAddendumDiff({
@@ -320,9 +366,10 @@ async function stepProjectRoom(run: ClaimedRun): Promise<void> {
     orgId: run.orgId,
     roomId: run.roomId,
   });
-  await persistStep(run.id, run.leaseOwner, "PROJECT_ROOM", {
+  const ok = await persistStep(run.id, run.leaseOwner, "PROJECT_ROOM", {
     status: "ANALYZING",
   });
+  if (!ok) throw new LeaseLostError("PROJECT_ROOM");
 }
 
 async function stepFinalize(run: ClaimedRun): Promise<void> {
@@ -336,8 +383,12 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
     throw new Error(`FINALIZE invalid transition ${from} → REVIEW_REQUIRED`);
   }
 
-  await db.tenderAnalysisRun.updateMany({
-    where: { id: run.id, leaseOwner: run.leaseOwner },
+  const finalized = await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: run.id,
+      leaseOwner: run.leaseOwner,
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+    },
     data: {
       status: "REVIEW_REQUIRED",
       workerStep: "FINALIZE",
@@ -347,15 +398,20 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
       nextAttemptAt: null,
     },
   });
+  if (finalized.count === 0) {
+    throw new LeaseLostError("FINALIZE");
+  }
 }
 
 async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
   switch (step) {
-    case "CLAIMED":
-      await persistStep(run.id, run.leaseOwner, "CLAIMED", {
+    case "CLAIMED": {
+      const ok = await persistStep(run.id, run.leaseOwner, "CLAIMED", {
         status: "EXTRACTING",
       });
+      if (!ok) throw new LeaseLostError("CLAIMED");
       return;
+    }
     case "ENSURE_PAGES":
       await stepEnsurePages(run);
       return;
@@ -480,6 +536,15 @@ export async function executeTenderAnalysisRun(runId: string): Promise<{
       ok: true,
     };
   } catch (error) {
+    if (error instanceof LeaseLostError) {
+      return {
+        runId: claimed.id,
+        status: null,
+        workerStep: claimed.workerStep,
+        ok: false,
+        reason: "lease_lost",
+      };
+    }
     await markFailed(claimed.id, claimed.attemptCount, error);
     return {
       runId: claimed.id,
@@ -508,7 +573,7 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
   const now = new Date();
   const take = Math.max(1, Math.min(limit, 2));
 
-  // 租约过期且尝试耗尽 → FAILED
+  // 租约过期且失败重试耗尽 → FAILED
   await db.tenderAnalysisRun.updateMany({
     where: {
       status: { in: ["EXTRACTING", "ANALYZING"] },
@@ -522,6 +587,30 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
       leaseOwner: null,
       leaseExpiresAt: null,
       failedAt: now,
+    },
+  });
+
+  // 长期无进展的进行中 Run → FAILED（防止成功续跑路径无限占用）
+  await db.tenderAnalysisRun.updateMany({
+    where: {
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+      leaseExpiresAt: { lte: now },
+      OR: [
+        { startedAt: { lte: new Date(now.getTime() - STALE_RUN_MS) } },
+        {
+          startedAt: null,
+          createdAt: { lte: new Date(now.getTime() - STALE_RUN_MS) },
+        },
+      ],
+    },
+    data: {
+      status: "FAILED",
+      errorCode: "stale_run",
+      errorMessageSanitized: "分析任务长时间无进展，已标记失败",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      failedAt: now,
+      nextAttemptAt: null,
     },
   });
 

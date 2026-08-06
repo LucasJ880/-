@@ -111,12 +111,18 @@ async function supersedeConflictingRuns(input: {
 
   const ids: string[] = [];
   for (const old of toSupersede) {
+    // 清除租约，阻止已认领 worker 把 SUPERSEDED 写回 EXTRACTING/ANALYZING
     const updated = await db.tenderAnalysisRun.updateMany({
       where: {
         id: old.id,
         status: { in: [...SUPERSEDABLE_RUN_STATUSES] },
       },
-      data: { status: "SUPERSEDED" },
+      data: {
+        status: "SUPERSEDED",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        nextAttemptAt: null,
+      },
     });
     if (updated.count > 0) ids.push(old.id);
   }
