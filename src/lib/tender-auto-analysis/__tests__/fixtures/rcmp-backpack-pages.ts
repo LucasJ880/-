@@ -1,5 +1,5 @@
 /**
- * 合成多页文本 fixture（非真实 PDF）——覆盖 RCMP Cadet Backpack 关键字符串。
+ * 合成多页文本 fixture（非真实 PDF）——覆盖 RCMP Cadet Backpack 关键字符串与误匹配陷阱。
  */
 
 import type { PageInput } from "../../extract/types";
@@ -30,48 +30,125 @@ export function buildRcmpBackpackFixturePages(): PageInput[] {
       documentId: DOC_ID,
       pageNumber: 1,
       contentText: [
-        "Royal Canadian Mounted Police (RCMP)",
-        "Solicitation Number: M5000-25-3574-A",
-        "Title: Backpacks for Cadets",
-        "Closing: 2026-08-18 14:00 MDT",
-        "This Request for Proposal invites bids for cadet backpacks.",
+        "REQUEST FOR STANDING OFFER Regional Individual Standing Offer (RISO)",
+        "Offer to: Royal Canadian Mounted Police (RCMP)",
+        "THIS DOCUMENT DOES NOT CONTAIN A SECURITY REQUIREMENT",
+        "Title – Sujet Backpacks for Cadets",
+        "Date July 29, 2026",
+        "Solicitation No. – Nº de l’invitation M5000-25-3574-A",
+        "Solicitation Closes – L’invitation prend fin At /à : 14 :00 MDT (Mountain Daylight Time) On / le : August 18, 2026",
       ].join("\n"),
     },
     {
       documentId: DOC_ID,
       pageNumber: 2,
       contentText: [
-        "Procurement notes",
-        "Reciprocal Procurement declaration is required.",
-        "Delivery terms: DDP Regina",
-        "Delivery within 30 days of call-up unless otherwise stated.",
-        "Contract period: up to five (5) years as described herein.",
-        "Submission: three PDFs must be submitted by email; total size under 5MB.",
-      ].join("\n"),
-    },
-    {
-      documentId: DOC_ID,
-      pageNumber: 3,
-      contentText: [
-        "ANNEX A — Basis of Payment / Estimated Quantities",
-        "Up to 1500 per contract period may be ordered via call-ups.",
-        "Call-up quantities may vary; minimum/maximum/typical quantities are not guaranteed.",
-        "",
-        "ANNEX B — Evaluation",
-        "For evaluation purposes, the annual quantity is 1,500 units per year.",
-        "Over a five-year evaluation horizon the aggregate evaluation quantity is 7,500.",
-        "The 7,500 figure is an evaluation aggregate and is NOT a guaranteed purchase.",
+        "Reciprocal Procurement - Limited Supplier Eligibility",
+        "This solicitation of offers is subject to the Policy on Reciprocal Procurement.",
       ].join("\n"),
     },
     {
       documentId: DOC_ID,
       pageNumber: 4,
       contentText: [
+        "The period of the Standing Offer is from October 2, 2026 to October 1, 2029, with the option to extend the Standing Offer for up to two (2) additional one (1) year periods, from October 2, 2029 to October 1, 2030, and from October 2, 2030 to October 1, 2031 under the same terms and conditions.",
+        "1.4 Security Requirements There is no security requirement applicable to the Standing Offer",
+        "1.3 Environmental Packaging environmentally preferable packaging specifications for this procurement",
+        "1.5 Reciprocal Procurement - Limited Supplier Eligibility",
+      ].join("\n"),
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 6,
+      contentText: "Offers will remain open for acceptance for a period of 90 days from the closing date.",
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 8,
+      contentText: [
+        "Offer Preparation Instructions",
+        "Section I: Technical Offer (one soft copy in PDF format) Section II: Financial Offer (one soft copy in PDF format) Section III: Certifications (one soft copy in PDF format)",
+        "Incoming e-mail messages must not exceed 5MB. Zip files or links to Offer documents will not be accepted.",
+        "Prices must appear in the financial offer only.",
+      ].join("\n"),
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 12,
+      contentText:
+        "Offerors must meet all mandatory technical evaluation criteria to be declared responsive. The responsive offer with the lowest evaluated price will be recommended for issuance of a standing offer.",
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 17,
+      contentText:
+        "Reciprocal Procurement This solicitation of offers is only open to Canadian Suppliers and to Suppliers of an Applicable Trading Partner as defined in the Annex.",
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 23,
+      contentText: [
+        "TRAP: The Offeror should notify the Standing Offer Authority 30 days before the expiry date of the Standing Offer.",
+        "TRAP: quarterly report within 30 calendar days after the quarter.",
+        "TRAP: enquiries must be submitted five calendar days before closing.",
+        "The period of the Standing Offer is from October 2, 2026 to October 1, 2029.",
+      ].join("\n"),
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 27,
+      contentText:
+        "Forced Labour Requirement – Standing Offer 1. Offeror’s Statement. The Offeror states that the goods or services offered are not produced with forced labour.",
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 30,
+      contentText:
+        "6.17.2 Delivery Date Delivery of the goods must be made in accordance with the call-up against the Standing Offer, within 30 days of call-up issuance.",
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 31,
+      contentText:
+        "Goods must be consigned Delivered Duty Paid (DDP) Regina, Saskatchewan Incoterms 2020 for shipments from a commercial contractor.",
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 33,
+      contentText: [
+        "ANNEX A — Statement of Requirement",
+        "Required quantity: Up to 1500 per contract period",
         "Mandatory Technical Criteria",
         ...M_LINES,
-        "",
-        "Overseas manufacturing: bidders should confirm whether overseas manufacturing is allowed.",
-        "Environmentally preferable packaging declaration may be required.",
+      ].join("\n"),
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 34,
+      contentText: [
+        "Upon receipt of a call-up, the Offeror must: 1 Confirm the order by email within 24 hours to the Project Authority",
+        "Delivery of the goods must be made within 30 days of call-up issuance.",
+        "9. ENVIRONMENTALLY PREFERABLE PACKAGING – MANDATORY",
+      ].join("\n"),
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 36,
+      contentText: [
+        "ANNEX B — Basis of Payment",
+        "Standing Offer Year 1: (dates to be inserted at issuance of the Standing offer) Each 1500 $ $",
+        "Standing Offer Year 2: (dates to be inserted at issuance of the Standing offer) Each 1500 $ $",
+        "Standing Offer Year 3: (dates to be inserted at issuance of the Standing offer) Each 1500 $ $",
+        "The estimated quantity is provided for evaluation purposes only and does not constitute a guarantee or commitment on behalf of Canada.",
+        "DDP) Regina Incoterms 2020 for shipments from a commercial Contractor.",
+      ].join("\n"),
+    },
+    {
+      documentId: DOC_ID,
+      pageNumber: 37,
+      contentText: [
+        "Option Year 1: (dates to be inserted at issuance of the Standing offer) Each 1500 $ $",
+        "Option Year 2: (dates to be inserted at issuance of the Standing offer) Each 1500 $ $",
       ].join("\n"),
     },
   ];

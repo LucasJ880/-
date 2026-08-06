@@ -223,7 +223,12 @@ export async function extractRequirements(
   return { requirementCount };
 }
 
-export { extractFactsFromPages, summarizeExtractedFacts } from "./extract/facts";
+export {
+  extractFactsFromPages,
+  summarizeExtractedFacts,
+  buildQuantityEvaluationSummary,
+} from "./extract/facts";
+
 export {
   extractRequirementsFromPages,
   looksLikeRcmpBackpackRfp,

@@ -60,4 +60,6 @@ export type ClosingParse = {
   closingDate: Date | null;
   timezoneLabel: string | null;
   enquiryDeadline: Date | null;
+  /** 必须可在页文本中核验的原文片段 */
+  sourceSnippet: string;
 };
