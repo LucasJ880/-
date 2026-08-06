@@ -196,6 +196,21 @@ run_test "工具调用模型参数适配" "npx tsx src/lib/ai/__tests__/client-t
 run_test "Growth Center 企业事实/评分/计划" "npx tsx src/lib/marketing/__tests__/growth-center.test.ts"
 run_test "Growth Center 研究转计划/团队审批隔离" "npx tsx src/lib/marketing/__tests__/research-plan.test.ts"
 run_test "Growth Center Activepieces 签名与配置" "npx tsx src/lib/marketing/__tests__/activepieces.test.ts"
+run_test "招标自动分析状态机" "npx tsx src/lib/tender-auto-analysis/__tests__/status.test.ts"
+run_test "招标自动分析门闸" "npx tsx src/lib/tender-auto-analysis/__tests__/gate.test.ts"
+run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__tests__/idempotency.test.ts"
+run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"
+run_test "招标自动分析页级解析" "npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts"
+run_test "招标自动分析来源核验" "npx tsx src/lib/tender-auto-analysis/__tests__/source-verify.test.ts"
+run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"
+run_test "招标自动分析 RCMP 回归" "npx tsx src/lib/tender-auto-analysis/__tests__/rcmp-regression.test.ts"
+run_test "招标自动分析中文报告" "npx tsx src/lib/tender-auto-analysis/__tests__/report-core.test.ts"
+run_test "招标自动分析 EFG 核心" "npx tsx src/lib/tender-auto-analysis/__tests__/phase-efg-core.test.ts"
+run_test "招标自动分析 Worker 步骤" "npx tsx src/lib/tender-auto-analysis/__tests__/worker-helpers.test.ts"
+run_test "招标自动分析审核标签" "npx tsx src/lib/tender-auto-analysis/__tests__/review-helpers.test.ts"
+run_test "招标自动分析审核加固" "npx tsx src/lib/tender-auto-analysis/__tests__/review-hardening.test.ts"
+run_test "招标自动分析 Ready Gate" "npx tsx src/lib/tender-auto-analysis/__tests__/ready-gate.test.ts"
+run_test "招标自动分析补遗对比" "npx tsx src/lib/tender-auto-analysis/__tests__/addendum-diff.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 

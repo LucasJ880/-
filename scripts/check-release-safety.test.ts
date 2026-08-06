@@ -105,9 +105,10 @@ ok(
       "20260804200000_sales_action_auto_sync",
       "20260804210000_sales_effectiveness_promotion_approval",
       "20260805090000_marketing_economics",
+      "20260805180000_tender_auto_analysis_phase1_1",
     ].join("|"),
-  "active migration 与已审核发布清单一致",
-);
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1",
+  );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 
 const requiredRestored = [

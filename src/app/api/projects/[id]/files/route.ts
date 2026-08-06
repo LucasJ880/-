@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { isProxyUrl, putPrivateBlob, toProxyUrl } from "@/lib/files/blob-access";
-import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { canParseFileType } from "@/lib/files/parse-content";
 import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
+import { requireProjectReadAccess } from "@/lib/projects/access";
 
 function asBrowserFileUrl(url: string | null | undefined): string {
   if (!url) return "";
@@ -30,8 +30,13 @@ const ALLOWED_EXTENSIONS = [
  *   take (default 100, max 500)
  *   skip (default 0)
  */
-export const GET = withAuth(async (request, ctx) => {
+export async function GET(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
   const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
 
   const url = new URL(request.url);
   const take = Math.min(
@@ -60,22 +65,23 @@ export const GET = withAuth(async (request, ctx) => {
     take,
     skip,
   });
-});
+}
 
 /**
  * POST /api/projects/:id/files
  * 上传文件到项目（multipart/form-data）
+ * 需项目读权限（成员/owner/admin）；阻止跨组织上传与误触发分析入队。
  */
-export const POST = withAuth(async (request, ctx, user) => {
+export async function POST(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
-  const project = await db.project.findUnique({
-    where: { id: projectId },
-    select: { id: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
-  }
+  const user = access.user;
+  const project = access.project;
 
   let formData: FormData;
   try {
@@ -94,6 +100,14 @@ export const POST = withAuth(async (request, ctx, user) => {
     .getAll("relativePaths")
     .map((v) => (typeof v === "string" ? v.trim() : ""));
 
+  type TenderAnalysisResponse = {
+    enqueued: boolean;
+    runId?: string;
+    status?: string;
+    reason?: string;
+    suggestion?: "mark_as_tender";
+  };
+
   const results: Array<{
     id: string;
     title: string;
@@ -101,9 +115,11 @@ export const POST = withAuth(async (request, ctx, user) => {
     blobUrl: string;
     fileType: string;
     fileSize: number;
+    tenderAnalysis?: TenderAnalysisResponse;
   }> = [];
 
   const errors: Array<{ name: string; reason: string }> = [];
+  let tenderAnalysis: TenderAnalysisResponse | undefined;
 
   let index = 0;
   for (const entry of files) {
@@ -158,6 +174,40 @@ export const POST = withAuth(async (request, ctx, user) => {
         },
       });
 
+      let fileTenderAnalysis: TenderAnalysisResponse | undefined;
+      try {
+        const { maybeEnqueueTenderAnalysisAfterUpload } = await import(
+          "@/lib/tender-auto-analysis/enqueue"
+        );
+        fileTenderAnalysis = await maybeEnqueueTenderAnalysisAfterUpload({
+          projectId,
+          documentId: doc.id,
+          buffer,
+          fileType: ext,
+          title: doc.title,
+          userId: user.id,
+          orgId: project.orgId ?? "",
+        });
+        // 优先保留已成功入队的结果；否则用最近一次结果
+        if (!tenderAnalysis || fileTenderAnalysis.enqueued) {
+          tenderAnalysis = fileTenderAnalysis;
+        }
+      } catch (enqueueErr) {
+        console.error("[files] tender analysis enqueue failed", {
+          projectId,
+          documentId: doc.id,
+          error:
+            enqueueErr instanceof Error
+              ? enqueueErr.message
+              : String(enqueueErr),
+        });
+        fileTenderAnalysis = {
+          enqueued: false,
+          reason: "enqueue_error",
+        };
+        if (!tenderAnalysis) tenderAnalysis = fileTenderAnalysis;
+      }
+
       results.push({
         id: doc.id,
         title: doc.title,
@@ -165,6 +215,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         blobUrl: blob.proxyUrl,
         fileType: ext,
         fileSize: file.size,
+        tenderAnalysis: fileTenderAnalysis,
       });
     } catch (err) {
       errors.push({
@@ -182,7 +233,12 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   return NextResponse.json(
-    { uploaded: results, errors, total: results.length },
+    {
+      uploaded: results,
+      errors,
+      total: results.length,
+      ...(tenderAnalysis ? { tenderAnalysis } : {}),
+    },
     { status: results.length > 0 ? 201 : 400 }
   );
-});
+}
