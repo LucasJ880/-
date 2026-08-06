@@ -16,8 +16,9 @@ export async function getMarketingDashboard(orgId: string) {
   });
 
   const weekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-  const [profile, findings, campaigns, runningExperiments, pendingContent, publications, metrics, unverifiedSnapshots, channelAccounts, attributions, plans, pendingTeamApprovals, pendingIntelTopics] = await Promise.all([
+  const [profile, economicsSetting, findings, campaigns, runningExperiments, pendingContent, publications, metrics, unverifiedSnapshots, channelAccounts, attributions, plans, pendingTeamApprovals, pendingIntelTopics] = await Promise.all([
     db.marketingBrandProfile.findUnique({ where: { orgId }, select: { id: true, brandName: true, validationStatus: true, validationScore: true, validationIssues: true, updatedAt: true } }),
+    db.marketingEconomicsSetting.findUnique({ where: { orgId } }),
     db.marketingFinding.findMany({ where: { orgId, status: { in: ["open", "tasked"] } }, orderBy: [{ createdAt: "desc" }], take: 100 }),
     db.marketingCampaign.findMany({ where: { orgId, status: { in: ["awaiting_approval", "active"] } }, select: { id: true, name: true, status: true, objective: true }, orderBy: { createdAt: "desc" }, take: 10 }),
     db.marketingExperiment.count({ where: { orgId, status: "running" } }),
@@ -35,6 +36,7 @@ export async function getMarketingDashboard(orgId: string) {
         wins: true,
         revenue: true,
         spend: true,
+        otherMarketingCost: true,
       },
       _max: { capturedAt: true },
       _count: true,
@@ -95,9 +97,13 @@ export async function getMarketingDashboard(orgId: string) {
   const crmAppointments = crmOpportunities.filter((row) => appointmentStages.has(row.stage)).length;
   const crmQuotes = crmOpportunities.filter((row) => quoteStages.has(row.stage)).length;
   const crmWins = crmOpportunities.filter((row) => row.wonAt || ["signed", "producing", "installing", "completed"].includes(row.stage)).length;
-  const activeOpportunityIds = new Set(crmOpportunities.map((row) => row.id));
+  const wonOpportunityIds = new Set(
+    crmOpportunities
+      .filter((row) => row.wonAt || ["signed", "producing", "installing", "completed"].includes(row.stage))
+      .map((row) => row.id),
+  );
   const attributedRevenue = attributions
-    .filter((row) => activeOpportunityIds.has(row.salesOpportunityId))
+    .filter((row) => wonOpportunityIds.has(row.salesOpportunityId))
     .reduce((sum, row) => sum + (row.attributedRevenue ?? 0), 0);
   const effectiveLeads = Math.max(metrics._sum.qualifiedLeads ?? 0, crmQualified);
   const wins = Math.max(metrics._sum.wins ?? 0, crmWins);
@@ -114,7 +120,11 @@ export async function getMarketingDashboard(orgId: string) {
     quotes: Math.max(metrics._sum.quotes ?? 0, crmQuotes),
     wins,
     spend: metrics._sum.spend ?? 0,
+    otherMarketingCost: metrics._sum.otherMarketingCost ?? 0,
     revenue,
+    grossMarginRate: economicsSetting?.defaultGrossMarginRate ?? null,
+    targetRoas: economicsSetting?.targetRoas ?? null,
+    targetRoi: economicsSetting?.targetRoi ?? null,
   });
   const activeCampaigns = campaigns.filter((row) => row.status === "active").length;
   const campaignsAwaitingApproval = campaigns.filter(
@@ -158,6 +168,10 @@ export async function getMarketingDashboard(orgId: string) {
       connectedChannelAccountCount: channelAccounts.filter((row) => row.status === "connected").length,
       latestDataAt: metrics._max.capturedAt,
       latestSyncAt: syncedAt,
+      platformReportedLeads: metrics._sum.leads ?? 0,
+      platformReportedRevenue: metrics._sum.revenue ?? 0,
+      crmAttributedLeads: crmOpportunities.length,
+      crmAttributedRevenue: attributedRevenue,
     },
     recommendations,
     latestAudit: latestAudit ? { id: latestAudit.id, totalScore: latestAudit.totalScore, confidence: latestAudit.confidence, completedAt: latestAudit.completedAt, dimensions: latestAudit.scores } : null,

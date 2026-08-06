@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { canEditMarketingBrandProfile } from "./access-policy";
+export { canAccessMarketingWorkspace } from "./route-access";
 
 export async function getMarketingBrandProfileAccess(
   user: AuthUser,

@@ -45,6 +45,20 @@ export const POST = withAuth(async (request, _ctx, user) => {
     );
   }
 
+  const mode = body.mode === "backfill" ? "backfill" : "incremental";
+  const periodStart = typeof body.periodStart === "string" ? body.periodStart.slice(0, 10) : null;
+  const periodEnd = typeof body.periodEnd === "string" ? body.periodEnd.slice(0, 10) : null;
+  if (mode === "backfill") {
+    const start = periodStart ? new Date(`${periodStart}T00:00:00.000Z`) : null;
+    const end = periodEnd ? new Date(`${periodEnd}T00:00:00.000Z`) : null;
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+      return NextResponse.json({ error: "历史回填需要有效的开始和结束日期" }, { status: 400 });
+    }
+    if (end.getTime() - start.getTime() > 37 * 31 * 24 * 3600 * 1000) {
+      return NextResponse.json({ error: "单次细粒度回填最长 37 个月；更早数据请按月 CSV 导入" }, { status: 400 });
+    }
+  }
+
   const run = await dispatchMarketingWorkflow({
     orgId: orgRes.orgId,
     userId: user.id,
@@ -54,7 +68,10 @@ export const POST = withAuth(async (request, _ctx, user) => {
       channelAccountId:
         typeof body.channelAccountId === "string" ? body.channelAccountId : null,
       lookbackDays:
-        typeof body.lookbackDays === "number" ? body.lookbackDays : 90,
+        typeof body.lookbackDays === "number" ? Math.max(1, Math.min(90, body.lookbackDays)) : 7,
+      mode,
+      periodStart: mode === "backfill" ? periodStart : null,
+      periodEnd: mode === "backfill" ? periodEnd : null,
     },
   });
 
@@ -64,7 +81,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     action: "marketing_metrics_sync_request",
     targetType: "marketing_workflow_run",
     targetId: run.id,
-    afterData: { providers, status: run.status },
+    afterData: { providers, status: run.status, mode, periodStart, periodEnd },
     request,
   });
 
@@ -72,6 +89,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     {
       run,
       providers,
+      mode,
       note:
         run.status === "skipped"
           ? "未配置 ACTIVEPIECES_MARKETING_SYNC_WEBHOOK_URL。可先用批量灌数 API / 指标页手工导入。"

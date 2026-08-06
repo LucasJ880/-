@@ -1,4 +1,5 @@
 import { MARKETING_DIMENSIONS, clampScore } from "./constants";
+import { calculateMarketingEconomics } from "./economics";
 
 export interface DimensionScoreLike {
   dimension: string;
@@ -34,11 +35,19 @@ export interface MarketingFunnel {
   inconsistent: boolean;
   economics: {
     spend: number;
+    otherMarketingCost: number;
+    totalMarketingCost: number;
     revenue: number;
+    grossMarginRate: number | null;
+    attributedGrossProfit: number | null;
     costPerLead: number | null;
     costPerQualifiedLead: number | null;
     costPerWin: number | null;
     roas: number | null;
+    roi: number | null;
+    breakEvenRoas: number | null;
+    targetRoas: number | null;
+    targetRoi: number | null;
   };
 }
 
@@ -57,7 +66,14 @@ function unitCost(spend: number, count: number): number | null {
 }
 
 export function buildMarketingFunnel(
-  input: Record<MarketingFunnelKey, number> & { spend: number; revenue: number },
+  input: Record<MarketingFunnelKey, number> & {
+    spend: number;
+    otherMarketingCost?: number;
+    revenue: number;
+    grossMarginRate?: number | null;
+    targetRoas?: number | null;
+    targetRoi?: number | null;
+  },
 ): MarketingFunnel {
   let previous: MarketingFunnelStage | null = null;
   let inconsistent = false;
@@ -84,6 +100,12 @@ export function buildMarketingFunnel(
   const weakest = comparable[0] ?? null;
   const spend = nonNegative(input.spend);
   const revenue = nonNegative(input.revenue);
+  const economics = calculateMarketingEconomics({
+    revenue,
+    adSpend: spend,
+    otherMarketingCost: input.otherMarketingCost,
+    grossMarginRate: input.grossMarginRate,
+  });
 
   return {
     stages,
@@ -97,11 +119,23 @@ export function buildMarketingFunnel(
     inconsistent,
     economics: {
       spend,
+      otherMarketingCost: economics.otherMarketingCost,
+      totalMarketingCost: economics.totalMarketingCost,
       revenue,
+      grossMarginRate: economics.grossMarginRate,
+      attributedGrossProfit: economics.attributedGrossProfit == null
+        ? null
+        : Math.round(economics.attributedGrossProfit * 100) / 100,
       costPerLead: unitCost(spend, nonNegative(input.leads)),
       costPerQualifiedLead: unitCost(spend, nonNegative(input.qualifiedLeads)),
       costPerWin: unitCost(spend, nonNegative(input.wins)),
-      roas: spend > 0 ? Math.round((revenue / spend) * 100) / 100 : null,
+      roas: economics.roas == null ? null : Math.round(economics.roas * 100) / 100,
+      roi: economics.roi == null ? null : Math.round(economics.roi * 10000) / 10000,
+      breakEvenRoas: economics.breakEvenRoas == null
+        ? null
+        : Math.round(economics.breakEvenRoas * 100) / 100,
+      targetRoas: input.targetRoas == null ? null : nonNegative(input.targetRoas),
+      targetRoi: input.targetRoi == null ? null : nonNegative(input.targetRoi),
     },
   };
 }

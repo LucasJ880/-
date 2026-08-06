@@ -21,9 +21,9 @@ interface DashboardData {
     stages: Array<{ key: string; label: string; value: number; conversionRate: number | null }>;
     bottleneck: { from: string; to: string; rate: number } | null;
     inconsistent: boolean;
-    economics: { spend: number; revenue: number; costPerLead: number | null; costPerQualifiedLead: number | null; costPerWin: number | null; roas: number | null };
+    economics: { spend: number; otherMarketingCost: number; totalMarketingCost: number; revenue: number; grossMarginRate: number | null; attributedGrossProfit: number | null; costPerLead: number | null; costPerQualifiedLead: number | null; costPerWin: number | null; roas: number | null; roi: number | null; breakEvenRoas: number | null; targetRoas: number | null; targetRoi: number | null };
   };
-  measurement: { snapshotCount: number; unverifiedSnapshotCount: number; channelAccountCount: number; connectedChannelAccountCount: number; latestDataAt: string | null; latestSyncAt: string | null };
+  measurement: { snapshotCount: number; unverifiedSnapshotCount: number; channelAccountCount: number; connectedChannelAccountCount: number; latestDataAt: string | null; latestSyncAt: string | null; platformReportedLeads: number; platformReportedRevenue: number; crmAttributedLeads: number; crmAttributedRevenue: number };
   recommendations: Array<{ id: string; priority: "urgent" | "high" | "medium"; title: string; reason: string; href: string; action: string }>;
 }
 
@@ -223,17 +223,26 @@ export default function GrowthCenterPage() {
         {data.funnel.inconsistent && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">部分下游数量高于上游，说明渠道与 CRM 口径尚未完全对齐；在扩大预算前请先核对数据。</p>
         )}
-        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
           <Stat label="单条线索成本" value={formatCad(data.funnel.economics.costPerLead)} icon={CircleDollarSign} />
           <Stat label="有效线索成本" value={formatCad(data.funnel.economics.costPerQualifiedLead)} icon={CircleDollarSign} />
           <Stat label="单次成交成本" value={formatCad(data.funnel.economics.costPerWin)} icon={CircleDollarSign} />
           <Stat label="ROAS" value={data.funnel.economics.roas == null ? "待数据" : `${data.funnel.economics.roas.toFixed(2)}×`} icon={BarChart3} />
+          <Stat label="真实 ROI" value={data.funnel.economics.roi == null ? "待毛利率" : `${(data.funnel.economics.roi * 100).toFixed(1)}%`} icon={Target} />
+          <Stat label="保本 ROAS" value={data.funnel.economics.breakEvenRoas == null ? "待毛利率" : `${data.funnel.economics.breakEvenRoas.toFixed(2)}×`} icon={BarChart3} />
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-border bg-background p-3 text-xs"><strong className="block text-sm">平台报告</strong><span className="text-muted">线索 {data.measurement.platformReportedLeads} · 转化价值 {formatCad(data.measurement.platformReportedRevenue)}</span></div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950"><strong className="block text-sm">CRM 确认</strong><span>归因商机 {data.measurement.crmAttributedLeads} · 确认成交贡献 {formatCad(data.measurement.crmAttributedRevenue)}</span></div>
         </div>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
           <span>本月数据 {data.measurement.snapshotCount} 条</span>
           <span>未验证 {data.measurement.unverifiedSnapshotCount} 条</span>
           <span>渠道账号 {data.measurement.connectedChannelAccountCount}/{data.measurement.channelAccountCount} 已连接</span>
           <span>最近数据：{data.measurement.latestDataAt ? new Date(data.measurement.latestDataAt).toLocaleDateString("zh-CN") : "暂无"}</span>
+          <span>总营销成本：{formatCad(data.funnel.economics.totalMarketingCost)}</span>
+          {data.funnel.economics.targetRoas != null && <span>目标 ROAS：{data.funnel.economics.targetRoas.toFixed(2)}×</span>}
+          {data.funnel.economics.targetRoi != null && <span>目标 ROI：{(data.funnel.economics.targetRoi * 100).toFixed(0)}%</span>}
         </div>
       </section>
 

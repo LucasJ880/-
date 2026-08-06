@@ -32,6 +32,7 @@ export interface PaidMediaRawRow {
   spend?: number | string;
   cost?: number | string;
   amount?: number | string;
+  otherMarketingCost?: number | string;
   impressions?: number | string;
   views?: number | string;
   engagements?: number | string;
@@ -99,16 +100,19 @@ export function mapPaidMediaRowToMetricValues(
     row.period_start,
     row.date,
   );
+  const granularity = row.granularity || (
+    row.date && !row.weekStart && !row.week_start ? "daily" : "weekly"
+  );
   const periodEnd = pickDate(
     row.periodEnd,
     row.period_end,
-    weekEndFromStart(weekStart),
+    granularity === "daily" ? weekStart : weekEndFromStart(weekStart),
   );
   const spend = n(row.spend ?? row.cost ?? row.amount);
   const leads = count(row.leads ?? row.conversions ?? row.results);
-  const qualifiedLeads = count(
-    row.qualifiedLeads ?? row.qualified_leads ?? Math.round(leads * 0.4),
-  );
+  // 平台 Lead 不能自动冒充 CRM 已确认的有效线索。平台未提供时保持 0，
+  // 等销售在青砚中确认后再进入 qualifiedLeads 口径。
+  const qualifiedLeads = count(row.qualifiedLeads ?? row.qualified_leads);
   const channelAccountId =
     row.channelAccountId ||
     undefined;
@@ -122,7 +126,7 @@ export function mapPaidMediaRowToMetricValues(
     capturedAt: weekStart,
     periodStart: weekStart,
     periodEnd,
-    granularity: row.granularity || "weekly",
+    granularity,
     impressions: count(row.impressions),
     views: count(row.views),
     engagements: count(row.engagements),
@@ -133,6 +137,7 @@ export function mapPaidMediaRowToMetricValues(
     quotes: count(row.quotes),
     wins: count(row.wins),
     spend,
+    otherMarketingCost: n(row.otherMarketingCost),
     revenue: n(row.revenue ?? row.purchase_value),
     currency: (row.currency || "CAD").toString().slice(0, 3).toUpperCase(),
     channelAccountId,

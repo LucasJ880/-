@@ -48,12 +48,18 @@ const funnel = buildMarketingFunnel({
   quotes: 2,
   wins: 1,
   spend: 100,
+  otherMarketingCost: 20,
   revenue: 1000,
+  grossMarginRate: 0.4,
+  targetRoas: 5,
+  targetRoi: 0.5,
 });
 expect(funnel.bottleneck?.from === "展示" && funnel.bottleneck.to === "点击", "漏斗识别最低转化环节");
 expect(funnel.economics.costPerLead === 5, "漏斗计算单条线索成本");
 expect(funnel.economics.costPerQualifiedLead === 10, "漏斗计算有效线索成本");
 expect(funnel.economics.costPerWin === 100 && funnel.economics.roas === 10, "漏斗计算成交成本与 ROAS");
+expect(funnel.economics.totalMarketingCost === 120, "ROI 纳入其他营销成本");
+expect(funnel.economics.roi === 2.3333 && funnel.economics.breakEvenRoas === 2.5, "漏斗按毛利计算真实 ROI 与保本 ROAS");
 expect(!funnel.inconsistent, "顺序递减的漏斗数据口径一致");
 
 const inconsistentFunnel = buildMarketingFunnel({

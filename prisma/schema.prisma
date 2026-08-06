@@ -5383,6 +5383,23 @@ model MarketingChannelAccount {
   @@index([orgId, status])
 }
 
+/// 组织级营销经济模型。平台只提供花费/转化，真实 ROI 由青砚按确认毛利计算。
+model MarketingEconomicsSetting {
+  id                     String   @id @default(cuid())
+  orgId                  String   @unique
+  defaultGrossMarginRate Float?
+  targetRoas             Float?
+  targetRoi              Float?
+  attributionWindowDays  Int      @default(90)
+  currency               String   @default("CAD")
+  productMarginsJson     Json     @default("[]")
+  updatedById            String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([orgId])
+}
+
 model MarketingAuditRun {
   id                        String    @id @default(cuid())
   orgId                     String
@@ -5584,6 +5601,7 @@ model MarketingMetricSnapshot {
   quotes            Int       @default(0)
   wins              Int       @default(0)
   spend             Float     @default(0)
+  otherMarketingCost Float    @default(0)
   revenue           Float     @default(0)
   currency          String    @default("CAD")
   baseCurrency      String    @default("CAD")
