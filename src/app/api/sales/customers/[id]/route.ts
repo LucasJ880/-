@@ -171,10 +171,26 @@ export const DELETE = withAuth(async (request, ctx, user) => {
   }
 
   const archivedAt = new Date();
-  await db.salesCustomer.update({
-    where: { id },
-    data: { archivedAt },
-  });
+  await db.$transaction([
+    db.salesCustomer.update({
+      where: { id },
+      data: { archivedAt },
+    }),
+    // 已归档客户不应继续出现在数字员工行动队列中。保留历史记录，
+    // 但主动收口仍处于 open / in_progress 的行动。
+    db.salesAction.updateMany({
+      where: {
+        customerId: id,
+        status: { in: ["open", "in_progress"] },
+      },
+      data: {
+        status: "auto_resolved",
+        activeKey: null,
+        autoResolvedAt: archivedAt,
+        resolutionNote: "客户已归档，数字员工自动收口",
+      },
+    }),
+  ]);
 
   await logAudit({
     userId: user.id,

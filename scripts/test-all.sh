@@ -112,6 +112,8 @@ run_test "Security-1 Owner/Manager" "npx tsx src/lib/rbac/__tests__/security1-ow
 run_test "Platform Admin Diagnostics Gate" "npx tsx src/lib/rbac/__tests__/platform-admin-diagnostics-gate.test.ts"
 run_test "Security-1 Authorization" "npx tsx src/lib/authorization/__tests__/authorize.test.ts"
 run_test "Security-1 Sales Authz" "npx tsx src/lib/sales/__tests__/security1-sales-authz.test.ts"
+run_test "销售账号营销数字员工权限" "npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts"
+run_test "归档客户销售工作区可见性" "npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts"
 run_test "Phase3B-A AiThread Org Bind" "npx tsx src/lib/assistant/__tests__/thread-org-policy.test.ts"
 run_test "Phase3B-A Intent Router" "npx tsx src/lib/assistant/__tests__/intent-router.test.ts"
 run_test "Phase3B-A Run Status" "npx tsx src/lib/assistant/__tests__/run-status.test.ts"
