@@ -8,7 +8,7 @@ export type ScrollLockToken = symbol;
 type OriginalState = {
   bodyOverflow: string;
   htmlOverflow: string;
-  mainOverflow: string | null;
+  main: { element: { style: { overflow: string } }; overflow: string } | null;
 };
 
 type LockRecord = {
@@ -44,7 +44,7 @@ function applyLockStyles() {
     originalState = {
       bodyOverflow: body.style.overflow,
       htmlOverflow: html.style.overflow,
-      mainOverflow: main ? main.style.overflow : null,
+      main: main ? { element: main, overflow: main.style.overflow } : null,
     };
   }
 
@@ -65,12 +65,12 @@ function restoreIfIdle() {
 
   const body = document.body;
   const html = document.documentElement;
-  const main = resolveMain();
-
   body.style.overflow = originalState.bodyOverflow;
   html.style.overflow = originalState.htmlOverflow;
-  if (main && originalState.mainOverflow !== null) {
-    main.style.overflow = originalState.mainOverflow;
+  // Restore the element that was actually locked. A route transition can
+  // replace <main> while an overlay is still closing.
+  if (originalState.main) {
+    originalState.main.element.style.overflow = originalState.main.overflow;
   }
 
   originalState = null;

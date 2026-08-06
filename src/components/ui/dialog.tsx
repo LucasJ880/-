@@ -41,7 +41,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-[var(--ui-z-dialog-panel)] grid w-[calc(100vw-2rem)] max-w-lg max-h-[min(90dvh,880px)] translate-x-[-50%] translate-y-[-50%] border border-border bg-card-bg p-6 shadow-dialog duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-2xl overflow-y-auto",
+        "fixed left-[50%] top-[50%] z-[var(--ui-z-dialog-panel)] grid w-[calc(100vw-2rem)] max-w-lg max-h-[min(90dvh,880px)] translate-x-[-50%] translate-y-[-50%] overflow-y-auto overscroll-contain rounded-[var(--radius-xl)] border border-border bg-card-bg p-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-12 shadow-dialog duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:p-6 sm:pt-6",
         className
       )}
       {...props}
@@ -49,7 +49,7 @@ const DialogContent = React.forwardRef<
       <DialogScrollLock />
       {children}
       <DialogPrimitive.Close
-        className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent/10 data-[state=open]:text-muted"
+        className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent/10 data-[state=open]:text-muted sm:right-3 sm:top-3"
         aria-label="关闭"
       >
         <X className="h-4 w-4" />
