@@ -209,6 +209,7 @@ run_test "招标自动分析 EFG 核心" "npx tsx src/lib/tender-auto-analysis/_
 run_test "招标自动分析 Worker 步骤" "npx tsx src/lib/tender-auto-analysis/__tests__/worker-helpers.test.ts"
 run_test "招标自动分析审核标签" "npx tsx src/lib/tender-auto-analysis/__tests__/review-helpers.test.ts"
 run_test "招标自动分析审核加固" "npx tsx src/lib/tender-auto-analysis/__tests__/review-hardening.test.ts"
+run_test "招标自动分析 Ready Gate" "npx tsx src/lib/tender-auto-analysis/__tests__/ready-gate.test.ts"
 run_test "招标自动分析补遗对比" "npx tsx src/lib/tender-auto-analysis/__tests__/addendum-diff.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
