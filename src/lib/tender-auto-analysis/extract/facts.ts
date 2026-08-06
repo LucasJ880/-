@@ -617,11 +617,123 @@ export function extractFactsFromPages(pages: PageInput[]): FactCandidate[] {
     out.push({ ...t, factKey: "reciprocal_procurement" });
   }
 
+  appendJudgmentFacts(out);
+
   const seen = new Set<string>();
   return out.filter((f) => {
     if (seen.has(f.factKey)) return false;
     seen.add(f.factKey);
     return true;
+  });
+}
+
+/**
+ * 基于已核验事实的推断与建议（不得标为 CONFIRMED_FACT / Mandatory）。
+ * 来源引用指向支撑事实页；内容明确标注 AI 推断或建议。
+ */
+function appendJudgmentFacts(out: FactCandidate[]): void {
+  const byKey = new Map(out.map((f) => [f.factKey, f]));
+  const pickRefs = (...keys: string[]): SourceRefCandidate[] => {
+    const refs: SourceRefCandidate[] = [];
+    for (const k of keys) {
+      const f = byKey.get(k);
+      if (f?.sourceRefs?.length) refs.push(...f.sourceRefs.slice(0, 2));
+    }
+    return refs.slice(0, 4);
+  };
+
+  const push = (fact: FactCandidate) => {
+    if (out.some((f) => f.factKey === fact.factKey)) return;
+    if (fact.sourceRefs.length === 0) return;
+    out.push(fact);
+  };
+
+  if (byKey.has("delivery_lead_time") || byKey.has("delivery_lead_time_30_days")) {
+    push({
+      factKey: "inference_callup_fulfillment_pressure",
+      statementKind: "AI_INFERENCE",
+      contentZh:
+        "【AI推断】Call-up 后 30 天交付 + DDP Regina，可能对库存预置与跨境物流排程形成履约压力；非文件原文事实。",
+      contentOriginal: null,
+      confidence: "INFERRED",
+      sourceRefs: pickRefs(
+        "delivery_lead_time",
+        "delivery_lead_time_30_days",
+        "delivery_term",
+        "delivery_ddp_regina",
+      ),
+    });
+  }
+
+  if (
+    byKey.has("qty_ambiguity_interpretation") ||
+    byKey.has("qty_7500_evaluation_aggregate_not_guarantee")
+  ) {
+    push({
+      factKey: "inference_quantity_commercial_risk",
+      statementKind: "AI_INFERENCE",
+      contentZh:
+        "【AI推断】Annex A 上限与 Annex B 评标量并存时，商业规划应按「不保证采购量」建模，避免按 7,500 备货；非 Mandatory。",
+      contentOriginal: null,
+      confidence: "INFERRED",
+      sourceRefs: pickRefs(
+        "qty_ambiguity_interpretation",
+        "qty_7500_evaluation_aggregate_not_guarantee",
+        "qty_actual_purchase_not_guaranteed",
+        "qty_estimated_for_evaluation_only_not_guarantee",
+      ),
+    });
+  }
+
+  if (byKey.has("submission_sections") || byKey.has("three_pdfs") || byKey.has("email_max_size")) {
+    push({
+      factKey: "inference_submission_format_risk",
+      statementKind: "AI_INFERENCE",
+      contentZh:
+        "【AI推断】三份独立 PDF + 邮件 5MB 限制同时存在时，打包与压缩策略本身即投标合规风险点；非文件保证条款。",
+      contentOriginal: null,
+      confidence: "INFERRED",
+      sourceRefs: pickRefs("submission_sections", "three_pdfs", "email_max_size", "email_size_5mb"),
+    });
+  }
+
+  if (byKey.has("evaluation_method")) {
+    push({
+      factKey: "recommendation_tech_first_then_price",
+      statementKind: "RECOMMENDATION",
+      contentZh:
+        "【建议】先完成 M1–M15 与证书路径核验，再优化 DDP 价格；技术不合格时最低价路径不可达。此为投标策略建议，非 Mandatory。",
+      contentOriginal: null,
+      confidence: "INFERRED",
+      sourceRefs: pickRefs("evaluation_method"),
+    });
+  }
+
+  if (byKey.has("qty_ambiguity_interpretation")) {
+    push({
+      factKey: "recommendation_send_quantity_clarifications",
+      statementKind: "RECOMMENDATION",
+      contentZh:
+        "【建议】在询价截止前书面澄清 Call-up 典型数量与「per contract period」含义，并确认 7,500 仅用于评标。此为建议，非 Mandatory。",
+      contentOriginal: null,
+      confidence: "HIGH_CONFIDENCE",
+      sourceRefs: pickRefs("qty_ambiguity_interpretation", "closing_datetime"),
+    });
+  }
+
+  push({
+    factKey: "recommendation_no_auto_go",
+    statementKind: "RECOMMENDATION",
+    contentZh:
+      "【建议】完成本轮人工审核前保持 HOLD，不自动 GO；待澄清与合规矩阵确认后再决策。此为流程建议，非文件 Mandatory。",
+    contentOriginal: null,
+    confidence: "HIGH_CONFIDENCE",
+    sourceRefs: pickRefs(
+      "solicitation_number",
+      "closing_datetime",
+      "qty_ambiguity_interpretation",
+      "evaluation_method",
+    ),
   });
 }
 

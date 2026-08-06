@@ -100,8 +100,9 @@ ok(
       "20260729120000_matrix_account_playbook",
       "20260729180000_phase_c_publish_job_pipeline",
       "20260803200000_bid_workflow_phase1",
+      "20260805180000_tender_auto_analysis_phase1_1",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob + BidWorkflow Phase1",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC PublishJob + BidWorkflow Phase1 + TenderAutoAnalysis Phase1.1",
 );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

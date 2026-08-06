@@ -525,6 +525,7 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
     },
   });
 
+  // 多取候选：单个 not_claimable / 永久失败不得阻塞同批其它 Run
   const candidates = await db.tenderAnalysisRun.findMany({
     where: {
       attemptCount: { lt: MAX_ATTEMPTS },
@@ -547,15 +548,24 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
         },
       ],
     },
-    orderBy: { createdAt: "asc" },
-    take,
-    select: { id: true },
+    // PENDING 优先，避免 FAILED 重试饿死新任务
+    orderBy: [{ createdAt: "asc" }],
+    take: Math.max(take * 8, 8),
+    select: { id: true, status: true },
+  });
+  candidates.sort((a, b) => {
+    const rank = (s: string) =>
+      s === "PENDING" ? 0 : s === "EXTRACTING" || s === "ANALYZING" ? 1 : 2;
+    return rank(a.status) - rank(b.status);
   });
 
   const results = [];
   for (const row of candidates) {
+    if (results.length >= take) break;
     try {
-      results.push(await executeTenderAnalysisRun(row.id));
+      const result = await executeTenderAnalysisRun(row.id);
+      if (result.reason === "not_claimable") continue;
+      results.push(result);
     } catch (error) {
       // 单条异常不得打断 batch
       results.push({
