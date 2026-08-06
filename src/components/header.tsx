@@ -17,6 +17,8 @@ import {
   Settings2,
   Menu,
   Globe,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -29,6 +31,7 @@ import type { Locale } from "@/lib/i18n/messages";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
 import { orgRoleLabel } from "@/lib/permissions-client";
+import { useWorkspaceShell } from "@/components/workspace-shell-context";
 
 /* ── Search types ── */
 
@@ -562,6 +565,7 @@ export function Header() {
   }, []);
 
   const { openMobileSidebar } = useAppShell();
+  const { context, panelOpen, togglePanel } = useWorkspaceShell();
 
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
 
@@ -591,6 +595,24 @@ export function Header() {
             })}
           </span>
         </div>
+
+        {context ? (
+          <div className="hidden min-[1180px]:flex min-w-0 items-center gap-2 border-l border-border pl-4">
+            {context.eyebrow ? (
+              <span className="shrink-0 text-[11px] font-medium text-muted">
+                {context.eyebrow}
+              </span>
+            ) : null}
+            <span className="truncate text-[13px] font-medium text-foreground">
+              {context.title}
+            </span>
+            {context.summary ? (
+              <span className="max-w-48 truncate text-[12px] text-muted">
+                {context.summary}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         <div ref={searchRef} className="relative hidden sm:block">
           <div
@@ -631,6 +653,18 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-1.5">
+        {context?.panel ? (
+          <button
+            type="button"
+            onClick={togglePanel}
+            className="hidden md:inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-md)] px-2 text-[12px] font-medium text-muted transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+            aria-label={panelOpen ? "收起当前上下文" : "打开当前上下文"}
+            aria-expanded={panelOpen}
+          >
+            {panelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+            <span className="hidden xl:inline">青砚上下文</span>
+          </button>
+        ) : null}
         <div className="hidden sm:block">
           <LanguageSwitcher />
         </div>
