@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-08-06T18:44:17.987Z",
+  "commit": "c64ca8e12d7ac8a4a7371f3cf770825996ce2b95",
+  "base": "https://qingyan.ca",
+  "browser": "Chromium / Playwright",
+  "safariVerified": false,
+  "viewports": [
+    {
+      "name": "1440",
+      "width": 1440,
+      "height": 1024
+    }
+  ],
+  "pages": [
+    {
+      "viewport": "1440",
+      "route": "/",
+      "screenshot": "docs/ui-ux-baseline/1440/home.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": null
+    },
+    {
+      "viewport": "1440",
+      "route": "/projects",
+      "screenshot": "docs/ui-ux-baseline/1440/projects.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": "项目"
+    },
+    {
+      "viewport": "1440",
+      "route": "/projects/cmsgc7ira0001ju04z8vz46en",
+      "screenshot": "docs/ui-ux-baseline/1440/project-detail.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": null
+    },
+    {
+      "viewport": "1440",
+      "route": "/sales",
+      "screenshot": "docs/ui-ux-baseline/1440/sales.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": "客户与商机"
+    },
+    {
+      "viewport": "1440",
+      "route": "/assistant",
+      "screenshot": "docs/ui-ux-baseline/1440/assistant.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": "青砚数字员工"
+    },
+    {
+      "viewport": "1440",
+      "route": "/capabilities",
+      "screenshot": "docs/ui-ux-baseline/1440/capabilities.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": "企业能力中台"
+    },
+    {
+      "viewport": "1440",
+      "route": "/capabilities/approvals",
+      "screenshot": "docs/ui-ux-baseline/1440/pending-actions.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": "审批中心"
+    },
+    {
+      "viewport": "1440",
+      "route": "/sales/quote-sheet",
+      "screenshot": "docs/ui-ux-baseline/1440/quote-sheet.png",
+      "status": 200,
+      "horizontalOverflow": false,
+      "mainOverflow": false,
+      "h1": "电子报价单"
+    }
+  ],
+  "drawer": null
+}
