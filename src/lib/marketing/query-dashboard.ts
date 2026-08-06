@@ -162,6 +162,7 @@ export async function getMarketingDashboard(orgId: string) {
   const effectiveLeads = Math.max(metrics._sum.qualifiedLeads ?? 0, crmQualified);
   const wins = Math.max(metrics._sum.wins ?? 0, crmWins);
   const revenue = Math.max(metrics._sum.revenue ?? 0, attributedRevenue);
+  const currency = (economicsSetting?.currency || "CAD").slice(0, 3).toUpperCase();
   const marketPresence = calculateMarketPresence(latestAudit?.scores ?? []);
   const highPriority = findings.filter((row) => row.severity === "critical" || row.severity === "high");
   const growthExecution = calculateGrowthExecution({ published: publications, experiments: runningExperiments, qualifiedLeads: effectiveLeads, wins, pendingReview: pendingContent });
@@ -206,7 +207,7 @@ export async function getMarketingDashboard(orgId: string) {
       growthExecution,
       effectiveLeads,
       revenue,
-      currency: "CAD",
+      currency,
       runningExperiments,
       pendingContent,
       pendingIntelTopics,

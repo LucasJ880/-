@@ -31,11 +31,11 @@ function Stat({ label, value, icon: Icon, suffix = "" }: { label: string; value:
   return <div className="rounded-xl border border-border bg-card-bg p-4"><div className="flex items-center justify-between text-xs text-muted"><span>{label}</span><Icon size={16} /></div><div className="mt-2 text-2xl font-bold">{value}{suffix}</div></div>;
 }
 
-function formatCad(value: number | null) {
+function formatCurrency(value: number | null, currency: string) {
   if (value == null) return "待数据";
   return new Intl.NumberFormat("en-CA", {
     style: "currency",
-    currency: "CAD",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -224,23 +224,23 @@ export default function GrowthCenterPage() {
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">部分下游数量高于上游，说明渠道与 CRM 口径尚未完全对齐；在扩大预算前请先核对数据。</p>
         )}
         <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
-          <Stat label="单条线索成本" value={formatCad(data.funnel.economics.costPerLead)} icon={CircleDollarSign} />
-          <Stat label="有效线索成本" value={formatCad(data.funnel.economics.costPerQualifiedLead)} icon={CircleDollarSign} />
-          <Stat label="单次成交成本" value={formatCad(data.funnel.economics.costPerWin)} icon={CircleDollarSign} />
+          <Stat label="单条线索成本" value={formatCurrency(data.funnel.economics.costPerLead, data.summary.currency)} icon={CircleDollarSign} />
+          <Stat label="有效线索成本" value={formatCurrency(data.funnel.economics.costPerQualifiedLead, data.summary.currency)} icon={CircleDollarSign} />
+          <Stat label="单次成交成本" value={formatCurrency(data.funnel.economics.costPerWin, data.summary.currency)} icon={CircleDollarSign} />
           <Stat label="ROAS" value={data.funnel.economics.roas == null ? "待数据" : `${data.funnel.economics.roas.toFixed(2)}×`} icon={BarChart3} />
           <Stat label="真实 ROI" value={data.funnel.economics.roi == null ? "待毛利率" : `${(data.funnel.economics.roi * 100).toFixed(1)}%`} icon={Target} />
           <Stat label="保本 ROAS" value={data.funnel.economics.breakEvenRoas == null ? "待毛利率" : `${data.funnel.economics.breakEvenRoas.toFixed(2)}×`} icon={BarChart3} />
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-background p-3 text-xs"><strong className="block text-sm">平台报告</strong><span className="text-muted">线索 {data.measurement.platformReportedLeads} · 转化价值 {formatCad(data.measurement.platformReportedRevenue)}</span></div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950"><strong className="block text-sm">CRM 反馈</strong><span>人工归因 {data.measurement.crmManualAttributedLeads} · 来源推断 {data.measurement.crmAutoAttributedLeads} · 成交贡献 {formatCad(data.measurement.crmAttributedRevenue)}</span>{data.measurement.crmAutoAttributedLeads > 0 && <span className="mt-1 block opacity-75">其中来源推断金额 {formatCad(data.measurement.crmSourceInferredRevenue)}，置信度 70%，可由人工归因替代。</span>}</div>
+          <div className="rounded-lg border border-border bg-background p-3 text-xs"><strong className="block text-sm">平台报告</strong><span className="text-muted">线索 {data.measurement.platformReportedLeads} · 转化价值 {formatCurrency(data.measurement.platformReportedRevenue, data.summary.currency)}</span></div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950"><strong className="block text-sm">CRM 反馈</strong><span>人工归因 {data.measurement.crmManualAttributedLeads} · 来源推断 {data.measurement.crmAutoAttributedLeads} · 成交贡献 {formatCurrency(data.measurement.crmAttributedRevenue, data.summary.currency)}</span>{data.measurement.crmAutoAttributedLeads > 0 && <span className="mt-1 block opacity-75">其中来源推断金额 {formatCurrency(data.measurement.crmSourceInferredRevenue, data.summary.currency)}，置信度 70%，可由人工归因替代。</span>}</div>
         </div>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
           <span>本月数据 {data.measurement.snapshotCount} 条</span>
           <span>未验证 {data.measurement.unverifiedSnapshotCount} 条</span>
           <span>渠道账号 {data.measurement.connectedChannelAccountCount}/{data.measurement.channelAccountCount} 已连接</span>
           <span>最近数据：{data.measurement.latestDataAt ? new Date(data.measurement.latestDataAt).toLocaleDateString("zh-CN") : "暂无"}</span>
-          <span>总营销成本：{formatCad(data.funnel.economics.totalMarketingCost)}</span>
+          <span>总营销成本：{formatCurrency(data.funnel.economics.totalMarketingCost, data.summary.currency)}</span>
           {data.funnel.economics.targetRoas != null && <span>目标 ROAS：{data.funnel.economics.targetRoas.toFixed(2)}×</span>}
           {data.funnel.economics.targetRoi != null && <span>目标 ROI：{(data.funnel.economics.targetRoi * 100).toFixed(0)}%</span>}
         </div>
