@@ -9,12 +9,19 @@ export function PageHeader({
   description,
   breadcrumbs,
   actions,
+  secondaryActions,
+  meta,
   className,
 }: {
   title: React.ReactNode;
   description?: React.ReactNode;
   breadcrumbs?: React.ReactNode;
+  /** 主操作区；保留既有 actions 调用兼容。 */
   actions?: React.ReactNode;
+  /** 低优先级操作；窄屏时自动换到下一行。 */
+  secondaryActions?: React.ReactNode;
+  /** 状态、更新时间等不触发操作的辅助信息。 */
+  meta?: React.ReactNode;
   className?: string;
 }) {
   return (
@@ -40,10 +47,24 @@ export function PageHeader({
             {description}
           </div>
         ) : null}
+        {meta ? (
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted">
+            {meta}
+          </div>
+        ) : null}
       </div>
-      {actions ? (
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
-          {actions}
+      {actions || secondaryActions ? (
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-max sm:items-end">
+          {actions ? (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              {actions}
+            </div>
+          ) : null}
+          {secondaryActions ? (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              {secondaryActions}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

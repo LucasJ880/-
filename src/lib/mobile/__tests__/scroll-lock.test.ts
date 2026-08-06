@@ -79,6 +79,32 @@ function main() {
   assert(body.style.overflow === "auto", "last release restores body");
   assert(mainEl.style.overflow === "scroll", "last release restores main");
 
+  // 路由切换可能替换 main；释放时必须恢复真正被锁定的原节点。
+  const originalMain = new FakeEl();
+  originalMain.style.overflow = "scroll";
+  const replacementMain = new FakeEl();
+  replacementMain.style.overflow = "auto";
+  let currentMain: FakeEl = originalMain;
+  (globalThis as unknown as { document: unknown }).document = {
+    body,
+    documentElement: html,
+    querySelector: () => currentMain,
+  };
+  __resetScrollLockForTests();
+  originalMain.style.overflow = "scroll";
+  replacementMain.style.overflow = "auto";
+  const routeLock = acquireAppScrollLock("route-transition");
+  currentMain = replacementMain;
+  releaseAppScrollLock(routeLock);
+  assert(originalMain.style.overflow === "scroll", "route transition restores locked main");
+  assert(replacementMain.style.overflow === "auto", "route transition leaves replacement main untouched");
+
+  (globalThis as unknown as { document: unknown }).document = {
+    body,
+    documentElement: html,
+    querySelector: (sel: string) => (sel === "main" ? mainEl : null),
+  };
+
   // 重复 release
   body.style.overflow = "auto";
   const c = acquireAppScrollLock("dup");

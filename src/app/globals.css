@@ -380,8 +380,25 @@ h3 { font-size: 1rem; line-height: 1.4; letter-spacing: -0.1px; }
 
 /* ── Focus ring ── */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring, var(--accent));
   outline-offset: 2px;
+}
+
+@supports (scrollbar-gutter: stable) {
+  html {
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
 }
 
 /* ── Smooth transitions ── */
@@ -630,6 +647,7 @@ select {
   --header-height: var(--mobile-header-height);
   --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
   --mobile-action-padding: 1rem;
+  --focus-ring: rgba(43, 96, 85, 0.38);
   /* Overlay z-index（见 src/lib/ui/layers.ts） */
   --ui-z-sticky: 20;
   --ui-z-tabbar: 30;
