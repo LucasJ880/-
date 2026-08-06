@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -59,6 +59,18 @@ import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 import type { ProjectDuty } from "@/lib/projects/duty";
+import {
+  WorkspacePageContext,
+  useWorkspaceShell,
+} from "@/components/workspace-shell-context";
+import {
+  ProjectCommandOverview,
+  ProjectContextPanel,
+  deriveProjectCommandState,
+  filterProjectContextActivities,
+  type ProjectContextPendingAction,
+  type ProjectContextTarget,
+} from "@/components/project-detail/project-context-panel";
 
 const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
@@ -161,6 +173,7 @@ function ProjectDetailContent() {
   const id = params.id as string;
   const highlightActivityId = searchParams.get("activity") ?? undefined;
   const { isPlatformAdmin, user: currentUser } = useCurrentUser();
+  const { setPanelOpen } = useWorkspaceShell();
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
@@ -187,6 +200,7 @@ function ProjectDetailContent() {
   const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
   const [showQuestionDialog, setShowQuestionDialog] = useState(false);
   const [orgRulesRefreshKey, setOrgRulesRefreshKey] = useState(0);
+  const [pendingActions, setPendingActions] = useState<ProjectContextPendingAction[]>([]);
 
   type ProjectTab = "overview" | "files" | "quotes" | "ai";
   const [activeTab, setActiveTab] = useState<ProjectTab>(() => {
@@ -199,6 +213,14 @@ function ProjectDetailContent() {
   useEffect(() => {
     if (typeof window !== "undefined") sessionStorage.setItem(`qy_proj_tab_${id}`, activeTab);
   }, [activeTab, id]);
+
+  const openProjectArea = useCallback((target: ProjectContextTarget) => {
+    setActiveTab(target);
+    setPanelOpen(false);
+    window.setTimeout(() => {
+      document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
+  }, [setPanelOpen]);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -257,10 +279,37 @@ function ProjectDetailContent() {
     [id]
   );
 
+  const loadPendingActions = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await apiJson<{
+        actions?: Array<ProjectContextPendingAction & { projectId?: string | null }>;
+      }>("/api/ai/pending-actions?status=pending");
+      const now = Date.now();
+      setPendingActions(
+        (data.actions ?? []).filter(
+          (action) =>
+            action.projectId === id &&
+            new Date(action.expiresAt).getTime() > now,
+        ),
+      );
+    } catch {
+      // 待确认摘要是辅助信息；加载失败不能阻断项目主流程。
+      setPendingActions([]);
+    }
+  }, [id]);
+
   useEffect(() => {
     load();
     loadActivity(1, "");
-  }, [load, loadActivity]);
+    void loadPendingActions();
+  }, [load, loadActivity, loadPendingActions]);
+
+  useEffect(() => {
+    const refresh = () => void loadPendingActions();
+    window.addEventListener("pending-actions-changed", refresh);
+    return () => window.removeEventListener("pending-actions-changed", refresh);
+  }, [loadPendingActions]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -273,6 +322,66 @@ function ProjectDetailContent() {
     window.addEventListener("qingyan:project-updated", handler);
     return () => window.removeEventListener("qingyan:project-updated", handler);
   }, [id, load, loadActivity, activityFilter]);
+
+  const businessActivities = useMemo(
+    () => filterProjectContextActivities(activities, isPlatformAdmin),
+    [activities, isPlatformAdmin],
+  );
+
+  const tenderStage = useMemo(
+    () => project ? getProjectStage(buildTenderProps(project)) : "initiation",
+    [project],
+  );
+
+  const command = useMemo(
+    () =>
+      deriveProjectCommandState({
+        status: project?.status ?? "active",
+        stage: tenderStage,
+        orgBound: Boolean(project?.orgId),
+        documentCount: project?.documents?.length ?? 0,
+        closeDate: project?.closeDate ?? project?.dueDate ?? null,
+        riskLevel: project?.intelligence?.riskLevel ?? progress?.riskLevel ?? null,
+        riskLabel: progress?.riskLabel ?? null,
+        isOverdue: progress?.isOverdue ?? false,
+        completedTasks: progress?.completedTasks ?? 0,
+        totalTasks: progress?.totalTasks ?? project?._count.tasks ?? 0,
+        pendingCount: pendingActions.length,
+        hasIntelligence: Boolean(project?.intelligence || project?.intelligenceRoom),
+      }),
+    [project, progress, pendingActions.length, tenderStage],
+  );
+
+  const workspaceContext = useMemo(
+    () =>
+      project
+        ? {
+            eyebrow: "项目",
+            title: project.name,
+            summary: `${command.stageLabel}${pendingActions.length > 0 ? ` · ${pendingActions.length} 项待确认` : ""}`,
+            panelTitle: "青砚 · 项目上下文",
+            panel: (
+              <ProjectContextPanel
+                command={command}
+                completedTasks={progress?.completedTasks ?? 0}
+                totalTasks={progress?.totalTasks ?? project._count.tasks}
+                pendingActions={pendingActions}
+                activities={businessActivities}
+                onNavigate={openProjectArea}
+              />
+            ),
+          }
+        : null,
+    [
+      project,
+      command,
+      pendingActions,
+      progress?.completedTasks,
+      progress?.totalTasks,
+      businessActivities,
+      openProjectArea,
+    ],
+  );
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
@@ -359,6 +468,7 @@ function ProjectDetailContent() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 sm:px-0">
+      {workspaceContext ? <WorkspacePageContext context={workspaceContext} /> : null}
       <button
         type="button"
         onClick={() => router.push("/projects")}
@@ -476,6 +586,13 @@ function ProjectDetailContent() {
       {/* ═══ Tab: 概览 ═══ */}
       {activeTab === "overview" && (
         <div className="space-y-6">
+          <ProjectCommandOverview
+            command={command}
+            pendingCount={pendingActions.length}
+            recentActivity={businessActivities[0] ?? null}
+            onNavigate={openProjectArea}
+          />
+
           {/* 新项目引导 */}
           <ProjectOnboardingGuide
             hasDocuments={(project.documents ?? []).length > 0}
@@ -591,7 +708,7 @@ function ProjectDetailContent() {
               </select>
             </div>
             <div className="mt-4">
-              <ActivityTimeline activities={activities} loading={activityLoading && activityPage === 1} highlightId={highlightActivityId} />
+              <ActivityTimeline activities={businessActivities} loading={activityLoading && activityPage === 1} highlightId={highlightActivityId} />
             </div>
             {activities.length < activityTotal && (
               <div className="mt-4 flex justify-center">

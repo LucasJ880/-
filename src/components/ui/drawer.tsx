@@ -4,7 +4,7 @@ import {
   useEffect,
   useCallback,
   useRef,
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import { X } from "lucide-react";
@@ -48,14 +48,14 @@ export function Drawer({
   const panelRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const handleEsc = useCallback(
-    (e: KeyboardEvent) => {
+    (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     },
     [onClose]
   );
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLElement>) => {
+    (event: ReactKeyboardEvent<HTMLElement>) => {
       if (event.key !== "Tab" || !panelRef.current) return;
       const elements = focusableElements(panelRef.current);
       if (elements.length === 0) {

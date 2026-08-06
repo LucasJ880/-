@@ -565,7 +565,11 @@ export function Header() {
   }, []);
 
   const { openMobileSidebar } = useAppShell();
-  const { context, panelOpen, togglePanel } = useWorkspaceShell();
+  const {
+    context,
+    panelOpen: contextPanelOpen,
+    togglePanel: toggleContextPanel,
+  } = useWorkspaceShell();
 
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
 
@@ -656,12 +660,12 @@ export function Header() {
         {context?.panel ? (
           <button
             type="button"
-            onClick={togglePanel}
+            onClick={toggleContextPanel}
             className="hidden md:inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-md)] px-2 text-[12px] font-medium text-muted transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-            aria-label={panelOpen ? "收起当前上下文" : "打开当前上下文"}
-            aria-expanded={panelOpen}
+            aria-label={contextPanelOpen ? "收起当前上下文" : "打开当前上下文"}
+            aria-expanded={contextPanelOpen}
           >
-            {panelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+            {contextPanelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
             <span className="hidden xl:inline">青砚上下文</span>
           </button>
         ) : null}
