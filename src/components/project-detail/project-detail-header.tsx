@@ -5,13 +5,6 @@ import {
   FolderKanban,
   Users,
   FileText,
-  BookOpen,
-  MessageSquare,
-  Bot,
-  Wrench,
-  Star,
-  BarChart3,
-  Tag,
   Calendar,
   Clock,
   TrendingUp,
@@ -45,16 +38,9 @@ interface ProjectDetail {
 
 interface Props {
   project: ProjectDetail;
-  canManage: boolean;
-  /** 仅平台管理员可见：Prompt / Agent / 工具等开发者入口 */
-  showDevTools?: boolean;
 }
 
-export function ProjectDetailHeader({
-  project,
-  canManage,
-  showDevTools = false,
-}: Props) {
+export function ProjectDetailHeader({ project }: Props) {
   const id = project.id;
 
   return (
@@ -218,30 +204,6 @@ export function ProjectDetailHeader({
             </div>
           )}
 
-          {/* 开发者工具：仅平台管理员可见（Prompt / Agent 等内部配置） */}
-          {showDevTools && canManage && (
-            <div className="mt-4">
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted">开发者工具</p>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {([
-                  { href: `/projects/${id}/prompts`, icon: FileText, label: "Prompt 管理" },
-                  { href: `/projects/${id}/knowledge-bases`, icon: BookOpen, label: "知识库" },
-                  { href: `/projects/${id}/conversations`, icon: MessageSquare, label: "会话管理" },
-                  { href: `/projects/${id}/agents`, icon: Bot, label: "Agent 管理" },
-                  { href: `/projects/${id}/tools`, icon: Wrench, label: "工具注册" },
-                  { href: `/projects/${id}/feedbacks`, icon: Star, label: "评估反馈" },
-                  { href: `/projects/${id}/quality`, icon: BarChart3, label: "质量概览" },
-                  { href: `/projects/${id}/feedback-tags`, icon: Tag, label: "评估标签" },
-                ] as const).map(({ href, icon: Icon, label }) => (
-                  <Link key={href} href={href}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-background/80"
-                  >
-                    <Icon size={12} /> {label}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

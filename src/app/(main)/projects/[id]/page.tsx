@@ -477,11 +477,7 @@ function ProjectDetailContent() {
         <ArrowLeft size={14} /> 项目列表
       </button>
 
-      <ProjectDetailHeader
-        project={project}
-        canManage={canManage}
-        showDevTools={isPlatformAdmin}
-      />
+      <ProjectDetailHeader project={project} />
 
       <ProjectImportBanner projectId={id} onFinished={load} />
       <AutoAiPanelsRunner projectId={id} />
