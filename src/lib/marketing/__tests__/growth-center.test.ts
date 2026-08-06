@@ -1,5 +1,10 @@
 import { validateAuditContext, validateBrandTruth } from "../brand-validation";
-import { calculateGrowthExecution, calculateMarketPresence } from "../dashboard";
+import {
+  buildMarketingDecisionQueue,
+  buildMarketingFunnel,
+  calculateGrowthExecution,
+  calculateMarketPresence,
+} from "../dashboard";
 import { build30DayPlan } from "../plan";
 import { canEditMarketingBrandProfile } from "../access-policy";
 
@@ -33,6 +38,61 @@ expect(validateAuditContext(valid.value, { geography: "Toronto", industry: "wind
 expect(calculateMarketPresence([{ dimension: "SEO", score: 70 }, { dimension: "SOCIAL", score: 30 }]) === 50, "市场存在度只聚合已有维度");
 expect(calculateMarketPresence([]) === null, "无体检时不伪造市场存在度");
 expect(calculateGrowthExecution({ published: 4, experiments: 1, qualifiedLeads: 2, wins: 1, pendingReview: 0 }) === 30, "增长执行力按执行结果计算");
+
+const funnel = buildMarketingFunnel({
+  impressions: 1000,
+  clicks: 100,
+  leads: 20,
+  qualifiedLeads: 10,
+  appointments: 5,
+  quotes: 2,
+  wins: 1,
+  spend: 100,
+  revenue: 1000,
+});
+expect(funnel.bottleneck?.from === "展示" && funnel.bottleneck.to === "点击", "漏斗识别最低转化环节");
+expect(funnel.economics.costPerLead === 5, "漏斗计算单条线索成本");
+expect(funnel.economics.costPerQualifiedLead === 10, "漏斗计算有效线索成本");
+expect(funnel.economics.costPerWin === 100 && funnel.economics.roas === 10, "漏斗计算成交成本与 ROAS");
+expect(!funnel.inconsistent, "顺序递减的漏斗数据口径一致");
+
+const inconsistentFunnel = buildMarketingFunnel({
+  impressions: 0,
+  clicks: 0,
+  leads: 5,
+  qualifiedLeads: 10,
+  appointments: 0,
+  quotes: 0,
+  wins: 0,
+  spend: 0,
+  revenue: 0,
+});
+expect(inconsistentFunnel.inconsistent, "下游高于上游时提示数据口径不一致");
+
+const decisions = buildMarketingDecisionQueue({
+  hasValidProfile: false,
+  metricSnapshotCount: 0,
+  unverifiedSnapshotCount: 0,
+  activeCampaigns: 0,
+  campaignsAwaitingApproval: 0,
+  runningExperiments: 0,
+  pendingApprovals: 0,
+  funnel,
+});
+expect(decisions.length === 3, "本周决策最多返回三项");
+expect(decisions.map((row) => row.id).join(",") === "brand-truth,measurement,campaign", "决策队列优先处理事实、数据和可归因活动");
+
+const awaitingCampaignDecisions = buildMarketingDecisionQueue({
+  hasValidProfile: true,
+  metricSnapshotCount: 0,
+  unverifiedSnapshotCount: 0,
+  activeCampaigns: 0,
+  campaignsAwaitingApproval: 1,
+  runningExperiments: 0,
+  pendingApprovals: 1,
+  funnel,
+});
+expect(!awaitingCampaignDecisions.some((row) => row.id === "campaign"), "活动待审批时不重复建议新建活动");
 
 const plan = build30DayPlan([
   { id: "f1", dimension: "WEBSITE", severity: "critical", title: "压缩首页视频" },

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, ClipboardList, FlaskConical, Megaphone, RefreshCw, Target, Users, Workflow } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, BarChart3, BrainCircuit, CheckCircle2, CircleDollarSign, ClipboardList, Database, FlaskConical, Megaphone, RefreshCw, Target, Users, Workflow } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
@@ -17,11 +17,34 @@ interface DashboardData {
   campaigns: Array<{ id: string; name: string; status: string; objective: string }>;
   pendingTeamApprovals: Array<{ id: string; title: string; preview: string; createdAt: string; expiresAt: string; requester: { id: string; name: string }; approver: { id: string; name: string } | null; canApprove: boolean }>;
   plan: { id: string; name: string; status: string; items: Array<{ id: string; title: string; dueDate: string; priority: string; status: string; taskId?: string | null }> } | null;
+  funnel: {
+    stages: Array<{ key: string; label: string; value: number; conversionRate: number | null }>;
+    bottleneck: { from: string; to: string; rate: number } | null;
+    inconsistent: boolean;
+    economics: { spend: number; revenue: number; costPerLead: number | null; costPerQualifiedLead: number | null; costPerWin: number | null; roas: number | null };
+  };
+  measurement: { snapshotCount: number; unverifiedSnapshotCount: number; channelAccountCount: number; connectedChannelAccountCount: number; latestDataAt: string | null; latestSyncAt: string | null };
+  recommendations: Array<{ id: string; priority: "urgent" | "high" | "medium"; title: string; reason: string; href: string; action: string }>;
 }
 
 function Stat({ label, value, icon: Icon, suffix = "" }: { label: string; value: string | number; icon: typeof Activity; suffix?: string }) {
   return <div className="rounded-xl border border-border bg-card-bg p-4"><div className="flex items-center justify-between text-xs text-muted"><span>{label}</span><Icon size={16} /></div><div className="mt-2 text-2xl font-bold">{value}{suffix}</div></div>;
 }
+
+function formatCad(value: number | null) {
+  if (value == null) return "待数据";
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+const PRIORITY_STYLE = {
+  urgent: "border-red-300 bg-red-50 text-red-950",
+  high: "border-amber-300 bg-amber-50 text-amber-950",
+  medium: "border-blue-200 bg-blue-50 text-blue-950",
+} as const;
 
 export default function GrowthCenterPage() {
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
@@ -148,6 +171,72 @@ export default function GrowthCenterPage() {
     {data && !data.profile && <Link href="/operations/growth/brand" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><AlertTriangle size={20} /><span><strong>先建立企业事实中心</strong><br/><span className="text-sm">确认地域、行业、产品和竞争对手后，系统才允许营销检测。</span></span></Link>}
     {data?.profile && data.profile.validationStatus !== "valid" && <Link href="/operations/growth/brand" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><AlertTriangle size={20} /><span>企业事实校验得分 {data.profile.validationScore}/100，仍需补充后才能运行体检。</span></Link>}
     {data && <>
+      <section className="rounded-xl border border-border bg-card-bg p-4 sm:p-5">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">Decision first</p>
+            <h2 className="mt-1 text-lg font-semibold">本周营销决策</h2>
+            <p className="mt-1 text-sm text-muted">系统只保留最需要处理的三件事，不会自动发布或调整预算。</p>
+          </div>
+          <Link href="/marketing/employee" className="text-sm font-medium text-accent">交给营销数字员工分析 →</Link>
+        </div>
+        {data.recommendations.length === 0 ? (
+          <div className="mt-4 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            <CheckCircle2 size={18} /> 当前没有关键阻塞，继续观察实验和成交质量。
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {data.recommendations.map((item, index) => (
+              <Link key={item.id} href={item.href} className={`group rounded-xl border p-4 transition hover:-translate-y-0.5 hover:shadow-sm ${PRIORITY_STYLE[item.priority]}`}>
+                <div className="flex items-center justify-between gap-3 text-xs font-medium">
+                  <span>优先级 {index + 1}</span>
+                  <ArrowRight size={15} className="transition group-hover:translate-x-0.5" />
+                </div>
+                <h3 className="mt-3 font-semibold">{item.title}</h3>
+                <p className="mt-1 text-sm leading-6 opacity-80">{item.reason}</p>
+                <p className="mt-3 text-xs font-semibold">{item.action} →</p>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-border bg-card-bg p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">从曝光到成交</h2>
+            <p className="mt-1 text-xs text-muted">本月渠道数据与已归因 CRM 商机合并视图</p>
+          </div>
+          <Link href="/operations/growth/metrics" className="inline-flex items-center gap-1 text-sm text-accent"><Database size={14}/>管理数据口径</Link>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+          {data.funnel.stages.map((stage, index) => (
+            <div key={stage.key} className="relative rounded-lg bg-background p-3">
+              <div className="text-xs text-muted">{stage.label}</div>
+              <div className="mt-1 text-xl font-bold">{stage.value.toLocaleString()}</div>
+              <div className="mt-1 min-h-4 text-[11px] text-muted">
+                {index === 0 ? "漏斗起点" : stage.conversionRate == null ? "待上游数据" : `上一步转化 ${stage.conversionRate}%`}
+              </div>
+            </div>
+          ))}
+        </div>
+        {data.funnel.inconsistent && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">部分下游数量高于上游，说明渠道与 CRM 口径尚未完全对齐；在扩大预算前请先核对数据。</p>
+        )}
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Stat label="单条线索成本" value={formatCad(data.funnel.economics.costPerLead)} icon={CircleDollarSign} />
+          <Stat label="有效线索成本" value={formatCad(data.funnel.economics.costPerQualifiedLead)} icon={CircleDollarSign} />
+          <Stat label="单次成交成本" value={formatCad(data.funnel.economics.costPerWin)} icon={CircleDollarSign} />
+          <Stat label="ROAS" value={data.funnel.economics.roas == null ? "待数据" : `${data.funnel.economics.roas.toFixed(2)}×`} icon={BarChart3} />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+          <span>本月数据 {data.measurement.snapshotCount} 条</span>
+          <span>未验证 {data.measurement.unverifiedSnapshotCount} 条</span>
+          <span>渠道账号 {data.measurement.connectedChannelAccountCount}/{data.measurement.channelAccountCount} 已连接</span>
+          <span>最近数据：{data.measurement.latestDataAt ? new Date(data.measurement.latestDataAt).toLocaleDateString("zh-CN") : "暂无"}</span>
+        </div>
+      </section>
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
         <Stat label="市场存在度" value={data.summary.marketPresence ?? "待体检"} icon={BarChart3} suffix={data.summary.marketPresence == null ? "" : "/100"} />
         <Stat label="增长执行力" value={data.summary.growthExecution} icon={Activity} suffix="/100" />
