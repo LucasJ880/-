@@ -12,6 +12,7 @@ import { bidPhaseLabel, goDecisionLabel } from "@/lib/bid-workflow/labels";
 import { ChinaSupplierBriefPanel } from "./china-supplier-brief-panel";
 import { ModuleDataView } from "./module-data-view";
 import { StartIntelligencePanel } from "./start-intelligence-panel";
+import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 
 type Module = {
   id: string;
@@ -235,6 +236,8 @@ export function IntelligenceRoomClient({
         </p>
       )}
       <ChinaSupplierBriefPanel projectId={projectId} />
+
+      <TenderAnalysisPanel projectId={projectId} />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">30 秒看懂项目</h2>
