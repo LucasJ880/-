@@ -80,7 +80,11 @@ export async function syncSalesAutoActions(
     const opportunityIds = candidates.map((candidate) => candidate.opportunityId);
     const opportunities = opportunityIds.length
       ? await db.salesOpportunity.findMany({
-          where: { orgId, id: { in: opportunityIds } },
+          where: {
+            orgId,
+            id: { in: opportunityIds },
+            customer: { archivedAt: null },
+          },
           select: { id: true, customerId: true, assignedToId: true, createdById: true },
         })
       : [];

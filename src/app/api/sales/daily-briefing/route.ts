@@ -25,6 +25,19 @@ import {
   type SalesBriefing,
 } from "@/lib/sales/daily-briefing";
 
+function cachedBriefingCustomerIds(briefing: SalesBriefing): string[] {
+  const ids = new Set<string>();
+  for (const item of briefing.urgentItems) {
+    const action = item.action;
+    if (!action || typeof action !== "object" || Array.isArray(action)) continue;
+    const payload = (action as { payload?: unknown }).payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const customerId = (payload as { customerId?: unknown }).customerId;
+    if (typeof customerId === "string" && customerId) ids.add(customerId);
+  }
+  return [...ids];
+}
+
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
   if (!orgRes.ok) return orgRes.response;
@@ -43,7 +56,19 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const cachedBriefing = parseCachedSalesBriefing(cached?.metadata ?? null);
   if (cachedBriefing) {
-    return NextResponse.json({ briefing: cachedBriefing, cached: true });
+    const customerIds = cachedBriefingCustomerIds(cachedBriefing);
+    const activeCustomerCount = customerIds.length
+      ? await db.salesCustomer.count({
+          where: {
+            id: { in: customerIds },
+            orgId: orgRes.orgId,
+            archivedAt: null,
+          },
+        })
+      : 0;
+    if (activeCustomerCount === customerIds.length) {
+      return NextResponse.json({ briefing: cachedBriefing, cached: true });
+    }
   }
 
   const briefing = await generateBriefing(user.id, orgRes.orgId, ownOnly);

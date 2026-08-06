@@ -24,6 +24,8 @@ npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
+npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
+npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts
 npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts
 npx tsx src/lib/bid-workflow/__tests__/schema-drift.test.ts
 npx tsx src/lib/bid-workflow/__tests__/supplier-link-idempotency.test.ts

@@ -50,6 +50,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const status = searchParams.get("status") ?? "active";
   const baseWhere: Prisma.SalesActionWhereInput = {
     orgId: orgRes.orgId,
+    customer: { archivedAt: null },
     ...(scope.ownOnly ? ownScope(user.id) : {}),
     ...(customerId ? { customerId } : {}),
     ...(opportunityId ? { opportunityId } : {}),

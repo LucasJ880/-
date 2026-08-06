@@ -18,6 +18,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
 import { cn } from "@/lib/utils";
 
 interface AlertItem {
@@ -49,18 +51,21 @@ interface DigitalEmployeeWorkbenchProps {
 
 const ROLE_ACTIONS = [
   {
+    id: "sales",
     title: "销售数字员工",
     description: "整理客户跟进、商机风险与下一步动作",
     prompt: "请根据当前 CRM 数据，告诉我今天最需要跟进的客户和下一步动作",
     icon: Users,
   },
   {
+    id: "quote",
     title: "报价数字员工",
     description: "检查报价风险、缺失信息与跟进节奏",
     prompt: "请检查当前销售 Pipeline 中的报价风险，并按优先级给出处理建议",
     icon: FileText,
   },
   {
+    id: "marketing",
     title: "营销增长数字员工",
     description: "把市场情报转成选题、实验和可审批草稿",
     prompt: "请生成本周营销简报，并给出一个最值得验证的增长实验",
@@ -78,6 +83,7 @@ export function DigitalEmployeeWorkbench({
   orgReady,
   onPrompt,
 }: DigitalEmployeeWorkbenchProps) {
+  const { user } = useCurrentUser();
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [pending, setPending] = useState<PendingAction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -125,6 +131,15 @@ export function DigitalEmployeeWorkbench({
   const highPriorityCount = alerts.filter(
     (item) => item.severity === "urgent",
   ).length;
+  const visibleRoleActions = useMemo(
+    () =>
+      ROLE_ACTIONS.filter(
+        (action) =>
+          action.id !== "marketing" ||
+          canUseMarketingDigitalEmployee(user?.role),
+      ),
+    [user?.role],
+  );
   const metrics: Array<{ label: string; value: number; icon: LucideIcon }> = [
     { label: "高优先事项", value: highPriorityCount, icon: AlertTriangle },
     { label: "待我确认", value: pending.length, icon: ClipboardCheck },
@@ -231,7 +246,7 @@ export function DigitalEmployeeWorkbench({
           <h3 className="text-sm font-semibold text-foreground">快捷工作流</h3>
           <p className="mt-0.5 text-xs text-muted">选择岗位目标，数字员工会带入当前组织上下文</p>
           <div className="mt-3 space-y-2">
-            {ROLE_ACTIONS.map((action) => {
+            {visibleRoleActions.map((action) => {
               const Icon = action.icon;
               return (
                 <button
