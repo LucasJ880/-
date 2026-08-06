@@ -15,20 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  DEPOSIT_PAYMENT_METHOD_OPTIONS,
+  type DepositPaymentMethod,
+} from "@/lib/sales/deposit-payment-methods";
+import {
   Select as ShadSelect,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-type PaymentMethod = "cash" | "check" | "etransfer";
-
-const METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
-  { value: "cash", label: "现金 Cash" },
-  { value: "check", label: "支票 Check" },
-  { value: "etransfer", label: "Email Transfer" },
-];
 
 export function RecordDepositDialog({
   open,
@@ -70,7 +66,7 @@ export function RecordDepositDialog({
     agreedDepositAmount >= 0;
 
   const [amount, setAmount] = useState<string>("");
-  const [method, setMethod] = useState<PaymentMethod>("etransfer");
+  const [method, setMethod] = useState<DepositPaymentMethod>("cash");
   const [note, setNote] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +74,7 @@ export function RecordDepositDialog({
   useEffect(() => {
     if (open) {
       setAmount(defaultDeposit.toFixed(2));
-      setMethod("etransfer");
+      setMethod("cash");
       setNote("");
       setError(null);
     }
@@ -189,12 +185,16 @@ export function RecordDepositDialog({
 
           <div className="space-y-2">
             <Label>支付方式</Label>
-            <ShadSelect value={method} onValueChange={(v) => setMethod(v as PaymentMethod)} disabled={saving}>
-              <SelectTrigger>
+            <ShadSelect
+              value={method}
+              onValueChange={(v) => setMethod(v as DepositPaymentMethod)}
+              disabled={saving}
+            >
+              <SelectTrigger aria-label="支付方式">
                 <SelectValue placeholder="请选择支付方式" />
               </SelectTrigger>
               <SelectContent>
-                {METHOD_OPTIONS.map((opt) => (
+                {DEPOSIT_PAYMENT_METHOD_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>

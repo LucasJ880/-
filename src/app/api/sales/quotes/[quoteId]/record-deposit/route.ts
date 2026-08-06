@@ -2,20 +2,19 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import { isAcceptedDepositPaymentMethod } from "@/lib/sales/deposit-payment-methods";
 
 /**
  * POST /api/sales/quotes/[quoteId]/record-deposit
  *
  * 客户签字后，销售线下收到定金时补录收款信息：
  *   - amount: 金额（>= 0，允许 0 表示免收）
- *   - method: cash | check | etransfer
+ *   - method: cash | visa | check | finance（兼容旧客户端 etransfer）
  *   - note: 可选备注
  *
  * 权限：quote 所属销售本人 或 super_admin
  * 只能在 status=signed 或 accepted（历史）时补录，其他状态拒绝。
  */
-
-const ALLOWED_METHODS = new Set(["cash", "check", "etransfer"]);
 
 type Body = {
   amount?: number;
@@ -39,9 +38,9 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   const method = (body.method || "").trim().toLowerCase();
-  if (!ALLOWED_METHODS.has(method)) {
+  if (!isAcceptedDepositPaymentMethod(method)) {
     return NextResponse.json(
-      { error: "支付方式必须是 cash / check / etransfer 之一" },
+      { error: "支付方式必须是 Cash、Visa、支票或 Finance 之一" },
       { status: 400 },
     );
   }

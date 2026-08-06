@@ -28,6 +28,7 @@ import {
   salesOrgCreateBlockedHint,
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
+import { getDepositPaymentMethodLabel } from "@/lib/sales/deposit-payment-methods";
 
 interface QuoteItem {
   id: string;
@@ -51,12 +52,6 @@ interface QuoteItem {
   agreedDepositAmount?: number | null;
   agreedBalanceAmount?: number | null;
 }
-
-const DEPOSIT_METHOD_LABEL: Record<string, string> = {
-  cash: "现金",
-  check: "支票",
-  etransfer: "E-Transfer",
-};
 
 function isSignedLike(status: string): boolean {
   return status === "signed" || status === "accepted";
@@ -328,7 +323,7 @@ function SalesQuotesPageInner() {
                           <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                             <CheckCircle size={10} />
                             定金 ${q.depositAmount.toFixed(0)}
-                            {q.depositMethod ? ` · ${DEPOSIT_METHOD_LABEL[q.depositMethod] || q.depositMethod}` : ""}
+                            {q.depositMethod ? ` · ${getDepositPaymentMethodLabel(q.depositMethod)}` : ""}
                           </span>
                         )}
                       </div>
