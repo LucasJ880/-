@@ -477,6 +477,9 @@ export function TenderAnalysisPanel({ projectId }: Props) {
                           查看来源
                           {f.sources[0].locationLabel
                             ? `（${f.sources[0].locationLabel}）`
+                            : f.sources[0].documentTitle &&
+                                f.sources[0].pageNumber != null
+                              ? `（${f.sources[0].documentTitle} · p.${f.sources[0].pageNumber}）`
                             : f.sources[0].pageNumber != null
                               ? `（p.${f.sources[0].pageNumber}）`
                               : ""}
@@ -727,9 +730,13 @@ export function TenderAnalysisPanel({ projectId }: Props) {
                 <span className="text-xs text-[var(--muted)]">
                   {s.locationLabel
                     ? s.locationLabel
-                    : s.pageNumber != null
-                      ? `第 ${s.pageNumber} 页`
-                      : "页码未知"}
+                    : s.documentTitle && s.pageNumber != null
+                      ? `${s.documentTitle} · p.${s.pageNumber}`
+                      : s.documentTitle
+                        ? s.documentTitle
+                        : s.pageNumber != null
+                          ? `第 ${s.pageNumber} 页`
+                          : "页码未知"}
                   {s.sectionLabel ? ` · ${s.sectionLabel}` : ""}
                 </span>
                 <p className="mt-1 line-clamp-2">{s.snippet}</p>
