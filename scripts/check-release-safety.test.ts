@@ -43,8 +43,9 @@ ok(
 ok(
   typeof scripts.build === "string" &&
     /\bprisma\s+generate\b/.test(scripts.build) &&
-    /\bnext\s+build\b/.test(scripts.build),
-  "build 仅 generate + next build",
+    /\bnext\s+build\b/.test(scripts.build) &&
+    /\bcheck-preview-db-isolation\b/.test(scripts.build),
+  "build = generate + preview-db-isolation + next build",
 );
 ok(
   typeof scripts.qa === "string" &&

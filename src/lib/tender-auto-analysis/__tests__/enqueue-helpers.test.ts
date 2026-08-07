@@ -64,7 +64,14 @@ ok(!isPdfFileType("docx"), "docx 非 pdf");
 
 ok(detectDocumentRole("Addendum 1") === "ADDENDUM", "addendum 角色");
 ok(detectDocumentRole("Main RFP") === "PRIMARY", "主文件 PRIMARY");
-ok(detectRunKind("ADDENDUM") === "INCREMENTAL", "ADDENDUM → INCREMENTAL");
+ok(
+  detectRunKind("ADDENDUM") === "FULL",
+  "文件名 ADDENDUM  alone 不再自动 INCREMENTAL",
+);
+ok(
+  detectRunKind("ADDENDUM", { explicitAddendum: true }) === "INCREMENTAL",
+  "显式 Addendum → INCREMENTAL",
+);
 ok(detectRunKind("PRIMARY") === "FULL", "PRIMARY → FULL");
 
 {

@@ -48,19 +48,35 @@ export function serializeRunListItem(run: {
   };
 }
 
-export function serializeSourceRef(s: {
-  id: string;
-  documentId: string;
-  pageNumber: number | null;
-  sectionLabel: string | null;
-  originalTextSnippet: string;
-  confidence: string;
-  extractionMethod: string;
-}) {
+export function serializeSourceRef(
+  s: {
+    id: string;
+    documentId: string;
+    pageNumber: number | null;
+    sectionLabel: string | null;
+    originalTextSnippet: string;
+    confidence: string;
+    extractionMethod: string;
+  },
+  opts?: { documentTitleById?: Map<string, string> },
+) {
+  const title =
+    opts?.documentTitleById?.get(s.documentId)?.trim() ||
+    null;
+  const pageLabel =
+    s.pageNumber != null ? `p.${s.pageNumber}` : null;
+  const locationLabel =
+    title && pageLabel
+      ? `${title} · ${pageLabel}`
+      : title
+        ? title
+        : pageLabel;
   return {
     id: s.id,
     documentId: s.documentId,
+    documentTitle: title,
     pageNumber: s.pageNumber,
+    locationLabel,
     sectionLabel: s.sectionLabel,
     snippet: s.originalTextSnippet.slice(0, 500),
     confidence: s.confidence,
@@ -101,23 +117,26 @@ export function serializeSection(sec: {
   };
 }
 
-export function serializeFact(f: {
-  id: string;
-  statementKind: string;
-  contentZh: string;
-  contentOriginal: string | null;
-  confidence: string;
-  manuallyConfirmed: boolean;
-  sourceRefs?: Array<{
+export function serializeFact(
+  f: {
     id: string;
-    documentId: string;
-    pageNumber: number | null;
-    sectionLabel: string | null;
-    originalTextSnippet: string;
+    statementKind: string;
+    contentZh: string;
+    contentOriginal: string | null;
     confidence: string;
-    extractionMethod: string;
-  }>;
-}) {
+    manuallyConfirmed: boolean;
+    sourceRefs?: Array<{
+      id: string;
+      documentId: string;
+      pageNumber: number | null;
+      sectionLabel: string | null;
+      originalTextSnippet: string;
+      confidence: string;
+      extractionMethod: string;
+    }>;
+  },
+  opts?: { documentTitleById?: Map<string, string> },
+) {
   return {
     id: f.id,
     statementKind: f.statementKind,
@@ -126,31 +145,34 @@ export function serializeFact(f: {
     contentOriginal: f.contentOriginal,
     confidence: f.confidence,
     manuallyConfirmed: f.manuallyConfirmed,
-    sources: (f.sourceRefs || []).map(serializeSourceRef),
+    sources: (f.sourceRefs || []).map((s) => serializeSourceRef(s, opts)),
   };
 }
 
-export function serializeRequirement(r: {
-  id: string;
-  requirementCode: string;
-  category: string;
-  originalRequirement: string;
-  chineseTranslation: string;
-  mandatory: boolean;
-  evidenceRequired: boolean;
-  complianceStatus: string;
-  reviewStatus: string;
-  sourcePage: number | null;
-  sourceRefs?: Array<{
+export function serializeRequirement(
+  r: {
     id: string;
-    documentId: string;
-    pageNumber: number | null;
-    sectionLabel: string | null;
-    originalTextSnippet: string;
-    confidence: string;
-    extractionMethod: string;
-  }>;
-}) {
+    requirementCode: string;
+    category: string;
+    originalRequirement: string;
+    chineseTranslation: string;
+    mandatory: boolean;
+    evidenceRequired: boolean;
+    complianceStatus: string;
+    reviewStatus: string;
+    sourcePage: number | null;
+    sourceRefs?: Array<{
+      id: string;
+      documentId: string;
+      pageNumber: number | null;
+      sectionLabel: string | null;
+      originalTextSnippet: string;
+      confidence: string;
+      extractionMethod: string;
+    }>;
+  },
+  opts?: { documentTitleById?: Map<string, string> },
+) {
   return {
     id: r.id,
     requirementCode: r.requirementCode,
@@ -163,7 +185,7 @@ export function serializeRequirement(r: {
     reviewStatus: r.reviewStatus,
     reviewStatusLabel: requirementReviewLabel(r.reviewStatus),
     sourcePage: r.sourcePage,
-    sources: (r.sourceRefs || []).map(serializeSourceRef),
+    sources: (r.sourceRefs || []).map((s) => serializeSourceRef(s, opts)),
   };
 }
 

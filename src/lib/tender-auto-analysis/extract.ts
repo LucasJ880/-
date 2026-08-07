@@ -232,6 +232,7 @@ export {
 export {
   extractRequirementsFromPages,
   looksLikeRcmpBackpackRfp,
+  dedupeRequirementCandidates,
 } from "./extract/requirements";
 export {
   parseClosingFromText,

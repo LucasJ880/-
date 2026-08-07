@@ -27,10 +27,20 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 type Source = {
   id: string;
   documentId: string;
+  documentTitle?: string | null;
   pageNumber: number | null;
+  locationLabel?: string | null;
   sectionLabel: string | null;
   snippet: string;
   methodLabel?: string;
+};
+
+type PackageDocument = {
+  documentId: string;
+  role: string;
+  roleLabel: string;
+  title: string;
+  pageCount: number | null;
 };
 
 type ReportPayload = {
@@ -44,6 +54,7 @@ type ReportPayload = {
     pendingChangeCount: number;
     approvedAt: string | null;
   };
+  documents?: PackageDocument[];
   summary: {
     text: string | null;
     recommendation: string | null;
@@ -184,21 +195,52 @@ export function TenderAnalysisPanel({ projectId }: Props) {
     }
   };
 
+  const enqueuePackage = async (action: "enqueue" | "reanalyze" = "enqueue") => {
+    setBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/tender-analysis/package`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "操作失败");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!data) {
     return (
       <section
         id="tender-analysis"
-        className="rounded-xl border border-[var(--border)] p-4 space-y-2"
+        className="rounded-xl border border-[var(--border)] p-4 space-y-3"
       >
         <h2 className="text-lg font-semibold">招标文件自动分析</h2>
         <p className="text-sm text-[var(--muted)]">
           {error
             ? error
-            : "暂无分析记录。上传 PDF 招标文件后将自动开始（需已进入投标调查或项目域为投标）。"}
+            : "暂无分析记录。可对当前项目已上传的投标 PDF 包发起分析（无需重新上传）。"}
         </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void enqueuePackage("enqueue")}
+          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs text-white disabled:opacity-50"
+        >
+          分析投标文件
+        </button>
       </section>
     );
   }
+
+  const packageDocs = data.documents ?? [];
 
   const riskFacts = data.facts.filter(
     (f) =>
@@ -218,6 +260,19 @@ export function TenderAnalysisPanel({ projectId }: Props) {
               ? ` · 建议倾向：${data.summary.recommendation}`
               : ""}
           </p>
+          {packageDocs.length > 0 ? (
+            <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
+              <p>来源文件：{packageDocs.length}</p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {packageDocs.map((d) => (
+                  <li key={d.documentId}>
+                    {d.title}
+                    {d.roleLabel ? ` · ${d.roleLabel}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {data.run.status === "REVIEW_REQUIRED" ? (
@@ -239,14 +294,10 @@ export function TenderAnalysisPanel({ projectId }: Props) {
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
-                void post(
-                  `/api/projects/${projectId}/tender-analysis/runs/${data.run.id}/reanalyze`,
-                )
-              }
+              onClick={() => void enqueuePackage("reanalyze")}
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs disabled:opacity-50"
             >
-              重新分析
+              重新分析当前投标文件包
             </button>
           ) : null}
         </div>
@@ -424,9 +475,11 @@ export function TenderAnalysisPanel({ projectId }: Props) {
                           onClick={() => setSource(f.sources[0])}
                         >
                           查看来源
-                          {f.sources[0].pageNumber != null
-                            ? `（p.${f.sources[0].pageNumber}）`
-                            : ""}
+                          {f.sources[0].locationLabel
+                            ? `（${f.sources[0].locationLabel}）`
+                            : f.sources[0].pageNumber != null
+                              ? `（p.${f.sources[0].pageNumber}）`
+                              : ""}
                         </button>
                       ) : null}
                       {!f.manuallyConfirmed &&
@@ -672,7 +725,11 @@ export function TenderAnalysisPanel({ projectId }: Props) {
                 className="block w-full text-left rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-stone-50"
               >
                 <span className="text-xs text-[var(--muted)]">
-                  {s.pageNumber != null ? `第 ${s.pageNumber} 页` : "页码未知"}
+                  {s.locationLabel
+                    ? s.locationLabel
+                    : s.pageNumber != null
+                      ? `第 ${s.pageNumber} 页`
+                      : "页码未知"}
                   {s.sectionLabel ? ` · ${s.sectionLabel}` : ""}
                 </span>
                 <p className="mt-1 line-clamp-2">{s.snippet}</p>

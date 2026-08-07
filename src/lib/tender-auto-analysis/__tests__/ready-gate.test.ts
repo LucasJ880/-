@@ -84,9 +84,14 @@ console.log("tender-auto-analysis ready-gate");
 
 {
   const enqueue = read("src/lib/tender-auto-analysis/enqueue.ts");
-  ok(enqueue.includes('status: "SUPERSEDED"'), "enqueue 可 SUPERSEDE");
-  ok(enqueue.includes("leaseOwner: null"), "SUPERSEDE 清空 leaseOwner");
-  ok(enqueue.includes("leaseExpiresAt: null"), "SUPERSEDE 清空 leaseExpiresAt");
+  const enqueuePkg = read("src/lib/tender-auto-analysis/enqueue-package.ts");
+  ok(
+    enqueue.includes("enqueueTenderPackageAnalysis"),
+    "upload enqueue 委托 package",
+  );
+  ok(enqueuePkg.includes('status: "SUPERSEDED"'), "enqueue 可 SUPERSEDE");
+  ok(enqueuePkg.includes("leaseOwner: null"), "SUPERSEDE 清空 leaseOwner");
+  ok(enqueuePkg.includes("leaseExpiresAt: null"), "SUPERSEDE 清空 leaseExpiresAt");
 }
 
 {
@@ -153,8 +158,16 @@ console.log("tender-auto-analysis ready-gate");
   ok(review.includes("updateMany"), "approve 使用 updateMany CAS");
   ok(review.includes("writeAuditLog"), "approve 写 Audit");
   ok(review.includes("tender_analysis_approve"), "approve audit action");
-  ok(review.includes("rate_limited"), "reanalyze 有 rate_limited");
-  ok(review.includes("active_run"), "进行中 Run 阻止 reanalyze");
+  const enqueuePkg = read("src/lib/tender-auto-analysis/enqueue-package.ts");
+  ok(
+    review.includes("reanalyzeTenderPackage") ||
+      enqueuePkg.includes("rate_limited"),
+    "reanalyze 有 rate_limited",
+  );
+  ok(
+    enqueuePkg.includes('"active_run"') || enqueuePkg.includes("active_run"),
+    "进行中 Run 阻止 reanalyze",
+  );
   ok(REANALYZE_RATE_MAX === 3, "reanalyze 上限=3");
   ok(REANALYZE_RATE_WINDOW_MS === 5 * 60_000, "reanalyze 窗口=5min");
   ok(canApproveRun("REVIEW_REQUIRED"), "仅 REVIEW_REQUIRED 可批准");

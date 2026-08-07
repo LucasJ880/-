@@ -3,7 +3,9 @@
 type Source = {
   id: string;
   documentId: string;
+  documentTitle?: string | null;
   pageNumber: number | null;
+  locationLabel?: string | null;
   sectionLabel: string | null;
   snippet: string;
   methodLabel?: string;
@@ -33,9 +35,11 @@ export function SourceSnippetDialog({ open, source, onClose }: Props) {
           <div>
             <h3 className="text-sm font-semibold">来源摘录</h3>
             <p className="text-xs text-[var(--muted)] mt-0.5">
-              {source.pageNumber != null
-                ? `第 ${source.pageNumber} 页`
-                : "页码未知"}
+              {source.locationLabel
+                ? source.locationLabel
+                : source.pageNumber != null
+                  ? `第 ${source.pageNumber} 页`
+                  : "页码未知"}
               {source.sectionLabel ? ` · ${source.sectionLabel}` : ""}
               {source.methodLabel ? ` · ${source.methodLabel}` : ""}
             </p>

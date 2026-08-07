@@ -8,6 +8,8 @@ export * from "./gate";
 export * from "./page-parse";
 export * from "./source-verify";
 export * from "./enqueue-helpers";
+export * from "./package";
+export * from "./enqueue-package";
 export * from "./enqueue";
 export * from "./extract";
 export * from "./report";

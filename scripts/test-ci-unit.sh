@@ -15,6 +15,7 @@ echo "  青砚 CI unit subset"
 echo "═══════════════════════════════════════════════════"
 
 npx tsx scripts/check-release-safety.test.ts
+npx tsx scripts/check-preview-db-isolation.test.ts
 npx tsx src/lib/common/__tests__/with-auth-schema-drift.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts

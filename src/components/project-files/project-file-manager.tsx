@@ -296,13 +296,29 @@ export function ProjectFileManager({ projectId, closeDate, onProjectUpdate }: Pr
         }
 
         const ta = data.tenderAnalysis as
-          | { runId?: string; status?: string; enqueued?: boolean }
+          | {
+              runId?: string;
+              status?: string;
+              enqueued?: boolean;
+              suggestion?: string;
+              reason?: string;
+              documentCount?: number;
+            }
           | undefined;
         if (ta?.runId || ta?.status) {
           setTenderSeed({
             runId: ta.runId ?? null,
             status: ta.status ?? null,
           });
+        }
+        if (
+          ta?.suggestion === "mark_as_tender" &&
+          !data.errors?.length &&
+          res.ok
+        ) {
+          setUploadError(
+            "检测到可能为招标文件，是否切换为投标项目？（不会自动修改工作域；请在投标调查中手动开始。）",
+          );
         }
 
         await fetchFiles();
