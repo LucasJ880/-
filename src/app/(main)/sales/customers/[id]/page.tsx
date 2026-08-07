@@ -55,6 +55,17 @@ import {
   withSalesOrgId,
 } from "@/lib/sales/sales-client-org";
 import { OrgSelectBanner } from "@/components/org-select-banner";
+import {
+  WorkspacePageContext,
+  useWorkspaceShell,
+} from "@/components/workspace-shell-context";
+import {
+  CustomerCommandOverview,
+  CustomerContextPanel,
+  deriveCustomerCommandState,
+  type CustomerContextTarget,
+} from "@/components/sales/customer-context-panel";
+import type { SalesActionDto } from "../../sales-action-types";
 
 const CUSTOMER_SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "referral", label: "转介绍" },
@@ -129,6 +140,7 @@ function CustomerDetailPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setPanelOpen } = useWorkspaceShell();
   const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
   const orgCreateBlocked = isSalesOrgCreateBlocked(orgLoading, ambiguous, orgId);
   const { user, loading: userLoading, isSuperAdmin } = useCurrentUser();
@@ -140,6 +152,8 @@ function CustomerDetailPageInner() {
   const [showCreateQuote, setShowCreateQuote] = useState(false);
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
+  const [emailReady, setEmailReady] = useState<boolean | null>(null);
+  const [activeActions, setActiveActions] = useState<SalesActionDto[]>([]);
   useAppScrollLock(!!sendingEmailFor, "customer-send-email-overlay");
   const [deleting, setDeleting] = useState(false);
   const [openingVisualizerFor, setOpeningVisualizerFor] = useState<string | null>(
@@ -171,6 +185,23 @@ function CustomerDetailPageInner() {
     },
   });
 
+  const openCustomerArea = useCallback((target: CustomerContextTarget) => {
+    setPanelOpen(false);
+    if (target === "email") {
+      router.push("/settings/email");
+      return;
+    }
+    if (target === "profile") {
+      setMobileSummaryOpen(true);
+    } else {
+      setActiveTab(target);
+    }
+    window.setTimeout(() => {
+      const selector = target === "profile" ? "#customer-profile" : "#customer-work-tabs";
+      document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }, [router, setPanelOpen]);
+
   const loadCustomer = useCallback(async () => {
     try {
       const res = await apiFetch(`/api/sales/customers/${id}`);
@@ -186,6 +217,23 @@ function CustomerDetailPageInner() {
       setLoading(false);
     }
   }, [id, router]);
+
+  const loadContextSignals = useCallback(async () => {
+    const [emailResult, actionResult] = await Promise.all([
+      apiFetch("/api/sales/email-status")
+        .then(async (response) => response.ok
+          ? response.json() as Promise<{ activeChannel?: "gmail" | "smtp" | null }>
+          : null)
+        .catch(() => null),
+      apiFetch(`/api/sales/actions?status=active&customerId=${encodeURIComponent(id)}`)
+        .then(async (response) => response.ok
+          ? response.json() as Promise<{ actions?: SalesActionDto[] }>
+          : null)
+        .catch(() => null),
+    ]);
+    setEmailReady(emailResult ? Boolean(emailResult.activeChannel) : null);
+    setActiveActions(actionResult?.actions ?? []);
+  }, [id]);
 
   // 视觉方案 sessions（用于在 opp 行 / quote 行挂封面）
   const loadVisualizerSessions = useCallback(async () => {
@@ -204,7 +252,8 @@ function CustomerDetailPageInner() {
   useEffect(() => {
     loadCustomer();
     loadVisualizerSessions();
-  }, [loadCustomer, loadVisualizerSessions]);
+    void loadContextSignals();
+  }, [loadCustomer, loadVisualizerSessions, loadContextSignals]);
 
   useEffect(() => {
     if (searchParams.get("followup") !== "1") return;
@@ -343,6 +392,41 @@ function CustomerDetailPageInner() {
     }
   };
 
+  const customerCommand = useMemo(
+    () => customer
+      ? deriveCustomerCommandState({
+          customer,
+          emailReady,
+          activeActionCount: activeActions.length,
+        })
+      : null,
+    [customer, emailReady, activeActions.length],
+  );
+
+  const workspaceContext = useMemo(
+    () => customer && customerCommand
+      ? {
+          eyebrow: "客户",
+          title: customer.name,
+          summary: `${customerCommand.stageLabel}${activeActions.length > 0 ? ` · ${activeActions.length} 项行动待处理` : ""}`,
+          panelTitle: "青砚 · 客户上下文",
+          panel: (
+            <CustomerContextPanel
+              command={customerCommand}
+              opportunities={customer.opportunities}
+              quotes={customer.quotes}
+              orders={customer.blindsOrders}
+              interactions={customer.interactions}
+              emailReady={emailReady}
+              activeActions={activeActions}
+              onNavigate={openCustomerArea}
+            />
+          ),
+        }
+      : null,
+    [customer, customerCommand, emailReady, activeActions, openCustomerArea],
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -441,6 +525,7 @@ function CustomerDetailPageInner() {
 
   return (
     <div className="space-y-5">
+      {workspaceContext ? <WorkspacePageContext context={workspaceContext} /> : null}
       <div className="flex min-w-0 items-start gap-3">
         <Link
           href="/sales"
@@ -475,6 +560,15 @@ function CustomerDetailPageInner() {
 
       <OrgSelectBanner />
 
+      {customerCommand ? (
+        <CustomerCommandOverview
+          command={customerCommand}
+          activeActionCount={activeActions.length}
+          latestInteraction={customer.interactions[0] ?? null}
+          onNavigate={openCustomerArea}
+        />
+      ) : null}
+
       <CustomerDigitalEmployeePanel
         customer={customer}
         onRecordFollowup={() => setShowAddInteraction(true)}
@@ -483,6 +577,7 @@ function CustomerDetailPageInner() {
           setMobileSummaryOpen(true);
           startBasicEdit();
         }}
+        onActionChanged={() => void loadContextSignals()}
       />
 
       {/* ───────── Mobile summary bar (默认收起) ───────── */}
@@ -544,6 +639,7 @@ function CustomerDetailPageInner() {
 
       {/* 推进建议、基本信息和机会；桌面常显，移动端折叠。 */}
       <div
+        id="customer-profile"
         className={cn(
           "space-y-5",
           !mobileSummaryOpen && "hidden md:block"
@@ -878,7 +974,7 @@ function CustomerDetailPageInner() {
       </div>
       </div>
 
-      <div className="-mx-4 md:mx-0 flex items-center gap-1 overflow-x-auto border-b border-border px-4 md:px-0 scrollbar-hide">
+      <div id="customer-work-tabs" className="-mx-4 scroll-mt-20 md:mx-0 flex items-center gap-1 overflow-x-auto border-b border-border px-4 md:px-0 scrollbar-hide">
         {(
           [
             { key: "timeline" as const, label: "互动时间线", shortLabel: "互动", count: customer.interactions.length },
@@ -1006,6 +1102,7 @@ function CustomerDetailPageInner() {
         onSuccess={() => {
           setShowAddInteraction(false);
           loadCustomer();
+          void loadContextSignals();
         }}
       />
 
@@ -1016,6 +1113,7 @@ function CustomerDetailPageInner() {
         onSuccess={() => {
           setShowImportConvo(false);
           loadCustomer();
+          void loadContextSignals();
         }}
       />
 
@@ -1028,6 +1126,7 @@ function CustomerDetailPageInner() {
           setShowCreateQuote(false);
           setActiveTab("quotes");
           loadCustomer();
+          void loadContextSignals();
         }}
       />
 

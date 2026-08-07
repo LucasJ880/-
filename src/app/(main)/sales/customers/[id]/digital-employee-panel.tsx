@@ -27,11 +27,13 @@ export function CustomerDigitalEmployeePanel({
   onRecordFollowup,
   onCreateQuote,
   onEditProfile,
+  onActionChanged,
 }: {
   customer: CustomerDetail;
   onRecordFollowup: () => void;
   onCreateQuote: () => void;
   onEditProfile: () => void;
+  onActionChanged?: () => void;
 }) {
   const { orgId } = useSalesCurrentOrgId();
   const [activeAction, setActiveAction] = useState<SalesActionDto | null>(null);
@@ -87,6 +89,7 @@ export function CustomerDigitalEmployeePanel({
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "加入行动队列失败");
       setActiveAction(data.action ?? null);
+      onActionChanged?.();
     } catch (error) {
       alert(error instanceof Error ? error.message : "加入行动队列失败");
     } finally {
