@@ -73,10 +73,14 @@ export function checkPreviewDbIsolation(
   const databaseHost = hostOf(input.databaseUrl);
   const directHost = hostOf(input.directUrl);
   const matched: string[] = [];
-  if (databaseHost && databaseHost.includes(prefix)) {
+  if (!databaseHost) {
+    matched.push("DATABASE_URL:missing");
+  } else if (databaseHost.includes(prefix)) {
     matched.push(`DATABASE_URL:${databaseHost}`);
   }
-  if (directHost && directHost.includes(prefix)) {
+  if (!directHost) {
+    matched.push("DIRECT_URL:missing");
+  } else if (directHost.includes(prefix)) {
     matched.push(`DIRECT_URL:${directHost}`);
   }
 

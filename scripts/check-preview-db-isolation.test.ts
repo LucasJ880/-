@@ -56,6 +56,15 @@ ok(
 
 {
   const r = checkPreviewDbIsolation({
+    vercelEnv: "preview",
+    databaseUrl: "",
+    directUrl: "",
+  });
+  ok(!r.ok, "preview 缺少 DATABASE_URL 也 fail closed");
+}
+
+{
+  const r = checkPreviewDbIsolation({
     vercelEnv: "development",
     forceCheck: true,
     databaseUrl: `postgresql://u:p@${PRODUCTION_NEON_HOST_PREFIX}.example/neondb`,
