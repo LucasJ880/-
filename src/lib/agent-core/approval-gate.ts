@@ -146,12 +146,40 @@ export async function handleRequiresApproval(input: {
     };
   }
 
+  // Phase 1.1：审批草稿保留完整执行上下文 correlation（trace/run 树/actor/agent/owner/job/task）
+  const rt = input.ctx.runtimeContext;
+  const correlationEntries = rt
+    ? Object.entries({
+        traceId: rt.traceId,
+        runId: rt.runId,
+        rootRunId: rt.rootRunId,
+        parentRunId: rt.parentRunId,
+        actorType: rt.actor?.type,
+        actorId: rt.actor?.id,
+        agentId: rt.agent?.id,
+        ownerType: rt.owner?.type,
+        ownerId: rt.owner?.id,
+        jobId: rt.jobId,
+        taskId: rt.taskId,
+      }).filter(([, v]) => typeof v === "string" && v)
+    : [];
+  const payload =
+    correlationEntries.length > 0
+      ? {
+          ...mapped.payload,
+          metadata: {
+            ...((mapped.payload.metadata as object) ?? {}),
+            runtimeCorrelation: Object.fromEntries(correlationEntries),
+          },
+        }
+      : mapped.payload;
+
   const create = input.deps?.createDraftFn ?? createDraft;
   return create({
     type: mapped.type,
     title: mapped.title,
     preview: mapped.preview,
-    payload: mapped.payload,
+    payload,
     userId: input.ctx.userId,
     orgId: input.ctx.orgId,
     projectId:
@@ -159,7 +187,8 @@ export async function handleRequiresApproval(input: {
       (typeof input.ctx.args?.projectId === "string"
         ? input.ctx.args.projectId
         : undefined),
-    agentRunId: input.ctx.agentRunId,
+    agentRunId: input.ctx.agentRunId ?? rt?.runId,
+    threadId: rt?.threadId,
     idempotencyKey: mapped.idempotencyKey,
   });
 }

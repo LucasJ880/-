@@ -20,6 +20,10 @@ import { registry, RISK_ORDER } from "./tool-registry";
 import { runPreExecuteGuards } from "./pre-execute-guard";
 import { handleRequiresApproval } from "./approval-gate";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
+import {
+  normalizeRuntimeContext,
+  runtimeContextToTelemetry,
+} from "@/lib/ai/runtime-context";
 import type {
   AgentRunOptions,
   AgentRunResult,
@@ -78,6 +82,7 @@ async function llmCallWithTimeout(
   params: any,
   timeoutMs: number,
   externalSignal?: AbortSignal,
+  telemetry?: Record<string, string | undefined>,
 ): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -99,6 +104,7 @@ async function llmCallWithTimeout(
       elapsedMs: Date.now() - t0,
       source: "agent-core",
       ...usage,
+      ...(telemetry ?? {}),
     });
     return res;
   } catch (err: any) {
@@ -109,6 +115,7 @@ async function llmCallWithTimeout(
       elapsedMs: Date.now() - t0,
       source: "agent-core",
       error: err instanceof Error ? err.message : String(err),
+      ...(telemetry ?? {}),
     });
     if (externalSignal?.aborted) {
       const e = new Error("Client aborted");
@@ -127,6 +134,35 @@ async function llmCallWithTimeout(
   }
 }
 
+
+// ── Phase 1.1：统一 ToolExecutionContext 构造（流式/非流式共用，保证 parity）──
+
+export function buildToolContextBase(
+  options: AgentRunOptions,
+): Omit<ToolExecutionContext, "args"> {
+  // P0-2：执行层 allowlist 与暴露层一致；声明了 tools 时 extraTools 一并纳入
+  const allowedToolNames =
+    options.tools === undefined
+      ? undefined
+      : [...options.tools, ...(options.extraTools?.map((t) => t.name) ?? [])];
+  const runtime = normalizeRuntimeContext(options.runtime);
+  return {
+    userId: options.userId,
+    orgId: options.orgId,
+    sessionId: options.sessionId,
+    agentRunId: options.agentRunId ?? runtime?.runId,
+    role: options.role,
+    orgRole: options.orgRole,
+    hasMembership: options.hasMembership,
+    modulesJson: options.modulesJson,
+    workspaceIds: options.workspaceIds,
+    toolPolicy: options.toolPolicy,
+    maxRisk: options.maxRisk,
+    allowedToolNames,
+    scopeGuard: options.scopeGuard,
+    runtimeContext: runtime,
+  };
+}
 
 // ── A-P1：run 级临时工具（不进全局 registry）─────────────────────
 
@@ -231,18 +267,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const {
     systemPrompt,
     messages: inputMessages,
-    userId,
-    orgId,
-    sessionId,
-    agentRunId,
     mode = "chat",
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
     role,
     orgRole,
-    hasMembership,
-    modulesJson,
-    workspaceIds,
     toolPolicy,
   } = options;
 
@@ -261,26 +290,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const hooks = options.hooks;
   const runStartedAt = Date.now();
 
-  // P0-2：执行层 allowlist 与暴露层一致；声明了 tools 时 extraTools 一并纳入
-  const allowedToolNames =
-    options.tools === undefined
-      ? undefined
-      : [...options.tools, ...(options.extraTools?.map((t) => t.name) ?? [])];
-
-  const toolCtxBase = {
-    userId,
-    orgId,
-    sessionId,
-    agentRunId,
-    role,
-    orgRole,
-    hasMembership,
-    modulesJson,
-    workspaceIds,
-    toolPolicy,
-    maxRisk: options.maxRisk,
-    allowedToolNames,
-  };
+  // Phase 1.1：流式/非流式共用同一构造函数（含 allowlist / scopeGuard / runtimeContext）
+  const toolCtxBase = buildToolContextBase(options);
+  const runtimeTelemetry = runtimeContextToTelemetry(toolCtxBase.runtimeContext);
 
   // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤；A-P1：附加 run 级临时工具）
   const openaiTools = [
@@ -339,6 +351,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         createParams,
         Math.min(perRoundTimeoutMs, remaining),
         externalSignal,
+        runtimeTelemetry,
       );
 
       const choice = response.choices[0];
@@ -435,6 +448,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       },
       Math.min(perRoundTimeoutMs, remaining),
       externalSignal,
+      runtimeTelemetry,
     );
 
     const result: AgentRunResult = {
@@ -498,18 +512,11 @@ export async function* runAgentStream(
   const {
     systemPrompt,
     messages: inputMessages,
-    userId,
-    orgId,
-    sessionId,
-    agentRunId,
     mode = "chat",
     temperature,
     maxToolRounds = MAX_TOOL_ROUNDS_DEFAULT,
     role,
     orgRole,
-    hasMembership,
-    modulesJson,
-    workspaceIds,
     toolPolicy,
     abortSignal,
   } = options;
@@ -533,26 +540,9 @@ export async function* runAgentStream(
   let fullText = "";
   const toolCallLog: AgentRunResult["toolCalls"] = [];
 
-  // P0-2：执行层 allowlist 与暴露层一致；声明了 tools 时 extraTools 一并纳入
-  const allowedToolNames =
-    options.tools === undefined
-      ? undefined
-      : [...options.tools, ...(options.extraTools?.map((t) => t.name) ?? [])];
-
-  const toolCtxBase = {
-    userId,
-    orgId,
-    sessionId,
-    agentRunId,
-    role,
-    orgRole,
-    hasMembership,
-    modulesJson,
-    workspaceIds,
-    toolPolicy,
-    maxRisk: options.maxRisk,
-    allowedToolNames,
-  };
+  // Phase 1.1：流式/非流式共用同一构造函数（含 allowlist / scopeGuard / runtimeContext）
+  const toolCtxBase = buildToolContextBase(options);
+  const runtimeTelemetry = runtimeContextToTelemetry(toolCtxBase.runtimeContext);
 
   const openaiTools = [
     ...registry.toOpenAITools({
@@ -725,6 +715,7 @@ export async function* runAgentStream(
           elapsedMs: Date.now() - t0,
           source: "agent-core-stream",
           ...usage,
+          ...runtimeTelemetry,
         });
       } catch (err: any) {
         streamErr = err;
@@ -734,6 +725,7 @@ export async function* runAgentStream(
           elapsedMs: Date.now() - t0,
           source: "agent-core-stream",
           error: err instanceof Error ? err.message : String(err),
+          ...runtimeTelemetry,
         });
       } finally {
         clearTimeout(perRoundTimer);
@@ -822,6 +814,7 @@ export async function* runAgentStream(
 
     // 达到最大轮次 —— 做一次非流式的总结兜底，不让用户一句话也拿不到
     const finalRemaining = totalDeadline - Date.now();
+    const finalT0 = Date.now();
     try {
       const finalRes: any = await client.chat.completions.create(
         {
@@ -836,7 +829,9 @@ export async function* runAgentStream(
         },
         { signal: abortSignal },
       );
+      let finalLastChunk: unknown;
       for await (const chunk of finalRes) {
+        finalLastChunk = chunk;
         const delta = chunk?.choices?.[0]?.delta?.content;
         if (delta) {
           if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
@@ -844,7 +839,24 @@ export async function* runAgentStream(
           yield { type: "text", delta };
         }
       }
+      // Phase 1.1：兜底调用此前漏记遥测，补齐（与主循环同 source）
+      recordAiCall({
+        model,
+        success: true,
+        elapsedMs: Date.now() - finalT0,
+        source: "agent-core-stream",
+        ...extractUsage(finalLastChunk),
+        ...runtimeTelemetry,
+      });
     } catch (err: any) {
+      recordAiCall({
+        model,
+        success: false,
+        elapsedMs: Date.now() - finalT0,
+        source: "agent-core-stream",
+        error: err instanceof Error ? err.message : String(err),
+        ...runtimeTelemetry,
+      });
       if (finalRemaining > 0) {
         yield errorEvent(err?.message || "最终总结失败");
         return;

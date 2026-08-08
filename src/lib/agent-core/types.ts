@@ -6,6 +6,7 @@
  */
 
 import type { PlatformRole } from "@/lib/rbac/roles";
+import type { AIRuntimeContext } from "@/lib/ai/runtime-context";
 
 // ── 工具风险分级 & 角色授权 ──────────────────────────────────────
 
@@ -131,6 +132,12 @@ export interface ToolExecutionContext {
     principalUserId: string;
     projectId?: string;
   };
+  /**
+   * Phase 1.1：统一执行上下文（actor/agent/owner/job/task/run 树/trace）。
+   * 只读 correlation，由 engine 从服务端 AgentRunOptions.runtime 注入；
+   * 权限决策仍以本类型的既有安全字段为准，不读取此字段。
+   */
+  runtimeContext?: AIRuntimeContext;
 }
 
 export interface ToolExecutionResult {
@@ -248,6 +255,20 @@ export interface AgentRunOptions {
    * 与 registry 工具同名时优先使用 extraTools。
    */
   extraTools?: ToolDefinition[];
+  /**
+   * Phase 1.1：统一执行上下文（服务端构造，LLM/客户端不可提供）。
+   * 缺省时行为与旧版完全一致（向后兼容）。
+   */
+  runtime?: AIRuntimeContext;
+  /**
+   * Phase 1.1：服务端权威 scopeGuard，透传至 ToolExecutionContext
+   * 供 pre-execute-guard 防止工具参数跨 org/user/project 覆盖。
+   */
+  scopeGuard?: {
+    orgId: string;
+    principalUserId: string;
+    projectId?: string;
+  };
 }
 
 export interface AgentRunResult {
