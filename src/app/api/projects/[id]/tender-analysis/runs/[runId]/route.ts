@@ -111,6 +111,31 @@ export async function GET(
     };
   });
 
+  const documentTitleById = new Map(
+    run.documents.map((d) => [d.documentId, d.document.title] as const),
+  );
+  const sourceOpts = { documentTitleById };
+
+  const roleLabelOf = (role: string) => {
+    switch (role) {
+      case "ADDENDUM":
+        return "补遗";
+      case "ATTACHMENT":
+      case "SUPPLEMENT":
+        return "附件";
+      case "PRICING":
+        return "报价";
+      case "FORM":
+        return "表格";
+      case "DRAWING":
+        return "图纸";
+      case "UNKNOWN":
+        return "未分类";
+      default:
+        return "主文件";
+    }
+  };
+
   return NextResponse.json({
     run: serializeRunListItem({
       ...run,
@@ -119,11 +144,13 @@ export async function GET(
     summary: summarySafe,
     chapters,
     sections: run.sections.map(serializeSection),
-    facts: run.facts.map(serializeFact),
-    requirements: run.requirements.map(serializeRequirement),
+    facts: run.facts.map((f) => serializeFact(f, sourceOpts)),
+    requirements: run.requirements.map((r) =>
+      serializeRequirement(r, sourceOpts),
+    ),
     clarifications: run.clarifications.map(serializeClarification),
     deliverables: run.deliverables.map(serializeDeliverable),
-    sources: run.sourceRefs.map(serializeSourceRef),
+    sources: run.sourceRefs.map((s) => serializeSourceRef(s, sourceOpts)),
     changeCandidates: run.changeCandidates.map(serializeChangeCandidate),
     tasks: tasks.map((t) => ({
       id: t.id,
@@ -141,12 +168,7 @@ export async function GET(
     documents: run.documents.map((d) => ({
       documentId: d.documentId,
       role: d.role,
-      roleLabel:
-        d.role === "ADDENDUM"
-          ? "补遗"
-          : d.role === "ATTACHMENT"
-            ? "附件"
-            : "主文件",
+      roleLabel: roleLabelOf(d.role),
       title: d.document.title,
       pageCount: d.document.pageCount,
     })),

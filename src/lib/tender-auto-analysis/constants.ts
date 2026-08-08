@@ -36,7 +36,20 @@ export const CLAIMABLE_STATUSES = [
 export const TENDER_ANALYSIS_RUN_KINDS = ["FULL", "INCREMENTAL"] as const;
 export type TenderAnalysisRunKind = (typeof TENDER_ANALYSIS_RUN_KINDS)[number];
 
-export const DOCUMENT_ROLES = ["PRIMARY", "ATTACHMENT", "ADDENDUM"] as const;
+/**
+ * RunDocument.role 为 String（非 Prisma enum）。
+ * Phase 1.1.1 扩展角色；保留 ATTACHMENT 兼容旧数据（语义≈SUPPLEMENT）。
+ */
+export const DOCUMENT_ROLES = [
+  "PRIMARY",
+  "SUPPLEMENT",
+  "PRICING",
+  "FORM",
+  "DRAWING",
+  "ADDENDUM",
+  "ATTACHMENT",
+  "UNKNOWN",
+] as const;
 export type DocumentRole = (typeof DOCUMENT_ROLES)[number];
 
 export const SECTION_KEYS = [

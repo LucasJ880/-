@@ -35,3 +35,28 @@ export function fingerprintSortedHashes(hashes: readonly string[]): string {
     .sort();
   return fingerprintOrderedHashes(sorted);
 }
+
+/**
+ * Phase 1.1.1 package fingerprint：
+ * SHA256(sorted(documentId:contentHash).join via ordered hashes of those pairs)
+ */
+export function computePackageFingerprintFromPairs(
+  docs: ReadonlyArray<{ documentId: string; contentHash: string }>,
+): string {
+  const parts = docs
+    .map((d) => `${d.documentId.trim()}:${d.contentHash.trim().toLowerCase()}`)
+    .filter((p) => p.includes(":") && !p.startsWith(":") && !p.endsWith(":"))
+    .sort();
+  return fingerprintOrderedHashes(parts.length > 0 ? parts : ["empty-package"]);
+}
+
+/** 无 code 时 requirement 正文指纹（短 hex） */
+export function normalizeRequirementFingerprint(text: string): string {
+  const normalized = (text ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .trim()
+    .slice(0, 240);
+  return sha256Content(normalized).slice(0, 32);
+}
