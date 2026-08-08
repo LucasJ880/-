@@ -64,19 +64,32 @@ export type SupersedeDecisionInput = {
   existingFingerprint: string;
   newFingerprint: string;
   existingStatus: string;
+  /**
+   * reanalyze / forceNewRun：允许同 fingerprint 抢占仍在飞行中的 PENDING/EXTRACTING/ANALYZING，
+   * 避免并发重新分析留下多个 active FULL Run。
+   */
+  forceSameFingerprint?: boolean;
 };
 
 /**
  * 新 hash 且旧跑仍在 PENDING/EXTRACTING/ANALYZING → 应 SUPERSEDE。
- * 相同指纹不抢占；REVIEW_REQUIRED / APPROVED 不抢占。
+ * 相同指纹默认不抢占；forceSameFingerprint 时允许抢占飞行中跑。
+ * REVIEW_REQUIRED / APPROVED 永不由此函数抢占。
  */
 export function shouldSupersedeActiveRun(
   input: SupersedeDecisionInput,
 ): boolean {
-  if (input.existingFingerprint === input.newFingerprint) return false;
-  return (SUPERSEDABLE_RUN_STATUSES as readonly string[]).includes(
-    input.existingStatus,
-  );
+  if (
+    !(SUPERSEDABLE_RUN_STATUSES as readonly string[]).includes(
+      input.existingStatus,
+    )
+  ) {
+    return false;
+  }
+  if (input.existingFingerprint === input.newFingerprint) {
+    return input.forceSameFingerprint === true;
+  }
+  return true;
 }
 
 export type GateBlockedSuggestion =

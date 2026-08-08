@@ -65,6 +65,28 @@ ok(
 
 {
   const r = checkPreviewDbIsolation({
+    vercelEnv: "preview",
+    databaseUrl:
+      "postgresql://u:p@ep-young-credit-awvyi6l6-pooler.c-12.us-east-1.aws.neon.tech/neondb",
+    directUrl: `postgresql://u:p@${PRODUCTION_NEON_HOST_PREFIX}.example/neondb`,
+  });
+  ok(
+    !r.ok && !r.skipped,
+    "preview DATABASE_URL 隔离但 DIRECT_URL 生产 → fail closed",
+  );
+}
+
+{
+  const r = checkPreviewDbIsolation({
+    vercelEnv: "preview",
+    databaseUrl: "not-a-url",
+    directUrl: "also-bad",
+  });
+  ok(!r.ok, "preview malformed DB URL → fail closed");
+}
+
+{
+  const r = checkPreviewDbIsolation({
     vercelEnv: "development",
     forceCheck: true,
     databaseUrl: `postgresql://u:p@${PRODUCTION_NEON_HOST_PREFIX}.example/neondb`,

@@ -228,5 +228,35 @@ ok(
   ok(fp1 === fp2, "requirement 正文指纹归一化一致");
 }
 
+{
+  // 段落回退路径：同 M-code 跨文档冲突不得静默覆盖
+  const pages = [
+    {
+      documentId: "doc-a",
+      pageNumber: 1,
+      contentText:
+        "See clause below. M2. Zipper shall be YKK #10 coil. End of section.",
+    },
+    {
+      documentId: "doc-b",
+      pageNumber: 1,
+      contentText:
+        "Technical note: M2. Zipper shall be metal #5 only for all bags.",
+    },
+  ];
+  const reqs = extractRequirementsFromPages(pages);
+  const m2 = reqs.find((r) => r.requirementCode === "M2");
+  ok(Boolean(m2), "段落路径抽出 M2");
+  ok(
+    Boolean(m2?.originalRequirement.includes("DOCUMENT_CONFLICT")) ||
+      m2?.complianceStatus === "NEEDS_CLARIFICATION",
+    "段落回退跨文档冲突标记 DOCUMENT_CONFLICT",
+  );
+  ok(
+    (m2?.sourceRefs.length ?? 0) >= 2,
+    "冲突 M2 合并两侧 SourceRef",
+  );
+}
+
 console.log(`\npackage-fingerprint: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

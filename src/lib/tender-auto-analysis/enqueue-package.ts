@@ -22,6 +22,7 @@ import {
   detectMultiplePrimaryWarning,
   getTenderPackageDocuments,
   MAX_TENDER_PACKAGE_PAGES,
+  MissingPackageContentHashError,
   packageTooLarge,
   type PackageDocument,
 } from "./package";
@@ -87,16 +88,23 @@ async function resolveLineageRunId(projectId: string): Promise<string | null> {
   return latest?.id ?? null;
 }
 
+/**
+ * 仅 SUPERSEDE 比 newRun 更早的飞行中跑，避免并发互相 SUPERSEDE 成零活跃。
+ * forceSameFingerprint：reanalyze 同指纹也可抢占。
+ */
 async function supersedeInFlightRuns(input: {
   projectId: string;
   newFingerprint: string;
   newRunId: string;
+  newRunCreatedAt: Date;
+  forceSameFingerprint?: boolean;
 }): Promise<string[]> {
   const candidates = await db.tenderAnalysisRun.findMany({
     where: {
       projectId: input.projectId,
       status: { in: [...SUPERSEDABLE_RUN_STATUSES] },
       id: { not: input.newRunId },
+      createdAt: { lt: input.newRunCreatedAt },
     },
     select: {
       id: true,
@@ -112,6 +120,7 @@ async function supersedeInFlightRuns(input: {
         existingFingerprint: old.sourceHashFingerprint,
         newFingerprint: input.newFingerprint,
         existingStatus: old.status,
+        forceSameFingerprint: input.forceSameFingerprint,
       })
     ) {
       continue;
@@ -169,9 +178,23 @@ export async function enqueueTenderPackageAnalysis(
     };
   }
 
-  const docs = await getTenderPackageDocuments(input.projectId, {
-    forceIncludeDocumentIds: input.forceIncludeDocumentIds,
-  });
+  let docs: PackageDocument[];
+  try {
+    // 缺 hash 一律硬失败：禁止静默缩小 package（含 package API enqueue）
+    docs = await getTenderPackageDocuments(input.projectId, {
+      forceIncludeDocumentIds: input.forceIncludeDocumentIds,
+      failOnMissingHash: true,
+    });
+  } catch (e) {
+    if (e instanceof MissingPackageContentHashError) {
+      return {
+        enqueued: false,
+        reason: e.code,
+        documentCount: 0,
+      };
+    }
+    throw e;
+  }
   if (docs.length === 0) {
     return { enqueued: false, reason: "no_package_documents" };
   }
@@ -212,20 +235,10 @@ export async function enqueueTenderPackageAnalysis(
     }
   }
 
-  // forceNewRun：仍阻止并发 in-flight
-  const inFlight = await db.tenderAnalysisRun.findFirst({
-    where: {
-      projectId: input.projectId,
-      status: { in: [...SUPERSEDABLE_RUN_STATUSES] },
-    },
-    select: { id: true, sourceHashFingerprint: true, status: true },
-  });
-  // in-flight 不同 fingerprint 将在创建后 SUPERSEDE；同 fingerprint 且 force 则仍创建（reanalyze）
-
   const lineageId = await resolveLineageRunId(input.projectId);
   const warning = detectMultiplePrimaryWarning(docs);
 
-  let run;
+  let run: { id: string; status: string; createdAt: Date };
   try {
     run = await db.tenderAnalysisRun.create({
       data: {
@@ -260,7 +273,7 @@ export async function enqueueTenderPackageAnalysis(
           })),
         },
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, createdAt: true },
     });
   } catch (err) {
     if (!input.forceNewRun) {
@@ -287,18 +300,16 @@ export async function enqueueTenderPackageAnalysis(
     projectId: input.projectId,
     newFingerprint: fingerprint,
     newRunId: run.id,
+    newRunCreatedAt: run.createdAt,
+    forceSameFingerprint: Boolean(input.forceNewRun),
   });
 
-  // 若抢占了 in-flight，优先把 supersedesRunId 指到被抢占的那个
   if (supersededIds.length > 0) {
     await db.tenderAnalysisRun.update({
       where: { id: run.id },
       data: { supersedesRunId: supersededIds[0] },
     });
   }
-
-  // 显式未使用 inFlight 仅作探测；保留 lint 友好
-  void inFlight;
 
   return {
     enqueued: true,
@@ -330,26 +341,12 @@ export type ReanalyzePackageResult =
 
 /**
  * 对当前 tender package 重新分析（不要求重传 PDF）。
+ * 事务内锁飞行中 Run，避免并发留下多个 active FULL；
+ * 仅在新 Run 创建成功后才 SUPERSEDE REVIEW_REQUIRED。
  */
 export async function reanalyzeTenderPackage(
   input: ReanalyzePackageInput,
 ): Promise<ReanalyzePackageResult> {
-  const otherActive = await db.tenderAnalysisRun.findFirst({
-    where: {
-      projectId: input.projectId,
-      orgId: input.orgId,
-      status: { in: [...SUPERSEDABLE_RUN_STATUSES] },
-    },
-    select: { id: true },
-  });
-  if (otherActive) {
-    return {
-      ok: false,
-      error: "当前分析仍在进行中，请等待完成后再重新分析",
-      code: "active_run",
-    };
-  }
-
   const recentCount = await db.tenderAnalysisRun.count({
     where: {
       projectId: input.projectId,
@@ -365,7 +362,21 @@ export async function reanalyzeTenderPackage(
     };
   }
 
-  const docs = await getTenderPackageDocuments(input.projectId);
+  let docs: PackageDocument[];
+  try {
+    docs = await getTenderPackageDocuments(input.projectId, {
+      failOnMissingHash: true,
+    });
+  } catch (e) {
+    if (e instanceof MissingPackageContentHashError) {
+      return {
+        ok: false,
+        error: e.message,
+        code: e.code,
+      };
+    }
+    throw e;
+  }
   if (docs.length === 0) {
     return {
       ok: false,
@@ -381,50 +392,144 @@ export async function reanalyzeTenderPackage(
     };
   }
 
-  // 将当前非 APPROVED 的最新 REVIEW_REQUIRED 标 SUPERSEDED（保留 APPROVED）
-  const review = await db.tenderAnalysisRun.findFirst({
-    where: {
-      projectId: input.projectId,
-      orgId: input.orgId,
-      status: "REVIEW_REQUIRED",
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true },
-  });
-  if (review) {
-    await db.tenderAnalysisRun.updateMany({
-      where: { id: review.id, status: "REVIEW_REQUIRED" },
-      data: {
-        status: "SUPERSEDED",
-        leaseOwner: null,
-        leaseExpiresAt: null,
-        nextAttemptAt: null,
-      },
+  const fingerprint = computePackageFingerprint(docs);
+  const warning = detectMultiplePrimaryWarning(docs);
+
+  try {
+    const created = await db.$transaction(async (tx) => {
+      // 行锁：串行化同项目飞行中 Run 检查，堵住并发 reanalyze
+      await tx.$executeRaw`
+        SELECT id FROM "TenderAnalysisRun"
+        WHERE "projectId" = ${input.projectId}
+          AND status IN ('PENDING', 'EXTRACTING', 'ANALYZING')
+        FOR UPDATE
+      `;
+
+      const otherActive = await tx.tenderAnalysisRun.findFirst({
+        where: {
+          projectId: input.projectId,
+          orgId: input.orgId,
+          status: { in: [...SUPERSEDABLE_RUN_STATUSES] },
+        },
+        select: { id: true },
+      });
+      if (otherActive) {
+        return { blocked: "active_run" as const };
+      }
+
+      const project = await tx.project.findUnique({
+        where: { id: input.projectId },
+        select: {
+          orgId: true,
+          workDomain: true,
+          intelligenceRoom: { select: { id: true } },
+        },
+      });
+      if (!project?.orgId) {
+        return { blocked: "missing_org" as const };
+      }
+      const gate = canAutoEnqueueAnalysis({
+        workDomain: project.workDomain,
+        hasIntelligenceRoom: Boolean(project.intelligenceRoom),
+      });
+      if (!gate.ok) {
+        return { blocked: gate.reason as string };
+      }
+
+      const lineage = await tx.tenderAnalysisRun.findFirst({
+        where: {
+          projectId: input.projectId,
+          status: { in: ["REVIEW_REQUIRED", "APPROVED", "FAILED"] },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+
+      const run = await tx.tenderAnalysisRun.create({
+        data: {
+          orgId: project.orgId,
+          projectId: input.projectId,
+          roomId: project.intelligenceRoom?.id ?? null,
+          status: "PENDING",
+          runKind: "FULL",
+          analysisVersion: ANALYSIS_VERSION,
+          promptVersion: PROMPT_VERSION,
+          idempotencyKey: buildIdempotencyKey({
+            projectId: input.projectId,
+            fingerprint: `${fingerprint}:reanalyze:${Date.now()}`,
+            promptVersion: PROMPT_VERSION,
+            analysisVersion: ANALYSIS_VERSION,
+          }),
+          sourceHashFingerprint: fingerprint,
+          createdById: input.actorUserId,
+          parentRunId: null,
+          supersedesRunId: lineage?.id ?? null,
+          nextAttemptAt: new Date(),
+          summaryJson: warning
+            ? { classificationWarning: warning, documentCount: docs.length }
+            : { documentCount: docs.length },
+          documents: {
+            create: docs.map((d) => ({
+              documentId: d.documentId,
+              contentHash: d.contentHash,
+              role: d.role,
+            })),
+          },
+        },
+        select: { id: true },
+      });
+
+      // 仅在新 Run 创建成功后标记 REVIEW_REQUIRED（保留 APPROVED）
+      await tx.tenderAnalysisRun.updateMany({
+        where: {
+          projectId: input.projectId,
+          orgId: input.orgId,
+          status: "REVIEW_REQUIRED",
+          id: { not: run.id },
+        },
+        data: {
+          status: "SUPERSEDED",
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          nextAttemptAt: null,
+        },
+      });
+
+      return { blocked: null, runId: run.id };
     });
-  }
 
-  const result = await enqueueTenderPackageAnalysis({
-    projectId: input.projectId,
-    userId: input.actorUserId,
-    orgId: input.orgId,
-    forceNewRun: true,
-  });
+    if (created.blocked === "active_run") {
+      return {
+        ok: false,
+        error: "当前分析仍在进行中，请等待完成后再重新分析",
+        code: "active_run",
+      };
+    }
+    if (created.blocked) {
+      return {
+        ok: false,
+        error: created.blocked,
+        code: created.blocked,
+      };
+    }
 
-  if (!result.enqueued || !result.runId) {
     return {
-      ok: false,
-      error: result.reason === "PACKAGE_TOO_LARGE"
-        ? `投标文件包总页数超过上限（>${MAX_TENDER_PACKAGE_PAGES}）`
-        : result.reason ?? "入队失败",
-      code: result.reason ?? "enqueue_failed",
+      ok: true,
+      newRunId: created.runId!,
+      documentCount: docs.length,
+      packageFingerprint: fingerprint,
+      status: "PENDING",
     };
+  } catch (e) {
+    // 唯一键冲突等：视为并发 reanalyze，提示稍后
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/unique|idempotency/i.test(msg)) {
+      return {
+        ok: false,
+        error: "当前分析仍在进行中，请等待完成后再重新分析",
+        code: "active_run",
+      };
+    }
+    throw e;
   }
-
-  return {
-    ok: true,
-    newRunId: result.runId,
-    documentCount: result.documentCount ?? docs.length,
-    packageFingerprint: result.packageFingerprint ?? computePackageFingerprint(docs),
-    status: "PENDING",
-  };
 }

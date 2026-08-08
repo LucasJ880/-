@@ -251,18 +251,11 @@ export function extractRequirementsFromPages(
       });
     }
 
-    // 回退：段落内 M-code
+    // 回退：段落内 M-code（冲突检测与行级路径对齐，不得静默覆盖）
     M_CODE_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = M_CODE_RE.exec(text)) !== null) {
       const code = `M${m[1]}`;
-      if (byCode.has(code)) {
-        const existing = byCode.get(code)!;
-        existing.sourceRefs.push(
-          makeSourceRef(page, snippetAround(text, m.index)),
-        );
-        continue;
-      }
       const from = m.index;
       const rest = text.slice(from, from + 240);
       const bodyMatch = rest.match(
@@ -270,6 +263,20 @@ export function extractRequirementsFromPages(
       );
       const body = bodyMatch?.[1]?.trim() ?? snippetAround(text, from);
       const snippet = snippetAround(text, from);
+      if (byCode.has(code)) {
+        const existing = byCode.get(code)!;
+        existing.sourceRefs.push(makeSourceRef(page, snippet));
+        const a = normalizeBody(existing.originalRequirement).toLowerCase();
+        const b = normalizeBody(body).toLowerCase();
+        if (a && b && a !== b && !a.includes(b) && !b.includes(a)) {
+          existing.complianceStatus = "NEEDS_CLARIFICATION";
+          existing.chineseTranslation = `${existing.chineseTranslation}\n【DOCUMENT_CONFLICT】多文档对 ${code} 表述冲突。`;
+          if (!existing.originalRequirement.includes("[DOCUMENT_CONFLICT]")) {
+            existing.originalRequirement = `${existing.originalRequirement}\n[DOCUMENT_CONFLICT] ${body}`;
+          }
+        }
+        continue;
+      }
       byCode.set(code, {
         requirementCode: code,
         category: "mandatory_technical",

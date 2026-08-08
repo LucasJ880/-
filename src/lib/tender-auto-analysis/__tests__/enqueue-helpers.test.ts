@@ -125,7 +125,25 @@ ok(detectRunKind("PRIMARY") === "FULL", "PRIMARY → FULL");
       newFingerprint: fp1,
       existingStatus: "PENDING",
     }),
-    "相同指纹不 SUPERSEDE",
+    "相同指纹默认不 SUPERSEDE",
+  );
+  ok(
+    shouldSupersedeActiveRun({
+      existingFingerprint: fp1,
+      newFingerprint: fp1,
+      existingStatus: "PENDING",
+      forceSameFingerprint: true,
+    }),
+    "forceSameFingerprint + PENDING → SUPERSEDE（防并发 reanalyze）",
+  );
+  ok(
+    !shouldSupersedeActiveRun({
+      existingFingerprint: fp1,
+      newFingerprint: fp1,
+      existingStatus: "REVIEW_REQUIRED",
+      forceSameFingerprint: true,
+    }),
+    "forceSameFingerprint 仍不抢占 REVIEW_REQUIRED",
   );
   ok(
     !shouldSupersedeActiveRun({

@@ -103,11 +103,31 @@ async function addendumOnlyDocumentIds(projectId: string): Promise<Set<string>> 
 export type GetTenderPackageDocumentsOptions = {
   /** 强制纳入（例如刚上传、parse 尚未 done） */
   forceIncludeDocumentIds?: string[];
+  /**
+   * 缺 contentHash（且回填失败）时抛错，禁止静默缩小 package。
+   * reanalyze / 强制纳入路径应开启。
+   */
+  failOnMissingHash?: boolean;
 };
+
+export class MissingPackageContentHashError extends Error {
+  readonly code = "missing_content_hash" as const;
+  constructor(readonly documentIds: string[]) {
+    super(
+      `投标 PDF 缺少内容指纹，无法安全入队：${documentIds.slice(0, 5).join(",")}`,
+    );
+    this.name = "MissingPackageContentHashError";
+  }
+}
 
 /**
  * 当前 Project 有效投标文件包。
  * 默认：parseStatus∈{done,pending,parsing} 的 PDF，有 contentHash，非 ADDENDUM-only。
+ * 不用 filename 作为身份；缺 hash 不得生成弱 fingerprint。
+ *
+ * 有效文件规则（MVP）：同一 Project 下所有满足上述条件的 PDF 均纳入 package
+ *（含历史重复上传的不同 contentHash 版本）。尚无「当前有效版本」模型；
+ * 若需排除旧版，应先在文件层归档/删除，而非依赖文件名去重。
  */
 export async function getTenderPackageDocuments(
   projectId: string,
@@ -132,6 +152,7 @@ export async function getTenderPackageDocuments(
   });
 
   const candidates: PackageDocument[] = [];
+  const skippedMissingHash: string[] = [];
   for (const row of rows) {
     if (!isPdfFileType(row.fileType)) continue;
     if (row.parseStatus === "failed") continue;
@@ -160,7 +181,10 @@ export async function getTenderPackageDocuments(
         hash = "";
       }
     }
-    if (!hash) continue;
+    if (!hash) {
+      skippedMissingHash.push(row.id);
+      continue;
+    }
 
     candidates.push({
       documentId: row.id,
@@ -171,6 +195,19 @@ export async function getTenderPackageDocuments(
       pageCount: row.pageCount,
       parseStatus: row.parseStatus,
     });
+  }
+
+  if (opts?.failOnMissingHash && skippedMissingHash.length > 0) {
+    throw new MissingPackageContentHashError(skippedMissingHash);
+  }
+
+  // 强制纳入的文档若仍无 hash，同样硬失败（避免 Upload B 静默丢掉 A）
+  if (force.size > 0) {
+    const have = new Set(candidates.map((d) => d.documentId));
+    const missingForced = [...force].filter((id) => !have.has(id));
+    if (missingForced.length > 0) {
+      throw new MissingPackageContentHashError(missingForced);
+    }
   }
 
   return sortPackageDocuments(candidates);
