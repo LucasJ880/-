@@ -146,6 +146,7 @@ interface ProjectDetail {
     summaryStatus: string | null;
     summaryText: string | null;
   } | null;
+  workDomain?: string | null;
 }
 
 interface MemberRow {
@@ -768,7 +769,38 @@ function ProjectDetailContent() {
             orgId={project.orgId}
             onProjectUpdate={load}
           />
-          <AiBidPackageSection projectId={id} onTabSwitch={(tab) => setActiveTab(tab as ProjectTab)} />
+          {(project.workDomain ?? "").toLowerCase() === "tender" ||
+          project.intelligenceRoom ? (
+            <div className="rounded-xl border border-border bg-card-bg p-4 space-y-2">
+              <h3 className="text-sm font-semibold">分析投标文件</h3>
+              <p className="text-xs text-muted">
+                对当前项目已上传的投标 PDF 包发起 / 重新分析（主路径）。旧版「一键投标方案」已移至下方 Legacy tools。
+              </p>
+              <a
+                href="#tender-analysis"
+                className="inline-flex rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)]"
+                onClick={() => setActiveTab("overview")}
+              >
+                前往招标文件自动分析
+              </a>
+              <details className="pt-2">
+                <summary className="cursor-pointer text-xs text-muted">
+                  Legacy tools
+                </summary>
+                <div className="mt-2">
+                  <AiBidPackageSection
+                    projectId={id}
+                    onTabSwitch={(tab) => setActiveTab(tab as ProjectTab)}
+                  />
+                </div>
+              </details>
+            </div>
+          ) : (
+            <AiBidPackageSection
+              projectId={id}
+              onTabSwitch={(tab) => setActiveTab(tab as ProjectTab)}
+            />
+          )}
           <ProjectAgentTasks projectId={id} />
         </div>
       )}

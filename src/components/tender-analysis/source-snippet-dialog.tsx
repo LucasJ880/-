@@ -3,7 +3,9 @@
 type Source = {
   id: string;
   documentId: string;
+  documentTitle?: string | null;
   pageNumber: number | null;
+  locationLabel?: string | null;
   sectionLabel: string | null;
   snippet: string;
   methodLabel?: string;
@@ -33,9 +35,15 @@ export function SourceSnippetDialog({ open, source, onClose }: Props) {
           <div>
             <h3 className="text-sm font-semibold">来源摘录</h3>
             <p className="text-xs text-[var(--muted)] mt-0.5">
-              {source.pageNumber != null
-                ? `第 ${source.pageNumber} 页`
-                : "页码未知"}
+              {source.locationLabel
+                ? source.locationLabel
+                : source.documentTitle && source.pageNumber != null
+                  ? `${source.documentTitle} · p.${source.pageNumber}`
+                  : source.documentTitle
+                    ? source.documentTitle
+                    : source.pageNumber != null
+                      ? `第 ${source.pageNumber} 页`
+                      : "页码未知"}
               {source.sectionLabel ? ` · ${source.sectionLabel}` : ""}
               {source.methodLabel ? ` · ${source.methodLabel}` : ""}
             </p>
@@ -51,9 +59,6 @@ export function SourceSnippetDialog({ open, source, onClose }: Props) {
         <blockquote className="rounded-lg border border-[var(--border)] bg-stone-50 px-3 py-2 text-sm leading-relaxed text-[var(--foreground)] whitespace-pre-wrap">
           {source.snippet || "（无摘录）"}
         </blockquote>
-        <p className="text-[11px] text-[var(--muted)]">
-          文件 ID：{source.documentId.slice(0, 12)}…
-        </p>
       </div>
     </div>
   );

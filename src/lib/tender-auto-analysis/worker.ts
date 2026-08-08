@@ -274,6 +274,23 @@ async function stepEnsurePages(run: ClaimedRun): Promise<void> {
       throw new Error(`ENSURE_PAGES failed: ${result.error}`);
     }
   }
+
+  // Phase 1.1.1：整包页数上限（单文件上限仍由 MAX_PDF_PAGES 在 parse 内强制）
+  const { MAX_TENDER_PACKAGE_PAGES } = await import("./package");
+  const pageAgg = await db.projectDocument.findMany({
+    where: { id: { in: documentIds } },
+    select: { id: true, pageCount: true },
+  });
+  const totalPages = pageAgg.reduce(
+    (sum, d) => sum + (typeof d.pageCount === "number" ? d.pageCount : 0),
+    0,
+  );
+  if (totalPages > MAX_TENDER_PACKAGE_PAGES) {
+    throw new Error(
+      `PACKAGE_TOO_LARGE: package pages ${totalPages} > ${MAX_TENDER_PACKAGE_PAGES}`,
+    );
+  }
+
   const ok = await persistStep(run.id, run.leaseOwner, "ENSURE_PAGES", {
     status: "EXTRACTING",
   });

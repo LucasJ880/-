@@ -159,6 +159,18 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "项目名称不能为空" }, { status: 400 });
   }
 
+  // 创建时可显式选择投标域；非法值回落 general（绝不由上传侧自动改写）
+  const requestedDomain =
+    typeof body.workDomain === "string"
+      ? body.workDomain.trim().toLowerCase()
+      : "";
+  const workDomain =
+    requestedDomain === "tender" ||
+    requestedDomain === "delivery" ||
+    requestedDomain === "general"
+      ? requestedDomain
+      : "general";
+
   const project = await db.$transaction(async (tx) => {
     const p = await tx.project.create({
       data: {
@@ -167,7 +179,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
         color: body.color || "#3B82F6",
         ownerId: user.id,
         orgId,
-        workDomain: "general",
+        workDomain,
         members: {
           create: {
             userId: user.id,

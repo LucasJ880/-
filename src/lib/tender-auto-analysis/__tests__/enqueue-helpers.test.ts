@@ -64,7 +64,14 @@ ok(!isPdfFileType("docx"), "docx 非 pdf");
 
 ok(detectDocumentRole("Addendum 1") === "ADDENDUM", "addendum 角色");
 ok(detectDocumentRole("Main RFP") === "PRIMARY", "主文件 PRIMARY");
-ok(detectRunKind("ADDENDUM") === "INCREMENTAL", "ADDENDUM → INCREMENTAL");
+ok(
+  detectRunKind("ADDENDUM") === "FULL",
+  "文件名 ADDENDUM  alone 不再自动 INCREMENTAL",
+);
+ok(
+  detectRunKind("ADDENDUM", { explicitAddendum: true }) === "INCREMENTAL",
+  "显式 Addendum → INCREMENTAL",
+);
 ok(detectRunKind("PRIMARY") === "FULL", "PRIMARY → FULL");
 
 {
@@ -118,7 +125,25 @@ ok(detectRunKind("PRIMARY") === "FULL", "PRIMARY → FULL");
       newFingerprint: fp1,
       existingStatus: "PENDING",
     }),
-    "相同指纹不 SUPERSEDE",
+    "相同指纹默认不 SUPERSEDE",
+  );
+  ok(
+    shouldSupersedeActiveRun({
+      existingFingerprint: fp1,
+      newFingerprint: fp1,
+      existingStatus: "PENDING",
+      forceSameFingerprint: true,
+    }),
+    "forceSameFingerprint + PENDING → SUPERSEDE（防并发 reanalyze）",
+  );
+  ok(
+    !shouldSupersedeActiveRun({
+      existingFingerprint: fp1,
+      newFingerprint: fp1,
+      existingStatus: "REVIEW_REQUIRED",
+      forceSameFingerprint: true,
+    }),
+    "forceSameFingerprint 仍不抢占 REVIEW_REQUIRED",
   );
   ok(
     !shouldSupersedeActiveRun({

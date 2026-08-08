@@ -6,14 +6,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit/logger";
-import {
-  ANALYSIS_VERSION,
-  PROMPT_VERSION,
-  REANALYZE_RATE_MAX,
-  REANALYZE_RATE_WINDOW_MS,
-} from "./constants";
-import { buildIdempotencyKey } from "./idempotency";
-import { fingerprintOrderedHashes } from "./hash";
+import { REANALYZE_RATE_MAX, REANALYZE_RATE_WINDOW_MS } from "./constants";
 import { canApproveRun } from "./review-pure";
 
 export { canApproveRun, assertCanApprove } from "./review-pure";
@@ -213,11 +206,12 @@ export type ReanalyzeResult =
       newRunId: string;
       supersededRunId: string | null;
       status: "PENDING";
+      documentCount?: number;
     }
   | { ok: false; error: string; code: string };
 
 /**
- * 创建新 PENDING run，克隆来源文档；若当前非 APPROVED 则标 SUPERSEDED。
+ * Phase 1.1.1：按当前 tender package 重新分析（非单 document 克隆）。
  */
 export async function reanalyzeRun(
   input: ReanalyzeInput,
@@ -228,21 +222,11 @@ export async function reanalyzeRun(
       projectId: input.projectId,
       orgId: input.orgId,
     },
-    include: {
-      documents: {
-        select: {
-          documentId: true,
-          contentHash: true,
-          role: true,
-        },
-      },
-    },
+    select: { id: true, status: true },
   });
   if (!current) {
     return { ok: false, error: "分析记录不存在", code: "not_found" };
   }
-  // APPROVED：允许克隆来源开新跑，但不改旧跑状态
-  // 其他非 SUPERSEDED：可标 SUPERSEDED 后重跑
   if (current.status === "SUPERSEDED") {
     return {
       ok: false,
@@ -251,116 +235,22 @@ export async function reanalyzeRun(
     };
   }
 
-  if (
-    current.status === "PENDING" ||
-    current.status === "EXTRACTING" ||
-    current.status === "ANALYZING"
-  ) {
-    return {
-      ok: false,
-      error: "当前分析仍在进行中，请等待完成或失败后再重新分析",
-      code: "active_run",
-    };
-  }
-
-  const otherActive = await db.tenderAnalysisRun.findFirst({
-    where: {
-      projectId: input.projectId,
-      orgId: input.orgId,
-      id: { not: current.id },
-      status: { in: ["PENDING", "EXTRACTING", "ANALYZING"] },
-    },
-    select: { id: true },
-  });
-  if (otherActive) {
-    return {
-      ok: false,
-      error: "项目已有进行中的分析任务，请稍后再试",
-      code: "active_run_exists",
-    };
-  }
-
-  const recentCount = await db.tenderAnalysisRun.count({
-    where: {
-      projectId: input.projectId,
-      orgId: input.orgId,
-      createdAt: { gte: new Date(Date.now() - REANALYZE_RATE_WINDOW_MS) },
-    },
-  });
-  if (recentCount >= REANALYZE_RATE_MAX) {
-    return {
-      ok: false,
-      error: "重新分析过于频繁，请稍后再试",
-      code: "rate_limited",
-    };
-  }
-
-  const hashes = current.documents.map((d) => d.contentHash).sort();
-  const fingerprint = fingerprintOrderedHashes(
-    hashes.length > 0 ? hashes : [`reanalyze:${current.id}:${Date.now()}`],
-  );
-  const idempotencyKey = buildIdempotencyKey({
+  const { reanalyzeTenderPackage } = await import("./enqueue-package");
+  const result = await reanalyzeTenderPackage({
     projectId: input.projectId,
-    fingerprint: `${fingerprint}:reanalyze:${Date.now()}`,
-    promptVersion: PROMPT_VERSION,
-    analysisVersion: ANALYSIS_VERSION,
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
   });
-
-  const result = await db.$transaction(async (tx) => {
-    let supersededRunId: string | null = null;
-    if (current.status !== "APPROVED") {
-      const updated = await tx.tenderAnalysisRun.updateMany({
-        where: {
-          id: current.id,
-          status: { not: "APPROVED" },
-        },
-        data: {
-          status: "SUPERSEDED",
-          leaseOwner: null,
-          leaseExpiresAt: null,
-          nextAttemptAt: null,
-        },
-      });
-      if (updated.count > 0) supersededRunId = current.id;
-    }
-
-    const created = await tx.tenderAnalysisRun.create({
-      data: {
-        orgId: input.orgId,
-        projectId: input.projectId,
-        roomId: current.roomId,
-        status: "PENDING",
-        runKind: current.runKind === "INCREMENTAL" ? "INCREMENTAL" : "FULL",
-        analysisVersion: ANALYSIS_VERSION,
-        promptVersion: PROMPT_VERSION,
-        idempotencyKey,
-        sourceHashFingerprint: fingerprint,
-        createdById: input.actorUserId,
-        parentRunId:
-          current.runKind === "INCREMENTAL"
-            ? current.parentRunId ?? current.id
-            : null,
-        supersedesRunId: supersededRunId ?? current.id,
-        nextAttemptAt: new Date(),
-        documents: {
-          create: current.documents.map((d) => ({
-            documentId: d.documentId,
-            contentHash: d.contentHash,
-            role: d.role,
-          })),
-        },
-      },
-      select: { id: true },
-    });
-
-    return { newRunId: created.id, supersededRunId };
-  });
-
+  if (!result.ok) {
+    return { ok: false, error: result.error, code: result.code };
+  }
   return {
     ok: true,
     newRunId: result.newRunId,
-    supersededRunId: result.supersededRunId,
+    supersededRunId:
+      current.status === "APPROVED" ? null : current.id,
     status: "PENDING",
+    documentCount: result.documentCount,
   };
 }
 

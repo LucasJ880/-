@@ -35,10 +35,17 @@ const requirements = extractRequirementsFromPages(pages);
 const summary = summarizeExtractedFacts(facts);
 const byKey = new Map(facts.map((f) => [f.factKey, f]));
 
-ok(requirements.length === 15, "抽取 15 条 M1–M15");
+const mReqs = requirements.filter((r) =>
+  /^M([1-9]|1[0-5])$/.test(r.requirementCode),
+);
+ok(mReqs.length === 15, "抽取 15 条 M1–M15");
 ok(
-  requirements.every((r) => /^M([1-9]|1[0-5])$/.test(r.requirementCode)),
+  mReqs.every((r) => /^M([1-9]|1[0-5])$/.test(r.requirementCode)),
   "requirementCode 为 M1…M15",
+);
+ok(
+  requirements.length >= 15,
+  "允许额外 GEN 通用 mandatory（Phase 1.1.1）",
 );
 ok(
   requirements.every((r) => r.complianceStatus !== "COMPLIANT"),
