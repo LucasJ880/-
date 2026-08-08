@@ -16,7 +16,10 @@ import { getClient, buildTuningParams } from "@/lib/ai/client";
 import { getTaskPreset } from "@/lib/ai/config";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { logger } from "@/lib/common/logger";
-import { registry } from "./tool-registry";
+import { registry, RISK_ORDER } from "./tool-registry";
+import { runPreExecuteGuards } from "./pre-execute-guard";
+import { handleRequiresApproval } from "./approval-gate";
+import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 import type {
   AgentRunOptions,
   AgentRunResult,
@@ -135,6 +138,83 @@ function extraToolsToOpenAI(extraTools: ToolDefinition[] | undefined): any[] {
   }));
 }
 
+/**
+ * P0-1：extraTools 与 registry 工具共用同一 pre-execute 链，不得绕过 guard。
+ * - allowlist / scopeGuard（runPreExecuteGuards）
+ * - disabledTools / maxRisk 上限
+ * - forceApprovalTools / l3_strong → 审批闸（绝不直接执行）
+ * - l2_soft 及以上的 run 级工具必须通过完整 canInvokeTool（fail-closed）
+ */
+async function executeExtraToolGuarded(
+  extra: ToolDefinition,
+  ctx: ToolExecutionContext,
+): Promise<ToolExecutionResult> {
+  const name = extra.name;
+
+  const guard = runPreExecuteGuards({ toolName: name, ctx });
+  if (!guard.ok) {
+    return { success: false, data: { code: guard.code }, error: guard.error };
+  }
+
+  if (ctx.toolPolicy?.disabledTools?.includes(name)) {
+    return { success: false, data: null, error: `工具已被企业政策禁用: ${name}` };
+  }
+  if (ctx.workspaceToolPolicy?.disabledTools?.includes(name)) {
+    return { success: false, data: null, error: `工具已被 Workspace 政策禁用: ${name}` };
+  }
+
+  const risk = extra.risk ?? "l0_read";
+  if (ctx.maxRisk && RISK_ORDER[risk] > RISK_ORDER[ctx.maxRisk]) {
+    return {
+      success: false,
+      data: null,
+      error: `工具风险 ${risk} 超过本次运行上限 ${ctx.maxRisk}`,
+    };
+  }
+
+  const requiresApproval =
+    risk === "l3_strong" ||
+    ctx.toolPolicy?.forceApprovalTools?.includes(name) === true ||
+    ctx.workspaceToolPolicy?.forceApprovalTools?.includes(name) === true;
+  if (requiresApproval) {
+    return handleRequiresApproval({ tool: extra, ctx });
+  }
+
+  // 中风险以上的 run 级工具必须通过完整租户授权（fail-closed）
+  if (RISK_ORDER[risk] >= RISK_ORDER.l2_soft) {
+    const decision = canInvokeTool({
+      tenant: {
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole ?? "org_viewer",
+        isPlatformAdmin: ctx.role === "admin" || ctx.role === "super_admin",
+        workspaceIds: ctx.workspaceIds,
+      },
+      hasMembership: ctx.hasMembership === true,
+      tool: extra,
+      workspaceId: ctx.workspaceId,
+      workspaceRole: ctx.workspaceRole,
+      maxRisk: ctx.maxRisk,
+      modulesJson: ctx.modulesJson,
+      toolPolicy: ctx.toolPolicy,
+      workspaceToolPolicy: ctx.workspaceToolPolicy,
+    });
+    if (!decision.ok) {
+      return { success: false, data: null, error: decision.error };
+    }
+    if (decision.requiresApproval === true || decision.needsApproval === true) {
+      return handleRequiresApproval({ tool: extra, ctx });
+    }
+  }
+
+  try {
+    return await extra.execute(ctx);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, data: null, error: msg };
+  }
+}
+
 async function executeToolUnified(
   name: string,
   ctx: ToolExecutionContext,
@@ -142,12 +222,7 @@ async function executeToolUnified(
 ): Promise<ToolExecutionResult> {
   const extra = extraTools?.find((t) => t.name === name);
   if (extra) {
-    try {
-      return await extra.execute(ctx);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return { success: false, data: null, error: msg };
-    }
+    return executeExtraToolGuarded(extra, ctx);
   }
   return registry.execute(name, ctx);
 }
@@ -186,6 +261,12 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
   const hooks = options.hooks;
   const runStartedAt = Date.now();
 
+  // P0-2：执行层 allowlist 与暴露层一致；声明了 tools 时 extraTools 一并纳入
+  const allowedToolNames =
+    options.tools === undefined
+      ? undefined
+      : [...options.tools, ...(options.extraTools?.map((t) => t.name) ?? [])];
+
   const toolCtxBase = {
     userId,
     orgId,
@@ -198,6 +279,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
     workspaceIds,
     toolPolicy,
     maxRisk: options.maxRisk,
+    allowedToolNames,
   };
 
   // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤；A-P1：附加 run 级临时工具）
@@ -451,6 +533,12 @@ export async function* runAgentStream(
   let fullText = "";
   const toolCallLog: AgentRunResult["toolCalls"] = [];
 
+  // P0-2：执行层 allowlist 与暴露层一致；声明了 tools 时 extraTools 一并纳入
+  const allowedToolNames =
+    options.tools === undefined
+      ? undefined
+      : [...options.tools, ...(options.extraTools?.map((t) => t.name) ?? [])];
+
   const toolCtxBase = {
     userId,
     orgId,
@@ -463,6 +551,7 @@ export async function* runAgentStream(
     workspaceIds,
     toolPolicy,
     maxRisk: options.maxRisk,
+    allowedToolNames,
   };
 
   const openaiTools = [
@@ -785,10 +874,9 @@ export async function runSimple(options: {
     mode: (options.mode as AgentRunOptions["mode"]) ?? "chat",
     temperature: options.temperature,
     userId: "system",
-    // 纯文本生成场景：不解析租户 org，并通过不存在的工具名强制零工具暴露，
-    // 避免落到 default org 兜底或意外触发按 org 过滤的数据工具。
+    // 纯文本生成场景：不解析租户 org；P0-2 后空数组即零工具（fail-closed）。
     orgId: "system",
-    tools: ["__system_no_tools__"],
+    tools: [],
   });
   return result.content;
 }

@@ -199,7 +199,8 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
       temperature,
       maxToolRounds: maxRounds,
       // 仅暴露会话绑定的 DB 工具（不放开全局 registry 工具，行为与旧 runtime 对齐）
-      tools: ["__conversation_bound_only__"],
+      // P0-2 后空数组即零 registry 工具；extraTools 由 engine 并入执行 allowlist
+      tools: [],
       extraTools,
       hooks: {
         onToolCall: (info) => {
