@@ -91,7 +91,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   const [workContext, prepared] = await Promise.all([
-    getWorkContext(user.id, user.role),
+    getWorkContext({ userId: user.id, role: user.role, orgId: tenant.orgId }),
     prepareConversation(rawMessages),
   ]);
 
@@ -107,7 +107,10 @@ export const POST = withAuth(async (request, _ctx, user) => {
     );
     if (matched) {
       const [deep, memory] = await Promise.all([
-        getProjectDeepContext(matched.id),
+        getProjectDeepContext(matched.id, {
+          expectedOrgId: tenant.orgId,
+          requesterUserId: user.id,
+        }),
         getProjectAiMemory(matched.id),
       ]);
       if (deep) deepBlock = buildProjectDeepBlock(deep);

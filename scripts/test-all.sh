@@ -80,6 +80,7 @@ run_test "多租户数据隔离断言" "npx tsx src/lib/tenancy/__tests__/tenant
 run_test "多租户文件 pathname 声明" "npx tsx src/lib/tenancy/__tests__/tenant-file-access.test.ts"
 run_test "Phase2A 规则/Pack/工具权限" "npx tsx src/lib/tenancy/__tests__/phase2a-rules-tools.test.ts"
 run_test "AI收敛P0 pre-execute守卫/审批闸" "npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts"
+run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
 run_test "Phase2B 企业语义隔离" "npx tsx src/lib/tenancy/__tests__/phase2b-semantics.test.ts"
 run_test "Phase3A-1 Trace Read Model" "npx tsx src/lib/capabilities/__tests__/phase3a1-trace-read-model.test.ts"

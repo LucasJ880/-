@@ -402,21 +402,14 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
   // ─── 以下为 legacy 分支 ───
 
-  // 公司画像：orgId best-effort 解析（失败不阻塞对话，只是少一块品牌背景）
-  let legacyOrgId: string | null = null;
-  try {
-    const orgRes = await resolveRequestOrgIdForUser(user, requestedOrgId);
-    if (orgRes.ok) legacyOrgId = orgRes.orgId;
-  } catch {
-    // ignore
-  }
+  // P0-4：legacy 分支统一使用可信 streamTenant.orgId 作为 activeOrg，
+  // 不再 best-effort 解析出另一个 org（防止跨企业上下文混入）
+  const legacyOrgId: string = streamTenant.orgId;
 
   const [workContext, prepared, wakeUp, companyBlock] = await Promise.all([
-    getWorkContext(user.id, user.role),
+    getWorkContext({ userId: user.id, role: user.role, orgId: legacyOrgId }),
     prepareConversation(chatMessages),
-    legacyOrgId
-      ? getWakeUpMemories(user.id, legacyOrgId)
-      : Promise.resolve({ l0: [], l1: [] }),
+    getWakeUpMemories(user.id, legacyOrgId),
     buildCompanyBlock(user.id, legacyOrgId),
   ]);
 
@@ -429,10 +422,15 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   if (resolvedProjectId) {
     const [deep, memory, projectCtx] = await Promise.all([
-      getProjectDeepContext(resolvedProjectId),
+      getProjectDeepContext(resolvedProjectId, {
+        expectedOrgId: legacyOrgId,
+        requesterUserId: user.id,
+      }),
       getProjectAiMemory(resolvedProjectId),
       import("@/lib/projects/project-ai-context").then((m) =>
-        m.buildProjectAiContextBlock(resolvedProjectId),
+        m.buildProjectAiContextBlock(resolvedProjectId, {
+          expectedOrgId: legacyOrgId,
+        }),
       ),
     ]);
     if (deep) deepBlock = buildProjectDeepBlock(deep);
@@ -487,7 +485,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       expertBlock = `\n\n## 专家角色激活：销售顾问\n${salesPrompt}\n`;
     }
     try {
-      const salesCtx = await getSalesContext(user.id);
+      const salesCtx = await getSalesContext(user.id, legacyOrgId);
       salesBlock = buildSalesContextBlock(salesCtx);
     } catch {
       // sales context is best-effort
@@ -799,6 +797,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
       );
       const ctx = await buildProjectAiContextBlock(projectId, {
         light: assistantMode === "fast",
+        expectedOrgId: orgId,
       });
       if (ctx) {
         systemPrompt += `\n\n## 项目工作台上下文（自动注入）\n${ctx}`;

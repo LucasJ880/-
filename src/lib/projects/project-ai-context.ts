@@ -1,5 +1,7 @@
 /**
- * 组装项目 AI 聊天 / 分析用的最小上下文（强制 org / 可见性由调用方保证）
+ * 组装项目 AI 聊天 / 分析用的最小上下文
+ *
+ * P0-4：builder 自身可验证 scope（expectedOrgId），不再完全依赖调用方保证。
  */
 
 import { db } from "@/lib/db";
@@ -7,6 +9,11 @@ import { db } from "@/lib/db";
 export type ProjectAiContextOptions = {
   /** 轻量模式：少文档正文、少关联数据，优先首字速度（快速对话） */
   light?: boolean;
+  /**
+   * P0-4：期望的 activeOrg。提供时 fail-closed：
+   * 项目不属于该 org → 返回空字符串（不注入任何跨 org 上下文）。
+   */
+  expectedOrgId?: string;
 };
 
 export async function buildProjectAiContextBlock(
@@ -14,6 +21,15 @@ export async function buildProjectAiContextBlock(
   options: ProjectAiContextOptions = {}
 ): Promise<string> {
   const light = Boolean(options.light);
+  if (options.expectedOrgId) {
+    const owned = await db.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!owned || owned.orgId !== options.expectedOrgId) {
+      return "";
+    }
+  }
   const project = await db.project.findUnique({
     where: { id: projectId },
     select: {
