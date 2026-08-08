@@ -880,6 +880,22 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             domains: Array.from(domains) as (typeof caps.aiDomains)[number][],
             maxRisk,
             abortSignal,
+            // Phase 1.1：统一执行上下文（服务端注入；Case A：actor=USER，agent=青砚）
+            runtime: {
+              orgId,
+              actor: { type: "USER", id: user.id, userId: user.id },
+              agent: { id: "qingyan-operator", role: "operator" },
+              projectId: projectId ?? undefined,
+              threadId,
+              sessionId: threadId,
+              channel: "web_thread",
+              source: "operator",
+            },
+            scopeGuard: {
+              orgId,
+              principalUserId: user.id,
+              ...(projectId ? { projectId } : {}),
+            },
           })) {
             if (ev.type === "text") {
               fullText += ev.delta;

@@ -198,6 +198,24 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
       mode: "chat",
       temperature,
       maxToolRounds: maxRounds,
+      // Phase 1.1：项目会话 Runtime 携带 Agent 身份与发起人
+      runtime: {
+        actor:
+          opts.userId ?? conv.userId
+            ? {
+                type: "USER",
+                id: opts.userId ?? conv.userId ?? undefined,
+                userId: opts.userId ?? conv.userId ?? undefined,
+              }
+            : { type: "SYSTEM", id: "project-conversation" },
+        agent: conv.agentId
+          ? { id: conv.agentId, role: "project-agent" }
+          : undefined,
+        projectId,
+        sessionId: conversationId,
+        channel: "project_conversation",
+        source: "conversation-adapter",
+      },
       // 仅暴露会话绑定的 DB 工具（不放开全局 registry 工具，行为与旧 runtime 对齐）
       // P0-2 后空数组即零 registry 工具；extraTools 由 engine 并入执行 allowlist
       tools: [],
