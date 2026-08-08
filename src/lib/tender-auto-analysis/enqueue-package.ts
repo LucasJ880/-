@@ -397,12 +397,9 @@ export async function reanalyzeTenderPackage(
 
   try {
     const created = await db.$transaction(async (tx) => {
-      // 行锁：串行化同项目飞行中 Run 检查，堵住并发 reanalyze
+      // 锁 Project 行（非空集）：冷启动时飞行中 Run 为 0，FOR UPDATE 空集无法串行化
       await tx.$executeRaw`
-        SELECT id FROM "TenderAnalysisRun"
-        WHERE "projectId" = ${input.projectId}
-          AND status IN ('PENDING', 'EXTRACTING', 'ANALYZING')
-        FOR UPDATE
+        SELECT id FROM "Project" WHERE id = ${input.projectId} FOR UPDATE
       `;
 
       const otherActive = await tx.tenderAnalysisRun.findFirst({
