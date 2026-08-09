@@ -56,6 +56,11 @@ run_test "Agent Runtime V2 Durable State" "npx tsx src/lib/agent-runtime-v2/__te
 run_test "Agent Runtime V2 Verifier/Security" "npx tsx src/lib/agent-runtime-v2/__tests__/verifier-security.test.ts"
 run_test "Agent Runtime V2 Golden Flow" "npx tsx src/lib/agent-runtime-v2/__tests__/golden-flow.test.ts"
 run_test "Agent Runtime V2 Preview Gate P0" "npx tsx src/lib/agent-runtime-v2/__tests__/preview-gate-p0.test.ts"
+# Workforce Phase 2A（DB 测试：仅 NODE_ENV=test + 隔离测试库时真正执行，否则自动跳过）
+run_test "Workforce 2A Job Identity/Restore/Metadata" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-job-identity.test.ts"
+run_test "Workforce 2A Lease/Reclaim/Exhaustion" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-lease.test.ts"
+run_test "Workforce 2A Durable Timeout" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-timeout.test.ts"
+run_test "Workforce 2A Approval Resume Identity" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-approval-resume.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
