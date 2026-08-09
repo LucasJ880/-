@@ -6,6 +6,11 @@ import { db } from "@/lib/db";
 import { startBidIntelligence } from "@/lib/bid-workflow/start-intelligence";
 import { setGoHoldNoGo } from "@/lib/bid-workflow/go-decision";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/bid-workflow-cotton-iso-fixture.ts" });
+
 function requireIsolated(): void {
   const env = (process.env.DATABASE_ENVIRONMENT || "").toLowerCase();
   if (env !== "isolated") {

@@ -42,6 +42,11 @@ import { getSupervisorLimits } from "@/lib/agent-supervisor/config";
 import { isAIConfigured } from "@/lib/ai/config";
 import { stepFingerprint } from "@/lib/agent-supervisor/workers/run-worker";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/e2e-supervisor-controlled.ts" });
+
 const LIVE = process.argv.includes("--live");
 const TEST_ORG = "sunny-home-deco";
 const OTHER_ORG = "lucas-bid";

@@ -20,6 +20,11 @@ import { makeApprovalId } from "../approvals/types";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 import { projectPendingActionApproval } from "../approvals/adapters";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "src/lib/capabilities/__tests__/phase3a3-approvals-smoke.test.ts" });
+
 let pass = 0;
 let fail = 0;
 

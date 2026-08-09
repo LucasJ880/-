@@ -20,6 +20,11 @@ import { deflateSync } from "node:zlib";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/preview-hd-mask-acceptance.ts" });
+
 const PREVIEW_BASE = (process.env.PREVIEW_BASE || "").replace(/\/$/, "");
 const ENDPOINT_HOST = process.env.E2E_NEON_ENDPOINT_HOST || "";
 const BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || "";

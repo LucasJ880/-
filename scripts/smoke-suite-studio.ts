@@ -8,6 +8,7 @@
 
 import fs from "fs";
 import path from "path";
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
 
 function loadEnvFile(rel: string) {
   const abs = path.join(process.cwd(), rel);
@@ -29,6 +30,9 @@ function loadEnvFile(rel: string) {
 }
 loadEnvFile(".env.local");
 loadEnvFile(".env");
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试（须在 env 加载后）
+assertSafeTestDatabase({ scriptName: "scripts/smoke-suite-studio.ts" });
 
 process.env.PRODUCT_CONTENT_LOCAL_STORE =
   process.env.PRODUCT_CONTENT_LOCAL_STORE || "1";

@@ -12,6 +12,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/tender-phase11-final-validation.ts" });
+
 const PDF_PATH =
   process.env.TENDER_FIXTURE_PDF_PATH ||
   "/Users/user/Desktop/青砚-tender-analysis/fixtures/private/M5000-25-3574 - A - RFP - English.pdf";

@@ -108,6 +108,7 @@ run_test "Phase5 Handoff Domain" "npx tsx src/lib/projects/handoff/__tests__/han
 run_test "Phase5A Handoff Failure Recovery" "npx tsx src/lib/projects/handoff/__tests__/handoff-failure-recovery.test.ts"
 run_test "Phase5A Release Safety" "npx tsx scripts/check-release-safety.test.ts"
 run_test "Preview DB Isolation Guard" "npx tsx scripts/check-preview-db-isolation.test.ts"
+run_test "Production DB Test Guard" "npx tsx src/lib/testing/__tests__/assert-safe-test-database.test.ts"
 run_test "Phase5C Migration History" "npx tsx scripts/verify-migration-history.ts"
 run_test "Phase3A-5 Stream/Settle Unit" "npx tsx src/lib/capabilities/__tests__/phase3a5-stream-settle.test.ts"
 run_test "Phase3A-5 Settle DB" "npx tsx src/lib/capabilities/__tests__/phase3a5-settle-db.test.ts"

@@ -6,6 +6,11 @@
 import { db } from "../src/lib/db";
 import { seedOrgAuthorizationProfiles } from "../src/lib/authorization/seed-org-profiles";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/security1-migrate-smoke.ts" });
+
 async function main() {
   const uuid = await db.$queryRawUnsafe<Array<{ id: string }>>(
     "select gen_random_uuid()::text as id",
