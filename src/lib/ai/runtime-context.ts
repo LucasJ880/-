@@ -213,6 +213,91 @@ export function runtimeContextToRunMetadata(
   return out;
 }
 
+const ACTOR_TYPES: readonly AIActorType[] = [
+  "USER",
+  "AGENT",
+  "SYSTEM",
+  "AUTOMATION",
+];
+const OWNER_TYPES: readonly AIOwnerType[] = ["USER", "AGENT"];
+
+function metaRecord(metadata: unknown): Record<string, unknown> {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+  return metadata as Record<string, unknown>;
+}
+
+/**
+ * Phase 2A（Workforce Runtime）：从 AgentRun 行 + metadata 恢复受信执行上下文。
+ *
+ * 安全边界（Hard Rule）：
+ * - metadata 只承载 identity / correlation（谁发起、代表谁、属于哪棵 run 树），
+ *   **不是授权快照**。resume/续跑方拿到本上下文后，必须重新走当前
+ *   membership / capability / data scope / tool policy / approval 检查
+ *   （如 resolveRuntimeV2Principal + executor 内 canInvokeTool），
+ *   禁止把 metadata 里的历史角色/权限/审批决定当作仍然有效。
+ * - 列值优先于 metadata（runId/orgId/traceId/parentRunId 以 DB 列为准）。
+ */
+export function runtimeFromRunMetadata(run: {
+  id: string;
+  orgId: string;
+  sessionId?: string | null;
+  traceId?: string | null;
+  parentRunId?: string | null;
+  metadata?: unknown;
+}): AIRuntimeContext {
+  const meta = metaRecord(run.metadata);
+  const str = (key: string): string | undefined => {
+    const v = meta[key];
+    return typeof v === "string" && v.trim() ? v.trim() : undefined;
+  };
+
+  const actorTypeRaw = str("actorType");
+  const actorType = ACTOR_TYPES.find((t) => t === actorTypeRaw);
+  const actor: AIRuntimeActor | undefined = actorType
+    ? { type: actorType, id: str("actorId"), userId: str("actorUserId") }
+    : undefined;
+
+  const agentId = str("agentId");
+  const agentRole = str("agentRole");
+  const agent: AIRuntimeAgent | undefined =
+    agentId || agentRole ? { id: agentId, role: agentRole } : undefined;
+
+  const ownerTypeRaw = str("ownerType");
+  const ownerType = OWNER_TYPES.find((t) => t === ownerTypeRaw);
+  const owner: AIRuntimeOwner | undefined =
+    ownerType || str("ownerId")
+      ? { type: ownerType, id: str("ownerId") }
+      : undefined;
+
+  const parentRunId =
+    (run.parentRunId && run.parentRunId.trim()) || str("parentRunId");
+
+  return normalizeRuntimeContext({
+    orgId: run.orgId,
+    workspaceId: str("workspaceId"),
+    actor,
+    agent,
+    owner,
+    jobId: str("jobId"),
+    taskId: str("taskId"),
+    runId: run.id,
+    parentRunId,
+    rootRunId: str("rootRunId"),
+    projectId: str("projectId"),
+    customerId: str("customerId"),
+    vendorId: str("vendorId"),
+    tenderId: str("tenderId"),
+    orderId: str("orderId"),
+    threadId: str("threadId"),
+    sessionId: (run.sessionId && run.sessionId.trim()) || str("sessionId"),
+    channel: str("channel"),
+    traceId: (run.traceId && run.traceId.trim()) || str("traceId"),
+    source: str("source"),
+  })!;
+}
+
 /** 从 AgentRun.metadata 读取 rootRunId（历史数据允许缺失） */
 export function readRootRunIdFromUnknown(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {

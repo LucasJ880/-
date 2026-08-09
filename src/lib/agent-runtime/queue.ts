@@ -52,6 +52,13 @@ export async function enqueueBackgroundAgentRun(input: {
   if (!run) throw new Error("Run 不存在或跨组织");
   if (run.status === "cancelled" || run.status === "completed") return;
 
+  // Phase 2A Critical Fix：payload 合并进既有 metadata（保守平铺合并，
+  // isBackgroundPayload 等旧 reader 读取的顶层键不变），不再整体替换——
+  // 否则会摧毁 createAgentRun 写入的 actor/owner/jobId/rootRunId/traceId。
+  const existingMeta =
+    run.metadata && typeof run.metadata === "object" && !Array.isArray(run.metadata)
+      ? (run.metadata as Record<string, unknown>)
+      : {};
   await db.agentRun.update({
     where: { id: run.id },
     data: {
@@ -59,7 +66,7 @@ export async function enqueueBackgroundAgentRun(input: {
       status: "queued",
       nextAttemptAt: new Date(),
       leaseExpiresAt: null,
-      metadata: jsonValue(input.payload),
+      metadata: jsonValue({ ...existingMeta, ...input.payload }),
       intent: input.payload.plan.intent,
     },
   });
@@ -77,32 +84,19 @@ export async function enqueueBackgroundAgentRun(input: {
   });
 }
 
+/** Phase 2A：改由通用租约原语实现（行为与原 CAS 模板一致） */
 async function claimAgentRun(runId: string): Promise<boolean> {
-  const now = new Date();
-  const claimed = await db.agentRun.updateMany({
-    where: {
-      id: runId,
-      runType: BACKGROUND_RUN_TYPE,
-      attempts: { lt: MAX_ATTEMPTS },
-      OR: [
-        {
-          status: "queued",
-          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
-        },
-        { status: "running", leaseExpiresAt: { lte: now } },
-      ],
-    },
-    data: {
-      status: "running",
-      attempts: { increment: 1 },
-      leaseExpiresAt: new Date(now.getTime() + LEASE_MS),
-      nextAttemptAt: null,
-      startedAt: now,
-      errorCode: null,
-      errorMessage: null,
-    },
+  const { claimRunLease } = await import("./lease");
+  const result = await claimRunLease({
+    runId,
+    allowedRunTypes: [BACKGROUND_RUN_TYPE],
+    leaseMs: LEASE_MS,
+    maxAttempts: MAX_ATTEMPTS,
+    reclaimableStatuses: ["running"],
+    resetStartedAt: true,
+    clearError: true,
   });
-  return claimed.count > 0;
+  return result.ok;
 }
 
 async function pushResultToChannel(input: {
