@@ -271,7 +271,7 @@ Case I 共 6 项断言全过。
 - `verifyRuntimeV2Run`：model call（LLM 长 await）后 `fence.check()`；AgentRunVerification 落库、completed/awaiting_approval/repairing/needs_human 全部终态转换、repair 的步骤重置均走 guard。
 - `refreshReadySteps`：pending→ready 提升同样 fenced（stale worker 对 AgentRunStep **零写入**）。
 - `processAgentRuntimeV2Run`：fence 透传 + `LostLeaseError` → `lost_lease`。
-- processor：planner 后以原子续租作 fence 断言再 persist（persist 自持事务，不嵌套 guard 避免行锁死锁）；completion/failure/waiting/continuation 的 `fencedRunUpdate` 全部检查结果，失败即 `lostLease` 返回且跳过事件写入。
+- processor：completion/failure/waiting/continuation 的 `fencedRunUpdate` 全部检查结果，失败即 `lostLease` 返回且跳过事件写入。（planner→persist 路径最初依赖 "renew 后立即 persist"，该缺口已在下方 **Final Planner Persistence Fence** 关闭：persist 本身接受 RunFence，fence 校验与写入同一事务。）
 - **BLOCKER 1.6 已修**：missing-goal 分支改为单次 fenced 终态写入并检查结果——fence 丢失直接 LOST_LEASE，**不再调用 unfenced `failAgentRun`**（processor 已不引用 failAgentRun）。
 
 ### Test K — Stale Worker After Long Tool（17/17 通过）
@@ -372,3 +372,56 @@ Case I 共 6 项断言全过。
 | WORKFORCE_FLAG_MODE | CREATION_GATE_ONLY |
 
 ## PHASE_2A_STATUS（Final Gate）= READY_FOR_MERGE（保持 Draft，等待人工评审）
+
+---
+
+# Final Planner Persistence Fence（2026-08-09，Final Review 后最后一个 BLOCKER）
+
+## 缺口
+
+`persistPlanAndSteps()` 原先自开 `db.$transaction`、不接受 RunFence。processor 的顺序是"planner 返回 → renewRunLease（T1 断言成功）→ persist"——若 renew 与 persist 之间 worker stall、T1 过期、B 以 T2 reclaim，A 恢复后 persist 仍可写入 planJson / status=planned / 创建 AgentRunStep。**renew 检查与 plan 持久化不是同一原子边界**。
+
+## 修复（`src/lib/agent-runtime-v2/persist.ts` + `src/lib/workforce-runtime/processor.ts`）
+
+- 把 plan 持久化的真正写逻辑抽成 client-aware 的 `persistPlanAndStepsWithClient(client, input)`（planJson / status=planned / runtimeVersion=v2 / 幂等步骤创建，**不自建事务**）。
+- `persistPlanAndSteps({..., fence?})`：
+  - **fenced path（workforce）**：`fence.guard((tx) => persistPlanAndStepsWithClient(tx, ...))` —— fence.guard 自身开启事务，先以条件 `updateMany`（`WHERE id AND leaseExpiresAt = token`）断言 token 并取得 AgentRun 行锁，再用**同一 tx** 执行全部写入，一个原子 commit boundary。token 不符 → `LostLeaseError`、事务回滚、零写入。不嵌套 `db.$transaction`（上一轮死锁根因，已规避）。
+  - **legacy path（runtime_v2）**：无 fence 时 `db.$transaction((tx) => persistPlanAndStepsWithClient(tx, ...))`，行为完全不变（AR2 五套回归全绿）。
+- processor：planner 长 await 后 renew 保留，但 persist 改为传 fence——最终写入由 fence 原子确认，不再依赖"刚 renew 过所以安全"；`LostLeaseError` 在 slice 外层 catch 显式识别为 `lost_lease`（不消耗 attempts、不 requeue）。
+- §9 事件：`plan.created` 只在持久化成功后 emit——stale persist 抛 LostLeaseError，**绝不发 plan.created**。
+- §10 幂等："已有 steps 不重复创建"保留，但 stale worker 保护由 fence 承担，不依赖幂等检查。
+
+## Test K-PLAN（扩展现有 Case K，K-TOOL 17 项全保留；Case K 合计 30/30）
+
+确定性 race：新 Job（planJson=null、0 step）→ A claim T1 → "planner 长 await" 中 T1 过期 → B reclaim T2 → A 调 `persistPlanAndSteps({plan, fence: fenceA})`：
+- A → `LostLeaseError`；planJson 仍 null、status/token 未被 A 改、step count=0、verification 不变、**无 A 发出的 plan.created**（K17–K22）；
+- B 用 fenceB 调同一函数成功：planJson persisted、status=planned、steps 恰好创建一次、plan.created 恰好一次（K23–K25）；
+- B 成功后 A 再以 stale T1 persist：仍 LOST_LEASE，B 的 plan/steps 内容与数量未被覆盖（K26–K27）。
+
+**STALE_PLANNER_PERSIST = BLOCKED / PLANNER_PERSIST_FENCING = PASS / K_PLAN = PASS**
+
+## FENCING_V2_WRITES 修正后的实际覆盖面
+
+Planner→Persist（本次）/ Executor（tool 后 step/run 写入）/ Verifier（model call 后 verification 落库与终态）/ Step transition（含 pending→ready 提升）/ Verification 写入 / Terminal state（completed/failed/needs_human/awaiting_approval/continuation requeue）——workforce_job 的关键 state writes 均经 `fence.guard` / `fencedRunUpdate`。
+
+§18 快速 audit 其余持久化路径：`startAgentRuntimeV2`（legacy 创建路径，无租约语义）与 `resumeRuntimeV2AfterApproval` / `recordApprovalActor`（审批恢复路径）中的直接写入发生在 Job parked（`awaiting_approval`/`needs_human`，`leaseExpiresAt=null`）期间——claim 只匹配 `queued`（到期）或 active 状态 + `leaseExpiresAt <= now`，parked / 恢复中的 Job 不可被 claim，无并发 leased worker 竞争窗口。**未发现新的 unfenced critical write（无 ADDITIONAL_FENCING_GAP_FOUND）**。注：事件 append（AgentRunEvent）不在 fence 范围内（追加型，非 state write），未声称 "all events fully fenced"。
+
+## Final 回归（隔离 Neon 分支 `preview-workforce-phase2a-planfence`，显式 DATABASE_ENVIRONMENT=isolated，用后删除）
+
+- **Case A–L：97/97**（job-identity 25 + lease 15 + timeout 6 + approval-resume 12 + stale-worker 30（K-TOOL 17 + K-PLAN 13）+ normal-slices 9）
+- **Golden Scenario：PASS**（真实 LLM、隔离 DB、零外发；两轮审批、审批人≠执行主体、verification PASS、completed、生命周期事件齐全）
+- AR2 legacy 回归（persist 重构直接影响面）：durable-state 11、golden-flow 14、verifier-security 15、planner 17、preview-gate-p0 30 全绿
+- `npx tsc --noEmit` 0 错、`eslint` 0 错、`npm run build` 成功
+- **NO DATABASE MIGRATION**
+
+## 状态标志（最终）
+
+| Flag | 结果 |
+|---|---|
+| PLANNER_PERSIST_FENCING | PASS |
+| STALE_PLANNER_PERSIST | BLOCKED |
+| K_PLAN | PASS |
+| FENCING_V2_WRITES | PASS（Planner→Persist / Executor / Verifier / Step transition / Verification / Terminal state） |
+| 其余标志 | 与上表一致（全部 PASS / BLOCKED / SAFE / NONE / CREATION_GATE_ONLY） |
+
+## PHASE_2A_STATUS（Final Planner Persistence Fence 后）= READY_FOR_MERGE（保持 Draft，等待人工评审）

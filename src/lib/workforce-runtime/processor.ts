@@ -20,6 +20,7 @@ import {
   renewRunLease,
   fencedRunUpdate,
   createRunFence,
+  LostLeaseError,
   type RunLeaseHandle,
 } from "@/lib/agent-runtime/lease";
 import {
@@ -303,10 +304,11 @@ export async function processWorkforceJobSlice(
       const { persistPlanAndSteps } = await import(
         "@/lib/agent-runtime-v2/persist"
       );
-      // persist safety：上方 renewRunLease 本身就是原子 token 断言（fence），
-      // persist 紧随其后且幂等（已有步骤则跳过）；persist 内部自持事务，
-      // 不能嵌套进 fence.guard（会因 AgentRun 行锁死锁）
-      await persistPlanAndSteps({ orgId, runId, plan: planned.plan });
+      // Final BLOCKER 修复：persist 经 RunFence——token 断言（AgentRun 行锁）
+      // 与 planJson/status/steps 创建在同一事务 commit。不再依赖
+      // "刚 renew 过所以安全"：renew 与 persist 之间若租约易主，
+      // fence.guard 抛 LostLeaseError，零写入、不发 plan.created。
+      await persistPlanAndSteps({ orgId, runId, plan: planned.plan, fence });
     }
 
     const { processAgentRuntimeV2Run } = await import(
@@ -464,6 +466,11 @@ export async function processWorkforceJobSlice(
     }
     return { claimed: true, status: "queued", lostLease: !requeued };
   } catch (error) {
+    // fence 丢失（如 persistPlanAndSteps 的 fenced path）≠ retryable failure：
+    // 本 worker 零写入，新 worker 已接管，不消耗 attempts、不 requeue
+    if (error instanceof LostLeaseError) {
+      return { claimed: true, status: "lost_lease", lostLease: true };
+    }
     const latest = await db.agentRun.findUnique({
       where: { id: runId },
       select: { attempts: true },

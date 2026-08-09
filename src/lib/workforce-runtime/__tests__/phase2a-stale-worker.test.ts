@@ -247,7 +247,223 @@ async function main() {
   });
   ok(requeueB, "K14: B 用 T2 正常交还队列（fenced 写入成功）");
 
+  // ════════════════════════════════════════════════════════════════
+  // K-PLAN：Stale Planner Result Persist（Final BLOCKER 确定性 race）
+  //
+  // A 持有 planner 结果（长 planner await 后）→ T1 过期 → B reclaim T2 →
+  // A 调 persistPlanAndSteps({plan, fence: fenceA})。fence 校验与
+  // planJson/status/steps 写入同一事务：A 必须 LOST_LEASE 且零写入。
+  // ════════════════════════════════════════════════════════════════
+
+  const { persistPlanAndSteps } = await import(
+    "@/lib/agent-runtime-v2/persist"
+  );
+  const { PlannerOutputSchema } = await import(
+    "@/lib/agent-runtime-v2/schemas"
+  );
+
+  // 合法 PlannerOutput（不调真实 LLM）；A/B 用不同 objective 以区分覆盖
+  const makePlan = (label: string) =>
+    PlannerOutputSchema.parse({
+      objective: `${label}：整理销售跟进优先级`,
+      summary: `${label} 的确定性测试计划`,
+      completionCriteria: [
+        {
+          id: "c1",
+          description: "跟进清单已产出",
+          verificationType: "database_state",
+        },
+      ],
+      steps: [
+        {
+          id: "p1_list",
+          title: "拉取逾期跟进清单",
+          description: "查询逾期商机",
+          dependsOn: [],
+          executionMode: "read",
+          riskLevel: "LOW",
+          requiresApproval: false,
+          expectedOutput: "逾期清单",
+        },
+        {
+          id: "p2_rank",
+          title: "排序",
+          description: "按金额与逾期天数排序",
+          dependsOn: ["p1_list"],
+          executionMode: "analysis",
+          riskLevel: "LOW",
+          requiresApproval: false,
+          expectedOutput: "优先级排序",
+        },
+      ],
+    });
+  const planA = makePlan("STALE PLAN A");
+  const planB = makePlan("PLAN B");
+
+  // Setup：全新 Job，planJson=null、0 step
+  const job2 = await createWorkforceJob({
+    orgId: fx.orgId,
+    userId: fx.ownerUserId,
+    role: "sales",
+    goal: GOLDEN_GOAL,
+  });
+  if (!job2.ok) throw new Error("createWorkforceJob (K-PLAN) failed");
+  const runId2 = job2.runId;
+  {
+    const fresh = await db.agentRun.findUniqueOrThrow({ where: { id: runId2 } });
+    const stepCount0 = await db.agentRunStep.count({ where: { runId: runId2 } });
+    ok(
+      fresh.planJson === null && stepCount0 === 0,
+      "K15: 新 Job planJson=null、0 step",
+    );
+  }
+
+  // Worker A2 claim → T1（极短租约，模拟长 planner await 中过期）
+  await db.agentRun.update({
+    where: { id: runId2 },
+    data: { nextAttemptAt: new Date(Date.now() - 1_000) },
+  });
+  const claimA2 = await claimRunLease({
+    runId: runId2,
+    allowedRunTypes: [WORKFORCE_JOB_RUN_TYPE],
+    leaseMs: 30,
+    maxAttempts: WORKFORCE_MAX_ATTEMPTS,
+    reclaimableStatuses: [...WORKFORCE_ACTIVE_STATUSES],
+  });
+  if (!claimA2.ok) throw new Error("worker A2 claim failed");
+  const fenceA2 = createRunFence({ lease: claimA2.lease });
+
+  // A "planner 长 await"……租约过期，B reclaim → T2
+  await sleep(120);
+  const claimB2 = await claimRunLease({
+    runId: runId2,
+    allowedRunTypes: [WORKFORCE_JOB_RUN_TYPE],
+    leaseMs: 60_000,
+    maxAttempts: WORKFORCE_MAX_ATTEMPTS,
+    reclaimableStatuses: [...WORKFORCE_ACTIVE_STATUSES],
+  });
+  ok(claimB2.ok, "K16: B reclaim 成功（T2 接管 K-PLAN Job）");
+  if (!claimB2.ok) throw new Error("worker B2 claim failed");
+  const holderB2 = { lease: claimB2.lease };
+  const fenceB2 = createRunFence(holderB2);
+
+  const runUnderB2 = await db.agentRun.findUniqueOrThrow({
+    where: { id: runId2 },
+  });
+  const verifCountBefore = await db.agentRunVerification.count({
+    where: { runId: runId2 },
+  });
+
+  // A 带 planner 结果调 fenced persist → 必须 LOST_LEASE
+  let stalePersistBlocked = false;
+  try {
+    await persistPlanAndSteps({
+      orgId: fx.orgId,
+      runId: runId2,
+      plan: planA,
+      fence: fenceA2,
+    });
+  } catch (e) {
+    stalePersistBlocked = e instanceof LostLeaseError;
+  }
+  ok(
+    stalePersistBlocked,
+    "K17: A 的 stale persist → LostLeaseError（fence 校验与写入同一事务）",
+  );
+
+  {
+    const after = await db.agentRun.findUniqueOrThrow({ where: { id: runId2 } });
+    const stepCount = await db.agentRunStep.count({ where: { runId: runId2 } });
+    const verifCount = await db.agentRunVerification.count({
+      where: { runId: runId2 },
+    });
+    const planCreatedEvents = await db.agentRunEvent.count({
+      where: { runId: runId2, eventType: "plan.created" },
+    });
+    ok(after.planJson === null, "K18: planJson 未被 stale A 写入（仍 null）");
+    ok(
+      after.status === runUnderB2.status &&
+        after.leaseExpiresAt?.getTime() ===
+          holderB2.lease.leaseExpiresAt.getTime(),
+      "K19: run status/token 未被 stale A 修改（仍归 B）",
+      { status: after.status },
+    );
+    ok(stepCount === 0, "K20: step count = 0（stale A 未创建任何 step）");
+    ok(
+      verifCount === verifCountBefore,
+      "K21: verification 未被 stale A 改动",
+    );
+    ok(
+      planCreatedEvents === 0,
+      "K22: 无 A 发出的 plan.created 事件（persist 失败绝不 emit）",
+    );
+  }
+
+  // B 用 fenceB 调同一函数 → 必须成功（planJson + status=planned + steps 一次）
+  await persistPlanAndSteps({
+    orgId: fx.orgId,
+    runId: runId2,
+    plan: planB,
+    fence: fenceB2,
+  });
+  {
+    const after = await db.agentRun.findUniqueOrThrow({ where: { id: runId2 } });
+    const steps = await db.agentRunStep.findMany({
+      where: { runId: runId2 },
+      orderBy: { stepKey: "asc" },
+    });
+    const planCreatedEvents = await db.agentRunEvent.count({
+      where: { runId: runId2, eventType: "plan.created" },
+    });
+    const planObj = after.planJson as { objective?: string } | null;
+    ok(
+      planObj?.objective === planB.objective && after.status === "planned",
+      "K23: B 的 fenced persist 成功（planJson persisted、status=planned）",
+      { objective: planObj?.objective, status: after.status },
+    );
+    ok(
+      steps.length === 2 &&
+        steps.map((s) => s.stepKey).join(",") === "p1_list,p2_rank",
+      "K24: steps 恰好创建一次（2 个，key 正确）",
+      { count: steps.length },
+    );
+    ok(planCreatedEvents === 1, "K25: plan.created 恰好一次（B 发出）");
+  }
+
+  // B 成功后 A 再用 stale T1 persist → 仍 LOST_LEASE，B 的 plan 不被覆盖
+  let stalePersistBlockedAgain = false;
+  try {
+    await persistPlanAndSteps({
+      orgId: fx.orgId,
+      runId: runId2,
+      plan: planA,
+      fence: fenceA2,
+    });
+  } catch (e) {
+    stalePersistBlockedAgain = e instanceof LostLeaseError;
+  }
+  {
+    const after = await db.agentRun.findUniqueOrThrow({ where: { id: runId2 } });
+    const steps = await db.agentRunStep.findMany({
+      where: { runId: runId2 },
+      orderBy: { stepKey: "asc" },
+    });
+    const planObj = after.planJson as { objective?: string } | null;
+    ok(
+      stalePersistBlockedAgain,
+      "K26: B 成功后 A 重试 persist 仍 LOST_LEASE",
+    );
+    ok(
+      planObj?.objective === planB.objective &&
+        steps.length === 2 &&
+        steps.map((s) => s.stepKey).join(",") === "p1_list,p2_rank",
+      "K27: B 的 plan/steps 未被 stale A 覆盖（内容与数量不变）",
+      { objective: planObj?.objective, count: steps.length },
+    );
+  }
+
   console.log("\nSTALE_WORKER_WRITE_BLOCKED = YES");
+  console.log("STALE_PLANNER_PERSIST = BLOCKED");
   finish();
 }
 
