@@ -19,12 +19,16 @@
  *   OPENAI_API_KEY=<模型key> npx tsx scripts/e2e-workforce-golden.ts
  */
 
-if (process.env.NODE_ENV !== "test") {
-  console.log("⏭  Golden Scenario 只允许在 NODE_ENV=test + 隔离测试库上运行");
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+if (!process.env.DATABASE_URL?.trim()) {
+  console.log("⏭  缺少 DATABASE_URL（隔离 Neon 分支）");
   process.exit(0);
 }
-if (!process.env.DATABASE_URL) {
-  console.log("⏭  缺少 DATABASE_URL（隔离 Neon 分支）");
+// 统一 fail-closed Guard：生产库 HARD FAIL（非零退出），先于任何 DB 连接
+assertSafeTestDatabase({ scriptName: "scripts/e2e-workforce-golden.ts" });
+if (process.env.NODE_ENV !== "test") {
+  console.log("⏭  Golden Scenario 只允许在 NODE_ENV=test + 隔离测试库上运行");
   process.exit(0);
 }
 if (!process.env.OPENAI_API_KEY) {

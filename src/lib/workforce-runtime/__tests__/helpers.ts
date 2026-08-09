@@ -1,21 +1,32 @@
 /**
  * Workforce Phase 2A 测试共享工具
  *
- * 安全红线：DB 测试只允许在隔离测试库（NODE_ENV=test + 显式 DATABASE_URL）
- * 上运行，绝不允许指向生产库。生产环境 NODE_ENV=production，本守卫直接跳过。
+ * 安全红线：所有 destructive 入口先经统一 Production DB Test Guard
+ * （src/lib/testing/assert-safe-test-database.ts，fail-closed）：
+ * 生产库 / 未识别远程库 → HARD FAIL（抛错、非零退出，绝非 skip/exit 0）；
+ * 隔离远程测试库需显式 DATABASE_ENVIRONMENT=isolated。
+ *
+ * 注意：本文件顶层禁止 import "@/lib/db" —— 安全检查完成前不得触发
+ * Prisma client 实例化/连接；db 一律在函数内动态 import（guard-first）。
  */
 
-import { db } from "@/lib/db";
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
-export function requireIsolatedTestDb(): void {
-  if (process.env.NODE_ENV !== "test") {
-    console.log(
-      "⏭  跳过 Workforce DB 测试（需 NODE_ENV=test + 隔离 Neon 分支 DATABASE_URL）",
-    );
+export function requireIsolatedTestDb(scriptName?: string): void {
+  // 唯一先行豁免：完全未配置 DATABASE_URL（无连接可言，按既有约定 skip，
+  // 保证无 DB 环境下 test-all 不误报）。只要配置了 URL，一律进统一 Guard。
+  if (!process.env.DATABASE_URL?.trim()) {
+    console.log("⏭  跳过 Workforce DB 测试（未提供 DATABASE_URL）");
     process.exit(0);
   }
-  if (!process.env.DATABASE_URL) {
-    console.log("⏭  跳过 Workforce DB 测试（未提供 DATABASE_URL）");
+
+  // 统一 fail-closed Guard：生产库任何信号组合都 HARD FAIL（非零退出）
+  assertSafeTestDatabase({
+    scriptName: scriptName ?? "workforce-runtime phase2a destructive test",
+  });
+
+  if (process.env.NODE_ENV !== "test") {
+    console.log("⏭  跳过 Workforce DB 测试（需 NODE_ENV=test）");
     process.exit(0);
   }
 }
@@ -49,6 +60,8 @@ export type WorkforceFixture = {
 export async function seedWorkforceFixture(
   prefix: string,
 ): Promise<WorkforceFixture> {
+  // guard-first：db 动态 import，确保安全检查前不建 Prisma 连接
+  const { db } = await import("@/lib/db");
   const tag = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   const owner = await db.user.create({

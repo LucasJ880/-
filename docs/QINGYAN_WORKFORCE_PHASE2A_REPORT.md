@@ -311,4 +311,64 @@ Case I 共 6 项断言全过。
 - `tsc --noEmit` 0 错、`eslint` 0 错、`npm run build` 成功
 - **NO DATABASE MIGRATION**（fencing 仍基于 leaseExpiresAt token + 行锁事务，无 schema 变更）
 
-## PHASE_2A_STATUS（Final）= READY_FOR_MERGE（保持 Draft，等待人工评审）
+## PHASE_2A_STATUS（Micro-Fix 后）= READY_FOR_MERGE（保持 Draft，等待人工评审）
+
+---
+
+# Final Gate（2026-08-09：同步 verified main + Production DB Guard 接入）
+
+## Sync verified main
+
+- PR #76（Production Database Test Guard，fail-closed）已 Normal Merge 入 main，merge commit = 最新 verified main = `399dcce548227d2e357b987d491999f54ce89b9c`（main CI PASS）。
+- 本分支普通 merge `origin/main`（merge commit `e2d48fe`），保留全部 Phase 2A commits、本报告与 Phase 2 架构审计；合并后分支上存在 `src/lib/testing/assert-safe-test-database.ts`。
+- 四份设计文档（PHASE2B_HANDOFF_PARALLEL / OPENMAX_ZYLOS_STUDY / PHASE2C_CHECKPOINT_HUMAN_RESUME / OBSERVABILITY_JOB_TIMELINE）保持 UNCOMMITTED，不进 PR #77。
+
+## Production DB Guard inheritance（BLOCKER 3 修复）
+
+- `src/lib/workforce-runtime/__tests__/helpers.ts` 的 `requireIsolatedTestDb()` 现在内部调用统一 `assertSafeTestDatabase()`（fail-closed）：生产库 / 未识别远程库 → 抛 `TestDatabaseSafetyError`、非零退出（HARD FAIL，绝非 skip/exit 0）。唯一先行豁免：完全未配置 DATABASE_URL（无连接可言，skip 保持 test-all 兼容）。
+- guard-first：helpers 顶层不再 `import { db }`（`seedWorkforceFixture` 改为函数内动态 import），安全检查完成前不实例化 Prisma client、不触发任何 DB 连接。
+- 覆盖全部 Phase 2A destructive 入口：phase2a-job-identity / phase2a-lease / phase2a-approval-resume / phase2a-timeout / phase2a-stale-worker / phase2a-normal-slices（均经 `requireIsolatedTestDb()`）+ `scripts/e2e-workforce-golden.ts`（直接调 `assertSafeTestDatabase`，先于任何 DB import）。
+- 事故重演验证：
+  - NODE_ENV=test + 生产 host（`ep-super-field-antfibsl*`，假凭证双保险）跑 phase2a-lease 与 golden 脚本 → `SAFE_TO_TEST = NO`、blockCode=`PRODUCTION_DATABASE_HOST`、exit 1、拦截发生在建连之前 → **零 DB mutation**；
+  - 隔离 Neon preview 分支 + 显式 `DATABASE_ENVIRONMENT=isolated` → `SAFE_TO_TEST = YES`（`ISOLATED_REMOTE_DATABASE`）→ 正常放行。
+
+**WORKFORCE_DB_TEST_GUARD = PASS / PRODUCTION_DB_ACCIDENT_REPLAY = BLOCKED**
+
+## Flag 语义（写入为技术债）
+
+**WORKFORCE_FLAG_MODE = CREATION_GATE_ONLY**：`WORKFORCE_RUNTIME_ENABLED=false` 只挡 `createWorkforceJob` 创建入口；已 queued 的 workforce_job 仍会被 cron 的 `processQueuedWorkforceJobs` 消费。技术债（不在本 PR 扩大范围）：如需 global kill switch，在 `processQueuedWorkforceJobs` 开头加 `isWorkforceRuntimeEnabledWithEnv` 检查（约 3 行）。
+
+## Final 回归（隔离 Neon 分支 `preview-workforce-phase2a-gate`，显式 DATABASE_ENVIRONMENT=isolated，用后删除）
+
+在 merge main + Guard 接入后的最终代码上全部重跑：
+
+- **Case A–L：84/84**（job-identity 25 + lease 15 + timeout 6 + approval-resume 12 + stale-worker 17 + normal-slices 9）
+- **Golden Scenario：PASS**（真实 LLM、隔离 DB、零外发）——完整链路 created→queued→claimed→planned→steps→lease renew→normal continuation（交还队列再认领）→waiting_human→approval（UserB）→resumed→verification PASS→completed；审批轮次=2、身份不漂移、审批人≠执行主体
+- Runtime 1.1：runtime-context 28、context-propagation 24
+- AR2：durable-state 11、golden-flow 14、verifier-security 15、planner 17、preview-gate-p0 30
+- PendingAction/approval：phase3a3-rbac 34、phase3a3-smoke 28、inline-approval 13、pending-action-run 10、pending-action-bridge 20、marketing-proposal-bridge 13、approval-resume 10、summary-pending-action 3、approval-policy 5
+- pre-execute-guard 33、agent-scope 24
+- Governance：phase3a4-governance 13、governance-smoke 28、acceptance 29、hygiene-gate 22、hygiene-concurrency-gate 20
+- **DB Test Guard 单测：22/22**
+- background_conversation：无行为变更（同一 `claimRunLease` 原语承载，由 Case C/D/E + durable-state 覆盖）
+- `npx tsc --noEmit` 0 错、`eslint` 0 错、`npm run build` 成功
+
+## 状态标志汇总
+
+| Flag | 结果 |
+|---|---|
+| FENCING_PRIMITIVE | PASS |
+| FENCING_V2_WRITES | PASS |
+| STALE_WORKER_AFTER_RECLAIM | BLOCKED |
+| NORMAL_CONTINUATION_ATTEMPTS | SAFE |
+| LONG_JOB_GT_MAX_SLICES | PASS |
+| FAILURE_RETRY_EXHAUSTION | PASS |
+| WORKFORCE_DB_TEST_GUARD | PASS |
+| METADATA_PRESERVATION | PASS |
+| DURABLE_TIMEOUT | PASS |
+| APPROVER_NOT_EXECUTION_PRINCIPAL | PASS |
+| NO_DUPLICATE_COMPLETED_STEP | PASS |
+| DATABASE_MIGRATION | NONE |
+| WORKFORCE_FLAG_MODE | CREATION_GATE_ONLY |
+
+## PHASE_2A_STATUS（Final Gate）= READY_FOR_MERGE（保持 Draft，等待人工评审）
