@@ -236,6 +236,36 @@ export async function createAgentRun(input: {
   return { run: runWithMeta, reused: false as const };
 }
 
+function asMetadataRecord(metadata: unknown): Record<string, unknown> {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+  return metadata as Record<string, unknown>;
+}
+
+/**
+ * Phase 2A：metadata 合并写入（禁止 wholesale 覆盖 correlation）。
+ * 用于在既有 metadata 上追加/更新键（如 jobId 回写、审批人记录），
+ * 保留 actor/owner/jobId/rootRunId/traceId 等既有 correlation 字段。
+ */
+export async function mergeAgentRunMetadata(
+  orgId: string,
+  runId: string,
+  patch: Record<string, unknown>,
+) {
+  const run = await db.agentRun.findFirst({
+    where: { id: runId, orgId },
+    select: { id: true, metadata: true },
+  });
+  if (!run) throw new Error("Run 不存在或跨组织");
+  return db.agentRun.update({
+    where: { id: runId },
+    data: {
+      metadata: jsonValue({ ...asMetadataRecord(run.metadata), ...patch }),
+    },
+  });
+}
+
 export async function updateAgentRunStatus(
   orgId: string,
   runId: string,
@@ -248,7 +278,7 @@ export async function updateAgentRunStatus(
 ) {
   const run = await db.agentRun.findFirst({
     where: { id: runId, orgId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, metadata: true },
   });
   if (!run) throw new Error("Run 不存在或跨组织");
   if (run.status === "cancelled" || run.status === "completed") return run;
@@ -259,7 +289,16 @@ export async function updateAgentRunStatus(
       status,
       ...(patch?.model ? { model: patch.model } : {}),
       ...(patch?.intent ? { intent: patch.intent } : {}),
-      ...(patch?.metadata ? { metadata: jsonValue(patch.metadata) } : {}),
+      // Phase 2A Critical Fix：metadata patch 合并而非整体替换，
+      // 避免摧毁 actor/owner/jobId/rootRunId/traceId correlation。
+      ...(patch?.metadata
+        ? {
+            metadata: jsonValue({
+              ...asMetadataRecord(run.metadata),
+              ...patch.metadata,
+            }),
+          }
+        : {}),
     },
   });
 }

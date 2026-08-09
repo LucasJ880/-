@@ -9,6 +9,7 @@ import { getRuntimeV2Limits } from "./flags";
 import { buildStepOperationKey } from "./idempotency";
 import { getRuntimeV2Tool } from "./tool-catalog";
 import { refreshReadySteps } from "./persist";
+import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
@@ -61,8 +62,11 @@ export async function executeRuntimeV2Round(input: {
   if (run.status === "cancelled") return { status: "cancelled" };
   if (run.status === "awaiting_approval") return { status: "awaiting_approval" };
 
-  // 超时
-  if (run.startedAt) {
+  // 超时（Phase 2A：durable workforce_job 不使用 run.startedAt 作为单次执行
+  // timeout——Job 可能已存活数小时（等审批/多 slice），改由 workforce processor
+  // 在每个 slice 内用 processingStartedAt 控制 per-slice 时间预算）
+  const isDurableWorkforceJob = run.runType === WORKFORCE_JOB_RUN_TYPE;
+  if (!isDurableWorkforceJob && run.startedAt) {
     const elapsed = Date.now() - run.startedAt.getTime();
     if (elapsed > limits.timeoutMs) {
       await db.agentRun.update({

@@ -11,6 +11,7 @@ import { planAgentRuntimeV2 } from "./planner";
 import { persistPlanAndSteps } from "./persist";
 import { verifyRuntimeV2Run } from "./verifier";
 import { RUNTIME_V2_TOOL_CATALOG } from "./tool-catalog";
+import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 
 export type StartRuntimeV2Input = {
   orgId: string;
@@ -396,6 +397,46 @@ export async function resumeRuntimeV2AfterApproval(input: {
       where: { id: input.runId },
       data: { status: "executing" },
     });
+  }
+
+  // Phase 2A（§17–18）：workforce_job 审批后回到 durable 队列，由 processor
+  // 认领续跑——续跑时从 metadata 恢复 correlation 并重新校验当前 membership，
+  // 执行主体 = 发起人/Owner（principal），绝不以审批人身份继续执行。
+  const resumedRun = await db.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { runType: true },
+  });
+  if (resumedRun?.runType === WORKFORCE_JOB_RUN_TYPE) {
+    if (stillAwaiting === 0) {
+      await db.agentRun.update({
+        where: { id: input.runId },
+        data: {
+          status: "queued",
+          nextAttemptAt: new Date(),
+          leaseExpiresAt: null,
+        },
+      });
+      const { appendAgentRunEvent } = await import("@/lib/agent-runtime/run");
+      await appendAgentRunEvent({
+        orgId: input.orgId,
+        runId: input.runId,
+        eventType: "job.resumed",
+        title: "审批完成，Workforce Job 已恢复",
+        payload: {
+          approvalActorUserId: input.approvalActorUserId,
+          executionPrincipalUserId: principal.userId,
+        },
+        visibleToUser: true,
+      });
+      return {
+        status: "queued",
+        report: await buildFinalReport(input.orgId, input.runId),
+      };
+    }
+    return {
+      status: "awaiting_approval",
+      report: await buildFinalReport(input.orgId, input.runId),
+    };
   }
 
   const runMeta = await db.agentRun.findFirst({
