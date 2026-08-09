@@ -71,8 +71,8 @@ console.log("phase3a4 governance logic");
 
 ok(ALL_QUOTA_METRICS.length === 6, "6 个首批 metric");
 ok(
-  PLATFORM_DEFAULT_QUOTAS.MONTHLY_AI_COST.hardLimit === 50,
-  "平台月费用默认 hard=50",
+  PLATFORM_DEFAULT_QUOTAS.MONTHLY_AI_COST.hardLimit === 1000,
+  "平台月费用默认 hard=1000",
 );
 ok(
   PLATFORM_DEFAULT_QUOTAS.MAX_CONCURRENT_RUNS.period === "CONCURRENT",
