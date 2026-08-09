@@ -2,6 +2,7 @@ import { resolveEffectiveQuota } from "./resolve";
 import { getQuotaCurrentUsage } from "./usage-counters";
 import type { QuotaEvalResult, QuotaMetric } from "./types";
 import { writeCapabilityAuditEvent } from "./audit";
+import { notifyQuotaHardLimitBlocked } from "./quota-notify";
 
 export async function evaluateQuota(opts: {
   orgId: string;
@@ -75,6 +76,24 @@ export async function evaluateQuota(opts: {
         hardLimit: effective.hardLimit,
       },
     });
+  }
+
+  // Governance Hygiene Gate：熔断可见性。
+  // hard limit 阻断不再静默，best-effort 通知 org_owner/org_admin（按周期去重）。
+  if (level === "HARD_LIMIT") {
+    try {
+      await notifyQuotaHardLimitBlocked({
+        orgId: opts.orgId,
+        workspaceId: opts.workspaceId,
+        userId: opts.userId,
+        metric: opts.metric,
+        currentUsage,
+        projectedUsage: projected,
+        hardLimit: effective.hardLimit,
+      });
+    } catch (err) {
+      console.error("[quota] hard limit notify failed (non-blocking):", err);
+    }
   }
 
   return {

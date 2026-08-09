@@ -39,6 +39,7 @@ export default function GovernancePage() {
   const [quotas, setQuotas] = useState<{
     policies: unknown[];
     effective: unknown[];
+    alerts?: { aiDisabled: boolean; zeroHardLimitMetrics: string[] };
   } | null>(null);
   const [audit, setAudit] = useState<{ items: unknown[]; total: number } | null>(
     null,
@@ -243,7 +244,26 @@ export default function GovernancePage() {
 
       {!loading && !error && tab === "quotas" && (
         <div className="space-y-4 text-sm">
-          <h3 className="font-medium">有效配额</h3>
+          {quotas?.alerts?.aiDisabled && (
+            <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+              <div className="font-semibold">AI 已被配额停用</div>
+              <div className="mt-1">
+                当前生效的 MONTHLY_AI_COST 硬限额为 0，本企业所有 AI
+                调用都会被阻断。若非有意禁用，请调整或停用下方对应策略。
+              </div>
+            </div>
+          )}
+          {!quotas?.alerts?.aiDisabled &&
+            (quotas?.alerts?.zeroHardLimitMetrics?.length ?? 0) > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
+                <div className="font-semibold">部分能力硬限额为 0</div>
+                <div className="mt-1">
+                  以下指标的有效硬限额为 0，对应能力已被完全阻断：
+                  {quotas?.alerts?.zeroHardLimitMetrics?.join("、")}
+                </div>
+              </div>
+            )}
+          <h3 className="font-medium">有效配额（当前实际生效）</h3>
           <ul className="space-y-2">
             {(
               (quotas?.effective as Array<{
@@ -254,8 +274,20 @@ export default function GovernancePage() {
                 sourcePolicies: Array<{ scope: string; version?: number }>;
               }>) ?? []
             ).map((e) => (
-              <li key={e.metric} className="rounded-md border px-3 py-2">
-                <div className="font-medium">{e.metric}</div>
+              <li
+                key={e.metric}
+                className={`rounded-md border px-3 py-2 ${
+                  e.hardLimit === 0 ? "border-red-300 bg-red-50" : ""
+                }`}
+              >
+                <div className="font-medium">
+                  {e.metric}
+                  {e.hardLimit === 0 && (
+                    <span className="ml-2 rounded bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+                      已阻断
+                    </span>
+                  )}
+                </div>
                 <div className="text-muted-foreground">
                   warn {e.warningLimit ?? "—"} / soft {e.softLimit ?? "—"} /
                   hard {e.hardLimit ?? "—"}
@@ -269,9 +301,8 @@ export default function GovernancePage() {
               </li>
             ))}
           </ul>
-          <h3 className="font-medium">已配置策略（含历史版本）</h3>
-          <ul className="space-y-1">
-            {(
+          {(() => {
+            const all =
               (quotas?.policies as Array<{
                 id: string;
                 metric: string;
@@ -279,14 +310,41 @@ export default function GovernancePage() {
                 version: number;
                 hardLimit: unknown;
                 enabled: boolean;
-              }>) ?? []
-            ).map((p) => (
-              <li key={p.id}>
-                {p.metric} · ws={p.workspaceId ?? "ORG"} · v{p.version} · hard=
-                {String(p.hardLimit)} · {p.enabled ? "生效" : "停用"}
-              </li>
-            ))}
-          </ul>
+              }>) ?? [];
+            const current = all.filter((p) => p.enabled);
+            const history = all.filter((p) => !p.enabled);
+            return (
+              <>
+                <h3 className="font-medium">当前生效策略（{current.length}）</h3>
+                <ul className="space-y-1">
+                  {current.map((p) => (
+                    <li key={p.id}>
+                      {p.metric} · ws={p.workspaceId ?? "ORG"} · v{p.version} ·
+                      hard={String(p.hardLimit)}
+                    </li>
+                  ))}
+                  {current.length === 0 && (
+                    <li className="text-muted-foreground">
+                      无自定义策略，使用平台默认配额
+                    </li>
+                  )}
+                </ul>
+                <details>
+                  <summary className="cursor-pointer font-medium">
+                    历史版本（{history.length}，已停用）
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-muted-foreground">
+                    {history.map((p) => (
+                      <li key={p.id}>
+                        {p.metric} · ws={p.workspaceId ?? "ORG"} · v{p.version} ·
+                        hard={String(p.hardLimit)}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </>
+            );
+          })()}
         </div>
       )}
 

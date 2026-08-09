@@ -55,10 +55,20 @@ export async function GET(request: NextRequest) {
       ),
     );
 
+    // Governance Hygiene Gate：明确标记「AI 被禁用」的危险配置，
+    // 避免有效配额被 hardLimit=0 静默清零而无人察觉。
+    const zeroHardLimitMetrics = effective
+      .filter((e) => e.hardLimit === 0)
+      .map((e) => e.metric);
+
     return NextResponse.json({
       orgId: access.orgId,
       policies: filtered,
       effective,
+      alerts: {
+        aiDisabled: zeroHardLimitMetrics.includes("MONTHLY_AI_COST"),
+        zeroHardLimitMetrics,
+      },
     });
   } catch (err) {
     return capabilitiesErrorResponse(err);

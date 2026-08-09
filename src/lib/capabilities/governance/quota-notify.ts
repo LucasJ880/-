@@ -118,12 +118,12 @@ export async function notifyQuotaThreshold(opts: {
     return { notified, deduped: notified === 0 };
   }
 
-  // Soft：通知企业管理员（去重）
+  // Soft：通知企业管理员（去重）。Owner 具备治理配额能力，一并通知。
   const admins = await db.organizationMember.findMany({
     where: {
       orgId: opts.orgId,
       status: "active",
-      role: "org_admin",
+      role: { in: ["org_owner", "org_admin"] },
     },
     select: { userId: true },
   });
@@ -156,4 +156,69 @@ export async function notifyQuotaThreshold(opts: {
   });
   notified += created;
   return { notified, deduped: notified === 0 };
+}
+
+/**
+ * Governance Hygiene Gate：Hard limit 熔断告警。
+ *
+ * 历史行为是「hard limit 阻断只写审计、不通知任何人」，曾导致
+ * hardLimit=0 的遗留策略让 AI 静默停用数周而无人察觉。
+ * 现在：AI 调用被 hard limit 阻断时，通知全部 org_owner / org_admin
+ * （按 org+workspace+metric+周期去重，每个周期每人最多一条）。
+ */
+export async function notifyQuotaHardLimitBlocked(opts: {
+  orgId: string;
+  workspaceId?: string | null;
+  userId: string;
+  metric: QuotaMetric;
+  currentUsage: number;
+  projectedUsage: number;
+  hardLimit?: number | null;
+}): Promise<{ notified: number; deduped: boolean }> {
+  const baseKey = buildQuotaNotifyDedupeKey({
+    orgId: opts.orgId,
+    workspaceId: opts.workspaceId,
+    metric: opts.metric,
+    level: "HARD_LIMIT",
+  });
+  const label = metricLabel(opts.metric);
+  const zeroLimit = opts.hardLimit === 0;
+  const title = zeroLimit
+    ? `【AI 已停用】${label}硬限额为 0`
+    : `【已熔断】${label}达到硬限额`;
+  const summary = zeroLimit
+    ? `当前生效策略的 hardLimit=0，该企业的 AI 调用已被完全阻断。若非有意禁用，请立即在治理中心调整或停用该策略。`
+    : `当前用量 ${opts.currentUsage.toFixed(4)}，本次请求预计 ${opts.projectedUsage.toFixed(4)}，已超过硬限额 ${opts.hardLimit ?? "—"}，AI 调用已被阻断。`;
+
+  const admins = await db.organizationMember.findMany({
+    where: {
+      orgId: opts.orgId,
+      status: "active",
+      role: { in: ["org_owner", "org_admin"] },
+    },
+    select: { userId: true },
+  });
+  const adminIds = [...new Set(admins.map((a) => a.userId).filter(Boolean))];
+  if (adminIds.length === 0) return { notified: 0, deduped: false };
+
+  const created = await createNotificationsForUsers(adminIds, {
+    orgId: opts.orgId,
+    type: "quota_hard_limit",
+    category: "alert",
+    title,
+    summary,
+    priority: "urgent",
+    entityType: "quota",
+    entityId: opts.metric,
+    sourceKeyPrefix: `${baseKey}:admin`,
+    metadata: {
+      orgId: opts.orgId,
+      workspaceId: opts.workspaceId ?? null,
+      metric: opts.metric,
+      level: "HARD_LIMIT",
+      hardLimit: opts.hardLimit ?? null,
+      actionHref: "/capabilities/governance/quotas",
+    },
+  });
+  return { notified: created, deduped: created === 0 };
 }
