@@ -338,6 +338,8 @@ Case I 共 6 项断言全过。
 
 **WORKFORCE_FLAG_MODE = CREATION_GATE_ONLY**：`WORKFORCE_RUNTIME_ENABLED=false` 只挡 `createWorkforceJob` 创建入口；已 queued 的 workforce_job 仍会被 cron 的 `processQueuedWorkforceJobs` 消费。技术债（不在本 PR 扩大范围）：如需 global kill switch，在 `processQueuedWorkforceJobs` 开头加 `isWorkforceRuntimeEnabledWithEnv` 检查（约 3 行）。
 
+> 2026-08-09 后续（Phase 2A 合入 main 之后的 follow-up PR）：已实现运行时 kill-switch。`isWorkforceProcessingEnabled()`（只看总开关，不看 allowlist）接入 `processQueuedWorkforceJobs` 与 `processWorkforceJobSlice` 入口：`WORKFORCE_RUNTIME_ENABLED` 关闭时跳过 claim/处理/exhausted 清扫，已排队 job 保持 queued 原状，恢复开关后继续消费。测试：`phase2a-kill-switch.test.ts`（KS0–KS10）。**WORKFORCE_FLAG_MODE = CREATION_GATE + PROCESSING_KILL_SWITCH**。
+
 ## Final 回归（隔离 Neon 分支 `preview-workforce-phase2a-gate`，显式 DATABASE_ENVIRONMENT=isolated，用后删除）
 
 在 merge main + Guard 接入后的最终代码上全部重跑：
