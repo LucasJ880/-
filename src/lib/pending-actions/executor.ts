@@ -157,6 +157,55 @@ export async function executePendingAction(
     return { ok: false, error: "草稿已过期" };
   }
 
+  // Gate B 加固：payload 防篡改（与 capabilities 审批路径同一机制，legacy 无 hash 的行跳过）
+  if (action.payloadHash) {
+    const { computePayloadHash } = await import(
+      "@/lib/capabilities/approvals/integrity"
+    );
+    if (computePayloadHash(action.payload) !== action.payloadHash) {
+      await logAudit({
+        userId: ctx.userId,
+        orgId: ctx.orgId ?? undefined,
+        action: "APPROVAL_EXECUTION_BLOCKED",
+        targetType: "pending_action",
+        targetId: actionId,
+        afterData: { reason: "payload_hash_mismatch" },
+      });
+      return {
+        ok: false,
+        error: "审批内容已变化，请重新提交审批",
+        errorCode: "PAYLOAD_HASH_MISMATCH",
+      };
+    }
+  }
+
+  // Gate B 加固：Tool 停用后已批准动作也不能执行（执行时重查当前 capability policy；
+  // 此前仅 /api/capabilities 审批路径检查，助手 API / 微信路径不经过该层）
+  if (action.orgId) {
+    try {
+      const { loadAgentToolPolicyRule } = await import("@/lib/org-rules/service");
+      const policy = await loadAgentToolPolicyRule(action.orgId);
+      const disabled = policy.value?.disabledTools ?? [];
+      if (disabled.includes(action.type)) {
+        await logAudit({
+          userId: ctx.userId,
+          orgId: ctx.orgId ?? undefined,
+          action: "APPROVAL_EXECUTION_BLOCKED",
+          targetType: "pending_action",
+          targetId: actionId,
+          afterData: { reason: "tool_disabled", tool: action.type },
+        });
+        return {
+          ok: false,
+          error: "相关 Tool 已停用，执行被阻止，请重新提交审批",
+          errorCode: "EXECUTION_BLOCKED",
+        };
+      }
+    } catch {
+      /* 政策加载失败保守放行到 handler 既有校验（与 capabilities 路径行为一致） */
+    }
+  }
+
   // 标记为 approved（进入执行态），避免并发重复执行
   await db.pendingAction.update({
     where: { id: actionId },

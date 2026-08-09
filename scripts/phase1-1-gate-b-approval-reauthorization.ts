@@ -254,6 +254,65 @@ async function main() {
     ok(!(await taskExists(project.id, title)), "未写入任何 Task");
   }
 
+  // ── Case B4b：Tool 停用（capability policy 变化）→ 主路径执行时拦截 ──
+  console.log("── Case B4b: Tool disabled after creation (main path) ──");
+  {
+    const title = `B4b-task-${stamp}`;
+    // 创建时 tool 可用；批准前组织停用该 tool
+    const id = await createProjectTaskDraft({
+      userId: u1.id, orgId: org.id, projectId: project.id, title, approverUserId: u1.id,
+    });
+    await db.projectMember.update({
+      where: { projectId_userId: { projectId: project.id, userId: u1.id } },
+      data: { status: "active" }, // 确保权限本身没问题，专测 tool policy
+    });
+    await db.orgBusinessRule.create({
+      data: {
+        orgId: org.id,
+        ruleKey: "agent_tool_policy",
+        status: "active",
+        configJson: { disabledTools: ["grader.project_task"], forceApprovalTools: [] },
+      },
+    });
+    const res = await executePendingAction(id, { userId: u1.id, role: "user", orgId: org.id });
+    ok(res.ok === false, "tool 停用后：EXECUTION_BLOCKED", res.message);
+    ok(res.errorCode === "EXECUTION_BLOCKED", "errorCode=EXECUTION_BLOCKED", res.errorCode);
+    ok(!(await taskExists(project.id, title)), "未写入任何 Task");
+    // 恢复 policy 避免影响后续 case
+    await db.orgBusinessRule.updateMany({
+      where: { orgId: org.id, ruleKey: "agent_tool_policy" },
+      data: { status: "superseded" },
+    });
+  }
+
+  // ── Case B5b：payload 落库后被篡改 → payloadHash 完整性拦截 ──
+  console.log("── Case B5b: Payload tampered after creation (hash integrity) ──");
+  {
+    const title = `B5b-task-${stamp}`;
+    const id = await createProjectTaskDraft({
+      userId: u1.id, orgId: org.id, projectId: project.id, title, approverUserId: u1.id,
+    });
+    // 模拟 DB 层篡改：改 payload 但保留创建时的 payloadHash
+    await db.pendingAction.update({
+      where: { id },
+      data: {
+        payload: {
+          projectId: project.id,
+          title: `${title}-TAMPERED`,
+          metadata: { orgId: org.id, projectId: project.id },
+        },
+      },
+    });
+    const res = await executePendingAction(id, { userId: u1.id, role: "user", orgId: org.id });
+    ok(res.ok === false, "哈希不一致：拒绝执行", res.message);
+    ok(
+      res.errorCode === "PAYLOAD_HASH_MISMATCH",
+      "errorCode=PAYLOAD_HASH_MISMATCH",
+      res.errorCode,
+    );
+    ok(!(await taskExists(project.id, `${title}-TAMPERED`)), "篡改内容未被执行");
+  }
+
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   console.log(fail === 0 ? "GATE_B = PASS" : "GATE_B = FAIL");
   await db.$disconnect();
