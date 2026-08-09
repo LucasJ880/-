@@ -109,12 +109,13 @@ export class TestDatabaseSafetyError extends Error {
   }
 }
 
-type UrlInspect =
+export type UrlInspect =
   | { kind: "missing"; host: null; database: null }
   | { kind: "malformed"; host: null; database: null }
   | { kind: "ok"; host: string; database: string | null };
 
-function inspectDbUrl(url: string | undefined): UrlInspect {
+/** 共享 URL 身份解析（也被 production-operation-guard 复用，避免第三套实现）。 */
+export function inspectDbUrl(url: string | undefined): UrlInspect {
   const raw = (url ?? "").trim();
   if (!raw) return { kind: "missing", host: null, database: null };
   try {
