@@ -16,7 +16,9 @@
  * 规则矩阵（严格执行）：
  *   - 生产库（已知生产 host/endpoint 前缀）→ 永远 BLOCK，任何信号组合
  *     （包括 opt-in token）都不能放行；
- *   - NODE_ENV=production 或 VERCEL_ENV=production → BLOCK；
+ *   - NODE_ENV=production / VERCEL_ENV=production / QINGYAN_RUNTIME_ENV=production
+ *     / QINGYAN_EXPECTED_DB_PLANE=production → BLOCK（isolated 标记与 opt-in
+ *     token 均不可覆盖）；
  *   - DATABASE_URL / DIRECT_URL 缺失或无法解析 → BLOCK；
  *   - localhost / 127.0.0.1 / ::1 / host.docker.internal → ALLOW；
  *   - 非生产远程 host + 显式 DATABASE_ENVIRONMENT=isolated（既有约定，
@@ -67,6 +69,7 @@ export type DbHostClass = "production" | "local" | "remote" | "unresolved";
 export type TestDatabaseBlockCode =
   | "PRODUCTION_DATABASE_HOST"
   | "PRODUCTION_RUNTIME_ENV"
+  | "PRODUCTION_DB_PLANE_EXPECTED"
   | "MISSING_DATABASE_URL"
   | "MALFORMED_DATABASE_URL"
   | "UNKNOWN_REMOTE_HOST_WITHOUT_ISOLATION";
@@ -84,6 +87,8 @@ export type TestDatabaseSafetyVerdict = {
   blockCodes: TestDatabaseBlockCode[];
   nodeEnv: string;
   vercelEnv: string;
+  qingyanRuntimeEnv: string;
+  expectedDbPlane: string;
   /** DATABASE_URL host（解析失败为 null） */
   databaseHost: string | null;
   /** DIRECT_URL host（未配置/解析失败为 null） */
@@ -187,14 +192,32 @@ export function evaluateTestDatabaseSafety(
 ): TestDatabaseSafetyVerdict {
   const nodeEnv = (env.NODE_ENV || "").trim().toLowerCase();
   const vercelEnv = (env.VERCEL_ENV || "").trim().toLowerCase();
+  const qingyanRuntimeEnv = (env.QINGYAN_RUNTIME_ENV || "")
+    .trim()
+    .toLowerCase();
+  const expectedDbPlane = (env.QINGYAN_EXPECTED_DB_PLANE || "")
+    .trim()
+    .toLowerCase();
   const database = inspectDbUrl(env.DATABASE_URL);
   const direct = inspectDbUrl(env.DIRECT_URL);
 
   const blockCodes: TestDatabaseBlockCode[] = [];
 
-  // 1) 运行环境信号：生产运行时永远不允许 destructive 测试
-  if (nodeEnv === "production" || vercelEnv === "production") {
+  // 1) 运行环境信号：生产运行时永远不允许 destructive 测试。
+  //    QINGYAN_RUNTIME_ENV / QINGYAN_EXPECTED_DB_PLANE 与
+  //    src/lib/env/runtime-isolation.ts 同义：任一声明 production 即 hard block，
+  //    isolated 标记 / DANGEROUS token 均不可覆盖——防止 Neon 生产 endpoint
+  //    rotation 后新 hostname 尚未进入硬编码名单时，仅凭 shell 残留的
+  //    isolated 标记误放生产库。
+  if (
+    nodeEnv === "production" ||
+    vercelEnv === "production" ||
+    qingyanRuntimeEnv === "production"
+  ) {
     blockCodes.push("PRODUCTION_RUNTIME_ENV");
+  }
+  if (expectedDbPlane === "production") {
+    blockCodes.push("PRODUCTION_DB_PLANE_EXPECTED");
   }
 
   // 2) URL 存在性 / 可解析性（fail-closed：解析不出来就不放行）
@@ -250,6 +273,8 @@ export function evaluateTestDatabaseSafety(
     blockCodes,
     nodeEnv: nodeEnv || "-",
     vercelEnv: vercelEnv || "-",
+    qingyanRuntimeEnv: qingyanRuntimeEnv || "-",
+    expectedDbPlane: expectedDbPlane || "-",
     databaseHost: database.host,
     directHost: direct.host,
     databaseName: database.database,
@@ -268,6 +293,8 @@ function printSafetyReport(
   out(
     `Environment: NODE_ENV=${verdict.nodeEnv} / VERCEL_ENV=${verdict.vercelEnv}`,
   );
+  out(`QINGYAN_RUNTIME_ENV: ${verdict.qingyanRuntimeEnv}`);
+  out(`Expected DB Plane: ${verdict.expectedDbPlane}`);
   out(`Host: ${verdict.databaseHost ?? "(unresolved)"}`);
   if (verdict.directHost && verdict.directHost !== verdict.databaseHost) {
     out(`Direct host: ${verdict.directHost}`);

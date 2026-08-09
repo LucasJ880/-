@@ -186,6 +186,55 @@ console.log("assert-safe-test-database guard");
   );
 }
 
+// ── H. Qingyan production 信号（不可覆盖的 hard block） ──
+{
+  const v = evaluateTestDatabaseSafety({
+    NODE_ENV: "test",
+    QINGYAN_RUNTIME_ENV: "production",
+    DATABASE_URL: UNKNOWN_DB,
+    DATABASE_ENVIRONMENT: "isolated",
+    TEST_DATABASE_MODE: "isolated",
+    DANGEROUS_ALLOW_DB_TESTS: DANGEROUS_OPT_IN_TOKEN,
+  } as NodeJS.ProcessEnv);
+  ok(
+    !v.safe && v.blockCodes.includes("PRODUCTION_RUNTIME_ENV"),
+    "H1: QINGYAN_RUNTIME_ENV=production → BLOCK（isolated + token 均不可覆盖）",
+  );
+  const v2 = evaluateTestDatabaseSafety({
+    NODE_ENV: "test",
+    QINGYAN_EXPECTED_DB_PLANE: "production",
+    DATABASE_URL: UNKNOWN_DB,
+    DATABASE_ENVIRONMENT: "isolated",
+  } as NodeJS.ProcessEnv);
+  ok(
+    !v2.safe && v2.blockCodes.includes("PRODUCTION_DB_PLANE_EXPECTED"),
+    "H2: QINGYAN_EXPECTED_DB_PLANE=production → BLOCK（isolated 不可覆盖）",
+  );
+  const v3 = evaluateTestDatabaseSafety({
+    NODE_ENV: "test",
+    QINGYAN_RUNTIME_ENV: "preview",
+    QINGYAN_EXPECTED_DB_PLANE: "other",
+    DATABASE_URL: PREVIEW_DB,
+    DATABASE_ENVIRONMENT: "isolated",
+  } as NodeJS.ProcessEnv);
+  ok(
+    v3.safe && v3.allowMode === "ISOLATED_REMOTE_DATABASE",
+    "H3: 正常 Preview（runtime=preview + plane=other + isolated）→ ALLOW",
+  );
+  const v4 = evaluateTestDatabaseSafety({
+    NODE_ENV: "test",
+    QINGYAN_RUNTIME_ENV: "production",
+    QINGYAN_EXPECTED_DB_PLANE: "production",
+    DATABASE_URL: LOCAL_DB,
+  } as NodeJS.ProcessEnv);
+  ok(
+    !v4.safe &&
+      v4.blockCodes.includes("PRODUCTION_RUNTIME_ENV") &&
+      v4.blockCodes.includes("PRODUCTION_DB_PLANE_EXPECTED"),
+    "H4: 生产信号下连 localhost 也 BLOCK（信号冲突本身即不安全）",
+  );
+}
+
 // ── assertSafeTestDatabase 抛错行为 ──
 {
   let thrown: unknown = null;
