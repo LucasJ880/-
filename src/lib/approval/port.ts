@@ -484,16 +484,40 @@ export interface ExpireOverdueResult {
   escalatedApprovals: number;
   staleApprovals: number;
   remindedApprovals: number;
+  /** Phase 2C-1：过期后从 awaiting_approval 转 needs_human 的 workforce run 数 */
+  reconciledWorkforceRuns: number;
 }
 
 export async function expireOverdueApprovals(
   now = new Date(),
 ): Promise<ExpireOverdueResult> {
-  // 1) 过期的对话草稿：批量标记 failed（与 executor 单个过期语义一致）
-  const expired = await db.pendingAction.updateMany({
+  // 1) 过期的对话草稿：批量标记 failed（与 executor 单个过期语义一致）。
+  //    Phase 2C-1（§8E）：先取清单再标记，随后 reconcile 关联的 workforce_job
+  //    run —— 过期 PendingAction 不得让 run 永久卡在 awaiting_approval。
+  const expiredRows = await db.pendingAction.findMany({
     where: { status: "pending", expiresAt: { lte: now } },
+    select: { id: true, orgId: true, agentRunId: true },
+    take: 500,
+  });
+  const expired = await db.pendingAction.updateMany({
+    where: { id: { in: expiredRows.map((r) => r.id) }, status: "pending" },
     data: { status: "failed", failureReason: "已过期" },
   });
+
+  // 无论本轮有无新过期行都调用：函数内部含自愈扫描（前轮 reconcile 中断后，
+  // 过期 action 已离开 pending、不会再进本轮集合，需扫描仍卡 awaiting 的 run）。
+  let reconciledWorkforceRuns = 0;
+  try {
+    const { reconcileWorkforceRunsAfterApprovalExpiry } = await import(
+      "@/lib/workforce-runtime/resume"
+    );
+    const reconciled =
+      await reconcileWorkforceRunsAfterApprovalExpiry(expiredRows);
+    reconciledWorkforceRuns = reconciled.reconciledRuns;
+  } catch (e) {
+    // reconcile 失败不阻断既有过期/升级/提醒流程（下轮 cron 可重试，幂等）
+    console.error("[approval.port] workforce expiry reconcile failed:", e);
+  }
 
   // 2) 超过 deadline 的步骤级审批：逐个升级 + 通知（复用现有 escalation）
   const overdue = await db.approvalRequest.findMany({
@@ -561,5 +585,6 @@ export async function expireOverdueApprovals(
     escalatedApprovals: overdue.length,
     staleApprovals: stale.length,
     remindedApprovals: reminded,
+    reconciledWorkforceRuns,
   };
 }

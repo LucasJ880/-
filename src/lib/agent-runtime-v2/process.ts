@@ -401,6 +401,40 @@ export async function resumeRuntimeV2AfterApproval(input: {
       status: "awaiting_approval",
     },
   });
+
+  // Phase 2C-1（§17）：workforce_job 的 approval 触发源收敛到单一 resume
+  // 入口 resumeWorkforceJob —— 本函数只负责 reconcile（上方 step 终态化），
+  // requeue/门禁/幂等全部由 resumeWorkforceJob 承担。不写 executing 等
+  // legacy 中间态（durable 队列续跑不需要，且会破坏 resume 的状态断言）。
+  const resumedRun = await db.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { runType: true },
+  });
+  if (resumedRun?.runType === WORKFORCE_JOB_RUN_TYPE) {
+    if (stillAwaiting === 0) {
+      const { resumeWorkforceJob } = await import(
+        "@/lib/workforce-runtime/resume"
+      );
+      const resumed = await resumeWorkforceJob({
+        orgId: input.orgId,
+        runId: input.runId,
+        trigger: "approval_decided",
+        humanActorUserId: input.approvalActorUserId,
+      });
+      return {
+        status:
+          resumed.ok || resumed.status === "waiting_human"
+            ? "queued"
+            : resumed.status,
+        report: await buildFinalReport(input.orgId, input.runId),
+      };
+    }
+    return {
+      status: "awaiting_approval",
+      report: await buildFinalReport(input.orgId, input.runId),
+    };
+  }
+
   if (stillAwaiting === 0) {
     await db.agentRun.update({
       where: { id: input.runId },
@@ -416,49 +450,6 @@ export async function resumeRuntimeV2AfterApproval(input: {
       where: { id: input.runId },
       data: { status: "executing" },
     });
-  }
-
-  // Phase 2A（§17–18）：workforce_job 审批后回到 durable 队列，由 processor
-  // 认领续跑——续跑时从 metadata 恢复 correlation 并重新校验当前 membership，
-  // 执行主体 = 发起人/Owner（principal），绝不以审批人身份继续执行。
-  const resumedRun = await db.agentRun.findFirst({
-    where: { id: input.runId, orgId: input.orgId },
-    select: { runType: true },
-  });
-  if (resumedRun?.runType === WORKFORCE_JOB_RUN_TYPE) {
-    if (stillAwaiting === 0) {
-      // BLOCKER 2：审批恢复是"有效进展"——重置 attempts（consecutive
-      // retry budget），避免正常 pause/resume 消耗重试预算
-      await db.agentRun.update({
-        where: { id: input.runId },
-        data: {
-          status: "queued",
-          nextAttemptAt: new Date(),
-          leaseExpiresAt: null,
-          attempts: 0,
-        },
-      });
-      const { appendAgentRunEvent } = await import("@/lib/agent-runtime/run");
-      await appendAgentRunEvent({
-        orgId: input.orgId,
-        runId: input.runId,
-        eventType: "job.resumed",
-        title: "审批完成，Workforce Job 已恢复",
-        payload: {
-          approvalActorUserId: input.approvalActorUserId,
-          executionPrincipalUserId: principal.userId,
-        },
-        visibleToUser: true,
-      });
-      return {
-        status: "queued",
-        report: await buildFinalReport(input.orgId, input.runId),
-      };
-    }
-    return {
-      status: "awaiting_approval",
-      report: await buildFinalReport(input.orgId, input.runId),
-    };
   }
 
   const runMeta = await db.agentRun.findFirst({
