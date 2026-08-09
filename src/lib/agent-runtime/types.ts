@@ -52,7 +52,16 @@ export type AgentRunEventType =
   | "verification.needs_human"
   | "repair.started"
   | "repair.completed"
-  | "run.needs_human";
+  | "run.needs_human"
+  // Workforce Runtime Phase 2A — Job 生命周期事件
+  | "job.created"
+  | "job.queued"
+  | "job.claimed"
+  | "job.lease_renewed"
+  | "job.resumed"
+  | "job.waiting_human"
+  | "job.completed"
+  | "job.failed";
 
 export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "queued",

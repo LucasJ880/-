@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { createAgentRun } from "@/lib/agent-runtime/run";
+import { LostLeaseError, type RunFence } from "@/lib/agent-runtime/lease";
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
 import { emitRuntimeV2Event, userFacingRunLabel } from "./events";
 import { executeRuntimeV2Round } from "./executor";
@@ -11,6 +12,7 @@ import { planAgentRuntimeV2 } from "./planner";
 import { persistPlanAndSteps } from "./persist";
 import { verifyRuntimeV2Run } from "./verifier";
 import { RUNTIME_V2_TOOL_CATALOG } from "./tool-catalog";
+import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 
 export type StartRuntimeV2Input = {
   orgId: string;
@@ -156,6 +158,11 @@ export async function startAgentRuntimeV2Run(
   };
 }
 
+/**
+ * fence（可选，Phase 2A Final）：workforce_job 由 processor 传入 RunFence，
+ * 透传给 executor / verifier；fence 丢失返回 status="lost_lease"，本 worker
+ * 不再写任何状态。不传 fence 时（legacy runtime_v2）行为不变。
+ */
 export async function processAgentRuntimeV2Run(input: {
   orgId: string;
   runId: string;
@@ -163,65 +170,78 @@ export async function processAgentRuntimeV2Run(input: {
   role: string;
   threadId?: string | null;
   maxRounds?: number;
+  fence?: RunFence;
 }): Promise<{ status: string; report?: string }> {
   const maxRounds = input.maxRounds ?? 8;
-  for (let i = 0; i < maxRounds; i++) {
-    const run = await db.agentRun.findFirst({
-      where: {
-        id: input.runId,
-        orgId: input.orgId,
-        runtimeVersion: "v2",
-      },
-      select: { status: true },
-    });
-    if (!run) return { status: "failed", report: "Run not found" };
-    if (
-      ["completed", "failed", "cancelled", "needs_human", "partially_executed"].includes(
-        run.status,
-      )
-    ) {
-      return { status: run.status, report: await buildFinalReport(input.orgId, input.runId) };
-    }
-    if (run.status === "awaiting_approval") {
-      return {
-        status: "awaiting_approval",
-        report: await buildFinalReport(input.orgId, input.runId),
-      };
-    }
-    if (run.status === "verifying" || run.status === "repairing") {
-      await verifyRuntimeV2Run({
+  try {
+    for (let i = 0; i < maxRounds; i++) {
+      const run = await db.agentRun.findFirst({
+        where: {
+          id: input.runId,
+          orgId: input.orgId,
+          runtimeVersion: "v2",
+        },
+        select: { status: true },
+      });
+      if (!run) return { status: "failed", report: "Run not found" };
+      if (
+        ["completed", "failed", "cancelled", "needs_human", "partially_executed"].includes(
+          run.status,
+        )
+      ) {
+        return { status: run.status, report: await buildFinalReport(input.orgId, input.runId) };
+      }
+      if (run.status === "awaiting_approval") {
+        return {
+          status: "awaiting_approval",
+          report: await buildFinalReport(input.orgId, input.runId),
+        };
+      }
+      if (run.status === "verifying" || run.status === "repairing") {
+        await verifyRuntimeV2Run({
+          orgId: input.orgId,
+          runId: input.runId,
+          userId: input.userId,
+          fence: input.fence,
+        });
+        continue;
+      }
+
+      const round = await executeRuntimeV2Round({
         orgId: input.orgId,
         runId: input.runId,
         userId: input.userId,
+        role: input.role,
+        threadId: input.threadId,
+        fence: input.fence,
       });
-      continue;
-    }
 
-    const round = await executeRuntimeV2Round({
-      orgId: input.orgId,
-      runId: input.runId,
-      userId: input.userId,
-      role: input.role,
-      threadId: input.threadId,
-    });
-
-    if (round.status === "awaiting_approval") {
-      return {
-        status: "awaiting_approval",
-        report: await buildFinalReport(input.orgId, input.runId),
-      };
+      if (round.status === "lost_lease") {
+        return { status: "lost_lease" };
+      }
+      if (round.status === "awaiting_approval") {
+        return {
+          status: "awaiting_approval",
+          report: await buildFinalReport(input.orgId, input.runId),
+        };
+      }
+      if (round.status === "ready_for_verification") {
+        await verifyRuntimeV2Run({
+          orgId: input.orgId,
+          runId: input.runId,
+          userId: input.userId,
+          fence: input.fence,
+        });
+        continue;
+      }
+      if (round.status === "failed" || round.status === "cancelled") {
+        return { status: round.status, report: round.status === "failed" ? round.error : undefined };
+      }
     }
-    if (round.status === "ready_for_verification") {
-      await verifyRuntimeV2Run({
-        orgId: input.orgId,
-        runId: input.runId,
-        userId: input.userId,
-      });
-      continue;
-    }
-    if (round.status === "failed" || round.status === "cancelled") {
-      return { status: round.status, report: round.status === "failed" ? round.error : undefined };
-    }
+  } catch (err) {
+    // verifier 等 fenced 路径抛出的 LOST_LEASE：立即放弃，禁止任何后续写入
+    if (err instanceof LostLeaseError) return { status: "lost_lease" };
+    throw err;
   }
 
   const latest = await db.agentRun.findFirst({
@@ -396,6 +416,49 @@ export async function resumeRuntimeV2AfterApproval(input: {
       where: { id: input.runId },
       data: { status: "executing" },
     });
+  }
+
+  // Phase 2A（§17–18）：workforce_job 审批后回到 durable 队列，由 processor
+  // 认领续跑——续跑时从 metadata 恢复 correlation 并重新校验当前 membership，
+  // 执行主体 = 发起人/Owner（principal），绝不以审批人身份继续执行。
+  const resumedRun = await db.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { runType: true },
+  });
+  if (resumedRun?.runType === WORKFORCE_JOB_RUN_TYPE) {
+    if (stillAwaiting === 0) {
+      // BLOCKER 2：审批恢复是"有效进展"——重置 attempts（consecutive
+      // retry budget），避免正常 pause/resume 消耗重试预算
+      await db.agentRun.update({
+        where: { id: input.runId },
+        data: {
+          status: "queued",
+          nextAttemptAt: new Date(),
+          leaseExpiresAt: null,
+          attempts: 0,
+        },
+      });
+      const { appendAgentRunEvent } = await import("@/lib/agent-runtime/run");
+      await appendAgentRunEvent({
+        orgId: input.orgId,
+        runId: input.runId,
+        eventType: "job.resumed",
+        title: "审批完成，Workforce Job 已恢复",
+        payload: {
+          approvalActorUserId: input.approvalActorUserId,
+          executionPrincipalUserId: principal.userId,
+        },
+        visibleToUser: true,
+      });
+      return {
+        status: "queued",
+        report: await buildFinalReport(input.orgId, input.runId),
+      };
+    }
+    return {
+      status: "awaiting_approval",
+      report: await buildFinalReport(input.orgId, input.runId),
+    };
   }
 
   const runMeta = await db.agentRun.findFirst({
