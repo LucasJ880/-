@@ -1,4 +1,8 @@
 import { db } from "@/lib/db";
+import {
+  fenceGuardedWrite,
+  type RunFence,
+} from "@/lib/agent-runtime/lease";
 import { getRuntimeV2Limits } from "./flags";
 import type { PlannerOutput } from "./schemas";
 import { emitRuntimeV2Event } from "./events";
@@ -78,7 +82,12 @@ export function dependenciesSatisfied(
   return deps.every((d) => completedKeys.has(d));
 }
 
-export async function refreshReadySteps(orgId: string, runId: string) {
+/** fence（可选）：workforce_job 下 pending→ready 提升也经防栅栏（stale worker 零写入） */
+export async function refreshReadySteps(
+  orgId: string,
+  runId: string,
+  fence?: RunFence,
+) {
   const steps = await db.agentRunStep.findMany({ where: { orgId, runId } });
   const completed = new Set(
     steps
@@ -90,10 +99,12 @@ export async function refreshReadySteps(orgId: string, runId: string) {
   for (const step of steps) {
     if (step.status !== "pending") continue;
     if (dependenciesSatisfied(step.dependsOnJson, completed)) {
-      await db.agentRunStep.update({
-        where: { id: step.id },
-        data: { status: "ready" },
-      });
+      await fenceGuardedWrite(fence, (c) =>
+        c.agentRunStep.update({
+          where: { id: step.id },
+          data: { status: "ready" },
+        }),
+      );
       await emitRuntimeV2Event({
         orgId,
         runId,

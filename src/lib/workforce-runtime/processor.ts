@@ -14,11 +14,12 @@
  */
 
 import { db } from "@/lib/db";
-import { appendAgentRunEvent, failAgentRun } from "@/lib/agent-runtime/run";
+import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
 import {
   claimRunLease,
   renewRunLease,
   fencedRunUpdate,
+  createRunFence,
   type RunLeaseHandle,
 } from "@/lib/agent-runtime/lease";
 import {
@@ -153,7 +154,11 @@ export async function processWorkforceJobSlice(
     clearError: false,
   });
   if (!claim.ok) return { claimed: false };
-  let lease = claim.lease;
+  // holder：renew 后更新 holder.lease，fence 始终引用最新 token
+  const holder: { lease: RunLeaseHandle } = { lease: claim.lease };
+  // BLOCKER 1：fence 传入 V2 执行路径——executor/verifier 的所有
+  // AgentRun/AgentRunStep/AgentRunVerification 写入经原子防栅栏
+  const fence = createRunFence(holder);
 
   const run = await db.agentRun.findUniqueOrThrow({ where: { id: runId } });
   const orgId = run.orgId;
@@ -170,7 +175,7 @@ export async function processWorkforceJobSlice(
     title: "Workforce Job 已认领",
     payload: {
       attempts: run.attempts,
-      leaseExpiresAt: lease.leaseExpiresAt.toISOString(),
+      leaseExpiresAt: holder.lease.leaseExpiresAt.toISOString(),
       correlation,
     },
     visibleToUser: false,
@@ -183,8 +188,9 @@ export async function processWorkforceJobSlice(
   );
   const principal = await resolveRuntimeV2Principal({ orgId, runId });
   if (!principal.ok) {
+    // BLOCKER 2：waiting human 是正常 park——重置 attempts（retry budget）
     const parked = await fencedRunUpdate({
-      lease,
+      lease: holder.lease,
       allowedFromStatuses: ACTIVE_STATUSES,
       data: {
         status: "needs_human",
@@ -192,6 +198,7 @@ export async function processWorkforceJobSlice(
         errorMessage: principal.error,
         leaseExpiresAt: null,
         nextAttemptAt: null,
+        attempts: 0,
       },
     });
     if (parked) {
@@ -217,15 +224,23 @@ export async function processWorkforceJobSlice(
     if (!run.planJson) {
       const goal = typeof meta.goal === "string" ? meta.goal.trim() : "";
       if (!goal) {
-        await fencedRunUpdate({
-          lease,
+        // BLOCKER 1.6：终态转换本身必须 fenced 且检查结果——
+        // fence 丢失（其他 worker 已接管）直接 LOST_LEASE，禁止 failAgentRun
+        const failedWritten = await fencedRunUpdate({
+          lease: holder.lease,
           allowedFromStatuses: ACTIVE_STATUSES,
-          data: { leaseExpiresAt: null, nextAttemptAt: null },
+          data: {
+            status: "failed",
+            errorCode: "db_error",
+            errorMessage: "workforce_job 缺少 goal，无法规划",
+            leaseExpiresAt: null,
+            nextAttemptAt: null,
+            completedAt: new Date(),
+          },
         });
-        await failAgentRun(orgId, runId, {
-          code: "db_error",
-          message: "workforce_job 缺少 goal，无法规划",
-        });
+        if (!failedWritten) {
+          return { claimed: true, status: "lost_lease", lostLease: true };
+        }
         await appendAgentRunEvent({
           orgId,
           runId,
@@ -250,13 +265,14 @@ export async function processWorkforceJobSlice(
       if (!planned.ok) {
         if (planned.clarification) {
           const parked = await fencedRunUpdate({
-            lease,
+            lease: holder.lease,
             allowedFromStatuses: ACTIVE_STATUSES,
             data: {
               status: "needs_human",
               errorMessage: planned.clarification.slice(0, 2000),
               leaseExpiresAt: null,
               nextAttemptAt: null,
+              attempts: 0,
             },
           });
           if (parked) {
@@ -274,18 +290,22 @@ export async function processWorkforceJobSlice(
         throw new Error(planned.error);
       }
 
+      // §10 + BLOCKER 1：planner（长 await）之后、persist 之前重新验证租约
       const renewedAfterPlan = await renewRunLease({
-        lease,
+        lease: holder.lease,
         activeStatuses: ACTIVE_STATUSES,
       });
       if (!renewedAfterPlan.ok) {
         return { claimed: true, status: "lost_lease", lostLease: true };
       }
-      lease = renewedAfterPlan.lease;
+      holder.lease = renewedAfterPlan.lease;
 
       const { persistPlanAndSteps } = await import(
         "@/lib/agent-runtime-v2/persist"
       );
+      // persist safety：上方 renewRunLease 本身就是原子 token 断言（fence），
+      // persist 紧随其后且幂等（已有步骤则跳过）；persist 内部自持事务，
+      // 不能嵌套进 fence.guard（会因 AgentRun 行锁死锁）
       await persistPlanAndSteps({ orgId, runId, plan: planned.plan });
     }
 
@@ -299,26 +319,28 @@ export async function processWorkforceJobSlice(
 
       // §10：每个 V2 round 前续租（fenced）；失败=租约被接管，立即放弃
       const renewed = await renewRunLease({
-        lease,
+        lease: holder.lease,
         activeStatuses: ACTIVE_STATUSES,
       });
       if (!renewed.ok) {
         return { claimed: true, status: "lost_lease", lostLease: true };
       }
-      lease = renewed.lease;
+      holder.lease = renewed.lease;
       await appendAgentRunEvent({
         orgId,
         runId,
         eventType: "job.lease_renewed",
         title: "租约续期",
         payload: {
-          leaseExpiresAt: lease.leaseExpiresAt.toISOString(),
+          leaseExpiresAt: holder.lease.leaseExpiresAt.toISOString(),
           round,
           correlation,
         },
         visibleToUser: false,
       });
 
+      // BLOCKER 1：fence 随 V2 执行路径下传——executor tool 长 await 后、
+      // verifier model call 后、所有 run/step/verification 写入均被防栅栏
       const result = await processAgentRuntimeV2Run({
         orgId,
         runId,
@@ -326,33 +348,46 @@ export async function processWorkforceJobSlice(
         role: principal.role,
         threadId: runtime.threadId ?? null,
         maxRounds: 1,
+        fence,
       });
+
+      // fence 丢失（V2 内部检测）：本 worker 未写入任何状态，立即放弃
+      if (result.status === "lost_lease") {
+        return { claimed: true, status: "lost_lease", lostLease: true };
+      }
 
       if (
         result.status === "completed" ||
         result.status === "partially_executed"
       ) {
-        await fencedRunUpdate({
-          lease,
+        const cleaned = await fencedRunUpdate({
+          lease: holder.lease,
           data: { leaseExpiresAt: null, nextAttemptAt: null },
         });
-        await appendAgentRunEvent({
-          orgId,
-          runId,
-          eventType: "job.completed",
-          title: "Workforce Job 已完成",
-          payload: { status: result.status, correlation },
-          visibleToUser: true,
-        });
-        return { claimed: true, status: result.status, report: result.report };
+        if (cleaned) {
+          await appendAgentRunEvent({
+            orgId,
+            runId,
+            eventType: "job.completed",
+            title: "Workforce Job 已完成",
+            payload: { status: result.status, correlation },
+            visibleToUser: true,
+          });
+        }
+        return {
+          claimed: true,
+          status: result.status,
+          report: result.report,
+          lostLease: !cleaned,
+        };
       }
 
       if (result.status === "failed" || result.status === "cancelled") {
-        await fencedRunUpdate({
-          lease,
+        const cleaned = await fencedRunUpdate({
+          lease: holder.lease,
           data: { leaseExpiresAt: null, nextAttemptAt: null },
         });
-        if (result.status === "failed") {
+        if (cleaned && result.status === "failed") {
           await appendAgentRunEvent({
             orgId,
             runId,
@@ -362,41 +397,59 @@ export async function processWorkforceJobSlice(
             visibleToUser: true,
           });
         }
-        return { claimed: true, status: result.status, report: result.report };
+        return {
+          claimed: true,
+          status: result.status,
+          report: result.report,
+          lostLease: !cleaned,
+        };
       }
 
       if (
         result.status === "awaiting_approval" ||
         result.status === "needs_human"
       ) {
-        await fencedRunUpdate({
-          lease,
-          data: { leaseExpiresAt: null, nextAttemptAt: null },
+        // BLOCKER 2：waiting human 是"有效进展"——重置 attempts
+        const parked = await fencedRunUpdate({
+          lease: holder.lease,
+          data: { leaseExpiresAt: null, nextAttemptAt: null, attempts: 0 },
         });
-        await appendAgentRunEvent({
-          orgId,
-          runId,
-          eventType: "job.waiting_human",
-          title:
-            result.status === "awaiting_approval"
-              ? "等待审批后继续"
-              : "需要人工处理",
-          payload: { status: result.status, correlation },
-          visibleToUser: true,
-        });
-        return { claimed: true, status: result.status, report: result.report };
+        if (parked) {
+          await appendAgentRunEvent({
+            orgId,
+            runId,
+            eventType: "job.waiting_human",
+            title:
+              result.status === "awaiting_approval"
+                ? "等待审批后继续"
+                : "需要人工处理",
+            payload: { status: result.status, correlation },
+            visibleToUser: true,
+          });
+        }
+        return {
+          claimed: true,
+          status: result.status,
+          report: result.report,
+          lostLease: !parked,
+        };
       }
       // 其余（executing/planned/verifying/repairing 等）：继续下一轮
     }
 
     // 时间片/轮次用尽但仍可继续 → fenced 交还队列（checkpoint 已由 V2 每轮持久化）
+    // BLOCKER 2：正常 continuation 是"有效进展"——重置 attempts。
+    // attempts = consecutive retry/crash/recovery budget，不是 total slices：
+    // 正常长 Job 可推进任意多个 slice；crash reclaim / retryable failure
+    // 不走本分支，attempts 继续累计。
     const requeued = await fencedRunUpdate({
-      lease,
+      lease: holder.lease,
       allowedFromStatuses: ACTIVE_STATUSES,
       data: {
         status: "queued",
         leaseExpiresAt: null,
         nextAttemptAt: new Date(Date.now() + CONTINUATION_DELAY_MS),
+        attempts: 0,
       },
     });
     if (requeued) {
@@ -418,7 +471,7 @@ export async function processWorkforceJobSlice(
     return requeueWorkforceJobAfterError({
       orgId,
       runId,
-      lease,
+      lease: holder.lease,
       attempts: latest?.attempts ?? run.attempts,
       maxAttempts: WORKFORCE_MAX_ATTEMPTS,
       error,

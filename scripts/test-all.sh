@@ -61,6 +61,8 @@ run_test "Workforce 2A Job Identity/Restore/Metadata" "npx tsx src/lib/workforce
 run_test "Workforce 2A Lease/Reclaim/Exhaustion" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-lease.test.ts"
 run_test "Workforce 2A Durable Timeout" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-timeout.test.ts"
 run_test "Workforce 2A Approval Resume Identity" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-approval-resume.test.ts"
+run_test "Workforce 2A Stale Worker Fencing" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-stale-worker.test.ts"
+run_test "Workforce 2A Normal Slices Budget" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-normal-slices.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"

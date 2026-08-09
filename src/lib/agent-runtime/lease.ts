@@ -149,3 +149,76 @@ export async function fencedRunUpdate(input: {
   });
   return updated.count > 0;
 }
+
+/** fence 丢失（租约被其他 worker 接管）。捕获后必须立即停止，禁止任何后续写入。 */
+export class LostLeaseError extends Error {
+  readonly code = "LOST_LEASE" as const;
+  constructor(runId: string) {
+    super(`LOST_LEASE: run ${runId} 的租约已被其他 worker 接管`);
+    this.name = "LostLeaseError";
+  }
+}
+
+/**
+ * 运行时 fence（传入 Runtime V2 执行路径的可选防栅栏）。
+ *
+ * guard() 的原子性：在同一 DB 事务内先对 AgentRun 行做
+ * `WHERE id AND leaseExpiresAt = token` 的条件 no-op 更新——该更新取得行锁
+ * 并断言 token 未变，随后在同一事务内执行实际写入。若其他 worker 已 claim
+ * （token 变化），断言命中 0 行 → 抛 LostLeaseError，写入不会发生；若并发
+ * claim 与本事务竞争同一行锁，两者被 Postgres 串行化，不存在
+ * "check 通过但写入落在新 worker 之后" 的窗口。
+ */
+export type RunFence = {
+  runId: string;
+  /** 轻量只读校验（长 await 后先行探测；最终写入仍必须走 guard） */
+  check: () => Promise<boolean>;
+  /** 原子防栅栏写入；fence 丢失抛 LostLeaseError */
+  guard: <T>(write: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
+};
+
+/**
+ * 从（可续租的）lease holder 创建 fence。holder.lease 在每次 renew 后被
+ * 调用方更新，fence 始终使用最新 token。
+ */
+export function createRunFence(holder: { lease: RunLeaseHandle }): RunFence {
+  const runId = holder.lease.runId;
+  return {
+    runId,
+    check: async () => {
+      const row = await db.agentRun.findUnique({
+        where: { id: runId },
+        select: { leaseExpiresAt: true },
+      });
+      return (
+        row?.leaseExpiresAt?.getTime() ===
+        holder.lease.leaseExpiresAt.getTime()
+      );
+    },
+    guard: async (write) =>
+      db.$transaction(async (tx) => {
+        const asserted = await tx.agentRun.updateMany({
+          where: {
+            id: runId,
+            leaseExpiresAt: holder.lease.leaseExpiresAt,
+          },
+          // no-op：仅为取得行锁并断言 token 未被其他 worker 覆盖
+          data: { leaseExpiresAt: holder.lease.leaseExpiresAt },
+        });
+        if (asserted.count === 0) throw new LostLeaseError(runId);
+        return write(tx);
+      }),
+  };
+}
+
+/**
+ * fence 可选的写入包装：workforce_job 传入 fence（强制防栅栏）；
+ * legacy runtime_v2 不传 fence 时直接写库，行为与 Phase 2A 之前完全一致。
+ */
+export async function fenceGuardedWrite<T>(
+  fence: RunFence | undefined,
+  write: (client: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  if (!fence) return write(db as unknown as Prisma.TransactionClient);
+  return fence.guard(write);
+}

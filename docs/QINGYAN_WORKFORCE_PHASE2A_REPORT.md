@@ -252,3 +252,63 @@ Case I 共 6 项断言全过。
 ## PHASE_2A_STATUS = READY_FOR_REVIEW
 
 无 blocker。Non-scope（§27）项目均未实现。Phase 2B 未启动。
+
+---
+
+# Final Durable Semantics Micro-Fix（2026-08-09，评审后追加）
+
+评审判定总体架构通过，要求修复两个 BLOCKER。均已修复并实证，无迁移。
+
+## BLOCKER 1 — Fencing 覆盖真正的 Runtime V2 state writes
+
+新增可选 `RunFence`（`src/lib/agent-runtime/lease.ts`）：
+- `fence.guard(write)`：同一 DB 事务内先对 AgentRun 行做 `WHERE id AND leaseExpiresAt = token` 的条件 no-op 更新（取得行锁 + 断言 token），再执行实际写入；token 已被新 worker 覆盖 → `LostLeaseError`，写入不发生。与并发 claim 之间由 Postgres 行锁串行化，**不存在 check 通过但写入落在新 worker 之后的窗口**。
+- `fence.check()`：长 await 后的轻量先行探测（最终写入仍必须走 guard）。
+- `fenceGuardedWrite(fence?, write)`：fence 未传时直接写库——**legacy runtime_v2 行为完全不变**；workforce_job 由 processor 强制传入。
+
+覆盖点（全部经防栅栏，fence 丢失即返回/抛出 `LOST_LEASE` 且零写入）：
+- `executeRuntimeV2Round`：`executeRuntimeV2Tool`（潜在长 await）返回后先 `fence.check()`，随后 step 完成/失败/awaiting、run executing/needs_human/awaiting_approval、approval transition（fenced 等价 `markAgentRunAwaitingApproval`）等全部写入走 guard；新增返回值 `{status:"lost_lease"}`。
+- `verifyRuntimeV2Run`：model call（LLM 长 await）后 `fence.check()`；AgentRunVerification 落库、completed/awaiting_approval/repairing/needs_human 全部终态转换、repair 的步骤重置均走 guard。
+- `refreshReadySteps`：pending→ready 提升同样 fenced（stale worker 对 AgentRunStep **零写入**）。
+- `processAgentRuntimeV2Run`：fence 透传 + `LostLeaseError` → `lost_lease`。
+- processor：planner 后以原子续租作 fence 断言再 persist（persist 自持事务，不嵌套 guard 避免行锁死锁）；completion/failure/waiting/continuation 的 `fencedRunUpdate` 全部检查结果，失败即 `lostLease` 返回且跳过事件写入。
+- **BLOCKER 1.6 已修**：missing-goal 分支改为单次 fenced 终态写入并检查结果——fence 丢失直接 LOST_LEASE，**不再调用 unfenced `failAgentRun`**（processor 已不引用 failAgentRun）。
+
+### Test K — Stale Worker After Long Tool（17/17 通过）
+
+确定性 race：A claim（T1，极短租约模拟长 tool await 中过期）→ B reclaim（T2）→ A "tool 返回"：
+- A 无法 complete step / fail step（`fence.guard` → LOST_LEASE）；
+- A 无法 set run completed / failed（`fencedRunUpdate` 0 rows）；
+- A 无法续租；A 带 stale fence 走完整 V2 round → `lost_lease` 且 run/step 状态、token 全部未被覆盖（对 AgentRunStep 零写入）；
+- B 用 T2 正常续租、正常执行 fenced V2 round（s2 completed、attemptCount=1）、正常交还队列。
+
+**STALE_WORKER_WRITE_BLOCKED = YES**
+
+## BLOCKER 2 — attempts = consecutive retry/crash/recovery budget
+
+语义修正（零迁移）：取得有效进展的转换在同一 fenced 写入中 `attempts: 0`：
+- 正常 continuation requeue（时间片/轮次用尽交还队列）；
+- waiting human park（awaiting_approval / needs_human / clarification / principal 失效）；
+- 审批恢复重新入队（`resumeRuntimeV2AfterApproval`）。
+
+继续累计（不重置）：crash reclaim（claim 时 attempts+1，未到进展点即无重置）、catch 路径的 retryable execution failure、重复 worker timeout/crash。耗尽语义不变：连续失败达 `WORKFORCE_MAX_ATTEMPTS` → failed 且不再被 claim。
+
+### Test L — More Than Max Normal Slices（9/9 通过）
+
+- 合法 Job 以 maxRounds=0 连续推进 8 个正常 continuation slice（> maxAttempts=5）：全部成功交还队列、每次 attempts 归零、不 failed、仍可被 claim、真实步骤照常推进；
+- 连续 retryable failure：attempts 严格递增 1→5 → failed → 不再被 claim、批量消费不再拾取。
+
+**NORMAL_CONTINUATION_DOES_NOT_EXHAUST_RETRY_BUDGET = YES**
+
+## OPTIONAL P1 — Feature Flag 结论
+
+**`WORKFORCE_FLAG_IS_CREATION_GATE_ONLY`**：`WORKFORCE_RUNTIME_ENABLED=false` 只挡 `createWorkforceJob` 入口；cron 的 `processQueuedWorkforceJobs` 无条件消费已 queued 的 workforce_job。若需 global kill switch，最小改动是在 `processQueuedWorkforceJobs` 开头检查 `isWorkforceRuntimeEnabledWithEnv`（约 3 行）；未经确认不实施。
+
+## Final 回归（隔离 Neon 分支 `preview-workforce-phase2a-final`，用后删除）
+
+- Case A–J 重跑：58/58；Case K：17/17；Case L：9/9 → **A–L 合计 84/84**
+- Runtime 1.1（28+24）、AR2 五套（11+14+15+17+30）、approvals/guard/governance 全套、background_conversation（durable-state/golden-flow 覆盖）全部通过
+- `tsc --noEmit` 0 错、`eslint` 0 错、`npm run build` 成功
+- **NO DATABASE MIGRATION**（fencing 仍基于 leaseExpiresAt token + 行锁事务，无 schema 变更）
+
+## PHASE_2A_STATUS（Final）= READY_FOR_MERGE（保持 Draft，等待人工评审）

@@ -1,5 +1,10 @@
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
+import {
+  fenceGuardedWrite,
+  LostLeaseError,
+  type RunFence,
+} from "@/lib/agent-runtime/lease";
 import { getRuntimeV2Limits } from "./flags";
 import { emitRuntimeV2Event } from "./events";
 import {
@@ -175,11 +180,19 @@ async function modelVerify(input: {
   }
 }
 
+/**
+ * fence（可选，Phase 2A Final）：workforce_job 传入 RunFence——
+ * verification 落库与所有 run 终态/修复转换经原子防栅栏；model call
+ *（长 await）之后重新验证 lease ownership，fence 丢失抛 LostLeaseError
+ *（由调用方转成 lost_lease，不写任何状态）。不传 fence 行为不变。
+ */
 export async function verifyRuntimeV2Run(input: {
   orgId: string;
   runId: string;
   userId: string;
+  fence?: RunFence;
 }): Promise<VerifierOutput> {
+  const fence = input.fence;
   const run = await db.agentRun.findFirst({
     where: { id: input.runId, orgId: input.orgId, runtimeVersion: "v2" },
   });
@@ -194,10 +207,12 @@ export async function verifyRuntimeV2Run(input: {
     };
   }
 
-  await db.agentRun.update({
-    where: { id: input.runId },
-    data: { status: "verifying" },
-  });
+  await fenceGuardedWrite(fence, (c) =>
+    c.agentRun.update({
+      where: { id: input.runId },
+      data: { status: "verifying" },
+    }),
+  );
   await emitRuntimeV2Event({
     orgId: input.orgId,
     runId: input.runId,
@@ -218,31 +233,42 @@ export async function verifyRuntimeV2Run(input: {
     deterministic,
   });
 
+  // ── 关键 fence 检查点（Phase 2A Final BLOCKER 1）──
+  // modelVerify 是潜在长 await（LLM 调用）：verification 落库与任何终态
+  // 转换之前重新验证 lease ownership。
+  if (fence && !(await fence.check())) {
+    throw new LostLeaseError(input.runId);
+  }
+
   const prior = await db.agentRunVerification.count({
     where: { orgId: input.orgId, runId: input.runId },
   });
   const attempt = prior + 1;
-  await db.agentRunVerification.create({
-    data: {
-      orgId: input.orgId,
-      runId: input.runId,
-      attempt,
-      verdict: final.verdict,
-      summary: final.summary,
-      satisfiedCriteriaJson: final.satisfiedCriteria,
-      unsatisfiedCriteriaJson: final.unsatisfiedCriteria,
-      evidenceReferencesJson: final.evidenceReferences,
-      repairInstructionsJson: final.repairInstructions,
-    },
-  });
+  await fenceGuardedWrite(fence, (c) =>
+    c.agentRunVerification.create({
+      data: {
+        orgId: input.orgId,
+        runId: input.runId,
+        attempt,
+        verdict: final.verdict,
+        summary: final.summary,
+        satisfiedCriteriaJson: final.satisfiedCriteria,
+        unsatisfiedCriteriaJson: final.unsatisfiedCriteria,
+        evidenceReferencesJson: final.evidenceReferences,
+        repairInstructionsJson: final.repairInstructions,
+      },
+    }),
+  );
 
   const { maxRepairs } = getRuntimeV2Limits();
 
   if (final.verdict === "PASS") {
-    await db.agentRun.update({
-      where: { id: input.runId },
-      data: { status: "completed", completedAt: new Date() },
-    });
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRun.update({
+        where: { id: input.runId },
+        data: { status: "completed", completedAt: new Date() },
+      }),
+    );
     await emitRuntimeV2Event({
       orgId: input.orgId,
       runId: input.runId,
@@ -261,18 +287,22 @@ export async function verifyRuntimeV2Run(input: {
   }
 
   if (final.verdict === "BLOCKED") {
-    await db.agentRun.update({
-      where: { id: input.runId },
-      data: { status: "awaiting_approval" },
-    });
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRun.update({
+        where: { id: input.runId },
+        data: { status: "awaiting_approval" },
+      }),
+    );
     return final;
   }
 
   if (final.verdict === "REPAIR" && attempt <= maxRepairs) {
-    await db.agentRun.update({
-      where: { id: input.runId },
-      data: { status: "repairing" },
-    });
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRun.update({
+        where: { id: input.runId },
+        data: { status: "repairing" },
+      }),
+    );
     await emitRuntimeV2Event({
       orgId: input.orgId,
       runId: input.runId,
@@ -287,18 +317,20 @@ export async function verifyRuntimeV2Run(input: {
       title: `修复轮次 ${attempt}`,
     });
     // 最小 repair：将 failed 的非审批步骤重置为 ready
-    await db.agentRunStep.updateMany({
-      where: {
-        orgId: input.orgId,
-        runId: input.runId,
-        status: "failed",
-        requiresApproval: false,
-      },
-      data: { status: "ready", errorCode: null, errorMessage: null },
-    });
-    await db.agentRun.update({
-      where: { id: input.runId },
-      data: { status: "executing" },
+    await fenceGuardedWrite(fence, async (c) => {
+      await c.agentRunStep.updateMany({
+        where: {
+          orgId: input.orgId,
+          runId: input.runId,
+          status: "failed",
+          requiresApproval: false,
+        },
+        data: { status: "ready", errorCode: null, errorMessage: null },
+      });
+      await c.agentRun.update({
+        where: { id: input.runId },
+        data: { status: "executing" },
+      });
     });
     await emitRuntimeV2Event({
       orgId: input.orgId,
@@ -309,13 +341,15 @@ export async function verifyRuntimeV2Run(input: {
     return final;
   }
 
-  await db.agentRun.update({
-    where: { id: input.runId },
-    data: {
-      status: "needs_human",
-      errorMessage: final.summary,
-    },
-  });
+  await fenceGuardedWrite(fence, (c) =>
+    c.agentRun.update({
+      where: { id: input.runId },
+      data: {
+        status: "needs_human",
+        errorMessage: final.summary,
+      },
+    }),
+  );
   await emitRuntimeV2Event({
     orgId: input.orgId,
     runId: input.runId,
