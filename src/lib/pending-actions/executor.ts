@@ -79,6 +79,19 @@ export interface ExecuteResult {
   errorCode?: string;
 }
 
+type ToolPolicyLoader = (
+  orgId: string,
+) => Promise<{ value?: { disabledTools?: string[] } | null }>;
+
+/** 测试注入：模拟 tool policy 加载器（仅测试使用，参照 drafts.ts 的 adapter 注入先例） */
+let testToolPolicyLoader: ToolPolicyLoader | null = null;
+
+export function __setToolPolicyLoaderForTest(
+  loader: ToolPolicyLoader | null,
+): void {
+  testToolPolicyLoader = loader;
+}
+
 /** 对外入口 —— 按 id 取草稿并执行 */
 export async function executePendingAction(
   actionId: string,
@@ -182,27 +195,56 @@ export async function executePendingAction(
   // Gate B 加固：Tool 停用后已批准动作也不能执行（执行时重查当前 capability policy；
   // 此前仅 /api/capabilities 审批路径检查，助手 API / 微信路径不经过该层）
   if (action.orgId) {
+    let disabled: string[];
     try {
-      const { loadAgentToolPolicyRule } = await import("@/lib/org-rules/service");
-      const policy = await loadAgentToolPolicyRule(action.orgId);
-      const disabled = policy.value?.disabledTools ?? [];
-      if (disabled.includes(action.type)) {
+      const loader =
+        testToolPolicyLoader ??
+        (await import("@/lib/org-rules/service")).loadAgentToolPolicyRule;
+      const policy = await loader(action.orgId);
+      disabled = policy.value?.disabledTools ?? [];
+    } catch (err) {
+      // Fail-closed：无法确认当前 tool policy 状态时不允许执行。
+      // 属于「暂时无法完成 reauthorization」，非明确拒绝 —— 状态保持 pending，
+      // 规则服务恢复后可重新批准执行。不向调用方泄露内部错误细节。
+      console.error(
+        "[pending-action] tool policy load failed, fail-closed:",
+        err instanceof Error ? err.message : String(err),
+      );
+      try {
         await logAudit({
           userId: ctx.userId,
           orgId: ctx.orgId ?? undefined,
           action: "APPROVAL_EXECUTION_BLOCKED",
           targetType: "pending_action",
           targetId: actionId,
-          afterData: { reason: "tool_disabled", tool: action.type },
+          afterData: {
+            reason: "reauthorization_unavailable",
+            source: "tool_policy_load_failure",
+          },
         });
-        return {
-          ok: false,
-          error: "相关 Tool 已停用，执行被阻止，请重新提交审批",
-          errorCode: "EXECUTION_BLOCKED",
-        };
+      } catch {
+        /* 审计写入失败不得掩盖拒绝结果 */
       }
-    } catch {
-      /* 政策加载失败保守放行到 handler 既有校验（与 capabilities 路径行为一致） */
+      return {
+        ok: false,
+        error: "当前无法验证最新执行权限，请稍后重试",
+        errorCode: "REAUTHORIZATION_UNAVAILABLE",
+      };
+    }
+    if (disabled.includes(action.type)) {
+      await logAudit({
+        userId: ctx.userId,
+        orgId: ctx.orgId ?? undefined,
+        action: "APPROVAL_EXECUTION_BLOCKED",
+        targetType: "pending_action",
+        targetId: actionId,
+        afterData: { reason: "tool_disabled", tool: action.type },
+      });
+      return {
+        ok: false,
+        error: "相关 Tool 已停用，执行被阻止，请重新提交审批",
+        errorCode: "EXECUTION_BLOCKED",
+      };
     }
   }
 

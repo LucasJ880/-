@@ -36,7 +36,10 @@ const dbHost = assertIsolatedDatabase();
 
 import { db } from "@/lib/db";
 import { createDraft } from "@/lib/pending-actions/drafts";
-import { executePendingAction } from "@/lib/pending-actions/executor";
+import {
+  executePendingAction,
+  __setToolPolicyLoaderForTest,
+} from "@/lib/pending-actions/executor";
 
 let pass = 0;
 let fail = 0;
@@ -283,6 +286,39 @@ async function main() {
       where: { orgId: org.id, ruleKey: "agent_tool_policy" },
       data: { status: "superseded" },
     });
+  }
+
+  // ── Case B4c：Tool policy 无法加载（reauthorization unavailable）→ fail-closed ──
+  console.log("── Case B4c: Policy reauthorization unavailable ──");
+  {
+    const title = `B4c-task-${stamp}`;
+    // 创建时 tool 可用、用户有合法审批权限（u1 已恢复 active 成员身份）
+    const id = await createProjectTaskDraft({
+      userId: u1.id, orgId: org.id, projectId: project.id, title, approverUserId: u1.id,
+    });
+    // 模拟规则服务故障：policy loader 抛异常（不破坏真实数据库）
+    __setToolPolicyLoaderForTest(async () => {
+      throw new Error("SIMULATED_POLICY_SERVICE_OUTAGE");
+    });
+    let res;
+    try {
+      res = await executePendingAction(id, { userId: u1.id, role: "user", orgId: org.id });
+    } finally {
+      __setToolPolicyLoaderForTest(null);
+    }
+    ok(res.ok === false, "policy 不可用：拒绝执行", res.message);
+    ok(
+      res.errorCode === "REAUTHORIZATION_UNAVAILABLE",
+      "errorCode=REAUTHORIZATION_UNAVAILABLE",
+      res.errorCode,
+    );
+    const st = await actionStatus(id);
+    ok(st.status === "pending", "状态保持 pending（可恢复重试）", st.status);
+    ok(!(await taskExists(project.id, title)), "Tool side effect = 0");
+    // 规则服务恢复后：同一草稿可重新批准执行
+    const retry = await executePendingAction(id, { userId: u1.id, role: "user", orgId: org.id });
+    ok(retry.ok === true, "恢复后重试执行成功", retry.error);
+    ok((await actionStatus(id)).status === "executed", "重试后 status=executed");
   }
 
   // ── Case B5b：payload 落库后被篡改 → payloadHash 完整性拦截 ──
