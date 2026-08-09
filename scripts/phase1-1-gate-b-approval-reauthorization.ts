@@ -41,6 +41,11 @@ import {
   __setToolPolicyLoaderForTest,
 } from "@/lib/pending-actions/executor";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/phase1-1-gate-b-approval-reauthorization.ts" });
+
 let pass = 0;
 let fail = 0;
 

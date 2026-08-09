@@ -29,6 +29,11 @@ import {
 import { createTransparentEditMaskPng } from "../src/lib/visualizer/png-mask";
 import { VISUALIZER_MOCK_PRODUCTS } from "../src/lib/visualizer/mock-products";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/visualizer-smoke.ts" });
+
 let passed = 0;
 let failed = 0;
 const failures: string[] = [];

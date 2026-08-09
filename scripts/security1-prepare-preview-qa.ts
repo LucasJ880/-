@@ -12,6 +12,11 @@ import bcrypt from "bcryptjs";
 import { db } from "../src/lib/db";
 import { seedOrgAuthorizationProfiles } from "../src/lib/authorization/seed-org-profiles";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/security1-prepare-preview-qa.ts" });
+
 const PASSWORD = process.env.SECURITY1_QA_PASSWORD;
 if (!PASSWORD) {
   throw new Error("SECURITY1_QA_PASSWORD is required");

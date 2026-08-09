@@ -12,9 +12,9 @@ export const PLATFORM_DEFAULT_QUOTAS: Record<
 > = {
   MONTHLY_AI_COST: {
     period: "MONTHLY",
-    warningLimit: 30,
-    softLimit: 40,
-    hardLimit: 50,
+    warningLimit: 600,
+    softLimit: 800,
+    hardLimit: 1000,
   },
   DAILY_AGENT_RUNS: {
     period: "DAILY",

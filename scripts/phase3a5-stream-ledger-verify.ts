@@ -15,6 +15,11 @@ import {
   buildQuotaNotifyDedupeKey,
 } from "../src/lib/capabilities/governance";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/phase3a5-stream-ledger-verify.ts" });
+
 let pass = 0;
 let fail = 0;
 

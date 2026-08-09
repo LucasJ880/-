@@ -11,6 +11,11 @@
 
 import { PrismaClient } from "@prisma/client";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/ar2-preview-acceptance.ts" });
+
 const ORG = "cmrtcnz1c0001sbjcy87hemyl";
 const LUCAS = "cmmy6zimk0000ju04hrln3yqv";
 const PREFIX = "[AR2-QA]";

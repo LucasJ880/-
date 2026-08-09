@@ -26,6 +26,11 @@ import {
 } from "@/lib/visualizer/catalog-reference";
 import { assetBadgeLabel } from "@/lib/visualizer/catalog-readiness";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/e2e-visualizer-ai-templates.ts" });
+
 const ASSETS = "/Users/user/.cursor/projects/Users-user-Desktop/assets";
 const EVIDENCE_DIR = path.join(process.cwd(), ".data", "e2e-evidence");
 

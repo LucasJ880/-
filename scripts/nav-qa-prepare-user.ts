@@ -5,6 +5,11 @@
 import bcrypt from "bcryptjs";
 import { db } from "../src/lib/db";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/nav-qa-prepare-user.ts" });
+
 const EMAIL = "nav-qa@test.qingyan.ai";
 const PASSWORD = "Qingyan@NavQA2026";
 const NAME = "导航验收账号";
