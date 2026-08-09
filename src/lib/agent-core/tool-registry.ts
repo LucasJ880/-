@@ -15,6 +15,8 @@ import type {
 } from "./types";
 import type { PlatformRole } from "@/lib/rbac/roles";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
+import { runPreExecuteGuards } from "./pre-execute-guard";
+import { handleRequiresApproval } from "./approval-gate";
 
 /** 未声明 allowRoles 的工具视为 admin-only（安全默认） */
 const DEFAULT_ALLOW_ROLES: ToolAllowRoles = ["admin"];
@@ -55,7 +57,7 @@ export interface RegistryFilters {
   disabledTools?: string[];
 }
 
-const RISK_ORDER: Record<NonNullable<RegistryFilters["maxRisk"]>, number> = {
+export const RISK_ORDER: Record<NonNullable<RegistryFilters["maxRisk"]>, number> = {
   l0_read: 0,
   l1_internal_write: 1,
   l2_soft: 2,
@@ -81,7 +83,8 @@ class ToolRegistry {
     if (filters?.domains?.length) {
       result = result.filter((t) => filters.domains!.includes(t.domain));
     }
-    if (filters?.names?.length) {
+    // P0-2 fail-closed：names === undefined → 不按名称过滤；names === [] → 零工具
+    if (filters?.names !== undefined) {
       const nameSet = new Set(filters.names);
       result = result.filter((t) => nameSet.has(t.name));
     }
@@ -118,7 +121,10 @@ class ToolRegistry {
   }
 
   /**
-   * 执行工具：canInvokeTool（membership + orgRole + modules + risk）
+   * 执行工具：统一 pre-execute 链（P0-1 / P0-2 / P0-3）
+   * Allowlist / ScopeGuard → Authorization（canInvokeTool：membership + orgRole
+   * + modules + risk + policy）→ Approval Decision → executor。
+   * requiresApproval=true 时绝不调用 executor（approval-gate）。
    */
   async execute(
     name: string,
@@ -127,6 +133,18 @@ class ToolRegistry {
     const tool = this.tools.get(name);
     if (!tool) {
       return { success: false, data: null, error: `未知工具: ${name}` };
+    }
+
+    const guard = runPreExecuteGuards({ toolName: name, ctx });
+    if (!guard.ok) {
+      console.warn(
+        `[ToolRegistry] Pre-execute reject: ${guard.code} tool=${name} org=${ctx.orgId}`,
+      );
+      return {
+        success: false,
+        data: { code: guard.code },
+        error: guard.error,
+      };
     }
 
     const decision = canInvokeTool({
@@ -152,6 +170,15 @@ class ToolRegistry {
         `[ToolRegistry] Tenant/orgRole reject: ${decision.code} tool=${name} org=${ctx.orgId} orgRole=${ctx.orgRole}`,
       );
       return { success: false, data: null, error: decision.error };
+    }
+
+    // P0-1：requiresApproval（forceApprovalTools / workspace forceApproval /
+    // l3_strong）→ 审批闸，绝不直接执行 executor
+    if (decision.requiresApproval === true || decision.needsApproval === true) {
+      console.warn(
+        `[ToolRegistry] Approval gate: tool=${name} org=${ctx.orgId} reason=${decision.reasonCode ?? "requires_approval"}`,
+      );
+      return handleRequiresApproval({ tool, ctx });
     }
 
     // Phase 3A-4：高风险 Tool 配额（l2+）

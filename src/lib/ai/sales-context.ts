@@ -43,24 +43,33 @@ const STAGE_ZH: Record<string, string> = {
   on_hold: "暂搁置",
 };
 
-export async function getSalesContext(userId: string): Promise<SalesContext> {
+/**
+ * P0-4：Sales 上下文必须限定 activeOrg。
+ * orgId 必填：多组织用户不得把其他企业的客户/商机混入当前 AI prompt。
+ */
+export async function getSalesContext(
+  userId: string,
+  orgId: string,
+): Promise<SalesContext> {
   const now = new Date();
   const staleDays = 14;
   const staleDate = new Date(now.getTime() - staleDays * 86400000);
   const followupWindow = new Date(now.getTime() + 7 * 86400000);
 
+  const customerScope = { createdById: userId, orgId };
+
   const [customers, opportunities, recentQuotes] = await Promise.all([
-    db.salesCustomer.count({ where: { createdById: userId } }),
+    db.salesCustomer.count({ where: customerScope }),
     db.salesOpportunity.findMany({
       where: {
-        customer: { createdById: userId },
+        customer: customerScope,
         stage: { notIn: ["signed", "completed", "lost"] },
       },
       include: { customer: { select: { name: true } } },
       orderBy: { updatedAt: "desc" },
     }),
     db.salesQuote.findMany({
-      where: { customer: { createdById: userId } },
+      where: { customer: customerScope },
       include: { customer: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
       take: 5,

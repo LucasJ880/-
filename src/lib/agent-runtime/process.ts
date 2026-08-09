@@ -480,6 +480,13 @@ ${context.memoryBlock}`;
     });
   }, 1500);
 
+  // Phase 1.1：从 AgentRun 记录读取 trace/run 树，注入统一执行上下文
+  const runRecord = await db.agentRun.findFirst({
+    where: { id: runId, orgId },
+    select: { traceId: true, parentRunId: true, metadata: true },
+  });
+  const { readRootRunIdFromUnknown } = await import("@/lib/ai/runtime-context");
+
   try {
     const result = await runAgent({
       systemPrompt,
@@ -494,6 +501,23 @@ ${context.memoryBlock}`;
       agentRunId: runId,
       role: input.userRole,
       abortSignal: abort.signal,
+      runtime: {
+        orgId,
+        actor: { type: "USER", id: userId, userId },
+        agent: { id: "qingyan-runtime", role: "assistant" },
+        runId,
+        parentRunId: runRecord?.parentRunId ?? undefined,
+        rootRunId: readRootRunIdFromUnknown(runRecord?.metadata) ?? undefined,
+        traceId: runRecord?.traceId ?? undefined,
+        projectId:
+          context.project?.id ?? plan.entities.projectId ?? undefined,
+        customerId:
+          context.customer?.id ?? plan.entities.customerId ?? undefined,
+        sessionId: input.session.id,
+        channel: input.channel,
+        source: "agent-runtime",
+      },
+      scopeGuard: { orgId, principalUserId: userId },
       hooks: {
         onToolCall: async (info) => {
           if (await isAgentRunCancelled(orgId, runId)) {

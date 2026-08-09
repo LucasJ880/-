@@ -272,6 +272,16 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
       agentRunId: input.agentRunId,
       role: input.role,
       maxToolRounds: 3,
+      // Phase 1.1：技能执行以 AGENT 身份运行，owner 为发起用户
+      runtime: {
+        orgId: input.orgId,
+        actor: { type: "AGENT", id: skill.slug, userId: input.userId },
+        agent: { id: skill.slug, role: skill.domain },
+        owner: { type: "USER", id: input.userId },
+        runId: input.agentRunId,
+        source: "skill-runtime",
+      },
+      scopeGuard: { orgId: input.orgId, principalUserId: input.userId },
     });
   } catch (error) {
     const durationMs = Date.now() - start;

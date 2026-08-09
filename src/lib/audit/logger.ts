@@ -16,6 +16,22 @@ export interface AuditLogParams {
   beforeData?: unknown;
   afterData?: unknown;
   request?: NextRequest;
+  /**
+   * Phase 1.1：AI 执行 correlation（可选，向后兼容）。
+   * 无 schema 列，合并进 afterData._runtimeCorrelation。
+   */
+  correlation?: {
+    traceId?: string;
+    runId?: string;
+    rootRunId?: string;
+    parentRunId?: string;
+    agentRunId?: string;
+    actorType?: string;
+    actorId?: string;
+    agentId?: string;
+    jobId?: string;
+    taskId?: string;
+  };
 }
 
 type AuditDbClient = Pick<Prisma.TransactionClient, "auditLog"> | typeof db;
@@ -38,7 +54,24 @@ export async function writeAuditLog(
     beforeData,
     afterData,
     request,
+    correlation,
   } = params;
+
+  // Phase 1.1：correlation 有值时合并进 afterData（无 schema 变更）
+  const correlationEntries = correlation
+    ? Object.entries(correlation).filter(([, v]) => typeof v === "string" && v)
+    : [];
+  const finalAfterData =
+    correlationEntries.length > 0
+      ? {
+          ...(afterData && typeof afterData === "object" && !Array.isArray(afterData)
+            ? (afterData as Record<string, unknown>)
+            : afterData !== undefined
+              ? { value: afterData }
+              : {}),
+          _runtimeCorrelation: Object.fromEntries(correlationEntries),
+        }
+      : afterData;
 
   await client.auditLog.create({
     data: {
@@ -49,7 +82,7 @@ export async function writeAuditLog(
       targetType,
       targetId: targetId ?? undefined,
       beforeData: beforeData ? JSON.stringify(beforeData) : undefined,
-      afterData: afterData ? JSON.stringify(afterData) : undefined,
+      afterData: finalAfterData ? JSON.stringify(finalAfterData) : undefined,
       ip: extractIp(request),
       userAgent: request?.headers.get("user-agent") ?? undefined,
     },

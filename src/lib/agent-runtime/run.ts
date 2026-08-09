@@ -14,6 +14,11 @@ import {
   createTraceContext,
   traceContextToMetadata,
 } from "@/lib/capabilities/trace-context";
+import {
+  runtimeContextToRunMetadata,
+  readRootRunIdFromUnknown,
+  type AIRuntimeContext,
+} from "@/lib/ai/runtime-context";
 
 function jsonValue(
   value: Record<string, unknown> | undefined,
@@ -36,6 +41,12 @@ export async function createAgentRun(input: {
   projectId?: string | null;
   /** Commit 6：安全重试允许同一 userMessageId 再建 Run */
   skipUserMessageIdempotency?: boolean;
+  /**
+   * Phase 1.1：统一执行上下文（actor/agent/owner/job/task/rootRunId）。
+   * correlation 字段写入 metadata；rootRunId 缺省时从父 Run 推导，
+   * 无父 Run 则为自身 runId。
+   */
+  runtime?: AIRuntimeContext;
 }) {
   if (!input.orgId) throw new Error("orgId 必填");
 
@@ -67,9 +78,29 @@ export async function createAgentRun(input: {
     workspaceId: input.workspaceId ?? null,
     projectId: input.projectId ?? null,
   });
+  // Phase 1.1：rootRunId 推导 — 显式传入 > metadata > 父 Run 的 rootRunId > 父 runId
+  let rootRunId =
+    input.runtime?.rootRunId?.trim() ||
+    (typeof existingMeta.rootRunId === "string" && existingMeta.rootRunId.trim()
+      ? existingMeta.rootRunId.trim()
+      : null);
+  if (!rootRunId && trace.parentRunId) {
+    const parent = await db.agentRun.findFirst({
+      where: { id: trace.parentRunId, orgId: input.orgId },
+      select: { id: true, metadata: true },
+    });
+    if (parent) {
+      rootRunId = readRootRunIdFromUnknown(parent.metadata) ?? parent.id;
+    } else {
+      rootRunId = trace.parentRunId;
+    }
+  }
+
   const mergedMeta = {
     ...existingMeta,
+    ...runtimeContextToRunMetadata(input.runtime),
     ...traceContextToMetadata(trace),
+    ...(rootRunId ? { rootRunId } : {}),
   };
 
   // Phase 3A-4：创建前配额预留（失败则不落 Run）
@@ -182,13 +213,14 @@ export async function createAgentRun(input: {
     })
     .catch(() => {});
 
-  // 回写 runId 到 metadata（创建后已知）
+  // 回写 runId 到 metadata（创建后已知）；无父 Run 时自身即 root
   const runWithMeta = await db.agentRun.update({
     where: { id: run.id },
     data: {
       metadata: jsonValue({
         ...mergedMeta,
         runId: run.id,
+        rootRunId: rootRunId ?? run.id,
       }),
     },
   });

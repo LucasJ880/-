@@ -6,6 +6,7 @@
  */
 
 import type { PlatformRole } from "@/lib/rbac/roles";
+import type { AIRuntimeContext } from "@/lib/ai/runtime-context";
 
 // ── 工具风险分级 & 角色授权 ──────────────────────────────────────
 
@@ -116,6 +117,27 @@ export interface ToolExecutionContext {
   };
   /** 会话风险上限（与 AgentRunOptions.maxRisk 对齐） */
   maxRisk?: ToolRisk;
+  /**
+   * P0-2：本次运行允许执行的工具名 allowlist（execute 层强制）。
+   * - undefined → 调用方未声明，不按名称拦截（兼容旧调用）
+   * - []        → 零工具，全部拒绝（fail-closed）
+   */
+  allowedToolNames?: string[];
+  /**
+   * P0-3：服务端权威作用域守卫。传入后工具 args 中的
+   * orgId / userId / projectId 不得与之冲突（fail-closed）。
+   */
+  scopeGuard?: {
+    orgId: string;
+    principalUserId: string;
+    projectId?: string;
+  };
+  /**
+   * Phase 1.1：统一执行上下文（actor/agent/owner/job/task/run 树/trace）。
+   * 只读 correlation，由 engine 从服务端 AgentRunOptions.runtime 注入；
+   * 权限决策仍以本类型的既有安全字段为准，不读取此字段。
+   */
+  runtimeContext?: AIRuntimeContext;
 }
 
 export interface ToolExecutionResult {
@@ -159,7 +181,12 @@ export interface CoreToolCall {
 // ── Agent 运行选项 ───────────────────────────────────────────────
 
 export interface AgentRunOptions {
-  /** 可用工具集（按名称过滤，空则全部可用） */
+  /**
+   * 可用工具集（按名称过滤）。
+   * P0-2 语义（fail-closed）：
+   * - undefined → 调用方未指定 allowlist，暴露经其他 filter 后的全部工具
+   * - []        → ZERO tools（不暴露、也不可执行任何 registry 工具）
+   */
   tools?: string[];
   /** 按域过滤可用工具 */
   domains?: ToolDomain[];
@@ -228,6 +255,20 @@ export interface AgentRunOptions {
    * 与 registry 工具同名时优先使用 extraTools。
    */
   extraTools?: ToolDefinition[];
+  /**
+   * Phase 1.1：统一执行上下文（服务端构造，LLM/客户端不可提供）。
+   * 缺省时行为与旧版完全一致（向后兼容）。
+   */
+  runtime?: AIRuntimeContext;
+  /**
+   * Phase 1.1：服务端权威 scopeGuard，透传至 ToolExecutionContext
+   * 供 pre-execute-guard 防止工具参数跨 org/user/project 覆盖。
+   */
+  scopeGuard?: {
+    orgId: string;
+    principalUserId: string;
+    projectId?: string;
+  };
 }
 
 export interface AgentRunResult {

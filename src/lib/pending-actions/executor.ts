@@ -79,6 +79,19 @@ export interface ExecuteResult {
   errorCode?: string;
 }
 
+type ToolPolicyLoader = (
+  orgId: string,
+) => Promise<{ value?: { disabledTools?: string[] } | null }>;
+
+/** 测试注入：模拟 tool policy 加载器（仅测试使用，参照 drafts.ts 的 adapter 注入先例） */
+let testToolPolicyLoader: ToolPolicyLoader | null = null;
+
+export function __setToolPolicyLoaderForTest(
+  loader: ToolPolicyLoader | null,
+): void {
+  testToolPolicyLoader = loader;
+}
+
 /** 对外入口 —— 按 id 取草稿并执行 */
 export async function executePendingAction(
   actionId: string,
@@ -155,6 +168,93 @@ export async function executePendingAction(
       data: { status: "failed", failureReason: "已过期" },
     });
     return { ok: false, error: "草稿已过期" };
+  }
+
+  // Gate B 加固：payload 防篡改（与 capabilities 审批路径同一机制，legacy 无 hash 的行跳过）
+  if (action.payloadHash) {
+    const { computePayloadHash } = await import(
+      "@/lib/capabilities/approvals/integrity"
+    );
+    if (computePayloadHash(action.payload) !== action.payloadHash) {
+      await logAudit({
+        userId: ctx.userId,
+        orgId: ctx.orgId ?? undefined,
+        action: "APPROVAL_EXECUTION_BLOCKED",
+        targetType: "pending_action",
+        targetId: actionId,
+        afterData: { reason: "payload_hash_mismatch" },
+      });
+      return {
+        ok: false,
+        error: "审批内容已变化，请重新提交审批",
+        errorCode: "PAYLOAD_HASH_MISMATCH",
+      };
+    }
+  }
+
+  // Gate B 加固：Tool 停用后已批准动作也不能执行（执行时重查当前 capability policy；
+  // 此前仅 /api/capabilities 审批路径检查，助手 API / 微信路径不经过该层）
+  if (action.orgId) {
+    let disabled: string[];
+    try {
+      const loader =
+        testToolPolicyLoader ??
+        (await import("@/lib/org-rules/service")).loadAgentToolPolicyRule;
+      const policy = await loader(action.orgId);
+      disabled = policy.value?.disabledTools ?? [];
+    } catch (err) {
+      // Fail-closed：无法确认当前 tool policy 状态时不允许执行。
+      // 属于「暂时无法完成 reauthorization」，非明确拒绝 —— 状态保持 pending，
+      // 规则服务恢复后可重新批准执行。不向调用方泄露内部错误细节。
+      console.error(
+        "[pending-action] tool policy load failed, fail-closed:",
+        err instanceof Error ? err.message : String(err),
+      );
+      try {
+        await logAudit({
+          userId: ctx.userId,
+          orgId: ctx.orgId ?? undefined,
+          action: "APPROVAL_EXECUTION_BLOCKED",
+          targetType: "pending_action",
+          targetId: actionId,
+          afterData: {
+            reason: "reauthorization_unavailable",
+            source: "tool_policy_load_failure",
+          },
+        });
+      } catch {
+        /* 审计写入失败不得掩盖拒绝结果 */
+      }
+      return {
+        ok: false,
+        error: "当前无法验证最新执行权限，请稍后重试",
+        errorCode: "REAUTHORIZATION_UNAVAILABLE",
+      };
+    }
+    // disabledTools 同时匹配两个命名空间：
+    // - PendingAction.type（如 grader.project_task，与 capabilities 审批路径一致）
+    // - 源 Registry 工具名（payload.metadata.toolName，治理配置 / canInvokeTool 使用的命名空间）
+    const sourceToolName = readPendingActionMetadata(action.payload)?.toolName;
+    const disabledMatch = disabled.includes(action.type)
+      ? action.type
+      : typeof sourceToolName === "string" && disabled.includes(sourceToolName)
+        ? sourceToolName
+        : null;
+    if (disabledMatch) {
+      await logAudit({
+        userId: ctx.userId,
+        orgId: ctx.orgId ?? undefined,
+        action: "APPROVAL_EXECUTION_BLOCKED",
+        targetType: "pending_action",
+        targetId: actionId,
+        afterData: { reason: "tool_disabled", tool: disabledMatch },
+      });
+      return {
+        ok: false,
+        error: "相关 Tool 已停用，执行被阻止，请重新提交审批",
+        errorCode: "EXECUTION_BLOCKED",
+      };
+    }
   }
 
   // 标记为 approved（进入执行态），避免并发重复执行

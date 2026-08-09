@@ -66,23 +66,58 @@ const PROJECT_SELECT = {
   sourceSystem: true,
 } as const;
 
-export async function getWorkContext(userId: string, role: string): Promise<WorkContext> {
+/**
+ * P0-4：WorkContext 必须限定 activeOrg。
+ * - orgId 必填；跨 org 项目/任务不得进入 AI prompt
+ * - super_admin 在具体企业对话中同样遵循当前 activeOrg（不再全库）
+ * - 个人项目（orgId=null 且 owner=自己）仍可见
+ */
+export interface WorkContextScope {
+  userId: string;
+  role: string;
+  orgId: string;
+}
+
+/**
+ * 纯函数：activeOrg 收敛 where（可见项目 ∩（当前 org ∪ 本人个人项目））。
+ * super_admin（visibleProjectIds===null）同样受 org 收敛，不再全库。
+ */
+export function buildOrgScopedProjectWhere(
+  scope: { userId: string; orgId: string },
+  visibleProjectIds: string[] | null,
+): Record<string, unknown> {
+  const orgScopeOr = [
+    { orgId: scope.orgId },
+    { orgId: null, ownerId: scope.userId },
+  ];
+  return visibleProjectIds !== null
+    ? { id: { in: visibleProjectIds }, OR: orgScopeOr }
+    : { OR: orgScopeOr };
+}
+
+export async function getWorkContext(scope: WorkContextScope): Promise<WorkContext> {
+  const { userId, role, orgId } = scope;
   const projectIds = await getVisibleProjectIds(userId, role);
 
-  const projectWhere = projectIds !== null
-    ? { id: { in: projectIds }, status: "active" }
-    : { status: "active" };
+  const orgScopedWhere = buildOrgScopedProjectWhere({ userId, orgId }, projectIds);
+  const projectWhere = { ...orgScopedWhere, status: "active" };
 
-  const taskWhere = projectIds !== null
-    ? {
-        status: { notIn: ["done", "cancelled"] },
-        OR: [
-          { projectId: { in: projectIds } },
-          { projectId: null, creatorId: userId },
-          { assigneeId: userId },
-        ],
-      }
-    : { status: { notIn: ["done", "cancelled"] } };
+  // 任务：仅当前 org 可见项目下的任务 + 本人无项目任务/本人被指派任务
+  const orgProjects = await db.project.findMany({
+    where: orgScopedWhere,
+    select: { id: true },
+  });
+  const orgProjectIds = orgProjects.map((p) => p.id);
+
+  const taskWhere = {
+    status: { notIn: ["done", "cancelled"] },
+    OR: [
+      { projectId: { in: orgProjectIds } },
+      { projectId: null, creatorId: userId },
+      { assigneeId: userId, projectId: null },
+      { assigneeId: userId, projectId: { in: orgProjectIds } },
+    ],
+  };
 
   const now = new Date();
   const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -193,7 +228,32 @@ export async function getWorkContext(userId: string, role: string): Promise<Work
 
 // ── 第二层：单项目深度上下文 ──────────────────────────────────
 
-export async function getProjectDeepContext(projectId: string): Promise<ProjectDeepContext | null> {
+export async function getProjectDeepContext(
+  projectId: string,
+  opts?: {
+    /**
+     * P0-4：期望的 activeOrg。提供时 fail-closed：
+     * 项目不属于该 org（且非请求者个人项目）→ 返回 null。
+     */
+    expectedOrgId?: string;
+    /** 与 expectedOrgId 搭配：允许本人个人项目（orgId=null）通过 */
+    requesterUserId?: string;
+  },
+): Promise<ProjectDeepContext | null> {
+  if (opts?.expectedOrgId) {
+    const owned = await db.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true, ownerId: true },
+    });
+    if (!owned) return null;
+    const isPersonalOwn =
+      owned.orgId === null &&
+      !!opts.requesterUserId &&
+      owned.ownerId === opts.requesterUserId;
+    if (!isPersonalOwn && owned.orgId !== opts.expectedOrgId) {
+      return null;
+    }
+  }
   const project = await db.project.findUnique({
     where: { id: projectId },
     include: {

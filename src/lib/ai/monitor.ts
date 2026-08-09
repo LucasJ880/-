@@ -37,6 +37,17 @@ export interface RecordAiCallInput {
   userId?: string;
   /** 调用点标识（如 "agent-core", "ai-chat"），便于分类 */
   source?: string;
+  // ── Phase 1.1：统一执行上下文 correlation（全部可选，向后兼容）──
+  traceId?: string;
+  runId?: string;
+  rootRunId?: string;
+  parentRunId?: string;
+  orgId?: string;
+  actorType?: string;
+  actorId?: string;
+  agentId?: string;
+  jobId?: string;
+  taskId?: string;
 }
 
 export function recordAiCall(input: RecordAiCallInput) {
@@ -74,6 +85,17 @@ export function recordAiCall(input: RecordAiCallInput) {
     totalTokens: record.totalTokens,
     userId: record.userId,
     err: input.error,
+    // Phase 1.1 correlation（有值才输出）
+    ...(input.traceId ? { traceId: input.traceId } : {}),
+    ...(input.runId ? { runId: input.runId } : {}),
+    ...(input.rootRunId ? { rootRunId: input.rootRunId } : {}),
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
+    ...(input.orgId ? { orgId: input.orgId } : {}),
+    ...(input.actorType ? { actorType: input.actorType } : {}),
+    ...(input.actorId ? { actorId: input.actorId } : {}),
+    ...(input.agentId ? { agentId: input.agentId } : {}),
+    ...(input.jobId ? { jobId: input.jobId } : {}),
+    ...(input.taskId ? { taskId: input.taskId } : {}),
   });
 
   // Phase 3A-2：best-effort 写入统一账本（无 orgId 时跳过；失败不阻断业务）
