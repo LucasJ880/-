@@ -231,14 +231,23 @@ export async function executePendingAction(
         errorCode: "REAUTHORIZATION_UNAVAILABLE",
       };
     }
-    if (disabled.includes(action.type)) {
+    // disabledTools 同时匹配两个命名空间：
+    // - PendingAction.type（如 grader.project_task，与 capabilities 审批路径一致）
+    // - 源 Registry 工具名（payload.metadata.toolName，治理配置 / canInvokeTool 使用的命名空间）
+    const sourceToolName = readPendingActionMetadata(action.payload)?.toolName;
+    const disabledMatch = disabled.includes(action.type)
+      ? action.type
+      : typeof sourceToolName === "string" && disabled.includes(sourceToolName)
+        ? sourceToolName
+        : null;
+    if (disabledMatch) {
       await logAudit({
         userId: ctx.userId,
         orgId: ctx.orgId ?? undefined,
         action: "APPROVAL_EXECUTION_BLOCKED",
         targetType: "pending_action",
         targetId: actionId,
-        afterData: { reason: "tool_disabled", tool: action.type },
+        afterData: { reason: "tool_disabled", tool: disabledMatch },
       });
       return {
         ok: false,

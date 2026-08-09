@@ -45,6 +45,8 @@ export interface PendingActionMetadata {
   targetId?: string;
   /** 源 GraderAction.actionType，便于回溯 */
   graderActionType?: string;
+  /** 源 Registry 工具名（审批闸写入）；执行时 tool policy 重查同时匹配此命名空间 */
+  toolName?: string;
   /** AgentSkill 来源链（可选） */
   source?: string;
   skillId?: string;

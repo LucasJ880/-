@@ -288,6 +288,48 @@ async function main() {
     });
   }
 
+  // ── Case B4b2：治理配置用 Registry 工具名（真实命名空间）停用 → 同样拦截 ──
+  console.log("── Case B4b2: Tool disabled by registry tool name ──");
+  {
+    const title = `B4b2-task-${stamp}`;
+    // 模拟审批闸创建的草稿：payload.metadata.toolName = 源 Registry 工具名
+    const id = await createProjectTaskDraft({
+      userId: u1.id,
+      orgId: org.id,
+      projectId: project.id,
+      title,
+      approverUserId: u1.id,
+      payloadOverride: {
+        projectId: project.id,
+        title,
+        metadata: {
+          orgId: org.id,
+          projectId: project.id,
+          source: "APPROVAL_GATE",
+          toolName: "create_project_task",
+        },
+      },
+    });
+    // 治理配置按 Registry 工具名停用（canInvokeTool / tool-registry 的命名空间）
+    await db.orgBusinessRule.create({
+      data: {
+        orgId: org.id,
+        ruleKey: "agent_tool_policy",
+        version: 2,
+        status: "active",
+        configJson: { disabledTools: ["create_project_task"], forceApprovalTools: [] },
+      },
+    });
+    const res = await executePendingAction(id, { userId: u1.id, role: "user", orgId: org.id });
+    ok(res.ok === false, "Registry 工具名停用后：EXECUTION_BLOCKED", res.message);
+    ok(res.errorCode === "EXECUTION_BLOCKED", "errorCode=EXECUTION_BLOCKED", res.errorCode);
+    ok(!(await taskExists(project.id, title)), "未写入任何 Task");
+    await db.orgBusinessRule.updateMany({
+      where: { orgId: org.id, ruleKey: "agent_tool_policy" },
+      data: { status: "superseded" },
+    });
+  }
+
   // ── Case B4c：Tool policy 无法加载（reauthorization unavailable）→ fail-closed ──
   console.log("── Case B4c: Policy reauthorization unavailable ──");
   {
