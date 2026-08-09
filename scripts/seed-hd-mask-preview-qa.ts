@@ -6,6 +6,11 @@ import { writeFileSync, mkdirSync } from "fs";
 import { deflateSync } from "zlib";
 import { putPrivateBlob } from "../src/lib/files/blob-access";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/seed-hd-mask-preview-qa.ts" });
+
 const db = new PrismaClient();
 
 function png(

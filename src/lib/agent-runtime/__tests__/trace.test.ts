@@ -20,6 +20,11 @@ import {
   getAgentRunTrace,
 } from "../trace";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "src/lib/agent-runtime/__tests__/trace.test.ts" });
+
 let pass = 0;
 let fail = 0;
 function ok(cond: boolean, name: string) {

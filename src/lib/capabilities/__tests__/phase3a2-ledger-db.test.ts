@@ -7,6 +7,11 @@ import { db } from "@/lib/db";
 import { recordAiUsage } from "../usage/record";
 import { sanitizeUsageMetadata } from "../usage/sanitize";
 
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "src/lib/capabilities/__tests__/phase3a2-ledger-db.test.ts" });
+
 let pass = 0;
 let fail = 0;
 

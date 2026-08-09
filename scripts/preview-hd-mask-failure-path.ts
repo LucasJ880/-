@@ -2,6 +2,11 @@
 import { readFileSync, writeFileSync } from "fs";
 import { PrismaClient } from "@prisma/client";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/preview-hd-mask-failure-path.ts" });
+
 const qa = JSON.parse(
   readFileSync("tmp/visualizer-hd-e2e/preview-acceptance/qa-login.local.json", "utf8"),
 );

@@ -14,6 +14,11 @@ import { ensureTestUserOrg, cleanupTestUserOrg } from "../src/lib/test-fixtures/
 import { executeAwardHandoff, HandoffError } from "../src/lib/projects/handoff/execute";
 import type { HandoffFaultPoint } from "../src/lib/projects/handoff/fault-injection";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/phase5b-handoff-integration.test.ts" });
+
 const db = new PrismaClient();
 let passed = 0;
 let failed = 0;

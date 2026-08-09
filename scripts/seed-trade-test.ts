@@ -15,6 +15,11 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
+import { assertSafeTestDatabase } from "../src/lib/testing/assert-safe-test-database";
+
+// Fail-closed：禁止对生产/未识别数据库执行 destructive 测试
+assertSafeTestDatabase({ scriptName: "scripts/seed-trade-test.ts" });
+
 const db = new PrismaClient();
 
 const PASSWORD = process.env.SEED_TEST_PASSWORD || "Qingyan@2026";
