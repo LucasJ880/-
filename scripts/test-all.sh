@@ -92,6 +92,7 @@ run_test "Phase3A-2 Smoke Access" "npx tsx src/lib/capabilities/__tests__/phase3
 run_test "Phase3A-3 Approvals RBAC" "npx tsx src/lib/capabilities/__tests__/phase3a3-approvals-rbac.test.ts"
 run_test "Phase3A-3 Approvals Smoke" "npx tsx src/lib/capabilities/__tests__/phase3a3-approvals-smoke.test.ts"
 run_test "Phase3A-4 Governance Logic" "npx tsx src/lib/capabilities/__tests__/phase3a4-governance.test.ts"
+run_test "Governance Hygiene Gate" "npx tsx src/lib/capabilities/__tests__/governance-hygiene-gate.test.ts"
 run_test "Phase3A-4 Governance Smoke" "npx tsx src/lib/capabilities/__tests__/phase3a4-governance-smoke.test.ts"
 run_test "Phase3A-4 Acceptance" "npx tsx src/lib/capabilities/__tests__/phase3a4-acceptance.test.ts"
 run_test "Navigation IA" "npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts"

@@ -92,8 +92,13 @@ export function isWorkspaceMember(
   return access.workspaceIds.includes(workspaceId);
 }
 
+/**
+ * 能力中台管理角色：org_owner（40）≥ org_admin（30）均视为管理员。
+ * Governance Hygiene Gate：Owner 必须能通过 UI/API 治理 AI 配额，
+ * 不再依赖直接改生产 DB。
+ */
 export function isOrgAdminRole(orgRole: string): boolean {
-  return orgRole === "org_admin";
+  return orgRole === "org_admin" || orgRole === "org_owner";
 }
 
 export type DetailAccessMode = "full" | "metadata" | "aggregate";

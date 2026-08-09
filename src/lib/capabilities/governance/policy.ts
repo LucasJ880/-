@@ -50,28 +50,45 @@ export async function createQuotaPolicy(opts: {
     }
   }
 
-  const prev = await db.capabilityQuotaPolicy.findFirst({
-    where: {
-      orgId: opts.orgId,
-      workspaceId: opts.workspaceId ?? null,
-      metric: opts.metric,
-    },
-    orderBy: { version: "desc" },
-  });
+  // Governance Hygiene：同 org+workspace+metric 只允许一个 enabled 的
+  // current version；新建策略在同一事务内 supersede 全部旧 enabled 版本。
+  const row = await db.$transaction(async (tx) => {
+    const prev = await tx.capabilityQuotaPolicy.findFirst({
+      where: {
+        orgId: opts.orgId,
+        workspaceId: opts.workspaceId ?? null,
+        metric: opts.metric,
+      },
+      orderBy: { version: "desc" },
+    });
 
-  const row = await db.capabilityQuotaPolicy.create({
-    data: {
-      orgId: opts.orgId,
-      workspaceId: opts.workspaceId ?? null,
-      metric: opts.metric,
-      period: opts.period,
-      warningLimit: toDec(opts.warningLimit),
-      softLimit: toDec(opts.softLimit),
-      hardLimit: toDec(opts.hardLimit),
-      enabled: true,
-      version: (prev?.version ?? 0) + 1,
-      createdById: opts.userId,
-    },
+    const created = await tx.capabilityQuotaPolicy.create({
+      data: {
+        orgId: opts.orgId,
+        workspaceId: opts.workspaceId ?? null,
+        metric: opts.metric,
+        period: opts.period,
+        warningLimit: toDec(opts.warningLimit),
+        softLimit: toDec(opts.softLimit),
+        hardLimit: toDec(opts.hardLimit),
+        enabled: true,
+        version: (prev?.version ?? 0) + 1,
+        createdById: opts.userId,
+      },
+    });
+
+    await tx.capabilityQuotaPolicy.updateMany({
+      where: {
+        orgId: opts.orgId,
+        workspaceId: opts.workspaceId ?? null,
+        metric: opts.metric,
+        enabled: true,
+        id: { not: created.id },
+      },
+      data: { enabled: false, effectiveTo: new Date() },
+    });
+
+    return created;
   });
 
   await writeCapabilityAuditEvent({
@@ -123,29 +140,40 @@ export async function patchQuotaPolicy(opts: {
     }
   }
 
-  // 新版本行（乐观锁：旧版保留为历史）
-  const row = await db.capabilityQuotaPolicy.create({
-    data: {
-      orgId: current.orgId,
-      workspaceId: current.workspaceId,
-      metric: current.metric,
-      period: current.period,
-      warningLimit:
-        opts.warningLimit !== undefined
-          ? toDec(opts.warningLimit)
-          : current.warningLimit,
-      softLimit:
-        opts.softLimit !== undefined ? toDec(opts.softLimit) : current.softLimit,
-      hardLimit:
-        opts.hardLimit !== undefined ? toDec(opts.hardLimit) : current.hardLimit,
-      enabled: opts.enabled ?? current.enabled,
-      version: current.version + 1,
-      createdById: opts.userId,
-    },
-  });
-  await db.capabilityQuotaPolicy.update({
-    where: { id: current.id },
-    data: { enabled: false, effectiveTo: new Date() },
+  // 新版本行（乐观锁：旧版保留为历史）。
+  // Governance Hygiene：在同一事务内 supersede 同 key 全部旧 enabled 版本
+  // （不只是 current.id，防止历史遗留的多 enabled 行继续存在）。
+  const row = await db.$transaction(async (tx) => {
+    const created = await tx.capabilityQuotaPolicy.create({
+      data: {
+        orgId: current.orgId,
+        workspaceId: current.workspaceId,
+        metric: current.metric,
+        period: current.period,
+        warningLimit:
+          opts.warningLimit !== undefined
+            ? toDec(opts.warningLimit)
+            : current.warningLimit,
+        softLimit:
+          opts.softLimit !== undefined ? toDec(opts.softLimit) : current.softLimit,
+        hardLimit:
+          opts.hardLimit !== undefined ? toDec(opts.hardLimit) : current.hardLimit,
+        enabled: opts.enabled ?? current.enabled,
+        version: current.version + 1,
+        createdById: opts.userId,
+      },
+    });
+    await tx.capabilityQuotaPolicy.updateMany({
+      where: {
+        orgId: current.orgId,
+        workspaceId: current.workspaceId,
+        metric: current.metric,
+        enabled: true,
+        id: { not: created.id },
+      },
+      data: { enabled: false, effectiveTo: new Date() },
+    });
+    return created;
   });
 
   await writeCapabilityAuditEvent({

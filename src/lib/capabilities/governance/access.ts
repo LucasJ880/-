@@ -1,5 +1,6 @@
 /**
- * 治理中心权限：Org Admin / Workspace Admin；平台 admin 无 membership 不可进
+ * 治理中心权限：Org Owner / Org Admin / Workspace Admin；
+ * 平台 admin 无 membership 不可进。
  */
 
 import { CapabilitiesAccessError, isOrgAdminRole } from "../access";
@@ -72,7 +73,7 @@ export async function resolveWorkspaceRole(
   return m ? effectiveWorkspaceRole(m.role) : null;
 }
 
-/** 写企业级配额：仅 org_admin */
+/** 写企业级配额：org_owner / org_admin（isOrgAdminRole 含两者） */
 export function assertCanWriteOrgQuota(access: CapabilitiesAccessContext): void {
   assertGovernanceMembership(access);
   if (!isOrgAdminRole(access.orgRole)) {

@@ -43,5 +43,6 @@ export {
 } from "./settle";
 export {
   notifyQuotaThreshold,
+  notifyQuotaHardLimitBlocked,
   buildQuotaNotifyDedupeKey,
 } from "./quota-notify";
