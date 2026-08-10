@@ -179,9 +179,14 @@ async function main() {
     "41: worker assignment + taskKind persisted（server 默认指派）",
   );
   const s5row = goldenSteps.find((s) => s.stepKey === "s5_prioritize");
+  // P0 #89：模板补全真实依赖声明（s5 实际消费商机列表 + 两类分析证据）
   ok(
     JSON.stringify(s5row?.dependsOnJson) ===
-      JSON.stringify(["s3_followup_analysis", "s4_quote_risk"]),
+      JSON.stringify([
+        "s2_opportunities",
+        "s3_followup_analysis",
+        "s4_quote_risk",
+      ]),
     "41: dependency persisted（dependsOnJson 声明序）",
   );
   ok(
@@ -262,7 +267,11 @@ async function main() {
   );
   ok(
     JSON.stringify(startedPayloads.get("s5_prioritize")?.upstreamStepKeys) ===
-      JSON.stringify(["s3_followup_analysis", "s4_quote_risk"]) &&
+      JSON.stringify([
+        "s2_opportunities",
+        "s3_followup_analysis",
+        "s4_quote_risk",
+      ]) &&
       startedPayloads.get("s5_prioritize")?.workerKey === "sales_worker",
     "43/§24: 多上游按 dependsOn 声明序 deterministic 注入",
   );

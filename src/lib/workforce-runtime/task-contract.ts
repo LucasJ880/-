@@ -95,6 +95,26 @@ export function applyWorkforceTaskSpecs(
     }
     const taskKind: WorkforceTaskKind = proposedKind ?? "work";
 
+    // P0 #89 Native Synthesis 契约（§17–§18）：synthesis 由 Runtime 原生
+    // 执行——不需要 preferredTool；必须声明 ≥1 个上游依赖（输入唯一权威）；
+    // 不产生 PendingAction，requiresApproval=true 会造成审批死锁，fail-closed。
+    if (taskKind === "synthesis") {
+      if (!step.dependsOn || step.dependsOn.length === 0) {
+        return {
+          ok: false,
+          code: "WORKFORCE_TASK_SPEC_INVALID",
+          error: `step ${step.id}: synthesis 任务必须在 dependsOn 声明至少一个上游任务`,
+        };
+      }
+      if (step.requiresApproval) {
+        return {
+          ok: false,
+          code: "WORKFORCE_TASK_SPEC_INVALID",
+          error: `step ${step.id}: synthesis 任务不产生待审批动作，requiresApproval 必须为 false`,
+        };
+      }
+    }
+
     const proposedWorkerKey = step.workerKey?.trim();
     const workerKey =
       proposedWorkerKey && proposedWorkerKey.length > 0

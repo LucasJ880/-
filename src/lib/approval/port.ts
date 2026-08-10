@@ -269,7 +269,14 @@ export async function approveApprovalItem(
         /* 恢复失败不回滚已批准动作 */
       }
 
-      // Agent Runtime 2.0：审批后恢复 durable graph
+    }
+
+    // Agent Runtime 2.0：审批后恢复 durable graph。
+    // P0 #90A CASE B（§25）：不得以 result.ok 作为 reconcile 前置——
+    // 审批通过但执行失败（PendingAction=failed）同样必须立即 reconcile，
+    // 让 step 达到真实终态（failed）并进入 needs_human/verifier 可见路径；
+    // 否则 Run 会滞留 awaiting_approval，真实执行失败被审批语义遮蔽。
+    if (before?.agentRunId && before.orgId) {
       try {
         const v2 = await db.agentRun.findFirst({
           where: {

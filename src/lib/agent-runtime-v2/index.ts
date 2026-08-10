@@ -21,7 +21,15 @@ export {
   buildSalesFollowupGoldenPlan,
   planAgentRuntimeV2,
 } from "./planner";
-export { RUNTIME_V2_TOOL_CATALOG, getRuntimeV2Tool } from "./tool-catalog";
+export {
+  RUNTIME_V2_TOOL_CATALOG,
+  plannerVisibleRuntimeV2Tools,
+  getRuntimeV2Tool,
+} from "./tool-catalog";
+export {
+  isRuntimeV2ToolExecutable,
+  listExecutableRuntimeV2ToolNames,
+} from "./adapters";
 export {
   shouldRouteToRuntimeV2,
   startAgentRuntimeV2Run,
@@ -31,7 +39,10 @@ export {
   buildFinalReport,
 } from "./process";
 export { executeRuntimeV2Round } from "./executor";
-export { verifyRuntimeV2Run } from "./verifier";
+export {
+  verifyRuntimeV2Run,
+  applyDeterministicHardFloor,
+} from "./verifier";
 export { userFacingRunLabel } from "./events";
 export {
   resolveRuntimeV2Principal,

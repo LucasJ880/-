@@ -11,7 +11,7 @@ import {
 import { planAgentRuntimeV2 } from "./planner";
 import { persistPlanAndSteps } from "./persist";
 import { verifyRuntimeV2Run } from "./verifier";
-import { RUNTIME_V2_TOOL_CATALOG } from "./tool-catalog";
+import { plannerVisibleRuntimeV2Tools } from "./tool-catalog";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 import { readWorkforceTaskSpec } from "@/lib/workforce-runtime/task-contract";
 import {
@@ -122,7 +122,8 @@ export async function startAgentRuntimeV2Run(
     userRole: input.role,
     channel: input.channel ?? "web",
     goal: input.goal,
-    availableTools: RUNTIME_V2_TOOL_CATALOG,
+    // #88：Planner 只能看到有真实执行路径的工具（ghost tool 不可见）
+    availableTools: plannerVisibleRuntimeV2Tools(),
   });
 
   if (!planned.ok) {
@@ -531,7 +532,14 @@ export async function buildFinalReport(
   if (!run) return "未找到运行记录";
 
   const plan = run.planJson as { summary?: string; objective?: string } | null;
-  const prioritize = run.steps.find((s) => s.stepKey === "s5_prioritize");
+  // #89：按工具语义定位优先级步骤（模型计划可任意命名 stepKey），
+  // 兼容 legacy：无 preferredTool 记录时回退黄金模板字面键
+  const prioritize =
+    run.steps.find(
+      (s) =>
+        s.preferredTool === "sales_prioritize_followups" &&
+        ["completed", "partially_executed"].includes(s.status),
+    ) ?? run.steps.find((s) => s.stepKey === "s5_prioritize");
   const { extractPrioritizedCustomers, topReasons } = await import(
     "@/lib/assistant/runtime-v2-ui"
   );
@@ -590,7 +598,13 @@ export async function getRuntimeV2WorkbenchView(orgId: string, runId: string) {
   const { extractPrioritizedCustomers } = await import(
     "@/lib/assistant/runtime-v2-ui"
   );
-  const prioritizeStep = run.steps.find((s) => s.stepKey === "s5_prioritize");
+  // #89：按工具语义定位（模型命名计划兼容），legacy 字面键兜底
+  const prioritizeStep =
+    run.steps.find(
+      (s) =>
+        s.preferredTool === "sales_prioritize_followups" &&
+        ["completed", "partially_executed"].includes(s.status),
+    ) ?? run.steps.find((s) => s.stepKey === "s5_prioritize");
   return {
     runId: run.id,
     status: run.status,

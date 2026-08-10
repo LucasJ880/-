@@ -52,6 +52,15 @@ export {
   type WorkforceTaskSpecV1,
   type WorkforcePlannedStep,
 } from "./task-contract";
+// P0 — Native Synthesis（Runtime 一等执行语义，非业务工具）
+export {
+  WORKFORCE_SYNTHESIS_EXECUTION_LABEL,
+  WORKFORCE_SYNTHESIS_LIMITS,
+  WorkforceSynthesisResultV1Schema,
+  executeWorkforceSynthesisTask,
+  buildBoundedSynthesisInput,
+  type WorkforceSynthesisResultV1,
+} from "./synthesis";
 export {
   WORKFORCE_HANDOFF_CONTRACT_VERSION,
   WORKFORCE_HANDOFF_LIMITS,

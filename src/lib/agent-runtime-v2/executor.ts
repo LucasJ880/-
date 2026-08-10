@@ -27,6 +27,10 @@ import {
   getWorkforceWorker,
   workerSupportsTaskKind,
 } from "@/lib/workforce-runtime/workers";
+import {
+  executeWorkforceSynthesisTask,
+  WORKFORCE_SYNTHESIS_EXECUTION_LABEL,
+} from "@/lib/workforce-runtime/synthesis";
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
@@ -48,6 +52,29 @@ function asEvidenceMap(
   for (const s of steps) {
     if (s.outputJson && typeof s.outputJson === "object") {
       out[s.stepKey] = s.outputJson;
+    }
+  }
+  return out;
+}
+
+/**
+ * P0 #89（§12–§13）：workforce 契约任务的 priorEvidence 收敛——
+ * 只包含 step.dependsOn 声明的上游输出，且按声明序构建（map 插入序 =
+ * 依赖声明序，非完成序/DB 行序）。未声明的 Step 即使已完成也不可见。
+ */
+function scopedEvidenceByDependsOn(
+  steps: Array<{ stepKey: string; outputJson: unknown }>,
+  dependsOnJson: unknown,
+): Record<string, unknown> {
+  const deps = Array.isArray(dependsOnJson)
+    ? dependsOnJson.filter((x): x is string => typeof x === "string")
+    : [];
+  const byKey = new Map(steps.map((s) => [s.stepKey, s]));
+  const out: Record<string, unknown> = {};
+  for (const key of deps) {
+    const s = byKey.get(key);
+    if (s?.outputJson && typeof s.outputJson === "object") {
+      out[key] = s.outputJson;
     }
   }
   return out;
@@ -230,6 +257,8 @@ async function executeRoundGuarded(input: {
             where: { id: runId },
             data: {
               status: "needs_human",
+              // P0：durable errorCode 补全（此前为 null/残留旧值）
+              errorCode: "blocked_graph",
               errorMessage: "步骤依赖无法推进",
             },
           }),
@@ -253,76 +282,13 @@ async function executeRoundGuarded(input: {
   );
 
   const step = ready[0];
-  const toolName = step.preferredTool;
-  if (!toolName) {
-    await fenceGuardedWrite(fence, (c) =>
-      c.agentRunStep.update({
-        where: { id: step.id },
-        data: {
-          status: "failed",
-          errorCode: "no_tool",
-          errorMessage: "步骤未指定工具",
-          completedAt: new Date(),
-        },
-      }),
-    );
-    return { status: "continued" };
-  }
-
-  const descriptor = getRuntimeV2Tool(toolName);
-  // 重新鉴权（写工具按 high risk 检查 membership + 模块）
-  const decision = canInvokeTool({
-    tenant: {
-      userId,
-      orgId,
-      orgRole:
-        membership.role === "org_owner" ? "org_admin" : membership.role,
-      isPlatformAdmin: role === "admin" || role === "super_admin",
-    },
-    hasMembership: true,
-    tool: {
-      name: toolName,
-      domain: "sales",
-      risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
-      allowRoles: ["admin", "sales"],
-    },
-    modulesJson: undefined,
-    maxRisk: "l2_soft",
-  });
-  if (!decision.ok) {
-    await fenceGuardedWrite(fence, async (c) => {
-      await c.agentRunStep.update({
-        where: { id: step.id },
-        data: {
-          status: "failed",
-          errorCode: decision.code,
-          errorMessage: decision.error,
-          completedAt: new Date(),
-        },
-      });
-      await c.agentRun.update({
-        where: { id: runId },
-        data: {
-          status: "needs_human",
-          errorCode: decision.code,
-          errorMessage: decision.error,
-        },
-      });
-    });
-    await emitRuntimeV2Event({
-      orgId,
-      runId,
-      eventType: "run.needs_human",
-      title: "权限变化，需要人工处理",
-      payload: { stepKey: step.stepKey, error: decision.error },
-    });
-    return { status: "failed", error: decision.error };
-  }
 
   // ── Phase 2B-1 Workforce Task gate（仅 workforce_job 且 step 携带
   // workforceTask spec；legacy runtime_v2 与旧 workforce run 不受影响）──
   // 失败一律 fail-closed：step failed + run needs_human（§29），
   // 不做 fallback worker / 动态 replan（2B-3 边界）。
+  // P0 #89：gate 必须先于工具解析——synthesis 任务没有 preferredTool，
+  // 需要在 no_tool 判定之前识别 taskKind 并进入 Runtime 原生执行。
   let workforceContext: WorkforceExecutionContext | null = null;
   if (isDurableWorkforceJob) {
     const specRead = readWorkforceTaskSpec(step.inputJson);
@@ -384,12 +350,98 @@ async function executeRoundGuarded(input: {
     }
   }
 
+  // P0 #89 Native Synthesis（§16–§17）：taskKind=synthesis 是 Runtime
+  // 一等执行语义——不需要 preferredTool，绝不产生 no_tool 失败。
+  // 执行优先级：synthesis 步骤显式声明了可执行工具时仍走该工具
+  // （如模型把确定性聚合器 sales_prioritize_followups 绑为 synthesis，
+  // 保留其结构化输出供下游写任务消费，与 2B-1 §44 冻结行为一致）；
+  // 未声明工具 → native synthesis（本 P0 修复的 no_tool 死亡路径）。
+  const isNativeSynthesis =
+    workforceContext?.taskKind === "synthesis" && !step.preferredTool;
+
+  const toolName = step.preferredTool;
+  if (!isNativeSynthesis && !toolName) {
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRunStep.update({
+        where: { id: step.id },
+        data: {
+          status: "failed",
+          errorCode: "no_tool",
+          errorMessage: "步骤未指定工具",
+          completedAt: new Date(),
+        },
+      }),
+    );
+    return { status: "continued" };
+  }
+
+  // 事件/幂等中的执行标识：工具名，或 synthesis 内部执行标签（非工具，
+  // 永不进入 Planner catalog）
+  const executionLabel = isNativeSynthesis
+    ? WORKFORCE_SYNTHESIS_EXECUTION_LABEL
+    : toolName!;
+
+  if (!isNativeSynthesis) {
+    const descriptor = getRuntimeV2Tool(toolName!);
+    // 重新鉴权（写工具按 high risk 检查 membership + 模块）
+    const decision = canInvokeTool({
+      tenant: {
+        userId,
+        orgId,
+        orgRole:
+          membership.role === "org_owner" ? "org_admin" : membership.role,
+        isPlatformAdmin: role === "admin" || role === "super_admin",
+      },
+      hasMembership: true,
+      tool: {
+        name: toolName!,
+        domain: "sales",
+        risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
+        allowRoles: ["admin", "sales"],
+      },
+      modulesJson: undefined,
+      maxRisk: "l2_soft",
+    });
+    if (!decision.ok) {
+      await fenceGuardedWrite(fence, async (c) => {
+        await c.agentRunStep.update({
+          where: { id: step.id },
+          data: {
+            status: "failed",
+            errorCode: decision.code,
+            errorMessage: decision.error,
+            completedAt: new Date(),
+          },
+        });
+        await c.agentRun.update({
+          where: { id: runId },
+          data: {
+            status: "needs_human",
+            errorCode: decision.code,
+            errorMessage: decision.error,
+          },
+        });
+      });
+      await emitRuntimeV2Event({
+        orgId,
+        runId,
+        eventType: "run.needs_human",
+        title: "权限变化，需要人工处理",
+        payload: { stepKey: step.stepKey, error: decision.error },
+      });
+      return { status: "failed", error: decision.error };
+    }
+  }
+  // synthesis：不调用任何业务工具（无 tool 鉴权对象，不读业务表）；
+  // membership 已在本轮入口校验，模型调用配额与遥测由统一 Model Runtime
+  // 承担（§22/§44）。输入仅为上方 gate 校验过的声明上游 Handoff。
+
   const attempt = step.attemptCount + 1;
   // 业务幂等不含 attempt；Step 表仅记录稳定 operationKey 供审计
   const operationKey = buildStepOperationKey({
     runId,
     stepKey: step.stepKey,
-    toolName,
+    toolName: executionLabel,
   });
 
   await fenceGuardedWrite(fence, (c) =>
@@ -410,7 +462,7 @@ async function executeRoundGuarded(input: {
     title: step.title,
     payload: {
       stepKey: step.stepKey,
-      toolName,
+      toolName: executionLabel,
       attempt,
       operationKey,
       // §37 最小观测增强（workforce 任务才有）
@@ -429,27 +481,46 @@ async function executeRoundGuarded(input: {
     orgId,
     runId,
     eventType: "tool.started",
-    title: toolName,
+    title: executionLabel,
     payload: { stepKey: step.stepKey, operationKey },
   });
 
-  const priorEvidence = asEvidenceMap(steps);
+  // P0 #89（§12–§13）：workforce 契约任务（spec valid）的证据消费收敛为
+  // dependsOn 声明上游（声明序）；legacy runtime_v2 与 true-legacy
+  // workforce step（spec absent）保持全量 map，行为不变。
+  const priorEvidence = workforceContext
+    ? scopedEvidenceByDependsOn(steps, step.dependsOnJson)
+    : asEvidenceMap(steps);
   let result;
   try {
-    result = await executeRuntimeV2Tool(toolName, {
-      orgId,
-      userId,
-      role,
-      runId,
-      threadId,
-      assistantMessageId,
-      stepKey: step.stepKey,
-      operationKey,
-      priorEvidence,
-      // §13：Worker 执行上下文注入（workforce 任务专属；只含必要内容，
-      // 不含任何授权语义——Tool 鉴权仍完整走 canInvokeTool/审批链）
-      workforce: workforceContext ?? undefined,
-    });
+    if (isNativeSynthesis) {
+      // §16：native synthesis——server-controlled 执行路径，
+      // 输入 = gate 校验过的声明上游 Handoff（声明序）
+      result = await executeWorkforceSynthesisTask({
+        orgId,
+        userId,
+        runId,
+        stepKey: step.stepKey,
+        objective: workforceContext!.objective,
+        expectedOutput: workforceContext!.spec.expectedOutput,
+        upstreamHandoffs: workforceContext!.upstreamHandoffs,
+      });
+    } else {
+      result = await executeRuntimeV2Tool(toolName!, {
+        orgId,
+        userId,
+        role,
+        runId,
+        threadId,
+        assistantMessageId,
+        stepKey: step.stepKey,
+        operationKey,
+        priorEvidence,
+        // §13：Worker 执行上下文注入（workforce 任务专属；只含必要内容，
+        // 不含任何授权语义——Tool 鉴权仍完整走 canInvokeTool/审批链）
+        workforce: workforceContext ?? undefined,
+      });
+    }
   } catch (err) {
     result = {
       ok: false,
@@ -475,7 +546,9 @@ async function executeRoundGuarded(input: {
           ? { status: "ready", errorMessage: result.error }
           : {
               status: "failed",
-              errorCode: "tool_failed",
+              // synthesis 失败使用独立 durable errorCode（fail closed，
+              // 不做字符串拼接降级；§20）
+              errorCode: isNativeSynthesis ? "synthesis_failed" : "tool_failed",
               errorMessage: result.error,
               completedAt: new Date(),
             },
@@ -485,7 +558,7 @@ async function executeRoundGuarded(input: {
       orgId,
       runId,
       eventType: "tool.failed",
-      title: toolName,
+      title: executionLabel,
       payload: { stepKey: step.stepKey, error: result.error, attempt },
     });
     return { status: "continued" };
@@ -625,7 +698,7 @@ async function executeRoundGuarded(input: {
       data: {
         status: "completed",
         outputJson: jsonValue(completedOutput),
-        evidenceJson: jsonValue({ toolName, ok: true }),
+        evidenceJson: jsonValue({ toolName: executionLabel, ok: true }),
         completedAt,
       },
     }),
@@ -634,7 +707,7 @@ async function executeRoundGuarded(input: {
     orgId,
     runId,
     eventType: "tool.completed",
-    title: toolName,
+    title: executionLabel,
     payload: { stepKey: step.stepKey },
   });
   await emitRuntimeV2Event({
