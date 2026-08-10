@@ -6,6 +6,7 @@
 | 分支 | `design/tender-t0-memory-intelligence`（docs-only） |
 | 日期 | 2026-08-10 |
 | 性质 | 路线图设计；**本轮不启动任何 T1+ 实施**，T0 交付后 STOP 等待人工 Final Review |
+| 修订 | 2026-08-10 Final Architecture Micro-Fix：T2 增加 Entry Gate（ProjectEvent 写入点前置硬闸）；T3 冻结为 MemoryClaim+Buyer 核心 + Fingerprint/Snapshot 物化 Design Gate；AwardRecord 明确 T4 域表；T5 硬依赖清单（含 Deterministic Plan Injection） |
 | 姊妹文档 | `QINGYAN_TENDER_T0_UX_CONSOLIDATION_AUDIT.md`、`QINGYAN_TENDER_T0_MEMORY_INTELLIGENCE_ARCHITECTURE.md` |
 
 ---
@@ -67,7 +68,7 @@ T4          Tender Intelligence（Award/周期/竞争/定价/供应链）
 T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动沉淀）
 ```
 
-依赖主线：T1 仅依赖 Phase 2 合并（导航/i18n 协调）；T2 独立于 T1 可并行准备但建议 T1 先行（新 UI 承接 Ledger 投影）；T3 依赖 T2（claims 需要 archive/event 底座）；T4 依赖 T3（Buyer/Fingerprint）；T5 依赖 Phase 2 全并 + T2–T4 的数据面。
+依赖主线：T1 仅依赖 Phase 2 合并（导航/i18n 协调）；T2 独立于 T1 可并行准备但建议 T1 先行（新 UI 承接 Ledger 投影），**T2 写入实现另受 T2 Entry Gate（§3）约束**；T3 依赖 T2（claims 需要 archive/event 底座），核心=MemoryClaim+Buyer，Fingerprint/Snapshot 物化过 Design Gate；T4 依赖 T3（Buyer/Claims）；T5 依赖 Phase 2 全并 + T2–T4 数据面 + **硬依赖清单（§6，含 Deterministic Plan Injection = T5 HARD DEPENDENCY）**。
 
 ---
 
@@ -113,8 +114,22 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 
 **目标**：形成事件事实源与永久项目档案底座；成本第一次可见。
 
+### T2 Entry Gate（ProjectEvent 写入实现开始前必须全部 APPROVED）
+
+```
+LEGACY_EVENT_STORE_DECISION_GATE      = APPROVED    ← 9 套存量存储逐套定档（架构文档 §3.5 判决提案的批准）
+PROJECTEVENT_SOURCE_OF_TRUTH_BOUNDARY = APPROVED    ← 唯一权威业务事件边界（哪些事实归 Ledger、哪些留域内源）
+DUAL_WRITE_PLAN                       = APPROVED / NOT_REQUIRED（TEMPORARY + 退出条件 + 对账方案）
+IDEMPOTENCY_CONTRACT                  = APPROVED    ← eventKey 规范与重放语义
+MIGRATION_PLAN                        = APPROVED    ← safe-migrate 流程内
+```
+
+**冻结口径**：`ProjectEvent` 表**方向已批准（direction = APPROVED）**；**生产写入点 NOT YET APPROVED**——Gate 全过前不得铺设任何 ProjectEvent production writer，尤其禁止一次性接入几十个写入点。
+
 ### Scope
-- `ProjectEvent` 表 + 领域服务双写（首批写入点：stage-transition、tender-result、abandon、go-decision、run approve、document add、inquiry sent、quote confirmed、handoff、cost.recorded 手工录入）；
+- **T2-PR0（Gate 材料）**：把架构文档 §3.5 的 9 套存量判决提案定稿提批（KEEP_AS_DOMAIN_SOURCE / KEEP_AS_TECHNICAL_AUDIT / KEEP_AS_RUNTIME_TELEMETRY / DERIVED_ONLY / DUAL_WRITE_TEMPORARY / DEPRECATE / REMOVE），并产出上述五项 Gate 文件；
+- `ProjectEvent` 表 +（**Gate 通过后**）首批写入点（stage-transition、tender-result、abandon、go-decision、run approve、document add、inquiry sent、quote confirmed、handoff、cost.recorded 手工录入）；每个业务事实只设**一条权威事件**，其他系统 reference/derive/notify/audit/project；
+- 双写仅按 Gate 批准的 DUAL_WRITE_PLAN 执行：TEMPORARY（退出条件/日期明确）、EXPLICIT（逐点登记）、IDEMPOTENT（eventKey）、RECONCILED（对账/parity 脚本）；禁止无限期双写；
 - 工作台 Ledger 投影（活动卡换源、成本卡、People 贡献）；
 - `TenderArchiveItem` + 上传路径归档化（内容寻址 + 去重读路径）+ `ProjectDocument` supersede/软删/orgId 补列；
 - tender AI 成本桥接 `AiUsageLedger`（worker FINALIZE 一次调用）；
@@ -130,10 +145,12 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 - 成本录入的采纳率是产品风险 → 工作台"记一笔"必须 ≤10 秒完成。
 
 ### Acceptance criteria
-1. 任一测试项目：阶段推进/结果/成本动作在 Ledger 各生成恰好一条事件（幂等重放不重复）；
+0. **T2 Entry Gate 五项全部 APPROVED 后才允许合入任何 ProjectEvent 写入点 PR**；
+1. 任一测试项目：阶段推进/结果/成本动作在 Ledger 各生成**恰好一条**权威事件（幂等重放不重复；无第二事实源并行记录同一业务事实）；
 2. 工作台成本卡显示 Labor/External/AI 三分项，AI 分项与 `AiUsageLedger` 对得上；
 3. 归档项 hash 可验证、重复上传同文件不产生新 blob；
-4. Timeline/Cost/People 三视图同源（改一处事件三视图同步变化）。
+4. Timeline/Cost/People 三视图同源（改一处事件三视图同步变化）；
+5. 若启用双写：对账脚本零差异，且退出条件已排期。
 
 ---
 
@@ -141,16 +158,17 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 
 **目标**：历史项目自动沉淀；Fingerprint + Similar Tender 检索质变。
 
-### Scope
-- `MemoryClaim` / `Buyer` / `TenderFingerprint` / `ProjectMemorySnapshot` 四表；
-- Buyer 归一化 job（历史 `clientOrganization` → 候选映射 → 人批）；
-- Fingerprint 构建（确认 facts/requirements 驱动）+ pgvector 向量化（tender 内容首次入向量）+ **HNSW 索引**；
+### Scope（按架构文档 §6.4 三级冻结口径）
+- **LEVEL 1 初始核心持久化：`MemoryClaim` + `Buyer` 两表**（架构已批准；建表 migration 仍单独批准）；
+- **持久化 Design Gate（T3 开始前定夺，物化未预批）**：`TenderFingerprint`（Option A derived projection vs Option B materialized table）；`ProjectMemorySnapshot`（默认 derived memory view，仅当 reproducibility / version pinning / audit replay / 训练集冻结需求证实后物化）；
+- Buyer 归一化 job（历史 `clientOrganization` → 候选映射 → 低置信人批）；
+- Fingerprint 构建（确认 facts/requirements 驱动，形态按 Gate 结论）+ pgvector 向量化（tender 内容首次入向量）+ **HNSW 索引**；
 - 混合相似匹配替换 `similarity.ts` Jaccard 写入器（保留 `ProjectSimilarity` 表）；
-- ProjectInsight.embedding 死字段激活（Json→vector）；Review/tenderStatus 词表对齐；
-- Memory Consolidation 手动触发版（关闭项目 → snapshot + claims + 复盘草稿）。
+- 向量能力 **REUSE FIRST**：激活 `ProjectInsight.embedding` 死字段（Json→vector）；**不默认新建** MemoryEmbedding/TenderEmbedding 等第二套向量存储；Review/tenderStatus 词表对齐；
+- Memory Consolidation 手动触发版（关闭项目 → derived memory view + claims + 复盘草稿；snapshot 物化按 Gate）。
 
-### Dependencies：T2（archive/event 底座 + 确认流数据质量）。
-### Schema impact：4 新表 + vector 列 + HNSW 索引（pgvector migration 需在 Neon 分支演练）。
+### Dependencies：T2（archive/event 底座 + 确认流数据质量）；两项 LEVEL 3 Design Gate 在 T3 启动前完成。
+### Schema impact：**2 张核心新表（MemoryClaim、Buyer）** + vector 列与 HNSW 索引（pgvector migration 需在 Neon 分支演练）；TenderFingerprint / ProjectMemorySnapshot **物化未批准**（视 Gate 结论可能为 0–2 张追加表）。
 ### Runtime impact：NONE（计算走现有 API/cron 形态；不新建队列——在 T5 之前，fingerprint/claims 计算挂现有请求驱动 + tender-auto-analysis 后处理步骤，不加第二 cron）。
 
 ### Risk
@@ -161,7 +179,7 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 ### Acceptance criteria
 1. 新建测试 tender 能在 ≤N 秒内返回 top-5 相似历史项目，且每条带 matchReasons+evidence；
 2. 任一 AI 结论在 UI 呈现 CONFIRMED/SUPPORTED/INFERRED/UNKNOWN 徽标且可点开证据；
-3. 关闭一个项目后，snapshot/claims 自动生成、复盘确认后进入 org 检索；
+3. 关闭一个项目后，项目记忆（derived memory view；若 Gate 批准物化则为 snapshot）与 claims 自动生成、复盘确认后进入 org 检索；
 4. 同名 buyer 变体（"City of Richmond"/"Richmond (City)"）归一后指向同一 Buyer。
 
 ---
@@ -171,12 +189,12 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 **目标**：情报 tab 从"当前文件分析"升级为七域决策系统。
 
 ### Scope
-- `AwardRecord` 表 + 我方历史回灌（每个已结 tender 一条 award 事实）+ 人工/存量档案录入通道（**无爬虫**）；
+- `AwardRecord` 表（**§6.4 LEVEL 2 域表定位：属 T4 Intelligence，不是 T3 Memory MVP 必建表**；服务 Historical Award / Buyer Procurement History / Procurement Cycle / Competitor Win Analysis / Pricing Intelligence）+ 我方历史回灌（每个已结 tender 一条 award 事实）+ 人工/存量档案录入通道（**无爬虫**）；
 - 情报 tab 七域装配：Historical Awards / Comparable / Buyer Pattern / Procurement Cycle / Competitor / Supply Chain（Trade customs_hint 只读引用）/ Pricing（Estimated Market Range / Suggested Bid Range，带来源与置信度）；
 - 组织级情报中心改造（`/projects/intelligence` 承接被删 stub 的六个 section）；
 - 公开证据 vs AI inference 的 UI 强制分离（claim status 驱动）。
 
-### Dependencies：T3（Buyer/Fingerprint/Claims）。
+### Dependencies：T3（Buyer/Claims；Fingerprint 按其 Design Gate 形态）。
 ### Schema impact：1 新表（AwardRecord）+ ProjectSimilarity 明细字段。
 ### Runtime impact：NONE。
 ### Risk：外部 award 数据合规边界（只允许公开公告/人工/既有档案，爬取留 T5 且需授权）；小样本下周期/价格推断过拟合 → 置信度阈值 + UNKNOWN 兜底展示。
@@ -192,17 +210,33 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 
 **目标**：员工正常工作、企业记忆自动形成；新标自动调用历史经验。
 
+### Hard Dependencies（T5 启动前全部满足，缺一不得开工）
+
+```
+WORKFORCE_RUNTIME_PRODUCTION_READY      ← 适合生产自动化（Phase 2 correctness 收口）
+DETERMINISTIC_PLAN_INJECTION            = AVAILABLE / APPROVED DESIGN
+                                          （T5 HARD DEPENDENCY；由 Workforce Runtime Owner Design Gate 产出，
+                                           在 Phase 2 稳定后、T5 前完成；本路线图不预设其 API/函数/持久化实现）
+TASK_CONTRACT_STABLE                    ← workforce-task/v1 或其后继
+WORKER_REGISTRY_STABLE
+HANDOFF_STABLE                          ← workforce-handoff/v1 或其后继
+APPROVAL_SCOPE_POLICY_INTEGRATED        ← Deterministic Plan 不绕过任何审批/Scope/Policy 语义
+T2_T4_DATA_FOUNDATION_READY
+```
+
+**永久禁令**：T5 不允许创建 `TenderQueue` / `TenderWorkerRuntime` / `TenderJobEngine` / `TenderPipelineExecutor` / 第二套 Scheduler / 第二套 Background Runtime——Deterministic Plan 不可用时的正确动作是**等待/推动 Runtime Owner Gate**，而不是绕道自建。
+
 ### Scope
-- **Workforce 集成（与 runtime 负责人共审后实施）**：
-  - tender 工具进 `tool-catalog.ts` + `adapters.ts`（§13 映射表的 10 个 task 合同）；
-  - `createWorkforceJob` 生产入口面（领域服务触发 + flag/allowlist 配置）；
-  - **deterministic plan 注入路径**（server-authored plan 经 `applyWorkforceTaskSpecs`+`persistPlanAndSteps`；Phase 2 合并后的第一个 runtime 协作项）；
+- **Workforce 集成（经 Runtime Owner Design Gate 后实施）**：
+  - tender 工具注册进 V2 工具目录与执行适配层（架构文档 §13 映射表的 10 个 task 合同）；
+  - Workforce Job 生产入口面（领域服务触发 + flag/allowlist 配置；现状 `createWorkforceJob` 无生产调用方）；
+  - **Server-authored Deterministic Plan Injection**（按 Runtime Owner Gate 批准的设计接入；概念定义见架构文档 §12.3——只改变 Task DAG 来源，不绕过任何执行安全语义）；
 - 事件→Job 链全通（tender.created→archive→extract→fingerprint→memory→intelligence；submitted→watch_award；award.found→outcome；closed→consolidate）；
 - Award Watch（合规源轮询 + 人批入库）；Outcome 自动回填 + Win/Loss 草稿；Memory Consolidation 自动化；
 - 源捕获自动化（Firecrawl 复用，HTML/PDF/screenshot 快照落 Archive）；邮件入站（外部前置能力，独立评估）；
-- **收敛决策点**：tender-auto-analysis 独立队列 → 保留为专用流水线 or 迁 Workforce Job（以 deterministic plan 路径落地情况定夺）。
+- **tender-auto-analysis CONVERGENCE DECISION**（目标不是立即删除）：逐能力回答——哪些迁移为 Workforce Task、哪些保留为 deterministic domain service（去队列语义）、哪些 queue 语义退役、哪些包成 Workforce Task adapter；任何迁移前置 **behavior parity + rollback + 历史数据兼容**。
 
-### Dependencies：Phase 2（2B-2/2C/2D）全部合并；T2–T4 数据面就绪。
+### Dependencies：上述 Hard Dependencies 全绿（Phase 2 全并 + Runtime Owner Gate + T2–T4 数据面）。
 ### Schema impact：预期 NONE（Workforce 冻结架构零新表；如 deterministic plan 需列级支持，与 runtime 团队共同提案）。
 ### Runtime impact：**有，且是唯一有 runtime impact 的阶段**——全部经正式评审进入 runtime 边界内文件。
 ### Risk：与 runtime 演进节奏耦合（2C-3/2C-4 未完时人工介入语义可能变化）；自动抓取合规边界；LLM 计划路径与确定性路径的行为差异需要金样例（复用 `scripts/e2e-workforce-golden.ts` 模式）。
@@ -222,7 +256,7 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 1. **T1-PR1（诚实与安全修复）**——不等任何人：conversations/ai-activity 补门、execute/cancel 权限、死路由、断链。最小 diff、零冲突、立刻兑现价值；
 2. **T1-PR2（导航收敛）**——在 #87 合并、rebase 之后动 registry/i18n；
 3. **T1-PR3（5-tab 重构，flag 灰度）**；
-4. 并行准备 **T2-PR1（ProjectEvent 表提案 + migration 评审）**，T1-PR3 合并后接投影。
+4. 并行准备 **T2-PR0（T2 Entry Gate 材料：9 套存量存储判决定稿 + 双写/幂等/迁移方案）** 与 **T2-PR1（ProjectEvent 表提案 + migration 评审）**——**任何 ProjectEvent 写入点实现必须等 T2 Entry Gate 全过**；T1-PR3 合并后接投影。
 
 ---
 
@@ -244,8 +278,8 @@ T5          Automation + Learning Loop（Workforce 集成 + Award Watch + 自动
 | B12 | 六个 vector 列零 ANN 索引（现有销售/知识检索全表扫） | P2（T3 顺带决策） |
 | B13 | `AiCapabilityRegistry.embedding()` 抛"尚未接入"但 embedding.ts 在用（抽象与实现脱节） | P2 |
 | B14 | Outcome 三套词表 / 5 状态字段漂移 | P1（T2 词表收敛） |
-| B15 | tender-auto-analysis = 既有第二套队列（`TENDER_SECOND_QUEUE_DEBT`） | 架构债（T5 决策点） |
-| B16 | Workforce 无生产入口 + 无 deterministic plan 路径（T5 前置） | 架构缺口（与 runtime 团队共审） |
+| B15 | tender-auto-analysis = 既有第二套队列（`TENDER_SECOND_QUEUE_DEBT`） | 架构债（**T5 CONVERGENCE DECISION**：逐能力迁移/保留/退役/adapter 化，前置 parity+rollback+历史兼容） |
+| B16 | Workforce 无生产入口 + 无 deterministic plan 路径 | 架构缺口（**Deterministic Plan Injection = T5 HARD DEPENDENCY**；由 Workforce Runtime Owner Design Gate 在 Phase 2 稳定后、T5 前专项设计；不可用时禁止以第二套 runtime 变通） |
 | B17 | 邮件入站未实现（email.received / 供应商报价自动摄取的外部前置） | 能力缺口（T5 前置） |
 | B18 | 静默自动触发 AI 生成（auto-ai-panels-runner，成本不可见） | P2（T5 显式 Job 化） |
 

@@ -8,6 +8,7 @@
 | 性质 | **READ-ONLY AUDIT + 设计**；未改任何生产代码 / Schema / 导航；未运行写路径 |
 | 方法 | 全量代码走读（routes / components / API / Prisma / navigation），不凭文件名判断；所有结论带 file:line 证据 |
 | 姊妹文档 | `QINGYAN_TENDER_T0_MEMORY_INTELLIGENCE_ARCHITECTURE.md`（数据/自动化架构）、`QINGYAN_TENDER_T0_IMPLEMENTATION_ROADMAP.md`（T1–T5） |
+| 修订 | 2026-08-10 Final Architecture Micro-Fix：本文档仅做跨文档一致性核对，**审计数字（30 路由 / 47 页面+Tab / 13 组重复 / 9 套历史存储 / 18 项债 / 5-Tab IA）与全部 Decision 不变**；T2/T3/T5 引用处的最新口径（T2 Entry Gate、记忆模型三级、T5 硬依赖）以两份姊妹文档为准 |
 
 ---
 

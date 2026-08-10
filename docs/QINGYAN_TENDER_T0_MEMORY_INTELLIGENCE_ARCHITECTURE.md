@@ -6,6 +6,7 @@
 | 分支 | `design/tender-t0-memory-intelligence`（docs-only） |
 | 日期 | 2026-08-10 |
 | 性质 | **纯设计文档**：本轮 `SCHEMA_CHANGE = NONE`、`PRODUCTION_MUTATION = NO`；所有新模型均为 T2+ 提案，需单独批准 migration |
+| 修订 | 2026-08-10 Final Architecture Micro-Fix：①记忆模型三级冻结（LEVEL 1 必需基础 / LEVEL 2 域表 / LEVEL 3 物化 Design Gate，§6.4）；②Legacy Event Store Gate（ProjectEvent 生产写入点前置硬闸，§3.1/§3.5）；③Deterministic Plan Injection 升级为 T5 HARD DEPENDENCY + Runtime Owner Design Gate（§12.3） |
 | 姊妹文档 | `QINGYAN_TENDER_T0_UX_CONSOLIDATION_AUDIT.md`（UX）、`QINGYAN_TENDER_T0_IMPLEMENTATION_ROADMAP.md`（T1–T5 与冲突矩阵） |
 
 ---
@@ -59,7 +60,10 @@
 | `TaskActivity` / `AgentTaskStep` / `ToolCallTrace` / `OrderStatusLog` / `TradeActivityLog` | 各自窄作用域（task/step/tool/order/trade） |
 | `Notification` | AuditLog 的派生投影（`notifications/service.ts:185`），是 sink 不是 source |
 
-同时立规：**ProjectEvent 是第 10 套存储的唯一豁免**——它进场的前提是把其余 9 套显式分类（§3.5），否则就是任务书警告的"第二套事实源"。
+同时立规两条（Final Review 冻结口径）：
+
+1. **ProjectEvent 是第 10 套存储的唯一豁免**——它进场的前提是把其余 9 套显式分类并通过判决（§3.5），否则就是任务书警告的"第二套事实源"。
+2. **硬闸 `LEGACY_EVENT_STORE_DECISION_GATE`**：`ProjectEvent` 的**方向 = APPROVED，但在该 Gate 通过前不得创建任何生产写入点**（NO PROJECTEVENT PRODUCTION WRITER UNTIL LEGACY_EVENT_STORE_DECISION_GATE = APPROVED）。T2 不允许一上来铺设几十个写入点——先批准 §3.5 的存量判决，再按判决结果接线。Gate 的完整键值见路线图「T2 Entry Gate」。
 
 ### 3.2 事件模型（T2 提案，非本轮实现）
 
@@ -131,17 +135,28 @@ site:        site_visit.completed
 | Audit View | Ledger（业务） + AuditLog（技术）双栏 |
 | Project Review View | decisions + outcome 类事件 → 复盘草稿的自动素材（喂 `maybeCreateReviewDraft`） |
 
-### 3.5 九套存量存储的判决（防"第 17 号重复"）
+### 3.5 存量事件/历史存储判决（= LEGACY_EVENT_STORE_DECISION_GATE 的输入材料）
 
-| 存储 | 判决 |
-|---|---|
-| `AuditLog` | **保留 = 技术/安全审计**。T2 顺手债：改用 `traceId` 列、payload 转 Json、补 `(projectId, createdAt)` 索引（单独小 migration，与 Ledger 解耦） |
-| `ProjectMessage(SYSTEM)` | 降级为**渲染层**：阶段推进等系统消息改由 Ledger 事件渲染，`system-events.ts` 双写期后停写 |
-| `TaskActivity` / `OrderStatusLog` / `TradeActivityLog` | 各留原域，不进 tender 账本 |
-| `AgentRunEvent` | 运行时账本，保留；`sourceRef="agentRun:{id}"` 把两本账关联 |
-| `AgentTaskStep` | 随旧运行时退役（T5 决策） |
-| `ToolCallTrace` | 观测记录，保留 |
-| `Notification` | 继续做派生 sink；未来订阅 Ledger |
+判决词表（Gate 批准时逐套定档）：`KEEP_AS_DOMAIN_SOURCE / KEEP_AS_TECHNICAL_AUDIT / KEEP_AS_RUNTIME_TELEMETRY / DERIVED_ONLY / DUAL_WRITE_TEMPORARY / DEPRECATE / REMOVE`。
+
+下表为基于 T0 审计证据的**判决提案**——Gate 未批准前不生效、不接线：
+
+| 存储 | 判决提案 | 依据/边界 |
+|---|---|---|
+| `ProjectEvent`（新） | **business event ledger**（唯一业务事件事实源） | §3.1–3.4 |
+| `AuditLog` | **KEEP_AS_TECHNICAL_AUDIT** | 技术/安全/管理审计，**不是业务时间轴 SoT**。T2 顺手债：改用 `traceId` 列、payload 转 Json、补 `(projectId, createdAt)` 索引（单独小 migration，与 Ledger 解耦） |
+| `ProjectMessage(SYSTEM)` | **DUAL_WRITE_TEMPORARY → DERIVED_ONLY** | 人/系统讨论流，可编辑可软删（`editedAt/deletedAt`），不可为不可变事实源；迁移期双写，终态由 Ledger 事件渲染，`system-events.ts` 停写 |
+| `TaskActivity` | **KEEP_AS_DOMAIN_SOURCE**（task 域） | 不进 tender 业务账本 |
+| `OrderStatusLog` / `TradeActivityLog` | **KEEP_AS_DOMAIN_SOURCE**（order/trade 域） | 同上 |
+| `AgentRunEvent` | **KEEP_AS_RUNTIME_TELEMETRY** | Runtime 执行事件，**不是项目业务事件 SoT**；`sourceRef="agentRun:{id}"` 把两本账关联 |
+| `AgentTaskStep` | **DEPRECATE** | 随旧 AgentTask 运行时退役（T5 决策执行） |
+| `ToolCallTrace` | **KEEP_AS_RUNTIME_TELEMETRY** | 观测记录（无 token/cost 字段，非账本） |
+| `Notification` | **DERIVED_ONLY** | AuditLog 派生投递/注意力 sink（`notifications/service.ts:185`），**永不为事实源**；未来订阅 Ledger |
+| `ProjectInsight` / `ProjectReview` | 知识/解读/复盘层（**不参与本判决词表**） | 是 L3 记忆原料与解释层，不是 raw event source |
+
+**唯一权威业务事件原则（NO DUPLICATE BUSINESS FACT）**：同一业务事实——如 Site Visit Completed / Tender Submitted / Supplier Quote Confirmed / GO Decision / Project Abandoned / Award Found / Cost Recorded——最终只允许**一条 AUTHORITATIVE BUSINESS EVENT**（= ProjectEvent）；其他系统只可 reference / derive / notify / audit / project，不得各自成为独立业务事实源。
+
+**Dual-write 纪律**：迁移期双写必须 **TEMPORARY**（定义退出条件/日期）、**EXPLICIT**（逐写入点登记）、**IDEMPOTENT**（eventKey 幂等）、**RECONCILED**（对账/parity 校验）；禁止无限期双写。
 
 ---
 
@@ -236,8 +251,8 @@ model TenderArchiveItem {
 | 层 | 内容 | 载体 |
 |---|---|---|
 | **L1 Raw Archive** | 原始 PDF/HTML/图片/邮件/报价单/我方提交物/踏勘照片 | Blob + `TenderArchiveItem` + `ProjectDocument/Page`（IMMUTABLE） |
-| **L2 Structured Facts** | Buyer、编号、品类、数量、日期、面料/电机/质保/保证金、Award 结果等 | `Project` 字段 + `TenderAnalysis*` 家族 + **新增 `Buyer` / `AwardRecord`**（§8–9）；一切经确认的字段级事实 |
-| **L3 Internal Project Memory** | 我方报价、成本、参与人、关键决策、技术问题、Win/Loss、教训 | `ProjectReview`（confirmed）+ `ProjectInsight`（confirmed，schema 注释自称"企业记忆原料"，`schema.prisma:1692`）+ Ledger 汇总 + `ProjectMemorySnapshot`（§11） |
+| **L2 Structured Facts** | Buyer、编号、品类、数量、日期、面料/电机/质保/保证金、Award 结果等 | `Project` 字段 + `TenderAnalysis*` 家族 + **新增 `Buyer`（T3 LEVEL 1）/ `AwardRecord`（T4 LEVEL 2）**（§8–9、§6.4）；一切经确认的字段级事实 |
+| **L3 Internal Project Memory** | 我方报价、成本、参与人、关键决策、技术问题、Win/Loss、教训 | `ProjectReview`（confirmed）+ `ProjectInsight`（confirmed，schema 注释自称"企业记忆原料"，`schema.prisma:1692`）+ Ledger 汇总 + 项目终局记忆（derived memory view；snapshot 物化按 §6.4 LEVEL 3 Gate，§11） |
 | **L4 AI Intelligence** | 相似项目、Buyer 模式、历史中标、价格、竞争对手、采购周期、策略 | **`MemoryClaim`**（§6.2）+ Fingerprint 检索（§7） |
 
 **分层红线**：L4 永远不能写 L1/L2；L4 → L2 的唯一通道是人工确认（claim.confirmed 事件 + 字段回填）。
@@ -289,14 +304,27 @@ model MemoryClaim {
 | Obsidian | 人工知识 / SOP / Lessons（**非事实源**） | 现状即单向导入（`markdown-vault-import.ts` 自述"青砚仍是组织知识真相源"）——与任务书定位一致，无需改造；T3 可选增加"记忆快照导出 .md"作为便利，不做双向同步 |
 | Qingyan Agent | 统一读取/推理 | 经 agent 工具层（`org-knowledge` 工具已存在） |
 
-### 6.4 Corporate Memory 最小可行数据模型（问题 I 的回答）
+### 6.4 Corporate Memory 数据模型三级冻结（问题 I 的回答；Final Review 口径）
 
-**两张新表 + 两处扩展**：
-1. `MemoryClaim`（§6.2）——L4 唯一载体；
-2. `Buyer`（§7）——把自由文本 `clientOrganization` 实体化（含 aliases，人工确认合并，§13 节点 1）；
-3. `AwardRecord`（§9）——历史中标事实；
-4. 扩展：`ProjectInsight.embedding` 从死 Json 字段改真 vector、`ProjectReview.outcome` 词表与 `tenderStatus` 对齐。
-其余全部复用（ProjectReview/ProjectInsight/Archive/Ledger）。
+**LEVEL 1 — APPROVED REQUIRED FOUNDATION（T3 初始核心持久化能力）**
+
+1. `MemoryClaim`（§6.2）——L4 唯一载体：claim / status / confidence / evidence / sourceDate / capturedAt / supersession / business references，词表 CONFIRMED/SUPPORTED/INFERRED/UNKNOWN；
+2. `Buyer`（§8）——采购方实体化：Buyer identity、别名/normalization、历史项目关联；低置信实体合并必须人工确认（§13 节点 1）。
+
+注意：此处为**架构批准**，不等于 SCHEMA IMPLEMENTATION APPROVED——建表 migration 仍按阶段单独批准。
+
+**LEVEL 2 — LATER DOMAIN TABLE**
+
+- `AwardRecord`（§9）归 **T4 Tender Intelligence 域表**，是 Historical Award / Buyer Procurement Pattern / Procurement Cycle / Competitor Win History / Pricing Intelligence 的主要结构化数据源；**不是 T3 Corporate Memory MVP 必建表**。
+
+**LEVEL 3 — DESIGN-GATED MATERIALIZATION（概念已批准，物化未批准）**
+
+- `TenderFingerprint`：**concept = APPROVED；table = NOT YET APPROVED**。T3 开始前必须过持久化 Design Gate，二选一：**Option A** derived projection（由 Project + TenderAnalysis + Requirements + Buyer + ProjectInsight/embedding + structured facts 实时/缓存生成）；**Option B** materialized table（当检索性能、versioning、reproducibility、快照对比、历史评分等需求被证实时才持久化）。详见 §7.2。
+- `ProjectMemorySnapshot`：**Project Memory concept = APPROVED；persisted table = NOT YET APPROVED**。默认优先 **derived memory view**（由 Project + ProjectEvent + TenderAnalysis + ProjectInsight + ProjectReview + MemoryClaim + AwardRecord + Outcome 动态组合）；仅当出现 historical snapshot reproducibility / memory version pinning / audit replay / 模型训练集冻结 / 关闭项目不可变快照等真实需求时才物化。详见 §11.1。**避免再造第 10/11 套历史存储。**
+
+**向量能力：REUSE EXISTING VECTOR CAPABILITY FIRST**——优先审计并激活既有 `ProjectInsight.embedding` 死字段与 pgvector 存量能力（`sales/vector-search.ts` 模板）；除非未来设计证明必要，**不默认新建** `MemoryEmbedding` / `TenderEmbedding` 等第二套重复向量存储。
+
+其余全部复用（ProjectReview / ProjectInsight / Archive / Ledger）。
 
 ---
 
@@ -306,10 +334,12 @@ model MemoryClaim {
 
 `hash.ts` 的 `sourceHashFingerprint` 是**同一性指纹**（这套文件包是否变化，服务 run 幂等）；本节设计的是**相似性指纹**（这个标像不像历史上的哪个标）。两者并存，不互相替代。注意现有包指纹掺入 `documentId`，天然不能跨项目识别同标——这正是要新建相似性指纹的原因之一。
 
-### 7.2 模型提案（T3）
+### 7.2 Fingerprint 内容口径与持久化 Design Gate
+
+**冻结口径：TenderFingerprint concept = APPROVED；table = NOT YET APPROVED（§6.4 LEVEL 3）。** T3 开始前必须过持久化 Design Gate：Option A derived projection（实时/缓存）vs Option B materialized table（检索性能 / versioning / reproducibility / 快照对比 / 历史评分需求被证实时）。下述字段集是两个选项**共用的内容口径**；prisma 形状仅作 Option B 被批准时的参考，不构成建表批准：
 
 ```prisma
-/// T3 提案 — 每项目一行，由 fingerprint job 幂等重算
+/// Option B 参考形状（NOT YET APPROVED）— 若物化则每项目一行，由 fingerprint job 幂等重算
 model TenderFingerprint {
   projectId     String  @id
   orgId         String
@@ -427,7 +457,7 @@ SUBMITTED → AWAITING_AWARD → AWARDED | LOST | CANCELLED | NO_AWARD_FOUND
 
 ### 11.1 项目关闭 → 自动记忆（T5 自动，T3 先手动触发）
 
-`project.closed` 事件 → `consolidate_memory` Job 产出 **`ProjectMemorySnapshot`**（T3 提案：项目终局快照一行，复用 ProjectHandoff 的 snapshot 形状）：Buyer、结果、Our Bid、Winner/Winning Bid、Tender Cost（Ledger 聚合）、Participants（Ledger 聚合）、关键规格（确认 facts）、重要决策（decision 事件）、问题与教训（Insight/Review）——同时生成对应 MemoryClaim 与（可选）Obsidian .md 导出。用户**不写复盘报告**；`ProjectReview` 确认流成为人批环节而非写作环节。
+`project.closed` 事件 → `consolidate_memory` Job 产出**项目终局记忆（Project Memory）**：Buyer、结果、Our Bid、Winner/Winning Bid、Tender Cost（Ledger 聚合）、Participants（Ledger 聚合）、关键规格（确认 facts）、重要决策（decision 事件）、问题与教训（Insight/Review）——同时生成对应 MemoryClaim 与（可选）Obsidian .md 导出。**呈现默认走 derived memory view**（§6.4 LEVEL 3：由既有事实源动态组合，不新增存储）；`ProjectMemorySnapshot` 物化表仅在 reproducibility / version pinning / audit replay / 训练集冻结等需求被证实并通过 Design Gate 后才引入（若引入，复用 ProjectHandoff 的 snapshot 形状）。用户**不写复盘报告**；`ProjectReview` 确认流成为人批环节而非写作环节。
 
 ### 11.2 Learning Loop（新标进场）
 
@@ -447,9 +477,9 @@ Current Tender → build_fingerprint → Corporate Memory Search（claims+snapsh
 
 | 触发事件（Ledger） | 触发 Job 链（全部 Workforce Job/Task） |
 |---|---|
-| tender.created | archive_source → extract_tender → build_fingerprint → search_memory → assemble_intelligence |
+| tender.created | archive_tender → extract_tender → build_fingerprint → search_memory → assemble_intelligence |
 | tender.source_captured | （archive 完成的产物事件） |
-| document.added / document.updated | archive_item → extract（增量）→ requirement update → fingerprint update |
+| document.added / document.updated | archive_tender（增量）→ extract（增量）→ requirement update → fingerprint update |
 | addendum.detected | addendum diff（现有 `addendum-diff.ts` 能力任务化）→ 变更确认（人） |
 | requirement.extracted / clarification.* / email.* / supplier.quote_received / site_visit.completed / cost.recorded | 仅记账 + 视规则通知（无自动 Job） |
 | tender.submitted | watch_award（T5；定期查询 + 到期提醒） |
@@ -461,13 +491,18 @@ Current Tender → build_fingerprint → Corporate Memory Search（claims+snapsh
 审计确认全库现有 **7 条 AI 执行管线**；与本设计相关的三条：
 
 1. **Workforce Runtime**（目标载体）：Job=`AgentRun(runType="workforce_job")`、Task=`AgentRunStep`、人工介入=`PendingAction`、检查点=`AgentRunVerification`；cron `/api/cron/agent-runs` 每 2 分钟驱动（`vercel.json`），lease/fence/重试/park 语义完整（2B-1 已并）。
-2. **tender-auto-analysis**（既有"第二套队列"）：自有 lease 列（`schema.prisma:2322-2326`）、自有 cron、自有幂等、硬编码步骤机（`worker.ts:3-8`）——与 Workforce **零代码共享**。**本轮与 T1–T4 完全不动它**；T5 设收敛决策点（保留为专用确定性流水线 vs 迁移为 Workforce Job），前置条件见 §12.3。
+2. **tender-auto-analysis**（既有"第二套队列"）：自有 lease 列（`schema.prisma:2322-2326`）、自有 cron、自有幂等、硬编码步骤机（`worker.ts:3-8`）——与 Workforce **零代码共享**。**本轮与 T1–T4 完全不动它**；T5 必须做 **CONVERGENCE DECISION**——目标不是立即删除，而是逐能力回答：哪些迁移为 Workforce Task、哪些保留为 deterministic domain service（不带队列语义）、哪些 queue 语义退役、哪些包成 Workforce Task adapter；任何迁移前置 **behavior parity + rollback + 历史数据兼容**。前置条件见 §12.3。
 3. **旧 AgentTask 流水**（`flow-runner` + ApprovalRequest）：随 UX 层 HIDE 进入退役观察期，不再挂新能力。
 
 ### 12.3 两个必须先解决的运行时缺口（设计发现，直接影响 T5 可行性）
 
 1. **Workforce 无生产入口**：`createWorkforceJob`（`job.ts:55`）目前只有测试/脚本调用，无任何 API/UI 触发；且 flag 要求 master switch + 非空 allowlist（`flags.ts:53-60`）。T5 需要新建触发面（API route / 领域服务调用）。
-2. **计划只能由 LLM 生成**：`planJson` 唯一写入方是处理器内的 `planAgentRuntimeV2`（`processor.ts:265-342`）；`archive→extract→fingerprint` 这类确定性流水线需要**server-authored deterministic plan** 注入路径（仍经 `applyWorkforceTaskSpecs` 校验 + `persistPlanAndSteps` 持久化，不绕合同）。这是把 Tender 自动化放上 Workforce 而非再造队列的**单点最大设计决策**，必须与 Workforce 负责人共同评审，且只能在 Phase 2 合并后实施（runtime core 本轮禁改，见路线图冲突矩阵）。
+2. **计划只能由 LLM 生成**（现状证据：`planJson` 唯一写入方是处理器内的 `planAgentRuntimeV2`，`processor.ts:265-342`）。`Tender Created → Archive → Extract → Fingerprint → Memory Search → Intelligence → Human Review` 这类确定性业务流程不应每次让 LLM 重新决定 DAG，需要 **Server-authored Workforce Plan（Deterministic Plan Injection）**。Final Review 冻结口径：
+
+   - **T5 HARD DEPENDENCY**：T5 开始前必须满足 `DETERMINISTIC_PLAN_INJECTION = AVAILABLE / APPROVED DESIGN`；否则 T5 不允许启动 Tender 自动化，**更不允许以第二套 runtime 变通实现**。
+   - **WORKFORCE RUNTIME OWNER DESIGN GATE**：具体 Runtime API、函数名、executor 修改、plan persistence 实现、并行/恢复语义**均不在本 T0 文档决定**——由 Workforce Runtime 负责人在 Phase 2 correctness 基础稳定后、T5 之前完成专项设计（runtime core 本轮及 T1–T4 全程禁改，见路线图冲突矩阵）。
+   - **Deterministic Plan ≠ 绕过**：不绕过 Planner Policy / Tool Policy / Approval / Scope / Worker Registry；不直接调 executor；不写死副作用。它只改变 **Task DAG 的来源**——由可信 server business workflow 而非 LLM Planner 产生；执行安全语义完全复用统一 runtime primitives（Business Event → Server-authored Plan → 既有 Workforce Job → Task Contract → Worker Registry → Structured Handoff → Scope/Policy/Approval → Execution → Job Timeline）。
+   - **禁止清单（永久）**：不得因此创建 `TenderQueue` / `TenderWorkerRuntime` / `TenderJobEngine` / `TenderPipelineExecutor` / 第二套 Scheduler / 第二套 Background Runtime。
 
 ---
 
@@ -485,13 +520,13 @@ Current Tender → build_fingerprint → Corporate Memory Search（claims+snapsh
 |---|---|---|---|---|---|
 | `archive_tender` | work | 写（blob+archive rows） | projectId, sourceUrl? | archivedCount, itemIds[], hashes 摘要 | 无（纯归档） |
 | `extract_tender` | work | 写（analysis 域） | projectId, runScope | runId, factCount, requirementCount | 逐条 confirm（现有流） |
-| `build_fingerprint` | work | 写（fingerprint 行） | projectId | fingerprintVersion, keySignals | 低置信 buyer 归一需人批 |
+| `build_fingerprint` | work | 写（fingerprint 投影/缓存；物化按 §6.4 LEVEL 3 Gate） | projectId | fingerprintVersion, keySignals | 低置信 buyer 归一需人批 |
 | `search_memory` | work | 只读 | projectId/fingerprint | topSimilar[]（id+score+reasons） | 无 |
 | `research_historical_awards` | work | 写（claims+AwardRecord 草稿） | buyerId, category | claimIds, awardCandidateCount | award 事实入库前人批 |
 | `analyze_competitors` | work | 写（claims） | buyerId/category | claimIds, topCompetitors 摘要 | 无（claim 态即防线） |
 | `analyze_procurement_cycle` | work | 写（claims） | buyerId, category | cycleEstimate, confidence | 无（INFERRED 起步） |
 | `watch_award` | work | 写（award.found 事件草稿） | projectId, sourceRefs | awardFound?, evidence | award 确认人批 |
-| `consolidate_memory` | synthesis | 写（snapshot+claims） | projectId | snapshotId, claimIds | 复盘确认（现有 ProjectReview 流） |
+| `consolidate_memory` | synthesis | 写（derived memory view 装配 + claims；snapshot 物化按 §6.4 LEVEL 3 Gate） | projectId | memoryRef, claimIds | 复盘确认（现有 ProjectReview 流） |
 | `assemble_intelligence` | synthesis | 只读→写（情报装配 claim 集） | projectId | intelligenceSummary | 无 |
 
 ### 13.3 人工节点（任务书 §19 的三类，映射到现有机制）
@@ -534,10 +569,10 @@ AI 侧写操作（发邮件/改状态/外发）继续走 `PendingAction` 铁律�
 | 阶段 | 新表 | 扩展 | 明确不做 |
 |---|---|---|---|
 | T0/T1 | — | — | 任何 migration |
-| T2 | `ProjectEvent`、`TenderArchiveItem` | ProjectDocument（orgId/supersede/软删）、AuditLog 小修（Json/traceId/索引）、tender→AiUsageLedger 桥接 | 不动 Workforce 表 |
-| T3 | `MemoryClaim`、`Buyer`、`TenderFingerprint`、`ProjectMemorySnapshot` | Project.buyerId、ProjectInsight.embedding→vector、HNSW 索引、Review 词表对齐 | 不做向量库迁移（继续 pgvector） |
-| T4 | `AwardRecord` | ProjectSimilarity 明细字段 | 不建 MarketCompetitor 合并 |
-| T5 | — | Workforce 入口面 + deterministic plan（与 runtime 团队共审） | 不建第二队列 |
+| T2 | `ProjectEvent`、`TenderArchiveItem`（表方向批准；**ProjectEvent 生产写入点在 LEGACY_EVENT_STORE_DECISION_GATE 通过前 NOT YET APPROVED**，见路线图 T2 Entry Gate） | ProjectDocument（orgId/supersede/软删）、AuditLog 小修（Json/traceId/索引）、tender→AiUsageLedger 桥接 | 不动 Workforce 表 |
+| T3 | **初始核心（LEVEL 1）：`MemoryClaim`、`Buyer`**；`TenderFingerprint` / `ProjectMemorySnapshot` = **Design Gate（概念批准、物化未批准，LEVEL 3）** | Project.buyerId、ProjectInsight.embedding→vector（**REUSE FIRST**）、HNSW 索引、Review 词表对齐 | 不做向量库迁移（继续 pgvector）；不默认新建 MemoryEmbedding/TenderEmbedding |
+| T4 | `AwardRecord`（**LEVEL 2 域表**：Historical Award / Buyer Pattern / Cycle / Competitor / Pricing 数据源） | ProjectSimilarity 明细字段 | 不建 MarketCompetitor 合并 |
+| T5 | —（预期 NONE；deterministic plan 若需列级支持由 Runtime Owner Design Gate 提案） | Workforce 入口面 + Deterministic Plan Injection（**T5 HARD DEPENDENCY**，Runtime Owner 设计） | 不建第二队列/第二 runtime |
 
 ---
 
