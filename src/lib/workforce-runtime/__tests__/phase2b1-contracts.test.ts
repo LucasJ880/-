@@ -34,6 +34,7 @@ import {
   extractHandoffFromStepOutput,
   extractSynthesisHandoffSummary,
   FORBIDDEN_HANDOFF_AUTH_FIELDS,
+  HANDOFF_INTERNAL_CONTEXT_FIELDS,
   WORKFORCE_HANDOFF_CONTRACT_VERSION,
   WORKFORCE_HANDOFF_LIMITS,
 } from "../handoff";
@@ -520,7 +521,17 @@ async function main() {
     !notTerminal.ok && notTerminal.code === "HANDOFF_UPSTREAM_MISSING",
     "依赖步骤未终态 → fail closed",
   );
-  const legacyAbsent = collectUpstreamHandoffs({
+  // ── Final Review FIX 1：true legacy vs missing new handoff 三分法 ──
+  console.log("\n[FIX 1 legacy triage]");
+  const validSpecInput = {
+    workforceTask: {
+      contractVersion: WORKFORCE_TASK_CONTRACT_VERSION,
+      worker: { workerKey: "sales_worker", role: "sales_specialist" },
+      taskKind: "work",
+      objective: "o",
+    },
+  };
+  const l1TrueLegacy = collectUpstreamHandoffs({
     runId: "r",
     dependsOnJson: ["task_a"],
     steps: [
@@ -533,12 +544,181 @@ async function main() {
     ],
   });
   ok(
-    legacyAbsent.ok && legacyAbsent.upstream.length === 0,
-    "终态上游无信封（legacy-completed）→ 容忍跳过（不阻断、不注入）",
+    l1TrueLegacy.ok && l1TrueLegacy.upstream.length === 0,
+    "L1: spec absent + handoff absent → TRUE LEGACY 放行（不注入、不阻断）",
+  );
+  const l2MissingNew = collectUpstreamHandoffs({
+    runId: "r",
+    dependsOnJson: ["task_a"],
+    steps: [
+      {
+        stepKey: "task_a",
+        status: "completed",
+        inputJson: validSpecInput,
+        outputJson: { businessOnly: true },
+      },
+    ],
+  });
+  ok(
+    !l2MissingNew.ok && l2MissingNew.code === "HANDOFF_MISSING",
+    "L2: valid workforceTask + handoff absent → HANDOFF_MISSING（fail-closed）",
+  );
+  const l3InvalidSpec = collectUpstreamHandoffs({
+    runId: "r",
+    dependsOnJson: ["task_a"],
+    steps: [
+      {
+        stepKey: "task_a",
+        status: "completed",
+        inputJson: { workforceTask: { contractVersion: "workforce-task/v999" } },
+        outputJson: { businessOnly: true },
+      },
+    ],
+  });
+  ok(
+    !l3InvalidSpec.ok && l3InvalidSpec.code === "HANDOFF_UPSTREAM_SPEC_INVALID",
+    "L3: malformed workforceTask → HANDOFF_UPSTREAM_SPEC_INVALID（fail-closed）",
   );
   ok(
     extractHandoffFromStepOutput({ workforceHandoff: null }) === undefined,
     "envelope=null 视为 absent",
+  );
+
+  // ── Final Review FIX 2：Handoff outputs = business context only ──
+  console.log("\n[FIX 2 internal context sanitization]");
+  const internalLaden = buildWorkforceHandoffV1({
+    runId: "run_fix2",
+    stepKey: "task_ap",
+    workerKey: "sales_worker",
+    taskKind: "work",
+    stepStatus: "completed",
+    taskObjective: "审批终态任务",
+    businessOutput: {
+      // 业务字段（保留）
+      pendingActionIds: ["pa_1"],
+      count: 1,
+      customerId: "cust_fix2",
+      // 内部身份/授权/控制字段（Step.outputJson 保留审计，信封必须排除）
+      approvalActorUserId: "user_approver_secret",
+      executionPrincipalUserId: "user_owner_secret",
+      approvalStatuses: [{ id: "pa_1", status: "executed" }],
+      reconcile: { stepStatus: "completed", runHint: "continue" },
+      userId: "user_x",
+      orgId: "org_x",
+      role: "org_owner",
+      scope: "*",
+      authorized: true,
+      canWrite: true,
+      toolPolicy: { bypass: true },
+      traceId: "trace_secret",
+      runtimeCorrelation: { runId: "r" },
+      leaseToken: "lease_secret",
+    },
+    completedAt,
+  });
+  ok(internalLaden.ok, "FIX2: builder 正常产出");
+  if (internalLaden.ok) {
+    const outs = internalLaden.payload.outputs as Record<string, unknown>;
+    const leakedKeys = HANDOFF_INTERNAL_CONTEXT_FIELDS.filter((f) => f in outs);
+    ok(
+      leakedKeys.length === 0,
+      "FIX2: outputs 不含任何内部身份/授权/控制字段",
+      leakedKeys,
+    );
+    ok(
+      outs.pendingActionIds !== undefined &&
+        outs.count === 1 &&
+        outs.customerId === "cust_fix2",
+      "FIX2: 业务字段保留",
+    );
+    const serializedEnvelope = JSON.stringify(internalLaden.payload);
+    ok(
+      !serializedEnvelope.includes("user_approver_secret") &&
+        !serializedEnvelope.includes("user_owner_secret") &&
+        !serializedEnvelope.includes("trace_secret") &&
+        !serializedEnvelope.includes("lease_secret"),
+      "FIX2: 信封序列化后不含身份/控制值（值级零泄漏）",
+    );
+    ok(
+      !internalLaden.payload.summary.includes("approvalStatuses") &&
+        !internalLaden.payload.summary.includes("approvalActorUserId"),
+      "FIX2: summary 字段名列举同样过滤内部字段",
+    );
+  }
+
+  // ── Final Review FIX 3：UTF-8 byte boundary ──
+  console.log("\n[FIX 3 UTF-8 byte boundary]");
+  const asciiFit = "a".repeat(WORKFORCE_HANDOFF_LIMITS.maxOutputValueBytes - 2);
+  const asciiOver = "a".repeat(WORKFORCE_HANDOFF_LIMITS.maxOutputValueBytes + 10);
+  // 汉字 3 bytes/char：2000 字符 = 6000+ bytes，字符数远小于 4096 上限
+  const chineseOver = "汉".repeat(2000);
+  // emoji 4 bytes/char：1500 字符 = 6000+ bytes
+  const emojiOver = "😀".repeat(1500);
+  const byteBuild = buildWorkforceHandoffV1({
+    runId: "run_fix3",
+    stepKey: "task_bytes",
+    workerKey: "sales_worker",
+    taskKind: "work",
+    stepStatus: "completed",
+    taskObjective: "字节边界任务",
+    businessOutput: { asciiFit, asciiOver, chineseOver, emojiOver },
+    completedAt,
+  });
+  ok(byteBuild.ok, "FIX3: builder 产出");
+  if (byteBuild.ok) {
+    const outs = byteBuild.payload.outputs as Record<string, unknown>;
+    ok(outs.asciiFit === asciiFit, "FIX3: ASCII 上限内字段保留");
+    const overA = outs.asciiOver as { truncated?: boolean; approxBytes?: number };
+    const overC = outs.chineseOver as { truncated?: boolean; approxBytes?: number };
+    const overE = outs.emojiOver as { truncated?: boolean; approxBytes?: number };
+    ok(
+      overA?.truncated === true &&
+        (overA.approxBytes ?? 0) > WORKFORCE_HANDOFF_LIMITS.maxOutputValueBytes,
+      "FIX3: ASCII 超限截断（bytes > limit）",
+    );
+    ok(
+      overC?.truncated === true &&
+        (overC.approxBytes ?? 0) > chineseOver.length &&
+        (overC.approxBytes ?? 0) > WORKFORCE_HANDOFF_LIMITS.maxOutputValueBytes,
+      "FIX3: 汉字多字节截断（char length < limit 但 UTF-8 bytes > limit）",
+      { chars: chineseOver.length, approxBytes: overC?.approxBytes },
+    );
+    ok(
+      overE?.truncated === true &&
+        (overE.approxBytes ?? 0) > emojiOver.length &&
+        (overE.approxBytes ?? 0) > WORKFORCE_HANDOFF_LIMITS.maxOutputValueBytes,
+      "FIX3: emoji 多字节截断（char length < limit 但 UTF-8 bytes > limit）",
+      { chars: emojiOver.length, approxBytes: overE?.approxBytes },
+    );
+    ok(
+      Buffer.byteLength(JSON.stringify(byteBuild.payload), "utf8") <=
+        WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes,
+      "FIX3: 信封总大小按 UTF-8 bytes 收敛在硬上限内",
+    );
+  }
+  // 读侧：字符数 < 上限但 UTF-8 bytes > 上限 → HANDOFF_TOO_LARGE
+  const chineseEnvelope = {
+    contractVersion: WORKFORCE_HANDOFF_CONTRACT_VERSION,
+    source: { runId: "r", stepKey: "s", workerKey: "w" },
+    summary: "ok",
+    outputs: { z: "汉".repeat(12_000) }, // ~12KB chars / ~36KB bytes
+    createdAt: "2026-08-10T00:00:00.000Z",
+  };
+  const chineseSerialized = JSON.stringify(chineseEnvelope);
+  ok(
+    chineseSerialized.length < WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes &&
+      Buffer.byteLength(chineseSerialized, "utf8") >
+        WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes,
+    "FIX3-前提: 构造 char length < 上限 但 UTF-8 bytes > 上限 的 payload",
+    {
+      chars: chineseSerialized.length,
+      bytes: Buffer.byteLength(chineseSerialized, "utf8"),
+    },
+  );
+  const chineseParse = parseWorkforceHandoff(chineseEnvelope);
+  ok(
+    !chineseParse.ok && chineseParse.code === "HANDOFF_TOO_LARGE",
+    "FIX3: 读侧按真实 UTF-8 bytes 判 HANDOFF_TOO_LARGE（fail-closed）",
   );
 
   finish();

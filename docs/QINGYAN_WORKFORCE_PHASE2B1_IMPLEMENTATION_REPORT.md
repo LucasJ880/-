@@ -94,7 +94,8 @@ HANDOFF_CONTRACT_VERSION = workforce-handoff/v1
 
 - **source 由 server 注入**（builder 参数，不信任模型）；消费端与真实上游行交叉核对 runId/stepKey/workerKey，不符 → `HANDOFF_SOURCE_MISMATCH` fail-closed。
 - 校验/消毒：known version → parse（`.strip()` 丢弃一切白名单外字段）；unknown version → `HANDOFF_VERSION_UNSUPPORTED`；malformed → `HANDOFF_MALFORMED`；oversize → `HANDOFF_TOO_LARGE`。全部 fail-closed，绝不 silently accept。
-- **尺寸边界**：summary≤2000、evidence/business refs≤20、warnings/questions≤10、outputs 单字段≤4KB/总计≤16KB（超出 → deterministic 截断占位 + warnings 标注）、信封序列化硬上限 32KB（读写两侧同校验；写侧超限降级为丢弃 outputs）。1MB 级原始输出不可能进入下游 prompt。
+- **尺寸边界**：summary≤2000 字符、evidence/business refs≤20、warnings/questions≤10、outputs 单字段≤4KB/总计≤16KB（超出 → deterministic 截断占位 + warnings 标注）、信封序列化硬上限 32KB（读写两侧同校验；写侧超限降级为丢弃 outputs）。**所有 `*Bytes` 上限按真实 UTF-8 字节计算**（`Buffer.byteLength`，Final Review FIX 3——汉字/emoji 多字节内容不会以字符数伪装成"未超限"），ASCII/汉字/emoji 三类边界均有测试。1MB 级原始输出不可能进入下游 prompt。
+- **内部上下文隔离（Final Review FIX 2）**：`HANDOFF_INTERNAL_CONTEXT_FIELDS`（授权字段全集 + approvalActorUserId/executionPrincipalUserId/approvalStatuses/reconcile/traceId/runtimeCorrelation/leaseToken）在 outputs 投影与 summary 字段名列举中整体排除——`Step.outputJson` 保留这些字段供审计，信封只携带业务上下文；PendingAction 关联经 `evidenceRefs` 引用传递。真实 approval reconcile 测试断言 key 与 value 双重零泄漏。
 - **授权边界（最重要）**：schema 白名单中没有任何授权语义字段；`FORBIDDEN_HANDOFF_AUTH_FIELDS`（userId/orgId/role/scope/capabilities/permissions/authorized/approved/canWrite/toolPolicy/approvalBypass/admin 等）经 parse 后必然不存在于受信对象——受信对象永远重建，绝无 `{...rawHandoff}`。伪造字段零授权效果；Tool 执行完整走 principal→membership→capability→scopeGuard→tool policy→approval→idempotency（测试 46 端到端验证：伪造 `approved:true/canWrite:true/scope:*` 后写动作仍进入 PendingAction pending）。
 
 ## 8. Handoff 生成与存储
@@ -141,12 +142,18 @@ fail-closed 一览（全部 step failed + run needs_human，无 fallback worker/
 | spec 存在但损坏 | `workforce_task_invalid` |
 | worker 无效/不支持 taskKind（执行期） | `workforce_worker_invalid` |
 | 上游步骤缺行/未终态 | `HANDOFF_UPSTREAM_MISSING` |
+| 上游 workforceTask spec 损坏 | `HANDOFF_UPSTREAM_SPEC_INVALID` |
+| 上游为 2B-1 任务但信封缺失 | `HANDOFF_MISSING` |
 | 上游信封 unknown version | `HANDOFF_VERSION_UNSUPPORTED` |
 | 上游信封 malformed / oversize | `HANDOFF_MALFORMED` / `HANDOFF_TOO_LARGE` |
 | 上游信封来源不符 | `HANDOFF_SOURCE_MISMATCH` |
 | server 自身构建失败（防御） | `handoff_build_failed` |
 
-**Legacy 兼容例外（有意设计，非漏洞）**：终态上游**完全没有**信封 → legacy-completed 上游（2B-1 之前规划/完成的存量 Step、人工 reconcile 产物、2A/2C-1 回归测试的合成步骤）→ 跳过注入、允许执行。依据：Handoff 从不承载授权（§16），缺失只是缺业务上下文，present-but-invalid 才是契约违约；若对缺失也 fail-closed，升级时所有 in-flight Job 会被困死，且 2A Case H / 2C-1 全部回归会破。该边界有专项测试。
+**Legacy 兼容边界（Final Review FIX 1 收紧后）**：以上游 Step 的 `workforceTask` spec 为判据三分——
+`spec absent + 信封 absent` = **TRUE LEGACY**（2B-1 之前规划的存量 Step）→ 放行不注入；
+`spec valid + 信封 absent` = `HANDOFF_MISSING` **fail-closed**（新契约任务的运行时保证"终态与信封同写"，缺失即 durable 状态被破坏）；
+`spec invalid` = `HANDOFF_UPSTREAM_SPEC_INVALID` **fail-closed**。
+依据：Handoff 从不承载授权（§16），TRUE LEGACY 缺失只是缺业务上下文；但新契约任务的缺失不再被容忍。2A Case H 的手工伪造步骤 fixture 已改为契约真实形态（`handoff-fixtures.ts` 用 server builder 补真实信封），2A/2C-1 回归全数通过。
 
 ## 15. Kill-Switch / Quota / Observability / Parallel
 
@@ -190,13 +197,13 @@ scripts/test-all.sh                     挂载 2B-1 三个套件
 
 ## 18. 测试结果（隔离 Neon 分支 `preview-phase2b1-*`，`assertSafeTestDatabase` + `NODE_ENV=test` + `DATABASE_ENVIRONMENT=isolated`，跑完即删）
 
-2B-1 新增（两轮重复运行结果一致）：
+2B-1 新增（初版两轮重复运行结果一致；Final Review Micro-Fix 后在全新隔离分支重跑）：
 
 | 套件 | 结果 |
 |---|---|
-| phase2b1-contracts（含 H1–H5 golden fixtures、尺寸边界、幂等、来源核对） | 45/45 PASS ×2 |
-| phase2b1-task-handoff（§41/43/44/45/47/48/50/51） | 42/42 PASS ×2 |
-| phase2b1-approval-handoff（§33/34/46/49） | 16/16 PASS ×2 |
+| phase2b1-contracts（H1–H5、尺寸边界、幂等、来源核对 + FIX1 L1/L2/L3 + FIX2 消毒 + FIX3 UTF-8 边界） | 60/60 PASS |
+| phase2b1-task-handoff（§41/43/44/45/47/48/50/51） | 42/42 PASS |
+| phase2b1-approval-handoff（§33/34/46/49 + FIX2 真实 reconcile 身份零泄漏） | 19/19 PASS |
 
 回归（同一隔离分支顺序执行）：
 
@@ -212,6 +219,16 @@ scripts/test-all.sh                     挂载 2B-1 三个套件
 | tsc --noEmit / eslint（改动文件）/ next build | 全 PASS |
 
 已知既有事项（非本 PR 引入、未触碰）：Tender EFG 断言归 Issue #82 独立 Lane；Workforce 测试 cross-suite 污染治理归 Lane B（`P2_TEST_ISOLATION_DEBT`，本 PR 新增测试已按 unique org/run/idempotency prefix 编写并验证两轮重复运行稳定）。
+
+## 18.1 Final Review Micro-Fix（2026-08-10 第二轮）
+
+| FIX | 内容 | 验证 |
+|---|---|---|
+| FIX 1 | `collectUpstreamHandoffs` 三分法：TRUE LEGACY（spec absent + 信封 absent）放行；spec valid + 信封 absent → `HANDOFF_MISSING` fail-closed；spec invalid → `HANDOFF_UPSTREAM_SPEC_INVALID` fail-closed。不再无条件放行任何无信封终态 Step | L1/L2/L3 单元测试；2A Case H fixture 改契约真实形态（`handoff-fixtures.ts`）后 12/12 |
+| FIX 2 | `boundedOutputsProjection` + summary 字段名列举整体排除 `HANDOFF_INTERNAL_CONTEXT_FIELDS`；Step.outputJson 保留审计字段；PendingAction 经 evidenceRefs 引用 | 单元（key+value 零泄漏）+ 真实 approval reconcile 集成断言 |
+| FIX 3 | 所有 `*Bytes` 上限统一 `Buffer.byteLength(value, "utf8")`（parse 读侧 / 投影单字段 / 总预算 / approxBytes 占位） | ASCII / 汉字 / emoji 三类边界 + 读侧 char<limit 但 bytes>limit → `HANDOFF_TOO_LARGE` |
+
+Micro-Fix 回归（全新隔离分支 `preview-phase2b1-fix-*`）：2B-1 三套件 60+42+19、2A A–L（25+15+6+12+30+9）、2C-1（24+6）、Kill-Switch 15/15、Golden Flow 14、Production DB Guard 22、Production Operation Guard 30——全部 PASS；tsc / eslint / build 干净。SCHEMA_CHANGE = NONE 维持，无并行执行，无新表。
 
 ## 19. Final Gate
 

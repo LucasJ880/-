@@ -35,6 +35,7 @@ async function main() {
     extractHandoffFromStepOutput,
     collectUpstreamHandoffs,
     FORBIDDEN_HANDOFF_AUTH_FIELDS,
+    HANDOFF_INTERNAL_CONTEXT_FIELDS,
     WORKFORCE_HANDOFF_CONTRACT_VERSION,
   } = await import("../handoff");
   const { persistPlanAndSteps } = await import(
@@ -204,6 +205,32 @@ async function main() {
       apHandoff.payload.createdAt === apA1.completedAt?.toISOString(),
     "49/§31: Handoff.createdAt = reconcile durable completedAt",
   );
+  // Final Review FIX 2：真实 reconcile 后，Step.outputJson 保留身份审计字段，
+  // 但 workforceHandoff 不得携带这些 key 或 value（business context only）
+  const apOut = metaOf(apA1.outputJson);
+  ok(
+    apOut.approvalActorUserId === fx.approverUserId &&
+      apOut.executionPrincipalUserId === fx.ownerUserId &&
+      "approvalStatuses" in apOut &&
+      "reconcile" in apOut,
+    "FIX2: Step.outputJson 保留 approval 身份/reconcile 审计字段",
+  );
+  if (apHandoff.ok) {
+    const envelope = JSON.stringify(apHandoff.payload);
+    const outs = (apHandoff.payload.outputs ?? {}) as Record<string, unknown>;
+    const leaked = HANDOFF_INTERNAL_CONTEXT_FIELDS.filter((f) => f in outs);
+    ok(
+      leaked.length === 0 &&
+        !envelope.includes(fx.approverUserId) &&
+        !envelope.includes(fx.ownerUserId),
+      "FIX2: workforceHandoff 不含身份 key/value（approvalActorUserId / executionPrincipalUserId 零泄漏）",
+      leaked,
+    );
+    ok(
+      apHandoff.payload.evidenceRefs?.includes(`pendingAction:${apPa}`) === true,
+      "FIX2: PendingAction 关联经 evidenceRefs 引用传递（不复制控制状态）",
+    );
+  }
 
   await kick(apRunId);
   await processWorkforceJobSlice(apRunId, { maxRounds: 3 });

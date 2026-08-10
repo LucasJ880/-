@@ -67,6 +67,32 @@ export const FORBIDDEN_HANDOFF_AUTH_FIELDS = [
   "admin",
 ] as const;
 
+/**
+ * Handoff = business context only（Final Review FIX 2）：
+ * Step.outputJson 可以保留以下内部身份 / authorization / runtime control
+ * metadata 供审计，但它们**绝不进入** workforceHandoff.outputs——
+ * PendingAction 关联经 evidenceRefs 传递引用，不复制身份/控制状态。
+ */
+export const HANDOFF_INTERNAL_CONTEXT_FIELDS = [
+  ...FORBIDDEN_HANDOFF_AUTH_FIELDS,
+  "approvalActorUserId",
+  "executionPrincipalUserId",
+  "approvalStatuses",
+  "reconcile",
+  "traceId",
+  "runtimeCorrelation",
+  "leaseToken",
+] as const;
+
+const HANDOFF_INTERNAL_CONTEXT_FIELD_SET: ReadonlySet<string> = new Set(
+  HANDOFF_INTERNAL_CONTEXT_FIELDS,
+);
+
+/** UTF-8 字节数（Final Review FIX 3：所有 *Bytes 上限按真实字节算） */
+function utf8Bytes(value: string): number {
+  return Buffer.byteLength(value, "utf8");
+}
+
 const HandoffSourceSchema = z
   .object({
     runId: z.string().min(1),
@@ -125,7 +151,8 @@ export type HandoffFailureCode =
   | "HANDOFF_MALFORMED"
   | "HANDOFF_TOO_LARGE"
   | "HANDOFF_SOURCE_MISMATCH"
-  | "HANDOFF_UPSTREAM_MISSING";
+  | "HANDOFF_UPSTREAM_MISSING"
+  | "HANDOFF_UPSTREAM_SPEC_INVALID";
 
 export type HandoffParseResult =
   | { ok: true; payload: WorkforceHandoffPayloadV1 }
@@ -162,11 +189,12 @@ export function parseWorkforceHandoff(raw: unknown): HandoffParseResult {
       error: "handoff payload 无法序列化",
     };
   }
-  if (serialized.length > WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes) {
+  const serializedBytes = utf8Bytes(serialized);
+  if (serializedBytes > WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes) {
     return {
       ok: false,
       code: "HANDOFF_TOO_LARGE",
-      error: `handoff payload 超出大小上限（${serialized.length} > ${WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes}）`,
+      error: `handoff payload 超出大小上限（${serializedBytes} bytes > ${WORKFORCE_HANDOFF_LIMITS.maxSerializedBytes}）`,
     };
   }
   const parsed = WorkforceHandoffPayloadV1Schema.safeParse(raw);
@@ -199,7 +227,12 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) : s;
 }
 
-/** outputs 有界投影：超预算字段替换为占位（deterministic，无时钟/随机） */
+/**
+ * outputs 有界投影（deterministic，无时钟/随机）：
+ * - 超预算字段替换为占位（*Bytes 一律按 UTF-8 字节计，FIX 3）；
+ * - 内部身份/授权/runtime control 字段整体排除（FIX 2）——
+ *   Step.outputJson 保留供审计，信封 outputs 不携带。
+ */
 function boundedOutputsProjection(businessOutput: unknown): {
   outputs: Record<string, unknown>;
   truncatedKeys: string[];
@@ -216,6 +249,7 @@ function boundedOutputsProjection(businessOutput: unknown): {
   let used = 0;
   for (const [key, value] of Object.entries(businessOutput)) {
     if (key === "workforceHandoff") continue; // 信封不得嵌套自身
+    if (HANDOFF_INTERNAL_CONTEXT_FIELD_SET.has(key)) continue; // FIX 2
     let serialized: string;
     try {
       serialized = JSON.stringify(value) ?? "null";
@@ -223,7 +257,7 @@ function boundedOutputsProjection(businessOutput: unknown): {
       truncatedKeys.push(key);
       continue;
     }
-    const size = serialized.length;
+    const size = utf8Bytes(serialized);
     if (
       size <= WORKFORCE_HANDOFF_LIMITS.maxOutputValueBytes &&
       used + size <= WORKFORCE_HANDOFF_LIMITS.maxOutputsTotalBytes
@@ -326,7 +360,10 @@ function deriveSummary(input: BuildWorkforceHandoffInput): string {
     return truncate(record.summary, WORKFORCE_HANDOFF_LIMITS.maxSummaryLength);
   }
   const keys = Object.keys(record)
-    .filter((k) => k !== "workforceHandoff")
+    .filter(
+      (k) =>
+        k !== "workforceHandoff" && !HANDOFF_INTERNAL_CONTEXT_FIELD_SET.has(k),
+    )
     .slice(0, 8);
   return truncate(
     keys.length > 0
@@ -452,12 +489,15 @@ export type CollectUpstreamHandoffsResult =
  * 顺序 deterministic = dependsOnJson 数组声明序（plan 产物，稳定），
  * 禁止依赖 DB 行序。
  *
- * fail-closed 边界：
+ * fail-closed 边界（Final Review FIX 1：true legacy ≠ missing new handoff）：
  * - 上游步骤缺行 / 未达终态 → fail closed；
- * - 信封存在但 unknown version / malformed / oversize / 来源不符 → fail closed；
- * - 终态上游完全没有信封 → legacy-completed 上游（2B-1 之前完成的存量
- *   Step / 人工 reconcile 产物），跳过注入、允许执行。Handoff 不承载授权
- *   （§16），缺失只意味着少业务上下文；present-but-invalid 才是契约违约。
+ * - 上游 workforceTask spec 存在但损坏 → fail closed（HANDOFF_UPSTREAM_SPEC_INVALID）；
+ * - 信封缺失 + 上游 spec 也缺失 → TRUE LEGACY（2B-1 之前规划的存量 Step），
+ *   跳过注入、允许执行——Handoff 不承载授权（§16），legacy 缺失只意味着
+ *   少业务上下文；
+ * - 信封缺失 + 上游是 2B-1 任务（spec valid）→ HANDOFF_MISSING fail closed
+ *   ——新契约任务必须产信封，缺失即 durable 状态被破坏，不得放行；
+ * - 信封存在但 unknown version / malformed / oversize / 来源不符 → fail closed。
  */
 export function collectUpstreamHandoffs(input: {
   runId: string;
@@ -496,10 +536,30 @@ export function collectUpstreamHandoffs(input: {
         upstreamStepKey: depKey,
       };
     }
+    // FIX 1：先读上游任务契约，区分 true legacy 与 missing new handoff
+    const depSpec = readWorkforceTaskSpec(dep.inputJson);
+    if (depSpec.kind === "invalid") {
+      return {
+        ok: false,
+        code: "HANDOFF_UPSTREAM_SPEC_INVALID",
+        error: `上游 workforceTask spec 损坏：${depKey}（${depSpec.error}）`,
+        upstreamStepKey: depKey,
+      };
+    }
     const raw = extractHandoffFromStepOutput(dep.outputJson);
     if (raw === undefined) {
-      // legacy-completed 上游：无信封 → 不注入、不阻断（见函数注释）
-      continue;
+      if (depSpec.kind === "absent") {
+        // TRUE LEGACY：2B-1 之前规划的上游（无契约、无信封）→ 不注入、不阻断
+        continue;
+      }
+      // 2B-1 契约任务缺信封 → fail closed（运行时保证信封与终态同写；
+      // 缺失即 durable 状态被破坏）
+      return {
+        ok: false,
+        code: "HANDOFF_MISSING",
+        error: `上游为 workforce-task/v1 任务但缺少 workforceHandoff：${depKey}`,
+        upstreamStepKey: depKey,
+      };
     }
     const parsed = parseWorkforceHandoff(raw);
     if (!parsed.ok) {
@@ -522,7 +582,6 @@ export function collectUpstreamHandoffs(input: {
         upstreamStepKey: depKey,
       };
     }
-    const depSpec = readWorkforceTaskSpec(dep.inputJson);
     if (
       depSpec.kind === "valid" &&
       depSpec.spec.worker.workerKey !== parsed.payload.source.workerKey
