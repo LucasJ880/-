@@ -31,6 +31,7 @@ import {
   WORKFORCE_JOB_RUN_TYPE,
   WORKFORCE_ACTIVE_STATUSES,
 } from "./constants";
+import { isWorkforceProcessingEnabled } from "./flags";
 
 export const WORKFORCE_LEASE_MS = 3 * 60_000;
 export const WORKFORCE_MAX_ATTEMPTS = 5;
@@ -143,6 +144,9 @@ export async function processWorkforceJobSlice(
   runId: string,
   opts?: { sliceBudgetMs?: number; maxRounds?: number; leaseMs?: number },
 ): Promise<WorkforceSliceResult> {
+  // Kill-switch：总开关关闭时不 claim、不写任何状态；job 原状保留
+  if (!isWorkforceProcessingEnabled()) return { claimed: false };
+
   const leaseMs = opts?.leaseMs ?? WORKFORCE_LEASE_MS;
   const claim = await claimRunLease({
     runId,
@@ -492,6 +496,12 @@ export async function processQueuedWorkforceJobs(limit = 2): Promise<{
   runIds: string[];
   exhaustedFailed: number;
 }> {
+  // Kill-switch：总开关关闭 → 整体暂停消费（含 exhausted 清扫）。
+  // 已排队 job 保持 queued 原状，不失败、不清理、不改状态；开关恢复后继续。
+  if (!isWorkforceProcessingEnabled()) {
+    return { processed: 0, runIds: [], exhaustedFailed: 0 };
+  }
+
   const now = new Date();
 
   // 租约过期且尝试耗尽 → failed（不再被认领）

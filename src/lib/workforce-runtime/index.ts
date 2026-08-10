@@ -13,6 +13,8 @@ export {
 export {
   isWorkforceRuntimeEnabled,
   isWorkforceRuntimeEnabledWithEnv,
+  isWorkforceProcessingEnabled,
+  isWorkforceProcessingEnabledWithEnv,
   describeWorkforceFlag,
 } from "./flags";
 export { createWorkforceJob } from "./job";
