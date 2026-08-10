@@ -17,6 +17,8 @@
 import {
   requireIsolatedTestDb,
   seedWorkforceFixture,
+  cleanupWorkforceFixture,
+  assertNoLeakedWorkforceJobs,
   ok,
   finish,
   metaOf,
@@ -446,7 +448,7 @@ async function caseN(fx: Fx) {
  * Case R — Reject / Manual fail-closed（Final Review FIX 1 / FIX 2）
  * 独立 fixture（org 级 AgentRun 配额限制，M/N 的 org 已满）。
  */
-async function caseR() {
+async function caseR(): Promise<Fx> {
   console.log("\nCase R — Reject / Manual fail-closed（FIX 1 / FIX 2）");
   const { db } = await import("@/lib/db");
   const { resumeWorkforceJob } = await import("../resume");
@@ -609,6 +611,7 @@ async function caseR() {
     "R4: 正常 approve 路径不受影响——executed → queued + job.resumed",
     { approve: approveRes.status, pa: paC.status, run: runC.status, resumedC },
   );
+  return fx;
 }
 
 async function main() {
@@ -616,7 +619,18 @@ async function main() {
   const fx = await seedWorkforceFixture("phase2c1");
   await caseM(fx);
   await caseN(fx);
-  await caseR();
+  const rFx = await caseR();
+
+  // Lane B §5/§7：fixture ownership cleanup（main 与 caseR 各自的 fixture）
+  for (const f of [fx, rFx]) {
+    const cleaned = await cleanupWorkforceFixture(f);
+    ok(
+      await assertNoLeakedWorkforceJobs(f),
+      `CLEANUP: fixture ${f.tag} 无 workforce job 泄漏`,
+      cleaned.residue,
+    );
+  }
+
   finish();
 }
 

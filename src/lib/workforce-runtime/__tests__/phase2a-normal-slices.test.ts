@@ -14,6 +14,8 @@
 import {
   requireIsolatedTestDb,
   seedWorkforceFixture,
+  cleanupWorkforceFixture,
+  assertNoLeakedWorkforceJobs,
   ok,
   finish,
   GOLDEN_GOAL,
@@ -177,6 +179,15 @@ async function main() {
   ok(!sweep.runIds.includes(jobFail.runId), "L9: 批量消费不再拾取已失败 Job");
 
   console.log("\nNORMAL_CONTINUATION_DOES_NOT_EXHAUST_RETRY_BUDGET = YES");
+  // Lane B §5/§7：fixture ownership cleanup —— 只删本 suite 自己的数据，
+  // 不给后续 suite 留任何 eligible workforce job
+  const cleanedFx = await cleanupWorkforceFixture(fx);
+  ok(
+    await assertNoLeakedWorkforceJobs(fx),
+    "CLEANUP: 本 suite 无 workforce job 泄漏",
+    cleanedFx.residue,
+  );
+
   finish();
 }
 

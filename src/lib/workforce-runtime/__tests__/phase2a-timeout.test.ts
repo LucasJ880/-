@@ -10,6 +10,8 @@
 import {
   requireIsolatedTestDb,
   seedWorkforceFixture,
+  cleanupWorkforceFixture,
+  assertNoLeakedWorkforceJobs,
   ok,
   finish,
   GOLDEN_GOAL,
@@ -136,6 +138,15 @@ async function main() {
       legacyRun.errorCode === "external_timeout",
     "I: 对照组 runtime_v2（非 workforce）旧超时语义不变（回归保护）",
     { round: legacyRound.status, errorCode: legacyRun.errorCode },
+  );
+
+  // Lane B §5/§7：fixture ownership cleanup —— 只删本 suite 自己的数据，
+  // 不给后续 suite 留任何 eligible workforce job
+  const cleanedFx = await cleanupWorkforceFixture(fx);
+  ok(
+    await assertNoLeakedWorkforceJobs(fx),
+    "CLEANUP: 本 suite 无 workforce job 泄漏",
+    cleanedFx.residue,
   );
 
   finish();

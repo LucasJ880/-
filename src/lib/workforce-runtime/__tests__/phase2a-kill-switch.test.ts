@@ -12,6 +12,9 @@
 import {
   requireIsolatedTestDb,
   seedWorkforceFixture,
+  cleanupWorkforceFixture,
+  assertNoLeakedWorkforceJobs,
+  sweepUntilRunProcessed,
   ok,
   finish,
   GOLDEN_GOAL,
@@ -143,16 +146,25 @@ async function main() {
   // ── flag ON：恢复 ──
   process.env.WORKFORCE_RUNTIME_ENABLED = "1";
 
-  const sweepOn = await processQueuedWorkforceJobs(5);
+  // Test Isolation Hardening（Lane B §6）：断言收敛到本 fixture 的 runId。
+  // 生产消费者 processQueuedWorkforceJobs 天然全局 take-N（orderBy createdAt）
+  // ——共享隔离库上其他 suite / 其他 org 的遗留 eligible job 可能先占窗口，
+  // 因此不再断言"单次 sweep 必含 job1"（旧 KS7 的污染点），改为有界轮询
+  // 直到 job1 被拾取；他 org 积压最多消耗有限轮次，不影响判定。
+  const ks7 = await sweepUntilRunProcessed(job1.runId, { maxRounds: 12 });
   ok(
-    sweepOn.runIds.includes(job1.runId) && sweepOn.processed >= 1,
-    "KS7: 开关恢复后重新拾取并处理 queued job",
-    sweepOn,
+    ks7.swept,
+    "KS7: 开关恢复后本 fixture 的 queued job 被拾取（run-scoped，允许他 org 积压）",
+    ks7,
   );
+
+  const row2On = await db.agentRun.findUniqueOrThrow({
+    where: { id: job2.runId },
+  });
   ok(
-    sweepOn.exhaustedFailed >= 1,
-    "KS8: 恢复后 exhausted 清扫恢复",
-    sweepOn.exhaustedFailed,
+    row2On.status === "failed",
+    "KS8: 恢复后本 fixture 的 exhausted job 被清扫判 failed（row-scoped，不依赖全局计数）",
+    { status: row2On.status },
   );
 
   const row1On = await db.agentRun.findUniqueOrThrow({
@@ -163,13 +175,20 @@ async function main() {
     "KS9: 恢复后 job1 正常规划推进（planJson 已持久化）",
     { status: row1On.status },
   );
-  const row2On = await db.agentRun.findUniqueOrThrow({
-    where: { id: job2.runId },
-  });
+  const sweepAgain = await processQueuedWorkforceJobs(5);
   ok(
-    row2On.status === "failed",
-    "KS10: 恢复后 job2 被 exhausted 清扫判 failed",
-    { status: row2On.status },
+    !sweepAgain.runIds.includes(job2.runId),
+    "KS10: failed 的 job2 不再被后续 sweep 拾取（run-scoped negative）",
+    { runIds: sweepAgain.runIds.length },
+  );
+
+  // Lane B §5/§7：fixture ownership cleanup —— 只删本 suite 自己的数据，
+  // 不给后续 suite 留任何 eligible workforce job
+  const cleaned = await cleanupWorkforceFixture(fx);
+  ok(
+    await assertNoLeakedWorkforceJobs(fx),
+    "CLEANUP: 本 suite 无 workforce job 泄漏",
+    cleaned.residue,
   );
 
   finish();

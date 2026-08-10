@@ -122,3 +122,139 @@ export function metaOf(metadata: unknown): Record<string, unknown> {
   }
   return metadata as Record<string, unknown>;
 }
+
+/** 本 suite 专属幂等键（unique org tag 前缀，跨 suite 无碰撞） */
+export function fixtureIdempotencyKey(
+  fx: WorkforceFixture,
+  label: string,
+): string {
+  return `wf_${fx.tag}_${label}`;
+}
+
+/**
+ * Fixture ownership cleanup（Test Isolation Hardening §5/§7）：
+ * 只删除本 fixture 自己创建的数据（按 fx.orgId / fx 用户 id 定位），
+ * 绝不做 DELETE all AgentRun / DELETE all PendingAction。
+ *
+ * 目的：suite 结束后不在共享隔离库中留下任何 eligible workforce job
+ * （queued / 可 reclaim 的过期租约 run），防止后续 suite 的
+ * processQueuedWorkforceJobs take-N 窗口被挤占或误认领。
+ *
+ * 删除顺序按 FK 依赖：PendingAction（引用 User）→ AgentRun（级联
+ * Step/Event/Verification）→ AgentSession → OrganizationMember →
+ * Organization → User。org/user 删除可能被非 workforce 表（如 AI 调用
+ * 日志）挡住——记录为 residue 但不失败：隔离契约的硬要求是
+ * "零 eligible workforce job"，由 assertNoLeakedWorkforceJobs 单独断言。
+ */
+export async function cleanupWorkforceFixture(
+  fx: WorkforceFixture,
+): Promise<{ residue: string[] }> {
+  const { db } = await import("@/lib/db");
+  const residue: string[] = [];
+  const attempt = async (label: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (e) {
+      residue.push(`${label}: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+    }
+  };
+
+  await attempt("pendingAction", () =>
+    db.pendingAction.deleteMany({ where: { orgId: fx.orgId } }),
+  );
+  await attempt("agentRun", () =>
+    db.agentRun.deleteMany({ where: { orgId: fx.orgId } }),
+  );
+  await attempt("agentSession", () =>
+    db.agentSession.deleteMany({ where: { orgId: fx.orgId } }),
+  );
+  await attempt("organizationMember", () =>
+    db.organizationMember.deleteMany({ where: { orgId: fx.orgId } }),
+  );
+  await attempt("organization", () =>
+    db.organization.deleteMany({ where: { id: fx.orgId } }),
+  );
+  await attempt("users", () =>
+    db.user.deleteMany({
+      where: { id: { in: [fx.ownerUserId, fx.approverUserId] } },
+    }),
+  );
+  return { residue };
+}
+
+/**
+ * 隔离契约硬断言：cleanup 后本 fixture org 名下不允许残留任何
+ * workforce job 行（更不允许残留 eligible 行）。返回 true = 无泄漏。
+ */
+export async function assertNoLeakedWorkforceJobs(
+  fx: WorkforceFixture,
+): Promise<boolean> {
+  const { db } = await import("@/lib/db");
+  const leaked = await db.agentRun.count({
+    where: { orgId: fx.orgId, runType: "workforce_job" },
+  });
+  if (leaked > 0) {
+    console.error(
+      `  [leak] org ${fx.orgId} 残留 ${leaked} 个 workforce job（cleanup 未生效）`,
+    );
+  }
+  return leaked === 0;
+}
+
+/**
+ * 外部积压模拟（Test Isolation Hardening §6/§11）：在多个独立 foreign org
+ * 中创建共 N 个 eligible queued workforce job（每 org ≤2 个，遵守单 org
+ * 并发配额治理），模拟"多个前序 suite 遗留 / 其他租户并行使用同一隔离库"
+ * 的真实形态。返回全部 fixture 供调用方逐一 cleanup。
+ */
+export async function seedForeignQueuedBacklog(
+  count: number,
+): Promise<{ fixtures: WorkforceFixture[]; runIds: string[] }> {
+  const { createWorkforceJob } = await import("../job");
+  const PER_ORG = 2;
+  const fixtures: WorkforceFixture[] = [];
+  const runIds: string[] = [];
+  while (runIds.length < count) {
+    const fx = await seedWorkforceFixture("foreign");
+    fixtures.push(fx);
+    for (let i = 0; i < PER_ORG && runIds.length < count; i++) {
+      const job = await createWorkforceJob({
+        orgId: fx.orgId,
+        userId: fx.ownerUserId,
+        role: "sales",
+        goal: `${GOLDEN_GOAL}（foreign backlog ${runIds.length}）`,
+      });
+      if (!job.ok) throw new Error(`seedForeignQueuedBacklog: ${job.error}`);
+      runIds.push(job.runId);
+    }
+  }
+  return { fixtures, runIds };
+}
+
+/**
+ * run-scoped sweep 辅助（Kill-Switch §6）：反复调用全局
+ * processQueuedWorkforceJobs 直到目标 run 被拾取或轮次预算耗尽。
+ * 生产消费者天然是全局 take-N —— 测试不改生产语义，只把"断言"
+ * 收敛到本 fixture 的 runId（其他 org 的积压最多消耗有限轮次）。
+ */
+export async function sweepUntilRunProcessed(
+  runId: string,
+  opts?: { maxRounds?: number; batch?: number },
+): Promise<{ swept: boolean; rounds: number }> {
+  const { processQueuedWorkforceJobs } = await import("../processor");
+  const maxRounds = opts?.maxRounds ?? 12;
+  const batch = opts?.batch ?? 5;
+  for (let round = 1; round <= maxRounds; round++) {
+    const sweep = await processQueuedWorkforceJobs(batch);
+    if (sweep.runIds.includes(runId)) return { swept: true, rounds: round };
+    if (
+      sweep.processed === 0 &&
+      sweep.runIds.length === 0 &&
+      sweep.exhaustedFailed === 0
+    ) {
+      // 队列已空仍未见目标 run：目标不 eligible，提前失败
+      return { swept: false, rounds: round };
+    }
+  }
+  return { swept: false, rounds: maxRounds };
+}
