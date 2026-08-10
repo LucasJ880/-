@@ -165,10 +165,79 @@ D1-D10 与套件映射：D1/D3/D4/D5/D6/D7/D8/D10 → operator-ux.test.ts；D2 �
 |---|---|
 | `P2D1_BUSINESS_REF_LABEL_DEBT` | businessRefs 仅 type+id（#84 契约），UI 显示类型徽标（id 进 title 提示）；显示名 JOIN 属后续 2D 增量 |
 | `P2D1_FINAL_RESULT_DEBT` | finalSummary 依赖 2B `aggregateJobResult` writer；落地前 COMPLETED Job 显示「尚未生成最终结果」占位（任务书 §15 预期行为） |
-| `P2D1_VISUAL_VERIFICATION_DEBT` | 响应式以静态审计 + build 验证（worktree 无 .env，未起 dev server 做浏览器级回归）；Final Review 建议在 staging 预览走一遍 D10 手工核对 |
 | `P2D1_NEEDS_YOU_BADGE_DEBT` | 导航/Tab 上的 Needs You 未读计数徽标需要轻量 count 端点，本期未做（避免超范围） |
 | `P2D1_RUNTYPE_INDEX_DEBT` | 设计 §18 既有结论：`[orgId, runType, status, updatedAt]` 复合索引推迟到 Job 量产后实测（本期查询走 `[orgId, status]` 后过滤 runType，MVP 量级可接受） |
 
+（原 `P2D1_VISUAL_VERIFICATION_DEBT` 已在 Final Integration Gate 清偿，见 §16.5。）
+
 ---
 
-*本报告对应 Draft PR（保持 DRAFT，不 merge）；merge 前需 rebase 最新 main 确保包含 #85 / #86（任务书 §2）。*
+## 16. Final Integration Gate（2026-08-10，rebase + #85 契约整合）
+
+### 16.1 Rebase
+
+- `origin/main` 已含 #86（2a7f2d1 merge）与 #85（abac67e merge）；本分支 rebase 至 `abac67e`。
+- 唯一冲突：`scripts/test-all.sh`（两边同位置追加套件）——**双侧全保留**：#86 隔离契约 + #85 三个 2B-1 套件在前，2D-1 两个套件在后；`test-ci-unit.sh` 自动合并无损（#85/#86 未在 CI 子集注册条目，diff 仅含 2D-1 两行追加）。
+- `git push --force-with-lease` 完成。
+
+### 16.2 #85 canonical Task Contract 整合
+
+`projectTaskView` 改为复用 #85 纯 contract reader `readWorkforceTaskSpec`（`task-contract.ts`，零 runtime core import），三态语义冻结：
+
+| `inputJson.workforceTask` 状态 | workerKey / taskKind 来源 |
+|---|---|
+| **valid**（workforce-task/v1） | `spec.worker.workerKey` / `spec.taskKind`（canonical） |
+| **absent**（2B-1 前存量 Job） | #84 legacy fallback：`worker.id` / `workerKey` / `taskKind` / `kind` |
+| **invalid**（信封存在但损坏 / 未知版本） | **fail-safe 双 undefined**——不透出 raw 内部数据，也不回退旁路 legacy 字段（信封声明了 canonical 意图，损坏时不猜测） |
+
+不自建 parser；zod 校验、strip 语义、registry 词汇全部继承 #85。
+
+### 16.3 Canonical Worker Labels
+
+`presentation.ts` 词典升级：`sales_worker → 销售`、`tender_worker → 投标`、`synthesis_worker → 综合汇总`（#85 `WORKFORCE_WORKER_REGISTRY` 正式词汇）；短名（sales/tender/synthesis/research 等）保留为 legacy / forward UI 别名；未知 workerKey 恒 → 「数字员工」。
+
+### 16.4 测试契约真实化
+
+- D6 重建为三个 canonical workforce-task/v1 running steps（sales_worker / tender_worker / synthesis_worker）：`currentTasks.length === 3` + 三徽标 销售/投标/综合汇总 + synthesis 任务 `taskKind === "synthesis"`（2B-2 前向兼容用真实信封验证）；
+- D7 覆盖 A-E：A/B/C canonical 三 worker；D pre-2B1 legacy 双形状 + 无 worker；E 未知 contract version / 信封损坏（含"不回退旁路 legacy"断言）/ 结构合法但 registry 外 key 的 UI fail-safe——raw internal worker 数据零透出以 JSON 序列化断言锁定；
+- 列表 L7 fixture 换 canonical 信封（`workerKey === "tender_worker"`）。
+
+### 16.5 D10 浏览器级视觉冒烟（PASS）
+
+staging preview 的应用登录墙无法代过（凭据只属于人），采用**同代码全栈本地冒烟**：worktree 起 `next dev` 指向临时隔离 Neon 分支（`preview-2d1-visual-smoke`，跑完即删），合成六个场景 Job（qy2d1smoke_ 前缀：working 3 并行 canonical 任务 / awaiting_approval + 2 PendingAction / needs_human clarification / completed 带 payload.summary / partial / failed），自签 JWT 过 middleware——**真实 API → 真实 Read Model → 真实页面组件**，无任何应用代码改动。逐项核验：
+
+| 检查项 | 结果 |
+|---|---|
+| Tab 不溢出（桌面 1280 + 移动 375） | PASS |
+| 卡片不横向破版 | PASS |
+| 多 currentTasks（3 项并行） | PASS（桌面+移动） |
+| Worker Badge（canonical 投标/销售/综合汇总） | PASS |
+| Timeline 可读 + 零内部泄漏（tool.started visibleToUser=true 被白名单实测挡住；无 "Workforce Job" 工程话术） | PASS |
+| Needs You 卡片（审批：detail+计数+前往审批中心；clarification：结构化问题直出） | PASS |
+| Final Result（真实多行摘要 / 进行中占位 / 用时 31 分钟） | PASS |
+| Desktop 双栏（主列 + 时间线侧栏） | PASS |
+| Mobile 单列（长标题换行、操作区换行） | PASS |
+| 404 / 加载骨架屏 | PASS |
+| 侧栏「AI 任务」入口 + 数字员工待审批徽标联动（种子 2 条 PendingAction 被现有 badge 拾取） | PASS |
+
+staging 部署本身健康（`Vercel – qingyan-staging` check PASS；preview URL 登录页正常渲染、未登录访问 `/workforce` 正确重定向 `/login`）。冒烟产物（seed 脚本、launch.json、Neon 分支、本地 server）已全部清除，零残留、零提交。
+
+### 16.6 Final Gate 回归汇总
+
+| 套件 | 结果 |
+|---|---|
+| 2D-1 列表服务 L1-L9 | 36/36 |
+| 2D-1 Operator UX D1-D10（canonical 契约版） | 95/95 |
+| #84 黄金投影 / 只读租户隔离 / api-access | 74/74 + 37/37 + 13/13 |
+| #85 2B-1 契约纯函数 | 60/60 |
+| #85 2B-1 Task/Handoff DB + 审批×Handoff DB（隔离 Neon 分支） | 42/42 + 19/19 |
+| #86 测试隔离契约（隔离 Neon 分支） | 8/8 |
+| Workforce 2A/2C-1 DB 全批次（隔离 Neon 分支） | 152/152（26+16+7+13+31+10+16+26+7） |
+| navigation | 99/99 |
+| tsc / lint:baseline / next build / CI（validate-lint-typecheck-test-build + Vercel–qingyan-staging） | PASS |
+
+`SCHEMA_CHANGE = NONE`、`RUNTIME_CORE_MODIFIED = NO`、`READ_ONLY = YES`、`NO_MUTATION = PASS` 全部保持（目录级源码审计在 rebase 后基线上重跑通过）。
+
+---
+
+*本报告对应 Draft PR #87（保持 DRAFT，等 Final Review 后 merge）。*
