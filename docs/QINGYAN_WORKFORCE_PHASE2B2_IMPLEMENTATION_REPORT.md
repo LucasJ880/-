@@ -273,3 +273,60 @@ P10/P11 回归（同一隔离分支，`scripts/test-all.sh` 全量）：
 | tsc / eslint / build / CI | PASS（CI 有效门 `validate-lint-typecheck-test-build` + `Vercel – qingyan-staging`；`Vercel – -` 恒失败为既有非信号） |
 
 生产默认不变：`WORKFORCE_JOB_MAX_PARALLEL_TASKS` 未在任何生产环境设置（default 1）。快照/隔离分支已删除；S 场景驱动为会话级工具未入库（与 P0 同准则）。
+
+---
+
+# FINAL REVIEW + MERGE GATE（2026-08-10 第三轮，独立复核）
+
+独立于上方 Final Integration Gate 的最终复核：不以报告 PASS 为据，对 `origin/main..head` 全部 16 个变更文件重新逐文件语义审查，并本地独立复跑关键纯逻辑不变量套件。
+
+## FR-1. Git / PR 状态
+
+| 项 | 值 |
+|---|---|
+| Final Base SHA | `4f082cd`（= 复核时 origin/main，**MAIN_DRIFT = NONE**；含 #94 Runtime P0 与 #95 Security P0） |
+| Reviewed code head | `75a9291`（**HEAD_DRIFT = NONE**，与 Final Integration Gate 同一 SHA；merge-base = `4f082cd`，精确 rebase 于当前 main） |
+| FINAL_HEAD_SHA | 本 docs-only 提交（对 `75a9291` 的 diff 仅含本章节，零生产代码变更；merge 以 `--match-head-commit` 锁定该 SHA） |
+| PR | OPEN / MERGEABLE；CI 有效门 `validate-lint-typecheck-test-build` + `Vercel – qingyan-staging` = PASS（`Vercel – -` 恒失败为既有非信号，即 UNSTABLE 状态来源） |
+
+## FR-2. 逐 Gate 独立复核结论
+
+| Gate | 结论 | 独立证据（代码级） |
+|---|---|---|
+| #94-A PLANNER_VISIBLE ⊆ EXECUTABLE | PASS | `verifier.ts` / `adapters.ts` / `planner.ts` / `synthesis.ts` / `handoff.ts` / approval 全部零触碰；classifier 逐项 `isRuntimeV2ToolExecutable`（handler map 事实源）；`p0-alignment-pure` 27/27 本地复跑 |
+| #94-B Declared Evidence Scope | PASS | `scopedEvidenceByDependsOn` 单一定义、新旧路径共用（声明序插入）；true-legacy（spec absent）保持全量 map；FG3 SECRET_X 双通道 0 泄漏 |
+| #94-C Native Synthesis | PASS | batch pre-flight 中 gate 先于 no_tool 判定；`taskKind=synthesis ∧ 无 preferredTool → executeWorkforceSynthesisTask`（模型运行时 + zod 结构化校验 + fail-closed `synthesis_failed`）；不依赖 preferredTool |
+| #94-D Synthesis Order | PASS | `collectUpstreamHandoffs` 按 `dependsOn` 声明序 for-loop 构建，与完成序无关（FG2：完成 C→A→B，消费恒 A,B,C） |
+| #94-E Verifier Hard Floor | PASS | `verifier.ts`（`applyDeterministicHardFloor`）未触碰；executor `ready_for_verification` 收敛分支未变；LLM verifier 无法提升 deterministic failure |
+| #94-F False Completion | PASS | required failed/blocked/attempts-exhausted 经 hard floor 诚实收敛；pre-flight `step_attempts_exhausted` 终态化补齐跨 slice 活锁洞 |
+| Parallel Policy | PASS | SAFE_PARALLEL = catalog 存在 ∧ executable ∧ readOnly ∧ 无审批（planner+server 双源）∧ server `parallelSafe=true` 五重合取；任何不确定 → SEQUENTIAL；`parallelSafe` 仅存在于 server catalog（spec `.strip()`，planner 无注入路径）；catalog 9 个标注全部 readOnly+无审批，4 个写/审批工具零标注 |
+| Batch Bound | PASS | 上限硬夹 `[1,4]`，default 1；`maxParallel<=1` 恒 [队首]（与 2B-1 单步调度语义一致，回滚保证）；审批任务绝不与其他任务同批 |
+| CAS / Double Driver | PASS | `updateMany WHERE id ∧ status='ready' ∧ attemptCount<maxAttempts`；count=0 = TASK_ALREADY_CLAIMED 不执行 Tool；CAS 在 `fence.guard` 事务内（行锁 + lease token 断言）；P6/P6b/FG5 实测 exactly-one |
+| Fencing / Stale Worker | PASS | `RunFence.guard` 同事务行锁断言 token，迟到写入抛 `LostLeaseError` 零落盘；工具长 await 后 `fence.check`；stale running 回收唯一边界 = processor 成功持 lease 后（executor round 对 running 零动作） |
+| Attempts / Budget | PASS | 预算 = Σ attemptCount（server-side durable，CAS 递增）；`effectiveBatchMax = min(parallelMax, maxToolCalls−used)`——并行批不突破全局预算；FG6/FG7 验证 |
+| Approval Safety | PASS | REQUIRES_APPROVAL 判定含 server catalog `requiresApproval ∨ !readOnly`（planner 声称不可信）；任一 Step awaiting_approval → 本轮零新 batch；PendingAction / approval executor / 2C-1 resume 链路零触碰 |
+| Event Sequence | PASS | `appendAgentRunEvent` P2002 有界重试（≤8，重读 max+1）；耗尽走既有 log+null 失败包络（无无限重试、无静默行为变化）；sequence per-run、org 前置校验，租户边界不变 |
+| Kill Switch | PASS | `WORKFORCE_RUNTIME_ENABLED` 默认 OFF（envBool fail-closed）；processor claim 前 + executor slice 内双重即时生效（不 select / claim / execute / handoff） |
+| Cancellation | PASS | run cancelled 轮次入口提前返回；coordinator 全部 Run 收敛写入 `status notIn [cancelled,failed,completed]`——迟到收敛不能复活终态 |
+| Sibling Isolation | PASS | `Promise.allSettled`；单 sibling 异常 → needs_human outcome，不回滚已 durable 的 sibling Step；收敛基于真实 Step states，无 false completion |
+| Read Model 兼容 | PASS | 新增 3 个内部事件（`task.claimed` / `parallel.batch_*`）`visibleToUser=false` 且不在 2D-1 类别白名单——双重排除，用户 timeline 零污染 |
+| Security Boundary（#95） | PASS | #93 零触碰 `src/app/api` / `agent-tasks/dto.ts` / 任何授权面；#95 全部内容位于 base main `4f082cd`；无 cross-org / raw internal JSON / AgentTask mutation / approval 字段暴露回归 |
+| Production Parallelism | PASS | `WORKFORCE_JOB_MAX_PARALLEL_TASKS` 引用面仅代码/测试/文档；diff 零 env/vercel/infra 文件；**DEFAULT_PRODUCTION_PARALLELISM = 1 / PRODUCTION_ENV_CHANGED = NO**；1→2 须走独立 Production Validation Gate |
+
+## FR-3. 测试与 CI
+
+- Head `75a9291` 自 Final Integration Gate 起零变化 → 沿用同 SHA 完整执行的 **test-all 203/203**（隔离 Neon 分支）与 tsc/eslint/build（任务书 §17：同 SHA 不重复十轮昂贵测试）。
+- 本轮独立复跑（同 SHA 本地）：2B-2 policy 纯函数 **43/43**、#94 `p0-alignment-pure` **27/27**。
+- CI（`75a9291`）：`validate-lint-typecheck-test-build` PASS + `Vercel – qingyan-staging` PASS。
+- 本轮唯一新增变更 = 本 docs 章节（零生产代码），不触发 full regression 重跑；merge 前须确认 FINAL_HEAD_SHA 上 CI 有效门 PASS。
+
+## FR-4. S1–S4 判读（任务书 §18）
+
+判定标准 = sequential 与 parallel **correctness 语义同构**，非全场景绿色：S1 needs_human(verification_failed) 为 #90A 对 Gmail 环境失败的正确显性化；S2/S4 COMPLETED（S4 native synthesis 两种模式均真实综合）；S3 needs_human 为 P0-D5 verifier 方差既有债项（seq/par 同判，与并行无关）。不为让场景变绿而修改系统。
+
+## FR-5. 最终判定
+
+**PHASE_2B2_FINAL_REVIEW = PASS**
+**MERGE_GATE = APPROVED**
+
+Merge 策略：NORMAL MERGE COMMIT（保留 2B-2 实现史 + Final Integration 史 + P0 语义集成审计线），`--match-head-commit` 锁定 FINAL_HEAD_SHA；Head 若在 merge 前漂移即 STOP。Merge 后：`NEXT_PHASE_AUTOSTART = NO`（2B-3 / 2C-2 / 2C-3 / Tender T1B 均等待人工任务书）。
