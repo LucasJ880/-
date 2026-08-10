@@ -12,6 +12,8 @@
 import {
   requireIsolatedTestDb,
   seedWorkforceFixture,
+  cleanupWorkforceFixture,
+  assertNoLeakedWorkforceJobs,
   ok,
   finish,
   GOLDEN_GOAL,
@@ -195,6 +197,15 @@ async function main() {
     where: { runId: jobJ.runId, eventType: "job.failed" },
   });
   ok(failEvents.length > 0, "J: job.failed 事件已写入");
+
+  // Lane B §5/§7：fixture ownership cleanup —— 只删本 suite 自己的数据，
+  // 不给后续 suite 留任何 eligible workforce job
+  const cleanedFx = await cleanupWorkforceFixture(fx);
+  ok(
+    await assertNoLeakedWorkforceJobs(fx),
+    "CLEANUP: 本 suite 无 workforce job 泄漏",
+    cleanedFx.residue,
+  );
 
   finish();
 }

@@ -10,6 +10,8 @@
 import {
   requireIsolatedTestDb,
   seedWorkforceFixture,
+  cleanupWorkforceFixture,
+  assertNoLeakedWorkforceJobs,
   ok,
   finish,
   metaOf,
@@ -217,6 +219,15 @@ async function main() {
   ok(
     m3.content === "测试后台任务" && m3.background === true,
     "C2: background payload 字段同样在位",
+  );
+
+  // Lane B §5/§7：fixture ownership cleanup —— 只删本 suite 自己的数据，
+  // 不给后续 suite 留任何 eligible workforce job
+  const cleanedFx = await cleanupWorkforceFixture(fx);
+  ok(
+    await assertNoLeakedWorkforceJobs(fx),
+    "CLEANUP: 本 suite 无 workforce job 泄漏",
+    cleanedFx.residue,
   );
 
   finish();
