@@ -112,27 +112,32 @@ Tender T0 审计（PR #92）在 `/api/agent/tasks/**` 面标记了一组 P0：**
 | 测试 | 覆盖 | 结果 |
 |---|---|---|
 | `src/lib/agent-tasks/__tests__/dto.test.ts` | S10：业务投影序列化不含 input/output/checkReport/raw error/preview/riskReason 秘密；内部字段键位为 null；error 脱敏；诊断投影保留原文；completed 步骤不误标错误 | **23/23 PASS** |
-| `src/app/api/agent/tasks/__tests__/authz-contract.test.ts` | S5/S6/S7/§27：逐路由源码契约——execute/cancel/PATCH/POST 需 `requireProjectManageAccess`，detail/list/approve/reject 需 `requireProjectReadAccess`+投影；mutation 路由不得「仅 withAuth」 | **9/9 PASS** |
+| `src/app/api/agent/tasks/__tests__/route-exec.test.ts` | **路由级可执行**：驱动 execute/cancel 路由实际委托的 `runGuardedTaskMutation`，注入计数依赖——① execute 未授权→拦截+`executeFlowTask` 计数 0；② cancel 未授权→拦截+`cancelFlowTask` 计数 0；③ execute 已授权→flow runner 恰好一次；④ cancel 已授权→恰好一次；⑤ 跨 org taskId→拦截+零 flow-runner 调用；⑥ 拒绝前后 AgentTask status 不变；附加：任务不存在→404 且不调用 authorize/flow-runner | **15/15 PASS** |
+| `src/app/api/agent/tasks/__tests__/authz-contract.test.ts` | S5/S6/S7/§27：逐路由源码契约——execute/cancel 经 `requireProjectManageAccess`+`runGuardedTaskMutation` 守卫编排派发，PATCH/POST 需 `requireProjectManageAccess`，detail/list/approve/reject 需 `requireProjectReadAccess`+投影；mutation 路由不得「仅 withAuth」 | **9/9 PASS** |
 | 关联既有回归 | `agent-scope`(24)、`pre-execute-guard`(33)、`org-access`(16) | PASS |
 | `npx tsc --noEmit` | 全项目类型 | PASS |
 | `eslint`（全部改动文件） | — | PASS（0） |
 | `next build` | — | **CI-gated**（`validate-lint-typecheck-test-build`；worktree 无 .env，不本地跑生产库；tsc+eslint 为本地编译门） |
 
-S1–S4/S8/S9/S11/S12 说明：S1（未登录）/S2（无 active 成员）/S3（成员可读）/S4（同 org 无项目权）/S5（跨 org）由复用的 `requireProject*Access` 语义保证（该 helper 已被既有 `tenant-isolation` 等套件覆盖）；S8/S9（授权管理者 execute/cancel 仍可用）——授权通过后原 flow-runner 调用路径未变；S11（平台管理员诊断视图）由 `isPlatformAdmin` 分流保留；S12（拒绝零副作用）见 §11 + 契约测试。DB 集成态 S 矩阵未跑真实库（§30：纯 unit/契约足够，且 worktree DB 平面 fail-closed）。
+**路由级测试实现方式**：execute/cancel 路由的「载入 projectId → 授权 → 派发」守卫链抽取为共用编排 `src/lib/agent-tasks/guarded-mutation.ts::runGuardedTaskMutation`（生产行为不变，两路由均委托它）；`route-exec.test.ts` 直接驱动该编排函数并注入带计数器的假 `onAuthorized`/假 `authorize`，从而在无 DB / 无真实 JWT 的环境下可执行地验证「拒绝路径零 flow-runner 调用、授权路径恰好一次、拒绝态 AgentTask status 不变」。真实路由把 `requireProjectManageAccess` 与 `executeFlowTask/cancelFlowTask` 传入相同 slot（由 `authz-contract.test.ts` 源码契约锁定）。
+
+S1–S4/S8/S9/S11/S12 说明：S1（未登录）/S2（无 active 成员）/S3（成员可读）/S4（同 org 无项目权）/S5（跨 org）由复用的 `requireProject*Access` 语义保证（该 helper 已被既有 `tenant-isolation` 等套件覆盖）；S8/S9（授权管理者 execute/cancel 仍可用）——`route-exec` 已授权用例断言 flow runner 恰好一次，且授权通过后原 flow-runner 调用路径未变；S11（平台管理员诊断视图）由 `isPlatformAdmin` 分流保留；S12（拒绝零副作用）见 §11 + `route-exec` 计数用例。DB 集成态 S 矩阵未跑真实库（§30：纯 unit/契约/编排级足够，且 worktree DB 平面 fail-closed）。
 
 ## 13. Changed files
 
 ```
 新增  src/lib/agent-tasks/dto.ts                                   安全投影（业务/诊断）
+新增  src/lib/agent-tasks/guarded-mutation.ts                      execute/cancel 共用授权编排（load→authorize→dispatch）
 新增  src/lib/agent-tasks/__tests__/dto.test.ts                    S10 数据最小化单测
 新增  src/app/api/agent/tasks/__tests__/authz-contract.test.ts     授权布线契约测试
+新增  src/app/api/agent/tasks/__tests__/route-exec.test.ts         路由级可执行测试（flow-runner 调用计数 / 零副作用）
 改    src/app/api/agent/tasks/route.ts                             GET 读授权+error 脱敏；POST 管理授权
 改    src/app/api/agent/tasks/[taskId]/route.ts                    GET 读授权+安全投影；PATCH 管理授权
-改    src/app/api/agent/tasks/[taskId]/execute/route.ts            manage 授权 + 404
-改    src/app/api/agent/tasks/[taskId]/cancel/route.ts             manage 授权 + 404
+改    src/app/api/agent/tasks/[taskId]/execute/route.ts            manage 授权 + 404（委托 runGuardedTaskMutation）
+改    src/app/api/agent/tasks/[taskId]/cancel/route.ts             manage 授权 + 404（委托 runGuardedTaskMutation）
 改    src/app/api/agent/tasks/[taskId]/steps/[stepId]/approve/route.ts  读授权前置（租户隔离）
 改    src/app/api/agent/tasks/[taskId]/steps/[stepId]/reject/route.ts   读授权前置（租户隔离）
-改    scripts/test-all.sh                                          注册 2 个安全测试
+改    scripts/test-all.sh                                          注册 3 个安全测试
 ```
 
 未触碰：`workforce-runtime/**`、`agent-runtime-v2/{executor,persist,process,planner,adapters,schemas}`、`prisma/**`、`schema.prisma`、导航、i18n、审批 core、UI 组件。

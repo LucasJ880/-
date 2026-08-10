@@ -37,13 +37,13 @@ console.log("security-p0 agent-task authz contract");
 const CONTRACT: Array<{ file: string; must: string[]; label: string }> = [
   {
     file: "[taskId]/execute/route.ts",
-    must: ["requireProjectManageAccess", "task.projectId", "instanceof NextResponse"],
-    label: "execute 需项目管理授权",
+    must: ["requireProjectManageAccess", "runGuardedTaskMutation", "onAuthorized"],
+    label: "execute 需项目管理授权（守卫编排派发）",
   },
   {
     file: "[taskId]/cancel/route.ts",
-    must: ["requireProjectManageAccess", "task.projectId", "instanceof NextResponse"],
-    label: "cancel 需项目管理授权",
+    must: ["requireProjectManageAccess", "runGuardedTaskMutation", "onAuthorized"],
+    label: "cancel 需项目管理授权（守卫编排派发）",
   },
   {
     file: "[taskId]/route.ts",
