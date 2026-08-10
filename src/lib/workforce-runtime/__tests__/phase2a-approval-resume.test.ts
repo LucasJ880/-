@@ -63,15 +63,15 @@ async function main() {
       prioritized: [{ customerId: "cust_h", customerName: "客户H" }],
     },
   };
+  // Phase 2B-1 FIX 1：2B-1 计划的 Step 携带 workforceTask spec，手工伪造
+  // completed 状态必须同样补上真实信封（契约真实形态），否则下游 s7/s8
+  // 的消费 gate 会按 HANDOFF_MISSING fail-closed
+  const { fabricateContractCompletedStep } = await import("./handoff-fixtures");
   for (const [stepKey, outputJson] of Object.entries(stepOutputs)) {
-    await db.agentRunStep.updateMany({
-      where: { runId, stepKey },
-      data: {
-        status: "completed",
-        attemptCount: 1,
-        completedAt: new Date(),
-        outputJson: JSON.parse(JSON.stringify(outputJson)),
-      },
+    await fabricateContractCompletedStep({
+      runId,
+      stepKey,
+      businessOutput: outputJson as Record<string, unknown>,
     });
   }
 

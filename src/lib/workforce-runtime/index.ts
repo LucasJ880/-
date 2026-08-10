@@ -32,3 +32,40 @@ export {
   type WorkforceResumeTrigger,
   type WorkforceResumeResult,
 } from "./resume";
+// Phase 2B-1 — Task + Worker + Structured Handoff Foundation
+export {
+  WORKFORCE_WORKER_REGISTRY,
+  listWorkforceWorkers,
+  getWorkforceWorker,
+  isKnownWorkforceWorker,
+  defaultWorkerKeyForTaskKind,
+  workerSupportsTaskKind,
+  workforceWorkerRosterForPlanner,
+  type WorkforceTaskKind,
+  type WorkforceWorkerDefinition,
+} from "./workers";
+export {
+  WORKFORCE_TASK_CONTRACT_VERSION,
+  WorkforceTaskSpecV1Schema,
+  applyWorkforceTaskSpecs,
+  readWorkforceTaskSpec,
+  type WorkforceTaskSpecV1,
+  type WorkforcePlannedStep,
+} from "./task-contract";
+export {
+  WORKFORCE_HANDOFF_CONTRACT_VERSION,
+  WORKFORCE_HANDOFF_LIMITS,
+  FORBIDDEN_HANDOFF_AUTH_FIELDS,
+  HANDOFF_INTERNAL_CONTEXT_FIELDS,
+  HANDOFF_TERMINAL_STEP_STATUSES,
+  WorkforceHandoffPayloadV1Schema,
+  parseWorkforceHandoff,
+  extractHandoffFromStepOutput,
+  buildWorkforceHandoffV1,
+  collectUpstreamHandoffs,
+  extractSynthesisHandoffSummary,
+  type WorkforceHandoffPayloadV1,
+  type WorkforceExecutionContext,
+  type UpstreamHandoff,
+  type HandoffFailureCode,
+} from "./handoff";

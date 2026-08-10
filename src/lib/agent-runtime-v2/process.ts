@@ -13,6 +13,13 @@ import { persistPlanAndSteps } from "./persist";
 import { verifyRuntimeV2Run } from "./verifier";
 import { RUNTIME_V2_TOOL_CATALOG } from "./tool-catalog";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
+import { readWorkforceTaskSpec } from "@/lib/workforce-runtime/task-contract";
+import {
+  buildWorkforceHandoffV1,
+  extractSynthesisHandoffSummary,
+  HANDOFF_TERMINAL_STEP_STATUSES,
+  type HandoffTerminalStepStatus,
+} from "@/lib/workforce-runtime/handoff";
 
 export type StartRuntimeV2Input = {
   orgId: string;
@@ -305,6 +312,12 @@ export async function resumeRuntimeV2AfterApproval(input: {
     };
   }
 
+  const reconcileRun = await db.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { runType: true },
+  });
+  const isWorkforceRun = reconcileRun?.runType === WORKFORCE_JOB_RUN_TYPE;
+
   const steps = await db.agentRunStep.findMany({
     where: {
       orgId: input.orgId,
@@ -339,26 +352,58 @@ export async function resumeRuntimeV2AfterApproval(input: {
       decision.stepStatus === "needs_human" ? "failed" : decision.stepStatus;
     if (decision.stepStatus === "partially_executed") anyPartial = true;
 
+    // §31/§33：审批 reconcile 使 Step 达到可定义终态时才生成业务 Handoff；
+    // completedAt 与 Handoff.createdAt 共用同一 durable 时间，二者在同一
+    // update 原子写入（与 Step 结果持久化同边界，§32）
+    const reconcileCompletedAt = new Date();
+    const mergedOutput: Record<string, unknown> = {
+      ...(typeof step.outputJson === "object" && step.outputJson
+        ? (step.outputJson as Record<string, unknown>)
+        : {}),
+      approvalStatuses: actions,
+      reconcile: decision,
+      approvalActorUserId: input.approvalActorUserId,
+      executionPrincipalUserId: principal.userId,
+    };
+    if (
+      isWorkforceRun &&
+      (HANDOFF_TERMINAL_STEP_STATUSES as readonly string[]).includes(
+        persistedStatus,
+      )
+    ) {
+      const specRead = readWorkforceTaskSpec(step.inputJson);
+      if (specRead.kind === "valid") {
+        const handoff = buildWorkforceHandoffV1({
+          runId: input.runId,
+          stepKey: step.stepKey,
+          workerKey: specRead.spec.worker.workerKey,
+          taskKind: specRead.spec.taskKind,
+          stepStatus: persistedStatus as HandoffTerminalStepStatus,
+          taskObjective: specRead.spec.objective,
+          businessOutput: mergedOutput,
+          pendingActionIds: ids,
+          completedAt: reconcileCompletedAt,
+        });
+        if (handoff.ok) {
+          mergedOutput.workforceHandoff = handoff.payload;
+        } else {
+          // fail-closed（§29）：无有效 Handoff 时下游消费门会阻断执行；
+          // 这里显式转人工，不静默继续
+          anyNeedsHuman = true;
+        }
+      }
+    }
+
     await db.agentRunStep.update({
       where: { id: step.id },
       data: {
         status: persistedStatus,
-        completedAt: new Date(),
+        completedAt: reconcileCompletedAt,
         errorCode:
           decision.runHint === "needs_human" ? "approval_reconcile" : null,
         errorMessage:
           decision.runHint === "needs_human" ? decision.reason : null,
-        outputJson: JSON.parse(
-          JSON.stringify({
-            ...(typeof step.outputJson === "object" && step.outputJson
-              ? step.outputJson
-              : {}),
-            approvalStatuses: actions,
-            reconcile: decision,
-            approvalActorUserId: input.approvalActorUserId,
-            executionPrincipalUserId: principal.userId,
-          }),
-        ),
+        outputJson: JSON.parse(JSON.stringify(mergedOutput)),
       },
     });
     await emitRuntimeV2Event({
@@ -406,11 +451,7 @@ export async function resumeRuntimeV2AfterApproval(input: {
   // 入口 resumeWorkforceJob —— 本函数只负责 reconcile（上方 step 终态化），
   // requeue/门禁/幂等全部由 resumeWorkforceJob 承担。不写 executing 等
   // legacy 中间态（durable 队列续跑不需要，且会破坏 resume 的状态断言）。
-  const resumedRun = await db.agentRun.findFirst({
-    where: { id: input.runId, orgId: input.orgId },
-    select: { runType: true },
-  });
-  if (resumedRun?.runType === WORKFORCE_JOB_RUN_TYPE) {
+  if (isWorkforceRun) {
     if (stillAwaiting === 0) {
       const { resumeWorkforceJob } = await import(
         "@/lib/workforce-runtime/resume"
@@ -499,6 +540,16 @@ export async function buildFinalReport(
   // 正文只放分析结论；步骤/审批计数/等待提示由 Workbench 卡片承担，避免重复
   const lines: string[] = [];
   lines.push(plan?.summary ?? plan?.objective ?? "销售跟进处理");
+
+  // Phase 2B-1（§28）：workforce run 的显式 Synthesis Task 产出即最终综合
+  // 结论——复用现有报告机制，只增一个来源，不重写 Final Report 系统
+  if (run.runType === WORKFORCE_JOB_RUN_TYPE) {
+    const synthesis = extractSynthesisHandoffSummary(runId, run.steps);
+    if (synthesis) {
+      lines.push("");
+      lines.push(`综合结论（${synthesis.stepKey}）：${synthesis.summary}`);
+    }
+  }
   if (prioritized.length > 0) {
     lines.push("");
     lines.push("优先客户分析：");

@@ -265,12 +265,15 @@ export async function processWorkforceJobSlice(
       const { planAgentRuntimeV2 } = await import(
         "@/lib/agent-runtime-v2/planner"
       );
+      const { workforceWorkerRosterForPlanner } = await import("./workers");
       const planned = await planAgentRuntimeV2({
         orgId,
         userId: principal.userId,
         userRole: principal.role,
         channel: runtime.channel ?? "workforce",
         goal,
+        // Phase 2B-1（§10）：planner 只能从 server-owned 名单"提议" workerKey
+        workerRoster: workforceWorkerRosterForPlanner(),
       });
       if (!planned.ok) {
         if (planned.clarification) {
@@ -309,6 +312,16 @@ export async function processWorkforceJobSlice(
         throw new Error(planned.error);
       }
 
+      // Phase 2B-1（§10–§12）：LLM proposed workerKey → server registry
+      // validation → sanitized assignment。unknown workerKey / 非法 taskKind
+      // → FAIL VALIDATION，走现有 planner failure path（throw → 退避重试，
+      // 重规划或 attempts 耗尽 failed；planJson 未持久化，不产生半成品计划）。
+      const { applyWorkforceTaskSpecs } = await import("./task-contract");
+      const adapted = applyWorkforceTaskSpecs(planned.plan);
+      if (!adapted.ok) {
+        throw new Error(`${adapted.code}: ${adapted.error}`);
+      }
+
       // §10 + BLOCKER 1：planner（长 await）之后、persist 之前重新验证租约
       const renewedAfterPlan = await renewRunLease({
         lease: holder.lease,
@@ -326,7 +339,7 @@ export async function processWorkforceJobSlice(
       // 与 planJson/status/steps 创建在同一事务 commit。不再依赖
       // "刚 renew 过所以安全"：renew 与 persist 之间若租约易主，
       // fence.guard 抛 LostLeaseError，零写入、不发 plan.created。
-      await persistPlanAndSteps({ orgId, runId, plan: planned.plan, fence });
+      await persistPlanAndSteps({ orgId, runId, plan: adapted.plan, fence });
     }
 
     const { processAgentRuntimeV2Run } = await import(
