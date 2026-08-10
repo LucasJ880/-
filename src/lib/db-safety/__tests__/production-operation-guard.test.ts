@@ -348,6 +348,36 @@ console.log("production-operation-guard");
     !v3.safe && v3.blockCodes.includes("MISSING_ORG_SCOPE"),
     "K3: 租户操作缺 orgId/组织名 → BLOCK",
   );
+  const v3g = evaluateProductionOperation(
+    baseReq({
+      env: { DATABASE_URL: PROD_URL },
+      scope: { kind: "global", reason: "" },
+    }),
+  );
+  ok(
+    !v3g.safe && v3g.blockCodes.includes("MISSING_GLOBAL_SCOPE_REASON"),
+    "K3b: global scope 空 reason → BLOCK（MISSING_GLOBAL_SCOPE_REASON）",
+  );
+  const v3g2 = evaluateProductionOperation(
+    baseReq({
+      env: { DATABASE_URL: PROD_URL },
+      scope: { kind: "global", reason: "   " },
+    }),
+  );
+  ok(
+    !v3g2.safe && v3g2.blockCodes.includes("MISSING_GLOBAL_SCOPE_REASON"),
+    "K3c: global scope 纯空白 reason → BLOCK（trim 后 fail-closed）",
+  );
+  const v3g3 = evaluateProductionOperation(
+    baseReq({
+      env: { DATABASE_URL: PROD_URL },
+      scope: { kind: "global", reason: "跨组织字段归一化" },
+    }),
+  );
+  ok(
+    v3g3.safe && !v3g3.blockCodes.includes("MISSING_GLOBAL_SCOPE_REASON"),
+    "K3d: global scope 非空 reason → 不因 scope 阻断",
+  );
   ok(
     buildOperationConfirmationPhrase(
       "production",

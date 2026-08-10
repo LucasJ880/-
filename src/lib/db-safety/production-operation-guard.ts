@@ -96,6 +96,7 @@ export type ProductionOperationBlockCode =
   | "UNKNOWN_DB_IDENTITY"
   | "RUNTIME_SIGNAL_CONFLICT"
   | "MISSING_ORG_SCOPE"
+  | "MISSING_GLOBAL_SCOPE_REASON"
   | "REQUIRE_DRY_RUN_FIRST"
   | "CONFIRMATION_REQUIRED"
   | "CONFIRMATION_MISMATCH";
@@ -283,6 +284,11 @@ export function evaluateProductionOperation(
     if (!req.scope.orgId.trim() || !req.scope.orgName.trim()) {
       blockCodes.push("MISSING_ORG_SCOPE");
     }
+  }
+  // global scope fail-closed：全库维护必须显式声明非空原因，
+  // 防止用空字符串绕过"显式 global + 原因"的声明门（与 org scope 对称）
+  if (req.scope.kind === "global" && !req.scope.reason.trim()) {
+    blockCodes.push("MISSING_GLOBAL_SCOPE_REASON");
   }
 
   // ── 5) 操作流程门禁 ──

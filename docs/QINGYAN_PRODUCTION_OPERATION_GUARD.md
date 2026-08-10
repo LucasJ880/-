@@ -66,10 +66,10 @@ assertProductionOperationAllowed({
 1. **默认 dry-run**：无 `--apply`（或 `--write`）→ `DRY_RUN_ONLY`，只允许 inspect / impact 计算 / 报告，`writeAllowed=false`；
 2. **apply 前置**：必须已完成同口径 dry-run 计算（`dryRunCompleted`），否则 `REQUIRE_DRY_RUN_FIRST`；
 3. **operation-specific confirmation**（无长期万能 secret；不做 Web approval）：
-   - 已知影响：`PRODUCTION:<OPERATION_NAME>:<rows>` —— 行数编入 phrase，数据一变 phrase 即失效，天然强制重跑 dry-run；
+   - 已知影响：`PRODUCTION:<OPERATION_NAME>:<rows>` —— confirmation phrase 绑定的是 **impact row count**：影响行数变化会使 phrase 失效，天然强制重跑 dry-run。**V1 limitation**：影响行数相同但目标行集不同（same row count, different target set）不会自动使 phrase 失效——V1 不做 target fingerprint，操作者须在 dry-run 报告中核对目标集；
    - 影响未知 / `NO_SAFE_DRY_RUN`：`PRODUCTION:<OPERATION_NAME>:IMPACT_UNKNOWN:I_ACCEPT_UNPREDICTABLE_IMPACT`（更强显式 override）；
    - 缺失 → `CONFIRMATION_REQUIRED`；不匹配 → `CONFIRMATION_MISMATCH`；
-4. **Org scope**：租户数据操作必须显式 `{ orgId, orgName }`（报告打印 `Organization: <名称> (<id>)`），防止 WHERE 缺失全库操作；全库维护必须显式 `{ kind: "global", reason }`；
+4. **Org scope**：租户数据操作必须显式 `{ orgId, orgName }`（报告打印 `Organization: <名称> (<id>)`），防止 WHERE 缺失全库操作；全库维护必须显式 `{ kind: "global", reason }` 且 reason 非空——空/纯空白 reason → `MISSING_GLOBAL_SCOPE_REASON` BLOCK（fail-closed，与 org scope 对称）；
 5. **事务**：批量写优先单条 `updateMany` 短事务；禁止事务中等待外部 API / LLM 长时间持锁；
 6. **审计**：每次调用输出 `[production-operation-audit]` structured log（who / when / operation / script / target / host / db / scope / impact / result）。V1 以脚本输出为 artifact，不新增 DB 模型（评估过复用 capability audit —— 该模型绑定 org/tenant 语义与 HTTP 上下文，不适合 shell 维护脚本，强行复用需造假 tenant 上下文，反而破坏其审计语义）；
 7. **Secrets**：输出只含 host / database 名 / operation / org / impact；不打印 DATABASE_URL、密码、API key，也不回显操作者提供的 confirmation token（只标记 provided/absent）。
