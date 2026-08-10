@@ -20,9 +20,11 @@
 | `src/lib/workforce-runtime/read-model/projection.ts` | 纯投影函数（零 I/O）：`projectJobStatus` / `projectProgress` / `projectCurrentTasks` / `projectTaskView` / `projectNeedsYou` / `projectTimeline` / `projectInternalTimeline` / `projectBusinessRefs` / `sortStepsByPlanOrder` / `buildWorkforceJobViewModel` |
 | `src/lib/workforce-runtime/read-model/service.ts` | `getWorkforceJobView({orgId, jobId, includeInternal?}, reader?)`——只读 Reader 契约（类型层面仅 findFirst/findMany）+ 懒加载 db |
 | `src/lib/workforce-runtime/read-model/index.ts` | 公共出口 |
-| `src/app/api/workforce/jobs/[id]/route.ts` | `GET /api/workforce/jobs/:id`（withAuth + 活跃 org membership → 404 不区分越权/不存在） |
-| `__tests__/projection-golden.test.ts` | O1–O9 黄金场景 + 泄漏防线 + legacy/2B 兼容（70 断言，零 DB） |
-| `__tests__/service-read-only.test.ts` | 租户隔离 + READ_ONLY（spy + 源码审计）+ orgId 强制（27 断言，零 DB） |
+| `src/app/api/workforce/jobs/[id]/route.ts` | `GET /api/workforce/jobs/:id`（withAuth + org 访问重授权 → 404 不区分越权/不存在） |
+| `src/lib/workforce-runtime/read-model/api-access.ts` | Final Review FIX A：`resolveWorkforceApiOrg`（activeOrgId 仅偏好，canUserUseOrg 现查重授权；stale/revoked/archived 不得使用；多可用 org fail-closed 不代选） |
+| `__tests__/projection-golden.test.ts` | O1–O9 黄金场景 + 泄漏防线 + legacy/2B 兼容 + FIX B errorMessage 非泄漏（74 断言，零 DB） |
+| `__tests__/service-read-only.test.ts` | 租户隔离 + READ_ONLY（spy + 源码审计，含 projection.ts 对 errorMessage 零引用的结构性断言）+ orgId 强制（31 断言，零 DB） |
+| `__tests__/api-access.test.ts` | FIX A：A1–A6 org 访问契约（valid / stale revoked / archived / 唯一 fallback / 多 org fail-closed / cross-org 404；13 断言，零 DB） |
 | `scripts/test-all.sh` / `scripts/test-ci-unit.sh` | 注册两个测试（纯投影零 DB，CI 子集可跑） |
 
 ## 2. Source-of-truth 字段（全部现有列/JSON 键，零迁移）
@@ -69,13 +71,14 @@
 | 信号 | type |
 |---|---|
 | humanRequirement.type ∈ 已知集（runtime 实际写入词汇） | APPROVAL_REQUIRED / APPROVAL_REJECTED / PERMISSION_CHANGED / CLARIFICATION_REQUIRED / CONFLICT_REQUIRES_HUMAN |
-| errorCode `clarification_required` | CLARIFICATION_REQUIRED（detail = 问题原文，errorMessage 即 planner clarification） |
+| errorCode `clarification_required` | CLARIFICATION_REQUIRED（detail 只取事件结构化来源，见下） |
 | errorCode `approval_rejected` | APPROVAL_REJECTED |
 | errorCode `approval_expired` | APPROVAL_REQUIRED（detail = 过期语义文案） |
 | errorCode principal 失效码（INITIATOR_MISSING/USER_INACTIVE/NO_MEMBERSHIP/MEMBERSHIP_INACTIVE）+ 鉴权类（org_forbidden/pending_forbidden/user_unbound） | PERMISSION_CHANGED（内部码不透出 detail） |
 | 未知 humanRequirement.type / 无任何信号 | UNKNOWN_HUMAN_INTERVENTION |
 
-- title = 确定性字典；detail 只来自结构化字段（clarification 原文 / PendingAction.title / 过期文案）；`errorMessage` 堆栈类内容永不透出（O7 断言）。
+- title = 确定性字典；detail 只来自结构化字段（clarification 原文 / PendingAction.title / 过期文案）。
+- **Final Review FIX B（结构性非泄漏）**：clarification detail 只允许 `job.waiting_human.payload.humanRequirement.detail` 或 `payload.clarification` 两个结构化来源；两者缺失 → `detail=undefined`（type/title 仍正确）。`run.errorMessage` **永不**作为回退——projection.ts 对该列零引用（源码审计断言强制 + STACK_SECRET_SENTINEL 运行时断言）。
 - pendingActionIds：审批类 = pending 集合；拒绝类 = rejected 集合；事件 refs.pendingActionIds 并入去重。
 
 ## 6. Timeline filtering（双重闸门）
@@ -92,8 +95,8 @@ Internal/Admin：同一服务 `includeInternal=true` 附 `internalTimeline`（�
 
 - 服务层：`orgId + runId + runType=workforce_job` 三条件 `findFirst`；steps/events/pendingActions 三条查询同样强制 `orgId`；空 orgId fail-closed。
 - 越权 / 不存在 / 非 workforce run 统一 `NOT_FOUND`，不区分（防枚举）。
-- API 层：withAuth（登录 + active）→ 活跃 org membership 解析（`getUserActiveOrgId` + membership fallback，与 agent-supervisor 路由同模式）→ 404。
-- 测试：Org B 读 Org A Job → NOT_FOUND；spy 断言 4 条查询全部 `where.orgId = 调用方 orgId`。
+- API 层（Final Review FIX A）：withAuth（登录 + active）→ `resolveWorkforceApiOrg`：activeOrgId 仅是偏好，必须经 `canUserUseOrg` **现查重授权**（membership active + org 未归档；super_admin 走同一规则）；stale/revoked/archived 偏好不得使用（落入 membership fallback）；恰好一个可用 org 才 fallback；多个可用 org → 403 `needsSelection`（绝不 findFirst 随机代选）；零可用 → 403 无组织 → 通过后才 404 语义。
+- 测试：Org B 读 Org A Job → NOT_FOUND；spy 断言 4 条查询全部 `where.orgId = 调用方 orgId`；A1–A6 org 访问契约（stale org 从未进入任何查询）。
 
 ## 8. Phase 2B compatibility
 
@@ -125,8 +128,9 @@ SCHEMA_CHANGE = NONE
 
 | 项 | 结果 |
 |---|---|
-| O1–O9 黄金投影（含泄漏/兼容共 70 断言） | PASS |
-| 服务层隔离/只读（27 断言） | PASS |
+| O1–O9 黄金投影（含泄漏/兼容/FIX B 共 74 断言） | PASS |
+| 服务层隔离/只读（31 断言，含 FIX B 结构性审计） | PASS |
+| API org 访问 A1–A6（13 断言） | PASS |
 | `npx tsc --noEmit` | PASS |
 | `eslint`（baseline 口径） | PASS |
 | `next build` | PASS |

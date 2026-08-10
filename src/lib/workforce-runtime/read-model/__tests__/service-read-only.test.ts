@@ -304,6 +304,14 @@ async function main() {
       const topLevelDbImport = /^import\s[^;]*from\s+"@\/lib\/db"/m.test(text);
       ok(!topLevelDbImport, `${file} 无顶层 @/lib/db import`, file);
     }
+
+    // Final Review FIX B（结构性非泄漏）：投影层对 run 行错误原文列
+    // （errorMessage）零引用——用户视图不可能从该列取值
+    const projection = sources.find((s) => s.file === "projection.ts");
+    ok(
+      projection !== undefined && !projection.text.includes("errorMessage"),
+      "projection.ts 对 errorMessage 零引用（FIX B 结构性保证）",
+    );
   }
 
   /* ================================================================ */

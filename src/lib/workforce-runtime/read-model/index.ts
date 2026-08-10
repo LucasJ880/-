@@ -42,3 +42,9 @@ export {
   type GetWorkforceJobViewResult,
   type WorkforceReadModelReader,
 } from "./service";
+
+export {
+  resolveWorkforceApiOrg,
+  type WorkforceApiOrgDeps,
+  type WorkforceApiOrgResolution,
+} from "./api-access";

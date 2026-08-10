@@ -21,6 +21,7 @@ npx tsx src/lib/db-safety/__tests__/production-operation-guard.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
+npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
 npx tsx src/lib/common/__tests__/with-auth-schema-drift.test.ts

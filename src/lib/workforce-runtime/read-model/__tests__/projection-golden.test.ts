@@ -546,6 +546,47 @@ section("Legacy 兼容（2A 早期 Job：无 humanRequirement / 无事件）");
     clarification.needsYou,
   );
 
+  // FIX B — errorMessage 结构性不泄漏：errorCode=clarification_required
+  // 但 waiting_human 无任何结构化 detail（humanRequirement.detail /
+  // payload.clarification 均缺失）→ 类型仍正确、detail=undefined、
+  // run 行错误原文（可能是堆栈）零出现
+  const stackSentinel = "STACK_SECRET_SENTINEL at planner.ts:42";
+  const bareClarification = buildWorkforceJobViewModel({
+    run: makeRun({
+      status: "needs_human",
+      errorCode: "clarification_required",
+      errorMessage: stackSentinel,
+    }),
+    steps: [],
+    events: makeEvents([
+      {
+        type: "job.waiting_human",
+        visible: true,
+        title: "需要补充信息后继续",
+        payload: { status: "needs_human" },
+      },
+    ]),
+    pendingActions: [],
+  });
+  ok(
+    bareClarification.needsYou?.type === "CLARIFICATION_REQUIRED",
+    "FIX B：无结构化 detail 仍映射 CLARIFICATION_REQUIRED",
+    bareClarification.needsYou,
+  );
+  ok(
+    bareClarification.needsYou?.detail === undefined,
+    "FIX B：结构化来源缺失 → detail=undefined（不回退 errorMessage）",
+  );
+  ok(
+    typeof bareClarification.needsYou?.title === "string" &&
+      bareClarification.needsYou.title.length > 0,
+    "FIX B：确定性 title 仍在",
+  );
+  ok(
+    !userViewJson(bareClarification).includes("STACK_SECRET_SENTINEL"),
+    "FIX B：errorMessage 原文（堆栈）在用户视图零出现",
+  );
+
   // PERMISSION_CHANGED（principal 失效）：detail 不透出内部码
   const permission = buildWorkforceJobViewModel({
     run: makeRun({

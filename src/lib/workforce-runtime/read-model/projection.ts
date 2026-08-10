@@ -306,7 +306,7 @@ function refActionIds(refs: { pendingActionIds?: unknown } | undefined): string[
  * 5. fail-safe → UNKNOWN_HUMAN_INTERVENTION（未知原因也要显示，绝不静默）。
  */
 export function projectNeedsYou(
-  run: Pick<WorkforceRunSnapshot, "status" | "errorCode" | "errorMessage">,
+  run: Pick<WorkforceRunSnapshot, "status" | "errorCode">,
   events: ReadonlyArray<WorkforceEventSnapshot>,
   pendingActions: ReadonlyArray<WorkforcePendingActionSnapshot>,
 ): WorkforceNeedsYouView | undefined {
@@ -357,14 +357,16 @@ export function projectNeedsYou(
     title: NEEDS_YOU_TITLES[type],
   };
 
-  // detail：只取结构化来源，按类型收敛（不透出内部码/堆栈）
+  // detail：只取结构化来源，按类型收敛（不透出内部码/堆栈）。
+  // Final Review FIX B：clarification detail 只允许
+  // humanRequirement.detail / payload.clarification 两个结构化来源；
+  // 结构化来源缺失时 detail=undefined——绝不回退 run 行上的错误原文
+  //（该列属内部诊断面，可能含堆栈/英文原文；本文件对其零引用，
+  // 由源码审计测试强制）。
   if (type === "CLARIFICATION_REQUIRED") {
     const clarification =
       requirementDetail ??
-      asString(asRecord(latestWaiting?.payload).clarification) ??
-      (run.errorCode === "clarification_required"
-        ? (run.errorMessage ?? undefined)
-        : undefined);
+      asString(asRecord(latestWaiting?.payload).clarification);
     if (clarification) view.detail = clarification.slice(0, 500);
   } else if (type === "APPROVAL_REQUIRED") {
     if (requirementDetail === "expired" || run.errorCode === "approval_expired") {
