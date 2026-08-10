@@ -65,6 +65,24 @@ export function isWorkforceRuntimeEnabled(input: WorkforceFlagInput): boolean {
   return isWorkforceRuntimeEnabledWithEnv(input, process.env);
 }
 
+/**
+ * 运行时 kill-switch（processing gate）：`WORKFORCE_RUNTIME_ENABLED` 总开关
+ * 关闭 → processor 跳过 claim 与处理，已排队 job 原状保留（queued 不动、
+ * 不失败、不清理），重新开启后恢复消费。
+ *
+ * 与创建入口 gate 的区别：allowlist 只约束"谁能创建 Job"（创建时逐用户判定）；
+ * 已入队 job 的消费只看总开关，不再逐 job 重算 allowlist。
+ */
+export function isWorkforceProcessingEnabledWithEnv(
+  env: WorkforceFlagEnv = process.env,
+): boolean {
+  return envBool(env.WORKFORCE_RUNTIME_ENABLED);
+}
+
+export function isWorkforceProcessingEnabled(): boolean {
+  return isWorkforceProcessingEnabledWithEnv(process.env);
+}
+
 export function describeWorkforceFlag(): Record<string, unknown> {
   return {
     enabled: envBool(process.env.WORKFORCE_RUNTIME_ENABLED),

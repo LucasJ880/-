@@ -63,7 +63,11 @@ run_test "Workforce 2A Durable Timeout" "npx tsx src/lib/workforce-runtime/__tes
 run_test "Workforce 2A Approval Resume Identity" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-approval-resume.test.ts"
 run_test "Workforce 2A Stale Worker Fencing" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-stale-worker.test.ts"
 run_test "Workforce 2A Normal Slices Budget" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-normal-slices.test.ts"
+<<<<<<< HEAD
 run_test "Workforce 2C-1 Pause/Resume Reconciliation" "npx tsx src/lib/workforce-runtime/__tests__/phase2c1-pause-resume.test.ts"
+=======
+run_test "Workforce Kill-Switch 运行时开关" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-kill-switch.test.ts"
+>>>>>>> origin/main
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
@@ -117,6 +121,7 @@ run_test "Phase5A Handoff Failure Recovery" "npx tsx src/lib/projects/handoff/__
 run_test "Phase5A Release Safety" "npx tsx scripts/check-release-safety.test.ts"
 run_test "Preview DB Isolation Guard" "npx tsx scripts/check-preview-db-isolation.test.ts"
 run_test "Production DB Test Guard" "npx tsx src/lib/testing/__tests__/assert-safe-test-database.test.ts"
+run_test "Production Operation Guard" "npx tsx src/lib/db-safety/__tests__/production-operation-guard.test.ts"
 run_test "Phase5C Migration History" "npx tsx scripts/verify-migration-history.ts"
 run_test "Phase3A-5 Stream/Settle Unit" "npx tsx src/lib/capabilities/__tests__/phase3a5-stream-settle.test.ts"
 run_test "Phase3A-5 Settle DB" "npx tsx src/lib/capabilities/__tests__/phase3a5-settle-db.test.ts"
