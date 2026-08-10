@@ -285,6 +285,26 @@ function deriveBusinessRefs(businessOutput: unknown): string[] {
     return [];
   }
   const record = businessOutput as Record<string, unknown>;
+  const refs: string[] = [];
+  const seen = new Set<string>();
+  const push = (entity: string, id: unknown) => {
+    if (
+      typeof id !== "string" ||
+      id.length === 0 ||
+      refs.length >= WORKFORCE_HANDOFF_LIMITS.maxBusinessRefs
+    ) {
+      return;
+    }
+    const ref = truncate(
+      `${entity}:${id}`,
+      WORKFORCE_HANDOFF_LIMITS.maxRefLength,
+    );
+    if (!seen.has(ref)) {
+      seen.add(ref);
+      refs.push(ref);
+    }
+  };
+
   const mapping: Array<[string, string]> = [
     ["customerId", "customer"],
     ["opportunityId", "opportunity"],
@@ -292,16 +312,31 @@ function deriveBusinessRefs(businessOutput: unknown): string[] {
     ["projectId", "project"],
     ["tenderId", "tender"],
   ];
-  const refs: string[] = [];
   for (const [field, entity] of mapping) {
-    const v = record[field];
-    if (typeof v === "string" && v.length > 0) {
-      refs.push(
-        truncate(`${entity}:${v}`, WORKFORCE_HANDOFF_LIMITS.maxRefLength),
-      );
+    push(entity, record[field]);
+  }
+
+  // P0 §21 内容质量：已知列表形状 → 有界引用。大体量业务数据不进
+  // outputs（超预算会被投影截断），下游经 businessRefs 做 durable
+  // retrieval——refs 是引用不是数据，cap 不变、信封尺寸边界不变。
+  const arrayMappings: Array<{ key: string; entity: string; idField: string }> =
+    [
+      { key: "customers", entity: "customer", idField: "id" },
+      { key: "opportunities", entity: "opportunity", idField: "id" },
+      { key: "quotes", entity: "quote", idField: "id" },
+      { key: "prioritized", entity: "customer", idField: "customerId" },
+      { key: "prioritized", entity: "opportunity", idField: "opportunityId" },
+    ];
+  for (const { key, entity, idField } of arrayMappings) {
+    const list = record[key];
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        push(entity, (item as Record<string, unknown>)[idField]);
+      }
     }
   }
-  return refs.slice(0, WORKFORCE_HANDOFF_LIMITS.maxBusinessRefs);
+  return refs;
 }
 
 export type UpstreamHandoff = {
@@ -342,6 +377,24 @@ function deriveSummary(input: BuildWorkforceHandoffInput): string {
     );
   }
   if (input.taskKind === "synthesis") {
+    // P0 §21 内容质量：synthesis 的真实综合结论（businessOutput.summary）
+    // 优先作为 Handoff summary——下游与最终报告读到的是业务结论，
+    // 不是模板文。无结论时退回结构模板（不臆造内容）。
+    const synthesisRecord =
+      input.businessOutput &&
+      typeof input.businessOutput === "object" &&
+      !Array.isArray(input.businessOutput)
+        ? (input.businessOutput as Record<string, unknown>)
+        : {};
+    if (
+      typeof synthesisRecord.summary === "string" &&
+      synthesisRecord.summary.length > 0
+    ) {
+      return truncate(
+        synthesisRecord.summary,
+        WORKFORCE_HANDOFF_LIMITS.maxSummaryLength,
+      );
+    }
     const chain = (input.upstreamHandoffs ?? [])
       .map((u) => u.stepKey)
       .join(" + ");

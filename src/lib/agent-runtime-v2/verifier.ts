@@ -27,15 +27,37 @@ async function deterministicVerify(input: {
   const evidence: string[] = [];
   const repairs: string[] = [];
 
+  // ── P0 #90A Required Task Failure Rule（§24–§25）──
+  // 任何 required Task 的 terminal failure（failed / blocked）都必须进入
+  // failedRequired，无论 requiresApproval 取值。审批语义不豁免执行失败：
+  // Approval Outcome ≠ Execution Outcome——审批拒绝走 skipped（合法 skip，
+  // 2C-1 冻结语义，不在此列），而"审批通过后执行失败 / 写步骤工具失败"
+  // 是真实 terminal failure，绝不能对 verifier 不可见。
+  // 当前 Task contract 无 optional 标记 ⇒ 所有 Task 均为 required。
   const failedRequired = steps.filter(
-    (s) => s.status === "failed" && s.requiresApproval === false,
+    (s) => s.status === "failed" || s.status === "blocked",
+  );
+  // 自动修复只覆盖非审批步骤（repair 重置 requiresApproval=false 的
+  // failed step）；审批类失败不可自动修复 → 必须转人工，禁止空转 REPAIR
+  const failedRepairable = failedRequired.filter(
+    (s) => s.requiresApproval === false,
+  );
+  const failedNonRepairable = failedRequired.filter(
+    (s) => s.requiresApproval === true,
   );
   if (failedRequired.length > 0) {
-    unsatisfied.push("必要只读/分析步骤失败");
-    repairs.push("重新执行失败的分析步骤");
+    if (failedRepairable.length > 0) {
+      unsatisfied.push("必要只读/分析步骤失败");
+      repairs.push("重新执行失败的分析步骤");
+    }
+    if (failedNonRepairable.length > 0) {
+      unsatisfied.push(
+        "必需写任务终态失败（requiresApproval 不豁免执行失败）",
+      );
+    }
     evidence.push(...failedRequired.map((s) => `step:${s.stepKey}:failed`));
   } else {
-    satisfied.push("分析步骤无未恢复失败");
+    satisfied.push("必需任务无未恢复失败");
   }
 
   const writeSteps = steps.filter((s) => s.requiresApproval);
@@ -128,6 +150,19 @@ async function deterministicVerify(input: {
     };
   }
 
+  // #90A：存在不可自动修复的必需任务失败、且无可修复失败可先处理时，
+  // REPAIR 只会空转（repair 不重置审批步骤）→ 直接 NEEDS_HUMAN。
+  if (failedNonRepairable.length > 0 && failedRepairable.length === 0) {
+    return {
+      verdict: "NEEDS_HUMAN",
+      summary: "确定性检查发现不可自动修复的必需任务失败，需要人工处理",
+      satisfiedCriteria: satisfied,
+      unsatisfiedCriteria: unsatisfied,
+      evidenceReferences: evidence,
+      repairInstructions: repairs,
+    };
+  }
+
   return {
     verdict: "REPAIR",
     summary: "确定性检查发现问题，需要修复",
@@ -136,6 +171,28 @@ async function deterministicVerify(input: {
     evidenceReferences: evidence,
     repairInstructions: repairs,
   };
+}
+
+/**
+ * P0 #90A（§27）Deterministic Rule Engine = hard floor：
+ * 确定性引擎已判非 PASS 时，模型复核（LLM verifier）绝不允许把最终
+ * verdict 升回 PASS——模型只能补充解释/风险/narrative，不能解除
+ * deterministic failure。纯函数导出供永久 invariant 测试。
+ *
+ * 结构上 modelVerify 仅在 deterministic=PASS 时运行（下方 gate），
+ * 本函数是最终 verdict 前的第二道防线（defense in depth）。
+ */
+export function applyDeterministicHardFloor(
+  deterministic: VerifierOutput,
+  model: VerifierOutput,
+): VerifierOutput {
+  if (deterministic.verdict !== "PASS" && model.verdict === "PASS") {
+    return {
+      ...deterministic,
+      summary: `${deterministic.summary}（模型复核不得解除确定性失败）`,
+    };
+  }
+  return model;
 }
 
 async function modelVerify(input: {
@@ -226,12 +283,14 @@ export async function verifyRuntimeV2Run(input: {
     runId: input.runId,
     plan,
   });
-  const final = await modelVerify({
+  const modeled = await modelVerify({
     orgId: input.orgId,
     userId: input.userId,
     plan,
     deterministic,
   });
+  // #90A §27：deterministic hard floor——LLM 不得解除确定性失败
+  const final = applyDeterministicHardFloor(deterministic, modeled);
 
   // ── 关键 fence 检查点（Phase 2A Final BLOCKER 1）──
   // modelVerify 是潜在长 await（LLM 调用）：verification 落库与任何终态
@@ -346,6 +405,10 @@ export async function verifyRuntimeV2Run(input: {
       where: { id: input.runId },
       data: {
         status: "needs_human",
+        // P0：durable errorCode 补全（此前保持 null/残留旧值；
+        // 非 MANUAL_RESUMABLE_PERMISSION_CODES ⇒ 2C-1 resume 白名单
+        // 行为不变，仍 fail-closed）
+        errorCode: "verification_failed",
         errorMessage: final.summary,
       },
     }),

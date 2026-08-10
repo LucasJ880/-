@@ -5,7 +5,7 @@ import {
   type PlannerOutput,
   type ToolDescriptor,
 } from "./schemas";
-import { RUNTIME_V2_TOOL_CATALOG } from "./tool-catalog";
+import { plannerVisibleRuntimeV2Tools } from "./tool-catalog";
 
 export type PlannerInput = {
   orgId: string;
@@ -164,7 +164,9 @@ export function buildSalesFollowupGoldenPlan(): PlannerOutput {
         id: "s5_prioritize",
         title: "选出最多 3 个优先客户",
         description: "合并分析证据并排序",
-        dependsOn: ["s3_followup_analysis", "s4_quote_risk"],
+        // #89：依赖声明是证据消费的唯一权威——本步骤实际消费商机列表
+        // （排序基座）与两类分析证据，三个上游必须全部显式声明
+        dependsOn: ["s2_opportunities", "s3_followup_analysis", "s4_quote_risk"],
         preferredTool: "sales_prioritize_followups",
         executionMode: "analysis",
         riskLevel: "LOW",
@@ -218,9 +220,10 @@ function isSalesFollowupGoal(goal: string): boolean {
 export async function planAgentRuntimeV2(
   input: PlannerInput,
 ): Promise<PlannerResult> {
+  // #88：默认工具集 = planner 可见投影（目录 ∩ 可执行），fail-closed
   const tools = input.availableTools?.length
     ? input.availableTools
-    : RUNTIME_V2_TOOL_CATALOG;
+    : plannerVisibleRuntimeV2Tools();
   const { maxSteps } = getRuntimeV2Limits();
 
   if (isSalesFollowupGoal(input.goal)) {
@@ -270,6 +273,8 @@ export async function planAgentRuntimeV2(
       ? `
 - 每个 step 可指定 workerKey（必须严格来自下方 Worker 名单，禁止编造新 worker/role/权限）与 taskKind（"work" 或 "synthesis"）
 - 需要合并多个上游 step 结果的汇总步骤应设 taskKind="synthesis"，并指派支持 synthesis 的 worker
+- taskKind="synthesis" 的步骤由 Runtime 原生执行综合（不要设 preferredTool、requiresApproval 必须为 false），且必须在 dependsOn 中声明全部需要综合的上游 step
+- 任何 step 需要消费上游结果时，必须把对应上游 step 列入 dependsOn（未声明的上游结果不可见）
 - Worker 名单：
 ${workerLines}`
       : ""
