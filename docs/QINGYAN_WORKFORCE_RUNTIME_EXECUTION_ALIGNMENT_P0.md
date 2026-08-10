@@ -35,7 +35,7 @@ Synthesis no_tool Failure = 0；False Completed With Failed Required Task = 0；
 
 | 项 | 值 |
 |---|---|
-| Base main | `abac67e`（含 PR #85 Phase 2B-1、PR #86 Test Isolation——HARD PREREQUISITE 已验证） |
+| Base main | `abac67e`（含 PR #85 Phase 2B-1、PR #86 Test Isolation——HARD PREREQUISITE 已验证）；开发期间 #87（2D-1 只读 UX）/#92（Tender T0 docs）并入 main → 已 rebase 到 `da50d2c`（冲突仅 `scripts/test-all.sh` 测试注册行，两侧保留；零 Runtime 代码冲突） |
 | Branch | `fix/workforce-runtime-execution-alignment-p0` |
 | PR | #94（Draft） |
 | 实现提交 | `54a29b1`（runtime）→ `aa5a378`（golden tests）→ `beda1bb`（CASE B port + synthesis 预算） |
