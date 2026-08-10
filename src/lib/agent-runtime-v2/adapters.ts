@@ -25,6 +25,13 @@ export type AdapterContext = {
   operationKey: string;
   /** 前序步骤输出汇总 */
   priorEvidence: Record<string, unknown>;
+  /**
+   * Phase 2B-1（workforce_job 任务专属）：server 构建的 Worker 执行上下文
+   * （workerKey/role/objective/validated 上游 Handoff）。仅用于任务执行
+   * 上下文与审计，绝不参与鉴权——Tool 授权仍由 canInvokeTool / scope /
+   * 审批链独立判定（§12/§16）。legacy runtime_v2 恒为 undefined。
+   */
+  workforce?: import("@/lib/workforce-runtime/handoff").WorkforceExecutionContext;
 };
 
 export type AdapterResult = {

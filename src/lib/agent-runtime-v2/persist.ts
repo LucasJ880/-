@@ -50,6 +50,10 @@ async function persistPlanAndStepsWithClient(
 
   for (const step of plan.steps) {
     const deps = step.dependsOn ?? [];
+    // Phase 2B-1：workforce path 在 persist 前经 applyWorkforceTaskSpecs
+    // 附加 server 校验过的 workforceTask spec；legacy plan 无该字段，
+    // inputJson 保持不写（行为不变）。
+    const workforceTask = (step as { workforceTask?: unknown }).workforceTask;
     await client.agentRunStep.create({
       data: {
         orgId,
@@ -64,6 +68,13 @@ async function persistPlanAndStepsWithClient(
         riskLevel: step.riskLevel,
         requiresApproval: step.requiresApproval,
         maxAttempts: maxAttemptsPerStep,
+        ...(workforceTask
+          ? {
+              inputJson: JSON.parse(
+                JSON.stringify({ workforceTask }),
+              ) as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
   }

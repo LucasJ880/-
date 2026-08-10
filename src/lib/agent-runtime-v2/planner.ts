@@ -18,6 +18,18 @@ export type PlannerInput = {
   currentQuoteId?: string;
   currentProjectId?: string;
   availableTools?: ToolDescriptor[];
+  /**
+   * Phase 2B-1（workforce_job 专用）：server-owned Worker 名单。传入时
+   * planner 才被允许（且仅被允许）从名单中提议 step.workerKey/taskKind；
+   * 名单外的 workerKey 在服务端 applyWorkforceTaskSpecs fail-closed。
+   * legacy runtime_v2 不传，行为不变。
+   */
+  workerRoster?: Array<{
+    workerKey: string;
+    role: string;
+    description?: string;
+    taskKinds: string[];
+  }>;
 };
 
 export type PlannerResult =
@@ -237,6 +249,15 @@ export async function planAgentRuntimeV2(
     )
     .join("\n");
 
+  const workerLines = input.workerRoster?.length
+    ? input.workerRoster
+        .map(
+          (w) =>
+            `- ${w.workerKey}（role=${w.role}，taskKinds=${w.taskKinds.join("/")}）：${w.description ?? ""}`,
+        )
+        .join("\n")
+    : null;
+
   const system = `你是青砚 Agent Runtime Planner。只输出 JSON，不要执行工具。
 规则：
 - steps 最多 ${maxSteps} 个
@@ -244,7 +265,15 @@ export async function planAgentRuntimeV2(
 - 能通过工具查到的信息不要询问用户
 - 只有真正阻断执行的缺失信息才设 needsClarification=true
 - 写操作 must requiresApproval=true
-- 简单查询不要拆超过 3 步`;
+- 简单查询不要拆超过 3 步${
+    workerLines
+      ? `
+- 每个 step 可指定 workerKey（必须严格来自下方 Worker 名单，禁止编造新 worker/role/权限）与 taskKind（"work" 或 "synthesis"）
+- 需要合并多个上游 step 结果的汇总步骤应设 taskKind="synthesis"，并指派支持 synthesis 的 worker
+- Worker 名单：
+${workerLines}`
+      : ""
+  }`;
 
   const user = JSON.stringify({
     goal: input.goal,
@@ -273,6 +302,9 @@ export async function planAgentRuntimeV2(
           riskLevel: "LOW",
           requiresApproval: false,
           expectedOutput: "...",
+          ...(input.workerRoster?.length
+            ? { workerKey: input.workerRoster[0]?.workerKey, taskKind: "work" }
+            : {}),
         },
       ],
     },

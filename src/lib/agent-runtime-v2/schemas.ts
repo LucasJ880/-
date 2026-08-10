@@ -24,6 +24,12 @@ export const PlanStepSchema = z.object({
   riskLevel: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
   requiresApproval: z.boolean(),
   expectedOutput: z.string().min(1),
+  // Phase 2B-1（workforce_job 专用，legacy runtime_v2 忽略）：planner 只能
+  // "提议" workerKey/taskKind，服务端 registry 校验后才落 inputJson.workforceTask
+  //（applyWorkforceTaskSpecs，unknown worker fail-closed）。可选字段，
+  // legacy 计划不受影响。
+  workerKey: z.string().optional(),
+  taskKind: z.enum(["work", "synthesis"]).optional(),
 });
 
 export const PlannerOutputSchema = z.object({

@@ -16,6 +16,17 @@ import { buildStepOperationKey } from "./idempotency";
 import { getRuntimeV2Tool } from "./tool-catalog";
 import { refreshReadySteps } from "./persist";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
+import { readWorkforceTaskSpec } from "@/lib/workforce-runtime/task-contract";
+import {
+  buildWorkforceHandoffV1,
+  collectUpstreamHandoffs,
+  WORKFORCE_HANDOFF_CONTRACT_VERSION,
+  type WorkforceExecutionContext,
+} from "@/lib/workforce-runtime/handoff";
+import {
+  getWorkforceWorker,
+  workerSupportsTaskKind,
+} from "@/lib/workforce-runtime/workers";
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
@@ -40,6 +51,55 @@ function asEvidenceMap(
     }
   }
   return out;
+}
+
+/**
+ * Phase 2B-1 fail-closed 终止（§29）：workforce 契约失效（worker 无效 /
+ * handoff 无效 / 上游缺失）→ step failed + run needs_human。
+ * 与既有 canInvokeTool 失败分支同构：fenced 写入 + run.needs_human 事件。
+ */
+async function failStepClosed(input: {
+  fence?: RunFence;
+  orgId: string;
+  runId: string;
+  stepId: string;
+  stepKey: string;
+  stepTitle: string;
+  errorCode: string;
+  errorMessage: string;
+}): Promise<ExecuteRoundResult> {
+  const { fence, orgId, runId } = input;
+  await fenceGuardedWrite(fence, async (c) => {
+    await c.agentRunStep.update({
+      where: { id: input.stepId },
+      data: {
+        status: "failed",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        completedAt: new Date(),
+      },
+    });
+    await c.agentRun.update({
+      where: { id: runId },
+      data: {
+        status: "needs_human",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+      },
+    });
+  });
+  await emitRuntimeV2Event({
+    orgId,
+    runId,
+    eventType: "run.needs_human",
+    title: "Workforce 任务契约校验失败，需要人工处理",
+    payload: {
+      stepKey: input.stepKey,
+      errorCode: input.errorCode,
+      error: input.errorMessage,
+    },
+  });
+  return { status: "failed", error: input.errorMessage };
 }
 
 /**
@@ -259,6 +319,71 @@ async function executeRoundGuarded(input: {
     return { status: "failed", error: decision.error };
   }
 
+  // ── Phase 2B-1 Workforce Task gate（仅 workforce_job 且 step 携带
+  // workforceTask spec；legacy runtime_v2 与旧 workforce run 不受影响）──
+  // 失败一律 fail-closed：step failed + run needs_human（§29），
+  // 不做 fallback worker / 动态 replan（2B-3 边界）。
+  let workforceContext: WorkforceExecutionContext | null = null;
+  if (isDurableWorkforceJob) {
+    const specRead = readWorkforceTaskSpec(step.inputJson);
+    if (specRead.kind === "invalid") {
+      return failStepClosed({
+        fence,
+        orgId,
+        runId,
+        stepId: step.id,
+        stepKey: step.stepKey,
+        stepTitle: step.title,
+        errorCode: "workforce_task_invalid",
+        errorMessage: `Workforce Task spec 损坏：${specRead.error}`,
+      });
+    }
+    if (specRead.kind === "valid") {
+      const spec = specRead.spec;
+      // worker 执行期重校验（registry 为 server-authoritative；§9/§13）
+      const worker = getWorkforceWorker(spec.worker.workerKey);
+      if (!worker || !workerSupportsTaskKind(spec.worker.workerKey, spec.taskKind)) {
+        return failStepClosed({
+          fence,
+          orgId,
+          runId,
+          stepId: step.id,
+          stepKey: step.stepKey,
+          stepTitle: step.title,
+          errorCode: "workforce_worker_invalid",
+          errorMessage: `Worker 无效或不支持该任务类型：${spec.worker.workerKey}/${spec.taskKind}`,
+        });
+      }
+      // Dependency → validated Handoff（§22–24）：任一上游 handoff
+      // missing / unknown version / malformed / 来源不符 → fail closed
+      const upstream = collectUpstreamHandoffs({
+        runId,
+        dependsOnJson: step.dependsOnJson,
+        steps,
+      });
+      if (!upstream.ok) {
+        return failStepClosed({
+          fence,
+          orgId,
+          runId,
+          stepId: step.id,
+          stepKey: step.stepKey,
+          stepTitle: step.title,
+          errorCode: upstream.code,
+          errorMessage: upstream.error,
+        });
+      }
+      workforceContext = {
+        workerKey: worker.workerKey,
+        role: worker.role,
+        taskKind: spec.taskKind,
+        objective: spec.objective,
+        spec,
+        upstreamHandoffs: upstream.upstream,
+      };
+    }
+  }
+
   const attempt = step.attemptCount + 1;
   // 业务幂等不含 attempt；Step 表仅记录稳定 operationKey 供审计
   const operationKey = buildStepOperationKey({
@@ -283,7 +408,22 @@ async function executeRoundGuarded(input: {
     runId,
     eventType: "step.started",
     title: step.title,
-    payload: { stepKey: step.stepKey, toolName, attempt, operationKey },
+    payload: {
+      stepKey: step.stepKey,
+      toolName,
+      attempt,
+      operationKey,
+      // §37 最小观测增强（workforce 任务才有）
+      ...(workforceContext
+        ? {
+            workerKey: workforceContext.workerKey,
+            taskKind: workforceContext.taskKind,
+            upstreamStepKeys: workforceContext.upstreamHandoffs.map(
+              (u) => u.stepKey,
+            ),
+          }
+        : {}),
+    },
   });
   await emitRuntimeV2Event({
     orgId,
@@ -306,6 +446,9 @@ async function executeRoundGuarded(input: {
       stepKey: step.stepKey,
       operationKey,
       priorEvidence,
+      // §13：Worker 执行上下文注入（workforce 任务专属；只含必要内容，
+      // 不含任何授权语义——Tool 鉴权仍完整走 canInvokeTool/审批链）
+      workforce: workforceContext ?? undefined,
     });
   } catch (err) {
     result = {
@@ -367,11 +510,38 @@ async function executeRoundGuarded(input: {
       }),
     );
     if (result.data?.skipped) {
-      // 无可写对象：视为完成跳过
+      // 无可写对象：视为完成跳过。skipped 是 Handoff 终态（§33）：
+      // workforce 任务在同一 fenced 写入内附加信封（保留业务 output）
+      const skippedAt = new Date();
+      const skippedData: {
+        status: string;
+        completedAt: Date;
+        outputJson?: Prisma.InputJsonValue;
+      } = { status: "skipped", completedAt: skippedAt };
+      if (workforceContext) {
+        const skippedHandoff = buildWorkforceHandoffV1({
+          runId,
+          stepKey: step.stepKey,
+          workerKey: workforceContext.workerKey,
+          taskKind: workforceContext.taskKind,
+          stepStatus: "skipped",
+          taskObjective: workforceContext.objective,
+          businessOutput: result.data ?? {},
+          pendingActionIds: pendingIds,
+          completedAt: skippedAt,
+          upstreamHandoffs: workforceContext.upstreamHandoffs,
+        });
+        if (skippedHandoff.ok) {
+          skippedData.outputJson = jsonValue({
+            ...((result.data ?? {}) as Record<string, unknown>),
+            workforceHandoff: skippedHandoff.payload,
+          });
+        }
+      }
       await fenceGuardedWrite(fence, (c) =>
         c.agentRunStep.update({
           where: { id: step.id },
-          data: { status: "skipped", completedAt: new Date() },
+          data: skippedData,
         }),
       );
       await emitRuntimeV2Event({
@@ -415,14 +585,48 @@ async function executeRoundGuarded(input: {
     return { status: "awaiting_approval" };
   }
 
+  // §31/§32：completedAt 唯一取值一次——Step 终态与 Handoff.createdAt 共用
+  // 同一 durable 时间，且 Handoff 与 Step 结果在同一 fenced 原子写入内持久化
+  const completedAt = new Date();
+  let completedOutput: Record<string, unknown> = {
+    ...((result.data ?? {}) as Record<string, unknown>),
+  };
+  if (workforceContext) {
+    const handoff = buildWorkforceHandoffV1({
+      runId,
+      stepKey: step.stepKey,
+      workerKey: workforceContext.workerKey,
+      taskKind: workforceContext.taskKind,
+      stepStatus: "completed",
+      taskObjective: workforceContext.objective,
+      businessOutput: result.data ?? {},
+      completedAt,
+      upstreamHandoffs: workforceContext.upstreamHandoffs,
+    });
+    if (!handoff.ok) {
+      return failStepClosed({
+        fence,
+        orgId,
+        runId,
+        stepId: step.id,
+        stepKey: step.stepKey,
+        stepTitle: step.title,
+        errorCode: "handoff_build_failed",
+        errorMessage: `Handoff 构建失败（${handoff.code}）：${handoff.error}`,
+      });
+    }
+    // §20：namespaced envelope，保留原业务 output，不覆盖 step result
+    completedOutput = { ...completedOutput, workforceHandoff: handoff.payload };
+  }
+
   await fenceGuardedWrite(fence, (c) =>
     c.agentRunStep.update({
       where: { id: step.id },
       data: {
         status: "completed",
-        outputJson: jsonValue(result.data ?? {}),
+        outputJson: jsonValue(completedOutput),
         evidenceJson: jsonValue({ toolName, ok: true }),
-        completedAt: new Date(),
+        completedAt,
       },
     }),
   );
@@ -438,7 +642,16 @@ async function executeRoundGuarded(input: {
     runId,
     eventType: "step.completed",
     title: step.title,
-    payload: { stepKey: step.stepKey },
+    payload: {
+      stepKey: step.stepKey,
+      ...(workforceContext
+        ? {
+            workerKey: workforceContext.workerKey,
+            taskKind: workforceContext.taskKind,
+            handoffVersion: WORKFORCE_HANDOFF_CONTRACT_VERSION,
+          }
+        : {}),
+    },
   });
 
   return { status: "continued" };
