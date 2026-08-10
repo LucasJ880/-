@@ -3,7 +3,7 @@
 
 - 日期：2026-08-10
 - 分支：`feature/workforce-runtime-phase2b1-task-handoff`
-- Base main SHA：`97ac959bb976170d336a76165cf1167d9e049ee1`（PR #81 Phase 2C-1 merge；已验证 main 含 #78/#79/#80/#81）
+- Base main SHA：验证基线 `97ac959bb976170d336a76165cf1167d9e049ee1`（PR #81 merge；已验证 main 含 #78/#79/#80/#81）；#83/#84 于会话中合入 main 后，分支已 rebase 至 `2c33ad6`（与本 PR 无文件语义冲突，仅 `scripts/test-all.sh` 加行合并）
 - 设计依据：`docs/QINGYAN_WORKFORCE_PHASE2B_HANDOFF_PARALLEL_DESIGN.md`（本 PR 只实现其 2B-1 范围 + 任务书收紧项；无新外部调研）
 - 范围：**One Job → Multiple Durable Tasks → Server-Validated Worker Assignment → Structured Handoff V1 → Downstream Task Context → Explicit Synthesis Task**
 - 明确不做：并行执行（2B-2）、fallback worker / 动态 replan（2B-3）、resource freshness（2C-2）、clarification/replan（2C-3）、任何 UI
