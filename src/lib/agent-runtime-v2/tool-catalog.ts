@@ -19,6 +19,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -27,6 +28,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -35,6 +37,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -44,6 +47,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -53,6 +57,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -62,6 +67,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -70,6 +76,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -78,6 +85,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
   {
@@ -120,6 +128,7 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     riskLevel: "LOW",
     readOnly: true,
     requiresApproval: false,
+    parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
 ];

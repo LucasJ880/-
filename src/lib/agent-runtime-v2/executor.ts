@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { AgentRunStep, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getOrgMembership } from "@/lib/auth";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
@@ -16,6 +16,13 @@ import { buildStepOperationKey } from "./idempotency";
 import { getRuntimeV2Tool } from "./tool-catalog";
 import { refreshReadySteps } from "./persist";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
+import { isWorkforceProcessingEnabled } from "@/lib/workforce-runtime/flags";
+import {
+  buildParallelBatch,
+  collectOccupiedResourceKeys,
+  getWorkforceMaxParallelTasks,
+  type TaskExecutionPolicy,
+} from "@/lib/workforce-runtime/parallel";
 import { readWorkforceTaskSpec } from "@/lib/workforce-runtime/task-contract";
 import {
   buildWorkforceHandoffV1,
@@ -178,10 +185,18 @@ async function executeRoundGuarded(input: {
   if (run.status === "cancelled") return { status: "cancelled" };
   if (run.status === "awaiting_approval") return { status: "awaiting_approval" };
 
+  const isDurableWorkforceJob = run.runType === WORKFORCE_JOB_RUN_TYPE;
+
+  // Phase 2B-2（§22）：kill-switch 在 slice 内即时生效——总开关关闭后
+  // 本轮不做 DAG 推进 / batch selection / Step claim / Handoff 生成，
+  // 交还 processor（processor 的 claim/queue gate 会阻止后续 slice）。
+  if (isDurableWorkforceJob && !isWorkforceProcessingEnabled()) {
+    return { status: "continued" };
+  }
+
   // 超时（Phase 2A：durable workforce_job 不使用 run.startedAt 作为单次执行
   // timeout——Job 可能已存活数小时（等审批/多 slice），改由 workforce processor
   // 在每个 slice 内用 processingStartedAt 控制 per-slice 时间预算）
-  const isDurableWorkforceJob = run.runType === WORKFORCE_JOB_RUN_TYPE;
   if (!isDurableWorkforceJob && run.startedAt) {
     const elapsed = Date.now() - run.startedAt.getTime();
     if (elapsed > limits.timeoutMs) {
@@ -230,9 +245,8 @@ async function executeRoundGuarded(input: {
     return { status: "failed", error: "max_tool_calls" };
   }
 
-  const ready = steps
-    .filter((s) => s.status === "ready")
-    .slice(0, limits.parallelism);
+  const readySteps = steps.filter((s) => s.status === "ready");
+  const ready = readySteps.slice(0, limits.parallelism);
 
   if (ready.length === 0) {
     const awaiting = steps.some((s) => s.status === "awaiting_approval");
@@ -272,6 +286,30 @@ async function executeRoundGuarded(input: {
       return { status: "ready_for_verification" };
     }
     return { status: "ready_for_verification" };
+  }
+
+  // ── Phase 2B-2：workforce_job 一律走受控 batch 调度（server policy 分类
+  // + Step CAS claim + bounded SAFE_PARALLEL batch + coordinator 独占 Run
+  // 状态收敛）。maxParallelTasks=1（production default）时 batch 恒为
+  // [队首]，调度语义与单步执行一致；#94 P0 语义（gate 先于工具解析、
+  // native synthesis、dependsOn-scoped evidence、synthesis_failed）在
+  // batch 路径内 1:1 保持。legacy runtime_v2 走下方原路径，行为零变化。──
+  if (isDurableWorkforceJob) {
+    return executeWorkforceBatchRound({
+      orgId,
+      runId,
+      userId,
+      role,
+      membershipRole: membership.role,
+      threadId,
+      assistantMessageId,
+      fence,
+      runStartedAt: run.startedAt,
+      steps,
+      readySteps,
+      toolCallsUsed: toolCalls,
+      maxToolCalls: limits.maxToolCalls,
+    });
   }
 
   await fenceGuardedWrite(fence, (c) =>
@@ -728,4 +766,809 @@ async function executeRoundGuarded(input: {
   });
 
   return { status: "continued" };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 2B-2 — Controlled Parallel Task Execution（workforce_job 专属）
+//
+// 职责分离（§16）：
+// - Task worker（executeClaimedWorkforceStep）只写 Step state / Step result
+//   / Handoff（全部 fenced），绝不写 AgentRun.status；
+// - Batch coordinator（executeWorkforceBatchRound）负责选 batch、CAS 认领、
+//   并发执行、聚合 outcome、唯一决定 Run 下一状态——避免并行 Promise
+//   竞写 Job 状态（Task A 置 completed 与 Task B 置 needs_human 竞态）。
+//
+// #94 P0 语义在本路径 1:1 保持：
+// - workforce gate 先于工具解析（native synthesis 无 preferredTool，
+//   绝不落 no_tool）；
+// - taskKind=synthesis ∧ 无 preferredTool → executeWorkforceSynthesisTask
+//  （统一模型出口，失败 errorCode=synthesis_failed）；
+// - 契约任务 priorEvidence = dependsOn 声明上游（声明序，scoped）；
+// - stale running 回收不在本层（唯一边界 = processor 成功获取 run lease
+//   之后，Final Gate §4——round 内绝不 running→ready，P6b）。
+// ═══════════════════════════════════════════════════════════════════════
+
+type WorkforceStepRow = AgentRunStep;
+
+type WorkforceStepOutcome =
+  | { kind: "continued" }
+  /** CAS 未命中：另一 driver 已认领（TASK_ALREADY_CLAIMED），未执行 Tool */
+  | { kind: "claim_lost"; stepKey: string }
+  | { kind: "awaiting_approval"; stepKey: string; pendingActionIds: string[] }
+  | {
+      kind: "needs_human";
+      stepKey: string;
+      errorCode: string;
+      errorMessage: string;
+      eventTitle: string;
+    };
+
+/**
+ * Phase 2B-2 fail-closed（§16/§21）：workforce 契约/鉴权失效时只写 Step
+ * 终态，不写 Run 状态——Run 级收敛由 batch coordinator 统一决定（并行
+ * sibling 的 durable 结果不因本 Task 失败而丢失）。
+ */
+async function failWorkforceStepOnly(input: {
+  fence?: RunFence;
+  stepId: string;
+  errorCode: string;
+  errorMessage: string;
+}): Promise<void> {
+  await fenceGuardedWrite(input.fence, (c) =>
+    c.agentRunStep.update({
+      where: { id: input.stepId },
+      data: {
+        status: "failed",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        completedAt: new Date(),
+      },
+    }),
+  );
+}
+
+/**
+ * Workforce Task gate（2B-1 §29 语义 + #94 顺序要求：gate 先于工具解析，
+ * 在 CAS 认领之前执行——gate 失败不消耗 attemptCount）：
+ * - spec absent → TRUE LEGACY（2B-1 前规划的旧 run）：无 context 放行；
+ * - spec invalid / worker 无效 / 上游 Handoff 缺失·损坏·来源不符 → fail-closed。
+ */
+function evaluateWorkforceTaskGate(input: {
+  runId: string;
+  step: Pick<WorkforceStepRow, "inputJson" | "dependsOnJson">;
+  steps: Array<
+    Pick<WorkforceStepRow, "stepKey" | "status" | "inputJson" | "outputJson">
+  >;
+}):
+  | { ok: true; context: WorkforceExecutionContext | null }
+  | { ok: false; errorCode: string; errorMessage: string } {
+  const specRead = readWorkforceTaskSpec(input.step.inputJson);
+  if (specRead.kind === "invalid") {
+    return {
+      ok: false,
+      errorCode: "workforce_task_invalid",
+      errorMessage: `Workforce Task spec 损坏：${specRead.error}`,
+    };
+  }
+  if (specRead.kind === "absent") return { ok: true, context: null };
+
+  const spec = specRead.spec;
+  // worker 执行期重校验（registry 为 server-authoritative；§9/§13）
+  const worker = getWorkforceWorker(spec.worker.workerKey);
+  if (!worker || !workerSupportsTaskKind(spec.worker.workerKey, spec.taskKind)) {
+    return {
+      ok: false,
+      errorCode: "workforce_worker_invalid",
+      errorMessage: `Worker 无效或不支持该任务类型：${spec.worker.workerKey}/${spec.taskKind}`,
+    };
+  }
+  // Dependency → validated Handoff（§18）：消费顺序恒为 dependsOn 声明序，
+  // 与并行完成顺序无关；任一上游 missing / unknown version / malformed /
+  // 来源不符 → fail closed
+  const upstream = collectUpstreamHandoffs({
+    runId: input.runId,
+    dependsOnJson: input.step.dependsOnJson,
+    steps: input.steps,
+  });
+  if (!upstream.ok) {
+    return {
+      ok: false,
+      errorCode: upstream.code,
+      errorMessage: upstream.error,
+    };
+  }
+  return {
+    ok: true,
+    context: {
+      workerKey: worker.workerKey,
+      role: worker.role,
+      taskKind: spec.taskKind,
+      objective: spec.objective,
+      spec,
+      upstreamHandoffs: upstream.upstream,
+    },
+  };
+}
+
+/**
+ * Batch coordinator（§14/§16/§20/§21 + Final Gate §6）：
+ *   classify policies → bounded batch（并行上限 ∩ 剩余工具预算）→
+ *   pre-flight（gate 先行）→ CAS claim → 并发执行 → 聚合 outcome →
+ *   唯一决定 Run 下一状态。
+ */
+async function executeWorkforceBatchRound(input: {
+  orgId: string;
+  runId: string;
+  userId: string;
+  role: string;
+  membershipRole: string;
+  threadId: string | null;
+  assistantMessageId: string | null;
+  fence?: RunFence;
+  runStartedAt: Date | null;
+  steps: WorkforceStepRow[];
+  readySteps: WorkforceStepRow[];
+  /** 本轮开始时的 attemptCount 总和（= 已消耗工具调用预算） */
+  toolCallsUsed: number;
+  maxToolCalls: number;
+}): Promise<ExecuteRoundResult> {
+  const { orgId, runId, fence } = input;
+
+  // §8/§20 防御：审批窗口内（任一 Step awaiting_approval）绝不启动新
+  // batch——Run 收敛 awaiting_approval，等待 2C-1 resume 链路
+  if (input.steps.some((s) => s.status === "awaiting_approval")) {
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRun.updateMany({
+        where: {
+          id: runId,
+          status: { notIn: ["cancelled", "failed", "completed"] },
+        },
+        data: { status: "awaiting_approval" },
+      }),
+    );
+    return { status: "awaiting_approval" };
+  }
+
+  // deterministic 选择顺序 = 计划创建序（不依赖 DB 行序）
+  const orderedReady = [...input.readySteps].sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+
+  // Final Gate §6：并行 batch 不得突破既有全局工具调用预算。
+  // 轮次入口已保证 remaining >= 1（toolCalls >= max 时 run 已 needs_human）。
+  const remainingToolBudget = Math.max(
+    0,
+    input.maxToolCalls - input.toolCallsUsed,
+  );
+  if (remainingToolBudget <= 0) {
+    return { status: "continued" };
+  }
+  const effectiveBatchMax = Math.min(
+    getWorkforceMaxParallelTasks(),
+    remainingToolBudget,
+  );
+
+  const occupiedResourceKeys = collectOccupiedResourceKeys(input.steps);
+  const batch = buildParallelBatch({
+    ready: orderedReady,
+    occupiedResourceKeys,
+    maxParallelTasks: effectiveBatchMax,
+  });
+  if (batch.selected.length === 0) {
+    // 全部因资源占用被推迟：本轮不启动（占用清除后自然恢复推进）
+    return { status: "continued" };
+  }
+
+  await fenceGuardedWrite(fence, (c) =>
+    c.agentRun.update({
+      where: { id: runId },
+      data: {
+        status: "executing",
+        startedAt: input.runStartedAt ?? new Date(),
+      },
+    }),
+  );
+
+  // ── pre-flight（顺序，无工具调用；#94 顺序：gate → synthesis 识别 →
+  // no_tool → 重鉴权）。失败只写 Step（run 收敛交 coordinator，§16/§21
+  // ——sibling 照常执行并 durable settle）。通过者立即 CAS 认领（§12）。──
+  const outcomes: WorkforceStepOutcome[] = [];
+  const claimed: Array<{
+    row: WorkforceStepRow;
+    policy: TaskExecutionPolicy;
+    executionLabel: string;
+    toolName: string | null;
+    isNativeSynthesis: boolean;
+    operationKey: string;
+    context: WorkforceExecutionContext | null;
+  }> = [];
+
+  for (const sel of batch.selected) {
+    const step = sel.step;
+
+    // 1. workforce gate 先于工具解析（#94：synthesis 无 preferredTool，
+    //    必须在 no_tool 判定之前识别 taskKind）
+    const gate = evaluateWorkforceTaskGate({
+      runId,
+      step,
+      steps: input.steps,
+    });
+    if (!gate.ok) {
+      await failWorkforceStepOnly({
+        fence,
+        stepId: step.id,
+        errorCode: gate.errorCode,
+        errorMessage: gate.errorMessage,
+      });
+      outcomes.push({
+        kind: "needs_human",
+        stepKey: step.stepKey,
+        errorCode: gate.errorCode,
+        errorMessage: gate.errorMessage,
+        eventTitle: "Workforce 任务契约校验失败，需要人工处理",
+      });
+      continue;
+    }
+
+    // 2. Native Synthesis（#94 #89）：taskKind=synthesis ∧ 无 preferredTool
+    //    → Runtime 原生执行，绝不 no_tool
+    const isNativeSynthesis =
+      gate.context?.taskKind === "synthesis" && !step.preferredTool;
+    const toolName = step.preferredTool;
+
+    if (!isNativeSynthesis && !toolName) {
+      await failWorkforceStepOnly({
+        fence,
+        stepId: step.id,
+        errorCode: "no_tool",
+        errorMessage: "步骤未指定工具",
+      });
+      outcomes.push({ kind: "continued" });
+      continue;
+    }
+
+    // 3. 执行期重鉴权（非 synthesis；与单步路径一致：写工具按 high risk）
+    if (!isNativeSynthesis) {
+      const descriptor = getRuntimeV2Tool(toolName!);
+      const decision = canInvokeTool({
+        tenant: {
+          userId: input.userId,
+          orgId,
+          orgRole:
+            input.membershipRole === "org_owner"
+              ? "org_admin"
+              : input.membershipRole,
+          isPlatformAdmin:
+            input.role === "admin" || input.role === "super_admin",
+        },
+        hasMembership: true,
+        tool: {
+          name: toolName!,
+          domain: "sales",
+          risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
+          allowRoles: ["admin", "sales"],
+        },
+        modulesJson: undefined,
+        maxRisk: "l2_soft",
+      });
+      if (!decision.ok) {
+        await failWorkforceStepOnly({
+          fence,
+          stepId: step.id,
+          errorCode: decision.code,
+          errorMessage: decision.error,
+        });
+        outcomes.push({
+          kind: "needs_human",
+          stepKey: step.stepKey,
+          errorCode: decision.code,
+          errorMessage: decision.error,
+          eventTitle: "权限变化，需要人工处理",
+        });
+        continue;
+      }
+    }
+    // synthesis：不调用任何业务工具（无 tool 鉴权对象，不读业务表）；
+    // membership 已在本轮入口校验（#94 语义）
+
+    const executionLabel = isNativeSynthesis
+      ? WORKFORCE_SYNTHESIS_EXECUTION_LABEL
+      : toolName!;
+
+    // ── Step CAS claim（§12/§13 + Final Gate §7）：ready → running 条件
+    // 更新，且 attemptCount < maxAttempts（重试预算耗尽的 Step 绝不再
+    // 执行）。命中 0 行 = TASK_ALREADY_CLAIMED（另一 driver 已拿走）→
+    // 不执行。即使 run-level lease 出现异常边界，此处仍是第二道防线。──
+    const operationKey = buildStepOperationKey({
+      runId,
+      stepKey: step.stepKey,
+      toolName: executionLabel,
+    });
+    const claimedRow = await fenceGuardedWrite(fence, async (c) => {
+      const cas = await c.agentRunStep.updateMany({
+        where: {
+          id: step.id,
+          status: "ready",
+          attemptCount: { lt: step.maxAttempts },
+        },
+        data: {
+          status: "running",
+          attemptCount: { increment: 1 },
+          idempotencyKey: operationKey,
+          startedAt: new Date(),
+        },
+      });
+      if (cas.count === 0) return null;
+      return c.agentRunStep.findUnique({ where: { id: step.id } });
+    });
+    if (!claimedRow) {
+      outcomes.push({ kind: "claim_lost", stepKey: step.stepKey });
+      continue;
+    }
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "task.claimed",
+      title: step.title,
+      payload: {
+        stepKey: step.stepKey,
+        policy: sel.policy,
+        attempt: claimedRow.attemptCount,
+        operationKey,
+      },
+      visibleToUser: false,
+    });
+    claimed.push({
+      row: claimedRow,
+      policy: sel.policy,
+      executionLabel,
+      toolName: toolName ?? null,
+      isNativeSynthesis,
+      operationKey,
+      context: gate.context,
+    });
+  }
+
+  if (claimed.length > 1) {
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "parallel.batch_started",
+      title: "并行批次开始",
+      payload: {
+        stepKeys: claimed.map((c) => c.row.stepKey),
+        maxParallelTasks: effectiveBatchMax,
+      },
+      visibleToUser: false,
+    });
+  }
+
+  // ── bounded 并发执行（§15）：仅 server 分类 + CAS 认领后的批次。
+  // allSettled：单个 Task 异常不取消已启动的 sibling，各自独立收敛
+  // durable outcome（§21）。──
+  const settled =
+    claimed.length > 0
+      ? await Promise.allSettled(
+          claimed.map((c) =>
+            executeClaimedWorkforceStep({
+              orgId,
+              runId,
+              userId: input.userId,
+              role: input.role,
+              threadId: input.threadId,
+              assistantMessageId: input.assistantMessageId,
+              fence,
+              steps: input.steps,
+              row: c.row,
+              executionLabel: c.executionLabel,
+              toolName: c.toolName,
+              isNativeSynthesis: c.isNativeSynthesis,
+              operationKey: c.operationKey,
+              context: c.context,
+            }),
+          ),
+        )
+      : [];
+
+  let lostLease = false;
+  settled.forEach((s, i) => {
+    if (s.status === "fulfilled") {
+      outcomes.push(s.value);
+      return;
+    }
+    if (s.reason instanceof LostLeaseError) {
+      lostLease = true;
+      return;
+    }
+    // 未预期异常（工具失败已在内部收敛为 outcome）：防御性转 needs_human。
+    // Step 可能遗留 running——由 processor 下次成功持锁后的 recovery
+    // boundary 回收（Final Gate §4）。
+    outcomes.push({
+      kind: "needs_human",
+      stepKey: claimed[i].row.stepKey,
+      errorCode: "workforce_step_exception",
+      errorMessage:
+        s.reason instanceof Error ? s.reason.message : String(s.reason),
+      eventTitle: "任务执行异常，需要人工处理",
+    });
+  });
+
+  // §17：fence 丢失 → 本 worker 立即放弃，不做任何 Run 级写入（已经
+  // durable 落盘的 sibling Step 结果保留；接管方 driver 负责收敛）
+  if (lostLease) return { status: "lost_lease" };
+
+  if (claimed.length > 1) {
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "parallel.batch_completed",
+      title: "并行批次结束",
+      payload: {
+        stepKeys: claimed.map((c) => c.row.stepKey),
+        outcomes: settled.map((s) =>
+          s.status === "fulfilled" ? s.value.kind : "exception",
+        ),
+      },
+      visibleToUser: false,
+    });
+  }
+
+  // ── coordinator 统一收敛 Run 状态（§16/§20/§21）：
+  // needs_human > awaiting_approval > continued。终态（cancelled/failed/
+  // completed）绝不被覆盖（§23：cancel 后的迟到收敛安全落地）。──
+  const needsHuman = outcomes.find(
+    (o): o is Extract<WorkforceStepOutcome, { kind: "needs_human" }> =>
+      o.kind === "needs_human",
+  );
+  if (needsHuman) {
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRun.updateMany({
+        where: {
+          id: runId,
+          status: { notIn: ["cancelled", "failed", "completed"] },
+        },
+        data: {
+          status: "needs_human",
+          errorCode: needsHuman.errorCode,
+          errorMessage: needsHuman.errorMessage,
+        },
+      }),
+    );
+    await emitRuntimeV2Event({
+      orgId,
+      runId,
+      eventType: "run.needs_human",
+      title: needsHuman.eventTitle,
+      payload: {
+        stepKey: needsHuman.stepKey,
+        errorCode: needsHuman.errorCode,
+        error: needsHuman.errorMessage,
+      },
+    });
+    return { status: "failed", error: needsHuman.errorMessage };
+  }
+
+  const awaiting = outcomes.find(
+    (o): o is Extract<WorkforceStepOutcome, { kind: "awaiting_approval" }> =>
+      o.kind === "awaiting_approval",
+  );
+  if (awaiting) {
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRun.updateMany({
+        where: {
+          id: runId,
+          status: { notIn: ["cancelled", "failed", "completed"] },
+        },
+        data: { status: "awaiting_approval" },
+      }),
+    );
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "approval.required",
+      title: "等待你确认待审批动作",
+      visibleToUser: true,
+    });
+    await emitRuntimeV2Event({
+      orgId,
+      runId,
+      eventType: "approval.required",
+      title: "等待你确认动作",
+      payload: {
+        stepKey: awaiting.stepKey,
+        pendingActionIds: awaiting.pendingActionIds,
+      },
+    });
+    return { status: "awaiting_approval" };
+  }
+
+  return { status: "continued" };
+}
+
+/**
+ * 单个已认领 Task 的执行（§15/§16/§17 + #94 P0 语义）：只写 Step state /
+ * result / Handoff（全部 fenced；执行长 await 后先 fence.check）。绝不写
+ * AgentRun.status——Run 收敛由 coordinator 统一决定。
+ */
+async function executeClaimedWorkforceStep(input: {
+  orgId: string;
+  runId: string;
+  userId: string;
+  role: string;
+  threadId: string | null;
+  assistantMessageId: string | null;
+  fence?: RunFence;
+  /** 轮次快照（scoped evidence / gate 已用；上游终态行在 batch 启动前固定） */
+  steps: WorkforceStepRow[];
+  /** CAS 认领后的最新行（attemptCount 已递增） */
+  row: WorkforceStepRow;
+  /** 工具名或 synthesis 内部执行标签（事件/幂等/证据统一使用） */
+  executionLabel: string;
+  toolName: string | null;
+  isNativeSynthesis: boolean;
+  operationKey: string;
+  context: WorkforceExecutionContext | null;
+}): Promise<WorkforceStepOutcome> {
+  const {
+    orgId,
+    runId,
+    fence,
+    row,
+    executionLabel,
+    toolName,
+    isNativeSynthesis,
+    operationKey,
+    context,
+  } = input;
+  const stepKey = row.stepKey;
+  const attempt = row.attemptCount;
+
+  await emitRuntimeV2Event({
+    orgId,
+    runId,
+    eventType: "step.started",
+    title: row.title,
+    payload: {
+      stepKey,
+      toolName: executionLabel,
+      attempt,
+      operationKey,
+      // §24/§37 最小观测（workforce 契约任务才有）
+      ...(context
+        ? {
+            workerKey: context.workerKey,
+            taskKind: context.taskKind,
+            upstreamStepKeys: context.upstreamHandoffs.map((u) => u.stepKey),
+          }
+        : {}),
+    },
+  });
+  await emitRuntimeV2Event({
+    orgId,
+    runId,
+    eventType: "tool.started",
+    title: executionLabel,
+    payload: { stepKey, operationKey },
+  });
+
+  // #94 P0 #89（§12–§13）：workforce 契约任务（context 存在）的证据消费
+  // 收敛为 dependsOn 声明上游（声明序）；true-legacy workforce step
+  // （spec absent → context null）保持全量 map，行为不变。
+  const priorEvidence = context
+    ? scopedEvidenceByDependsOn(input.steps, row.dependsOnJson)
+    : asEvidenceMap(input.steps);
+
+  let result;
+  try {
+    if (isNativeSynthesis) {
+      // #94 §16：native synthesis——server-controlled 执行路径，
+      // 输入 = gate 校验过的声明上游 Handoff（声明序）
+      result = await executeWorkforceSynthesisTask({
+        orgId,
+        userId: input.userId,
+        runId,
+        stepKey,
+        objective: context!.objective,
+        expectedOutput: context!.spec.expectedOutput,
+        upstreamHandoffs: context!.upstreamHandoffs,
+      });
+    } else {
+      result = await executeRuntimeV2Tool(toolName!, {
+        orgId,
+        userId: input.userId,
+        role: input.role,
+        runId,
+        threadId: input.threadId,
+        assistantMessageId: input.assistantMessageId,
+        stepKey,
+        operationKey,
+        priorEvidence,
+        // §13：Worker 执行上下文注入（不含任何授权语义——Tool 鉴权仍完整
+        // 走 canInvokeTool / scopeGuard / 审批链）
+        workforce: context ?? undefined,
+      });
+    }
+  } catch (err) {
+    result = {
+      ok: false as const,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  // ── 关键 fence 检查点（Phase 2A BLOCKER 1 语义保留）：执行长 await
+  // 期间租约可能易主。任何 state mutation 之前重新验证；丢失 → 抛
+  // LostLeaseError（allSettled 收集，coordinator 统一放弃）──
+  if (fence && !(await fence.check())) {
+    throw new LostLeaseError(runId);
+  }
+
+  if (!result.ok) {
+    const canRetry = attempt < row.maxAttempts;
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRunStep.update({
+        where: { id: row.id },
+        data: canRetry
+          ? { status: "ready", errorMessage: result.error }
+          : {
+              status: "failed",
+              // #94 §20：synthesis 失败使用独立 durable errorCode
+              errorCode: isNativeSynthesis ? "synthesis_failed" : "tool_failed",
+              errorMessage: result.error,
+              completedAt: new Date(),
+            },
+      }),
+    );
+    await emitRuntimeV2Event({
+      orgId,
+      runId,
+      eventType: "tool.failed",
+      title: executionLabel,
+      payload: { stepKey, error: result.error, attempt },
+    });
+    return { kind: "continued" };
+  }
+
+  if (result.requiresApproval || row.requiresApproval) {
+    const pendingIds =
+      (result.data?.pendingActionIds as string[] | undefined) ??
+      (result.pendingActionId ? [result.pendingActionId] : []);
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRunStep.update({
+        where: { id: row.id },
+        data: {
+          status: "awaiting_approval",
+          outputJson: jsonValue(result.data ?? {}),
+          evidenceJson: jsonValue({
+            pendingActionIds: pendingIds,
+            skipped: result.data?.skipped === true,
+          }),
+          pendingActionId: result.pendingActionId ?? pendingIds[0] ?? null,
+        },
+      }),
+    );
+    if (result.data?.skipped) {
+      // 无可写对象：视为完成跳过。skipped 是 Handoff 终态（2B-1 §33）：
+      // workforce 契约任务在同一 fenced 写入内附加信封（保留业务 output）
+      const skippedAt = new Date();
+      const skippedData: {
+        status: string;
+        completedAt: Date;
+        outputJson?: Prisma.InputJsonValue;
+      } = { status: "skipped", completedAt: skippedAt };
+      if (context) {
+        const skippedHandoff = buildWorkforceHandoffV1({
+          runId,
+          stepKey,
+          workerKey: context.workerKey,
+          taskKind: context.taskKind,
+          stepStatus: "skipped",
+          taskObjective: context.objective,
+          businessOutput: result.data ?? {},
+          pendingActionIds: pendingIds,
+          completedAt: skippedAt,
+          upstreamHandoffs: context.upstreamHandoffs,
+        });
+        if (skippedHandoff.ok) {
+          skippedData.outputJson = jsonValue({
+            ...((result.data ?? {}) as Record<string, unknown>),
+            workforceHandoff: skippedHandoff.payload,
+          });
+        }
+      }
+      await fenceGuardedWrite(fence, (c) =>
+        c.agentRunStep.update({
+          where: { id: row.id },
+          data: skippedData,
+        }),
+      );
+      await emitRuntimeV2Event({
+        orgId,
+        runId,
+        eventType: "step.completed",
+        title: `${row.title}（跳过）`,
+        payload: { stepKey, skipped: true },
+      });
+      return { kind: "continued" };
+    }
+    // Run → awaiting_approval 由 coordinator 统一转换（§8：审批任务单独
+    // 成批，转换时机与单步语义等价）
+    return { kind: "awaiting_approval", stepKey, pendingActionIds: pendingIds };
+  }
+
+  // §31/§32（2B-1 语义不变）：completedAt 唯一取值一次——Step 终态与
+  // Handoff.createdAt 共用同一 durable 时间，同一 fenced 原子写入
+  const completedAt = new Date();
+  let completedOutput: Record<string, unknown> = {
+    ...((result.data ?? {}) as Record<string, unknown>),
+  };
+  if (context) {
+    const handoff = buildWorkforceHandoffV1({
+      runId,
+      stepKey,
+      workerKey: context.workerKey,
+      taskKind: context.taskKind,
+      stepStatus: "completed",
+      taskObjective: context.objective,
+      businessOutput: result.data ?? {},
+      completedAt,
+      upstreamHandoffs: context.upstreamHandoffs,
+    });
+    if (!handoff.ok) {
+      const errorMessage = `Handoff 构建失败（${handoff.code}）：${handoff.error}`;
+      await failWorkforceStepOnly({
+        fence,
+        stepId: row.id,
+        errorCode: "handoff_build_failed",
+        errorMessage,
+      });
+      return {
+        kind: "needs_human",
+        stepKey,
+        errorCode: "handoff_build_failed",
+        errorMessage,
+        eventTitle: "Workforce 任务契约校验失败，需要人工处理",
+      };
+    }
+    // namespaced envelope：保留原业务 output，不覆盖 step result
+    completedOutput = { ...completedOutput, workforceHandoff: handoff.payload };
+  }
+
+  await fenceGuardedWrite(fence, (c) =>
+    c.agentRunStep.update({
+      where: { id: row.id },
+      data: {
+        status: "completed",
+        outputJson: jsonValue(completedOutput),
+        evidenceJson: jsonValue({ toolName: executionLabel, ok: true }),
+        completedAt,
+      },
+    }),
+  );
+  await emitRuntimeV2Event({
+    orgId,
+    runId,
+    eventType: "tool.completed",
+    title: executionLabel,
+    payload: { stepKey },
+  });
+  await emitRuntimeV2Event({
+    orgId,
+    runId,
+    eventType: "step.completed",
+    title: row.title,
+    payload: {
+      stepKey,
+      ...(context
+        ? {
+            workerKey: context.workerKey,
+            taskKind: context.taskKind,
+            handoffVersion: WORKFORCE_HANDOFF_CONTRACT_VERSION,
+          }
+        : {}),
+    },
+  });
+
+  return { kind: "continued" };
 }
