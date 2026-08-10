@@ -74,6 +74,9 @@ run_test "Workforce 测试隔离契约" "npx tsx src/lib/workforce-runtime/__tes
 run_test "Workforce 2B-1 契约纯函数（Worker/Task/Handoff）" "npx tsx src/lib/workforce-runtime/__tests__/phase2b1-contracts.test.ts"
 run_test "Workforce 2B-1 Task/Handoff DB 集成" "npx tsx src/lib/workforce-runtime/__tests__/phase2b1-task-handoff.test.ts"
 run_test "Workforce 2B-1 审批×Handoff 回归" "npx tsx src/lib/workforce-runtime/__tests__/phase2b1-approval-handoff.test.ts"
+# 2D-1 Operator UX（列表服务 + 展示层，纯逻辑零 DB）
+run_test "Workforce 列表服务 L1-L9（2D-1）" "npx tsx src/lib/workforce-runtime/read-model/__tests__/list-service.test.ts"
+run_test "Workforce Operator UX D1-D10（2D-1）" "npx tsx 'src/app/(main)/workforce/__tests__/operator-ux.test.ts'"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"

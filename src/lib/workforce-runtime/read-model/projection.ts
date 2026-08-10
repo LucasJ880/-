@@ -469,6 +469,29 @@ export function projectTimeline(
   return items;
 }
 
+/**
+ * 最终结果摘要（2D-1，设计 §10/§19：deliverable = job.completed payload 摘要）。
+ *
+ * 唯一来源 = 最新 user-visible `job.completed` 事件的 payload.summary
+ * （字符串）。2B `aggregateJobResult` 落地前该字段不存在 → undefined，
+ * UI 按"尚未生成最终结果"呈现——绝不由前端拼装 LLM 摘要。
+ *
+ * 结构性排除：`job.failed` 的 payload.report 可能承载内部错误原文
+ * （process 失败分支把 round.error 塞进 report），永不透出用户面。
+ */
+export function projectFinalSummary(
+  events: ReadonlyArray<WorkforceEventSnapshot>,
+): string | undefined {
+  let latest: WorkforceEventSnapshot | undefined;
+  for (const event of events) {
+    if (event.eventType !== "job.completed" || !event.visibleToUser) continue;
+    if (!latest || event.sequence > latest.sequence) latest = event;
+  }
+  if (!latest) return undefined;
+  const summary = asString(asRecord(latest.payload).summary);
+  return summary ? summary.slice(0, 4000) : undefined;
+}
+
 /** 内部 timeline（Admin/Operator）：全量事件原样，sequence ASC */
 export function projectInternalTimeline(
   events: ReadonlyArray<WorkforceEventSnapshot>,
@@ -555,6 +578,9 @@ export function buildWorkforceJobViewModel(input: {
 
   const needsYou = projectNeedsYou(run, events, pendingActions);
   if (needsYou) view.needsYou = needsYou;
+
+  const finalSummary = projectFinalSummary(events);
+  if (finalSummary) view.finalSummary = finalSummary;
 
   const businessRefs = projectBusinessRefs(run.metadata);
   if (businessRefs) view.businessRefs = businessRefs;

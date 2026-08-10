@@ -7,47 +7,31 @@
  * 内部 orgId+runId+runType 三条件查询。
  * 跨 org / 不存在 / 非 workforce_job 统一 404，不区分（防枚举）。
  *
- * 本阶段不透出 includeInternal（internal timeline 属 2D Admin 面）；
+ * 2D-1：org 解析装配收敛到 resolveWorkforceApiOrgForUser（与列表路由
+ * 共用一份 org access 逻辑）；响应形状不变。
+ *
+ * 本阶段不透出内部时间线开关（Admin/Operator 面专属，API 恒为用户视图）；
  * 无任何写入路径（服务层 Reader 类型只有 findFirst/findMany）。
  */
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
-import { db } from "@/lib/db";
-import {
-  canUserUseOrg,
-  getUserActiveOrgId,
-} from "@/lib/organizations/active-org";
 import {
   getWorkforceJobView,
-  resolveWorkforceApiOrg,
+  resolveWorkforceApiOrgForUser,
+  workforceOrgFailureHttp,
 } from "@/lib/workforce-runtime/read-model";
 
 export const GET = withAuth<{ id: string }>(async (_req, ctx, user) => {
   const { id } = await ctx.params;
 
-  const resolution = await resolveWorkforceApiOrg(
-    { userId: user.id, userRole: user.role },
-    {
-      getActiveOrgId: getUserActiveOrgId,
-      canUseOrg: canUserUseOrg,
-      listActiveMembershipOrgIds: async (userId) => {
-        const memberships = await db.organizationMember.findMany({
-          where: { userId, status: "active" },
-          select: { orgId: true },
-        });
-        return memberships.map((m) => m.orgId);
-      },
-    },
-  );
+  const resolution = await resolveWorkforceApiOrgForUser({
+    id: user.id,
+    role: user.role,
+  });
   if (!resolution.ok) {
-    if (resolution.reason === "ORG_SELECTION_REQUIRED") {
-      return NextResponse.json(
-        { error: "请先选择工作组织", needsSelection: true },
-        { status: 403 },
-      );
-    }
-    return NextResponse.json({ error: "无组织" }, { status: 403 });
+    const { status, body } = workforceOrgFailureHttp(resolution.reason);
+    return NextResponse.json(body, { status });
   }
 
   const result = await getWorkforceJobView({ orgId: resolution.orgId, jobId: id });
