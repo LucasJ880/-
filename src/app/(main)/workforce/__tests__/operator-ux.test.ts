@@ -15,6 +15,7 @@ import { join } from "node:path";
 
 import {
   buildWorkforceJobViewModel,
+  projectTaskView,
 } from "../../../../lib/workforce-runtime/read-model/projection";
 import {
   at,
@@ -59,6 +60,23 @@ function ok(cond: boolean, name: string, detail?: unknown): void {
 
 function section(name: string): void {
   console.log(`\n━━ ${name}`);
+}
+
+/** #85 canonical workforce-task/v1 信封（真实 persist 形状） */
+function canonicalTaskInput(
+  workerKey: string,
+  role: string,
+  taskKind: "work" | "synthesis",
+  objective = "整理销售跟进优先级并给出建议",
+): unknown {
+  return {
+    workforceTask: {
+      contractVersion: "workforce-task/v1",
+      worker: { workerKey, role },
+      taskKind,
+      objective,
+    },
+  };
 }
 
 /* ================================================================== */
@@ -293,7 +311,7 @@ function main(): void {
   }
 
   /* ================================================================ */
-  section("D6 多 currentTask（2B-2 并行前向兼容：数组契约）");
+  section("D6 多 currentTask（2B-2 前向兼容：canonical workforce-task/v1 数组契约）");
   {
     const view = buildWorkforceJobViewModel({
       run: makeRun({
@@ -304,22 +322,26 @@ function main(): void {
       steps: [
         makeStep("a", "running", {
           startedAt: at(2),
-          inputJson: { worker: { id: "research" } },
+          inputJson: canonicalTaskInput("sales_worker", "sales_specialist", "work"),
         }),
         makeStep("b", "running", {
           startedAt: at(3),
-          inputJson: { worker: { id: "tender" } },
+          inputJson: canonicalTaskInput("tender_worker", "tender_specialist", "work"),
         }),
         makeStep("c", "running", {
           startedAt: at(4),
-          inputJson: { worker: { id: "sales" } },
+          inputJson: canonicalTaskInput(
+            "synthesis_worker",
+            "synthesis_lead",
+            "synthesis",
+          ),
         }),
         makeStep("d", "pending"),
       ],
       events: makeEvents(workingEventPrefix()),
       pendingActions: [],
     });
-    ok(view.currentTasks.length === 3, "3 项并行任务全部进入 currentTasks");
+    ok(view.currentTasks.length === 3, "3 项 canonical 并行任务全部进入 currentTasks");
     ok(
       currentTasksHeading(3) === "正在执行 3 项",
       "多任务标题 = 正在执行 N 项",
@@ -329,27 +351,138 @@ function main(): void {
         view.currentTasks[2].stepKey === "c",
       "startedAt 升序（最早开始的排前）",
     );
+    ok(
+      view.currentTasks[0].workerKey === "sales_worker" &&
+        view.currentTasks[1].workerKey === "tender_worker" &&
+        view.currentTasks[2].workerKey === "synthesis_worker",
+      "canonical workerKey 逐项投影正确",
+      view.currentTasks.map((t) => t.workerKey),
+    );
     const labels = view.currentTasks.map((t) => workerLabel(t.workerKey));
     ok(
-      labels[0] === "资料研究" && labels[1] === "投标" && labels[2] === "销售",
-      "并行任务各自显示友好 worker 职能名",
+      labels[0] === "销售" && labels[1] === "投标" && labels[2] === "综合汇总",
+      "三个 Worker Badge：销售 / 投标 / 综合汇总",
       labels,
+    );
+    ok(
+      view.currentTasks[2].taskKind === "synthesis",
+      "synthesis_worker 任务 taskKind = synthesis",
     );
   }
 
   /* ================================================================ */
-  section("D7 Worker 可选兼容：缺失不渲染、未知不透传");
+  section("D7 Task Contract：canonical（#85）/ legacy / invalid 三态");
   {
-    ok(workerLabel(undefined) === undefined, "workerKey 缺失 → 不渲染徽标（2B-1 前存量 Job）");
-    ok(workerLabel("research") === "资料研究", "research → 资料研究");
-    ok(workerLabel("tender") === "投标", "tender → 投标");
-    ok(workerLabel("sales") === "销售", "sales → 销售");
-    ok(workerLabel("synthesis") === "综合汇总", "synthesis → 综合汇总");
-    const unknown = workerLabel("quantum_worker_x9");
-    ok(
-      unknown === "数字员工" && !String(unknown).includes("quantum"),
-      "未知 workerKey fail-safe → 数字员工（内部 key 永不直出）",
+    // A. canonical sales_worker
+    const salesTask = projectTaskView(
+      makeStep("t_sales", "running", {
+        inputJson: canonicalTaskInput("sales_worker", "sales_specialist", "work"),
+      }),
     );
+    ok(
+      salesTask.workerKey === "sales_worker" && salesTask.taskKind === "work",
+      "A. canonical sales_worker → workerKey/taskKind 投影",
+      salesTask,
+    );
+    ok(workerLabel(salesTask.workerKey) === "销售", "A. UI Badge = 销售");
+
+    // B. canonical tender_worker
+    const tenderTask = projectTaskView(
+      makeStep("t_tender", "running", {
+        inputJson: canonicalTaskInput("tender_worker", "tender_specialist", "work"),
+      }),
+    );
+    ok(tenderTask.workerKey === "tender_worker", "B. canonical tender_worker 投影");
+    ok(workerLabel(tenderTask.workerKey) === "投标", "B. UI Badge = 投标");
+
+    // C. canonical synthesis_worker
+    const synthTask = projectTaskView(
+      makeStep("t_synth", "running", {
+        inputJson: canonicalTaskInput(
+          "synthesis_worker",
+          "synthesis_lead",
+          "synthesis",
+        ),
+      }),
+    );
+    ok(
+      synthTask.workerKey === "synthesis_worker" &&
+        synthTask.taskKind === "synthesis",
+      "C. canonical synthesis_worker → taskKind = synthesis",
+    );
+    ok(workerLabel(synthTask.workerKey) === "综合汇总", "C. UI Badge = 综合汇总");
+
+    // D. pre-2B1 legacy shapes 继续兼容（信封 absent → #84 fallback）
+    const legacyWorkerId = projectTaskView(
+      makeStep("t_leg1", "running", {
+        inputJson: { worker: { id: "sales" }, taskKind: "analysis" },
+      }),
+    );
+    ok(
+      legacyWorkerId.workerKey === "sales" && legacyWorkerId.taskKind === "analysis",
+      "D. legacy worker.id / taskKind 继续兼容",
+    );
+    ok(workerLabel("sales") === "销售", "D. legacy 别名 sales → 销售");
+    const legacyFlat = projectTaskView(
+      makeStep("t_leg2", "running", {
+        inputJson: { workerKey: "research", kind: "read" },
+      }),
+    );
+    ok(
+      legacyFlat.workerKey === "research" && legacyFlat.taskKind === "read",
+      "D. legacy workerKey / kind 继续兼容",
+    );
+    const noWorker = projectTaskView(makeStep("t_leg3", "pending"));
+    ok(
+      noWorker.workerKey === undefined && workerLabel(noWorker.workerKey) === undefined,
+      "D. 无任何 worker 信息 → 不渲染徽标（2B-1 前存量 Job）",
+    );
+
+    // E. malformed / unknown contract version → fail-safe，不透出 raw 数据
+    const badVersion = projectTaskView(
+      makeStep("t_bad1", "running", {
+        inputJson: {
+          workforceTask: {
+            contractVersion: "workforce-task/v99",
+            worker: { workerKey: "secret_internal_worker_x", role: "r" },
+            taskKind: "work",
+            objective: "x",
+          },
+        },
+      }),
+    );
+    ok(
+      badVersion.workerKey === undefined && badVersion.taskKind === undefined,
+      "E. 未知 contract version → invalid → 双 undefined",
+      badVersion,
+    );
+    ok(
+      JSON.stringify(badVersion).includes("secret_internal_worker_x") === false,
+      "E. raw internal worker 数据零透出",
+    );
+    const brokenEnvelope = projectTaskView(
+      makeStep("t_bad2", "running", {
+        inputJson: {
+          workforceTask: { contractVersion: "workforce-task/v1", taskKind: "work" },
+          worker: { id: "sales" },
+        },
+      }),
+    );
+    ok(
+      brokenEnvelope.workerKey === undefined && brokenEnvelope.taskKind === undefined,
+      "E. 信封损坏 → 不回退旁路 legacy 字段（fail-safe 不猜测）",
+      brokenEnvelope,
+    );
+    const unknownButValid = projectTaskView(
+      makeStep("t_bad3", "running", {
+        inputJson: canonicalTaskInput("quantum_worker_x9", "mystery", "work"),
+      }),
+    );
+    ok(
+      workerLabel(unknownButValid.workerKey) === "数字员工",
+      "E. 结构合法但 registry 外的 workerKey → UI fail-safe 数字员工（不直出）",
+    );
+
     ok(
       taskStatusPresentation("awaiting_approval").label === "等待审批" &&
         taskStatusPresentation("blocked").label === "受阻",

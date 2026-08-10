@@ -98,11 +98,18 @@ export function isTaskDone(status: string): boolean {
 /* ------------------------------------------------------------------ */
 
 /**
- * 2B-1 worker registry 词汇 → 用户面职能名。
+ * workerKey → 用户面职能名。
+ * canonical = #85 `WORKFORCE_WORKER_REGISTRY` 正式词汇（sales_worker /
+ * tender_worker / synthesis_worker）；短名保留为 legacy / forward UI 别名。
  * 未知 workerKey fail-safe 为"数字员工"——内部 key 永不直出。
  * workerKey 缺失（2B-1 前的存量 Job）→ undefined，UI 不渲染徽标。
  */
 const WORKER_PRESENTATION: Record<string, string> = {
+  // #85 canonical registry keys
+  sales_worker: "销售",
+  tender_worker: "投标",
+  synthesis_worker: "综合汇总",
+  // legacy / forward UI aliases
   research: "资料研究",
   tender: "投标",
   sales: "销售",

@@ -193,9 +193,17 @@ function seed(): SeedData {
       orgId: "org_a",
     },
     {
+      // #85 canonical workforce-task/v1 信封（真实 persist 形状）
       ...makeStep("s2", "running", {
         startedAt: at(4),
-        inputJson: { taskKind: "analysis", worker: { id: "tender" } },
+        inputJson: {
+          workforceTask: {
+            contractVersion: "workforce-task/v1",
+            worker: { workerKey: "tender_worker", role: "tender_specialist" },
+            taskKind: "work",
+            objective: "提取投标技术要求",
+          },
+        },
       }),
       runId: "run_exec",
       orgId: "org_a",
@@ -509,9 +517,9 @@ async function main(): Promise<void> {
     ok(
       exec !== undefined &&
         exec.currentTasks.length === 1 &&
-        exec.currentTasks[0].workerKey === "tender" &&
-        exec.currentTasks[0].taskKind === "analysis",
-      "currentTasks 携带 2B-1 worker/taskKind（存在时）",
+        exec.currentTasks[0].workerKey === "tender_worker" &&
+        exec.currentTasks[0].taskKind === "work",
+      "currentTasks 携带 #85 canonical worker/taskKind（信封有效时）",
       exec?.currentTasks,
     );
   }
