@@ -66,6 +66,10 @@ run_test "Workforce 2A Normal Slices Budget" "npx tsx src/lib/workforce-runtime/
 run_test "Workforce Kill-Switch 运行时开关" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-kill-switch.test.ts"
 run_test "Workforce 2C-1 Pause/Resume Reconciliation" "npx tsx src/lib/workforce-runtime/__tests__/phase2c1-pause-resume.test.ts"
 run_test "Workforce 2C-1 Expiry 竞态确定性" "npx tsx src/lib/workforce-runtime/__tests__/phase2c1-expiry-races.test.ts"
+# Lane D Read Model（纯投影，零 DB）
+run_test "Workforce Job Read Model 黄金投影 O1-O9" "npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts"
+run_test "Workforce Job Read Model 只读/租户隔离" "npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts"
+run_test "Workforce Read API org 访问解析 A1-A6" "npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
