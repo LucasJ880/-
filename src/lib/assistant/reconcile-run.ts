@@ -167,6 +167,31 @@ export async function reconcileAssistantRunFromPendingActions(input: {
       };
     }
 
+    // Phase 2C-1（§17）：workforce_job 的生命周期由 durable processor /
+    // verifier / resumeWorkforceJob 管理——assistant 线"PA 全落定 = run 完成"
+    // 的对话收敛语义不适用（否则会把仍有后续步骤的 Job 误写成 completed，
+    // 三线顺序竞态）。此处短路为 noop，审批恢复走 resumeWorkforceJob 单一入口。
+    if (run.runType === "workforce_job") {
+      return {
+        changed: false,
+        decision: decideRunReconcile([]),
+        runRow: run,
+        actions: [] as Array<{
+          id: string;
+          status: string;
+          expiresAt: Date | null;
+          type: string;
+          orgId: string | null;
+        }>,
+        orgLinkMismatch: false,
+        initiatedByUserId:
+          readInitiatedByUserId(run.metadata) ||
+          run.session?.userId ||
+          input.triggeredByUserId ||
+          null,
+      };
+    }
+
     const actionsForDecide = await tx.pendingAction.findMany({
       where: { agentRunId: input.runId },
       select: {
@@ -327,7 +352,7 @@ export async function reconcileAssistantRunFromPendingActions(input: {
       };
     }
 
-    let nextMeta: Record<string, unknown> = {
+    const nextMeta: Record<string, unknown> = {
       ...meta,
       ...decision.metadataPatch,
       lastReconcileEventKey: decision.eventKey,

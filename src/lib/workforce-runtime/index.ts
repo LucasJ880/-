@@ -25,3 +25,10 @@ export {
   WORKFORCE_MAX_ATTEMPTS,
   WORKFORCE_SLICE_BUDGET_MS,
 } from "./processor";
+export {
+  resumeWorkforceJob,
+  reconcileWorkforceRunsAfterApprovalExpiry,
+  WORKFORCE_RESUMABLE_STATUSES,
+  type WorkforceResumeTrigger,
+  type WorkforceResumeResult,
+} from "./resume";

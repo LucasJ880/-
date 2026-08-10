@@ -212,7 +212,12 @@ export async function processWorkforceJobSlice(
         runId,
         eventType: "job.waiting_human",
         title: "执行主体身份失效，需要人工处理",
-        payload: { code: principal.code, correlation },
+        payload: {
+          code: principal.code,
+          // Phase 2C-1（§18）：结构化人工要求，标注等待类型（可恢复）
+          humanRequirement: { type: "PERMISSION_CHANGED", detail: principal.code },
+          correlation,
+        },
         visibleToUser: true,
       });
     }
@@ -274,6 +279,8 @@ export async function processWorkforceJobSlice(
             allowedFromStatuses: ACTIVE_STATUSES,
             data: {
               status: "needs_human",
+              // 持久化等待原因（FIX 2）：manual resume 白名单据此 fail-closed
+              errorCode: "clarification_required",
               errorMessage: planned.clarification.slice(0, 2000),
               leaseExpiresAt: null,
               nextAttemptAt: null,
@@ -286,7 +293,14 @@ export async function processWorkforceJobSlice(
               runId,
               eventType: "job.waiting_human",
               title: "需要补充信息后继续",
-              payload: { clarification: planned.clarification, correlation },
+              payload: {
+                clarification: planned.clarification,
+                humanRequirement: {
+                  type: "CLARIFICATION_REQUIRED",
+                  detail: planned.clarification.slice(0, 500),
+                },
+                correlation,
+              },
               visibleToUser: true,
             });
           }
@@ -429,7 +443,17 @@ export async function processWorkforceJobSlice(
               result.status === "awaiting_approval"
                 ? "等待审批后继续"
                 : "需要人工处理",
-            payload: { status: result.status, correlation },
+            payload: {
+              status: result.status,
+              // Phase 2C-1（§18）：结构化人工要求（审批 / 冲突需人裁决）
+              humanRequirement: {
+                type:
+                  result.status === "awaiting_approval"
+                    ? "APPROVAL_REQUIRED"
+                    : "CONFLICT_REQUIRES_HUMAN",
+              },
+              correlation,
+            },
             visibleToUser: true,
           });
         }

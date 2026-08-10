@@ -61,7 +61,13 @@ export type AgentRunEventType =
   | "job.resumed"
   | "job.waiting_human"
   | "job.completed"
-  | "job.failed";
+  | "job.failed"
+  // Phase 2C-1（Pause/Resume Contract）：resume 门禁审计 + 人工介入恢复事件族
+  // （clarification/human_action/human_edited 的生产者分别归 2C-3/2C-4，先冻结类型）
+  | "job.resume_blocked"
+  | "job.clarification_answered"
+  | "job.human_action_completed"
+  | "job.human_edited";
 
 export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "queued",
