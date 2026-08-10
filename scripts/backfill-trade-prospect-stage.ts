@@ -3,8 +3,10 @@
  *
  * 默认 dry-run（只打印统计，不写库）
  *   pnpm exec tsx scripts/backfill-trade-prospect-stage.ts
- * 实际写入：
- *   pnpm exec tsx scripts/backfill-trade-prospect-stage.ts --write
+ * 实际写入（Production Operation Guard 管控，见 docs/QINGYAN_PRODUCTION_OPERATION_GUARD.md）：
+ *   PRODUCTION_OPERATION_CONFIRM=PRODUCTION:BACKFILL_TRADE_PROSPECT_STAGE:<dry-run 行数> \
+ *     pnpm exec tsx scripts/backfill-trade-prospect-stage.ts --write
+ * 非生产库需显式 --target=preview|staging|local。
  *
  * 需 DATABASE_URL；不在 Prisma migration 中写数据逻辑。
  */
@@ -15,10 +17,31 @@ import {
   isUnrecognizedTradeProspectStage,
   type TradeProspectStage,
 } from "@/lib/trade/stage";
+import {
+  assertProductionOperationAllowed,
+  resolveDeclaredTargetEnvironment,
+  verifyOperationDatabaseTarget,
+} from "@/lib/db-safety/production-operation-guard";
+
+const OPERATION_NAME = "BACKFILL_TRADE_PROSPECT_STAGE";
+const SCRIPT_NAME = "scripts/backfill-trade-prospect-stage.ts";
 
 async function main() {
   const write = process.argv.includes("--write");
-  console.log(write ? "MODE: --write（将更新数据库）\n" : "MODE: dry-run（不写库，可加 --write）\n");
+  const target = resolveDeclaredTargetEnvironment(
+    process.argv,
+    process.env,
+    "production",
+  );
+
+  // 任何查询之前先校验目标：声明环境必须与实际 DB 身份一致
+  verifyOperationDatabaseTarget({
+    operationName: OPERATION_NAME,
+    scriptName: SCRIPT_NAME,
+    targetEnvironment: target,
+  });
+
+  console.log(write ? "MODE: --write（申请写入）\n" : "MODE: dry-run（不写库，可加 --write）\n");
 
   const groups = await db.tradeProspect.groupBy({
     by: ["stage"],
@@ -64,8 +87,24 @@ async function main() {
   }
   console.log(`\n需更新行数（原始 stage !== normalize(stage)）: ${rowsToChange}`);
 
-  if (!write) {
-    console.log("\n未执行写入。确认后请加参数: --write");
+  // Guard：dry-run 打印 impact 报告与 apply 指引；--write 时校验 confirmation
+  const verdict = assertProductionOperationAllowed({
+    operationName: OPERATION_NAME,
+    operationType: "PRODUCTION_WRITE",
+    targetEnvironment: target,
+    scriptName: SCRIPT_NAME,
+    scope: { kind: "global", reason: "跨组织 stage 字段归一化（无 org 维度）" },
+    apply: write,
+    dryRunCompleted: true,
+    estimatedImpact: {
+      kind: "known",
+      rows: rowsToChange,
+      summary: "TradeProspect.stage updateMany（按旧值分组）",
+    },
+  });
+
+  if (!verdict.writeAllowed) {
+    console.log("\n未执行写入（DRY_RUN_ONLY）。");
     return;
   }
 
