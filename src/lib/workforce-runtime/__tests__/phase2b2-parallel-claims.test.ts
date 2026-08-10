@@ -344,39 +344,25 @@ async function main() {
     }
     ok(claimedByA, "P7: A 已 CAS 认领 task_a（running），阻塞在 tool 中");
 
-    // 租约易主：A 过期 → B reclaim（B 的调用不再经过探针拦截）
+    // 租约易主：A 过期 → B 经 processor reclaim（Final Gate §4：
+    // stale-running recovery 的唯一边界 = processor 成功持锁之后；
+    // B 的调用不再经过探针拦截）
     probe?.restore();
     probe = null;
     await db.agentRun.update({
       where: { id: runId },
       data: { leaseExpiresAt: new Date(Date.now() - 1000) },
     });
-    const claimB = await claimRunLease({
-      runId,
-      allowedRunTypes: [WORKFORCE_JOB_RUN_TYPE],
-      leaseMs: 60_000,
-      maxAttempts: WORKFORCE_MAX_ATTEMPTS,
-      reclaimableStatuses: [...WORKFORCE_ACTIVE_STATUSES],
-    });
-    ok(claimB.ok, "P7: Worker B reclaim 成功（租约易主）");
-    if (!claimB.ok) return finish();
-    const fenceB = createRunFence({ lease: claimB.lease });
-    const roundB = await executeRuntimeV2Round({
-      orgId: fx.orgId,
-      runId,
-      userId: fx.ownerUserId,
-      role: "sales",
-      fence: fenceB,
-    });
+    const sliceB = await processWorkforceJobSlice(runId, { maxRounds: 6 });
     const afterB = await db.agentRunStep.findFirstOrThrow({
       where: { runId, stepKey: "task_a" },
     });
     ok(
-      roundB.status === "continued" &&
+      sliceB.claimed === true &&
         afterB.status === "completed" &&
         afterB.attemptCount === 2,
-      "P7: B stale-reset + 重新 CAS 认领并完成任务（attempt=2）",
-      { round: roundB.status, status: afterB.status, attempts: afterB.attemptCount },
+      "P7: B processor reclaim → recovery(running→ready) → 重新 CAS 并完成（attempt=2）",
+      { slice: sliceB.status, status: afterB.status, attempts: afterB.attemptCount },
     );
     const handoffAfterB = JSON.stringify(
       extractHandoffFromStepOutput(afterB.outputJson),

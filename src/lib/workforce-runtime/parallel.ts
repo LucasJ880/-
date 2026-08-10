@@ -20,6 +20,7 @@
  * 资源冲突只控制 same Job 内部 batch（§9），不做 distributed global lock。
  */
 
+import { isRuntimeV2ToolExecutable } from "@/lib/agent-runtime-v2/adapters";
 import { getRuntimeV2Tool } from "@/lib/agent-runtime-v2/tool-catalog";
 import { readWorkforceTaskSpec } from "./task-contract";
 
@@ -86,12 +87,21 @@ function hasResourceConflict(
  *    approval} ∨ server tool catalog 判定该工具需审批 / 非只读
  *    （catalog 是 server-authoritative：planner 声称 read 不可信）；
  * 2. SEQUENTIAL（fail-safe 全集）：无 workforce-task/v1 spec（legacy /
- *    损坏）、executionMode ∉ {read, analysis}、riskLevel ∉ {LOW, MEDIUM}、
- *    preferredTool 缺失 / 不在 server catalog / catalog 未显式标注
+ *    损坏）、taskKind=synthesis（含 native synthesis——Final Gate §2 保守
+ *    策略，本阶段 synthesis 不并行）、executionMode ∉ {read, analysis}、
+ *    riskLevel ∉ {LOW, MEDIUM}、preferredTool 缺失 / 不在 server catalog /
+ *    不在 authoritative executable registry（#94 #88）/ catalog 未显式标注
  *    parallelSafe —— 任何不确定一律串行；
  * 3. EXCLUSIVE_RESOURCE：声明资源与 occupiedResourceKeys（running ∪
  *    awaiting_approval ∪ 本 batch 已选任务的资源）相交 → 本轮禁止启动；
  * 4. SAFE_PARALLEL：以上全部通过（含"声明了资源但无冲突"，§28 P4）。
+ *
+ * 永久不变量（Final Gate §8）：
+ *   SAFE_PARALLEL ⇒ planner-visible ∧ executable ∧ readOnly ∧
+ *                    no approval ∧ server parallelSafe=true
+ * （planner-visible = catalog ∩ executable，见 plannerVisibleRuntimeV2Tools；
+ *  本函数逐项检查 catalog 存在性 + isRuntimeV2ToolExecutable + readOnly +
+ *  审批双源 + parallelSafe，四者合取即该不变量。）
  */
 export function classifyTaskExecutionPolicy(
   step: TaskPolicyStepInput,
@@ -116,6 +126,9 @@ export function classifyTaskExecutionPolicy(
   // 2. fail-safe → SEQUENTIAL
   const spec = readWorkforceTaskSpec(step.inputJson);
   if (spec.kind !== "valid") return "SEQUENTIAL";
+  // Final Gate §2：synthesis（含 #94 native synthesis）保守串行——
+  // 它是 join 点（消费全部声明上游），单独成批与并行无收益差
+  if (spec.spec.taskKind === "synthesis") return "SEQUENTIAL";
   if (step.executionMode !== "read" && step.executionMode !== "analysis") {
     return "SEQUENTIAL";
   }
@@ -123,6 +136,9 @@ export function classifyTaskExecutionPolicy(
     return "SEQUENTIAL";
   }
   if (!descriptor) return "SEQUENTIAL";
+  // Final Gate §8：可执行事实源 = adapters handler map（#94 #88）。
+  // parallelSafe 标记绝不能让 non-executable 工具进入 SAFE_PARALLEL。
+  if (!isRuntimeV2ToolExecutable(step.preferredTool!)) return "SEQUENTIAL";
   if (descriptor.parallelSafe !== true) return "SEQUENTIAL";
 
   // 3. 资源冲突 → 受控串行（同 Job 内 batch 排他，§9）

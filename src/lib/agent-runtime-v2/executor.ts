@@ -988,6 +988,22 @@ async function executeWorkforceBatchRound(input: {
   for (const sel of batch.selected) {
     const step = sel.step;
 
+    // 0. Final Gate §7：ready 但重试预算已耗尽的 Step（verifier REPAIR
+    //    可能在不重置 attemptCount 的情况下复活 failed Step）——绝不再
+    //    执行，pre-flight 即终态化。否则该 Step 会被 CAS 的 attempt 守卫
+    //    永久拒领而滞留 ready，造成跨 slice 活锁。终态化后由 verifier
+    //    hard floor（#90A）诚实收敛。
+    if (step.attemptCount >= step.maxAttempts) {
+      await failWorkforceStepOnly({
+        fence,
+        stepId: step.id,
+        errorCode: "step_attempts_exhausted",
+        errorMessage: "任务重试预算已耗尽，不再执行",
+      });
+      outcomes.push({ kind: "continued" });
+      continue;
+    }
+
     // 1. workforce gate 先于工具解析（#94：synthesis 无 preferredTool，
     //    必须在 no_tool 判定之前识别 taskKind）
     const gate = evaluateWorkforceTaskGate({

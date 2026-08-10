@@ -27,6 +27,11 @@ import {
   WorkforceTaskSpecV1Schema,
 } from "../task-contract";
 import type { PlannerOutput } from "@/lib/agent-runtime-v2/schemas";
+import {
+  RUNTIME_V2_TOOL_CATALOG,
+  plannerVisibleRuntimeV2Tools,
+} from "@/lib/agent-runtime-v2/tool-catalog";
+import { isRuntimeV2ToolExecutable } from "@/lib/agent-runtime-v2/adapters";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -170,6 +175,21 @@ ok(
     "SEQUENTIAL",
   "P: 工具不在 server catalog → SEQUENTIAL（fail-safe）",
 );
+ok(
+  classifyTaskExecutionPolicy(
+    stepOf({ inputJson: specJson({ taskKind: "synthesis" }) }),
+  ) === "SEQUENTIAL" &&
+    classifyTaskExecutionPolicy(
+      stepOf({
+        preferredTool: null,
+        inputJson: specJson({
+          taskKind: "synthesis",
+          worker: { workerKey: "synthesis_worker", role: "synthesis_lead" },
+        }),
+      }),
+    ) === "SEQUENTIAL",
+  "P/FG§2: synthesis（含 native 无工具形态）→ SEQUENTIAL（保守，不并行）",
+);
 
 // ══ §9 EXCLUSIVE_RESOURCE ══
 console.log("\n[§9 EXCLUSIVE_RESOURCE 判定]");
@@ -281,6 +301,43 @@ console.log("\n[§10 资源声明消毒]");
   ok(
     parsed.success && parsed.data.resources === undefined,
     "P/§10: 旧 V1 记录（无 resources）新 reader 兼容（不破坏旧 V1）",
+  );
+}
+
+// ══ FG§8 永久不变量：SAFE_PARALLEL ⇒ planner-visible ∧ executable ∧
+// readOnly ∧ no approval ∧ server parallelSafe=true ══
+console.log("\n[FG§8 parallelSafe × authoritative executable registry]");
+{
+  const plannerVisible = new Set(
+    plannerVisibleRuntimeV2Tools().map((t) => t.name),
+  );
+  const marked = RUNTIME_V2_TOOL_CATALOG.filter((t) => t.parallelSafe === true);
+  ok(marked.length > 0, "FG8: catalog 存在显式 parallelSafe 工具");
+  ok(
+    marked.every(
+      (t) =>
+        isRuntimeV2ToolExecutable(t.name) &&
+        plannerVisible.has(t.name) &&
+        t.readOnly === true &&
+        t.requiresApproval === false,
+    ),
+    "FG8: 每个 parallelSafe 工具都 executable ∧ planner-visible ∧ readOnly ∧ 无审批",
+  );
+  // 分类器逐项复核：只有满足全部不变量的工具能产出 SAFE_PARALLEL
+  ok(
+    RUNTIME_V2_TOOL_CATALOG.every((t) => {
+      const policy = classifyTaskExecutionPolicy(
+        stepOf({ preferredTool: t.name }),
+      );
+      const invariant =
+        isRuntimeV2ToolExecutable(t.name) &&
+        plannerVisible.has(t.name) &&
+        t.readOnly === true &&
+        t.requiresApproval === false &&
+        t.parallelSafe === true;
+      return policy === "SAFE_PARALLEL" ? invariant : true;
+    }),
+    "FG8: classifier 产出 SAFE_PARALLEL ⇒ 五项不变量全部成立（逐目录工具复核）",
   );
 }
 

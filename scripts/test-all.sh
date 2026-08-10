@@ -83,6 +83,7 @@ run_test "P0 Execution Alignment DB 集成 G2-G10" "npx tsx src/lib/workforce-ru
 run_test "Workforce 2B-2 并行策略纯函数（Policy/Batch/Limit）" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-policy.test.ts"
 run_test "Workforce 2B-2 受控并行执行 P1-P4/P8-P9" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-execution.test.ts"
 run_test "Workforce 2B-2 CAS/审批/StaleLease P5-P7" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-claims.test.ts"
+run_test "Workforce 2B-2 Final Gate（Synthesis×Parallel/SECRET_X/P6b/预算）" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-final-gate.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
