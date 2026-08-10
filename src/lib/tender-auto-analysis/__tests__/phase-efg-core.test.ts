@@ -50,7 +50,19 @@ const report = buildReportDraftForFacts(
   requirements.map((r) => `${r.requirementCode}｜${r.chineseTranslation}`),
 );
 
-ok(requirements.length === 15, "15 requirements");
+const mReqs = requirements.filter((r) =>
+  /^M([1-9]|1[0-5])$/.test(r.requirementCode),
+);
+ok(mReqs.length === 15, "15 M1–M15 requirements");
+ok(
+  requirements.length >= 15 &&
+    requirements.every(
+      (r) =>
+        /^M([1-9]|1[0-5])$/.test(r.requirementCode) ||
+        /^GEN-\d{3,}$/.test(r.requirementCode),
+    ),
+  "extras are GEN generic mandatory only (Phase 1.1.1)",
+);
 ok(
   facts.some((f) => f.factKey === "qty_annex_a_up_to_1500_per_period") &&
     facts.some((f) => f.factKey === "qty_annex_b_1500_annual_evaluation"),
