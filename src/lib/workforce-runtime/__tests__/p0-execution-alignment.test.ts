@@ -166,11 +166,17 @@ async function main() {
     });
   }
 
-  /** 自定义计划走 server 管线：applyWorkforceTaskSpecs → persistPlanAndSteps */
-  async function createJobWithPlan(goal: string, steps: Array<AnyRecord>) {
+  /** 自定义计划走 server 管线：applyWorkforceTaskSpecs → persistPlanAndSteps。
+   *  注意 DAILY_AGENT_RUNS 治理配额是 org 级（默认档 ~10/日，配额语义
+   *  本身按设计工作）——本套件 11 个 Job 按 fixture org 分摊，避免撞限。 */
+  async function createJobWithPlan(
+    goal: string,
+    steps: Array<AnyRecord>,
+    owner: WorkforceFixture = fx,
+  ) {
     const job = await createWorkforceJob({
-      orgId: fx.orgId,
-      userId: fx.ownerUserId,
+      orgId: owner.orgId,
+      userId: owner.ownerUserId,
       role: "sales",
       goal,
     });
@@ -180,7 +186,7 @@ async function main() {
     );
     if (!adapted.ok) throw new Error(`applyWorkforceTaskSpecs: ${adapted.error}`);
     await persistPlanAndSteps({
-      orgId: fx.orgId,
+      orgId: owner.orgId,
       runId: job.runId,
       plan: adapted.plan,
     });
@@ -898,15 +904,20 @@ async function main() {
   console.log("\n[P0-G10 Kill-Switch]");
   {
     synthCalls.length = 0;
-    const g10RunId = await createJobWithPlan("P0-G10 kill switch 计划", [
-      stepOf("task_a", { preferredTool: "sales_get_pipeline" }),
-      stepOf("task_s", {
-        dependsOn: ["task_a"],
-        workerKey: "synthesis_worker",
-        taskKind: "synthesis",
-        executionMode: "analysis",
-      }),
-    ]);
+    // fxB org：分摊 org 级 DAILY_AGENT_RUNS 配额（本套件在 fx org 已创建 10 个 Job）
+    const g10RunId = await createJobWithPlan(
+      "P0-G10 kill switch 计划",
+      [
+        stepOf("task_a", { preferredTool: "sales_get_pipeline" }),
+        stepOf("task_s", {
+          dependsOn: ["task_a"],
+          workerKey: "synthesis_worker",
+          taskKind: "synthesis",
+          executionMode: "analysis",
+        }),
+      ],
+      fxB,
+    );
     const beforeSteps = await db.agentRunStep.findMany({
       where: { runId: g10RunId },
       orderBy: { createdAt: "asc" },

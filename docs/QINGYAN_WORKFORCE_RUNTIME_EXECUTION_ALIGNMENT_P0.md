@@ -286,9 +286,9 @@ PendingAction 检查同样看不见 → S1 带失败步骤 `PASS → completed`�
 | P0-G9 | HANDOFF_MISSING / VERSION_UNSUPPORTED 依旧 fail-closed（scoping 未削弱 2B-1 边界） | **PASS** |
 | P0-G10 | Kill-switch：不 claim、queued 冻结、零 Step mutation、零 synthesis 模型调用；恢复后正常完成 | **PASS** |
 
-DB 套件 51 项断言全绿（G1–G9 与 G10 分别在两次运行中完整通过；单次全量
-重跑于共享隔离分支耗尽 AgentRun 治理配额中止属环境饱和，见 §20 债项，
-换新隔离分支后全量绿）。
+DB 套件 51 项断言全绿。过程记录：套件曾在单 fixture org 内创建第 11 个
+Job 时被 org 级 `DAILY_AGENT_RUNS` 治理配额 hard limit 正确拦截（配额
+语义按设计工作的顺带实证）；套件改为按两个 fixture org 分摊 Job 后全量绿。
 
 ## 18. 真实 S1–S4 复跑（SEQUENTIAL，同一组 Scenario 零修改）
 
@@ -345,7 +345,7 @@ synthesis 场景（S4）**COMPLETED** 且产出真实结构化综合结论 →
 |---|---|---|
 | P0-D1 | 模型对聚合类步骤仍可能**欠声明依赖**（S3 的 rank 未声明商机列表上游 → 空排序 → 写步骤合法 skip，Job 诚实完成但业务产出弱化）。planner prompt 已加显式规则，但依赖完整性的确定性校验（如"聚合工具声明依赖须含列表型上游"）属 planner 质量工作 | 2B-3 / planner 迭代输入 |
 | P0-D2 | `FEATURE_NOT_CONFIGURED`（gmail 开关关闭）语义为 step failure → Job needs_human。业务上"功能未配置"是否应为可声明的 optional/skip 契约，属产品决策（§26：optional 必须显式契约，本 P0 不引入） | #90B / 2C-3 讨论 |
-| P0-D3 | 共享隔离分支多次全量跑后触发 AgentRun 治理配额 hard limit（环境饱和，非回归）；suite 级 quota 隔离或 fixture 计数回收可改善 | 测试基建 debt |
+| P0-D3 | org 级 `DAILY_AGENT_RUNS` 默认配额（~10/日）对单 fixture org 的重型 DB 套件构成隐性上限——本套件按多 org 分摊解决；未来重型套件需知晓该预算（配额本身按设计工作，非缺陷） | 测试基建认知项 |
 | P0-D4 | `verifier` 对 PARTIAL 降级证据的 REPAIR 循环只能靠 maxRepairs 收敛（既有行为，未在本 P0 扩大） | 既有 debt 记录 |
 | P0-D5 | 模型 verifier 偶发对确定性 PASS 的过度怀疑（S2 两轮 REPAIR 后 PASS）——hard floor 方向（禁升级）已锁死，降级噪声属模型质量面 | 观察项 |
 | P0-D6 | staging 项目分支 schema 落后于 prisma/schema.prisma（本次以 `db push` 对齐隔离分支）；staging 主分支对齐属运维动作 | 运维 debt |
