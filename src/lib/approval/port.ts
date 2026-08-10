@@ -494,15 +494,23 @@ export async function expireOverdueApprovals(
   // 1) 过期的对话草稿：批量标记 failed（与 executor 单个过期语义一致）。
   //    Phase 2C-1（§8E）：先取清单再标记，随后 reconcile 关联的 workforce_job
   //    run —— 过期 PendingAction 不得让 run 永久卡在 awaiting_approval。
-  const expiredRows = await db.pendingAction.findMany({
+  const expiredCandidates = await db.pendingAction.findMany({
     where: { status: "pending", expiresAt: { lte: now } },
     select: { id: true, orgId: true, agentRunId: true },
     take: 500,
   });
-  const expired = await db.pendingAction.updateMany({
-    where: { id: { in: expiredRows.map((r) => r.id) }, status: "pending" },
-    data: { status: "failed", failureReason: "已过期" },
-  });
+  // 原子 winner 判定：candidate 快照与标记之间 approve/reject/execute 可能先赢
+  // （status 已离开 pending）。逐行条件 CAS，只有 count=1 的行是 expiry 真正
+  // 转移的 winner——只有 winner 才进入 expiry reconciliation，不信任旧快照。
+  const expiredWinners: typeof expiredCandidates = [];
+  for (const row of expiredCandidates) {
+    const res = await db.pendingAction.updateMany({
+      where: { id: row.id, status: "pending", expiresAt: { lte: now } },
+      data: { status: "failed", failureReason: "已过期" },
+    });
+    if (res.count === 1) expiredWinners.push(row);
+  }
+  const expired = { count: expiredWinners.length };
 
   // 无论本轮有无新过期行都调用：函数内部含自愈扫描（前轮 reconcile 中断后，
   // 过期 action 已离开 pending、不会再进本轮集合，需扫描仍卡 awaiting 的 run）。
@@ -512,7 +520,7 @@ export async function expireOverdueApprovals(
       "@/lib/workforce-runtime/resume"
     );
     const reconciled =
-      await reconcileWorkforceRunsAfterApprovalExpiry(expiredRows);
+      await reconcileWorkforceRunsAfterApprovalExpiry(expiredWinners);
     reconciledWorkforceRuns = reconciled.reconciledRuns;
   } catch (e) {
     // reconcile 失败不阻断既有过期/升级/提醒流程（下轮 cron 可重试，幂等）

@@ -415,17 +415,20 @@ export async function resumeRuntimeV2AfterApproval(input: {
       const { resumeWorkforceJob } = await import(
         "@/lib/workforce-runtime/resume"
       );
-      const resumed = await resumeWorkforceJob({
+      await resumeWorkforceJob({
         orgId: input.orgId,
         runId: input.runId,
         trigger: "approval_decided",
         humanActorUserId: input.approvalActorUserId,
       });
+      // 对外 status 必须与 DB durable state 一致（resume 未放行时不得谎报
+      // queued）——直接回读 run 当前状态
+      const afterResume = await db.agentRun.findFirst({
+        where: { id: input.runId, orgId: input.orgId },
+        select: { status: true },
+      });
       return {
-        status:
-          resumed.ok || resumed.status === "waiting_human"
-            ? "queued"
-            : resumed.status,
+        status: afterResume?.status ?? "queued",
         report: await buildFinalReport(input.orgId, input.runId),
       };
     }

@@ -193,7 +193,8 @@ async function caseM(fx: Fx) {
     { reconciled: r2.reconciledWorkforceRuns },
   );
 
-  // 恢复闭环：needs_human(approval_expired) 可被人工恢复（由人决定重发起）
+  // BLOCKER D：approval_expired park 后 manual 触发不构成新审批/replan——
+  // 必须保持 needs_human（REQUIRES_NEW_APPROVAL_OR_REPLAN），真正恢复归 2C-3
   const resumed = await resumeWorkforceJob({
     orgId: fx.orgId,
     runId,
@@ -204,23 +205,20 @@ async function caseM(fx: Fx) {
     where: { id: runId },
   });
   ok(
-    resumed.ok &&
-      resumed.status === "requeued" &&
-      runResumed.status === "queued" &&
-      runResumed.attempts === 0,
-    "M: 过期 park 后可人工 resume → queued（attempts 不惩罚）",
+    !resumed.ok &&
+      resumed.status === "waiting_human" &&
+      resumed.reason === "REQUIRES_NEW_APPROVAL_OR_REPLAN" &&
+      runResumed.status === "needs_human" &&
+      runResumed.errorCode === "approval_expired",
+    "M: approval_expired 后 manual resume fail-closed（保持 needs_human，归 2C-3）",
     { resumed, run: runResumed.status },
   );
-  const resumedEvents = await db.agentRunEvent.findMany({
+  const resumedEvents = await db.agentRunEvent.count({
     where: { runId, eventType: "job.resumed" },
   });
-  const evPayload = metaOf(resumedEvents[0]?.payload);
   ok(
-    resumedEvents.length === 1 &&
-      evPayload.trigger === "manual" &&
-      evPayload.principalUserId === fx.ownerUserId,
-    "M: job.resumed 事件记录 trigger=manual + 执行主体=发起人",
-    evPayload,
+    resumedEvents === 0,
+    "M: fail-closed 路径不产生 job.resumed 事件（无伪装恢复）",
   );
 
   // 自愈兜底：模拟"前轮 reconcile 崩溃"——PA 已 failed(已过期) 但 run 仍卡
@@ -407,6 +405,38 @@ async function caseN(fx: Fx) {
       run5.status === "queued",
     "N5: 并发 resume CAS 去重——恰一个 requeued、恰一条 job.resumed",
     { statuses, events: resumedEv5 },
+  );
+
+  // N6（BLOCKER D）: 2C-1 未实现的 trigger 不得仅凭字符串 requeue
+  // （复用 j3：awaiting_approval + PA pending——trigger gate 必须在
+  //   pending 检查之前 fail-closed，org 配额也不允许再建新 job）
+  const j6 = j3;
+  const triggers = [
+    "clarification_answered",
+    "auth_completed",
+    "scheduled",
+  ] as const;
+  const results6 = [];
+  for (const t of triggers) {
+    results6.push(
+      await resumeWorkforceJob({ orgId: fx.orgId, runId: j6.runId, trigger: t }),
+    );
+  }
+  const run6 = await db.agentRun.findUniqueOrThrow({ where: { id: j6.runId } });
+  const resumedEv6 = await db.agentRunEvent.count({
+    where: { runId: j6.runId, eventType: "job.resumed" },
+  });
+  ok(
+    results6.every(
+      (r) =>
+        !r.ok &&
+        r.status === "waiting_human" &&
+        r.reason.startsWith("NOT_IMPLEMENTED_FOR_2C1"),
+    ) &&
+      run6.status === "awaiting_approval" &&
+      resumedEv6 === 0,
+    "N6: clarification/auth/scheduled trigger fail-closed（不伪装已解决）",
+    { results: results6.map((r) => r.status), run: run6.status },
   );
 }
 

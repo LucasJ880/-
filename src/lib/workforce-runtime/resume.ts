@@ -124,6 +124,30 @@ export async function resumeWorkforceJob(input: {
     };
   }
 
+  // 2b. trigger fail-closed（2C-1 边界）：clarification 回答持久化 /
+  //     auth challenge 解决 / scheduled 重查的 requirement-resolved 证据
+  //     链均归 2C-3/2C-4——不能仅凭 trigger 字符串就视为已解决并 requeue。
+  if (
+    trigger === "clarification_answered" ||
+    trigger === "auth_completed" ||
+    trigger === "scheduled"
+  ) {
+    return {
+      ok: false,
+      status: "waiting_human",
+      reason: `NOT_IMPLEMENTED_FOR_2C1:${trigger}`,
+    };
+  }
+  // approval_expired park 的 run：原 Step 已 failed，manual 触发并不构成
+  // 新审批或 replan——保持 needs_human，真正恢复路径归 2C-3。
+  if (trigger === "manual" && run.errorCode === "approval_expired") {
+    return {
+      ok: false,
+      status: "waiting_human",
+      reason: "REQUIRES_NEW_APPROVAL_OR_REPLAN",
+    };
+  }
+
   // 3. restore runtime identity（19 字段；只取身份/correlation，不取权限）
   const runtime = runtimeFromRunMetadata(run);
   const correlation = runtimeContextToTelemetry(runtime);
@@ -344,6 +368,11 @@ export async function reconcileWorkforceRunsAfterApprovalExpiry(
     for (const step of steps) {
       if (shouldSkipReconcile(step.status)) continue;
       const ids = stepActionIds(step);
+      // 该 step 必须关联本轮/历史真实 expired winner，否则不属于 expiry
+      // reconcile 的管辖（防止 stale snapshot 误伤无关步骤）
+      const stepExpiredIds = actionIds.filter((id) => ids.includes(id));
+      if (stepExpiredIds.length === 0) continue;
+
       const actions = await db.pendingAction.findMany({
         where: { id: { in: ids }, orgId },
         select: { id: true, status: true },
@@ -354,6 +383,15 @@ export async function reconcileWorkforceRunsAfterApprovalExpiry(
       });
       // 仍有 pending/approved 未决 action → 该步骤继续等待
       if (decision.stepStatus === "awaiting_approval") continue;
+      // 只把"失败类"判定标为 approval_expired；completed/skipped/
+      // partially_executed（如 stale snapshot 中 action 实际已 executed）
+      // 属审批 resume 线的收敛职责——expiry 不得把这类步骤降级为 failed
+      if (
+        decision.stepStatus !== "failed" &&
+        decision.stepStatus !== "needs_human"
+      ) {
+        continue;
+      }
 
       await db.agentRunStep.update({
         where: { id: step.id },
@@ -369,18 +407,29 @@ export async function reconcileWorkforceRunsAfterApprovalExpiry(
                 : {}),
               approvalStatuses: actions,
               reconcile: decision,
-              expiredActionIds: actionIds.filter((id) => ids.includes(id)),
+              expiredActionIds: stepExpiredIds,
             }),
           ),
         },
       });
     }
 
-    // run 级：关联 pending action 清零后才转 needs_human（部分过期时继续等）
-    const stillPending = await db.pendingAction.count({
-      where: { agentRunId: runId, orgId, status: "pending" },
+    // run 级门槛（fail-closed）：
+    // 1) pending / approved 均属 unresolved（approved 尚待执行）——存在则继续等；
+    // 2) 仍有 awaiting_approval 的 Step（如非失败类 decision 留给审批线收敛）
+    //    ——存在则不转 needs_human，保持 awaiting 等审批线 resume。
+    const stillUnresolved = await db.pendingAction.count({
+      where: {
+        agentRunId: runId,
+        orgId,
+        status: { in: ["pending", "approved"] },
+      },
     });
-    if (stillPending > 0) continue;
+    if (stillUnresolved > 0) continue;
+    const stillAwaitingSteps = await db.agentRunStep.count({
+      where: { runId, orgId, status: "awaiting_approval" },
+    });
+    if (stillAwaitingSteps > 0) continue;
 
     const runtime = runtimeFromRunMetadata(run);
     const parked = await db.agentRun.updateMany({

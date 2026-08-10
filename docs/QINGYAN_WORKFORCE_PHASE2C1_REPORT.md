@@ -54,9 +54,9 @@ Golden Scenario 回归暴露：`approveApprovalItem` 的 assistant 线 `reconcil
 
 修复：`reconcileAssistantRunFromPendingActions` 在行锁事务内对 `runType=workforce_job` 短路为 noop（不写状态/事件），workforce 的 run 生命周期完全归 durable processor / verifier / `resumeWorkforceJob`。assistant 对话 run 行为不变。
 
-### 2.4 `expireOverdueApprovals`（`approval/port.ts`）
+### 2.4 `expireOverdueApprovals`（`approval/port.ts`）——含 Final Micro-Fix BLOCKER A
 
-过期标记改为"先取清单（take 500）再 updateMany"，随后**无条件**调用 `reconcileWorkforceRunsAfterApprovalExpiry`（内部含自愈扫描；异常不阻断既有升级/提醒流程）。返回值新增 `reconciledWorkforceRuns`。
+过期标记改为 **winner-set 语义**：先取候选清单（take 500），再对每行做条件 CAS（`updateMany where {id, status:"pending", expiresAt<=now}`），仅 `count===1` 的行（本轮真正由 expiry 从 pending 转 failed 的"winner"）进入 reconcile——candidate 旧快照绝不作为 reconcile 依据，approve/reject/execute 与 expiry 恰一个结果获胜。随后**无条件**调用 `reconcileWorkforceRunsAfterApprovalExpiry`（内部含自愈扫描；异常不阻断既有升级/提醒流程）。返回值新增 `reconciledWorkforceRuns`。
 
 ### 2.5 humanRequirement（`workforce-runtime/processor.ts` 三处 park）
 
@@ -66,13 +66,27 @@ Golden Scenario 回归暴露：`approveApprovalItem` 的 assistant 线 `reconcil
 | planner needsClarification | `CLARIFICATION_REQUIRED`（detail=问题文本） |
 | V2 返回 awaiting_approval / needs_human | `APPROVAL_REQUIRED` / `CONFLICT_REQUIRES_HUMAN` |
 
-## §3 测试（隔离 Neon 分支 `preview-workforce-phase2c1`，`assertSafeTestDatabase` + `DATABASE_ENVIRONMENT=isolated` + `NODE_ENV=test`）
+### 2.6 Final Micro-Fix（Review 五个 BLOCKER，全部落地）
 
-### 3.1 新增 Case M / N（`__tests__/phase2c1-pause-resume.test.ts`，17/17 PASS）
+| BLOCKER | 修复 |
+|---|---|
+| A. Expiry winner set | 见 §2.4——逐行 CAS，仅真实 winner 进 reconcile |
+| B. Run 级 unresolved 判定 | run 转 `needs_human(approval_expired)` 前须同时满足：无 `pending`/`approved`（approved 仍属"待执行"未决态）PendingAction、无 awaiting steps、且本 run 至少有一个真实 expiry winner；step 仅在 executor 判定为 failed/needs_human 且关联 winner 时才标 `failed(approval_expired)`（executed/rejected 结果不被降级） |
+| C. 确定性竞态测试 | 新增 `__tests__/phase2c1-expiry-races.test.ts`（EXP1–EXP4，6/6 PASS），证明 `EXACTLY_ONE_OUTCOME_WINS=YES`：EXP1 expiry 先赢→迟到 approve 只命中幂等分支不覆盖；EXP2 executed 先赢→winner set 排除；EXP3 rejected 先赢→不改标；EXP4 stale snapshot 中 executed action→step 不降级、run 不转 needs_human |
+| D. Resume trigger fail-closed | `clarification_answered`/`auth_completed`/`scheduled` 缺 requirement-resolved 证据链（归 2C-3/2C-4），一律返回 `waiting_human(NOT_IMPLEMENTED_FOR_2C1:*)`，零副作用；`approval_expired` park 的 run 收到 `manual` 返回 `waiting_human(REQUIRES_NEW_APPROVAL_OR_REPLAN)` 保持 needs_human——真正恢复留给 2C-3，不伪装 requirement 已解决 |
+| E. Wrapper 状态一致性 | `resumeRuntimeV2AfterApproval()` 不再推断 status，改为 resume 后回读 DB durable state 返回——resume 未放行时不谎报 queued |
 
-**Case M — 过期 reconcile（10 断言）**：过期 → PA `failed(已过期)`；step `failed(approval_expired)`；run `awaiting_approval → needs_human`（attempts=0、无租约）；`job.waiting_human(APPROVAL_REQUIRED/expired)`；无自动重建 PA；重复 expire 幂等；needs_human 可人工 `resumeWorkforceJob(manual)` → queued + `job.resumed(trigger=manual)`；自愈兜底（模拟前轮 reconcile 中断，下轮收敛）。
+## §3 测试（隔离 Neon 分支 `preview-phase2c1-final-202608092258`，`assertSafeTestDatabase` + `DATABASE_ENVIRONMENT=isolated` + `NODE_ENV=test`，跑完即删）
 
-**Case N — resume 契约（7 断言）**：cancelled 优先拒绝 + `resume_blocked` 审计；已 queued 幂等短路（零事件副作用）；pending PA 未决保持等待；principal 失效 → `blocked/USER_INACTIVE` + park `PERMISSION_CHANGED` 审计完整；身份修复后同一 Job 恢复；**并发 resume CAS 去重（恰一个 requeued、恰一条 job.resumed）**。
+### 3.1 新增 Case M / N（`__tests__/phase2c1-pause-resume.test.ts`，18/18 PASS）
+
+**Case M — 过期 reconcile（10 断言）**：过期 → PA `failed(已过期)`；step `failed(approval_expired)`；run `awaiting_approval → needs_human`（attempts=0、无租约）；`job.waiting_human(APPROVAL_REQUIRED/expired)`；无自动重建 PA；重复 expire 幂等；**approval_expired 后 `manual` resume fail-closed（保持 needs_human，`REQUIRES_NEW_APPROVAL_OR_REPLAN`，零 `job.resumed`）**；自愈兜底（模拟前轮 reconcile 中断，下轮收敛）。
+
+**Case N — resume 契约（8 断言组）**：cancelled 优先拒绝 + `resume_blocked` 审计；已 queued 幂等短路（零事件副作用）；pending PA 未决保持等待；principal 失效 → `blocked/USER_INACTIVE` + park `PERMISSION_CHANGED` 审计完整；身份修复后同一 Job 恢复；**并发 resume CAS 去重（恰一个 requeued、恰一条 job.resumed）**；**N6：`clarification_answered`/`auth_completed`/`scheduled` trigger fail-closed（不伪装已解决）**。
+
+### 3.1b Expiry 竞态确定性（`__tests__/phase2c1-expiry-races.test.ts`，6/6 PASS）
+
+EXP1–EXP4 见 §2.6 BLOCKER C，输出 `EXACTLY_ONE_OUTCOME_WINS = YES`。
 
 ### 3.2 Phase 2A 回归（同一隔离分支，全绿）
 
@@ -84,12 +98,15 @@ Golden Scenario 回归暴露：`approveApprovalItem` 的 assistant 线 `reconcil
 | **Case H（approval-resume 身份语义）** | **12/12（收敛后语义不破）** |
 | Case K-TOOL/K-PLAN（stale-worker fencing） | 30/30 |
 | Case L（normal-slices budget） | 9/9 |
-| **Golden Scenario（审批 2 轮 pause/resume 全链路）** | **6/6 PASS**（修复 §2.3 前为 4/6——见上） |
+| Kill-Switch KS0–KS10 | 15/15 |
+| **Golden Scenario（审批 2 轮 pause/resume 全链路）** | **6/6 PASS**（修复 §2.3 前为 4/6——见上；Final Micro-Fix 后复跑仍 PASS，验证 BLOCKER E 后审批恢复链完整） |
+| Production DB Test Guard | 22/22 |
+| Production Operation Guard（含 K3b–K3d global reason） | 30/30 |
 
-### 3.3 全量套件与构建
+### 3.3 类型 / 构建
 
-- `scripts/test-all.sh`（含 DB 测试）：**181/182**。唯一失败"招标自动分析 EFG 核心（✗ 15 requirements）"——已用 `git stash` 在 **main 基线复现同样失败**，属预存问题，与本改动无关。
-- `npx tsc --noEmit` ✅ / eslint changed files ✅ / `npm run build` ✅。
+- `npx tsc --noEmit` ✅ / eslint changed files ✅ / `npm run build` ✅（Final Micro-Fix 后全部复跑）。
+- 已知预存问题（与本 PR 无关）："招标自动分析 EFG 核心"在 main 基线即失败（此前已用 `git stash` 复现确认）。
 
 ## §4 状态标志
 
@@ -105,9 +122,21 @@ THREE_LANE_RACE_FIXED           = PASS（assistant reconcile 对 workforce noop�
 CASE_H_SEMANTICS                = PASS（12/12 回归不破）
 GOLDEN_SCENARIO                 = PASS（6/6）
 HUMAN_REQUIREMENT_EVENTS        = IMPLEMENTED（§18 结构化 payload）
+EXACTLY_ONE_OUTCOME_WINS        = YES（EXP1–EXP4 确定性实证，BLOCKER A/B/C）
+RESUME_TRIGGER_FAIL_CLOSED      = PASS（未实现 trigger 一律 waiting_human，BLOCKER D）
+WRAPPER_STATUS_CONSISTENT       = PASS（对外 status 回读 DB durable state，BLOCKER E）
 DATABASE_MIGRATION              = NONE
 KILL_SWITCH_TOUCHED             = NO（Lane B 零冲突）
 DESIGN_DOCS_TOUCHED             = NO（Lane C 零冲突）
+```
+
+### STEP 0 结论回填（prod-op-guard worktree .env 安全）
+
+```text
+PROD_OP_WORKTREE_DEFAULT_ENV            = NON_PRODUCTION（worktree 无 .env 文件，默认即非生产配置）
+PRODUCTION_CREDENTIAL_ROTATION_REQUIRED = NO（git 仅追踪 .example 模板，tracked 内容中的凭据均为假占位符；
+                                          出现的端点主机名仅作为生产保护 allowlist 用途，非凭据；
+                                          历史提交中未发现真实数据库凭据）
 ```
 
 ## §5 回滚
