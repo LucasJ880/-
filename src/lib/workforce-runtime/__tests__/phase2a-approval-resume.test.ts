@@ -172,15 +172,16 @@ async function main() {
     "H: resume 后 execution principal=UserA（重新校验当前 membership）",
   );
 
-  // 续跑至终态：s7 无商机→skipped；s8 Gmail 未配置→失败但不阻断验证
+  // 续跑至终态：s7 无商机→skipped；s8 Gmail 未配置→失败。
+  // P0 #90A：失败的必需写任务对 verifier 可见（requiresApproval 不豁免
+  // 执行失败）→ Job 终态 needs_human，不再带失败步骤错误 completed。
   delete process.env.OPENAI_API_KEY;
   delete process.env.GOOGLE_EMAIL_CLIENT_ID;
   const finalSlice = await processWorkforceJobSlice(runId, { maxRounds: 6 });
   const finalRun = await db.agentRun.findUniqueOrThrow({ where: { id: runId } });
   ok(
-    finalSlice.claimed &&
-      ["completed", "partially_executed"].includes(finalRun.status),
-    "H: 恢复后 Job 以发起人身份续跑至完成",
+    finalSlice.claimed && finalRun.status === "needs_human",
+    "H: 恢复后以发起人身份续跑至 verifier 终态（失败写任务→needs_human，#90A）",
     { slice: finalSlice.status, run: finalRun.status },
   );
   const metaFinal = metaOf(finalRun.metadata);

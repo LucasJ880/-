@@ -351,8 +351,13 @@ async function executeRoundGuarded(input: {
   }
 
   // P0 #89 Native Synthesis（§16–§17）：taskKind=synthesis 是 Runtime
-  // 原生执行模式——不需要 preferredTool，绝不产生 no_tool 失败。
-  const isNativeSynthesis = workforceContext?.taskKind === "synthesis";
+  // 一等执行语义——不需要 preferredTool，绝不产生 no_tool 失败。
+  // 执行优先级：synthesis 步骤显式声明了可执行工具时仍走该工具
+  // （如模型把确定性聚合器 sales_prioritize_followups 绑为 synthesis，
+  // 保留其结构化输出供下游写任务消费，与 2B-1 §44 冻结行为一致）；
+  // 未声明工具 → native synthesis（本 P0 修复的 no_tool 死亡路径）。
+  const isNativeSynthesis =
+    workforceContext?.taskKind === "synthesis" && !step.preferredTool;
 
   const toolName = step.preferredTool;
   if (!isNativeSynthesis && !toolName) {
