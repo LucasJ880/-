@@ -2,7 +2,7 @@
 
 - 日期：2026-08-10
 - 分支：`feature/workforce-test-isolation-hardening`
-- Base main SHA：`573835470921b9b031bbbcecd2fe91d93b32142a`（含 #83 Tender EFG baseline 修复；会话开始时基线为 `97ac959b`，#83 于会话中合入，本分支已 rebase 吸收）
+- Base main SHA：`2c33ad6`（含 #83 Tender EFG baseline 修复与 #84 Workforce Job Read Model；会话开始时验证基线为 `97ac959b`，#83/#84 于会话中合入，本分支已逐次 rebase 吸收）
 - 性质：**TEST INFRASTRUCTURE ONLY**——生产 Runtime 语义零变更；冻结文件（`workforce-runtime/processor.ts`、`agent-runtime-v2/executor.ts`、`agent-runtime-v2/persist.ts`、`workforce-runtime/resume.ts`）零触碰（`git diff --name-only` 可验）。
 
 ---
@@ -112,7 +112,7 @@ Production DB Test Guard：22/22 PASS（未新建第二套 safety helper；所�
 ## 9. Final Output
 
 ```text
-Base SHA = 573835470921b9b031bbbcecd2fe91d93b32142a
+Base SHA = 2c33ad6（rebased，含 #83/#84）
 Branch = feature/workforce-test-isolation-hardening
 RUNTIME_CORE_MODIFIED = NO
 UNIQUE_ORG_PER_SUITE = PASS
