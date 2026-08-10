@@ -30,6 +30,11 @@ export const PlanStepSchema = z.object({
   // legacy 计划不受影响。
   workerKey: z.string().optional(),
   taskKind: z.enum(["work", "synthesis"]).optional(),
+  // Phase 2B-2（workforce_job 专用）：planner 只能"提议"该任务触碰的业务
+  // 资源键（{entity}:{id}），server（applyWorkforceTaskSpecs）消毒后落
+  // inputJson.workforceTask.resources；malformed fail-closed。planner 提供
+  // 信息，server 决定并行安全策略（§6）。legacy 计划忽略。
+  resources: z.array(z.string()).max(16).optional(),
 });
 
 export const PlannerOutputSchema = z.object({
@@ -74,6 +79,12 @@ export const ToolDescriptorSchema = z.object({
   readOnly: z.boolean(),
   requiresApproval: z.boolean(),
   supportedChannels: z.array(z.string()).default(["web", "wechat"]),
+  /**
+   * Phase 2B-2（§7）：server catalog 显式标注该工具可参与 SAFE_PARALLEL
+   * batch。缺省 / false = 不允许并行（fail-safe → SEQUENTIAL）。
+   * 只有无副作用的 read/analysis 工具允许标注。
+   */
+  parallelSafe: z.boolean().optional(),
 });
 
 export type ToolDescriptor = z.infer<typeof ToolDescriptorSchema>;

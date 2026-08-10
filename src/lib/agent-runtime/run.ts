@@ -456,6 +456,15 @@ export async function findLatestActiveRun(input: {
   });
 }
 
+/** Prisma unique violation（并发 sequence 抢占时的判定依据） */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 export async function appendAgentRunEvent(input: {
   orgId: string;
   runId: string;
@@ -464,6 +473,10 @@ export async function appendAgentRunEvent(input: {
   payload?: Record<string, unknown>;
   visibleToUser?: boolean;
 }) {
+  // Phase 2B-2：sequence = max+1 的读写窗口在并行 Task（同 run 多个并发
+  // append）下会撞 @@unique([runId, sequence])。碰撞时重读重试（有界），
+  // 不再把 unique violation 当普通失败吞掉——否则并行批次的事件会静默丢失。
+  const MAX_SEQUENCE_RETRIES = 8;
   try {
     const run = await db.agentRun.findFirst({
       where: { id: input.runId, orgId: input.orgId },
@@ -471,24 +484,33 @@ export async function appendAgentRunEvent(input: {
     });
     if (!run) return null;
 
-    const last = await db.agentRunEvent.findFirst({
-      where: { runId: input.runId },
-      orderBy: { sequence: "desc" },
-      select: { sequence: true },
-    });
-    const sequence = (last?.sequence ?? 0) + 1;
+    for (let attempt = 0; ; attempt++) {
+      const last = await db.agentRunEvent.findFirst({
+        where: { runId: input.runId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      });
+      const sequence = (last?.sequence ?? 0) + 1;
 
-    return await db.agentRunEvent.create({
-      data: {
-        orgId: input.orgId,
-        runId: input.runId,
-        sequence,
-        eventType: input.eventType,
-        title: input.title || null,
-        payload: jsonValue(input.payload),
-        visibleToUser: input.visibleToUser !== false,
-      },
-    });
+      try {
+        return await db.agentRunEvent.create({
+          data: {
+            orgId: input.orgId,
+            runId: input.runId,
+            sequence,
+            eventType: input.eventType,
+            title: input.title || null,
+            payload: jsonValue(input.payload),
+            visibleToUser: input.visibleToUser !== false,
+          },
+        });
+      } catch (error) {
+        if (isUniqueViolation(error) && attempt < MAX_SEQUENCE_RETRIES) {
+          continue;
+        }
+        throw error;
+      }
+    }
   } catch (error) {
     console.error("[AgentRunEvent] append failed", {
       runId: input.runId,
