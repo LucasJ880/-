@@ -247,7 +247,7 @@ async function main() {
   withParallel(2);
   {
     const p = armProbe([
-      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 250 } },
+      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 500 } },
     ]);
     const runId = await createJobWithPlan("P2 上限测试计划", [
       readStep("t1", "sales_get_pipeline"),
@@ -283,8 +283,8 @@ async function main() {
   withParallel(3);
   {
     const p = armProbe([
-      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 250 } },
-      { model: "salesQuote", behavior: { kind: "sleep", ms: 250 } },
+      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 500 } },
+      { model: "salesQuote", behavior: { kind: "sleep", ms: 500 } },
     ]);
     const runId = await createJobWithPlan("P3 串行策略计划", [
       readStep("task_a", "sales_get_pipeline"),
@@ -336,7 +336,7 @@ async function main() {
   withParallel(2);
   {
     const p = armProbe([
-      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 150 } },
+      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 500 } },
     ]);
     const runId = await createJobWithPlan("P4 同资源串行计划", [
       readStep("task_a", "sales_get_pipeline", { resources: ["quote:q123"] }),
@@ -359,7 +359,7 @@ async function main() {
   }
   {
     const p = armProbe([
-      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 150 } },
+      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 500 } },
     ]);
     const runId = await createJobWithPlan("P4 异资源并行计划", [
       readStep("task_a", "sales_get_pipeline", { resources: ["quote:q123"] }),
@@ -392,16 +392,18 @@ async function main() {
   console.log("\n[P8 Synthesis 顺序确定性]");
   withParallel(3);
   {
+    // gate 显式顺序协议（与负载/内部实现路径无关，deterministic）：
+    // C 不受 gate 最先完成 → 开 A 闸 → A 完成 → 开 B 闸 → B 最后完成
+    const { createGate } = await import("./parallel-probe");
+    const gateA = createGate();
+    const gateB = createGate();
     armProbe([
-      // sleep 梯度人为控制完成顺序：C(quote take:15, 100ms) → A(pipeline
-      // take:40, 400ms) → B(followup fallback take:20, 700ms)
-      { model: "salesOpportunity", take: 40, behavior: { kind: "sleep", ms: 400 } },
-      { model: "salesOpportunity", take: 20, behavior: { kind: "sleep", ms: 700 } },
-      { model: "salesQuote", take: 15, behavior: { kind: "sleep", ms: 100 } },
+      { model: "salesOpportunity", take: 40, behavior: { kind: "gate", gate: gateA } },
+      { model: "salesOpportunity", take: 30, behavior: { kind: "gate", gate: gateB } },
     ]);
     const runId = await createJobWithPlan("P8 顺序确定性计划", [
       readStep("task_a", "sales_get_pipeline"),
-      readStep("task_b", "sales_customer_followup_analysis"),
+      readStep("task_b", "sales_list_opportunities"),
       readStep("task_c", "sales_quote_risk_analysis"),
       readStep("task_s", "sales_get_pipeline", {
         dependsOn: ["task_a", "task_b", "task_c"],
@@ -410,6 +412,21 @@ async function main() {
         description: "按声明序合并 A/B/C",
       }),
     ]);
+    const waitCompleted = async (stepKey: string) => {
+      for (let i = 0; i < 240; i++) {
+        const row = await db.agentRunStep.findFirst({ where: { runId, stepKey } });
+        if (row?.status === "completed") return true;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return false;
+    };
+    const sliceP8 = processWorkforceJobSlice(runId, { maxRounds: 1 });
+    ok(await waitCompleted("task_c"), "P8: C 最先完成（A/B 被 gate 持有）");
+    gateA.open();
+    ok(await waitCompleted("task_a"), "P8: 释放后 A 第二个完成");
+    gateB.open();
+    ok(await waitCompleted("task_b"), "P8: 释放后 B 最后完成");
+    await sliceP8;
     const end = await driveUntil(runId, (s) =>
       ["completed", "partially_executed", "failed", "needs_human"].includes(s),
     );
@@ -420,7 +437,7 @@ async function main() {
     const tC = sMap.get("task_c")?.completedAt?.getTime() ?? 0;
     ok(
       tC < tA && tA < tB,
-      "P8/§32: 实际完成顺序被人为控制为 C → A → B",
+      "P8/§32: 实际完成顺序被协议强制为 C → A → B",
       { tC, tA, tB },
     );
     const sHandoff = parseWorkforceHandoff(
