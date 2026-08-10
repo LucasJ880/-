@@ -279,6 +279,8 @@ export async function processWorkforceJobSlice(
             allowedFromStatuses: ACTIVE_STATUSES,
             data: {
               status: "needs_human",
+              // 持久化等待原因（FIX 2）：manual resume 白名单据此 fail-closed
+              errorCode: "clarification_required",
               errorMessage: planned.clarification.slice(0, 2000),
               leaseExpiresAt: null,
               nextAttemptAt: null,

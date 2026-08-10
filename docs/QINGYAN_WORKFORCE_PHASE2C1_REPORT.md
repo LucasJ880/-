@@ -76,9 +76,21 @@ Golden Scenario 回归暴露：`approveApprovalItem` 的 assistant 线 `reconcil
 | D. Resume trigger fail-closed | `clarification_answered`/`auth_completed`/`scheduled` 缺 requirement-resolved 证据链（归 2C-3/2C-4），一律返回 `waiting_human(NOT_IMPLEMENTED_FOR_2C1:*)`，零副作用；`approval_expired` park 的 run 收到 `manual` 返回 `waiting_human(REQUIRES_NEW_APPROVAL_OR_REPLAN)` 保持 needs_human——真正恢复留给 2C-3，不伪装 requirement 已解决 |
 | E. Wrapper 状态一致性 | `resumeRuntimeV2AfterApproval()` 不再推断 status，改为 resume 后回读 DB durable state 返回——resume 未放行时不谎报 queued |
 
-## §3 测试（隔离 Neon 分支 `preview-phase2c1-final-202608092258`，`assertSafeTestDatabase` + `DATABASE_ENVIRONMENT=isolated` + `NODE_ENV=test`，跑完即删）
+### 2.7 Final Review Fix（REJECT_FAIL_CLOSED / MANUAL_RESUME_FAIL_CLOSED 两项 FAIL 修复）
 
-### 3.1 新增 Case M / N（`__tests__/phase2c1-pause-resume.test.ts`，18/18 PASS）
+**FIX 1 — Reject fail-closed**（`resume.ts` 步骤 5b）：`resumeWorkforceJob` 在 pending 检查后新增 rejected 检查——存在 rejected 关联 PendingAction（含 executed+rejected 混合：已有部分副作用更须交人）时，CAS park `needs_human(approval_rejected)`（lease/nextAttempt 清空、attempts=0）+ `job.waiting_human(humanRequirement=APPROVAL_REJECTED)`，零 `job.resumed`、不 requeue。Step 保持 reconcile 出的真实业务结果（skipped/partially_executed）不改写。reject 链（`rejectApprovalItem` → `resumeRuntimeV2AfterApproval` → `resumeWorkforceJob`）自然收敛到该 park，wrapper 回读 DB 对外返回 needs_human。reject 后重规划归 2C-3。
+
+**FIX 2 — Manual resume fail-closed**（`resume.ts` 步骤 2c）：manual 不再是万能恢复按钮，基于**持久化等待原因**（`run.errorCode`）白名单——2C-1 仅允许 PERMISSION_CHANGED 类（`USER_INACTIVE`/`NO_MEMBERSHIP`/`MEMBERSHIP_INACTIVE`，且必须经步骤 4 principal 现查确认已恢复）。`approval_expired`/`approval_rejected`/`clarification_required`/conflict/auth 及未知原因一律返回 `waiting_human(REQUIRES_REPLAN_OR_RESOLUTION:<code>)`。配套：processor 的 clarification park 现在持久化 `errorCode=clarification_required`（此前仅 errorMessage）。
+
+## §3 测试（隔离 Neon 分支，`assertSafeTestDatabase` + `DATABASE_ENVIRONMENT=isolated` + `NODE_ENV=test`，跑完即删；Final Review Fix 轮为 `preview-phase2c1-fix2-*`）
+
+> 已知测试基建现象（非产品缺陷）：kill-switch 套件在同一隔离库**连续批量**执行时会扫到前序用例遗留的 queued job 导致 2 个断言失败，单独执行稳定 15/15——该套件假设库内无其他 queued job，属 #80 测试的隔离前提，与本 PR 改动无关。
+
+### 3.1 新增 Case M / N / R（`__tests__/phase2c1-pause-resume.test.ts`，24/24 PASS）
+
+**Case R — Reject / Manual fail-closed（Final Review 验收场景，6 断言）**：R1 真实 `rejectApprovalItem()` → PA rejected、Job `needs_human(approval_rejected)`、`job.waiting_human(APPROVAL_REJECTED)`、0 个 `job.resumed`；R2 重复 reject + 重复 `approval_decided` 触发均幂等（事件不重复）；R2b `approval_rejected` 上 manual fail-closed；R3 `clarification_required` + manual → BLOCK 不 queued；R4 正常 approve 路径回归——executed → queued + `job.resumed`（Golden 不受影响）。
+
+M 的 manual 断言更新为统一 reason `REQUIRES_REPLAN_OR_RESOLUTION:approval_expired`；N4/N5 构造改用 executed/completed（rejected 现在会正确触发 FIX 1 park，与这两个用例的测试意图无关）。
 
 **Case M — 过期 reconcile（10 断言）**：过期 → PA `failed(已过期)`；step `failed(approval_expired)`；run `awaiting_approval → needs_human`（attempts=0、无租约）；`job.waiting_human(APPROVAL_REQUIRED/expired)`；无自动重建 PA；重复 expire 幂等；**approval_expired 后 `manual` resume fail-closed（保持 needs_human，`REQUIRES_NEW_APPROVAL_OR_REPLAN`，零 `job.resumed`）**；自愈兜底（模拟前轮 reconcile 中断，下轮收敛）。
 
@@ -125,6 +137,8 @@ HUMAN_REQUIREMENT_EVENTS        = IMPLEMENTED（§18 结构化 payload）
 EXACTLY_ONE_OUTCOME_WINS        = YES（EXP1–EXP4 确定性实证，BLOCKER A/B/C）
 RESUME_TRIGGER_FAIL_CLOSED      = PASS（未实现 trigger 一律 waiting_human，BLOCKER D）
 WRAPPER_STATUS_CONSISTENT       = PASS（对外 status 回读 DB durable state，BLOCKER E）
+REJECT_FAIL_CLOSED              = PASS（rejected → needs_human(approval_rejected)，R1/R2 实证，FIX 1）
+MANUAL_RESUME_FAIL_CLOSED       = PASS（errorCode 白名单，仅 PERMISSION_CHANGED 类可 manual，R2b/R3 实证，FIX 2）
 DATABASE_MIGRATION              = NONE
 KILL_SWITCH_TOUCHED             = NO（Lane B 零冲突）
 DESIGN_DOCS_TOUCHED             = NO（Lane C 零冲突）

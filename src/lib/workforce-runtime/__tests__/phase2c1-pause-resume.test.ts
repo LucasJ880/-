@@ -207,7 +207,7 @@ async function caseM(fx: Fx) {
   ok(
     !resumed.ok &&
       resumed.status === "waiting_human" &&
-      resumed.reason === "REQUIRES_NEW_APPROVAL_OR_REPLAN" &&
+      resumed.reason === "REQUIRES_REPLAN_OR_RESOLUTION:approval_expired" &&
       runResumed.status === "needs_human" &&
       runResumed.errorCode === "approval_expired",
     "M: approval_expired 后 manual resume fail-closed（保持 needs_human，归 2C-3）",
@@ -308,14 +308,16 @@ async function caseN(fx: Fx) {
   );
 
   // N4: principal 失效 → blocked + park PERMISSION_CHANGED；恢复后可 resume
+  // （审批结果用 executed/completed：rejected 会触发 FIX 1 的 reject
+  //   fail-closed park，与本用例的 principal 门无关）
   const j4 = await buildAwaitingApprovalJob(fx, "n4");
   await db.pendingAction.update({
     where: { id: j4.paId },
-    data: { status: "rejected" },
+    data: { status: "executed" },
   });
   await db.agentRunStep.updateMany({
     where: { runId: j4.runId, stepKey: "s6_followup_tasks" },
-    data: { status: "skipped" },
+    data: { status: "completed" },
   });
   await db.user.update({
     where: { id: fx.ownerUserId },
@@ -379,11 +381,11 @@ async function caseN(fx: Fx) {
   const j5 = await buildAwaitingApprovalJob(fx, "n5");
   await db.pendingAction.update({
     where: { id: j5.paId },
-    data: { status: "rejected" },
+    data: { status: "executed" },
   });
   await db.agentRunStep.updateMany({
     where: { runId: j5.runId, stepKey: "s6_followup_tasks" },
-    data: { status: "skipped" },
+    data: { status: "completed" },
   });
   const [c1, c2] = await Promise.all([
     resumeWorkforceJob({ orgId: fx.orgId, runId: j5.runId, trigger: "manual" }),
@@ -440,11 +442,181 @@ async function caseN(fx: Fx) {
   );
 }
 
+/**
+ * Case R — Reject / Manual fail-closed（Final Review FIX 1 / FIX 2）
+ * 独立 fixture（org 级 AgentRun 配额限制，M/N 的 org 已满）。
+ */
+async function caseR() {
+  console.log("\nCase R — Reject / Manual fail-closed（FIX 1 / FIX 2）");
+  const { db } = await import("@/lib/db");
+  const { resumeWorkforceJob } = await import("../resume");
+  const { rejectApprovalItem, approveApprovalItem } = await import(
+    "@/lib/approval/port"
+  );
+  const fx = await seedWorkforceFixture("phase2c1r");
+
+  // R1: 真实 rejectApprovalItem() → PA rejected → Job needs_human，0 job.resumed
+  const jA = await buildAwaitingApprovalJob(fx, "r1");
+  const rejectRes = await rejectApprovalItem("pending_action", jA.paId, {
+    userId: fx.approverUserId,
+    role: "admin",
+    orgId: fx.orgId,
+  });
+  const paA = await db.pendingAction.findUniqueOrThrow({
+    where: { id: jA.paId },
+  });
+  const runA = await db.agentRun.findUniqueOrThrow({ where: { id: jA.runId } });
+  const resumedA = await db.agentRunEvent.count({
+    where: { runId: jA.runId, eventType: "job.resumed" },
+  });
+  const waitingA = await db.agentRunEvent.findMany({
+    where: { runId: jA.runId, eventType: "job.waiting_human" },
+    orderBy: { sequence: "desc" },
+    take: 1,
+  });
+  const waitingAReq = metaOf(metaOf(waitingA[0]?.payload).humanRequirement);
+  ok(
+    rejectRes.status === "rejected" &&
+      paA.status === "rejected" &&
+      runA.status === "needs_human" &&
+      runA.errorCode === "approval_rejected" &&
+      runA.leaseExpiresAt === null &&
+      runA.nextAttemptAt === null &&
+      runA.attempts === 0 &&
+      resumedA === 0,
+    "R1: 真实 reject → Job needs_human(approval_rejected)，0 个 job.resumed",
+    { pa: paA.status, run: runA.status, errorCode: runA.errorCode, resumedA },
+  );
+  ok(
+    waitingAReq.type === "APPROVAL_REJECTED",
+    "R1: job.waiting_human(humanRequirement=APPROVAL_REJECTED) 已写入",
+    waitingAReq,
+  );
+
+  // R2: 重复 reject → 幂等 → 仍 needs_human，事件不重复
+  const rejectDup = await rejectApprovalItem("pending_action", jA.paId, {
+    userId: fx.approverUserId,
+    role: "admin",
+    orgId: fx.orgId,
+  });
+  // 再补一发 approval_decided 触发（模拟其他入口重复收敛）——同样不得 requeue
+  const resumeAfterReject = await resumeWorkforceJob({
+    orgId: fx.orgId,
+    runId: jA.runId,
+    trigger: "approval_decided",
+    humanActorUserId: fx.approverUserId,
+  });
+  const runA2 = await db.agentRun.findUniqueOrThrow({
+    where: { id: jA.runId },
+  });
+  const resumedA2 = await db.agentRunEvent.count({
+    where: { runId: jA.runId, eventType: "job.resumed" },
+  });
+  const rejectedWaitingCount = await db.agentRunEvent.count({
+    where: { runId: jA.runId, eventType: "job.waiting_human" },
+  });
+  ok(
+    rejectDup.duplicate === true &&
+      !resumeAfterReject.ok &&
+      resumeAfterReject.status === "waiting_human" &&
+      resumeAfterReject.reason === "APPROVAL_REJECTED" &&
+      runA2.status === "needs_human" &&
+      runA2.errorCode === "approval_rejected" &&
+      resumedA2 === 0 &&
+      rejectedWaitingCount === 1,
+    "R2: 重复 reject + 重复触发均幂等——仍 needs_human，事件不重复",
+    {
+      dup: rejectDup.duplicate,
+      resume: resumeAfterReject.status,
+      run: runA2.status,
+      events: rejectedWaitingCount,
+    },
+  );
+
+  // R2b: needs_human(approval_rejected) 上 manual 也 fail-closed（FIX 2）
+  const manualAfterReject = await resumeWorkforceJob({
+    orgId: fx.orgId,
+    runId: jA.runId,
+    trigger: "manual",
+    humanActorUserId: fx.ownerUserId,
+  });
+  ok(
+    !manualAfterReject.ok &&
+      manualAfterReject.status === "waiting_human" &&
+      manualAfterReject.reason ===
+        "REQUIRES_REPLAN_OR_RESOLUTION:approval_rejected",
+    "R2b: approval_rejected 上 manual fail-closed（重规划归 2C-3）",
+    manualAfterReject,
+  );
+
+  // R3: clarification-required Job + trigger=manual → BLOCK → 不 queued
+  const jB = await buildAwaitingApprovalJob(fx, "r3");
+  await db.pendingAction.update({
+    where: { id: jB.paId },
+    data: { status: "executed" },
+  });
+  await db.agentRun.update({
+    where: { id: jB.runId },
+    data: {
+      status: "needs_human",
+      errorCode: "clarification_required",
+      errorMessage: "需要补充信息后继续",
+      leaseExpiresAt: null,
+      nextAttemptAt: null,
+      attempts: 0,
+    },
+  });
+  const r3res = await resumeWorkforceJob({
+    orgId: fx.orgId,
+    runId: jB.runId,
+    trigger: "manual",
+    humanActorUserId: fx.ownerUserId,
+  });
+  const runB = await db.agentRun.findUniqueOrThrow({ where: { id: jB.runId } });
+  const resumedB = await db.agentRunEvent.count({
+    where: { runId: jB.runId, eventType: "job.resumed" },
+  });
+  ok(
+    !r3res.ok &&
+      r3res.status === "waiting_human" &&
+      r3res.reason ===
+        "REQUIRES_REPLAN_OR_RESOLUTION:clarification_required" &&
+      runB.status === "needs_human" &&
+      resumedB === 0,
+    "R3: clarification_required + manual → BLOCK，不 queued",
+    { r3res, run: runB.status },
+  );
+
+  // R4: approval accepted 正常路径 → 仍 queued/resumed（回归保护）
+  const jC = await buildAwaitingApprovalJob(fx, "r4");
+  const approveRes = await approveApprovalItem("pending_action", jC.paId, {
+    userId: fx.approverUserId,
+    role: "admin",
+    orgId: fx.orgId,
+  });
+  const paC = await db.pendingAction.findUniqueOrThrow({
+    where: { id: jC.paId },
+  });
+  const runC = await db.agentRun.findUniqueOrThrow({ where: { id: jC.runId } });
+  const resumedC = await db.agentRunEvent.count({
+    where: { runId: jC.runId, eventType: "job.resumed" },
+  });
+  ok(
+    approveRes.ok === true &&
+      paC.status === "executed" &&
+      runC.status === "queued" &&
+      resumedC === 1,
+    "R4: 正常 approve 路径不受影响——executed → queued + job.resumed",
+    { approve: approveRes.status, pa: paC.status, run: runC.status, resumedC },
+  );
+}
+
 async function main() {
-  console.log("Phase 2C-1 — Pause / Resume Reconciliation（Case M / N）");
+  console.log("Phase 2C-1 — Pause / Resume Reconciliation（Case M / N / R）");
   const fx = await seedWorkforceFixture("phase2c1");
   await caseM(fx);
   await caseN(fx);
+  await caseR();
   finish();
 }
 

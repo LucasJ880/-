@@ -46,6 +46,17 @@ export const WORKFORCE_RESUMABLE_STATUSES = [
   "needs_human",
 ] as const;
 
+/**
+ * manual resume 白名单（Final Review FIX 2）：仅 PERMISSION_CHANGED 类
+ * 等待原因允许 manual 恢复（且必须经步骤 4 principal 现查确认已恢复）。
+ * 对应 resolveRuntimeV2Principal 的失效码。
+ */
+export const MANUAL_RESUMABLE_PERMISSION_CODES = [
+  "USER_INACTIVE",
+  "NO_MEMBERSHIP",
+  "MEMBERSHIP_INACTIVE",
+] as const;
+
 export type WorkforceResumeResult =
   /** CAS requeue 成功，job.resumed 已写入 */
   | { ok: true; status: "requeued" }
@@ -138,14 +149,23 @@ export async function resumeWorkforceJob(input: {
       reason: `NOT_IMPLEMENTED_FOR_2C1:${trigger}`,
     };
   }
-  // approval_expired park 的 run：原 Step 已 failed，manual 触发并不构成
-  // 新审批或 replan——保持 needs_human，真正恢复路径归 2C-3。
-  if (trigger === "manual" && run.errorCode === "approval_expired") {
-    return {
-      ok: false,
-      status: "waiting_human",
-      reason: "REQUIRES_NEW_APPROVAL_OR_REPLAN",
-    };
+  // 2c. manual fail-closed（Final Review FIX 2）：manual 不是万能恢复按钮。
+  //     基于持久化等待原因（run.errorCode）白名单：2C-1 只允许
+  //     PERMISSION_CHANGED 类（principal 失效码——后续步骤 4 会现查确认
+  //     身份已恢复）。approval_expired / approval_rejected /
+  //     clarification_required / conflict / auth 等一律 fail-closed，
+  //     真正的 replan / clarification answer / human edit 归 2C-3。
+  if (trigger === "manual" && run.status === "needs_human") {
+    const code = run.errorCode ?? "";
+    if (
+      !(MANUAL_RESUMABLE_PERMISSION_CODES as readonly string[]).includes(code)
+    ) {
+      return {
+        ok: false,
+        status: "waiting_human",
+        reason: `REQUIRES_REPLAN_OR_RESOLUTION:${code || "unknown"}`,
+      };
+    }
   }
 
   // 3. restore runtime identity（19 字段；只取身份/correlation，不取权限）
@@ -227,6 +247,59 @@ export async function resumeWorkforceJob(input: {
       reason: `PENDING_ACTIONS:${pendingActions}`,
     };
   }
+
+  // 5b. reject fail-closed（Final Review FIX 1）：存在 rejected 的关联
+  //     PendingAction（含 executed+rejected 混合——已有部分副作用时更须
+  //     交人）→ Job 必须 needs_human(approval_rejected)，不得自动继续。
+  //     Step 保持 reconcile 出的真实业务结果（skipped/partially_executed）
+  //     不改写。reject 后的重规划/继续归 2C-3。
+  const rejectedActions = await db.pendingAction.findMany({
+    where: { agentRunId: runId, orgId, status: "rejected" },
+    select: { id: true },
+  });
+  if (rejectedActions.length > 0) {
+    const parked = await db.agentRun.updateMany({
+      where: {
+        id: runId,
+        orgId,
+        runType: WORKFORCE_JOB_RUN_TYPE,
+        status: { in: [...WORKFORCE_RESUMABLE_STATUSES] },
+        // 幂等：已 park 为 approval_rejected 时不重复写（errorCode 不同才转）
+        NOT: { status: "needs_human", errorCode: "approval_rejected" },
+      },
+      data: {
+        status: "needs_human",
+        errorCode: "approval_rejected",
+        errorMessage: "审批被拒绝，需要人工决定后续（重新规划或放弃）",
+        leaseExpiresAt: null,
+        nextAttemptAt: null,
+        attempts: 0,
+      },
+    });
+    if (parked.count > 0) {
+      await appendAgentRunEvent({
+        orgId,
+        runId,
+        eventType: "job.waiting_human",
+        title: "审批被拒绝，需要人工处理",
+        payload: {
+          humanRequirement: {
+            type: "APPROVAL_REJECTED",
+            refs: { pendingActionIds: rejectedActions.map((a) => a.id) },
+          },
+          trigger,
+          correlation,
+        },
+        visibleToUser: true,
+      });
+    }
+    return {
+      ok: false,
+      status: "waiting_human",
+      reason: "APPROVAL_REJECTED",
+    };
+  }
+
   const awaitingSteps = await db.agentRunStep.count({
     where: { runId, orgId, status: "awaiting_approval" },
   });
