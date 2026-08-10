@@ -40,8 +40,11 @@ export const WORKFORCE_SYNTHESIS_LIMITS = {
   maxUpstreamInputBytes: 4096,
   /** 全部上游注入的总序列化预算（UTF-8 字节） */
   maxTotalInputBytes: 24_576,
-  /** 模型输出 token 上限（bounded output） */
-  maxModelOutputTokens: 1400,
+  /** 模型输出 token 上限（bounded transport 预算；内容边界由 schema 强制）。
+   *  注意：推理模型的 max_completion_tokens 同时覆盖 reasoning tokens——
+   *  预算过小会被 reasoning 全额耗尽、返回空 content（S4 实测 1400 全额
+   *  命中上限零输出），故取与 planner（2500）同量级的余量。 */
+  maxModelOutputTokens: 4000,
 } as const;
 
 const boundedList = z

@@ -662,6 +662,85 @@ async function main() {
     );
   }
 
+  // G7c：审批入口层（approveApprovalItem）在执行失败时也必须 reconcile——
+  // Run 不得滞留 awaiting_approval（#90A CASE B 全链路，含 port 接线）
+  const { approveApprovalItem } = await import("@/lib/approval/port");
+  const g7cRunId = await createJobWithPlan("P0-G7c 审批入口执行失败计划", [
+    stepOf("read_a", { preferredTool: "sales_get_pipeline" }),
+    stepOf("write_b", {
+      preferredTool: "sales_update_followup",
+      dependsOn: ["read_a"],
+      executionMode: "write",
+      riskLevel: "HIGH",
+      requiresApproval: true,
+    }),
+  ]);
+  {
+    await fabricateContractCompletedStep({
+      runId: g7cRunId,
+      stepKey: "read_a",
+      businessOutput: { summary: "读取完成" },
+    });
+    // 指向不存在的商机 → 审批执行必然失败（商机不存在）
+    const draft = await createDraft({
+      type: "sales.update_followup",
+      title: "P0-G7c 执行失败",
+      preview: "test",
+      payload: {
+        opportunityId: "nonexistent_opp_p0g7c",
+        opportunityTitle: "不存在",
+        customerName: "不存在",
+        previousFollowupAt: null,
+        nextFollowupAt: new Date(Date.now() + 86400000).toISOString(),
+        note: "P0-G7c",
+        metadata: { orgId: fx.orgId, source: "p0_g7c_test" },
+      },
+      userId: fx.ownerUserId,
+      orgId: fx.orgId,
+      agentRunId: g7cRunId,
+      idempotencyKey: `p0g7c_${fx.tag}`,
+    });
+    const paId = (draft.data as { actionId?: string } | undefined)?.actionId;
+    if (!paId) throw new Error("G7c draft 创建失败");
+    await db.agentRunStep.updateMany({
+      where: { runId: g7cRunId, stepKey: "write_b" },
+      data: {
+        status: "awaiting_approval",
+        pendingActionId: paId,
+        evidenceJson: { pendingActionIds: [paId] },
+      },
+    });
+    await db.agentRun.update({
+      where: { id: g7cRunId },
+      data: { status: "awaiting_approval", leaseExpiresAt: null },
+    });
+    const approveRes = await approveApprovalItem("pending_action", paId, {
+      userId: fx.approverUserId,
+      role: "admin",
+      orgId: fx.orgId,
+    });
+    const pa = await db.pendingAction.findUniqueOrThrow({ where: { id: paId } });
+    const writeB = await db.agentRunStep.findFirstOrThrow({
+      where: { runId: g7cRunId, stepKey: "write_b" },
+    });
+    const run = await db.agentRun.findUniqueOrThrow({ where: { id: g7cRunId } });
+    ok(
+      approveRes.ok === false && pa.status === "failed",
+      "G7c: 审批执行失败（PendingAction=failed）",
+      { ok: approveRes.ok, pa: pa.status },
+    );
+    ok(
+      writeB.status === "failed" && run.status !== "awaiting_approval",
+      "G7c: 审批入口在执行失败时也 reconcile——step failed，Run 不滞留 awaiting_approval",
+      { step: writeB.status, run: run.status },
+    );
+    ok(
+      run.status === "needs_human",
+      "G7c: Run 进入 needs_human（真实执行失败可见，审批语义不遮蔽）",
+      run.status,
+    );
+  }
+
   // ══ P0-G8：审批拒绝冻结行为回归（2C-1）══
   console.log("\n[P0-G8 审批拒绝回归]");
   const g8RunId = await createJobWithPlan("P0-G8 审批拒绝计划", [
