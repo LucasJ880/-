@@ -68,6 +68,7 @@ export interface Messages {
   nav_trade_cockpit: string;
   nav_trade_fulfillment: string;
   nav_ai_assistant: string;
+  nav_ai_jobs: string;
   nav_trade_quotes: string;
   nav_trade_import: string;
   nav_email_templates: string;

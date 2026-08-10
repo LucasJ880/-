@@ -14,6 +14,7 @@
  *   sequence ASC 排序，不依赖 createdAt 避免同毫秒乱序）。
  */
 
+import { readWorkforceTaskSpec } from "../task-contract";
 import type {
   WorkforceBusinessRef,
   WorkforceBusinessRefType,
@@ -155,8 +156,18 @@ export function projectProgress(
 /* ------------------------------------------------------------------ */
 
 /**
- * 单步投影。workerKey / taskKind 来自 inputJson（2B-1 落地后自动出现），
- * 缺失即 undefined——Lane D 不阻塞、不假设 Lane A 已合并。
+ * 单步投影。workerKey / taskKind 的来源（优先级冻结，2D-1 Final Gate）：
+ *
+ * 1. **canonical（#85）**：`inputJson.workforceTask`（workforce-task/v1
+ *    信封）经 `readWorkforceTaskSpec` 纯 contract reader 校验——
+ *    valid → `spec.worker.workerKey` / `spec.taskKind`（不自建 parser）；
+ * 2. **absent → legacy fallback（#84 原语义）**：信封不存在时读
+ *    `input.worker.id` / `input.workerKey` / `input.taskKind` / `input.kind`
+ *    （2B-1 之前规划的存量 Job，向后兼容）；
+ * 3. **invalid → fail-safe**：信封存在但损坏——workerKey / taskKind 一律
+ *    undefined，绝不透出 raw 内部数据，也不回退 legacy 字段（信封声明了
+ *    canonical 意图，损坏时不猜测）。
+ *
  * 只透出执行身份标识；权限/scope/白名单等授权语义结构性排除。
  */
 export function projectTaskView(
@@ -165,17 +176,26 @@ export function projectTaskView(
     "stepKey" | "title" | "status" | "inputJson" | "startedAt" | "completedAt"
   >,
 ): WorkforceTaskView {
-  const input = asRecord(step.inputJson);
-  const worker = asRecord(input.worker);
   const view: WorkforceTaskView = {
     stepKey: step.stepKey,
     title: step.title,
     status: step.status,
   };
-  const taskKind = asString(input.taskKind) ?? asString(input.kind);
-  if (taskKind) view.taskKind = taskKind;
-  const workerKey = asString(worker.id) ?? asString(input.workerKey);
-  if (workerKey) view.workerKey = workerKey;
+
+  const spec = readWorkforceTaskSpec(step.inputJson);
+  if (spec.kind === "valid") {
+    view.taskKind = spec.spec.taskKind;
+    view.workerKey = spec.spec.worker.workerKey;
+  } else if (spec.kind === "absent") {
+    const input = asRecord(step.inputJson);
+    const worker = asRecord(input.worker);
+    const taskKind = asString(input.taskKind) ?? asString(input.kind);
+    if (taskKind) view.taskKind = taskKind;
+    const workerKey = asString(worker.id) ?? asString(input.workerKey);
+    if (workerKey) view.workerKey = workerKey;
+  }
+  // spec.kind === "invalid"：两字段保持 undefined（fail-safe）
+
   if (step.startedAt) view.startedAt = iso(step.startedAt);
   if (step.completedAt) view.completedAt = iso(step.completedAt);
   return view;
@@ -469,6 +489,29 @@ export function projectTimeline(
   return items;
 }
 
+/**
+ * 最终结果摘要（2D-1，设计 §10/§19：deliverable = job.completed payload 摘要）。
+ *
+ * 唯一来源 = 最新 user-visible `job.completed` 事件的 payload.summary
+ * （字符串）。2B `aggregateJobResult` 落地前该字段不存在 → undefined，
+ * UI 按"尚未生成最终结果"呈现——绝不由前端拼装 LLM 摘要。
+ *
+ * 结构性排除：`job.failed` 的 payload.report 可能承载内部错误原文
+ * （process 失败分支把 round.error 塞进 report），永不透出用户面。
+ */
+export function projectFinalSummary(
+  events: ReadonlyArray<WorkforceEventSnapshot>,
+): string | undefined {
+  let latest: WorkforceEventSnapshot | undefined;
+  for (const event of events) {
+    if (event.eventType !== "job.completed" || !event.visibleToUser) continue;
+    if (!latest || event.sequence > latest.sequence) latest = event;
+  }
+  if (!latest) return undefined;
+  const summary = asString(asRecord(latest.payload).summary);
+  return summary ? summary.slice(0, 4000) : undefined;
+}
+
 /** 内部 timeline（Admin/Operator）：全量事件原样，sequence ASC */
 export function projectInternalTimeline(
   events: ReadonlyArray<WorkforceEventSnapshot>,
@@ -555,6 +598,9 @@ export function buildWorkforceJobViewModel(input: {
 
   const needsYou = projectNeedsYou(run, events, pendingActions);
   if (needsYou) view.needsYou = needsYou;
+
+  const finalSummary = projectFinalSummary(events);
+  if (finalSummary) view.finalSummary = finalSummary;
 
   const businessRefs = projectBusinessRefs(run.metadata);
   if (businessRefs) view.businessRefs = businessRefs;

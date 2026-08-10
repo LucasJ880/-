@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   CheckSquare,
   Bell,
+  Briefcase,
   CalendarDays,
   Inbox,
   MessageSquare,
@@ -180,6 +181,17 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "WORK",
     salesWorkspaceVisible: true,
     displayOrder: 60,
+  },
+  {
+    // 2D-1 Job Center：数字员工任务总览（只读观测面）
+    key: "work-ai-jobs",
+    label: "AI 任务",
+    labelKey: "nav_ai_jobs",
+    href: "/workforce",
+    icon: Briefcase,
+    group: "WORK",
+    salesWorkspaceVisible: true,
+    displayOrder: 65,
   },
 
   // ── 管理入口：旧经营模块启动页（非新运营中心 /ops）──

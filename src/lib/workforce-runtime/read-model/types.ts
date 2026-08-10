@@ -163,8 +163,51 @@ export type WorkforceJobViewModel = {
   completedAt?: string;
   /** AgentRun.updatedAt（任何状态/租约写入都会推进） */
   lastActivityAt: string;
+  /**
+   * 最终结果摘要（2D-1）。唯一结构化来源 = 最新 user-visible
+   * `job.completed` 事件 payload.summary（2B `aggregateJobResult` 落地后
+   * 自动出现）。缺失即 undefined——UI 显示"尚未生成最终结果"。
+   * `job.failed` 的 payload.report 结构性排除（可能承载内部错误原文）。
+   */
+  finalSummary?: string;
   /** 仅 includeInternal=true（Admin/Operator 层；默认绝不产出） */
   internalTimeline?: WorkforceInternalTimelineItem[];
+};
+
+/* ------------------------------------------------------------------ */
+/* Job Center 列表（2D-1）——列表卡片的轻量投影                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 列表状态筛选（用户面词汇，设计 §18/§24）。
+ * DB 层按 internal status 集合过滤（deterministic、分页安全），
+ * 不做"先投影再过滤"（会破坏游标语义）。
+ */
+export type WorkforceJobStatusFilter =
+  | "all"
+  | "working"
+  | "needs_you"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/**
+ * Job Card 所需字段的子集（设计 §24 Lite 投影）：
+ * Title / Status / Progress / Current Task(s) / Last Activity / Needs You。
+ * 不含 tasks 全量与 timeline（详情页专属），永不含 internalTimeline。
+ */
+export type WorkforceJobListItem = {
+  jobId: string;
+  status: WorkforceUserJobStatus;
+  title?: string;
+  progress: WorkforceJobProgress;
+  currentTasks: WorkforceTaskView[];
+  needsYou?: WorkforceNeedsYouView;
+  businessRefs?: WorkforceBusinessRef[];
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  lastActivityAt: string;
 };
 
 /* ------------------------------------------------------------------ */

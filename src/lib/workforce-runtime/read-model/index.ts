@@ -17,6 +17,8 @@ export type {
   WorkforceBusinessRef,
   WorkforceBusinessRefType,
   WorkforceJobViewModel,
+  WorkforceJobListItem,
+  WorkforceJobStatusFilter,
   WorkforceRunSnapshot,
   WorkforceStepSnapshot,
   WorkforceEventSnapshot,
@@ -32,9 +34,26 @@ export {
   projectTimeline,
   projectInternalTimeline,
   projectBusinessRefs,
+  projectFinalSummary,
   sortStepsByPlanOrder,
   buildWorkforceJobViewModel,
 } from "./projection";
+
+export {
+  listWorkforceJobViews,
+  isWorkforceJobStatusFilter,
+  encodeWorkforceJobsCursor,
+  decodeWorkforceJobsCursor,
+  type ListWorkforceJobViewsInput,
+  type ListWorkforceJobViewsResult,
+  type WorkforceJobsCursor,
+  type WorkforceListReader,
+} from "./list-service";
+
+export {
+  resolveWorkforceApiOrgForUser,
+  workforceOrgFailureHttp,
+} from "./api-org";
 
 export {
   getWorkforceJobView,

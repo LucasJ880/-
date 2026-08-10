@@ -65,6 +65,7 @@ export const en: Messages = {
   nav_trade_cockpit: "Global Analytics",
   nav_trade_fulfillment: "Fulfillment Collaboration",
   nav_ai_assistant: "Digital Employees",
+  nav_ai_jobs: "AI Jobs",
   nav_trade_quotes: "Trade Quotes",
   nav_trade_import: "Expo Import",
   nav_email_templates: "Email Templates",

@@ -65,6 +65,7 @@ export const zh: Messages = {
   nav_trade_cockpit: "海外业务分析",
   nav_trade_fulfillment: "履约协同",
   nav_ai_assistant: "数字员工",
+  nav_ai_jobs: "AI 任务",
   nav_trade_quotes: "外贸报价",
   nav_trade_import: "展会导入",
   nav_email_templates: "邮件模板",
