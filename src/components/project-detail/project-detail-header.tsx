@@ -38,9 +38,11 @@ interface ProjectDetail {
 
 interface Props {
   project: ProjectDetail;
+  /** 打开贯穿式资料抽屉（T1A：文档 tile 不再跳平台知识库） */
+  onOpenDocuments?: () => void;
 }
 
-export function ProjectDetailHeader({ project }: Props) {
+export function ProjectDetailHeader({ project, onOpenDocuments }: Props) {
   const id = project.id;
 
   return (
@@ -113,16 +115,27 @@ export function ProjectDetailHeader({ project }: Props) {
                 <p className="text-[11px] text-muted">成员</p>
               </div>
             </button>
-            <Link
-              href={`/projects/${id}/knowledge-bases`}
-              className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent/5"
-            >
-              <FileText size={15} className="shrink-0 text-accent/60" />
-              <div>
-                <p className="text-base font-bold leading-tight">{(project.documents ?? []).length}</p>
-                <p className="text-[11px] text-muted">文档</p>
+            {onOpenDocuments ? (
+              <button
+                type="button"
+                onClick={onOpenDocuments}
+                className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2 text-left transition-colors hover:border-accent/30 hover:bg-accent/5"
+              >
+                <FileText size={15} className="shrink-0 text-accent/60" />
+                <div>
+                  <p className="text-base font-bold leading-tight">{(project.documents ?? []).length}</p>
+                  <p className="text-[11px] text-muted">文档</p>
+                </div>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background px-3 py-2">
+                <FileText size={15} className="shrink-0 text-accent/60" />
+                <div>
+                  <p className="text-base font-bold leading-tight">{(project.documents ?? []).length}</p>
+                  <p className="text-[11px] text-muted">文档</p>
+                </div>
               </div>
-            </Link>
+            )}
             {project.closeDate ? (() => {
               const daysLeft = Math.ceil((new Date(project.closeDate).getTime() - Date.now()) / 86400000);
               return (

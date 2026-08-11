@@ -783,10 +783,10 @@ export default function ProjectsPage() {
                 </Link>
                 {project.intelligenceRoom && (
                   <Link
-                    href={`/projects/${project.id}/intelligence-room`}
+                    href={`/projects/${project.id}?tab=intel`}
                     className="text-xs text-accent hover:text-accent-hover"
                   >
-                    调查室
+                    情报
                   </Link>
                 )}
                 {project.intakeStatus === "pending_dispatch" && (
