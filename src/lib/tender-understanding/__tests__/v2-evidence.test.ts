@@ -127,6 +127,104 @@ async function run(): Promise<void> {
     assert.deepEqual(reasons, ["DOCUMENT_NOT_IN_SCOPE", "PAGE_NOT_FOUND"]);
   });
 
+  // ── V2-E7..E10：Risk / Ambiguity 语义证据门（Final Review §15/16/18） ──
+
+  const riskCandidate = (description: string, snippet: string) => ({
+    riskType: "SUBMISSION" as const,
+    description,
+    sourceDocumentId: "d1",
+    pageNumber: 4,
+    sourceSnippet: snippet,
+    confidence: "HIGH" as const,
+  });
+
+  const ambiguityCandidate = (
+    topic: string,
+    description: string,
+    whatIsUnknown: string,
+    snippet: string,
+  ) => ({
+    topic,
+    description,
+    whatIsUnknown,
+    sourceDocumentId: "d1",
+    pageNumber: 4,
+    sourceSnippet: snippet,
+    confidence: "HIGH" as const,
+  });
+
+  // 页面上的真实引文 A（逐字存在于 p4）
+  const REAL_QUOTE_A =
+    "Delivery must be completed within 30 days of purchase order issuance.";
+
+  await ok("V2-E7: 真实引文 + 完全无关的 risk 断言 → REJECT (NO_SEMANTIC_SUPPORT)", () => {
+    const r = verifyCandidates(testInput, {
+      facts: [],
+      requirements: [],
+      risks: [
+        riskCandidate(
+          "Bidder insurance certificate might be expired causing disqualification",
+          REAL_QUOTE_A,
+        ),
+      ],
+      ambiguities: [],
+    });
+    assert.equal(r.risks.length, 0);
+    assert.equal(r.rejected.risks[0]!.reasonCode, "NO_SEMANTIC_SUPPORT");
+  });
+
+  await ok("V2-E8: 真实引文 + 无关的 ambiguity → REJECT (NO_SEMANTIC_SUPPORT)", () => {
+    const r = verifyCandidates(testInput, {
+      facts: [],
+      requirements: [],
+      risks: [],
+      ambiguities: [
+        ambiguityCandidate(
+          "bond amount unclear",
+          "The tender references a bid bond but never states the amount",
+          "the required bond percentage",
+          REAL_QUOTE_A,
+        ),
+      ],
+    });
+    assert.equal(r.ambiguities.length, 0);
+    assert.equal(r.rejected.ambiguities[0]!.reasonCode, "NO_SEMANTIC_SUPPORT");
+  });
+
+  await ok("V2-E9: 真实引文 + 语义支持的 risk → ACCEPT（正控，防过严）", () => {
+    const r = verifyCandidates(testInput, {
+      facts: [],
+      requirements: [],
+      risks: [
+        riskCandidate(
+          "Tight delivery obligation: goods must be delivered within 30 days of purchase order",
+          REAL_QUOTE_A,
+        ),
+      ],
+      ambiguities: [],
+    });
+    assert.equal(r.risks.length, 1);
+    assert.equal(r.rejected.risks.length, 0);
+  });
+
+  await ok("V2-E10: 真实引文 + 语义支持的 ambiguity → ACCEPT（正控）", () => {
+    const r = verifyCandidates(testInput, {
+      facts: [],
+      requirements: [],
+      risks: [],
+      ambiguities: [
+        ambiguityCandidate(
+          "delivery start trigger",
+          "Delivery must be completed within 30 days but the purchase order issuance date basis is not defined",
+          "whether the 30 days count from issuance date or receipt of purchase order",
+          REAL_QUOTE_A,
+        ),
+      ],
+    });
+    assert.equal(r.ambiguities.length, 1);
+    assert.equal(r.rejected.ambiguities.length, 0);
+  });
+
   console.log(`\nV2 evidence discipline: ${count()} 组断言全部通过`);
 }
 

@@ -120,39 +120,13 @@ function factFullText(f: FactCandidate): string {
   ].join(" \n ");
 }
 
-/**
- * 事实评估的候选语料 = facts 通道 + requirements 通道（伪事实视图）。
- * 理由：V1 把部分义务性信息放在 facts（email_max_size 等），V2 按语义把义务
- * 放在 requirements——指标意图是"系统是否带证据捕获了该关键信息"，
- * 不应因输出通道形状不同而计 NOT_EXTRACTED。两条 lane 统一适用；
- * expectedUnknown 违规扫描仍只看真实 facts 通道（见 evaluateExpectedUnknowns）。
- */
-function requirementAsFactCandidate(r: RequirementCandidate): FactCandidate {
-  return {
-    factKey: `req:${r.requirementCode}`,
-    statementKind: "CONFIRMED_FACT",
-    contentZh: r.originalRequirement,
-    contentOriginal:
-      r.chineseTranslation && r.chineseTranslation !== r.originalRequirement
-        ? `${r.originalRequirement} ${r.chineseTranslation}`
-        : r.originalRequirement,
-    confidence: "HIGH_CONFIDENCE",
-    sourceRefs: r.sourceRefs,
-  };
-}
-
 export function evaluateFacts(
   evalCase: TenderEvalCase,
   facts: FactCandidate[],
   pages: PageInput[],
-  requirementCandidates: RequirementCandidate[] = [],
 ): FactEvaluation[] {
-  const corpus: FactCandidate[] = [
-    ...facts,
-    ...requirementCandidates.map(requirementAsFactCandidate),
-  ];
   return evalCase.goldenFacts.map((golden) => {
-    const candidates = corpus.filter((f) =>
+    const candidates = facts.filter((f) =>
       anchorGroupsMatch(factFullText(f), golden.matchAnchors),
     );
     if (candidates.length === 0) {
@@ -552,12 +526,7 @@ export function evaluateCase(
 ): CaseEvaluation {
   const pages = evalCase.documentSet.flatMap((d) => d.pages);
 
-  const facts = evaluateFacts(
-    evalCase,
-    output.facts,
-    pages,
-    output.requirements,
-  );
+  const facts = evaluateFacts(evalCase, output.facts, pages);
   const requirements = evaluateRequirements(
     evalCase,
     output.requirements,

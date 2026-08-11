@@ -50,6 +50,33 @@ const CONFIDENCE_MAP = {
   LOW: "INFERRED",
 } as const;
 
+/**
+ * Candidate 输出形状适配（Freeze Contract 决议）：
+ * V2 按语义把义务性信息放 requirements 通道，而黄金事实评估以"系统是否带证据
+ * 捕获该关键信息"为准——通道桥接是 Candidate 形状问题，因此在本 adapter 内把
+ * ACTIVE/NEEDS_REVIEW requirement 以伪事实视图并入 facts 通道；scorer（evaluate.ts）
+ * 保持冻结纯净，不知道 Candidate 输出风格。
+ */
+function requirementChannelAsFacts(result: AnalysisResultV2): FactCandidate[] {
+  return result.requirements
+    .filter((r) => r.status === "ACTIVE" || r.status === "NEEDS_REVIEW")
+    .map((r) => ({
+      factKey: `req:${r.id}`,
+      statementKind: "CONFIRMED_FACT" as const,
+      contentZh: r.statement,
+      contentOriginal: r.statement,
+      confidence: CONFIDENCE_MAP[r.confidence],
+      sourceRefs: r.evidence.map((e) => ({
+        documentId: e.documentId,
+        pageNumber: e.pageNumber,
+        originalTextSnippet: e.snippet,
+        sectionLabel: null,
+        extractionMethod: "v2-requirement-channel",
+        confidence: CONFIDENCE_MAP[r.confidence],
+      })),
+    }));
+}
+
 export function v2ResultToSystemOutput(result: AnalysisResultV2): SystemOutput {
   const facts: FactCandidate[] = result.facts
     .filter((f) => f.status === "ACTIVE")
@@ -114,7 +141,12 @@ export function v2ResultToSystemOutput(result: AnalysisResultV2): SystemOutput {
 
   const riskLines = result.risks.map((r) => `${r.severity}: ${r.description}`);
 
-  return { facts, requirements, clarifications, riskLines };
+  return {
+    facts: [...facts, ...requirementChannelAsFacts(result)],
+    requirements,
+    clarifications,
+    riskLines,
+  };
 }
 
 export type V2LaneRun = {

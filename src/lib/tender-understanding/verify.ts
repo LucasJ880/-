@@ -216,6 +216,13 @@ export function verifyCandidates(
       out.rejected.risks.push({ candidate: k, reasonCode: evidenceFail });
       continue;
     }
+    // 语义门（Final Review §15）：引文真实存在但与 risk 断言无关 → 拒收。
+    // 通用 token 支持判定，零领域词；宁可拒掉 borderline，不让 unsupported
+    // claim 进业务结果。
+    if (!checkSemanticSupport(k.description, k.sourceSnippet)) {
+      out.rejected.risks.push({ candidate: k, reasonCode: "NO_SEMANTIC_SUPPORT" });
+      continue;
+    }
     out.risks.push(k);
   }
 
@@ -223,6 +230,16 @@ export function verifyCandidates(
     const evidenceFail = checkEvidence(a, index, documentIds);
     if (evidenceFail) {
       out.rejected.ambiguities.push({ candidate: a, reasonCode: evidenceFail });
+      continue;
+    }
+    // 语义门（Final Review §16）：topic/description/whatIsUnknown 组合文本
+    // 必须被引文支持，否则拒收。
+    const ambiguityClaim = `${a.topic} ${a.description} ${a.whatIsUnknown}`;
+    if (!checkSemanticSupport(ambiguityClaim, a.sourceSnippet)) {
+      out.rejected.ambiguities.push({
+        candidate: a,
+        reasonCode: "NO_SEMANTIC_SUPPORT",
+      });
       continue;
     }
     out.ambiguities.push(a);
