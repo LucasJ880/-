@@ -19,6 +19,8 @@ type Props = {
   /** 上传响应里的初始状态 */
   seedStatus?: string | null;
   seedRunId?: string | null;
+  /** 已经身处招标要求 tab 时隐藏「查看分析」跳转 */
+  showDetailLink?: boolean;
 };
 
 const ACTIVE = new Set([
@@ -32,6 +34,7 @@ export function AnalysisProgressBanner({
   projectId,
   seedStatus,
   seedRunId,
+  showDetailLink = true,
 }: Props) {
   const [run, setRun] = useState<LatestRun | null>(
     seedRunId
@@ -89,15 +92,20 @@ export function AnalysisProgressBanner({
             <span className="ml-2 text-xs opacity-80">（增量）</span>
           ) : null}
         </p>
-        <Link
-          href={`/projects/${projectId}/intelligence-room#tender-analysis`}
-          className="text-xs underline"
-        >
-          查看分析
-        </Link>
+        {showDetailLink ? (
+          <Link
+            href={`/projects/${projectId}?tab=requirements`}
+            className="text-xs underline"
+          >
+            查看分析
+          </Link>
+        ) : null}
       </div>
-      {run.status === "FAILED" && run.errorMessage ? (
-        <p className="text-xs opacity-80">{run.errorMessage}</p>
+      {run.status === "FAILED" ? (
+        // 原始 errorMessage 属内部诊断信息，不向业务用户透出（T0 审计 §7-3）
+        <p className="text-xs opacity-80">
+          分析未能完成，可在「招标要求」重新发起分析；若持续失败请联系管理员。
+        </p>
       ) : null}
       {run.runKind === "INCREMENTAL" &&
       (run.pendingChangeCount ?? 0) > 0 ? (

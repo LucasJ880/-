@@ -27,7 +27,18 @@ export const WORKFORCE_TASK_CONTRACT_VERSION = "workforce-task/v1";
 export const WORKFORCE_TASK_LIMITS = {
   maxObjectiveLength: 1000,
   maxExpectedOutputLength: 1000,
+  /** Phase 2B-2（§10）：声明资源上限（同 Job 冲突对比，无需索引） */
+  maxResources: 8,
+  maxResourceKeyLength: 200,
 } as const;
+
+/**
+ * Phase 2B-2（§9/§10）资源键词汇格式：`{entity}:{id}`，如 customer:{id} /
+ * opportunity:{id} / quote:{id} / project:{id} / tender:{id} /
+ * email-thread:{id}。entity 小写字母开头（允许数字/下划线/连字符），
+ * id 为无空白字符串。冲突判定按精确字符串相等。
+ */
+export const WORKFORCE_RESOURCE_KEY_PATTERN = /^[a-z][a-z0-9_-]{0,31}:\S{1,160}$/;
 
 /**
  * strip：未知字段一律丢弃（spec 不承载任何白名单之外的数据，
@@ -50,6 +61,18 @@ export const WorkforceTaskSpecV1Schema = z
     expectedOutput: z
       .string()
       .max(WORKFORCE_TASK_LIMITS.maxExpectedOutputLength)
+      .optional(),
+    // Phase 2B-2（§10）：backward-compatible optional field——旧 V1 记录无
+    // 该字段照常 parse；老 reader（.strip()）遇到新字段安全丢弃。
+    // 不改 contractVersion（V1 内向后兼容扩展，任务书 §10 明确允许）。
+    resources: z
+      .array(
+        z
+          .string()
+          .max(WORKFORCE_TASK_LIMITS.maxResourceKeyLength)
+          .regex(WORKFORCE_RESOURCE_KEY_PATTERN),
+      )
+      .max(WORKFORCE_TASK_LIMITS.maxResources)
       .optional(),
   })
   .strip();
@@ -137,6 +160,36 @@ export function applyWorkforceTaskSpecs(
       };
     }
 
+    // Phase 2B-2（§10）：planner 提议的资源声明 → server 消毒。
+    // 声明影响并行安全（漏声明→误并行），malformed 一律 fail-closed
+    // （整计划 FAIL VALIDATION，与 unknown worker 同路径），绝不静默丢弃。
+    let resources: string[] | undefined;
+    if (step.resources !== undefined) {
+      const trimmed = step.resources.map((r) => r.trim());
+      const deduped = Array.from(new Set(trimmed));
+      const malformed = deduped.filter(
+        (r) =>
+          r.length === 0 ||
+          r.length > WORKFORCE_TASK_LIMITS.maxResourceKeyLength ||
+          !WORKFORCE_RESOURCE_KEY_PATTERN.test(r),
+      );
+      if (malformed.length > 0) {
+        return {
+          ok: false,
+          code: "WORKFORCE_TASK_SPEC_INVALID",
+          error: `step ${step.id}: 非法资源键 ${JSON.stringify(malformed.slice(0, 3))}（格式须为 {entity}:{id}）`,
+        };
+      }
+      if (deduped.length > WORKFORCE_TASK_LIMITS.maxResources) {
+        return {
+          ok: false,
+          code: "WORKFORCE_TASK_SPEC_INVALID",
+          error: `step ${step.id}: 资源声明超出上限（${deduped.length} > ${WORKFORCE_TASK_LIMITS.maxResources}）`,
+        };
+      }
+      resources = deduped.length > 0 ? deduped : undefined;
+    }
+
     const parsed = WorkforceTaskSpecV1Schema.safeParse({
       contractVersion: WORKFORCE_TASK_CONTRACT_VERSION,
       worker: { workerKey: worker.workerKey, role: worker.role },
@@ -151,6 +204,7 @@ export function applyWorkforceTaskSpecs(
             WORKFORCE_TASK_LIMITS.maxExpectedOutputLength,
           )
         : undefined,
+      resources,
     });
     if (!parsed.success) {
       return {

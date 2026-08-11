@@ -80,6 +80,10 @@ run_test "Workforce Operator UX D1-D10（2D-1）" "npx tsx 'src/app/(main)/workf
 # P0 Runtime Execution Alignment（#88/#89/#90A）
 run_test "P0 Alignment 纯逻辑不变量（Catalog/HardFloor/Synthesis 契约）" "npx tsx src/lib/agent-runtime-v2/__tests__/p0-alignment-pure.test.ts"
 run_test "P0 Execution Alignment DB 集成 G2-G10" "npx tsx src/lib/workforce-runtime/__tests__/p0-execution-alignment.test.ts"
+run_test "Workforce 2B-2 并行策略纯函数（Policy/Batch/Limit）" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-policy.test.ts"
+run_test "Workforce 2B-2 受控并行执行 P1-P4/P8-P9" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-execution.test.ts"
+run_test "Workforce 2B-2 CAS/审批/StaleLease P5-P7" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-claims.test.ts"
+run_test "Workforce 2B-2 Final Gate（Synthesis×Parallel/SECRET_X/P6b/预算）" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-final-gate.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
@@ -90,6 +94,9 @@ run_test "项目价格差距计算" "npx tsx src/lib/projects/__tests__/price-ga
 run_test "项目复盘终态映射" "npx tsx src/lib/projects/__tests__/review-outcome.test.ts"
 run_test "企业规则标签分类" "npx tsx src/lib/projects/__tests__/org-rules-categorize.test.ts"
 run_test "招标结果标记与价格样例" "npx tsx src/lib/projects/__tests__/tender-result.test.ts"
+run_test "Tender 详情五 Tab 解析" "npx tsx src/lib/tender/__tests__/detail-tabs.test.ts"
+run_test "Tender 详情 IA 静态审计" "npx tsx src/components/project-detail/__tests__/tender-detail-ia.test.ts"
+run_test "项目上下文决策契约" "npx tsx src/components/project-detail/__tests__/project-context-panel.test.ts"
 run_test "文档元数据日期归类" "npx tsx src/lib/projects/__tests__/apply-document-metadata.test.ts"
 run_test "外贸受理路由/幂等" "npx tsx src/lib/trade/__tests__/service-intake-correlation.test.ts"
 run_test "产品视觉素材 prompt 防错" "npx tsx src/lib/skills/product-visual-builder/__tests__/prompt.test.ts"
@@ -248,6 +255,7 @@ run_test "招标自动分析审核标签" "npx tsx src/lib/tender-auto-analysis/
 run_test "招标自动分析审核加固" "npx tsx src/lib/tender-auto-analysis/__tests__/review-hardening.test.ts"
 run_test "招标自动分析 Ready Gate" "npx tsx src/lib/tender-auto-analysis/__tests__/ready-gate.test.ts"
 run_test "招标自动分析补遗对比" "npx tsx src/lib/tender-auto-analysis/__tests__/addendum-diff.test.ts"
+run_test "Tender T2-M1 账本档案 schema 契约" "npx tsx --test src/lib/tender/__tests__/t2-m1-schema-contract.test.ts"
 run_test "招标真实评估评分引擎自测" "npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──

@@ -6811,3 +6811,168 @@ model AgentApprovalSettings {
   createdAt                         DateTime     @default(now())
   updatedAt                         DateTime     @updatedAt
 }
+
+// ============================================================
+// Tender T2-M1 — Project Ledger / Cost / Archive Foundation
+// Source of Truth: docs/QINGYAN_TENDER_T2_LEDGER_ARCHIVE_PREFLIGHT.md（PR #96 Final Contract）
+// 四表刻意不 FK Project/User/ProjectDocument：业务对象删除 ≠ 账本/证据消失（§15.2/§15.8）
+// M1 仅建表：零 producer、零读面、零回填、零双写
+// ============================================================
+
+/// 权威业务事件账本（append-only）：无 update/delete 路径；修正 = 新事件 correctionOfEventId → 旧事件。
+/// seq 分配契约（producer 阶段实现）：eventKey 幂等短路 → max(seq)+1 → P2002 有界重试(8) → 耗尽 THROW 随业务事务回滚。
+model ProjectEvent {
+  id                  String   @id @default(cuid())
+  orgId               String
+  /// 无 FK：项目硬删后账本行必须存活（授权残余路径见 Final Contract §15.8）
+  projectId           String
+  /// 项目内单调序号：顺序唯一性（与 eventKey 幂等职责分离）
+  seq                 Int
+  /// 业务幂等键：同一动作实例至多一条（词表见 Final Contract §5.5）
+  eventKey            String
+  /// 业务发生时间（producer 显式传入，不允许 default 兜底）
+  occurredAt          DateTime
+  recordedAt          DateTime @default(now())
+  /// user | ai | system | external
+  actorType           String
+  actorId             String?
+  eventType           String
+  stage               String?
+  title               String
+  summary             String?  @db.Text
+  result              String?
+  payload             Json?
+  /// 关联引用只存 id 不复制业务数据：{ requirementId?, supplierId?, inquiryItemId?, quoteId?, emailId?, taskId?, runId?, handoffId?, pendingActionId?, snapshotId?, claimId? }
+  refs                Json?
+  relatedDocumentId   String?
+  relatedCostId       String?
+  /// 溯源："manual" | "agentRun:{id}" | "analysisRun:{id}" | "audit:{id}" | "handoff:{id}" | "backfill:{job}"
+  sourceRef           String?
+  traceId             String?
+  /// 修正链：新→旧单向指针；禁止回写旧事件
+  correctionOfEventId String?
+  createdAt           DateTime @default(now())
+
+  actors ProjectEventActor[]
+
+  @@unique([projectId, seq])
+  @@unique([projectId, eventKey])
+  @@index([orgId, projectId, occurredAt])
+  @@index([projectId, eventType, occurredAt])
+  @@index([projectId, relatedDocumentId])
+  @@index([projectId, relatedCostId])
+  @@index([orgId, actorType, actorId, occurredAt])
+  @@index([traceId])
+  @@index([correctionOfEventId])
+}
+
+/// 事件参与人（一个业务事实 + 多参与者；仅当参与人 ≠ 记账人或人数 > 1 时写入）。
+/// 唯一允许的内部 FK；Restrict：事件原则上不可删除，禁止经 Actor 关系级联抹史。
+model ProjectEventActor {
+  id        String       @id @default(cuid())
+  orgId     String
+  eventId   String
+  event     ProjectEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  /// "user:{userId}" | "external:{规范化名}"
+  actorKey  String
+  /// actorKey 为 user 时冗余提取，便于 join/group by
+  userId    String?
+  /// performer | participant | approver
+  role      String       @default("participant")
+  createdAt DateTime     @default(now())
+
+  @@unique([eventId, actorKey])
+  @@index([orgId, userId])
+  @@index([orgId, actorKey])
+}
+
+/// 当前权威成本域记录；ProjectEvent 承担成本变更审计（cost.recorded/revised/committed/actualized/voided）。
+/// PLANNED 可编辑但实质字段修改必须 revisionCount 自增 + cost.revised 事件；ACTUAL 后 = void + correction 新行。
+/// AI 成本边界：AiUsageLedger 仍是 AI/模型用量唯一权威，本表不复制 AI 行。
+model ProjectCost {
+  id                 String    @id @default(cuid())
+  orgId              String
+  /// 无 FK：同 ProjectEvent
+  projectId          String
+  /// PLANNED | COMMITTED | ACTUAL | VOIDED
+  costStatus         String
+  /// INTERNAL_LABOR | SITE_VISIT | MILEAGE | PARKING | SAMPLE | COURIER | BOND_INSURANCE | CONSULTANT | SUPPLIER | SUBCONTRACTOR | AI | DATA_API | OTHER
+  category           String
+  description        String?
+  quantity           Decimal?  @db.Decimal(12, 3)
+  /// hour | km | item | trip | pct …
+  unit               String?
+  unitRate           Decimal?  @db.Decimal(18, 4)
+  /// 三金额列并存留痕：状态推进只填充对应列，不覆盖先前列
+  amountPlanned      Decimal?  @db.Decimal(18, 2)
+  amountCommitted    Decimal?  @db.Decimal(18, 2)
+  amountActual       Decimal?  @db.Decimal(18, 2)
+  currency           String
+  /// 费用发生人（≠ 录入人；多人各一行）
+  incurredById       String?
+  incurredAt         DateTime
+  supplierId         String?
+  /// { inquiryItemId?, quoteId?, documentId?, taskId? }
+  refs               Json?
+  /// manual | import | rollup
+  sourceType         String    @default("manual")
+  /// 计划修订计数器：实质字段每次修改事务内自增，为 cost.revised 提供 retry-stable 幂等号
+  revisionCount      Int       @default(0)
+  /// 修正链：新行指回被 void 的旧行；无 FK，禁止级联
+  correctionOfCostId String?
+  voidedAt           DateTime?
+  voidReason         String?
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([orgId, projectId, costStatus])
+  @@index([projectId, category])
+  @@index([orgId, incurredById, incurredAt])
+  @@index([correctionOfCostId])
+}
+
+/// Source Snapshot Contract v1 — 原始证据快照。
+/// 证据字段永久 IMMUTABLE（只 create；内容变化 = 新快照 + supersedesSnapshotId 新→旧）；
+/// 唯一例外 accessClass = 治理元数据，未来经专用受权通道受控修改（分级变更不复制快照）。
+model TenderArchiveItem {
+  id                   String    @id @default(cuid())
+  orgId                String
+  /// 无 FK：项目硬删后证据必须存活
+  projectId            String
+  /// source_html | source_pdf | source_screenshot | tender_document | addendum | drawing | pricing_form | award_notice | email | photo | other
+  kind                 String
+  sourceUrl            String?   @db.Text
+  canonicalUrl         String?   @db.Text
+  /// 来源身份键：sha256(canonicalUrl) | "upload:" + sha256(fileName + ":" + contentHash)
+  captureKey           String
+  /// 采集时刻（producer 显式传入；刻意无 default——避免 MarketSnapshot 的 DB 写入时刻语义错误）
+  capturedAt           DateTime
+  publishedAt          DateTime?
+  /// upload | url_capture | email_ingest | api_push | backfill_upload
+  captureMethod        String
+  mimeType             String
+  fileSize             Int
+  /// sha256(bytes)
+  contentHash          String
+  /// archive/{orgId}/{hash[0:2]}/{hash} — 内容寻址，同 hash 不重存字节
+  storageKey           String
+  /// 同 (projectId, captureKey) 组内递增
+  snapshotVersion      Int       @default(1)
+  parserVersion        String?
+  /// PUBLIC_SOURCE | INTERNAL_COMPANY | CLIENT_CONFIDENTIAL | VENDOR_CONFIDENTIAL | RESTRICTED（治理可变，非证据字段）
+  accessClass          String    @default("INTERNAL_COMPANY")
+  metadata             Json?
+  /// 版本链：新→旧；IMMUTABLE 下唯一合法链方向（禁止 old.supersededBy 回写）
+  supersedesSnapshotId String?
+  /// 历史引用（无 FK，无级联）：与业务视图 ProjectDocument 互链
+  projectDocumentId    String?
+  createdById          String?
+  createdAt            DateTime  @default(now())
+
+  @@unique([orgId, projectId, captureKey, contentHash])
+  @@unique([orgId, projectId, captureKey, snapshotVersion])
+  @@index([orgId, contentHash])
+  @@index([projectId, kind, capturedAt])
+  @@index([supersedesSnapshotId])
+}

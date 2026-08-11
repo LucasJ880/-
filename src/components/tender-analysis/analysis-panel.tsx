@@ -116,10 +116,41 @@ type ReportPayload = {
   }>;
 };
 
-type Props = { projectId: string };
+type Props = {
+  projectId: string;
+  /**
+   * T1A 5-tab 拆分：只显示指定的内部分区（顺序即渲染顺序）。
+   * 招标要求 tab 用 requirements/risks/clarifications/report/sources，
+   * 提交 tab 用 deliverables/tasks。缺省 = 全部（旧行为）。
+   */
+  sections?: TabKey[];
+  /** 是否显示运行头部（状态/来源文件/批准/重新分析）与变更确认横幅；缺省 true */
+  showRunControls?: boolean;
+  /** 初始选中的分区；必须包含在 sections 内，否则取第一个可见分区 */
+  initialTab?: TabKey;
+  /** 无分析记录时安静降级（不渲染发起分析 CTA），用于提交 tab 等次要挂载点 */
+  quietEmpty?: boolean;
+};
 
-export function TenderAnalysisPanel({ projectId }: Props) {
-  const [tab, setTab] = useState<TabKey>("report");
+export function TenderAnalysisPanel({
+  projectId,
+  sections,
+  showRunControls = true,
+  initialTab,
+  quietEmpty = false,
+}: Props) {
+  const visibleTabs =
+    sections && sections.length > 0
+      ? sections
+          .map((key) => TABS.find((t) => t.key === key))
+          .filter((t): t is (typeof TABS)[number] => Boolean(t))
+      : TABS;
+  const fallbackTab = visibleTabs[0]?.key ?? "report";
+  const [tab, setTab] = useState<TabKey>(
+    initialTab && visibleTabs.some((t) => t.key === initialTab)
+      ? initialTab
+      : fallbackTab,
+  );
   const [data, setData] = useState<ReportPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -217,6 +248,13 @@ export function TenderAnalysisPanel({ projectId }: Props) {
   };
 
   if (!data) {
+    if (quietEmpty) {
+      return (
+        <p className="text-sm text-[var(--muted)]">
+          暂无分析数据。请先在「招标要求」完成招标文件分析，交付物与任务将自动生成。
+        </p>
+      );
+    }
     return (
       <section
         id="tender-analysis"
@@ -251,6 +289,7 @@ export function TenderAnalysisPanel({ projectId }: Props) {
 
   return (
     <section id="tender-analysis" className="space-y-4">
+      {showRunControls ? (
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] pb-3">
         <div>
           <h2 className="text-lg font-semibold">招标文件自动分析</h2>
@@ -302,8 +341,10 @@ export function TenderAnalysisPanel({ projectId }: Props) {
           ) : null}
         </div>
       </div>
+      ) : null}
 
-      {data.run.runKind === "INCREMENTAL" &&
+      {showRunControls &&
+      data.run.runKind === "INCREMENTAL" &&
       data.run.pendingChangeCount > 0 ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           增量分析：发现 {data.run.pendingChangeCount} 项变更待确认
@@ -356,22 +397,24 @@ export function TenderAnalysisPanel({ projectId }: Props) {
         </p>
       ) : null}
 
-      <nav className="flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`rounded-full px-3 py-1 text-xs border ${
-              tab === t.key
-                ? "bg-[var(--accent)] text-white border-transparent"
-                : "border-[var(--border)]"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {visibleTabs.length > 1 ? (
+        <nav className="flex flex-wrap gap-2">
+          {visibleTabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`rounded-full px-3 py-1 text-xs border ${
+                tab === t.key
+                  ? "bg-[var(--accent)] text-white border-transparent"
+                  : "border-[var(--border)]"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
 
       {tab === "report" && (
         <div className="space-y-4">

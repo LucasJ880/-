@@ -1,18 +1,18 @@
 "use client";
 
+/**
+ * 项目情报调查区块（T1A：原独立「调查室」路由内容归位情报 tab）。
+ * 包含：30 秒看懂 / 八个调查模块 / 事实来源与可信度（含人工录入）。
+ * 调查启动（GO/HOLD/NO_GO）保留在工作台「阶段与决定」，此处不重复渲染。
+ */
+
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   confidenceLabel,
-  projectAiTabHref,
   sourceTypeLabel,
 } from "@/lib/bid-workflow/display-labels";
-import { bidPhaseLabel, goDecisionLabel } from "@/lib/bid-workflow/labels";
-import { ChinaSupplierBriefPanel } from "./china-supplier-brief-panel";
 import { ModuleDataView } from "./module-data-view";
-import { StartIntelligencePanel } from "./start-intelligence-panel";
-import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 
 type Module = {
   id: string;
@@ -48,12 +48,10 @@ type Room = {
 
 type Props = {
   projectId: string;
-  projectName: string;
-  closeDate: string | null;
-  ownerName: string | null;
-  bidPhaseStatus: string | null;
+  /** 项目类型标签（来自项目字段，可选） */
   projectTypeLabel?: string | null;
-  aiSuggestion?: string | null;
+  /** 尚未创建调查室时引导回工作台「投标调查」 */
+  onOpenWorkbench?: () => void;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -70,16 +68,13 @@ function confidenceTone(code: string): string {
   return "bg-stone-50 text-stone-700 border-stone-200";
 }
 
-export function IntelligenceRoomClient({
+export function ProjectIntelSections({
   projectId,
-  projectName,
-  closeDate,
-  ownerName,
-  bidPhaseStatus,
   projectTypeLabel,
-  aiSuggestion,
+  onOpenWorkbench,
 }: Props) {
   const [room, setRoom] = useState<Room | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [factContent, setFactContent] = useState("");
   const [factModule, setFactModule] = useState("historical_awards");
@@ -94,7 +89,7 @@ export function IntelligenceRoomClient({
       const res = await apiFetch(`/api/projects/${projectId}/bid-intelligence`);
       const data = await res.json();
       if (data.unavailable) {
-        setLoadError("调查室数据暂不可用（可能尚未迁移），项目页仍可使用");
+        setLoadError("调查数据暂不可用（可能尚未迁移），项目其他功能不受影响");
         setRoom(null);
         return;
       }
@@ -102,6 +97,8 @@ export function IntelligenceRoomClient({
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoaded(true);
     }
   }, [projectId]);
 
@@ -186,58 +183,34 @@ export function IntelligenceRoomClient({
           (summary.recentChanges as unknown[]).length > 0
         ? (summary.recentChanges as string[]).join("；")
         : "暂无新的重要变化";
-  const resolvedAiSuggestion =
-    aiSuggestion ||
-    (typeof summary.recommendation === "string"
-      ? summary.recommendation
-      : null);
 
-  const aiHref = projectAiTabHref(projectId);
+  if (loaded && !room && !loadError) {
+    return (
+      <div className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center space-y-2">
+        <p className="text-sm font-medium">尚未开展项目调查</p>
+        <p className="text-xs text-[var(--muted)]">
+          在工作台「投标调查」确认进入调查后，这里将展示 30 秒摘要、调查模块与事实证据。
+        </p>
+        {onOpenWorkbench ? (
+          <button
+            type="button"
+            onClick={onOpenWorkbench}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium"
+          >
+            前往工作台
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-      <header className="space-y-2 border-b border-[var(--border)] pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-xs text-[var(--muted)]">投标智能调查室</p>
-            <h1 className="text-2xl font-semibold">{projectName}</h1>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <Link href={`/projects/${projectId}`} className="underline">
-              返回项目
-            </Link>
-            <Link href="/suppliers" className="underline">
-              查看供应商
-            </Link>
-          </div>
-        </div>
-        <p className="text-sm text-[var(--muted)]">
-          截止：{closeDate || "暂时未知"} · 负责人：{ownerName || "未指定"} ·
-          阶段：{bidPhaseLabel(bidPhaseStatus)} · 人工决定：
-          {goDecisionLabel(room?.goDecision)}
-        </p>
-      </header>
-
-      <StartIntelligencePanel
-        projectId={projectId}
-        hasRoom={!!room}
-        goDecision={room?.goDecision}
-        bidPhaseStatus={bidPhaseStatus}
-        aiSuggestion={resolvedAiSuggestion}
-        onChanged={() => {
-          void load();
-          void loadRecent();
-        }}
-      />
-
+    <div className="space-y-6">
       {loadError && (
         <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
           {loadError}
         </p>
       )}
-      <ChinaSupplierBriefPanel projectId={projectId} />
-
-      <TenderAnalysisPanel projectId={projectId} />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">30 秒看懂项目</h2>
@@ -310,7 +283,7 @@ export function IntelligenceRoomClient({
           ))}
           {!room && (
             <p className="text-sm text-[var(--muted)]">
-              尚未创建调查室。请先点击「确认进入投标调查」。
+              尚未创建调查。请先在工作台「投标调查」确认进入调查。
             </p>
           )}
         </div>
@@ -419,16 +392,6 @@ export function IntelligenceRoomClient({
             </li>
           ))}
         </ul>
-      </section>
-
-      <section className="rounded-xl border border-[var(--border)] p-4 space-y-2">
-        <h2 className="text-lg font-semibold">主 AI 对话</h2>
-        <p className="text-sm text-[var(--muted)]">
-          在项目 AI 工作台继续提问。可沉淀事实请用上方「建议保存」写入，勿只留在聊天里。
-        </p>
-        <Link href={aiHref} className="inline-block text-sm underline" data-testid="project-ai-tab-link">
-          打开项目 AI 工作台
-        </Link>
       </section>
     </div>
   );

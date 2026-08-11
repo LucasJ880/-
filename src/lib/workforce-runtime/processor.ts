@@ -186,6 +186,50 @@ export async function processWorkforceJobSlice(
     visibleToUser: false,
   });
 
+  // ── Phase 2B-2 Final Gate §4/§7：stale-running Task recovery ──
+  // 唯一回收边界 = 本 processor 成功 acquire/reclaim Run lease 之后：
+  // 此刻的 running Step 只能属于已失去租约的旧 worker（其迟到写入被
+  // RunFence 阻断，零污染）。attemptCount < maxAttempts → fenced 回收为
+  // ready（经 Step CAS 重新认领执行）；attemptCount >= maxAttempts →
+  // 终态 failed，绝不再执行。普通 executor round 绝不做 running→ready
+  // 重置——那会破坏 Step CAS 的 double-driver 第二道防线（P6b）。
+  const staleRunning = await db.agentRunStep.findMany({
+    where: { orgId, runId, status: "running" },
+  });
+  if (staleRunning.length > 0) {
+    const recoverable = staleRunning.filter(
+      (s) => s.attemptCount < s.maxAttempts,
+    );
+    const exhausted = staleRunning.filter(
+      (s) => s.attemptCount >= s.maxAttempts,
+    );
+    if (recoverable.length > 0) {
+      await fence.guard((tx) =>
+        tx.agentRunStep.updateMany({
+          where: {
+            id: { in: recoverable.map((s) => s.id) },
+            status: "running",
+          },
+          data: { status: "ready" },
+        }),
+      );
+    }
+    for (const s of exhausted) {
+      await fence.guard((tx) =>
+        tx.agentRunStep.updateMany({
+          where: { id: s.id, status: "running" },
+          data: {
+            status: "failed",
+            errorCode: "stale_running_exhausted",
+            errorMessage:
+              "旧 worker 遗留的执行已达重试预算上限，终止且不再重跑",
+            completedAt: new Date(),
+          },
+        }),
+      );
+    }
+  }
+
   // §5/§17–18：resume 必须重新走当前 membership 校验，
   // 禁止信任 metadata 中的历史角色/权限（复用 V2 principal 解析）
   const { resolveRuntimeV2Principal } = await import(

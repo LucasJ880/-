@@ -1,163 +1,75 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+/**
+ * Tender 项目详情（T1A 5-Tab UX Consolidation）。
+ * 一级业务入口固定五个：工作台 / 招标要求 / 标书与报价 / 情报 / 提交；
+ * 文件与 AI 对话为贯穿式抽屉；旧 4-tab 值经 lib/tender/detail-tabs.ts 别名解析（深链修复）。
+ */
+
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Loader2,
-  Users,
-  Trash2,
-  History,
-  ChevronDown,
-  Ban,
-  BarChart3,
-  FileQuestion,
-  LayoutDashboard,
-  FolderOpen,
+  ClipboardCheck,
   DollarSign,
+  FolderOpen,
+  LayoutDashboard,
+  Loader2,
+  Radar,
+  Send,
   Sparkles,
-  Settings,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, apiJson } from "@/lib/api-fetch";
-import { ActivityTimeline } from "@/components/activity/activity-timeline";
-import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
-import { ProgressComparison } from "@/components/progress/progress-comparison";
-import { StageIndicator } from "@/components/progress/stage-indicator";
-import { BidToGoIntelligenceCard } from "@/components/bidtogo/intelligence-card";
-import { ProjectProgressSection } from "@/components/tender/project-progress-section";
-import { ProjectDiscussionSection } from "@/components/project-discussion/project-discussion-section";
-import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
-import { HandoffDialog } from "@/components/projects/handoff-dialog";
-import { ProjectAiChat } from "@/components/project-ai-chat/project-ai-chat";
-import { ProjectProgressSummary } from "@/components/project-progress/project-progress-summary";
-import { BidChecklist } from "@/components/project-checklist/bid-checklist";
-import { ProjectAiMemory } from "@/components/project-memory/project-ai-memory";
-import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
-import { ProjectQuoteSection } from "@/components/quote/project-quote-section";
-import { ProjectAgentTasks } from "@/components/agent-tasks/project-agent-tasks";
-import { AiBidPackageSection } from "@/components/agent-tasks/ai-bid-package";
-import { ProjectFileManager } from "@/components/project-files/project-file-manager";
-import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
-import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-onboarding-guide";
-import { ProjectDetailHeader } from "@/components/project-detail/project-detail-header";
-import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { ProjectAiSummaryCard } from "@/components/project-ai-summary/project-ai-summary-card";
-import { ProjectHistoryExperienceCard } from "@/components/project-history-experience/project-history-experience-card";
-import { ProjectReviewCard } from "@/components/project-review/project-review-card";
-import { ProjectOrgRulesCard } from "@/components/project-org-rules/project-org-rules-card";
-import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
-import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
-import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
-import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
-import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
-import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
-import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
+import { apiJson } from "@/lib/api-fetch";
 import { getProjectStage } from "@/lib/tender/stage";
-import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS } from "@/lib/i18n/labels";
+import {
+  TENDER_DETAIL_TAB_KEYS,
+  TENDER_DETAIL_TAB_LABELS,
+  resolveTenderDetailTab,
+  type TenderDetailTab,
+} from "@/lib/tender/detail-tabs";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
-import type { ProjectDuty } from "@/lib/projects/duty";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import {
   WorkspacePageContext,
   useWorkspaceShell,
 } from "@/components/workspace-shell-context";
 import {
-  ProjectCommandOverview,
   ProjectContextPanel,
   deriveProjectCommandState,
   filterProjectContextActivities,
   type ProjectContextPendingAction,
   type ProjectContextTarget,
 } from "@/components/project-detail/project-context-panel";
+import {
+  buildTenderProps,
+  type MemberRow,
+  type ProjectDetail,
+  type ProjectHandoffInfo,
+} from "@/components/project-detail/project-detail-types";
+import { ProjectDetailHeader } from "@/components/project-detail/project-detail-header";
+import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
+import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
+import { WorkbenchTab } from "@/components/project-detail/tabs/workbench-tab";
+import { RequirementsTab } from "@/components/project-detail/tabs/requirements-tab";
+import { BidTab } from "@/components/project-detail/tabs/bid-tab";
+import { IntelTab } from "@/components/project-detail/tabs/intel-tab";
+import { SubmissionTab } from "@/components/project-detail/tabs/submission-tab";
+import { InternalAgentToolsSection } from "@/components/project-detail/internal-agent-tools";
+import {
+  ProjectChatDrawer,
+  ProjectFilesDrawer,
+} from "@/components/project-detail/project-utility-drawers";
 
-const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
-
-interface ProjectDetail {
-  id: string;
-  name: string;
-  description: string | null;
-  color: string;
-  status: string;
-  orgId: string | null;
-  owner: { id: string; name: string; email: string };
-  purchaserId?: string | null;
-  purchaser?: { id: string; name: string; email: string } | null;
-  org: {
-    id: string;
-    name: string;
-    code: string;
-    status: string;
-  } | null;
-  _count: { tasks: number; members: number };
-  // BidToGo / tender fields
-  category?: string | null;
-  sourceSystem?: string | null;
-  sourcePlatform?: string | null;
-  clientOrganization?: string | null;
-  location?: string | null;
-  estimatedValue?: number | null;
-  currency?: string | null;
-  solicitationNumber?: string | null;
-  tenderStatus?: string | null;
-  dueDate?: string | null;
-  createdAt?: string | null;
-  publicDate?: string | null;
-  questionCloseDate?: string | null;
-  closeDate?: string | null;
-  openDate?: string | null;
-  distributedAt?: string | null;
-  dispatchedAt?: string | null;
-  intakeStatus?: string | null;
-  interpretedAt?: string | null;
-  supplierInquiredAt?: string | null;
-  supplierQuotedAt?: string | null;
-  submittedAt?: string | null;
-  awardDate?: string | null;
-  abandonedAt?: string | null;
-  abandonedStage?: string | null;
-  abandonedReason?: string | null;
-  sourceMetadataJson?: string | null;
-  externalRef?: { system: string; externalId: string; url: string | null } | null;
-  intelligence?: {
-    recommendation: string;
-    riskLevel: string;
-    fitScore: number;
-    summary: string | null;
-    fullReportUrl: string | null;
-    fullReportJson: string | null;
-    reportMarkdown: string | null;
-    reportStatus?: string | null;
-    reviewedBy?: string | null;
-    reviewedAt?: string | null;
-    reviewNotes?: string | null;
-    reviewScore?: number | null;
-  } | null;
-  documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
-  bidPhaseStatus?: string | null;
-  /** AI 建议态（与人工 goDecision 分离，不作真相来源） */
-  aiAdviceStatus?: string | null;
-  /** false = 当前环境尚未 migrate / 投标智能不可用 */
-  intelligenceAvailable?: boolean;
-  intelligenceRoom?: {
-    id: string;
-    goDecision: string | null;
-    summaryStatus: string | null;
-    summaryText: string | null;
-  } | null;
-  workDomain?: string | null;
-}
-
-interface MemberRow {
-  id: string;
-  userId: string;
-  role: string;
-  duty: ProjectDuty;
-  status: string;
-  orgRole: string | null;
-  user: { id: string; email: string; name: string; avatar?: string | null; nickname?: string | null };
-}
+const TAB_ICONS: Record<TenderDetailTab, LucideIcon> = {
+  workbench: LayoutDashboard,
+  requirements: ClipboardCheck,
+  bid: DollarSign,
+  intel: Radar,
+  submission: Send,
+};
 
 export default function ProjectDetailPage() {
   return (
@@ -170,6 +82,7 @@ export default function ProjectDetailPage() {
 function ProjectDetailContent() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const id = params.id as string;
   const highlightActivityId = searchParams.get("activity") ?? undefined;
@@ -182,46 +95,93 @@ function ProjectDetailContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [addUserId, setAddUserId] = useState("");
-  const [addDuty, setAddDuty] = useState<ProjectDuty>("participant");
-  const [busy, setBusy] = useState<string | null>(null);
-
   const [activities, setActivities] = useState<FormattedActivity[]>([]);
   const [activityPage, setActivityPage] = useState(1);
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityFilter, setActivityFilter] = useState("");
   const [progress, setProgress] = useState<ProjectProgress | null>(null);
-  const [showAbandonDialog, setShowAbandonDialog] = useState(false);
-  const [showHandoffDialog, setShowHandoffDialog] = useState(false);
-  const [handoffInfo, setHandoffInfo] = useState<{
-    status: string;
-    targetDeliveryProjectId: string | null;
-  } | null>(null);
-  const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
-  const [showQuestionDialog, setShowQuestionDialog] = useState(false);
+  const [handoffInfo, setHandoffInfo] = useState<ProjectHandoffInfo | null>(null);
   const [orgRulesRefreshKey, setOrgRulesRefreshKey] = useState(0);
   const [pendingActions, setPendingActions] = useState<ProjectContextPendingAction[]>([]);
 
-  type ProjectTab = "overview" | "files" | "quotes" | "ai";
-  const [activeTab, setActiveTab] = useState<ProjectTab>(() => {
+  // ── 5-Tab 状态：URL ?tab= 优先（含旧 4-tab 别名），其次 sessionStorage，默认工作台 ──
+  const [initialResolved] = useState(() => {
+    const fromUrl = resolveTenderDetailTab(searchParams.get("tab"));
+    if (fromUrl) return fromUrl;
     if (typeof window !== "undefined") {
-      const saved = sessionStorage.getItem(`qy_proj_tab_${id}`);
-      if (saved && ["overview", "files", "quotes", "ai"].includes(saved)) return saved as ProjectTab;
+      const saved = resolveTenderDetailTab(sessionStorage.getItem(`qy_proj_tab_${id}`));
+      // 存储值只恢复 tab 位置，不自动弹出抽屉
+      if (saved) return { tab: saved.tab };
     }
-    return "overview";
+    return { tab: "workbench" as TenderDetailTab };
   });
+  const [activeTab, setActiveTab] = useState<TenderDetailTab>(initialResolved.tab);
+  const [filesOpen, setFilesOpen] = useState(Boolean(initialResolved.openFiles));
+  const [chatOpen, setChatOpen] = useState(Boolean(initialResolved.openChat));
+  const activeTabRef = useRef(activeTab);
+
   useEffect(() => {
+    activeTabRef.current = activeTab;
     if (typeof window !== "undefined") sessionStorage.setItem(`qy_proj_tab_${id}`, activeTab);
   }, [activeTab, id]);
 
-  const openProjectArea = useCallback((target: ProjectContextTarget) => {
-    setActiveTab(target);
-    setPanelOpen(false);
-    window.setTimeout(() => {
-      document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
-    }, 0);
-  }, [setPanelOpen]);
+  // 深链 / 前进后退 / 站内 ?tab= Link 同步（T0 审计 B4：此前 ?tab= 从不被读取）
+  useEffect(() => {
+    const resolved = resolveTenderDetailTab(searchParams.get("tab"));
+    if (!resolved) return;
+    if (resolved.tab !== activeTabRef.current) {
+      setActiveTab(resolved.tab);
+      if (!resolved.openFiles) setFilesOpen(false);
+      if (!resolved.openChat) setChatOpen(false);
+    }
+    if (resolved.openFiles) setFilesOpen(true);
+    if (resolved.openChat) setChatOpen(true);
+  }, [searchParams]);
+
+  const selectTab = useCallback(
+    (tab: TenderDetailTab) => {
+      setActiveTab(tab);
+      setFilesOpen(false);
+      setChatOpen(false);
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", tab);
+      router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  const openProjectArea = useCallback(
+    (target: ProjectContextTarget) => {
+      // 与旧行为一致：任何项目内导航都先收起右栏上下文面板（移动端为遮罩层）
+      setPanelOpen(false);
+      if (target === "files") {
+        setFilesOpen(true);
+        return;
+      }
+      if (target === "chat") {
+        setChatOpen(true);
+        return;
+      }
+      selectTab(target);
+      window.setTimeout(() => {
+        document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+      }, 0);
+    },
+    [selectTab, setPanelOpen],
+  );
+
+  /** 旧组件（AI 一键投标方案等）仍回跳 overview/files/quotes 旧值 */
+  const handleLegacyTabSwitch = useCallback(
+    (legacy: string) => {
+      const resolved = resolveTenderDetailTab(legacy);
+      if (!resolved) return;
+      selectTab(resolved.tab);
+      if (resolved.openFiles) setFilesOpen(true);
+      if (resolved.openChat) setChatOpen(true);
+    },
+    [selectTab],
+  );
 
   const load = useCallback(() => {
     if (!id) return;
@@ -237,10 +197,7 @@ function ProjectDetailContent() {
         `/api/projects/${id}/overview`
       ).catch(() => null),
       apiJson<{
-        handoff?: {
-          status: string;
-          targetDeliveryProjectId: string | null;
-        } | null;
+        handoff?: ProjectHandoffInfo | null;
       }>(`/api/projects/${id}/handoff`).catch(() => ({ handoff: null })),
     ])
       .then(([p, m, ov, ho]) => {
@@ -384,64 +341,6 @@ function ProjectDetailContent() {
     ],
   );
 
-  async function addMember(e: React.FormEvent) {
-    e.preventDefault();
-    const uid = addUserId.trim();
-    if (!uid) return;
-    setBusy("member");
-    try {
-      const res = await apiFetch(`/api/projects/${id}/members`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid, duty: addDuty }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "添加失败");
-      setAddUserId("");
-      setAddDuty("participant");
-      load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "添加失败");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function patchMemberDuty(memberId: string, duty: ProjectDuty) {
-    setBusy(memberId);
-    try {
-      const res = await apiFetch(`/api/projects/${id}/members/${memberId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duty }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "更新失败");
-      load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "更新失败");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function removeMember(memberId: string) {
-    if (!confirm("从项目移除此成员？")) return;
-    setBusy(memberId);
-    try {
-      const res = await apiFetch(`/api/projects/${id}/members/${memberId}`, {
-        method: "DELETE",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "移除失败");
-      load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "移除失败");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -470,463 +369,156 @@ function ProjectDetailContent() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 sm:px-0">
       {workspaceContext ? <WorkspacePageContext context={workspaceContext} /> : null}
-      <button
-        type="button"
-        onClick={() => router.push("/projects")}
-        className="inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
-      >
-        <ArrowLeft size={14} /> 项目列表
-      </button>
 
-      <ProjectDetailHeader project={project} />
+      {/* 顶部工具行：返回 + 贯穿抽屉入口 */}
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => router.push("/projects")}
+          className="inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
+        >
+          <ArrowLeft size={14} /> 项目列表
+        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFilesOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-accent-soft hover:text-foreground"
+            data-testid="open-files-drawer"
+          >
+            <FolderOpen size={13} />
+            资料
+            {(project.documents ?? []).length > 0 ? (
+              <span className="rounded-full bg-accent/10 px-1.5 text-[10px] font-semibold text-accent">
+                {(project.documents ?? []).length}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-accent-soft hover:text-foreground"
+            data-testid="open-chat-drawer"
+          >
+            <Sparkles size={13} />
+            问青砚
+          </button>
+        </div>
+      </div>
+
+      <ProjectDetailHeader project={project} onOpenDocuments={() => setFilesOpen(true)} />
 
       <ProjectImportBanner projectId={id} onFinished={load} />
       <AutoAiPanelsRunner projectId={id} />
 
-      {/* Abandoned banner */}
-      {project.status === "abandoned" && (
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-danger-bg px-5 py-4">
-          <Ban size={20} className="shrink-0 text-danger" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-danger">该项目已放弃</p>
-            <p className="text-xs text-muted mt-0.5">
-              放弃阶段：{
-                { initiation: "立项", distribution: "项目分发", interpretation: "项目解读", supplier_inquiry: "供应商询价", supplier_quote: "供应商报价", submission: "项目提交" }[project.abandonedStage ?? ""] ?? project.abandonedStage
-              }
-              {project.abandonedReason && ` · 原因：${project.abandonedReason}`}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {handoffInfo?.status === "completed" && handoffInfo.targetDeliveryProjectId ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card-bg px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold">已转为执行项目</p>
-            <p className="mt-0.5 text-xs text-muted">
-              原投标项目保留不变，交付请在执行项目中跟进
-            </p>
-          </div>
-          <Link
-            href={`/ops/projects/${handoffInfo.targetDeliveryProjectId}`}
-            className="inline-flex items-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)]"
-          >
-            打开执行项目
-          </Link>
-        </div>
-      ) : null}
-
-      {/* Abandon / Handoff actions */}
-      {project.status !== "abandoned" && canManage && (
-        <div className="flex flex-wrap justify-end gap-2">
-          {project.tenderStatus === "won" &&
-          handoffInfo?.status !== "completed" ? (
-            <button
-              type="button"
-              onClick={() => setShowHandoffDialog(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] shadow-sm"
-            >
-              转为执行项目
-            </button>
-          ) : null}
-          {(() => {
-            const tenderProps = buildTenderProps(project);
-            const stage = getProjectStage(tenderProps);
-            const canAbandon = ["interpretation", "supplier_inquiry", "supplier_quote", "submission"].includes(stage);
-            if (!canAbandon) return null;
+      {/* ═══ 5-Tab 一级导航（移动端为等宽紧凑分段，不横向溢出） ═══ */}
+      <div className="rounded-lg border border-border bg-card-bg p-1" data-testid="tender-detail-tabs">
+        <div className="grid grid-cols-5 gap-1">
+          {TENDER_DETAIL_TAB_KEYS.map((key) => {
+            const Icon = TAB_ICONS[key];
+            const { label, shortLabel } = TENDER_DETAIL_TAB_LABELS[key];
+            const isActive = activeTab === key;
             return (
-              <button type="button" onClick={() => setShowAbandonDialog(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-4 py-2 text-sm font-medium text-danger shadow-sm hover:bg-danger-bg transition-colors">
-                <Ban size={14} />放弃项目
-              </button>
-            );
-          })()}
-        </div>
-      )}
-
-      <HandoffDialog
-        projectId={id}
-        open={showHandoffDialog}
-        onClose={() => {
-          setShowHandoffDialog(false);
-          load();
-        }}
-        tenderStatus={project.tenderStatus ?? null}
-      />
-
-      {/* ═══ Tab Navigation ═══ */}
-      <div className="overflow-x-auto -mx-1 px-1">
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-card-bg p-1 min-w-max sm:min-w-0">
-          {([
-            { key: "overview" as const, icon: LayoutDashboard, label: "概览" },
-            { key: "files" as const, icon: FolderOpen, label: "文件" },
-            { key: "quotes" as const, icon: DollarSign, label: "报价" },
-            { key: "ai" as const, icon: Sparkles, label: "工作台" },
-          ]).map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.key;
-            return (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              <button
+                key={key}
+                type="button"
+                data-tab={key}
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => selectTab(key)}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-all",
-                  isActive ? "bg-accent text-[color:var(--on-accent)] shadow-sm" : "text-muted hover:bg-background hover:text-foreground"
-                )}>
-                <Icon size={14} />
-                <span className="hidden sm:inline">{tab.label}</span>
-                <span className="sm:hidden">{tab.label}</span>
+                  "flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-2 text-sm font-medium transition-all sm:px-3",
+                  isActive
+                    ? "bg-accent text-[color:var(--on-accent)] shadow-sm"
+                    : "text-muted hover:bg-background hover:text-foreground"
+                )}
+              >
+                <Icon size={14} className="hidden shrink-0 sm:block" />
+                <span className="hidden sm:inline">{label}</span>
+                <span className="text-[13px] sm:hidden">{shortLabel}</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* ═══ Tab: 概览 ═══ */}
-      {activeTab === "overview" && (
-        <div className="space-y-6">
-          <ProjectCommandOverview
-            command={command}
-            pendingCount={pendingActions.length}
-            recentActivity={businessActivities[0] ?? null}
-            onNavigate={openProjectArea}
-          />
-
-          {/* 新项目引导 */}
-          <ProjectOnboardingGuide
-            hasDocuments={(project.documents ?? []).length > 0}
-            hasIntelligence={!!project.intelligence}
-            onGoToFiles={() => setActiveTab("files")}
-            onGoToAi={() => setActiveTab("ai")}
-          />
-
-          <ProjectAiSummaryCard projectId={id} />
-          <ProjectInsightsPanel projectId={id} canManage={canManage} />
-          <ProjectHistoryExperienceCard projectId={id} />
-          <ProjectReviewCard
-            projectId={id}
-            onConfirmed={() => setOrgRulesRefreshKey((k) => k + 1)}
-          />
-          <ProjectOrgRulesCard
-            projectId={id}
-            refreshKey={orgRulesRefreshKey}
-          />
-
-          {project.intelligenceAvailable === false ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              当前环境尚未启用投标智能（数据库未完成迁移）。项目文件、成员与询价等主链仍可用；调查室需在迁移后初始化。
-            </div>
-          ) : (
-            <StartIntelligencePanel
-              projectId={id}
-              hasRoom={!!project.intelligenceRoom}
-              goDecision={project.intelligenceRoom?.goDecision ?? null}
-              bidPhaseStatus={project.bidPhaseStatus ?? null}
-              aiSuggestion={
-                project.intelligence?.recommendation ??
-                project.aiAdviceStatus ??
-                null
-              }
-            />
-          )}
-
-          <ProjectSupplierLinks projectId={id} orgId={project.orgId} />
-
-          {/* AI 情报分析 */}
-          {(project.sourceSystem === "bidtogo" || project.intelligence) && (
-            <BidToGoIntelligenceCard
-              project={{
-                projectId: id,
-                sourceSystem: project.sourceSystem === "bidtogo" ? project.sourceSystem : "upload",
-                sourcePlatform: project.sourceSystem === "bidtogo" ? (project.sourcePlatform ?? null) : null,
-                clientOrganization: project.clientOrganization ?? null,
-                location: project.location ?? null,
-                estimatedValue: project.estimatedValue ?? null,
-                currency: project.currency ?? null,
-                solicitationNumber: project.solicitationNumber ?? null,
-                tenderStatus: project.tenderStatus ?? null,
-                dueDate: project.dueDate ?? null,
-                externalRef: project.sourceSystem === "bidtogo" ? (project.externalRef ?? null) : null,
-                intelligence: project.intelligence ?? null,
-                documents: project.documents ?? [],
-              }}
-              onUpdate={load}
-            />
-          )}
-
-          {/* 项目进度 */}
-          {progress && (
-            <div className="rounded-xl border border-border bg-card-bg p-5">
-              <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <BarChart3 size={16} className="text-accent/60" />
-                  项目进度
-                </h3>
-                {progress.stages.length > 0 && <StageIndicator stages={progress.stages} />}
-              </div>
-              <div className="mt-4">
-                <ProgressComparison taskProgress={progress.taskProgress} timeProgress={progress.timeProgress} completedTasks={progress.completedTasks} totalTasks={progress.totalTasks} daysRemaining={progress.daysRemaining} daysTotal={progress.daysTotal} isOverdue={progress.isOverdue} riskLabel={progress.riskLabel} />
-              </div>
-            </div>
-          )}
-
-          {/* 招投标进度 */}
-          {(project.sourceSystem === "bidtogo" || project.tenderStatus || project.category === "tender_opportunity") && (
-            <ProjectProgressSection
-              project={buildTenderProps(project)}
-              projectId={id}
-              canManage={canManage}
-              onUpdated={load}
-            />
-          )}
-
-          {/* 项目讨论 */}
-          <ProjectDiscussionSection
-            projectId={id}
-            canPost={canManage || members.some(m => m.status === "active")}
-            projectStatus={project.status}
-            mentionDraft={mentionDraft}
-            onMentionConsumed={() => setMentionDraft(null)}
-            members={members.filter(m => m.status === "active").map(m => ({ userId: m.user.id, name: m.user.name, avatar: m.user.avatar ?? null }))}
-          />
-
-          {/* 项目动态 */}
-          <div className="rounded-xl border border-border bg-card-bg p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <History size={16} className="text-accent/60" />
-                项目动态
-                {activityTotal > 0 && <span className="text-xs font-normal text-muted">共 {activityTotal} 条</span>}
-              </div>
-              <select value={activityFilter} onChange={(e) => { setActivityFilter(e.target.value); loadActivity(1, e.target.value); }}
-                className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-accent">
-                <option value="">全部类型</option>
-                {Object.entries(ACTIVITY_TYPE_LABELS).map(([val, lbl]) => (
-                  <option key={val} value={val}>{lbl}</option>
-                ))}
-              </select>
-            </div>
-            <div className="mt-4">
-              <ActivityTimeline activities={businessActivities} loading={activityLoading && activityPage === 1} highlightId={highlightActivityId} />
-            </div>
-            {activities.length < activityTotal && (
-              <div className="mt-4 flex justify-center">
-                <button type="button" disabled={activityLoading} onClick={() => loadActivity(activityPage + 1, activityFilter)}
-                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-border px-4 py-2 text-xs font-medium text-muted transition-colors hover:bg-accent-soft hover:text-foreground disabled:opacity-50">
-                  {activityLoading ? <Loader2 size={12} className="animate-spin" /> : <ChevronDown size={12} />}
-                  加载更多
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══ Tab: 文件与情报 ═══ */}
-      {activeTab === "files" && (
-        <div className="space-y-6">
-          <ProjectFileManager projectId={id} closeDate={project.closeDate} onProjectUpdate={load} />
-          <ProjectProgressSummary projectId={id} />
-          <BidChecklist projectId={id} />
-          <ProjectAiMemory projectId={id} />
-        </div>
-      )}
-
-      {/* ═══ Tab: 报价与询价 ═══ */}
-      {activeTab === "quotes" && (
-        <div className="space-y-6">
-          <ProjectInquirySection projectId={id} orgId={project.orgId} canManage={canManage} />
-          <ProjectQuoteSection projectId={id} />
-          {canManage && project.status !== "abandoned" && (
-            <div className="rounded-xl border border-border bg-card-bg p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileQuestion size={16} className="text-accent" />
-                  <h3 className="text-sm font-semibold">项目问题</h3>
-                  <span className="text-xs text-muted">向业主/GC/顾问发送澄清邮件</span>
-                </div>
-                <button type="button" onClick={() => setShowQuestionDialog(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover">
-                  <FileQuestion size={12} />向业主提问
-                </button>
-              </div>
-            </div>
-          )}
-          <ProjectQuestionDialog
-            projectId={id}
-            open={showQuestionDialog}
-            onOpenChange={setShowQuestionDialog}
-            onSent={() => setShowQuestionDialog(false)}
-          />
-        </div>
-      )}
-
-      {/* ═══ Tab: 工作台 ═══ */}
-      {activeTab === "ai" && (
-        <div className="space-y-6">
-          <ProjectGenerateMenu projectId={id} canManage={canManage} />
-          <ProjectAiChat
-            projectId={id}
-            projectName={project.name}
-            orgId={project.orgId}
-            onProjectUpdate={load}
-          />
-          {(project.workDomain ?? "").toLowerCase() === "tender" ||
-          project.intelligenceRoom ? (
-            <div className="rounded-xl border border-border bg-card-bg p-4 space-y-2">
-              <h3 className="text-sm font-semibold">分析投标文件</h3>
-              <p className="text-xs text-muted">
-                对当前项目已上传的投标 PDF 包发起 / 重新分析（主路径）。旧版「一键投标方案」已移至下方 Legacy tools。
-              </p>
-              <a
-                href="#tender-analysis"
-                className="inline-flex rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)]"
-                onClick={() => setActiveTab("overview")}
-              >
-                前往招标文件自动分析
-              </a>
-              <details className="pt-2">
-                <summary className="cursor-pointer text-xs text-muted">
-                  Legacy tools
-                </summary>
-                <div className="mt-2">
-                  <AiBidPackageSection
-                    projectId={id}
-                    onTabSwitch={(tab) => setActiveTab(tab as ProjectTab)}
-                  />
-                </div>
-              </details>
-            </div>
-          ) : (
-            <AiBidPackageSection
-              projectId={id}
-              onTabSwitch={(tab) => setActiveTab(tab as ProjectTab)}
-            />
-          )}
-          <ProjectAgentTasks projectId={id} />
-        </div>
-      )}
-
-      {/* ═══ 固定底部：成员 + 通知 ═══ */}
-      <div id="project-members" className="rounded-xl border border-border bg-card-bg p-5 scroll-mt-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Users size={16} />项目成员
-          </div>
-          {canManage && (
-            <button type="button" onClick={() => setActiveTab("overview")} className="text-xs text-muted hover:text-accent">
-              <Settings size={12} className="inline mr-1" />管理
-            </button>
-          )}
-        </div>
-        <p className="mt-1 text-xs text-muted">
-          主负责人与主采购人跟进各节点；参与者知情截标日；有开标日时全员通知。
-        </p>
-        {canManage && (
-          <form onSubmit={addMember} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-            <input value={addUserId} onChange={(e) => setAddUserId(e.target.value)} placeholder="用户 ID（须已加入所属组织）"
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
-            <select value={addDuty} onChange={(e) => setAddDuty(e.target.value as ProjectDuty)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-              {PROJECT_DUTIES.map((d) => (
-                <option key={d} value={d}>{PROJECT_DUTY_LABELS[d]}</option>
-              ))}
-            </select>
-            <button type="submit" disabled={busy === "member"} className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50">添加</button>
-          </form>
-        )}
-        <table className="mt-4 w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-border text-xs text-muted">
-              <th className="pb-2 w-10" /><th className="pb-2">用户</th><th className="pb-2">邮箱</th>
-              <th className="pb-2">项目身份</th><th className="pb-2">状态</th>
-              {canManage && <th className="pb-2 w-10" />}
-            </tr>
-          </thead>
-          <tbody>
-            {members.map((m) => (
-              <tr key={m.id} className="border-b border-border/60">
-                <td className="py-2">
-                  <button type="button" title={`@${m.user.name}`}
-                    onClick={() => { setMentionDraft({ userId: m.user.id, name: m.user.name }); setActiveTab("overview"); setTimeout(() => document.getElementById("project-discussion")?.scrollIntoView({ behavior: "smooth" }), 100); }}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/20 overflow-hidden">
-                    {m.user.avatar ? <img src={m.user.avatar} alt={m.user.name} className="h-full w-full object-cover" /> : m.user.name.slice(0, 1).toUpperCase()}
-                  </button>
-                </td>
-                <td className="py-2">{m.user.name}</td>
-                <td className="py-2 text-muted">{m.user.email}</td>
-                <td className="py-2">
-                  {canManage && m.status === "active" ? (
-                    <select
-                      value={m.duty}
-                      disabled={busy === m.id}
-                      onChange={(e) => patchMemberDuty(m.id, e.target.value as ProjectDuty)}
-                      className="rounded border border-border bg-background px-2 py-1 text-xs"
-                    >
-                      {PROJECT_DUTIES.map((d) => (
-                        <option key={d} value={d}>{PROJECT_DUTY_LABELS[d]}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    PROJECT_DUTY_LABELS[m.duty] ?? m.duty
-                  )}
-                </td>
-                <td className="py-2">{PROJECT_MEMBER_STATUS_LABELS[m.status] ?? m.status}</td>
-                {canManage && (
-                  <td className="py-2">
-                    {m.status === "active" && m.duty !== "owner" && (
-                      <button type="button" onClick={() => removeMember(m.id)} disabled={busy === m.id}
-                        className="text-danger hover:text-danger disabled:opacity-50"><Trash2 size={14} /></button>
-                    )}
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4">
-        <ProjectJoinBriefs
+      {activeTab === "workbench" && (
+        <WorkbenchTab
           projectId={id}
+          project={project}
+          command={command}
+          progress={progress}
+          pendingActions={pendingActions}
+          businessActivities={businessActivities}
+          activityCount={activities.length}
+          activityTotal={activityTotal}
+          activityPage={activityPage}
+          activityLoading={activityLoading}
+          activityFilter={activityFilter}
+          onLoadActivity={loadActivity}
+          onActivityFilterChange={setActivityFilter}
+          highlightActivityId={highlightActivityId}
+          members={members}
+          canManage={canManage}
           currentUserId={currentUser?.id ?? null}
-        />
-      </div>
-
-      <ProjectNotificationRuleCard projectId={id} />
-
-      {/* Abandon dialog */}
-      {project && (
-        <AbandonProjectDialog
-          open={showAbandonDialog}
-          onOpenChange={setShowAbandonDialog}
-          projectId={project.id}
-          projectName={project.name}
-          currentStage={getProjectStage(buildTenderProps(project))}
-          onSuccess={() => {
-            setShowAbandonDialog(false);
-            load();
-          }}
+          onNavigate={openProjectArea}
+          onReload={load}
         />
       )}
+
+      {activeTab === "requirements" && (
+        <RequirementsTab
+          projectId={id}
+          canManage={canManage}
+          projectStatus={project.status}
+        />
+      )}
+
+      {activeTab === "bid" && (
+        <BidTab projectId={id} orgId={project.orgId} canManage={canManage} />
+      )}
+
+      {activeTab === "intel" && (
+        <IntelTab
+          projectId={id}
+          project={project}
+          orgRulesRefreshKey={orgRulesRefreshKey}
+          onProjectUpdate={load}
+          onNavigate={openProjectArea}
+        />
+      )}
+
+      {activeTab === "submission" && (
+        <SubmissionTab
+          projectId={id}
+          project={project}
+          canManage={canManage}
+          handoffInfo={handoffInfo}
+          onReload={load}
+          onReviewConfirmed={() => setOrgRulesRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {/* 运行时内幕（AgentTask 面板 / 旧一键投标方案）：仅平台管理员可见 */}
+      {isPlatformAdmin ? (
+        <InternalAgentToolsSection projectId={id} onLegacyTabSwitch={handleLegacyTabSwitch} />
+      ) : null}
+
+      {/* 贯穿式抽屉 */}
+      <ProjectFilesDrawer
+        projectId={id}
+        closeDate={project.closeDate ?? null}
+        open={filesOpen}
+        onClose={() => setFilesOpen(false)}
+        onProjectUpdate={load}
+      />
+      <ProjectChatDrawer
+        projectId={id}
+        projectName={project.name}
+        orgId={project.orgId}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        onProjectUpdate={load}
+      />
     </div>
   );
-}
-
-function buildTenderProps(project: ProjectDetail) {
-  return {
-    createdAt: project.createdAt ?? null,
-    tenderStatus: project.tenderStatus ?? null,
-    publicDate: project.publicDate ?? null,
-    questionCloseDate: project.questionCloseDate ?? null,
-    closeDate: project.closeDate ?? null,
-    openDate: project.openDate ?? null,
-    dueDate: project.dueDate ?? null,
-    distributedAt: project.distributedAt ?? null,
-    dispatchedAt: project.dispatchedAt ?? null,
-    interpretedAt: project.interpretedAt ?? null,
-    supplierInquiredAt: project.supplierInquiredAt ?? null,
-    supplierQuotedAt: project.supplierQuotedAt ?? null,
-    submittedAt: project.submittedAt ?? null,
-    awardDate: project.awardDate ?? null,
-    intakeStatus: project.intakeStatus ?? null,
-    sourceMetadataJson: project.sourceMetadataJson ?? null,
-  };
 }

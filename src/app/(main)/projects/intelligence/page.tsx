@@ -241,7 +241,7 @@ export default function ProjectIntelligencePage() {
               >
                 <div>
                   <Link
-                    href={`/projects/${p.id}/intelligence-room`}
+                    href={`/projects/${p.id}?tab=intel`}
                     className="font-medium hover:text-accent"
                   >
                     {p.name}

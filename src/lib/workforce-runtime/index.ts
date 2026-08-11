@@ -61,6 +61,20 @@ export {
   buildBoundedSynthesisInput,
   type WorkforceSynthesisResultV1,
 } from "./synthesis";
+// Phase 2B-2 — Controlled Parallel Task Execution
+export {
+  classifyTaskExecutionPolicy,
+  buildParallelBatch,
+  collectOccupiedResourceKeys,
+  readTaskResources,
+  getWorkforceMaxParallelTasks,
+  getWorkforceMaxParallelTasksWithEnv,
+  WORKFORCE_JOB_MAX_PARALLEL_TASKS_DEFAULT,
+  WORKFORCE_JOB_MAX_PARALLEL_TASKS_HARD_MAX,
+  type TaskExecutionPolicy,
+  type TaskPolicyStepInput,
+  type ParallelBatchSelection,
+} from "./parallel";
 export {
   WORKFORCE_HANDOFF_CONTRACT_VERSION,
   WORKFORCE_HANDOFF_LIMITS,

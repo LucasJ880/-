@@ -44,7 +44,10 @@ export const MODULE_FIELD_LABELS: Record<string, string> = {
   decidedAt: "决定时间",
 };
 
-/** 项目详情页正式 AI / 工作台 Tab（与 page.tsx ProjectTab 对齐） */
+/**
+ * 项目 AI 对话深链。`?tab=ai` 是永久别名：详情页解析为
+ * 「工作台 + 打开问青砚抽屉」（见 lib/tender/detail-tabs.ts 的 LEGACY_TAB_ALIASES）。
+ */
 export const PROJECT_AI_TAB_HREF_SUFFIX = "?tab=ai";
 
 export function projectAiTabHref(projectId: string): string {

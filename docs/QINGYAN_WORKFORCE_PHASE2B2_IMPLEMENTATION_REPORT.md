@@ -1,0 +1,332 @@
+# Qingyan Workforce Runtime — Phase 2B-2 Implementation Report
+## Controlled Parallel Task Execution
+
+- 日期：2026-08-10
+- 分支：`feature/workforce-runtime-phase2b2-controlled-parallel`
+- Base main SHA：`abac67e87b11f6d8e542f139696b5301ae9e16be`（含 #78/#80/#81/#83/#84/#85/#86，HARD PREREQUISITE 逐项验证通过）
+- 设计依据：`docs/QINGYAN_WORKFORCE_PHASE2B_HANDOFF_PARALLEL_DESIGN.md`（§3 调度语义 / §3.4 T2+T3 / §10 冲突模型）；无新外部调研
+- 范围：**同一 Job 内满足安全条件的多个 ready Task 受控并行执行**——bounded、policy-driven、CAS-claimed、fenced、idempotent、resource-aware、approval-safe
+- 明确不做（§38）：fallback worker / dynamic replan（2B-3）、resource revalidation（2C-2）、clarification resume（2C-3）、Memory Runtime、child run per task、UI、Operator redesign、跨 Job 全局资源锁
+
+---
+
+## 1. Schema Decision
+
+```text
+SCHEMA_CHANGE = NONE
+Migration = NONE
+```
+
+零迁移。全部语义由现有结构承载：
+
+| 需求 | 承载 |
+|---|---|
+| 执行策略 | 纯函数派生（`classifyTaskExecutionPolicy`），不落库 |
+| 资源声明 | `inputJson.workforceTask.resources`（workforce-task/v1 **backward-compatible optional field**，§10 允许） |
+| Step 认领 | 现有 `status` 列 + `updateMany` 条件 CAS |
+| 并行上限 | env `WORKFORCE_JOB_MAX_PARALLEL_TASKS` |
+| 观测 | 现有 AgentRunEvent 表（3 个新 eventType，无新表） |
+
+## 2. Task Policy Classifier（§6–§9）
+
+`src/lib/workforce-runtime/parallel.ts` — `classifyTaskExecutionPolicy(step, context)` 纯函数，**server-owned**：planner 只能提供信息（executionMode/riskLevel/resources 提议），安全策略判定完全在服务端。判定顺序（先命中先生效）：
+
+1. **REQUIRES_APPROVAL**：`step.requiresApproval` ∨ `executionMode ∈ {write, approval}` ∨ **server tool catalog** 判定该工具 `requiresApproval` / 非 `readOnly`（planner 谎称 read 不可信——catalog 是 server-authoritative，纯函数测试验证）；
+2. **SEQUENTIAL（fail-safe 全集）**：无 workforce-task/v1 spec（legacy / 损坏）、executionMode ∉ {read, analysis}、riskLevel ∉ {LOW, MEDIUM}、preferredTool 缺失 / 不在 catalog / **catalog 未显式标注 `parallelSafe`**——任何不确定一律串行；
+3. **EXCLUSIVE_RESOURCE**：声明资源与占用集（running ∪ awaiting_approval ∪ 本 batch 已选任务的资源）相交——本轮禁止启动；
+4. **SAFE_PARALLEL**：以上全部通过（含"声明了资源但无冲突"，P4b）。
+
+`ToolDescriptor` 新增可选 `parallelSafe`（`tool-catalog.ts` 仅 9 个 read/analysis 工具显式标注；写工具与缺省一律不允许并行）。
+
+## 3. Resource Declaration（§9–§10）
+
+- 词汇：`{entity}:{id}`（`customer:` / `opportunity:` / `quote:` / `project:` / `tender:` / `email-thread:` 等），模式 `^[a-z][a-z0-9_-]{0,31}:\S{1,160}$`，精确字符串相等判冲突；
+- 承载：planner 经 `PlanStepSchema.resources` **提议** → `applyWorkforceTaskSpecs` server 消毒（trim + 去重 + 上限 8）→ 落 `inputJson.workforceTask.resources`。任务书"优先复用 inputJson.resources 或已有等价结构"——采用 2B-1 已建立的 workforceTask namespaced envelope 作为等价结构（单一写入路径 + Zod 白名单校验免费获得）；
+- **malformed fail-closed**：非法资源键 / 超上限 → `WORKFORCE_TASK_SPEC_INVALID`，整计划 FAIL VALIDATION（与 unknown worker 同路径）。声明影响并行安全，静默丢弃=漏声明=误并行，故不做宽容降级；
+- V1 兼容双向验证：旧记录（无 resources）新 reader 照常 parse；新字段被旧 `.strip()` reader 安全丢弃。**contractVersion 不变**；
+- 冲突控制范围：仅 same Job 内 batch（§9），无 distributed global lock。
+
+## 4. Step CAS Claim（§12–§13）
+
+核心安全点。`executor.ts` workforce 路径彻底废除"read ready rows → 直接 update running"：
+
+```text
+ready → updateMany({ where: { id, status: "ready" },
+                     data: { status: "running", attemptCount: {increment: 1},
+                             idempotencyKey, startedAt } })
+     → count === 1 才拥有该 Task（同一 guard 事务内回读最新行）
+     → count === 0 = TASK_ALREADY_CLAIMED：不执行 Tool、无事件、无写入
+```
+
+- 有 fence 时 CAS 在 `fence.guard` 事务内（run lease token 断言 + Step 行 CAS 同一原子 commit）；
+- **双保险**（§13）：run-level lease 是第一道防线；即使两个 driver 同时越过它（P6 直接双 round 模拟），Step CAS 保证 exactly-one 执行，Tool side effect count = 1（DB 探针实测）；
+- gate（spec/worker/上游 Handoff 校验）在 **CAS 之前**执行——gate 失败不消耗 attemptCount（保持 2B-1 §45 语义：gate-failed step attemptCount=0）。
+
+### 4.1 Stale running 回收（P7 前置）
+
+batch 在单轮内 await 完成 → 轮次开始时不存在"本 driver 正在执行中"的 running Step。因此 workforce 轮次开始时的 running 行只能来自 crash / 租约易主前的旧 worker：当前 driver（持有 run lease）将其 fenced 重置为 ready，经 CAS 重新认领执行。旧 worker 迟到写入被 RunFence 阻断（LOST_LEASE，零写入）。重置不清 attemptCount；重复 crash 由 run attempts（≤5）与 maxToolCalls 双重预算兜底。
+
+## 5. Bounded Parallel Batch（§11/§14–§15）
+
+`buildParallelBatch`（纯函数，deterministic 按计划创建序）：
+
+```text
+refreshReadySteps → stale running 回收 → 任一 Step awaiting_approval？→ run 收敛 awaiting（不建新批）
+→ classify 逐个 ready → 组批：
+    maxParallelTasks ≤ 1        → 恒 [队首]（回滚保证：与单步调度语义一致）
+    队首 REQUIRES_APPROVAL/SEQUENTIAL → [队首] 单独成批
+    队首 EXCLUSIVE_RESOURCE      → 空批（占用清除后自然恢复）
+    队首 SAFE_PARALLEL           → 向后收集资源不相交的 SAFE_PARALLEL，
+                                   非 SAFE / 资源相交者 deferred（留在 ready），
+                                   收满 maxParallelTasks 为止
+→ pre-flight（no_tool / canInvokeTool 重鉴权 / workforce gate；失败只写 Step）
+→ 逐个 CAS 认领（失败者丢弃，另一 driver 已拿走）
+→ Promise.allSettled（仅 server 分类 + CAS 认领后的 bounded 批）
+→ coordinator 聚合 outcome，唯一决定 Job 下一状态
+```
+
+- 绝无 `Promise.all(allReadyTasks)`；单批上限 = `WORKFORCE_JOB_MAX_PARALLEL_TASKS`（default **1**、min 1、hard max **4**，非法值回落 1）；
+- 单个 Task 异常不取消已启动 sibling（allSettled）；每个 Task 独立收敛 durable outcome（P9）；
+- legacy `runtime_v2` 走原单步路径，行为零变化（workforce-only 块已从该路径移除，等价 2B-1 前 legacy 形态；测试 §51 回归验证）。
+
+## 6. Run-Level State Ownership（§16）
+
+并行 Promise 禁止竞写 `AgentRun.status`：
+
+- **Task worker**（`executeClaimedWorkforceStep`）只写：Step state / Step result / Handoff（全部 fenced；tool 长 await 后先 `fence.check()`）；
+- **Batch coordinator**（`executeWorkforceBatchRound`）独占：refresh 后组批、`executing` 转换、outcome 聚合、Run 终态决策。收敛优先级 `lost_lease > needs_human > awaiting_approval > continued`；
+- 所有 coordinator Run 写入带 `status: { notIn: ["cancelled","failed","completed"] }` 终态保护（§23：cancel 后迟到收敛安全落地，不覆盖终态）。
+
+## 7. Approval + Parallel（§8/§20）
+
+- 审批任务**永不**与其他任务同批启动：队首审批 → 单独成批；SAFE 批收集跳过审批任务（deferred）；
+- PendingAction 产生 → Step awaiting_approval（Task worker 写）→ coordinator 统一 Run → awaiting_approval → 2C-1 `resumeWorkforceJob` 链路原样复用；
+- awaiting 窗口：executor 防御检查（任一 Step awaiting → 不建新批）+ awaiting Step 的资源持续占用占用集（设计文档 §3.3：审批窗口内不得并行产生同资源第二份草稿）；
+- P5 实测：SAFE 批 [s5, b] 不含审批任务；审批任务单独 CAS 认领执行产生真实 PendingAction；Job awaiting_approval 后无新批、无新认领。
+
+## 8. Fencing（§17）
+
+Phase 2A RunFence 全链路保持：Step CAS claim、Step result、Handoff 持久化、coordinator 状态转换全部经 `fenceGuardedWrite` / `fence.guard`；tool 长 await 后保留 `fence.check()` 先行探测。P7 实测：A 认领后租约易主 → B stale-reset + 重新 CAS 完成任务 → A 迟到写入 `LOST_LEASE`，zero stale result / zero stale Handoff（completedAt、信封 JSON 与 B 写入完全一致，step.completed 事件恰好一次）。
+
+### 8.1 并发事件序列修复（前置缺陷）
+
+`appendAgentRunEvent` 原实现 `max(sequence)+1` 读写窗口非原子——并行 Task 同 run 并发 append 会撞 `@@unique([runId, sequence])` 且异常被吞（**事件静默丢失**）。已修复：unique violation（P2002）时重读重试（有界 8 次），其余错误语义不变。这是并行引入前必须修复的支撑点，对既有单写场景零行为变化。
+
+## 9. Handoff Ordering（§18–§19）
+
+- 严格复用 `workforce-handoff/v1`，无 V2、无契约改动；
+- 并行任务各自在完成的同一 fenced 原子写入内落信封（2B-1 §31/§32 语义不变）；
+- Synthesis 消费顺序恒为 `dependsOn` 声明序（`collectUpstreamHandoffs` 2B-1 实现原样复用）：P8 人为控制完成顺序 C→A→B（sleep 梯度实测 completedAt 严格递增），synthesis `upstreamSummaries` 仍为 A,B,C；
+- legacy 三分法不变（P10 重跑验证）：`spec absent + 信封 absent` = TRUE LEGACY 放行；`信封 PRESENT + unknown/malformed/oversized/source mismatch` = FAIL CLOSED；`spec valid + 信封 absent` = HANDOFF_MISSING fail-closed。
+
+## 10. Failure Behavior（§21）
+
+- Tool 失败：记录真实 Task outcome（retry 回 ready / 耗尽 failed），不取消已启动 sibling，coordinator 本轮返回 continued；failed Task 的 downstream 依赖不满足 → 永不 ready → 现有 blocked-graph 检测 → needs_human（P9 实测：A/C durable + 信封完整，B failed attempt=2，D 零 attempt 零认领，Job needs_human）；
+- gate / 重鉴权失败：只写 Step failed，coordinator 统一 Run needs_human（事件 title 与单步语义一致）；
+- 未预期异常：防御性 needs_human；Step 若遗留 running 由下轮 stale 回收；
+- 无 fallback worker / 无 dynamic replan（2B-3 边界）。
+
+## 11. Kill-Switch（§22）与 Cancellation（§23）
+
+- `WORKFORCE_RUNTIME_ENABLED=0`：processor claim/queue 双 gate 保持（#80）；executor 轮次新增即时检查——开关关闭后本轮 **NO DAG 推进 / NO batch selection / NO Step claim / NO Handoff 生成**（mid-slice 翻转即时生效，实测零认领零信封）；恢复后原状续跑；
+- cancelled Job：不可被 claim（lease 条件）；executor 轮次开始即短路（不认领不执行，实测）；已在飞 Task 的迟到结果 durable 落 Step（安全收敛），coordinator 终态保护禁止覆盖 cancelled；未实现复杂 mid-request abort（任务书明示不做）。
+
+## 12. Observability（§24）
+
+最小内部事件（复用 AgentRunEvent，无新表，全部 `visibleToUser=false`）：
+
+| 事件 | 载荷 | 时机 |
+|---|---|---|
+| `task.claimed` | stepKey / policy / attempt / operationKey | 每次 CAS 认领成功 |
+| `parallel.batch_started` | stepKeys / maxParallelTasks | 批规模 ≥2 |
+| `parallel.batch_completed` | stepKeys / outcomes | 批规模 ≥2 且未失 fence |
+
+用户层继续由 #84 Read Model 投影（回归全绿，内部事件默认不可见）。
+
+## 13. 并行上限与生产默认（§11/§37）
+
+```text
+WORKFORCE_JOB_MAX_PARALLEL_TASKS：default 1 / min 1 / hard max 4
+DEFAULT_PRODUCTION_PARALLELISM = 1
+```
+
+本 PR 不改任何生产环境变量；production 默认串行（batch 恒 [队首]，调度语义与 2B-1 一致，仅新增 CAS 认领这一安全强化）。并行度 2/3/4 仅在测试内显式设置。legacy `AGENT_RUNTIME_V2_PARALLELISM` 与 workforce 路径解耦（仅作用于 legacy 单步路径的 slice 截断，行为不变）。
+
+## 14. 文件清单
+
+新增：
+```text
+src/lib/workforce-runtime/parallel.ts                       policy classifier + batch builder + limit
+src/lib/workforce-runtime/__tests__/parallel-probe.ts       测试探针（Prisma delegate 插桩，生产零 test seam）
+src/lib/workforce-runtime/__tests__/phase2b2-parallel-policy.test.ts
+src/lib/workforce-runtime/__tests__/phase2b2-parallel-execution.test.ts
+src/lib/workforce-runtime/__tests__/phase2b2-parallel-claims.test.ts
+docs/QINGYAN_WORKFORCE_PHASE2B2_IMPLEMENTATION_REPORT.md
+```
+
+修改：
+```text
+src/lib/agent-runtime-v2/executor.ts      workforce batch 调度（CAS/allSettled/coordinator）；legacy 路径剥离 workforce 块（行为零变化）
+src/lib/agent-runtime-v2/schemas.ts       PlanStep.resources 提议字段；ToolDescriptor.parallelSafe
+src/lib/agent-runtime-v2/tool-catalog.ts  9 个 read/analysis 工具显式 parallelSafe
+src/lib/workforce-runtime/task-contract.ts  workforce-task/v1 可选 resources + server 消毒
+src/lib/workforce-runtime/index.ts        导出
+src/lib/agent-runtime/run.ts              appendAgentRunEvent 并发 sequence 有界重试
+src/lib/agent-runtime/types.ts            3 个 2B-2 内部 eventType
+scripts/test-all.sh                       挂载 2B-2 三个套件
+```
+
+未触碰：processor.ts / persist.ts / handoff.ts / workers.ts / resume.ts / 两个 Production Guard / PendingAction core / RBAC core / Tender EFG / AgentTask。
+
+## 15. 测试（隔离 Neon 分支 `preview-phase2b2-*`，`assertSafeTestDatabase` + `NODE_ENV=test` + `DATABASE_ENVIRONMENT=isolated`，跑完即删）
+
+并发观测方法：测试探针在 **Prisma delegate 层** monkey-patch `findMany`（按 orgId 过滤 + 按 (model, take) 匹配注入 barrier / sleep / gate / fail），interval 扫描线计算真实并发峰值——生产代码零 test seam，满足 §25"必须用 barrier / controlled promise 证明"。
+
+2B-2 新增（同一隔离分支连续两轮结果一致）：
+
+| 套件 | 结果 |
+|---|---|
+| phase2b2-parallel-policy（分类矩阵 / fail-safe / 资源消毒 fail-closed / 上限 clamp / 批组装 §14 全分支） | 39/39 PASS |
+| phase2b2-parallel-execution（P1 barrier 实测 maxConcurrency≥3；P2 bound=2 never 3；P3 SEQUENTIAL 零重叠；P4 同资源串行/异资源并行；P8 gate 协议强制完成序 C→A→B、消费序恒 A,B,C；P9 sibling 隔离） | 36/36 PASS（初版 33 断言两轮绿；P8 协议化 +3 断言后单跑与全量均绿） |
+| phase2b2-parallel-claims（P5 审批独占+真实 PendingAction+awaiting 后零新批；P6 double driver exactly-one、side effect=1；P7 stale lease 零 stale 写入；§22 kill-switch；§23 cancellation） | 25/25 PASS ×2 |
+
+P10/P11 回归（同一隔离分支，`scripts/test-all.sh` 全量）：
+
+| 范围 | 结果 |
+|---|---|
+| 2B-1 三套件（H1–H5 / Task Worker Handoff / Multi-upstream / Synthesis / Unknown worker / Auth forgery / Unknown version / Approval handoff / Reject downstream block） | 60+42+19 全 PASS |
+| 2A A–L（Job Identity 26 / Lease 16 / Timeout 7 / Approval Resume 13 / Stale Worker 31 / Normal Slices 10）+ Kill-Switch 16 + Test Isolation 契约 8 | 全 PASS |
+| 2C-1（Pause/Resume M/N/R 26 + Expiry Races 7） | 全 PASS |
+| Runtime V2 Golden Flow 14 / Planner 17 / Durable State 11 / Verifier-Security 15 / Preview Gate P0 30 / Read Model（#84）74+31+13 | 全 PASS |
+| Production DB Test Guard 22 / Production Operation Guard 30 | 全 PASS |
+| test-all 汇总 | **195/195 通过, 0 失败**（最终记录轮） |
+| tsc --noEmit / eslint（改动文件）/ next build（本地 + CI `validate-lint-typecheck-test-build`） | 全 PASS |
+
+全量运行记录（透明起见）：首轮全量中曾出现两类非回归失败并已归位——
+(1) P8 顺序断言原以 sleep 梯度控制完成序，在全量负载下被 grader 内部路径差异打穿（1 断言），已改为 **gate 显式顺序协议**（完成序由协议强制，与负载/实现路径无关）并把 overlap 注入余量统一加宽到 500ms；修复后单跑与全量均绿。
+(2) 10 个非 workforce 套件（Agent Trace / Governance Hygiene / Phase3A-2/3/4/5）失败：6 个因运行环境只显式传了 `DATABASE_URL` 而 Prisma 从主 repo `.env` 自动补齐了指向生产 direct endpoint 的 `DIRECT_URL` → `assertSafeTestDatabase` **按设计 fail-closed BLOCK**（补传 `DIRECT_URL=<隔离分支>` 后全绿）；4 个因隔离分支缺双租户种子数据（`sunny-home-deco`/`mengxin-home-textile`，用基线 main 代码在同一分支复现同样失败，证明与本 diff 无关），`prisma db push`（仅隔离分支）+ 官方幂等 seed 后 28+29+28+23 全 PASS。最终记录轮 195/195。
+
+测试基建：复用 #86 fixture ownership / isolated org / cleanup / repeatable batch（两个新 DB 套件尾部执行 `cleanupWorkforceFixture` + `assertNoLeakedWorkforceJobs` 零泄漏断言，二轮重复运行验证）。
+
+## 16. 已知边界（非缺陷，记录语义）
+
+- `maxToolCalls` 预算检查在批认领前进行：一批 N 个认领可短暂越过预算至 +N-1（N≤4，总量仍被 run attempts 与 step maxAttempts 约束）；
+- 批内 Task 失败当轮不阻断 sibling（§21 要求），Run 级收敛推迟到 coordinator——与单步语义的差异仅在同批窗口内（≤1 轮）；
+- EXCLUSIVE_RESOURCE 队首会推迟整轮选择（不跳队首抢跑后位任务）——保守防饥饿策略，占用只来自 awaiting（会 park Run）与 stale running（会被回收），实际不可长期滞留。
+
+---
+
+# Final Integration Gate（PR #93 × #94 P0，2026-08-10 第二轮）
+
+## FG-1. Rebase 与语义集成
+
+- 新 Base main：`4f082cd`（含 **#94** Runtime Execution Alignment P0 与 **#95** Tender/Project Security P0，逐项验证 merge commit）。
+- rebase 非纯文本合并而是**语义集成**：`executor.ts` 以 main（#94）为基座重建——legacy 单步路径与 main 逐字节一致；workforce batch 路径 1:1 内嵌 #94 五项 P0 语义（gate 先于工具解析 / native synthesis / dependsOn-scoped priorEvidence / `synthesis_failed` 独立 errorCode / `blocked_graph` durable code / executionLabel 统一事件与幂等标识）。冲突文件：executor.ts（重建）、task-contract.ts（自动合并：#94 synthesis 契约校验 + 2B-2 resources 并存）、index.ts / test-all.sh（并集）。
+- **#94 语义保持证明**：P0 纯逻辑不变量 27/27 + P0 G2–G10 DB 集成 **51/51 在 batch 调度路径上全绿**（ghost tool / native synthesis / scoped evidence / verifier hard floor / approval-approved-but-execution-failed / dependency order 全部命中新代码路径）。
+
+## FG-2. Gate 清单落地（任务书 §2–§8）
+
+| 项 | 实现 | 验证 |
+|---|---|---|
+| §2 Native Synthesis × Parallel | `taskKind=synthesis`（含 native 无工具形态）classifier 保守 **SEQUENTIAL**；batch pre-flight 在 no_tool 判定前识别 synthesis → `executeWorkforceSynthesisTask()`；绝无 no_tool | FG2：C→A→B 完成序（gate 协议）→ S 消费序恒 A,B,C；结构化综合 + workforce-handoff/v1 + `synthesisOf` 声明序审计；模型入参按声明序（stub 接缝观测）；G4/G6 重跑 |
+| §3 Declared Dependency Scope | batch per-step `priorEvidence = scopedEvidenceByDependsOn`（#94 实现原样复用）；true-legacy（spec absent）保持全量 map | FG3 双通道：synthesis 模型输入零 SECRET_X（poison 注入后仍不可见）+ 工具通道 `sales_get_customer.targetSource === "recent_fallback"`、C 输出 poison 零出现；G5 重跑 |
+| §4 Stale Running Recovery | 从 executor round **移除**；唯一边界 = `processWorkforceJobSlice` 成功 acquire/reclaim lease 之后（fenced）：attempt<max → ready 重认领；attempt≥max → `stale_running_exhausted` 终态 | P7 重写（B 经 processor reclaim 完成，A 迟到写入 LOST_LEASE）；FG7 `maxRounds:0` 精确观测 recovery 边界 |
+| §5 P6b | executor round 对 running Step 零动作（不 reset / 不二次 CAS / 不二次执行） | FG5：A 持 gate 阻塞于 Tool 中（DB 确认 running）→ B round：Step 保持 running / attempt=1 / calls=1；终态 attempt=1、side effect=1、task.claimed=1、step.completed=1、Handoff=1 |
+| §6 Tool Budget | `effectiveBatchMax = min(configuredParallelMax, maxToolCalls − used)`；remaining≤0 零认领 | FG6：max=10 / used=9 / ready=4 → 恰 1 个认领执行，attempt 总量恒 =10，随后按既有预算语义 needs_human |
+| §7 Step Attempt Budget | CAS 条件 = `status='ready' ∧ attemptCount < maxAttempts`；recovery 按预算分流；**新增** pre-flight 耗尽终态化 `step_attempts_exhausted`（阻断 verifier REPAIR 复活 attempt 耗尽 Step + CAS 拒领造成的跨 slice 活锁——集成期发现的真实语义洞） | FG7：attempt==max 的 running Step 在 reclaim 后终态 failed、Tool 零执行、attempt 不超限、Job 经 hard floor 诚实 needs_human |
+| §8 parallelSafe × Registry | SAFE_PARALLEL 永久不变量 = planner-visible ∧ **executable（`isRuntimeV2ToolExecutable`，#94 authoritative handler map）** ∧ readOnly ∧ 无审批 ∧ `parallelSafe=true` | 纯函数逐目录复核（43/43 套件含 FG8 扫描：所有 parallelSafe 工具满足五项；classifier 产出 SAFE ⇒ 不变量成立） |
+
+## FG-3. Lane C S1–S4 复跑（同组 Scenario 零修改）
+
+环境 = P0 §18 同方法：生产快照 Neon 分支（`preview-2b2-s1s4-*`，跑完即删）、真实 org「Sunny Home & Deco」、真实 sales 发起人 + org_admin/admin 审批人（零 CalendarProvider）、真实 LLM、GMAIL 未配置、驱动只调既有导出（`createWorkforceJob`/`processWorkforceJobSlice`/`approveApprovalItem`）、加速仅 `nextAttemptAt` 快进。**本分支同日 sequential（default=1）与 parallel 直接对照**：
+
+| Run | 模式 | 终态 | 任务 | 工具 | 墙钟 | maxBatch | 审批 | 六项计数器 |
+|---|---|---|---|---|---|---|---|---|
+| S1 | seq | needs_human(verification_failed)※ | 8 | 9 | 41.5s | 1 | 5/5 executed | 全 0 |
+| S1 | **par=2** | needs_human(verification_failed)※ | 8 | 9 | **27.0s（−35%）** | 2（s3+s4 分析并行批） | 5/5 executed | 全 0 |
+| S2 | seq | completed | 3 | 3 | 38.1s | 1 | 0 | 全 0 |
+| S2 | **par=2** | completed | 3 | 3 | 40.0s | 1（模型计划线性） | 0 | 全 0 |
+| S3 | seq | needs_human(verification_failed)† | 6 | 6 | 80.8s | 1 | 0 | 全 0 |
+| S3 | **par=2** | needs_human(verification_failed)† | 7 | 7 | 56.4s | 2（[s2,s3]+[s4,s5]） | 0 | 全 0 |
+| S4 | seq | completed（native synthesis ✓） | 5 | 5 | 78.2s | 1 | 0 | 全 0 |
+| S4 | **par=2** | completed（native synthesis ✓） | 5 | 5 | 91.5s | 2（[s1,s2]+[s3,s4]） | 0 | 全 0 |
+| S4 | **par=3** | 首轮 needs_human(verifier 方差)‡→ **retry completed（native synthesis ✓）** | 7 | 7 | 88.5s | 3（[s1,s2,s3]） | 0 | 全 0 |
+
+※ S1 = #90A 的**正确**结果（s8 gmail 环境关闭失败显性化；s1–s7 全部真实交付、2 商机改期 + 3 日历草稿审批后落库），与 P0 sequential 基线逐字节同构。
+† S3 两种模式下**全部业务步骤诚实 completed / 合法 skipped（空排序写步骤 skip，= P0-D1 既有债项）**，needs_human 来自模型 verifier 对确定性 PASS 的过度怀疑（**P0-D5 既有债项**；verifier 模型输入只含 `{objective, criteria, deterministic}`，顺序/并行结构完全相同——同日 seq 与 par 同判，与并行无关）。
+‡ S4@3 首轮同为 P0-D5 方差（5 任务含 synthesis 全部 completed，verifier 三轮 REPAIR 后 exhausted）；场景零修改重试 completed。P0 期间 S2 同样出现过两轮 REPAIR。
+
+**成功线（任务书 §9）**：GHOST_TOOL_FAILURES **0** / STEP_KEY_FAILURES **0** / SYNTHESIS_NO_TOOL_FAILURES **0** / FALSE_COMPLETION_FAILURES **0** / UNDECLARED_EVIDENCE_LEAK **0**（FG3 双通道 + G5）/ DUPLICATE_TOOL_SIDE_EFFECT **0**（幂等键零重复；10 run 合计）。并行下正确性与 sequential 完全同构；S1 类"读分析并列"计划获得真实墙钟收益（−35%）；模型规划形态随模型漂移（S3 6↔7 任务、S4 5↔7 任务），与调度无关。
+
+## FG-4. 回归（任务书 §10）
+
+| 范围 | 结果 |
+|---|---|
+| #94 P0 纯逻辑 27 + G2–G10 51（batch 路径） | 全 PASS |
+| #94 S1–S4 sequential baseline（本分支重跑） | 语义同构（S1 needs_human※ / S2 completed / S3 needs_human† / S4 completed+synthesis） |
+| 2B-2 P1–P9（36+24）+ policy 43 + Final Gate 32（P6b/预算/耗尽/SECRET_X/synthesis×parallel） | 全 PASS |
+| 2B-1（60+42+19）/ 2A A–L + Kill-Switch / 2C-1 M/N/R + Expiry / #86 隔离契约 | 全 PASS |
+| #86 isolation batch（同库连续 RUN_1/RUN_2） | PASS ×2 |
+| #87 read model / operator（列表服务 L1–L9、Operator UX D1–D10、投影/只读/API） | 全 PASS |
+| Production DB Test Guard / Production Operation Guard | 全 PASS |
+| **test-all 全量** | **203/203 通过, 0 失败**（隔离分支 + DIRECT_URL + 双租户种子） |
+| tsc / eslint / build / CI | PASS（CI 有效门 `validate-lint-typecheck-test-build` + `Vercel – qingyan-staging`；`Vercel – -` 恒失败为既有非信号） |
+
+生产默认不变：`WORKFORCE_JOB_MAX_PARALLEL_TASKS` 未在任何生产环境设置（default 1）。快照/隔离分支已删除；S 场景驱动为会话级工具未入库（与 P0 同准则）。
+
+---
+
+# FINAL REVIEW + MERGE GATE（2026-08-10 第三轮，独立复核）
+
+独立于上方 Final Integration Gate 的最终复核：不以报告 PASS 为据，对 `origin/main..head` 全部 16 个变更文件重新逐文件语义审查，并本地独立复跑关键纯逻辑不变量套件。
+
+## FR-1. Git / PR 状态
+
+| 项 | 值 |
+|---|---|
+| Final Base SHA | `4f082cd`（= 复核时 origin/main，**MAIN_DRIFT = NONE**；含 #94 Runtime P0 与 #95 Security P0） |
+| Reviewed code head | `75a9291`（**HEAD_DRIFT = NONE**，与 Final Integration Gate 同一 SHA；merge-base = `4f082cd`，精确 rebase 于当前 main） |
+| FINAL_HEAD_SHA | 本 docs-only 提交（对 `75a9291` 的 diff 仅含本章节，零生产代码变更；merge 以 `--match-head-commit` 锁定该 SHA） |
+| PR | OPEN / MERGEABLE；CI 有效门 `validate-lint-typecheck-test-build` + `Vercel – qingyan-staging` = PASS（`Vercel – -` 恒失败为既有非信号，即 UNSTABLE 状态来源） |
+
+## FR-2. 逐 Gate 独立复核结论
+
+| Gate | 结论 | 独立证据（代码级） |
+|---|---|---|
+| #94-A PLANNER_VISIBLE ⊆ EXECUTABLE | PASS | `verifier.ts` / `adapters.ts` / `planner.ts` / `synthesis.ts` / `handoff.ts` / approval 全部零触碰；classifier 逐项 `isRuntimeV2ToolExecutable`（handler map 事实源）；`p0-alignment-pure` 27/27 本地复跑 |
+| #94-B Declared Evidence Scope | PASS | `scopedEvidenceByDependsOn` 单一定义、新旧路径共用（声明序插入）；true-legacy（spec absent）保持全量 map；FG3 SECRET_X 双通道 0 泄漏 |
+| #94-C Native Synthesis | PASS | batch pre-flight 中 gate 先于 no_tool 判定；`taskKind=synthesis ∧ 无 preferredTool → executeWorkforceSynthesisTask`（模型运行时 + zod 结构化校验 + fail-closed `synthesis_failed`）；不依赖 preferredTool |
+| #94-D Synthesis Order | PASS | `collectUpstreamHandoffs` 按 `dependsOn` 声明序 for-loop 构建，与完成序无关（FG2：完成 C→A→B，消费恒 A,B,C） |
+| #94-E Verifier Hard Floor | PASS | `verifier.ts`（`applyDeterministicHardFloor`）未触碰；executor `ready_for_verification` 收敛分支未变；LLM verifier 无法提升 deterministic failure |
+| #94-F False Completion | PASS | required failed/blocked/attempts-exhausted 经 hard floor 诚实收敛；pre-flight `step_attempts_exhausted` 终态化补齐跨 slice 活锁洞 |
+| Parallel Policy | PASS | SAFE_PARALLEL = catalog 存在 ∧ executable ∧ readOnly ∧ 无审批（planner+server 双源）∧ server `parallelSafe=true` 五重合取；任何不确定 → SEQUENTIAL；`parallelSafe` 仅存在于 server catalog（spec `.strip()`，planner 无注入路径）；catalog 9 个标注全部 readOnly+无审批，4 个写/审批工具零标注 |
+| Batch Bound | PASS | 上限硬夹 `[1,4]`，default 1；`maxParallel<=1` 恒 [队首]（与 2B-1 单步调度语义一致，回滚保证）；审批任务绝不与其他任务同批 |
+| CAS / Double Driver | PASS | `updateMany WHERE id ∧ status='ready' ∧ attemptCount<maxAttempts`；count=0 = TASK_ALREADY_CLAIMED 不执行 Tool；CAS 在 `fence.guard` 事务内（行锁 + lease token 断言）；P6/P6b/FG5 实测 exactly-one |
+| Fencing / Stale Worker | PASS | `RunFence.guard` 同事务行锁断言 token，迟到写入抛 `LostLeaseError` 零落盘；工具长 await 后 `fence.check`；stale running 回收唯一边界 = processor 成功持 lease 后（executor round 对 running 零动作） |
+| Attempts / Budget | PASS | 预算 = Σ attemptCount（server-side durable，CAS 递增）；`effectiveBatchMax = min(parallelMax, maxToolCalls−used)`——并行批不突破全局预算；FG6/FG7 验证 |
+| Approval Safety | PASS | REQUIRES_APPROVAL 判定含 server catalog `requiresApproval ∨ !readOnly`（planner 声称不可信）；任一 Step awaiting_approval → 本轮零新 batch；PendingAction / approval executor / 2C-1 resume 链路零触碰 |
+| Event Sequence | PASS | `appendAgentRunEvent` P2002 有界重试（≤8，重读 max+1）；耗尽走既有 log+null 失败包络（无无限重试、无静默行为变化）；sequence per-run、org 前置校验，租户边界不变 |
+| Kill Switch | PASS | `WORKFORCE_RUNTIME_ENABLED` 默认 OFF（envBool fail-closed）；processor claim 前 + executor slice 内双重即时生效（不 select / claim / execute / handoff） |
+| Cancellation | PASS | run cancelled 轮次入口提前返回；coordinator 全部 Run 收敛写入 `status notIn [cancelled,failed,completed]`——迟到收敛不能复活终态 |
+| Sibling Isolation | PASS | `Promise.allSettled`；单 sibling 异常 → needs_human outcome，不回滚已 durable 的 sibling Step；收敛基于真实 Step states，无 false completion |
+| Read Model 兼容 | PASS | 新增 3 个内部事件（`task.claimed` / `parallel.batch_*`）`visibleToUser=false` 且不在 2D-1 类别白名单——双重排除，用户 timeline 零污染 |
+| Security Boundary（#95） | PASS | #93 零触碰 `src/app/api` / `agent-tasks/dto.ts` / 任何授权面；#95 全部内容位于 base main `4f082cd`；无 cross-org / raw internal JSON / AgentTask mutation / approval 字段暴露回归 |
+| Production Parallelism | PASS | `WORKFORCE_JOB_MAX_PARALLEL_TASKS` 引用面仅代码/测试/文档；diff 零 env/vercel/infra 文件；**DEFAULT_PRODUCTION_PARALLELISM = 1 / PRODUCTION_ENV_CHANGED = NO**；1→2 须走独立 Production Validation Gate |
+
+## FR-3. 测试与 CI
+
+- Head `75a9291` 自 Final Integration Gate 起零变化 → 沿用同 SHA 完整执行的 **test-all 203/203**（隔离 Neon 分支）与 tsc/eslint/build（任务书 §17：同 SHA 不重复十轮昂贵测试）。
+- 本轮独立复跑（同 SHA 本地）：2B-2 policy 纯函数 **43/43**、#94 `p0-alignment-pure` **27/27**。
+- CI（`75a9291`）：`validate-lint-typecheck-test-build` PASS + `Vercel – qingyan-staging` PASS。
+- 本轮唯一新增变更 = 本 docs 章节（零生产代码），不触发 full regression 重跑；merge 前须确认 FINAL_HEAD_SHA 上 CI 有效门 PASS。
+
+## FR-4. S1–S4 判读（任务书 §18）
+
+判定标准 = sequential 与 parallel **correctness 语义同构**，非全场景绿色：S1 needs_human(verification_failed) 为 #90A 对 Gmail 环境失败的正确显性化；S2/S4 COMPLETED（S4 native synthesis 两种模式均真实综合）；S3 needs_human 为 P0-D5 verifier 方差既有债项（seq/par 同判，与并行无关）。不为让场景变绿而修改系统。
+
+## FR-5. 最终判定
+
+**PHASE_2B2_FINAL_REVIEW = PASS**
+**MERGE_GATE = APPROVED**
+
+Merge 策略：NORMAL MERGE COMMIT（保留 2B-2 实现史 + Final Integration 史 + P0 语义集成审计线），`--match-head-commit` 锁定 FINAL_HEAD_SHA；Head 若在 merge 前漂移即 STOP。Merge 后：`NEXT_PHASE_AUTOSTART = NO`（2B-3 / 2C-2 / 2C-3 / Tender T1B 均等待人工任务书）。

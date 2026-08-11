@@ -67,7 +67,11 @@ export type AgentRunEventType =
   | "job.resume_blocked"
   | "job.clarification_answered"
   | "job.human_action_completed"
-  | "job.human_edited";
+  | "job.human_edited"
+  // Phase 2B-2（Controlled Parallel）：最小内部观测事件（visibleToUser=false）
+  | "task.claimed"
+  | "parallel.batch_started"
+  | "parallel.batch_completed";
 
 export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "queued",
