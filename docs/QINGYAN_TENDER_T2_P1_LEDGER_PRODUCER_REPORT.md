@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 分支 | `feature/tender-t2-p1-ledger-producer-foundation` |
-| Starting main | `b27f0ae8359996e522721096b96e7ab84db31376`（含 #96/#99/#101,三者 ancestry 已逐一验证） |
+| Starting main | `b27f0ae`（初始）；Final Review remediation 已 rebase 到 `42c4f15`（含 #97 tender-eval benchmark v1；#96/#99/#101/#97 ancestry 均已验证） |
 | 日期 | 2026-08-11 |
 | Source of Truth | `docs/QINGYAN_TENDER_T2_LEDGER_ARCHIVE_PREFLIGHT.md`（#96 Final Contract）+ M1 报告 |
 | 性质 | `SCHEMA_CHANGE = NONE` · `PRODUCTION_DATA_MUTATION = NONE` · `BACKFILL_EXECUTED = NO` · `DUAL_WRITE_ACTIVE = NO` · `WORKFORCE_RUNTIME_MODIFIED = NO` · `TENDER_UNDERSTANDING_V2_MODIFIED = NO` |
@@ -32,10 +32,27 @@
 | `MARKETING_ECONOMICS_MIGRATION_STATE` | **BLOCKING**——较 M1 演练时状态**又有变化**:先前的失败记录已被人工**删除**(`_prisma_migrations` 无该行),但迁移未标记 applied 而 `MarketingEconomicsSetting` 表实际存在 ⇒ 任何 plain `migrate deploy` 仍会尝试重放该迁移 → `42P07 already exists` 再次失败。正确解法不变:`prisma migrate resolve --applied 20260805090000_marketing_economics`(本轮又在 P1 隔离分支上第三次验证:resolve 后 deploy 干净落地 M1) |
 | 后果 | `PRODUCTION_ACTIVATION_GATE = BLOCKED`;producer 必须 dark(§20) |
 
+### 5.1 生产 migrate 前置 runbook（本轮不对生产执行任何写操作）
+
+`prisma migrate resolve --applied 20260805090000_marketing_economics` 是把「未标记 applied 但表已存在」的迁移标记为已应用——**它不比对表结构、不修表**。因此 resolve 前必须先做一次**只读结构核对**,确认生产实际的 `MarketingEconomicsSetting`(及该 migration 涉及的其它对象)与 migration `20260805090000_marketing_economics/migration.sql` 定义**等价**:
+
+```
+1. 只读读取生产 information_schema（列名/类型/nullable/默认/索引/约束），
+   与 migration.sql 的 CREATE 语句逐项比对。
+2. 仅当结构等价（表已按该 migration 建成、无缺列/类型漂移）时，才执行:
+     prisma migrate resolve --applied 20260805090000_marketing_economics
+   随后按既有 safe-migrate 流程 deploy（M1 = 20260811002000_...）。
+3. 若结构不等价（缺列/漂移/部分应用）→ 停止,转人工设计修复,禁止 resolve
+   （resolve 会把不一致状态“钉死”为 applied,后续 deploy 将跳过真正需要的补齐）。
+```
+
+**本轮仅为 runbook 文档**:未对生产 DB 执行 resolve/deploy/任何写操作(`PRODUCTION_DB_MUTATION = NO`)。隔离分支上的 resolve+deploy 仅证明解法有效,不代表生产已处理。
+
 ## 6. Deletion Gate(DELETION_GATING = PASS)
 
 - **现状核查**:Project 支持 hard delete(`DELETE /api/projects/[id]`,项目写权限即可);既有生命周期词表含 `status="archived"`(「已归档」,`src/lib/projects/lifecycle.ts` 一等过滤态,行/orgId/成员关系全保留)与 `status="abandoned"`——**OPTION A 的 soft anchor 已存在,无需 migration**。
-- **本轮实现**:硬删路由前置账本存量闸——项目存在任一 ProjectEvent/ProjectCost/TenderArchiveItem 行 ⇒ `409 PROJECT_HAS_LEDGER_HISTORY`,引导改用归档;无历史项目仍可照常删除(零行为变化,因生产账本为空,闸在 producer 激活后自然生效)。静态测试锁定 gate 必须先于 `tx.project.delete`。
+- **本轮实现**:硬删路由前置账本存量闸——项目存在任一 ProjectEvent/ProjectCost/TenderArchiveItem 行 ⇒ `409 PROJECT_HAS_LEDGER_HISTORY`,引导改用归档;无历史项目仍可照常删除。静态测试锁定 gate 必须先于 `tx.project.delete`。
+- **Dark-merge 安全(Final Review remediation)**:该存量闸的 M1 表查询**整体门控于 `T2_LEDGER_PRODUCERS_ENABLED`**。生产 M1 schema 未上线(NOT_PRESENT)时 flag 默认 OFF → DELETE **完全不访问** ProjectEvent/ProjectCost/TenderArchiveItem,删除行为与 T2 前逐字节一致(修复前无条件查询会命中不存在的表 → 违反"flag OFF 行为不变")。flag ON → 查询执行,有历史 → 409。由 DEL-DARK-01(spy 委托证明 0 次 M1 访问)/ DEL-ACTIVE-01 / DEL-ACTIVE-02 三组真实路由测试锁定。
 - **DELETION_ANCHOR = Project.status="archived"(既有生命周期态)**;残余清理(孤儿行 org 级特权访问)= `DELETION_RESIDUAL_CLEANUP = DESIGN_ONLY`(#96 §15.8 契约在案,本轮无实现需求——账本行在项目归档下全程可读,DEL-01 实证)。
 
 ## 7. Legacy Event Store Decision(GATE = PASS)
@@ -103,9 +120,10 @@ append/read/cost 全部操作在事务内验证 `(projectId, orgId)` 归属;跨 
 
 ## 17. Test Matrix
 
-- **纯逻辑 10/10**(`p1-pure.test.ts`,进 test-all):eventKey 确定性(含 A→B→A→B)/flag 默认 OFF+fail-closed/EV-05 重试耗尽 THROW(mock:attempts=maxRetries+1,默认上限=8,绝不 return null)/EV-08 actor 伪造+缺 tx 拒绝/producer 静态纪律(tx 调用+flag 门+零直写+服务端 actor+禁客户端 ledger 字段)/canonical 唯一写入口/无事件修改 API/Deletion Gate 先于 hard delete/AI 类别拒入。
-- **DB 矩阵 34/34**(`p1-ledger-db.test.ts`,隔离库执行否则自动跳过):EV-01(顺序幂等恰一行)/EV-02(5 路并发同 key 恰一行,全返回同一事件)/EV-03(并发 2/5/10 后 seq 致密单调 1..19)/EV-04(竞争经有界重试全收敛,重试日志可见)/EV-06(原子回滚+零残留)/EV-07(跨 org 双向拒)/ACTOR(同事务+去重)/READ(seq DESC 稳定 cursor)/P-CREATE/P-UPDATE(key 确定性+重放幂等)/P-FAIL(业务失败零事件)/P-MEMBER(v1/v1/v2 三独立事件)/COST-01..08/DEL-01(归档后三表全保留+账本仍可读)/DEL-04。
+- **纯逻辑 11/11**(`p1-pure.test.ts`,进 test-all):eventKey 确定性(含 A→B→A→B)/flag 默认 OFF+fail-closed/EV-05 重试耗尽 THROW(mock:attempts=maxRetries+1,默认上限=8,绝不 return null)/EV-08 actor 伪造+缺 tx 拒绝/producer 静态纪律(tx 调用+flag 门+零直写+服务端 actor+禁客户端 ledger 字段)/canonical 唯一写入口/无事件修改 API/Deletion Gate 先于 hard delete/**Dark-merge:三个 M1 count 静态锁定在 activation flag 分支块内**/AI 类别拒入。
+- **DB 矩阵 40/40**(`p1-ledger-db.test.ts`,隔离库执行否则自动跳过):EV-01(顺序幂等恰一行)/EV-02(5 路并发同 key 恰一行,全返回同一事件)/EV-03(并发 2/5/10 后 seq 致密单调)/EV-04(竞争经有界重试全收敛)/EV-06(原子回滚+零残留)/EV-07(跨 org 双向拒)/ACTOR(同事务+去重)/READ(seq DESC 稳定 cursor)/P-CREATE/P-UPDATE(key 确定性+重放幂等)/P-FAIL(业务失败零事件)/P-MEMBER(v1/v1/v2 三独立事件)/COST-01..08/DEL-01(归档后三表全保留+账本仍可读)/DEL-04/**DEL-DARK-01(真实 DELETE 路由 × flag OFF:spy 委托证明 0 次 M1 表访问 + 删除照常完成)**/**DEL-ACTIVE-01(flag ON + 无历史:M1 表被查询 3 次 + 删除继续)**/**DEL-ACTIVE-02(flag ON + 有历史:409 PROJECT_HAS_LEDGER_HISTORY + 项目保留)**。
 - DEL-02/03(普通用户不能删事件/历史 ACTUAL 成本):**无任何删除 API/服务函数存在**(静态锁定 + service 层无 delete 导出),辅以 M1 的 Restrict 约束。
+- **并发稳定性说明**:EV-02/EV-03 的 N 路同时突发是超出 #96“human-frequency”设计点的压力场景,在隔离 Neon 高延迟下给这两项按并发度放宽重试预算(仍有界、仍 THROW-on-exhaust);**服务默认值(8)不变**,默认预算的耗尽→THROW 行为由 pure 套件 EV-05 以 mock 确定性验证。remediation 后 DB 矩阵连续两次 40/40 稳定。
 
 ## 18. Concurrency Results
 
@@ -113,7 +131,7 @@ append/read/cost 全部操作在事务内验证 `(projectId, orgId)` 归属;跨 
 
 ## 19. Isolated Neon Validation
 
-生产快照子分支 `preview-t2-p1-validation`(host 非生产):①`migrate resolve --applied`(既有生产态解法三次验证)→ `migrate deploy` 干净应用 M1 四表 ②DB 矩阵 34/34 ③test-all 全量回归(结果见 PR)④用毕删除。**ISOLATED_NEON_BRANCHES_LEFT = 0**;生产 DB 全程只读(§5 审计的两条 SELECT)。
+生产快照子分支(host 非生产,用毕全部删除):初版 `preview-t2-p1-validation`(DB 矩阵 34/34 + test-all 211/211);Final Review remediation `preview-t2-p1-remediation`(`migrate resolve --applied` → deploy 干净应用 M1 → DB 矩阵 **40/40 连续两次稳定** → test-all 全量回归)。**ISOLATED_NEON_BRANCHES_LEFT = 0**;生产 DB 全程只读(§5 审计的两条 SELECT,remediation 轮亦仅只读)。
 
 ## 20. Production Activation Gate(BLOCKED——预期内)
 
@@ -135,7 +153,16 @@ LEGACY_EVENT_STORE_DECISION_GATE       = PASS
 | G2 | legacy null-org 项目 | producer 跳过(账本强制 org 租户);此类项目本就在 org 化迁移债范围 |
 | G3 | 其余创建路径(v1/ops) | 未接入(§12 范围说明),P2 显式评审 |
 | G4 | 孤儿行(激活前已硬删项目)读取 | DESIGN_ONLY(org 特权面),现行为:project 归属校验 fail-closed |
-| G5 | 生产迁移态第三次漂移 | 失败记录被删而非 resolve——runbook 应固化 `resolve --applied` 为唯一正确操作(报告 §5) |
+| G5 | 生产迁移态第三次漂移 | 失败记录被删而非 resolve——runbook 已固化(§5.1):resolve 前必须只读比对 `MarketingEconomicsSetting` 实际结构 vs migration.sql,仅等价时 resolve |
+
+## 21.1 Final Review Remediation（2026-08-11）
+
+| 项 | 处理 |
+|---|---|
+| 同步最新 main | rebase 到 `42c4f15`(含 #97 tender-eval benchmark v1);唯一冲突 `scripts/test-all.sh`(两侧 additive)解决,保留 #97 与 P1 两组条目;#97 benchmark 套件 rebase 后仍绿(test-all 内) |
+| Dark-merge 安全修复 | DELETE 的 M1 存量闸整体门控于 `T2_LEDGER_PRODUCERS_ENABLED`;flag OFF → 零 M1 表访问(前 T2 行为逐字节不变),flag ON → 存量闸执行。新增 DEL-DARK-01/ACTIVE-01/ACTIVE-02(真实路由 + spy 委托)+ pure 静态锁定 |
+| 迁移 runbook | §5.1 记录 resolve 前只读结构核对前置;**未对生产执行任何写操作** |
+| 并发稳定性 | EV-02/03 压力场景按并发度放宽重试预算(服务默认 8 不变);DB 矩阵 remediation 后 40/40 连续两次稳定 |
 
 ## 22. Explicit Non-Scope
 
