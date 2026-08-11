@@ -214,6 +214,36 @@ test("Deletion Gate：硬删路由在 project.delete 前强制账本存量检查
   assert.match(src, /tenderArchiveItem\.count/);
 });
 
+test("Dark-merge 安全：Deletion Gate 的 M1 表访问被 activation flag 门控", () => {
+  // DELETE 内四表 count 必须整体包在 isLedgerProducersEnabled() 分支里，
+  // 否则 flag OFF（生产 M1 未上线）时会访问不存在的表 → 违反“flag OFF 行为不变”
+  const src = readFileSync("src/app/api/projects/[id]/route.ts", "utf8");
+  const deleteStart = src.indexOf("export async function DELETE");
+  assert.ok(deleteStart > -1, "DELETE handler 存在");
+  const deleteBody = src.slice(deleteStart);
+
+  const gateFlagIdx = deleteBody.indexOf("isLedgerProducersEnabled()");
+  const evCountIdx = deleteBody.indexOf("projectEvent.count");
+  const costCountIdx = deleteBody.indexOf("projectCost.count");
+  const arcCountIdx = deleteBody.indexOf("tenderArchiveItem.count");
+  assert.ok(gateFlagIdx > -1, "DELETE 内存在 activation flag 判定");
+  assert.ok(
+    gateFlagIdx < evCountIdx && gateFlagIdx < costCountIdx && gateFlagIdx < arcCountIdx,
+    "flag 判定必须先于任何 M1 表 count",
+  );
+
+  // 三个 count 都落在 flag 分支块内（flag 判定与紧随的闭合 `}` 之间）
+  const flagBlockEnd = deleteBody.indexOf("\n  }", gateFlagIdx);
+  assert.ok(flagBlockEnd > gateFlagIdx, "flag 分支块可定界");
+  for (const [label, idx] of [
+    ["projectEvent.count", evCountIdx],
+    ["projectCost.count", costCountIdx],
+    ["tenderArchiveItem.count", arcCountIdx],
+  ] as const) {
+    assert.ok(idx > gateFlagIdx && idx < flagBlockEnd, `${label} 必须在 flag 分支块内`);
+  }
+});
+
 test("ProjectCost：AI/DATA_API 类别在默认路径被拒（AiUsageLedger 唯一权威）", () => {
   const src = codeOf("src/lib/project-ledger/cost-service.ts");
   assert.match(src, /COST_CATEGORIES_RESERVED_FOR_AI_LEDGER/);

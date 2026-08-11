@@ -336,20 +336,27 @@ export async function DELETE(
   // 普通业务路径不再允许 hard delete —— 保留 Project 行（status="archived" 生命周期）
   // 作为永久授权锚；物理删除仅保留给合规 purge 专用流程。
   // 四表刻意无 Project FK，硬删不会级联抹史，但会摘除授权锚 —— 因此在此拒绝。
-  const [ledgerEvents, ledgerCosts, archiveItems] = await Promise.all([
-    db.projectEvent.count({ where: { projectId: id } }),
-    db.projectCost.count({ where: { projectId: id } }),
-    db.tenderArchiveItem.count({ where: { projectId: id } }),
-  ]);
-  if (ledgerEvents > 0 || ledgerCosts > 0 || archiveItems > 0) {
-    return NextResponse.json(
-      {
-        error:
-          "项目已产生业务账本/成本/档案记录，不能物理删除；请改用归档（status=archived）保留历史。",
-        code: "PROJECT_HAS_LEDGER_HISTORY",
-      },
-      { status: 409 },
-    );
+  //
+  // Dark-merge 安全：本 gate 与 producer 同受 T2_LEDGER_PRODUCERS_ENABLED 门控。
+  // flag OFF（含生产 M1 schema 尚未上线时的默认态）→ 完全不访问 M1 四表，
+  // 删除行为与 T2 前完全一致（producer 也 dark，账本必然为空，gate 无意义）。
+  // flag ON → 执行账本/成本/档案存量检查，任一有历史 → 409。
+  if (isLedgerProducersEnabled()) {
+    const [ledgerEvents, ledgerCosts, archiveItems] = await Promise.all([
+      db.projectEvent.count({ where: { projectId: id } }),
+      db.projectCost.count({ where: { projectId: id } }),
+      db.tenderArchiveItem.count({ where: { projectId: id } }),
+    ]);
+    if (ledgerEvents > 0 || ledgerCosts > 0 || archiveItems > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "项目已产生业务账本/成本/档案记录，不能物理删除；请改用归档（status=archived）保留历史。",
+          code: "PROJECT_HAS_LEDGER_HISTORY",
+        },
+        { status: 409 },
+      );
+    }
   }
 
   try {

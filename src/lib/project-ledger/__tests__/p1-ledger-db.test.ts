@@ -66,6 +66,9 @@ async function main() {
     await db.tenderArchiveItem.deleteMany({ where: { orgId: { startsWith: P } } });
     await db.projectMember.deleteMany({ where: { project: { orgId: { startsWith: P } } } });
     await db.project.deleteMany({ where: { orgId: { startsWith: P } } });
+    // 真实 DELETE 路由会写 AuditLog（userId/orgId 指向 fixture）；须先清，否则 FK 阻塞 org/user 删除
+    await db.auditLog.deleteMany({ where: { userId: { startsWith: P } } });
+    await db.auditLog.deleteMany({ where: { orgId: { startsWith: P } } });
     await db.organizationMember.deleteMany({ where: { orgId: { startsWith: P } } });
     await db.organization.deleteMany({ where: { id: { startsWith: P } } });
     await db.user.deleteMany({ where: { id: { startsWith: P } } });
@@ -131,7 +134,8 @@ async function main() {
     (await db.projectEvent.count({ where: { projectId: projectA.id, eventKey: k1 } })) === 1,
   );
 
-  // EV-02 同 eventKey 并发 → 恰一行
+  // EV-02 同 eventKey 并发 → 恰一行（幂等：败者在赢者提交后经 eventKey 冲突返回既有行；
+  // 提交前则短暂 seq 自旋，故并发同键场景同样给重试预算头寸，避免高延迟环境 flake）
   const k2 = `${P}ev02`;
   const conc = await Promise.all(
     Array.from({ length: 5 }, () =>
@@ -140,6 +144,7 @@ async function main() {
           tx, orgId: `${P}org_a`, projectId: projectA.id,
           eventType: "project.updated", eventKey: k2,
           occurredAt: new Date(), actor, title: "EV-02",
+          maxSeqRetries: 25,
         }),
       ),
     ),
@@ -150,7 +155,12 @@ async function main() {
   );
   ok("EV-02 全部调用成功返回同一事件", new Set(conc.map((r) => r.event.id)).size === 1);
 
-  // EV-03 不同 eventKey 并发 → seq 单调致密
+  // EV-03 不同 eventKey 并发 → seq 单调致密。
+  // 本项验证的是「并发下 seq 仍致密单调」，非「默认 8 次预算是否够用」
+  // （后者由 pure 套件 EV-05 以 mock 确定性验证）。N 路同时到达是超出 #96
+  // “human-frequency” 设计点的压力场景；在隔离 Neon 高网络延迟下，max(seq)+1
+  // 乐观分配的重试次数与并发度线性相关，故给压力场景按并发度放宽预算（仍有界、
+  // 仍在耗尽时 THROW）。服务默认值不变。
   for (const n of [2, 5, 10]) {
     const t0 = Date.now();
     await Promise.all(
@@ -160,6 +170,7 @@ async function main() {
             tx, orgId: `${P}org_a`, projectId: projectA.id,
             eventType: "project.updated", eventKey: `${P}ev03:${n}:${i}`,
             occurredAt: new Date(), actor, title: `EV-03 ${n}/${i}`,
+            maxSeqRetries: n * 5,
           }),
         ),
       ),
@@ -501,6 +512,112 @@ async function main() {
     where: { projectId: projectA.id, orgId: `${P}org_b` },
   });
   ok("DEL-04 跨 org 清理零命中", crossDel.count === 0);
+
+  // ── Dark-merge 安全：真实 DELETE 路由 × activation flag（DEL-DARK / DEL-ACTIVE）──
+  console.log("━━ DEL Dark-merge 矩阵（真实路由）━━");
+  process.env.JWT_SECRET = process.env.JWT_SECRET || "t2p1-test-secret";
+  const { NextRequest } = await import("next/server");
+  const { DELETE } = await import("@/app/api/projects/[id]/route");
+  const { createSession } = await import("@/lib/auth/session");
+  const token = await createSession({
+    sub: `${P}user_a`,
+    email: `${P}a@test.local`,
+    role: "admin", // isSuperAdmin → 绕过 intakeStatus/成员校验，专注 gate 行为
+  });
+
+  async function seedDeletableProject(suffix: string, withHistory: boolean) {
+    const p = await db.project.create({
+      data: {
+        id: `${P}del_${suffix}`,
+        name: `P1 删除测试 ${suffix}`,
+        orgId: `${P}org_a`,
+        ownerId: `${P}user_a`,
+      },
+    });
+    if (withHistory) {
+      await db.$transaction((tx) =>
+        appendProjectEvent({
+          tx, orgId: `${P}org_a`, projectId: p.id,
+          eventType: "project.created", eventKey: projectCreatedEventKey(p.id),
+          occurredAt: p.createdAt, actor, title: "history",
+        }),
+      );
+    }
+    return p;
+  }
+
+  function callDelete(pid: string) {
+    const req = new NextRequest(`http://localhost/api/projects/${pid}`, {
+      method: "DELETE",
+      headers: { cookie: `qy_session=${token}` },
+    });
+    return DELETE(req as never, { params: Promise.resolve({ id: pid }) });
+  }
+
+  // M1 count 委托 spy：证明 flag OFF 时 DELETE 完全不访问三张 M1 表。
+  // Prisma 委托以 getter 暴露；一次性捕获稳定的 live 委托对象，install/restore
+  // 均以数据属性形式设置该对象，避免反复触发 getter 造成的不稳定。
+  let m1Touches = 0;
+  const M1_MODELS = ["projectEvent", "projectCost", "tenderArchiveItem"] as const;
+  const dbAny = db as unknown as Record<string, { count: (...a: unknown[]) => unknown }>;
+  const liveDelegates = M1_MODELS.map((m) => dbAny[m]);
+  function installSpies() {
+    m1Touches = 0;
+    M1_MODELS.forEach((m, i) => {
+      const live = liveDelegates[i]!;
+      const proxy = new Proxy(live, {
+        get(target, prop, recv) {
+          const v = Reflect.get(target, prop, recv);
+          if (prop === "count" && typeof v === "function") {
+            return (...args: unknown[]) => { m1Touches += 1; return v.apply(target, args); };
+          }
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      });
+      Object.defineProperty(db, m, { value: proxy, configurable: true, writable: true });
+    });
+  }
+  function restoreSpies() {
+    M1_MODELS.forEach((m, i) =>
+      Object.defineProperty(db, m, {
+        value: liveDelegates[i],
+        configurable: true,
+        writable: true,
+      }),
+    );
+  }
+
+  // DEL-DARK-01：flag OFF → DELETE 不触碰任何 M1 表 → 沿用 T2 前删除行为
+  delete process.env.T2_LEDGER_PRODUCERS_ENABLED;
+  const darkProj = await seedDeletableProject("dark", false);
+  installSpies();
+  const darkRes = await callDelete(darkProj.id);
+  restoreSpies();
+  const darkGone = (await db.project.count({ where: { id: darkProj.id } })) === 0;
+  ok("DEL-DARK-01 flag OFF：DELETE 零访问 M1 表", m1Touches === 0);
+  ok("DEL-DARK-01 flag OFF：删除照常完成（前 T2 行为不变）", darkRes.status === 200 && darkGone);
+
+  // DEL-ACTIVE-01：flag ON + 无历史 → 允许删除
+  process.env.T2_LEDGER_PRODUCERS_ENABLED = "true";
+  const activeNoHist = await seedDeletableProject("active1", false);
+  installSpies();
+  const a1Res = await callDelete(activeNoHist.id);
+  restoreSpies();
+  const a1Gone = (await db.project.count({ where: { id: activeNoHist.id } })) === 0;
+  ok("DEL-ACTIVE-01 flag ON + 无历史：M1 表被查询", m1Touches === 3);
+  ok("DEL-ACTIVE-01 flag ON + 无历史：删除继续", a1Res.status === 200 && a1Gone);
+
+  // DEL-ACTIVE-02：flag ON + 有账本历史 → 409 + 项目保留
+  const activeHist = await seedDeletableProject("active2", true);
+  const a2Res = await callDelete(activeHist.id);
+  const a2Body = (await a2Res.json()) as { code?: string };
+  const a2Kept = (await db.project.count({ where: { id: activeHist.id } })) === 1;
+  ok(
+    "DEL-ACTIVE-02 flag ON + 有历史：409 PROJECT_HAS_LEDGER_HISTORY",
+    a2Res.status === 409 && a2Body.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-ACTIVE-02 flag ON + 有历史：项目未被删除", a2Kept);
+  delete process.env.T2_LEDGER_PRODUCERS_ENABLED;
 
   await cleanup();
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
