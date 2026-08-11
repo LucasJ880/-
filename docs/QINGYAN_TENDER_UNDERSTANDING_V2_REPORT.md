@@ -53,7 +53,7 @@ AnalyzerInput (project-scoped documents)
   ↓ manifest.ts        DocumentManifest（documentId/name/type/sourceRole/pageCount/contentHash/parseVersion）
   ↓ manifest.ts        Page-aware Section Windows（≤4 页 / ≤9k chars / 1 页 overlap，标题页优先断窗）
   ↓ analyzer.ts        LLM Pass 1（并发≤3）：facts / requirements / potentialRisks / ambiguities
-  │                    （prompts.ts tender-understanding-v2-extract@1；llm.ts Zod 校验 + 有界重试）
+  │                    （prompts.ts tender-understanding-v2-extract@2；llm.ts Zod 校验 + 有界重试）
   ↓ verify.ts          Evidence Verifier（硬门）：doc∈scope / page 存在 / snippet 逐字在页 /
   │                    值在 snippet / 语义支持；mandatory signal 验证失败 → 降级 uncertain
   ↓ dedupe.ts          语义去重（指纹 + Jaccard≥0.62）：业务一条，EvidenceRefs 全保留
@@ -130,24 +130,67 @@ Runner 升级为多 lane：`npm run test:tender-eval`（默认 V1）/ `--lane=v2
 
 ## 19. V1 vs V2 Metrics（PROVISIONAL — Golden 未人工确认）
 
-«BENCH_TABLE»
+规范记录 = run `20260811-011513Z-6b399ca`（全部修复就位后的完整 both-lane 真实运行；快照已提交 `docs/tender-eval/v2-provisional-run4/`）。**全部数字为 PROVISIONAL——Golden 状态 PENDING_HUMAN_CONFIRMATION，人工确认前不构成 Release Gate 成绩。**
+
+| 指标 | A0 V1 | A0 V2 | A-REAL V1 | A-REAL V2 | B V1 | B V2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Mandatory Recall (strict) | 100% | 87.5% | 44.7% | **81.6%** | 0% | **54.5%** |
+| Requirement Recall (strict) | 100% | 87.5% | 44.7% | **81.6%** | 0% | **50.0%** |
+| Critical Fact Accuracy | 94.4% | 77.8% | 77.3% | **77.3%** | 0% | **90.9%** |
+| Evidence Accuracy | 100% | 100% | 100% | **100%** | N/A | **100%** |
+| Unsupported Claim Rate | 0% | **0%** | 0% | **0%** | N/A | **0%** |
+| Risk Recall | 80% | 60% | 37.5% | **100%** | 0% | 40% |
+| CRITICAL_RISK_MISSED | 1 | **0** | 3 | **0** | 2 | **1** |
+| Clarification Hallucinations | 0 | **0** | 1 | **0** | 6 | **0** |
+| CROSS_DOMAIN_LEAK | 0 | **0** | 2 | **0** | 9 | **0** |
+| expectedUnknown 违规 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+四次真实运行的方差（V2 mandatory recall strict；run3 的 A-REAL 受 token 截断影响，修复后不再复现）：A0 = 87.5/87.5/87.5/87.5（完全稳定）；A-REAL = 81.6/89.5/57.9*/81.6（中位 81.6）；B = 54.5/63.6/54.5/54.5。**结论：单次运行分数有 ±8–15pt 噪声，Release Gate 必须用多次运行中位数判定**（已列入 §23 协议建议）。
+
+三案合读：V1 的失败模式是"错得自信"（B 泄漏 9 条背包内容、A-REAL 漏 3 个关键风险）；V2 的失败模式是"漏但不编"（leak/幻觉/unsupported 全零，miss 集中在少数类别，见 §22）。A0 上 V2（87.5%）低于 V1（100%）是预期现象——V1 的规则就是照着该 fixture 写的（过拟合对照组的存在意义）。
 
 ## 20. Real LLM Result
 
-«REAL_LLM»
+- REAL_LLM_E2E = **PASS**：4 次完整真实运行（禁 mock），Unified Model Runtime 解析模型 = **gpt-5.6-terra**（ProviderRouter/TASK_PRESETS.structured；V2 代码零模型名/SDK 硬编码）。
+- Prompt：`tender-understanding-v2-extract@2` + `tender-understanding-v2-resolve@1`（集中于 prompts.ts，版本随 metadata 记录）。
+- 规范运行（run4）：LLM calls 75（A0 16 / A-REAL 54 / B 5，含重试与 resolution pass）；失败调用 12（全部 A-REAL 密集页，重试后 failedWindows 影响面见 §22-F3）。
+- 结构化输出纪律：Zod 强校验 + 有界重试（≤2）+ finishReason=length → TRUNCATED_OUTPUT 观测；合法空数组不重试（unknown 不"猜到为止"）。
 
 ## 21. Cost / Latency
 
-«COST»
+run4（三案 V2 lane 合计）：
+- Tokens：prompt ≈ 147.9k / completion ≈ 104.0k（getAiStats 进程内实测；gpt-5.6 的 completion 含 reasoning tokens）
+- Wall time：A0 54s / A-REAL 220s / B 21s（并发 3）
+- 规模：43 页真实 PDF → 21 窗口 → 41+ 抽取调用（含重试）——远低于"每页 10 次调用"反模式；页/窗/调用配比与 token 计入 metadata，后续可按 §50 做 section-aware batching 优化。成本量级：单次三案全跑约 25 万 token。
 
 ## 22. Remaining Failure Classes
 
-«FAILURES»
+按影响排序（全部已在 benchmark 明细中可复查；均为记录不即时修）：
+1. **F1 数量/表格类事实弱**（A0+A-REAL 共同）：Annex A "up to N per period" / Annex B 年度行 / 评估合计推导（7500）未稳定成为 quantity facts——模型倾向把表格行留在 requirement/pricing 语境。V1 靠硬编码在此项"满分"，V2 需要表格感知抽取（T-next：表格结构化 pass）。
+2. **F2 运行方差**：A-REAL mandatory recall 4 次 57.9–89.5（中位 81.6）。根因之一（token 截断）已修；残余为采样方差。协议对策：Release Gate 采用 ≥3 次运行中位数 + 失败窗口数上限。
+3. **F3 密集页窗口失败**：run4 A-REAL 12/54 调用失败（重试后仍有窗口丢失）。已加 TRUNCATED_OUTPUT 观测与 20k 预算；进一步方向：窗口自适应缩窗重试。
+4. **F4 风险框架化不足**（B 40%）：service-weighted 评分结构、addendum 版本管理这类"结构性商业风险"模型不主动当 risk 输出；确定性派生规则目前只覆盖矛盾/UNKNOWN/uncertain。方向：从 verified facts 派生更多结构性风险规则（评分权重、多文档版本存在性）。
+5. **F5 rule-form deadline 仍不稳**（F-ENQUIRY-DEADLINE/F0-ENQUIRY）：**"截标前 5 天"类规则文本未稳定落为 question_deadline fact（prompt @2 已加指引，run4 仍 miss）。
+6. **F6 resolution pass 漏判 1 例**（B：已被补遗回答的问题仍被提出 → ALREADY_ANSWERED 1 条）。方向：resolution 检索扩大 top-k 或提高 addendum 权重。
+7. **F7 V2 澄清主题与 golden 澄清清单错位**：A-REAL 14 条 V2 澄清全部落 LOW_VALUE——多数是合理的文档歧义问题但不在 golden 主题集内；判定悬置至 golden 人工确认（可能需要扩充 golden clarification 集合而非改系统）。
+8. F8 fixture 合成文本 vs 真实 PDF：A0（合成断片文本）事实覆盖低于同源真实 PDF——合成 fixture 的碎片化排版本身是干扰源（LEGACY_FIXTURE_CONFLICT 已在 #97 登记，本 PR 未动历史 fixture）。
 
 ## 23. Release Gate Status
 
-«GATE»
+§43 目标 vs run4 PROVISIONAL（Golden 未确认，一切非正式）：
+
+| 指标 | 目标 | A0 | A-REAL | B | 判定 |
+| --- | --- | --- | --- | --- | --- |
+| MANDATORY_RECALL | ≥90% | 87.5% | 81.6% | 54.5% | ✗ 未达 |
+| REQUIREMENT_RECALL | ≥85% | 87.5% | 81.6% | 50.0% | ✗ 未达 |
+| CRITICAL_FACT_ACCURACY | ≥90% | 77.8% | 77.3% | 90.9% | ✗ 未达（B 达标） |
+| EVIDENCE_ACCURACY | ≥95% | 100% | 100% | 100% | ✓ |
+| UNSUPPORTED_CRITICAL_CLAIMS | =0 | 0 | 0 | 0 | ✓ |
+| CROSS_DOMAIN_TEMPLATE_LEAK | =0 | 0 | 0 | 0 | ✓ |
+| CRITICAL_RISK_MISSED 显著下降 | vs V1 1/3/2 | 0 | 0 | 1 | ✓ |
+
+**RELEASE_GATE = NOT_PASSED（且结构上不可能 PASS：Golden 仍 PENDING_HUMAN_CONFIRMATION）。** 证据/反幻觉四项硬门全绿；召回三项未达线。V2 保持 SHADOW/EVALUATION 模式，V1 继续生产路径。补充协议建议：Golden 确认后 Gate 采用 ≥3 次运行中位数。
 
 ## 24. T1B Readiness
 
-«T1B»
+**T1B_READY = NO。** 依 §64：Confirmed Golden（未满足）+ 全部指标达线（未满足）缺一不可；不为启动 Workforce Agent 降低门槛。给 T1B 的输入：V2 的 `AnalysisResultV2` 契约（含 UNKNOWN/conflicts/evidence 全结构）已为 Workforce 任务注入做好形状准备，但接入前置条件 = Golden 确认 + F1/F2/F4 三类失败收敛 + 持久化接线 PR（§16）。
