@@ -153,6 +153,8 @@ function ProjectDetailContent() {
 
   const openProjectArea = useCallback(
     (target: ProjectContextTarget) => {
+      // 与旧行为一致：任何项目内导航都先收起右栏上下文面板（移动端为遮罩层）
+      setPanelOpen(false);
       if (target === "files") {
         setFilesOpen(true);
         return;
@@ -162,7 +164,6 @@ function ProjectDetailContent() {
         return;
       }
       selectTab(target);
-      setPanelOpen(false);
       window.setTimeout(() => {
         document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
       }, 0);
