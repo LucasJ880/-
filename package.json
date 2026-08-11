@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "test:tender-eval": "tsx scripts/tender-eval-run.ts",
     "wechat:worker": "tsx scripts/wechat-worker.ts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
