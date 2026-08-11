@@ -40,7 +40,50 @@ export type CreateWorkforceJobInput = {
   traceId?: string | null;
   userMessageId?: string | null;
   source?: string;
+  /**
+   * T1B（§11）：可选业务身份元数据（如 workDomain/trigger/requestId），
+   * 与 goal 同事务写入 metadata——避免"创建后补写"与首个规划 slice 的
+   * 竞态。server-only：仅浅层、有界、且不得覆盖保留键（fail-closed）。
+   */
+  extraMetadata?: Record<string, unknown>;
 };
+
+/** metadata 保留键：extraMetadata 不得覆盖（server 构造语义） */
+const RESERVED_METADATA_KEYS = new Set([
+  "runtimeVersion",
+  "goal",
+  "initiatedByUserId",
+  "threadId",
+  "channel",
+  "source",
+  "jobId",
+]);
+
+function sanitizeExtraMetadata(
+  extra: Record<string, unknown> | undefined,
+): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+  if (!extra) return { ok: true, value: {} };
+  const keys = Object.keys(extra);
+  if (keys.length > 16) {
+    return { ok: false, error: "EXTRA_METADATA_TOO_LARGE" };
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (RESERVED_METADATA_KEYS.has(key)) {
+      return { ok: false, error: `EXTRA_METADATA_RESERVED_KEY:${key}` };
+    }
+    const v = extra[key];
+    const t = typeof v;
+    if (v !== null && t !== "string" && t !== "number" && t !== "boolean") {
+      return { ok: false, error: `EXTRA_METADATA_INVALID_VALUE:${key}` };
+    }
+    if (t === "string" && (v as string).length > 500) {
+      return { ok: false, error: `EXTRA_METADATA_VALUE_TOO_LONG:${key}` };
+    }
+    out[key] = v;
+  }
+  return { ok: true, value: out };
+}
 
 export type CreateWorkforceJobResult =
   | {
@@ -69,6 +112,11 @@ export async function createWorkforceJob(
   const goal = input.goal.trim();
   if (goal.length < 4) {
     return { ok: false, error: "GOAL_TOO_SHORT" };
+  }
+
+  const extra = sanitizeExtraMetadata(input.extraMetadata);
+  if (!extra.ok) {
+    return { ok: false, error: extra.error };
   }
 
   const channel = input.channel ?? "workforce";
@@ -105,6 +153,9 @@ export async function createWorkforceJob(
     traceId: input.traceId ?? null,
     runtime,
     metadata: {
+      // T1B：业务身份元数据（已消毒；保留键不可覆盖）先展开，
+      // server 构造字段殿后（同键恒以 server 值为准）
+      ...extra.value,
       runtimeVersion: "v2",
       goal,
       // 执行主体恢复锚点（resolveRuntimeV2Principal 复用；resume 时重新校验）

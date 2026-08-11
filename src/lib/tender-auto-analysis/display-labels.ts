@@ -19,6 +19,9 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   APPROVED: "已批准",
   FAILED: "分析失败",
   SUPERSEDED: "已由新分析替代",
+  // Tender T1B（Workforce 路径专用状态；legacy 队列不认领这两个值）
+  AGENT_ANALYZING: "AI 数字员工分析中",
+  AGENT_FAILED: "AI 分析未完成",
 };
 
 export const REQUIREMENT_REVIEW_LABELS: Record<string, string> = {
