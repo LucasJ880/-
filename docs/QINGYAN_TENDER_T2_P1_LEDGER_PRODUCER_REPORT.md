@@ -121,7 +121,7 @@ append/read/cost 全部操作在事务内验证 `(projectId, orgId)` 归属;跨 
 ## 17. Test Matrix
 
 - **纯逻辑 11/11**(`p1-pure.test.ts`,进 test-all):eventKey 确定性(含 A→B→A→B)/flag 默认 OFF+fail-closed/EV-05 重试耗尽 THROW(mock:attempts=maxRetries+1,默认上限=8,绝不 return null)/EV-08 actor 伪造+缺 tx 拒绝/producer 静态纪律(tx 调用+flag 门+零直写+服务端 actor+禁客户端 ledger 字段)/canonical 唯一写入口/无事件修改 API/Deletion Gate 先于 hard delete/**Dark-merge:三个 M1 count 静态锁定在 activation flag 分支块内**/AI 类别拒入。
-- **DB 矩阵 40/40**(`p1-ledger-db.test.ts`,隔离库执行否则自动跳过):EV-01(顺序幂等恰一行)/EV-02(5 路并发同 key 恰一行,全返回同一事件)/EV-03(并发 2/5/10 后 seq 致密单调)/EV-04(竞争经有界重试全收敛)/EV-06(原子回滚+零残留)/EV-07(跨 org 双向拒)/ACTOR(同事务+去重)/READ(seq DESC 稳定 cursor)/P-CREATE/P-UPDATE(key 确定性+重放幂等)/P-FAIL(业务失败零事件)/P-MEMBER(v1/v1/v2 三独立事件)/COST-01..08/DEL-01(归档后三表全保留+账本仍可读)/DEL-04/**DEL-DARK-01(真实 DELETE 路由 × flag OFF:spy 委托证明 0 次 M1 表访问 + 删除照常完成)**/**DEL-ACTIVE-01(flag ON + 无历史:M1 表被查询 3 次 + 删除继续)**/**DEL-ACTIVE-02(flag ON + 有历史:409 PROJECT_HAS_LEDGER_HISTORY + 项目保留)**。
+- **DB 矩阵 45/45**(`p1-ledger-db.test.ts`,隔离库执行否则自动跳过):EV-01(顺序幂等恰一行)/EV-02(5 路并发同 key 恰一行,全返回同一事件)/EV-03(并发 2/5/10 后 seq 致密单调)/EV-04(竞争经有界重试全收敛)/EV-06(原子回滚+零残留)/EV-07(跨 org 双向拒)/ACTOR(同事务+去重)/READ(seq DESC 稳定 cursor)/P-CREATE/P-UPDATE(key 确定性+重放幂等)/P-FAIL(业务失败零事件)/P-MEMBER(v1/v1/v2 三独立事件)/COST-01..08/DEL-01(归档后三表全保留+账本仍可读)/DEL-04/**DEL-DARK-01(真实 DELETE 路由 × flag OFF:spy 委托证明 0 次 M1 表访问 + 删除照常完成)**/**DEL-ACTIVE-01(flag ON + 无历史:M1 表被查询 3 次 + 删除继续)**/**DEL-ACTIVE-02(flag ON + ProjectEvent 历史:409 + 项目保留)**/**DEL-ACTIVE-03(flag ON + 仅 ProjectCost 历史:409)**/**DEL-ACTIVE-04(flag ON + 仅 TenderArchiveItem 历史:409)**/**DEL-ACTIVE-05(flag OFF + throw-if-called 委托模拟表不可用:DELETE 全程不触发 count、删除照常完成——直接证明生产 M1 缺表时零 table-not-found)**。
 - DEL-02/03(普通用户不能删事件/历史 ACTUAL 成本):**无任何删除 API/服务函数存在**(静态锁定 + service 层无 delete 导出),辅以 M1 的 Restrict 约束。
 - **并发稳定性说明**:EV-02/EV-03 的 N 路同时突发是超出 #96“human-frequency”设计点的压力场景,在隔离 Neon 高延迟下给这两项按并发度放宽重试预算(仍有界、仍 THROW-on-exhaust);**服务默认值(8)不变**,默认预算的耗尽→THROW 行为由 pure 套件 EV-05 以 mock 确定性验证。remediation 后 DB 矩阵连续两次 40/40 稳定。
 
@@ -160,7 +160,7 @@ LEGACY_EVENT_STORE_DECISION_GATE       = PASS
 | 项 | 处理 |
 |---|---|
 | 同步最新 main | rebase 到 `42c4f15`(含 #97 tender-eval benchmark v1);唯一冲突 `scripts/test-all.sh`(两侧 additive)解决,保留 #97 与 P1 两组条目;#97 benchmark 套件 rebase 后仍绿(test-all 内) |
-| Dark-merge 安全修复 | DELETE 的 M1 存量闸整体门控于 `T2_LEDGER_PRODUCERS_ENABLED`;flag OFF → 零 M1 表访问(前 T2 行为逐字节不变),flag ON → 存量闸执行。新增 DEL-DARK-01/ACTIVE-01/ACTIVE-02(真实路由 + spy 委托)+ pure 静态锁定 |
+| Dark-merge 安全修复 | DELETE 的 M1 存量闸整体门控于 `T2_LEDGER_PRODUCERS_ENABLED`;flag OFF → 零 M1 表访问(前 T2 行为逐字节不变),flag ON → 存量闸执行。新增 DEL-DARK-01 / DEL-ACTIVE-01..05(真实路由 + spy/throw 委托,覆盖 event/cost/archive 三类历史各触发 409 + 表不可用模拟)+ pure 静态锁定。DB 矩阵 40→45,连续两次稳定 |
 | 迁移 runbook | §5.1 记录 resolve 前只读结构核对前置;**未对生产执行任何写操作** |
 | 并发稳定性 | EV-02/03 压力场景按并发度放宽重试预算(服务默认 8 不变);DB 矩阵 remediation 后 40/40 连续两次稳定 |
 
