@@ -12,6 +12,9 @@ import {
   type ProjectLifecycleFilter,
 } from "@/lib/projects/lifecycle";
 import { onProjectCreated } from "@/lib/project-discussion/system-events";
+import { appendProjectEvent } from "@/lib/project-ledger/event-service";
+import { projectCreatedEventKey } from "@/lib/project-ledger/event-keys";
+import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
 import {
   bidListFilterStatuses,
   isBidListFilterKey,
@@ -205,6 +208,27 @@ export const POST = withAuth(async (request, _ctx, user) => {
       include: projectInclude,
     });
     await onProjectCreated(p.id, p.name, user.id, user.name, tx);
+
+    // T2-P1 authoritative ledger（activation gate 未开时保持 dark；开启后与业务写同事务，
+    // append 失败 = 整个创建回滚——禁止 best-effort）
+    if (isLedgerProducersEnabled()) {
+      await appendProjectEvent({
+        tx,
+        orgId,
+        projectId: p.id,
+        eventType: "project.created",
+        eventKey: projectCreatedEventKey(p.id),
+        occurredAt: p.createdAt,
+        actor: { actorType: "user", actorId: user.id },
+        title: `项目创建：${p.name}`,
+        payload: {
+          schemaVersion: 1,
+          name: p.name,
+          workDomain,
+          ownerId: user.id,
+        },
+      });
+    }
     return p;
   });
 
