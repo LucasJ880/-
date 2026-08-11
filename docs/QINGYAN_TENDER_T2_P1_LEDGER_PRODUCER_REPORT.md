@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 分支 | `feature/tender-t2-p1-ledger-producer-foundation` |
-| Starting main | `b27f0ae`（初始）；Final Review remediation 已 rebase 到 `42c4f15`（含 #97 tender-eval benchmark v1；#96/#99/#101/#97 ancestry 均已验证） |
+| Starting main | `b27f0ae`（初始）→ Final Review remediation 期间 main 两次前进，最终 rebase 到 **`871da3b`**（含 #97 tender-eval benchmark v1 + #100 Tender Understanding V2 shadow-mode；均为 sibling lane，本 PR 未修改其代码，仅同步基线）。#96/#99/#101/#97/#100 ancestry 均已验证 |
 | 日期 | 2026-08-11 |
 | Source of Truth | `docs/QINGYAN_TENDER_T2_LEDGER_ARCHIVE_PREFLIGHT.md`（#96 Final Contract）+ M1 报告 |
 | 性质 | `SCHEMA_CHANGE = NONE` · `PRODUCTION_DATA_MUTATION = NONE` · `BACKFILL_EXECUTED = NO` · `DUAL_WRITE_ACTIVE = NO` · `WORKFORCE_RUNTIME_MODIFIED = NO` · `TENDER_UNDERSTANDING_V2_MODIFIED = NO` |
@@ -159,7 +159,7 @@ LEGACY_EVENT_STORE_DECISION_GATE       = PASS
 
 | 项 | 处理 |
 |---|---|
-| 同步最新 main | rebase 到 `42c4f15`(含 #97 tender-eval benchmark v1);唯一冲突 `scripts/test-all.sh`(两侧 additive)解决,保留 #97 与 P1 两组条目;#97 benchmark 套件 rebase 后仍绿(test-all 内) |
+| 同步最新 main | remediation 期间 main 两次前进:先 rebase 到 `42c4f15`(#97),后 `871da3b`(#100 V2 合并)再 rebase;两次唯一冲突均为 `scripts/test-all.sh`(各方 additive 追加测试条目),解决保留 V2 + #97 eval + P1 三组;V2/#97 属 sibling lane,本 PR 未改其代码。#97 benchmark 套件 rebase 后 standalone 复跑 12/12 绿 |
 | Dark-merge 安全修复 | DELETE 的 M1 存量闸整体门控于 `T2_LEDGER_PRODUCERS_ENABLED`;flag OFF → 零 M1 表访问(前 T2 行为逐字节不变),flag ON → 存量闸执行。新增 DEL-DARK-01 / DEL-ACTIVE-01..05(真实路由 + spy/throw 委托,覆盖 event/cost/archive 三类历史各触发 409 + 表不可用模拟)+ pure 静态锁定。DB 矩阵 40→45,连续两次稳定 |
 | 迁移 runbook | §5.1 记录 resolve 前只读结构核对前置;**未对生产执行任何写操作** |
 | 并发稳定性 | EV-02/03 压力场景按并发度放宽重试预算(服务默认 8 不变);DB 矩阵 remediation 后 40/40 连续两次稳定 |
