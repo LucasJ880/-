@@ -1,8 +1,8 @@
 # Qingyan Tender Real Evaluation — Run Report
 
 - Contract: tender-eval/v1
-- Run: `20260810-235654Z-4f082cd`（2026-08-10T23:56:54.277Z）
-- Git: `4f082cdbeccb`
+- Run: `20260811-031841Z-7e17fde`（2026-08-11T03:18:41.156Z）
+- Git: `7e17fde65f6c`
 - Lane: DETERMINISTIC（TENDER_ANALYSIS_LLM=off，model=null）
 - Versions: tender-auto-analysis-v1 / tender-analysis-prompt-v1 / tender-page-parse-v1
 - 匹配阈值：token coverage ≥ 0.35（MATCHED），锚词判定见 evaluate.ts 头注
@@ -31,6 +31,7 @@ RCMP RISO 合成 fixture（过拟合对照）
 | Useful Clarification Rate | 100.0% | 系统提问 8 条 |
 | Already Answered Rate | 0.0% | 幻觉提问 0 条 |
 | NECESSARY 澄清覆盖率 | 80.0% | golden NECESSARY 主题被问到的比例 |
+| CROSS_DOMAIN_LEAK | **0** | facts 0 + reqs 0 + 风险行 0 + 澄清 0 |
 | 歧义处理 | 1/1 OK | expectedUnknown 违规 0 |
 
 ### MISSED Requirements（0/16）
@@ -90,6 +91,7 @@ RCMP Backpacks for Cadets — RISO M5000-25-3574-A（真实原件 43 页）
 | Useful Clarification Rate | 77.8% | 系统提问 9 条 |
 | Already Answered Rate | 0.0% | 幻觉提问 1 条 |
 | NECESSARY 澄清覆盖率 | 100.0% | golden NECESSARY 主题被问到的比例 |
+| CROSS_DOMAIN_LEAK | **2** | facts 0 + reqs 0 + 风险行 1 + 澄清 1 |
 | 歧义处理 | 2/2 OK | expectedUnknown 违规 0 |
 
 ### MISSED Requirements（13/38）
@@ -185,6 +187,7 @@ DSBN 窗饰供应与安装 RFP + Addendum-01（业务域泛化）
 | Useful Clarification Rate | 0.0% | 系统提问 9 条 |
 | Already Answered Rate | 11.1% | 幻觉提问 6 条 |
 | NECESSARY 澄清覆盖率 | 0.0% | golden NECESSARY 主题被问到的比例 |
+| CROSS_DOMAIN_LEAK | **9** | facts 0 + reqs 0 + 风险行 3 + 澄清 6 |
 | 歧义处理 | 1/3 OK | expectedUnknown 违规 0 |
 
 ### MISSED Requirements（12/12）

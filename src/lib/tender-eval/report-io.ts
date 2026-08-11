@@ -150,6 +150,9 @@ export function renderCaseMarkdown(rec: CaseRunRecord): string {
     `| CROSS_DOMAIN_LEAK | **${m.crossDomainLeakTotal}** | facts ${m.crossDomainLeakFacts} + reqs ${m.crossDomainLeakRequirements} + 风险行 ${m.hallucinatedRiskLines} + 澄清 ${m.hallucinatedClarifications} |`,
   );
   lines.push(
+    `| CROSS_DOMAIN_LEAK | **${m.crossDomainLeakTotal}** | facts ${m.crossDomainLeakFacts} + reqs ${m.crossDomainLeakRequirements} + 风险行 ${m.hallucinatedRiskLines} + 澄清 ${m.hallucinatedClarifications} |`,
+  );
+  lines.push(
     `| 歧义处理 | ${m.ambiguitiesOk}/${m.ambiguitiesTotal} OK | expectedUnknown 违规 ${m.expectedUnknownViolations} |`,
   );
   lines.push("");

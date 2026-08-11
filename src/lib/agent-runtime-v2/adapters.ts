@@ -24,6 +24,7 @@ import { isGmailDraftEnabled } from "@/lib/google-email";
 import { classifyGraderError } from "./grader-errors";
 import { buildRuntimeV2OperationKey } from "./idempotency";
 import { prioritizeFollowups, type PrioritizeOpportunity } from "./prioritize";
+import { TENDER_WORKFORCE_TOOL_HANDLERS } from "@/lib/tender-workforce/tools";
 
 export type AdapterContext = {
   orgId: string;
@@ -923,6 +924,13 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
       },
     };
   },
+
+  // ── Tender T1B（internal-only 工具组）：可执行但不入
+  // RUNTIME_V2_TOOL_CATALOG（EXECUTABLE ⊋ PLANNER_VISIBLE 方向，上方
+  // 注释明确允许）。仅 tender workforce job 经 workforce-runtime/scope
+  // 的域白名单在规划期可见；handler 执行期自证 workDomain=tender，
+  // 非 tender run 调用 fail-closed。业务写入全走 canonical tender service。
+  ...TENDER_WORKFORCE_TOOL_HANDLERS,
 };
 
 /** server-authoritative 可执行判定（#88 §6）：有 handler ⇔ 可执行 */
