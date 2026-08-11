@@ -2,9 +2,11 @@
 
 | 项 | 值 |
 |---|---|
-| 基线 | `main @ 4f082cd`（含 PR #95 Tender/Project Security P0） |
-| 分支 | `design/tender-t2-ledger-archive-preflight`（docs-only） |
+| 原审计基线 | `main @ 4f082cd`（含 PR #95 Tender/Project Security P0） |
+| **Final Review 基线** | `main @ 8303145`（= PR #93 Workforce 2B-2 merge commit `83031455d73…`；其后 main 无新 commit） |
+| 分支 | `design/tender-t2-ledger-archive-preflight`（docs-only，已 rebase 到 Final Review 基线） |
 | 日期 | 2026-08-10 |
+| 修订 | 2026-08-10 **Final Contract Micro-Fix Review**（§21）：①AgentRunEvent 结论对齐 #93（§4）；②ProjectEvent seq 分配契约冻结（§5.6）；③ProjectCost revision 审计（§6.3）；④Archive 证据不可变与访问治理分离 + 版本唯一约束（§9）；⑤Deleted Project retention/authorization 契约（§15.8）；⑥T2 Entry Gate 定审 PASS（§17） |
 | 性质 | **ARCHITECTURE PREFLIGHT / READ-ONLY AUDIT**：本轮 `MIGRATION_CREATED = NO`、`WORKFORCE_RUNTIME_MODIFIED = NO`、`PRODUCTION_BEHAVIOR_CHANGE = NO`。所有模型均为 T2 提案，migration 需单独批准 |
 | 上游 | `QINGYAN_TENDER_T0_MEMORY_INTELLIGENCE_ARCHITECTURE.md`（§3/§5/§6/§14）、`QINGYAN_TENDER_T0_IMPLEMENTATION_ROADMAP.md`（T2 Entry Gate） |
 | 角色 | 本文档 = 路线图 **T2-PR0（Gate 材料）** 的定稿提批版：9+ 套存量存储判决、Source of Truth 边界、Schema/Migration/Backfill 提案、T2 Entry Gate 键值 |
@@ -18,12 +20,12 @@
 
 **核心结论**：
 
-1. **没有任何存量存储可以承担 Tender 业务账本**（§2、§4、§5.1）。最接近的四个候选被排除的一句话理由：`AuditLog` 是技术审计（orgId/projectId 可空、String payload、项目删除时被摘挂、无幂等）；`AgentRunEvent` 是运行时遥测（无 projectId、随 Run 级联删除、sequence 分配非事务且失败静默丢弃）；`ProjectMessage(SYSTEM)` 是人类叙事流（无 orgId、无结构化词表、无幂等键）；域内 from/to 事件表（`OrderStatusLog`/`PublishJobStatusEvent`）形状正确但域作用域窄且**零读者**。
+1. **没有任何存量存储可以承担 Tender 业务账本**（§2、§4、§5.1）。最接近的四个候选被排除的一句话理由：`AuditLog` 是技术审计（orgId/projectId 可空、String payload、项目删除时被摘挂、无幂等）；`AgentRunEvent` 是运行时遥测（无 projectId、随 Run 级联删除、best-effort 追加语义——#93 后 sequence 冲突已有界重试，但外层失败仍 log + return null，见 §4）；`ProjectMessage(SYSTEM)` 是人类叙事流（无 orgId、无结构化词表、无幂等键）；域内 from/to 事件表（`OrderStatusLog`/`PublishJobStatusEvent`）形状正确但域作用域窄且**零读者**。
 2. **今天多类 tender 业务事实正在被静默覆盖、无任何历史**（§1.4）：供应商选定只是一个 boolean（无人、无时间、无审计，`src/lib/inquiry/service.ts:346-359`）；报价改价就地覆盖旧价永久丢失（`service.ts:299`）；GO/NO_GO 决策理由超 200 字符改一次即永久丢失（`go-decision.ts:100-104`）；报价单确认无 confirmedAt/By/审计（`quotes/[quoteId]/route.ts:52`）；标记招标结果不写讨论流（唯一在 AuditLog 可见）。这是 ProjectEvent 的直接业务动机。
 3. **Tender Archive 必须新建**（§8、§9）：`ProjectDocument` 无 orgId/mimeType/sourceUrl/版本链/软删，删除 = 硬删 + 删 blob + 级联抹掉页级文本与历史分析 Run 的证据链（`files/[fileId]/route.ts:10-33` + schema Cascade）；BidToGo 外链招标文件从不下载固化（blobUrl/contentHash 全空）；`contentHash` 有索引但全库零读路径；`MarketSnapshot` 名为快照实为 upsert 可变行。唯一可作模板的是 `ProductContentSnapshot`（全库唯一真 append-only 快照表）。
 4. **成本体系对人工侧不存在**（§6）：全库无任何工时/费用/报销模型；tender AI 成本**实际完全未入账**（`tokenUsageJson` 是零写入死字段；cron worker 无 request context 时 usage bridge 静默丢弃）——比 T0 §2 的记载更严重。
 
-**最终决策键（本文档冻结，待人工 Gate 批准）**：
+**最终决策键（Final Contract Micro-Fix Review 后定稿，§21）**：
 
 ```
 PROJECT_EVENT_DECISION            = OPTION D（新建 ProjectEvent + ProjectEventActor；
@@ -34,8 +36,10 @@ SCHEMA_CHANGE_REQUIRED_FOR_T2     = YES（4 张新表 + 少量 additive 列；�
 MIGRATION_CREATED                 = NO
 WORKFORCE_RUNTIME_MODIFIED        = NO
 PRODUCTION_BEHAVIOR_CHANGE        = NO
-T2_READY_FOR_IMPLEMENTATION       = NO（材料齐备；全部 Gate 键处于 READY_FOR_REVIEW，
-                                    等待人工批准后翻转，见 §17）
+T2_ARCHITECTURE_FINAL_REVIEW      = PASS（8/8 Gate 键 PASS，见 §17）
+T2_READY_FOR_IMPLEMENTATION       = YES
+  （语义仅为：允许开启独立的 T2-M1 Schema Foundation migration PR，按 §17.2 冻结顺序推进；
+   不代表自动开始实施。四个基础模型的正式批准 = 人工 Review 本 PR 后的下一条指令。）
 ```
 
 ---
@@ -179,16 +183,16 @@ T2_READY_FOR_IMPLEMENTATION       = NO（材料齐备；全部 Gate 键处于 RE
 
 ## 4. AgentRunEvent Boundary（专章：为什么技术执行事件不能兼任业务账本）
 
-**结论：不能共用。四条结构性失格 + 一条语义性反证，全部有代码证据。**
+**结论：不能共用。四条结构性失格 + 一条语义性反证。**（2026-08-10 Final Review 按 #93 / 2B-2 合并后的 main 重新核验：S3 表述更新，**总体判决不变**。）
 
-### 4.1 结构性失格（schema/代码层面）
+### 4.1 结构性失格（schema/代码层面，Final Review 基线 `8303145` 复核）
 
 | # | 失格点 | 证据 |
 |---|---|---|
-| S1 | **无 projectId**。事件只挂 runId+orgId；项目关联藏在 `AgentRun.metadata` Json（无索引、可空），read-model 靠 `projectBusinessRefs()` 从 metadata 派生（`read-model/projection.ts:536-556`）。业务账本的第一查询维度（by project）在此表不可索引 | schema:4738-4752；`trace-context.ts:54` |
-| S2 | **随 Run 级联删除**（`onDelete: Cascade`，schema:4742）。业务事实必须比执行容器长寿；run 被清理即业务历史蒸发 | schema:4742 |
-| S3 | **sequence 分配非事务且失败静默丢弃**：`appendAgentRunEvent` 先 `findFirst orderBy sequence desc` 再 create（read-then-write），并发追加撞 `@@unique([runId,sequence])` 时整个函数 catch 后 **return null**，调用方无感知（本轮抽查复核 `agent-runtime/run.ts:459-500`）。单写者（processor 持租约）场景可容忍；多写者业务账本不可容忍 | `run.ts:474-499` |
-| S4 | **无留存契约**：定位是遥测（visibleToUser 过滤、trace 脱敏投影），未来加 TTL/清理是合理演进；业务账本要求永久留存。两种留存策略不能共表 | §1（全库无清理任务，但遥测表是最先需要清理的） |
+| S1 | **无 projectId 直接业务归属**。事件只挂 runId+orgId；项目关联藏在 `AgentRun.metadata` Json（无索引、可空），read-model 靠 `projectBusinessRefs()` 从 metadata 派生（`read-model/projection.ts:536-556`）。业务账本的第一查询维度（by project）在此表不可索引 | schema:4738-4752；`trace-context.ts:54` |
+| S2 | **生命周期属于 AgentRun/Runtime**：`onDelete: Cascade`（schema:4742）随 Run 级联删除；且遥测表天然是未来 TTL/清理的第一候选。业务事实必须比执行容器长寿 | schema:4742 |
+| S3 | **追加语义是 best-effort，不是"业务事务必须原子成功"**。#93（2B-2）已修复首层缺陷：sequence 冲突（`@@unique([runId,sequence])` P2002）现在走**有界重试**——重读 max sequence 再 create，`MAX_SEQUENCE_RETRIES = 8`（`agent-runtime/run.ts:479-513`，本轮复核 origin/main）。**不再是"首次 collision 即静默丢事件"**。但外层 try/catch 仍然 `console.error` + **return null**（`run.ts:514-522`）——重试耗尽或任何其他失败时调用方无感知、无事务回滚。对 telemetry 这是合理取舍；对 authoritative business ledger 是失格 | `run.ts:475-523`（#93 后） |
+| S4 | **语义是 execution telemetry，不是 authoritative business fact**：visibleToUser 过滤、trace 脱敏投影、read-model 白名单——整条读写链按"观测数据"设计，无幂等键、无业务词表治理 | §4.2；`projection.ts:461-516` |
 
 ### 4.2 语义现状：业务事实已在泄漏（且读侧在打补丁）
 
@@ -218,7 +222,13 @@ ProjectEvent  = 「业务上发生了什么、成立了什么」（WHAT became t
 禁止：runtime 直写 ProjectEvent；业务服务直写 AgentRunEvent；事件 payload 携带完整业务报告文本
 ```
 
-**登记（不修，runtime 冻结）**：S3 的并发安全与静默丢弃、泄漏点收敛（report/clarification 改为引用）→ 移交 Workforce Runtime Owner，Phase 2 correctness 范畴（§18-R11）。
+**登记（不修，runtime 冻结）**：S3 的 sequence 并发安全已由 #93 有界重试解决；残余项——外层 best-effort（log + return null）语义评估、业务文本泄漏收敛（report/clarification 改为引用）——移交 Workforce Runtime Owner，Phase 2 correctness 范畴（§18-R11）。
+
+```
+AGENT_RUN_EVENT_FINDING_ALIGNED_WITH_2B2 = PASS
+（判决不因 #93 改变：AgentRunEvent = KEEP_AS_RUNTIME_TELEMETRY。
+ #93 修复的是遥测自身的并行正确性，不改变其 best-effort / run 作用域 / 遥测语义三重定位。）
+```
 
 ---
 
@@ -320,7 +330,8 @@ decisions:    decision.go_no_go | decision.run_approved | decision.review_confir
 commercial:   inquiry.sent | supplier.quote_received | supplier.selected(新增，§1.4#20 动机)
               | quote.drafted | quote.confirmed
 comms:        email.sent | email.received(T5 前置：邮件入站未实现，inbound-org.ts:96)
-cost:         cost.recorded | cost.committed | cost.actualized | cost.voided(词表扩展，§6 生命周期)
+cost:         cost.recorded | cost.revised(Final Review 新增，§6.3 计划修订审计) | cost.committed
+              | cost.actualized | cost.voided(词表扩展，§6 生命周期)
               | cost.ai_usage_rollup(可选周期快照，非事实源)
 site:         site_visit.completed
 event-admin:  event.corrected(修正事件的统一类型，payload 指明修正内容)
@@ -344,7 +355,8 @@ memory(T3+):  award.found | outcome.analyzed | memory.consolidated | claim.confi
 | 报价单确认 | `quote_confirmed:{quoteId}` | 状态守卫（T2 顺带补） |
 | 邮件发送 | `email_sent:{emailId}` | status=sent 幂等挡板已存在 |
 | 交接完成 | `handoff:{handoffId}` | Handoff 三重幂等 |
-| 成本动作 | `cost:{costId}:{costStatus}` | 每状态至多一次（§6 状态机） |
+| 成本状态推进 | `cost:{costId}:{costStatus}` | 每状态至多一次（§6 状态机） |
+| 成本计划修订 | `cost:{costId}:revision:{revisionNo}` | revisionNo = ProjectCost.revisionCount 事务内自增值（domain counter，retry-stable；**禁止** `cost:{costId}:revised` 单键——第二次修订即冲突；禁止随机数/wall-clock 作幂等源） |
 | 人工录入（site visit 等） | `manual:{客户端生成 entryId}` | 表单一次性 cuid |
 | Backfill | `backfill:{类别}:{确定性后缀}` | §16 |
 
@@ -354,7 +366,29 @@ memory(T3+):  award.found | outcome.analyzed | memory.consolidated | claim.confi
 
 - **只允许领域服务在既有业务事务内追加**（与 `writeAuditLog(tx,…)` 8 个事务内调用点同模式）；禁止 UI/route 直写；禁止 runtime 直写（§4.3）。
 - **无 update/delete API**：代码层不导出任何修改函数；评审时以此为红线。
-- **seq 分配**：事务内 `SELECT max(seq)+1 FOR UPDATE`（或读取后 create，P2002 冲突重试一次）。依据：业务事件是人频动作（非 runtime 高频），单项目并发极低；`AgentRunEvent` 的 read-then-write 在单写者下已验证可行，ProjectEvent 补事务包裹修其静默丢弃缺陷（§4.1-S3 的教训：**冲突必须重试或上抛，禁止吞掉**）。不引入 Postgres SEQUENCE per project（运维复杂度不值）。
+- **seq 分配契约（Final Review 冻结，单一方案）**——ProjectEvent 是 AUTHORITATIVE BUSINESS LEDGER 而非 telemetry，因此契约与 `appendAgentRunEvent` 的 best-effort（#93 后仍 log + return null）**刻意相反**：
+
+  ```
+  在既有业务 transaction 内：
+  1. （幂等短路）按 [projectId, eventKey] 查既有事件；命中 → 返回既有行，不追加、不占号
+  2. 读取该 projectId 当前 max(seq)（普通读；不依赖 FOR UPDATE，正确性由唯一约束保证）
+  3. 以 seq = max + 1 尝试 create
+  4. P2002 处理（必须按 error.meta.target 区分是哪个唯一约束）：
+     - 命中 [projectId, eventKey] → 并发同业务动作 → 重查后返回既有行（幂等，非错误）
+     - 命中 [projectId, seq]      → 并发占号 → 重读 max(seq) 后重试
+  5. bounded retry：PROJECT_EVENT_SEQUENCE_MAX_RETRIES = 8
+     （借鉴 #93 的有界重试思路；人频业务事件下 8 远超合理并发上限，且确定性有界）
+  6. 重试耗尽 → THROW → 整个业务 transaction ROLLBACK
+  禁止：catch → log → continue；catch → return null；任何 best-effort Ledger。
+  不变式：业务提交成功 ⇔ 对应 Ledger 事件已落库（BOUNDED / DETERMINISTIC /
+          FAIL TRANSACTION / NO SILENT LOSS）。
+  ```
+
+  两个唯一约束职责分离（冻结）：`@@unique([projectId, seq])` 只负责**顺序唯一性**（全序号不重不漏）；`@@unique([projectId, eventKey])` 只负责**业务幂等**（同一动作实例至多一条）。前者冲突是并发现象（重试解决），后者冲突是重复提交（返回既有行）——二者不得混用同一处理路径。不引入 Postgres SEQUENCE per project（跳号破坏"seq 连续可审计"且运维不值）。
+
+  ```
+  PROJECT_EVENT_SEQUENCE_CONTRACT = PASS
+  ```
 - **写入失败策略**：事件写入与业务写同事务——业务成功则事件必然成功（原子）；这与今天 `logAudit` 事务外 best-effort（`stage-transition.ts:271` 在事务外）是**刻意的差别**：账本不允许"业务改了、账没记"。
 
 ### 5.7 Append-only 与修正语义（任务书 §9 的回答）
@@ -410,6 +444,8 @@ model ProjectCost {
   supplierId   String?
   refs         Json?                       // { inquiryItemId?, quoteId?, documentId?, taskId? }
   sourceType   String  @default("manual")  // manual | import | rollup
+  revisionCount Int    @default(0)         // 计划修订计数器：实质字段每次修改事务内自增，
+                                           // 为 cost.revised 事件提供 retry-stable 幂等号（§5.5）
   correctionOfCostId String?               // void 后的替代行指回被修正行
   voidedAt     DateTime?
   voidReason   String?
@@ -424,7 +460,18 @@ model ProjectCost {
 }
 ```
 
-**可变性契约**：PLANNED 行可编辑（仍是计划）；状态推进 PLANNED→COMMITTED→ACTUAL 各自**填充**对应金额列（先前列不改——留痕）；ACTUAL 落定后金额不可改，错误 = `voidedAt` 置位 + 新行 `correctionOfCostId` 指回；每次推进/void 在同事务落一条 ProjectEvent（eventKey `cost:{costId}:{status}`）。有效金额 = `coalesce(amountActual, amountCommitted, amountPlanned)`。"记一笔"快捷录入 = 直接创建 costStatus=ACTUAL 行 + `cost.recorded` 事件一个事务（T0 §4.2 的 ≤10 秒目标不受影响）。
+**可变性契约（Final Review 收口：PLANNED 可编辑 ≠ 无历史更新）**：
+
+- **计划修订必须留痕**：PLANNED 行允许编辑，但对实质商业字段——`amountPlanned / quantity / unitRate / currency / description / supplierId / incurredAt`——的任何修改必须在**同一事务**内：`revisionCount` 自增 + 追加一条 `cost.revised` 事件（payload 记 `{field, from, to}` 集合；eventKey `cost:{costId}:revision:{revisionCount}`，§5.5）。禁止裸 UPDATE 静默覆盖（否则 $10k→$12k→$15k 的中间史丢失——正是 §1.4 InquiryItem 改价覆盖的教训在成本域重演）。**不为此新增 ProjectCostRevision 表**：ProjectCost 仍是当前权威成本域记录，ProjectEvent 承担 revision audit trail。
+- **状态推进**：PLANNED→COMMITTED→ACTUAL 各自**填充**对应金额列（先前列不改——留痕），每次推进同事务落 `cost.committed`/`cost.actualized` 事件（eventKey `cost:{costId}:{costStatus}`）。
+- **ACTUAL 后不可改**：错误 = `voidedAt` 置位 + 新行 `correctionOfCostId` 指回（`cost.voided` + 新行 `cost.recorded` 事件），现有设计不变。
+- 有效金额 = `coalesce(amountActual, amountCommitted, amountPlanned)`。"记一笔"快捷录入 = 直接创建 costStatus=ACTUAL 行 + `cost.recorded` 事件一个事务（T0 §4.2 的 ≤10 秒目标不受影响）。
+
+```
+PROJECT_COST_REVISION_AUDIT = PASS
+```
+
+账本示例（任务书场景）：`cost.recorded $10,000` → `cost.revised $10,000→$12,000`（revision:1）→ `cost.revised $12,000→$15,000`（revision:2）→ `cost.committed` → `cost.actualized`；ProjectCost 当前行 `amountPlanned = $15,000`，全部中间史在 Ledger。
 
 ### 6.4 AI 成本边界
 
@@ -468,7 +515,9 @@ model ProjectEventActor {
   id        String       @id @default(cuid())
   orgId     String
   eventId   String
-  event     ProjectEvent @relation(fields: [eventId], references: [id])  // 事件行永不删除，FK 安全
+  event     ProjectEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+                         // Restrict（Final Review 明确）：ProjectEvent 原则上不允许删除，
+                         // 若合规通道未来删除事件，必须先显式处理 actor 行——禁止 Cascade 静默连带
   actorKey  String                      // "user:{userId}" | "external:{规范化名}"（对齐 businessRefs 词表形状）
   userId    String?                     // actorKey 为 user 时冗余提取，便于 join User
   role      String  @default("participant")   // performer | participant | approver
@@ -550,7 +599,9 @@ model ProjectEventActor {
 ### 9.2 模型提案（T2；沿用 T0 模型名 `TenderArchiveItem` 避免命名漂移，字段为 T0 ∪ 任务书并集）
 
 ```prisma
-/// T2 提案 — Source Snapshot Contract v1；IMMUTABLE：只 create，无 update/delete API
+/// T2 提案 — Source Snapshot Contract v1
+/// 证据字段 IMMUTABLE（只 create，无 update/delete API）；
+/// 唯一例外 accessClass = 治理元数据，经专用受权 service 受控可变（§9.3）
 model TenderArchiveItem {
   id             String   @id @default(cuid())
   orgId          String
@@ -569,17 +620,18 @@ model TenderArchiveItem {
   storageKey     String   // archive/{orgId}/{hash[0:2]}/{hash} — 同 hash 不重存字节
   snapshotVersion Int     @default(1)         // 同 (projectId, captureKey) 组内递增
   parserVersion  String?
-  accessClass    String   @default("INTERNAL_COMPANY")   // §11
+  accessClass    String   @default("INTERNAL_COMPANY")   // §11；治理元数据，受控可变（§9.3，
+                                                         // 非证据字段——分级变更不产生新快照）
   metadata       Json?
   supersedesSnapshotId String?                // 新→旧；IMMUTABLE 下唯一合法的链方向
   projectDocumentId String?                   // 与业务视图互链（可空：纯源快照可无文档行）
   createdById    String?
   createdAt      DateTime @default(now())
 
-  @@unique([orgId, projectId, captureKey, contentHash])   // §10.2 幂等键
+  @@unique([orgId, projectId, captureKey, contentHash])       // 同观察幂等（§10.2）
+  @@unique([orgId, projectId, captureKey, snapshotVersion])   // 版本序完整性（Final Review 新增，§10.4）
   @@index([orgId, contentHash])               // 跨项目同件识别
   @@index([projectId, kind, capturedAt])
-  @@index([projectId, captureKey, snapshotVersion])
   @@index([supersedesSnapshotId])
 }
 ```
@@ -589,24 +641,38 @@ model TenderArchiveItem {
 1. `supersededByArchiveItemId`（旧行回写）→ `supersedesSnapshotId`（新行携带）：旧行回写 = UPDATE = 违反 IMMUTABLE；改为与 `TenderAnalysisRun.supersedesRunId` 同向。supersededBy 视图 = `WHERE supersedesSnapshotId = :id` 读侧派生。
 2. 唯一键从 `(orgId, projectId, contentHash, kind)` 改为 `(orgId, projectId, captureKey, contentHash)`：T0 键无法表达"同内容出现在不同来源"这一观察事实，也无法给上传场景稳定身份（§10.2 场景表推演）。
 
-### 9.3 不可变规则（任务书 §15 的回答）
+### 9.3 不可变规则（任务书 §15 的回答；Final Review 修订：证据不可变 ≠ 治理不可变）
 
 ```
-RAW ARCHIVE（TenderArchiveItem + blob 字节） = IMMUTABLE
-  — 全字段只 create；无 update/delete API；修订=新行+supersedes 指针；
+RAW EVIDENCE（证据字段 + blob 字节） = IMMUTABLE
+  永久不可变字段清单（冻结）：
+    sourceUrl / canonicalUrl / captureKey / capturedAt / publishedAt / captureMethod /
+    mimeType / fileSize / contentHash / storageKey / snapshotVersion /
+    parserVersion(capture 时点值) / supersedesSnapshotId / metadata(描述捕获本身的部分) /
+    kind / orgId / projectId / createdById / createdAt
+  — 只 create；无 update/delete API；修订=新行+supersedes 指针；
     删除仅合规豁免走专用管理通道（逻辑标记表外置，本轮不设计）
+ACCESS POLICY（accessClass） = GOVERNED-MUTABLE（Final Review 修订）
+  — accessClass 是 governance policy，不是 source evidence 的历史事实。
+    允许经专用受权 service 修改，且必须：记录 changedBy / changedAt / reason + 落 AuditLog；
+    未来可产生 archive.access_changed 治理事件（本轮不实现）。
+  — Changing access policy DOES NOT create a new evidence snapshot：
+    INTERNAL_COMPANY → RESTRICTED 只改分级，不复制证据行（否则与
+    @@unique([orgId,projectId,captureKey,contentHash]) 冲突——同观察无法二次入库）。
+    只有 source / content / evidence observation 变化才创建新 TenderArchiveItem。
 AI Extracted Fact（TenderAnalysisFact/Section/Requirement） = VERSIONED
   — 现状已满足：run 作用域 + supersedesRunId 血缘链，重跑=新 run 新行
 AI Claim（T3 MemoryClaim） = SUPERSEDEABLE
   — supersededById + 双时态（UserMemory 模式）
 
 AI 可以写：新快照行（经采集 Job）、新 fact/claim 行、解析产物（Page/parse 状态）
-AI 绝对不能写：已存在的快照行任何字段、blob 字节、supersedes 指针以外的历史关联、
-              ProjectDocument 对已归档文档的 contentHash（hash 一经写入不改）
-人也不能改：快照行与字节与 AI 同规则（IMMUTABLE 对人与 AI 一视同仁）；
-           人可以做的是：改 accessClass？——不可以。accessClass 错误 = 新行 supersedes 旧行
-           （分级是捕获时事实的一部分；变更分级留待合规通道设计,T2 不引入行级修改先例）
+AI 绝对不能写：已存在快照行的任何证据字段、blob 字节、supersedes 指针以外的历史关联、
+              ProjectDocument 对已归档文档的 contentHash（hash 一经写入不改）、
+              accessClass（分级变更是人工治理动作，AI 无权）
+人可以改的唯一字段：accessClass（经上述治理通道）；证据字段对人与 AI 一视同仁 IMMUTABLE
 ```
+
+> 修订说明：初稿"accessClass 错误 = 新行 supersedes 旧行"与同观察幂等唯一键逻辑冲突，且把治理策略误当捕获事实——Final Review 废弃该规则，改为上述证据/治理分离契约。`ARCHIVE_IMMUTABILITY_CONTRACT = PASS`；`ARCHIVE_ACCESS_POLICY_CONTRACT = PASS`。
 
 ---
 
@@ -626,12 +692,30 @@ AI 绝对不能写：已存在的快照行任何字段、blob 字节、supersede
 | Addendum 新版本 | 新文件新 hash → 新行；与既有 run 血缘经 `TenderAnalysisRunDocument(role=ADDENDUM)` 不变；diff 走现有 `addendum-diff.ts` 管线 |
 | 文件重命名后再上传（同内容） | captureKey 含 fileName → 新行（两次观察，字节共享）；同名同内容重传 → 命中唯一键 no-op |
 | 网站整页消失 | 快照行与字节永存；sourceUrl 失效不影响证据（契约目标达成） |
+| **访问分级变更**（如 INTERNAL_COMPANY→RESTRICTED） | **不产生新快照**——accessClass 是治理元数据，经受权 service 修改 + AuditLog（§9.3）；证据行不复制 |
 
 **禁止（冻结）**：仅以 URL 唯一（`@@unique([...sourceUrl])` 类设计一票否决——同 URL 多版本是常态）；仅以 contentHash 唯一（丢失"何时从何处见过"的观察语义）。
 
 ### 10.3 与 ProjectDocument 的去重读路径（T2 补债）
 
 上传/采集入口先算 hash → `WHERE orgId+contentHash` 查快照 → 命中则复用 storageKey 与既有解析产物（Page 级文本经 hash 关联）——补上"索引已建、读路径为零"的缺口（§8.2）。
+
+### 10.4 Snapshot Version 分配契约（Final Review 新增）
+
+两条唯一约束职责分离（冻结）：
+
+```
+@@unique([orgId, projectId, captureKey, contentHash])      = same observation idempotency
+  （同来源同内容重复捕获 → no-op）
+@@unique([orgId, projectId, captureKey, snapshotVersion])  = version sequence integrity
+  （防两个并发不同内容 capture 同读 latestVersion=2 后同写 version=3）
+```
+
+分配流程：事务内读该 `(projectId, captureKey)` 当前 max(snapshotVersion) → +1 尝试 create → P2002 按 `error.meta.target` 分流：命中 contentHash 键 → 同观察，返回既有行（幂等 no-op）；命中 snapshotVersion 键 → 并发占号，重读 max 后重试，**bounded retry**（上限 8，与 `PROJECT_EVENT_SEQUENCE_MAX_RETRIES` 同款，同为人频写入）。重试耗尽 → THROW（捕获失败由采集 Job 的既有重试语义兜底）。**Snapshot 写失败在任何路径下都不允许触碰既有证据行**——本表只有 create，失败即无副作用。
+
+```
+ARCHIVE_VERSION_CONTRACT = PASS
+```
 
 ---
 
@@ -679,7 +763,7 @@ AI 绝对不能写：已存在的快照行任何字段、blob 字节、supersede
 | 邮件发送成功（email send route） | email.sent | user | |
 | 邮件收到 | email.received | external | **T5 外部前置**：入站未实现（`inbound-org.ts:96`） |
 | 踏勘录入（新 UI，T2） | site_visit.completed | user | + ProjectCost 行 |
-| 成本动作（§6） | cost.recorded/committed/actualized/voided | user | |
+| 成本动作（§6） | cost.recorded/revised/committed/actualized/voided | user | 计划修订经 revisionCount 幂等（§6.3） |
 | GO/NO_GO（`go-decision.ts:60`） | decision.go_no_go | user | payload 存理由全文（解决 200 字符截断丢失） |
 | Run 批准（`review.ts:89`） | decision.run_approved | user | |
 | 提交（stage=submission） | tender.submitted | user | |
@@ -739,12 +823,12 @@ ARCHIVE_MODEL_DECISION = NEW_SOURCE_SNAPSHOT_REQUIRED
 | 批次 | 内容 | 风险 |
 |---|---|---|
 | **M1**（一次 migration） | 新表 ×4：`ProjectEvent`、`ProjectEventActor`、`ProjectCost`、`TenderArchiveItem` | 纯新增；建表时零写入者，部署后表空置直至写入点 PR 各自批准合入 |
-| **M2**（独立小 migration，与 M1 解耦可并行评审） | `ProjectDocument` additive 列：`orgId String?`（回填后收紧）、`mimeType String?`、`sourceUrl String?`、`supersededByDocumentId String?`、`deletedAt DateTime?`；`AuditLog`：payload Json 化不做（读侧兼容成本高，仅补 `@@index([projectId, createdAt])` + traceId 列启用是代码改动非 schema） | additive 可空列，零锁风险 |
+| **M2**（独立小 migration；**不与 M1 同批实施**——Final Review 冻结：T2-M1 仅四张新表，M2 排在 T2-M1 Validation 之后独立评审，§17.2） | `ProjectDocument` additive 列：`orgId String?`（回填后收紧）、`mimeType String?`、`sourceUrl String?`、`supersededByDocumentId String?`、`deletedAt DateTime?`；`AuditLog`：payload Json 化不做（读侧兼容成本高，仅补 `@@index([projectId, createdAt])` + traceId 列启用是代码改动非 schema） | additive 可空列，零锁风险 |
 
 ### 15.2 索引与外键策略
 
 - 索引全集已写进各模型提案（§5.2/§6.3/§7.3/§9.2）；People 视图的 `[orgId, actorType, actorId, occurredAt]` 与成本聚合的 `[orgId, projectId, costStatus]` 为投影读路径预置。
-- **四张新表零 Prisma FK 到 Project/Document/User**（例外：ProjectEventActor→ProjectEvent 内部 FK）。理由：账本/档案行必须在被引对象硬删后存活（AuditLog 摘挂与 Document Cascade 蒸发的双重教训）；引用完整性由领域服务层保证，孤儿引用是**合法的历史事实**。
+- **四张新表零 Prisma FK 到 Project/Document/User**（Final Review 再确认：ProjectEvent / ProjectCost / TenderArchiveItem 均维持无 FK；唯一例外是 ProjectEventActor→ProjectEvent 内部 FK，`onDelete: Restrict`）。理由：账本/档案行必须在被引对象硬删后存活（AuditLog 摘挂与 Document Cascade 蒸发的双重教训）；引用完整性由领域服务层保证，孤儿引用是**合法的历史事实**。**明确禁止**为解决授权锚点问题（§15.8）而回头加 `ON DELETE CASCADE`——业务对象删除 ≠ 证据自动消失，授权问题由 §15.8 的保留契约解决而非级联删除。
 
 ### 15.3 租户隔离（TENANT_BOUNDARY_VALIDATED 材料）
 
@@ -777,6 +861,23 @@ ARCHIVE_MODEL_DECISION = NEW_SOURCE_SNAPSHOT_REQUIRED
 - `listProjectActivity` 读面在 T2 期间不变（AuditLog+SYSTEM 双源照旧）——Ledger 投影是**新增**读面,老读面在 T1-PR3 换源时才切换,任何时刻用户可见时间线不出现空窗。
 - Workforce read-model / runtime 零改动（§13 边界）;tender-auto-analysis 队列不动（T5 收敛）。
 
+### 15.8 Deleted Project Retention / Authorization Contract（Final Review 新增冻结）
+
+**现状核查（Final Review 基线）**：Project **真实支持 hard delete**——`DELETE /api/projects/[id]`（`projects/[id]/route.ts:273-321`）仅需 `requireProjectWriteAccess`，事务内：`Task.projectId→null`、`BlindsOrder.projectId→null`、`AuditLog.projectId→null`（摘挂）、`agentTask.deleteMany`（连带 Step/ApprovalRequest Cascade），随后 `project.delete` 触发 Prisma Cascade 扇出——ProjectDocument（→Page→TenderAnalysisRunDocument）、ProjectConversation→Message、TenderAnalysisRun 家族、BidIntelligenceRoom 家族、Inquiry/Quote/Review/Insight/Similarity/GeneratedDocs/ProgressSummary/SupplierLink 等全部物理消失。即：**普通业务写权限今天就能抹掉一个项目的全部历史**。
+
+**问题**：四张新表无 FK（§15.2），项目硬删后 Ledger/Archive 行存活——但读取授权主锚 `requireProjectReadAccess(projectId)` 随 Project 行消失，形成 orphaned but unreadable historical evidence。
+
+**冻结推荐 = OPTION A（主契约）+ org 级特权读作为残余路径（兜底，非并列选项）**：
+
+1. **OPTION A（主契约）**：Tender/Project 一旦进入"有历史价值"状态（存在任一 ProjectEvent / TenderArchiveItem / ProjectCost 行，或 workDomain=tender 且已过 initiation），**普通业务路径不再允许 hard delete**——DELETE 语义收敛为 soft-delete：复用既有生命周期词表 `status="archived"`（`projectLifecycleLabel("archived")="已归档"`、`buildProjectLifecycleWhere` 已存在）或引入 `deletedAt` 标记，**保留 Project 行的 id / orgId / 成员关系作为永久授权锚**。Ledger/Archive 读取继续走 `requireProjectReadAccess`（含 soft-deleted 项目的历史读模式）。物理删除只保留给**合规/行政 purge 专用流程**（platform-admin 级、独立审计、显式确认），不是普通业务操作。
+2. **残余路径（覆盖两种不可避免场景）**：(a) OPTION A 落地前已被硬删的历史项目；(b) 合规 purge 之后的孤儿行。此时 Ledger/Archive 行仅凭自身 `orgId` 存在——只允许经 **org-scoped privileged historical archive access**（org admin/manage 级权限 + 专用读面）访问；普通 `requireProjectReadAccess` 路径对孤儿行 fail-closed，**不得**为绕过授权锚缺失而放宽。
+3. **实施排期**：删除路径收口是**生产行为变更**，本轮不做——列为 `DELETION_GATING_PRECONDITION_FOR_T2_WRITERS`：**T2-P1 首批 producer 合入前**，必须先合入"tender 项目删除收敛为 soft-delete"的独立小 PR（否则账本上线即暴露"记了账、项目被删、账变孤儿"窗口）。T2-M1（建表）不受此阻塞。
+4. **原则重申**：删除项目 ≠ 删除企业记忆；只有 legal/compliance purge 可以触碰证据，且走专用流程。
+
+```
+DELETED_PROJECT_RETENTION_CONTRACT = PASS
+```
+
 ---
 
 ## 16. Backfill Proposal
@@ -808,28 +909,54 @@ parity 脚本三项:①每项目 stage 事件数 = 非空里程碑列数;②docu
 
 ---
 
-## 17. T2 Entry Gate（冻结键值;任务书 §21 与 T0 路线图键合并）
+## 17. T2 Entry Gate（Final Contract Review 定审;任务书 §21 与 T0 路线图键合并）
 
-| Gate 键 | 材料 | 当前状态 |
-|---|---|---|
-| `LEGACY_STORE_DECISION`（=T0 LEGACY_EVENT_STORE_DECISION_GATE） | §1–§2 判决矩阵（26 套） | **READY_FOR_REVIEW** |
-| `SOURCE_OF_TRUTH_DEFINED`（=T0 PROJECTEVENT_SOURCE_OF_TRUTH_BOUNDARY） | §3 矩阵 + 边界规则 | **READY_FOR_REVIEW** |
-| `SCHEMA_PROPOSAL_REVIEWED` | §5/§6/§7/§9 四模型 + §14 决策 | **READY_FOR_REVIEW** |
-| `TENANT_BOUNDARY_VALIDATED` | §15.3（设计级;运行级=Neon 分支演练在 M1 实施时执行） | **READY_FOR_REVIEW** |
-| `BACKFILL_PLAN_DEFINED` | §16 | **READY_FOR_REVIEW** |
-| `DUAL_WRITE_PLAN` | §15.6 | **READY_FOR_REVIEW** |
-| `IDEMPOTENCY_CONTRACT` | §5.5 | **READY_FOR_REVIEW** |
-| `MIGRATION_PLAN` | §15 | **READY_FOR_REVIEW** |
+### 17.1 Gate 判定（本轮为 Final Contract Review,只允许 PASS / BLOCKED）
 
-**判定规则（冻结）**:
+| Gate 键 | 材料 | **Final Review 判定** | 判定依据 |
+|---|---|---|---|
+| `LEGACY_STORE_DECISION`（=T0 LEGACY_EVENT_STORE_DECISION_GATE） | §1–§2 判决矩阵（26 套） | **PASS** | 判决矩阵完备;#93 对 AgentRunEvent 的修复不改变任何判决（§4） |
+| `SOURCE_OF_TRUTH_DEFINED`（=T0 PROJECTEVENT_SOURCE_OF_TRUTH_BOUNDARY） | §3 矩阵 + 边界规则 | **PASS** | 唯一权威边界含双豁免规则明确;cost 修订史归属澄清（§6.3） |
+| `SCHEMA_PROPOSAL_REVIEWED` | §5/§6/§7/§9 四模型 + §14 决策 | **PASS** | Micro-Fix 后契约无歧义:seq 契约冻结、revisionCount、版本双唯一、accessClass 治理分离、Actor FK Restrict |
+| `TENANT_BOUNDARY_VALIDATED` | §15.3 + §15.8（设计级;运行级=Neon 分支演练在 M1 实施时执行） | **PASS** | 四表 orgId 非空;孤儿行 org 级特权读契约冻结（§15.8） |
+| `BACKFILL_PLAN_DEFINED` | §16 | **PASS** | 确定性/幂等/可重放;NOT_BACKFILLED 边界显式 |
+| `DUAL_WRITE_PLAN` | §15.6 | **PASS** | 单点双写、TEMPORARY 退出条件、对账方案保持 |
+| `IDEMPOTENCY_CONTRACT` | §5.5 + §5.6 | **PASS** | eventKey 词表 + seq/eventKey 双唯一职责分离 + revision 幂等号 |
+| `MIGRATION_PLAN` | §15 | **PASS** | 纯 additive;M1/M2 分批冻结;rollback 语义明确;零 runtime 依赖 |
 
 ```
-任何一项 ≠ PASS（人工批准）⇒ T2_IMPLEMENTATION = BLOCKED
-全部 PASS ⇒ 允许合入 M1 migration PR 与首批写入点 PR（写入点仍逐 PR 评审）
-本文档自身不能翻转任何键——翻转动作 = 人工 Review 本 PR 后逐键批注
+T2_ARCHITECTURE_FINAL_REVIEW = PASS（8/8）
+T2_READY_FOR_IMPLEMENTATION  = YES
+  语义:允许开启独立的 T2-M1 Schema Foundation migration PR。
+  不是:自动开始实施。ProjectEvent / ProjectEventActor / ProjectCost / TenderArchiveItem
+  四个基础模型的正式批准仍 = 人工 Review 本 PR + 下一条指令;本 PR 保持 Draft。
 ```
 
-**翻转后的实施顺序建议**（对齐 T0 路线图 §7）:M1 建表 → 首批写入点（stage/result/abandon/go_no_go 四个最高价值点先行,验证 eventKey/seq/双写）→ 扩至 §12 首批全集 → 回填 → 投影换源（依赖 T1-PR3）→ 双写退出。
+### 17.2 T2 实施顺序（Final Review 冻结;禁止 M1 合并后一次铺 13+ producer）
+
+```
+T2-M1  Schema Foundation
+       仅 4 张新表:ProjectEvent / ProjectEventActor / ProjectCost / TenderArchiveItem
+       （不含 M2;不含任何写入点）
+  ↓
+T2-M1 Validation
+       Neon 隔离 migration 演练 · 租户隔离测试 · 索引/约束验证 · rollback 演练
+  ↓
+T2-P1  首批 4 个最高价值 producer（前置:DELETION_GATING_PRECONDITION,§15.8;
+       各写入点逐 PR 评审）
+       stage transition · result marked · abandon · go/no-go
+  ↓
+T2-P1 Real Validation
+       至少一个真实 Tender 走查:Timeline 投影 · eventKey 幂等重放 · correction 链 ·
+       授权（含 org 边界）· 事务原子性（业务失败 ⇒ 零事件残留）
+  ↓
+T2-P2  扩展 producer（前置:R5 报价授权修复 = SECURITY_PRECONDITION,§18）
+       supplier.selected · supplier.quote_received · quote confirmed（含 cost.revised 链路）·
+       document.added · site_visit.completed · cost.*
+  ↓
+Archive Capture Implementation —— 另立独立 PR（不并入 producer 序列）
+M2（ProjectDocument additive 列 + AuditLog 小修）—— T2-M1 Validation 之后独立评审排期
+```
 
 ---
 
@@ -841,17 +968,35 @@ parity 脚本三项:①每项目 stage 事件数 = 非空里程碑列数;②docu
 | R2 | seq 分配并发（§5.6）:单项目并发写入的 P2002 重试路径必须有测试 | T2 实施 | 写入点 PR 单测红线 |
 | R3 | 双写期 SYSTEM 消息与 Ledger 叙事重复渲染（项目详情页 activity 默认含 SYSTEM） | T2 实施 | 投影换源前 Ledger 不进 activity 读面（§15.7） |
 | R4 | `includeSystemEvents=true` 全量内存分页（`activity/query.ts:65-91`,B6 已登记）在双写期数据量翻倍 | P1 | T1-PR3 换源时一并解决（T0 B6 不变） |
-| R5 | 报价单 create/patch/delete 仅 `requireProjectReadAccess`（读权限可改写报价,`quotes/[quoteId]/route.ts:30,114`） | **P0-adjacent 安全债**（PR #95 同族口子） | 建议独立安全小 PR,不并入 T2 |
-| R6 | TaskActivity 读 route 无归属校验（任意登录用户可读任意任务活动,`tasks/[id]/activities/route.ts:7`） | 安全债 | 同上 |
+| R5 | 报价单 create/patch/delete 仅 `requireProjectReadAccess`（读权限可改写报价,`quotes/[quoteId]/route.ts:30,114`） | **P0-adjacent 安全债**（PR #95 同族口子）;**SECURITY_PRECONDITION_FOR_T2_WRITERS**（见下） | 独立 **SECURITY-P0.x** 小 PR,不在本 PR 修代码,不并入 T2 |
+| R6 | TaskActivity 读 route 无归属校验（任意登录用户可读任意任务活动,`tasks/[id]/activities/route.ts:7`） | 安全债（同族;非 tender producer 直接前置） | 独立 **SECURITY-P0.x** 小 PR |
 | R7 | ProjectEmail:发送就地覆盖 AI 草稿原文、orgId 可落空串、裸引用无 FK | P1 | email.sent 写入点 PR 顺带修 orgId 空串;草稿版本化留 T5 邮件能力 |
 | R8 | ToolCallTrace 无 orgId、SkillExecution/ApprovalRequest/AgentTask 无 org 列 | 运行时债 | 移交 Runtime Owner（Phase 2 范畴,tender 侧不动） |
 | R9 | PendingAction orgId 为 null 时幂等键失效 | 运行时债 | 同上 |
 | R10 | ProjectReview.outcome 确认侧无词表校验（任意字符串入索引列）+ 确认后扩散不可回收 | P1 | T2 词表收敛（T0 B14）时一并 |
-| R11 | AgentRunEvent sequence 竞态 + 静默丢弃;业务文本泄漏收敛（§4.2） | 运行时债 | Workforce Runtime Owner,Phase 2 correctness |
+| R11 | AgentRunEvent:~~sequence 竞态~~（**#93 已修**:P2002 有界重试,`run.ts:479-513`）;残余 = 外层 best-effort（log+return null）语义评估 + 业务文本泄漏收敛（§4.2） | 运行时债（范围缩小） | Workforce Runtime Owner,Phase 2 correctness |
 | R12 | tender AI 成本零入账（§6.1,较 T0 B5 加重:连 tokenUsageJson 都没写） | P1 | T2 修债 PR（§6.4） |
 | R13 | 文档硬删级联抹证据链 + 生成文档双行 | P1 | M2 软删列 + 归档化后删除改为 supersede;双行收敛入 T2 文档债 |
 | R14 | PR #52（schema +53/−2）与 M1 的冲突窗口 | 流程 | §15.4 对表后排期 |
 | R15 | 回填期间历史项目的 goDecision 仅能回填当前值,历史决策史永久缺失（AuditLog 截断 200 字符） | 已接受的损失 | §16.1 NOT_BACKFILLED 记录在案 |
+
+**SECURITY_PRECONDITION_FOR_T2_WRITERS（Final Review 冻结）**：
+
+```
+R5（Quote mutation authorization）必须在 Quote / supplier 相关 Ledger producer
+（T2-P2:quote.confirmed / supplier.quote_received / supplier.selected 及 cost.revised 链路）
+合入之前修复（独立 SECURITY-P0.x PR;本 PR 不修代码）。
+
+原因:Ledger 不能成为"忠实记录未授权修改"的替代品。正确顺序是:
+  authorization correct → business mutation → Ledger record
+而不是:
+  unauthorized mutation → Ledger faithfully records it
+
+配套前置:DELETION_GATING_PRECONDITION（§15.8,T2-P1 前）。
+T2-M1（纯建表）不受这两项阻塞。
+
+SECURITY_PRECONDITION_DEFINED = PASS
+```
 
 ---
 
@@ -870,18 +1015,63 @@ parity 脚本三项:①每项目 stage 事件数 = 非空里程碑列数;②docu
 
 ---
 
-## 20. 最终输出
+## 20. 最终输出（Final Contract Micro-Fix Review 后定稿）
 
 ```
-PROJECT_EVENT_DECISION            = OPTION D（ProjectEvent + ProjectEventActor;附 ProjectCost 独立成本表）
-ARCHIVE_MODEL_DECISION            = NEW_SOURCE_SNAPSHOT_REQUIRED（TenderArchiveItem = Source Snapshot Contract v1）
-SCHEMA_CHANGE_REQUIRED_FOR_T2     = YES（M1 四新表 + M2 additive 列;仅提案）
-MIGRATION_CREATED                 = NO
-WORKFORCE_RUNTIME_MODIFIED        = NO
-PRODUCTION_BEHAVIOR_CHANGE        = NO
-T2_READY_FOR_IMPLEMENTATION       = NO
-  （8 个 Gate 键全部 READY_FOR_REVIEW,等待人工批准;任何一键未 PASS ⇒ T2_IMPLEMENTATION = BLOCKED。
-   本文档交付即 STOP:不写 migration、不铺写入点、不动 runtime。）
+ORIGINAL_AUDIT_BASE                        = main @ 4f082cd
+FINAL_REVIEW_BASE                          = main @ 8303145（= #93 merge）
+#93_INCLUDED                               = YES
+
+AGENT_RUN_EVENT_FINDING_ALIGNED_WITH_2B2   = PASS（§4;判决不变 KEEP_AS_RUNTIME_TELEMETRY）
+PROJECT_EVENT_DECISION                     = OPTION D（ProjectEvent + ProjectEventActor;附 ProjectCost）
+PROJECT_EVENT_SEQUENCE_CONTRACT            = PASS（§5.6;bounded retry=8 + THROW + 事务 fail-closed）
+PROJECT_COST_REVISION_AUDIT                = PASS（§6.3;cost.revised + revisionCount 幂等号）
+ARCHIVE_MODEL_DECISION                     = NEW_SOURCE_SNAPSHOT_REQUIRED（TenderArchiveItem = SSC v1）
+ARCHIVE_IMMUTABILITY_CONTRACT              = PASS（§9.3;证据字段清单冻结）
+ARCHIVE_ACCESS_POLICY_CONTRACT             = PASS（§9.3;accessClass 治理可变,不复制快照）
+ARCHIVE_VERSION_CONTRACT                   = PASS（§10.4;双唯一约束职责分离）
+DELETED_PROJECT_RETENTION_CONTRACT         = PASS（§15.8;OPTION A 主契约 + org 级特权残余路径）
+SECURITY_PRECONDITION_DEFINED              = PASS（§18;R5 前置于 T2-P2 quote/supplier producer）
+
+LEGACY_STORE_DECISION                      = PASS
+SOURCE_OF_TRUTH_DEFINED                    = PASS
+SCHEMA_PROPOSAL_REVIEWED                   = PASS
+TENANT_BOUNDARY_VALIDATED                  = PASS
+BACKFILL_PLAN_DEFINED                      = PASS
+DUAL_WRITE_PLAN                            = PASS
+IDEMPOTENCY_CONTRACT                       = PASS
+MIGRATION_PLAN                             = PASS
+
+SCHEMA_CHANGE_REQUIRED_FOR_T2              = YES（M1 四新表 + M2 additive 列;仅提案）
+MIGRATION_CREATED                          = NO
+WORKFORCE_RUNTIME_MODIFIED                 = NO
+PRODUCTION_BEHAVIOR_CHANGE                 = NO
+
+T2_ARCHITECTURE_FINAL_REVIEW               = PASS（8/8）
+T2_READY_FOR_IMPLEMENTATION                = YES
+  语义:允许开启独立 T2-M1 Schema Foundation migration PR（§17.2 冻结顺序）。
+  不代表自动开始实施;四个基础模型的正式批准 = 人工 Review 本 PR 后的下一条指令。
+NEXT_ACTION_IF_APPROVED                    = T2-M1_SCHEMA_FOUNDATION
+NEXT_PHASE_AUTOSTART                       = NO（本 PR 保持 Draft,不 merge,STOP）
 ```
 
-*T2-PR0 至此完成。按任务书 §23:Draft PR 后 STOP,等待人工 Final Review。*
+---
+
+## 21. FINAL CONTRACT MICRO-FIX REVIEW（2026-08-10）
+
+| 项 | 记录 |
+|---|---|
+| Previous audit base | `main @ 4f082cd`（PR #95 之后） |
+| Current review base | `main @ 8303145` = PR #93（Workforce 2B-2 Controlled Parallel）merge commit `83031455d73…`;其后 main 无新 commit;本分支已 rebase 到该基线 |
+| **#93 影响面** | 16 文件:agent-runtime-v2（executor/schemas/tool-catalog）、`agent-runtime/run.ts`（appendAgentRunEvent 有界重试）+ types.ts（新增 `task.claimed`/`parallel.batch_*` 内部事件类型）、workforce-runtime（parallel.ts 新增/processor/task-contract/index）、4 个新测试套 + probe、test-all.sh、2B-2 文档。**不触及** Project / ProjectDocument / RBAC / Cost / Archive / AuditLog / Tender 域——本文档 §1–§3/§6–§16 的审计结论无需重开;受影响的仅 §4（AgentRunEvent）与 §5.6（seq 契约借鉴），已 targeted revalidation |
+| AgentRunEvent correction | §4.1-S3 改写:sequence 冲突已由 #93 修复为 P2002 有界重试（`MAX_SEQUENCE_RETRIES=8`,重读 max 再 create,`run.ts:479-513`）,"首次 collision 即静默丢事件"不再成立;但外层 catch 仍 log + return null（`run.ts:514-522`）= best-effort 遥测语义。五条失格理由重述（无 projectId 归属/生命周期属 Runtime/Cascade 耦合/telemetry 语义/best-effort 追加）。**判决不变:KEEP_AS_RUNTIME_TELEMETRY**;R11 范围缩小 |
+| ProjectEvent sequence contract | §5.6 收敛为单一方案:业务事务内 eventKey 幂等短路 → 读 max(seq) → create → P2002 按 `error.meta.target` 分流（eventKey 命中=幂等返回;seq 命中=重读重试）→ `PROJECT_EVENT_SEQUENCE_MAX_RETRIES = 8` → 耗尽 THROW → 业务事务整体 ROLLBACK。禁止 catch-log-continue / return null / best-effort。双唯一约束职责分离:seq=顺序唯一性,eventKey=业务幂等 |
+| ProjectCost revision contract | §6.3 收口"PLANNED 可编辑 ≠ 无历史更新":实质字段（amountPlanned/quantity/unitRate/currency/description/supplierId/incurredAt）修改必须同事务 `revisionCount` 自增 + `cost.revised` 事件（eventKey `cost:{costId}:revision:{revisionNo}`,拒绝单键 `cost:{costId}:revised` 与 wall-clock 幂等源）;不新增 ProjectCostRevision 表;ACTUAL 后 void+correction 不变 |
+| Archive governance contract | §9.3 修订:证据字段清单永久 IMMUTABLE;`accessClass` 单列为 governance metadata——经专用受权 service 修改,强制 changedBy/changedAt/reason + AuditLog,未来 `archive.access_changed` 事件（本轮不实现）;**分级变更不产生新快照**（废弃初稿"accessClass 错误=新行 supersede"——与同观察幂等唯一键冲突） |
+| Archive version contract | §10.4 新增:`@@unique([orgId,projectId,captureKey,snapshotVersion])`（版本序完整性）与既有 `[…,contentHash]`（同观察幂等）并立;版本分配 bounded retry(8)+THROW;写失败零副作用,永不触碰既有证据行 |
+| Deleted project retention contract | §15.8 冻结:现状 hard delete 真实存在（写权限即可,Cascade 扇出抹历史,`projects/[id]/route.ts:273-321`）。推荐 **OPTION A 为主契约**（有历史价值项目 soft-delete/`status="archived"`,保留 id/orgId 授权锚;物理删除=合规专用流程）+ org 级特权读作为孤儿行残余路径;`DELETION_GATING_PRECONDITION` 前置于 T2-P1。四表无 FK 决策再确认;ProjectEventActor→ProjectEvent 定为 `onDelete: Restrict` |
+| Security prerequisite | §18 冻结 `SECURITY_PRECONDITION_FOR_T2_WRITERS`:R5（报价读权限可改写）必须以独立 SECURITY-P0.x PR 在 T2-P2 quote/supplier producer 前修复;原则=authorization correct → business mutation → Ledger record;Ledger 不为未授权修改背书。T2-M1 不受阻塞 |
+| 实施顺序冻结 | §17.2:T2-M1（仅四表）→ M1 Validation（Neon 演练/租户/索引/rollback）→ T2-P1（4 producer）→ P1 真实 Tender 验证 → T2-P2（扩展 producer）→ Archive Capture 独立 PR;M2 在 M1 Validation 后独立排期;禁止 M1 后一次铺 13+ producer |
+| Final 8 Gate decisions | LEGACY_STORE_DECISION / SOURCE_OF_TRUTH_DEFINED / SCHEMA_PROPOSAL_REVIEWED / TENANT_BOUNDARY_VALIDATED / BACKFILL_PLAN_DEFINED / DUAL_WRITE_PLAN / IDEMPOTENCY_CONTRACT / MIGRATION_PLAN = **全部 PASS**（§17.1 判定依据逐键在案）;`T2_ARCHITECTURE_FINAL_REVIEW = PASS`,`T2_READY_FOR_IMPLEMENTATION = YES`（仅解锁 T2-M1 PR 的开启;NEXT_PHASE_AUTOSTART = NO） |
+
+*Final Contract Micro-Fix Review 至此完成。本 PR 保持 Draft,不 merge;等待人工确认四个基础数据模型的正式批准后,方可开启独立的 T2-M1 Schema Foundation PR。*
