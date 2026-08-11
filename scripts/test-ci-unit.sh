@@ -52,6 +52,9 @@ npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts
 npx tsx src/lib/bid-workflow/__tests__/schema-drift.test.ts
 npx tsx src/lib/bid-workflow/__tests__/supplier-link-idempotency.test.ts
 npx tsx src/lib/bid-workflow/__tests__/china-supplier-brief.test.ts
+npx tsx src/lib/tender/__tests__/detail-tabs.test.ts
+npx tsx src/components/project-detail/__tests__/tender-detail-ia.test.ts
+npx tsx src/components/project-detail/__tests__/project-context-panel.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 echo ""

@@ -107,8 +107,9 @@ ok(
       "20260804210000_sales_effectiveness_promotion_approval",
       "20260805090000_marketing_economics",
       "20260805180000_tender_auto_analysis_phase1_1",
+      "20260811002000_add_tender_t2_ledger_archive_foundation",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

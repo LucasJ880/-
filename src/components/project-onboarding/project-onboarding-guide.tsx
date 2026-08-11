@@ -13,8 +13,12 @@ import { cn } from "@/lib/utils";
 interface Props {
   hasDocuments: boolean;
   hasIntelligence: boolean;
+  /** 打开资料抽屉（上传文件） */
   onGoToFiles: () => void;
-  onGoToAi: () => void;
+  /** 前往「招标要求」查看/发起分析 */
+  onGoToAnalysis: () => void;
+  /** 前往「标书与报价」 */
+  onGoToBid: () => void;
 }
 
 interface Step {
@@ -31,7 +35,8 @@ export function ProjectOnboardingGuide({
   hasDocuments,
   hasIntelligence,
   onGoToFiles,
-  onGoToAi,
+  onGoToAnalysis,
+  onGoToBid,
 }: Props) {
   const allDone = hasDocuments && hasIntelligence;
   if (allDone) return null;
@@ -49,23 +54,23 @@ export function ProjectOnboardingGuide({
     {
       key: "analyze",
       icon: Brain,
-      title: "AI 情报分析",
-      description: "基于文件内容，AI 自动生成投标深度情报报告。",
+      title: "确认招标要求",
+      description: "AI 分析招标文件，抽取要求、风险与澄清问题，逐条确认。",
       done: hasIntelligence,
       active: hasDocuments && !hasIntelligence,
       action: hasDocuments && !hasIntelligence
-        ? { label: "查看分析", onClick: onGoToFiles }
+        ? { label: "查看分析", onClick: onGoToAnalysis }
         : undefined,
     },
     {
       key: "bid",
       icon: Sparkles,
-      title: "一键生成投标方案",
-      description: "AI 自动生成报价草稿、邮件草稿，一步到位。",
+      title: "准备标书与报价",
+      description: "创建报价单、发起供应商询价、生成标书文档。",
       done: false,
       active: hasDocuments && hasIntelligence,
       action: hasDocuments && hasIntelligence
-        ? { label: "开始生成", onClick: onGoToAi }
+        ? { label: "前往标书与报价", onClick: onGoToBid }
         : undefined,
     },
   ];

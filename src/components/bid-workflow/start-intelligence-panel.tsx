@@ -131,14 +131,14 @@ export function StartIntelligencePanel({
           </button>
           {hasRoom && (
             <Link
-              href={`/projects/${projectId}/intelligence-room`}
+              href={`/projects/${projectId}?tab=intel`}
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium"
             >
-              进入项目智能调查室
+              查看项目情报
             </Link>
           )}
           <Link
-            href={`/projects/${projectId}?tab=overview#project-suppliers`}
+            href={`/projects/${projectId}?tab=bid#project-suppliers`}
             className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium"
           >
             查看关联供应商
