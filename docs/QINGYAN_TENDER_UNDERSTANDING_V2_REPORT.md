@@ -191,6 +191,59 @@ run4（三案 V2 lane 合计）：
 
 **RELEASE_GATE = NOT_PASSED（且结构上不可能 PASS：Golden 仍 PENDING_HUMAN_CONFIRMATION）。** 证据/反幻觉四项硬门全绿；召回三项未达线。V2 保持 SHADOW/EVALUATION 模式，V1 继续生产路径。补充协议建议：Golden 确认后 Gate 采用 ≥3 次运行中位数。
 
+## 24-A. Final Review Remediation（2026-08-11，PR100 = CONDITIONAL_PASS 整改）
+
+### Benchmark Independence & Scorer Freeze
+
+- 考官/被试永久分离生效：benchmark scorer（evaluate.ts）、normalize、golden cases、contract
+  已随 PR #97 冻结（BENCHMARK_FREEZE_CONTRACT，见 V1 报告）；本 PR 相对冻结版的
+  tender-eval 差异仅剩 **v2-adapter.ts（新增）+ runner 多 lane + report-io 多 lane 渲染**
+  ——全部为 Candidate 适配/呈现层，scorer/golden **零字节漂移**（已验证）。
+- 原临时存在于本 PR 的 requirementAsFactCandidate 通道桥按冻结决议**从 scorer 移除**，
+  在 v2-adapter 内重实现（Candidate 输出形状适配归 adapter；scorer 不知道被试风格）。
+- 静态扫描：src/lib/tender-understanding/** 对 tender-eval / golden / baseline /
+  provisional 的 import 与引用 = **0**（V2_BENCHMARK_INPUT_LEAK = 0）。
+
+### Risk / Ambiguity Semantic Evidence Gates（§15/16 必修）
+
+verify.ts 补齐语义支持硬门：真实引文存在但与断言无关 → REJECT（NO_SEMANTIC_SUPPORT）：
+
+- Risk：`risk.description` 须被 `sourceSnippet` 语义支持；
+- Ambiguity：`topic + description + whatIsUnknown` 组合文本须被 `sourceSnippet` 支持；
+- 判定完全通用（token 支持 + 数值/日期检查，零领域词零案例词）；方向保守——宁拒 borderline，
+  不让 unsupported claim 进业务结果。
+- 新增测试 V2-E7（无关 risk 拒收）/ V2-E8（无关 ambiguity 拒收）/ V2-E9、E10（语义支持正控防过严）
+  全部通过；修复后真实运行中 A0 现场拒收 2 条 NO_SEMANTIC_SUPPORT 风险候选（门在真实条件下生效）。
+
+### Post-Fix V2 Benchmark（冻结 scorer tender-eval/v1；run `20260811-032546Z-ae102dc`，
+快照 docs/tender-eval/v2-postfreeze/；PROVISIONAL——Golden 仍 PENDING_HUMAN_CONFIRMATION）
+
+| 指标 | A0 V1→V2 | A-REAL V1→V2 | B V1→V2 |
+| --- | --- | --- | --- |
+| Mandatory Recall (strict) | 100%→87.5% | 44.7%→**76.3%** | 0%→**54.5%** |
+| Requirement Recall (strict) | 100%→87.5% | 44.7%→76.3% | 0%→50.0% |
+| Critical Fact Accuracy | 94.4%→83.3% | 77.3%→72.7% | 0%→**90.9%** |
+| Evidence Accuracy | 100%→**100%** | 100%→**100%** | N/A→**100%** |
+| Unsupported Claim Rate | 0 | **0** | **0** |
+| Risk Recall / CRITICAL_RISK_MISSED | 80%/1→40%/1 | 37.5%/3→**100%/0** | 0%/2→40%/1 |
+| Clarification Hallucinations | 0→0 | 1→**0** | 6→**0** |
+| CROSS_DOMAIN_LEAK | 0→0 | 2→**0** | 9→**0** |
+
+对比修复前 run4：A-REAL mandatory 81.6→76.3、A0 风险召回 60→40——落在已知运行方差带
+（A-REAL 四次 57.9–89.5）内且方向符合预期（语义门收紧只减不增），**按 §22 原则接受：
+Evidence / Unsupported / Leak 优先于 Recall 数字，不为保分放宽 verifier**。
+本轮未做任何 Recall 优化（§24 遵守）；Recall 改进属下一阶段。
+
+### Production Release Decision
+
+- RELEASE_GATE = **FAIL / NOT_READY**（Golden 未确认 + A-REAL/B mandatory < 90% +
+  requirement/critical fact 未全面达线）。
+- TENDER_ANALYSIS_V2_ENABLED 维持 default OFF、fail-closed；无任何 production route 调用
+  analyzeTender（静态扫描 src/app+src/lib 零引用；唯一入口 = flag 门控的 shadow 脚本）；
+  未接入 #101 T1B 生产路径；PRODUCTION_ENV_CHANGED = NO。
+- **#100 merge ≠ production enablement**：合并只交付 shadow 能力与 benchmark lane，
+  生产启用需另行通过 Confirmed-Golden Release Gate。
+
 ## 24. T1B Readiness
 
 **T1B_READY = NO。** 依 §64：Confirmed Golden（未满足）+ 全部指标达线（未满足）缺一不可；不为启动 Workforce Agent 降低门槛。给 T1B 的输入：V2 的 `AnalysisResultV2` 契约（含 UNKNOWN/conflicts/evidence 全结构）已为 Workforce 任务注入做好形状准备，但接入前置条件 = Golden 确认 + F1/F2/F4 三类失败收敛 + 持久化接线 PR（§16）。
