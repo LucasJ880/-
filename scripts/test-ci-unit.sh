@@ -26,6 +26,7 @@ npx tsx src/lib/workforce-runtime/read-model/__tests__/list-service.test.ts
 npx tsx 'src/app/(main)/workforce/__tests__/operator-ux.test.ts'
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
+npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
 npx tsx src/lib/common/__tests__/with-auth-schema-drift.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
