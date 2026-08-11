@@ -383,7 +383,7 @@ export const caseA0RcmpFixture: CaseModule = {
             sourceQuote: "Standing Offer Year 1: … Each 1500 $ $",
           },
         ],
-        matchAnchors: [["annex b", "1500"], ["annual", "1500"], ["评标", "1500"]],
+        matchAnchors: [["annex b", "1500"], ["annual", "1500"], ["评标", "1500"], ["each 1500"]],
       },
       {
         factId: "F0-QTY-7500",

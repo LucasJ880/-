@@ -110,6 +110,9 @@ export function renderCaseMarkdown(rec: CaseRunRecord): string {
     `| NECESSARY 澄清覆盖率 | ${pct(m.necessaryClarificationCoverage)} | golden NECESSARY 主题被问到的比例 |`,
   );
   lines.push(
+    `| CROSS_DOMAIN_LEAK | **${m.crossDomainLeakTotal}** | facts ${m.crossDomainLeakFacts} + reqs ${m.crossDomainLeakRequirements} + 风险行 ${m.hallucinatedRiskLines} + 澄清 ${m.hallucinatedClarifications} |`,
+  );
+  lines.push(
     `| 歧义处理 | ${m.ambiguitiesOk}/${m.ambiguitiesTotal} OK | expectedUnknown 违规 ${m.expectedUnknownViolations} |`,
   );
   lines.push("");
@@ -208,6 +211,15 @@ export function renderCaseMarkdown(rec: CaseRunRecord): string {
     lines.push(
       `未被问到的 NECESSARY 主题：${uncoveredNecessary.map((c) => `\`${c.clarId}\``).join("、")}`,
     );
+    lines.push("");
+  }
+
+  if (e.crossDomainLeaks.length > 0) {
+    lines.push("### 跨域泄漏明细");
+    lines.push("");
+    for (const l of e.crossDomainLeaks) {
+      lines.push(`- [${l.kind}] ${l.excerpt}`);
+    }
     lines.push("");
   }
 

@@ -497,6 +497,11 @@ export type CaseMetrics = {
   ambiguitiesOk: number;
   ambiguitiesTotal: number;
   expectedUnknownViolations: number;
+  /** 幻觉探针命中的 fact / requirement 条数（risk/clarification 已各自计数） */
+  crossDomainLeakFacts: number;
+  crossDomainLeakRequirements: number;
+  /** 统一跨域泄漏计数 = facts + requirements + 幻觉风险行 + 幻觉澄清 */
+  crossDomainLeakTotal: number;
 };
 
 export type CaseEvaluation = {
@@ -507,6 +512,7 @@ export type CaseEvaluation = {
   clarifications: ClarificationsEvaluation;
   ambiguities: AmbiguityEvaluation[];
   unknownViolations: UnknownViolation[];
+  crossDomainLeaks: { kind: "fact" | "requirement"; excerpt: string }[];
   metrics: CaseMetrics;
 };
 
@@ -538,6 +544,25 @@ export function evaluateCase(
     output.clarifications,
   );
   const unknownViolations = evaluateExpectedUnknowns(evalCase, output.facts);
+
+  // 跨域泄漏：与本 case 文档无关主题出现在 fact / requirement 输出中
+  const crossDomainLeaks: { kind: "fact" | "requirement"; excerpt: string }[] =
+    [];
+  for (const f of output.facts) {
+    const text = factFullText(f);
+    if (anchorGroupsMatch(text, evalCase.hallucinationProbes)) {
+      crossDomainLeaks.push({ kind: "fact", excerpt: f.contentZh.slice(0, 100) });
+    }
+  }
+  for (const r of output.requirements) {
+    const text = `${r.originalRequirement} ${r.chineseTranslation}`;
+    if (anchorGroupsMatch(text, evalCase.hallucinationProbes)) {
+      crossDomainLeaks.push({
+        kind: "requirement",
+        excerpt: r.originalRequirement.slice(0, 100),
+      });
+    }
+  }
 
   const g = requirements.perGolden;
   const gm = g.filter((x) => x.mandatory);
@@ -632,6 +657,15 @@ export function evaluateCase(
     ambiguitiesOk: ambiguities.filter((a) => a.verdict === "OK").length,
     ambiguitiesTotal: ambiguities.length,
     expectedUnknownViolations: unknownViolations.length,
+    crossDomainLeakFacts: crossDomainLeaks.filter((l) => l.kind === "fact")
+      .length,
+    crossDomainLeakRequirements: crossDomainLeaks.filter(
+      (l) => l.kind === "requirement",
+    ).length,
+    crossDomainLeakTotal:
+      crossDomainLeaks.length +
+      risks.hallucinatedLines.length +
+      hallucinated,
   };
 
   return {
@@ -642,6 +676,7 @@ export function evaluateCase(
     clarifications,
     ambiguities,
     unknownViolations,
+    crossDomainLeaks,
     metrics,
   };
 }

@@ -342,6 +342,27 @@ ok("端到端：值对证据对=CORRECT；值对证据错=CORRECT_VALUE_BAD_EVID
 
   assert.equal(result.unknownViolations.length, 1);
   assert.equal(result.unknownViolations[0]!.field, "budget");
+
+  // 跨域泄漏统一指标：本用例中 backpack 探针命中 1 条风险行 + 1 条幻觉澄清
+  assert.equal(result.metrics.crossDomainLeakFacts, 0);
+  assert.equal(result.metrics.crossDomainLeakRequirements, 0);
+  assert.equal(result.metrics.crossDomainLeakTotal, 2);
+});
+
+ok("跨域泄漏指标：fact / requirement 命中探针分别计数并进 total", () => {
+  const c = miniCase();
+  const result = evaluateCase(c, {
+    facts: [
+      fact("leak_fact", "backpack 面料参数", 1, "Bid closing: 2026-05-01"),
+    ],
+    requirements: [req("GEN-009", "the bidder must supply backpack samples")],
+    clarifications: [],
+    riskLines: [],
+  });
+  assert.equal(result.metrics.crossDomainLeakFacts, 1);
+  assert.equal(result.metrics.crossDomainLeakRequirements, 1);
+  assert.equal(result.metrics.crossDomainLeakTotal, 2);
+  assert.equal(result.crossDomainLeaks.length, 2);
 });
 
 ok("幻觉风险行不给 golden 记 DETECTED", () => {

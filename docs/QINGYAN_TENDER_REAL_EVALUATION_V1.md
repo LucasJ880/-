@@ -142,6 +142,47 @@ repo 可见性：**PUBLIC**（`LucasJ880/-`）。因此 V1 起约定：真实标
 - **T4（Award/Memory 域）**：CASE E 需要真实 award 数据（§3）；本契约的 `provenance`/`expectedUnknowns` 已为 award 类黄金字段留位。
 - 横切：每个 T 合入前后各跑一次 `npm run test:tender-eval`，分差写进 PR——"变聪明"从此有数字。
 
+## BENCHMARK_FREEZE_CONTRACT（2026-08-11 Final Review 冻结）
+
+人工 Final Review 判定 PR97 = PASS_WITH_FREEZE_ACTION。自本节起，以下要素为**冻结面**，
+Candidate（Analyzer 实现）PR 不得修改；未来任何修改必须走独立 **Benchmark Governance PR**
+（version bump + baseline 重跑 + 变更理由，且不得与 Analyzer 实现混在同一 PR）：
+
+1. **Benchmark Golden**：`src/lib/tender-eval/cases/**` 全部黄金条目（facts/requirements/risks/
+   clarifications/ambiguities/expectedUnknowns/hallucinationProbes 及其 matchAnchors）。
+2. **Scoring rules**：`evaluate.ts` 判定语义 —— MATCHED/PARTIAL/MISSED/FALSE_POSITIVE/DUPLICATE、
+   值+证据双重判定（CORRECT_VALUE_BAD_EVIDENCE=失败）、幻觉风险行不给 golden 记 DETECTED、
+   澄清主题只看问题文本、分母为 0 → null。
+3. **Match threshold**：token coverage ≥ 0.35（MATCHED），锚词组内 AND / 组间 OR。
+4. **Normalization semantics**：`normalize.ts`（日期/时间/金额/数量/时长等价 + NFKC/空白/连字符折叠）。
+5. **Evidence semantics**：sourceRef snippet 归一化后逐字在声称 doc+page；golden 页码约束命中。
+6. **Cross-domain leak semantics**：`crossDomainLeakTotal = 探针命中的 facts + requirements +
+   幻觉风险行 + 幻觉澄清`；目标恒为 0。
+
+**架构方向（永久）**：tender-eval（考官）可以 import/调用 tender-understanding/v2（被试）；
+被试绝不得 import tender-eval、读取 Golden/matchAnchors/baseline/provisional results。
+Candidate 输出形状的适配一律在 `v2-adapter.ts`（考官侧转换层）完成——Scorer 不知道
+Candidate 的内部输出风格。
+
+### 本次冻结吸收的考官侧变更（原临时存在于 PR #100，已回收）
+
+| 变更 | 定性 | V1 基线影响 |
+| --- | --- | --- |
+| crossDomainLeak{Facts,Requirements,Total} 统一泄漏指标 + 报告渲染 | 通用 benchmark 指标（candidate-independent） | 加法字段；旧指标逐字段不变（V1 泄漏量化为 A0 0 / A-REAL 2 / B 9） |
+| normalizeText 连字符折叠（‐‑‒–—― → -；数字-字母连写折叠） | 归一化健壮性（考官侧，两 lane 统一） | 0（全指标逐字段验证一致） |
+| F0-QTY-ANNUAL / F-QTY-ANNUAL matchAnchors 增补 `["each 1500"]` | **GOLDEN_CHANGE_REASON**：锚词是定位器非答案；原锚词按 V1 输出风格书写（"Annex B"+"1500" 同现），漏列了文档原句字面形（Annex B 表行原文即 "Each 1500"）。属明显漏写修复，非因某被试未匹配而放宽——期望值（1500）未变 | 0（V1 该事实原本即 CORRECT，经由旧锚词） |
+| eval-harness 自测 +1 组泄漏指标断言 | 考官自测强化 | 0 |
+| **未吸收**：requirementAsFactCandidate（fact 评估把 requirement 通道并入候选语料） | 判定为 **Candidate 输出形状适配**而非通用 scorer 语义——V1 把义务性信息放 facts 通道、V2 按语义放 requirements 通道，桥接责任在 v2-adapter（考官侧转换层），scorer 保持纯净 | 不进入 v1 scorer |
+
+### 版本判定
+
+`BENCHMARK_VERSION = tender-eval/v1`（冻结后 V1 lane 全指标与原基线**逐字段一致**，
+V1_BASELINE_INVARIANCE = PASS；见 docs/tender-eval/baseline-v1/ —— 已用冻结 scorer
+重生成快照，唯一差异为新增泄漏字段）。Golden 状态维持 **PENDING_HUMAN_CONFIRMATION**：
+BENCHMARK_FRAMEWORK = VALID，BENCHMARK_AUTHORITATIVE_SCORE = NO，ALL_METRICS = PROVISIONAL——
+待 Lucas 逐条确认 page / source quote / expected value / mandatory / risk / clarification 后
+方可 HUMAN_CONFIRMED。真实 43 页 PDF 继续只存 `fixtures/private/`（repo PUBLIC，永不提交）。
+
 ## 附：本次交付物清单
 
 - `src/lib/tender-eval/`：contract / normalize / evaluate / run-pipeline / real-pdf / report-io / cases×3 / README / 自测（11 组断言）
