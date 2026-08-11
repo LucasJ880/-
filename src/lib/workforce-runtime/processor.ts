@@ -310,12 +310,18 @@ export async function processWorkforceJobSlice(
         "@/lib/agent-runtime-v2/planner"
       );
       const { workforceWorkerRosterForPlanner } = await import("./workers");
+      // T1B（§12）：按 workDomain 解析规划期工具白名单（规划输入选择，
+      // 非执行语义）。无 workDomain / 未注册域 → undefined → 既有默认
+      // 投影，行为不变。
+      const { resolveWorkforcePlannerToolsForJob } = await import("./scope");
+      const scopedTools = await resolveWorkforcePlannerToolsForJob(meta);
       const planned = await planAgentRuntimeV2({
         orgId,
         userId: principal.userId,
         userRole: principal.role,
         channel: runtime.channel ?? "workforce",
         goal,
+        availableTools: scopedTools,
         // Phase 2B-1（§10）：planner 只能从 server-owned 名单"提议" workerKey
         workerRoster: workforceWorkerRosterForPlanner(),
       });

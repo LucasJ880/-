@@ -84,6 +84,9 @@ run_test "Workforce 2B-2 并行策略纯函数（Policy/Batch/Limit）" "npx tsx
 run_test "Workforce 2B-2 受控并行执行 P1-P4/P8-P9" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-execution.test.ts"
 run_test "Workforce 2B-2 CAS/审批/StaleLease P5-P7" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-parallel-claims.test.ts"
 run_test "Workforce 2B-2 Final Gate（Synthesis×Parallel/SECRET_X/P6b/预算）" "npx tsx src/lib/workforce-runtime/__tests__/phase2b2-final-gate.test.ts"
+# Tender T1B — Workforce Integration
+run_test "Tender T1B 纯逻辑不变量（Scope/Flag/契约/状态隔离）" "npx tsx src/lib/tender-workforce/__tests__/t1b-pure.test.ts"
+run_test "Tender T1B Workforce 集成（触发/幂等/管线/隔离/取消）" "npx tsx src/lib/tender-workforce/__tests__/t1b-integration.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"
