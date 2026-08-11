@@ -155,6 +155,7 @@ redirect：
 | 既有 Tender 回归（tender-result/price-gap/review-outcome/org-rules/tender-skills + tender-auto-analysis 全 16 套 + bid-workflow 4 套） | ✅ 全绿（bid-workflow-phase1 的 `?tab=ai` 断言不变仍绿） |
 | `npm run build`（prisma generate + next build） | ✅ Compiled successfully（warnings 均为基线既有） |
 | 浏览器级视觉冒烟 | ✅ 见 §6：5 入口/深链别名/redirect/三抽屉/移动/桌面/空态/403 面（generate-pdf 降级）全过 |
+| PR #98 CI（head `3355e30`） | ✅ 有效双门全绿：`validate-lint-typecheck-test-build` PASS（6m47s）+ `Vercel – qingyan-staging` DEPLOYED；`Vercel – -` fail = #81 以来恒失败的既有非信号 |
 
 任务书 §15 清单逐项：5 入口唯一 ✅（IA 静态审计 + 冒烟）；T0 核心功能 reachable ✅（§5 映射全表）；Requirement→Evidence ✅（行内「来源」+ SourceSnippetDialog 原样）；Approval/Lock 无回归 ✅（相关模块零 diff + 套件绿；`TECHNICAL_REQUIREMENTS_MISSING`/`REVISION_NOT_APPROVED` 等语义所在后端未触碰）；Version 可访问 ✅（编辑器路由 + 版本抽屉）；AI 分析可找到 ✅（招标要求/情报/工作台简报）；redirect 无循环 ✅；403/404 ✅（详情页错误态保留；平台面门禁未动）；Loading/Empty ✅；Mobile/Desktop ✅。
 
