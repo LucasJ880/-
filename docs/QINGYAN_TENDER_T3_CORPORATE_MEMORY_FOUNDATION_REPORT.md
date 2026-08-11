@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 阶段 | Tender T3 — Corporate Memory Foundation（Buyer + MemoryClaim + Provenance + Retrieval Contract） |
-| 起始 main | `b27f0ae`（含 #98 T1A / #99 T2-M1 / #101 T1B Dark Merge）；Final Remediation 已合并最新 `origin/main@871da3b`（含 #97 tender-eval / #100 Tender V2） |
+| 起始 main | `b27f0ae`（含 #98 T1A / #99 T2-M1 / #101 T1B Dark Merge）；Final Remediation 合并 `871da3b`（#97 eval / #100 V2）；**Final Main Sync 合并最新 `origin/main@c889511`（含 #102 T2-P1 Ledger Producer），仅 test-all.sh 注册冲突，保留全部 lane** |
 | 分支 | `feature/tender-t3-corporate-memory-foundation`（从 `origin/main@b27f0ae` 创建，与 Tender V2 / T2-P1 为 sibling lane） |
 | 日期 | 2026-08-11 |
 | 性质 | additive-only schema（3 表）+ 新服务层 `src/lib/corporate-memory/*` + 测试；**无 UI 顶层页面、无 AI 自动写入、无回填、无生产迁移** |
@@ -292,7 +292,7 @@ DB 级 rehearsal：Buyer 17 / MemoryClaim 28 / Evidence 17 列到位；Evidence�
 
 `ISOLATED_NEON = PASS`，`ISOLATED_NEON_BRANCHES_LEFT = 0`。
 
-流程（§46，初版 + Final Remediation 各跑一次隔离分支）：从生产 project `polished-thunder-16018212` 开子分支（初版 `preview-t3-memory`；Remediation `preview-t3-remediation`）→ 处理生产快照已知问题 `20260805090000_marketing_economics`（表已物化但无 migration 记录，`migrate resolve --applied`，先核对其 CREATE TABLE / ADD COLUMN 目标均已存在，零漂移）→ `migrate deploy` 干净应用 T2-M1 + T3 → prisma validate/generate → 43 集成断言（BUYER + MEM-01..12 + RET + ACCESS-01..07）+ 租户隔离 + 检索 + RESTRICT rehearsal 全过 → 全量 test-all 回归 **216/216 通过, 0 失败**（含 V2/eval sibling lane 合并后的 7 个 tender 套件）→ 删除临时分支（LEFT=0）。**未做生产 migration**。
+流程（§46，初版 + Final Remediation 各跑一次隔离分支）：从生产 project `polished-thunder-16018212` 开子分支（初版 `preview-t3-memory`；Remediation `preview-t3-remediation`）→ 处理生产快照已知问题 `20260805090000_marketing_economics`（表已物化但无 migration 记录，`migrate resolve --applied`，先核对其 CREATE TABLE / ADD COLUMN 目标均已存在，零漂移）→ `migrate deploy` 干净应用 T2-M1 + T3 → prisma validate/generate → 43 集成断言（BUYER + MEM-01..12 + RET + ACCESS-01..07）+ 租户隔离 + 检索 + RESTRICT rehearsal 全过 → 全量 test-all 回归 **218/218 通过, 0 失败**（Final Main Sync 后：合并 #102 T2-P1 + #97 eval + #100 V2，9 个 tender 套件全绿）→ 删除临时分支（LEFT=0）。**未做生产 migration**。
 
 ---
 
