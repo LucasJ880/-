@@ -6976,3 +6976,136 @@ model TenderArchiveItem {
   @@index([projectId, kind, capturedAt])
   @@index([supersedesSnapshotId])
 }
+
+// ============================================================
+// Tender T3 — Corporate Memory Foundation (Buyer / MemoryClaim / MemoryClaimEvidence)
+// Source of Truth: docs/QINGYAN_TENDER_T3_CORPORATE_MEMORY_FOUNDATION_REPORT.md
+// 三表刻意不 FK Project/User/Organization/TenderArchiveItem：记忆保留周期与业务对象/来源生命周期解耦；
+// 唯一内部 FK = Evidence→Claim（Restrict，对齐 ProjectEventActor 先例）。
+// T3 仅基础层：零 AI 自动写入（AI_AUTO_MEMORY_WRITE = NO）、零回填、零 V2/T1B/Archive 集成、零物化快照。
+// 生产写入统一走 src/lib/corporate-memory/*（禁止业务代码直连 prisma.memoryClaim.create）。
+// ============================================================
+
+/// 采购主体规范化实体（org 级；Owner / Public Buyer / Customer Organization，非联系人）。
+/// Canonical identity = 确定性 normalization + 显式 alias / websiteDomain / externalIdentifiers；
+/// 禁止仅凭名字相似自动合并；同 normalizedName 异实体合法共存（识别不确定 → NEEDS_REVIEW）。
+/// Buyer merge 本轮 NOT_IMPLEMENTED（未来 merge contract 见 corporate-memory/buyer-service.ts）。
+model Buyer {
+  id                  String   @id @default(cuid())
+  orgId               String
+  canonicalName       String
+  /// normalizeBuyerName(canonicalName) 确定性产物；刻意非唯一约束（同名异实体需可共存，dedupe 由 service 受控执行）
+  normalizedName      String
+  /// municipal | provincial | federal | crown | school_board | healthcare | university | indigenous | private | other
+  buyerType           String?
+  country             String?
+  province            String?
+  city                String?
+  /// 规范化裸域名（如 toronto.ca）；强身份信号之一
+  websiteDomain       String?
+  officialWebsite     String?
+  /// 显式人工别名（精确匹配辅助；非模糊合并依据）
+  aliases             String[]
+  /// 外部系统标识 { sourceSystem: identifier }（如 bidtogo / merx buyer id）
+  externalIdentifiers Json?
+  /// ACTIVE | NEEDS_REVIEW | INACTIVE | MERGED（MERGED 保留给未来 merge contract，本轮不可写）
+  status              String   @default("ACTIVE")
+  metadata            Json?
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([orgId, normalizedName])
+  @@index([orgId, websiteDomain])
+  @@index([orgId, status])
+}
+
+/// 企业记忆 canonical claim：一条可验证、可追溯、可版本化的企业陈述（跨 Tender/Sales/Vendor/Project 域通用）。
+/// 事实语义字段不可原地改写：实质变化 = 新 claim + supersedesClaimId（新→旧，对齐 TenderArchiveItem 链方向）+ 旧行状态归档；
+/// 原地可改仅治理元数据（metadata / reviewNote / accessClass / 受控 verification 提升）——由 corporate-memory service 白名单强制。
+model MemoryClaim {
+  id                 String    @id @default(cuid())
+  orgId              String
+  /// BUYER | PROJECT | TENDER | VENDOR | PRODUCT | ORGANIZATION | OTHER
+  subjectType        String
+  /// 逻辑 subject 引用（如 Buyer.id / Project.id）；刻意无 FK：跨业务对象存储且禁止级联抹史
+  subjectKey         String
+  /// BUYER_POLICY | BUYER_PATTERN | PROJECT_FACT | COMMERCIAL_TERM | TECHNICAL_REQUIREMENT | AWARD_FACT | PRICE_FACT | WIN_LOSS_REASON | SUPPLIER_FACT | OTHER
+  claimType          String
+  /// FACT | INTERPRETATION | INFERENCE（FACT 必须有直接支撑证据；AI 推理绝不默认 FACT）
+  claimNature        String
+  /// 单条可验证陈述（≤2000 字符，service 层强制；结构化补充进 structuredValue）
+  statement          String    @db.Text
+  structuredValue    Json?
+  /// HIGH | MEDIUM | LOW（与 verificationStatus 正交：置信度 ≠ 验证状态）
+  confidence         String
+  /// AI_EXTRACTED | HUMAN_CONFIRMED | SYSTEM_VERIFIED | NEEDS_REVIEW
+  verificationStatus String
+  /// TENDER_DOCUMENT | ADDENDUM | PUBLIC_WEB | AWARD_NOTICE | EMAIL | VENDOR_QUOTE | PROJECT_RECORD | SITE_VISIT | USER_ENTRY | AI_DERIVED
+  sourceType         String
+  /// 陈述捕获时点（producer 显式传入；刻意无 default）
+  capturedAt         DateTime
+  validFrom          DateTime?
+  validTo            DateTime?
+  /// ACTIVE | SUPERSEDED | RETRACTED | NEEDS_REVIEW（禁止 hard delete 作为普通纠正方式）
+  status             String    @default("ACTIVE")
+  /// 版本/修正链：新→旧单向指针（禁止回写旧行链接字段；旧行仅 status/时间戳归档）
+  supersedesClaimId  String?
+  supersededAt       DateTime?
+  retractedAt        DateTime?
+  retractionReason   String?
+  /// PUBLIC_SOURCE | INTERNAL_COMPANY | CLIENT_CONFIDENTIAL | VENDOR_CONFIDENTIAL | RESTRICTED（复用 TenderArchiveItem 词表；治理元数据可控修改）
+  accessClass        String    @default("INTERNAL_COMPANY")
+  /// user | system（本轮仅 user 经 admin 门可写：MEMORY_WRITE_PERMISSION = CONSERVATIVE_ADMIN_ONLY；ai 直写被 AI_AUTO_MEMORY_WRITE gate 拒绝）
+  createdByType      String
+  createdById        String?
+  verifiedById       String?
+  verifiedAt         DateTime?
+  reviewNote         String?   @db.Text
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  evidence MemoryClaimEvidence[]
+
+  @@index([orgId, subjectType, subjectKey, status])
+  @@index([orgId, claimType, status])
+  @@index([orgId, status, capturedAt])
+  @@index([supersedesClaimId])
+}
+
+/// Claim 的一等证据记录（1 claim → N evidence；provenance / citation 载体）。
+/// 证据语义字段 IMMUTABLE（只 create；错误证据 = claim 层 supersede/retract 修正）；唯一例外 accessClass 治理元数据。
+/// archiveItemId / documentId / sourceKey 均为逻辑引用（无 FK）：记忆保留与来源保留生命周期可不同。
+/// 同一 statement 不同来源的证据各自保留 sourceType/accessClass/capturedAt（禁止 public/internal 塌缩合并）。
+model MemoryClaimEvidence {
+  id            String      @id @default(cuid())
+  orgId         String
+  claimId       String
+  claim         MemoryClaim @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  /// 同 MemoryClaim.sourceType 词表去掉 AI_DERIVED（AI 产物不是独立证据）
+  sourceType    String
+  /// 来源域自然键（如 "tenderAnalysisRun:{id}" | "projectDocument:{id}" | "email:{messageId}"）
+  sourceKey     String?
+  /// TenderArchiveItem.id 逻辑引用（快照证据首选载体）
+  archiveItemId String?
+  documentId    String?
+  pageNumber    Int?
+  sectionLabel  String?
+  sourceUrl     String?     @db.Text
+  /// 证据片段（≤2000 字符，service 层强制；是 evidence 不是整份文档复制）
+  sourceSnippet String?     @db.Text
+  /// sha256（可用时）：来源内容完整性指纹
+  contentHash   String?
+  /// 证据捕获时点（producer 显式传入；刻意无 default）
+  capturedAt    DateTime
+  /// PUBLIC_SOURCE | INTERNAL_COMPANY | CLIENT_CONFIDENTIAL | VENDOR_CONFIDENTIAL | RESTRICTED（per-evidence 分级保留）
+  accessClass   String      @default("INTERNAL_COMPANY")
+  metadata      Json?
+  createdById   String?
+  createdAt     DateTime    @default(now())
+
+  @@index([claimId])
+  @@index([orgId, sourceType])
+  @@index([orgId, archiveItemId])
+}
