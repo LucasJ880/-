@@ -256,3 +256,75 @@ SEQUENTIAL BASELINE（`WORKFORCE_JOB_MAX_PARALLEL_TASKS=1`，production 默认�
 | PRODUCTION_ENV_PARALLELISM_CHANGED | **NO** |
 | REAL_E2E | **PASS**（真实 ASHC 标书 / 真实用户 / 全真模型链；81.8s SEQUENTIAL BASELINE） |
 | T1B_STATUS | **READY_FOR_FINAL_REVIEW** |
+
+---
+
+# Final Human Review / Dark Merge Gate（2026-08-10）
+
+人工 Final Review 已完成，正式判定：
+
+| 键 | 判定 |
+|---|---|
+| FINAL_REVIEW | **PASS** |
+| T1B_ENGINEERING | **PASS**（Runtime / Orchestration / Safety 工程链全 Gate 通过） |
+| DARK_MERGE_APPROVED | **YES**（normal merge commit，能力以休眠态入 main） |
+| PRODUCTION_ENABLEMENT_APPROVED | **NO** |
+| TENDER_WORKFORCE_ANALYSIS_ENABLED_PRODUCTION | **OFF**（default off，fail-closed；repo 内零 committed production value） |
+| PRODUCTION_ENV_CHANGE | **NO**（本轮零 Vercel/env/secret 操作） |
+| PRODUCTION_PARALLELISM | **1** |
+| PARALLELISM_ENABLEMENT | **NOT_STARTED** |
+| NEXT_PHASE_AUTOSTART | **NO** |
+
+## 质量 Blocker（为什么 Dark Merge ≠ 生产启用）
+
+**T1B 的 Runtime / Orchestration / Safety 已通过工程 Gate**（一键触发、幂等、授权、隔离、
+CAS/fencing、native synthesis、verifier hard floor、Job Center、209/209 回归、真实 E2E 全链）。
+
+**但 Tender Understanding / Extraction / Clarification 未达到生产启用标准**，已知真实风险：
+
+1. `TENDER_FACT_EXTRACTION_SAMPLE_BOUND` — 真实 E2E：15 页真实 Tender（ASHC CLZ-2026-001-A）
+   仅提取出 2 条强制 Requirement（facts=0）；legacy 抽取规则为历史样本特化。
+2. `TENDER_CLARIFICATION_TEMPLATE_BOUND` — 真实 E2E：澄清草稿 7/9 含跨领域模板污染
+   （背包标词汇出现在窗户升级顾问标中）。
+3. PR #97 Benchmark（tender-eval/v1）已证明旧 Analyzer 对真实 Tender 泛化能力不足
+   （V1 基线：RCMP 过拟合 + LLM 空壳）。
+
+因此：**T1B merge ≠ Tender Agent production approval**。
+
+## Production Enablement Release Gate（冻结）
+
+```
+PRODUCTION_ENABLEMENT_GATE =
+      CONFIRMED_GOLDEN
+  AND MANDATORY_RECALL        >= 90%
+  AND REQUIREMENT_RECALL      >= 85%
+  AND CRITICAL_FACT_ACCURACY  >= 90%
+  AND EVIDENCE_ACCURACY       >= 95%
+  AND UNSUPPORTED_CRITICAL_CLAIMS = 0
+  AND CROSS_DOMAIN_TEMPLATE_LEAK  = 0
+```
+
+全部满足之前，`TENDER_WORKFORCE_ANALYSIS_ENABLED` 不得在 production 开启。
+
+## Dormant Capability 语义（永久分离的两个状态）
+
+Merge 后系统拥有 **Dormant Tender Workforce Capability**：代码在 main、
+测试常驻回归、staging 可灰度验证；但生产用户不可访问，除非未来显式开启 Feature Flag
+（且必须先过上方 Release Gate）。
+
+```
+CODE_AVAILABLE       = YES
+PRODUCTION_AVAILABLE = NO
+```
+
+## Next Main Priority（记录，不自动启动）
+
+`NEXT_MAIN_PRIORITY = TENDER_UNDERSTANDING_V2`：真正通用的 Tender Understanding
++ PR #97 Benchmark Gate + 真实 Window Covering Tender 数据。未来流程：
+
+Tender Understanding V2 → Confirmed Golden → Benchmark → Release Gate PASS →
+Production org allowlist 灰度开启 → Real User Validation → Parallelism 1→2 独立 Gate。
+
+本轮不启动：Tender Understanding V2 实现 / T2-P1 / T2-M2 / T3 / T4 / T5 /
+Award Watch / Auto RFQ / Auto Submission / 2B-3 / 2C-2 / 2C-3 / Parallelism 1→2 /
+Production Feature Flag rollout。
