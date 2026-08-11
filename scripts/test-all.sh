@@ -259,6 +259,7 @@ run_test "招标自动分析审核加固" "npx tsx src/lib/tender-auto-analysis/
 run_test "招标自动分析 Ready Gate" "npx tsx src/lib/tender-auto-analysis/__tests__/ready-gate.test.ts"
 run_test "招标自动分析补遗对比" "npx tsx src/lib/tender-auto-analysis/__tests__/addendum-diff.test.ts"
 run_test "Tender T2-M1 账本档案 schema 契约" "npx tsx --test src/lib/tender/__tests__/t2-m1-schema-contract.test.ts"
+run_test "招标真实评估评分引擎自测" "npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts"
 
 # ── 第二组：TypeScript 编译检查 ──
 

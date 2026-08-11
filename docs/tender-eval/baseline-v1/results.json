@@ -1,0 +1,2395 @@
+{
+  "metadata": {
+    "contractVersion": "tender-eval/v1",
+    "runId": "20260811-031841Z-7e17fde",
+    "timestamp": "2026-08-11T03:18:41.156Z",
+    "gitSha": "7e17fde65f6c",
+    "lane": "DETERMINISTIC",
+    "llmEnabled": false,
+    "model": null,
+    "analysisVersion": "tender-auto-analysis-v1",
+    "promptVersion": "tender-analysis-prompt-v1",
+    "parseVersion": "tender-page-parse-v1",
+    "matchTokenCoverageThreshold": 0.35,
+    "nodeVersion": "v20.18.1"
+  },
+  "cases": [
+    {
+      "meta": {
+        "caseId": "case-a0-rcmp-fixture",
+        "title": "RCMP RISO 合成 fixture（过拟合对照）",
+        "projectType": "goods-standing-offer",
+        "provenance": {
+          "kind": "SYNTHETIC",
+          "source": "src/lib/tender-auto-analysis/__tests__/fixtures/rcmp-backpack-pages.ts（真实招标的人工转写节选，页码/正文与原件有出入）",
+          "redaction": "EXCERPTED",
+          "goldenAnswerMethod": "PENDING_HUMAN_CONFIRMATION",
+          "confirmedBy": null,
+          "confirmedAt": null
+        },
+        "documentCount": 1,
+        "pageCount": 15,
+        "skipped": false
+      },
+      "evaluation": {
+        "caseId": "case-a0-rcmp-fixture",
+        "facts": [
+          {
+            "factId": "F0-NUMBER",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "solicitation_number"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[solicitation_number]"
+          },
+          {
+            "factId": "F0-BUYER",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "buyer_rcmp"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[buyer_rcmp]"
+          },
+          {
+            "factId": "F0-TITLE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "solicitation_title",
+              "project_name"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[solicitation_title,project_name]"
+          },
+          {
+            "factId": "F0-ISSUE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "issue_date"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[issue_date]"
+          },
+          {
+            "factId": "F0-CLOSING",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "closing_datetime",
+              "enquiry_deadline_minus_5_days"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[closing_datetime,enquiry_deadline_minus_5_days]"
+          },
+          {
+            "factId": "F0-ENQUIRY",
+            "critical": true,
+            "verdict": "CORRECT_VALUE_BAD_EVIDENCE",
+            "matchedFactKeys": [
+              "closing_datetime",
+              "enquiry_deadline_minus_5_days",
+              "recommendation_send_quantity_clarifications"
+            ],
+            "valueOk": true,
+            "evidenceOk": false,
+            "detail": "candidates=[closing_datetime,enquiry_deadline_minus_5_days,recommendation_send_quantity_clarifications]"
+          },
+          {
+            "factId": "F0-PERIOD",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "standing_offer_main_period"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[standing_offer_main_period]"
+          },
+          {
+            "factId": "F0-VALIDITY",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "offer_validity"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[offer_validity]"
+          },
+          {
+            "factId": "F0-3PDF",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "submission_sections",
+              "three_pdfs",
+              "inference_submission_format_risk"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[submission_sections,three_pdfs,inference_submission_format_risk]"
+          },
+          {
+            "factId": "F0-5MB",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "email_max_size",
+              "email_size_5mb",
+              "inference_submission_format_risk"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[email_max_size,email_size_5mb,inference_submission_format_risk]"
+          },
+          {
+            "factId": "F0-PRICE-ONLY",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "price_only_in_financial_offer"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[price_only_in_financial_offer]"
+          },
+          {
+            "factId": "F0-EVAL",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "evaluation_method"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[evaluation_method]"
+          },
+          {
+            "factId": "F0-ELIGIBILITY",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "reciprocal_procurement_eligibility",
+              "reciprocal_procurement"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[reciprocal_procurement_eligibility,reciprocal_procurement]"
+          },
+          {
+            "factId": "F0-DDP",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "delivery_term",
+              "delivery_ddp_regina",
+              "inference_callup_fulfillment_pressure",
+              "recommendation_tech_first_then_price"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[delivery_term,delivery_ddp_regina,inference_callup_fulfillment_pressure,recommendation_tech_first_then_price]"
+          },
+          {
+            "factId": "F0-LEAD-30",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "delivery_lead_time",
+              "delivery_lead_time_30_days"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[delivery_lead_time,delivery_lead_time_30_days]"
+          },
+          {
+            "factId": "F0-24H",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "callup_confirmation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[callup_confirmation]"
+          },
+          {
+            "factId": "F0-ENV",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "environmentally_preferable_packaging_mandatory"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[environmentally_preferable_packaging_mandatory]"
+          },
+          {
+            "factId": "F0-FORCED-LABOUR",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "forced_labour_requirement"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[forced_labour_requirement]"
+          },
+          {
+            "factId": "F0-NO-SECURITY",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "no_security_requirement"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[no_security_requirement]"
+          },
+          {
+            "factId": "F0-QTY-A",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_annex_a_up_to_1500_per_period",
+              "qty_ambiguity_interpretation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_annex_a_up_to_1500_per_period,qty_ambiguity_interpretation]"
+          },
+          {
+            "factId": "F0-QTY-ANNUAL",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_annex_b_standing_offer_year_1_1500",
+              "qty_annex_b_standing_offer_year_2_1500",
+              "qty_annex_b_standing_offer_year_3_1500",
+              "qty_annex_b_option_year_1_1500",
+              "qty_annex_b_option_year_2_1500",
+              "qty_annex_b_1500_annual_evaluation",
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_ambiguity_interpretation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_annex_b_standing_offer_year_1_1500,qty_annex_b_standing_offer_year_2_1500,qty_annex_b_standing_offer_year_3_1500,qty_annex_b_option_year_1_1500,qty_annex_b_option_year_2_1500,qty_annex_b_1500_annual_evaluation,qty_7500_evaluation_aggregate_not_guarantee,qty_ambiguity_interpretation]"
+          },
+          {
+            "factId": "F0-QTY-7500",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_ambiguity_interpretation",
+              "inference_quantity_commercial_risk",
+              "recommendation_send_quantity_clarifications"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_7500_evaluation_aggregate_not_guarantee,qty_ambiguity_interpretation,inference_quantity_commercial_risk,recommendation_send_quantity_clarifications]"
+          },
+          {
+            "factId": "F0-QTY-NO-GUARANTEE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_annex_a_up_to_1500_per_period",
+              "qty_annex_b_standing_offer_year_1_1500",
+              "qty_annex_b_standing_offer_year_2_1500",
+              "qty_annex_b_standing_offer_year_3_1500",
+              "qty_annex_b_option_year_1_1500",
+              "qty_annex_b_option_year_2_1500",
+              "qty_estimated_for_evaluation_only_not_guarantee",
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_actual_purchase_not_guaranteed",
+              "inference_quantity_commercial_risk"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_annex_a_up_to_1500_per_period,qty_annex_b_standing_offer_year_1_1500,qty_annex_b_standing_offer_year_2_1500,qty_annex_b_standing_offer_year_3_1500,qty_annex_b_option_year_1_1500,qty_annex_b_option_year_2_1500,qty_estimated_for_evaluation_only_not_guarantee,qty_7500_evaluation_aggregate_not_guarantee,qty_actual_purchase_not_guaranteed,inference_quantity_commercial_risk]"
+          }
+        ],
+        "requirements": {
+          "perGolden": [
+            {
+              "goldenId": "R0-M1",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M1",
+              "duplicateCodes": [],
+              "coverage": 0.875,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M2",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M2",
+              "duplicateCodes": [],
+              "coverage": 0.889,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M3",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M3",
+              "duplicateCodes": [],
+              "coverage": 0.909,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M4",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M4",
+              "duplicateCodes": [],
+              "coverage": 0.875,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M5",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M5",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M6",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M6",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M7",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M7",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M8",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M8",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M9",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M9",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M10",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M10",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M11",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M11",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M12",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M12",
+              "duplicateCodes": [],
+              "coverage": 0.875,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M13",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M13",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M14",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M14",
+              "duplicateCodes": [],
+              "coverage": 0.857,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-M15",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M15",
+              "duplicateCodes": [],
+              "coverage": 0.9,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R0-GEN-RESPONSIVE",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-001",
+              "duplicateCodes": [],
+              "coverage": 1,
+              "evidenceOk": true
+            }
+          ],
+          "perExtracted": [
+            {
+              "requirementCode": "M1",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M1"
+            },
+            {
+              "requirementCode": "M2",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M2"
+            },
+            {
+              "requirementCode": "M3",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M3"
+            },
+            {
+              "requirementCode": "M4",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M4"
+            },
+            {
+              "requirementCode": "M5",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M5"
+            },
+            {
+              "requirementCode": "M6",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M6"
+            },
+            {
+              "requirementCode": "M7",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M7"
+            },
+            {
+              "requirementCode": "M8",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M8"
+            },
+            {
+              "requirementCode": "M9",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M9"
+            },
+            {
+              "requirementCode": "M10",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M10"
+            },
+            {
+              "requirementCode": "M11",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M11"
+            },
+            {
+              "requirementCode": "M12",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M12"
+            },
+            {
+              "requirementCode": "M13",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M13"
+            },
+            {
+              "requirementCode": "M14",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M14"
+            },
+            {
+              "requirementCode": "M15",
+              "verdict": "MATCHED",
+              "goldenId": "R0-M15"
+            },
+            {
+              "requirementCode": "GEN-001",
+              "verdict": "MATCHED",
+              "goldenId": "R0-GEN-RESPONSIVE"
+            }
+          ]
+        },
+        "risks": {
+          "perGolden": [
+            {
+              "riskId": "RISK0-QTY",
+              "severity": "IMPORTANT",
+              "verdict": "DETECTED"
+            },
+            {
+              "riskId": "RISK0-SUBMISSION",
+              "severity": "CRITICAL",
+              "verdict": "DETECTED"
+            },
+            {
+              "riskId": "RISK0-DELIVERY",
+              "severity": "IMPORTANT",
+              "verdict": "DETECTED"
+            },
+            {
+              "riskId": "RISK0-ELIGIBILITY",
+              "severity": "CRITICAL",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISK0-TECH-STANDARDS",
+              "severity": "IMPORTANT",
+              "verdict": "DETECTED"
+            }
+          ],
+          "hallucinatedLines": [],
+          "unmatchedLines": [
+            "【风险】",
+            "5. 情报缺口：历史中标与竞争对手信息尚无可靠来源，本报告不予编造。"
+          ]
+        },
+        "clarifications": {
+          "perQuestion": [
+            {
+              "question": "Call-up 的最小 / 最大 / 典型订购数量分别是多少？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR0-CALLUP"
+            },
+            {
+              "question": "「Up to 1500 per contract period」的准确含义是合同期硬上限、估算值，还是评标用数量？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR0-QTY-BASIS"
+            },
+            {
+              "question": "投标阶段是否必须提交样品（sample required at bid time）？若需要，数量、费用与退回规则是什么？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR0-SAMPLE"
+            },
+            {
+              "question": "防水/抗水测试所依据的具体标准（方法、时长、验收指标）是什么？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR0-WATER-TEST"
+            },
+            {
+              "question": "1000D 面料要求的适用范围（主壳/部件/等同材料是否接受）如何界定？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR0-1000D"
+            },
+            {
+              "question": "尺寸/容量的官方测量方法（measurement method）以哪份附件为准？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR0-MEASURE"
+            },
+            {
+              "question": "拉链 / 织带 / 缝线的具体性能标准与测试方法分别是什么？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR0-ZIPPER"
+            },
+            {
+              "question": "评标用 7,500（或年度 1,500×年数）是否仅用于评估，而不构成任何采购承诺？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR0-7500"
+            }
+          ],
+          "goldenCoverage": [
+            {
+              "clarId": "CLAR0-CALLUP",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-QTY-BASIS",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-SAMPLE",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-WATER-TEST",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-OVERSEAS",
+              "necessity": "NECESSARY",
+              "covered": false
+            },
+            {
+              "clarId": "CLAR0-1000D",
+              "necessity": "USEFUL",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-MEASURE",
+              "necessity": "USEFUL",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-ZIPPER",
+              "necessity": "USEFUL",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR0-7500",
+              "necessity": "USEFUL",
+              "covered": true
+            }
+          ]
+        },
+        "ambiguities": [
+          {
+            "ambiguityId": "AMB0-QTY",
+            "expected": "CLARIFICATION_REQUIRED",
+            "verdict": "OK"
+          }
+        ],
+        "unknownViolations": [],
+        "crossDomainLeaks": [],
+        "metrics": {
+          "goldenRequirements": 16,
+          "goldenMandatoryRequirements": 16,
+          "extractedRequirements": 16,
+          "requirementRecallStrict": 1,
+          "requirementRecallLenient": 1,
+          "mandatoryRecallStrict": 1,
+          "mandatoryRecallLenient": 1,
+          "requirementPrecision": 1,
+          "falsePositiveRate": 0,
+          "duplicateRate": 0,
+          "goldenFacts": 23,
+          "criticalFacts": 18,
+          "factAccuracy": 0.9565,
+          "criticalFactAccuracy": 0.9444,
+          "factsCorrectValueBadEvidence": 1,
+          "evidenceCoverage": 1,
+          "evidenceAccuracy": 1,
+          "unsupportedClaimRate": 0,
+          "goldenRisks": 5,
+          "riskRecall": 0.8,
+          "criticalRiskMissed": 1,
+          "hallucinatedRiskLines": 0,
+          "systemClarifications": 8,
+          "usefulClarificationRate": 1,
+          "alreadyAnsweredRate": 0,
+          "hallucinatedClarifications": 0,
+          "necessaryClarificationCoverage": 0.8,
+          "ambiguitiesOk": 1,
+          "ambiguitiesTotal": 1,
+          "expectedUnknownViolations": 0,
+          "crossDomainLeakFacts": 0,
+          "crossDomainLeakRequirements": 0,
+          "crossDomainLeakTotal": 0
+        }
+      }
+    },
+    {
+      "meta": {
+        "caseId": "case-a-rcmp-riso-real",
+        "title": "RCMP Backpacks for Cadets — RISO M5000-25-3574-A（真实原件 43 页）",
+        "projectType": "goods-standing-offer",
+        "provenance": {
+          "kind": "REAL",
+          "source": "fixtures/private/M5000-25-3574 - A - RFP - English.pdf（公开政府招标原件，本地加载，不提交）",
+          "redaction": "NONE",
+          "goldenAnswerMethod": "PENDING_HUMAN_CONFIRMATION",
+          "confirmedBy": null,
+          "confirmedAt": null
+        },
+        "documentCount": 1,
+        "pageCount": 43,
+        "skipped": false
+      },
+      "evaluation": {
+        "caseId": "case-a-rcmp-riso-real",
+        "facts": [
+          {
+            "factId": "F-BUYER",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "buyer_rcmp"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[buyer_rcmp]"
+          },
+          {
+            "factId": "F-NUMBER",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "solicitation_number"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[solicitation_number]"
+          },
+          {
+            "factId": "F-TITLE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "solicitation_title",
+              "project_name"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[solicitation_title,project_name]"
+          },
+          {
+            "factId": "F-TYPE",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "solicitation_type",
+              "standing_offer_main_period",
+              "qty_annex_b_standing_offer_year_1_1500",
+              "qty_annex_b_standing_offer_year_2_1500",
+              "qty_annex_b_standing_offer_year_3_1500",
+              "qty_annex_b_option_year_1_1500",
+              "qty_annex_b_option_year_2_1500",
+              "qty_annex_b_1500_annual_evaluation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[solicitation_type,standing_offer_main_period,qty_annex_b_standing_offer_year_1_1500,qty_annex_b_standing_offer_year_2_1500,qty_annex_b_standing_offer_year_3_1500,qty_annex_b_option_year_1_1500,qty_annex_b_option_year_2_1500,qty_annex_b_1500_annual_evaluation]"
+          },
+          {
+            "factId": "F-ISSUE-DATE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "issue_date"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[issue_date]"
+          },
+          {
+            "factId": "F-CLOSING",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "closing_datetime",
+              "enquiry_deadline_minus_5_days"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[closing_datetime,enquiry_deadline_minus_5_days]"
+          },
+          {
+            "factId": "F-ENQUIRY-DEADLINE",
+            "critical": true,
+            "verdict": "CORRECT_VALUE_BAD_EVIDENCE",
+            "matchedFactKeys": [
+              "closing_datetime",
+              "enquiry_deadline_minus_5_days",
+              "recommendation_send_quantity_clarifications"
+            ],
+            "valueOk": true,
+            "evidenceOk": false,
+            "detail": "candidates=[closing_datetime,enquiry_deadline_minus_5_days,recommendation_send_quantity_clarifications]"
+          },
+          {
+            "factId": "F-SUBMIT-EMAIL",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-VALIDITY",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "offer_validity"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[offer_validity]"
+          },
+          {
+            "factId": "F-PERIOD",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "standing_offer_main_period",
+              "option_period_1",
+              "option_period_2",
+              "qty_annex_a_up_to_1500_per_period",
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_ambiguity_interpretation",
+              "recommendation_send_quantity_clarifications"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[standing_offer_main_period,option_period_1,option_period_2,qty_annex_a_up_to_1500_per_period,qty_7500_evaluation_aggregate_not_guarantee,qty_ambiguity_interpretation,recommendation_send_quantity_clarifications]"
+          },
+          {
+            "factId": "F-OPTIONS",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "option_period_1",
+              "option_period_2"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[option_period_1,option_period_2]"
+          },
+          {
+            "factId": "F-DELIVERY-POINT",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-QTY-ANNEX-A",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_annex_a_up_to_1500_per_period",
+              "qty_ambiguity_interpretation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_annex_a_up_to_1500_per_period,qty_ambiguity_interpretation]"
+          },
+          {
+            "factId": "F-QTY-ANNUAL",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_annex_b_standing_offer_year_1_1500",
+              "qty_annex_b_standing_offer_year_2_1500",
+              "qty_annex_b_standing_offer_year_3_1500",
+              "qty_annex_b_option_year_1_1500",
+              "qty_annex_b_option_year_2_1500",
+              "qty_annex_b_1500_annual_evaluation",
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_ambiguity_interpretation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_annex_b_standing_offer_year_1_1500,qty_annex_b_standing_offer_year_2_1500,qty_annex_b_standing_offer_year_3_1500,qty_annex_b_option_year_1_1500,qty_annex_b_option_year_2_1500,qty_annex_b_1500_annual_evaluation,qty_7500_evaluation_aggregate_not_guarantee,qty_ambiguity_interpretation]"
+          },
+          {
+            "factId": "F-QTY-AGGREGATE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_ambiguity_interpretation",
+              "inference_quantity_commercial_risk",
+              "recommendation_send_quantity_clarifications"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_7500_evaluation_aggregate_not_guarantee,qty_ambiguity_interpretation,inference_quantity_commercial_risk,recommendation_send_quantity_clarifications]"
+          },
+          {
+            "factId": "F-QTY-NO-GUARANTEE",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "qty_annex_a_up_to_1500_per_period",
+              "qty_annex_b_standing_offer_year_1_1500",
+              "qty_annex_b_standing_offer_year_2_1500",
+              "qty_annex_b_standing_offer_year_3_1500",
+              "qty_annex_b_option_year_1_1500",
+              "qty_annex_b_option_year_2_1500",
+              "qty_estimated_for_evaluation_only_not_guarantee",
+              "qty_7500_evaluation_aggregate_not_guarantee",
+              "qty_actual_purchase_not_guaranteed",
+              "inference_quantity_commercial_risk"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[qty_annex_a_up_to_1500_per_period,qty_annex_b_standing_offer_year_1_1500,qty_annex_b_standing_offer_year_2_1500,qty_annex_b_standing_offer_year_3_1500,qty_annex_b_option_year_1_1500,qty_annex_b_option_year_2_1500,qty_estimated_for_evaluation_only_not_guarantee,qty_7500_evaluation_aggregate_not_guarantee,qty_actual_purchase_not_guaranteed,inference_quantity_commercial_risk]"
+          },
+          {
+            "factId": "F-EVAL-METHOD",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "evaluation_method"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[evaluation_method]"
+          },
+          {
+            "factId": "F-SUBMIT-3PDF",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "submission_sections",
+              "three_pdfs",
+              "inference_submission_format_risk"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[submission_sections,three_pdfs,inference_submission_format_risk]"
+          },
+          {
+            "factId": "F-EMAIL-5MB",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "email_max_size",
+              "email_size_5mb",
+              "inference_submission_format_risk"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[email_max_size,email_size_5mb,inference_submission_format_risk]"
+          },
+          {
+            "factId": "F-NO-ZIP",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "zip_and_links_not_accepted"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[zip_and_links_not_accepted]"
+          },
+          {
+            "factId": "F-PRICE-ONLY-FINANCIAL",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "price_only_in_financial_offer"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[price_only_in_financial_offer]"
+          },
+          {
+            "factId": "F-PRICING-CAD-DDP",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-DELIVERY-LEAD",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "delivery_lead_time",
+              "delivery_lead_time_30_days"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[delivery_lead_time,delivery_lead_time_30_days]"
+          },
+          {
+            "factId": "F-CALLUP-CONFIRM",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "callup_confirmation"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[callup_confirmation]"
+          },
+          {
+            "factId": "F-DDP",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "delivery_term",
+              "delivery_ddp_regina",
+              "inference_callup_fulfillment_pressure",
+              "recommendation_tech_first_then_price"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[delivery_term,delivery_ddp_regina,inference_callup_fulfillment_pressure,recommendation_tech_first_then_price]"
+          },
+          {
+            "factId": "F-CALLUP-MAX",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-CALLUP-10K",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-NO-SECURITY",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "no_security_requirement"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[no_security_requirement]"
+          },
+          {
+            "factId": "F-INSURANCE-NONE",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-ELIGIBILITY",
+            "critical": true,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "reciprocal_procurement_eligibility",
+              "reciprocal_procurement"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[reciprocal_procurement_eligibility,reciprocal_procurement]"
+          },
+          {
+            "factId": "F-FORCED-LABOUR",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "forced_labour_requirement"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[forced_labour_requirement]"
+          },
+          {
+            "factId": "F-ENV-PACKAGING",
+            "critical": false,
+            "verdict": "CORRECT",
+            "matchedFactKeys": [
+              "environmentally_preferable_packaging_mandatory"
+            ],
+            "valueOk": true,
+            "evidenceOk": true,
+            "detail": "candidates=[environmentally_preferable_packaging_mandatory]"
+          },
+          {
+            "factId": "F-QUARTERLY-REPORT",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-LAWS",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-FX-BAN",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-PAYMENT",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-CONTACT",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "F-CLIENT-REF",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          }
+        ],
+        "requirements": {
+          "perGolden": [
+            {
+              "goldenId": "R-M1",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "PARTIAL",
+              "primaryCode": "M1",
+              "duplicateCodes": [],
+              "coverage": 0.176,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M2",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "PARTIAL",
+              "primaryCode": "M2",
+              "duplicateCodes": [],
+              "coverage": 0.25,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M3",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M3",
+              "duplicateCodes": [],
+              "coverage": 1,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M4",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M4",
+              "duplicateCodes": [],
+              "coverage": 0.6,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M5",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M5",
+              "duplicateCodes": [],
+              "coverage": 0.833,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M6",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M6",
+              "duplicateCodes": [],
+              "coverage": 1,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M7",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M7",
+              "duplicateCodes": [],
+              "coverage": 0.714,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M8",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M8",
+              "duplicateCodes": [],
+              "coverage": 0.625,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M9",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M9",
+              "duplicateCodes": [],
+              "coverage": 0.714,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M10",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "PARTIAL",
+              "primaryCode": "M10",
+              "duplicateCodes": [],
+              "coverage": 0.273,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M11",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M11",
+              "duplicateCodes": [],
+              "coverage": 1,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M12",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M12",
+              "duplicateCodes": [],
+              "coverage": 0.538,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M13",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M13",
+              "duplicateCodes": [],
+              "coverage": 0.875,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M14",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "PARTIAL",
+              "primaryCode": "M14",
+              "duplicateCodes": [],
+              "coverage": 0.25,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-M15",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "M15",
+              "duplicateCodes": [],
+              "coverage": 0.667,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-SUB-EMAIL-DEADLINE",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-SUB-3PDF",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-SUB-5MB",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-SUB-PRICE-SEPARATION",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-SUB-SUBSTANTIATION",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "PARTIAL",
+              "primaryCode": "GEN-004",
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-SUB-PRICING-TABLE",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-018",
+              "duplicateCodes": [],
+              "coverage": 0.545,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-COM-FX",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-CERT-INTEGRITY",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-CERT-FCP",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-CERT-RECIPROCAL-DECL",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-008",
+              "duplicateCodes": [],
+              "coverage": 0.455,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-CERT-ENV-DECL",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-010",
+              "duplicateCodes": [],
+              "coverage": 0.667,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-ELIG-RECIPROCAL",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-30DAYS",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-CONFIRM-24H",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-DDP",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-PACKING-SLIP",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-UNLOADING",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-ENV-PACKAGING",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "PARTIAL",
+              "primaryCode": "GEN-002",
+              "duplicateCodes": [
+                "GEN-001"
+              ],
+              "coverage": 0.294,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "R-PERF-QUARTERLY",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "PARTIAL",
+              "primaryCode": "GEN-013",
+              "duplicateCodes": [
+                "GEN-011",
+                "GEN-012"
+              ],
+              "coverage": 0.125,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-PERF-FORCED-LABOUR",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "PARTIAL",
+              "primaryCode": "GEN-014",
+              "duplicateCodes": [
+                "GEN-015"
+              ],
+              "coverage": 0.133,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-CERT-SUBMIT-PART5",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-003",
+              "duplicateCodes": [
+                "GEN-007",
+                "GEN-009"
+              ],
+              "coverage": 0.727,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-PERF-CALLUP-ITEMS",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-016",
+              "duplicateCodes": [],
+              "coverage": 1,
+              "evidenceOk": true
+            },
+            {
+              "goldenId": "R-PERF-SUPPLY-ASWHEN",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MATCHED",
+              "primaryCode": "GEN-017",
+              "duplicateCodes": [],
+              "coverage": 0.625,
+              "evidenceOk": true
+            }
+          ],
+          "perExtracted": [
+            {
+              "requirementCode": "M1",
+              "verdict": "PARTIAL",
+              "goldenId": "R-M1"
+            },
+            {
+              "requirementCode": "M2",
+              "verdict": "PARTIAL",
+              "goldenId": "R-M2"
+            },
+            {
+              "requirementCode": "M3",
+              "verdict": "MATCHED",
+              "goldenId": "R-M3"
+            },
+            {
+              "requirementCode": "M4",
+              "verdict": "MATCHED",
+              "goldenId": "R-M4"
+            },
+            {
+              "requirementCode": "M5",
+              "verdict": "MATCHED",
+              "goldenId": "R-M5"
+            },
+            {
+              "requirementCode": "M6",
+              "verdict": "MATCHED",
+              "goldenId": "R-M6"
+            },
+            {
+              "requirementCode": "M7",
+              "verdict": "MATCHED",
+              "goldenId": "R-M7"
+            },
+            {
+              "requirementCode": "M8",
+              "verdict": "MATCHED",
+              "goldenId": "R-M8"
+            },
+            {
+              "requirementCode": "M9",
+              "verdict": "MATCHED",
+              "goldenId": "R-M9"
+            },
+            {
+              "requirementCode": "M10",
+              "verdict": "PARTIAL",
+              "goldenId": "R-M10"
+            },
+            {
+              "requirementCode": "M11",
+              "verdict": "MATCHED",
+              "goldenId": "R-M11"
+            },
+            {
+              "requirementCode": "M12",
+              "verdict": "MATCHED",
+              "goldenId": "R-M12"
+            },
+            {
+              "requirementCode": "M13",
+              "verdict": "MATCHED",
+              "goldenId": "R-M13"
+            },
+            {
+              "requirementCode": "M14",
+              "verdict": "PARTIAL",
+              "goldenId": "R-M14"
+            },
+            {
+              "requirementCode": "M15",
+              "verdict": "MATCHED",
+              "goldenId": "R-M15"
+            },
+            {
+              "requirementCode": "GEN-001",
+              "verdict": "DUPLICATE",
+              "goldenId": "R-PERF-ENV-PACKAGING"
+            },
+            {
+              "requirementCode": "GEN-002",
+              "verdict": "PARTIAL",
+              "goldenId": "R-PERF-ENV-PACKAGING"
+            },
+            {
+              "requirementCode": "GEN-003",
+              "verdict": "MATCHED",
+              "goldenId": "R-CERT-SUBMIT-PART5"
+            },
+            {
+              "requirementCode": "GEN-004",
+              "verdict": "PARTIAL",
+              "goldenId": "R-SUB-SUBSTANTIATION"
+            },
+            {
+              "requirementCode": "GEN-007",
+              "verdict": "DUPLICATE",
+              "goldenId": "R-CERT-SUBMIT-PART5"
+            },
+            {
+              "requirementCode": "GEN-008",
+              "verdict": "MATCHED",
+              "goldenId": "R-CERT-RECIPROCAL-DECL"
+            },
+            {
+              "requirementCode": "GEN-009",
+              "verdict": "DUPLICATE",
+              "goldenId": "R-CERT-SUBMIT-PART5"
+            },
+            {
+              "requirementCode": "GEN-010",
+              "verdict": "MATCHED",
+              "goldenId": "R-CERT-ENV-DECL"
+            },
+            {
+              "requirementCode": "GEN-011",
+              "verdict": "DUPLICATE",
+              "goldenId": "R-PERF-QUARTERLY"
+            },
+            {
+              "requirementCode": "GEN-012",
+              "verdict": "DUPLICATE",
+              "goldenId": "R-PERF-QUARTERLY"
+            },
+            {
+              "requirementCode": "GEN-013",
+              "verdict": "PARTIAL",
+              "goldenId": "R-PERF-QUARTERLY"
+            },
+            {
+              "requirementCode": "GEN-014",
+              "verdict": "PARTIAL",
+              "goldenId": "R-PERF-FORCED-LABOUR"
+            },
+            {
+              "requirementCode": "GEN-015",
+              "verdict": "DUPLICATE",
+              "goldenId": "R-PERF-FORCED-LABOUR"
+            },
+            {
+              "requirementCode": "GEN-016",
+              "verdict": "MATCHED",
+              "goldenId": "R-PERF-CALLUP-ITEMS"
+            },
+            {
+              "requirementCode": "GEN-017",
+              "verdict": "MATCHED",
+              "goldenId": "R-PERF-SUPPLY-ASWHEN"
+            },
+            {
+              "requirementCode": "GEN-018",
+              "verdict": "MATCHED",
+              "goldenId": "R-SUB-PRICING-TABLE"
+            }
+          ]
+        },
+        "risks": {
+          "perGolden": [
+            {
+              "riskId": "RISK-ELIGIBILITY",
+              "severity": "CRITICAL",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISK-SUBMISSION-REJECT",
+              "severity": "CRITICAL",
+              "verdict": "DETECTED"
+            },
+            {
+              "riskId": "RISK-SUBSTANTIATION",
+              "severity": "CRITICAL",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISK-PRICING-TABLE",
+              "severity": "CRITICAL",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISK-QTY-NO-GUARANTEE",
+              "severity": "IMPORTANT",
+              "verdict": "DETECTED"
+            },
+            {
+              "riskId": "RISK-DELIVERY-PRESSURE",
+              "severity": "IMPORTANT",
+              "verdict": "DETECTED"
+            },
+            {
+              "riskId": "RISK-FX",
+              "severity": "IMPORTANT",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISK-ADMIN-REPORTING",
+              "severity": "IMPORTANT",
+              "verdict": "MISSED"
+            }
+          ],
+          "hallucinatedLines": [
+            "4. 技术合规风险：M1–M15 未评估前存在样品/测试标准不清。"
+          ],
+          "unmatchedLines": [
+            "【风险】",
+            "5. 情报缺口：历史中标与竞争对手信息尚无可靠来源，本报告不予编造。"
+          ]
+        },
+        "clarifications": {
+          "perQuestion": [
+            {
+              "question": "Call-up 的最小 / 最大 / 典型订购数量分别是多少？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR-CALLUP-VOLUME"
+            },
+            {
+              "question": "「Up to 1500 per contract period」的准确含义是合同期硬上限、估算值，还是评标用数量？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR-QTY-BASIS"
+            },
+            {
+              "question": "投标阶段是否必须提交样品（sample required at bid time）？若需要，数量、费用与退回规则是什么？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            },
+            {
+              "question": "防水/抗水测试所依据的具体标准（方法、时长、验收指标）是什么？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR-WATER-REPELLENT"
+            },
+            {
+              "question": "是否允许海外制造（overseas manufacturing）？若允许，原产地声明与 Reciprocal Procurement 如何衔接？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "NECESSARY",
+              "matchedClarId": "CLAR-OVERSEAS"
+            },
+            {
+              "question": "1000D 面料要求的适用范围（主壳/部件/等同材料是否接受）如何界定？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR-1000D-SCOPE"
+            },
+            {
+              "question": "尺寸/容量的官方测量方法（measurement method）以哪份附件为准？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR-MEASUREMENT"
+            },
+            {
+              "question": "拉链 / 织带 / 缝线的具体性能标准与测试方法分别是什么？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "LOW_VALUE",
+              "matchedClarId": null
+            },
+            {
+              "question": "评标用 7,500（或年度 1,500×年数）是否仅用于评估，而不构成任何采购承诺？询价建议不晚于 2026-08-13（截标时区标签 MDT；closing=August 18, 2026 14:00 MDT）",
+              "verdict": "USEFUL",
+              "matchedClarId": "CLAR-7500-CONFIRM"
+            }
+          ],
+          "goldenCoverage": [
+            {
+              "clarId": "CLAR-CALLUP-VOLUME",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR-QTY-BASIS",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR-OVERSEAS",
+              "necessity": "NECESSARY",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR-7500-CONFIRM",
+              "necessity": "USEFUL",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR-WATER-REPELLENT",
+              "necessity": "USEFUL",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR-1000D-SCOPE",
+              "necessity": "USEFUL",
+              "covered": true
+            },
+            {
+              "clarId": "CLAR-MEASUREMENT",
+              "necessity": "USEFUL",
+              "covered": true
+            }
+          ]
+        },
+        "ambiguities": [
+          {
+            "ambiguityId": "AMB-QTY-BASIS",
+            "expected": "CLARIFICATION_REQUIRED",
+            "verdict": "OK"
+          },
+          {
+            "ambiguityId": "AMB-FIRM-VS-ESTIMATED",
+            "expected": "FLAGGED",
+            "verdict": "OK"
+          }
+        ],
+        "unknownViolations": [],
+        "crossDomainLeaks": [],
+        "metrics": {
+          "goldenRequirements": 38,
+          "goldenMandatoryRequirements": 38,
+          "extractedRequirements": 31,
+          "requirementRecallStrict": 0.4474,
+          "requirementRecallLenient": 0.6579,
+          "mandatoryRecallStrict": 0.4474,
+          "mandatoryRecallLenient": 0.6579,
+          "requirementPrecision": 0.8065,
+          "falsePositiveRate": 0,
+          "duplicateRate": 0.1935,
+          "goldenFacts": 38,
+          "criticalFacts": 22,
+          "factAccuracy": 0.6579,
+          "criticalFactAccuracy": 0.7727,
+          "factsCorrectValueBadEvidence": 1,
+          "evidenceCoverage": 1,
+          "evidenceAccuracy": 1,
+          "unsupportedClaimRate": 0,
+          "goldenRisks": 8,
+          "riskRecall": 0.375,
+          "criticalRiskMissed": 3,
+          "hallucinatedRiskLines": 1,
+          "systemClarifications": 9,
+          "usefulClarificationRate": 0.7778,
+          "alreadyAnsweredRate": 0,
+          "hallucinatedClarifications": 1,
+          "necessaryClarificationCoverage": 1,
+          "ambiguitiesOk": 2,
+          "ambiguitiesTotal": 2,
+          "expectedUnknownViolations": 0,
+          "crossDomainLeakFacts": 0,
+          "crossDomainLeakRequirements": 0,
+          "crossDomainLeakTotal": 2
+        }
+      }
+    },
+    {
+      "meta": {
+        "caseId": "case-b-dsbn-window-coverings",
+        "title": "DSBN 窗饰供应与安装 RFP + Addendum-01（业务域泛化）",
+        "projectType": "window-coverings-supply-install",
+        "provenance": {
+          "kind": "NEAR_REAL_RECONSTRUCTED",
+          "source": "scripts/intelligence-report-eval/sample-input-01-curtain-tender.json（真实 DSBN 招标浓缩转写，非完整原件）",
+          "redaction": "EXCERPTED",
+          "goldenAnswerMethod": "PENDING_HUMAN_CONFIRMATION",
+          "confirmedBy": null,
+          "confirmedAt": null
+        },
+        "documentCount": 2,
+        "pageCount": 2,
+        "skipped": false
+      },
+      "evaluation": {
+        "caseId": "case-b-dsbn-window-coverings",
+        "facts": [
+          {
+            "factId": "FB-BUYER",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-CLOSING",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-TERM",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-SCOPE",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-MOTORIZED",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-NFPA",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-FIRE-CODE",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-WARRANTY",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-EVAL-TOTAL",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-EVAL-PRICE-WEIGHT",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-INSURANCE",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-SAMPLES",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-LOCAL-INSTALL",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-AFFIDAVIT",
+            "critical": true,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          },
+          {
+            "factId": "FB-ADDENDA-COUNT",
+            "critical": false,
+            "verdict": "NOT_EXTRACTED",
+            "matchedFactKeys": [],
+            "valueOk": false,
+            "evidenceOk": false,
+            "detail": "no system fact matched anchors"
+          }
+        ],
+        "requirements": {
+          "perGolden": [
+            {
+              "goldenId": "RB-NFPA",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-FIRE-CODE",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-CSA",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-WARRANTY",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-FIRST-QUALITY",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-BATON",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-MEASURE",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-REMOVAL",
+              "mandatory": true,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-SUPPLY-INSTALL",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-INSURANCE",
+              "mandatory": true,
+              "importance": "CRITICAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-AFFIDAVIT",
+              "mandatory": true,
+              "importance": "HIGH",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            },
+            {
+              "goldenId": "RB-SAMPLES-SHORTLIST",
+              "mandatory": false,
+              "importance": "NORMAL",
+              "verdict": "MISSED",
+              "primaryCode": null,
+              "duplicateCodes": [],
+              "coverage": 0,
+              "evidenceOk": false
+            }
+          ],
+          "perExtracted": []
+        },
+        "risks": {
+          "perGolden": [
+            {
+              "riskId": "RISKB-NO-QUANTITIES",
+              "severity": "CRITICAL",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISKB-SERVICE-WEIGHTED",
+              "severity": "CRITICAL",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISKB-MOTOR-SPECS",
+              "severity": "IMPORTANT",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISKB-FIRE-CERT",
+              "severity": "IMPORTANT",
+              "verdict": "MISSED"
+            },
+            {
+              "riskId": "RISKB-ADDENDUM-TRACKING",
+              "severity": "IMPORTANT",
+              "verdict": "MISSED"
+            }
+          ],
+          "hallucinatedLines": [
+            "1. 数量歧义：合同期上限 vs 年度评标量；7,500 仅为评估合计，非保证采购。",
+            "3. 履约风险：DDP Regina + 短周期 call-up（如 30 days）对库存与物流的压力。",
+            "4. 技术合规风险：M1–M15 未评估前存在样品/测试标准不清。"
+          ],
+          "unmatchedLines": [
+            "【风险】",
+            "2. 提交技术性风险：三份 PDF 与 5MB 邮件限制。",
+            "5. 情报缺口：历史中标与竞争对手信息尚无可靠来源，本报告不予编造。"
+          ]
+        },
+        "clarifications": {
+          "perQuestion": [
+            {
+              "question": "Call-up 的最小 / 最大 / 典型订购数量分别是多少？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            },
+            {
+              "question": "「Up to 1500 per contract period」的准确含义是合同期硬上限、估算值，还是评标用数量？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            },
+            {
+              "question": "投标阶段是否必须提交样品（sample required at bid time）？若需要，数量、费用与退回规则是什么？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "ALREADY_ANSWERED",
+              "matchedClarId": "CLARB-AA-SAMPLES"
+            },
+            {
+              "question": "防水/抗水测试所依据的具体标准（方法、时长、验收指标）是什么？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "LOW_VALUE",
+              "matchedClarId": null
+            },
+            {
+              "question": "是否允许海外制造（overseas manufacturing）？若允许，原产地声明与 Reciprocal Procurement 如何衔接？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            },
+            {
+              "question": "1000D 面料要求的适用范围（主壳/部件/等同材料是否接受）如何界定？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            },
+            {
+              "question": "尺寸/容量的官方测量方法（measurement method）以哪份附件为准？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "LOW_VALUE",
+              "matchedClarId": null
+            },
+            {
+              "question": "拉链 / 织带 / 缝线的具体性能标准与测试方法分别是什么？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            },
+            {
+              "question": "评标用 7,500（或年度 1,500×年数）是否仅用于评估，而不构成任何采购承诺？询价建议不晚于 （截标日未知，待补）",
+              "verdict": "HALLUCINATED",
+              "matchedClarId": null
+            }
+          ],
+          "goldenCoverage": [
+            {
+              "clarId": "CLARB-QUANTITIES",
+              "necessity": "NECESSARY",
+              "covered": false
+            },
+            {
+              "clarId": "CLARB-PRICING-FORMAT",
+              "necessity": "NECESSARY",
+              "covered": false
+            },
+            {
+              "clarId": "CLARB-MOTOR",
+              "necessity": "NECESSARY",
+              "covered": false
+            },
+            {
+              "clarId": "CLARB-SUBMISSION",
+              "necessity": "NECESSARY",
+              "covered": false
+            },
+            {
+              "clarId": "CLARB-WARRANTY-START",
+              "necessity": "USEFUL",
+              "covered": false
+            }
+          ]
+        },
+        "ambiguities": [
+          {
+            "ambiguityId": "AMBB-QUANTITIES",
+            "expected": "CLARIFICATION_REQUIRED",
+            "verdict": "OK"
+          },
+          {
+            "ambiguityId": "AMBB-MOTOR-SPECS",
+            "expected": "CLARIFICATION_REQUIRED",
+            "verdict": "MISSED"
+          },
+          {
+            "ambiguityId": "AMBB-SUBMISSION-METHOD",
+            "expected": "CLARIFICATION_REQUIRED",
+            "verdict": "MISSED"
+          }
+        ],
+        "unknownViolations": [],
+        "crossDomainLeaks": [],
+        "metrics": {
+          "goldenRequirements": 12,
+          "goldenMandatoryRequirements": 11,
+          "extractedRequirements": 0,
+          "requirementRecallStrict": 0,
+          "requirementRecallLenient": 0,
+          "mandatoryRecallStrict": 0,
+          "mandatoryRecallLenient": 0,
+          "requirementPrecision": null,
+          "falsePositiveRate": null,
+          "duplicateRate": null,
+          "goldenFacts": 15,
+          "criticalFacts": 11,
+          "factAccuracy": 0,
+          "criticalFactAccuracy": 0,
+          "factsCorrectValueBadEvidence": 0,
+          "evidenceCoverage": null,
+          "evidenceAccuracy": null,
+          "unsupportedClaimRate": null,
+          "goldenRisks": 5,
+          "riskRecall": 0,
+          "criticalRiskMissed": 2,
+          "hallucinatedRiskLines": 3,
+          "systemClarifications": 9,
+          "usefulClarificationRate": 0,
+          "alreadyAnsweredRate": 0.1111,
+          "hallucinatedClarifications": 6,
+          "necessaryClarificationCoverage": 0,
+          "ambiguitiesOk": 1,
+          "ambiguitiesTotal": 3,
+          "expectedUnknownViolations": 0,
+          "crossDomainLeakFacts": 0,
+          "crossDomainLeakRequirements": 0,
+          "crossDomainLeakTotal": 9
+        }
+      }
+    }
+  ]
+}
