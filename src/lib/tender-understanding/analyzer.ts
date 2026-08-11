@@ -34,7 +34,7 @@ import {
   PROMPT_EXTRACT,
 } from "./prompts";
 
-const EXTRACT_MAX_TOKENS = 14_000;
+const EXTRACT_MAX_TOKENS = 20_000;
 const EXTRACT_TIMEOUT_MS = 180_000;
 const DEFAULT_CONCURRENCY = 3;
 

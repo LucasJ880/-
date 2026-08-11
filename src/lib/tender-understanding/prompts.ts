@@ -9,7 +9,7 @@
 
 export const PROMPT_EXTRACT = {
   name: "tender-understanding-v2-extract",
-  version: "tender-understanding-v2-extract@1",
+  version: "tender-understanding-v2-extract@2",
 } as const;
 
 export const PROMPT_RESOLVE = {
@@ -32,7 +32,12 @@ HARD RULES — violating any of these makes the output unusable:
 8. "ambiguities" = places where the document is unclear, self-contradictory, or references something it does not define. whatIsUnknown must state precisely what a bidder cannot determine.
 9. If this document is an ADDENDUM/AMENDMENT and the text changes, replaces, revises, extends or deletes an earlier provision, set revisionAction accordingly and put the original provision's identifier/topic in revisionTargetHint.
 10. Do not summarize the whole document. Extract discrete items only from these pages.
-11. Output ONLY one JSON object matching the schema below. No markdown, no commentary, no code fences.
+11. Coverage guidance (still evidence-bound, never invented):
+   a. Capture document identification data as facts when present: issue/publication date, solicitation/reference numbers, buyer identity, contact for questions.
+   b. Deadlines expressed as RULES count as facts too (e.g. "questions no later than N days before closing" → question_deadline with the rule text as rawValue).
+   c. Capture quantity/pricing schedule rows and stated quantity limits as quantity facts (e.g. estimated annual quantities, "up to N per period"), quoting the row/line.
+   d. When scope lists products/services, include the enumeration in the scope fact claim so the product types are preserved.
+12. Output ONLY one JSON object matching the schema below. No markdown, no commentary, no code fences.
 
 SCHEMA (all arrays may be empty; that is a valid answer):
 {

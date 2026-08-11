@@ -192,31 +192,45 @@ export function detectFactConflicts(
 
   for (const [factType, group] of byType) {
     if (group.length < 2) continue;
-    const normalized = group.map((f) => JSON.stringify(f.normalizedValue));
-    const distinct = new Set(normalized.filter((n) => n !== "null"));
-    if (distinct.size <= 1) continue;
-
-    // 值不同：ADDENDUM 来源且带修订语言的 fact 胜出，其余 SUPERSEDED
-    const addendumFacts = group.filter(
-      (f) =>
-        f.sourceRole === "ADDENDUM" &&
-        f.evidence.some((e) => REVISION_LANGUAGE.test(e.snippet)),
-    );
-    if (addendumFacts.length === 1) {
-      for (const f of group) {
-        if (f !== addendumFacts[0]) f.status = "SUPERSEDED";
-      }
-      continue;
+    // 只有"强类型"归一化值（日期/金额/数量/时长/百分比）不一致才构成矛盾；
+    // text 措辞差异 = 同一事实的不同表述/侧面（buyer 全称 vs 简称、
+    // submission 的多个方面），不得当成值冲突。
+    const byKind = new Map<string, DocumentFactV2[]>();
+    for (const f of group) {
+      if (f.normalizedValue === null || f.normalizedValue.kind === "text") continue;
+      const kind = f.normalizedValue.kind;
+      const list = byKind.get(kind) ?? [];
+      list.push(f);
+      byKind.set(kind, list);
     }
-    for (const f of group) f.status = "CONFLICT";
-    conflicts.push({
-      id: `C-${String(startIndex + conflicts.length + 1).padStart(3, "0")}`,
-      topic: `fact:${factType}`,
-      itemIds: group.map((f) => f.id),
-      values: group.map((f) => (f.rawValue ?? f.claim).slice(0, 120)),
-      resolution: "UNRESOLVED",
-      note: `同一事实（${factType}）在文档集中出现不一致取值，需人工确认。`,
-    });
+    for (const [, kindGroup] of byKind) {
+      const distinct = new Set(
+        kindGroup.map((f) => JSON.stringify(f.normalizedValue)),
+      );
+      if (kindGroup.length < 2 || distinct.size <= 1) continue;
+
+      // 值不同：ADDENDUM 来源且带修订语言的 fact 胜出，其余 SUPERSEDED
+      const addendumFacts = kindGroup.filter(
+        (f) =>
+          f.sourceRole === "ADDENDUM" &&
+          f.evidence.some((e) => REVISION_LANGUAGE.test(e.snippet)),
+      );
+      if (addendumFacts.length === 1) {
+        for (const f of kindGroup) {
+          if (f !== addendumFacts[0]) f.status = "SUPERSEDED";
+        }
+        continue;
+      }
+      for (const f of kindGroup) f.status = "CONFLICT";
+      conflicts.push({
+        id: `C-${String(startIndex + conflicts.length + 1).padStart(3, "0")}`,
+        topic: `fact:${factType}`,
+        itemIds: kindGroup.map((f) => f.id),
+        values: kindGroup.map((f) => (f.rawValue ?? f.claim).slice(0, 120)),
+        resolution: "UNRESOLVED",
+        note: `同一事实（${factType}）在文档集中出现不一致取值，需人工确认。`,
+      });
+    }
   }
 
   return { facts, conflicts };

@@ -26,6 +26,8 @@ export type LlmCallResponse = {
   content: string;
   model: string;
   elapsedMs: number;
+  /** 供观测：length = token 预算截断（结构化输出失败的常见根因） */
+  finishReason?: string | null;
 };
 
 export type LlmInvoker = (req: LlmCallRequest) => Promise<LlmCallResponse>;
@@ -52,7 +54,12 @@ export function createUnifiedRuntimeInvoker(): LlmInvoker {
       maxTokens: req.maxTokens,
       timeoutMs: req.timeoutMs,
     });
-    return { content: res.content, model: res.model, elapsedMs: res.elapsedMs };
+    return {
+      content: res.content,
+      model: res.model,
+      elapsedMs: res.elapsedMs,
+      finishReason: res.finishReason,
+    };
   };
 }
 
@@ -184,7 +191,11 @@ export async function callStructured<T>(
       outputChars: res.content.length,
       ok: false,
       errorCode:
-        parseError === "EMPTY" ? "EMPTY_OUTPUT" : "INVALID_STRUCTURED_OUTPUT",
+        parseError === "EMPTY"
+          ? "EMPTY_OUTPUT"
+          : res.finishReason === "length"
+            ? "TRUNCATED_OUTPUT"
+            : "INVALID_STRUCTURED_OUTPUT",
     });
 
     if (attempt < maxAttempts) {

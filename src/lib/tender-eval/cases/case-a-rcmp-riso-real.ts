@@ -305,7 +305,7 @@ export const caseARcmpRisoReal: CaseModule = {
                 "Estimated Annual Quantity (C) … Each 1500（Table 1 / Table 2 各年度行）",
             },
           ],
-          matchAnchors: [["annex b", "1500"], ["annual", "1500"], ["评标", "1500"]],
+          matchAnchors: [["annex b", "1500"], ["annual", "1500"], ["评标", "1500"], ["each 1500"]],
         },
         {
           factId: "F-QTY-AGGREGATE",
