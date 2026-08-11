@@ -107,10 +107,10 @@ orgId 存在 ≠ 自动安全:org-scope 查询过滤、授权(含 §15.8 孤儿�
 
 ## 10. 回归
 
-- **test-all**(隔离生产快照分支,`DATABASE_URL+DIRECT_URL+NODE_ENV=test+DATABASE_ENVIRONMENT=isolated`):见 PR 描述回归段(执行于本报告提交前,结果以 PR 记录为准)
-- **tsc --noEmit**:test-all 内含
-- **eslint**:新增两文件零 findings;全库 51 errors/116 warnings 与 base 一致(99 个报错文件与本 PR 变更集**零交集**,全部基线噪声)
-- **build**(`prisma generate + check-preview-db-isolation + next build`):见 PR 描述回归段
+- **test-all**(隔离生产快照分支,`DATABASE_URL+DIRECT_URL+NODE_ENV=test+DATABASE_ENVIRONMENT=isolated`):首轮 202/204——仅有的 2 个失败是**迁移治理套件按设计 fail-closed**(`check-release-safety.test.ts` 白名单 + `verify-migration-history.ts` EXPECTED_ACTIVE/IMMUTABLE checksum 未含新 migration);按其设计意图登记第 13 条目(名称 + sha256)后两套件复跑 43/43、27/27,全量重跑 **204/204 全绿**(exit 0)
+- **tsc --noEmit**:test-all 内含,通过
+- **eslint**:新增文件零 findings;全库 51 errors/116 warnings 与 base 一致(99 个报错文件与本 PR 变更集**零交集**,全部基线噪声)
+- **build**(`prisma generate + check-preview-db-isolation + next build`):exit 0,Compiled successfully
 
 ## 11–16. 影响面声明
 
