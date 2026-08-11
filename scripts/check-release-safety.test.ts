@@ -108,8 +108,9 @@ ok(
       "20260805090000_marketing_economics",
       "20260805180000_tender_auto_analysis_phase1_1",
       "20260811002000_add_tender_t2_ledger_archive_foundation",
+      "20260811040000_add_tender_t3_corporate_memory_foundation",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 
