@@ -17,6 +17,9 @@ import {
   type ProjectDuty,
 } from "@/lib/projects/duty";
 import { onMemberJoined } from "@/lib/project-discussion/system-events";
+import { appendProjectEvent } from "@/lib/project-ledger/event-service";
+import { projectMemberAddedEventKey } from "@/lib/project-ledger/event-keys";
+import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
 import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
 import { ensureProjectJoinBrief } from "@/lib/bid-workflow/join-brief";
 
@@ -179,6 +182,41 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
 
     await onMemberJoined(projectId, m.user.name, m.role, user.id, m.userId, tx);
+
+    // T2-P1 authoritative ledger：membership-version 使 加入→移除→再加入 各得新 key；
+    // 事务重试回滚后账本计数不变 → key 稳定（#96 §5.5 幂等契约）
+    if (isLedgerProducersEnabled() && project.orgId) {
+      const priorAdds = await tx.projectEvent.count({
+        where: {
+          projectId,
+          eventKey: { startsWith: `project.member.added:${m.id}:` },
+        },
+      });
+      await appendProjectEvent({
+        tx,
+        orgId: project.orgId,
+        projectId,
+        eventType: "project.member.added",
+        eventKey: projectMemberAddedEventKey(m.id, priorAdds + 1),
+        occurredAt: new Date(),
+        actor: { actorType: "user", actorId: user.id },
+        actors: [
+          {
+            actorKey: `user:${m.userId}`,
+            userId: m.userId,
+            role: "participant",
+          },
+        ],
+        title: `成员加入：${m.user.name}`,
+        payload: {
+          schemaVersion: 1,
+          memberId: m.id,
+          userId: m.userId,
+          role: m.role,
+          duty: duty ?? null,
+        },
+      });
+    }
     return m;
   }).catch((err: Error) => {
     if (err.message === "ALREADY_MEMBER") return null;

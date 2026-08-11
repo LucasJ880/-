@@ -8,6 +8,9 @@ import {
   countActiveProjectAdmins,
   isSelfPromotion,
 } from "@/lib/projects/members-utils";
+import { appendProjectEvent } from "@/lib/project-ledger/event-service";
+import { projectMemberRemovedEventKey } from "@/lib/project-ledger/event-keys";
+import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
 import {
   dutyToMemberRole,
   isValidProjectDuty,
@@ -242,6 +245,32 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
       include: { user: { select: { id: true, email: true, name: true } } },
     });
     await onMemberRemoved(projectId, m.user.name, user.id, m.userId, tx);
+
+    // T2-P1 authoritative ledger（同事务；version 语义同 member.added）
+    if (isLedgerProducersEnabled() && project.orgId) {
+      const priorRemovals = await tx.projectEvent.count({
+        where: {
+          projectId,
+          eventKey: { startsWith: `project.member.removed:${m.id}:` },
+        },
+      });
+      await appendProjectEvent({
+        tx,
+        orgId: project.orgId,
+        projectId,
+        eventType: "project.member.removed",
+        eventKey: projectMemberRemovedEventKey(m.id, priorRemovals + 1),
+        occurredAt: new Date(),
+        actor: { actorType: "user", actorId: user.id },
+        title: `成员移除：${m.user.name}`,
+        payload: {
+          schemaVersion: 1,
+          memberId: m.id,
+          userId: m.userId,
+          previousRole: before.role,
+        },
+      });
+    }
     return m;
   });
 

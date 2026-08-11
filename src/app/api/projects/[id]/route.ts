@@ -7,6 +7,9 @@ import {
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
+import { appendProjectEvent } from "@/lib/project-ledger/event-service";
+import { projectUpdatedEventKey } from "@/lib/project-ledger/event-keys";
+import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
 import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 import {
   bidWorkflowUnavailableFields,
@@ -220,6 +223,55 @@ export async function PATCH(
       tx
     );
 
+    // T2-P1 authoritative ledger：仅真实变更落账；payload 只带白名单短字段值，
+    // 其余字段仅记入 changedFields（server-authored / minimal，#96 §5.2）
+    if (isLedgerProducersEnabled() && beforeProject.orgId) {
+      const beforeRec = beforeProject as unknown as Record<string, unknown>;
+      const afterRec = updated as unknown as Record<string, unknown>;
+      const valueChanged = (a: unknown, b: unknown) => {
+        if (a instanceof Date || b instanceof Date) {
+          const at = a instanceof Date ? a.getTime() : a == null ? null : NaN;
+          const bt = b instanceof Date ? b.getTime() : b == null ? null : NaN;
+          return at !== bt;
+        }
+        return a !== b;
+      };
+      const changedFields = Object.keys(data).filter((k) =>
+        valueChanged(beforeRec[k], afterRec[k])
+      );
+      if (changedFields.length > 0) {
+        const SHORT_VALUE_FIELDS = ["name", "status", "color", "priority"] as const;
+        const subset = (rec: Record<string, unknown>) =>
+          Object.fromEntries(
+            SHORT_VALUE_FIELDS.filter((f) => changedFields.includes(f)).map(
+              (f) => [f, rec[f] ?? null]
+            )
+          );
+        const afterSubset = subset(afterRec);
+        await appendProjectEvent({
+          tx,
+          orgId: beforeProject.orgId,
+          projectId: id,
+          eventType: "project.updated",
+          eventKey: projectUpdatedEventKey(
+            id,
+            beforeProject.updatedAt.toISOString(),
+            changedFields,
+            afterSubset
+          ),
+          occurredAt: updated.updatedAt,
+          actor: { actorType: "user", actorId: user.id },
+          title: `项目信息更新（${changedFields.length} 项）`,
+          payload: {
+            schemaVersion: 1,
+            changedFields,
+            before: subset(beforeRec),
+            after: afterSubset,
+          },
+        });
+      }
+    }
+
     return updated;
   });
 
@@ -279,6 +331,33 @@ export async function DELETE(
   const access = await requireProjectWriteAccess(request, id);
   if (access instanceof NextResponse) return access;
   const { user, project: beforeProject } = access;
+
+  // T2-P1 DELETION GATE（#96 §15.8 OPTION A）：项目一旦持有账本/成本/档案记录，
+  // 普通业务路径不再允许 hard delete —— 保留 Project 行（status="archived" 生命周期）
+  // 作为永久授权锚；物理删除仅保留给合规 purge 专用流程。
+  // 四表刻意无 Project FK，硬删不会级联抹史，但会摘除授权锚 —— 因此在此拒绝。
+  //
+  // Dark-merge 安全：本 gate 与 producer 同受 T2_LEDGER_PRODUCERS_ENABLED 门控。
+  // flag OFF（含生产 M1 schema 尚未上线时的默认态）→ 完全不访问 M1 四表，
+  // 删除行为与 T2 前完全一致（producer 也 dark，账本必然为空，gate 无意义）。
+  // flag ON → 执行账本/成本/档案存量检查，任一有历史 → 409。
+  if (isLedgerProducersEnabled()) {
+    const [ledgerEvents, ledgerCosts, archiveItems] = await Promise.all([
+      db.projectEvent.count({ where: { projectId: id } }),
+      db.projectCost.count({ where: { projectId: id } }),
+      db.tenderArchiveItem.count({ where: { projectId: id } }),
+    ]);
+    if (ledgerEvents > 0 || ledgerCosts > 0 || archiveItems > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "项目已产生业务账本/成本/档案记录，不能物理删除；请改用归档（status=archived）保留历史。",
+          code: "PROJECT_HAS_LEDGER_HISTORY",
+        },
+        { status: 409 },
+      );
+    }
+  }
 
   try {
     // 先断开无 onDelete 的可选外键，并清理必填关联，避免 Prisma FK 约束导致删除静默失败
