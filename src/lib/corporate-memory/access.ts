@@ -10,7 +10,13 @@
 
 import { db } from "@/lib/db";
 import { hasOrgRole, isSuperAdmin } from "@/lib/rbac/roles";
-import { CorporateMemoryError, type MemoryActorInput } from "./types";
+import {
+  CorporateMemoryError,
+  MEMBER_VISIBLE_ACCESS_CLASSES,
+  MEMORY_ACCESS_CLASSES,
+  type MemoryAccessClass,
+  type MemoryActorInput,
+} from "./types";
 
 export interface MemoryAccessContext {
   orgId: string;
@@ -83,4 +89,33 @@ export async function requireMemoryReadAccess(
   params: AccessParams,
 ): Promise<MemoryAccessContext> {
   return resolveAccess(params, false);
+}
+
+/**
+ * Server-authoritative 可见分级集（§35 强化）：由已鉴权上下文的角色决定，
+ * **不接受任何 client 输入**。org_admin / platform_admin = 全部分级；
+ * org_member = 仅 PUBLIC_SOURCE + INTERNAL_COMPANY。
+ */
+export function serverAllowedAccessClasses(
+  ctx: MemoryAccessContext,
+): MemoryAccessClass[] {
+  if (ctx.via === "platform_admin" || ctx.via === "org_admin") {
+    return [...MEMORY_ACCESS_CLASSES];
+  }
+  return [...MEMBER_VISIBLE_ACCESS_CLASSES];
+}
+
+/**
+ * 有效可见分级 = server 授权集 ∩ caller 请求（**caller 只能收窄，绝不可扩展**）。
+ * caller 未传 → 用 server 授权集；caller 传入越权分级 → 被交集自然剔除
+ * （不报错、不泄漏，返回相应缩小集；请求纯越权集时为空集 → 零结果）。
+ */
+export function effectiveAccessClasses(
+  ctx: MemoryAccessContext,
+  callerRequested?: readonly MemoryAccessClass[] | null,
+): MemoryAccessClass[] {
+  const server = serverAllowedAccessClasses(ctx);
+  if (!callerRequested) return server;
+  const serverSet = new Set<MemoryAccessClass>(server);
+  return callerRequested.filter((c) => serverSet.has(c));
 }

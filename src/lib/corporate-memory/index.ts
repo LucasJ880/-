@@ -16,6 +16,8 @@ export { normalizeBuyerName, normalizeWebsiteDomain } from "./normalize";
 export {
   requireMemoryReadAccess,
   requireMemoryWriteAccess,
+  serverAllowedAccessClasses,
+  effectiveAccessClasses,
   type MemoryAccessContext,
 } from "./access";
 export {

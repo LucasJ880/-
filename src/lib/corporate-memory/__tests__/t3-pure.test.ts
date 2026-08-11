@@ -14,7 +14,13 @@ import {
 } from "../normalize";
 import { compareClaimTrustFreshness } from "../retrieval";
 import {
+  effectiveAccessClasses,
+  serverAllowedAccessClasses,
+  type MemoryAccessContext,
+} from "../access";
+import {
   CorporateMemoryError,
+  MEMORY_ACCESS_CLASSES,
   MEMORY_EVIDENCE_SOURCE_TYPES,
   MEMORY_LIMITS,
   MEMORY_TRUST_ORDER,
@@ -23,6 +29,12 @@ import {
   requireBoundedString,
   requireVocab,
 } from "../types";
+
+const ctx = (via: MemoryAccessContext["via"]): MemoryAccessContext => ({
+  orgId: "org1",
+  userId: "u1",
+  via,
+});
 
 test("normalizeBuyerName：冠词/大小写/标点/倒装归一到同一 canonical 键", () => {
   const canonical = "city of toronto";
@@ -127,6 +139,46 @@ test("requireBoundedJson：超字节上限抛错", () => {
     () => requireBoundedJson(huge, "meta"),
     (e: unknown) => isCorporateMemoryError(e, "INVALID_INPUT"),
   );
+});
+
+test("serverAllowedAccessClasses：member 仅公开+内部；admin 全部", () => {
+  assert.deepEqual(serverAllowedAccessClasses(ctx("org_member")), [
+    "PUBLIC_SOURCE",
+    "INTERNAL_COMPANY",
+  ]);
+  assert.deepEqual(
+    serverAllowedAccessClasses(ctx("org_admin")).sort(),
+    [...MEMORY_ACCESS_CLASSES].sort(),
+  );
+  assert.deepEqual(
+    serverAllowedAccessClasses(ctx("platform_admin")).sort(),
+    [...MEMORY_ACCESS_CLASSES].sort(),
+  );
+});
+
+test("effectiveAccessClasses：caller 只能收窄，绝不可扩展", () => {
+  // member 请求越权分级 → 交集剔除，绝不扩大
+  assert.deepEqual(effectiveAccessClasses(ctx("org_member"), ["RESTRICTED"]), []);
+  assert.deepEqual(
+    effectiveAccessClasses(ctx("org_member"), ["INTERNAL_COMPANY", "RESTRICTED"]),
+    ["INTERNAL_COMPANY"],
+  );
+  // member 未传 → server 授权集
+  assert.deepEqual(effectiveAccessClasses(ctx("org_member")), [
+    "PUBLIC_SOURCE",
+    "INTERNAL_COMPANY",
+  ]);
+  // admin 可收窄到公开
+  assert.deepEqual(effectiveAccessClasses(ctx("org_admin"), ["PUBLIC_SOURCE"]), [
+    "PUBLIC_SOURCE",
+  ]);
+  // 有效集永远 ⊆ server 授权集（不变式）
+  for (const via of ["org_member", "org_admin", "platform_admin"] as const) {
+    const server = new Set(serverAllowedAccessClasses(ctx(via)));
+    for (const c of effectiveAccessClasses(ctx(via), [...MEMORY_ACCESS_CLASSES])) {
+      assert.ok(server.has(c), `${via} 有效集越界: ${c}`);
+    }
+  }
 });
 
 test("CorporateMemoryError：code 可判别", () => {

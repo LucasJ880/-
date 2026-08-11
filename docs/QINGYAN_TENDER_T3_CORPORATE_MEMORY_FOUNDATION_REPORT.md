@@ -3,11 +3,12 @@
 | 项 | 值 |
 |---|---|
 | 阶段 | Tender T3 — Corporate Memory Foundation（Buyer + MemoryClaim + Provenance + Retrieval Contract） |
-| 起始 main | `b27f0ae`（含 #98 T1A / #99 T2-M1 / #101 T1B Dark Merge） |
+| 起始 main | `b27f0ae`（含 #98 T1A / #99 T2-M1 / #101 T1B Dark Merge）；Final Remediation 已合并最新 `origin/main@871da3b`（含 #97 tender-eval / #100 Tender V2） |
 | 分支 | `feature/tender-t3-corporate-memory-foundation`（从 `origin/main@b27f0ae` 创建，与 Tender V2 / T2-P1 为 sibling lane） |
 | 日期 | 2026-08-11 |
 | 性质 | additive-only schema（3 表）+ 新服务层 `src/lib/corporate-memory/*` + 测试；**无 UI 顶层页面、无 AI 自动写入、无回填、无生产迁移** |
-| 交付 | Draft PR（`feat(memory): add T3 corporate memory foundation`），保持 Draft，等待人工 Final Review |
+| 交付 | Draft PR #103（`feat(memory): add T3 corporate memory foundation`），保持 Draft，等待人工 Final Review |
+| Final Remediation | ①Access class server-authoritative（claim + evidence 独立过滤、caller 只能收窄、evidenceCount 仅计可见）②confirm 证据门（无证据不得提升 HUMAN_CONFIRMED/ACTIVE）③新增 ACCESS-01..07 + MEM-11/12 + 纯逻辑 access 不变式 |
 
 ---
 
@@ -23,7 +24,7 @@ T3 建立了企业记忆（Corporate Memory）的最小可信基础层，落地�
 
 **本轮最重要的 Gate 全部守住**：`AI_AUTO_MEMORY_WRITE = NO`（AI / Agent / V2 / T1B / LLM chat 一律不得直接写记忆）、additive-only migration、无第二套向量基建、无 T4 情报、无 backfill、无生产数据变更。
 
-验证在生产快照隔离 Neon 分支完成：additive migration 干净应用、34 条 Buyer/Claim/Retrieval 集成断言全过、DB 级 RESTRICT FK 与租户隔离经实测、全量 test-all 回归绿。
+验证在生产快照隔离 Neon 分支完成：additive migration 干净应用、43 条 Buyer/Claim/Retrieval/Access 集成断言全过（含 Final Remediation 的 ACCESS-01..07 + MEM-11/12）、DB 级 RESTRICT FK 与租户隔离经实测、全量 test-all 回归绿。
 
 ---
 
@@ -179,7 +180,7 @@ Canonical identity **不得仅靠名字**。确定性归一（`normalize.ts::nor
 
 - 实质变化 → `supersedeMemoryClaim`：旧 `ACTIVE→SUPERSEDED`（`supersededAt`），新 `ACTIVE` 且 `supersedesClaimId=旧id`，subject 继承旧 claim。
 - 事实证伪 → `retractMemoryClaim`：旧 `→RETRACTED`（保留 statement + `retractionReason`），可选 correction claim 挂链。
-- 人工确认 → `confirmMemoryClaim`：`verificationStatus→HUMAN_CONFIRMED`，`NEEDS_REVIEW` 生命周期同时提升 `ACTIVE`。
+- 人工确认 → `confirmMemoryClaim`：`verificationStatus→HUMAN_CONFIRMED`，`NEEDS_REVIEW` 生命周期同时提升 `ACTIVE`。**证据门（Final Remediation）**：无证据 claim（只可能是 `USER_ENTRY`+`NEEDS_REVIEW`）**不得**被 confirm 提升——必须先 `attachMemoryClaimEvidence` 补证据，否则 `EVIDENCE_REQUIRED`（MEM-11）；补证据后可正常提升 ACTIVE + HUMAN_CONFIRMED（MEM-12）。
 
 `CLAIM_SUPERSESSION = PASS`、`CLAIM_RETRACTION = PASS`。
 
@@ -197,7 +198,13 @@ Canonical identity **不得仅靠名字**。确定性归一（`normalize.ts::nor
 
 `accessClass ∈ {PUBLIC_SOURCE, INTERNAL_COMPANY, CLIENT_CONFIDENTIAL, VENDOR_CONFIDENTIAL, RESTRICTED}`（复用 TenderArchiveItem 词表），claim 与 evidence 各自独立分级。
 
-**No public-private collapse**（§36）：同一 statement 不同来源的证据各自保留 `sourceType` / `accessClass` / `capturedAt`，不因文本相同合并。检索支持 `allowedAccessClasses` 过滤（AI/UI retrieval obey access scope）。`ACCESS_CLASSIFICATION = PASS`。
+**Server-authoritative 过滤（Final Remediation 强化）**：可见分级由已鉴权上下文的角色裁定，**不接受 client 输入**（`access.ts::serverAllowedAccessClasses`）：
+- `org_member` → 仅 `PUBLIC_SOURCE` + `INTERNAL_COMPANY`；
+- `org_admin` / `platform_admin` → 全部分级。
+
+caller 的 `allowedAccessClasses` 只能在 server 授权集**之内收窄**（`effectiveAccessClasses` = server ∩ caller），传入越权分级被交集剔除、绝不扩大可见范围（请求纯越权集 → 空集 → 零结果，无泄漏）。检索对 **claim 与 evidence 各自按自身 `accessClass` 独立过滤**：可读 claim 上的越权证据既不返回、也不计入 `evidenceCount`（不泄漏隐藏证据的存在或 snippet）。`getMemoryClaim` 对越权 claim 返回 `null`（redact，不可枚举）。
+
+**No public-private collapse**（§36）：同一 statement 不同来源的证据各自保留 `sourceType` / `accessClass` / `capturedAt`，不因文本相同合并。`ACCESS_CLASSIFICATION = PASS`（ACCESS-01..07 实测：member 不可读 RESTRICTED/CLIENT/VENDOR、caller 无法越权升权、admin 可读机密、可读 claim 的受限证据不泄漏、caller 可收窄）。
 
 ---
 
@@ -268,11 +275,12 @@ Buyer 与 MemoryClaim 均 `orgId NOT NULL`；所有读写 org-scoped。跨 org �
 | 组 | 覆盖 | 结果 |
 |---|---|---|
 | Buyer（BUYER-01..05 + 附加） | 创建 canonical；强身份幂等；近似名不同实体不合并；同名异域 NEEDS_REVIEW；跨 org 独立；orgId spoof 拒绝；org_member 写拒绝 | 7/7 PASS |
-| Claim（MEM-01..10 + AI-ban） | ACTIVE FACT+证据；无证据拒绝；USER_ENTRY NEEDS_REVIEW；AI_DERIVED 标 FACT 拒绝；ai 直写拒绝；supersede；retract 保史；原地改 statement 拒绝；治理字段可改；跨 org 读/supersede 拒绝；证据跨 org fail-closed；多证据保留 | 17/17 PASS |
-| Retrieval（RET-01..08 + access） | subject/claimType 过滤；ACTIVE 默认；includeHistory；trust 排序；freshness 排序；跨 org 零泄漏；证据含 citation；access 分级过滤 | 10/10 PASS |
-| **T3 集成合计** | 隔离 Neon 分支 | **34/34 PASS** |
+| Claim（MEM-01..12 + AI-ban） | ACTIVE FACT+证据；无证据拒绝；USER_ENTRY NEEDS_REVIEW；AI_DERIVED 标 FACT 拒绝；ai 直写拒绝；supersede；retract 保史；原地改 statement 拒绝；治理字段可改；跨 org 读/supersede 拒绝；证据跨 org fail-closed；多证据保留；**MEM-11 无证据 confirm 拒绝 + MEM-12 补证据后 confirm** | 20/20 PASS |
+| Retrieval（RET-01..08） | subject/claimType 过滤；ACTIVE 默认；includeHistory；trust 排序；freshness 排序；跨 org 零泄漏；证据含 citation | 9/9 PASS |
+| **Access class（ACCESS-01..07，Final Remediation）** | member 不可读 RESTRICTED/CLIENT/VENDOR；caller 无法越权升权；admin 可读机密；可读 claim 的受限证据不泄漏（evidenceCount 仅计可见）；caller 可收窄 | 7/7 PASS |
+| **T3 集成合计** | 隔离 Neon 分支 | **43/43 PASS** |
 | T3 schema 契约（静态，无 DB） | 三表形状 + additive-only migration 断言 | 4/4 PASS |
-| T3 纯逻辑（无 DB，可进 CI） | 归一/域名/排序比较器/校验器 | 11/11 PASS |
+| T3 纯逻辑（无 DB，可进 CI） | 归一/域名/排序比较器/校验器 + access 分级 server 权威/收窄不变式 | 13/13 PASS |
 
 DB 级 rehearsal：Buyer 17 / MemoryClaim 28 / Evidence 17 列到位；Evidence→Claim `delete_rule=RESTRICT` 实测阻止删除带证据 claim；索引数匹配。
 
@@ -284,7 +292,7 @@ DB 级 rehearsal：Buyer 17 / MemoryClaim 28 / Evidence 17 列到位；Evidence�
 
 `ISOLATED_NEON = PASS`，`ISOLATED_NEON_BRANCHES_LEFT = 0`。
 
-流程（§46）：从生产 project `polished-thunder-16018212` 开子分支 `preview-t3-memory`（`br-broad-shadow-anvt21cw`，host `ep-divine-night-anaaofkz`）→ 处理生产快照已知问题 `20260805090000_marketing_economics`（表已物化但无 migration 记录，`migrate resolve --applied`，先核对其 CREATE TABLE / ADD COLUMN 目标均已存在，零漂移）→ `migrate deploy` 干净应用 T2-M1 + T3 → prisma validate/generate → 34 集成断言 + 租户隔离 + 检索 + RESTRICT rehearsal 全过 → 全量 test-all 回归 → 删除临时分支。**未做生产 migration**。
+流程（§46，初版 + Final Remediation 各跑一次隔离分支）：从生产 project `polished-thunder-16018212` 开子分支（初版 `preview-t3-memory`；Remediation `preview-t3-remediation`）→ 处理生产快照已知问题 `20260805090000_marketing_economics`（表已物化但无 migration 记录，`migrate resolve --applied`，先核对其 CREATE TABLE / ADD COLUMN 目标均已存在，零漂移）→ `migrate deploy` 干净应用 T2-M1 + T3 → prisma validate/generate → 43 集成断言（BUYER + MEM-01..12 + RET + ACCESS-01..07）+ 租户隔离 + 检索 + RESTRICT rehearsal 全过 → 全量 test-all 回归 **216/216 通过, 0 失败**（含 V2/eval sibling lane 合并后的 7 个 tender 套件）→ 删除临时分支（LEFT=0）。**未做生产 migration**。
 
 ---
 

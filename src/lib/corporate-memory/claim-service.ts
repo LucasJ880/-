@@ -711,6 +711,17 @@ export async function confirmMemoryClaim(input: {
         "已归档（SUPERSEDED/RETRACTED）claim 不可确认",
       );
     }
+    // 证据门（MEM-11）：无证据 claim（只可能是 USER_ENTRY + NEEDS_REVIEW）不得被
+    // 提升为 HUMAN_CONFIRMED / ACTIVE——先 attach evidence 再 confirm（MEM-12）。
+    const evidenceCount = await tx.memoryClaimEvidence.count({
+      where: { claimId: claim.id, orgId: access.orgId },
+    });
+    if (evidenceCount === 0) {
+      throw new CorporateMemoryError(
+        "EVIDENCE_REQUIRED",
+        "无证据 claim 不可确认为 HUMAN_CONFIRMED：请先 attach evidence，claim 保持 NEEDS_REVIEW",
+      );
+    }
     if (claim.verificationStatus === "HUMAN_CONFIRMED") return claim;
     const updated = await tx.memoryClaim.update({
       where: { id: claim.id },

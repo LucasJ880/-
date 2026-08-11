@@ -1,15 +1,19 @@
 // ============================================================
-// Deterministic memory retrieval contract（T3, §29/§31/§32/§33）
+// Deterministic memory retrieval contract（T3, §29/§31/§32/§33/§35）
 //
 // 本阶段优先 structured filtering + deterministic trust/freshness ordering；
 // semantic ranking = DESIGN_ONLY（见 semantic-retrieval-design.ts / 报告 §19）。
 // 结果一律 org-scoped（cross-org 零泄漏）；默认仅 ACTIVE，除非 includeHistory。
 // 返回项必带 evidence summary + confidence + verificationStatus（供 UI/AI 判断可信度）。
+//
+// Access class（§35 强化）：可见分级由 server 依鉴权角色裁定（access.ts），
+// caller 的 allowedAccessClasses 只能收窄不可扩展；claim 与 evidence 各自按
+// 自身 accessClass 独立过滤；返回的 evidenceCount 仅计可见证据（不泄漏隐藏证据存在）。
 // ============================================================
 
-import type { MemoryClaimEvidence } from "@prisma/client";
+import type { MemoryClaim, MemoryClaimEvidence } from "@prisma/client";
 import { db } from "@/lib/db";
-import { requireMemoryReadAccess } from "./access";
+import { effectiveAccessClasses, requireMemoryReadAccess } from "./access";
 import {
   CorporateMemoryError,
   MEMORY_ACCESS_CLASSES,
@@ -74,7 +78,8 @@ export interface SearchMemoryClaimsParams {
   includeHistory?: boolean;
   /// 结构化文本包含匹配（statement，大小写不敏感）；本阶段非语义
   query?: string;
-  /// 访问分级过滤：仅返回 accessClass ∈ allowedAccessClasses（obey access scope，§35）
+  /// 访问分级收窄：仅可在 server 依角色授权的可见集**之内**进一步缩小（narrow-only）；
+  /// 传入越权分级不会扩大可见范围（被交集剔除）。省略 = 用 server 授权集（§35）。
   allowedAccessClasses?: string[];
   /// 时点有效性过滤：仅返回 validFrom≤asOf 且 (validTo 空或 >asOf) 的 claim
   asOf?: Date;
@@ -98,6 +103,36 @@ function toEvidenceSummary(ev: MemoryClaimEvidence): EvidenceSummary {
       ? ev.sourceSnippet.slice(0, SNIPPET_PREVIEW_MAX)
       : null,
     capturedAt: ev.capturedAt,
+  };
+}
+
+/**
+ * 统一结果映射（search 与 get 共用，避免投影漂移）。
+ * 传入的 row.evidence 必须已按可见分级过滤（include where）——
+ * evidenceCount 与 evidence 均只反映可见证据，隐藏证据既不计数也不泄漏 snippet。
+ */
+function toClaimResult(
+  row: MemoryClaim & { evidence: MemoryClaimEvidence[] },
+): MemoryClaimResult {
+  return {
+    claimId: row.id,
+    subjectType: row.subjectType,
+    subjectKey: row.subjectKey,
+    claimType: row.claimType,
+    claimNature: row.claimNature,
+    statement: row.statement,
+    structuredValue: row.structuredValue ?? null,
+    confidence: row.confidence,
+    verificationStatus: row.verificationStatus,
+    sourceType: row.sourceType,
+    status: row.status,
+    accessClass: row.accessClass,
+    capturedAt: row.capturedAt,
+    validFrom: row.validFrom,
+    validTo: row.validTo,
+    supersedesClaimId: row.supersedesClaimId,
+    evidenceCount: row.evidence.length,
+    evidence: row.evidence.map(toEvidenceSummary),
   };
 }
 
@@ -191,9 +226,9 @@ export async function searchMemoryClaims(
     if (q) where.statement = { contains: q, mode: "insensitive" };
   }
 
-  if (allowedAccessClasses) {
-    where.accessClass = { in: allowedAccessClasses };
-  }
+  // Access class（§35 强化）：server 依角色裁定可见集，caller 只能收窄。
+  const effective = effectiveAccessClasses(access, allowedAccessClasses);
+  where.accessClass = { in: effective };
 
   if (params.asOf !== undefined) {
     if (!(params.asOf instanceof Date) || Number.isNaN(params.asOf.getTime())) {
@@ -207,9 +242,15 @@ export async function searchMemoryClaims(
 
   // 有界扫描后在内存做 trust→freshness 排序（DB 无法直接表达 trust 词序）。
   // 扫描上限 SEARCH_SCAN_CAP；超出者不静默丢弃——见报告 Known Gaps（分页语义留待检索 v2）。
+  // evidence include 按可见分级独立过滤：readable claim 的越权证据不出现在结果、不计入 evidenceCount。
   const rows = await db.memoryClaim.findMany({
     where,
-    include: { evidence: { orderBy: { capturedAt: "asc" } } },
+    include: {
+      evidence: {
+        where: { accessClass: { in: effective } },
+        orderBy: { capturedAt: "asc" },
+      },
+    },
     orderBy: [{ capturedAt: "desc" }, { id: "asc" }],
     take: MEMORY_LIMITS.SEARCH_SCAN_CAP,
   });
@@ -226,29 +267,14 @@ export async function searchMemoryClaims(
     .sort((a, b) => compareClaimTrustFreshness(a.key, b.key))
     .slice(offset, offset + limit);
 
-  return ranked.map(({ row }) => ({
-    claimId: row.id,
-    subjectType: row.subjectType,
-    subjectKey: row.subjectKey,
-    claimType: row.claimType,
-    claimNature: row.claimNature,
-    statement: row.statement,
-    structuredValue: row.structuredValue ?? null,
-    confidence: row.confidence,
-    verificationStatus: row.verificationStatus,
-    sourceType: row.sourceType,
-    status: row.status,
-    accessClass: row.accessClass,
-    capturedAt: row.capturedAt,
-    validFrom: row.validFrom,
-    validTo: row.validTo,
-    supersedesClaimId: row.supersedesClaimId,
-    evidenceCount: row.evidence.length,
-    evidence: row.evidence.map(toEvidenceSummary),
-  }));
+  return ranked.map(({ row }) => toClaimResult(row));
 }
 
-/** 读取单个 claim（含全部 evidence 明细，非截断）；org-scoped。 */
+/**
+ * 读取单个 claim（含可见 evidence 明细，非截断）；org-scoped + access-class-scoped。
+ * claim 自身 accessClass 越权 → 返回 null（redact，不可枚举）；
+ * 越权 evidence 独立过滤，不出现在结果、不计入 evidenceCount。
+ */
 export async function getMemoryClaim(params: {
   orgId: string;
   actor: MemoryActorInput;
@@ -261,29 +287,20 @@ export async function getMemoryClaim(params: {
   if (typeof params.claimId !== "string" || !params.claimId.trim()) {
     throw new CorporateMemoryError("INVALID_INPUT", "claimId 必填");
   }
+  const effective = effectiveAccessClasses(access);
   const row = await db.memoryClaim.findFirst({
-    where: { id: params.claimId, orgId: access.orgId },
-    include: { evidence: { orderBy: { capturedAt: "asc" } } },
+    where: {
+      id: params.claimId,
+      orgId: access.orgId,
+      accessClass: { in: effective },
+    },
+    include: {
+      evidence: {
+        where: { accessClass: { in: effective } },
+        orderBy: { capturedAt: "asc" },
+      },
+    },
   });
   if (!row) return null;
-  return {
-    claimId: row.id,
-    subjectType: row.subjectType,
-    subjectKey: row.subjectKey,
-    claimType: row.claimType,
-    claimNature: row.claimNature,
-    statement: row.statement,
-    structuredValue: row.structuredValue ?? null,
-    confidence: row.confidence,
-    verificationStatus: row.verificationStatus,
-    sourceType: row.sourceType,
-    status: row.status,
-    accessClass: row.accessClass,
-    capturedAt: row.capturedAt,
-    validFrom: row.validFrom,
-    validTo: row.validTo,
-    supersedesClaimId: row.supersedesClaimId,
-    evidenceCount: row.evidence.length,
-    evidence: row.evidence.map(toEvidenceSummary),
-  };
+  return toClaimResult(row);
 }

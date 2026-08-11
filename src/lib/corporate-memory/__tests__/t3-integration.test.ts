@@ -421,13 +421,109 @@ async function main() {
       priceRes.confidence === "HIGH" && priceRes.verificationStatus === "AI_EXTRACTED",
       "RET-08 检索结果含证据摘要 + confidence + verificationStatus");
 
-    // ACCESS 分级过滤（§35）：仅 PUBLIC_SOURCE 时不返回 INTERNAL_COMPANY claim
-    const publicOnly = await cm.searchMemoryClaims({
+    // ================= ACCESS CLASS MATRIX（§35 强化） =================
+    // 由 adminA(org_admin) 建各分级 claim；memberA(org_member) 只应看到 PUBLIC+INTERNAL。
+    const capAcc = new Date("2026-07-01T00:00:00Z");
+    const mkAccClaim = (accessClass: string, statement: string, evAccess: string) =>
+      cm.createMemoryClaim({
+        orgId: orgA.id, actor: actorAdminA, subjectType: "BUYER", subjectKey: b1.buyer.id,
+        claimType: "BUYER_POLICY", claimNature: "FACT", statement,
+        confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED",
+        sourceType: "TENDER_DOCUMENT", capturedAt: capAcc, accessClass,
+        evidence: [{ sourceType: "TENDER_DOCUMENT", sourceKey: `acc:${tag}:${accessClass}`, sourceSnippet: `${accessClass} evidence`, capturedAt: capAcc, accessClass: evAccess }],
+      });
+    const claimRestricted = await mkAccClaim("RESTRICTED", "Restricted buyer strategy note.", "RESTRICTED");
+    const claimClient = await mkAccClaim("CLIENT_CONFIDENTIAL", "Client-confidential term.", "CLIENT_CONFIDENTIAL");
+    const claimVendor = await mkAccClaim("VENDOR_CONFIDENTIAL", "Vendor-confidential quote basis.", "VENDOR_CONFIDENTIAL");
+    const claimPublic = await mkAccClaim("PUBLIC_SOURCE", "Public award notice fact.", "PUBLIC_SOURCE");
+    // claimMixed：INTERNAL claim（member 可读）但含一条 RESTRICTED 证据（member 不可见）
+    const RESTRICTED_SNIPPET = "TOP-SECRET-RESTRICTED-EVIDENCE-SNIPPET";
+    const claimMixed = await cm.createMemoryClaim({
+      orgId: orgA.id, actor: actorAdminA, subjectType: "BUYER", subjectKey: b1.buyer.id,
+      claimType: "BUYER_POLICY", claimNature: "FACT", statement: "Internal claim with mixed-class evidence.",
+      confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED",
+      sourceType: "TENDER_DOCUMENT", capturedAt: capAcc, accessClass: "INTERNAL_COMPANY",
+      evidence: [
+        { sourceType: "TENDER_DOCUMENT", sourceKey: `mix:${tag}:internal`, sourceSnippet: "internal-visible-snippet", capturedAt: capAcc, accessClass: "INTERNAL_COMPANY" },
+        { sourceType: "TENDER_DOCUMENT", sourceKey: `mix:${tag}:restricted`, sourceSnippet: RESTRICTED_SNIPPET, capturedAt: capAcc, accessClass: "RESTRICTED" },
+      ],
+    });
+
+    // ACCESS-01: org_member cannot read RESTRICTED claim
+    const memGetRestricted = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorMemberA, claimId: claimRestricted.id });
+    const memSearch = await cm.searchMemoryClaims({ orgId: orgA.id, actor: actorMemberA, subjectType: "BUYER", subjectKey: b1.buyer.id });
+    ok(memGetRestricted === null && !memSearch.some((c) => c.claimId === claimRestricted.id) &&
+      memSearch.every((c) => c.accessClass === "PUBLIC_SOURCE" || c.accessClass === "INTERNAL_COMPANY"),
+      "ACCESS-01 org_member 不可读 RESTRICTED claim");
+
+    // ACCESS-02: org_member cannot read CLIENT_CONFIDENTIAL claim
+    const memGetClient = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorMemberA, claimId: claimClient.id });
+    ok(memGetClient === null && !memSearch.some((c) => c.claimId === claimClient.id),
+      "ACCESS-02 org_member 不可读 CLIENT_CONFIDENTIAL claim");
+
+    // ACCESS-03: org_member cannot read VENDOR_CONFIDENTIAL claim
+    const memGetVendor = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorMemberA, claimId: claimVendor.id });
+    ok(memGetVendor === null && !memSearch.some((c) => c.claimId === claimVendor.id),
+      "ACCESS-03 org_member 不可读 VENDOR_CONFIDENTIAL claim");
+
+    // ACCESS-04: caller cannot request RESTRICTED to escalate
+    const memEscalate = await cm.searchMemoryClaims({
+      orgId: orgA.id, actor: actorMemberA, subjectType: "BUYER", subjectKey: b1.buyer.id,
+      allowedAccessClasses: ["RESTRICTED"],
+    });
+    ok(memEscalate.length === 0 && !memEscalate.some((c) => c.claimId === claimRestricted.id),
+      "ACCESS-04 caller 请求 RESTRICTED 无法越权（有效集为空）");
+
+    // ACCESS-05: admin can read permitted confidential/restricted claims
+    const admGetRestricted = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorAdminA, claimId: claimRestricted.id });
+    const admGetClient = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorAdminA, claimId: claimClient.id });
+    ok(admGetRestricted?.accessClass === "RESTRICTED" && admGetClient?.accessClass === "CLIENT_CONFIDENTIAL",
+      "ACCESS-05 admin 可读机密/受限 claim");
+
+    // ACCESS-06: readable claim with restricted evidence does not leak evidence/snippet
+    const memMixed = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorMemberA, claimId: claimMixed.id });
+    const admMixed = await cm.getMemoryClaim({ orgId: orgA.id, actor: actorAdminA, claimId: claimMixed.id });
+    const memLeak = (memMixed?.evidence ?? []).some(
+      (e) => e.accessClass === "RESTRICTED" || (e.snippetPreview ?? "").includes(RESTRICTED_SNIPPET),
+    );
+    ok(!!memMixed && memMixed.evidenceCount === 1 && memMixed.evidence.length === 1 && !memLeak &&
+      admMixed?.evidenceCount === 2,
+      "ACCESS-06 可读 claim 的受限证据不泄漏（member 见 1 条计数=1；admin 见 2 条）",
+      { memCount: memMixed?.evidenceCount, memLeak, admCount: admMixed?.evidenceCount });
+
+    // ACCESS-07: caller filter can narrow server scope
+    const admPublicOnly = await cm.searchMemoryClaims({
       orgId: orgA.id, actor: actorAdminA, subjectType: "BUYER", subjectKey: b1.buyer.id,
       allowedAccessClasses: ["PUBLIC_SOURCE"],
     });
-    ok(publicOnly.every((c) => c.accessClass === "PUBLIC_SOURCE"),
-      "ACCESS 分级过滤 → 仅返回允许的 accessClass");
+    ok(admPublicOnly.every((c) => c.accessClass === "PUBLIC_SOURCE") &&
+      admPublicOnly.some((c) => c.claimId === claimPublic.id) &&
+      !admPublicOnly.some((c) => c.claimId === claimMixed.id),
+      "ACCESS-07 caller filter 可在 server 范围内收窄");
+
+    // ================= EVIDENCE CONFIRMATION HARDENING =================
+    const zeroEv = await cm.createMemoryClaim({
+      orgId: orgA.id, actor: actorAdminA, subjectType: "BUYER", subjectKey: b1.buyer.id,
+      claimType: "BUYER_PATTERN", claimNature: "INTERPRETATION",
+      statement: "Zero-evidence user hunch (pending review).", confidence: "LOW",
+      sourceType: "USER_ENTRY", capturedAt: capAcc,
+    });
+    // MEM-11: zero-evidence USER_ENTRY confirm => REJECT
+    await expectError("EVIDENCE_REQUIRED", "MEM-11 无证据 USER_ENTRY confirm → 拒绝", () =>
+      cm.confirmMemoryClaim({ orgId: orgA.id, actor: actorAdminA, claimId: zeroEv.id }),
+    );
+    const stillPending = await db.memoryClaim.findUnique({ where: { id: zeroEv.id } });
+    ok(stillPending?.status === "NEEDS_REVIEW" && stillPending?.verificationStatus === "NEEDS_REVIEW",
+      "MEM-11b 拒绝后 claim 仍 NEEDS_REVIEW（未被提升）");
+
+    // MEM-12: attach evidence then confirm => ACTIVE + HUMAN_CONFIRMED
+    await cm.attachMemoryClaimEvidence({
+      orgId: orgA.id, actor: actorAdminA, claimId: zeroEv.id,
+      evidence: [{ sourceType: "USER_ENTRY", sourceKey: `late:${tag}`, sourceSnippet: "supporting note added", capturedAt: capAcc }],
+    });
+    const confirmed = await cm.confirmMemoryClaim({ orgId: orgA.id, actor: actorAdminA, claimId: zeroEv.id });
+    ok(confirmed.status === "ACTIVE" && confirmed.verificationStatus === "HUMAN_CONFIRMED",
+      "MEM-12 attach evidence 后 confirm → ACTIVE + HUMAN_CONFIRMED");
   } finally {
     // ---------------- cleanup（Evidence Restrict → 先删证据） ----------------
     await db.memoryClaimEvidence.deleteMany({ where: { orgId: { in: [orgA.id, orgB.id] } } });

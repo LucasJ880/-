@@ -131,6 +131,14 @@ export type MemoryAccessClass = (typeof MEMORY_ACCESS_CLASSES)[number];
 
 export const DEFAULT_ACCESS_CLASS: MemoryAccessClass = "INTERNAL_COMPANY";
 
+/// org_member 默认可见分级（read scope，§35）：仅公开与内部；
+/// CLIENT_CONFIDENTIAL / VENDOR_CONFIDENTIAL / RESTRICTED 需 org_admin / platform_admin。
+/// 该集合是 server 授权底座，caller 只能在其内收窄、绝不可扩展。
+export const MEMBER_VISIBLE_ACCESS_CLASSES: readonly MemoryAccessClass[] = [
+  "PUBLIC_SOURCE",
+  "INTERNAL_COMPANY",
+];
+
 // --- Actor（本轮 CONSERVATIVE_ADMIN_ONLY：仅 user actor 可写） ---
 
 /// createdByType 词表 = user | system；system producer 本轮未启用（SYSTEM_WRITER_NOT_ENABLED），
