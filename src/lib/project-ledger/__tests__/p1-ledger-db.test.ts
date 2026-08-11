@@ -617,7 +617,81 @@ async function main() {
     a2Res.status === 409 && a2Body.code === "PROJECT_HAS_LEDGER_HISTORY",
   );
   ok("DEL-ACTIVE-02 flag ON + 有历史：项目未被删除", a2Kept);
+
+  // DEL-ACTIVE-03：flag ON + 仅 ProjectCost 历史（无事件，直插隔离成本触发）→ 409
+  const activeCost = await seedDeletableProject("active3", false);
+  await db.projectCost.create({
+    data: {
+      orgId: `${P}org_a`, projectId: activeCost.id,
+      costStatus: "PLANNED", category: "OTHER",
+      amountPlanned: "100.00", currency: "CAD",
+      incurredAt: new Date(), createdById: `${P}user_a`,
+    },
+  });
+  const a3Res = await callDelete(activeCost.id);
+  const a3Body = (await a3Res.json()) as { code?: string };
+  const a3Kept = (await db.project.count({ where: { id: activeCost.id } })) === 1;
+  ok(
+    "DEL-ACTIVE-03 flag ON + ProjectCost>0：409 PROJECT_HAS_LEDGER_HISTORY",
+    a3Res.status === 409 && a3Body.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-ACTIVE-03 flag ON + ProjectCost>0：项目未被删除", a3Kept);
+
+  // DEL-ACTIVE-04：flag ON + 仅 TenderArchiveItem 历史 → 409
+  const activeArc = await seedDeletableProject("active4", false);
+  await db.tenderArchiveItem.create({
+    data: {
+      orgId: `${P}org_a`, projectId: activeArc.id, kind: "tender_document",
+      captureKey: `${P}ck4`, capturedAt: new Date(), captureMethod: "upload",
+      mimeType: "application/pdf", fileSize: 10, contentHash: `${P}hash4`,
+      storageKey: `archive/${P}org_a/xx/${P}hash4`,
+    },
+  });
+  const a4Res = await callDelete(activeArc.id);
+  const a4Body = (await a4Res.json()) as { code?: string };
+  const a4Kept = (await db.project.count({ where: { id: activeArc.id } })) === 1;
+  ok(
+    "DEL-ACTIVE-04 flag ON + TenderArchiveItem>0：409 PROJECT_HAS_LEDGER_HISTORY",
+    a4Res.status === 409 && a4Body.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-ACTIVE-04 flag ON + TenderArchiveItem>0：项目未被删除", a4Kept);
   delete process.env.T2_LEDGER_PRODUCERS_ENABLED;
+
+  // DEL-ACTIVE-05：flag OFF + M1 delegate throw-if-called（模拟表不存在/不可用）
+  // → DELETE 结构性 gate 必须完全不触及 count，删除照常完成且无 table-not-found 类错误。
+  function installThrowingSpies() {
+    M1_MODELS.forEach((m, i) => {
+      const live = liveDelegates[i]!;
+      const proxy = new Proxy(live, {
+        get(target, prop, recv) {
+          if (prop === "count") {
+            return () => {
+              throw new Error(`M1 delegate ${m}.count 不应在 flag OFF 时被调用`);
+            };
+          }
+          const v = Reflect.get(target, prop, recv);
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      });
+      Object.defineProperty(db, m, { value: proxy, configurable: true, writable: true });
+    });
+  }
+  const darkThrowProj = await seedDeletableProject("active5", false);
+  installThrowingSpies();
+  let a5Threw = false;
+  let a5Res: Awaited<ReturnType<typeof callDelete>> | null = null;
+  try {
+    a5Res = await callDelete(darkThrowProj.id);
+  } catch {
+    a5Threw = true;
+  } finally {
+    restoreSpies();
+  }
+  const a5Gone = (await db.project.count({ where: { id: darkThrowProj.id } })) === 0;
+  ok(
+    "DEL-ACTIVE-05 flag OFF + throw-if-called delegate：DELETE 未触发 count（无 table-not-found）",
+    !a5Threw && a5Res?.status === 200 && a5Gone,
+  );
 
   await cleanup();
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
