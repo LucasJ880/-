@@ -27,6 +27,9 @@ npx tsx 'src/app/(main)/workforce/__tests__/operator-ux.test.ts'
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
+npx tsx src/lib/tender-understanding/__tests__/v2-generic.test.ts
+npx tsx src/lib/tender-understanding/__tests__/v2-hallucination.test.ts
+npx tsx src/lib/tender-understanding/__tests__/v2-evidence.test.ts
 npx tsx src/lib/common/__tests__/with-auth-schema-drift.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
