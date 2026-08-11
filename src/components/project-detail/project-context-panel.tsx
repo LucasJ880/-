@@ -17,8 +17,13 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import type { FormattedActivity } from "@/lib/activity/formatter";
+import type { TenderDetailTab } from "@/lib/tender/detail-tabs";
 
-export type ProjectContextTarget = "overview" | "files" | "quotes" | "ai";
+/**
+ * 项目内导航目标：五个一级 tab + 两个贯穿抽屉（资料 / 问青砚）。
+ * 旧 4-tab 值由 lib/tender/detail-tabs.ts 的别名解析兜底。
+ */
+export type ProjectContextTarget = TenderDetailTab | "files" | "chat";
 
 export interface ProjectContextPendingAction {
   id: string;
@@ -133,13 +138,13 @@ export function deriveProjectCommandState(
     nextAction = {
       label: "查看项目活动记录",
       reason: "项目已停止推进，先确认历史决定和遗留事项。",
-      target: "overview",
+      target: "workbench",
     };
   } else if (!input.orgBound) {
     nextAction = {
       label: "完善项目归属",
       reason: "企业归属决定数据范围和后续协作权限。",
-      target: "overview",
+      target: "workbench",
     };
   } else if (input.documentCount === 0) {
     nextAction = {
@@ -151,31 +156,31 @@ export function deriveProjectCommandState(
     nextAction = {
       label: "开始项目解读",
       reason: "先确认要求、范围与风险，再推进供应商询价。",
-      target: "ai",
+      target: "requirements",
     };
   } else if (input.pendingCount > 0) {
     nextAction = {
       label: "处理待确认动作",
       reason: "AI 只提供草稿，必须由有权限的用户确认后才会执行。",
-      target: "ai",
+      target: "workbench",
     };
   } else if (input.stage === "supplier_inquiry") {
     nextAction = {
       label: "跟进供应商报价",
       reason: "当前处于询价阶段，应优先补齐供应商回复。",
-      target: "quotes",
+      target: "bid",
     };
   } else if (input.stage === "supplier_quote") {
     nextAction = {
       label: "核对报价并准备提交",
       reason: "供应商报价已进入汇总阶段，需要检查缺失项和风险。",
-      target: "quotes",
+      target: "bid",
     };
   } else {
     nextAction = {
       label: "查看 AI 项目建议",
       reason: "结合当前阶段、文件与最近变化确认下一步。",
-      target: "ai",
+      target: "workbench",
     };
   }
 
@@ -431,7 +436,7 @@ export function ProjectContextPanel({
           </div>
         ))}
         {pendingActions.length > 0 ? (
-          <Button variant="outline" size="sm" className="w-full" onClick={() => onNavigate("ai")}>
+          <Button variant="outline" size="sm" className="w-full" onClick={() => onNavigate("workbench")}>
             打开安全确认入口
           </Button>
         ) : null}
@@ -456,7 +461,7 @@ export function ProjectContextPanel({
         ))}
       </ContextSection>
 
-      <Button variant="outline" className="w-full" onClick={() => onNavigate("ai")}>
+      <Button variant="outline" className="w-full" onClick={() => onNavigate("chat")}>
         <Sparkles size={14} />
         询问青砚项目助手
       </Button>

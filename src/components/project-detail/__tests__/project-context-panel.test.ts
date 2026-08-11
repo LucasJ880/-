@@ -38,15 +38,27 @@ const missingFiles = deriveProjectCommandState({
   ...baseline,
   documentCount: 0,
 });
-ok("缺少文件时优先引导到文件区", missingFiles.nextAction.target === "files");
+ok("缺少文件时优先引导到资料抽屉", missingFiles.nextAction.target === "files");
 ok("缺失项明确显示上传项目文件", missingFiles.missingItems.includes("上传项目文件"));
+
+const needsInterpretation = deriveProjectCommandState({
+  ...baseline,
+  hasIntelligence: false,
+});
+ok("未解读时引导到招标要求", needsInterpretation.nextAction.target === "requirements");
 
 const pending = deriveProjectCommandState({
   ...baseline,
   pendingCount: 2,
 });
-ok("待确认动作优先进入安全 AI 工作区", pending.nextAction.target === "ai");
+ok("待确认动作引导到工作台 Needs You", pending.nextAction.target === "workbench");
 ok("待确认动作被列为风险提示", pending.risks.some((item) => item.label.includes("2 项")));
+
+const quoteStage = deriveProjectCommandState({
+  ...baseline,
+  stage: "supplier_quote",
+});
+ok("报价阶段引导到标书与报价", quoteStage.nextAction.target === "bid");
 
 const overdue = deriveProjectCommandState({
   ...baseline,
