@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
 import { StatementKindBadge } from "./statement-kind-badge";
 import { SourceSnippetDialog } from "./source-snippet-dialog";
 
@@ -260,6 +261,13 @@ export function TenderAnalysisPanel({
         id="tender-analysis"
         className="rounded-xl border border-[var(--border)] p-4 space-y-3"
       >
+        {/* T1B：一键 AI 分析（Workforce）。仅主挂载点渲染；flag 关闭时组件自渲染 null */}
+        {showRunControls ? (
+          <TenderAnalysisAgentCard
+            projectId={projectId}
+            onAnalysisFinished={load}
+          />
+        ) : null}
         <h2 className="text-lg font-semibold">招标文件自动分析</h2>
         <p className="text-sm text-[var(--muted)]">
           {error
@@ -289,6 +297,11 @@ export function TenderAnalysisPanel({
 
   return (
     <section id="tender-analysis" className="space-y-4">
+      {/* T1B：一键 AI 分析（Workforce）。仅主挂载点（showRunControls）渲染，
+          避免 T1A 5-Tab 的次要挂载点（如提交 tab）重复出现；flag 关闭时组件自渲染 null */}
+      {showRunControls ? (
+        <TenderAnalysisAgentCard projectId={projectId} onAnalysisFinished={load} />
+      ) : null}
       {showRunControls ? (
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] pb-3">
         <div>

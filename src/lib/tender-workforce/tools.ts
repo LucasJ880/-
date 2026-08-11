@@ -1,0 +1,884 @@
+/**
+ * Tender T1B — Workforce Tool 层（任务书 §12/§13/§14/§24）
+ *
+ * 七个 tender 分析工具：descriptor（planner 白名单投影）+ handler
+ * （注册进 agent-runtime-v2 authoritative handler map）。
+ *
+ * 关键边界：
+ * - 工具刻意**不进** RUNTIME_V2_TOOL_CATALOG：全局 planner 投影
+ *   （catalog ∩ executable）保持 13 个销售线工具不变，legacy runtime_v2
+ *   与 sales workforce 计划面零暴露（EXECUTABLE ⊋ PLANNER_VISIBLE 是
+ *   #88 明确允许的方向）。tender job 由 processor 经
+ *   resolveWorkforcePlannerToolsForJob 注入本白名单（§12 MINIMUM TOOL
+ *   SCOPE：planner sanitize 强制 preferredTool ⊆ 白名单，email/calendar/
+ *   sales 写工具在 tender job 计划里结构性不可达）。
+ * - 每个 handler 执行期自证上下文（§35 双保险第二层）：runId → AgentRun
+ *   （org 域内）→ metadata.workDomain === "tender" ∧ projectId 存在，
+ *   否则 fail-closed——即使某天工具被计划进非 tender run 也拒绝执行。
+ * - 业务写入全部走 tender-auto-analysis 共享 service / 本模块薄适配层，
+ *   handler 不散落业务规则（§24）。
+ * - 证据消费按 #89 语义形状识别（不读黄金 stepKey 字面量）。
+ */
+
+import { db } from "@/lib/db";
+import { createCompletion } from "@/lib/ai/client";
+import type {
+  AdapterContext,
+  AdapterResult,
+} from "@/lib/agent-runtime-v2/adapters";
+import type { ToolDescriptor } from "@/lib/agent-runtime-v2/schemas";
+import { parseDocumentPagesAndStore } from "@/lib/tender-auto-analysis/page-parse";
+import {
+  extractFromPages,
+  extractRequirements,
+} from "@/lib/tender-auto-analysis/extract";
+import { generateReportSections } from "@/lib/tender-auto-analysis/report";
+import { buildClarifications } from "@/lib/tender-auto-analysis/clarifications";
+import {
+  createOrReuseWorkforceTenderAnalysisRun,
+  failWorkforceTenderAnalysisRun,
+  finalizeWorkforceTenderAnalysisRun,
+  requireWorkforceTenderRun,
+  upsertWorkforceRiskSection,
+  type TenderAnalysisInputManifest,
+} from "./analysis-run-service";
+import {
+  TENDER_ANALYSIS_RESULT_VERSION,
+  TenderRiskItemSchema,
+  type TenderAnalysisResultV1,
+  type TenderRiskItem,
+} from "./result-contract";
+import { z } from "zod";
+
+/** 与 adapters.ts 内部 RuntimeV2ToolHandler 结构一致（structural typing） */
+type TenderToolHandler = (ctx: AdapterContext) => Promise<AdapterResult>;
+
+/* ══════════════════ 工具白名单 descriptor（§12） ══════════════════ */
+
+export const TENDER_WORKFORCE_TOOL_NAMES = [
+  "tender_validate_input",
+  "tender_parse_documents",
+  "tender_extract_requirements",
+  "tender_evidence_compliance",
+  "tender_risk_analysis",
+  "tender_clarification_draft",
+  "tender_finalize_analysis",
+] as const;
+
+export type TenderWorkforceToolName =
+  (typeof TENDER_WORKFORCE_TOOL_NAMES)[number];
+
+/**
+ * Tender Analysis Allowlist：planner 只能看到这 7 个工具（+native
+ * synthesis 语义）。全部 requiresApproval=false——它们只产生机器分析
+ * 产物（与 legacy tender-auto-analysis 同信任级），不做任何业务承诺
+ * 动作（§28：无 email/calendar/GO/NO-GO/Lock/Submit）。
+ * 刻意不标 parallelSafe：2B-2 classifier 对未标注/无 catalog descriptor
+ * 的工具恒 SEQUENTIAL（本阶段建立顺序基线，§30）。
+ */
+export const TENDER_WORKFORCE_TOOL_DESCRIPTORS: ToolDescriptor[] = [
+  {
+    name: "tender_validate_input",
+    description:
+      "第一步（无依赖）：分析投标项目输入是否齐备并产出分析清单（文件包、指纹、addendum）。纯分析步骤：executionMode=analysis、requiresApproval=false（机器分析记录，不是业务写操作）；输出 analysisRunId 与文档清单，供全部后续任务依赖",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_parse_documents",
+    description:
+      "解析清单中的投标文件为逐页文本（幂等，已解析的跳过）。纯分析步骤：executionMode=analysis、requiresApproval=false；依赖 tender_validate_input",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_extract_requirements",
+    description:
+      "从已解析页面提取投标要求/事实/来源引用并生成报告章节（复用既有提取管线）。纯分析步骤：executionMode=analysis、requiresApproval=false；依赖 tender_validate_input 与 tender_parse_documents",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_evidence_compliance",
+    description:
+      "只读分析：统计要求的证据覆盖与合规缺口（强制/需证据/来源挂钩/缺失信息）。executionMode=analysis、requiresApproval=false；依赖 tender_extract_requirements",
+    riskLevel: "LOW",
+    readOnly: true,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_risk_analysis",
+    description:
+      "基于已提取要求与事实做投标风险分析（CRITICAL/HIGH/MEDIUM/INFORMATIONAL，逐条给来源）。纯分析步骤：executionMode=analysis、requiresApproval=false；依赖 tender_extract_requirements 与 tender_evidence_compliance",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_clarification_draft",
+    description:
+      "生成澄清问题草稿（仅草稿，绝不发送；文档已明确回答的不生成）。纯分析步骤：executionMode=analysis、requiresApproval=false；依赖 tender_extract_requirements",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_finalize_analysis",
+    description:
+      "最后一步：把综合结论与域内统计组装为最终分析结果，供人工审阅。纯分析步骤：executionMode=analysis、requiresApproval=false（产出机器分析记录，人工审阅在系统内另行进行，不是本流程的审批动作）；必须依赖综合汇总（synthesis）任务",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+];
+
+export function tenderWorkforcePlannerTools(): ToolDescriptor[] {
+  return TENDER_WORKFORCE_TOOL_DESCRIPTORS.map((d) => ({ ...d }));
+}
+
+/* ══════════════════ 执行期上下文自证（§35 第二层） ══════════════════ */
+
+type TenderJobContext = {
+  jobId: string;
+  projectId: string;
+};
+
+async function requireTenderJobContext(
+  ctx: AdapterContext,
+): Promise<{ ok: true; job: TenderJobContext } | { ok: false; error: string }> {
+  const run = await db.agentRun.findFirst({
+    where: { id: ctx.runId, orgId: ctx.orgId },
+    select: { id: true, metadata: true },
+  });
+  if (!run) {
+    return { ok: false, error: "INPUT_MISSING: 找不到当前任务所属的 Job" };
+  }
+  const meta = (run.metadata ?? {}) as Record<string, unknown>;
+  if (meta.workDomain !== "tender") {
+    return {
+      ok: false,
+      error: "INPUT_MISSING: 投标分析工具仅限投标 AI 分析任务使用",
+    };
+  }
+  const projectId =
+    typeof meta.projectId === "string" ? meta.projectId.trim() : "";
+  if (!projectId) {
+    return {
+      ok: false,
+      error: "INPUT_MISSING: Job 未绑定项目，无法执行投标分析",
+    };
+  }
+  return { ok: true, job: { jobId: run.id, projectId } };
+}
+
+/* ══════════ 声明证据的语义形状识别（#89：不读 stepKey 字面量） ══════════ */
+
+function evidenceValues(prior: Record<string, unknown>): unknown[] {
+  // 插入序 = dependsOn 声明序（executor scopedEvidenceByDependsOn 保证）
+  return Object.values(prior ?? {});
+}
+
+export function findManifestEvidence(
+  prior: Record<string, unknown>,
+): TenderAnalysisInputManifest | null {
+  for (const v of evidenceValues(prior)) {
+    if (!v || typeof v !== "object") continue;
+    const r = v as Record<string, unknown>;
+    if (
+      typeof r.analysisRunId === "string" &&
+      typeof r.projectId === "string" &&
+      Array.isArray(r.documents)
+    ) {
+      return r as unknown as TenderAnalysisInputManifest;
+    }
+  }
+  return null;
+}
+
+function findSynthesisEvidence(
+  prior: Record<string, unknown>,
+): { summary: string; conclusions: string[]; recommendations?: string[]; risks?: string[]; synthesisInputTruncated?: string[] } | null {
+  for (const v of evidenceValues(prior)) {
+    if (!v || typeof v !== "object") continue;
+    const r = v as Record<string, unknown>;
+    if (
+      typeof r.summary === "string" &&
+      Array.isArray(r.conclusions) &&
+      Array.isArray(r.synthesisOf)
+    ) {
+      return r as unknown as {
+        summary: string;
+        conclusions: string[];
+        recommendations?: string[];
+        risks?: string[];
+        synthesisInputTruncated?: string[];
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Manifest 回声（§16）：每个 tender handler 的输出都携带分析清单，
+ * 使 manifest 沿 handoff 链传播——下游只要声明了任一 tender 上游即可
+ * 取得清单（模型规划的 dependsOn 组合具有方差，不能假设人人直依 s1；
+ * 证据仍严格限定声明上游，#89 语义不变、零未声明泄漏）。
+ */
+function manifestEcho(
+  manifest: TenderAnalysisInputManifest,
+): Record<string, unknown> {
+  return {
+    analysisRunId: manifest.analysisRunId,
+    projectId: manifest.projectId,
+    fingerprint: manifest.fingerprint,
+    mode: manifest.mode,
+    documents: manifest.documents,
+    addendumCount: manifest.addendumCount,
+  };
+}
+
+async function requireManifestFromEvidence(
+  ctx: AdapterContext,
+  job: TenderJobContext,
+): Promise<
+  | { ok: true; manifest: TenderAnalysisInputManifest }
+  | { ok: false; error: string }
+> {
+  const manifest = findManifestEvidence(ctx.priorEvidence);
+  if (!manifest) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 未在声明依赖中找到分析清单（该任务必须依赖 tender_validate_input）",
+    };
+  }
+  if (manifest.projectId !== job.projectId) {
+    return {
+      ok: false,
+      error: "INPUT_MISSING: 分析清单与当前项目不一致（拒绝跨项目输入）",
+    };
+  }
+  const owned = await requireWorkforceTenderRun({
+    orgId: ctx.orgId,
+    projectId: job.projectId,
+    analysisRunId: manifest.analysisRunId,
+  });
+  if (!owned.ok) return { ok: false, error: `INPUT_MISSING: ${owned.error}` };
+  return { ok: true, manifest };
+}
+
+/* ══════════════════ 合规聚合（工具 4 与 finalize 共用） ══════════════════ */
+
+async function computeComplianceAggregate(analysisRunId: string): Promise<{
+  total: number;
+  mandatory: number;
+  evidenceRequired: number;
+  sourceLinked: number;
+  mandatoryWithoutSource: string[];
+  complianceStatusCounts: Record<string, number>;
+  factCount: number;
+  sourceRefCount: number;
+}> {
+  const [requirements, factCount, sourceRefCount, reqRefs] = await Promise.all([
+    db.tenderExtractedRequirement.findMany({
+      where: { analysisRunId },
+      select: {
+        id: true,
+        requirementCode: true,
+        originalRequirement: true,
+        mandatory: true,
+        evidenceRequired: true,
+        complianceStatus: true,
+      },
+    }),
+    db.tenderAnalysisFact.count({ where: { runId: analysisRunId } }),
+    db.tenderAnalysisSourceRef.count({ where: { runId: analysisRunId } }),
+    db.tenderAnalysisSourceRef.findMany({
+      where: { runId: analysisRunId, requirementId: { not: null } },
+      select: { requirementId: true },
+    }),
+  ]);
+  const linked = new Set(reqRefs.map((r) => r.requirementId));
+  const complianceStatusCounts: Record<string, number> = {};
+  for (const r of requirements) {
+    const key = r.complianceStatus ?? "UNKNOWN";
+    complianceStatusCounts[key] = (complianceStatusCounts[key] ?? 0) + 1;
+  }
+  const mandatoryWithoutSource = requirements
+    .filter((r) => r.mandatory && !linked.has(r.id))
+    .slice(0, 10)
+    .map((r) =>
+      `${r.requirementCode}: ${r.originalRequirement}`.slice(0, 200),
+    );
+  return {
+    total: requirements.length,
+    mandatory: requirements.filter((r) => r.mandatory).length,
+    evidenceRequired: requirements.filter((r) => r.evidenceRequired).length,
+    sourceLinked: requirements.filter((r) => linked.has(r.id)).length,
+    mandatoryWithoutSource,
+    complianceStatusCounts,
+    factCount,
+    sourceRefCount,
+  };
+}
+
+/* ══════════════════ 风险分析模型接缝（测试可注入；生产恒真模型） ══════════════════ */
+
+type RiskModelInvoke = (input: {
+  systemPrompt: string;
+  userPrompt: string;
+}) => Promise<string>;
+
+/**
+ * 测试接缝存放在 globalThis（Symbol key）：tsx 下测试文件的动态 import
+ * 与执行链的静态 import 可能得到两个模块实例（repo 既知现象，
+ * "跨模块实例 getAiStats 读不到"同源），module-level 变量会互不可见。
+ * 进程级 globalThis 对加载器二象性免疫；仅 NODE_ENV=test 时读取。
+ */
+const RISK_STUB_KEY = Symbol.for("qingyan.tenderWorkforce.riskModelStub");
+
+function riskModelOverrideForTests(): RiskModelInvoke | null {
+  if (process.env.NODE_ENV !== "test") return null;
+  const fn = (globalThis as Record<symbol, unknown>)[RISK_STUB_KEY];
+  return typeof fn === "function" ? (fn as RiskModelInvoke) : null;
+}
+
+export function setTenderRiskModelForTests(fn: RiskModelInvoke | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("setTenderRiskModelForTests 仅允许在 NODE_ENV=test 下调用");
+  }
+  (globalThis as Record<symbol, unknown>)[RISK_STUB_KEY] = fn ?? undefined;
+}
+
+const RiskModelOutputSchema = z
+  .object({
+    risks: z.array(TenderRiskItemSchema).max(24),
+    summary: z.string().min(1).max(1200),
+  })
+  .strip();
+
+/* ══════════════════ Handlers ══════════════════ */
+
+async function handleValidateInput(ctx: AdapterContext): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const created = await createOrReuseWorkforceTenderAnalysisRun({
+    orgId: ctx.orgId,
+    projectId: jobCtx.job.projectId,
+    jobId: jobCtx.job.jobId,
+    userId: ctx.userId,
+  });
+  if (!created.ok) {
+    return { ok: false, error: `${created.code}: ${created.error}` };
+  }
+  const m = created.manifest;
+  return {
+    ok: true,
+    data: {
+      ...m,
+      summary: `已建立投标分析清单：${m.documents.length} 份文件（含 ${m.addendumCount} 份补遗），指纹 ${m.fingerprint.slice(0, 12)}…`,
+    },
+  };
+}
+
+async function handleParseDocuments(ctx: AdapterContext): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+
+  const parsed: Array<{ documentId: string; pageCount: number | null; status: string }> = [];
+  const unparsed: string[] = [];
+  for (const doc of mf.manifest.documents) {
+    // §35 双保险：文档必须真实属于当前项目
+    const row = await db.projectDocument.findFirst({
+      where: { id: doc.documentId, projectId: jobCtx.job.projectId },
+      select: { id: true, parseStatus: true, pageCount: true },
+    });
+    if (!row) {
+      return {
+        ok: false,
+        error: `INPUT_MISSING: 清单中的文档不属于当前项目（${doc.documentId}）`,
+      };
+    }
+    // 幂等判定按真实 page 行（不是 parseStatus）：旧解析路径存在
+    // parseStatus=done 但零 ProjectDocumentPage 的历史数据（真实生产形态），
+    // 只看状态会静默跳过 → 下游零页面 fail-closed
+    const existingPages = await db.projectDocumentPage.count({
+      where: { documentId: doc.documentId },
+    });
+    if (row.parseStatus === "done" && existingPages > 0) {
+      parsed.push({
+        documentId: doc.documentId,
+        pageCount: row.pageCount ?? existingPages,
+        status: "already_parsed",
+      });
+      continue;
+    }
+    const result = await parseDocumentPagesAndStore(doc.documentId);
+    if (result.ok) {
+      parsed.push({
+        documentId: doc.documentId,
+        pageCount: result.pageCount,
+        status: result.parseStatus,
+      });
+    } else {
+      unparsed.push(`${doc.filename}: ${result.error}`.slice(0, 200));
+    }
+  }
+
+  if (parsed.length === 0) {
+    return {
+      ok: false,
+      error: `DOCUMENT_PARSE_FAILED: 所有投标文件解析失败（${unparsed.join("；").slice(0, 400)}）`,
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderParse: true,
+      parsedDocuments: parsed,
+      unparsedDocuments: unparsed,
+      summary: `已解析 ${parsed.length}/${mf.manifest.documents.length} 份投标文件${unparsed.length > 0 ? `（${unparsed.length} 份无法解析，已记录为限制）` : ""}`,
+    },
+  };
+}
+
+async function handleExtractRequirements(
+  ctx: AdapterContext,
+): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+  const runId = mf.manifest.analysisRunId;
+
+  const pages = await db.projectDocumentPage.count({
+    where: { documentId: { in: mf.manifest.documents.map((d) => d.documentId) } },
+  });
+  if (pages === 0) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 投标文件尚未解析出任何页面文本（需先完成文档解析）",
+    };
+  }
+
+  // 共享 service（legacy 与 workforce 同源）：facts + requirements + 章节
+  const extracted = await extractFromPages({ runId });
+  const requirements = await extractRequirements({ runId });
+  const sections = await generateReportSections({ runId });
+  const aggregate = await computeComplianceAggregate(runId);
+
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderExtract: true,
+      factCount: extracted.factCount,
+      requirementCount: requirements.requirementCount,
+      mandatoryCount: aggregate.mandatory,
+      sectionCount: sections.sectionCount,
+      sourceRefCount: aggregate.sourceRefCount,
+      summary: `已提取 ${requirements.requirementCount} 条投标要求（其中强制 ${aggregate.mandatory} 条）、${extracted.factCount} 条事实与 ${aggregate.sourceRefCount} 条来源引用，并生成 ${sections.sectionCount} 个报告章节`,
+    },
+  };
+}
+
+async function handleEvidenceCompliance(
+  ctx: AdapterContext,
+): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+
+  const aggregate = await computeComplianceAggregate(mf.manifest.analysisRunId);
+  if (aggregate.total === 0) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 尚无已提取的投标要求可分析（需先完成要求提取）",
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderCompliance: true,
+      requirementsSummary: {
+        total: aggregate.total,
+        mandatory: aggregate.mandatory,
+        evidenceRequired: aggregate.evidenceRequired,
+        sourceLinked: aggregate.sourceLinked,
+      },
+      complianceStatusCounts: aggregate.complianceStatusCounts,
+      mandatoryWithoutSource: aggregate.mandatoryWithoutSource,
+      summary: `证据覆盖：${aggregate.total} 条要求中 ${aggregate.sourceLinked} 条已挂来源；强制要求 ${aggregate.mandatory} 条，其中 ${aggregate.mandatoryWithoutSource.length} 条缺少来源支撑`,
+    },
+  };
+}
+
+async function handleRiskAnalysis(ctx: AdapterContext): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+  const runId = mf.manifest.analysisRunId;
+
+  const [requirements, facts] = await Promise.all([
+    db.tenderExtractedRequirement.findMany({
+      where: { analysisRunId: runId },
+      orderBy: { requirementCode: "asc" },
+      take: 60,
+      select: {
+        requirementCode: true,
+        category: true,
+        originalRequirement: true,
+        mandatory: true,
+        evidenceRequired: true,
+        complianceStatus: true,
+      },
+    }),
+    db.tenderAnalysisFact.findMany({
+      where: { runId },
+      take: 60,
+      select: {
+        statementKind: true,
+        contentZh: true,
+        sourceRefs: {
+          take: 1,
+          select: { pageNumber: true, documentId: true },
+        },
+      },
+    }),
+  ]);
+  if (requirements.length === 0) {
+    return {
+      ok: false,
+      error: "INPUT_MISSING: 尚无已提取的投标要求，无法进行风险分析",
+    };
+  }
+  const aggregate = await computeComplianceAggregate(runId);
+
+  const systemPrompt = `你是青砚投标风险分析执行器。基于且仅基于给定的投标要求、事实与证据覆盖统计做风险分析。
+规则：
+- 不得编造输入中不存在的要求、日期、数字或文档
+- 每条风险给出 severity（CRITICAL/HIGH/MEDIUM/INFORMATIONAL）与 kind（MANDATORY_REQUIREMENT_MISSING/CONTRADICTION/AMBIGUOUS_SPECIFICATION/ADDENDUM_CONFLICT/MISSING_DOCUMENT/SUBMISSION_RISK/TECHNICAL_INCOMPATIBILITY/COMMERCIAL_UNKNOWN/OTHER）
+- statement 用中文陈述具体风险；source 引用支撑该判断的要求编号或文档（可追溯）
+- 不要把普通要求当风险；只报告真实缺口、矛盾、歧义与不确定性
+- 只输出 JSON：{"risks":[{"severity":"...","kind":"...","statement":"...","source":"..."}],"summary":"..."}`;
+
+  const userPrompt = JSON.stringify({
+    project: { addendumCount: mf.manifest.addendumCount },
+    documents: mf.manifest.documents.map((d) => ({
+      filename: d.filename,
+      role: d.role,
+      pageCount: d.pageCount,
+    })),
+    requirements,
+    facts: facts.map((f) => ({
+      kind: f.statementKind,
+      content: f.contentZh,
+      source: f.sourceRefs[0]
+        ? `doc:${f.sourceRefs[0].documentId} p${f.sourceRefs[0].pageNumber ?? "?"}`
+        : undefined,
+    })),
+    evidenceCoverage: {
+      total: aggregate.total,
+      mandatory: aggregate.mandatory,
+      sourceLinked: aggregate.sourceLinked,
+      mandatoryWithoutSource: aggregate.mandatoryWithoutSource,
+    },
+  });
+
+  let raw: string;
+  try {
+    const stub = riskModelOverrideForTests();
+    if (stub) {
+      raw = await stub({ systemPrompt, userPrompt });
+    } else {
+      raw = await createCompletion({
+        systemPrompt,
+        userPrompt,
+        temperature: 0,
+        maxTokens: 4000,
+        orgId: ctx.orgId,
+        userId: ctx.userId,
+      });
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: `MODEL_FAILED: 风险分析模型调用失败（${err instanceof Error ? err.message : String(err)}）`,
+    };
+  }
+  const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    return { ok: false, error: "MODEL_FAILED: 风险分析模型未返回结构化结果" };
+  }
+  let parsedRaw: unknown;
+  try {
+    parsedRaw = JSON.parse(jsonMatch[0]);
+  } catch {
+    return { ok: false, error: "MODEL_FAILED: 风险分析结果 JSON 无法解析" };
+  }
+  const parsed = RiskModelOutputSchema.safeParse(parsedRaw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: `MODEL_FAILED: 风险分析结果不符合契约（${parsed.error.message.slice(0, 200)}）`,
+    };
+  }
+
+  const risks = parsed.data.risks;
+  const contentZh = [
+    parsed.data.summary,
+    "",
+    ...risks.map(
+      (r) =>
+        `【${r.severity}】${r.statement}${r.source ? `（来源：${r.source}）` : ""}`,
+    ),
+  ].join("\n");
+  const persisted = await upsertWorkforceRiskSection({
+    orgId: ctx.orgId,
+    projectId: jobCtx.job.projectId,
+    analysisRunId: runId,
+    contentZh: contentZh.slice(0, 8000),
+    structuredJson: { version: "tender-workforce-risks/v1", risks },
+  });
+  if (!persisted.ok) {
+    return { ok: false, error: `TOOL_FAILED: ${persisted.error}` };
+  }
+
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderRisks: true,
+      risks,
+      riskSummary: parsed.data.summary,
+      counts: {
+        critical: risks.filter((r) => r.severity === "CRITICAL").length,
+        high: risks.filter((r) => r.severity === "HIGH").length,
+        medium: risks.filter((r) => r.severity === "MEDIUM").length,
+        informational: risks.filter((r) => r.severity === "INFORMATIONAL")
+          .length,
+      },
+      summary: `风险分析：${risks.length} 条（CRITICAL ${risks.filter((r) => r.severity === "CRITICAL").length} / HIGH ${risks.filter((r) => r.severity === "HIGH").length}）。${parsed.data.summary}`.slice(
+        0,
+        480,
+      ),
+    },
+  };
+}
+
+async function handleClarificationDraft(
+  ctx: AdapterContext,
+): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+  const runId = mf.manifest.analysisRunId;
+
+  const built = await buildClarifications({ runId });
+  const questions = await db.tenderClarificationQuestion.findMany({
+    where: { analysisRunId: runId },
+    take: 12,
+    select: { question: true, reason: true, priority: true },
+  });
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderClarifications: true,
+      clarificationCount: built.clarificationCount,
+      drafts: questions.map((q) => ({
+        question: q.question.slice(0, 400),
+        reason: (q.reason ?? "").slice(0, 300),
+        priority: q.priority,
+      })),
+      draftOnly: true,
+      summary: `已起草 ${built.clarificationCount} 条澄清问题（仅草稿，须人工决定是否发出）`,
+    },
+  };
+}
+
+async function handleFinalizeAnalysis(
+  ctx: AdapterContext,
+): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+  const runId = mf.manifest.analysisRunId;
+
+  const synthesis = findSynthesisEvidence(ctx.priorEvidence);
+  if (!synthesis) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 未在声明依赖中找到综合汇总结果（该任务必须依赖 synthesis 任务）",
+    };
+  }
+
+  const aggregate = await computeComplianceAggregate(runId);
+  const [riskSection, clarifications, docs] = await Promise.all([
+    db.tenderAnalysisSection.findFirst({
+      where: { runId, sectionKey: "RISKS" },
+      select: { structuredJson: true },
+    }),
+    db.tenderClarificationQuestion.findMany({
+      where: { analysisRunId: runId },
+      take: 12,
+      select: { question: true, reason: true, priority: true },
+    }),
+    db.projectDocument.findMany({
+      where: {
+        id: { in: mf.manifest.documents.map((d) => d.documentId) },
+        projectId: jobCtx.job.projectId,
+      },
+      select: { id: true, title: true, parseStatus: true, pageCount: true },
+    }),
+  ]);
+
+  const structuredRisks: TenderRiskItem[] = (() => {
+    const sj = riskSection?.structuredJson as
+      | { risks?: unknown }
+      | null
+      | undefined;
+    if (!sj || !Array.isArray(sj.risks)) return [];
+    return sj.risks
+      .map((r) => TenderRiskItemSchema.safeParse(r))
+      .filter((p): p is { success: true; data: TenderRiskItem } => p.success)
+      .map((p) => p.data);
+  })();
+
+  const critical = structuredRisks.filter((r) => r.severity === "CRITICAL");
+  const important = structuredRisks.filter((r) => r.severity === "HIGH");
+  const submission = structuredRisks.filter(
+    (r) => r.kind === "SUBMISSION_RISK",
+  );
+
+  const parsedPageCount = docs.reduce((n, d) => n + (d.pageCount ?? 0), 0);
+  const limitations: string[] = [];
+  for (const d of docs) {
+    if (d.parseStatus !== "done") {
+      limitations.push(
+        `文件「${d.title}」未能完整解析（${d.parseStatus}），其内容未纳入分析`.slice(0, 300),
+      );
+    }
+  }
+  if (synthesis.synthesisInputTruncated?.length) {
+    limitations.push("部分上游任务产出因体量限制被截断后综合");
+  }
+  if (limitations.length === 0) {
+    limitations.push("分析范围以当前已上传的投标文件包为准");
+  }
+
+  const missingInformation = aggregate.mandatoryWithoutSource.map((m) =>
+    `强制要求缺少来源支撑：${m}`.slice(0, 480),
+  );
+
+  const readiness: TenderAnalysisResultV1["readiness"] =
+    critical.length > 0 || missingInformation.length > 0
+      ? "GAPS_FOUND"
+      : "READY_TO_REVIEW";
+
+  const result: TenderAnalysisResultV1 = {
+    contractVersion: TENDER_ANALYSIS_RESULT_VERSION,
+    projectSummary: synthesis.summary.slice(0, 2000),
+    readiness,
+    requirementsSummary: {
+      total: aggregate.total,
+      mandatory: aggregate.mandatory,
+      evidenceRequired: aggregate.evidenceRequired,
+      sourceLinked: aggregate.sourceLinked,
+    },
+    missingInformation: missingInformation.slice(0, 12),
+    criticalRisks: critical.slice(0, 12),
+    importantRisks: important.slice(0, 12),
+    clarifications: clarifications.map((q) => ({
+      question: q.question.slice(0, 500),
+      reason: (q.reason ?? "分析过程中识别的不确定项").slice(0, 500) || "分析过程中识别的不确定项",
+      priority: (["HIGH", "MEDIUM", "LOW"] as const).includes(
+        q.priority as "HIGH" | "MEDIUM" | "LOW",
+      )
+        ? (q.priority as "HIGH" | "MEDIUM" | "LOW")
+        : "MEDIUM",
+      whyOwnerNeedsToAnswer: (q.reason ?? "该信息影响投标合规与报价判断").slice(0, 500) || "该信息影响投标合规与报价判断",
+    })),
+    submissionRisks: submission.map((r) => r.statement.slice(0, 500)).slice(0, 12),
+    recommendedNextActions: [
+      ...(synthesis.recommendations ?? []).map((r) => r.slice(0, 500)),
+      "人工审阅本次 AI 分析结果并确认要求清单",
+    ].slice(0, 12),
+    sourceCoverage: {
+      documentCount: mf.manifest.documents.length,
+      parsedPageCount,
+      factCount: aggregate.factCount,
+      sourceRefCount: aggregate.sourceRefCount,
+    },
+    analysisLimitations: limitations.slice(0, 12),
+  };
+
+  const summaryText =
+    `AI 投标分析：${aggregate.total} 条要求（强制 ${aggregate.mandatory}）｜关键风险 ${critical.length}｜澄清草稿 ${clarifications.length}｜${readiness === "GAPS_FOUND" ? "发现缺口，需人工确认" : "待人工审阅"}`.slice(
+      0,
+      500,
+    );
+
+  const finalized = await finalizeWorkforceTenderAnalysisRun({
+    orgId: ctx.orgId,
+    projectId: jobCtx.job.projectId,
+    analysisRunId: runId,
+    result,
+    summaryText,
+  });
+  if (!finalized.ok) {
+    return { ok: false, error: `TOOL_FAILED: ${finalized.error}` };
+  }
+
+  return {
+    ok: true,
+    data: {
+      tenderFinalized: true,
+      analysisRunId: runId,
+      readiness,
+      requirementCount: aggregate.total,
+      criticalRiskCount: critical.length,
+      clarificationCount: clarifications.length,
+      summary: summaryText,
+    },
+  };
+}
+
+/* ══════════════════ Handler 注册表（并入 authoritative handler map） ══════════════════ */
+
+export const TENDER_WORKFORCE_TOOL_HANDLERS: Record<
+  TenderWorkforceToolName,
+  TenderToolHandler
+> = {
+  tender_validate_input: handleValidateInput,
+  tender_parse_documents: handleParseDocuments,
+  tender_extract_requirements: handleExtractRequirements,
+  tender_evidence_compliance: handleEvidenceCompliance,
+  tender_risk_analysis: handleRiskAnalysis,
+  tender_clarification_draft: handleClarificationDraft,
+  tender_finalize_analysis: handleFinalizeAnalysis,
+};
+
+/** Job 失败/取消时的域侧兜底（trigger 层调用；工具层不管 Run 级状态） */
+export { failWorkforceTenderAnalysisRun };
