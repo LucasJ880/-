@@ -20,7 +20,11 @@ import { extractFromPages, extractRequirements } from "./extract";
 import { generateReportSections } from "./report";
 import { buildDeliverables } from "./deliverables";
 import { buildClarifications } from "./clarifications";
-import { analyzeAndPersistV2, isTenderAnalysisV2Enabled } from "./v2-persist";
+import {
+  analyzeAndPersistV2,
+  isTenderAnalysisV2Enabled,
+  TenderV2LeaseLostError,
+} from "./v2-persist";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
@@ -300,17 +304,30 @@ async function stepEnsurePages(run: ClaimedRun): Promise<void> {
 
 async function stepExtractFacts(run: ClaimedRun): Promise<void> {
   if (isTenderAnalysisV2Enabled()) {
-    // V2 grounded 引擎：一步产出 facts+requirements+clarifications+sections+summary+addendum。
-    // analyzeTender 为多 LLM 调用，可能超过 LEASE_MS → 执行期间心跳续租。
+    // V2 grounded 引擎：推理（多 LLM 调用，可能超 LEASE_MS）与 canonical 写分离。
+    // 心跳续租；一旦 renewLease 返回 false 记 leaseLost，推理返回后 fail-closed（不写）。
+    // 持久化本身在 persistV2Fenced 内做权威 lease fence（stale worker 零写）。
+    let leaseLost = false;
     const heartbeat = setInterval(() => {
-      void renewLease(run.id, run.leaseOwner);
+      void renewLease(run.id, run.leaseOwner).then((okLease) => {
+        if (!okLease) leaseLost = true;
+      });
     }, 60_000);
     try {
       await analyzeAndPersistV2({
         runId: run.id,
         projectId: run.projectId,
         parentRunId: run.parentRunId,
+        leaseOwner: run.leaseOwner,
+        leaseMs: LEASE_MS,
+        checkLease: () => !leaseLost,
       });
+    } catch (e) {
+      // V2 fence 拒绝（stale worker）→ 转为 worker 的 graceful yield（不 markFailed）
+      if (e instanceof TenderV2LeaseLostError) {
+        throw new LeaseLostError("EXTRACT_FACTS_v2_fence");
+      }
+      throw e;
     } finally {
       clearInterval(heartbeat);
     }

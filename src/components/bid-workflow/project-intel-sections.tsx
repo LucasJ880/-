@@ -91,6 +91,14 @@ type ExecutiveBrief = {
     possiblyRecurring: BriefField;
   };
   packageChanges: string[];
+  coverage?: {
+    uploaded: number;
+    eligible: number;
+    analyzed: number;
+    excluded: number;
+    label: string;
+    note: string | null;
+  };
 };
 
 const FIELD_STATE_LABEL: Record<BriefFieldState, string> = {
@@ -158,6 +166,8 @@ export function ProjectIntelSections({
   const [factSourcePage, setFactSourcePage] = useState("");
   const [recentChanges, setRecentChanges] = useState<string[]>([]);
   const [brief, setBrief] = useState<ExecutiveBrief | null>(null);
+  // EXPERIENCE flag（来自 /tender-brief）：OFF → 保持 merge 前既有 30 秒看懂渲染
+  const [experienceEnabled, setExperienceEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const loadBrief = useCallback(async () => {
@@ -169,8 +179,10 @@ export function ProjectIntelSections({
         `/api/projects/${projectId}/tender-brief${qs}`,
       );
       const data = await res.json();
+      setExperienceEnabled(data.experienceEnabled === true);
       setBrief(data.brief ?? null);
     } catch {
+      setExperienceEnabled(false);
       setBrief(null);
     }
   }, [projectId, projectTypeLabel]);
@@ -274,7 +286,53 @@ export function ProjectIntelSections({
     }
   };
 
-  // —— Phase I：30 秒看懂 = Executive Brief 的字段级投影 ——
+  // —— EXPERIENCE OFF 兜底：merge 前既有 room-based 30 秒看懂（保持生产行为不变） ——
+  const legacySummary = (room?.summaryJson || {}) as Record<string, unknown>;
+  const legacyProjectType =
+    projectTypeLabel ||
+    (typeof legacySummary.projectType === "string" && legacySummary.projectType) ||
+    "暂未分类";
+  const legacyRecentText =
+    recentChanges.length > 0
+      ? recentChanges.slice(0, 3).join("；")
+      : Array.isArray(legacySummary.recentChanges) &&
+          (legacySummary.recentChanges as unknown[]).length > 0
+        ? (legacySummary.recentChanges as string[]).join("；")
+        : "暂无新的重要变化";
+  const legacyCards: Array<[string, string]> = [
+    ["一句话摘要", room?.summaryText || "调查中"],
+    ["采购单位", String(legacySummary.procuringAgency || "暂时未知")],
+    ["产品或服务", String(legacySummary.product || "调查中")],
+    ["项目类型", legacyProjectType],
+    [
+      "周期采购可能",
+      legacySummary.possiblyRecurring == null
+        ? "暂时未知"
+        : legacySummary.possiblyRecurring === true
+          ? "可能是"
+          : legacySummary.possiblyRecurring === false
+            ? "不太像"
+            : String(legacySummary.possiblyRecurring),
+    ],
+    ["上一轮中标方", String(legacySummary.previousWinner || "暂时未知")],
+    ["历史合同金额", String(legacySummary.historicalContractValue || "暂时未知")],
+    ["当前建议（AI）", String(legacySummary.recommendation || "调查中")],
+    [
+      "重大阻塞",
+      Array.isArray(legacySummary.majorBlockers)
+        ? (legacySummary.majorBlockers as string[]).join("；") || "无"
+        : "调查中",
+    ],
+    ["最近变化", legacyRecentText],
+    [
+      "下一步",
+      Array.isArray(legacySummary.nextActions)
+        ? (legacySummary.nextActions as string[]).slice(0, 2).join("；")
+        : "调查中",
+    ],
+  ];
+
+  // —— Phase I：30 秒看懂 = Executive Brief 的字段级投影（EXPERIENCE ON） ——
   // 「最近变化」= 项目活动流 + package/addendum 变更 合并（去重、取前 5）。
   const mergedChanges = Array.from(
     new Set([...(brief?.packageChanges ?? []), ...recentChanges]),
@@ -352,26 +410,52 @@ export function ProjectIntelSections({
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">30 秒看懂项目</h2>
-          <span className="text-[11px] text-[var(--muted)]">
-            {briefStatusHint}
-          </span>
+          {experienceEnabled ? (
+            <span className="text-[11px] text-[var(--muted)]">
+              {briefStatusHint}
+            </span>
+          ) : null}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {briefCards.map((c) => (
-            <div
-              key={c.label}
-              className="rounded-xl border border-[var(--border)] p-3 space-y-1"
-            >
-              <p className="text-[11px] text-[var(--muted)]">{c.label}</p>
-              <p className="text-sm font-medium leading-snug whitespace-pre-line">
-                {c.text}
-              </p>
-              <p className={`text-[10px] ${FIELD_STATE_TONE[c.field.state]}`}>
-                {FIELD_STATE_LABEL[c.field.state]}
-              </p>
-            </div>
-          ))}
-        </div>
+        {experienceEnabled && brief?.coverage ? (
+          <p className="text-[11px] text-[var(--muted)]">
+            {brief.coverage.label}
+            {brief.coverage.note ? ` · ${brief.coverage.note}` : ""}
+          </p>
+        ) : null}
+        {experienceEnabled ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {briefCards.map((c) => (
+              <div
+                key={c.label}
+                className="rounded-xl border border-[var(--border)] p-3 space-y-1"
+              >
+                <p className="text-[11px] text-[var(--muted)]">{c.label}</p>
+                <p className="text-sm font-medium leading-snug whitespace-pre-line">
+                  {c.text}
+                </p>
+                <p className={`text-[10px] ${FIELD_STATE_TONE[c.field.state]}`}>
+                  {FIELD_STATE_LABEL[c.field.state]}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // EXPERIENCE OFF：merge 前既有渲染（单一 room.summaryStatus 徽标）
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {legacyCards.map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-[var(--border)] p-3 space-y-1"
+              >
+                <p className="text-[11px] text-[var(--muted)]">{label}</p>
+                <p className="text-sm font-medium leading-snug">{value}</p>
+                <p className="text-[10px] text-[var(--muted)]">
+                  {STATUS_LABEL[room?.summaryStatus || "unknown"] || "暂时未知"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="space-y-3">

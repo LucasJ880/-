@@ -10,6 +10,7 @@
  */
 
 import { db } from "@/lib/db";
+import { isTenderPackageAiExperienceEnabledWithEnv } from "./auto-flags";
 
 const MAX_REQUIREMENTS = 24;
 const MAX_CLARIFICATIONS = 10;
@@ -103,8 +104,15 @@ export async function buildTenderPackageContext(
 ): Promise<string | null> {
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { workDomain: true },
+    select: { workDomain: true, orgId: true },
   });
+
+  // EXPERIENCE 主开关：OFF（生产默认）时绝不注入新 package 上下文，会话保持既有行为。
+  if (
+    !isTenderPackageAiExperienceEnabledWithEnv({ orgId: project?.orgId ?? null })
+  ) {
+    return null;
+  }
 
   // 取最新有效分析（就绪优先；否则最新一条，用于说明状态）
   const run =

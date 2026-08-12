@@ -250,6 +250,8 @@ run_test "招标自动分析编排开关" "npx tsx src/lib/tender-auto-analysis/
 run_test "招标自动分析 V2 映射" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-map.test.ts"
 run_test "招标 30 秒执行摘要投影" "npx tsx src/lib/tender-auto-analysis/__tests__/executive-brief.test.ts"
 run_test "招标会话 package 上下文" "npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts"
+run_test "招标 V2 持久化 lease fence" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts"
+run_test "招标 package 覆盖率" "npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts"
 run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__tests__/idempotency.test.ts"
 run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"
 run_test "招标自动分析多文档包指纹" "npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts"

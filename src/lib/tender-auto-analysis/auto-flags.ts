@@ -61,3 +61,43 @@ export function describeTenderAutoPackageFlag(): Record<string, unknown> {
     ),
   };
 }
+
+/**
+ * TENDER_PACKAGE_AI_EXPERIENCE_ENABLED —— 用户可见的新版 Package AI 读面主开关。
+ *
+ * 职责边界（三 flag 各司其职，禁合并）：
+ *   - AUTO（TENDER_AUTO_PACKAGE_ANALYSIS_ENABLED）：orchestration（自动入队时机）；
+ *   - V2（TENDER_ANALYSIS_V2_ENABLED）：reasoning engine（grounded 抽取）；
+ *   - EXPERIENCE（本 flag）：用户可见 read surface —— Executive Brief / 30 秒看懂新版投影 /
+ *     Tender Chat package context。
+ *
+ * default OFF：EXPERIENCE OFF 时，生产 UI/会话保持 merge 前既有行为（不注入新上下文、
+ * 30 秒看懂退回旧 room-based 渲染）。staging 三 flag 同开做 REAL_E2E。
+ */
+export function isTenderPackageAiExperienceEnabledWithEnv(
+  input: { orgId?: string | null },
+  env: TenderAutoFlagEnv = process.env,
+): boolean {
+  if (!envBool(env.TENDER_PACKAGE_AI_EXPERIENCE_ENABLED)) return false;
+  const orgs = envList(env.TENDER_PACKAGE_AI_EXPERIENCE_ORG_ALLOWLIST);
+  if (orgs.length > 0) {
+    const orgId = (input.orgId ?? "").trim();
+    if (!orgId || !orgs.includes(orgId)) return false;
+  }
+  return true;
+}
+
+export function isTenderPackageAiExperienceEnabled(input: {
+  orgId?: string | null;
+}): boolean {
+  return isTenderPackageAiExperienceEnabledWithEnv(input, process.env);
+}
+
+export function describeTenderPackageAiExperienceFlag(): Record<string, unknown> {
+  return {
+    enabled: envBool(process.env.TENDER_PACKAGE_AI_EXPERIENCE_ENABLED),
+    orgAllowlist: envList(
+      process.env.TENDER_PACKAGE_AI_EXPERIENCE_ORG_ALLOWLIST,
+    ),
+  };
+}

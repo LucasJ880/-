@@ -15,6 +15,7 @@
 
 import { db } from "@/lib/db";
 import { computePackageFingerprint, getTenderPackageDocuments } from "./package";
+import { getPackageCoverage, type PackageCoverage } from "./package-coverage";
 
 export type BriefFieldState =
   | "READY"
@@ -274,6 +275,8 @@ function extractBriefSource(
 export type ExecutiveBriefResponse = ExecutiveBrief & {
   /** package/addendum 变更行（与项目活动流在前端合并展示） */
   packageChanges: string[];
+  /** 真实覆盖率（禁止谎报「已分析 N」） */
+  coverage: PackageCoverage;
 };
 
 /** 取数并装配当前项目的 Executive Brief（供 API / UI 消费）。 */
@@ -341,5 +344,7 @@ export async function getExecutiveBrief(
     projectType,
   });
 
-  return { ...brief, runId: run?.id ?? null, packageChanges };
+  const coverage = await getPackageCoverage(projectId, run?.id ?? null);
+
+  return { ...brief, runId: run?.id ?? null, packageChanges, coverage };
 }

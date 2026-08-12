@@ -146,7 +146,9 @@ RISKS 章节 + OPEN 澄清，格式化为 grounded 上下文块（含「未覆�
 - v2-map（24）：SUPERSEDED 排除、NEEDS_REVIEW→NEEDS_CLARIFICATION、冲突→change candidate、16 章节、缺失→待核。
 - executive-brief（24）：INTEL-01..08 纯逻辑（Missing≠Processing、外部字段永不 PROCESSING、STALE 保留旧值、冲突→CONFLICT）。
 - chat-context（11）：grounded 指令、要求/风险/澄清注入、字符预算。
-全部 tender 纯套件回归 29/29；`tsc --noEmit` 0 error；`eslint` baseline PASS（较基线 −2 error）；agent-core 会话 12/12。
+**PURE_REGRESSION = PASS**：全部 tender 纯套件回归 31/31；`tsc --noEmit` 0 error；`eslint` baseline PASS；agent-core 会话 12/12。
+（含 Final Review Remediation 新增：v2-persist-fence（V2-LEASE-01/02/03）、package-coverage、auto-flags EXPERIENCE 用例。）
+**DB_REGRESSION / FULL_REGRESSION / REAL_E2E** 需临时隔离 Neon + staging 三 flag，属人工执行（见 §17、GATE 校正口径）。
 
 任务书 CASE 与覆盖：
 - CASE 1/2（1 或 10 文件 → ONE run）：idempotency + package-ready 纯测试覆盖；DB 端到端留 §17。
@@ -210,26 +212,48 @@ RISKS 章节 + OPEN 澄清，格式化为 grounded 上下文块（含「未覆�
 
 ---
 
-## GATE
+## PR #106 Final Review Remediation（三 release-safety blockers）
+
+**BLOCKER 1 — Package AI Experience 完全 flag-gated**
+新增第三个主开关 `TENDER_PACKAGE_AI_EXPERIENCE_ENABLED`（+ `_ORG_ALLOWLIST`，default OFF），
+只控制**用户可见读面**：Executive Brief / 30 秒看懂新版投影 / Tender Chat package context。
+三 flag 职责分离：AUTO=orchestration，V2=reasoning engine，EXPERIENCE=read surface。
+- `chat-context.ts` 内按 project.orgId 判 EXPERIENCE，OFF → 返回 null（会话不注入新上下文）。
+- `/tender-brief` OFF → 返回 `experienceEnabled:false`；`ProjectIntelSections` 据此**退回 merge 前 room-based 渲染**。
+- 生产三 flag 全 OFF → UI/会话行为与 merge 前完全一致。测试见 auto-flags（EXPERIENCE_OFF/ON/ALLOWLIST/职责分离）。
+
+**BLOCKER 2 — V2 canonical 持久化 lease-fenced**
+拆分 `runV2Inference`（LLM，零 canonical 写）与 `persistV2Fenced`（单事务：先 fence 校验
+`run.id/leaseOwner/status∈{EXTRACTING,ANALYZING}/lease 未过期` 并原子续租——行锁持有至提交，
+并发认领阻塞/失败，fence 通过才允许 clear+全部 canonical 写）。fence 失败 → `TenderV2LeaseLostError`，
+**ZERO canonical 写**；事务内异常 → 全回滚（无 partial）。heartbeat `renewLease` 返回 false → 记 leaseLost，
+推理返回后立即 fail-closed。worker 把 `TenderV2LeaseLostError` 转为既有 `LeaseLostError`（graceful yield，不 markFailed）。
+复用现有 leaseOwner 契约，无第二套 lease。确定性 race 测试 V2-LEASE-01/02/03（可注入事务）全绿。
+
+**BLOCKER 3 — Package 覆盖率可见性**
+`package-coverage.ts` `summarizePackageCoverage` 汇总 uploaded / eligible / analyzed / excluded + reasons，
+`/tender-brief` 返回 `coverage`，30 秒看懂头部展示真实标签「已分析 7 / 10 个文件 · 3 个文件当前格式尚未纳入」。
+不扩展 DOCX/XLSX（避免 scope explosion），但**禁止谎报「已分析 10」**。测试覆盖 10→7 场景。
+
+## GATE（已按 Final Review 校正口径）
 
 ```
-TENDER_PACKAGE_AI_UPGRADE_STATUS = PASS (engineering; pending human Final Review + staging REAL_E2E)
+TENDER_PACKAGE_AI_UPGRADE_STATUS = BLOCKED_PENDING_STAGING_REAL_E2E
 
-AUTO_ANALYSIS_AFTER_UPLOAD        = PASS (flag-gated, default OFF prod)
-NO_MANUAL_FIRST_ANALYSIS_REQUIRED = PASS (flag-gated)
+# 工程实现（flag-gated，生产默认 OFF）
+AUTO_ANALYSIS_AFTER_UPLOAD        = PASS
+NO_MANUAL_FIRST_ANALYSIS_REQUIRED = PASS
 PACKAGE_READY_GATE                = PASS
 ONE_PACKAGE_ONE_ACTIVE_RUN        = PASS
 SILENT_FAILURE_FIXED              = PASS
 DOCUMENT_AI_PRESERVED             = PASS
-PACKAGE_LEVEL_ANALYSIS            = PASS (V2 wired, flag-gated)
-CROSS_DOCUMENT_REASONING          = PASS (V2)
+PACKAGE_LEVEL_ANALYSIS            = PASS
+CROSS_DOCUMENT_REASONING          = PASS
 ADDENDUM_OVERRIDE                 = PASS
 CONFLICT_DETECTION                = PASS
 SOURCE_TRACEABILITY               = PASS
 TENDER_CHAT_PACKAGE_CONTEXT       = PASS
-ADDENDUM_AUTO_REANALYSIS          = PASS (process-next done → ready-gate → new FULL run)
-FULL_REGRESSION                   = PASS (pure plane; DB plane deferred to isolated Neon)
-
+ADDENDUM_AUTO_REANALYSIS          = PASS
 THIRTY_SECOND_BRIEF               = PASS
 FAKE_INVESTIGATING_STATE_REMOVED  = PASS
 TENDER_PACKAGE_AS_PRIMARY_SOURCE  = PASS
@@ -237,13 +261,22 @@ STALE_INTELLIGENCE_REFRESH        = PASS
 EXTERNAL_INTELLIGENCE_SCOPE       = DEFERRED_TO_T4
 SECOND_INTELLIGENCE_RUNTIME_CREATED = NO
 
-AUTO_ANALYSIS            = PASS
-PACKAGE_LEVEL_REASONING  = PASS
-TENDER_CHAT_CONTEXT      = PASS
-REAL_E2E                 = BLOCKED (needs isolated Neon + staging flags + model key; human-run)
+# Final Review Remediation
+EXPERIENCE_MASTER_GATE            = PASS
+PRODUCTION_BEHAVIOR_WHEN_FLAGS_OFF = UNCHANGED
+V2_PERSISTENCE_FENCING            = PASS
+STALE_V2_WORKER_WRITE             = BLOCKED
+PACKAGE_COVERAGE_VISIBILITY       = PASS
+
+# 回归口径（校正）
+PURE_REGRESSION   = PASS
+DB_REGRESSION     = BLOCKED_PENDING_ISOLATED_NEON
+FULL_REGRESSION   = BLOCKED_PENDING_DB_VALIDATION
+REAL_E2E          = BLOCKED_PENDING_STAGING_VALIDATION
 
 PRODUCTION_ENV_CHANGED   = NO
 PRODUCTION_MIGRATION_RUN  = NO
 ```
 
-STOP —— 等待人工 Final Review。不 merge、不改生产、不提高生产并行度、不打开生产 flag。
+STOP —— 等待人工确认后再进入 isolated Neon + staging（三 flag ON）+ real ~10-file Tender E2E。
+不 merge、不改生产、不提高生产并行度、不打开生产 flag。
