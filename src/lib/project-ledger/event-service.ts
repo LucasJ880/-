@@ -17,6 +17,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/common/logger";
+import { lockProjectHistoryAnchorShared } from "./history-anchor";
 import {
   LEDGER_ACTOR_TYPES,
   LedgerContractError,
@@ -75,12 +76,15 @@ export async function appendProjectEvent(
     throw new LedgerContractError("occurredAt must be a valid Date");
   }
 
-  // 租户闸：项目必须存在且属于该 org（事务内检查；不泄露跨 org 存在性）
-  const project = await tx.project.findFirst({
-    where: { id: input.projectId, orgId: input.orgId },
-    select: { id: true },
-  });
-  if (!project) {
+  // 租户闸 + 授权锚锁（T3.5）：项目必须存在且属于该 org；同时对 Project 行取
+  // FOR KEY SHARE，与 hard delete 的 FOR UPDATE 互斥，关闭 append↔delete 的 TOCTOU 窗口。
+  // 不泄露跨 org 存在性（统一 not-found 语义）。多个 writer 之间 FKS 兼容 → 保持并发。
+  const anchorLocked = await lockProjectHistoryAnchorShared(
+    tx,
+    input.orgId,
+    input.projectId,
+  );
+  if (!anchorLocked) {
     throw new LedgerTenantError();
   }
 

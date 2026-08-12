@@ -14,7 +14,7 @@ import {
 import { onProjectCreated } from "@/lib/project-discussion/system-events";
 import { appendProjectEvent } from "@/lib/project-ledger/event-service";
 import { projectCreatedEventKey } from "@/lib/project-ledger/event-keys";
-import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
+import { isLedgerProducerActive } from "@/lib/project-ledger/flags";
 import {
   bidListFilterStatuses,
   isBidListFilterKey,
@@ -211,7 +211,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
     // T2-P1 authoritative ledger（activation gate 未开时保持 dark；开启后与业务写同事务，
     // append 失败 = 整个创建回滚——禁止 best-effort）
-    if (isLedgerProducersEnabled()) {
+    if (isLedgerProducerActive()) {
       await appendProjectEvent({
         tx,
         orgId,

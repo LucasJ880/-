@@ -29,7 +29,12 @@ import {
   costRevisionEventKey,
   costStatusEventKey,
 } from "../event-keys";
-import { isLedgerProducersEnabledWithEnv } from "../flags";
+import {
+  isLedgerProducersEnabledWithEnv,
+  isLedgerSchemaReadyWithEnv,
+  isLedgerProducerActiveWithEnv,
+  isLedgerDeletionGateActiveWithEnv,
+} from "../flags";
 import {
   appendProjectEvent,
   PROJECT_EVENT_SEQUENCE_MAX_RETRIES,
@@ -73,6 +78,34 @@ test("activation flag：default OFF / fail-closed", () => {
   assert.equal(isLedgerProducersEnabledWithEnv({ T2_LEDGER_PRODUCERS_ENABLED: "1" }), true);
 });
 
+test("T3.5 flag 解耦契约：SCHEMA_READY 默认关；Producer = SCHEMA && PRODUCER（fail-closed）；Deletion Gate = SCHEMA", () => {
+  // SCHEMA_READY 默认关 / fail-closed
+  assert.equal(isLedgerSchemaReadyWithEnv({}), false);
+  assert.equal(isLedgerSchemaReadyWithEnv({ T2_LEDGER_SCHEMA_READY: "true" }), true);
+  assert.equal(isLedgerSchemaReadyWithEnv({ T2_LEDGER_SCHEMA_READY: "0" }), false);
+
+  const on = { T2_LEDGER_SCHEMA_READY: "true", T2_LEDGER_PRODUCERS_ENABLED: "true" };
+  const schemaOnly = { T2_LEDGER_SCHEMA_READY: "true" };
+  const producerOnly = { T2_LEDGER_PRODUCERS_ENABLED: "true" };
+
+  // Producer Write = SCHEMA && PRODUCER
+  assert.equal(isLedgerProducerActiveWithEnv({}), false);
+  assert.equal(isLedgerProducerActiveWithEnv(on), true);
+  assert.equal(isLedgerProducerActiveWithEnv(schemaOnly), false); // 有 schema 无 producer → OFF
+  // fail-closed 关键：producer=ON 但 schema=OFF → producer 仍 OFF（绝不在 schema 未就绪时写 M1）
+  assert.equal(isLedgerProducerActiveWithEnv(producerOnly), false);
+
+  // Deletion Gate = SCHEMA（与 producer 完全解耦：producer OFF 也保护已有历史）
+  assert.equal(isLedgerDeletionGateActiveWithEnv({}), false);
+  assert.equal(isLedgerDeletionGateActiveWithEnv(schemaOnly), true);   // producer OFF 但 gate ON
+  assert.equal(isLedgerDeletionGateActiveWithEnv(producerOnly), false); // 无 schema → gate OFF
+  assert.equal(isLedgerDeletionGateActiveWithEnv(on), true);
+
+  // 决定性证明：Producer Kill Switch ≠ Deletion Protection Kill Switch
+  assert.equal(isLedgerProducerActiveWithEnv(schemaOnly), false);
+  assert.equal(isLedgerDeletionGateActiveWithEnv(schemaOnly), true);
+});
+
 function seqConflictError() {
   return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
     code: "P2002",
@@ -85,6 +118,9 @@ function mockTx(overrides: Record<string, unknown> = {}) {
   let createCalls = 0;
   const tx = {
     project: { findFirst: async () => ({ id: "p1" }) },
+    // T3.5 授权锚锁：lockProjectHistoryAnchorShared 走 tx.$queryRaw(FOR KEY SHARE)；
+    // mock 返回锚点存在（[{id}]），使 append 进入 seq 逻辑而非提前抛租户错误。
+    $queryRaw: async () => [{ id: "p1" }],
     projectEvent: {
       findUnique: async () => null,
       aggregate: async () => ({ _max: { seq: 1 } }),
@@ -180,7 +216,10 @@ test("producer 静态纪律：事务内 append + flag 门 + server-authored", ()
   for (const p of producers) {
     const src = readFileSync(p, "utf8");
     assert.match(src, /appendProjectEvent\(\{\s*\n?\s*tx/, `${p} 必须以 tx 调用 canonical service`);
-    assert.match(src, /isLedgerProducersEnabled\(\)/, `${p} 必须过 activation flag`);
+    // T3.5：producer 站点必须用 isLedgerProducerActive()（= SCHEMA_READY && PRODUCERS_ENABLED，fail-closed），
+    // 不得单独用 isLedgerProducersEnabled()（会绕过 schema-ready 前置）
+    assert.match(src, /isLedgerProducerActive\(\)/, `${p} 必须过 producer-active 复合闸`);
+    assert.doesNotMatch(src, /isLedgerProducersEnabled\(\)/, `${p} 不得单独用 producers-enabled（须用 producer-active）`);
     assert.doesNotMatch(src, /projectEvent\.create/, `${p} 禁止直接 create`);
     // 客户端不得注入 ledger 身份字段：actor 取自服务端 user 上下文
     assert.match(src, /actorType: "user", actorId: user\.id/, `${p} actor 必须来自服务端上下文`);
@@ -202,46 +241,74 @@ test("无事件修改 API：不存在 /api/project-events 写路由", () => {
   assert.equal(existsSync("src/app/api/projects/[id]/events"), false);
 });
 
-test("Deletion Gate：硬删路由在 project.delete 前强制账本存量检查", () => {
-  const src = readFileSync("src/app/api/projects/[id]/route.ts", "utf8");
-  const gateIdx = src.indexOf("PROJECT_HAS_LEDGER_HISTORY");
-  const deleteIdx = src.indexOf("tx.project.delete");
-  assert.ok(gateIdx > -1, "gate 存在");
-  assert.ok(deleteIdx > -1, "hard delete 仍存在（无历史项目允许删除）");
-  assert.ok(gateIdx < deleteIdx, "gate 必须先于 hard delete");
-  assert.match(src, /projectEvent\.count/);
-  assert.match(src, /projectCost\.count/);
-  assert.match(src, /tenderArchiveItem\.count/);
-});
-
-test("Dark-merge 安全：Deletion Gate 的 M1 表访问被 activation flag 门控", () => {
-  // DELETE 内四表 count 必须整体包在 isLedgerProducersEnabled() 分支里，
-  // 否则 flag OFF（生产 M1 未上线）时会访问不存在的表 → 违反“flag OFF 行为不变”
+test("Deletion Gate（T3.5）：锚锁 + 历史检查 + hard delete 同一事务、顺序正确", () => {
   const src = readFileSync("src/app/api/projects/[id]/route.ts", "utf8");
   const deleteStart = src.indexOf("export async function DELETE");
   assert.ok(deleteStart > -1, "DELETE handler 存在");
-  const deleteBody = src.slice(deleteStart);
+  const body = src.slice(deleteStart);
 
-  const gateFlagIdx = deleteBody.indexOf("isLedgerProducersEnabled()");
-  const evCountIdx = deleteBody.indexOf("projectEvent.count");
-  const costCountIdx = deleteBody.indexOf("projectCost.count");
-  const arcCountIdx = deleteBody.indexOf("tenderArchiveItem.count");
-  assert.ok(gateFlagIdx > -1, "DELETE 内存在 activation flag 判定");
-  assert.ok(
-    gateFlagIdx < evCountIdx && gateFlagIdx < costCountIdx && gateFlagIdx < arcCountIdx,
-    "flag 判定必须先于任何 M1 表 count",
-  );
+  const txIdx = body.indexOf("db.$transaction");
+  const lockIdx = body.indexOf("lockProjectHistoryAnchorForDelete");
+  const countIdx = body.indexOf("countProjectAuthoritativeHistory");
+  const gateIdx = body.indexOf("PROJECT_HAS_LEDGER_HISTORY");
+  const deleteIdx = body.indexOf("tx.project.delete");
 
-  // 三个 count 都落在 flag 分支块内（flag 判定与紧随的闭合 `}` 之间）
-  const flagBlockEnd = deleteBody.indexOf("\n  }", gateFlagIdx);
-  assert.ok(flagBlockEnd > gateFlagIdx, "flag 分支块可定界");
   for (const [label, idx] of [
-    ["projectEvent.count", evCountIdx],
-    ["projectCost.count", costCountIdx],
-    ["tenderArchiveItem.count", arcCountIdx],
+    ["db.$transaction", txIdx],
+    ["FOR UPDATE 锚锁", lockIdx],
+    ["历史统计委托", countIdx],
+    ["PROJECT_HAS_LEDGER_HISTORY", gateIdx],
+    ["tx.project.delete", deleteIdx],
   ] as const) {
-    assert.ok(idx > gateFlagIdx && idx < flagBlockEnd, `${label} 必须在 flag 分支块内`);
+    assert.ok(idx > -1, `${label} 存在`);
   }
+  // TOCTOU 关闭：整套逻辑在事务内；FOR UPDATE 锚锁 → 历史统计 → （无历史才）删除
+  assert.ok(txIdx < lockIdx, "锚锁必须在删除事务内");
+  assert.ok(lockIdx < countIdx, "FOR UPDATE 锚锁必须先于历史统计（关闭 check↔delete 窗口）");
+  assert.ok(countIdx < deleteIdx, "历史统计必须先于 hard delete");
+  // 历史统计委托给共享 helper（不在 route 内散写 count），route 自身不得直接 count M1 表
+  assert.doesNotMatch(body, /tx\.projectEvent\.count/, "route 不得内联 projectEvent.count（委托 helper）");
+});
+
+test("Dark-merge 安全（T3.5）：Deletion Gate 的 M1 访问受 SCHEMA_READY 门控、与 producer 解耦", () => {
+  const src = readFileSync("src/app/api/projects/[id]/route.ts", "utf8");
+  const deleteStart = src.indexOf("export async function DELETE");
+  const body = src.slice(deleteStart);
+
+  // gate 用 deletion-gate 闸（= SCHEMA_READY），不得用 producer 闸
+  const gateFlagIdx = body.indexOf("isLedgerDeletionGateActive()");
+  assert.ok(gateFlagIdx > -1, "DELETE 用 isLedgerDeletionGateActive() 门控历史访问");
+  assert.doesNotMatch(body, /isLedgerProducerActive\(\)/, "DELETE gate 不得复用 producer 闸（须解耦）");
+  assert.doesNotMatch(body, /isLedgerProducersEnabled\(\)/, "DELETE gate 不得用旧 producers-enabled 闸");
+
+  // M1 访问（委托 helper）必须在 gate 判定之后
+  const countIdx = body.indexOf("countProjectAuthoritativeHistory");
+  assert.ok(gateFlagIdx < countIdx, "SCHEMA_READY 判定必须先于任何 M1 表访问");
+
+  // helper 内的 count 也必须只在 SCHEMA_READY 分支被调用（route 内 gate 变量控制）
+  assert.match(body, /if \(gateActive\)/, "M1 历史访问包在 gateActive 分支内");
+});
+
+test("写入侧授权锚锁（T3.5）：appendProjectEvent / createProjectCost 写历史前取 FOR KEY SHARE", () => {
+  const ev = readFileSync("src/lib/project-ledger/event-service.ts", "utf8");
+  const cost = readFileSync("src/lib/project-ledger/cost-service.ts", "utf8");
+  const anchor = readFileSync("src/lib/project-ledger/history-anchor.ts", "utf8");
+
+  // 共享 helper 定义 FOR KEY SHARE / FOR UPDATE 两把锁
+  assert.match(anchor, /FOR KEY SHARE/, "shared 锁 = FOR KEY SHARE（writer 间兼容）");
+  assert.match(anchor, /FOR UPDATE/, "delete 锁 = FOR UPDATE（与 writer 互斥）");
+
+  // appendProjectEvent：锚锁先于 create（关闭 append↔delete 窗口）
+  assert.match(ev, /lockProjectHistoryAnchorShared/, "appendProjectEvent 取共享锚锁");
+  const evLock = ev.indexOf("lockProjectHistoryAnchorShared");
+  const evCreate = ev.indexOf("tx.projectEvent.create");
+  assert.ok(evLock > -1 && evCreate > -1 && evLock < evCreate, "锚锁必须先于 projectEvent.create");
+
+  // createProjectCost：锚锁先于 cost.create（cost 行本身即权威历史）
+  assert.match(cost, /lockProjectHistoryAnchorShared/, "createProjectCost 取共享锚锁");
+  const costLock = cost.indexOf("lockProjectHistoryAnchorShared");
+  const costCreate = cost.indexOf("tx.projectCost.create");
+  assert.ok(costLock > -1 && costCreate > -1 && costLock < costCreate, "锚锁必须先于 projectCost.create");
 });
 
 test("ProjectCost：AI/DATA_API 类别在默认路径被拒（AiUsageLedger 唯一权威）", () => {

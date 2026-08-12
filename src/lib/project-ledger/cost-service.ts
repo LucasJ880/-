@@ -13,6 +13,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { appendProjectEvent } from "./event-service";
+import { lockProjectHistoryAnchorShared } from "./history-anchor";
 import {
   costRevisionEventKey,
   costStatusEventKey,
@@ -102,6 +103,17 @@ export async function createProjectCost(input: CreateProjectCostInput) {
   const amount = dec(input.amount);
 
   return inTx(input.tx, async (tx) => {
+    // 授权锚锁（T3.5）：ProjectCost 行本身即权威历史，创建前须先对 Project 行取
+    // FOR KEY SHARE，与 hard delete 互斥（防 cost↔delete orphan）。同时充当租户闸。
+    const anchorLocked = await lockProjectHistoryAnchorShared(
+      tx,
+      input.orgId,
+      input.projectId,
+    );
+    if (!anchorLocked) {
+      throw new LedgerTenantError("project not found in organization");
+    }
+
     const cost = await tx.projectCost.create({
       data: {
         orgId: input.orgId,
