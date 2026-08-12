@@ -77,7 +77,12 @@ export async function buildAnalyzerInputForRun(
   };
 }
 
-export type V2Inference = { mapped: V2MappedResult; model: string | null };
+export type V2Inference = {
+  mapped: V2MappedResult;
+  model: string | null;
+  llmCalls: number;
+  llmFailures: number;
+};
 
 /** 只做推理 + 纯映射，绝不触碰 canonical 表（可能长耗时）。 */
 export async function runV2Inference(input: {
@@ -93,7 +98,13 @@ export async function runV2Inference(input: {
     analysisDate: input.analysisDate ?? new Date().toISOString(),
     ...input.opts,
   });
-  return { mapped: mapV2Result(result), model: result.metadata.models[0] ?? null };
+  return {
+    mapped: mapV2Result(result),
+    model: result.metadata.models[0] ?? null,
+    // 真实 telemetry：从 V2 metadata 透传，不再固定返回 0
+    llmCalls: result.metadata.llmCalls,
+    llmFailures: result.metadata.llmFailures,
+  };
 }
 
 /* --------------------------- 可注入事务（便于确定性 race 测试） --------------------------- */
@@ -358,7 +369,7 @@ export async function analyzeAndPersistV2(input: {
   checkLease?: () => boolean;
   runTx?: RunV2Tx;
 }): Promise<AnalyzeAndPersistV2Result> {
-  const { mapped, model } = await runV2Inference({
+  const { mapped, model, llmCalls, llmFailures } = await runV2Inference({
     runId: input.runId,
     analysisDate: input.analysisDate,
     opts: input.opts,
@@ -382,5 +393,5 @@ export async function analyzeAndPersistV2(input: {
     input.runTx,
   );
 
-  return { ...persisted, llmCalls: 0, llmFailures: 0 };
+  return { ...persisted, llmCalls, llmFailures };
 }

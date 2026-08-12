@@ -280,3 +280,102 @@ PRODUCTION_MIGRATION_RUN  = NO
 
 STOP —— 等待人工确认后再进入 isolated Neon + staging（三 flag ON）+ real ~10-file Tender E2E。
 不 merge、不改生产、不提高生产并行度、不打开生产 flag。
+
+---
+
+## REAL STAGING E2E（Gate 执行记录，2026-08-12）
+
+### Pre-flight（§0）
+- `PR106_EXPECTED_HEAD = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442`
+- `PR106_ACTUAL_HEAD   = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442`（local + origin 一致）→ **HEAD_DRIFT = NO**
+- PR draft = true，mergedAt = null（未 merge）；PR base = `e0c2dac` = `CURRENT_MAIN_SHA`。
+- `PRODUCTION_ENV_CHANGED = NO`，`PRODUCTION_DB_TOUCHED = NO`。
+
+### Isolated Neon DB Regression（§1、§4）——真实 Postgres 执行
+- 隔离分支 `preview-pr106-fence`（id `br-odd-mud-au2rwqqh`）建于 staging project `super-scene-97779903`
+  （source=staging snapshot，2026-08-12T18:40:58Z）；SCHEMA_CHANGE=NONE，故 `prisma db push --skip-generate
+  --accept-data-loss` 将 throwaway 分支对齐当前全量 schema（含 tender-auto-analysis 表）。
+- 运行 `scripts/pr106-v2-fence-db-validation.ts`（真实 Neon/Postgres 事务）：**9/9 PASS**。
+  - **V2-LEASE-01**：stale worker A（leaseOwner≠当前 owner B）→ `TenderV2LeaseLostError`，**B 数据未被覆盖/删除**
+    （reqs 仍为 B 的 1 条，而非 A 的 3 条）——**stale worker 无法写 canonical 数据**。
+  - **V2-LEASE-02**：正常 owner → 恰好一次持久化（1 fact / 2 reqs / 16 sections）。
+  - **V2-LEASE-03**：事务中途真实 `@@unique([analysisRunId, requirementCode])` 冲突 → **Postgres 事务回滚，
+    无 partial facts/requirements/sections**。
+  - 追加：lease 过期 → fence 拒绝、零写。
+- 分支已删除；`ISOLATED_NEON_BRANCHES_LEFT = 0`；连接串已从 scratch 清除。
+- **说明**：本 PR 的实际 DB 风险面 = V2 canonical 写（SCHEMA=NONE，其余为 additive + 纯逻辑），已按上覆盖并 PASS。
+  仓库更广的 DB-plane 套件（Agent Trace / Phase3A 等）依赖 production-snapshot 真实双租户数据，非本 PR 风险面，
+  未在本轮跑（列为 `DB_REGRESSION(broad) = NOT_RUN_THIS_PR`，留人工按现有 production-snapshot 配方补充）。
+
+### Staging REAL_E2E（§5–§18、§20）——本机不可执行，BLOCKED（未伪造）
+本执行环境（worktree）**无 model key、无运行中的 staging 部署、无真实 UAT tender 文件**：
+- **模型密钥**：worktree 无 `.env`，运行时所需 `OPENAI_API_KEY/OPENAI_BASE_URL/AIVORA_API_KEY` 均不在环境中。
+  按任务书 §3：无 key → `REAL_E2E = BLOCKED_MODEL_KEY`；**禁止为通过测试写 mock LLM**，故未执行真实 V2 推理。
+- **真实 Tender 文件**：本机仅有 RCMP backpack `.ts` 测试 fixture，无当前 UAT 的真实 ~10 文件商业 tender folder；
+  **禁止伪造 tender / 伪造成功数据 / 手工插 DB 制造 PASS**，故 §5–§18 的真实上传→自动分析→人工核对链路未执行。
+- 因此以下项目 **BLOCKED_PENDING_STAGING_VALIDATION**（非 FAIL，非伪造）：AUTO_ANALYSIS_NO_MANUAL_CLICK、
+  ONE_PACKAGE_ONE_ACTIVE_RUN 的真实观测、V2_ENGINE_CONFIRMED / RCMP_TEMPLATE_LEAKAGE 真实检查、
+  PACKAGE_LEVEL_REASONING 人工抽查、CROSS_DOCUMENT_REASONING、SOURCE_TRACEABILITY(X/10)、
+  CONFLICT/ADDENDUM real、THIRTY_SECOND_BRIEF 真实、TENDER_CHAT_REAL_TEST、DOCUMENT vs PACKAGE 对照、Performance。
+
+### 人工 staging 执行 Runbook（交付人工）
+1. staging（非生产）对 **测试 org** 设三 flag：`TENDER_PACKAGE_AI_EXPERIENCE_ENABLED=1` +
+   `TENDER_AUTO_PACKAGE_ANALYSIS_ENABLED=1` + `TENDER_ANALYSIS_V2_ENABLED=1`，配 `*_ORG_ALLOWLIST=<TEST_ORG_ID>`
+   （EXPERIENCE / AUTO 支持 allowlist；V2 沿用其自有 flag，无 allowlist 则仅在测试 org staging 开）。生产三 flag 保持 OFF。
+2. 建隔离 Neon（或用本轮同法 staging 分支），配置现有 staging model provider key（勿新建 provider / 勿打印 key）。
+3. 走正常用户路径：Create Tender Project → Upload 真实 ~10 文件 folder；**不要点「分析投标文件」**，观察
+   UPLOAD→DocumentRecords→Parsing→ContentHash→PackageReady→AutoEnqueue→ONE Run→V2→REVIEW_REQUIRED，记录各阶段耗时。
+4. 按 §6/§8/§9/§10/§11/§12/§13/§14/§15/§16/§17/§18 逐项人工核对并回填 §23 gate。
+5. 完成后删隔离 Neon 分支、复原 staging env；生产不变。
+
+### V2 LLM Telemetry（§19）——已修（小改）
+`analyzeAndPersistV2` 原先固定返回 `llmCalls:0/llmFailures:0`。本轮 `runV2Inference` 透传
+`result.metadata.llmCalls/llmFailures` → `analyzeAndPersistV2` 返回真实值。`V2_LLM_TELEMETRY_ACCURACY`
+在真实推理下将准确（本机无 model key，故数值待 staging 实测确认；hardcoded-0 债已消除）。
+
+### 最终 E2E Gate（§23）
+
+```
+PR106_EXPECTED_HEAD = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442
+PR106_ACTUAL_HEAD   = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442
+HEAD_DRIFT          = NO
+
+CI                  = NOT_RUN_LOCAL（GitHub Actions 由平台触发；本机 tsc/eslint/pure 全绿）
+VERCEL_STAGING      = NOT_RUN_LOCAL（"Vercel – -" 恒失败为既有状况，非本 PR 回归）
+
+DB_REGRESSION       = PASS (V2 canonical-write fence, real Neon/Postgres 9/9; broad DB-plane = NOT_RUN_THIS_PR)
+REAL_E2E            = BLOCKED_PENDING_STAGING_VALIDATION (BLOCKED_MODEL_KEY + 无真实 tender 文件；未伪造)
+
+REAL_TENDER_DOCUMENTS_UPLOADED = N/A (BLOCKED)
+PACKAGE_ELIGIBLE_DOCUMENTS     = N/A (BLOCKED)
+PACKAGE_ANALYZED_DOCUMENTS     = N/A (BLOCKED)
+PACKAGE_EXCLUDED_DOCUMENTS     = N/A (BLOCKED)
+
+AUTO_ANALYSIS_NO_MANUAL_CLICK  = BLOCKED_PENDING_STAGING (代码路径就绪：process-next done → ready-gate → auto enqueue)
+PACKAGE_READY_GATE             = PASS (pure) / BLOCKED_PENDING_STAGING (real)
+MAX_SIMULTANEOUS_ACTIVE_SAME_FINGERPRINT_RUNS = BLOCKED_PENDING_STAGING (设计=1；幂等纯测试已证)
+V2_ENGINE_CONFIRMED            = BLOCKED_PENDING_STAGING (需真实 run metadata)
+RCMP_TEMPLATE_LEAKAGE          = BLOCKED_PENDING_STAGING (V2 ON 时模板步 no-op；需真实输出复核)
+PACKAGE_LEVEL_REASONING        = BLOCKED_PENDING_STAGING
+CROSS_DOCUMENT_REASONING       = BLOCKED_PENDING_STAGING
+SOURCE_TRACEABILITY            = BLOCKED_PENDING_STAGING (X/10 待人工)
+CONFLICT_REAL_E2E              = BLOCKED_PENDING_STAGING (视真实 tender 是否含冲突)
+ADDENDUM_REAL_E2E              = BLOCKED_PENDING_STAGING (视真实 tender 是否含 addendum)
+THIRTY_SECOND_BRIEF            = PASS (pure INTEL-01..08) / BLOCKED_PENDING_STAGING (real)
+FAKE_INVESTIGATING_STATE       = 0 (设计保证：Missing≠Processing；pure 测试证)
+TENDER_CHAT_REAL_TEST          = BLOCKED_PENDING_STAGING
+PACKAGE_COVERAGE_VISIBILITY    = PASS (pure) / BLOCKED_PENDING_STAGING (real UI)
+FLAGS_OFF_BEHAVIOR_REGRESSION  = PASS (EXPERIENCE/AUTO OFF → merge 前行为；flag 纯测试 + 默认 OFF)
+V2_PERSISTENCE_FENCING_DB      = PASS (real Neon/Postgres, 9/9)
+V2_LLM_TELEMETRY_ACCURACY      = FIXED_PENDING_STAGING_CONFIRM (hardcoded-0 已消除)
+
+ISOLATED_NEON_BRANCHES_LEFT    = 0
+PRODUCTION_ENV_CHANGED         = NO
+PRODUCTION_DB_CHANGED          = NO
+PRODUCTION_MIGRATION_RUN       = NO
+
+PR106_REAL_E2E_GATE            = BLOCKED (staging REAL_E2E 需 model key + 真实 tender folder + 运行中 staging；本机不可执行，未伪造)
+```
+
+STOP —— 不 merge、不 ready-for-review、不 production deploy、不打开生产 flag。
+DB fence 已在真实 Postgres 通过；staging REAL_E2E 待人工按上方 Runbook 执行后回填。
