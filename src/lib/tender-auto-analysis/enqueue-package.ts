@@ -26,6 +26,11 @@ import {
   packageTooLarge,
   type PackageDocument,
 } from "./package";
+import { getTenderPackageReadiness, readinessReason } from "./package-ready";
+import {
+  isTenderAutoPackageAnalysisEnabledWithEnv,
+  type TenderAutoFlagEnv,
+} from "./auto-flags";
 
 export type EnqueuePackageInput = {
   projectId: string;
@@ -529,4 +534,52 @@ export async function reanalyzeTenderPackage(
     }
     throw e;
   }
+}
+
+export type EnqueueIfReadyInput = {
+  projectId: string;
+  userId: string;
+  orgId?: string;
+  /** 触发来源标记（诊断用，不影响幂等） */
+  trigger?: string;
+  env?: TenderAutoFlagEnv;
+};
+
+/**
+ * Phase D — Package Ready 门控 + 幂等的自动入队入口。
+ *
+ * 语义：
+ *   - flag OFF → 返回 reason:"auto_disabled"（生产默认；不改行为，调用方视为 no-op）；
+ *   - package 未就绪（仍在解析 / 缺 hash / 无文件）→ 返回对应 not-ready reason，不入队；
+ *   - 就绪 → 委托 enqueueTenderPackageAnalysis（沿用 fingerprint/idempotencyKey/supersede，
+ *     保证"一个包一个活跃 run"；重复触发/刷新/effect 重跑均幂等复用）。
+ *
+ * 不做 forceNewRun：同一 fingerprint 已有活跃 run 即复用，不产生 churn。
+ */
+export async function enqueueTenderPackageIfReady(
+  input: EnqueueIfReadyInput,
+): Promise<EnqueuePackageResult> {
+  if (
+    !isTenderAutoPackageAnalysisEnabledWithEnv(
+      { orgId: input.orgId ?? null },
+      input.env ?? process.env,
+    )
+  ) {
+    return { enqueued: false, reason: "auto_disabled" };
+  }
+
+  const readiness = await getTenderPackageReadiness(input.projectId);
+  if (!readiness.ready) {
+    return {
+      enqueued: false,
+      reason: readinessReason(readiness.code),
+      documentCount: readiness.documentCount,
+    };
+  }
+
+  return enqueueTenderPackageAnalysis({
+    projectId: input.projectId,
+    userId: input.userId,
+    orgId: input.orgId,
+  });
 }

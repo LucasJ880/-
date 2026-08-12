@@ -61,6 +61,81 @@ const STATUS_LABEL: Record<string, string> = {
   unknown: "暂时未知",
 };
 
+/* —— Phase I：Executive Brief 字段级 readiness 状态（Missing ≠ Processing） —— */
+type BriefFieldState =
+  | "READY"
+  | "UNKNOWN"
+  | "PROCESSING"
+  | "STALE"
+  | "CONFLICT"
+  | "FAILED"
+  | "NEEDS_EXTERNAL_RESEARCH"
+  | "NOT_STARTED";
+type BriefField = { state: BriefFieldState; value: string | null };
+type ExecutiveBrief = {
+  analysisStatus: "NONE" | "PROCESSING" | "FAILED" | "READY" | "STALE";
+  runId: string | null;
+  stale: boolean;
+  fields: {
+    oneLiner: BriefField;
+    buyer: BriefField;
+    product: BriefField;
+    projectType: BriefField;
+    recommendation: BriefField;
+    majorBlockers: BriefField;
+    nextActions: BriefField;
+  };
+  external: {
+    previousWinner: BriefField;
+    historicalContractValue: BriefField;
+    possiblyRecurring: BriefField;
+  };
+  packageChanges: string[];
+};
+
+const FIELD_STATE_LABEL: Record<BriefFieldState, string> = {
+  READY: "已就绪",
+  UNKNOWN: "暂无数据",
+  PROCESSING: "分析中",
+  STALE: "需重新分析",
+  CONFLICT: "存在冲突",
+  FAILED: "分析失败",
+  NEEDS_EXTERNAL_RESEARCH: "需外部调查",
+  NOT_STARTED: "尚未分析",
+};
+
+const FIELD_STATE_TONE: Record<BriefFieldState, string> = {
+  READY: "text-emerald-700",
+  UNKNOWN: "text-stone-500",
+  PROCESSING: "text-sky-700",
+  STALE: "text-amber-700",
+  CONFLICT: "text-rose-700",
+  FAILED: "text-rose-700",
+  NEEDS_EXTERNAL_RESEARCH: "text-stone-500",
+  NOT_STARTED: "text-stone-500",
+};
+
+/** 字段 → 展示文本（有值优先；否则按状态给出明确占位，绝不"调查中"兜底）。 */
+function fieldText(f: BriefField | undefined): string {
+  if (!f) return "—";
+  if (f.value) return f.value;
+  switch (f.state) {
+    case "PROCESSING":
+      return "AI 正在分析…";
+    case "NOT_STARTED":
+      return "尚未分析（上传招标文件后自动开始）";
+    case "FAILED":
+      return "分析失败，结果可能过期";
+    case "NEEDS_EXTERNAL_RESEARCH":
+      return "需外部调查（留待正式情报阶段）";
+    case "CONFLICT":
+      return "存在未解决冲突，需澄清";
+    case "UNKNOWN":
+    default:
+      return "暂无数据";
+  }
+}
+
 function confidenceTone(code: string): string {
   if (code === "CONFIRMED") return "bg-emerald-50 text-emerald-800 border-emerald-200";
   if (code === "HIGH_CONFIDENCE") return "bg-sky-50 text-sky-800 border-sky-200";
@@ -82,7 +157,23 @@ export function ProjectIntelSections({
   const [factSourceUrl, setFactSourceUrl] = useState("");
   const [factSourcePage, setFactSourcePage] = useState("");
   const [recentChanges, setRecentChanges] = useState<string[]>([]);
+  const [brief, setBrief] = useState<ExecutiveBrief | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const loadBrief = useCallback(async () => {
+    try {
+      const qs = projectTypeLabel
+        ? `?projectType=${encodeURIComponent(projectTypeLabel)}`
+        : "";
+      const res = await apiFetch(
+        `/api/projects/${projectId}/tender-brief${qs}`,
+      );
+      const data = await res.json();
+      setBrief(data.brief ?? null);
+    } catch {
+      setBrief(null);
+    }
+  }, [projectId, projectTypeLabel]);
 
   const load = useCallback(async () => {
     try {
@@ -133,7 +224,18 @@ export function ProjectIntelSections({
   useEffect(() => {
     void load();
     void loadRecent();
-  }, [load, loadRecent]);
+    void loadBrief();
+  }, [load, loadRecent, loadBrief]);
+
+  // 分析进行中 → 轮询自动刷新（无需用户手动刷新 30 秒摘要）
+  useEffect(() => {
+    if (brief?.analysisStatus !== "PROCESSING") return;
+    const t = setInterval(() => {
+      void loadBrief();
+      void loadRecent();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [brief?.analysisStatus, loadBrief, loadRecent]);
 
   const saveFact = async () => {
     if (!factContent.trim()) return;
@@ -164,6 +266,7 @@ export function ProjectIntelSections({
       setFactSourcePage("");
       await load();
       await loadRecent();
+      await loadBrief();
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -171,18 +274,52 @@ export function ProjectIntelSections({
     }
   };
 
-  const summary = (room?.summaryJson || {}) as Record<string, unknown>;
-  const projectType =
-    projectTypeLabel ||
-    (typeof summary.projectType === "string" && summary.projectType) ||
-    "暂未分类";
-  const recentText =
-    recentChanges.length > 0
-      ? recentChanges.slice(0, 3).join("；")
-      : Array.isArray(summary.recentChanges) &&
-          (summary.recentChanges as unknown[]).length > 0
-        ? (summary.recentChanges as string[]).join("；")
-        : "暂无新的重要变化";
+  // —— Phase I：30 秒看懂 = Executive Brief 的字段级投影 ——
+  // 「最近变化」= 项目活动流 + package/addendum 变更 合并（去重、取前 5）。
+  const mergedChanges = Array.from(
+    new Set([...(brief?.packageChanges ?? []), ...recentChanges]),
+  ).slice(0, 5);
+  const recentField: BriefField =
+    mergedChanges.length > 0
+      ? { state: "READY", value: mergedChanges.join("\n") }
+      : { state: "UNKNOWN", value: "暂无新的重要变化" };
+
+  const f = brief?.fields;
+  const ext = brief?.external;
+  const briefCards: Array<{ label: string; field: BriefField; text: string }> = [
+    { label: "一句话摘要", field: f?.oneLiner ?? { state: "NOT_STARTED", value: null } },
+    { label: "采购单位", field: f?.buyer ?? { state: "NOT_STARTED", value: null } },
+    { label: "产品或服务", field: f?.product ?? { state: "NOT_STARTED", value: null } },
+    {
+      label: "项目类型",
+      field:
+        f?.projectType ??
+        (projectTypeLabel
+          ? { state: "READY", value: projectTypeLabel }
+          : { state: "UNKNOWN", value: null }),
+    },
+    { label: "当前建议（AI）", field: f?.recommendation ?? { state: "NOT_STARTED", value: null } },
+    { label: "重大阻塞", field: f?.majorBlockers ?? { state: "NOT_STARTED", value: null } },
+    { label: "下一步", field: f?.nextActions ?? { state: "NOT_STARTED", value: null } },
+    { label: "最近变化", field: recentField },
+    // 外部情报（留待正式 T4）：明确"需外部调查"，不再伪装"调查中"
+    { label: "周期采购可能", field: ext?.possiblyRecurring ?? { state: "NEEDS_EXTERNAL_RESEARCH", value: null } },
+    { label: "上一轮中标方", field: ext?.previousWinner ?? { state: "NEEDS_EXTERNAL_RESEARCH", value: null } },
+    { label: "历史合同金额", field: ext?.historicalContractValue ?? { state: "NEEDS_EXTERNAL_RESEARCH", value: null } },
+  ].map((c) => ({ ...c, text: fieldText(c.field) }));
+
+  const briefStatusHint =
+    brief?.analysisStatus === "PROCESSING"
+      ? "AI 正在分析招标文件…"
+      : brief?.analysisStatus === "FAILED"
+        ? "分析失败，结果可能过期"
+        : brief?.analysisStatus === "STALE"
+          ? "招标文件有更新，建议重新分析"
+          : brief?.analysisStatus === "READY"
+            ? "基于最新招标分析"
+            : brief?.analysisStatus === "NONE"
+              ? "尚未开始招标分析"
+              : "";
 
   if (loaded && !room && !loadError) {
     return (
@@ -213,51 +350,24 @@ export function ProjectIntelSections({
       )}
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">30 秒看懂项目</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">30 秒看懂项目</h2>
+          <span className="text-[11px] text-[var(--muted)]">
+            {briefStatusHint}
+          </span>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            ["一句话摘要", room?.summaryText || "调查中"],
-            ["采购单位", String(summary.procuringAgency || "暂时未知")],
-            ["产品或服务", String(summary.product || "调查中")],
-            ["项目类型", projectType],
-            [
-              "周期采购可能",
-              summary.possiblyRecurring == null
-                ? "暂时未知"
-                : summary.possiblyRecurring === true
-                  ? "可能是"
-                  : summary.possiblyRecurring === false
-                    ? "不太像"
-                    : String(summary.possiblyRecurring),
-            ],
-            ["上一轮中标方", String(summary.previousWinner || "暂时未知")],
-            [
-              "历史合同金额",
-              String(summary.historicalContractValue || "暂时未知"),
-            ],
-            ["当前建议（AI）", String(summary.recommendation || "调查中")],
-            [
-              "重大阻塞",
-              Array.isArray(summary.majorBlockers)
-                ? (summary.majorBlockers as string[]).join("；") || "无"
-                : "调查中",
-            ],
-            ["最近变化", recentText],
-            [
-              "下一步",
-              Array.isArray(summary.nextActions)
-                ? (summary.nextActions as string[]).slice(0, 2).join("；")
-                : "调查中",
-            ],
-          ].map(([label, value]) => (
+          {briefCards.map((c) => (
             <div
-              key={label}
+              key={c.label}
               className="rounded-xl border border-[var(--border)] p-3 space-y-1"
             >
-              <p className="text-[11px] text-[var(--muted)]">{label}</p>
-              <p className="text-sm font-medium leading-snug">{value}</p>
-              <p className="text-[10px] text-[var(--muted)]">
-                {STATUS_LABEL[room?.summaryStatus || "unknown"] || "暂时未知"}
+              <p className="text-[11px] text-[var(--muted)]">{c.label}</p>
+              <p className="text-sm font-medium leading-snug whitespace-pre-line">
+                {c.text}
+              </p>
+              <p className={`text-[10px] ${FIELD_STATE_TONE[c.field.state]}`}>
+                {FIELD_STATE_LABEL[c.field.state]}
               </p>
             </div>
           ))}

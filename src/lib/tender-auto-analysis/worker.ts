@@ -20,6 +20,7 @@ import { extractFromPages, extractRequirements } from "./extract";
 import { generateReportSections } from "./report";
 import { buildDeliverables } from "./deliverables";
 import { buildClarifications } from "./clarifications";
+import { analyzeAndPersistV2, isTenderAnalysisV2Enabled } from "./v2-persist";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
@@ -298,8 +299,25 @@ async function stepEnsurePages(run: ClaimedRun): Promise<void> {
 }
 
 async function stepExtractFacts(run: ClaimedRun): Promise<void> {
-  const documentIds = await loadRunDocumentIds(run.id);
-  await extractFromPages({ runId: run.id, documentIds });
+  if (isTenderAnalysisV2Enabled()) {
+    // V2 grounded 引擎：一步产出 facts+requirements+clarifications+sections+summary+addendum。
+    // analyzeTender 为多 LLM 调用，可能超过 LEASE_MS → 执行期间心跳续租。
+    const heartbeat = setInterval(() => {
+      void renewLease(run.id, run.leaseOwner);
+    }, 60_000);
+    try {
+      await analyzeAndPersistV2({
+        runId: run.id,
+        projectId: run.projectId,
+        parentRunId: run.parentRunId,
+      });
+    } finally {
+      clearInterval(heartbeat);
+    }
+  } else {
+    const documentIds = await loadRunDocumentIds(run.id);
+    await extractFromPages({ runId: run.id, documentIds });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "EXTRACT_FACTS", {
     status: "ANALYZING",
   });
@@ -307,7 +325,10 @@ async function stepExtractFacts(run: ClaimedRun): Promise<void> {
 }
 
 async function stepGenerateSections(run: ClaimedRun): Promise<void> {
-  await generateReportSections({ runId: run.id });
+  // V2 ON：sections 已由 EXTRACT_FACTS 步写入 → no-op（仅推进 cursor）。
+  if (!isTenderAnalysisV2Enabled()) {
+    await generateReportSections({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "GENERATE_SECTIONS", {
     status: "ANALYZING",
   });
@@ -315,7 +336,10 @@ async function stepGenerateSections(run: ClaimedRun): Promise<void> {
 }
 
 async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
-  await extractRequirements({ runId: run.id });
+  // V2 ON：requirements 已写入 → no-op。
+  if (!isTenderAnalysisV2Enabled()) {
+    await extractRequirements({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "EXTRACT_REQUIREMENTS", {
     status: "ANALYZING",
   });
@@ -323,7 +347,10 @@ async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
 }
 
 async function stepBuildDeliverables(run: ClaimedRun): Promise<void> {
-  await buildDeliverables({ runId: run.id });
+  // V2 ON：不套 RCMP 固定交付物模板（防编造）；grounded submissionChecklist 落 summaryJson。
+  if (!isTenderAnalysisV2Enabled()) {
+    await buildDeliverables({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "BUILD_DELIVERABLES", {
     status: "ANALYZING",
   });
@@ -331,7 +358,10 @@ async function stepBuildDeliverables(run: ClaimedRun): Promise<void> {
 }
 
 async function stepBuildClarifications(run: ClaimedRun): Promise<void> {
-  await buildClarifications({ runId: run.id });
+  // V2 ON：clarifications 已由 V2 写入（grounded，非 RCMP 模板）→ no-op。
+  if (!isTenderAnalysisV2Enabled()) {
+    await buildClarifications({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "BUILD_CLARIFICATIONS", {
     status: "ANALYZING",
   });
@@ -339,12 +369,16 @@ async function stepBuildClarifications(run: ClaimedRun): Promise<void> {
 }
 
 async function stepCreateTasks(run: ClaimedRun): Promise<void> {
-  await createAnalysisTasks({
-    runId: run.id,
-    projectId: run.projectId,
-    orgId: run.orgId,
-    createdById: run.createdById,
-  });
+  // V2 ON：不创建 RCMP 固定任务模板（背包工厂/DDP Regina 等，非本项目内容）；
+  // grounded nextActions 落 summaryJson，供 Executive Brief 呈现。人工审阅经 REVIEW_REQUIRED。
+  if (!isTenderAnalysisV2Enabled()) {
+    await createAnalysisTasks({
+      runId: run.id,
+      projectId: run.projectId,
+      orgId: run.orgId,
+      createdById: run.createdById,
+    });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "CREATE_TASKS", {
     status: "ANALYZING",
   });

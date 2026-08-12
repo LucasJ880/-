@@ -25,6 +25,33 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "sources", label: "来源" },
 ];
 
+/**
+ * 入队失败码 → 兜底中文提示。
+ * 后端已随失败响应返回 error/message，此表仅在缺失时兜底，
+ * 与 src/lib/tender-auto-analysis/enqueue-outcome.ts 的码保持一致。
+ */
+const ENQUEUE_CODE_HINTS: Record<string, string> = {
+  NO_PACKAGE_DOCUMENTS: "暂无有效的招标 PDF 文件，请先上传投标文件",
+  PACKAGE_NOT_READY: "招标文件包尚未就绪（仍有文件在处理），请稍候重试",
+  DOCUMENT_PROCESSING: "文件仍在解析中，请稍候重试",
+  MISSING_CONTENT_HASH: "投标文件仍在处理（内容指纹未就绪），请稍候重试",
+  NOT_TENDER_PROJECT: "该项目未标记为招标项目，无法自动分析",
+  PACKAGE_TOO_LARGE: "投标文件包总页数超过上限",
+  ACTIVE_RUN_EXISTS: "已有进行中的分析，请等待其完成后再试",
+  RATE_LIMITED: "重新分析过于频繁，请稍后再试",
+  PROJECT_NOT_FOUND: "项目不存在或无法访问",
+  MISSING_ORG: "项目缺少组织，无法发起分析",
+  INVALID_STATUS: "当前分析状态不支持该操作",
+  ANALYSIS_FAILED: "分析失败，请稍后重试",
+  WORKER_UNAVAILABLE: "分析服务暂不可用，请稍后重试",
+  UNKNOWN: "无法发起分析",
+};
+
+function enqueueCodeHint(code: unknown): string | null {
+  if (typeof code !== "string") return null;
+  return ENQUEUE_CODE_HINTS[code] ?? null;
+}
+
 type Source = {
   id: string;
   documentId: string;
@@ -154,6 +181,7 @@ export function TenderAnalysisPanel({
   );
   const [data, setData] = useState<ReportPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
@@ -229,6 +257,8 @@ export function TenderAnalysisPanel({
 
   const enqueuePackage = async (action: "enqueue" | "reanalyze" = "enqueue") => {
     setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       const res = await apiFetch(
         `/api/projects/${projectId}/tender-analysis/package`,
@@ -238,8 +268,25 @@ export function TenderAnalysisPanel({
           body: JSON.stringify({ action }),
         },
       );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "操作失败");
+      const json = await res.json().catch(() => ({}) as Record<string, unknown>);
+      // 关键修复：不能只看 res.ok。业务失败必须同时凭 json.ok 判定，
+      // 兼容旧式「HTTP 200 + ok:false」与新契约「非 200 + ok:false」。
+      if (!res.ok || json?.ok === false) {
+        const msg =
+          (typeof json?.error === "string" && json.error) ||
+          (typeof json?.message === "string" && json.message) ||
+          enqueueCodeHint(json?.code) ||
+          "无法发起分析";
+        throw new Error(msg);
+      }
+      // 成功：真正入队（PENDING）或幂等复用既有 run，均给出可见反馈。
+      setNotice(
+        json?.code === "IDEMPOTENT_REUSE"
+          ? "已有进行中的分析，正在加载最新结果…"
+          : action === "reanalyze"
+            ? "已发起重新分析，正在处理…"
+            : "已发起分析，正在处理，请稍候…",
+      );
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -269,10 +316,16 @@ export function TenderAnalysisPanel({
           />
         ) : null}
         <h2 className="text-lg font-semibold">招标文件自动分析</h2>
-        <p className="text-sm text-[var(--muted)]">
+        <p
+          className={`text-sm ${
+            error ? "text-[var(--danger,#b91c1c)]" : "text-[var(--muted)]"
+          }`}
+        >
           {error
             ? error
-            : "暂无分析记录。可对当前项目已上传的投标 PDF 包发起分析（无需重新上传）。"}
+            : notice
+              ? notice
+              : "暂无分析记录。可对当前项目已上传的投标 PDF 包发起分析（无需重新上传）。"}
         </p>
         <button
           type="button"
@@ -280,7 +333,7 @@ export function TenderAnalysisPanel({
           onClick={() => void enqueuePackage("enqueue")}
           className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs text-white disabled:opacity-50"
         >
-          分析投标文件
+          {busy ? "正在发起…" : "分析投标文件"}
         </button>
       </section>
     );

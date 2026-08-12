@@ -136,9 +136,24 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
   const kbId = conv.knowledgeBaseId ?? null;
   const kbContext = await buildKBContext(kbId);
 
+  // Phase G：Tender 项目会话默认注入 package 分析上下文（复用本 runtime，不新建聊天系统）。
+  // best-effort：失败或非 tender 项目返回 null，不影响普通会话。
+  let tenderContext: string | null = null;
+  try {
+    const { buildTenderPackageContext } = await import(
+      "@/lib/tender-auto-analysis/chat-context"
+    );
+    tenderContext = await buildTenderPackageContext(projectId);
+  } catch {
+    tenderContext = null;
+  }
+
   const systemParts: string[] = [];
   if (snapshot?.systemPromptSnapshot) systemParts.push(snapshot.systemPromptSnapshot);
   if (behaviorNote) systemParts.push(behaviorNote);
+  if (tenderContext) {
+    systemParts.push(tenderContext);
+  }
   if (kbContext) {
     systemParts.push("以下是来自知识库的参考内容，请在回答时优先参考：\n\n" + kbContext);
   }

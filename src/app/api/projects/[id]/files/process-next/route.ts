@@ -4,6 +4,32 @@ import { db } from "@/lib/db";
 import { parseAndStoreContent } from "@/lib/files/parse-content";
 import { generateDocumentSummary } from "@/lib/files/ai-summary";
 import { generateProjectIntelligence } from "@/lib/files/ai-intelligence";
+import { enqueueTenderPackageIfReady } from "@/lib/tender-auto-analysis/enqueue-package";
+
+/**
+ * Phase D — 文件处理完成（package ready）后的最佳努力自动入队。
+ * flag OFF / 非 tender / 未就绪 均在内部安全短路；幂等由 fingerprint 保证。
+ * 绝不因分析入队失败而影响文件处理返回。
+ */
+async function maybeAutoEnqueueOnReady(
+  projectId: string,
+  userId: string,
+): Promise<void> {
+  try {
+    const project = await db.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    await enqueueTenderPackageIfReady({
+      projectId,
+      userId,
+      orgId: project?.orgId ?? undefined,
+      trigger: "process_next_done",
+    });
+  } catch {
+    /* best-effort：不阻断文件处理 */
+  }
+}
 
 /**
  * POST /api/projects/:id/files/process-next
@@ -15,7 +41,7 @@ import { generateProjectIntelligence } from "@/lib/files/ai-intelligence";
  *
  * 返回 { step, documentId?, remaining, done }
  */
-export const POST = withAuth(async (request, ctx) => {
+export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
 
   // ?retry=1 → 重置失败/卡住的文件，重新处理
@@ -103,6 +129,9 @@ export const POST = withAuth(async (request, ctx) => {
       data: { aiSummaryStatus: "done", aiSummaryJson: null },
     });
     const remaining = await countRemaining(projectId);
+    if (remaining === 0) {
+      await maybeAutoEnqueueOnReady(projectId, user.id);
+    }
     return NextResponse.json({
       step: "ai_summary_skip",
       documentId: pendingSummary.id,
@@ -140,6 +169,7 @@ export const POST = withAuth(async (request, ctx) => {
       const metadata = await applyDocumentMetadataToProject(projectId).catch(
         () => null,
       );
+      await maybeAutoEnqueueOnReady(projectId, user.id);
       return NextResponse.json({
         step: "intelligence",
         remaining: 0,
@@ -156,6 +186,8 @@ export const POST = withAuth(async (request, ctx) => {
   const metadata = await applyDocumentMetadataToProject(projectId).catch(
     () => null,
   );
+
+  await maybeAutoEnqueueOnReady(projectId, user.id);
 
   return NextResponse.json({
     step: "none",

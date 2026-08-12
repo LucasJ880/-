@@ -12,6 +12,7 @@ import {
   suggestionWhenGateClosed,
 } from "./enqueue-helpers";
 import { enqueueTenderPackageAnalysis } from "./enqueue-package";
+import { isTenderAutoPackageAnalysisEnabledWithEnv } from "./auto-flags";
 
 export type MaybeEnqueueInput = {
   projectId: string;
@@ -87,6 +88,12 @@ export async function maybeEnqueueTenderAnalysisAfterUpload(
 
   if (!isPdfFileType(input.fileType)) {
     return { enqueued: false, reason: "unsupported_file_type" };
+  }
+
+  // Phase D：新编排开启时，上传阶段只写 contentHash，不再 per-file 入队半包。
+  // 由 process-next 完成后的 Package Ready 门统一触发一次（见 enqueueTenderPackageIfReady）。
+  if (isTenderAutoPackageAnalysisEnabledWithEnv({ orgId })) {
+    return { enqueued: false, reason: "auto_deferred_to_ready_gate" };
   }
 
   const result = await enqueueTenderPackageAnalysis({

@@ -19,6 +19,12 @@ npx tsx scripts/check-preview-db-isolation.test.ts
 npx tsx src/lib/testing/__tests__/assert-safe-test-database.test.ts
 npx tsx src/lib/db-safety/__tests__/production-operation-guard.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-outcome.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/package-ready.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/auto-flags.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/v2-map.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/executive-brief.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
