@@ -336,9 +336,12 @@ STOP —— 等待人工确认后再进入 isolated Neon + staging（三 flag ON
 ### 最终 E2E Gate（§23）
 
 ```
-PR106_EXPECTED_HEAD = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442
-PR106_ACTUAL_HEAD   = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442
-HEAD_DRIFT          = NO
+PR106_EXPECTED_HEAD (remediation baseline) = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442
+PR106_HEAD_AT_PREFLIGHT                     = 48b6f6c8ede6bf5c26b3b251de5af75d0737c442
+HEAD_DRIFT (unauthorized, pre-flight)      = NO
+PR106_CURRENT_HEAD                          = <origin/claude/qingyan-tender-analysis-upgrade-ed06c7 最新（见 PR）>
+  # 授权变更仅：§19 telemetry 小修 + scripts/pr106-v2-fence-db-validation.ts + 报告 REAL STAGING E2E 章节。
+  # 无功能改动，无 schema 改动。
 
 CI                  = NOT_RUN_LOCAL（GitHub Actions 由平台触发；本机 tsc/eslint/pure 全绿）
 VERCEL_STAGING      = NOT_RUN_LOCAL（"Vercel – -" 恒失败为既有状况，非本 PR 回归）
