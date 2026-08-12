@@ -5,6 +5,7 @@
 | 阶段 | Tender T3.5 — Foundation Hardening（生产激活前的结构性安全修复） |
 | 基线 main | `f9549ab2803a71cd2b9e34eea5dcfa8da7c68452`（#102 T2-P1 + #103 T3 已 MERGED） |
 | 分支 | `feature/tender-t3-5-foundation-hardening`（从 `origin/main@f9549ab` 创建） |
+| PR | #105（Draft，head `20e8955`） |
 | 日期 | 2026-08-11 |
 | 性质 | **service/route/flags 层加固 + 测试**；`SCHEMA_CHANGE = NONE`、无生产迁移、无生产数据变更、无生产 flag 变更、**不是 T4** |
 | 交付 | Draft PR，保持 Draft，不 merge，等待人工 Final Review |
