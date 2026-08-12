@@ -265,6 +265,8 @@ run_test "招标理解V2 幻觉防护（V2-H1..H7）" "npx tsx src/lib/tender-un
 run_test "招标理解V2 证据纪律（V2-E1..E6）" "npx tsx src/lib/tender-understanding/__tests__/v2-evidence.test.ts"
 run_test "Tender T2-P1 Ledger 纯逻辑不变量（eventKey/flag/重试耗尽/静态纪律）" "npx tsx --test src/lib/project-ledger/__tests__/p1-pure.test.ts"
 run_test "Tender T2-P1 Ledger/Cost DB 矩阵（EV/COST/DEL/并发；隔离库执行，否则跳过）" "npx tsx src/lib/project-ledger/__tests__/p1-ledger-db.test.ts"
+run_test "Tender T2-P1.5 财务控制 纯逻辑（类别对齐/状态机/flag/事件键/RBAC）" "npx tsx --test src/lib/project-finance/__tests__/p15-pure.test.ts"
+run_test "Tender T2-P1.5 财务控制 DB 矩阵（BUDGET/EXP/审批原子·幂等·并发/COST-READ；隔离库执行，否则跳过）" "npx tsx src/lib/project-finance/__tests__/p15-finance-db.test.ts"
 run_test "Tender T3 企业记忆 schema 契约" "npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts"
 run_test "Tender T3 企业记忆纯逻辑（归一/排序/校验）" "npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts"
 run_test "Tender T3 企业记忆 DB 集成（Buyer/Claim/证据/隔离/检索）" "npx tsx src/lib/corporate-memory/__tests__/t3-integration.test.ts"

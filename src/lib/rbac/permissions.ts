@@ -53,6 +53,11 @@ export const PERMISSIONS = {
 
   // 审计日志
   AUDIT_LOG_READ: "audit_log:read",
+
+  // T2-P1.5 项目财务控制（预算/费用/审核）
+  PROJECT_COST_READ: "project:cost:read",
+  PROJECT_COST_WRITE: "project:cost:write", // 提交费用 / 编辑预算草稿
+  PROJECT_COST_REVIEW: "project:cost:review", // accounting 审批/拒绝费用
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -117,6 +122,10 @@ const PROJECT_ADMIN_PERMISSIONS: Permission[] = [
   PERMISSIONS.KB_UPDATE,
   PERMISSIONS.KB_DELETE,
   PERMISSIONS.KB_PUBLISH,
+  // 财务：admin 可读/写/审
+  PERMISSIONS.PROJECT_COST_READ,
+  PERMISSIONS.PROJECT_COST_WRITE,
+  PERMISSIONS.PROJECT_COST_REVIEW,
 ];
 
 const OPERATOR_PERMISSIONS: Permission[] = [
@@ -131,6 +140,18 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   PERMISSIONS.KB_READ,
   PERMISSIONS.KB_UPDATE,
   PERMISSIONS.KB_PUBLISH,
+  // 财务：operator 可读/提交费用，不可审核
+  PERMISSIONS.PROJECT_COST_READ,
+  PERMISSIONS.PROJECT_COST_WRITE,
+];
+
+/** T2-P1.5 财务审核角色：读/写 + 审核（唯一新增 review 能力的项目角色） */
+const ACCOUNTING_PERMISSIONS: Permission[] = [
+  PERMISSIONS.PROJECT_READ,
+  PERMISSIONS.PROJECT_MEMBER_LIST,
+  PERMISSIONS.PROJECT_COST_READ,
+  PERMISSIONS.PROJECT_COST_WRITE,
+  PERMISSIONS.PROJECT_COST_REVIEW,
 ];
 
 const TESTER_PERMISSIONS: Permission[] = [
@@ -141,6 +162,7 @@ const TESTER_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROMPT_UPDATE,
   PERMISSIONS.KB_READ,
   PERMISSIONS.KB_UPDATE,
+  PERMISSIONS.PROJECT_COST_READ,
 ];
 
 const VIEWER_PERMISSIONS: Permission[] = [
@@ -149,11 +171,13 @@ const VIEWER_PERMISSIONS: Permission[] = [
   PERMISSIONS.ENV_READ,
   PERMISSIONS.PROMPT_READ,
   PERMISSIONS.KB_READ,
+  PERMISSIONS.PROJECT_COST_READ,
 ];
 
 const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, Permission[]> = {
   project_admin: PROJECT_ADMIN_PERMISSIONS,
   operator: OPERATOR_PERMISSIONS,
+  accounting: ACCOUNTING_PERMISSIONS,
   tester: TESTER_PERMISSIONS,
   viewer: VIEWER_PERMISSIONS,
 };

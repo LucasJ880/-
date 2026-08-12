@@ -25,6 +25,7 @@ const EXPECTED_ACTIVE = [
   "20260805180000_tender_auto_analysis_phase1_1",
   "20260811002000_add_tender_t2_ledger_archive_foundation",
   "20260811040000_add_tender_t3_corporate_memory_foundation",
+  "20260811050000_add_project_financial_control",
 ] as const;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
@@ -57,6 +58,8 @@ const IMMUTABLE: Record<string, string> = {
     "013bad981ea141717a1d0d15efb971981d5ebee499d4d68317ff55f30daf8ff6",
   "20260811040000_add_tender_t3_corporate_memory_foundation":
     "ce7e975fd1e836143cc0e08b016815c15618aa85f1cbfc78c2babd3c2a12b3f4",
+  "20260811050000_add_project_financial_control":
+    "2e4b67e62d41edc13835ed531bf1047fc1a18b7b807e796973f5047ef13d2b0d",
 };
 
 let passed = 0;
