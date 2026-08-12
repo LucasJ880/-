@@ -1,7 +1,14 @@
 # QINGYAN T2-P1.5 — Project Financial Control 实施报告
 
-- 日期：2026-08-11（含 gate-closing 续作：EXPENSE_SUBMIT 三权解耦 + 授权契约测试 + Budget UI + 隔离 Neon 演练）
-- 分支：`feature/tender-t2-p15-project-financial-control`（base = origin/main@f9549ab；含 #102 T2-P1 + #103 T3）｜Draft PR #104
+- 日期：2026-08-12（gate-closing + Final Remediation：EXPENSE_SUBMIT 三权解耦 / 授权契约 / Budget UI / **3 blockers：ledger-active 契约 · award baseline 资格 · 预算并发锁**）
+- 分支：`feature/tender-t2-p15-project-financial-control`（现 base = origin/main@e0c2dac，已 sync 含 **#105 T3.5** history-anchor / schema-ready 语义）｜Draft PR #104
+
+## 0. Final Remediation（CONDITIONAL_PASS → 三 blockers 闭合，依赖 #105 先 merge）
+
+- **BLOCKER1 Ledger Active Contract**：`approveExpense` 产 ProjectCost.ACTUAL 的闸由旧 `isLedgerProducersEnabled()` 改为 T3.5 canonical `isLedgerProducerActive()`（= `T2_LEDGER_SCHEMA_READY && T2_LEDGER_PRODUCERS_ENABLED`，fail-closed；不自行重构 boolean）。→ `EXP-ACTIVE-01`（schema=false&producer=true → 拒绝且零 ACTUAL）+ 反向/双开组合实证。
+- **BLOCKER2 Award Baseline Eligibility**：`freezeAwardBaseline` 服务端校验项目处于仓库既有 canonical 中标态（`bidPhaseStatus="AWARDED"` | `tenderStatus="won"` | `workDomain="delivery"` | `awardDate!=null`——不新造 award state）；来源必须是**当前 ACTIVE** 版本（拒 DRAFT/SUPERSEDED/既有 AWARD_BASELINE；显式 sourceVersionId 须等于 current ACTIVE）。→ `BUDGET-AWARD-01..05`。
+- **BLOCKER3 Budget Version Concurrency**：`activateBudgetVersion` / `freezeAwardBaseline` 进入事务后先对 `ProjectBudget` 容器行取 `FOR UPDATE`（镜像 `project-ledger/history-anchor` 的 PostgreSQL row-lock 风格，不另造锁框架），锁后 re-read 状态。→ 保证「每项目至多一个 current ACTIVE」+「至多一个 AWARD_BASELINE」并发下成立；`BUDGET-CONC-01/02`（真实 Postgres 并发实证）。
+- 同步保 #105 语义无 drift：`history-anchor.ts`、DEL-RACE、cost/event-service 锚锁未改；隔离快照上 T2-P1/T3.5 ledger DB 60/60、T3 43/43。
 - 类型：CORE FINANCIAL CONTROL（预算版本化 → 费用提交 → 票据证据 → Accounting 审核 → ProjectCost.ACTUAL → Budget vs Actual）
 - 生产状态：**dark**（`TENDER_FINANCIAL_CONTROL_ENABLED` default OFF；审批产成本再叠加 `T2_LEDGER_PRODUCERS_ENABLED`）
 - SCHEMA_CHANGE = ADDITIVE（5 张新表，无 DROP/rename/破坏性 ALTER/backfill）
@@ -115,9 +122,9 @@ additive-only；进 verify-migration-history + check-release-safety allowlist；
 ## 24. Test Matrix
 
 - **纯逻辑 7/7**（`p15-pure.test.ts`，进 test-all + CI 子集）：费用类别 ⊆ 冻结 ProjectCost（无 AI/DATA_API）、预算百分比 taxonomy、状态机合法/非法/终态、flag 默认 OFF、事件键确定性、RBAC accounting review 授权、**EXPENSE_SUBMIT 解耦**（所有项目角色可提交本人费用；viewer/tester 能提交但不得编辑预算/审核）。
-- **授权契约 8/8**（`p15-authz-contract.test.ts`，静态源码断言，进 test-all + CI 子集）：每条财务路由都先过 `requireCostAccess`（服务端闸，非仅 UI）；审核动作强制 `PROJECT_COST_REVIEW`；创建/票据走 `PROJECT_EXPENSE_SUBMIT`；预算编辑 `COST_WRITE`、只读 `COST_READ`；**actor 一律 `serverActor(access.user.id)`，禁从请求体取 actor/reviewer/org/submitter**；submit/resubmit 须本人；service 层硬拒自审批（`submittedById === reviewerUserId`）+ 条件 updateMany 并发闸；`requireCostAccess` 缺权 403 / feature dark 404。
-- **DB 矩阵 32/32**（`p15-finance-db.test.ts`，隔离库执行否则跳过）：BUDGET-01..05（含百分比 basis 拒、supersede、baseline 快照/不可变/幂等、租户）、EXP-01..09/11..16（草稿/提交/补充/重提/拒绝/审批、恰一 ProjectCost.ACTUAL、原子回滚、自审批拒、跨 org/project 拒、票据 provenance+去重、ACTUAL 不可改、双击幂等、并发不重复）、COST-READ-01/02、EVENT-01/02/03。EXP-10（未授权成员不能审批）= 由 pure RBAC（operator 无 cost:review）+ 授权契约测试（审核路由强制 REVIEW）覆盖。
-- 全量回归：CI 子集（含 T2-P1 p1-pure / T3 t3-pure / V2 / tender-eval / workforce 纯测试）PASS；T2-P1 ledger DB 矩阵 45/45（sibling 无 drift）；隔离 Neon 上 P1.5 DB 矩阵 32/32 PASS；tsc 0 / eslint 净 / build PASS。
+- **授权契约 10/10**（`p15-authz-contract.test.ts`，静态源码断言，进 test-all + CI 子集）：每条财务路由都先过 `requireCostAccess`（服务端闸，非仅 UI）；审核动作强制 `PROJECT_COST_REVIEW`；创建/票据走 `PROJECT_EXPENSE_SUBMIT`；预算编辑 `COST_WRITE`、只读 `COST_READ`；**actor 一律 `serverActor(access.user.id)`，禁从请求体取 actor/reviewer/org/submitter**；submit/resubmit 须本人；service 层硬拒自审批 + 条件 updateMany 并发闸；**BLOCKER1 用 `isLedgerProducerActive`（禁用已弃 `isLedgerProducersEnabled`）**；**BLOCKER2/3 freeze 校验中标资格 + 来源当前 ACTIVE + 容器行 FOR UPDATE 锁**；`requireCostAccess` 缺权 403 / feature dark 404。
+- **DB 矩阵 42/42**（`p15-finance-db.test.ts`，隔离库执行否则跳过）：BUDGET-01..05、EXP-01..09/11..16、COST-READ-01/02、EVENT-01/02/03，外加 Final Remediation 新增 **EXP-ACTIVE-01..03**（ledger-active 双闸 fail-closed / 正常产成本）、**BUDGET-AWARD-01..05**（非中标拒 / 中标可冻 / DRAFT·SUPERSEDED source 拒 / current ACTIVE 成功）、**BUDGET-CONC-01/02**（真实 Postgres 并发：恰一 ACTIVE、恰一 AWARD_BASELINE）。
+- 全量回归（隔离 Neon 生产快照 @ e0c2dac base）：P1.5 DB 42/42；**T2-P1/T3.5 ledger DB 60/60（含 DEL-RACE-01，无 drift）**；T3 记忆 DB 43/43；CI 子集（p1-pure / t3-pure / V2 / tender-eval / workforce 纯测试）PASS；tsc 0 / eslint 净 / build PASS。用毕删隔离分支 → ISOLATED_NEON_BRANCHES_LEFT = 0。
 
 ## 25. Known Gaps / Explicit Non-Scope
 

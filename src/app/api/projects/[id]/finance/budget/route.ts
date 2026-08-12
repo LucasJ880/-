@@ -13,12 +13,13 @@ import {
   FinanceContractError,
   FinanceTenantError,
   BaselineImmutableError,
+  ProjectNotAwardedError,
 } from "@/lib/project-finance";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 function financeError(e: unknown): NextResponse {
-  if (e instanceof FinanceContractError || e instanceof BaselineImmutableError) {
+  if (e instanceof FinanceContractError || e instanceof BaselineImmutableError || e instanceof ProjectNotAwardedError) {
     return NextResponse.json({ error: e.message, code: e.code }, { status: (e as { statusCode?: number }).statusCode ?? 409 });
   }
   if (e instanceof FinanceTenantError) {

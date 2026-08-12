@@ -16,9 +16,19 @@ if (process.env.NODE_ENV !== "test") {
   console.log("⏭  跳过 T2-P1.5 财务 DB 测试（需 NODE_ENV=test）");
   process.exit(0);
 }
-// 测试内启用双闸（生产默认 OFF；隔离库显式开）
+// 测试内启用三闸（生产默认 OFF；隔离库显式开）。
+// T3.5：producer 有效 = SCHEMA_READY && PRODUCERS_ENABLED（approveExpense 用 isLedgerProducerActive）。
+process.env.T2_LEDGER_SCHEMA_READY = "true";
 process.env.T2_LEDGER_PRODUCERS_ENABLED = "true";
 process.env.TENDER_FINANCIAL_CONTROL_ENABLED = "true";
+
+/** T3.5 双正交 ledger flag 显式控制（EXP-ACTIVE 用；镜像 p1-ledger-db setFlags） */
+function setLedgerFlags(schemaReady: boolean, producersEnabled: boolean) {
+  if (schemaReady) process.env.T2_LEDGER_SCHEMA_READY = "true";
+  else delete process.env.T2_LEDGER_SCHEMA_READY;
+  if (producersEnabled) process.env.T2_LEDGER_PRODUCERS_ENABLED = "true";
+  else delete process.env.T2_LEDGER_PRODUCERS_ENABLED;
+}
 
 const P = "qy_t2p15_";
 let pass = 0;
@@ -61,7 +71,8 @@ async function main() {
   for (const o of ["a", "b"]) {
     await db.organization.create({ data: { id: `${P}org_${o}`, name: `${P}Org ${o}`, code: `${P}org-${o}`, ownerId: `${P}submitter` } });
   }
-  const projA = await db.project.create({ data: { id: `${P}proj_a`, name: "P15 A", orgId: `${P}org_a`, ownerId: `${P}submitter`, workDomain: "tender" } });
+  // projA：中标态（bidPhaseStatus=AWARDED）→ 可冻结 AWARD_BASELINE（§BLOCKER2 资格）
+  const projA = await db.project.create({ data: { id: `${P}proj_a`, name: "P15 A", orgId: `${P}org_a`, ownerId: `${P}submitter`, workDomain: "tender", bidPhaseStatus: "AWARDED" } });
   await db.project.create({ data: { id: `${P}proj_b`, name: "P15 B", orgId: `${P}org_b`, ownerId: `${P}submitter` } });
   const OA = `${P}org_a`;
 
@@ -100,12 +111,12 @@ async function main() {
   ok("BUDGET-02 激活新版 supersede 旧版", v1After?.status === "SUPERSEDED" && v2After?.status === "ACTIVE");
   ok("BUDGET-02 budget.currentVersionId 指向新版", budgetRow?.currentVersionId === v2.id);
 
-  // BUDGET-03：freeze AWARD_BASELINE（快照 v1 的 110000 为新的不可变 baseline 版本，与 ACTIVE v2 并存）
-  const frozen = await budgetSvc.freezeAwardBaseline({ orgId: OA, projectId: projA.id, actor: submitter, actorUserId: `${P}submitter`, sourceVersionId: v1.id });
+  // BUDGET-03：freeze AWARD_BASELINE（§BLOCKER2：来源=当前 ACTIVE v2 的 115000，快照为新不可变 baseline，与 ACTIVE v2 并存）
+  const frozen = await budgetSvc.freezeAwardBaseline({ orgId: OA, projectId: projA.id, actor: submitter, actorUserId: `${P}submitter`, sourceVersionId: v2.id });
   const budgetRow2 = await db.projectBudget.findUnique({ where: { orgId_projectId: { orgId: OA, projectId: projA.id } } });
   const v2StillActive = await db.projectBudgetVersion.findUnique({ where: { id: v2.id } });
-  ok("BUDGET-03 baseline 快照为新 AWARD_BASELINE 版本（总额=v1 的 110000，含冻结时间）",
-    frozen.status === "AWARD_BASELINE" && frozen.totalBudgetAmount.toString() === "110000" && frozen.baselineFrozenAt !== null && frozen.id !== v1.id);
+  ok("BUDGET-03 baseline 快照为新 AWARD_BASELINE 版本（总额=当前 ACTIVE v2 的 115000，含冻结时间）",
+    frozen.status === "AWARD_BASELINE" && frozen.totalBudgetAmount.toString() === "115000" && frozen.baselineFrozenAt !== null && frozen.id !== v2.id);
   ok("BUDGET-03 budget.awardBaselineVersionId 记录 + baseline_frozen 事件 + ACTIVE v2 不受影响",
     budgetRow2?.awardBaselineVersionId === frozen.id && v2StillActive?.status === "ACTIVE" &&
     (await db.projectEvent.count({ where: { projectId: projA.id, eventType: "budget.baseline_frozen" } })) === 1);
@@ -251,8 +262,8 @@ async function main() {
   const materialCat = bva.byCategory.find((c) => c.category === "MATERIAL");
   ok("COST-READ-02 类别级 budget vs actual 正确（MATERIAL current 90000 / actual 12777）",
     materialCat?.currentBudgetAmount === "90000" && materialCat?.actualAmount === "12777", materialCat);
-  ok("COST-READ baseline（v1）总额保留 110000 且 pendingReview 计数",
-    bva.total.baselineAmount === "110000" && typeof bva.pendingReviewCount === "number");
+  ok("COST-READ baseline（AWARD_BASELINE 快照自 ACTIVE v2）总额保留 115000 且 pendingReview 计数",
+    bva.total.baselineAmount === "115000" && typeof bva.pendingReviewCount === "number");
 
   // ─────────────── EVENT ───────────────
   console.log("━━ EVENT 矩阵 ━━");
@@ -268,6 +279,119 @@ async function main() {
   const costRecorded = await db.projectEvent.count({ where: { eventType: "cost.recorded", relatedCostId: e1Cost[0]!.id } });
   ok("EVENT-03 approval 事件 relatedCostId 与 ProjectCost 一致 + cost.recorded 存在",
     apprEvent?.relatedCostId === e1Cost[0]!.id && costRecorded === 1);
+
+  // ─────────────── EXP-ACTIVE（§BLOCKER1：isLedgerProducerActive = SCHEMA_READY && PRODUCERS_ENABLED）───────────────
+  // 置于 projA 全部读模型度量之后，approve 产生的额外成本不影响上文断言。
+  console.log("━━ EXP-ACTIVE 矩阵（T3.5 双闸）━━");
+  async function pendingExpense(amount: string) {
+    const e = await newExpense(amount);
+    await expSvc.submitExpense({ orgId: OA, projectId: projA.id, expenseId: e.id, actor: submitter, actorUserId: `${P}submitter` });
+    return e;
+  }
+  async function approveOutcome(expenseId: string) {
+    let threw = false;
+    try { await expSvc.approveExpense({ orgId: OA, projectId: projA.id, expenseId, actor: accountant, reviewerUserId: `${P}accountant` }); }
+    catch { threw = true; }
+    const actualCosts = await db.projectCost.count({ where: { orgId: OA, projectId: projA.id, costStatus: "ACTUAL", refs: { path: ["expenseSubmissionId"], equals: expenseId } } });
+    const row = await db.projectExpenseSubmission.findUnique({ where: { id: expenseId }, select: { status: true } });
+    return { threw, actualCosts, status: row?.status ?? "?" };
+  }
+  const eA1 = await pendingExpense("111"); setLedgerFlags(false, true);
+  const rA1 = await approveOutcome(eA1.id);
+  ok("EXP-ACTIVE-01 SCHEMA_READY=false&PRODUCER=true → fail-closed：拒绝且零 ProjectCost.ACTUAL",
+    rA1.threw && rA1.actualCosts === 0 && rA1.status === "PENDING_REVIEW", rA1);
+  const eA2 = await pendingExpense("222"); setLedgerFlags(true, false);
+  const rA2 = await approveOutcome(eA2.id);
+  ok("EXP-ACTIVE-02 SCHEMA_READY=true&PRODUCER=false → 拒绝且零 ProjectCost.ACTUAL",
+    rA2.threw && rA2.actualCosts === 0 && rA2.status === "PENDING_REVIEW", rA2);
+  const eA3 = await pendingExpense("333"); setLedgerFlags(true, true);
+  const rA3 = await approveOutcome(eA3.id);
+  ok("EXP-ACTIVE-03 SCHEMA_READY=true&PRODUCER=true → 审批产恰一条 ProjectCost.ACTUAL",
+    !rA3.threw && rA3.actualCosts === 1 && rA3.status === "APPROVED", rA3);
+  setLedgerFlags(true, true); // 恢复双闸
+
+  // ─────────────── BUDGET-AWARD（§BLOCKER2：中标资格 + 来源必须当前 ACTIVE）───────────────
+  console.log("━━ BUDGET-AWARD 矩阵 ━━");
+  async function mkProj(id: string, award: Record<string, unknown>) {
+    return db.project.create({ data: { id: `${P}${id}`, name: id, orgId: OA, ownerId: `${P}submitter`, ...award } });
+  }
+  async function mkVersion(projectId: string, amount: string, activate: boolean) {
+    const { version } = await budgetSvc.createBudgetVersion({ orgId: OA, projectId, currency: "CAD", actor: submitter, createdById: `${P}submitter`, lines: [{ category: "MATERIAL", amount }] });
+    if (activate) await budgetSvc.activateBudgetVersion({ orgId: OA, projectId, versionId: version.id, actor: submitter, actorUserId: `${P}submitter` });
+    return version;
+  }
+  const freezeArgs = (projectId: string, sourceVersionId?: string) => ({ orgId: OA, projectId, actor: submitter, actorUserId: `${P}submitter`, ...(sourceVersionId ? { sourceVersionId } : {}) });
+
+  // BUDGET-AWARD-01：非中标项目（无任何 award 信号）→ 拒绝
+  const pNA = await mkProj("proj_na", { workDomain: "tender" });
+  await mkVersion(pNA.id, "50000", true);
+  let awNa = false;
+  try { await budgetSvc.freezeAwardBaseline(freezeArgs(pNA.id)); } catch (e) { awNa = code(e) === "PROJECT_NOT_AWARDED"; }
+  ok("BUDGET-AWARD-01 非中标项目不能冻结 baseline（PROJECT_NOT_AWARDED）", awNa);
+
+  // BUDGET-AWARD-01b：落标但已公布结果（tenderStatus=lost + awardDate 非空）→ 仍拒绝。
+  // awardDate 是「结果公布时间」，won/lost 都可能有值，绝不是「我方中标」信号（Final Remediation 审计）。
+  const pLost = await mkProj("proj_lost", { tenderStatus: "lost", awardDate: new Date("2026-07-01") });
+  await mkVersion(pLost.id, "50000", true);
+  let awLost = false;
+  try { await budgetSvc.freezeAwardBaseline(freezeArgs(pLost.id)); } catch (e) { awLost = code(e) === "PROJECT_NOT_AWARDED"; }
+  ok("BUDGET-AWARD-01b 落标+已公布结果（awardDate 非空）仍不能冻结（awardDate≠中标信号）", awLost);
+
+  // BUDGET-AWARD-02：中标项目（tenderStatus=won）可冻结（默认 source=当前 ACTIVE）
+  const pAw2 = await mkProj("proj_aw2", { tenderStatus: "won" });
+  await mkVersion(pAw2.id, "60000", true);
+  const aw2 = await budgetSvc.freezeAwardBaseline(freezeArgs(pAw2.id));
+  ok("BUDGET-AWARD-02 中标/合同确认项目可冻结 baseline", aw2.status === "AWARD_BASELINE" && aw2.totalBudgetAmount.toString() === "60000");
+
+  // proj_aw（workDomain=delivery，中标）：v1→active，v2→active（v1 superseded），v3 draft
+  const pAw = await mkProj("proj_aw", { workDomain: "delivery" });
+  const awV1 = await mkVersion(pAw.id, "70000", true);
+  const awV2 = await mkVersion(pAw.id, "80000", true);
+  const awV3Draft = await mkVersion(pAw.id, "90000", false);
+
+  // BUDGET-AWARD-03：DRAFT source 被拒
+  let awDraft = false;
+  try { await budgetSvc.freezeAwardBaseline(freezeArgs(pAw.id, awV3Draft.id)); } catch (e) { awDraft = code(e) === "FINANCE_CONTRACT_VIOLATION"; }
+  ok("BUDGET-AWARD-03 DRAFT source 冻结被拒（须当前 ACTIVE）", awDraft);
+
+  // BUDGET-AWARD-04：SUPERSEDED source 被拒
+  let awSup = false;
+  try { await budgetSvc.freezeAwardBaseline(freezeArgs(pAw.id, awV1.id)); } catch (e) { awSup = code(e) === "FINANCE_CONTRACT_VIOLATION"; }
+  ok("BUDGET-AWARD-04 SUPERSEDED source 冻结被拒（须当前 ACTIVE）", awSup);
+
+  // BUDGET-AWARD-05：current ACTIVE source（v2）成功
+  const aw5 = await budgetSvc.freezeAwardBaseline(freezeArgs(pAw.id, awV2.id));
+  ok("BUDGET-AWARD-05 current ACTIVE source 冻结成功", aw5.status === "AWARD_BASELINE" && aw5.totalBudgetAmount.toString() === "80000");
+
+  // ─────────────── BUDGET-CONC（§BLOCKER3：ProjectBudget 行 FOR UPDATE 并发闸）───────────────
+  console.log("━━ BUDGET-CONC 矩阵 ━━");
+  // CONC-01：两个不同 DRAFT 版本并发 activate → 恰一 ACTIVE + currentVersionId 指向它
+  const pC1 = await mkProj("proj_conc1", { workDomain: "delivery" });
+  const c1a = await mkVersion(pC1.id, "10000", false);
+  const c1b = await mkVersion(pC1.id, "20000", false);
+  await Promise.allSettled([
+    budgetSvc.activateBudgetVersion({ orgId: OA, projectId: pC1.id, versionId: c1a.id, actor: submitter, actorUserId: `${P}submitter` }),
+    budgetSvc.activateBudgetVersion({ orgId: OA, projectId: pC1.id, versionId: c1b.id, actor: submitter, actorUserId: `${P}submitter` }),
+  ]);
+  const c1Budget = await db.projectBudget.findUnique({ where: { orgId_projectId: { orgId: OA, projectId: pC1.id } } });
+  const c1Actives = await db.projectBudgetVersion.findMany({ where: { budgetId: c1Budget!.id, status: "ACTIVE" }, select: { id: true } });
+  ok("BUDGET-CONC-01 并发 activate → 恰一 ACTIVE + currentVersionId 指向它",
+    c1Actives.length === 1 && c1Budget?.currentVersionId === c1Actives[0]!.id, { actives: c1Actives.length, current: c1Budget?.currentVersionId });
+
+  // CONC-02：单 ACTIVE 版本，两并发 freeze → 恰一 AWARD_BASELINE，双方收敛同一 baseline
+  const pC2 = await mkProj("proj_conc2", { workDomain: "delivery" });
+  await mkVersion(pC2.id, "30000", true);
+  const [f1, f2] = await Promise.allSettled([
+    budgetSvc.freezeAwardBaseline(freezeArgs(pC2.id)),
+    budgetSvc.freezeAwardBaseline(freezeArgs(pC2.id)),
+  ]);
+  const c2Budget = await db.projectBudget.findUnique({ where: { orgId_projectId: { orgId: OA, projectId: pC2.id } } });
+  const c2Baselines = await db.projectBudgetVersion.count({ where: { budgetId: c2Budget!.id, status: "AWARD_BASELINE" } });
+  const f1id = f1.status === "fulfilled" ? f1.value.id : "f1?";
+  const f2id = f2.status === "fulfilled" ? f2.value.id : "f2?";
+  ok("BUDGET-CONC-02 并发 freeze → 恰一 AWARD_BASELINE，双方收敛同一 baseline",
+    c2Baselines === 1 && f1.status === "fulfilled" && f2.status === "fulfilled" && f1id === f2id && f1id === c2Budget?.awardBaselineVersionId,
+    { baselines: c2Baselines, f1id, f2id });
 
   await cleanup();
   console.log(`\n结果: ${pass} passed, ${fail} failed`);

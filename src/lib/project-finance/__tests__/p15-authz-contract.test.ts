@@ -116,6 +116,25 @@ test("service 层硬拒自审批 + 并发闸（不依赖路由）", () => {
   );
 });
 
+test("§BLOCKER1 approval 用 T3.5 canonical isLedgerProducerActive（禁用已弃 isLedgerProducersEnabled）", () => {
+  const svc = read("expense-service.ts", LIB);
+  assert.ok(svc.includes("isLedgerProducerActive"), "approveExpense 必须用 isLedgerProducerActive（SCHEMA_READY && PRODUCERS_ENABLED）");
+  assert.ok(
+    !svc.includes("isLedgerProducersEnabled"),
+    "不得再单用已弃的 isLedgerProducersEnabled（会绕过 schema-ready fail-closed）",
+  );
+});
+
+test("§BLOCKER2/3 freezeAwardBaseline：中标资格 + 来源当前 ACTIVE + 容器行 FOR UPDATE 锁", () => {
+  const svc = read("budget-service.ts", LIB);
+  assert.ok(svc.includes("isProjectAwardEligible") && svc.includes("ProjectNotAwardedError"),
+    "freeze 须校验中标资格（isProjectAwardEligible → ProjectNotAwardedError）");
+  assert.ok(svc.includes("lockProjectBudgetRow"), "activate/freeze 须锁 ProjectBudget 容器行");
+  assert.ok(svc.includes('FOR UPDATE'), "容器锁须为 FOR UPDATE（PostgreSQL row lock，镜像 history-anchor 风格）");
+  assert.ok(svc.includes("currentActive") || svc.includes('status: "ACTIVE"'),
+    "freeze 来源必须是当前 ACTIVE 版本");
+});
+
 test("requireCostAccess 叠加细粒度权限并在缺权时 403（feature dark → 404）", () => {
   const access = read("access.ts", LIB);
   assert.ok(access.includes("hasProjectPermission(access.projectRole, permission)"),

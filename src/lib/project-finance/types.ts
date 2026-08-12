@@ -132,6 +132,41 @@ export class BaselineImmutableError extends Error {
   }
 }
 
+/** 项目未处于中标/合同确认态，不得冻结 AWARD_BASELINE（不新造 award state，读现有 canonical 字段） */
+export class ProjectNotAwardedError extends Error {
+  readonly code = "PROJECT_NOT_AWARDED";
+  constructor(
+    message = "仅中标/合同确认（bidPhaseStatus=AWARDED / tenderStatus=won / workDomain=delivery）的项目可冻结 AWARD_BASELINE",
+    public readonly statusCode = 409,
+  ) {
+    super(message);
+    this.name = "ProjectNotAwardedError";
+  }
+}
+
+/**
+ * AWARD_BASELINE 冻结资格：项目须处于仓库既有 canonical「中标/合同确认」态之一。
+ * 不新造 award 状态——只读现有 canonical「我方中标」字段：
+ *  - bidPhaseStatus === "AWARDED"（Phase1 投标工作流中标终态，label「已中标」，与 LOST 互斥）
+ *  - tenderStatus === "won"（招标结果，仅 markProjectTenderResult(result="won") 写入，与 "lost" 互斥）
+ *  - workDomain === "delivery"（交付项目：由中标投标 handoff 派生，handoff 强制 tenderStatus="won"）
+ *
+ * 刻意不含 awardDate：它是「结果公布时间」（announcement date，kind=external），
+ * won/lost/no_bid/cancelled 任一结果都可能有值——对 LOST 项目也非空，故不是「我方中标」信号，
+ * 纳入会让落标但已公布结果的项目错误通过资格（审计确认，见 T3.5/P1.5 remediation 报告）。
+ */
+export function isProjectAwardEligible(project: {
+  bidPhaseStatus?: string | null;
+  tenderStatus?: string | null;
+  workDomain?: string | null;
+}): boolean {
+  return (
+    project.bidPhaseStatus === "AWARDED" ||
+    project.tenderStatus === "won" ||
+    project.workDomain === "delivery"
+  );
+}
+
 export class FinanceTenantError extends Error {
   readonly code = "FINANCE_TENANT_MISMATCH";
   constructor(message = "resource not found in organization/project") {

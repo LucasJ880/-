@@ -23,6 +23,8 @@ import {
   FinanceContractError,
   FinanceTenantError,
   PERCENTAGE_BUDGET_CATEGORIES,
+  ProjectNotAwardedError,
+  isProjectAwardEligible,
   type BudgetLineCategory,
 } from "./types";
 
@@ -35,6 +37,26 @@ function dec(v: DecimalInput): Prisma.Decimal {
 
 async function inTx<T>(tx: Tx | undefined, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return tx ? fn(tx) : db.$transaction(fn);
+}
+
+/**
+ * 预算容器并发锁（T2-P1.5 §BLOCKER3）：对 ProjectBudget 行取 FOR UPDATE，
+ * 序列化同一 budget 的 activate / freeze_baseline，保证「每项目至多一个 current ACTIVE」+
+ * 「至多一个 AWARD_BASELINE」在并发下成立。镜像 project-ledger/history-anchor 的 PostgreSQL
+ * row-lock 事务风格（不另造锁框架）。返回 budgetId（已持锁）或 null（容器不存在）。
+ * 必须在同一事务内、读取/修改版本状态之前调用，锁后须 re-read 当前状态。
+ */
+async function lockProjectBudgetRow(
+  tx: Tx,
+  orgId: string,
+  projectId: string,
+): Promise<string | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "ProjectBudget"
+    WHERE "orgId" = ${orgId} AND "projectId" = ${projectId}
+    FOR UPDATE
+  `;
+  return rows[0]?.id ?? null;
 }
 
 export interface BudgetLineInput {
@@ -228,7 +250,14 @@ export async function activateBudgetVersion(input: {
   actorUserId: string;
 }) {
   return inTx(input.tx, async (tx) => {
+    // §BLOCKER3 并发闸：先锁 ProjectBudget 容器行 FOR UPDATE，序列化并发 activate，
+    // 再 re-read 版本状态（updateMany+update 在无锁并发下不足以保证唯一 ACTIVE）。
+    const lockedBudgetId = await lockProjectBudgetRow(tx, input.orgId, input.projectId);
+    if (!lockedBudgetId) throw new FinanceTenantError("项目预算不存在");
+
+    // 持锁后 re-read 目标版本当前状态
     const version = await loadOwnedVersion(tx, input.orgId, input.projectId, input.versionId);
+    if (version.budgetId !== lockedBudgetId) throw new FinanceTenantError();
     if (version.status === "AWARD_BASELINE") {
       throw new BaselineImmutableError("AWARD_BASELINE 版本不可再改为 ACTIVE；如需新预算请创建新版本");
     }
@@ -289,32 +318,48 @@ export async function freezeAwardBaseline(input: {
   sourceVersionId?: string;
 }) {
   return inTx(input.tx, async (tx) => {
+    // §BLOCKER2 资格：仅仓库既有 canonical 中标/合同确认态项目可冻结 baseline（不新造 award state）
     const project = await tx.project.findFirst({
       where: { id: input.projectId, orgId: input.orgId },
-      select: { id: true },
+      select: { id: true, bidPhaseStatus: true, tenderStatus: true, workDomain: true },
     });
     if (!project) throw new FinanceTenantError();
+    if (!isProjectAwardEligible(project)) {
+      throw new ProjectNotAwardedError();
+    }
 
-    const budget = await tx.projectBudget.findUnique({
-      where: { orgId_projectId: { orgId: input.orgId, projectId: input.projectId } },
+    // §BLOCKER3 并发闸：先锁 ProjectBudget 容器行 FOR UPDATE，序列化并发 freeze，
+    // 再 re-read awardBaselineVersionId（幂等/唯一 baseline 在并发下才成立）。
+    const lockedBudgetId = await lockProjectBudgetRow(tx, input.orgId, input.projectId);
+    if (!lockedBudgetId) throw new FinanceContractError("项目尚无预算，无法冻结 baseline", 409);
+
+    const budget = await tx.projectBudget.findUniqueOrThrow({
+      where: { id: lockedBudgetId },
     });
-    if (!budget) throw new FinanceContractError("项目尚无预算，无法冻结 baseline", 409);
 
-    // 幂等：已存在 baseline → 返回既有
+    // 持锁后 re-read：已存在 baseline → 返回既有（并发第二方在此收敛，不产重复）
     if (budget.awardBaselineVersionId) {
       return tx.projectBudgetVersion.findUniqueOrThrow({
         where: { id: budget.awardBaselineVersionId },
       });
     }
 
-    const source = input.sourceVersionId
-      ? await loadOwnedVersion(tx, input.orgId, input.projectId, input.sourceVersionId)
-      : await tx.projectBudgetVersion.findFirst({
-          where: { budgetId: budget.id, status: "ACTIVE" },
-        });
-    if (!source) {
+    // §BLOCKER2 来源必须是当前 ACTIVE 版本（拒 DRAFT / SUPERSEDED / 既有 AWARD_BASELINE）
+    const currentActive = await tx.projectBudgetVersion.findFirst({
+      where: { budgetId: budget.id, status: "ACTIVE" },
+    });
+    if (!currentActive) {
       throw new FinanceContractError("没有可冻结的来源版本（需先激活一个预算版本）", 409);
     }
+    if (input.sourceVersionId && input.sourceVersionId !== currentActive.id) {
+      // 显式给定 source 时必须等于当前 ACTIVE 版本（防冻结旧/草稿/被取代版本为 baseline）
+      const supplied = await loadOwnedVersion(tx, input.orgId, input.projectId, input.sourceVersionId);
+      throw new FinanceContractError(
+        `AWARD_BASELINE 来源必须是当前 ACTIVE 版本（v${currentActive.versionNumber}）；给定 v${supplied.versionNumber}（${supplied.status}）不合法`,
+        409,
+      );
+    }
+    const source = currentActive;
     const sourceLines = await tx.projectBudgetLine.findMany({
       where: { budgetVersionId: source.id },
       orderBy: { sortOrder: "asc" },

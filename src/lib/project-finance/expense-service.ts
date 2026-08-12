@@ -13,7 +13,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { appendProjectEvent } from "@/lib/project-ledger/event-service";
 import { createProjectCost } from "@/lib/project-ledger/cost-service";
-import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
+import { isLedgerProducerActive } from "@/lib/project-ledger/flags";
 import type { LedgerActor } from "@/lib/project-ledger/types";
 import {
   expenseApprovedEventKey,
@@ -361,10 +361,12 @@ export async function approveExpense(input: {
     }
     // 自审批硬拒
     if (e.submittedById === input.reviewerUserId) throw new SelfApprovalError();
-    // dark-merge：产权威成本须 ledger producer 已启用
-    if (!isLedgerProducersEnabled()) {
+    // dark-merge / fail-closed：产权威成本须 ledger producer 有效开启
+    // = T3.5 canonical isLedgerProducerActive()（SCHEMA_READY && PRODUCERS_ENABLED）。
+    // 绝不单看 PRODUCERS_ENABLED——schema 未就绪时严禁写 M1 表（ProjectCost）。
+    if (!isLedgerProducerActive()) {
       throw new FinanceContractError(
-        "审批产 ProjectCost.ACTUAL 需 T2_LEDGER_PRODUCERS_ENABLED；当前 ledger producer dark",
+        "审批产 ProjectCost.ACTUAL 需 isLedgerProducerActive()（T2_LEDGER_SCHEMA_READY && T2_LEDGER_PRODUCERS_ENABLED）；当前 ledger producer 未有效开启",
         409,
       );
     }

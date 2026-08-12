@@ -267,7 +267,7 @@ run_test "Tender T2-P1 Ledger 纯逻辑不变量（eventKey/flag/重试耗尽/�
 run_test "Tender T2-P1 Ledger/Cost DB 矩阵（EV/COST/DEL/并发；隔离库执行，否则跳过）" "npx tsx src/lib/project-ledger/__tests__/p1-ledger-db.test.ts"
 run_test "Tender T2-P1.5 财务控制 纯逻辑（类别对齐/状态机/flag/事件键/RBAC/EXPENSE_SUBMIT 解耦）" "npx tsx --test src/lib/project-finance/__tests__/p15-pure.test.ts"
 run_test "Tender T2-P1.5 财务控制 授权契约（每路由服务端闸/REVIEW 强制/actor 不可伪造/自审批+并发闸）" "npx tsx --test src/lib/project-finance/__tests__/p15-authz-contract.test.ts"
-run_test "Tender T2-P1.5 财务控制 DB 矩阵（BUDGET/EXP/审批原子·幂等·并发/COST-READ；隔离库执行，否则跳过）" "npx tsx src/lib/project-finance/__tests__/p15-finance-db.test.ts"
+run_test "Tender T2-P1.5 财务控制 DB 矩阵（BUDGET/EXP/COST-READ/EVENT + EXP-ACTIVE·BUDGET-AWARD·BUDGET-CONC 并发；隔离库执行，否则跳过）" "npx tsx src/lib/project-finance/__tests__/p15-finance-db.test.ts"
 run_test "Tender T3 企业记忆 schema 契约" "npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts"
 run_test "Tender T3 企业记忆纯逻辑（归一/排序/校验）" "npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts"
 run_test "Tender T3 企业记忆 DB 集成（Buyer/Claim/证据/隔离/检索）" "npx tsx src/lib/corporate-memory/__tests__/t3-integration.test.ts"
