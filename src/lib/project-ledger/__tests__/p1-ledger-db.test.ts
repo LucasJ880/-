@@ -3,6 +3,8 @@
  *
  * EV-01..08 幂等/并发/原子；COST-01..08 生命周期；DEL-01/04 删除保留；
  * producer 语义等价事务（create/update/member add+remove）；并发 2/5/10。
+ * T3.5 Foundation Hardening：DEL-SCHEMA-01..05（gate=SCHEMA_READY，与 producer 解耦）、
+ * DEL-DARK/DEL-ACTIVE（保留，tx 层观测 M1 访问）、DEL-RACE-01（真实事务交错，ORPHAN=0）。
  *
  * 运行：DATABASE_URL=<隔离分支> DIRECT_URL=<同> NODE_ENV=test \
  *       DATABASE_ENVIRONMENT=isolated npx tsx <本文件>
@@ -525,7 +527,24 @@ async function main() {
     role: "admin", // isSuperAdmin → 绕过 intakeStatus/成员校验，专注 gate 行为
   });
 
-  async function seedDeletableProject(suffix: string, withHistory: boolean) {
+  // T3.5：两个正交 flag 显式控制（deletion gate = SCHEMA_READY；producer = SCHEMA && PRODUCER）
+  const SCHEMA_FLAG = "T2_LEDGER_SCHEMA_READY";
+  const PRODUCER_FLAG = "T2_LEDGER_PRODUCERS_ENABLED";
+  function setFlags(schemaReady: boolean, producersEnabled: boolean) {
+    if (schemaReady) process.env[SCHEMA_FLAG] = "true";
+    else delete process.env[SCHEMA_FLAG];
+    if (producersEnabled) process.env[PRODUCER_FLAG] = "true";
+    else delete process.env[PRODUCER_FLAG];
+  }
+  function clearFlags() {
+    delete process.env[SCHEMA_FLAG];
+    delete process.env[PRODUCER_FLAG];
+  }
+
+  async function seedDeletableProject(
+    suffix: string,
+    hist?: { event?: boolean; cost?: boolean; archive?: boolean },
+  ) {
     const p = await db.project.create({
       data: {
         id: `${P}del_${suffix}`,
@@ -534,7 +553,7 @@ async function main() {
         ownerId: `${P}user_a`,
       },
     });
-    if (withHistory) {
+    if (hist?.event) {
       await db.$transaction((tx) =>
         appendProjectEvent({
           tx, orgId: `${P}org_a`, projectId: p.id,
@@ -542,6 +561,25 @@ async function main() {
           occurredAt: p.createdAt, actor, title: "history",
         }),
       );
+    }
+    if (hist?.cost) {
+      await db.projectCost.create({
+        data: {
+          orgId: `${P}org_a`, projectId: p.id, costStatus: "PLANNED",
+          category: "OTHER", amountPlanned: "100.00", currency: "CAD",
+          incurredAt: new Date(), createdById: `${P}user_a`,
+        },
+      });
+    }
+    if (hist?.archive) {
+      await db.tenderArchiveItem.create({
+        data: {
+          orgId: `${P}org_a`, projectId: p.id, kind: "tender_document",
+          captureKey: `${P}ck_${suffix}`, capturedAt: new Date(), captureMethod: "upload",
+          mimeType: "application/pdf", fileSize: 10, contentHash: `${P}hash_${suffix}`,
+          storageKey: `archive/${P}org_a/xx/${P}hash_${suffix}`,
+        },
+      });
     }
     return p;
   }
@@ -554,144 +592,293 @@ async function main() {
     return DELETE(req as never, { params: Promise.resolve({ id: pid }) });
   }
 
-  // M1 count 委托 spy：证明 flag OFF 时 DELETE 完全不访问三张 M1 表。
-  // Prisma 委托以 getter 暴露；一次性捕获稳定的 live 委托对象，install/restore
-  // 均以数据属性形式设置该对象，避免反复触发 getter 造成的不稳定。
+  // M1 access spy（T3.5）：历史 count 已移入 DELETE 事务（tx.*），故须在 $transaction
+  // 层拦截——包裹回调、代理传入的 tx 客户端，观测/拦截其对三张 M1 表的 .count 访问。
+  // 证明 gate OFF 时 DELETE 对 M1 表 0 次访问（生产缺表也不会 table-not-found）。
+  const M1_MODELS = ["projectEvent", "projectCost", "tenderArchiveItem"];
+  const origTransaction = db.$transaction.bind(db) as (
+    arg: unknown,
+    opts?: unknown,
+  ) => Promise<unknown>;
   let m1Touches = 0;
-  const M1_MODELS = ["projectEvent", "projectCost", "tenderArchiveItem"] as const;
-  const dbAny = db as unknown as Record<string, { count: (...a: unknown[]) => unknown }>;
-  const liveDelegates = M1_MODELS.map((m) => dbAny[m]);
-  function installSpies() {
+  let m1Mode: "count" | "throw" = "count";
+  function makeTxProxy(realTx: object): object {
+    return new Proxy(realTx, {
+      get(t, prop, r) {
+        if (typeof prop === "string" && M1_MODELS.includes(prop)) {
+          const delegate = Reflect.get(t, prop, r) as object;
+          return new Proxy(delegate, {
+            get(d, dprop, dr) {
+              if (dprop === "count") {
+                return (...args: unknown[]) => {
+                  if (m1Mode === "throw") {
+                    throw new Error(`M1 ${prop}.count 不应在 gate OFF 时被调用`);
+                  }
+                  m1Touches += 1;
+                  const fn = Reflect.get(d, dprop, dr) as (...a: unknown[]) => unknown;
+                  return fn.apply(d, args);
+                };
+              }
+              const v = Reflect.get(d, dprop, dr);
+              return typeof v === "function"
+                ? (v as (...a: unknown[]) => unknown).bind(d)
+                : v;
+            },
+          });
+        }
+        const v = Reflect.get(t, prop, r);
+        return typeof v === "function"
+          ? (v as (...a: unknown[]) => unknown).bind(t)
+          : v;
+      },
+    });
+  }
+  function installSpies(mode: "count" | "throw" = "count") {
     m1Touches = 0;
-    M1_MODELS.forEach((m, i) => {
-      const live = liveDelegates[i]!;
-      const proxy = new Proxy(live, {
-        get(target, prop, recv) {
-          const v = Reflect.get(target, prop, recv);
-          if (prop === "count" && typeof v === "function") {
-            return (...args: unknown[]) => { m1Touches += 1; return v.apply(target, args); };
-          }
-          return typeof v === "function" ? v.bind(target) : v;
-        },
-      });
-      Object.defineProperty(db, m, { value: proxy, configurable: true, writable: true });
+    m1Mode = mode;
+    Object.defineProperty(db, "$transaction", {
+      value: (arg: unknown, opts?: unknown) =>
+        typeof arg === "function"
+          ? origTransaction(
+              (realTx: object) => (arg as (tx: object) => unknown)(makeTxProxy(realTx)),
+              opts,
+            )
+          : origTransaction(arg, opts),
+      configurable: true,
+      writable: true,
     });
   }
   function restoreSpies() {
-    M1_MODELS.forEach((m, i) =>
-      Object.defineProperty(db, m, {
-        value: liveDelegates[i],
-        configurable: true,
-        writable: true,
-      }),
-    );
+    Object.defineProperty(db, "$transaction", {
+      value: origTransaction,
+      configurable: true,
+      writable: true,
+    });
   }
 
-  // DEL-DARK-01：flag OFF → DELETE 不触碰任何 M1 表 → 沿用 T2 前删除行为
-  delete process.env.T2_LEDGER_PRODUCERS_ENABLED;
-  const darkProj = await seedDeletableProject("dark", false);
-  installSpies();
+  // ══ DEL-SCHEMA：Producer Kill Switch ≠ Deletion Protection Kill Switch（T3.5 核心）══
+  // DEL-SCHEMA-01：schemaReady=false, producer=false → 0 次 M1 访问 → legacy 删除
+  setFlags(false, false);
+  const s1 = await seedDeletableProject("schema1");
+  installSpies("count");
+  const s1Res = await callDelete(s1.id);
+  restoreSpies();
+  const s1Gone = (await db.project.count({ where: { id: s1.id } })) === 0;
+  ok("DEL-SCHEMA-01 schemaReady=false：DELETE 零访问 M1 表", m1Touches === 0);
+  ok("DEL-SCHEMA-01 schemaReady=false：legacy hard delete 照常", s1Res.status === 200 && s1Gone);
+
+  // DEL-DARK-01（保留）：两 flag 全 OFF → 与 T2 前删除行为一致
+  setFlags(false, false);
+  const darkProj = await seedDeletableProject("dark");
+  installSpies("count");
   const darkRes = await callDelete(darkProj.id);
   restoreSpies();
   const darkGone = (await db.project.count({ where: { id: darkProj.id } })) === 0;
-  ok("DEL-DARK-01 flag OFF：DELETE 零访问 M1 表", m1Touches === 0);
-  ok("DEL-DARK-01 flag OFF：删除照常完成（前 T2 行为不变）", darkRes.status === 200 && darkGone);
+  ok("DEL-DARK-01 gate OFF：DELETE 零访问 M1 表", m1Touches === 0);
+  ok("DEL-DARK-01 gate OFF：删除照常完成（前 T2 行为不变）", darkRes.status === 200 && darkGone);
 
-  // DEL-ACTIVE-01：flag ON + 无历史 → 允许删除
-  process.env.T2_LEDGER_PRODUCERS_ENABLED = "true";
-  const activeNoHist = await seedDeletableProject("active1", false);
-  installSpies();
+  // DEL-SCHEMA-02：schemaReady=true, producer=false, ProjectEvent>0 → 409（producer OFF 仍保护）
+  setFlags(true, false);
+  const s2 = await seedDeletableProject("schema2", { event: true });
+  const s2Res = await callDelete(s2.id);
+  const s2Body = (await s2Res.json()) as { code?: string };
+  ok(
+    "DEL-SCHEMA-02 producer OFF + ProjectEvent>0：409（producer≠deletion kill switch）",
+    s2Res.status === 409 && s2Body.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-SCHEMA-02 producer OFF + ProjectEvent>0：项目保留", (await db.project.count({ where: { id: s2.id } })) === 1);
+
+  // DEL-SCHEMA-03：schemaReady=true, producer=false, ProjectCost>0 → 409
+  const s3 = await seedDeletableProject("schema3", { cost: true });
+  const s3Res = await callDelete(s3.id);
+  const s3Body = (await s3Res.json()) as { code?: string };
+  ok(
+    "DEL-SCHEMA-03 producer OFF + ProjectCost>0：409",
+    s3Res.status === 409 && s3Body.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-SCHEMA-03 producer OFF + ProjectCost>0：项目保留", (await db.project.count({ where: { id: s3.id } })) === 1);
+
+  // DEL-SCHEMA-04：schemaReady=true, producer=false, TenderArchiveItem>0 → 409
+  const s4 = await seedDeletableProject("schema4", { archive: true });
+  const s4Res = await callDelete(s4.id);
+  const s4Body = (await s4Res.json()) as { code?: string };
+  ok(
+    "DEL-SCHEMA-04 producer OFF + TenderArchiveItem>0：409",
+    s4Res.status === 409 && s4Body.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-SCHEMA-04 producer OFF + TenderArchiveItem>0：项目保留", (await db.project.count({ where: { id: s4.id } })) === 1);
+
+  // DEL-SCHEMA-05：schemaReady=true, producer=false, 无历史 → hard delete 继续
+  const s5 = await seedDeletableProject("schema5");
+  installSpies("count");
+  const s5Res = await callDelete(s5.id);
+  restoreSpies();
+  const s5Gone = (await db.project.count({ where: { id: s5.id } })) === 0;
+  ok("DEL-SCHEMA-05 producer OFF + 无历史：M1 表被查询（gate 运行）", m1Touches === 3);
+  ok("DEL-SCHEMA-05 producer OFF + 无历史：hard delete 继续", s5Res.status === 200 && s5Gone);
+
+  // ── DEL-ACTIVE（保留）：完全激活（schema+producer）× 历史矩阵 ──
+  // DEL-ACTIVE-01：全激活 + 无历史 → 允许删除
+  setFlags(true, true);
+  const activeNoHist = await seedDeletableProject("active1");
+  installSpies("count");
   const a1Res = await callDelete(activeNoHist.id);
   restoreSpies();
   const a1Gone = (await db.project.count({ where: { id: activeNoHist.id } })) === 0;
-  ok("DEL-ACTIVE-01 flag ON + 无历史：M1 表被查询", m1Touches === 3);
-  ok("DEL-ACTIVE-01 flag ON + 无历史：删除继续", a1Res.status === 200 && a1Gone);
+  ok("DEL-ACTIVE-01 全激活 + 无历史：M1 表被查询", m1Touches === 3);
+  ok("DEL-ACTIVE-01 全激活 + 无历史：删除继续", a1Res.status === 200 && a1Gone);
 
-  // DEL-ACTIVE-02：flag ON + 有账本历史 → 409 + 项目保留
-  const activeHist = await seedDeletableProject("active2", true);
+  // DEL-ACTIVE-02：全激活 + 账本历史 → 409
+  const activeHist = await seedDeletableProject("active2", { event: true });
   const a2Res = await callDelete(activeHist.id);
   const a2Body = (await a2Res.json()) as { code?: string };
-  const a2Kept = (await db.project.count({ where: { id: activeHist.id } })) === 1;
   ok(
-    "DEL-ACTIVE-02 flag ON + 有历史：409 PROJECT_HAS_LEDGER_HISTORY",
+    "DEL-ACTIVE-02 全激活 + 账本历史：409 PROJECT_HAS_LEDGER_HISTORY",
     a2Res.status === 409 && a2Body.code === "PROJECT_HAS_LEDGER_HISTORY",
   );
-  ok("DEL-ACTIVE-02 flag ON + 有历史：项目未被删除", a2Kept);
+  ok("DEL-ACTIVE-02 全激活 + 账本历史：项目未被删除", (await db.project.count({ where: { id: activeHist.id } })) === 1);
 
-  // DEL-ACTIVE-03：flag ON + 仅 ProjectCost 历史（无事件，直插隔离成本触发）→ 409
-  const activeCost = await seedDeletableProject("active3", false);
-  await db.projectCost.create({
-    data: {
-      orgId: `${P}org_a`, projectId: activeCost.id,
-      costStatus: "PLANNED", category: "OTHER",
-      amountPlanned: "100.00", currency: "CAD",
-      incurredAt: new Date(), createdById: `${P}user_a`,
-    },
-  });
+  // DEL-ACTIVE-03：全激活 + 仅成本历史 → 409
+  const activeCost = await seedDeletableProject("active3", { cost: true });
   const a3Res = await callDelete(activeCost.id);
   const a3Body = (await a3Res.json()) as { code?: string };
-  const a3Kept = (await db.project.count({ where: { id: activeCost.id } })) === 1;
   ok(
-    "DEL-ACTIVE-03 flag ON + ProjectCost>0：409 PROJECT_HAS_LEDGER_HISTORY",
+    "DEL-ACTIVE-03 全激活 + ProjectCost>0：409 PROJECT_HAS_LEDGER_HISTORY",
     a3Res.status === 409 && a3Body.code === "PROJECT_HAS_LEDGER_HISTORY",
   );
-  ok("DEL-ACTIVE-03 flag ON + ProjectCost>0：项目未被删除", a3Kept);
+  ok("DEL-ACTIVE-03 全激活 + ProjectCost>0：项目未被删除", (await db.project.count({ where: { id: activeCost.id } })) === 1);
 
-  // DEL-ACTIVE-04：flag ON + 仅 TenderArchiveItem 历史 → 409
-  const activeArc = await seedDeletableProject("active4", false);
-  await db.tenderArchiveItem.create({
-    data: {
-      orgId: `${P}org_a`, projectId: activeArc.id, kind: "tender_document",
-      captureKey: `${P}ck4`, capturedAt: new Date(), captureMethod: "upload",
-      mimeType: "application/pdf", fileSize: 10, contentHash: `${P}hash4`,
-      storageKey: `archive/${P}org_a/xx/${P}hash4`,
-    },
-  });
+  // DEL-ACTIVE-04：全激活 + 仅档案历史 → 409
+  const activeArc = await seedDeletableProject("active4", { archive: true });
   const a4Res = await callDelete(activeArc.id);
   const a4Body = (await a4Res.json()) as { code?: string };
-  const a4Kept = (await db.project.count({ where: { id: activeArc.id } })) === 1;
   ok(
-    "DEL-ACTIVE-04 flag ON + TenderArchiveItem>0：409 PROJECT_HAS_LEDGER_HISTORY",
+    "DEL-ACTIVE-04 全激活 + TenderArchiveItem>0：409 PROJECT_HAS_LEDGER_HISTORY",
     a4Res.status === 409 && a4Body.code === "PROJECT_HAS_LEDGER_HISTORY",
   );
-  ok("DEL-ACTIVE-04 flag ON + TenderArchiveItem>0：项目未被删除", a4Kept);
-  delete process.env.T2_LEDGER_PRODUCERS_ENABLED;
+  ok("DEL-ACTIVE-04 全激活 + TenderArchiveItem>0：项目未被删除", (await db.project.count({ where: { id: activeArc.id } })) === 1);
 
-  // DEL-ACTIVE-05：flag OFF + M1 delegate throw-if-called（模拟表不存在/不可用）
-  // → DELETE 结构性 gate 必须完全不触及 count，删除照常完成且无 table-not-found 类错误。
-  function installThrowingSpies() {
-    M1_MODELS.forEach((m, i) => {
-      const live = liveDelegates[i]!;
-      const proxy = new Proxy(live, {
-        get(target, prop, recv) {
-          if (prop === "count") {
-            return () => {
-              throw new Error(`M1 delegate ${m}.count 不应在 flag OFF 时被调用`);
-            };
-          }
-          const v = Reflect.get(target, prop, recv);
-          return typeof v === "function" ? v.bind(target) : v;
-        },
-      });
-      Object.defineProperty(db, m, { value: proxy, configurable: true, writable: true });
-    });
-  }
-  const darkThrowProj = await seedDeletableProject("active5", false);
-  installThrowingSpies();
+  // DEL-ACTIVE-05：gate OFF + throw-if-called → 结构性 gate 完全不触 count（无 table-not-found）
+  setFlags(false, false);
+  const a5Proj = await seedDeletableProject("active5");
+  installSpies("throw");
   let a5Threw = false;
   let a5Res: Awaited<ReturnType<typeof callDelete>> | null = null;
   try {
-    a5Res = await callDelete(darkThrowProj.id);
+    a5Res = await callDelete(a5Proj.id);
   } catch {
     a5Threw = true;
   } finally {
     restoreSpies();
   }
-  const a5Gone = (await db.project.count({ where: { id: darkThrowProj.id } })) === 0;
+  const a5Gone = (await db.project.count({ where: { id: a5Proj.id } })) === 0;
   ok(
-    "DEL-ACTIVE-05 flag OFF + throw-if-called delegate：DELETE 未触发 count（无 table-not-found）",
+    "DEL-ACTIVE-05 gate OFF + throw-if-called：DELETE 未触发 count（无 table-not-found）",
     !a5Threw && a5Res?.status === 200 && a5Gone,
   );
+
+  // ══ DEL-RACE-01：hard delete × ledger writer 真实事务并发（关闭 TOCTOU）══
+  console.log("━━ DEL-RACE-01 并发锚点竞争（真实事务交错）━━");
+  const { lockProjectHistoryAnchorForDelete, countProjectAuthoritativeHistory } =
+    await import("../history-anchor");
+  setFlags(true, true);
+
+  function deferred<T = void>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  async function orphanState(pid: string) {
+    const pExists = (await db.project.count({ where: { id: pid } })) > 0;
+    const ev = await db.projectEvent.count({ where: { projectId: pid } });
+    const co = await db.projectCost.count({ where: { projectId: pid } });
+    const ar = await db.tenderArchiveItem.count({ where: { projectId: pid } });
+    const history = ev + co + ar;
+    return { pExists, history, orphan: !pExists && history > 0 };
+  }
+
+  // Race A：writer 先持 FOR KEY SHARE → delete 的 FOR UPDATE 阻塞 → writer 提交历史
+  //         → delete 锁内看到历史 → 409（项目保留，无 orphan）
+  const raceA = await db.project.create({
+    data: { id: `${P}race_a`, name: "race A", orgId: `${P}org_a`, ownerId: `${P}user_a` },
+  });
+  const aLocked = deferred();
+  const aRelease = deferred();
+  const aWriter = db.$transaction(async (tx) => {
+    await appendProjectEvent({
+      tx, orgId: `${P}org_a`, projectId: raceA.id,
+      eventType: "project.created", eventKey: projectCreatedEventKey(raceA.id),
+      occurredAt: raceA.createdAt, actor, title: "race A history",
+    });
+    aLocked.resolve();          // 已持 FOR KEY SHARE + 已插入事件（未提交）
+    await aRelease.promise;      // 保持事务开启，持锁
+  }, { timeout: 20000 });
+  await aLocked.promise;
+  const aDeleteP = callDelete(raceA.id);   // 路由内 FOR UPDATE 阻塞于 writer 的 FKS
+  await sleep(500);                        // 让 delete 抵达并阻塞在锚锁
+  aRelease.resolve();                      // writer 提交 → 事件可见
+  const aDelRes = await aDeleteP;
+  await aWriter;
+  const aBody = (await aDelRes.json().catch(() => ({}))) as { code?: string };
+  const aState = await orphanState(raceA.id);
+  ok(
+    "DEL-RACE-01 Race A：writer 先持锁 → delete 阻塞后看到历史 → 409",
+    aDelRes.status === 409 && aBody.code === "PROJECT_HAS_LEDGER_HISTORY",
+  );
+  ok("DEL-RACE-01 Race A：项目保留、无 orphan", aState.pExists && !aState.orphan);
+
+  // Race B：delete 先持 FOR UPDATE（helper 复刻路由 gate）→ writer 的 FKS 阻塞
+  //         → delete 提交删除 → writer 见锚消失 → LedgerTenantError（writer 回滚，无 orphan）
+  const raceB = await db.project.create({
+    data: { id: `${P}race_b`, name: "race B", orgId: `${P}org_a`, ownerId: `${P}user_a` },
+  });
+  const bLocked = deferred();
+  const bRelease = deferred();
+  const bDeleteP = db.$transaction(async (tx) => {
+    const exists = await lockProjectHistoryAnchorForDelete(tx, raceB.id);  // FOR UPDATE
+    const hist = await countProjectAuthoritativeHistory(tx, raceB.id);     // 0
+    bLocked.resolve();
+    await bRelease.promise;
+    if (!exists || hist.total > 0) return "gated" as const;
+    await tx.task.updateMany({ where: { projectId: raceB.id }, data: { projectId: null } });
+    await tx.blindsOrder.updateMany({ where: { projectId: raceB.id }, data: { projectId: null } });
+    await tx.auditLog.updateMany({ where: { projectId: raceB.id }, data: { projectId: null } });
+    await tx.agentTask.deleteMany({ where: { projectId: raceB.id } });
+    await tx.project.delete({ where: { id: raceB.id } });
+    return "deleted" as const;
+  }, { timeout: 20000 });
+  await bLocked.promise;
+  const bWriterP = db.$transaction(
+    async (tx) =>
+      appendProjectEvent({
+        tx, orgId: `${P}org_a`, projectId: raceB.id,
+        eventType: "project.created", eventKey: projectCreatedEventKey(raceB.id),
+        occurredAt: raceB.createdAt, actor, title: "race B late history",
+      }),
+    { timeout: 20000 },
+  ).then(() => "committed").catch((e) => errCode(e) ?? "error");
+  await sleep(500);              // 让 writer 抵达并阻塞在 FKS
+  bRelease.resolve();           // delete 提交删除
+  const bDelOutcome = await bDeleteP;
+  const bWriter = await bWriterP;
+  const bState = await orphanState(raceB.id);
+  ok(
+    "DEL-RACE-01 Race B：delete 先持锁 → writer 阻塞后见锚消失 → 拒绝（LEDGER_TENANT_MISMATCH）",
+    bDelOutcome === "deleted" && bWriter === "LEDGER_TENANT_MISMATCH",
+  );
+  ok(
+    "DEL-RACE-01 Race B：项目已删且无 orphan history",
+    !bState.pExists && bState.history === 0,
+  );
+
+  ok(
+    "DEL-RACE-01 ORPHAN_AUTHORITATIVE_HISTORY = 0（两向交错均无 orphan）",
+    !aState.orphan && !bState.orphan,
+  );
+
+  clearFlags();
 
   await cleanup();
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
