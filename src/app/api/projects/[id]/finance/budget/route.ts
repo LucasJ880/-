@@ -4,7 +4,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { PERMISSIONS, hasProjectPermission } from "@/lib/rbac/permissions";
 import { requireCostAccess, serverActor } from "@/lib/project-finance/access";
 import {
   activateBudgetVersion,
@@ -33,8 +33,15 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (access instanceof NextResponse) return access;
   const orgId = access.orgId;
 
+  // 是否可编辑预算（create/activate/freeze）—— 供 UI 门控编辑控件（服务端仍二次强制）
+  const canManage =
+    access.user.role === "super_admin" ||
+    access.orgRole === "org_admin" ||
+    access.project.ownerId === access.user.id ||
+    (access.projectRole ? hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_WRITE) : false);
+
   const budget = await db.projectBudget.findUnique({ where: { orgId_projectId: { orgId, projectId: id } } });
-  if (!budget) return NextResponse.json({ budget: null, versions: [] });
+  if (!budget) return NextResponse.json({ budget: null, versions: [], linesByVersion: {}, canManage });
   const versions = await db.projectBudgetVersion.findMany({
     where: { budgetId: budget.id },
     orderBy: { versionNumber: "desc" },
@@ -45,7 +52,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   });
   const linesByVersion: Record<string, typeof lines> = {};
   for (const l of lines) (linesByVersion[l.budgetVersionId] ??= []).push(l);
-  return NextResponse.json({ budget, versions, linesByVersion });
+  return NextResponse.json({ budget, versions, linesByVersion, canManage });
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {

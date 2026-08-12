@@ -90,3 +90,23 @@ test("RBAC：accounting 拥有 project:cost:review；operator 只能写不能审
   assert.equal(hasProjectPermission("viewer", "project:cost:read"), true);
   assert.equal(hasProjectPermission("viewer", "project:cost:write"), false);
 });
+
+test("RBAC（EXPENSE_SUBMIT 解耦）：所有项目角色均可提交本人费用；提交≠预算编辑≠审核", () => {
+  // 产品要求：ALL active 项目成员可提交本人费用 —— 每个项目角色都持 EXPENSE_SUBMIT
+  for (const role of PROJECT_ROLES) {
+    assert.equal(
+      hasProjectPermission(role, "project:expense:submit"),
+      true,
+      `${role} 应可提交本人费用（EXPENSE_SUBMIT）`,
+    );
+  }
+  // read-only 项目角色（viewer/tester）能提交，但不得获得预算编辑或审核能力
+  for (const role of ["viewer", "tester"] as const) {
+    assert.equal(hasProjectPermission(role, "project:expense:submit"), true);
+    assert.equal(hasProjectPermission(role, "project:cost:write"), false, `${role} 不得编辑预算`);
+    assert.equal(hasProjectPermission(role, "project:cost:review"), false, `${role} 不得审核费用`);
+  }
+  // EXPENSE_SUBMIT 与 COST_REVIEW 是不同权限（提交权不蕴含审核权）
+  assert.notEqual("project:expense:submit", "project:cost:review");
+  assert.equal(hasProjectPermission("operator", "project:expense:submit"), true);
+});

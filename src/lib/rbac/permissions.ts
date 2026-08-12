@@ -56,7 +56,11 @@ export const PERMISSIONS = {
 
   // T2-P1.5 项目财务控制（预算/费用/审核）
   PROJECT_COST_READ: "project:cost:read",
-  PROJECT_COST_WRITE: "project:cost:write", // 提交费用 / 编辑预算草稿
+  // 提交/管理「本人」费用（含上传票据）。产品要求：所有 active 项目成员均可提交本人费用，
+  // 因此与预算编辑 / 财务审核解耦 —— 授予每个项目角色（含 viewer/tester）。
+  // 注意：这不是财务读写权；「本人」归属由 route 层 submittedById 校验强制。
+  PROJECT_EXPENSE_SUBMIT: "project:expense:submit",
+  PROJECT_COST_WRITE: "project:cost:write", // 编辑预算版本/行（规划）；非费用提交
   PROJECT_COST_REVIEW: "project:cost:review", // accounting 审批/拒绝费用
 } as const;
 
@@ -122,8 +126,9 @@ const PROJECT_ADMIN_PERMISSIONS: Permission[] = [
   PERMISSIONS.KB_UPDATE,
   PERMISSIONS.KB_DELETE,
   PERMISSIONS.KB_PUBLISH,
-  // 财务：admin 可读/写/审
+  // 财务：admin 可读/提交/写预算/审
   PERMISSIONS.PROJECT_COST_READ,
+  PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
   PERMISSIONS.PROJECT_COST_WRITE,
   PERMISSIONS.PROJECT_COST_REVIEW,
 ];
@@ -140,16 +145,18 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   PERMISSIONS.KB_READ,
   PERMISSIONS.KB_UPDATE,
   PERMISSIONS.KB_PUBLISH,
-  // 财务：operator 可读/提交费用，不可审核
+  // 财务：operator 可读/提交费用/编辑预算，不可审核
   PERMISSIONS.PROJECT_COST_READ,
+  PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
   PERMISSIONS.PROJECT_COST_WRITE,
 ];
 
-/** T2-P1.5 财务审核角色：读/写 + 审核（唯一新增 review 能力的项目角色） */
+/** T2-P1.5 财务审核角色：读/提交/写预算 + 审核（唯一新增 review 能力的项目角色） */
 const ACCOUNTING_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROJECT_READ,
   PERMISSIONS.PROJECT_MEMBER_LIST,
   PERMISSIONS.PROJECT_COST_READ,
+  PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
   PERMISSIONS.PROJECT_COST_WRITE,
   PERMISSIONS.PROJECT_COST_REVIEW,
 ];
@@ -163,6 +170,8 @@ const TESTER_PERMISSIONS: Permission[] = [
   PERMISSIONS.KB_READ,
   PERMISSIONS.KB_UPDATE,
   PERMISSIONS.PROJECT_COST_READ,
+  // 所有 active 项目成员均可提交本人费用（与预算编辑/审核解耦）
+  PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
 ];
 
 const VIEWER_PERMISSIONS: Permission[] = [
@@ -172,6 +181,8 @@ const VIEWER_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROMPT_READ,
   PERMISSIONS.KB_READ,
   PERMISSIONS.PROJECT_COST_READ,
+  // 所有 active 项目成员均可提交本人费用（read-only 项目角色亦然；财务读写/审核仍受限）
+  PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
 ];
 
 const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, Permission[]> = {

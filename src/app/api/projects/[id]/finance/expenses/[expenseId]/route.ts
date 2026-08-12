@@ -60,8 +60,10 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const { id, expenseId } = await ctx.params;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const action = String(body.action ?? "");
+  // 审核动作（accounting/admin）需 REVIEW；提交人动作（submit/resubmit）走 EXPENSE_SUBMIT，
+  // 使所有 active 项目成员均可提交/重提本人费用（本人归属由下方 submittedById 校验强制）。
   const reviewActions = new Set(["request_info", "reject", "approve"]);
-  const perm = reviewActions.has(action) ? PERMISSIONS.PROJECT_COST_REVIEW : PERMISSIONS.PROJECT_COST_WRITE;
+  const perm = reviewActions.has(action) ? PERMISSIONS.PROJECT_COST_REVIEW : PERMISSIONS.PROJECT_EXPENSE_SUBMIT;
 
   const access = await requireCostAccess(request, id, perm);
   if (access instanceof NextResponse) return access;

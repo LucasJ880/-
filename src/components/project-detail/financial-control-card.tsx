@@ -6,14 +6,29 @@
  * feature dark（summary 404）时不渲染。移动优先（375px 可用）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Wallet, Camera, Loader2, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
+import { Wallet, Camera, Loader2, CheckCircle2, XCircle, HelpCircle, Plus, Trash2, Lock, Play } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import { EXPENSE_COST_CATEGORIES } from "@/lib/project-finance/types";
+import {
+  EXPENSE_COST_CATEGORIES,
+  BUDGET_LINE_CATEGORIES,
+  PERCENTAGE_BUDGET_CATEGORIES,
+} from "@/lib/project-finance/types";
+
+type CategoryVsActual = {
+  category: string;
+  currentBudgetAmount: string;
+  baselineAmount: string;
+  actualAmount: string;
+  varianceAmount: string;
+  variancePercentage: number | null;
+};
 
 type Summary = {
   currency: string | null;
   hasActiveBudget: boolean;
   hasBaseline: boolean;
+  activeVersionNumber: number | null;
+  baselineVersionNumber: number | null;
   total: {
     baselineAmount: string;
     currentBudgetAmount: string;
@@ -22,6 +37,7 @@ type Summary = {
     varianceAmount: string;
     variancePercentage: number | null;
   };
+  byCategory: CategoryVsActual[];
   pendingReviewCount: number;
 };
 
@@ -53,7 +69,7 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [canReview, setCanReview] = useState(false);
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<"overview" | "add" | "review">("overview");
+  const [tab, setTab] = useState<"overview" | "add" | "budget" | "review">("overview");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -90,11 +106,11 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
         )}
       </div>
 
-      {/* 分段导航（移动等宽） */}
-      <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-muted/40 p-1 text-xs">
-        {([["overview", "概览"], ["add", "添加费用"], ...(canReview ? [["review", "费用审核"] as const] : [])] as const).map(([k, label]) => (
+      {/* 分段导航（移动优先，自动换行） */}
+      <div className="mt-3 flex flex-wrap gap-1 rounded-lg bg-muted/40 p-1 text-xs">
+        {([["overview", "概览"], ["add", "添加费用"], ["budget", "预算"], ...(canReview ? [["review", "费用审核"] as const] : [])] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k as typeof tab)}
-            className={`rounded-md px-2 py-1.5 ${tab === k ? "bg-accent text-[color:var(--on-accent)]" : "text-muted"}`}>
+            className={`flex-1 whitespace-nowrap rounded-md px-2 py-1.5 ${tab === k ? "bg-accent text-[color:var(--on-accent)]" : "text-muted"}`}>
             {label}
           </button>
         ))}
@@ -116,6 +132,10 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
 
       {tab === "add" && (
         <AddExpenseForm projectId={projectId} onDone={() => { setTab("overview"); void load(); }} setErr={setErr} />
+      )}
+
+      {tab === "budget" && (
+        <BudgetPanel projectId={projectId} summary={summary} setErr={setErr} onChanged={load} />
       )}
 
       {tab === "review" && canReview && (
@@ -263,5 +283,197 @@ function ReviewList({ projectId, pending, currentUserId, busy, setBusy, setErr, 
         );
       })}
     </ul>
+  );
+}
+
+/* ── 预算：Budget vs Actual（按类别）+ 版本管理（create / activate / freeze baseline） ── */
+
+type BudgetVersion = {
+  id: string;
+  versionNumber: number;
+  status: string;
+  totalBudgetAmount: string;
+  note: string | null;
+};
+type DraftLine = { category: string; amount: string; note: string };
+
+const VERSION_STATUS_LABEL: Record<string, string> = {
+  DRAFT: "草稿", ACTIVE: "生效中", SUPERSEDED: "已被取代", AWARD_BASELINE: "中标基线",
+};
+
+// 百分比型类别（OVERHEAD/CONTINGENCY/PROFIT）需 basis，超出移动端简易录入范围 → 仅提供直接金额类别
+const SIMPLE_BUDGET_CATEGORIES = BUDGET_LINE_CATEGORIES.filter(
+  (c) => !(PERCENTAGE_BUDGET_CATEGORIES as readonly string[]).includes(c),
+);
+
+function BudgetPanel({ projectId, summary, setErr, onChanged }: {
+  projectId: string;
+  summary: Summary | null;
+  setErr: (s: string | null) => void;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [versions, setVersions] = useState<BudgetVersion[]>([]);
+  const [canManage, setCanManage] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [lines, setLines] = useState<DraftLine[]>([{ category: "MATERIAL", amount: "", note: "" }]);
+  const currency = summary?.currency ?? null;
+
+  const loadBudget = useCallback(async () => {
+    const res = await apiFetch(`/api/projects/${projectId}/finance/budget`);
+    if (res.ok) {
+      const d = (await res.json()) as { versions?: BudgetVersion[]; canManage?: boolean };
+      setVersions(d.versions ?? []);
+      setCanManage(Boolean(d.canManage));
+    }
+  }, [projectId]);
+  useEffect(() => { void loadBudget(); }, [loadBudget]);
+
+  const refresh = async () => { await loadBudget(); await onChanged(); };
+
+  const post = async (body: unknown) => {
+    setErr(null); setBusy(true);
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/finance/budget`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (!res.ok) { setErr(((await res.json()) as { error?: string }).error ?? "操作失败"); return false; }
+      await refresh();
+      return true;
+    } finally { setBusy(false); }
+  };
+
+  const createVersion = async () => {
+    const clean = lines
+      .filter((l) => l.amount && Number(l.amount) > 0)
+      .map((l) => ({ category: l.category, amount: l.amount, note: l.note || null }));
+    if (clean.length === 0) { setErr("请至少填写一条有效预算行（金额>0）"); return; }
+    if (await post({ action: "create_version", currency: currency ?? "CAD", lines: clean })) {
+      setShowCreate(false); setLines([{ category: "MATERIAL", amount: "", note: "" }]);
+    }
+  };
+
+  const cat = summary?.byCategory ?? [];
+
+  return (
+    <div className="mt-3 space-y-3">
+      {/* Budget vs Actual（按类别） */}
+      <div>
+        <div className="mb-1.5 text-xs font-medium text-muted">预算 vs 实际（按类别）</div>
+        {cat.length === 0 ? (
+          <p className="text-xs text-muted">尚无生效预算或实际支出。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-[11px] text-muted">
+                  <th className="py-1 pr-2 font-normal">类别</th>
+                  <th className="py-1 pr-2 text-right font-normal">预算</th>
+                  <th className="py-1 pr-2 text-right font-normal">实际</th>
+                  <th className="py-1 text-right font-normal">差异</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cat.map((c) => {
+                  const over = Number(c.varianceAmount) < 0;
+                  return (
+                    <tr key={c.category} className="border-t border-border/60">
+                      <td className="py-1 pr-2 text-foreground">{c.category}</td>
+                      <td className="py-1 pr-2 text-right text-foreground">{money(c.currentBudgetAmount, currency)}</td>
+                      <td className="py-1 pr-2 text-right text-foreground">{money(c.actualAmount, currency)}</td>
+                      <td className={`py-1 text-right ${over ? "text-danger" : "text-foreground"}`}>{money(c.varianceAmount, currency)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 版本列表 */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted">预算版本</span>
+          {canManage && (
+            <button onClick={() => setShowCreate((v) => !v)}
+              className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground">
+              <Plus size={12} /> 新建版本
+            </button>
+          )}
+        </div>
+        {versions.length === 0 ? (
+          <p className="text-xs text-muted">尚未创建预算版本。</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {versions.map((v) => (
+              <li key={v.id} className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5">
+                <div className="min-w-0">
+                  <div className="text-xs text-foreground">v{v.versionNumber} · {money(v.totalBudgetAmount, currency)}</div>
+                  {v.note && <div className="truncate text-[11px] text-muted">{v.note}</div>}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] ${v.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : v.status === "AWARD_BASELINE" ? "bg-indigo-100 text-indigo-800" : "bg-muted/60 text-muted"}`}>
+                    {VERSION_STATUS_LABEL[v.status] ?? v.status}
+                  </span>
+                  {canManage && v.status === "DRAFT" && (
+                    <button disabled={busy} onClick={() => post({ action: "activate", versionId: v.id })}
+                      className="flex items-center gap-0.5 rounded-md border border-border px-1.5 py-1 text-[10px] disabled:opacity-60" title="激活为当前预算">
+                      <Play size={11} /> 激活
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* 冻结中标基线 */}
+      {canManage && summary?.hasActiveBudget && !summary?.hasBaseline && (
+        <button disabled={busy} onClick={() => post({ action: "freeze_baseline" })}
+          className="flex w-full items-center justify-center gap-1.5 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-800 disabled:opacity-60">
+          <Lock size={13} /> 冻结中标基线（不可逆，永久保留原始成本假设）
+        </button>
+      )}
+
+      {/* 新建版本表单 */}
+      {canManage && showCreate && (
+        <div className="space-y-2 rounded-lg border border-border bg-background/40 p-2.5">
+          <div className="text-xs font-medium text-foreground">新建预算版本</div>
+          {lines.map((l, i) => (
+            <div key={i} className="flex items-end gap-1.5">
+              <label className="min-w-0 flex-1 text-[11px] text-muted">类别
+                <select value={l.category} onChange={(e) => setLines((ls) => ls.map((x, j) => j === i ? { ...x, category: e.target.value } : x))}
+                  className="mt-0.5 w-full rounded-md border border-border bg-background px-1.5 py-1.5 text-xs">
+                  {SIMPLE_BUDGET_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+              <label className="w-24 text-[11px] text-muted">金额
+                <input inputMode="decimal" value={l.amount} placeholder="0.00"
+                  onChange={(e) => setLines((ls) => ls.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))}
+                  className="mt-0.5 w-full rounded-md border border-border bg-background px-1.5 py-1.5 text-xs" />
+              </label>
+              <button onClick={() => setLines((ls) => ls.length > 1 ? ls.filter((_, j) => j !== i) : ls)}
+                className="mb-0.5 rounded-md border border-border p-1.5 text-muted disabled:opacity-40" disabled={lines.length <= 1} title="删除行">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+          <button onClick={() => setLines((ls) => [...ls, { category: "MATERIAL", amount: "", note: "" }])}
+            className="flex items-center gap-1 text-[11px] text-accent">
+            <Plus size={12} /> 添加行
+          </button>
+          <div className="flex items-center gap-2 pt-1">
+            <button disabled={busy} onClick={createVersion}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-medium text-[color:var(--on-accent)] disabled:opacity-60">
+              {busy && <Loader2 size={13} className="animate-spin" />} 创建草稿版本
+            </button>
+            <button onClick={() => setShowCreate(false)} className="rounded-md border border-border px-3 py-2 text-xs text-muted">取消</button>
+          </div>
+          <p className="text-[10px] text-muted">提示：OVERHEAD/CONTINGENCY/PROFIT 等百分比型预算行需计算基础，暂不支持移动端快速录入。</p>
+        </div>
+      )}
+    </div>
   );
 }

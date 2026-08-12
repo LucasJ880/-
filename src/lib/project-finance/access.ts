@@ -13,6 +13,7 @@ import { isFinancialControlEnabled } from "./flags";
 
 export type CostPermission =
   | typeof PERMISSIONS.PROJECT_COST_READ
+  | typeof PERMISSIONS.PROJECT_EXPENSE_SUBMIT
   | typeof PERMISSIONS.PROJECT_COST_WRITE
   | typeof PERMISSIONS.PROJECT_COST_REVIEW;
 

@@ -45,7 +45,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
-  const access = await requireCostAccess(request, id, PERMISSIONS.PROJECT_COST_WRITE);
+  // 所有 active 项目成员均可提交本人费用（EXPENSE_SUBMIT，与预算编辑权 COST_WRITE 解耦）
+  const access = await requireCostAccess(request, id, PERMISSIONS.PROJECT_EXPENSE_SUBMIT);
   if (access instanceof NextResponse) return access;
   const orgId = access.orgId;
   const actor = serverActor(access.user.id);

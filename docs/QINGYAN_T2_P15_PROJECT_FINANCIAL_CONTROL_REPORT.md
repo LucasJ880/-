@@ -1,7 +1,7 @@
 # QINGYAN T2-P1.5 — Project Financial Control 实施报告
 
-- 日期：2026-08-11
-- 分支：`feature/tender-t2-p15-project-financial-control`（base = origin/main@f9549ab；含 #102 T2-P1 + #103 T3）
+- 日期：2026-08-11（含 gate-closing 续作：EXPENSE_SUBMIT 三权解耦 + 授权契约测试 + Budget UI + 隔离 Neon 演练）
+- 分支：`feature/tender-t2-p15-project-financial-control`（base = origin/main@f9549ab；含 #102 T2-P1 + #103 T3）｜Draft PR #104
 - 类型：CORE FINANCIAL CONTROL（预算版本化 → 费用提交 → 票据证据 → Accounting 审核 → ProjectCost.ACTUAL → Budget vs Actual）
 - 生产状态：**dark**（`TENDER_FINANCIAL_CONTROL_ENABLED` default OFF；审批产成本再叠加 `T2_LEDGER_PRODUCERS_ENABLED`）
 - SCHEMA_CHANGE = ADDITIVE（5 张新表，无 DROP/rename/破坏性 ALTER/backfill）
@@ -55,7 +55,15 @@ Budget vs Actual 只读模型（从 BudgetVersion/Line + ProjectCost + approved 
 
 ## 7. Accounting Permission Model
 
-`src/lib/rbac/`：新增权限 `project:cost:read/write/review` + 项目角色 `accounting`（level 15，**不进 hasProjectRole 单调阶梯** → review 能力仅经细粒度 `project:cost:review` 授予，避免误授管理权）。财务路由守卫 `requireCostAccess`：先 `requireProjectReadAccess`（租户+成员+存在性）再叠加细粒度权限（owner/super_admin/org_admin 特权直通）。参与人可提交本人费用（cost:write），accounting/admin/owner 可审核（cost:review）。
+`src/lib/rbac/`：新增权限 `project:expense:submit` + `project:cost:read/write/review` + 项目角色 `accounting`（level 15，**不进 hasProjectRole 单调阶梯** → review 能力仅经细粒度 `project:cost:review` 授予，避免误授管理权）。财务路由守卫 `requireCostAccess`：先 `requireProjectReadAccess`（租户+成员+存在性）再叠加细粒度权限（owner/super_admin/org_admin 特权直通），缺权 403、feature dark 404。
+
+**EXPENSE_SUBMIT 与 COST_WRITE/REVIEW 三权解耦**（产品要求：所有 active 项目成员可提交本人费用）：
+- `project:expense:submit`：提交/重提/上传票据「本人」费用 —— **授予每个项目角色（含 viewer/tester 只读角色）**。「本人」归属由 route 层 `submittedById` 校验强制（越权替他人提交 403）。
+- `project:cost:write`：编辑预算版本/行（规划动作）—— operator/accounting/project_admin。
+- `project:cost:review`：审批/拒绝/要求补充 —— accounting/project_admin（+ owner/org_admin 特权）。
+- `project:cost:read`：查看 —— 全部项目角色。
+
+即：一个 read-only（viewer）项目成员**能**提交本人费用，但**不能**编辑预算或审核他人费用。三者互不蕴含，路由按动作精确门控（`expenses` POST + `receipt` POST + 详情 PATCH 的 submit/resubmit → EXPENSE_SUBMIT；PATCH 的 approve/reject/request_info → COST_REVIEW；`budget` POST → COST_WRITE）。actor 一律 `serverActor(access.user.id)`，绝不取自请求体。
 
 ## 8. Self Approval Rule
 
@@ -83,7 +91,14 @@ Budget vs Actual 只读模型（从 BudgetVersion/Line + ProjectCost + approved 
 
 ## 16-19. UI
 
-Project Workbench 嵌入 `FinancialControlCard`（入口简单信息深，不新增顶层导航/不改 detail-tabs）：概览 tiles（中标基线/当前预算/已承诺/实际/差异/待审）+ 移动优先「添加费用」表单（类别/金额/日期/供应商/说明 + `capture="environment"` 拍票据，375px 可用，不依赖 AI）+ Accounting 审核列表（批准/补充/拒绝；self-approval UI 禁用 + 服务端拒）。预算行支持 Note/basis/supplier（产品需求：每项可备注来源）。feature dark 时卡片自渲染为空。
+Project Workbench 嵌入 `FinancialControlCard`（入口简单信息深，不新增顶层导航/不改 detail-tabs；wired 于 `workbench-tab.tsx`）。移动优先、375px 可用、分段导航自动换行。4 个页签：
+
+- **概览**：tiles（中标基线/当前预算/已承诺/实际/差异+variance%/待审）。
+- **添加费用**：`AddExpenseForm`（类别/金额 `inputMode=decimal`/日期/供应商/说明 + `capture="environment"` 拍票据，提交即上传 receipt；不依赖 AI）。**任何 active 成员可用**（EXPENSE_SUBMIT）。
+- **预算**：`BudgetPanel` —— 按类别 Budget vs Actual 表（预算/实际/差异，超支红字）+ 预算版本列表（状态徽章：草稿/生效中/已被取代/中标基线）；`canManage`（COST_WRITE）时显示：新建版本（动态多行，直接金额类别；百分比型 OVERHEAD/CONTINGENCY/PROFIT 提示需 basis 不在移动快录范围）、激活草稿版本、冻结中标基线（不可逆提示）。`canManage` 由 `budget` GET 返回，UI 仅门控控件，服务端仍二次强制。
+- **费用审核**（仅 `canReview`）：`ReviewList`（批准/补充/拒绝；self-approval UI 禁用 + 服务端硬拒）。
+
+feature dark（summary 404）时卡片自渲染为空。数据经 `apiFetch` + 本地 state（无 SWR/server component）。
 
 ## 20. Change Order Preparation
 
@@ -99,9 +114,10 @@ additive-only；进 verify-migration-history + check-release-safety allowlist；
 
 ## 24. Test Matrix
 
-- **纯逻辑 6/6**（`p15-pure.test.ts`，进 test-all + CI 子集）：费用类别 ⊆ 冻结 ProjectCost（无 AI/DATA_API）、预算百分比 taxonomy、状态机合法/非法/终态、flag 默认 OFF、事件键确定性、RBAC accounting review 授权。
-- **DB 矩阵 32/32**（`p15-finance-db.test.ts`，隔离库执行否则跳过）：BUDGET-01..05（含百分比 basis 拒、supersede、baseline 快照/不可变/幂等、租户）、EXP-01..09/11..16（草稿/提交/补充/重提/拒绝/审批、恰一 ProjectCost.ACTUAL、原子回滚、自审批拒、跨 org/project 拒、票据 provenance+去重、ACTUAL 不可改、双击幂等、并发不重复）、COST-READ-01/02、EVENT-01/02/03。EXP-10（未授权成员不能审批）= route 级 `requireProjectPermission`，由 pure RBAC（operator 无 cost:review）+ route 布线覆盖。
-- 全量回归：CI 子集（含 T2-P1 p1-pure / T3 t3-pure / V2 / tender-eval / workforce 纯测试）PASS；T2-P1 ledger DB 矩阵 45/45（sibling 无 drift）；tsc 0 / eslint 净 / build PASS。
+- **纯逻辑 7/7**（`p15-pure.test.ts`，进 test-all + CI 子集）：费用类别 ⊆ 冻结 ProjectCost（无 AI/DATA_API）、预算百分比 taxonomy、状态机合法/非法/终态、flag 默认 OFF、事件键确定性、RBAC accounting review 授权、**EXPENSE_SUBMIT 解耦**（所有项目角色可提交本人费用；viewer/tester 能提交但不得编辑预算/审核）。
+- **授权契约 8/8**（`p15-authz-contract.test.ts`，静态源码断言，进 test-all + CI 子集）：每条财务路由都先过 `requireCostAccess`（服务端闸，非仅 UI）；审核动作强制 `PROJECT_COST_REVIEW`；创建/票据走 `PROJECT_EXPENSE_SUBMIT`；预算编辑 `COST_WRITE`、只读 `COST_READ`；**actor 一律 `serverActor(access.user.id)`，禁从请求体取 actor/reviewer/org/submitter**；submit/resubmit 须本人；service 层硬拒自审批（`submittedById === reviewerUserId`）+ 条件 updateMany 并发闸；`requireCostAccess` 缺权 403 / feature dark 404。
+- **DB 矩阵 32/32**（`p15-finance-db.test.ts`，隔离库执行否则跳过）：BUDGET-01..05（含百分比 basis 拒、supersede、baseline 快照/不可变/幂等、租户）、EXP-01..09/11..16（草稿/提交/补充/重提/拒绝/审批、恰一 ProjectCost.ACTUAL、原子回滚、自审批拒、跨 org/project 拒、票据 provenance+去重、ACTUAL 不可改、双击幂等、并发不重复）、COST-READ-01/02、EVENT-01/02/03。EXP-10（未授权成员不能审批）= 由 pure RBAC（operator 无 cost:review）+ 授权契约测试（审核路由强制 REVIEW）覆盖。
+- 全量回归：CI 子集（含 T2-P1 p1-pure / T3 t3-pure / V2 / tender-eval / workforce 纯测试）PASS；T2-P1 ledger DB 矩阵 45/45（sibling 无 drift）；隔离 Neon 上 P1.5 DB 矩阵 32/32 PASS；tsc 0 / eslint 净 / build PASS。
 
 ## 25. Known Gaps / Explicit Non-Scope
 
