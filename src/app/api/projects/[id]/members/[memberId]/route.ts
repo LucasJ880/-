@@ -10,7 +10,7 @@ import {
 } from "@/lib/projects/members-utils";
 import { appendProjectEvent } from "@/lib/project-ledger/event-service";
 import { projectMemberRemovedEventKey } from "@/lib/project-ledger/event-keys";
-import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
+import { isLedgerProducerActive } from "@/lib/project-ledger/flags";
 import {
   dutyToMemberRole,
   isValidProjectDuty,
@@ -247,7 +247,7 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
     await onMemberRemoved(projectId, m.user.name, user.id, m.userId, tx);
 
     // T2-P1 authoritative ledger（同事务；version 语义同 member.added）
-    if (isLedgerProducersEnabled() && project.orgId) {
+    if (isLedgerProducerActive() && project.orgId) {
       const priorRemovals = await tx.projectEvent.count({
         where: {
           projectId,

@@ -9,7 +9,14 @@ import { isSuperAdmin, hasOrgRole, hasProjectRole } from "@/lib/rbac/roles";
 import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
 import { appendProjectEvent } from "@/lib/project-ledger/event-service";
 import { projectUpdatedEventKey } from "@/lib/project-ledger/event-keys";
-import { isLedgerProducersEnabled } from "@/lib/project-ledger/flags";
+import {
+  isLedgerProducerActive,
+  isLedgerDeletionGateActive,
+} from "@/lib/project-ledger/flags";
+import {
+  lockProjectHistoryAnchorForDelete,
+  countProjectAuthoritativeHistory,
+} from "@/lib/project-ledger/history-anchor";
 import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 import {
   bidWorkflowUnavailableFields,
@@ -225,7 +232,7 @@ export async function PATCH(
 
     // T2-P1 authoritative ledger：仅真实变更落账；payload 只带白名单短字段值，
     // 其余字段仅记入 changedFields（server-authored / minimal，#96 §5.2）
-    if (isLedgerProducersEnabled() && beforeProject.orgId) {
+    if (isLedgerProducerActive() && beforeProject.orgId) {
       const beforeRec = beforeProject as unknown as Record<string, unknown>;
       const afterRec = updated as unknown as Record<string, unknown>;
       const valueChanged = (a: unknown, b: unknown) => {
@@ -337,31 +344,30 @@ export async function DELETE(
   // 作为永久授权锚；物理删除仅保留给合规 purge 专用流程。
   // 四表刻意无 Project FK，硬删不会级联抹史，但会摘除授权锚 —— 因此在此拒绝。
   //
-  // Dark-merge 安全：本 gate 与 producer 同受 T2_LEDGER_PRODUCERS_ENABLED 门控。
-  // flag OFF（含生产 M1 schema 尚未上线时的默认态）→ 完全不访问 M1 四表，
-  // 删除行为与 T2 前完全一致（producer 也 dark，账本必然为空，gate 无意义）。
-  // flag ON → 执行账本/成本/档案存量检查，任一有历史 → 409。
-  if (isLedgerProducersEnabled()) {
-    const [ledgerEvents, ledgerCosts, archiveItems] = await Promise.all([
-      db.projectEvent.count({ where: { projectId: id } }),
-      db.projectCost.count({ where: { projectId: id } }),
-      db.tenderArchiveItem.count({ where: { projectId: id } }),
-    ]);
-    if (ledgerEvents > 0 || ledgerCosts > 0 || archiveItems > 0) {
-      return NextResponse.json(
-        {
-          error:
-            "项目已产生业务账本/成本/档案记录，不能物理删除；请改用归档（status=archived）保留历史。",
-          code: "PROJECT_HAS_LEDGER_HISTORY",
-        },
-        { status: 409 },
-      );
-    }
-  }
-
+  // T3.5 Foundation Hardening：
+  //  (A) Gate 只受 SCHEMA_READY 门控（isLedgerDeletionGateActive），与 producer 开关解耦——
+  //      producer 临时关闭时，已有历史仍永久受 deletion protection。
+  //  (B) 锚锁 + 历史检查 + 删除在同一事务内完成：先对 Project 行取 FOR UPDATE
+  //      （与 ledger writer 的 FOR KEY SHARE 互斥），再在锁内统计历史，关闭
+  //      check-history↔append-history 的 TOCTOU 窗口。
+  //  Dark-merge：SCHEMA_READY=false（含生产 M1 schema 尚未上线的默认态）→ 完全跳过
+  //  gate → 对 M1 四表 0 次访问（不因缺表 table-not-found），删除行为与 T2 前一致。
+  const gateActive = isLedgerDeletionGateActive();
   try {
-    // 先断开无 onDelete 的可选外键，并清理必填关联，避免 Prisma FK 约束导致删除静默失败
-    await db.$transaction(async (tx) => {
+    const outcome = await db.$transaction(async (tx) => {
+      if (gateActive) {
+        // 授权锚 FOR UPDATE：阻塞并发 ledger writer 的 FOR KEY SHARE，直至本事务提交
+        const anchorExists = await lockProjectHistoryAnchorForDelete(tx, id);
+        if (!anchorExists) {
+          return { status: "not_found" as const };
+        }
+        // 锁内统计权威历史（快照包含所有已提交历史；不会漏掉刚提交的 writer）
+        const history = await countProjectAuthoritativeHistory(tx, id);
+        if (history.total > 0) {
+          return { status: "has_history" as const };
+        }
+      }
+      // 断开无 onDelete 的可选外键，并清理必填关联，避免 Prisma FK 约束导致删除静默失败
       await tx.task.updateMany({
         where: { projectId: id },
         data: { projectId: null },
@@ -376,7 +382,22 @@ export async function DELETE(
       });
       await tx.agentTask.deleteMany({ where: { projectId: id } });
       await tx.project.delete({ where: { id } });
+      return { status: "deleted" as const };
     });
+
+    if (outcome.status === "not_found") {
+      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    }
+    if (outcome.status === "has_history") {
+      return NextResponse.json(
+        {
+          error:
+            "项目已产生业务账本/成本/档案记录，不能物理删除；请改用归档（status=archived）保留历史。",
+          code: "PROJECT_HAS_LEDGER_HISTORY",
+        },
+        { status: 409 },
+      );
+    }
   } catch (err) {
     console.error("[projects.DELETE] failed", id, err);
     return NextResponse.json(
