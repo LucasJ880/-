@@ -212,6 +212,9 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
       sessionId: conversationId,
       mode: "chat",
       temperature,
+      // FB-10：项目会话长答（中文分析/清单）常撞默认 8192 上限被截断；
+      // 提高到 16k（engine 侧仍有 32k 硬顶）。
+      maxTokens: 16_384,
       maxToolRounds: maxRounds,
       // Phase 1.1：项目会话 Runtime 携带 Agent 身份与发起人
       runtime: {

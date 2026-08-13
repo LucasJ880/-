@@ -193,8 +193,24 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     return { state: stale ? "STALE" : "READY", value };
   };
 
+  // FB-12：blockers 原文来自 PDF 提取，可能带损坏字形/控制符（用户侧显示为乱码）。
+  // 展示前净化：去控制符/替换符/私有区字符；净化后信息量过低的条目丢弃。
+  const cleanBlockers = src.blockers
+    .map((b) =>
+      b
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\u0000-\u001f\u007f-\u009f\ufffd\ue000-\uf8ff]/g, "")
+        .replace(/\s{2,}/g, " ")
+        .trim(),
+    )
+    .filter((b) => {
+      if (b.length < 4) return false;
+      const readable = (b.match(/[一-鿿A-Za-z0-9]/g) ?? []).length;
+      return readable / b.length > 0.5;
+    })
+    .slice(0, 5);
   const blockersValue =
-    src.blockers.length > 0 ? src.blockers.join("；") : ready ? "无" : null;
+    cleanBlockers.length > 0 ? cleanBlockers.join("；") : ready ? "无" : null;
   const majorBlockers: BriefField =
     src.unresolvedConflictCount > 0
       ? { state: "CONFLICT", value: blockersValue ?? "存在未解决冲突" }

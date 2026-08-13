@@ -83,6 +83,36 @@ export async function POST(request: NextRequest, { params }: Params) {
     orgName = org?.name ?? null;
   }
 
+  // FB-6a：带入最新 Analyst 澄清上下文（销售视角），让草稿聚焦真正影响报价/合规的问题
+  let analystContext: string | null = null;
+  try {
+    const latestRun = await db.tenderAnalysisRun.findFirst({
+      where: { projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { summaryJson: true },
+    });
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(latestRun?.summaryJson ?? null);
+    if (syn) {
+      const clar = syn.clarifications
+        .slice(0, 6)
+        .map(
+          (c, i) =>
+            `${i + 1}. ${c.questionZh}（why: ${c.reasonZh}; if unresolved: ${c.ifNotResolvedZh}）`,
+        );
+      const must = syn.currentAssessment.mustResolveBeforePricing.slice(0, 5);
+      analystContext = [
+        clar.length ? `Open clarification candidates from AI analysis:\n${clar.join("\n")}` : null,
+        must.length ? `Must resolve before pricing: ${must.join("; ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      if (!analystContext) analystContext = null;
+    }
+  } catch {
+    analystContext = null; // 上下文注入失败不阻断草稿生成
+  }
+
   const ctx: ProjectQuestionEmailContext = {
     project: {
       name: project.name,
@@ -90,6 +120,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       clientOrganization: project.clientOrganization ?? null,
       description: project.description,
     },
+    analystContext,
     question: {
       title,
       description,

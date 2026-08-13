@@ -89,6 +89,46 @@ export function ProjectQuestionDialog({
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [editSubject, setEditSubject] = useState("");
   const [editBody, setEditBody] = useState("");
+
+  // FB-6：编辑态使用纯文本，用户绝不面对 </p><p> 等 HTML 标签；
+  // 预览/发送前再转回 HTML 段落。
+  const htmlToPlainText = (html: string): string =>
+    html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+      .replace(/<\/?p[^>]*>/gi, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+  const plainTextToHtml = (text: string): string =>
+    text
+      .split(/\n{2,}/)
+      .map(
+        (para) =>
+          `<p>${para
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\n/g, "<br/>")}</p>`,
+      )
+      .join("");
+
+  const looksLikeHtml = (s: string) => /<\s*(p|br|div|ul|li)\b/i.test(s);
+
+  const startEditing = () => {
+    if (looksLikeHtml(editBody)) setEditBody(htmlToPlainText(editBody));
+    setPhase("editing");
+  };
+
+  const finishEditing = () => {
+    if (!looksLikeHtml(editBody)) setEditBody(plainTextToHtml(editBody));
+    setPhase("preview");
+  };
   const [editTo, setEditTo] = useState("");
   const [editCc, setEditCc] = useState("");
 
@@ -470,7 +510,7 @@ export function ProjectQuestionDialog({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPhase("editing")}
+                  onClick={startEditing}
                 >
                   <Edit3 className="h-3 w-3" />
                   编辑
@@ -480,7 +520,7 @@ export function ProjectQuestionDialog({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPhase("preview")}
+                  onClick={finishEditing}
                 >
                   预览
                 </Button>

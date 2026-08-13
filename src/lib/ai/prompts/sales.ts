@@ -133,6 +133,15 @@ export function getProjectQuestionEmailPrompt(ctx: ProjectQuestionEmailContext):
     lines.push(`- Description: ${ctx.project.description.slice(0, 400)}`);
   }
 
+  if (ctx.analystContext) {
+    lines.push("", "## AI Tender Analysis Context (bidder sales perspective)");
+    lines.push(ctx.analystContext);
+    lines.push(
+      "",
+      "Use this context to sharpen the email: ask the questions that protect the bidder's ability to quote accurately and profitably (quantities, schedules, missing documents, test/certification scope). Where the analysis lists related open clarifications, fold the relevant ones into the same email as a numbered list so the Owner can answer point by point. Do not invent facts beyond the provided context.",
+    );
+  }
+
   lines.push("", "## Issue Details");
   lines.push(`- Subject: ${ctx.question.title}`);
   lines.push(`- Description: ${ctx.question.description}`);

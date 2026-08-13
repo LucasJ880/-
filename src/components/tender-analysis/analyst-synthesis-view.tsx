@@ -35,6 +35,20 @@ export type AnalystSection =
   | "analyst_risks"
   | "analyst_clar";
 
+/**
+ * FB-2：剥离正文内嵌的实体引用码（【F-011,R-026】/ [F-011, R-026] 等）。
+ * 证据可溯性由「查看证据」+ evidenceIndex 承担，正文保持干净中文。
+ */
+function stripEntityRefs(text: string): string {
+  return text
+    .replace(/【[A-Z]{1,6}-[\w-]+(?:\s*[,，、]\s*[A-Z]{1,6}-[\w-]+)*】/g, "")
+    .replace(/\[[A-Z]{1,6}-[\w-]+(?:\s*[,，、]\s*[A-Z]{1,6}-[\w-]+)*\]/g, "")
+    .replace(/（[A-Z]{1,6}-[\w-]+(?:\s*[,，、]\s*[A-Z]{1,6}-[\w-]+)*）/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+const z = stripEntityRefs;
+
 const SEVERITY_STYLE: Record<string, string> = {
   CRITICAL: "bg-red-100 text-red-900",
   HIGH: "bg-amber-100 text-amber-900",
@@ -351,12 +365,12 @@ export function AnalystSynthesisView({
           {IMPACT_LABEL[item.impact] ?? item.impact}
         </span>
       </div>
-      <h4 className="mt-1.5 text-sm font-medium">{item.titleZh}</h4>
+      <h4 className="mt-1.5 text-sm font-medium">{z(item.titleZh)}</h4>
       <p className="mt-1 text-sm leading-relaxed text-[color:var(--foreground,#222)]/90">
-        {item.explanationZh}
+        {z(item.explanationZh)}
       </p>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        为什么重要：{item.whyItMattersZh}
+        为什么重要：{z(item.whyItMattersZh)}
       </p>
       <div className="mt-2">{evidenceButton(item.titleZh, supportingIdsOf(item))}</div>
     </div>
@@ -377,18 +391,18 @@ export function AnalystSynthesisView({
             <BookOpenCheck size={15} className="text-[var(--accent)]" />
             30 秒看懂项目
           </h3>
-          <p className="mt-2 text-sm font-medium">{synthesis.executiveBrief.oneLinerZh}</p>
+          <p className="mt-2 text-sm font-medium">{z(synthesis.executiveBrief.oneLinerZh)}</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <p className="text-xs font-semibold text-[var(--muted)]">客户要采购什么</p>
               <p className="mt-1 text-sm leading-relaxed">
-                {synthesis.executiveBrief.whatIsBeingBoughtZh}
+                {z(synthesis.executiveBrief.whatIsBeingBoughtZh)}
               </p>
             </div>
             <div>
               <p className="text-xs font-semibold text-[var(--muted)]">我们需要准备什么</p>
               <p className="mt-1 text-sm leading-relaxed">
-                {synthesis.executiveBrief.bidderTakeawayZh}
+                {z(synthesis.executiveBrief.bidderTakeawayZh)}
               </p>
             </div>
           </div>
@@ -397,7 +411,7 @@ export function AnalystSynthesisView({
               <p className="text-xs font-semibold text-[var(--muted)]">最值得关注</p>
               <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm">
                 {synthesis.executiveBrief.keyPoints.map((p, i) => (
-                  <li key={i}>{p}</li>
+                  <li key={i}>{z(p)}</li>
                 ))}
               </ol>
             </div>
@@ -407,14 +421,14 @@ export function AnalystSynthesisView({
         {/* 采购范围 */}
         <article className="rounded-xl border border-[var(--border)] p-4">
           <h3 className="text-sm font-semibold">采购范围</h3>
-          <p className="mt-2 text-sm leading-relaxed">{synthesis.scope.overviewZh}</p>
+          <p className="mt-2 text-sm leading-relaxed">{z(synthesis.scope.overviewZh)}</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {synthesis.scope.deliverables.length > 0 ? (
               <div>
                 <p className="text-xs font-semibold text-[var(--muted)]">核心采购内容</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
                   {synthesis.scope.deliverables.map((d, i) => (
-                    <li key={i}>{d}</li>
+                    <li key={i}>{z(d)}</li>
                   ))}
                 </ul>
               </div>
@@ -424,7 +438,7 @@ export function AnalystSynthesisView({
                 <p className="text-xs font-semibold text-[var(--muted)]">数量 / 规格</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
                   {synthesis.scope.quantities.map((d, i) => (
-                    <li key={i}>{d}</li>
+                    <li key={i}>{z(d)}</li>
                   ))}
                 </ul>
               </div>
@@ -434,7 +448,7 @@ export function AnalystSynthesisView({
                 <p className="text-xs font-semibold text-[var(--muted)]">交付范围</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
                   {synthesis.scope.deliveryScope.map((d, i) => (
-                    <li key={i}>{d}</li>
+                    <li key={i}>{z(d)}</li>
                   ))}
                 </ul>
               </div>
@@ -444,7 +458,7 @@ export function AnalystSynthesisView({
                 <p className="text-xs font-semibold text-[var(--muted)]">目前不知道</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
                   {synthesis.scope.exclusionsOrUnknowns.map((d, i) => (
-                    <li key={i}>{d}</li>
+                    <li key={i}>{z(d)}</li>
                   ))}
                 </ul>
               </div>
@@ -498,8 +512,8 @@ export function AnalystSynthesisView({
               .map((r, i) => (
                 <li key={i} className="text-sm">
                   <SeverityBadge severity={r.severity} />{" "}
-                  <span className="font-medium">{r.titleZh}</span>
-                  <span className="text-[var(--muted)]"> — {r.impactZh}</span>
+                  <span className="font-medium">{z(r.titleZh)}</span>
+                  <span className="text-[var(--muted)]"> — {z(r.impactZh)}</span>
                 </li>
               ))}
             {synthesis.risksAndGaps.length === 0 ? (
@@ -517,11 +531,11 @@ export function AnalystSynthesisView({
           <p className="mt-2 text-sm font-medium">
             状态：{ASSESSMENT_LABEL[a.status] ?? a.status}
           </p>
-          <p className="mt-1 text-sm leading-relaxed">{a.summaryZh}</p>
+          <p className="mt-1 text-sm leading-relaxed">{z(a.summaryZh)}</p>
           {a.reasons.length > 0 ? (
             <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-sm">
               {a.reasons.map((r, i) => (
-                <li key={i}>{r}</li>
+                <li key={i}>{z(r)}</li>
               ))}
             </ol>
           ) : null}
@@ -530,7 +544,7 @@ export function AnalystSynthesisView({
               <p className="text-xs font-semibold text-[var(--muted)]">报价前必须确认</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm">
                 {a.mustResolveBeforePricing.map((r, i) => (
-                  <li key={i}>{r}</li>
+                  <li key={i}>{z(r)}</li>
                 ))}
               </ul>
             </div>
@@ -545,8 +559,8 @@ export function AnalystSynthesisView({
               .sort((x, y) => x.order - y.order)
               .map((na, i) => (
                 <li key={i}>
-                  <span className="font-medium">{na.actionZh}</span>
-                  <span className="text-[var(--muted)]"> — {na.reasonZh}</span>
+                  <span className="font-medium">{z(na.actionZh)}</span>
+                  <span className="text-[var(--muted)]"> — {z(na.reasonZh)}</span>
                 </li>
               ))}
           </ol>
@@ -627,13 +641,13 @@ export function AnalystSynthesisView({
             <article key={i} className="rounded-xl border border-[var(--border)] p-4">
               <div className="flex items-center gap-2">
                 <SeverityBadge severity={r.severity} />
-                <h4 className="text-sm font-semibold">{r.titleZh}</h4>
+                <h4 className="text-sm font-semibold">{z(r.titleZh)}</h4>
               </div>
-              <p className="mt-1.5 text-sm leading-relaxed">{r.explanationZh}</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">为什么重要：{r.impactZh}</p>
+              <p className="mt-1.5 text-sm leading-relaxed">{z(r.explanationZh)}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">为什么重要：{z(r.impactZh)}</p>
               <p className="mt-1 text-xs">
                 <span className="font-medium">建议：</span>
-                {r.recommendedActionZh}
+                {z(r.recommendedActionZh)}
               </p>
               <div className="mt-2">{evidenceButton(r.titleZh, r.supportingIds)}</div>
             </article>
@@ -663,11 +677,11 @@ export function AnalystSynthesisView({
           <article key={i} className="rounded-xl border border-[var(--border)] p-4">
             <div className="flex items-center gap-2">
               <SeverityBadge severity={c.priority === "BLOCKING" ? "CRITICAL" : "HIGH"} />
-              <h4 className="text-sm font-semibold">{c.questionZh}</h4>
+              <h4 className="text-sm font-semibold">{z(c.questionZh)}</h4>
             </div>
-            <p className="mt-1.5 text-xs text-[var(--muted)]">为什么要问：{c.reasonZh}</p>
+            <p className="mt-1.5 text-xs text-[var(--muted)]">为什么要问：{z(c.reasonZh)}</p>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              不问的影响：{c.ifNotResolvedZh}
+              不问的影响：{z(c.ifNotResolvedZh)}
             </p>
             <div className="mt-2">
               {evidenceButton(c.questionZh, [...c.clarificationIds, ...c.supportingIds])}
@@ -689,8 +703,8 @@ export function AnalystSynthesisView({
             <ul className="space-y-2 px-4 pb-4 text-sm">
               {minorClar.map((c, i) => (
                 <li key={i} className="rounded-lg border border-[var(--border)] p-3">
-                  <p className="font-medium">{c.questionZh}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">{c.reasonZh}</p>
+                  <p className="font-medium">{z(c.questionZh)}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">{z(c.reasonZh)}</p>
                 </li>
               ))}
             </ul>

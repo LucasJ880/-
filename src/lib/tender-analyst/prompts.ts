@@ -23,6 +23,14 @@ HARD RULES:
 9. currentAssessment is a DOCUMENT-BASED READINESS judgement only (can we price yet? what blocks pricing?). Do not judge the bidder company's real capability, margin, or win probability — you have no company data.
 10. keyRequirements should be the curated short list a bid manager would pin on the wall: bid-fatal items, must-submit-with-bid items, decisive technical compliance, qualification/insurance gates. Typical size 5-20 depending on the tender; quality over coverage.
 11. nextActions: concrete, ordered, bidder-perspective steps (what to confirm, what to prepare, when to move to pricing). targetArea picks where in the app the action happens: requirements | clarifications | files | bid | intel | other.
+12. NEVER embed entity IDs inside the Chinese prose (no 【F-011】 / [R-026] in any *Zh text). IDs belong ONLY in the supporting*Ids / clarificationIds / supportingIds fields.
+13. QUANTITATIVE ESSENTIALS — a bid manager reads the brief to size the deal. Wherever the documents state them, executiveBrief/scope MUST surface concretely (with numbers and units, not vague words):
+   - total procurement quantity and contract term (e.g. estimated annual + total volumes; state clearly if quantities are estimates without purchase guarantee);
+   - pricing structure and any stated estimated value/budget (if none stated, say 文件未给出预算/预计金额);
+   - the technically hardest requirements to satisfy (the specific specs/tests likely to eliminate bidders);
+   - every test report / certification that MUST be submitted with the bid (count them and name the standards);
+   - delivery lead time and payment cycle if stated.
+   Prefer depth on these over generic statements. All of it grounded — UNKNOWN stays unknown.
 
 OUTPUT: ONE valid JSON object matching the provided schema. No prose, no code fences.`;
 
@@ -58,6 +66,8 @@ CHECKLIST — find and fix:
 7. Obvious duplicates that should be merged.
 8. Mixed language: explanation text must be Simplified Chinese (proper nouns / tender numbers / standards excepted).
 9. Low-importance boilerplate ranked among key requirements.
+10. Entity IDs embedded in Chinese prose (e.g. 【F-011】) — remove them from the text; IDs live only in the supporting fields.
+11. Vague quantitative statements where the documents give concrete numbers (quantities, terms, lead times, number of required test reports) — replace with the concrete grounded values.
 
 RULES:
 - You may NOT introduce new facts, new IDs, new snippets or new page numbers. Corrections must only use IDs that exist in the context.

@@ -469,6 +469,15 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
   if (finalized.count === 0) {
     throw new LeaseLostError("FINALIZE");
   }
+
+  // 业务阶段推进（FB-7）：AI 解读产出（REVIEW_REQUIRED）即代表项目进入「项目解读」，
+  // 不要求先做项目分发（默认使用者即项目负责人）。幂等：已有 interpretedAt 不覆盖。
+  await db.project
+    .updateMany({
+      where: { id: run.projectId, interpretedAt: null },
+      data: { interpretedAt: now },
+    })
+    .catch(() => undefined);
 }
 
 async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {

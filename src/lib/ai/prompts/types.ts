@@ -164,6 +164,8 @@ export interface ProjectQuestionEmailContext {
   senderName: string;
   senderOrg: string | null;
   toRecipients: string | null;
+  /** FB-6a：AI 投标分析师澄清上下文（销售视角建议问题；可选） */
+  analystContext?: string | null;
 }
 
 // ── 项目进度/清单上下文 ──────────────────────────────────────

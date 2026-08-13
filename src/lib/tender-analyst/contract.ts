@@ -16,9 +16,9 @@ import { z } from "zod";
 
 export const TENDER_ANALYST_SYNTHESIS_VERSION = "tender-analyst-synthesis/v1" as const;
 export const ANALYST_PROMPT_NAME = "tender-analyst-synthesis" as const;
-export const ANALYST_PROMPT_VERSION = "1" as const;
+export const ANALYST_PROMPT_VERSION = "2" as const;
 export const ANALYST_QA_PROMPT_NAME = "tender-analyst-qa" as const;
-export const ANALYST_QA_PROMPT_VERSION = "1" as const;
+export const ANALYST_QA_PROMPT_VERSION = "2" as const;
 
 /* ------------------------------- 枚举 ------------------------------- */
 
