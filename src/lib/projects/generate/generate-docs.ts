@@ -247,21 +247,6 @@ ${escd}`;
       ].join("\n\n"),
     );
     y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
-  } else if (input.docType === "china_supplier_brief") {
-    // allowlist 组装；默认不含 estimatedValue / 成本 / 利润 / 原始 AI context
-    const facts = await loadChinaBriefFacts(project.id);
-    const body = buildChinaSupplierBriefText({
-      projectName: project.name,
-      clientOrganization: project.clientOrganization,
-      closeDate: project.closeDate
-        ? project.closeDate.toISOString().slice(0, 10)
-        : null,
-      documentTitles: project.documents.map((d) => d.title),
-      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
-      facts,
-      confirmNotes: input.confirmNotes,
-    });
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
   } else if (input.docType === "internal_analysis") {
     const gap = computePriceGap({
       ourBidPrice: project.ourBidPrice,
