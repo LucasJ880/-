@@ -62,7 +62,13 @@ export async function GET(request: NextRequest, { params }: Params) {
         }
       }
     }
-    return NextResponse.json({ recommended, suggestedRecipient });
+    // FB-15：业主答复证据（最新 run summaryJson.replyResolutions）
+    const { readReplyResolutions } = await import(
+      "@/lib/tender-auto-analysis/reply-resolution"
+    );
+    const replyResolutions = readReplyResolutions(run?.summaryJson ?? null);
+
+    return NextResponse.json({ recommended, suggestedRecipient, replyResolutions });
   }
 
   const questions = await db.projectQuestion.findMany({

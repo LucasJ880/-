@@ -478,6 +478,19 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
       data: { interpretedAt: now },
     })
     .catch(() => undefined);
+
+  // FB-15：业主回复自动关联（best-effort，与 auto-enqueue 同模式，绝不阻断分析）
+  try {
+    const { resolveOwnerReplies } = await import("./reply-resolution");
+    const rr = await resolveOwnerReplies({ projectId: run.projectId });
+    if (rr.checked > 0) {
+      console.log(
+        `[tender-reply-resolution] project=${run.projectId} checked=${rr.checked} resolved=${rr.resolved}`,
+      );
+    }
+  } catch {
+    /* 回复匹配失败不影响分析结果 */
+  }
 }
 
 async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
