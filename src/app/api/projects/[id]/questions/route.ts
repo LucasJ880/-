@@ -18,6 +18,53 @@ export async function GET(request: NextRequest, { params }: Params) {
   const access = await requireProjectReadAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
+  // FB-14：?meta=1 → 返回 AI 推荐问题（最新分析澄清清单，随重新分析自动更新）
+  // + 建议收件人（从招标文件事实中提取的联系邮箱；找不到就不填，不发明）
+  if (request.nextUrl.searchParams.get("meta") === "1") {
+    const run = await db.tenderAnalysisRun.findFirst({
+      where: { projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, summaryJson: true },
+    });
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(run?.summaryJson ?? null);
+    const recommended = (syn?.clarifications ?? []).map((c) => ({
+      questionZh: c.questionZh,
+      reasonZh: c.reasonZh,
+      ifNotResolvedZh: c.ifNotResolvedZh,
+      priority: c.priority,
+    }));
+
+    let suggestedRecipient: { email: string; source: string } | null = null;
+    if (run) {
+      const facts = await db.tenderAnalysisFact.findMany({
+        where: { runId: run.id },
+        take: 200,
+        select: { contentZh: true, contentOriginal: true },
+      });
+      const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+      const KEYWORD = /contact|question|enquir|inquir|representative|rfb|rfp|submission|联系人|提问|咨询/i;
+      for (const f of facts) {
+        const text = `${f.contentZh ?? ""} ${f.contentOriginal ?? ""}`;
+        const m = text.match(EMAIL);
+        if (m && KEYWORD.test(text)) {
+          suggestedRecipient = { email: m[0], source: "招标文件联系人条目" };
+          break;
+        }
+      }
+      if (!suggestedRecipient) {
+        for (const f of facts) {
+          const m = `${f.contentOriginal ?? ""}`.match(EMAIL);
+          if (m) {
+            suggestedRecipient = { email: m[0], source: "招标文件中的邮箱" };
+            break;
+          }
+        }
+      }
+    }
+    return NextResponse.json({ recommended, suggestedRecipient });
+  }
+
   const questions = await db.projectQuestion.findMany({
     where: { projectId },
     orderBy: { createdAt: "desc" },

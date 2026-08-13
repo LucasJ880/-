@@ -147,7 +147,7 @@ export function getProjectQuestionEmailPrompt(ctx: ProjectQuestionEmailContext):
   lines.push(`- Description: ${ctx.question.description}`);
 
   if (ctx.question.locationOrReference) {
-    lines.push(`- Location / Drawing / Reference: ${ctx.question.locationOrReference}`);
+    lines.push(`- Related clause / document reference: ${ctx.question.locationOrReference}`);
   }
   if (ctx.question.clarificationNeeded) {
     lines.push(`- Clarification Needed: ${ctx.question.clarificationNeeded}`);
