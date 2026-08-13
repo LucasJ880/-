@@ -71,7 +71,7 @@ console.log("tender-auto-analysis chat-context");
     clarifications: [],
     risksText: null,
   });
-  ok(out.length <= 6001, "总长度受 MAX_TOTAL_CHARS 约束");
+  ok(out.length <= 9001, "总长度受 MAX_TOTAL_CHARS 约束");
 }
 
 console.log(`\nchat-context: ${pass} passed, ${fail} failed`);

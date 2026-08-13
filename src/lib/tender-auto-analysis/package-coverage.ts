@@ -16,6 +16,20 @@ export type CoverageRow = {
   parseStatus: string;
   /** 是否进入最新分析 run 的文档集 */
   analyzed: boolean;
+  /** 文档来源；非用户上传（如 ai_checklist 系统生成物）不计入 uploaded/excluded */
+  source?: string | null;
+  title?: string | null;
+  contentHashReady?: boolean;
+  pageCount?: number | null;
+};
+
+export type ExcludedFileDetail = {
+  filename: string;
+  fileType: string | null;
+  parseStatus: string | null;
+  contentHashReady: boolean;
+  pageCount: number | null;
+  exclusionReason: string;
 };
 
 export type PackageCoverage = {
@@ -25,6 +39,8 @@ export type PackageCoverage = {
   excluded: number;
   /** 排除原因 → 计数（reason code） */
   excludedReasons: Record<string, number>;
+  /** 逐文件排除明细（§3：可展开的排除原因） */
+  excludedFiles: ExcludedFileDetail[];
   /** 人类可读覆盖标签（禁止谎报「已分析 N」） */
   label: string;
   /** 排除说明（若有） */
@@ -32,7 +48,8 @@ export type PackageCoverage = {
 };
 
 const REASON_LABEL: Record<string, string> = {
-  unsupported_format: "当前格式尚未纳入 Package AI（仅支持 PDF）",
+  unsupported_format:
+    "非 PDF：暂无页级文本（V2 引用需页码级证据），未纳入 Package AI",
   parse_failed: "文件解析失败",
 };
 
@@ -40,12 +57,17 @@ const REASON_LABEL: Record<string, string> = {
 export function summarizePackageCoverage(
   rows: ReadonlyArray<CoverageRow>,
 ): PackageCoverage {
-  const uploaded = rows.length;
+  // 系统生成物（ai_checklist 等）不是用户上传的源文件，不计入覆盖分母
+  const userRows = rows.filter(
+    (r) => r.source == null || r.source === "upload",
+  );
+  const uploaded = userRows.length;
   const excludedReasons: Record<string, number> = {};
+  const excludedFiles: ExcludedFileDetail[] = [];
   let eligible = 0;
   let analyzed = 0;
 
-  for (const r of rows) {
+  for (const r of userRows) {
     const isPdf = isPdfFileType(r.fileType ?? "");
     const isEligible = isPdf && r.parseStatus !== "failed";
     if (isEligible) {
@@ -54,6 +76,14 @@ export function summarizePackageCoverage(
     } else {
       const reason = !isPdf ? "unsupported_format" : "parse_failed";
       excludedReasons[reason] = (excludedReasons[reason] ?? 0) + 1;
+      excludedFiles.push({
+        filename: r.title ?? r.documentId,
+        fileType: r.fileType ?? null,
+        parseStatus: r.parseStatus ?? null,
+        contentHashReady: r.contentHashReady ?? false,
+        pageCount: r.pageCount ?? null,
+        exclusionReason: REASON_LABEL[reason] ?? reason,
+      });
     }
   }
 
@@ -72,7 +102,16 @@ export function summarizePackageCoverage(
     note = `${eligible - analyzed} 个可分析文件尚未纳入本次分析`;
   }
 
-  return { uploaded, eligible, analyzed, excluded, excludedReasons, label, note };
+  return {
+    uploaded,
+    eligible,
+    analyzed,
+    excluded,
+    excludedReasons,
+    excludedFiles,
+    label,
+    note,
+  };
 }
 
 /** 取数并汇总当前项目 package 覆盖率（analyzed 基于给定 run 的文档集）。 */
@@ -83,7 +122,15 @@ export async function getPackageCoverage(
   const [rows, analyzedIds] = await Promise.all([
     db.projectDocument.findMany({
       where: { projectId },
-      select: { id: true, fileType: true, parseStatus: true },
+      select: {
+        id: true,
+        title: true,
+        fileType: true,
+        parseStatus: true,
+        source: true,
+        contentHash: true,
+        pageCount: true,
+      },
     }),
     runId
       ? db.tenderAnalysisRunDocument
@@ -95,8 +142,12 @@ export async function getPackageCoverage(
   return summarizePackageCoverage(
     rows.map((r) => ({
       documentId: r.id,
+      title: r.title,
       fileType: r.fileType,
       parseStatus: r.parseStatus,
+      source: r.source,
+      contentHashReady: Boolean(r.contentHash),
+      pageCount: r.pageCount,
       analyzed: analyzedIds.has(r.id),
     })),
   );

@@ -9,7 +9,7 @@
 
 export const PROMPT_EXTRACT = {
   name: "tender-understanding-v2-extract",
-  version: "tender-understanding-v2-extract@2",
+  version: "tender-understanding-v2-extract@3",
 } as const;
 
 export const PROMPT_RESOLVE = {
@@ -32,6 +32,16 @@ HARD RULES — violating any of these makes the output unusable:
 8. "ambiguities" = places where the document is unclear, self-contradictory, or references something it does not define. whatIsUnknown must state precisely what a bidder cannot determine.
 9. If this document is an ADDENDUM/AMENDMENT and the text changes, replaces, revises, extends or deletes an earlier provision, set revisionAction accordingly and put the original provision's identifier/topic in revisionTargetHint.
 10. Do not summarize the whole document. Extract discrete items only from these pages.
+CATEGORY DISCIPLINE — "Vendor must ..." alone does NOT make something TECHNICAL or bid-critical:
+  - TECHNICAL: ONLY product specifications, materials, dimensions, performance, testing, quality standards, technical installation, engineering criteria.
+  - PRODUCT: composition / model / function / packaging / specification of the product itself.
+  - SUBMISSION: documents, forms, formats, portal steps, signatures required to SUBMIT the bid.
+  - ADMINISTRATIVE: general administration, notices, conflict of interest, contacts.
+  - PRICING: how to price, price tables, pricing rules. COMMERCIAL: payment, invoicing, Procurement Card, commercial terms.
+  - DELIVERY: delivery location, timing, quantities, logistics. INSURANCE/BONDING: strictly those topics.
+  - REPORTING: reports, records, invoice supporting info. OTHER: when nothing fits.
+  - Invoicing / Procurement Card / confidentiality / notices / force majeure / records retention / gifts & hospitality are NEVER "TECHNICAL" — use COMMERCIAL, REPORTING or ADMINISTRATIVE (e.g. "Vendor must email invoices..." → COMMERCIAL or REPORTING, submissionStage "after award").
+STAGE DISCIPLINE — always try to fill submissionStage with one of: "with bid" / "pre-award" / "post-award" / "ongoing"; null only when truly undeterminable. Post-award contract obligations (invoices, reports, records, payment) are "post-award", not bid submission conditions.
 11. Coverage guidance (still evidence-bound, never invented):
    a. Capture document identification data as facts when present: issue/publication date, solicitation/reference numbers, buyer identity, contact for questions.
    b. Deadlines expressed as RULES count as facts too (e.g. "questions no later than N days before closing" → question_deadline with the rule text as rawValue).

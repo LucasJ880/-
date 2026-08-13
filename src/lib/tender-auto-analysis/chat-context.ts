@@ -14,7 +14,7 @@ import { isTenderPackageAiExperienceEnabledWithEnv } from "./auto-flags";
 
 const MAX_REQUIREMENTS = 24;
 const MAX_CLARIFICATIONS = 10;
-const MAX_TOTAL_CHARS = 6000;
+const MAX_TOTAL_CHARS = 9000;
 
 const READY_STATUSES = ["REVIEW_REQUIRED", "APPROVED"];
 
@@ -53,6 +53,45 @@ export type TenderContextData = {
   risksText: string | null;
 };
 
+/** analystSynthesis 摘要块（§23：结构/优先级/下一步的第一顺位上下文；证据仍以 canonical 为准） */
+function analystBlock(summaryJson: unknown): string | null {
+  if (!summaryJson || typeof summaryJson !== "object") return null;
+  const syn = (summaryJson as Record<string, unknown>).analystSynthesis as
+    | Record<string, unknown>
+    | undefined;
+  if (!syn || typeof syn !== "object") return null;
+  const brief = syn.executiveBrief as Record<string, unknown> | undefined;
+  const assessment = syn.currentAssessment as Record<string, unknown> | undefined;
+  const keyReqs = Array.isArray(syn.keyRequirements) ? syn.keyRequirements : [];
+  const nextActions = Array.isArray(syn.nextActions) ? syn.nextActions : [];
+  const lines: string[] = ["【AI 投标分析师综合解读（结构与优先级参考；事实以下方 canonical 结论与来源为准）】"];
+  const asStr = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+  const oneLiner = asStr(brief?.oneLinerZh);
+  if (oneLiner) lines.push(`一句话：${oneLiner}`);
+  const buying = asStr(brief?.whatIsBeingBoughtZh);
+  if (buying) lines.push(`采购内容：${buying}`);
+  if (keyReqs.length > 0) {
+    const top = keyReqs.slice(0, 8).map((k) => {
+      const kk = k as Record<string, unknown>;
+      return `- [${kk.impact ?? ""}/${kk.severity ?? ""}] ${kk.titleZh ?? ""}`;
+    });
+    lines.push(`投标关键要求（Analyst 优先级）：\n${top.join("\n")}`);
+  }
+  if (assessment) {
+    lines.push(
+      `当前文档判断：${asStr(assessment.status) ?? ""} — ${asStr(assessment.summaryZh) ?? ""}`,
+    );
+  }
+  if (nextActions.length > 0) {
+    const top = nextActions.slice(0, 5).map((n) => {
+      const nn = n as Record<string, unknown>;
+      return `${nn.order ?? "-"}. ${nn.actionZh ?? ""}`;
+    });
+    lines.push(`下一步：\n${top.join("\n")}`);
+  }
+  return lines.join("\n");
+}
+
 /** 纯函数：把已加载的分析数据格式化为 grounded 上下文块。 */
 export function formatTenderPackageContext(
   data: TenderContextData,
@@ -61,8 +100,11 @@ export function formatTenderPackageContext(
   const notReady = !READY_STATUSES.includes(data.status);
 
   const parts: string[] = [];
+  // §23 顺序：1. analystSynthesis → 2. canonical 结论 → 3. 风险/澄清 → 4. 证据引用提示
+  const analyst = analystBlock(data.summaryJson);
+  if (analyst) parts.push(analyst);
   parts.push(
-    "【本项目招标分析（青砚 Package AI）——请优先基于以下已核实结论回答；未覆盖的内容请明确回答“暂无依据/需人工确认”，不要编造数量/规格/日期/电机/面料/质保/价格等信息】",
+    "【本项目招标分析（青砚 Package AI）——请优先基于以下已核实结论回答；用户问“为什么”时必须回到来源条款/页码，不要把 Analyst 解读当作原始证据；未覆盖的内容请明确回答“暂无依据/需人工确认”，不要编造数量/规格/日期/电机/面料/质保/价格等信息。默认使用简体中文回答。】",
   );
   if (notReady) {
     parts.push(`（注意：当前分析状态为 ${data.status}，结论可能不完整或过期。）`);

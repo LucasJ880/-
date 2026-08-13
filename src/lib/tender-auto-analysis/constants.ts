@@ -99,7 +99,9 @@ export const CHINESE_REPORT_CHAPTERS = [
   {
     order: 4,
     key: "mandatory_requirements",
-    titleZh: "强制技术要求",
+    // §12：mandatory=true 只代表「具有明确约束措辞」，≠ 投标关键要求/技术要求。
+    // 投标关键要求由 Analyst impact 分类给出（analystSynthesis.keyRequirements）。
+    titleZh: "具有约束措辞的条款",
     sectionKey: "MANDATORY_REQUIREMENTS",
   },
   {

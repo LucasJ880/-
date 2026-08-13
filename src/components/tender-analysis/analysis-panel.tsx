@@ -5,6 +5,11 @@ import { apiFetch } from "@/lib/api-fetch";
 import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
 import { StatementKindBadge } from "./statement-kind-badge";
 import { SourceSnippetDialog } from "./source-snippet-dialog";
+import {
+  AnalystSynthesisView,
+  type AnalystSection,
+} from "./analyst-synthesis-view";
+import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
 
 type TabKey =
   | "report"
@@ -13,7 +18,8 @@ type TabKey =
   | "clarifications"
   | "deliverables"
   | "tasks"
-  | "sources";
+  | "sources"
+  | AnalystSection;
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "report", label: "中文分析" },
@@ -22,6 +28,20 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "clarifications", label: "澄清问题" },
   { key: "deliverables", label: "交付物" },
   { key: "tasks", label: "任务" },
+  { key: "sources", label: "来源" },
+];
+
+/**
+ * Analyst 模式（EXPERIENCE ON + run 带 analystSynthesis）的信息架构（§14）：
+ * 默认进入「项目解读」；全部条款 = legacy Requirement 视图；来源 = legacy 来源。
+ * 旧 run / flag OFF 自动 fallback 上方 legacy TABS，不改 flags-off 行为。
+ */
+const ANALYST_TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "analyst_overview", label: "项目解读" },
+  { key: "analyst_key", label: "关键要求" },
+  { key: "analyst_risks", label: "风险与缺口" },
+  { key: "analyst_clar", label: "澄清 / RFI" },
+  { key: "requirements", label: "全部条款" },
   { key: "sources", label: "来源" },
 ];
 
@@ -72,6 +92,21 @@ type PackageDocument = {
   pageCount: number | null;
 };
 
+type CoveragePayload = {
+  uploaded: number;
+  eligible: number;
+  analyzed: number;
+  excluded: number;
+  excludedFiles: Array<{
+    filename: string;
+    fileType: string | null;
+    parseStatus: string | null;
+    exclusionReason: string;
+  }>;
+  label: string;
+  note: string | null;
+};
+
 type ReportPayload = {
   run: {
     id: string;
@@ -83,6 +118,9 @@ type ReportPayload = {
     pendingChangeCount: number;
     approvedAt: string | null;
   };
+  experienceEnabled?: boolean;
+  analystSynthesis?: TenderAnalystSynthesisV1 | null;
+  coverage?: CoveragePayload | null;
   documents?: PackageDocument[];
   summary: {
     text: string | null;
@@ -168,19 +206,28 @@ export function TenderAnalysisPanel({
   initialTab,
   quietEmpty = false,
 }: Props) {
-  const visibleTabs =
+  const legacyTabs =
     sections && sections.length > 0
       ? sections
           .map((key) => TABS.find((t) => t.key === key))
           .filter((t): t is (typeof TABS)[number] => Boolean(t))
       : TABS;
-  const fallbackTab = visibleTabs[0]?.key ?? "report";
+  const fallbackTab = legacyTabs[0]?.key ?? "report";
   const [tab, setTab] = useState<TabKey>(
-    initialTab && visibleTabs.some((t) => t.key === initialTab)
+    initialTab && legacyTabs.some((t) => t.key === initialTab)
       ? initialTab
       : fallbackTab,
   );
   const [data, setData] = useState<ReportPayload | null>(null);
+  // Analyst 模式：EXPERIENCE ON + run 带 synthesis → 新信息架构，默认「项目解读」
+  const analyst = data?.analystSynthesis ?? null;
+  const visibleTabs = analyst && showRunControls ? ANALYST_TABS : legacyTabs;
+
+  useEffect(() => {
+    if (analyst && showRunControls && !ANALYST_TABS.some((t) => t.key === tab)) {
+      setTab("analyst_overview");
+    }
+  }, [analyst, showRunControls, tab]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -366,7 +413,31 @@ export function TenderAnalysisPanel({
               ? ` · 建议倾向：${data.summary.recommendation}`
               : ""}
           </p>
-          {packageDocs.length > 0 ? (
+          {data.experienceEnabled && data.coverage ? (
+            // §3/UI-SEM-08：真实覆盖（上传/纳入/排除+原因），禁止让「来源文件：N」
+            // 误导用户以为 AI 读完了整个文件夹
+            <div className="mt-2 text-xs text-[var(--muted)] space-y-1" data-testid="package-coverage">
+              <p>
+                上传 {data.coverage.uploaded} · 纳入分析 {data.coverage.analyzed}
+                {data.coverage.excludedFiles.length > 0
+                  ? ` · 排除 ${data.coverage.excludedFiles.length}`
+                  : ""}
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {packageDocs.map((d) => (
+                  <li key={d.documentId}>
+                    {d.title}
+                    {d.roleLabel ? ` · ${d.roleLabel}` : ""}
+                  </li>
+                ))}
+                {data.coverage.excludedFiles.map((f) => (
+                  <li key={f.filename} className="text-amber-700">
+                    {f.filename} · 未纳入：{f.exclusionReason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : packageDocs.length > 0 ? (
             <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
               <p>来源文件：{packageDocs.length}</p>
               <ul className="list-disc pl-4 space-y-0.5">
@@ -481,6 +552,15 @@ export function TenderAnalysisPanel({
             </button>
           ))}
         </nav>
+      ) : null}
+
+      {analyst && tab.startsWith("analyst_") ? (
+        <AnalystSynthesisView
+          synthesis={analyst}
+          section={tab as AnalystSection}
+          runStatus={data.run.status}
+          onOpenTab={(key) => setTab(key as TabKey)}
+        />
       ) : null}
 
       {tab === "report" && (

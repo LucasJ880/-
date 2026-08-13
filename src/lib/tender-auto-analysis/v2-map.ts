@@ -311,7 +311,7 @@ export function mapV2Result(result: AnalysisResultV2): V2MappedResult {
     `采购单位：${criticalClaim(result, "buyer" as CriticalFactType, factById)}`,
     `编号：${criticalClaim(result, "tender_number" as CriticalFactType, factById)}`,
     `截标：${criticalClaim(result, "closing_datetime" as CriticalFactType, factById)}`,
-    `强制要求：${mandatoryReqs.length} 项`,
+    `约束条款：${mandatoryReqs.length} 项`,
     `风险：${result.risks.length} 项`,
     `待澄清：${result.clarifications.length} 项`,
   ].join("｜");

@@ -84,7 +84,11 @@ export type V2Inference = {
   llmFailures: number;
 };
 
-/** 只做推理 + 纯映射，绝不触碰 canonical 表（可能长耗时）。 */
+/**
+ * 只做推理 + 纯映射，绝不触碰 canonical 表（可能长耗时）。
+ * Analyst Synthesis（PASS A/B）也在此阶段执行（§9：LLM 全部在 DB 事务之外），
+ * 结果并入 mapped.summaryJson.analystSynthesis 随 fenced persist 一次落库。
+ */
 export async function runV2Inference(input: {
   runId: string;
   analysisDate?: string | null;
@@ -98,12 +102,61 @@ export async function runV2Inference(input: {
     analysisDate: input.analysisDate ?? new Date().toISOString(),
     ...input.opts,
   });
+  const mapped = mapV2Result(result);
+
+  // —— Analyst 层（Grounding Engine 之上；失败不阻断 canonical 落库） ——
+  let analystCalls = 0;
+  let analystFailures = 0;
+  try {
+    const { runAnalystSynthesis } = await import("@/lib/tender-analyst/synthesize");
+    const { getPackageCoverage } = await import("./package-coverage");
+    const cov = await getPackageCoverage(analyzerInput.projectId, input.runId);
+    const analyst = await runAnalystSynthesis({
+      result,
+      coverage: {
+        uploaded: cov.uploaded,
+        eligible: cov.eligible,
+        analyzed: cov.analyzed,
+        excluded: cov.excludedFiles,
+      },
+      invoker: input.opts?.invoker,
+    });
+    analystCalls = analyst.llmCalls;
+    analystFailures = analyst.llmFailures;
+    if (analyst.synthesis) {
+      mapped.summaryJson.analystSynthesis = analyst.synthesis;
+      // 30 秒看懂 brief 采用 Analyst 的中文一句话（grounded 前提下的可读性提升）
+      const brief = mapped.summaryJson.brief as
+        | Record<string, unknown>
+        | undefined;
+      if (brief && typeof brief === "object") {
+        brief.oneLiner = analyst.synthesis.executiveBrief.oneLinerZh;
+      }
+    }
+    const meta = mapped.summaryJson.metadata as
+      | Record<string, unknown>
+      | undefined;
+    if (meta && typeof meta === "object") {
+      meta.analystLatencyMs = analyst.analystLatencyMs;
+      meta.reviewLatencyMs = analyst.reviewLatencyMs;
+      meta.analystLlmCalls = analyst.llmCalls;
+      meta.analystLlmFailures = analyst.llmFailures;
+    }
+  } catch (e) {
+    // Analyst 层为增强层：异常时记录并继续（canonical grounding 结果不受影响）
+    console.warn(
+      "[tender-analyst] synthesis failed (non-blocking): " +
+        (e instanceof Error ? e.name : "unknown"),
+    );
+    analystFailures += 1;
+  }
+
   return {
-    mapped: mapV2Result(result),
+    mapped,
     model: result.metadata.models[0] ?? null,
-    // 真实 telemetry：从 V2 metadata 透传，不再固定返回 0
-    llmCalls: result.metadata.llmCalls,
-    llmFailures: result.metadata.llmFailures,
+    // 真实 telemetry：grounding + analyst 两层合并
+    llmCalls: result.metadata.llmCalls + analystCalls,
+    llmFailures: result.metadata.llmFailures + analystFailures,
   };
 }
 
