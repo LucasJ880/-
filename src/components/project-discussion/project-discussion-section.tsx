@@ -77,7 +77,10 @@ export function ProjectDiscussionSection({ projectId, canPost, projectStatus, me
     if (!loading && initialLoad.current && messages.length > 0) {
       initialLoad.current = false;
       setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "instant" });
+        // 只滚动讨论区内部列表；scrollIntoView 会连带滚动 main 祖先容器，
+        // 把整页拽到「项目动态」附近（SCROLL-02/03/05 根因）
+        const list = listRef.current;
+        if (list) list.scrollTop = list.scrollHeight;
       }, 50);
     }
   }, [loading, messages.length]);
@@ -106,7 +109,11 @@ export function ProjectDiscussionSection({ projectId, canPost, projectStatus, me
       setMessages((prev) => [...prev, msg]);
       setMessageCount((c) => c + 1);
       setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        // 同上：仅内部列表滚动到底，不影响页面级 scroll
+        listRef.current?.scrollTo({
+          top: listRef.current.scrollHeight,
+          behavior: "smooth",
+        });
       }, 50);
     },
     []
