@@ -135,6 +135,15 @@ export function ProjectImportBanner({
         setErrors(uploadErrors);
 
         if (uploaded > 0) {
+          // 文件已入库（Document 已创建）：立即刷新页面 documentCount，
+          // 不等整条解析流水线结束——避免「AI 正在解析」时工作台仍显示 0/去上传/缺少源文件。
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("qingyan:project-updated", {
+                detail: { projectId },
+              }),
+            );
+          }
           setPhase("scan");
           await runProjectFilePipeline(projectId, (msg) => {
             if (!cancelled) setMessage(msg);

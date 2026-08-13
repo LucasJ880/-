@@ -51,6 +51,7 @@ import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 import type { ProjectDuty } from "@/lib/projects/duty";
+import type { TenderWorkbenchState } from "@/lib/tender/workbench-state";
 
 const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
@@ -65,6 +66,7 @@ interface WorkbenchTabProps {
   projectId: string;
   project: ProjectDetail;
   command: ProjectCommandState;
+  workbenchState: TenderWorkbenchState;
   progress: ProjectProgress | null;
   pendingActions: ProjectContextPendingAction[];
   businessActivities: FormattedActivity[];
@@ -88,6 +90,7 @@ export function WorkbenchTab({
   projectId,
   project,
   command,
+  workbenchState,
   progress,
   pendingActions,
   businessActivities,
@@ -118,13 +121,13 @@ export function WorkbenchTab({
         onNavigate={onNavigate}
       />
 
-      <ProjectOnboardingGuide
-        hasDocuments={(project.documents ?? []).length > 0}
-        hasIntelligence={!!project.intelligence}
-        onGoToFiles={() => onNavigate("files")}
-        onGoToAnalysis={() => onNavigate("requirements")}
-        onGoToBid={() => onNavigate("bid")}
-      />
+      {/* Tender 工作流 Quick Start：仅招投标项目展示（canonical workDomain 判定） */}
+      {tenderish ? (
+        <ProjectOnboardingGuide
+          state={workbenchState}
+          onNavigate={(target) => onNavigate(target)}
+        />
+      ) : null}
 
       <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
 

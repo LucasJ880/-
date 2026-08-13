@@ -121,7 +121,8 @@ const REASON_TABLE: Record<string, ReasonMapping> = {
   gate_closed: {
     code: "NOT_TENDER_PROJECT",
     httpStatus: 409,
-    message: "该项目未标记为招标项目，无法自动分析",
+    message:
+      "此项目不是招投标项目（项目类型非「招投标」），不提供招标分析；如需分析请新建招标项目",
     suggestion: "mark_as_tender",
   },
 

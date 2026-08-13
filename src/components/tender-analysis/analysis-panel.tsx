@@ -35,7 +35,8 @@ const ENQUEUE_CODE_HINTS: Record<string, string> = {
   PACKAGE_NOT_READY: "招标文件包尚未就绪（仍有文件在处理），请稍候重试",
   DOCUMENT_PROCESSING: "文件仍在解析中，请稍候重试",
   MISSING_CONTENT_HASH: "投标文件仍在处理（内容指纹未就绪），请稍候重试",
-  NOT_TENDER_PROJECT: "该项目未标记为招标项目，无法自动分析",
+  NOT_TENDER_PROJECT:
+    "此项目不是招投标项目（项目类型非「招投标」），不提供招标分析；如需分析请新建招标项目",
   PACKAGE_TOO_LARGE: "投标文件包总页数超过上限",
   ACTIVE_RUN_EXISTS: "已有进行中的分析，请等待其完成后再试",
   RATE_LIMITED: "重新分析过于频繁，请稍后再试",
