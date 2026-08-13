@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
 import { StatementKindBadge } from "./statement-kind-badge";
@@ -223,11 +223,16 @@ export function TenderAnalysisPanel({
   const analyst = data?.analystSynthesis ?? null;
   const visibleTabs = analyst && showRunControls ? ANALYST_TABS : legacyTabs;
 
+  // 进入 analyst 模式的首次挂载：无条件落在「项目解读」（UI-SEM-01）。
+  // 注意初始 tab 可能是 "requirements"（legacy 初始值），它同时也是 analyst IA 的
+  // 「全部条款」，因此不能用 “tab 是否合法” 判断，必须用一次性初始化标记。
+  const analystInitRef = useRef(false);
   useEffect(() => {
-    if (analyst && showRunControls && !ANALYST_TABS.some((t) => t.key === tab)) {
+    if (analyst && showRunControls && !analystInitRef.current) {
+      analystInitRef.current = true;
       setTab("analyst_overview");
     }
-  }, [analyst, showRunControls, tab]);
+  }, [analyst, showRunControls]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
