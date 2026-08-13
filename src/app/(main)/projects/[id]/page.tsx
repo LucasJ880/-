@@ -76,6 +76,18 @@ const TAB_ICONS: Record<TenderDetailTab, LucideIcon> = {
   submission: Send,
 };
 
+/**
+ * 一级 Tab 切换后主内容统一回顶（SCROLL-01..05）。
+ * scroll 由项目页自管（router.replace 固定 scroll:false，不叠加 Next 的 restoration）；
+ * behavior 用 auto：Tab 切换是状态切换，应立即落在新 Tab 顶部，不做长距离滚动动画。
+ * 仅在真正切换五个一级 Tab 时调用——打开/关闭资料、问青砚 Drawer 不重置页面位置。
+ */
+function scrollProjectContentToTop() {
+  requestAnimationFrame(() => {
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });
+  });
+}
+
 export default function ProjectDetailPage() {
   return (
     <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
@@ -152,7 +164,11 @@ function ProjectDetailContent() {
       setChatOpen(false);
       const next = new URLSearchParams(searchParams.toString());
       next.set("tab", tab);
+      // 用户主动切 Tab 时清除 stale activity 深链，避免回到工作台时
+      // 项目动态 highlight 再次触发 scrollIntoView（把页面拽回底部）
+      next.delete("activity");
       router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+      scrollProjectContentToTop();
     },
     [router, pathname, searchParams],
   );
@@ -169,10 +185,8 @@ function ProjectDetailContent() {
         setChatOpen(true);
         return;
       }
+      // 回顶由 selectTab 统一处理，不再维护第二套滚动逻辑
       selectTab(target);
-      window.setTimeout(() => {
-        document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
-      }, 0);
     },
     [selectTab, setPanelOpen],
   );
