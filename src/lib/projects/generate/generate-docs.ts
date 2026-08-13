@@ -131,6 +131,103 @@ export async function generateProjectDocument(input: {
     };
   }
 
+  // FB-4/5：internal_analysis / supplier_rfq 在有 Analyst 分析时走 HTML 模板
+  // （基准=McMaster 管理层决策备忘录；中文安全，根治 jsPDF 无 CJK 字体乱码；
+  //   内部=决策备忘录 ≠ 供应商=符合性确认+报价表，语义彻底分离）。
+  if (
+    input.docType === "internal_analysis" ||
+    input.docType === "supplier_rfq"
+  ) {
+    const latestRun = await db.tenderAnalysisRun.findFirst({
+      where: {
+        projectId: project.id,
+        status: { in: ["REVIEW_REQUIRED", "APPROVED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { summaryJson: true },
+    });
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(latestRun?.summaryJson ?? null);
+    if (syn) {
+      const { buildInternalDecisionMemoHtml, buildSupplierRfqHtml } =
+        await import("./tender-doc-html");
+      const projMeta = await db.project.findUnique({
+        where: { id: project.id },
+        select: { solicitationNumber: true },
+      });
+      const header = {
+        projectName: project.name,
+        clientOrganization: project.clientOrganization,
+        solicitationNumber: projMeta?.solicitationNumber ?? null,
+        closeDate: project.closeDate
+          ? project.closeDate.toISOString().slice(0, 10)
+          : null,
+        orgName: null,
+        generatedAt: new Date().toISOString().slice(0, 10),
+      };
+      const html =
+        input.docType === "internal_analysis"
+          ? buildInternalDecisionMemoHtml(header, syn)
+          : buildSupplierRfqHtml(header, syn);
+      const htmlBuffer = Buffer.from(`<!doctype html><meta charset="utf-8">${html}`, "utf-8");
+
+      const version =
+        (await db.projectGeneratedDocument.count({
+          where: { projectId: project.id, docType: input.docType },
+        })) + 1;
+      const pathname = `projects/${project.id}/generated/${input.docType}-v${version}-${Date.now()}.html`;
+      const blob = await putPrivateBlob({
+        pathname,
+        body: htmlBuffer,
+        contentType: "text/html; charset=utf-8",
+      });
+      await db.projectGeneratedDocument.updateMany({
+        where: { projectId: project.id, docType: input.docType, stale: false },
+        data: { stale: true },
+      });
+      const titleZh =
+        input.docType === "internal_analysis"
+          ? "内部投标决策备忘录"
+          : "供应商询价与符合性确认表";
+      const row = await db.projectGeneratedDocument.create({
+        data: {
+          orgId: input.orgId,
+          projectId: project.id,
+          docType: input.docType,
+          version,
+          title: `${titleZh} v${version}`,
+          blobUrl: blob.proxyUrl,
+          fileUrl: blob.proxyUrl,
+          metaJson: JSON.stringify({
+            projectName: project.name,
+            docType: input.docType,
+            version,
+            generatedAt: new Date().toISOString(),
+            addendumFingerprint,
+            conclusionVersion: "analyst_synthesis_v1",
+            createdById: input.userId,
+          }),
+          stale: false,
+          createdById: input.userId,
+        },
+      });
+      await db.projectDocument.create({
+        data: {
+          projectId: project.id,
+          title: row.title,
+          url: blob.proxyUrl,
+          blobUrl: blob.proxyUrl,
+          fileType: "html",
+          fileSize: htmlBuffer.length,
+          parseStatus: "done",
+          source: "generated",
+          uploadedById: input.userId,
+        },
+      });
+      return row;
+    }
+  }
+
   const doc = await createProjectPdfDoc();
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 16;
