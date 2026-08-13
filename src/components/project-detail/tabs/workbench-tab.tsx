@@ -32,6 +32,7 @@ import { ProjectAiSummaryCard } from "@/components/project-ai-summary/project-ai
 import { ProjectProgressSummary } from "@/components/project-progress/project-progress-summary";
 import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
 import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-onboarding-guide";
+import { TenderBenchmarkCard } from "@/components/project-detail/tender-benchmark-card";
 import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
 import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
@@ -128,6 +129,9 @@ export function WorkbenchTab({
           onNavigate={(target) => onNavigate(target)}
         />
       ) : null}
+
+      {/* FB-13：历史项目对标（团队成员进工作台即见结论；无候选/未启用时自渲染 null） */}
+      {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
 
       <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
 
