@@ -36,15 +36,26 @@ async function uploadPendingFiles(
       body: formData,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok && !data.uploaded?.length) {
-      throw new Error(data.error || `上传失败 (${res.status})`);
-    }
-    uploaded += data.total || data.uploaded?.length || 0;
+    // 收集本批真实的 per-file 失败原因（无论整批成功/部分/全失败）
     if (Array.isArray(data.errors)) {
       for (const e of data.errors) {
-        allErrors.push(`${e.name}: ${e.reason}`);
+        allErrors.push(`${e.name}：${e.reason}`);
       }
     }
+    if (!res.ok && !data.uploaded?.length) {
+      // 整批 0 成功：优先暴露真实文件名 + 原因，不再吞成 generic「上传失败 (400)」
+      const detail =
+        Array.isArray(data.errors) && data.errors.length
+          ? data.errors
+              .map(
+                (e: { name?: string; reason?: string }) =>
+                  `${e.name ?? "文件"}：${e.reason ?? "上传失败"}`,
+              )
+              .join("；")
+          : data.error || `上传失败 (${res.status})`;
+      throw new Error(detail);
+    }
+    uploaded += data.total || data.uploaded?.length || 0;
   }
 
   return { uploaded, errors: allErrors };
