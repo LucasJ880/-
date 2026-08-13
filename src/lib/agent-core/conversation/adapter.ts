@@ -204,6 +204,45 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
       };
     });
 
+    // FB-11：内建文档导出工具——把会话结论渲染为可下载 HTML（打印即 PDF），
+    // 存私有 Blob 返回真实链接；此前会话没有任何导出工具，模型只能说“无法提供下载链接”。
+    extraTools.push({
+      name: "export_document",
+      description:
+        "将结论/清单/报告导出为可下载文档。传入 title 与 contentMarkdown（Markdown 正文），返回 downloadUrl（HTML 文档，浏览器打开后可直接打印/另存为 PDF）。当用户要求“导出/下载/生成文件/PDF”时使用。",
+      domain: "project",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "文档标题" },
+          contentMarkdown: { type: "string", description: "Markdown 正文" },
+        },
+        required: ["title", "contentMarkdown"],
+      },
+      risk: "l0_read",
+      allowRoles: "*",
+      execute: async (ctx) => {
+        const title = String(ctx.args.title ?? "会话导出").slice(0, 80);
+        const md = String(ctx.args.contentMarkdown ?? "");
+        if (!md.trim()) return { success: false, data: null, error: "导出内容为空" };
+        const { buildExportHtml } = await import("./export-document");
+        const { putPrivateBlob } = await import("@/lib/files/blob-access");
+        const blob = await putPrivateBlob({
+          pathname: `conversations/${conversationId}/exports/${Date.now()}.html`,
+          body: Buffer.from(buildExportHtml(title, md), "utf-8"),
+          contentType: "text/html; charset=utf-8",
+        });
+        return {
+          success: true,
+          data: {
+            downloadUrl: blob.proxyUrl,
+            format: "html",
+            note: "浏览器打开后可直接打印或另存为 PDF",
+          },
+        };
+      },
+    });
+
     const result = await runAgent({
       systemPrompt,
       messages: history,
