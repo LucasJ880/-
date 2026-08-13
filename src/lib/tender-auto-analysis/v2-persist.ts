@@ -125,12 +125,29 @@ export async function runV2Inference(input: {
     analystFailures = analyst.llmFailures;
     if (analyst.synthesis) {
       mapped.summaryJson.analystSynthesis = analyst.synthesis;
-      // 30 秒看懂 brief 采用 Analyst 的中文一句话（grounded 前提下的可读性提升）
+      // 30 秒看懂 brief 全面采用 Analyst 中文结论（FB-16：情报卡不得吐英文引擎串/内部细节）
       const brief = mapped.summaryJson.brief as
         | Record<string, unknown>
         | undefined;
       if (brief && typeof brief === "object") {
-        brief.oneLiner = analyst.synthesis.executiveBrief.oneLinerZh;
+        const syn = analyst.synthesis;
+        brief.oneLiner = syn.executiveBrief.oneLinerZh;
+        brief.recommendation = syn.currentAssessment.summaryZh;
+        brief.nextActions = [...syn.nextActions]
+          .sort((a, b) => a.order - b.order)
+          .slice(0, 5)
+          .map((n) => n.actionZh);
+        const fatalTitles = [
+          ...syn.keyRequirements,
+          ...syn.technicalRequirements,
+          ...syn.commercialAndDelivery,
+        ]
+          .filter((k) => k.impact === "BID_FATAL")
+          .map((k) => `废标风险：${k.titleZh}`);
+        const riskTitles = syn.risksAndGaps
+          .filter((r) => r.severity === "CRITICAL" || r.severity === "HIGH")
+          .map((r) => r.titleZh);
+        brief.blockers = [...fatalTitles, ...riskTitles].slice(0, 6);
       }
     }
     const meta = mapped.summaryJson.metadata as
