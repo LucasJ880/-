@@ -146,7 +146,13 @@ export interface V2PersistTx {
 export type RunV2Tx = <T>(fn: (tx: V2PersistTx) => Promise<T>) => Promise<T>;
 
 const defaultRunTx: RunV2Tx = (fn) =>
-  db.$transaction((tx) => fn(tx as unknown as V2PersistTx));
+  db.$transaction((tx) => fn(tx as unknown as V2PersistTx), {
+    // 真实 package（多文档、几十条 facts/requirements 逐行写 + Neon 网络往返）
+    // 会超出 Prisma 默认 5s interactive transaction 上限，导致 fence 事务过期
+    // 整体回滚（UAT 实测）。fence 语义不变：仍是单事务先 fence 后写、异常全回滚。
+    maxWait: 10_000,
+    timeout: 120_000,
+  });
 
 export type PersistV2Result = {
   factCount: number;
