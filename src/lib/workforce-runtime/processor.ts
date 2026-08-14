@@ -392,6 +392,9 @@ export async function processWorkforceJobSlice(
         planSource: PLAN_SOURCE.LLM_PLANNER,
         taskContractVersion: WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
         planTaskCount: compiledPlan.compiled.taskCount,
+        // T5 §G 最小可观测：planner 的模型调用次数（template 计划为 0）。
+        // 只做计数标注，不改动任何计费语义（AiUsageLedger 不受影响）。
+        plannerLlmCalls: planned.source === "model" ? 1 : 0,
       }).catch(() => {});
 
       // §10 + BLOCKER 1：planner（长 await）之后、persist 之前重新验证租约

@@ -194,16 +194,23 @@ export function buildTenderDeterministicPlan(
       "编排由服务端确定；领域判断仍由既有 Tender 服务与模型完成。",
       "全部步骤仅产生机器分析记录，不产生对外副作用。",
     ],
+    // verificationType 必须与 verifier 实际可见的证据对齐。
+    // 实测教训（隔离实库 E2E）：写成 database_state 时，verifier 只能看到 step 输出、
+    // 无法查库，于是即便 8 个 step 全部 completed、TenderAnalysisRun 已达
+    // REVIEW_REQUIRED，run 仍被判 verification_failed → needs_human。
+    // 改为 tool_result：finalize / extract 的工具返回值就是可直接核验的证据。
     completionCriteria: [
       {
         id: "c1_analysis_persisted",
-        description: "canonical 分析结果已写回，且分析运行进入待人工审核状态。",
-        verificationType: "database_state",
+        description:
+          "tender_finalize_analysis 返回成功写回 canonical 分析结果，并将分析运行推进到待人工审核状态。",
+        verificationType: "tool_result",
       },
       {
         id: "c2_requirements_extracted",
-        description: "招标要求与报告章节已带来源页码落库。",
-        verificationType: "database_state",
+        description:
+          "tender_extract_requirements 返回带来源页码的招标要求与报告章节。",
+        verificationType: "tool_result",
       },
     ],
     tasks,
