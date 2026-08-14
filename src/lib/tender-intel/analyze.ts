@@ -1,0 +1,135 @@
+/**
+ * M2.5 — 外部情报 AI 分析师
+ *
+ * 检索结果（授标候选 + Web findings）不再裸展示：一次结构化 LLM 调用产出
+ * 中文结论进「八个调查模块」。证据纪律：只能基于提供的检索结果推断，结论必须
+ * 引用来源域名；确定不了就明说「未能从现有来源确定」；绝不发明中标方/金额。
+ * 输出为 AI 初步调查（AI_RESEARCHED），人工确认后才升级为 READY 事实。
+ */
+
+import { z } from "zod";
+import {
+  callStructured,
+  createUnifiedRuntimeInvoker,
+  type LlmInvoker,
+} from "@/lib/tender-understanding/llm";
+import type { RankedAwardCandidate } from "./canadabuys";
+import type { RankedWebCandidate } from "./websearch";
+
+export const EXTERNAL_ANALYSIS_VERSION = "tender-external-analysis/v1" as const;
+export const EXTERNAL_ANALYSIS_PROMPT = { name: "tender-external-analysis", version: "1" } as const;
+
+const zh = (max: number) => z.string().min(1).max(max);
+
+const conclusionSchema = z.object({
+  conclusionZh: zh(300),
+  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  sourceDomains: z.array(z.string().max(80)).max(6).default([]),
+});
+
+export const externalAnalysisSchema = z.object({
+  previousWinner: conclusionSchema.extend({
+    candidateName: z.string().max(120).nullable(),
+  }),
+  historicalValue: conclusionSchema,
+  possiblyRecurring: conclusionSchema,
+  competitors: z
+    .array(
+      z.object({
+        name: zh(120),
+        reasonZh: zh(240),
+        url: z.string().max(300).nullable(),
+      }),
+    )
+    .max(6)
+    .default([]),
+  marketSummaryZh: zh(500),
+});
+export type ExternalAnalysisLlm = z.infer<typeof externalAnalysisSchema>;
+
+export type ExternalAnalysisV1 = ExternalAnalysisLlm & {
+  version: typeof EXTERNAL_ANALYSIS_VERSION;
+  generatedAt: string;
+  model: string | null;
+};
+
+const SYSTEM_PROMPT = `You are a bid-intelligence analyst for the BIDDER. You receive (a) a one-line description of the current tender, (b) award-history candidates from official Canadian contract disclosure, (c) web search findings (domains + titles + snippets).
+
+TASK: produce Simplified Chinese conclusions a bid manager can read directly — do NOT just relist links.
+
+HARD RULES:
+1. Base every conclusion ONLY on the provided findings. If the findings do not support a determination, say 未能从现有来源确定 and set confidence LOW. Never invent winners, amounts or facts.
+2. Every non-empty conclusion must cite sourceDomains drawn from the provided findings.
+3. previousWinner: judge whether any candidate plausibly won a PREVIOUS similar tender (same buyer/product). candidateName only when the findings actually indicate it.
+4. historicalValue: state amount range only if findings contain it.
+5. possiblyRecurring: judge from history (same buyer repeatedly procuring similar goods).
+6. competitors: companies (not portals/news sites) that appear to sell/deliver similar products — likely rival bidders. Give a one-line reason each.
+7. marketSummaryZh: 3-5 sentence synthesis: what the external evidence tells us, and what to verify next.
+8. Output ONE valid JSON object. All *Zh fields in Simplified Chinese (proper nouns stay original).`;
+
+export async function analyzeExternalIntel(input: {
+  projectOneLiner: string | null;
+  awardCandidates: RankedAwardCandidate[];
+  webCandidates: RankedWebCandidate[];
+  invoker?: LlmInvoker;
+}): Promise<{ analysis: ExternalAnalysisV1 | null; errorCode: string | null }> {
+  if (input.awardCandidates.length === 0 && input.webCandidates.length === 0) {
+    return { analysis: null, errorCode: "NO_FINDINGS" };
+  }
+  const invoker = input.invoker ?? createUnifiedRuntimeInvoker();
+  const userPrompt = [
+    `CURRENT TENDER: ${input.projectOneLiner ?? "(unknown)"}`,
+    "",
+    "AWARD-HISTORY CANDIDATES (official contract disclosure):",
+    JSON.stringify(
+      input.awardCandidates.slice(0, 8).map((c) => ({
+        vendor: c.vendorName,
+        hitQueries: c.hitQueries,
+        value: c.bestFinding.contractValue,
+        date: c.bestFinding.contractDate,
+        buyer: c.bestFinding.buyerName ?? c.bestFinding.ownerOrg,
+        description: c.bestFinding.descriptionEn,
+      })),
+    ),
+    "",
+    "WEB FINDINGS:",
+    JSON.stringify(
+      input.webCandidates.slice(0, 8).map((c) => ({
+        domain: c.domain,
+        hitQueries: c.hitQueries,
+        items: c.findings.map((f) => ({ title: f.title, url: f.url, snippet: f.snippet })),
+      })),
+    ),
+  ].join("\n");
+
+  const res = await callStructured(
+    invoker,
+    {
+      promptName: EXTERNAL_ANALYSIS_PROMPT.name,
+      promptVersion: EXTERNAL_ANALYSIS_PROMPT.version,
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt,
+      maxTokens: 4_000,
+      timeoutMs: 120_000,
+    },
+    externalAnalysisSchema,
+  );
+  if (!res.ok) return { analysis: null, errorCode: res.errorCode };
+  return {
+    analysis: {
+      ...res.value,
+      version: EXTERNAL_ANALYSIS_VERSION,
+      generatedAt: new Date().toISOString(),
+      model: res.logs.find((l) => l.ok)?.model ?? null,
+    },
+    errorCode: null,
+  };
+}
+
+export function readExternalAnalysis(summaryJson: unknown): ExternalAnalysisV1 | null {
+  if (!summaryJson || typeof summaryJson !== "object") return null;
+  const raw = (summaryJson as Record<string, unknown>).externalAnalysis;
+  if (!raw || typeof raw !== "object") return null;
+  if ((raw as Record<string, unknown>).version !== EXTERNAL_ANALYSIS_VERSION) return null;
+  return raw as ExternalAnalysisV1;
+}

@@ -132,6 +132,7 @@ export async function runV2Inference(input: {
       if (brief && typeof brief === "object") {
         const syn = analyst.synthesis;
         brief.oneLiner = syn.executiveBrief.oneLinerZh;
+        brief.product = syn.executiveBrief.whatIsBeingBoughtZh; // FB-17.3：产品或服务用中文结论
         brief.recommendation = syn.currentAssessment.summaryZh;
         brief.nextActions = [...syn.nextActions]
           .sort((a, b) => a.order - b.order)

@@ -71,6 +71,7 @@ type BriefFieldState =
   | "CONFLICT"
   | "FAILED"
   | "NEEDS_EXTERNAL_RESEARCH"
+  | "AI_RESEARCHED"
   | "NOT_STARTED";
 type BriefField = { state: BriefFieldState; value: string | null };
 type ExecutiveBrief = {
@@ -110,6 +111,7 @@ const FIELD_STATE_LABEL: Record<BriefFieldState, string> = {
   CONFLICT: "存在冲突",
   FAILED: "分析失败",
   NEEDS_EXTERNAL_RESEARCH: "需外部调查",
+  AI_RESEARCHED: "AI 初步调查 · 待人工确认",
   NOT_STARTED: "尚未分析",
 };
 
@@ -120,6 +122,7 @@ const FIELD_STATE_TONE: Record<BriefFieldState, string> = {
   STALE: "text-amber-700",
   CONFLICT: "text-rose-700",
   FAILED: "text-rose-700",
+  AI_RESEARCHED: "text-sky-700",
   NEEDS_EXTERNAL_RESEARCH: "text-stone-500",
   NOT_STARTED: "text-stone-500",
 };
@@ -136,7 +139,7 @@ function fieldText(f: BriefField | undefined): string {
     case "FAILED":
       return "分析失败，结果可能过期";
     case "NEEDS_EXTERNAL_RESEARCH":
-      return "需外部调查（留待正式情报阶段）";
+      return "外部情报暂未获得——分析完成后会自动检索，也可在上方「历史授标检索」手动查";
     case "CONFLICT":
       return "存在未解决冲突，需澄清";
     case "UNKNOWN":
@@ -360,7 +363,6 @@ export function ProjectIntelSections({
     { label: "当前建议（AI）", field: f?.recommendation ?? { state: "NOT_STARTED", value: null } },
     { label: "重大阻塞", field: f?.majorBlockers ?? { state: "NOT_STARTED", value: null } },
     { label: "下一步", field: f?.nextActions ?? { state: "NOT_STARTED", value: null } },
-    { label: "最近变化", field: recentField },
     // 外部情报（留待正式 T4）：明确"需外部调查"，不再伪装"调查中"
     { label: "周期采购可能", field: ext?.possiblyRecurring ?? { state: "NEEDS_EXTERNAL_RESEARCH", value: null } },
     { label: "上一轮中标方", field: ext?.previousWinner ?? { state: "NEEDS_EXTERNAL_RESEARCH", value: null } },

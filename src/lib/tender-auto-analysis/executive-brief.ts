@@ -25,6 +25,7 @@ export type BriefFieldState =
   | "CONFLICT"
   | "FAILED"
   | "NEEDS_EXTERNAL_RESEARCH"
+  | "AI_RESEARCHED"
   | "NOT_STARTED";
 
 export type BriefField = { state: BriefFieldState; value: string | null };
@@ -60,6 +61,12 @@ export type BuildBriefInput = {
     previousWinner?: string | null;
     historicalContractValue?: string | null;
     possiblyRecurring?: string | null;
+  } | null;
+  /** M2.5 外部情报 AI 分析师中文结论（AI 初步调查，待人工确认） */
+  externalAnalysis?: {
+    previousWinnerZh?: string | null;
+    historicalValueZh?: string | null;
+    possiblyRecurringZh?: string | null;
   } | null;
 };
 
@@ -111,14 +118,21 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     ? { state: "READY", value: projectType }
     : { state: "UNKNOWN", value: null };
 
-  // M1：人工确认过的外部结论 → READY；否则保持「需外部调查」（绝不自动当事实）
+  // 外部字段优先级：人工确认 READY > AI 初步调查 AI_RESEARCHED > 需外部调查
   const ext = input.externalConfirmed ?? null;
-  const extField = (v: string | null | undefined): BriefField =>
-    v && v.trim() ? { state: "READY", value: v } : externalField();
+  const ai = input.externalAnalysis ?? null;
+  const extField = (
+    confirmed: string | null | undefined,
+    aiZh: string | null | undefined,
+  ): BriefField => {
+    if (confirmed && confirmed.trim()) return { state: "READY", value: confirmed };
+    if (aiZh && aiZh.trim()) return { state: "AI_RESEARCHED", value: aiZh };
+    return externalField();
+  };
   const external: ExecutiveBriefExternal = {
-    previousWinner: extField(ext?.previousWinner),
-    historicalContractValue: extField(ext?.historicalContractValue),
-    possiblyRecurring: extField(ext?.possiblyRecurring),
+    previousWinner: extField(ext?.previousWinner, ai?.previousWinnerZh),
+    historicalContractValue: extField(ext?.historicalContractValue, ai?.historicalValueZh),
+    possiblyRecurring: extField(ext?.possiblyRecurring, ai?.possiblyRecurringZh),
   };
 
   // 无任何分析 run → NOT_STARTED（不是"调查中"）
@@ -367,6 +381,24 @@ export async function getExecutiveBrief(
           possiblyRecurring?: string | null;
         })
       : null;
+  // M2.5：AI 分析师中文结论（八模块可读；标记 AI 初步调查）
+  const rawAnalysis =
+    roomSj && typeof roomSj.externalAnalysis === "object"
+      ? (roomSj.externalAnalysis as {
+          previousWinner?: { conclusionZh?: string; candidateName?: string | null; confidence?: string };
+          historicalValue?: { conclusionZh?: string };
+          possiblyRecurring?: { conclusionZh?: string };
+          marketSummaryZh?: string;
+          competitors?: Array<{ name: string; reasonZh: string }>;
+        })
+      : null;
+  const extAnalysis = rawAnalysis
+    ? {
+        previousWinnerZh: rawAnalysis.previousWinner?.conclusionZh ?? null,
+        historicalValueZh: rawAnalysis.historicalValue?.conclusionZh ?? null,
+        possiblyRecurringZh: rawAnalysis.possiblyRecurring?.conclusionZh ?? null,
+      }
+    : null;
 
   const brief = buildExecutiveBrief({
     run: run
@@ -379,6 +411,7 @@ export async function getExecutiveBrief(
     currentFingerprint,
     projectType,
     externalConfirmed: extConfirmed,
+    externalAnalysis: extAnalysis,
   });
 
   const coverage = await getPackageCoverage(projectId, run?.id ?? null);

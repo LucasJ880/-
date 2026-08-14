@@ -534,6 +534,25 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
       const web = webQueries.length > 0 ? await autoWebIntel({ queries: webQueries }) : null;
 
       if ((auto?.ok || web?.ok) && roomBefore) {
+        // M2.5：AI 分析师读检索结果 → 中文结论（八模块直接可读；仍属 AI 初步调查）
+        let externalAnalysis: unknown = null;
+        try {
+          const { analyzeExternalIntel } = await import("@/lib/tender-intel/analyze");
+          const briefBlock = (
+            (await db.tenderAnalysisRun.findUnique({
+              where: { id: run.id },
+              select: { summaryJson: true },
+            }))?.summaryJson as Record<string, unknown>
+          )?.brief as { oneLiner?: string | null } | undefined;
+          const { analysis } = await analyzeExternalIntel({
+            projectOneLiner: briefBlock?.oneLiner ?? null,
+            awardCandidates: auto?.candidates ?? [],
+            webCandidates: web?.candidates ?? [],
+          });
+          externalAnalysis = analysis;
+        } catch {
+          externalAnalysis = null;
+        }
         await db.bidIntelligenceRoom.update({
           where: { id: roomBefore.id },
           data: {
@@ -542,12 +561,13 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
                 ...rsj0,
                 ...(auto?.ok ? { externalCandidates: auto } : {}),
                 ...(web?.ok ? { webIntel: web } : {}),
+                ...(externalAnalysis ? { externalAnalysis } : {}),
               }),
             ),
           },
         });
         console.log(
-          `[tender-external-intel] project=${run.projectId} award_candidates=${auto?.candidates.length ?? 0} web_domains=${web?.candidates.length ?? 0}`,
+          `[tender-external-intel] project=${run.projectId} award_candidates=${auto?.candidates.length ?? 0} web_domains=${web?.candidates.length ?? 0} analyzed=${externalAnalysis ? 1 : 0}`,
         );
       }
     }
