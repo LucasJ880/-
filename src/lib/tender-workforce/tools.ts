@@ -34,6 +34,7 @@ import {
 } from "@/lib/tender-auto-analysis/extract";
 import { generateReportSections } from "@/lib/tender-auto-analysis/report";
 import { buildClarifications } from "@/lib/tender-auto-analysis/clarifications";
+import { buildGroundedDeliverables } from "@/lib/tender-auto-analysis/deliverables";
 import {
   createOrReuseWorkforceTenderAnalysisRun,
   failWorkforceTenderAnalysisRun,
@@ -62,6 +63,7 @@ export const TENDER_WORKFORCE_TOOL_NAMES = [
   "tender_evidence_compliance",
   "tender_risk_analysis",
   "tender_clarification_draft",
+  "tender_build_deliverables",
   "tender_finalize_analysis",
 ] as const;
 
@@ -126,6 +128,15 @@ export const TENDER_WORKFORCE_TOOL_DESCRIPTORS: ToolDescriptor[] = [
     name: "tender_clarification_draft",
     description:
       "生成澄清问题草稿（仅草稿，绝不发送；文档已明确回答的不生成）。纯分析步骤：executionMode=analysis、requiresApproval=false；依赖 tender_extract_requirements",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
+  {
+    name: "tender_build_deliverables",
+    description:
+      "从本次真实抽取的强制要求派生投标交付物清单（提交类/需证据的要求 → 交付物，带 requirementCode 与来源页码）。纯派生、零 LLM、幂等；不套固定模板——没有对应要求就不产出交付物。纯分析步骤：executionMode=analysis、requiresApproval=false；依赖 tender_extract_requirements",
     riskLevel: "MEDIUM",
     readOnly: false,
     requiresApproval: false,
@@ -716,6 +727,39 @@ async function handleClarificationDraft(
   };
 }
 
+async function handleBuildDeliverables(
+  ctx: AdapterContext,
+): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+  const runId = mf.manifest.analysisRunId;
+
+  // 唯一领域实现：与 legacy 同一 service 文件（零业务逻辑复制）
+  const built = await buildGroundedDeliverables({ runId });
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderDeliverables: true,
+      deliverableCount: built.deliverableCount,
+      consideredRequirements: built.consideredRequirements,
+      deliverables: built.deliverables.slice(0, 20).map((d) => ({
+        key: d.deliverableKey,
+        title: d.title.slice(0, 200),
+        mandatory: d.mandatory,
+        requirementCode: d.requirementCode,
+        sourcePage: d.sourcePage,
+      })),
+      summary:
+        built.deliverableCount > 0
+          ? `已从 ${built.consideredRequirements} 条要求派生 ${built.deliverableCount} 项交付物（均可追溯到要求编号与来源页）`
+          : `本次抽取的 ${built.consideredRequirements} 条要求中没有提交类强制要求，未产出交付物（不套固定模板）`,
+    },
+  };
+}
+
 async function handleFinalizeAnalysis(
   ctx: AdapterContext,
 ): Promise<AdapterResult> {
@@ -877,6 +921,7 @@ export const TENDER_WORKFORCE_TOOL_HANDLERS: Record<
   tender_evidence_compliance: handleEvidenceCompliance,
   tender_risk_analysis: handleRiskAnalysis,
   tender_clarification_draft: handleClarificationDraft,
+  tender_build_deliverables: handleBuildDeliverables,
   tender_finalize_analysis: handleFinalizeAnalysis,
 };
 

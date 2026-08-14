@@ -5,6 +5,7 @@
  * DESC-01..05  Planner 可见性 vs 执行策略元数据分离 / 缺失 fail-closed / 风险映射
  * AUTH-FRESH-*  resume 时对真实工具重跑 canInvokeTool（纯函数层：注入策略与工具集）
  */
+import { readFileSync } from "node:fs";
 import { ok, finish } from "./helpers";
 import {
   getExecutionToolPolicyDescriptor,
@@ -16,6 +17,11 @@ import {
   TENDER_WORKFORCE_TOOL_DESCRIPTORS,
   TENDER_WORKFORCE_TOOL_NAMES,
 } from "@/lib/tender-workforce/tools";
+import { tenderWorkforcePlannerTools } from "@/lib/tender-workforce/tools";
+import {
+  buildTenderDeterministicPlan,
+  TENDER_PLAN_SEMANTIC_STAGES,
+} from "@/lib/tender-workforce/deterministic-plan";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-policy";
 
@@ -168,6 +174,67 @@ import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-p
     !viewer.ok,
     "AUTH-FRESH-03: 角色降级为 viewer → 当前不允许（canonical 归属 ACTOR_STALE，见 resume-freshness 门 A 先于门 C）",
   );
+}
+
+
+
+/* ---------------- DELIV-01..12：交付物 parity closure ---------------- */
+{
+  const NAMES = TENDER_WORKFORCE_TOOL_NAMES;
+  const DESCS = TENDER_WORKFORCE_TOOL_DESCRIPTORS;
+  const legacySrc = readFileSync("src/lib/tender-auto-analysis/worker.ts", "utf8");
+  const delivSrc = readFileSync("src/lib/tender-auto-analysis/deliverables.ts", "utf8");
+  const toolsSrc = readFileSync("src/lib/tender-workforce/tools.ts", "utf8");
+  const DELIV_TOOL = "tender_build_deliverables";
+
+  ok(
+    legacySrc.includes("await buildDeliverables({ runId: run.id })") &&
+      delivSrc.includes("export async function buildDeliverables("),
+    "DELIV-01: legacy 仍调用同一 service 文件中的 buildDeliverables（行为未改）",
+  );
+  ok((NAMES as readonly string[]).includes(DELIV_TOOL), "DELIV-02: 交付物工具在 Tender scoped 工具集中");
+  ok(
+    !RUNTIME_V2_TOOL_CATALOG.some((t) => t.name === DELIV_TOOL),
+    "DELIV-03: 全局 planner catalog 不含交付物工具（GLOBAL_PLANNER_VISIBLE_TENDER_TOOLS 仍为 0）",
+  );
+  ok(!!getExecutionToolPolicyDescriptor(DELIV_TOOL), "DELIV-04: 执行 descriptor 覆盖交付物工具");
+  ok(
+    !resolveExecutionPolicyTool("deliverables_ghost_tool").ok,
+    "DELIV-05: 未知工具仍 fail-closed",
+  );
+  const plan = buildTenderDeterministicPlan({ projectId: "p1", projectName: "T" });
+  const dtask = plan.tasks.find((t) => t.preferredTool === DELIV_TOOL);
+  ok(!!dtask, "DELIV-06: 确定性计划含交付物阶段");
+  ok(dtask?.workerKey === "tender_worker", "DELIV-07: 交付物任务 workerKey=tender_worker");
+  ok(
+    plan.tasks.every((t) => t.workerKey === "tender_worker" || t.workerKey === "synthesis_worker"),
+    "DELIV-08: 计划内 sales_worker fallback = 0",
+  );
+  ok(
+    (dtask?.dependsOn ?? []).includes("t3_extract_requirements"),
+    "DELIV-09: 交付物依赖真实前置（已抽取要求）——与 legacy 领域先决条件一致",
+  );
+  const synth = plan.tasks.find((t) => t.taskKind === "synthesis");
+  const finalizeTask = plan.tasks[plan.tasks.length - 1];
+  ok(
+    (synth?.dependsOn ?? []).includes(dtask!.id) &&
+      (finalizeTask.dependsOn ?? []).includes(synth!.id),
+    "DELIV-10: synthesis 消费交付物，finalize 消费 synthesis",
+  );
+  ok(
+    tenderWorkforcePlannerTools().some((t) => t.name === DELIV_TOOL),
+    "DELIV-11: flag OFF 的 LLM planner scope 同样可见交付物工具",
+  );
+  ok(
+    delivSrc.includes("buildGroundedDeliverables") &&
+      !toolsSrc.includes("DELIVERABLE_DEFINITIONS"),
+    "DELIV-12: 唯一领域实现（工具不复制 legacy 静态模板逻辑）",
+  );
+  ok(
+    (TENDER_PLAN_SEMANTIC_STAGES as readonly string[]).includes("build_deliverables"),
+    "DELIV-13: 语义阶段表含交付物",
+  );
+  ok(DESCS.length === NAMES.length && NAMES.length === 8, "DELIV-14: 工具数 8，descriptor 覆盖 8/8");
 }
 
 finish();

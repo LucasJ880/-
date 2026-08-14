@@ -94,8 +94,8 @@ async function findActiveTenderJob(orgId: string, projectId: string) {
 export function buildTenderAnalysisGoal(projectName: string): string {
   return [
     `对投标项目「${projectName.slice(0, 80)}」执行一键 AI 投标分析。`,
-    "流程：校验输入并建立分析清单 → 解析投标文件 → 提取要求与报告章节 → 证据与合规覆盖分析 → 风险分析 → 澄清问题草稿 → 综合汇总（synthesis）→ 写回最终分析结果。",
-    "约束：总计不超过 8 个任务；每个任务在 dependsOn 中声明其真实消费的上游；全部步骤 executionMode=analysis 且 requiresApproval=false——这些工具只产生机器分析记录，不属于需要人工审批的业务写操作（不发邮件、不建日历、不改客户数据），任何步骤都不要标记 requiresApproval=true 或 executionMode=write；每个分析任务除声明直接上游外，还应把第一步（分析清单）列入 dependsOn；综合任务 taskKind=synthesis、不设 preferredTool、依赖全部分析任务；最后一个任务用 tender_finalize_analysis 并依赖综合任务。",
+    "流程：校验输入并建立分析清单 → 解析投标文件 → 提取要求与报告章节 → 证据与合规覆盖分析 → 风险分析 → 澄清问题草稿 → 生成交付物清单（从已抽取的强制要求派生）→ 综合汇总（synthesis）→ 写回最终分析结果。",
+    "约束：总计不超过 9 个任务；每个任务在 dependsOn 中声明其真实消费的上游；全部步骤 executionMode=analysis 且 requiresApproval=false——这些工具只产生机器分析记录，不属于需要人工审批的业务写操作（不发邮件、不建日历、不改客户数据），任何步骤都不要标记 requiresApproval=true 或 executionMode=write；每个分析任务除声明直接上游外，还应把第一步（分析清单）列入 dependsOn；综合任务 taskKind=synthesis、不设 preferredTool、依赖全部分析任务；最后一个任务用 tender_finalize_analysis 并依赖综合任务。",
   ].join("");
 }
 

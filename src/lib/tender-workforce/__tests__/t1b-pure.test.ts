@@ -85,9 +85,9 @@ ok(
 /* ── §12 工具白名单与全局目录零污染 ── */
 console.log("\n[§12 Tool Scope]");
 ok(
-  TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 7 &&
-    TENDER_WORKFORCE_TOOL_NAMES.length === 7,
-  "scope: tender 白名单恰 7 个工具（最小集合）",
+  TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 8 &&
+    TENDER_WORKFORCE_TOOL_NAMES.length === 8,
+  "scope: tender 白名单恰 8 个工具（最小集合；T5-P1 交付物 parity closure 后）",
 );
 ok(
   TENDER_WORKFORCE_TOOL_DESCRIPTORS.every(
@@ -108,7 +108,7 @@ ok(
   "scope/#88: 白名单 ⊆ EXECUTABLE（每个工具都有真实 server handler）",
 );
 ok(
-  Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 7 &&
+  Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 8 &&
     TENDER_WORKFORCE_TOOL_NAMES.every(
       (n) => typeof TENDER_WORKFORCE_TOOL_HANDLERS[n] === "function",
     ),
@@ -137,8 +137,8 @@ console.log("\n[§15 Scope Resolution]");
     workDomain: "tender",
   });
   ok(
-    Array.isArray(tender) && tender.length === 7,
-    "resolve: workDomain=tender → 7 工具白名单",
+    Array.isArray(tender) && tender.length === 8,
+    "resolve: workDomain=tender → 8 工具白名单",
   );
   const none = await resolveWorkforcePlannerToolsForJob({});
   ok(none === undefined, "resolve: 无 workDomain → undefined（既有默认投影，行为不变）");
@@ -318,7 +318,7 @@ console.log("\n[§8 Goal]");
 {
   const goal = buildTenderAnalysisGoal("测试项目");
   ok(
-    goal.includes("不超过 8 个任务") &&
+    goal.includes("不超过 9 个任务") &&
       goal.includes("synthesis") &&
       goal.includes("tender_finalize_analysis"),
     "goal: 含步数上限 / synthesis / finalize 约束（§15 结构化上下文）",

@@ -41,6 +41,7 @@ const TOOLS = [
   "tender_evidence_compliance",
   "tender_risk_analysis",
   "tender_clarification_draft",
+  "tender_build_deliverables",
   "tender_finalize_analysis",
 ].map((name) => ({
   name,
@@ -89,8 +90,8 @@ const compile = (plan: ServerAuthoredPlanV1) =>
   const res = compile(buildTenderDeterministicPlan(PLAN_INPUT));
   ok(res.ok, "PLAN-01: Tender 确定性计划通过共享验证链", res.ok ? "" : res.error);
   ok(
-    res.ok && res.compiled.taskCount === 8,
-    "PLAN-01b: 8 节点（7 工具 + 1 native synthesis，按当前代码实证）",
+    res.ok && res.compiled.taskCount === 9,
+    "PLAN-01b: 9 节点（8 工具 + 1 native synthesis，按当前代码实证；T5-P1 交付物 parity closure 后）",
     res.ok ? res.compiled.taskCount : null,
   );
 }

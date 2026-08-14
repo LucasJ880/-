@@ -13,7 +13,10 @@
  * 产物、工具、领域服务、审批、handoff、lease/fence 全部不变。
  *
  * DAG 形状按当前代码实证（不按旧文档描述硬凑数量）：
- * 7 个已注册 tender 工具 + 1 个 native synthesis = 8 节点。
+ * 8 个已注册 tender 工具 + 1 个 native synthesis = 9 节点。
+ * （T5-P1 parity closure：新增 t7_build_deliverables——审计确认 legacy 的
+ *   BUILD_DELIVERABLES 在 V2 下已刻意停用静态模板，grounded 替代品从真实要求派生，
+ *   因此本节点依赖 t3_extract_requirements，并被 synthesis 消费。）
  *
  *   t1 validate_input（唯一根，无依赖）
  *     ├→ t2 parse_documents            (t1)
@@ -21,8 +24,9 @@
  *     ├→ t4 evidence_compliance        (t1, t3)
  *     ├→ t5 risk_analysis              (t1, t3, t4)
  *     ├→ t6 clarification_draft        (t1, t3)
- *     └→ t7 synthesis  [synthesis_worker, 无 preferredTool]  (t2..t6)
- *          └→ t8 finalize_analysis     (t1, t7)
+ *     ├→ t7 build_deliverables         (t1, t3)
+ *     └→ t8 synthesis  [synthesis_worker, 无 preferredTool]  (t2..t7)
+ *          └→ t9 finalize_analysis     (t1, t8)
  *
  * 关键实现约束（皆由审计确认，写错即被共享验证链拒绝）：
  * - `defaultWorkerKeyForTaskKind("work")` 返回 **sales_worker**，
@@ -53,6 +57,7 @@ const TOOL = {
   compliance: "tender_evidence_compliance",
   risk: "tender_risk_analysis",
   clarification: "tender_clarification_draft",
+  deliverables: "tender_build_deliverables",
   finalize: "tender_finalize_analysis",
 } as const;
 
@@ -151,8 +156,18 @@ export function buildTenderDeterministicPlan(
       expectedOutput: "澄清问题草稿列表。",
       resources,
     }),
+    analysisTask({
+      id: "t7_build_deliverables",
+      title: "生成交付物清单",
+      description:
+        "从本次抽取的强制要求派生投标交付物清单（提交类/需证据的要求 → 交付物，带要求编号与来源页码）。",
+      dependsOn: ["t1_validate_input", "t3_extract_requirements"],
+      preferredTool: TOOL.deliverables,
+      expectedOutput: "交付物清单：每项可追溯到 requirementCode 与来源页码。",
+      resources,
+    }),
     {
-      id: "t7_synthesis",
+      id: "t8_synthesis",
       title: "综合汇总",
       description:
         "合并解析、要求、合规、风险、澄清各上游任务的结构化 Handoff，产出综合结论。",
@@ -162,6 +177,7 @@ export function buildTenderDeterministicPlan(
         "t4_evidence_compliance",
         "t5_risk_analysis",
         "t6_clarification_draft",
+        "t7_build_deliverables",
       ],
       // synthesis 由 runtime 原生执行：不设 preferredTool
       workerKey: SYNTHESIS_WORKER,
@@ -174,11 +190,11 @@ export function buildTenderDeterministicPlan(
       resources,
     },
     analysisTask({
-      id: "t8_finalize_analysis",
+      id: "t9_finalize_analysis",
       title: "写回最终分析结果",
       description:
         "消费综合结论，写回 canonical 分析结果并将分析运行推进到待人工审核状态。",
-      dependsOn: ["t1_validate_input", "t7_synthesis"],
+      dependsOn: ["t1_validate_input", "t8_synthesis"],
       preferredTool: TOOL.finalize,
       expectedOutput: "canonical 分析结果已写回，运行进入 REVIEW_REQUIRED。",
       resources,
@@ -189,14 +205,14 @@ export function buildTenderDeterministicPlan(
     contractVersion: WORKFORCE_PLAN_CONTRACT_VERSION,
     objective: `对投标项目「${name}」执行一键 AI 投标分析（确定性编排）。`,
     summary:
-      "服务端固定 DAG：校验输入 → 解析文件 → 提取要求 → 证据合规 → 风险 → 澄清 → 综合 → 写回结果。",
+      "服务端固定 DAG：校验输入 → 解析文件 → 提取要求 → 证据合规 → 风险 → 澄清 → 交付物 → 综合 → 写回结果。",
     assumptions: [
       "编排由服务端确定；领域判断仍由既有 Tender 服务与模型完成。",
       "全部步骤仅产生机器分析记录，不产生对外副作用。",
     ],
     // verificationType 必须与 verifier 实际可见的证据对齐。
     // 实测教训（隔离实库 E2E）：写成 database_state 时，verifier 只能看到 step 输出、
-    // 无法查库，于是即便 8 个 step 全部 completed、TenderAnalysisRun 已达
+    // 无法查库，于是即便全部 step completed、TenderAnalysisRun 已达
     // REVIEW_REQUIRED，run 仍被判 verification_failed → needs_human。
     // 改为 tool_result：finalize / extract 的工具返回值就是可直接核验的证据。
     completionCriteria: [
@@ -225,6 +241,7 @@ export const TENDER_PLAN_SEMANTIC_STAGES = [
   "evidence_compliance",
   "risk_analysis",
   "clarification_draft",
+  "build_deliverables",
   "synthesis",
   "finalize_analysis",
 ] as const;
