@@ -17,10 +17,12 @@
  */
 
 import { db } from "@/lib/db";
+import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 import {
   resolveWorkforceExecutionPolicy,
   type WorkforceExecutionPolicy,
 } from "./execution-policy";
+import { resolveExecutionPolicyTool } from "./execution-descriptor";
 
 export type FreshnessGateCode =
   | "ACTOR_STALE"
@@ -117,9 +119,43 @@ export async function checkScopeFreshness(input: {
 }
 
 /**
+ * T5-P0C-B1：解析"本次批准后准备恢复执行的具体工具"。
+ *
+ * 只从 **server 持久化数据** 推断，绝不接受调用方传入的 tool name：
+ *   awaiting_approval / ready 的 AgentRunStep → preferredTool
+ * 返回空数组表示本次恢复不涉及具体工具（如纯 synthesis 或无待执行步骤）。
+ */
+export async function resolveResumeTargetTools(input: {
+  orgId: string;
+  runId: string;
+}): Promise<string[]> {
+  const steps = await db.agentRunStep
+    .findMany({
+      where: {
+        runId: input.runId,
+        orgId: input.orgId,
+        status: { in: ["awaiting_approval", "ready", "pending"] },
+      },
+      select: { preferredTool: true },
+    })
+    .catch(() => [] as Array<{ preferredTool: string | null }>);
+  const names = steps
+    .map((s) => (s.preferredTool ?? "").trim())
+    .filter((n) => n.length > 0);
+  return Array.from(new Set(names));
+}
+
+/**
  * 门 C：Policy freshness。
+ *
  * **强制重取**（forceRefresh）——绝不复用执行期 TTL 缓存，
  * 否则等于用旧策略快照恢复执行，正是本门要防的事。
+ *
+ * T5-P0C-B2：仅证明"策略上下文存在"不足以判 PASS。
+ * 必须对**本次将要恢复执行的真实工具**再跑一次 canonical `canInvokeTool()`，
+ * 使用 fresh actor / org / workspaceIds / modulesJson / toolPolicy /
+ * workDomain→toolDomain / 真实执行 descriptor。
+ * 当前不允许 → POLICY_STALE（不 requeue、不执行任何工具）。
  */
 export async function checkPolicyFreshness(input: {
   orgId: string;
@@ -127,6 +163,8 @@ export async function checkPolicyFreshness(input: {
   userId: string;
   role: string | null | undefined;
   runMetadata: Record<string, unknown> | null | undefined;
+  /** 覆盖待恢复工具集（测试注入用；生产由 resolveResumeTargetTools 解析） */
+  targetTools?: string[];
 }): Promise<FreshnessResult> {
   const policy = await resolveWorkforceExecutionPolicy({
     orgId: input.orgId,
@@ -146,6 +184,50 @@ export async function checkPolicyFreshness(input: {
   if (!policy.hasMembership) {
     return { ok: false, code: "POLICY_STALE", reason: "NO_MEMBERSHIP" };
   }
+
+  const tools =
+    input.targetTools ??
+    (await resolveResumeTargetTools({ orgId: input.orgId, runId: input.runId }));
+
+  for (const toolName of tools) {
+    // 执行策略 descriptor 缺失 → 与执行期同纪律 fail-closed（不猜风险）
+    const policyTool = resolveExecutionPolicyTool(toolName);
+    if (!policyTool.ok) {
+      return {
+        ok: false,
+        code: "POLICY_STALE",
+        reason: `${policyTool.code}:${toolName}`,
+      };
+    }
+    const decision = canInvokeTool({
+      tenant: {
+        userId: input.userId,
+        orgId: input.orgId,
+        orgRole:
+          policy.orgRole === "org_owner" ? "org_admin" : (policy.orgRole ?? ""),
+        isPlatformAdmin: policy.isPlatformAdmin,
+        workspaceIds: policy.workspaceIds,
+      },
+      hasMembership: policy.hasMembership,
+      tool: {
+        name: toolName,
+        domain: policy.toolDomain,
+        risk: policyTool.risk,
+        allowRoles: policy.allowRoles,
+      },
+      modulesJson: policy.modulesJson,
+      toolPolicy: policy.toolPolicy,
+      maxRisk: "l2_soft",
+    });
+    if (!decision.ok) {
+      return {
+        ok: false,
+        code: "POLICY_STALE",
+        reason: `TOOL_NOT_ALLOWED_NOW:${toolName}:${decision.code}`,
+      };
+    }
+  }
+
   return { ok: true, policy };
 }
 

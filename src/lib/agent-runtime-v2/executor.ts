@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getOrgMembership } from "@/lib/auth";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 import { resolveWorkforceExecutionPolicy } from "@/lib/workforce-runtime/execution-policy";
+import { resolveExecutionPolicyTool } from "@/lib/workforce-runtime/execution-descriptor";
 import { markAgentRunAwaitingApproval } from "@/lib/agent-runtime/pending-link";
 import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
 import {
@@ -423,7 +424,21 @@ async function executeRoundGuarded(input: {
     : toolName!;
 
   if (!isNativeSynthesis) {
-    const descriptor = getRuntimeV2Tool(toolName!);
+    // T5-P0C-A：执行策略 descriptor 与 planner 可见性解耦。
+    // 缺失 → fail-closed，绝不给默认风险（任何默认值都是猜风险）。
+    const policyTool = resolveExecutionPolicyTool(toolName!);
+    if (!policyTool.ok) {
+      return await failStepClosed({
+        fence,
+        orgId,
+        runId,
+        stepId: step.id,
+        stepKey: step.stepKey,
+        stepTitle: step.title,
+        errorCode: policyTool.code,
+        errorMessage: policyTool.error,
+      });
+    }
     // T5-P0C：策略输入全部来自 server 权威 run context（不再硬编码 sales）。
     // fail-closed：策略上下文解析失败 → 拒绝执行（绝不"无策略放行"）。
     const execPolicy = await resolveWorkforceExecutionPolicy({
@@ -460,13 +475,8 @@ async function executeRoundGuarded(input: {
       tool: {
         name: toolName!,
         domain: execPolicy.toolDomain,
-        // descriptor 缺失（如 tender 工具不在 v2 catalog）时不再静默降级为 l0_read：
-        // 未知工具按内部写风险处理，由 policy 层决定放行与否
-        risk: descriptor
-          ? descriptor.requiresApproval
-            ? "l2_soft"
-            : "l0_read"
-          : "l1_internal_write",
+        // 唯一风险映射（riskLevel + readOnly + requiresApproval），非二值近似
+        risk: policyTool.risk,
         allowRoles: execPolicy.allowRoles,
       },
       modulesJson: execPolicy.modulesJson,
@@ -1082,7 +1092,24 @@ async function executeWorkforceBatchRound(input: {
 
     // 3. 执行期重鉴权（非 synthesis；与单步路径一致：写工具按 high risk）
     if (!isNativeSynthesis) {
-      const descriptor = getRuntimeV2Tool(toolName!);
+      // T5-P0C-A：执行策略 descriptor 缺失 → fail-closed（与单步路径同纪律）
+      const policyTool = resolveExecutionPolicyTool(toolName!);
+      if (!policyTool.ok) {
+        await failWorkforceStepOnly({
+          fence,
+          stepId: step.id,
+          errorCode: policyTool.code,
+          errorMessage: policyTool.error,
+        });
+        outcomes.push({
+          kind: "needs_human",
+          stepKey: step.stepKey,
+          errorCode: policyTool.code,
+          errorMessage: policyTool.error,
+          eventTitle: `步骤「${step.title}」缺少执行策略 descriptor`,
+        });
+        continue;
+      }
       // T5-P0C：与单步路径同源的 server 权威策略上下文（不再硬编码 sales）
       const execPolicy = await resolveWorkforceExecutionPolicy({
         orgId,
@@ -1125,11 +1152,7 @@ async function executeWorkforceBatchRound(input: {
         tool: {
           name: toolName!,
           domain: execPolicy.toolDomain,
-          risk: descriptor
-            ? descriptor.requiresApproval
-              ? "l2_soft"
-              : "l0_read"
-            : "l1_internal_write",
+          risk: policyTool.risk,
           allowRoles: execPolicy.allowRoles,
         },
         modulesJson: execPolicy.modulesJson,

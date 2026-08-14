@@ -69,6 +69,15 @@ export type CreateWorkforceJobInput = {
   plan?: ServerAuthoredPlanV1;
   /** server plan 的 executionMode/preferredTool 白名单（与 planner 同一 scope 工具集） */
   planTools?: Array<{ name: string }>;
+  /**
+   * T5-P0C-C：**server 权威** workDomain（canonical = Project.workDomain）。
+   *
+   * 刻意做成独立具名参数而非 extraMetadata 的一个键——workDomain 决定执行期
+   * ToolDomain（进而决定模块门与允许角色），是权限真相的一部分，
+   * 绝不能经 generic client metadata 通道定义。该键已列入 RESERVED_METADATA_KEYS，
+   * 任何调用方尝试经 extraMetadata 传入都会被整体拒绝（fail-closed）。
+   */
+  workDomain?: string | null;
 };
 
 /**
@@ -88,6 +97,8 @@ const RESERVED_METADATA_KEYS = new Set([
   "taskContractVersion",
   "planTaskCount",
   "plannerLlmCalls",
+  // T5-P0C-C：workDomain 是权限真相，只能由具名 server 参数写入
+  "workDomain",
 ]);
 
 function sanitizeExtraMetadata(
@@ -215,6 +226,8 @@ export async function createWorkforceJob(
       threadId: input.threadId ?? null,
       channel,
       source: runtime.source,
+      // T5-P0C-C：server 权威 workDomain（具名参数，非 client metadata）
+      ...(input.workDomain ? { workDomain: input.workDomain } : {}),
       // T5-P0A §5/§28：计划来源与契约版本（server 权威、保留键防伪造、可观测）
       planSource: compiled ? PLAN_SOURCE.SERVER_AUTHORED : PLAN_SOURCE.LLM_PLANNER,
       ...(compiled

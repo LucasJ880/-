@@ -262,6 +262,7 @@ run_test "外部情报 Web 搜索（M2）" "npx tsx src/lib/tender-intel/__tests
 run_test "T4 canonical 授标情报 service+read model" "npx tsx src/lib/tender-intel/__tests__/awards.test.ts"
 run_test "T4 语义门 SEM-T4-01..08" "npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts"
 run_test "T5 计划 seam + 确定性 DAG" "npx tsx src/lib/workforce-runtime/__tests__/t5-plan-seam.test.ts"
+run_test "T5 执行策略 descriptor + 新鲜度授权" "npx tsx src/lib/workforce-runtime/__tests__/t5-execution-policy.test.ts"
 run_test "招标工作台状态投影" "npx tsx src/lib/tender/__tests__/workbench-state.test.ts"
 run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__tests__/idempotency.test.ts"
 run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"

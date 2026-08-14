@@ -190,8 +190,9 @@ export async function startTenderWorkforceAnalysis(input: {
               planTools: tenderWorkforcePlannerTools(),
             }
           : {}),
+        // T5-P0C-C：workDomain 走具名 server 参数（不再经 generic metadata 通道）
+        workDomain: "tender",
         extraMetadata: {
-          workDomain: "tender",
           trigger: "user",
           analysisMode: "full",
           analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
