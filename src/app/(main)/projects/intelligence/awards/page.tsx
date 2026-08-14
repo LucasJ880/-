@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Landmark, Loader2 } from "lucide-react";
 import { apiJson } from "@/lib/api-fetch";
 import { IntelHubShell } from "@/components/bid-workflow/intel-hub-shell";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
 type AwardRow = {
   id: string;
@@ -56,6 +57,7 @@ function fmtAmount(v: number | null, currency: string | null): string {
 }
 
 export default function IntelAwardsPage() {
+  const { orgId, ambiguous } = useCurrentOrgId();
   const [rows, setRows] = useState<AwardRow[]>([]);
   const [intel, setIntel] = useState<Intelligence | null>(null);
   const [buyer, setBuyer] = useState("");
@@ -66,10 +68,12 @@ export default function IntelAwardsPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!orgId) return;
     setBusy(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
+      params.set("orgId", orgId);
       if (buyer.trim()) params.set("buyer", buyer.trim());
       if (winner.trim()) params.set("winner", winner.trim());
       if (from) params.set("from", from);
@@ -84,12 +88,12 @@ export default function IntelAwardsPage() {
       setErr(e instanceof Error ? e.message : "加载失败");
     }
     setBusy(false);
-  }, [buyer, winner, from, to]);
+  }, [orgId, buyer, winner, from, to]);
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgId]);
 
   return (
     <IntelHubShell title="历史中标">
@@ -157,6 +161,9 @@ export default function IntelAwardsPage() {
         </div>
 
         {err && <p className="text-sm text-red-500">{err}</p>}
+        {ambiguous && (
+          <p className="text-sm text-[var(--muted)]">您属于多个组织，请先在组织切换器中选择当前组织。</p>
+        )}
 
         {!busy && rows.length === 0 && !err && (
           <div className="rounded-xl border border-dashed border-[var(--border)] p-8 text-sm text-[var(--muted)] space-y-2">
