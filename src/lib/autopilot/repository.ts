@@ -213,7 +213,10 @@ export async function appendAutopilotObservationEvent(input: {
     orderBy: { sequence: "desc" },
     select: { sequence: true },
   });
-  const sequence = input.sequence ?? (last?.sequence ?? 0) + 1;
+  const sequence = resolveAutopilotObservationSequence({
+    canonicalSequence: input.sequence,
+    lastSequence: last?.sequence,
+  });
   const payload = sanitizeAutopilotPayload(input.payload ?? null);
 
   try {
@@ -228,7 +231,34 @@ export async function appendAutopilotObservationEvent(input: {
         payload: jsonValue(payload),
       },
     });
-  } catch {
-    return null;
+  } catch (error) {
+    if (isProjectionUniqueViolation(error)) {
+      return db.autopilotRunEvent.findFirst({
+        where: { runId: overlay.id, sequence },
+      });
+    }
+    throw error;
   }
+}
+
+/** 使用 canonical AgentRunEvent.sequence，禁止用 processor 完成时间排序。 */
+export function resolveAutopilotObservationSequence(input: {
+  canonicalSequence?: number;
+  lastSequence?: number | null;
+}): number {
+  if (
+    typeof input.canonicalSequence === "number" &&
+    Number.isFinite(input.canonicalSequence)
+  ) {
+    return input.canonicalSequence;
+  }
+  return (input.lastSequence ?? 0) + 1;
+}
+
+function isProjectionUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }

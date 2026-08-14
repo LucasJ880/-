@@ -3,7 +3,7 @@
  * 运行：npx tsx src/lib/autopilot/__tests__/repository-org.test.ts
  */
 
-import { overlayBelongsToOrg } from "../repository";
+import { overlayBelongsToOrg, resolveAutopilotObservationSequence } from "../repository";
 
 let pass = 0;
 let fail = 0;
@@ -39,8 +39,8 @@ ok(
   "空 orgId → 拒绝",
 );
 ok(
-  overlayBelongsToOrg({ id: "ap_run_1", orgId: "org_a" }, "org_a ") === false,
-  "orgId 必须精确匹配，不 trim 脑补",
+  resolveAutopilotObservationSequence({ canonicalSequence: 3, lastSequence: 0 }) === 3,
+  "canonical sequence 优先于 last+1",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

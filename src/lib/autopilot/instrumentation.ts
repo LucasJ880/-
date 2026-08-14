@@ -1,20 +1,24 @@
 /**
- * Autopilot A0 instrumentation：best-effort / non-blocking。
- * Trace 写入失败不得让 Agent Runtime 失败。
+ * Autopilot observation projection + runtime capture hook.
  *
- * Durability (A0): fire-and-forget. Do not add an outbox/queue here.
- * A1 mandatory blocker: TELEMETRY_DURABILITY — serverless freeze can drop
- * Observe events; A1 must add durable persistence before Observe completeness.
- * See AUTOPILOT_A1_MANDATORY_BLOCKERS in ./types.
+ * A1-P0: request path only enqueues a durable outbox envelope (or no-ops when
+ * capture flag is off). Projection runs in the async processor.
+ *
+ * TELEMETRY_DURABILITY remains BLOCKER until Lucas Final Review.
  */
 
 import { runtimeFromRunMetadata } from "@/lib/ai/runtime-context";
-import { isAutopilotInstrumentationEnabled } from "./flags";
+import { db } from "@/lib/db";
+import { isAutopilotTelemetryCaptureEnabled } from "./flags";
 import { mapAgentRunEventToAutopilot } from "./map-events";
 import {
   mapDeterministicFailureType,
   mapDeterministicOutcome,
 } from "./outcome";
+import {
+  enqueueAutopilotTelemetryOutbox,
+  type AutopilotOutboxEnvelope,
+} from "./outbox";
 import {
   appendAutopilotObservationEvent,
   upsertAutopilotObservation,
@@ -36,6 +40,7 @@ export type AutopilotRuntimeNotice =
       sequence?: number;
       payload?: Record<string, unknown> | null;
       timestamp?: Date;
+      agentEventId?: string;
     };
 
 type PersistFn = (notice: AutopilotRuntimeNotice) => Promise<void>;
@@ -57,10 +62,31 @@ export function createAutopilotNotifier(opts: {
   };
 }
 
-async function persistAutopilotNotice(
+export function noticeToOutboxEnvelope(
+  notice: AutopilotRuntimeNotice,
+): AutopilotOutboxEnvelope | null {
+  if (notice.type === "event") {
+    if (!notice.agentEventId) return null;
+    return {
+      orgId: notice.orgId,
+      agentRunId: notice.runId,
+      noticeType: "event",
+      agentEventId: notice.agentEventId,
+      sequence: notice.sequence ?? null,
+      sourceEventType: notice.eventType,
+    };
+  }
+  return {
+    orgId: notice.orgId,
+    agentRunId: notice.runId,
+    noticeType: notice.type,
+  };
+}
+
+/** Processor 投影：从 canonical AgentRun 重建 overlay / event。 */
+export async function projectAutopilotNotice(
   notice: AutopilotRuntimeNotice,
 ): Promise<void> {
-  const { db } = await import("@/lib/db");
   const run = await db.agentRun.findFirst({
     where: { id: notice.runId, orgId: notice.orgId },
     include: { session: { select: { userId: true } } },
@@ -120,18 +146,15 @@ async function persistAutopilotNotice(
   });
 }
 
-const defaultNotifier = createAutopilotNotifier({
-  enabled: true,
-  persist: persistAutopilotNotice,
-  onError: (error) => {
-    console.error("[autopilot] telemetry failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  },
-});
-
-/** Runtime 调用点：flag 关闭时立即返回，不碰 DB。 */
-export function notifyAutopilotRuntime(notice: AutopilotRuntimeNotice): void {
-  if (!isAutopilotInstrumentationEnabled()) return;
-  defaultNotifier(notice);
+/**
+ * Runtime capture：flag 关闭立即返回，不碰 Outbox 表。
+ * 同步 await envelope 写入；投影仍由 processor 异步完成。
+ */
+export async function notifyAutopilotRuntime(
+  notice: AutopilotRuntimeNotice,
+): Promise<void> {
+  if (!isAutopilotTelemetryCaptureEnabled()) return;
+  const envelope = noticeToOutboxEnvelope(notice);
+  if (!envelope) return;
+  await enqueueAutopilotTelemetryOutbox(db, envelope);
 }

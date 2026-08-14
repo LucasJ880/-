@@ -4,7 +4,10 @@
  */
 
 import { createAutopilotNotifier, type AutopilotRuntimeNotice } from "../instrumentation";
-import { isAutopilotInstrumentationEnabled } from "../flags";
+import {
+  isAutopilotInstrumentationEnabled,
+  isAutopilotTelemetryCaptureEnabled,
+} from "../flags";
 
 let pass = 0;
 let fail = 0;
@@ -23,12 +26,18 @@ async function main() {
   console.log("autopilot instrumentation");
 
   ok(
-    !isAutopilotInstrumentationEnabled({ AUTOPILOT_ENABLED: "0" }),
-    "flag off → 不写 telemetry",
+    !isAutopilotInstrumentationEnabled({ AUTOPILOT_ENABLED: "1" }),
+    "AUTOPILOT_ENABLED 不打开 capture",
   );
   ok(
-    isAutopilotInstrumentationEnabled({ AUTOPILOT_ENABLED: "1" }),
-    "flag on → 允许 best-effort 写入",
+    !isAutopilotTelemetryCaptureEnabled({ AUTOPILOT_ENABLED: "1" }),
+    "UI flag 与 capture 解耦",
+  );
+  ok(
+    isAutopilotInstrumentationEnabled({
+      AUTOPILOT_TELEMETRY_CAPTURE_ENABLED: "1",
+    }),
+    "capture flag on → instrumentation alias on",
   );
 
   const notice: AutopilotRuntimeNotice = {

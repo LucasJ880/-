@@ -66,6 +66,8 @@ npx tsx src/lib/autopilot/__tests__/taxonomy.test.ts
 npx tsx src/lib/autopilot/__tests__/instrumentation.test.ts
 npx tsx src/lib/autopilot/__tests__/service-access.test.ts
 npx tsx src/lib/autopilot/__tests__/security-layers.test.ts
+npx tsx src/lib/autopilot/__tests__/durability-matrix.test.ts
+npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
 npx tsx src/lib/marketing/__tests__/route-access.test.ts
 npx tsx src/lib/marketing/__tests__/marketing-middleware-access.test.ts

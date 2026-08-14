@@ -142,6 +142,8 @@ run_test "Autopilot A0 Taxonomy" "npx tsx src/lib/autopilot/__tests__/taxonomy.t
 run_test "Autopilot A0 Instrumentation" "npx tsx src/lib/autopilot/__tests__/instrumentation.test.ts"
 run_test "Autopilot A0 Service Access" "npx tsx src/lib/autopilot/__tests__/service-access.test.ts"
 run_test "Autopilot A0 Security Layers" "npx tsx src/lib/autopilot/__tests__/security-layers.test.ts"
+run_test "Autopilot A1-P0 Durability Matrix" "npx tsx src/lib/autopilot/__tests__/durability-matrix.test.ts"
+run_test "Autopilot A1-P0 Benchmark" "npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
 run_test "Default Workspace" "npx tsx src/lib/rbac/__tests__/default-workspace.test.ts"

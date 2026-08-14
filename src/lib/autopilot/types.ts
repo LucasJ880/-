@@ -16,8 +16,8 @@ export const AUTOPILOT_DISABLED_CAPABILITIES = {
 } as const;
 
 /**
- * A0 不改 telemetry 持久化模型：写入保持 fire-and-forget。
- * A1 开始 Observe 完整性之前，必须先解决 serverless freeze 丢事件问题。
+ * A1-P0 已实现 durable outbox，但正式关闭需 Lucas Final Review。
+ * 代码内保持 BLOCKER，不得自行改为 CLOSED。
  */
 export const AUTOPILOT_A1_MANDATORY_BLOCKERS = [
   {
@@ -25,7 +25,7 @@ export const AUTOPILOT_A1_MANDATORY_BLOCKERS = [
     phase: "A1",
     status: "BLOCKER",
     reason:
-      "A0 persist is fire-and-forget; serverless freeze can drop Observe events. A1 must add a durable outbox/queue before Observe completeness.",
+      "A1-P0 durable outbox is implemented pending Lucas Final Review. Do not treat telemetry as production-complete until TELEMETRY_DURABILITY is CLOSED.",
   },
 ] as const;
 
