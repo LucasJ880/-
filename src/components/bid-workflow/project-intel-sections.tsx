@@ -13,6 +13,7 @@ import {
   sourceTypeLabel,
 } from "@/lib/bid-workflow/display-labels";
 import { ModuleDataView } from "./module-data-view";
+import { AwardHistoryPanel } from "./award-history-panel";
 
 type Module = {
   id: string;
@@ -406,6 +407,11 @@ export function ProjectIntelSections({
           {loadError}
         </p>
       )}
+
+      {/* M1 外部情报：历史授标检索（确认后 上一轮中标方/历史金额/周期性 变 READY） */}
+      {experienceEnabled ? (
+        <AwardHistoryPanel projectId={projectId} onConfirmed={() => void loadBrief()} />
+      ) : null}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">

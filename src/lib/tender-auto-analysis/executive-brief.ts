@@ -55,6 +55,12 @@ export type BuildBriefInput = {
   } | null;
   currentFingerprint: string | null;
   projectType: string | null;
+  /** M1 外部情报：人工确认后的外部结论（room.summaryJson.externalConfirmed） */
+  externalConfirmed?: {
+    previousWinner?: string | null;
+    historicalContractValue?: string | null;
+    possiblyRecurring?: string | null;
+  } | null;
 };
 
 export type ExecutiveBriefFields = {
@@ -105,10 +111,14 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     ? { state: "READY", value: projectType }
     : { state: "UNKNOWN", value: null };
 
+  // M1：人工确认过的外部结论 → READY；否则保持「需外部调查」（绝不自动当事实）
+  const ext = input.externalConfirmed ?? null;
+  const extField = (v: string | null | undefined): BriefField =>
+    v && v.trim() ? { state: "READY", value: v } : externalField();
   const external: ExecutiveBriefExternal = {
-    previousWinner: externalField(),
-    historicalContractValue: externalField(),
-    possiblyRecurring: externalField(),
+    previousWinner: extField(ext?.previousWinner),
+    historicalContractValue: extField(ext?.historicalContractValue),
+    possiblyRecurring: extField(ext?.possiblyRecurring),
   };
 
   // 无任何分析 run → NOT_STARTED（不是"调查中"）
@@ -348,6 +358,16 @@ export async function getExecutiveBrief(
       )
     : null;
 
+  const roomSj = (room?.summaryJson ?? null) as Record<string, unknown> | null;
+  const extConfirmed =
+    roomSj && typeof roomSj.externalConfirmed === "object"
+      ? (roomSj.externalConfirmed as {
+          previousWinner?: string | null;
+          historicalContractValue?: string | null;
+          possiblyRecurring?: string | null;
+        })
+      : null;
+
   const brief = buildExecutiveBrief({
     run: run
       ? {
@@ -358,6 +378,7 @@ export async function getExecutiveBrief(
       : null,
     currentFingerprint,
     projectType,
+    externalConfirmed: extConfirmed,
   });
 
   const coverage = await getPackageCoverage(projectId, run?.id ?? null);

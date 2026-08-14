@@ -30,6 +30,7 @@ npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
 npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts
+npx tsx src/lib/tender-intel/__tests__/canadabuys.test.ts
 npx tsx src/lib/tender/__tests__/workbench-state.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
