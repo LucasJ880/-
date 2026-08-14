@@ -91,6 +91,19 @@ export function compileServerAuthoredPlan(input: {
   if (!shaped.ok) {
     return { ok: false, code: shaped.code, error: shaped.error };
   }
+
+  // T5-P1：server-authored 计划**绝不允许被静默截断**。
+  // sanitizePlannerOutput 对超出 maxSteps 的计划直接 slice——那对 LLM 计划是
+  // 合理的降级，对确定性计划却是致命的：实测中 9 节点计划被截成 8，
+  // finalize 步骤消失，分析永远停在 AGENT_ANALYZING 且无任何报错。
+  // 因此这里显式 fail-closed，宁可拒绝也不产出残缺 DAG。
+  if (shaped.plan.steps.length > input.maxSteps) {
+    return {
+      ok: false,
+      code: "SERVER_PLAN_EXCEEDS_MAX_STEPS",
+      error: `server-authored 计划有 ${shaped.plan.steps.length} 个任务，超过运行时上限 ${input.maxSteps}（AGENT_RUNTIME_V2_MAX_STEPS）。禁止静默截断——请提高上限或缩减 DAG。`,
+    };
+  }
   return compileWorkforcePlan({
     raw: shaped.plan,
     tools: input.tools,
