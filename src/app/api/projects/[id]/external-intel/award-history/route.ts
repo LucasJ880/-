@@ -26,9 +26,30 @@ export async function GET(
   if (!isExternalIntelEnabled()) {
     return NextResponse.json({ enabled: false, findings: [], note: "外部情报未启用" });
   }
+
+  // 无 q → 返回分析完成时自动检索的候选（多线交叉验证结果，待人工确认）
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  if (!q) {
+    const room = await db.bidIntelligenceRoom.findUnique({
+      where: { projectId },
+      select: { summaryJson: true },
+    });
+    const sj = (room?.summaryJson as Record<string, unknown>) ?? {};
+    const auto = (sj.externalCandidates ?? null) as {
+      queries?: string[];
+      candidates?: unknown[];
+      fetchedAt?: string;
+    } | null;
+    return NextResponse.json({
+      enabled: true,
+      auto: auto ?? null,
+      findings: [],
+      note: auto ? null : "尚无自动检索结果（分析完成后自动生成）",
+    });
+  }
+
   const result = await searchAwardHistory({ query: q });
-  return NextResponse.json({ enabled: true, ...result });
+  return NextResponse.json({ enabled: true, auto: null, ...result });
 }
 
 export async function POST(

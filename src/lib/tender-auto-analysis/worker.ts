@@ -479,6 +479,57 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
     })
     .catch(() => undefined);
 
+  // M1.1：立项自动外部检索（分析一完成即多线检索历史授标并交叉验证；
+  // 结果仅作候选存入调查室，人工确认门不变；flag OFF 时零出站）
+  try {
+    const { isExternalIntelEnabled, deriveAwardQueries, autoSearchAwardHistory } =
+      await import("@/lib/tender-intel/canadabuys");
+    if (isExternalIntelEnabled()) {
+      const cur = await db.tenderAnalysisRun.findUnique({
+        where: { id: run.id },
+        select: { summaryJson: true },
+      });
+      const sj = (cur?.summaryJson as Record<string, unknown>) ?? {};
+      const syn = sj.analystSynthesis as
+        | { executiveBrief?: { whatIsBeingBoughtZh?: string }; scope?: { deliverables?: string[] } }
+        | undefined;
+      const brief = sj.brief as { buyer?: string | null } | undefined;
+      const proj = await db.project.findUnique({
+        where: { id: run.projectId },
+        select: { name: true },
+      });
+      const queries = deriveAwardQueries({
+        projectName: proj?.name ?? null,
+        buyerText: brief?.buyer ?? null,
+        productTexts: [
+          syn?.executiveBrief?.whatIsBeingBoughtZh ?? "",
+          ...(syn?.scope?.deliverables ?? []),
+        ],
+      });
+      if (queries.length > 0) {
+        const auto = await autoSearchAwardHistory({ queries });
+        if (auto.ok) {
+          const room = await db.bidIntelligenceRoom.findUnique({
+            where: { projectId: run.projectId },
+            select: { id: true, summaryJson: true },
+          });
+          if (room) {
+            const rsj = (room.summaryJson as Record<string, unknown>) ?? {};
+            await db.bidIntelligenceRoom.update({
+              where: { id: room.id },
+              data: { summaryJson: JSON.parse(JSON.stringify({ ...rsj, externalCandidates: auto })) },
+            });
+          }
+          console.log(
+            `[tender-external-intel] auto-search project=${run.projectId} queries=${auto.queries.length} candidates=${auto.candidates.length}`,
+          );
+        }
+      }
+    }
+  } catch {
+    /* 外部检索失败不影响分析结果 */
+  }
+
   // FB-15：业主回复自动关联（best-effort，与 auto-enqueue 同模式，绝不阻断分析）
   try {
     const { resolveOwnerReplies } = await import("./reply-resolution");

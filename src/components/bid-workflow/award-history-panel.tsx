@@ -6,7 +6,7 @@
  * → 「上一轮中标方 / 历史合同金额 / 周期采购可能」变 READY → 可再喂历史对标。
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Landmark, Loader2, Search } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 
@@ -20,6 +20,20 @@ type Finding = {
   sourceUrl: string;
 };
 
+type AutoCandidate = {
+  vendorName: string;
+  hitQueries: string[];
+  score: number;
+  totalMatches: number;
+  bestFinding: Finding;
+};
+
+type AutoBlock = {
+  queries: string[];
+  candidates: AutoCandidate[];
+  fetchedAt: string;
+} | null;
+
 export function AwardHistoryPanel({
   projectId,
   defaultQuery,
@@ -31,10 +45,23 @@ export function AwardHistoryPanel({
 }) {
   const [q, setQ] = useState(defaultQuery ?? "");
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [auto, setAuto] = useState<AutoBlock>(null);
   const [enabled, setEnabled] = useState(true);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+
+  // M1.1：加载分析完成时自动生成的多线交叉验证候选
+  useEffect(() => {
+    apiJson<{ enabled: boolean; auto?: AutoBlock }>(
+      `/api/projects/${projectId}/external-intel/award-history`,
+    )
+      .then((res) => {
+        setEnabled(res.enabled);
+        setAuto(res.auto ?? null);
+      })
+      .catch(() => {});
+  }, [projectId]);
 
   const search = async () => {
     if (!q.trim()) return;
@@ -113,6 +140,53 @@ export function AwardHistoryPanel({
         </button>
       </div>
       {note ? <p className="mt-2 text-xs text-[var(--muted)]">{note}</p> : null}
+
+      {/* 自动候选（分析完成时多线检索 + 交叉验证；命中线越多置信越高） */}
+      {enabled && auto && auto.candidates.length > 0 ? (
+        <div className="mt-3 space-y-1.5" data-testid="auto-award-candidates">
+          <p className="text-xs font-semibold text-[var(--muted)]">
+            自动检索候选（检索线：{auto.queries.join(" / ")}）
+          </p>
+          <ul className="space-y-1.5">
+            {auto.candidates.slice(0, 5).map((c, i) => (
+              <li
+                key={i}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs"
+              >
+                <span className="min-w-0">
+                  <b>{c.vendorName}</b>
+                  {c.bestFinding.contractValue != null
+                    ? ` · CAD ${c.bestFinding.contractValue.toLocaleString()}`
+                    : ""}
+                  {c.bestFinding.contractDate ? ` · ${c.bestFinding.contractDate}` : ""}
+                  <span className="block text-[var(--muted)]">
+                    交叉验证：命中 {c.hitQueries.length} 条检索线（{c.hitQueries.join("、")}）
+                    {c.hitQueries.length >= 2 ? " · 高置信" : ""}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <a
+                    href={c.bestFinding.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    来源
+                  </a>
+                  <button
+                    type="button"
+                    disabled={confirming !== null}
+                    onClick={() => void confirm(c.bestFinding)}
+                    className="rounded bg-[var(--accent)] px-2 py-1 text-white disabled:opacity-50"
+                  >
+                    {confirming === c.bestFinding.vendorName ? "确认中…" : "确认为上轮中标"}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {enabled && findings.length > 0 ? (
         <ul className="mt-2 space-y-1.5">
           {findings.slice(0, 8).map((f, i) => (
