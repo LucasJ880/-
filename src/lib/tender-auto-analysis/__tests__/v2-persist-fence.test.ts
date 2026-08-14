@@ -210,3 +210,12 @@ async function main() {
 }
 
 void main();
+
+/* FB-18 — 空壳分析护栏（纯函数） */
+import { isEmptyAnalysisOutcome } from "../v2-persist";
+{
+  ok(isEmptyAnalysisOutcome({ llmCalls: 120, llmFailures: 120, factCount: 0, requirementCount: 0 }), "FB-18: 全 429 空产出 → 空壳");
+  ok(isEmptyAnalysisOutcome({ llmCalls: 0, llmFailures: 0, factCount: 0, requirementCount: 0 }), "FB-18: 零调用零产出 → 空壳");
+  ok(!isEmptyAnalysisOutcome({ llmCalls: 40, llmFailures: 3, factCount: 12, requirementCount: 30 }), "FB-18: 正常 run 非空壳");
+  ok(!isEmptyAnalysisOutcome({ llmCalls: 40, llmFailures: 40, factCount: 5, requirementCount: 0 }), "FB-18: 有产出即便全失败标记也不算空壳（保守）");
+}

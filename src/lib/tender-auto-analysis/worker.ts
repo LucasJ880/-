@@ -22,6 +22,7 @@ import { buildDeliverables } from "./deliverables";
 import { buildClarifications } from "./clarifications";
 import {
   analyzeAndPersistV2,
+  isEmptyAnalysisOutcome,
   isTenderAnalysisV2Enabled,
   TenderV2LeaseLostError,
 } from "./v2-persist";
@@ -314,7 +315,7 @@ async function stepExtractFacts(run: ClaimedRun): Promise<void> {
       });
     }, 60_000);
     try {
-      await analyzeAndPersistV2({
+      const v2res = await analyzeAndPersistV2({
         runId: run.id,
         projectId: run.projectId,
         parentRunId: run.parentRunId,
@@ -322,6 +323,12 @@ async function stepExtractFacts(run: ClaimedRun): Promise<void> {
         leaseMs: LEASE_MS,
         checkLease: () => !leaseLost,
       });
+      // FB-18：空壳分析（零成功模型调用且零产出）必须 FAIL，不得进入审核态
+      if (isEmptyAnalysisOutcome(v2res)) {
+        throw new Error(
+          `empty_analysis_zero_llm_success: 模型调用全部失败（${v2res.llmFailures}/${v2res.llmCalls}）且无抽取产出，分析无效`,
+        );
+      }
     } catch (e) {
       // V2 fence 拒绝（stale worker）→ 转为 worker 的 graceful yield（不 markFailed）
       if (e instanceof TenderV2LeaseLostError) {

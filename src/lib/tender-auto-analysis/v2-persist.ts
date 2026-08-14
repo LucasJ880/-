@@ -432,6 +432,21 @@ export type AnalyzeAndPersistV2Result = PersistV2Result & {
 };
 
 /**
+ * FB-18 护栏（纯函数）：零成功 LLM 调用且零抽取产出 = 空壳分析。
+ * 此类 run 绝不允许进入 REVIEW_REQUIRED（用户会把空结果当真分析）——
+ * 典型场景：模型 key 额度耗尽时全部调用 429（UAT 实录 0/120 成功仍到审核态）。
+ */
+export function isEmptyAnalysisOutcome(r: {
+  llmCalls: number;
+  llmFailures: number;
+  factCount: number;
+  requirementCount: number;
+}): boolean {
+  const zeroLlmSuccess = r.llmCalls === 0 || r.llmFailures >= r.llmCalls;
+  return zeroLlmSuccess && r.factCount === 0 && r.requirementCount === 0;
+}
+
+/**
  * 编排：推理（长耗时，无写）→ heartbeat fail-closed 检查 → fenced 持久化。
  * worker 传入 leaseOwner/leaseMs/checkLease；fence 是权威防线，checkLease 为提前 fail-closed。
  */
