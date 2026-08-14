@@ -178,6 +178,21 @@ export async function upsertAutopilotObservation(input: {
   });
 }
 
+export type AutopilotRunOrgOverlay = {
+  id: string;
+  orgId: string;
+};
+
+/** Pure guard: overlay.agentRunId 所属 org 必须与写入 orgId 一致。 */
+export function overlayBelongsToOrg(
+  overlay: AutopilotRunOrgOverlay | null | undefined,
+  orgId: string,
+): overlay is AutopilotRunOrgOverlay {
+  if (!overlay) return false;
+  if (!orgId) return false;
+  return overlay.orgId === orgId;
+}
+
 export async function appendAutopilotObservationEvent(input: {
   orgId: string;
   agentRunId: string;
@@ -189,9 +204,9 @@ export async function appendAutopilotObservationEvent(input: {
 }) {
   const overlay = await db.autopilotRun.findUnique({
     where: { agentRunId: input.agentRunId },
-    select: { id: true },
+    select: { id: true, orgId: true },
   });
-  if (!overlay) return null;
+  if (!overlayBelongsToOrg(overlay, input.orgId)) return null;
 
   const last = await db.autopilotRunEvent.findFirst({
     where: { runId: overlay.id },

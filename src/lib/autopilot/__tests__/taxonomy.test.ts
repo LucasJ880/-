@@ -4,6 +4,7 @@
  */
 
 import {
+  AUTOPILOT_A1_MANDATORY_BLOCKERS,
   AUTOPILOT_FAILURE_TYPES,
   AUTOPILOT_OUTCOMES,
   AUTOPILOT_TRACE_EVENT_TYPES,
@@ -33,6 +34,10 @@ ok(AUTOPILOT_OUTCOMES.includes("UNKNOWN"), "UNKNOWN");
 ok(AUTOPILOT_FAILURE_TYPES.includes("HALLUCINATION"), "HALLUCINATION 类型存在");
 ok(AUTOPILOT_TRACE_EVENT_TYPES.includes("RE_ASK_SIGNAL"), "RE_ASK_SIGNAL 接口存在");
 ok(AUTOPILOT_METRIC_DEFINITIONS.length >= 14, "metrics 定义齐全");
+ok(
+  AUTOPILOT_A1_MANDATORY_BLOCKERS.some((b) => b.id === "TELEMETRY_DURABILITY"),
+  "A1 mandatory blocker: TELEMETRY_DURABILITY",
+);
 
 ok(mapDeterministicOutcome({ status: "failed" }) === "FAILURE", "failed → FAILURE");
 ok(mapDeterministicOutcome({ status: "cancelled" }) === "ABANDONED", "cancelled → ABANDONED");

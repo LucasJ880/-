@@ -45,7 +45,6 @@ const BLOCKED_KEY_PARTS = [
 
 const REDACTED = "[REDACTED]";
 const MAX_STRING = 240;
-const MAX_SUMMARY = 80;
 const MAX_DEPTH = 6;
 const MAX_ARRAY = 30;
 const MAX_KEYS = 40;
@@ -74,6 +73,10 @@ export function hashAutopilotContent(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
+/**
+ * Persistable content pointer. Hash of the original is allowed;
+ * summary is structural/redacted only — never a prefix of source text.
+ */
 export function toContentRef(
   value: unknown,
   id?: string,
@@ -84,12 +87,13 @@ export function toContentRef(
   if (!text) return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
+  const bytes = Buffer.byteLength(trimmed, "utf8");
   return {
     kind: "reference",
     id,
     hash: hashAutopilotContent(trimmed),
-    summary: trimmed.slice(0, MAX_SUMMARY),
-    bytes: Buffer.byteLength(trimmed, "utf8"),
+    summary: `redacted:${bytes}B`,
+    bytes,
   };
 }
 

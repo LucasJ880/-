@@ -137,6 +137,7 @@ run_test "Navigation IA" "npx tsx src/lib/navigation/__tests__/navigation-ia.tes
 run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts"
 run_test "Autopilot A0 Access" "npx tsx src/lib/autopilot/__tests__/access.test.ts"
 run_test "Autopilot A0 Sanitize" "npx tsx src/lib/autopilot/__tests__/sanitize.test.ts"
+run_test "Autopilot A0 Repository Org" "npx tsx src/lib/autopilot/__tests__/repository-org.test.ts"
 run_test "Autopilot A0 Taxonomy" "npx tsx src/lib/autopilot/__tests__/taxonomy.test.ts"
 run_test "Autopilot A0 Instrumentation" "npx tsx src/lib/autopilot/__tests__/instrumentation.test.ts"
 run_test "Autopilot A0 Service Access" "npx tsx src/lib/autopilot/__tests__/service-access.test.ts"

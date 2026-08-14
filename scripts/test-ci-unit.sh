@@ -61,6 +61,7 @@ npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
+npx tsx src/lib/autopilot/__tests__/repository-org.test.ts
 npx tsx src/lib/autopilot/__tests__/taxonomy.test.ts
 npx tsx src/lib/autopilot/__tests__/instrumentation.test.ts
 npx tsx src/lib/autopilot/__tests__/service-access.test.ts

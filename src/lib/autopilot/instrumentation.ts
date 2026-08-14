@@ -1,6 +1,11 @@
 /**
  * Autopilot A0 instrumentation：best-effort / non-blocking。
  * Trace 写入失败不得让 Agent Runtime 失败。
+ *
+ * Durability (A0): fire-and-forget. Do not add an outbox/queue here.
+ * A1 mandatory blocker: TELEMETRY_DURABILITY — serverless freeze can drop
+ * Observe events; A1 must add durable persistence before Observe completeness.
+ * See AUTOPILOT_A1_MANDATORY_BLOCKERS in ./types.
  */
 
 import { runtimeFromRunMetadata } from "@/lib/ai/runtime-context";

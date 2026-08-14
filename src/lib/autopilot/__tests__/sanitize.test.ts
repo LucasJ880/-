@@ -3,7 +3,11 @@
  * 运行：npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
  */
 
-import { sanitizeAgentTrace, sanitizeAutopilotPayload } from "../sanitize";
+import {
+  sanitizeAgentTrace,
+  sanitizeAutopilotPayload,
+  toContentRef,
+} from "../sanitize";
 
 let pass = 0;
 let fail = 0;
@@ -57,6 +61,35 @@ ok(
     .name === "gmail.send",
   "非敏感工具名保留",
 );
+
+const leaky = [
+  "Bearer secret-token-value",
+  "qy_session=abc; password=hunter2",
+  "sk-live-abcdefghijklmnopqrstuvwxyz",
+  "Authorization: Bearer abcdefghijklmnop",
+  "Cookie: qy_session=abc",
+  "API Key sk-proj-abcdefghijklmnopqrstuvwxyz",
+  "Acme CAD 12800 合同条款 follow-up",
+  "invoice CAD $12,800 to acme@example.com",
+  "lucas@sunnyshutter.ca 合同金额 CAD 9800",
+].join("\n");
+const ref = toContentRef(leaky, "msg_1");
+const persisted = JSON.stringify(ref);
+ok(ref != null, "toContentRef 对非空输入返回 reference");
+ok(typeof ref?.hash === "string" && (ref?.hash?.length ?? 0) > 0, "允许保留原文 hash");
+ok(ref?.summary === `redacted:${Buffer.byteLength(leaky.trim(), "utf8")}B`, "summary 仅为结构 redacted");
+ok(!persisted.includes(leaky.slice(0, 20)), "summary 不是原文前缀");
+ok(!persisted.includes("secret-token-value"), "credential Bearer 不入库");
+ok(!persisted.includes("hunter2"), "password 不入库");
+ok(!persisted.includes("sk-live-abcdefghijklmnopqrstuvwxyz"), "API key 不入库");
+ok(!persisted.includes("qy_session=abc"), "cookie 不入库");
+ok(!persisted.includes("Acme"), "业务名 Acme 不入库");
+ok(!persisted.includes("CAD"), "金额 CAD 不入库");
+ok(!persisted.includes("合同"), "合同正文不入库");
+ok(!persisted.includes("acme@example.com"), "业务邮箱不入库");
+ok(!persisted.includes("lucas@sunnyshutter.ca"), "内部邮箱不入库");
+ok(!persisted.includes("12800"), "金额数字不入库");
+ok(toContentRef(null) === null, "空值不写 reference");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

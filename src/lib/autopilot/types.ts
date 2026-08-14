@@ -15,6 +15,20 @@ export const AUTOPILOT_DISABLED_CAPABILITIES = {
   monitorAgent: "DISABLED",
 } as const;
 
+/**
+ * A0 不改 telemetry 持久化模型：写入保持 fire-and-forget。
+ * A1 开始 Observe 完整性之前，必须先解决 serverless freeze 丢事件问题。
+ */
+export const AUTOPILOT_A1_MANDATORY_BLOCKERS = [
+  {
+    id: "TELEMETRY_DURABILITY",
+    phase: "A1",
+    status: "BLOCKER",
+    reason:
+      "A0 persist is fire-and-forget; serverless freeze can drop Observe events. A1 must add a durable outbox/queue before Observe completeness.",
+  },
+] as const;
+
 /** A0 开放页面；其余仅类型预留，不实现功能 */
 export const AUTOPILOT_A0_PATHS = {
   overview: "/ai/autopilot",
