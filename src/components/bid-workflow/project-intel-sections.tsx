@@ -337,15 +337,7 @@ export function ProjectIntelSections({
   ];
 
   // —— Phase I：30 秒看懂 = Executive Brief 的字段级投影（EXPERIENCE ON） ——
-  // 「最近变化」= 项目活动流 + package/addendum 变更 合并（去重、取前 5）。
-  const mergedChanges = Array.from(
-    new Set([...(brief?.packageChanges ?? []), ...recentChanges]),
-  ).slice(0, 5);
-  const recentField: BriefField =
-    mergedChanges.length > 0
-      ? { state: "READY", value: mergedChanges.join("\n") }
-      : { state: "UNKNOWN", value: "暂无新的重要变化" };
-
+  // FB-17.4：「最近变化」按用户要求从 30 秒看懂隐藏（活动流仍在项目动态可见）
   const f = brief?.fields;
   const ext = brief?.external;
   const briefCards: Array<{ label: string; field: BriefField; text: string }> = [

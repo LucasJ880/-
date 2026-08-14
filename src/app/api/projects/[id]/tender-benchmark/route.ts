@@ -5,6 +5,7 @@ import {
   missingOrgResponse,
   orgIdOf,
   requireTenderAnalysisRead,
+  requireTenderAnalysisWrite,
 } from "@/lib/tender-auto-analysis/api-access";
 import { readAnalystSynthesis } from "@/lib/tender-analyst/contract";
 import {
@@ -61,12 +62,24 @@ export async function GET(
       awardDate: true,
     },
   });
-  // 仅保留已有 Analyst 分析的候选（对比要求两侧同管线产物）
-  const withAnalysis: typeof candidates = [];
-  for (const c of candidates) {
-    const r = await latestReadyRun(c.id, orgId);
-    if (r && readAnalystSynthesis(r.summaryJson)) withAnalysis.push(c);
+  // 仅保留已有 Analyst 分析的候选（单查询 + JS 取每项目最新，避免 N+1）
+  const runs = await db.tenderAnalysisRun.findMany({
+    where: {
+      projectId: { in: candidates.map((c) => c.id) },
+      orgId,
+      status: { in: READY },
+    },
+    orderBy: [{ projectId: "asc" }, { createdAt: "desc" }],
+    select: { projectId: true, summaryJson: true },
+  });
+  const latestByProject = new Map<string, (typeof runs)[number]>();
+  for (const r of runs) {
+    if (!latestByProject.has(r.projectId)) latestByProject.set(r.projectId, r);
   }
+  const withAnalysis = candidates.filter((c) => {
+    const r = latestByProject.get(c.id);
+    return r && readAnalystSynthesis(r.summaryJson);
+  });
 
   return NextResponse.json({ benchmark, candidates: withAnalysis });
 }
@@ -76,7 +89,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: projectId } = await params;
-  const access = await requireTenderAnalysisRead(request, projectId);
+  const access = await requireTenderAnalysisWrite(request, projectId);
   if (isAccessError(access)) return access;
   const orgId = orgIdOf(access);
   if (!orgId) return missingOrgResponse();

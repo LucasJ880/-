@@ -23,11 +23,11 @@ type Props = {
   showDetailLink?: boolean;
 };
 
+// 仅自转移状态需要轮询；REVIEW_REQUIRED 等人工审批、无自转移（FB-1 后横幅也不渲染）
 const ACTIVE = new Set([
   "PENDING",
   "EXTRACTING",
   "ANALYZING",
-  "REVIEW_REQUIRED",
 ]);
 
 export function AnalysisProgressBanner({

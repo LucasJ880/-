@@ -22,6 +22,7 @@ import {
   buildResolveUserPrompt,
 } from "@/lib/tender-understanding/prompts";
 import { resolutionOutputSchema } from "@/lib/tender-understanding/contract";
+import { normalizeForMatch } from "@/lib/tender-understanding/normalize";
 
 const MAX_QUESTIONS_PER_PASS = 10;
 const MAX_CANDIDATE_PAGES = 12;
@@ -158,19 +159,35 @@ export async function resolveOwnerReplies(input: {
       res.ok &&
       res.value.resolved &&
       res.value.answerDocumentId &&
+      res.value.answerPageNumber != null &&
       res.value.answerSnippet &&
       res.value.answerSummary
     ) {
-      results.push({
-        questionId: q.id,
-        questionTitle: q.title,
-        answerSummary: res.value.answerSummary,
-        documentId: res.value.answerDocumentId,
-        documentTitle: titleByDoc.get(res.value.answerDocumentId) ?? null,
-        pageNumber: res.value.answerPageNumber ?? 1,
-        answerSnippet: res.value.answerSnippet,
-        resolvedAt: new Date().toISOString(),
-      });
+      // 证据硬验证（与 clarify.ts verifyResolutionEvidence 同纪律）：
+      // 引用的 文档+页 必须在候选集内，且逐字引文必须真实出现在该页文本中。
+      // 幻觉引用一律拒收——问题保持「待回复」，绝不伪造已回答状态与页码。
+      const cited = candidates.find(
+        (c) =>
+          c.documentId === res.value.answerDocumentId &&
+          c.pageNumber === res.value.answerPageNumber,
+      );
+      const snippetVerified =
+        cited != null &&
+        normalizeForMatch(cited.contentText).includes(
+          normalizeForMatch(res.value.answerSnippet),
+        );
+      if (snippetVerified) {
+        results.push({
+          questionId: q.id,
+          questionTitle: q.title,
+          answerSummary: res.value.answerSummary,
+          documentId: res.value.answerDocumentId,
+          documentTitle: titleByDoc.get(res.value.answerDocumentId) ?? null,
+          pageNumber: res.value.answerPageNumber,
+          answerSnippet: res.value.answerSnippet,
+          resolvedAt: new Date().toISOString(),
+        });
+      }
     }
   }
 

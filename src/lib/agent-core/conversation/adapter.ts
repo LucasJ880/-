@@ -227,8 +227,10 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
         if (!md.trim()) return { success: false, data: null, error: "导出内容为空" };
         const { buildExportHtml } = await import("./export-document");
         const { putPrivateBlob } = await import("@/lib/files/blob-access");
+        // 走 projects/ 前缀：私有 Blob 代理只放行 allow-list 前缀，
+        // conversations/ 不在其中会 404（项目读权限正是会话导出的正确授权面）
         const blob = await putPrivateBlob({
-          pathname: `conversations/${conversationId}/exports/${Date.now()}.html`,
+          pathname: `projects/${projectId}/exports/${conversationId}-${Date.now()}.html`,
           body: Buffer.from(buildExportHtml(title, md), "utf-8"),
           contentType: "text/html; charset=utf-8",
         });
