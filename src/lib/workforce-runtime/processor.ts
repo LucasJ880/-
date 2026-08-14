@@ -14,7 +14,13 @@
  */
 
 import { db } from "@/lib/db";
-import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
+import {
+  appendAgentRunEvent,
+  mergeAgentRunMetadata,
+} from "@/lib/agent-runtime/run";
+import { getRuntimeV2Limits } from "@/lib/agent-runtime-v2/flags";
+import { PLAN_SOURCE } from "./server-plan";
+import { WORKFORCE_TASK_CONTRACT_WRITE_VERSION } from "./task-contract";
 import {
   claimRunLease,
   renewRunLease,
@@ -366,11 +372,27 @@ export async function processWorkforceJobSlice(
       // validation → sanitized assignment。unknown workerKey / 非法 taskKind
       // → FAIL VALIDATION，走现有 planner failure path（throw → 退避重试，
       // 重规划或 attempts 耗尽 failed；planJson 未持久化，不产生半成品计划）。
-      const { applyWorkforceTaskSpecs } = await import("./task-contract");
-      const adapted = applyWorkforceTaskSpecs(planned.plan);
-      if (!adapted.ok) {
-        throw new Error(`${adapted.code}: ${adapted.error}`);
+      // T5-P0A §4：LLM 计划与 server-authored 计划共用同一条验证链
+      // （compileWorkforcePlan = Zod/工具白名单 → DAG 结构 → task spec）。
+      // 绝不允许两侧各写一套标准；本轮为该链补上依赖闭包/环检测，
+      // LLM 路径同样受益（此前悬空依赖只会在 executor 表现为 blocked_graph 卡死）。
+      const { compileWorkforcePlan } = await import("./plan-compile");
+      const compiledPlan = compileWorkforcePlan({
+        raw: planned.plan,
+        tools: scopedTools ?? [],
+        maxSteps: getRuntimeV2Limits().maxSteps,
+      });
+      if (!compiledPlan.ok) {
+        throw new Error(`${compiledPlan.code}: ${compiledPlan.error}`);
       }
+      const adapted = { plan: compiledPlan.compiled.plan };
+
+      // §5/§28：计划来源可观测（LLM 路径显式标记；server 路径在 job.ts 写入）
+      await mergeAgentRunMetadata(orgId, runId, {
+        planSource: PLAN_SOURCE.LLM_PLANNER,
+        taskContractVersion: WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
+        planTaskCount: compiledPlan.compiled.taskCount,
+      }).catch(() => {});
 
       // §10 + BLOCKER 1：planner（长 await）之后、persist 之前重新验证租约
       const renewedAfterPlan = await renewRunLease({

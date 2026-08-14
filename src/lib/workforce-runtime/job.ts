@@ -25,6 +25,14 @@ import {
 } from "@/lib/ai/runtime-context";
 import { WORKFORCE_JOB_RUN_TYPE } from "./constants";
 import { isWorkforceRuntimeEnabled } from "./flags";
+import {
+  PLAN_SOURCE,
+  WORKFORCE_PLAN_CONTRACT_VERSION,
+  type ServerAuthoredPlanV1,
+} from "./server-plan";
+import { compileServerAuthoredPlan, type CompiledPlan } from "./plan-compile";
+import { WORKFORCE_TASK_CONTRACT_WRITE_VERSION } from "./task-contract";
+import { getRuntimeV2Limits } from "@/lib/agent-runtime-v2/flags";
 
 export type CreateWorkforceJobInput = {
   orgId: string;
@@ -46,9 +54,27 @@ export type CreateWorkforceJobInput = {
    * 竞态。server-only：仅浅层、有界、且不得覆盖保留键（fail-closed）。
    */
   extraMetadata?: Record<string, unknown>;
+  /**
+   * T5-P0A：server-authored deterministic plan（可选）。
+   *
+   * **只能由受信服务端代码构造**——API/客户端无法经此传入任意 DAG：
+   * 该字段不在任何请求体解析路径上，且 planSource 等провenance 键已进
+   * RESERVED_METADATA_KEYS（extraMetadata 无法伪造）。
+   *
+   * 提供时：计划先过与 LLM planner **完全相同**的验证链（见 plan-compile.ts），
+   * 校验失败 → 零 DB 写入直接返回 ok:false（不留孤儿 run）；
+   * 校验通过 → run 创建后同步落 planJson + steps，processor 的
+   * `if (!run.planJson)` 守卫因此天然跳过 planner（planner LLM 调用 = 0）。
+   */
+  plan?: ServerAuthoredPlanV1;
+  /** server plan 的 executionMode/preferredTool 白名单（与 planner 同一 scope 工具集） */
+  planTools?: Array<{ name: string }>;
 };
 
-/** metadata 保留键：extraMetadata 不得覆盖（server 构造语义） */
+/**
+ * metadata 保留键：extraMetadata 不得覆盖（server 构造语义）。
+ * T5-P0A 追加 plan provenance 键——防止调用方伪造 planSource=SERVER_AUTHORED。
+ */
 const RESERVED_METADATA_KEYS = new Set([
   "runtimeVersion",
   "goal",
@@ -57,6 +83,11 @@ const RESERVED_METADATA_KEYS = new Set([
   "channel",
   "source",
   "jobId",
+  "planSource",
+  "planContractVersion",
+  "taskContractVersion",
+  "planTaskCount",
+  "plannerLlmCalls",
 ]);
 
 function sanitizeExtraMetadata(
@@ -119,6 +150,27 @@ export async function createWorkforceJob(
     return { ok: false, error: extra.error };
   }
 
+  // T5-P0A §6：server-authored 计划**先于任何 DB 写入**完成校验。
+  // 非法计划 → 零副作用返回，绝不产生"已创建但永远无法执行"的孤儿 run。
+  // fail-closed：绝不静默回落 LLM planner（那会掩盖确定性契约缺陷，见 T5 §21）。
+  let compiled: CompiledPlan | null = null;
+  if (input.plan) {
+    const result = compileServerAuthoredPlan({
+      plan: input.plan,
+      tools: (input.planTools ?? []) as Parameters<
+        typeof compileServerAuthoredPlan
+      >[0]["tools"],
+      maxSteps: getRuntimeV2Limits().maxSteps,
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: `DETERMINISTIC_PLAN_INVALID:${result.code}:${result.error}`,
+      };
+    }
+    compiled = result.compiled;
+  }
+
   const channel = input.channel ?? "workforce";
   const session = await getOrCreateAgentSession({
     orgId: input.orgId,
@@ -163,6 +215,16 @@ export async function createWorkforceJob(
       threadId: input.threadId ?? null,
       channel,
       source: runtime.source,
+      // T5-P0A §5/§28：计划来源与契约版本（server 权威、保留键防伪造、可观测）
+      planSource: compiled ? PLAN_SOURCE.SERVER_AUTHORED : PLAN_SOURCE.LLM_PLANNER,
+      ...(compiled
+        ? {
+            planContractVersion: WORKFORCE_PLAN_CONTRACT_VERSION,
+            taskContractVersion: WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
+            planTaskCount: compiled.taskCount,
+            plannerLlmCalls: 0,
+          }
+        : {}),
     },
   });
   const run = created.run;
@@ -175,6 +237,40 @@ export async function createWorkforceJob(
       traceId: run.traceId,
       reused: true,
     };
+  }
+
+  // T5-P0A §6：server-authored 计划在"入队之前"落库。
+  // 顺序刻意如此——planJson + steps 先就位，再把 run 置 queued，
+  // 于是 processor 认领时 `if (!run.planJson)` 恒为 false（planner 零调用），
+  // 且不存在"已入队但无计划"的可执行孤儿窗口。
+  // 持久化失败 → run 直接进终态 failed（绝不留 PENDING forever）。
+  if (compiled) {
+    try {
+      const { persistPlanAndSteps } = await import(
+        "@/lib/agent-runtime-v2/persist"
+      );
+      await persistPlanAndSteps({
+        orgId: input.orgId,
+        runId: run.id,
+        plan: compiled.plan,
+      });
+    } catch (err) {
+      await db.agentRun
+        .update({
+          where: { id: run.id },
+          data: {
+            status: "failed",
+            errorCode: "deterministic_plan_persist_failed",
+            errorMessage: `server-authored 计划持久化失败：${
+              err instanceof Error ? err.message : String(err)
+            }`.slice(0, 500),
+            nextAttemptAt: null,
+            leaseExpiresAt: null,
+          },
+        })
+        .catch(() => {});
+      return { ok: false, error: "DETERMINISTIC_PLAN_PERSIST_FAILED" };
+    }
   }
 
   // durable queue 就绪：v2 runtime + queued + 立即可认领

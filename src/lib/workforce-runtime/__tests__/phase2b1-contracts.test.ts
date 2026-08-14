@@ -26,6 +26,7 @@ import {
   applyWorkforceTaskSpecs,
   readWorkforceTaskSpec,
   WORKFORCE_TASK_CONTRACT_VERSION,
+  WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
 } from "../task-contract";
 import {
   buildWorkforceHandoffV1,
@@ -130,7 +131,8 @@ async function main() {
     const ss = readWorkforceTaskSpec({ workforceTask: specs[2] });
     ok(
       sa.kind === "valid" &&
-        sa.spec.contractVersion === WORKFORCE_TASK_CONTRACT_VERSION &&
+        // T5-P0B：新 writer 一律写 v1.1（reader 仍兼容库中既有 v1，见 t5-task-version 测试）
+        sa.spec.contractVersion === WORKFORCE_TASK_CONTRACT_WRITE_VERSION &&
         sa.spec.worker.workerKey === "sales_worker" &&
         sa.spec.taskKind === "work",
       "未提议 → server 默认指派 sales_worker/work",
