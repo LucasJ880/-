@@ -27,16 +27,37 @@ type AwardRow = {
 };
 
 type Intelligence = {
-  basis: { totalRecords: number; evidenceBacked: number; aiOnly: number; needsReview: number };
-  procurementCycle: {
+  basis: { totalRecords: number; authoritative: number; aiOnly: number; needsReview: number };
+  buyerPattern: {
+    buyers: Array<{
+      buyerName: string;
+      totalAwards: number;
+      authoritative: number;
+      cycle: {
+        status: string;
+        reason: string | null;
+        sampleSize: number;
+        medianIntervalDays: number | null;
+      };
+    }>;
+  };
+  historicalValues: {
+    label: string;
+    comparability: string;
+    byCurrency: Array<{ currency: string; sampleSize: number; min: number; max: number; median: number }>;
+  };
+  comparablePricing: {
     status: string;
     reason: string | null;
-    sampleSize: number;
-    medianIntervalDays: number | null;
-  };
-  pricingHistory: {
-    status: string;
-    byCurrency: Array<{ currency: string; sampleSize: number; min: number; max: number; median: number }>;
+    groups: Array<{
+      buyerName: string;
+      comparableScopeKey: string;
+      currency: string;
+      sampleSize: number;
+      min: number;
+      max: number;
+      median: number;
+    }>;
   };
   competitorSignals: {
     confirmed: Array<{ name: string; awardCount: number; lastAwardDate: string | null }>;
@@ -66,6 +87,7 @@ export default function IntelAwardsPage() {
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [notEnabled, setNotEnabled] = useState(false);
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -79,9 +101,13 @@ export default function IntelAwardsPage() {
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       const qs = params.toString();
-      const res = await apiJson<{ records: AwardRow[]; intelligence: Intelligence }>(
-        `/api/org/tender-awards${qs ? `?${qs}` : ""}`,
-      );
+      const res = await apiJson<{
+        available: boolean;
+        reason?: string;
+        records: AwardRow[];
+        intelligence: Intelligence | null;
+      }>(`/api/org/tender-awards${qs ? `?${qs}` : ""}`);
+      setNotEnabled(res.available === false);
       setRows(res.records);
       setIntel(res.intelligence);
     } catch (e) {
@@ -95,29 +121,32 @@ export default function IntelAwardsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
+  if (notEnabled) {
+    return (
+      <IntelHubShell title="历史中标">
+        <div className="rounded-xl border border-dashed border-[var(--border)] p-8 text-sm text-[var(--muted)] space-y-2">
+          <p>组织授标情报尚未启用。</p>
+          <p>项目内的「历史授标检索」与人工确认照常可用；组织级沉淀将在数据层启用后自动开放。</p>
+        </div>
+      </IntelHubShell>
+    );
+  }
+
   return (
     <IntelHubShell title="历史中标">
       <div className="space-y-4">
-        {/* 统计条：证据基础诚实展示 */}
+        {/* 统计条：证据基础诚实展示（周期属于买家×可比范围，绝无组织级周期数字） */}
         {intel && (
           <div className="flex flex-wrap gap-3 text-xs text-[var(--muted)]">
             <span>
               共 <b className="text-[var(--foreground)]">{intel.basis.totalRecords}</b> 条组织授标记录
             </span>
-            <span>已确认/权威 {intel.basis.evidenceBacked}</span>
+            <span>已确认/权威 {intel.basis.authoritative}</span>
             <span>AI 待确认 {intel.basis.aiOnly}</span>
-            {intel.basis.needsReview > 0 && <span>待复核 {intel.basis.needsReview}</span>}
-            {intel.procurementCycle.medianIntervalDays != null ? (
-              <span>
-                采购间隔中位 {intel.procurementCycle.medianIntervalDays} 天（样本{" "}
-                {intel.procurementCycle.sampleSize}）
-              </span>
-            ) : (
-              <span>采购周期：数据不足</span>
-            )}
-            {intel.pricingHistory.byCurrency.map((g) => (
+            {intel.basis.needsReview > 0 && <span>待复核（不计入统计）{intel.basis.needsReview}</span>}
+            {intel.historicalValues.byCurrency.map((g) => (
               <span key={g.currency}>
-                {g.currency} 历史金额中位 {g.median.toLocaleString()}（{g.sampleSize} 条）
+                {g.currency} 历史合同金额中位 {g.median.toLocaleString()}（{g.sampleSize} 条原始记录·不可直接对标）
               </span>
             ))}
           </div>
@@ -214,6 +243,42 @@ export default function IntelAwardsPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* 按买家采购周期：周期只属于 买家×可比范围组；无可比组诚实「数据不足」 */}
+        {intel && intel.buyerPattern.buyers.length > 0 && (
+          <div className="rounded-xl border border-[var(--border)] p-4 text-sm space-y-1">
+            <h3 className="font-semibold">按买家采购规律</h3>
+            {intel.buyerPattern.buyers.map((b) => (
+              <p key={b.buyerName || "(未知买家)"} className="text-xs text-[var(--muted)]">
+                <b className="text-[var(--foreground)]">{b.buyerName || "（买家未知）"}</b>
+                ：历史 {b.totalAwards} 条（权威 {b.authoritative}）·{" "}
+                {b.cycle.medianIntervalDays != null
+                  ? `同类采购间隔中位 ${b.cycle.medianIntervalDays} 天（可比样本 ${b.cycle.sampleSize}${b.cycle.status === "LOW_CONFIDENCE" ? "·低置信" : ""}）`
+                  : "采购周期：可比数据不足"}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* 可比价格：仅 买家×可比范围×币种 组内样本足够才展示；否则诚实说明 */}
+        {intel && (
+          <div className="rounded-xl border border-[var(--border)] p-4 text-sm space-y-1">
+            <h3 className="font-semibold">可比价格参考</h3>
+            {intel.comparablePricing.groups.length > 0 ? (
+              intel.comparablePricing.groups.map((g) => (
+                <p key={`${g.buyerName}-${g.comparableScopeKey}-${g.currency}`} className="text-xs text-[var(--muted)]">
+                  <b className="text-[var(--foreground)]">{g.buyerName}</b> · {g.comparableScopeKey}：
+                  {g.currency} {g.min.toLocaleString()} ~ {g.max.toLocaleString()}，中位{" "}
+                  {g.median.toLocaleString()}（可比样本 {g.sampleSize}）
+                </p>
+              ))
+            ) : (
+              <p className="text-xs text-[var(--muted)]">
+                暂无可比价格组（不同买家/范围/币种的历史金额不可直接比较）。上方历史合同金额仅为原始记录汇总，不代表当前目标价。
+              </p>
+            )}
           </div>
         )}
 

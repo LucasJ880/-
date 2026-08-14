@@ -18,6 +18,7 @@
 
 import { db } from "@/lib/db";
 import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
+import { isT4AwardSchemaReadyWithEnv } from "./award-flags";
 
 /* ------------------------------- 词表/类型 ------------------------------- */
 
@@ -373,6 +374,34 @@ export async function createOrObserveAwardRecord(
     data: { ...sourceData, awardRecordId: record.id },
   });
   return { outcome: weak ? "NEEDS_REVIEW" : "CREATED", record, sourceId: src.id };
+}
+
+export type MaterializeWinnerResult =
+  | { materialized: true; record: AwardRecordRow; sourceId: string; outcome: ObserveAwardResult["outcome"] }
+  | { materialized: false; reason: "SCHEMA_NOT_READY" };
+
+/**
+ * 人工确认 → canonical materialize 的 schema-ready gate 入口（生产激活闸）。
+ *
+ * T4_AWARD_INTELLIGENCE_SCHEMA_READY=false（默认）→ 兼容策略 B：
+ * 返回 { materialized:false, reason:"SCHEMA_NOT_READY" }，对 T4 表 **0 次访问**
+ * （调用方保持 merge 前行为：仅写 room.summaryJson.externalConfirmed）。
+ * ready=true → 正常 createOrObserveAwardRecord（幂等/去重/verification 铁律不变）。
+ */
+export async function materializeWinnerConfirmation(
+  input: ObserveAwardInput,
+  opts?: { client?: AwardsDbClient; env?: Record<string, string | undefined> },
+): Promise<MaterializeWinnerResult> {
+  if (!isT4AwardSchemaReadyWithEnv(opts?.env ?? process.env)) {
+    return { materialized: false, reason: "SCHEMA_NOT_READY" };
+  }
+  const observed = await createOrObserveAwardRecord(input, { client: opts?.client });
+  return {
+    materialized: true,
+    record: observed.record,
+    sourceId: observed.sourceId,
+    outcome: observed.outcome,
+  };
 }
 
 /** 人工确认既有记录（AI_EXTRACTED / NEEDS_REVIEW → HUMAN_CONFIRMED；唯一提升入口之二） */

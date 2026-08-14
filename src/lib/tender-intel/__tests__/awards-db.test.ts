@@ -309,10 +309,11 @@ console.log("tender-intel awards — REAL Postgres 矩阵（隔离 DB）");
   {
     const two = await listAwardsForOrg({ orgId: ORG_B });
     const projTwo = deriveAwardIntelligence(two);
+    const twoCycle = projTwo.buyerPattern.buyers[0]?.cycle;
     ok(
-      projTwo.procurementCycle.status === "UNKNOWN" &&
-        (projTwo.procurementCycle.reason ?? "").includes("INSUFFICIENT_SAMPLES"),
-      "T4-DB-12a 样本不足（1 条）→ UNKNOWN",
+      twoCycle?.status === "UNKNOWN" &&
+        (twoCycle.reason ?? "").includes("INSUFFICIENT_COMPARABLE_DATA"),
+      "T4-DB-12a 可比样本不足（1 条）→ 买家周期 UNKNOWN",
     );
     for (let i = 0; i < 3; i++) {
       await createOrObserveAwardRecord(
@@ -328,12 +329,14 @@ console.log("tender-intel awards — REAL Postgres 矩阵（隔离 DB）");
     }
     const rows = await listAwardsForOrg({ orgId: ORG_B });
     const proj = deriveAwardIntelligence(rows);
+    const cycle = proj.buyerPattern.buyers[0]?.cycle;
     ok(
-      proj.procurementCycle.sampleSize >= 3 &&
-        proj.procurementCycle.medianIntervalDays != null &&
-        proj.procurementCycle.medianIntervalDays > 300 &&
-        proj.procurementCycle.medianIntervalDays < 400,
-      "T4-DB-12b 样本≥3 → 确定性间隔统计（中位≈365d）",
+      (cycle?.sampleSize ?? 0) >= 3 &&
+        cycle?.medianIntervalDays != null &&
+        cycle.medianIntervalDays > 250 &&
+        cycle.medianIntervalDays < 400 &&
+        cycle.comparableScopeKey != null,
+      "T4-DB-12b 同买家同范围样本≥3 → 确定性间隔统计（含可比组键）",
     );
   }
 
@@ -352,10 +355,17 @@ console.log("tender-intel awards — REAL Postgres 矩阵（隔离 DB）");
     );
     const rows = await listAwardsForOrg({ orgId: ORG_B });
     const proj = deriveAwardIntelligence(rows);
-    const currencies = proj.pricingHistory.byCurrency.map((g) => g.currency).sort();
+    const currencies = proj.historicalValues.byCurrency.map((g) => g.currency).sort();
     ok(
-      currencies.includes("CAD") && currencies.includes("USD") && proj.pricingHistory.byCurrency.length >= 2,
-      "T4-DB-13 CAD/USD 分组独立统计，绝不混合 median",
+      currencies.includes("CAD") &&
+        currencies.includes("USD") &&
+        proj.historicalValues.byCurrency.length >= 2 &&
+        proj.historicalValues.comparability === "NOT_COMPARABLE_FOR_BID",
+      "T4-DB-13 CAD/USD 原始金额分组独立、标注不可对标，绝不混合 median",
+    );
+    ok(
+      proj.comparablePricing.groups.every((g) => g.currency !== "USD" || g.sampleSize >= 3),
+      "T4-DB-13b 可比价格组仅在同组样本≥3 时出现",
     );
   }
 

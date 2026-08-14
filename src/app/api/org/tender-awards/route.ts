@@ -10,12 +10,24 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAwardsForOrg, toAmountNumber } from "@/lib/tender-intel/awards";
 import { deriveAwardIntelligence } from "@/lib/tender-intel/award-intelligence";
+import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const orgRes = await resolveRequestOrgIdForUser(user, searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
   const orgId = orgRes.orgId;
+
+  // 生产激活闸：T4 schema 未 ready → 对 AwardRecord 表 0 次访问，绝不 500
+  if (!isT4AwardSchemaReady()) {
+    return NextResponse.json({
+      orgId,
+      available: false,
+      reason: "SCHEMA_NOT_READY",
+      records: [],
+      intelligence: null,
+    });
+  }
 
   const parseDate = (v: string | null): Date | null => {
     if (!v) return null;
@@ -42,6 +54,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   return NextResponse.json({
     orgId,
+    available: true,
     records: records.map((r) => ({
       id: r.id,
       buyerName: r.buyerNameRaw,

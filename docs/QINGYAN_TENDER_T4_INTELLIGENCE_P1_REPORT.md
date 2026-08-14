@@ -1,6 +1,38 @@
 # 青砚 Tender T4 — Intelligence Foundation P1 报告
 
-日期：2026-08-14 ｜ 分支：`feature/tender-t4-p1-t5-convergence`（基线 main @ `48200b9`）｜ 状态：**P1_COMPLETE（代码层）**，DB 实库演练未跑（见「未完成」）
+日期：2026-08-14 ｜ 分支：`feature/tender-t4-p1-t5-convergence`（基线 main @ `48200b9`）｜ 状态：**P1_COMPLETE + 终验 PASS + Final Review 整改完成**
+
+## 0. 生产激活 Runbook（冻结；merge 后按序执行，本轮零生产操作）
+
+**前提事实（隔离演练实证）**：main merge → Vercel 项目 `-` **自动生产部署**（近期 production
+deployments `source=git, branch=main`）。生产库存在 **marketing_economics drift**：
+`MarketingEconomicsSetting` 表+全部索引已存在，但 `_prisma_migrations` 未登记 →
+`migrate deploy` 恒在该迁移 42P07 失败，T2/T3/T4 迁移全部被卡。
+
+因此 PR #107 以 **schema-ready gate**（`T4_AWARD_INTELLIGENCE_SCHEMA_READY`，默认 OFF，
+复用 T2 `project-ledger/flags.ts` canonical 模式）保证 dark-merge 安全：
+gate OFF 时对 AwardRecord/AwardRecordSource **0 次访问**（org API 返回
+`available:false, reason:"SCHEMA_NOT_READY"`；组织页显示「尚未启用」；人工确认走兼容策略 B）。
+
+**人工确认兼容策略 = B（已批准语义）**：gate OFF 时保持 merge 前行为——仅写
+`room.summaryJson.externalConfirmed`（项目级调查结论照常可用），响应
+`awardRecordId:null, canonical:"SCHEMA_NOT_READY"`。一致性契约：externalConfirmed 保留
+vendor/value/date/sourceUrl 全量结构化上下文，schema ready 后可按同一 sourceKey 推导规则
+**幂等补偿 materialize**（确定性 sweep，非双 source-of-truth）。
+
+**激活步骤（每步有 gate，禁止 blind resolve）**：
+1. 只读取证 marketing_economics drift：`SELECT ... information_schema.tables / pg_indexes`
+   逐对象列出生产实际状态（本轮隔离演练脚本可复用）
+2. 逐对象确认生产 schema 与 `20260805090000_marketing_economics/migration.sql` **等价**
+   （表 + 唯一索引 + 普通索引一一对应；不等价 → STOP，人工裁决）
+3. 仅当等价：`prisma migrate resolve --applied 20260805090000_marketing_economics`
+4. `prisma migrate deploy` → 依序应用 T2（20260811002000）/ T3（20260811040000）/
+   T4（20260814150000）——隔离演练已验证此路径全绿
+5. 验证：AwardRecord / AwardRecordSource 存在，
+   `AwardRecordSource_orgId_sourceType_sourceKey_key` 唯一约束 + 全部索引 + FK(RESTRICT) 存在
+6. 生产环境置 `T4_AWARD_INTELLIGENCE_SCHEMA_READY=1` 并 redeploy
+7. 生产烟测：org awards API `available:true`；一次真实检索→确认→组织页可见；
+   （可选）对既有 externalConfirmed 执行幂等补偿 sweep
 
 ## 1. 本轮之前已有什么（审计结论）
 

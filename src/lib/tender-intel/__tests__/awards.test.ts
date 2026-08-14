@@ -368,14 +368,16 @@ console.log("tender-intel awards（T4 canonical service + read model）");
     await createOrObserveAwardRecord(usd, { client });
     rows.push(...records);
     const proj = deriveAwardIntelligence(rows, { now: new Date("2026-08-14T00:00:00Z") });
-    const currencies = proj.pricingHistory.byCurrency.map((g) => g.currency).sort();
-    const cad = proj.pricingHistory.byCurrency.find((g) => g.currency === "CAD");
+    const currencies = proj.historicalValues.byCurrency.map((g) => g.currency).sort();
+    const cad = proj.historicalValues.byCurrency.find((g) => g.currency === "CAD");
     ok(
       currencies.join(",") === "CAD,USD" &&
         cad?.sampleSize === 1 &&
         cad?.median === 120000.5 &&
-        !proj.pricingHistory.byCurrency.some((g) => g.max === 999999),
-      "T4-07 价格：AI 金额被排除；CAD/USD 分组不合并",
+        !proj.historicalValues.byCurrency.some((g) => g.max === 999999) &&
+        proj.historicalValues.label === "RAW_ORG_HISTORY" &&
+        proj.historicalValues.comparability === "NOT_COMPARABLE_FOR_BID",
+      "T4-07 原始金额：AI 排除；币种不合并；RAW_ORG_HISTORY 标注",
     );
     const aiRow = proj.historicalAwards.records.find((r) => r.winnerName === "Rumour Corp");
     ok(aiRow?.contractAmount === null, "T4-07 未确认记录的金额不进入数字层");
@@ -410,31 +412,35 @@ console.log("tender-intel awards（T4 canonical service + read model）");
         createdAt: new Date("2026-01-01"),
         updatedAt: new Date("2026-01-01"),
       }) as AwardRecordRow;
-    const two = deriveAwardIntelligence([base("2023-01-01", 1), base("2024-01-05", 2)], {
+    const withScope = (d: string, i: number): AwardRecordRow =>
+      ({ ...base(d, i), scopeSummary: "annual office furniture supply" }) as AwardRecordRow;
+    const two = deriveAwardIntelligence([withScope("2023-01-01", 1), withScope("2024-01-05", 2)], {
       now: new Date("2026-08-14T00:00:00Z"),
     });
+    const twoCycle = two.buyerPattern.buyers[0]?.cycle;
     ok(
-      two.procurementCycle.status === "UNKNOWN" &&
-        (two.procurementCycle.reason ?? "").includes("INSUFFICIENT_SAMPLES") &&
-        two.procurementCycle.medianIntervalDays === null,
-      "T4-08 两个样本 → UNKNOWN，绝不外推「每年固定采购」",
+      twoCycle?.status === "UNKNOWN" &&
+        (twoCycle.reason ?? "").includes("INSUFFICIENT_COMPARABLE_DATA") &&
+        twoCycle.medianIntervalDays === null,
+      "T4-08 两个可比样本 → UNKNOWN，绝不外推「每年固定采购」",
     );
     const five = deriveAwardIntelligence(
       [
-        base("2021-01-01", 1),
-        base("2022-01-10", 2),
-        base("2023-01-05", 3),
-        base("2024-01-08", 4),
-        base("2025-01-03", 5),
+        withScope("2021-01-01", 1),
+        withScope("2022-01-10", 2),
+        withScope("2023-01-05", 3),
+        withScope("2024-01-08", 4),
+        withScope("2025-01-03", 5),
       ],
       { now: new Date("2026-08-14T00:00:00Z") },
     );
+    const fiveCycle = five.buyerPattern.buyers[0]?.cycle;
     ok(
-      five.procurementCycle.status === "SUPPORTED" &&
-        five.procurementCycle.sampleSize === 5 &&
-        (five.procurementCycle.medianIntervalDays ?? 0) > 300 &&
-        (five.procurementCycle.medianIntervalDays ?? 0) < 400,
-      "T4-08 五个样本 → SUPPORTED + 中位间隔（确定性计算）",
+      fiveCycle?.status === "SUPPORTED" &&
+        fiveCycle.sampleSize === 5 &&
+        (fiveCycle.medianIntervalDays ?? 0) > 300 &&
+        (fiveCycle.medianIntervalDays ?? 0) < 400,
+      "T4-08 同买家同范围五个样本 → SUPPORTED + 中位间隔（确定性计算）",
     );
   }
 

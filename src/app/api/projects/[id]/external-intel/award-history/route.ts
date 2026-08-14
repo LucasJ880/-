@@ -9,12 +9,13 @@ import {
   searchAwardHistory,
 } from "@/lib/tender-intel/canadabuys";
 import {
-  createOrObserveAwardRecord,
+  materializeWinnerConfirmation,
   normalizeVendorName,
   AwardIntelError,
   type AwardsDbClient,
   type AwardSourceType,
 } from "@/lib/tender-intel/awards";
+import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
 
 /**
  * M1/T4 — 历史授标外部检索 + 人工确认落 canonical
@@ -125,7 +126,8 @@ export async function POST(
   if (!vendor) {
     return NextResponse.json({ error: "缺少中标方名称" }, { status: 400 });
   }
-  if (!room.orgId) {
+  const schemaReady = isT4AwardSchemaReady();
+  if (schemaReady && !room.orgId) {
     // canonical 情报必须 org-scoped；无 org 的房间拒绝确认（fail closed，不做半成功）
     return NextResponse.json(
       { error: "该项目缺少组织归属，无法沉淀组织级授标情报" },
@@ -160,9 +162,26 @@ export async function POST(
     sourceUrl,
   };
 
+  // 生产激活闸（兼容策略 B）：T4 schema 未 ready → 保持 merge 前行为，
+  // 仅写项目级调查结论（externalConfirmed），对 T4 表 0 次访问。
+  // 一致性契约：externalConfirmed 保留全量结构化上下文（vendor/value/date/sourceUrl），
+  // schema ready 后可按同一 sourceKey 推导规则幂等补偿 materialize（见 award-flags.ts）。
+  if (!schemaReady) {
+    await db.bidIntelligenceRoom.update({
+      where: { id: room.id },
+      data: { summaryJson: { ...sj, externalConfirmed } },
+    });
+    return NextResponse.json({
+      ok: true,
+      externalConfirmed,
+      awardRecordId: null,
+      canonical: "SCHEMA_NOT_READY",
+    });
+  }
+
   try {
-    const { observed } = await db.$transaction(async (tx) => {
-      const observed = await createOrObserveAwardRecord(
+    const { materialized } = await db.$transaction(async (tx) => {
+      const materialized = await materializeWinnerConfirmation(
         {
           orgId: room.orgId,
           actor: { actorType: "user", userId: access.user.id },
@@ -174,7 +193,7 @@ export async function POST(
             awardDate: body.contractDate ? new Date(body.contractDate) : null,
             contractAmount: body.contractValue ?? null,
             currency: body.contractValue != null ? "CAD" : null,
-            scopeSummary: null,
+            scopeSummary: body.evidenceSnippet ?? null,
           },
           source: {
             sourceType,
@@ -192,14 +211,15 @@ export async function POST(
         where: { id: room.id },
         data: { summaryJson: { ...sj, externalConfirmed } },
       });
-      return { observed };
+      return { materialized };
     });
 
     return NextResponse.json({
       ok: true,
       externalConfirmed,
-      awardRecordId: observed.record.id,
-      awardOutcome: observed.outcome,
+      awardRecordId: materialized.materialized ? materialized.record.id : null,
+      awardOutcome: materialized.materialized ? materialized.outcome : null,
+      canonical: materialized.materialized ? "MATERIALIZED" : materialized.reason,
     });
   } catch (e) {
     const msg =
