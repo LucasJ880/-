@@ -37,14 +37,14 @@ type Bucket = "CAN_MATERIALIZE" | "NEEDS_REVIEW" | "MISSING_EVIDENCE";
       ourBidPrice: true,
       currency: true,
       awardDate: true,
-      bidIntelligenceRoom: { select: { summaryJson: true } },
+      intelligenceRoom: { select: { summaryJson: true } },
     },
   });
 
   const rows: Array<{ id: string; name: string; status: string; bucket: Bucket; why: string }> = [];
 
   for (const p of closed) {
-    const sj = (p.bidIntelligenceRoom?.summaryJson as Record<string, unknown>) ?? {};
+    const sj = (p.intelligenceRoom?.summaryJson as Record<string, unknown>) ?? {};
     const ext = (sj.externalConfirmed as Record<string, unknown>) ?? {};
     const confirmedWinner =
       typeof ext.previousWinner === "string" && ext.previousWinner.trim()

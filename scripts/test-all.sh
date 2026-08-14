@@ -251,6 +251,7 @@ run_test "招标自动分析 V2 映射" "npx tsx src/lib/tender-auto-analysis/__
 run_test "招标 30 秒执行摘要投影" "npx tsx src/lib/tender-auto-analysis/__tests__/executive-brief.test.ts"
 run_test "招标会话 package 上下文" "npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts"
 run_test "招标 V2 持久化 lease fence" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts"
+run_test "T4 授标情报真实 Postgres 矩阵" "npx tsx src/lib/tender-intel/__tests__/awards-db.test.ts"
 run_test "招标 package 覆盖率" "npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts"
 run_test "招标身份对齐（workDomain 单一事实源）" "npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts"
 run_test "招标 Analyst 综合解读语义矩阵（SEM-01..10）" "npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts"
