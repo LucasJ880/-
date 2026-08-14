@@ -102,3 +102,80 @@ reaper 集合（EXTRACTING/ANALYZING）、候选查询（PENDING/FAILED/EXTRACTI
 `AWARD_WATCH_STARTED = NO`（§34）｜ `AUTO_MEMORY_WRITE = NO`（§35，且未给 MemoryClaim 加
 PROPOSED 状态）｜ `LEGACY_QUEUE_RETIRED = NO`（§36）｜ `SECOND_RUNTIME_CREATED = NO`（§2）
 ｜ 生产 DB / env / deploy 零改动（§37）
+
+---
+
+## 7. Segment 1 — 语义保全（Canonical V2 Finalize）
+
+A2「canonical V2 收敛」的第 1 段。**只做语义保全，不做接线。**
+
+### 7.1 缺陷（实证）
+
+`finalizeWorkforceTenderAnalysisRun` 以 `summaryJson = TenderAnalysisResultV1`
+**整体替换**已有 `summaryJson`，并覆盖 `summaryText`：
+
+```
+CURRENT_V2_SUMMARY_OVERWRITE = YES
+```
+
+Workforce 路径一旦接上 canonical V2 管线（Segment 2/3），这一步会抹掉
+`submissionChecklist` / `analystSynthesis` / `brief` / `criticalFacts` /
+`unknowns` / `conflicts` / `addendumChanges` / `evidenceCoverage` / `metadata`
+—— canonical 语义真相被 Runtime 执行摘要覆盖。其中 `submissionChecklist` 正是
+`buildGroundedDeliverables` 的唯一语义来源，丢失即交付物投影 fail-closed。
+
+### 7.2 修复：两个语义清楚的 domain operation
+
+| 函数 | 写入列 | 用途 |
+| --- | --- | --- |
+| `finalizeWorkforceTenderAnalysisRun`（既有，**行为未变**） | status / summaryJson / summaryText / completedAt / 错误字段 | V1 兼容投影（flag OFF、legacy T1B 路径） |
+| `finalizeWorkforceTenderCanonicalV2Run`（新增） | status / completedAt / 错误字段 | canonical V2：**仅状态转换** |
+
+- 模式由 **server 权威调用方显式选择**，不由客户端指定，也**不靠嗅探 summaryJson 形状猜测**。
+- `V2_SUMMARY_TEXT_POLICY = PRESERVE`（canonical 路径不写 `summaryText`）。
+- **不做 `{...old, ...v1}` 盲合并**：两个 contract 语义不同，同名字段会互相污染。
+- ownership / fail-closed 条件两者完全一致（org + project + analysisVersion + status=running
+  条件更新；`count === 0` → 报错，终态不复活）。
+
+### 7.3 验证（真实 Postgres，隔离 Neon 分支，跑完即删）
+
+`scripts/t5-seg1-canonical-finalize-db-validation.ts` —— **17/17 通过**。
+打真库的理由：本段核心不变量是「**哪些列没有被写**」，Prisma 部分更新语义
+无法用纯函数断言，只有真实 UPDATE 后回读才算证明。
+
+> V2-CONV-05 首轮红：拿 DB 回读值与 JS 字面量比字节，被 Postgres `jsonb` 的
+> key 规范化判不等。断言改为比对 **finalize 前/后两次回读**（同一规范化下），
+> 这既修正了探针错误，也比原断言更强 —— 直接证明该列未被本次 UPDATE 触碰。
+
+| 断言 | 内容 |
+| --- | --- |
+| V2-CONV-05 / 05b | `summaryJson` 与 finalize 前逐字节一致；字段数一个不少 |
+| V2-CONV-06/07/08 | `submissionChecklist` / `analystSynthesis` / `brief` 存活 |
+| FINALIZE-01..03 | `criticalFacts` / `conflicts` / `addendumChanges` / `evidenceCoverage` / `metadata` / `unknowns` 存活 |
+| FINALIZE-04 | `summaryText` 保留（PRESERVE） |
+| FINALIZE-05..07 | `AGENT_ANALYZING → REVIEW_REQUIRED`；`completedAt` 写入；遗留错误字段清空 |
+| FINALIZE-08 / 08b | 终态 run 拒绝终态化；跨 org 拒绝且状态未变 |
+| FINALIZE-09 / 10 | V1 兼容路径行为逐字段不变（仍写 V1 投影并覆盖 `summaryText`） |
+
+回归：`t5-plan-seam` 36/36、`t5-execution-policy` 41/41、`phase2b1-contracts` 60/60、
+`phase2b2-parallel-policy` 43/43、`t1b-pure` 34/34、`verifier-security` 15/15；`tsc --noEmit` 干净。
+
+与 `scripts/pr106-v2-fence-db-validation.ts` 同纪律：DB 平面脚本放 `scripts/`，
+**不注册进 test-all**（test-all 主体为无 DB 纯平面，注册会让无库 CI 变红）。
+
+### 7.4 边界
+
+```
+CANONICAL_V2_FINALIZE_CAPABILITY      = READY
+CURRENT_DAG_CANONICAL_V2_FINALIZE_ENABLED = NO
+SCHEMA_CHANGE                          = NONE
+```
+
+`t9_finalize_analysis` 仍调用 V1 兼容函数 —— 当前 DAG 走的是 legacy 语义抽取，
+提前切换只会造成「旧语义抽取 + V2 状态终态化」的另一种半迁移状态。切换属 Segment 3。
+
+**`T5_P1_GATE` 仍非 PASS**：§5 的隔离 Neon 真实 E2E 未执行，本段未改变该结论。
+
+未启动：Segment 2（`persistV2CanonicalTx` 抽取 / Workforce V2 fence / `RunFence` 进
+AdapterContext / `tender_analyze_package_v2`）、Segment 3（工具投影化 + DAG + verifier 标准）、
+Segment 4（双路真实 E2E + parity + LLM 计数）。

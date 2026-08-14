@@ -296,9 +296,70 @@ export async function upsertWorkforceRiskSection(input: {
 }
 
 /**
- * 终态化（成功）：AGENT_ANALYZING → REVIEW_REQUIRED + 结构化结果落
+ * T5-P1 Segment 1 — 语义保全（CANONICAL V2 FINALIZE）
+ *
+ * 背景（实证缺陷）：`finalizeWorkforceTenderAnalysisRun` 用
+ * `summaryJson = TenderAnalysisResultV1` **整体替换**已有 summaryJson。
+ * 一旦 Workforce 路径接入 canonical V2 管线（Segment 2/3），这一步会把
+ * V2 的 submissionChecklist / analystSynthesis / brief / criticalFacts /
+ * unknowns / conflicts / addendumChanges / evidenceCoverage / metadata
+ * 全部抹掉——canonical 语义真相被 Runtime 执行摘要覆盖。
+ *
+ * 本函数提供**仅状态转换**的终态化：AGENT_ANALYZING → REVIEW_REQUIRED，
+ * 只写 status / completedAt / 清错误字段，**绝不触碰 summaryJson 与 summaryText**
+ * （V2_SUMMARY_TEXT_POLICY = PRESERVE）。
+ *
+ * 刻意不做 `{...old, ...v1}` 盲合并：两个 contract 语义不同，同名字段会互相污染。
+ * V1 执行摘要在 V2 模式下作为 tool result / handoff 返回，不落 canonical 位置
+ * （本段不为它新增 schema）。
+ *
+ * ⚠️ 能力就绪 ≠ 已启用：当前 deterministic DAG 仍走 legacy 语义抽取，
+ * 因此 **t9 尚未切到本函数**（CURRENT_DAG_CANONICAL_V2_FINALIZE_ENABLED = NO）。
+ * 切换属于 Segment 3——提前切会造成「旧语义抽取 + V2 状态终态化」的另一种半迁移状态。
+ *
+ * ownership / fail-closed 条件与 V1 路径完全一致：org + project + analysisVersion
+ * + status=running 的条件更新；终态（cancelled/failed/superseded）不可复活。
+ */
+export async function finalizeWorkforceTenderCanonicalV2Run(input: {
+  orgId: string;
+  projectId: string;
+  analysisRunId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const updated = await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: input.analysisRunId,
+      orgId: input.orgId,
+      projectId: input.projectId,
+      analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
+      status: TENDER_AGENT_RUN_STATUS.running,
+    },
+    // 仅状态转换：summaryJson / summaryText 不在 data 中 → canonical V2 结果原样保留
+    data: {
+      status: TENDER_AGENT_RUN_STATUS.reviewRequired,
+      completedAt: new Date(),
+      errorCode: null,
+      errorMessageSanitized: null,
+    },
+  });
+  if (updated.count === 0) {
+    return {
+      ok: false,
+      error:
+        "分析记录不处于进行中状态（可能已被取消或被新的分析取代），拒绝终态化",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * 终态化（成功，**V1 兼容投影**）：AGENT_ANALYZING → REVIEW_REQUIRED + 结构化结果落
  * summaryJson（tender-analysis-result/v1）。条件更新：run 已被取消/
  * 失败/superseded 时拒绝覆盖（fail-closed，不复活终态）。
+ *
+ * T5-P1 Segment 1：本函数保持**现有行为完全不变**，服务于 flag OFF /
+ * legacy T1B Workforce 路径。canonical V2 路径请显式调用
+ * {@link finalizeWorkforceTenderCanonicalV2Run}——调用方必须显式选择语义，
+ * 禁止靠"summaryJson 里有没有某个字段"猜模式。
  */
 export async function finalizeWorkforceTenderAnalysisRun(input: {
   orgId: string;
