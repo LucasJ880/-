@@ -315,11 +315,13 @@ console.log("tender-intel awards — REAL Postgres 矩阵（隔离 DB）");
         (twoCycle.reason ?? "").includes("INSUFFICIENT_COMPARABLE_DATA"),
       "T4-DB-12a 可比样本不足（1 条）→ 买家周期 UNKNOWN",
     );
+    // 周期可比组 = 买家×范围（winner 各异，避免同 winner+buyer 弱匹配落 NEEDS_REVIEW——
+    // NEEDS_REVIEW 记录按语义规则不得进入周期统计）
     for (let i = 0; i < 3; i++) {
       await createOrObserveAwardRecord(
         input(ORG_B, {
           award: {
-            winnerName: "ACME Foam Ltd.",
+            winnerName: `Cycle Winner ${i} Ltd`,
             solicitationNumber: `T4DB-${TS}-CY${i}`,
             awardDate: new Date(2021 + i, 3, 10),
           },
