@@ -136,9 +136,24 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
   const kbId = conv.knowledgeBaseId ?? null;
   const kbContext = await buildKBContext(kbId);
 
+  // Phase G：Tender 项目会话默认注入 package 分析上下文（复用本 runtime，不新建聊天系统）。
+  // best-effort：失败或非 tender 项目返回 null，不影响普通会话。
+  let tenderContext: string | null = null;
+  try {
+    const { buildTenderPackageContext } = await import(
+      "@/lib/tender-auto-analysis/chat-context"
+    );
+    tenderContext = await buildTenderPackageContext(projectId);
+  } catch {
+    tenderContext = null;
+  }
+
   const systemParts: string[] = [];
   if (snapshot?.systemPromptSnapshot) systemParts.push(snapshot.systemPromptSnapshot);
   if (behaviorNote) systemParts.push(behaviorNote);
+  if (tenderContext) {
+    systemParts.push(tenderContext);
+  }
   if (kbContext) {
     systemParts.push("以下是来自知识库的参考内容，请在回答时优先参考：\n\n" + kbContext);
   }
@@ -189,6 +204,47 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
       };
     });
 
+    // FB-11：内建文档导出工具——把会话结论渲染为可下载 HTML（打印即 PDF），
+    // 存私有 Blob 返回真实链接；此前会话没有任何导出工具，模型只能说“无法提供下载链接”。
+    extraTools.push({
+      name: "export_document",
+      description:
+        "将结论/清单/报告导出为可下载文档。传入 title 与 contentMarkdown（Markdown 正文），返回 downloadUrl（HTML 文档，浏览器打开后可直接打印/另存为 PDF）。当用户要求“导出/下载/生成文件/PDF”时使用。",
+      domain: "project",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "文档标题" },
+          contentMarkdown: { type: "string", description: "Markdown 正文" },
+        },
+        required: ["title", "contentMarkdown"],
+      },
+      risk: "l0_read",
+      allowRoles: "*",
+      execute: async (ctx) => {
+        const title = String(ctx.args.title ?? "会话导出").slice(0, 80);
+        const md = String(ctx.args.contentMarkdown ?? "");
+        if (!md.trim()) return { success: false, data: null, error: "导出内容为空" };
+        const { buildExportHtml } = await import("./export-document");
+        const { putPrivateBlob } = await import("@/lib/files/blob-access");
+        // 走 projects/ 前缀：私有 Blob 代理只放行 allow-list 前缀，
+        // conversations/ 不在其中会 404（项目读权限正是会话导出的正确授权面）
+        const blob = await putPrivateBlob({
+          pathname: `projects/${projectId}/exports/${conversationId}-${Date.now()}.html`,
+          body: Buffer.from(buildExportHtml(title, md), "utf-8"),
+          contentType: "text/html; charset=utf-8",
+        });
+        return {
+          success: true,
+          data: {
+            downloadUrl: blob.proxyUrl,
+            format: "html",
+            note: "浏览器打开后可直接打印或另存为 PDF",
+          },
+        };
+      },
+    });
+
     const result = await runAgent({
       systemPrompt,
       messages: history,
@@ -197,6 +253,9 @@ export async function runConversationAgent(opts: RunOptions): Promise<Conversati
       sessionId: conversationId,
       mode: "chat",
       temperature,
+      // FB-10：项目会话长答（中文分析/清单）常撞默认 8192 上限被截断；
+      // 提高到 16k（engine 侧仍有 32k 硬顶）。
+      maxTokens: 16_384,
       maxToolRounds: maxRounds,
       // Phase 1.1：项目会话 Runtime 携带 Agent 身份与发起人
       runtime: {

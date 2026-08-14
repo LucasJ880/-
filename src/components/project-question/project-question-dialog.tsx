@@ -89,11 +89,81 @@ export function ProjectQuestionDialog({
   const [question, setQuestion] = useState<QuestionData | null>(null);
   const [editSubject, setEditSubject] = useState("");
   const [editBody, setEditBody] = useState("");
+
+  // FB-6：编辑态使用纯文本，用户绝不面对 </p><p> 等 HTML 标签；
+  // 预览/发送前再转回 HTML 段落。
+  const htmlToPlainText = (html: string): string =>
+    html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+      .replace(/<\/?p[^>]*>/gi, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+  const plainTextToHtml = (text: string): string =>
+    text
+      .split(/\n{2,}/)
+      .map(
+        (para) =>
+          `<p>${para
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\n/g, "<br/>")}</p>`,
+      )
+      .join("");
+
+  const looksLikeHtml = (s: string) => /<\s*(p|br|div|ul|li)\b/i.test(s);
+
+  const startEditing = () => {
+    if (looksLikeHtml(editBody)) setEditBody(htmlToPlainText(editBody));
+    setPhase("editing");
+  };
+
+  const finishEditing = () => {
+    if (!looksLikeHtml(editBody)) setEditBody(plainTextToHtml(editBody));
+    setPhase("preview");
+  };
   const [editTo, setEditTo] = useState("");
   const [editCc, setEditCc] = useState("");
 
   // Gmail status
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+
+  // FB-14：AI 推荐问题（来自最新分析的澄清清单）+ 建议收件人（从招标文件事实中提取）
+  const [recommended, setRecommended] = useState<
+    Array<{ questionZh: string; reasonZh: string; ifNotResolvedZh: string; priority: string }>
+  >([]);
+  const [suggestedTo, setSuggestedTo] = useState<{ email: string; source: string } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    apiFetch(`/api/projects/${projectId}/questions?meta=1`)
+      .then((r) => r.json())
+      .then((d) => {
+        setRecommended(Array.isArray(d.recommended) ? d.recommended : []);
+        setSuggestedTo(d.suggestedRecipient ?? null);
+        if (d.suggestedRecipient?.email) {
+          setToRecipients((prev) => prev || d.suggestedRecipient.email);
+        }
+      })
+      .catch(() => {});
+  }, [open, projectId]);
+
+  const applyRecommended = (r: {
+    questionZh: string;
+    reasonZh: string;
+    ifNotResolvedZh: string;
+  }) => {
+    setTitle(r.questionZh.slice(0, 80));
+    setDescription(`${r.questionZh}\n\n为什么要问：${r.reasonZh}`);
+    setClarification(r.questionZh);
+    setImpactNote(r.ifNotResolvedZh);
+  };
 
   const wasOpenRef = useRef(open);
 
@@ -210,12 +280,33 @@ export function ProjectQuestionDialog({
   function renderForm() {
     return (
       <div className="space-y-4">
+        {/* FB-14：AI 推荐问题（来自最新分析，随每次重新分析自动更新）——直接选用 */}
+        {recommended.length > 0 ? (
+          <Field label="AI 推荐的澄清问题（点击选用）">
+            <div className="flex flex-col gap-1.5">
+              {recommended.slice(0, 6).map((r, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => applyRecommended(r)}
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-left text-xs hover:border-accent/50 hover:bg-accent/[0.04]"
+                >
+                  <span className="font-medium">
+                    [{r.priority}] {r.questionZh}
+                  </span>
+                  <span className="mt-0.5 block text-muted">{r.reasonZh}</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+        ) : null}
+
         {/* Title */}
         <Field label="问题标题" required>
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="例：2F 窗户尺寸与图纸不一致"
+            placeholder="例：请提供 Schedule 1 交付时间表"
           />
         </Field>
 
@@ -225,27 +316,27 @@ export function ProjectQuestionDialog({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
-            placeholder="详细描述发现的问题、现场情况与图纸的差异等"
+            placeholder="描述需要业主/采购方澄清的问题与背景"
             className={cn(textareaClass, "resize-none")}
           />
         </Field>
 
-        {/* Location / Reference */}
-        <Field label="涉及区域 / 图纸编号">
+        {/* Reference（通用，非行业特定） */}
+        <Field label="关联条款 / 文件位置（可选）">
           <Input
             value={locationRef}
             onChange={(e) => setLocationRef(e.target.value)}
-            placeholder="例：Drawing A2.1, Room 201, Window W-03"
+            placeholder="例：RFB Part 3 §5.2 / Addendum 1 / 附件 B"
           />
         </Field>
 
         {/* Clarification needed */}
-        <Field label="希望业主确认的事项">
+        <Field label="希望业主确认的事项（可选）">
           <textarea
             value={clarification}
             onChange={(e) => setClarification(e.target.value)}
             rows={2}
-            placeholder="例：请确认窗户开启方式为左开还是右开"
+            placeholder="例：请确认数量估计是否含替换件"
             className={cn(textareaClass, "resize-none")}
           />
         </Field>
@@ -255,7 +346,7 @@ export function ProjectQuestionDialog({
           <Input
             value={impactNote}
             onChange={(e) => setImpactNote(e.target.value)}
-            placeholder="例：如不确认，可能影响生产排期和报价"
+            placeholder="例：如不确认，将影响报价与交付安排"
           />
         </Field>
 
@@ -266,6 +357,11 @@ export function ProjectQuestionDialog({
               onChange={(e) => setToRecipients(e.target.value)}
               placeholder="owner@example.com"
             />
+            {suggestedTo && toRecipients === suggestedTo.email ? (
+              <p className="mt-1 text-[11px] text-muted">
+                已自动填入招标文件中的联系邮箱（{suggestedTo.source}），可修改。
+              </p>
+            ) : null}
           </Field>
           <Field label="抄送 (Cc)">
             <Input
@@ -470,7 +566,7 @@ export function ProjectQuestionDialog({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPhase("editing")}
+                  onClick={startEditing}
                 >
                   <Edit3 className="h-3 w-3" />
                   编辑
@@ -480,7 +576,7 @@ export function ProjectQuestionDialog({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPhase("preview")}
+                  onClick={finishEditing}
                 >
                   预览
                 </Button>

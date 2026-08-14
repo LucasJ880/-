@@ -18,6 +18,59 @@ export async function GET(request: NextRequest, { params }: Params) {
   const access = await requireProjectReadAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
+  // FB-14：?meta=1 → 返回 AI 推荐问题（最新分析澄清清单，随重新分析自动更新）
+  // + 建议收件人（从招标文件事实中提取的联系邮箱；找不到就不填，不发明）
+  if (request.nextUrl.searchParams.get("meta") === "1") {
+    const run = await db.tenderAnalysisRun.findFirst({
+      where: { projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, summaryJson: true },
+    });
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(run?.summaryJson ?? null);
+    const recommended = (syn?.clarifications ?? []).map((c) => ({
+      questionZh: c.questionZh,
+      reasonZh: c.reasonZh,
+      ifNotResolvedZh: c.ifNotResolvedZh,
+      priority: c.priority,
+    }));
+
+    let suggestedRecipient: { email: string; source: string } | null = null;
+    if (run) {
+      const facts = await db.tenderAnalysisFact.findMany({
+        where: { runId: run.id },
+        take: 200,
+        select: { contentZh: true, contentOriginal: true },
+      });
+      const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+      const KEYWORD = /contact|question|enquir|inquir|representative|rfb|rfp|submission|联系人|提问|咨询/i;
+      for (const f of facts) {
+        const text = `${f.contentZh ?? ""} ${f.contentOriginal ?? ""}`;
+        const m = text.match(EMAIL);
+        if (m && KEYWORD.test(text)) {
+          suggestedRecipient = { email: m[0], source: "招标文件联系人条目" };
+          break;
+        }
+      }
+      if (!suggestedRecipient) {
+        for (const f of facts) {
+          const m = `${f.contentOriginal ?? ""}`.match(EMAIL);
+          if (m) {
+            suggestedRecipient = { email: m[0], source: "招标文件中的邮箱" };
+            break;
+          }
+        }
+      }
+    }
+    // FB-15：业主答复证据（最新 run summaryJson.replyResolutions）
+    const { readReplyResolutions } = await import(
+      "@/lib/tender-auto-analysis/reply-resolution"
+    );
+    const replyResolutions = readReplyResolutions(run?.summaryJson ?? null);
+
+    return NextResponse.json({ recommended, suggestedRecipient, replyResolutions });
+  }
+
   const questions = await db.projectQuestion.findMany({
     where: { projectId },
     orderBy: { createdAt: "desc" },
@@ -83,6 +136,36 @@ export async function POST(request: NextRequest, { params }: Params) {
     orgName = org?.name ?? null;
   }
 
+  // FB-6a：带入最新 Analyst 澄清上下文（销售视角），让草稿聚焦真正影响报价/合规的问题
+  let analystContext: string | null = null;
+  try {
+    const latestRun = await db.tenderAnalysisRun.findFirst({
+      where: { projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { summaryJson: true },
+    });
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(latestRun?.summaryJson ?? null);
+    if (syn) {
+      const clar = syn.clarifications
+        .slice(0, 6)
+        .map(
+          (c, i) =>
+            `${i + 1}. ${c.questionZh}（why: ${c.reasonZh}; if unresolved: ${c.ifNotResolvedZh}）`,
+        );
+      const must = syn.currentAssessment.mustResolveBeforePricing.slice(0, 5);
+      analystContext = [
+        clar.length ? `Open clarification candidates from AI analysis:\n${clar.join("\n")}` : null,
+        must.length ? `Must resolve before pricing: ${must.join("; ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      if (!analystContext) analystContext = null;
+    }
+  } catch {
+    analystContext = null; // 上下文注入失败不阻断草稿生成
+  }
+
   const ctx: ProjectQuestionEmailContext = {
     project: {
       name: project.name,
@@ -90,6 +173,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       clientOrganization: project.clientOrganization ?? null,
       description: project.description,
     },
+    analystContext,
     question: {
       title,
       description,

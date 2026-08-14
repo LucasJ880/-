@@ -33,6 +33,7 @@ import {
   type PendingImportFile,
 } from "@/components/project-create/folder-import-zone";
 import { enqueuePendingFolderImport } from "@/lib/projects/pending-folder-import";
+import type { ProjectWorkDomain } from "@/lib/projects/work-domain";
 import {
   projectLifecycleLabel,
   type ProjectLifecycleFilter,
@@ -107,24 +108,38 @@ const PROJECT_COLORS = [
   "#84CC16",
 ];
 
+const WORK_DOMAIN_OPTIONS: Array<{
+  value: ProjectWorkDomain;
+  label: string;
+  hint: string;
+}> = [
+  { value: "tender", label: "招投标项目", hint: "上传招标文件夹，AI 解读整包招标要求" },
+  { value: "delivery", label: "交付项目", hint: "中标后的执行与交付管理" },
+  { value: "general", label: "普通项目", hint: "通用协作项目" },
+];
+
 function ProjectModal({
   open,
   onOpenChange,
   onSaved,
   editing,
   organizations,
+  initialWorkDomain,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
   editing: Project | null;
   organizations: OrgOption[];
+  /** 打开时预选的项目类型（「新建招标项目」入口 = tender） */
+  initialWorkDomain: ProjectWorkDomain;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [color, setColor] = useState("#3B82F6");
   const [orgId, setOrgId] = useState("");
+  const [workDomain, setWorkDomain] = useState<ProjectWorkDomain>("general");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingImportFile[]>([]);
@@ -150,11 +165,25 @@ function ProjectModal({
       setColor("#3B82F6");
       const first = organizations.find((o) => o.status === "active");
       setOrgId(first?.id ?? "");
+      setWorkDomain(initialWorkDomain);
       setPendingFiles([]);
       setNameFromFolder(null);
     }
     setSaveError("");
-  }, [editing, open, organizations]);
+  }, [editing, open, organizations, initialWorkDomain]);
+
+  // 切出 tender 域时清空已选招标文件夹，避免「普通项目 + 上传招标文件夹」的业务冲突
+  const selectWorkDomain = useCallback(
+    (next: ProjectWorkDomain) => {
+      setWorkDomain(next);
+      if (next !== "tender") {
+        setPendingFiles([]);
+        setName((prev) => (prev === nameFromFolder ? "" : prev));
+        setNameFromFolder(null);
+      }
+    },
+    [nameFromFolder],
+  );
 
   const handleFolderFiles = useCallback(
     (files: PendingImportFile[], folderName: string | null) => {
@@ -193,6 +222,9 @@ function ProjectModal({
           return;
         }
         body.orgId = orgId;
+        // Tender 身份必须在创建时显式落库（canonical = Project.workDomain），
+        // 绝不依赖 backend default 回落 general
+        body.workDomain = workDomain;
       }
       const res = await apiFetch(url, {
         method,
@@ -236,16 +268,70 @@ function ProjectModal({
         )}
       >
         <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
-          <DialogTitle>{editing ? "编辑项目" : "新建项目"}</DialogTitle>
+          <DialogTitle>
+            {editing
+              ? "编辑项目"
+              : workDomain === "tender"
+                ? "新建招标项目"
+                : "新建项目"}
+          </DialogTitle>
           <DialogDescription>
             {editing
               ? "修改项目名称、描述与颜色标识。"
-              : "可先选择招标文件夹预填名称；确认创建后立刻进入项目页，上传与 AI 扫描在后台进行。"}
+              : workDomain === "tender"
+                ? "可先选择招标文件夹预填名称；确认创建后立刻进入项目页，上传与 AI 分析在后台进行。"
+                : "选择项目类型并填写基本信息；招投标项目支持整包上传与 AI 解读。"}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-4">
             {!editing && (
+              <div>
+                <Label className="mb-1.5 block text-sm font-medium text-foreground">
+                  项目类型 <span className="text-danger">*</span>
+                </Label>
+                <div
+                  className="grid gap-2 sm:grid-cols-3"
+                  role="radiogroup"
+                  aria-label="项目类型"
+                >
+                  {WORK_DOMAIN_OPTIONS.map((opt) => {
+                    const selected = workDomain === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        disabled={saving}
+                        data-testid={`work-domain-${opt.value}`}
+                        onClick={() => selectWorkDomain(opt.value)}
+                        className={cn(
+                          "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                          selected
+                            ? "border-accent bg-accent/5"
+                            : "border-border hover:border-accent/40",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "block text-sm font-medium",
+                            selected ? "text-accent" : "text-foreground",
+                          )}
+                        >
+                          {opt.label}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-muted">
+                          {opt.hint}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {/* 招标文件夹入口仅属于 tender 域；普通/交付项目不展示，杜绝 general + 招标文件夹 */}
+            {!editing && workDomain === "tender" && (
               <FolderImportZone
                 files={pendingFiles}
                 disabled={saving}
@@ -447,6 +533,7 @@ export default function ProjectsPage() {
   const [loadError, setLoadError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [createDomain, setCreateDomain] = useState<ProjectWorkDomain>("general");
   const [intakeFilter, setIntakeFilter] = useState("all");
   const [lifecycleFilter, setLifecycleFilter] =
     useState<ProjectLifecycleFilter>("active");
@@ -531,12 +618,25 @@ export default function ProjectsPage() {
               type="button"
               onClick={() => {
                 setEditing(null);
+                setCreateDomain("general");
+                setShowModal(true);
+              }}
+              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted/30"
+            >
+              新建项目
+            </button>
+            <button
+              type="button"
+              data-testid="create-tender-project"
+              onClick={() => {
+                setEditing(null);
+                setCreateDomain("tender");
                 setShowModal(true);
               }}
               className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
             >
               <Plus size={16} />
-              新建项目
+              新建招标项目
             </button>
           </div>
         }
@@ -668,12 +768,13 @@ export default function ProjectsPage() {
             type="button"
             onClick={() => {
               setEditing(null);
+              setCreateDomain("tender");
               setShowModal(true);
             }}
             className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
           >
             <Plus size={16} />
-            新建项目
+            新建招标项目
           </button>
         </div>
       ) : (
@@ -818,6 +919,7 @@ export default function ProjectsPage() {
 
       <ProjectModal
         open={showModal}
+        initialWorkDomain={createDomain}
         onOpenChange={(nextOpen) => {
           setShowModal(nextOpen);
           if (!nextOpen) setEditing(null);

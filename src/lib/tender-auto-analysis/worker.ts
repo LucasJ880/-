@@ -20,6 +20,12 @@ import { extractFromPages, extractRequirements } from "./extract";
 import { generateReportSections } from "./report";
 import { buildDeliverables } from "./deliverables";
 import { buildClarifications } from "./clarifications";
+import {
+  analyzeAndPersistV2,
+  isEmptyAnalysisOutcome,
+  isTenderAnalysisV2Enabled,
+  TenderV2LeaseLostError,
+} from "./v2-persist";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
@@ -298,8 +304,44 @@ async function stepEnsurePages(run: ClaimedRun): Promise<void> {
 }
 
 async function stepExtractFacts(run: ClaimedRun): Promise<void> {
-  const documentIds = await loadRunDocumentIds(run.id);
-  await extractFromPages({ runId: run.id, documentIds });
+  if (isTenderAnalysisV2Enabled()) {
+    // V2 grounded 引擎：推理（多 LLM 调用，可能超 LEASE_MS）与 canonical 写分离。
+    // 心跳续租；一旦 renewLease 返回 false 记 leaseLost，推理返回后 fail-closed（不写）。
+    // 持久化本身在 persistV2Fenced 内做权威 lease fence（stale worker 零写）。
+    let leaseLost = false;
+    const heartbeat = setInterval(() => {
+      void renewLease(run.id, run.leaseOwner).then((okLease) => {
+        if (!okLease) leaseLost = true;
+      });
+    }, 60_000);
+    try {
+      const v2res = await analyzeAndPersistV2({
+        runId: run.id,
+        projectId: run.projectId,
+        parentRunId: run.parentRunId,
+        leaseOwner: run.leaseOwner,
+        leaseMs: LEASE_MS,
+        checkLease: () => !leaseLost,
+      });
+      // FB-18：空壳分析（零成功模型调用且零产出）必须 FAIL，不得进入审核态
+      if (isEmptyAnalysisOutcome(v2res)) {
+        throw new Error(
+          `empty_analysis_zero_llm_success: 模型调用全部失败（${v2res.llmFailures}/${v2res.llmCalls}）且无抽取产出，分析无效`,
+        );
+      }
+    } catch (e) {
+      // V2 fence 拒绝（stale worker）→ 转为 worker 的 graceful yield（不 markFailed）
+      if (e instanceof TenderV2LeaseLostError) {
+        throw new LeaseLostError("EXTRACT_FACTS_v2_fence");
+      }
+      throw e;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  } else {
+    const documentIds = await loadRunDocumentIds(run.id);
+    await extractFromPages({ runId: run.id, documentIds });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "EXTRACT_FACTS", {
     status: "ANALYZING",
   });
@@ -307,7 +349,10 @@ async function stepExtractFacts(run: ClaimedRun): Promise<void> {
 }
 
 async function stepGenerateSections(run: ClaimedRun): Promise<void> {
-  await generateReportSections({ runId: run.id });
+  // V2 ON：sections 已由 EXTRACT_FACTS 步写入 → no-op（仅推进 cursor）。
+  if (!isTenderAnalysisV2Enabled()) {
+    await generateReportSections({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "GENERATE_SECTIONS", {
     status: "ANALYZING",
   });
@@ -315,7 +360,10 @@ async function stepGenerateSections(run: ClaimedRun): Promise<void> {
 }
 
 async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
-  await extractRequirements({ runId: run.id });
+  // V2 ON：requirements 已写入 → no-op。
+  if (!isTenderAnalysisV2Enabled()) {
+    await extractRequirements({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "EXTRACT_REQUIREMENTS", {
     status: "ANALYZING",
   });
@@ -323,7 +371,10 @@ async function stepExtractRequirements(run: ClaimedRun): Promise<void> {
 }
 
 async function stepBuildDeliverables(run: ClaimedRun): Promise<void> {
-  await buildDeliverables({ runId: run.id });
+  // V2 ON：不套 RCMP 固定交付物模板（防编造）；grounded submissionChecklist 落 summaryJson。
+  if (!isTenderAnalysisV2Enabled()) {
+    await buildDeliverables({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "BUILD_DELIVERABLES", {
     status: "ANALYZING",
   });
@@ -331,7 +382,10 @@ async function stepBuildDeliverables(run: ClaimedRun): Promise<void> {
 }
 
 async function stepBuildClarifications(run: ClaimedRun): Promise<void> {
-  await buildClarifications({ runId: run.id });
+  // V2 ON：clarifications 已由 V2 写入（grounded，非 RCMP 模板）→ no-op。
+  if (!isTenderAnalysisV2Enabled()) {
+    await buildClarifications({ runId: run.id });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "BUILD_CLARIFICATIONS", {
     status: "ANALYZING",
   });
@@ -339,12 +393,16 @@ async function stepBuildClarifications(run: ClaimedRun): Promise<void> {
 }
 
 async function stepCreateTasks(run: ClaimedRun): Promise<void> {
-  await createAnalysisTasks({
-    runId: run.id,
-    projectId: run.projectId,
-    orgId: run.orgId,
-    createdById: run.createdById,
-  });
+  // V2 ON：不创建 RCMP 固定任务模板（背包工厂/DDP Regina 等，非本项目内容）；
+  // grounded nextActions 落 summaryJson，供 Executive Brief 呈现。人工审阅经 REVIEW_REQUIRED。
+  if (!isTenderAnalysisV2Enabled()) {
+    await createAnalysisTasks({
+      runId: run.id,
+      projectId: run.projectId,
+      orgId: run.orgId,
+      createdById: run.createdById,
+    });
+  }
   const ok = await persistStep(run.id, run.leaseOwner, "CREATE_TASKS", {
     status: "ANALYZING",
   });
@@ -417,6 +475,124 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
   });
   if (finalized.count === 0) {
     throw new LeaseLostError("FINALIZE");
+  }
+
+  // 业务阶段推进（FB-7）：AI 解读产出（REVIEW_REQUIRED）即代表项目进入「项目解读」，
+  // 不要求先做项目分发（默认使用者即项目负责人）。幂等：已有 interpretedAt 不覆盖。
+  await db.project
+    .updateMany({
+      where: { id: run.projectId, interpretedAt: null },
+      data: { interpretedAt: now },
+    })
+    .catch(() => undefined);
+
+  // M1.1：立项自动外部检索（分析一完成即多线检索历史授标并交叉验证；
+  // 结果仅作候选存入调查室，人工确认门不变；flag OFF 时零出站）
+  try {
+    const { isExternalIntelEnabled, deriveAwardQueries, autoSearchAwardHistory } =
+      await import("@/lib/tender-intel/canadabuys");
+    if (isExternalIntelEnabled()) {
+      const cur = await db.tenderAnalysisRun.findUnique({
+        where: { id: run.id },
+        select: { summaryJson: true },
+      });
+      const sj = (cur?.summaryJson as Record<string, unknown>) ?? {};
+      const syn = sj.analystSynthesis as
+        | { executiveBrief?: { whatIsBeingBoughtZh?: string }; scope?: { deliverables?: string[] } }
+        | undefined;
+      const brief = sj.brief as { buyer?: string | null } | undefined;
+      const proj = await db.project.findUnique({
+        where: { id: run.projectId },
+        select: { name: true },
+      });
+      const queries = deriveAwardQueries({
+        projectName: proj?.name ?? null,
+        buyerText: brief?.buyer ?? null,
+        productTexts: [
+          syn?.executiveBrief?.whatIsBeingBoughtZh ?? "",
+          ...(syn?.scope?.deliverables ?? []),
+        ],
+      });
+      const auto =
+        queries.length > 0 ? await autoSearchAwardHistory({ queries }) : null;
+
+      // M2：Web 多线检索（中标方线/产品+机构线/招标编号线）——同一契约
+      const { deriveWebQueries, autoWebIntel } = await import(
+        "@/lib/tender-intel/websearch"
+      );
+      const roomBefore = await db.bidIntelligenceRoom.findUnique({
+        where: { projectId: run.projectId },
+        select: { id: true, summaryJson: true },
+      });
+      const rsj0 = (roomBefore?.summaryJson as Record<string, unknown>) ?? {};
+      const confirmed = rsj0.externalConfirmed as
+        | { previousWinner?: string | null }
+        | undefined;
+      const solNum = await db.project.findUnique({
+        where: { id: run.projectId },
+        select: { solicitationNumber: true },
+      });
+      const webQueries = deriveWebQueries({
+        confirmedWinner: confirmed?.previousWinner ?? null,
+        productPhrase: queries[0] ?? null,
+        buyerPhrase: queries.find((q) => /general|ministry|department|city|university/i.test(q)) ?? null,
+        solicitationNumber: solNum?.solicitationNumber ?? null,
+      });
+      const web = webQueries.length > 0 ? await autoWebIntel({ queries: webQueries }) : null;
+
+      if ((auto?.ok || web?.ok) && roomBefore) {
+        // M2.5：AI 分析师读检索结果 → 中文结论（八模块直接可读；仍属 AI 初步调查）
+        let externalAnalysis: unknown = null;
+        try {
+          const { analyzeExternalIntel } = await import("@/lib/tender-intel/analyze");
+          const briefBlock = (
+            (await db.tenderAnalysisRun.findUnique({
+              where: { id: run.id },
+              select: { summaryJson: true },
+            }))?.summaryJson as Record<string, unknown>
+          )?.brief as { oneLiner?: string | null } | undefined;
+          const { analysis } = await analyzeExternalIntel({
+            projectOneLiner: briefBlock?.oneLiner ?? null,
+            awardCandidates: auto?.candidates ?? [],
+            webCandidates: web?.candidates ?? [],
+          });
+          externalAnalysis = analysis;
+        } catch {
+          externalAnalysis = null;
+        }
+        await db.bidIntelligenceRoom.update({
+          where: { id: roomBefore.id },
+          data: {
+            summaryJson: JSON.parse(
+              JSON.stringify({
+                ...rsj0,
+                ...(auto?.ok ? { externalCandidates: auto } : {}),
+                ...(web?.ok ? { webIntel: web } : {}),
+                ...(externalAnalysis ? { externalAnalysis } : {}),
+              }),
+            ),
+          },
+        });
+        console.log(
+          `[tender-external-intel] project=${run.projectId} award_candidates=${auto?.candidates.length ?? 0} web_domains=${web?.candidates.length ?? 0} analyzed=${externalAnalysis ? 1 : 0}`,
+        );
+      }
+    }
+  } catch {
+    /* 外部检索失败不影响分析结果 */
+  }
+
+  // FB-15：业主回复自动关联（best-effort，与 auto-enqueue 同模式，绝不阻断分析）
+  try {
+    const { resolveOwnerReplies } = await import("./reply-resolution");
+    const rr = await resolveOwnerReplies({ projectId: run.projectId });
+    if (rr.checked > 0) {
+      console.log(
+        `[tender-reply-resolution] project=${run.projectId} checked=${rr.checked} resolved=${rr.resolved}`,
+      );
+    }
+  } catch {
+    /* 回复匹配失败不影响分析结果 */
   }
 }
 
