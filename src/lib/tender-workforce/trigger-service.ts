@@ -20,7 +20,12 @@ import { cancelAgentRun } from "@/lib/agent-runtime/run";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 import { getWorkforceJobView } from "@/lib/workforce-runtime/read-model/service";
 import type { WorkforceJobViewModel } from "@/lib/workforce-runtime/read-model/types";
-import { isTenderWorkforceAnalysisEnabled } from "./flags";
+import {
+  isTenderWorkforceAnalysisEnabled,
+  isTenderDeterministicPlanEnabled,
+} from "./flags";
+import { buildTenderDeterministicPlan } from "./deterministic-plan";
+import { tenderWorkforcePlannerTools } from "./tools";
 import {
   failWorkforceTenderAnalysisRun,
   TENDER_AGENT_RUN_STATUS,
@@ -157,14 +162,34 @@ export async function startTenderWorkforceAnalysis(input: {
         });
       }
 
+      // T5-P1 §19：**同一入口、同一 runtime、同一 UI、同一产物**——
+      // flag 只切换"计划从哪来"，不新建按钮也不新建 API。
+      const deterministic = isTenderDeterministicPlanEnabled({
+        orgId: input.orgId,
+      });
+      const serverPlan = deterministic
+        ? buildTenderDeterministicPlan({
+            projectId: input.projectId,
+            projectName: input.projectName,
+          })
+        : undefined;
+
       const created = await createWorkforceJob({
         orgId: input.orgId,
         userId: input.userId,
         role: input.role,
+        // goal 仍然保留：它同时是 Job Center 标题来源（flag ON 时 planner 不会读它）
         goal: buildTenderAnalysisGoal(input.projectName),
         channel: "workforce",
         projectId: input.projectId,
         source: "tender_ui",
+        ...(serverPlan
+          ? {
+              plan: serverPlan,
+              // 确定性计划的 preferredTool 白名单 = 与 planner 同一 scope 工具集
+              planTools: tenderWorkforcePlannerTools(),
+            }
+          : {}),
         extraMetadata: {
           workDomain: "tender",
           trigger: "user",
