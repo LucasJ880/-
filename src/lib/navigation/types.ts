@@ -37,6 +37,8 @@ export type NavigationItem = {
   /** 仅平台 admin 页 */
   platformAdminOnly?: boolean;
   featureFlag?: string;
+  /** 仅 Autopilot owner（Lucas-only，非 admin 旁路） */
+  autopilotOwnerOnly?: boolean;
   matchPaths?: string[];
   /** 精确匹配（如首页） */
   exact?: boolean;
@@ -66,6 +68,8 @@ export type NavigationFilterContext = {
   workspaceIds: string[];
   modules: import("@/lib/tenancy/modules").OrgModulesConfig | null;
   isPlatformAdmin: boolean;
+  /** Autopilot 导航：由服务端计算的 boolean，不含 owner id 列表 */
+  autopilotAllowed?: boolean;
   /** 有效项目成员关系等投标能力信号（来自 active-org） */
   hasBidCapability?: boolean;
 };

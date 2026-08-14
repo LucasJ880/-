@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { parseCompanyIds, getCompaniesByIds } from "@/lib/companies/service";
+import { hasAutopilotCapability } from "@/lib/autopilot/access";
 
 export const GET = withAuth(async (_request, _ctx, user) => {
   // 公司归属（联合品牌）：左上角显示「青砚 × 公司logo」
@@ -10,8 +11,17 @@ export const GET = withAuth(async (_request, _ctx, user) => {
     select: { companyIdsJson: true, activeOrgId: true },
   });
   const companies = await getCompaniesByIds(parseCompanyIds(row?.companyIdsJson));
+  const autopilotAllowed = hasAutopilotCapability(
+    { id: user.id, role: user.role },
+    "autopilot.view",
+  );
 
   return NextResponse.json({
-    user: { ...user, companies, activeOrgId: row?.activeOrgId ?? null },
+    user: {
+      ...user,
+      companies,
+      activeOrgId: row?.activeOrgId ?? null,
+      autopilotAllowed,
+    },
   });
 });
