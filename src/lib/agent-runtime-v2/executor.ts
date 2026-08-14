@@ -2,6 +2,7 @@ import type { AgentRunStep, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getOrgMembership } from "@/lib/auth";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
+import { resolveWorkforceExecutionPolicy } from "@/lib/workforce-runtime/execution-policy";
 import { markAgentRunAwaitingApproval } from "@/lib/agent-runtime/pending-link";
 import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
 import {
@@ -309,6 +310,8 @@ async function executeRoundGuarded(input: {
       readySteps,
       toolCallsUsed: toolCalls,
       maxToolCalls: limits.maxToolCalls,
+      // T5-P0C：batch 路径无 run 对象，server 权威 metadata 由此透传
+      runMetadata: meta,
     });
   }
 
@@ -421,7 +424,29 @@ async function executeRoundGuarded(input: {
 
   if (!isNativeSynthesis) {
     const descriptor = getRuntimeV2Tool(toolName!);
-    // 重新鉴权（写工具按 high risk 检查 membership + 模块）
+    // T5-P0C：策略输入全部来自 server 权威 run context（不再硬编码 sales）。
+    // fail-closed：策略上下文解析失败 → 拒绝执行（绝不"无策略放行"）。
+    const execPolicy = await resolveWorkforceExecutionPolicy({
+      orgId,
+      runId,
+      userId,
+      role,
+      runMetadata: meta,
+    });
+    if (!execPolicy) {
+      return await failStepClosed({
+        fence,
+        orgId,
+        runId,
+        stepId: step.id,
+        stepKey: step.stepKey,
+        stepTitle: step.title,
+        errorCode: "policy_context_unavailable",
+        errorMessage:
+          "无法解析执行期策略上下文（org/module/toolPolicy），已 fail-closed",
+      });
+    }
+    // 重新鉴权（真实 domain + org/module/tool policy 全部参与）
     const decision = canInvokeTool({
       tenant: {
         userId,
@@ -429,15 +454,23 @@ async function executeRoundGuarded(input: {
         orgRole:
           membership.role === "org_owner" ? "org_admin" : membership.role,
         isPlatformAdmin: role === "admin" || role === "super_admin",
+        workspaceIds: execPolicy.workspaceIds,
       },
       hasMembership: true,
       tool: {
         name: toolName!,
-        domain: "sales",
-        risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
-        allowRoles: ["admin", "sales"],
+        domain: execPolicy.toolDomain,
+        // descriptor 缺失（如 tender 工具不在 v2 catalog）时不再静默降级为 l0_read：
+        // 未知工具按内部写风险处理，由 policy 层决定放行与否
+        risk: descriptor
+          ? descriptor.requiresApproval
+            ? "l2_soft"
+            : "l0_read"
+          : "l1_internal_write",
+        allowRoles: execPolicy.allowRoles,
       },
-      modulesJson: undefined,
+      modulesJson: execPolicy.modulesJson,
+      toolPolicy: execPolicy.toolPolicy,
       maxRisk: "l2_soft",
     });
     if (!decision.ok) {
@@ -911,6 +944,8 @@ async function executeWorkforceBatchRound(input: {
   /** 本轮开始时的 attemptCount 总和（= 已消耗工具调用预算） */
   toolCallsUsed: number;
   maxToolCalls: number;
+  /** T5-P0C：run metadata（承载 server 权威 workDomain）——batch 路径无 run 对象，须由上游透传 */
+  runMetadata?: Record<string, unknown> | null;
 }): Promise<ExecuteRoundResult> {
   const { orgId, runId, fence } = input;
 
@@ -1048,6 +1083,32 @@ async function executeWorkforceBatchRound(input: {
     // 3. 执行期重鉴权（非 synthesis；与单步路径一致：写工具按 high risk）
     if (!isNativeSynthesis) {
       const descriptor = getRuntimeV2Tool(toolName!);
+      // T5-P0C：与单步路径同源的 server 权威策略上下文（不再硬编码 sales）
+      const execPolicy = await resolveWorkforceExecutionPolicy({
+        orgId,
+        runId,
+        userId: input.userId,
+        role: input.role,
+        runMetadata: input.runMetadata ?? null,
+      });
+      if (!execPolicy) {
+        await failWorkforceStepOnly({
+          fence,
+          stepId: step.id,
+          errorCode: "policy_context_unavailable",
+          errorMessage:
+            "无法解析执行期策略上下文（org/module/toolPolicy），已 fail-closed",
+        });
+        outcomes.push({
+          kind: "needs_human",
+          stepKey: step.stepKey,
+          errorCode: "policy_context_unavailable",
+          errorMessage:
+            "无法解析执行期策略上下文（org/module/toolPolicy），已 fail-closed",
+          eventTitle: `步骤「${step.title}」策略上下文不可用`,
+        });
+        continue;
+      }
       const decision = canInvokeTool({
         tenant: {
           userId: input.userId,
@@ -1058,15 +1119,21 @@ async function executeWorkforceBatchRound(input: {
               : input.membershipRole,
           isPlatformAdmin:
             input.role === "admin" || input.role === "super_admin",
+          workspaceIds: execPolicy.workspaceIds,
         },
         hasMembership: true,
         tool: {
           name: toolName!,
-          domain: "sales",
-          risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
-          allowRoles: ["admin", "sales"],
+          domain: execPolicy.toolDomain,
+          risk: descriptor
+            ? descriptor.requiresApproval
+              ? "l2_soft"
+              : "l0_read"
+            : "l1_internal_write",
+          allowRoles: execPolicy.allowRoles,
         },
-        modulesJson: undefined,
+        modulesJson: execPolicy.modulesJson,
+        toolPolicy: execPolicy.toolPolicy,
         maxRisk: "l2_soft",
       });
       if (!decision.ok) {
