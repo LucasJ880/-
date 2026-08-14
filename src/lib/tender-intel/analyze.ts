@@ -19,31 +19,59 @@ import type { RankedWebCandidate } from "./websearch";
 export const EXTERNAL_ANALYSIS_VERSION = "tender-external-analysis/v1" as const;
 export const EXTERNAL_ANALYSIS_PROMPT = { name: "tender-external-analysis", version: "1" } as const;
 
-const zh = (max: number) => z.string().min(1).max(max);
+// 长度越界一律截断而非拒绝（外部情报是增强层，稳出结果优先）
+const zh = (max: number) =>
+  z.preprocess((v) => {
+    // 模型偶发输出对象/数组：取其中的字符串值拼接，绝不落 "[object Object]"
+    if (v != null && typeof v === "object") {
+      v = (Array.isArray(v) ? v : Object.values(v))
+        .filter((x) => typeof x === "string")
+        .join(" ");
+    }
+    return String(v ?? "").slice(0, max);
+  }, z.string().min(1));
+const clipStr = (max: number) =>
+  z.preprocess(
+    (v) => (v == null ? null : String(v).slice(0, max) || null),
+    z.string().nullable(),
+  );
 
+const confidenceSchema = z.preprocess((v) => {
+  const raw = String(v ?? "LOW").trim().toUpperCase();
+  if (raw.includes("高") || raw === "HIGH") return "HIGH";
+  if (raw.includes("中") || raw === "MEDIUM" || raw === "MED") return "MEDIUM";
+  if (raw.includes("低") || raw === "LOW") return "LOW";
+  return "LOW";
+}, z.enum(["LOW", "MEDIUM", "HIGH"]));
 const conclusionSchema = z.object({
-  conclusionZh: zh(300),
-  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
-  sourceDomains: z.array(z.string().max(80)).max(6).default([]),
+  conclusionZh: zh(500),
+  confidence: confidenceSchema,
+  sourceDomains: z.array(clipStr(120).pipe(z.string())).max(12).default([]).catch([]),
 });
 
 export const externalAnalysisSchema = z.object({
   previousWinner: conclusionSchema.extend({
-    candidateName: z.string().max(120).nullable(),
+    candidateName: clipStr(160).optional().transform((v) => v ?? null),
   }),
   historicalValue: conclusionSchema,
   possiblyRecurring: conclusionSchema,
-  competitors: z
-    .array(
-      z.object({
-        name: zh(120),
-        reasonZh: zh(240),
-        url: z.string().max(300).nullable(),
-      }),
-    )
-    .max(6)
-    .default([]),
-  marketSummaryZh: zh(500),
+  competitors: z.preprocess(
+    // 无名条目直接丢弃（模型偶发输出空 name），不让单条坏数据拒掉整包结论
+    (v) =>
+      Array.isArray(v)
+        ? v.filter((c) => String((c as { name?: unknown })?.name ?? "").trim()).slice(0, 6)
+        : [],
+    z
+      .array(
+        z.object({
+          name: zh(120),
+          reasonZh: zh(240),
+          url: clipStr(400).optional().transform((v) => v ?? null),
+        }),
+      )
+      .default([]),
+  ),
+  marketSummaryZh: zh(900),
 });
 export type ExternalAnalysisLlm = z.infer<typeof externalAnalysisSchema>;
 
