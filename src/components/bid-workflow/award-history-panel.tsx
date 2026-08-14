@@ -34,6 +34,17 @@ type AutoBlock = {
   fetchedAt: string;
 } | null;
 
+type WebCandidate = {
+  domain: string;
+  hitQueries: string[];
+  findings: Array<{ title: string; url: string; snippet: string }>;
+};
+
+type WebBlock = {
+  queries: string[];
+  candidates: WebCandidate[];
+} | null;
+
 export function AwardHistoryPanel({
   projectId,
   defaultQuery,
@@ -51,17 +62,38 @@ export function AwardHistoryPanel({
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
 
-  // M1.1：加载分析完成时自动生成的多线交叉验证候选
+  const [web, setWeb] = useState<WebBlock>(null);
+
+  // M1.1/M2：加载分析完成时自动生成的多线交叉验证候选（授标 + Web）
   useEffect(() => {
-    apiJson<{ enabled: boolean; auto?: AutoBlock }>(
+    apiJson<{ enabled: boolean; auto?: AutoBlock; webIntel?: WebBlock }>(
       `/api/projects/${projectId}/external-intel/award-history`,
     )
       .then((res) => {
         setEnabled(res.enabled);
         setAuto(res.auto ?? null);
+        setWeb(res.webIntel ?? null);
       })
       .catch(() => {});
   }, [projectId]);
+
+  const confirmCompetitor = async (name: string, url: string | null) => {
+    setConfirming(name);
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/external-intel/award-history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "competitor", vendorName: name, sourceUrl: url }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "确认失败");
+      setNote(`已将 ${name} 记入竞争对手线索`);
+      onConfirmed?.();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    }
+    setConfirming(null);
+  };
 
   const search = async () => {
     if (!q.trim()) return;
@@ -187,6 +219,46 @@ export function AwardHistoryPanel({
           </ul>
         </div>
       ) : null}
+      {/* M2：Web 情报（域名跨线交叉验证；确认后记入竞争对手线索） */}
+      {enabled && web && web.candidates.length > 0 ? (
+        <div className="mt-3 space-y-1.5" data-testid="web-intel-candidates">
+          <p className="text-xs font-semibold text-[var(--muted)]">
+            网络情报（检索线：{web.queries.join(" / ")}）
+          </p>
+          <ul className="space-y-1.5">
+            {web.candidates.slice(0, 5).map((c, i) => (
+              <li key={i} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <b>{c.domain}</b>
+                    <span className="ml-2 text-[var(--muted)]">
+                      命中 {c.hitQueries.length} 条检索线{c.hitQueries.length >= 2 ? " · 高置信" : ""}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={confirming !== null}
+                    onClick={() => void confirmCompetitor(c.domain, c.findings[0]?.url ?? null)}
+                    className="rounded border border-[var(--border)] px-2 py-1 disabled:opacity-50"
+                  >
+                    记为竞争对手线索
+                  </button>
+                </div>
+                <ul className="mt-1 space-y-0.5">
+                  {c.findings.slice(0, 2).map((f, j) => (
+                    <li key={j} className="truncate">
+                      <a href={f.url} target="_blank" rel="noreferrer" className="underline">
+                        {f.title || f.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {enabled && findings.length > 0 ? (
         <ul className="mt-2 space-y-1.5">
           {findings.slice(0, 8).map((f, i) => (

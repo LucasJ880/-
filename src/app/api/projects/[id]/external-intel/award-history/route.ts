@@ -40,11 +40,17 @@ export async function GET(
       candidates?: unknown[];
       fetchedAt?: string;
     } | null;
+    const webIntel = (sj.webIntel ?? null) as {
+      queries?: string[];
+      candidates?: unknown[];
+      fetchedAt?: string;
+    } | null;
     return NextResponse.json({
       enabled: true,
       auto: auto ?? null,
+      webIntel: webIntel ?? null,
       findings: [],
-      note: auto ? null : "尚无自动检索结果（分析完成后自动生成）",
+      note: auto || webIntel ? null : "尚无自动检索结果（分析完成后自动生成）",
     });
   }
 
@@ -61,16 +67,13 @@ export async function POST(
   if (access instanceof NextResponse) return access;
 
   const body = (await request.json().catch(() => ({}))) as {
+    kind?: "winner" | "competitor";
     vendorName?: string;
     contractValue?: number | null;
     contractDate?: string | null;
     sourceUrl?: string;
     possiblyRecurring?: boolean | null;
   };
-  const vendor = (body.vendorName ?? "").trim();
-  if (!vendor) {
-    return NextResponse.json({ error: "缺少中标方名称" }, { status: 400 });
-  }
 
   const room = await db.bidIntelligenceRoom.findUnique({
     where: { projectId },
@@ -82,9 +85,33 @@ export async function POST(
       { status: 409 },
     );
   }
-
   const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+
+  // M2：确认竞争对手线索（web 情报 → 人工确认后进入调查结论 competitors 列表）
+  if (body.kind === "competitor") {
+    const name = (body.vendorName ?? "").trim();
+    if (!name) return NextResponse.json({ error: "缺少名称" }, { status: 400 });
+    const prevExt = (sj.externalConfirmed as Record<string, unknown>) ?? {};
+    const prevList = Array.isArray(prevExt.competitors)
+      ? (prevExt.competitors as Array<{ name: string; url: string | null }>)
+      : [];
+    if (!prevList.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      prevList.push({ name, url: body.sourceUrl ?? null });
+    }
+    const externalConfirmed = { ...prevExt, competitors: prevList };
+    await db.bidIntelligenceRoom.update({
+      where: { id: room.id },
+      data: { summaryJson: { ...sj, externalConfirmed } },
+    });
+    return NextResponse.json({ ok: true, externalConfirmed });
+  }
+
+  const vendor = (body.vendorName ?? "").trim();
+  if (!vendor) {
+    return NextResponse.json({ error: "缺少中标方名称" }, { status: 400 });
+  }
   const externalConfirmed = {
+    ...((sj.externalConfirmed as Record<string, unknown>) ?? {}),
     previousWinner: vendor,
     historicalContractValue:
       body.contractValue != null

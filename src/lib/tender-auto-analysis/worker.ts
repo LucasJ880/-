@@ -506,24 +506,49 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
           ...(syn?.scope?.deliverables ?? []),
         ],
       });
-      if (queries.length > 0) {
-        const auto = await autoSearchAwardHistory({ queries });
-        if (auto.ok) {
-          const room = await db.bidIntelligenceRoom.findUnique({
-            where: { projectId: run.projectId },
-            select: { id: true, summaryJson: true },
-          });
-          if (room) {
-            const rsj = (room.summaryJson as Record<string, unknown>) ?? {};
-            await db.bidIntelligenceRoom.update({
-              where: { id: room.id },
-              data: { summaryJson: JSON.parse(JSON.stringify({ ...rsj, externalCandidates: auto })) },
-            });
-          }
-          console.log(
-            `[tender-external-intel] auto-search project=${run.projectId} queries=${auto.queries.length} candidates=${auto.candidates.length}`,
-          );
-        }
+      const auto =
+        queries.length > 0 ? await autoSearchAwardHistory({ queries }) : null;
+
+      // M2：Web 多线检索（中标方线/产品+机构线/招标编号线）——同一契约
+      const { deriveWebQueries, autoWebIntel } = await import(
+        "@/lib/tender-intel/websearch"
+      );
+      const roomBefore = await db.bidIntelligenceRoom.findUnique({
+        where: { projectId: run.projectId },
+        select: { id: true, summaryJson: true },
+      });
+      const rsj0 = (roomBefore?.summaryJson as Record<string, unknown>) ?? {};
+      const confirmed = rsj0.externalConfirmed as
+        | { previousWinner?: string | null }
+        | undefined;
+      const solNum = await db.project.findUnique({
+        where: { id: run.projectId },
+        select: { solicitationNumber: true },
+      });
+      const webQueries = deriveWebQueries({
+        confirmedWinner: confirmed?.previousWinner ?? null,
+        productPhrase: queries[0] ?? null,
+        buyerPhrase: queries.find((q) => /general|ministry|department|city|university/i.test(q)) ?? null,
+        solicitationNumber: solNum?.solicitationNumber ?? null,
+      });
+      const web = webQueries.length > 0 ? await autoWebIntel({ queries: webQueries }) : null;
+
+      if ((auto?.ok || web?.ok) && roomBefore) {
+        await db.bidIntelligenceRoom.update({
+          where: { id: roomBefore.id },
+          data: {
+            summaryJson: JSON.parse(
+              JSON.stringify({
+                ...rsj0,
+                ...(auto?.ok ? { externalCandidates: auto } : {}),
+                ...(web?.ok ? { webIntel: web } : {}),
+              }),
+            ),
+          },
+        });
+        console.log(
+          `[tender-external-intel] project=${run.projectId} award_candidates=${auto?.candidates.length ?? 0} web_domains=${web?.candidates.length ?? 0}`,
+        );
       }
     }
   } catch {

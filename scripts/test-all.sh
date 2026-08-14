@@ -257,6 +257,7 @@ run_test "招标 Analyst 综合解读语义矩阵（SEM-01..10）" "npx tsx src/
 run_test "招标生成文档语义分离（备忘录/RFQ）" "npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts"
 run_test "外部情报 CanadaBuys 适配器" "npx tsx src/lib/tender-intel/__tests__/canadabuys.test.ts"
 run_test "外部情报自动提取+交叉验证" "npx tsx src/lib/tender-intel/__tests__/canadabuys-auto.test.ts"
+run_test "外部情报 Web 搜索（M2）" "npx tsx src/lib/tender-intel/__tests__/websearch.test.ts"
 run_test "招标工作台状态投影" "npx tsx src/lib/tender/__tests__/workbench-state.test.ts"
 run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__tests__/idempotency.test.ts"
 run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"
