@@ -7109,3 +7109,86 @@ model MemoryClaimEvidence {
   @@index([orgId, sourceType])
   @@index([orgId, archiveItemId])
 }
+
+/// T4 组织级 canonical 授标情报：一条「某买家把某合同授予某供应商」的可追溯记录。
+/// BidIntelligenceRoom.summaryJson = 项目级调查工作台（临时投影）；AwardRecord = 组织级长期事实层（跨 Tender 复用）。
+/// Research ≠ Fact：检索/AI 产物只能以 AI_EXTRACTED / NEEDS_REVIEW 落地；HUMAN_CONFIRMED 必须有人工 actor（confirmedById+confirmedAt）；
+/// SYSTEM_VERIFIED 仅限带权威公开来源标识（如 CanadaBuys reference_number）的 open-data 记录——流转全部经 tender-intel awards service 白名单。
+/// 词表复用 T3 corporate-memory（confidence / verificationStatus），不建第二套。
+/// orgId / buyerId / projectId 均为逻辑引用无 FK（对齐 T3：情报保留与业务对象生命周期解耦）；org 隔离由 service 层强制。
+model AwardRecord {
+  id                    String    @id @default(cuid())
+  orgId                 String
+  /// Buyer.id 逻辑引用（本轮不自动解析——缺受控 resolveBuyer API；留给未来 governed linkage，绝不 fuzzy 猜）
+  buyerId               String?
+  /// 买家名称原文（来源原样保留）
+  buyerNameRaw          String?
+  /// normalizeBuyerName(buyerNameRaw) 确定性产物（与 T3 同一 normalizer；分组/检索键）
+  buyerNameNormalized   String?
+  /// 来自青砚自身项目时的 Project.id 逻辑引用（外部公开授标为 null）
+  projectId             String?
+  /// 中标方/供应商名称原文
+  winnerName            String
+  /// 确定性规范化（同 buyer normalizer 纪律；仅精确/规范化匹配，不做 fuzzy merge）
+  winnerNameNormalized  String
+  /// 招标/征集/合同参考编号（如 CanadaBuys reference_number；强同一性信号）
+  solicitationNumber    String?
+  awardDate             DateTime?
+  /// 合同金额（结构化保存；显示层才格式化——禁止把金额折叠成展示字符串）
+  contractAmount        Decimal?  @db.Decimal(18, 2)
+  currency              String?
+  /// 产品/范围摘要（≤2000，service 层强制）
+  scopeSummary          String?   @db.Text
+  /// HIGH | MEDIUM | LOW（与 verificationStatus 正交；复用 T3 词表）
+  confidence            String
+  /// AI_EXTRACTED | HUMAN_CONFIRMED | SYSTEM_VERIFIED | NEEDS_REVIEW（复用 T3 词表；提升仅经 service）
+  verificationStatus    String
+  /// ACTIVE | NEEDS_REVIEW | RETRACTED（NEEDS_REVIEW=疑似重复待人工裁决；纠错用 RETRACTED，禁止 hard delete）
+  status                String    @default("ACTIVE")
+  /// 疑似重复的目标 AwardRecord.id（确定性弱匹配时填写，供人工裁决；绝不自动 merge）
+  possibleDuplicateOfId String?
+  confirmedById         String?
+  confirmedAt           DateTime?
+  /// user | system（ai/agent 直写被 service 拒绝，对齐 T3 AI_AUTO_MEMORY_WRITE gate）
+  createdByType         String
+  createdById           String?
+  metadata              Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  sources AwardRecordSource[]
+
+  @@index([orgId, buyerNameNormalized])
+  @@index([orgId, winnerNameNormalized])
+  @@index([orgId, awardDate])
+  @@index([orgId, verificationStatus, status])
+  @@index([orgId, solicitationNumber])
+}
+
+/// AwardRecord 的来源观察记录（1 award → N sources；provenance/citation 载体，语义 IMMUTABLE 只 create）。
+/// 幂等锚点：@@unique([orgId, sourceType, sourceKey])——同一公开 award 重复摄取命中唯一键 → 返回既有记录，不产生第二行。
+/// 不同来源描述同一 award → 各自保留一行 source（provenance 不塌缩），由 service 决定挂到同一 AwardRecord 或 NEEDS_REVIEW。
+model AwardRecordSource {
+  id              String      @id @default(cuid())
+  orgId           String
+  awardRecordId   String
+  awardRecord     AwardRecord @relation(fields: [awardRecordId], references: [id], onDelete: Restrict)
+  /// CANADABUYS_OPEN_DATA | WEB_SEARCH | PROJECT_RECORD | USER_ENTRY | OTHER_PUBLIC
+  sourceType      String
+  /// 来源域自然键（幂等键；如 "canadabuys:{reference_number}" | "web:{url}" | "project:{projectId}" | "manual:{cuid}"）
+  sourceKey       String
+  sourceUrl       String?     @db.Text
+  /// 证据片段（≤2000；verbatim 来源原文/结构化行摘录，不是 AI 转述）
+  evidenceSnippet String?     @db.Text
+  /// TenderArchiveItem.id 逻辑引用（快照证据可用时）
+  archiveItemId   String?
+  /// 观察捕获时点（producer 显式传入，无 default——对齐 T3 纪律）
+  capturedAt      DateTime
+  metadata        Json?
+  createdById     String?
+  createdAt       DateTime    @default(now())
+
+  @@unique([orgId, sourceType, sourceKey])
+  @@index([awardRecordId])
+  @@index([orgId, sourceType])
+}

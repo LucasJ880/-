@@ -33,6 +33,8 @@ npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts
 npx tsx src/lib/tender-intel/__tests__/canadabuys.test.ts
 npx tsx src/lib/tender-intel/__tests__/canadabuys-auto.test.ts
 npx tsx src/lib/tender-intel/__tests__/websearch.test.ts
+npx tsx src/lib/tender-intel/__tests__/awards.test.ts
+npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts
 npx tsx src/lib/tender/__tests__/workbench-state.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts

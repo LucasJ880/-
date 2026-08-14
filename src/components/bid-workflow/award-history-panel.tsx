@@ -17,6 +17,7 @@ type Finding = {
   contractDate: string | null;
   buyerName: string | null;
   ownerOrg: string | null;
+  referenceNumber: string | null;
   sourceUrl: string;
 };
 
@@ -133,11 +134,19 @@ export function AwardHistoryPanel({
           contractDate: f.contractDate,
           sourceUrl: f.sourceUrl,
           possiblyRecurring: true,
+          // T4：结构化上下文直通组织级 canonical AwardRecord（不再折叠成展示字符串）
+          buyerName: f.buyerName ?? f.ownerOrg ?? null,
+          referenceNumber: f.referenceNumber ?? null,
+          evidenceSnippet: f.descriptionEn ?? null,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "确认失败");
-      setNote(`已确认：${f.vendorName} 写入调查结论`);
+      setNote(
+        json.awardRecordId
+          ? `已确认：${f.vendorName} 写入调查结论，并已沉淀为组织授标情报`
+          : `已确认：${f.vendorName} 写入调查结论（组织级授标情报暂未启用，稍后可补沉淀）`,
+      );
       onConfirmed?.();
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e));
