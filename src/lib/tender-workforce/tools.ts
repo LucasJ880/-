@@ -744,7 +744,7 @@ async function handleBuildDeliverables(
       ...manifestEcho(mf.manifest),
       tenderDeliverables: true,
       deliverableCount: built.deliverableCount,
-      consideredRequirements: built.consideredRequirements,
+      checklistCount: built.checklistCount,
       deliverables: built.deliverables.slice(0, 20).map((d) => ({
         key: d.deliverableKey,
         title: d.title.slice(0, 200),
@@ -754,8 +754,8 @@ async function handleBuildDeliverables(
       })),
       summary:
         built.deliverableCount > 0
-          ? `已从 ${built.consideredRequirements} 条要求派生 ${built.deliverableCount} 项交付物（均可追溯到要求编号与来源页）`
-          : `本次抽取的 ${built.consideredRequirements} 条要求中没有提交类强制要求，未产出交付物（不套固定模板）`,
+          ? `已按 canonical 提交清单投影 ${built.deliverableCount} 项交付物（1:1，可追溯到要求编号与来源页）`
+          : `canonical 提交清单为空（本标书无提交类强制要求），未产出交付物——不套固定模板`,
     },
   };
 }

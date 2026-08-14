@@ -6,6 +6,12 @@
  * AUTH-FRESH-*  resume 时对真实工具重跑 canInvokeTool（纯函数层：注入策略与工具集）
  */
 import { readFileSync } from "node:fs";
+import { compileServerAuthoredPlan } from "../plan-compile";
+import { WORKFORCE_PLAN_CONTRACT_VERSION } from "../server-plan";
+import {
+  readCanonicalSubmissionChecklist,
+  GroundedChecklistError,
+} from "@/lib/tender-auto-analysis/deliverables";
 import { ok, finish } from "./helpers";
 import {
   getExecutionToolPolicyDescriptor,
@@ -235,6 +241,92 @@ import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-p
     "DELIV-13: 语义阶段表含交付物",
   );
   ok(DESCS.length === NAMES.length && NAMES.length === 8, "DELIV-14: 工具数 8，descriptor 覆盖 8/8");
+}
+
+/* ---------------- VERIFY-01..07 / DELIV-15..20 ---------------- */
+{
+  const plan = buildTenderDeterministicPlan({ projectId: "p1", projectName: "T" });
+  const TOOLS = TENDER_WORKFORCE_TOOL_DESCRIPTORS;
+  const compile = (pl: typeof plan) =>
+    compileServerAuthoredPlan({ plan: pl, tools: TOOLS, maxSteps: 12 });
+
+  ok(compile(plan).ok, "VERIFY-01: 全部 criteria 绑定证据 step → 编译通过");
+  ok(
+    (plan.completionCriteria ?? []).every(
+      (c) => c.verificationType !== "tool_result" || (c.evidenceStepIds ?? []).length > 0,
+    ),
+    "VERIFY-01b: tool_result criteria 均已绑定 evidenceStepIds",
+  );
+  const stepIds = new Set(plan.tasks.map((t) => t.id));
+  ok(
+    (plan.completionCriteria ?? []).every((c) =>
+      (c.evidenceStepIds ?? []).every((id) => stepIds.has(id)),
+    ),
+    "VERIFY-01c: 证据引用均指向真实任务",
+  );
+
+  const ghost = { ...plan, completionCriteria: [
+    { id: "cx", description: "d", verificationType: "tool_result" as const, evidenceStepIds: ["no_such_step"] },
+  ] };
+  const r2 = compile(ghost);
+  ok(
+    !r2.ok && r2.code === "SERVER_PLAN_COMPLETION_EVIDENCE_INVALID",
+    "VERIFY-02: 证据 step 不存在 → 编译期拒绝（不等跑完才发现）",
+  );
+  const noEvidence = { ...plan, completionCriteria: [
+    { id: "cy", description: "d", verificationType: "tool_result" as const },
+  ] };
+  const r3 = compile(noEvidence);
+  ok(
+    !r3.ok && r3.code === "SERVER_PLAN_COMPLETION_EVIDENCE_INVALID",
+    "VERIFY-02b: tool_result 未绑定证据 → 拒绝",
+  );
+  const dup = { ...plan, completionCriteria: [
+    { id: "cz", description: "d", verificationType: "tool_result" as const,
+      evidenceStepIds: ["t3_extract_requirements", "t3_extract_requirements"] },
+  ] };
+  ok(!compile(dup).ok, "VERIFY-02c: 重复证据引用 → 拒绝");
+  const judgement = { ...plan, completionCriteria: [
+    { id: "cm", description: "d", verificationType: "model_judgement" as const },
+  ] };
+  ok(compile(judgement).ok, "VERIFY-06: model_judgement 无需绑定证据（模型路径保留）");
+
+  ok(
+    readCanonicalSubmissionChecklist({ submissionChecklist: [] }).length === 0,
+    "DELIV-15: canonical checklist [] → 投影 0 条（合法成功）",
+  );
+  ok(
+    readCanonicalSubmissionChecklist({
+      submissionChecklist: [
+        { requirementId: "R-1", statement: "提交技术方案" },
+        { requirementId: "R-2", statement: "提交价格表" },
+      ],
+    }).length === 2,
+    "DELIV-16: canonical checklist N 条 → 读出 N 条",
+  );
+  let invalid = false;
+  try { readCanonicalSubmissionChecklist({}); } catch (e) {
+    invalid = e instanceof GroundedChecklistError && e.code === "GROUNDED_CHECKLIST_INVALID";
+  }
+  ok(invalid, "DELIV-18: 缺失 checklist → GROUNDED_CHECKLIST_INVALID fail-closed");
+  let malformed = false;
+  try { readCanonicalSubmissionChecklist({ submissionChecklist: [{ statement: "无 id" }] }); } catch (e) {
+    malformed = e instanceof GroundedChecklistError;
+  }
+  ok(malformed, "DELIV-18b: 畸形条目 → fail-closed（不静默 drop）");
+  const delivSrc2 = readFileSync("src/lib/tender-auto-analysis/deliverables.ts", "utf8");
+  ok(
+    // 断言代码而非注释：materializer 不得自行做分类判定
+    !delivSrc2.includes("SUBMISSION_CATEGORIES_DB") &&
+      !/const candidates\s*=\s*requirements\.filter/.test(delivSrc2) &&
+      delivSrc2.includes("readCanonicalSubmissionChecklist"),
+    "DELIV-20a: materializer 不再维护第二份分类逻辑（DELIVERABLE_CLASSIFICATION_SOURCES = 1）",
+  );
+  ok(
+    delivSrc2.includes("DELIVERABLE_DEFINITIONS") &&
+      !delivSrc2.match(/checklist\.length === 0[\s\S]{0,200}DELIVERABLE_DEFINITIONS/),
+    "DELIV-20: 空 checklist 不回落 V1 静态模板（V2_STATIC_TEMPLATE_REACHABILITY = 0）",
+  );
 }
 
 finish();

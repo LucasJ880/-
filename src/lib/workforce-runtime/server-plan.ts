@@ -61,6 +61,8 @@ export type ServerAuthoredPlanV1 = {
   completionCriteria: Array<{
     id: string;
     description: string;
+    /** T5-P1 §2：绑定证据 step（tool_result 必填；编译期校验存在性） */
+    evidenceStepIds?: string[];
     verificationType:
       | "tool_result"
       | "database_state"

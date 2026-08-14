@@ -104,6 +104,37 @@ export function compileServerAuthoredPlan(input: {
       error: `server-authored 计划有 ${shaped.plan.steps.length} 个任务，超过运行时上限 ${input.maxSteps}（AGENT_RUNTIME_V2_MAX_STEPS）。禁止静默截断——请提高上限或缩减 DAG。`,
     };
   }
+  // T5-P1 §3：证据绑定编译期校验——绝不等跑完才发现 verifier 没有证据可核。
+  const taskIds = new Set(input.plan.tasks.map((t) => t.id));
+  for (const c of input.plan.completionCriteria ?? []) {
+    const ids = c.evidenceStepIds ?? [];
+    if (c.verificationType === "tool_result" && ids.length === 0) {
+      return {
+        ok: false,
+        code: "SERVER_PLAN_COMPLETION_EVIDENCE_INVALID",
+        error: `完成标准「${c.id}」为 tool_result，但未绑定任何 evidenceStepIds`,
+      };
+    }
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (!taskIds.has(id)) {
+        return {
+          ok: false,
+          code: "SERVER_PLAN_COMPLETION_EVIDENCE_INVALID",
+          error: `完成标准「${c.id}」引用了不存在的任务：${id}`,
+        };
+      }
+      if (seen.has(id)) {
+        return {
+          ok: false,
+          code: "SERVER_PLAN_COMPLETION_EVIDENCE_INVALID",
+          error: `完成标准「${c.id}」重复引用任务：${id}`,
+        };
+      }
+      seen.add(id);
+    }
+  }
+
   return compileWorkforcePlan({
     raw: shaped.plan,
     tools: input.tools,

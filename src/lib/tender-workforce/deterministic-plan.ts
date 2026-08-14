@@ -218,14 +218,23 @@ export function buildTenderDeterministicPlan(
     completionCriteria: [
       {
         id: "c1_analysis_persisted",
+        evidenceStepIds: ["t9_finalize_analysis"],
         description:
           "tender_finalize_analysis 返回成功写回 canonical 分析结果，并将分析运行推进到待人工审核状态。",
         verificationType: "tool_result",
       },
       {
         id: "c2_requirements_extracted",
+        evidenceStepIds: ["t3_extract_requirements"],
         description:
           "tender_extract_requirements 返回带来源页码的招标要求与报告章节。",
+        verificationType: "tool_result",
+      },
+      {
+        id: "c3_deliverables_materialized",
+        evidenceStepIds: ["t7_build_deliverables"],
+        description:
+          "tender_build_deliverables 返回交付物投影结果（0 条也是合法成功——验证的是投影过程正确完成，不是必须有交付物）。",
         verificationType: "tool_result",
       },
     ],

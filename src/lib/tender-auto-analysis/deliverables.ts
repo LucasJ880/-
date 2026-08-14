@@ -10,10 +10,10 @@
  *                                V2 开启后 legacy worker 已刻意不再调用它——固定模板会
  *                                对任何标书产出同一批交付物，属编造。保留仅为 V1 历史行为。
  *
- *   buildGroundedDeliverables()  T5-P1：从**本次真实抽取的要求**派生交付物。
- *                                每条都能追到 requirementCode + 来源页码，
- *                                与 tender-understanding 的 submissionChecklist 同一口径
- *                                （SUBMISSION_CATEGORIES + mandatory），但落 canonical 表，
+ *   buildGroundedDeliverables()  T5-P1：**严格投影** canonical
+ *                                summaryJson.submissionChecklist（语义真相在 tender-understanding，
+ *                                本文件不自行判断什么算交付物）；每条可追 requirementCode + 来源页码
+ *                                （语义真相在 tender-understanding），落 canonical 表，
  *                                使提交页与 synthesis 都能消费。零 LLM 调用、纯派生。
  */
 
@@ -21,28 +21,70 @@ import { db } from "@/lib/db";
 import { DELIVERABLE_DEFINITIONS } from "./constants";
 
 /**
- * 与 tender-understanding/synthesize.ts 的 SUBMISSION_CATEGORIES 同口径；
- * DB 侧 category 为小写（v2-map.ts:199 `r.category.toLowerCase()`）。
+ * T5-P1 §8–§12：交付物语义真相 = TenderAnalysisRun.summaryJson.submissionChecklist
+ * （V2 grounded，由 tender-understanding 从 ACTIVE 要求派生）。
+ * TenderDeliverable 只是 **operational projection**，绝不自行判断"什么算交付物"。
+ *
+ * 因此本 materializer：
+ *  - 不再维护第二份分类判定（分类只发生在 tender-understanding 一处）
+ *    （DELIVERABLE_CLASSIFICATION_SOURCES = 1）
+ *  - checklist = [] → 落 0 行，PASS（合法成功）
+ *  - V2 run 缺失/畸形 checklist → GROUNDED_CHECKLIST_INVALID fail-closed
+ *  - checklist item 的 requirementId 找不到持久化要求 → GROUNDED_CHECKLIST_INTEGRITY_ERROR
+ *    fail-closed（禁止静默 drop）
+ *  - NEEDS_REVIEW 要求不在 canonical checklist 中 → 自然不会被投影
+ *  - 空 checklist 绝不回落 V1 静态模板（V2_STATIC_TEMPLATE_REACHABILITY = 0）
  */
-const SUBMISSION_CATEGORIES_DB = new Set([
-  "submission",
-  "administrative",
-  "pricing",
-  "samples",
-  "shop_drawings",
-  "bonding",
-  "insurance",
-]);
 
-/** requirementCode → 稳定的 deliverableKey（幂等锚点；同一要求重复运行不产生重复行） */
-function deliverableKeyForRequirement(requirementCode: string): string {
-  const slug = requirementCode
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 60);
-  return `req_${slug || "unknown"}`;
+export class GroundedChecklistError extends Error {
+  code: "GROUNDED_CHECKLIST_INVALID" | "GROUNDED_CHECKLIST_INTEGRITY_ERROR";
+  constructor(
+    code: "GROUNDED_CHECKLIST_INVALID" | "GROUNDED_CHECKLIST_INTEGRITY_ERROR",
+    message: string,
+  ) {
+    super(message);
+    this.code = code;
+    this.name = "GroundedChecklistError";
+  }
+}
+
+export type ChecklistItem = { requirementId: string; statement: string };
+
+/** 从 summaryJson 读取 canonical checklist（形状校验；缺失/畸形抛错） */
+export function readCanonicalSubmissionChecklist(
+  summaryJson: unknown,
+): ChecklistItem[] {
+  if (!summaryJson || typeof summaryJson !== "object") {
+    throw new GroundedChecklistError(
+      "GROUNDED_CHECKLIST_INVALID",
+      "V2 分析结果缺少 summaryJson，无法投影交付物",
+    );
+  }
+  const raw = (summaryJson as Record<string, unknown>).submissionChecklist;
+  if (raw === undefined || raw === null) {
+    throw new GroundedChecklistError(
+      "GROUNDED_CHECKLIST_INVALID",
+      "V2 分析结果缺少 submissionChecklist（canonical 交付物语义来源）",
+    );
+  }
+  if (!Array.isArray(raw)) {
+    throw new GroundedChecklistError(
+      "GROUNDED_CHECKLIST_INVALID",
+      "submissionChecklist 不是数组",
+    );
+  }
+  return raw.map((item, idx) => {
+    const o = (item ?? {}) as Record<string, unknown>;
+    const requirementId = typeof o.requirementId === "string" ? o.requirementId.trim() : "";
+    const statement = typeof o.statement === "string" ? o.statement.trim() : "";
+    if (!requirementId || !statement) {
+      throw new GroundedChecklistError(
+        "GROUNDED_CHECKLIST_INVALID",
+        `submissionChecklist[${idx}] 缺少 requirementId/statement`,
+      );
+    }
+    return { requirementId, statement };
+  });
 }
 
 export type GroundedDeliverable = {
@@ -56,54 +98,62 @@ export type GroundedDeliverable = {
 export type BuildGroundedDeliverablesResult = {
   deliverableCount: number;
   deliverables: GroundedDeliverable[];
-  /** 派生自多少条候选要求（可观测：0 表示本标书确实没有提交类强制要求） */
-  consideredRequirements: number;
+  /** canonical checklist 条目数（可观测：0 表示本标书确实没有提交类强制要求） */
+  checklistCount: number;
 };
 
+/** requirementCode → 稳定 deliverableKey（幂等锚点） */
+function deliverableKeyForRequirement(requirementCode: string): string {
+  const slug = requirementCode.trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+  return `req_${slug || "unknown"}`;
+}
+
 /**
- * T5-P1：从 canonical 抽取要求派生 grounded 交付物（幂等 upsert）。
- *
- * 纪律：只做派生，不发明。没有对应要求就不产出交付物——
- * 空结果是诚实结果，绝不回落静态模板补数。
+ * T5-P1：把 canonical submissionChecklist **逐条**投影为 TenderDeliverable。
+ * 严格 1:1——不增不减、不自行分类、不静默丢弃。
  */
 export async function buildGroundedDeliverables(input: {
   runId: string;
 }): Promise<BuildGroundedDeliverablesResult> {
   const run = await db.tenderAnalysisRun.findUnique({
     where: { id: input.runId },
-    select: { projectId: true },
+    select: { projectId: true, summaryJson: true },
   });
   if (!run) {
     throw new Error(`buildGroundedDeliverables: run not found ${input.runId}`);
   }
 
-  const requirements = await db.tenderExtractedRequirement.findMany({
+  const checklist = readCanonicalSubmissionChecklist(run.summaryJson);
+  if (checklist.length === 0) {
+    return { deliverableCount: 0, deliverables: [], checklistCount: 0 };
+  }
+
+  // requirementId → 持久化要求（缺失即 integrity error，禁止静默 drop）
+  const reqs = await db.tenderExtractedRequirement.findMany({
     where: { analysisRunId: input.runId },
     select: {
       requirementCode: true,
       originalRequirement: true,
       chineseTranslation: true,
-      category: true,
       mandatory: true,
-      evidenceRequired: true,
       sourcePage: true,
     },
-    orderBy: { requirementCode: "asc" },
   });
-
-  const candidates = requirements.filter(
-    (r) =>
-      r.mandatory &&
-      (SUBMISSION_CATEGORIES_DB.has((r.category ?? "").toLowerCase()) ||
-        r.evidenceRequired),
-  );
+  const byCode = new Map(reqs.map((r) => [r.requirementCode, r]));
 
   const out: GroundedDeliverable[] = [];
-  for (const r of candidates) {
-    const key = deliverableKeyForRequirement(r.requirementCode);
-    const title = (r.chineseTranslation || r.originalRequirement || r.requirementCode)
-      .trim()
-      .slice(0, 200);
+  for (const item of checklist) {
+    const req = byCode.get(item.requirementId);
+    if (!req) {
+      throw new GroundedChecklistError(
+        "GROUNDED_CHECKLIST_INTEGRITY_ERROR",
+        `canonical checklist 引用的要求 ${item.requirementId} 在本次分析中不存在`,
+      );
+    }
+    const key = deliverableKeyForRequirement(req.requirementCode);
+    const title = (req.chineseTranslation || item.statement || req.originalRequirement)
+      .trim().slice(0, 200);
     await db.tenderDeliverable.upsert({
       where: {
         analysisRunId_deliverableKey: {
@@ -116,36 +166,30 @@ export async function buildGroundedDeliverables(input: {
         analysisRunId: input.runId,
         deliverableKey: key,
         title,
-        mandatory: r.mandatory,
-        sourcePage: r.sourcePage,
+        mandatory: req.mandatory,
+        sourcePage: req.sourcePage,
       },
-      // 幂等：标题/来源页可随重跑刷新；人工设置的 owner/dueAt/status 不覆盖
-      update: { title, mandatory: r.mandatory, sourcePage: r.sourcePage },
+      update: { title, mandatory: req.mandatory, sourcePage: req.sourcePage },
     });
     out.push({
       deliverableKey: key,
       title,
-      mandatory: r.mandatory,
-      sourcePage: r.sourcePage,
-      requirementCode: r.requirementCode,
+      mandatory: req.mandatory,
+      sourcePage: req.sourcePage,
+      requirementCode: req.requirementCode,
     });
   }
 
   return {
     deliverableCount: out.length,
     deliverables: out,
-    consideredRequirements: requirements.length,
+    checklistCount: checklist.length,
   };
 }
 
-export type BuildDeliverablesInput = {
-  runId: string;
-};
-
-export type BuildDeliverablesResult = {
-  deliverableCount: number;
-  keys: string[];
-};
+/** V1 静态模板入参/结果（legacy 行为，未改动） */
+export type BuildDeliverablesInput = { runId: string };
+export type BuildDeliverablesResult = { deliverableCount: number; keys: string[] };
 
 export async function buildDeliverables(
   input: BuildDeliverablesInput,
