@@ -4667,6 +4667,7 @@ model AgentRun {
   events        AgentRunEvent[]
   steps         AgentRunStep[]
   verifications AgentRunVerification[]
+  autopilotRun  AutopilotRun?
 
   @@index([orgId, sessionId])
   @@index([orgId, status])
@@ -4749,6 +4750,72 @@ model AgentRunEvent {
 
   @@unique([runId, sequence])
   @@index([orgId, runId])
+}
+
+/// Autopilot A0：AgentRun 的脱敏观察层（非平行 Runtime；写入失败不得阻断 Agent）
+model AutopilotRun {
+  id                   String    @id @default(cuid())
+  agentRunId           String    @unique
+  agentRun             AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  orgId                String
+  userId               String?
+  projectId            String?
+  threadId             String?
+  sessionId            String?
+  agentId              String?
+  agentType            String?
+  agentVersion         String?
+  userGoalSummary      String?   @db.Text
+  intent               String?
+  inputRef             Json?
+  outputRef            Json?
+  originalOutputRef    Json?
+  humanEditedOutputRef Json?
+  humanEditMeta        Json?
+  agentRecommendation  Json?
+  humanDecision        Json?
+  humanOverride        Boolean   @default(false)
+  humanEdit            Boolean   @default(false)
+  reAskStatus          String    @default("NOT_EVALUATED")
+  outcome              String    @default("UNKNOWN")
+  failureType          String?
+  failureSource        String?
+  latencyMs            Int?
+  tokenUsage           Json?
+  estimatedCost        Decimal?  @db.Decimal(18, 6)
+  errorCode            String?
+  errorSummary         String?   @db.Text
+  toolCallCount        Int       @default(0)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  events               AutopilotRunEvent[]
+
+  @@index([orgId, startedAt])
+  @@index([orgId, outcome])
+  @@index([orgId, agentType])
+  @@index([orgId, createdAt])
+}
+
+/// Autopilot A0：脱敏 Trace 事件（可从 AgentRunEvent 重建；本表为 sanitized copy）
+model AutopilotRunEvent {
+  id         String       @id @default(cuid())
+  runId      String
+  run        AutopilotRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  orgId      String
+  eventType  String
+  sequence   Int
+  timestamp  DateTime
+  durationMs Int?
+  payload    Json?
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+
+  @@unique([runId, sequence])
+  @@index([orgId, runId])
+  @@index([orgId, eventType])
 }
 
 /// 客服会话 — 未绑定的外部联系人（客户）发给机器人微信号的会话
