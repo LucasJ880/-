@@ -102,6 +102,7 @@ const apiFiles = [
   "src/app/api/autopilot/overview/route.ts",
   "src/app/api/autopilot/runs/route.ts",
   "src/app/api/autopilot/runs/[runId]/route.ts",
+  "src/app/api/autopilot/telemetry-health/route.ts",
 ];
 for (const rel of apiFiles) {
   const src = readFileSync(join(root, rel), "utf8");
@@ -123,8 +124,30 @@ ok(!/cmmy6zimk0000ju04hrln3yqv/.test(accessSrc), "access 层不硬编码预览 u
 
 const runtimeSrc = readFileSync(join(root, "src/lib/agent-runtime/run.ts"), "utf8");
 ok(
-  runtimeSrc.includes("notifyAutopilotRuntime"),
-  "canonical runtime 已挂 Trace Hook",
+  runtimeSrc.includes("enqueueAutopilotTelemetryOutbox"),
+  "canonical runtime 在同事务写入 durable outbox",
+);
+ok(
+  runtimeSrc.includes("$transaction"),
+  "AgentRunEvent + outbox 走 $transaction",
+);
+ok(
+  !runtimeSrc.includes("notifyAutopilotRuntime"),
+  "request path 不再 fire-and-forget notifyAutopilotRuntime",
+);
+
+const cronSrc = readFileSync(
+  join(root, "src/app/api/cron/autopilot-telemetry/route.ts"),
+  "utf8",
+);
+ok(cronSrc.includes("requireCronSecret"), "telemetry cron 使用机器身份 CRON_SECRET");
+ok(!cronSrc.includes("requireAutopilotAccess"), "telemetry cron 不用 Lucas UI 权限代替机器认证");
+
+ok(
+  flattenHrefs(resolveNavigationTree(NAVIGATION_REGISTRY, owner)).includes(
+    "/ai/autopilot/telemetry",
+  ),
+  "owner：可见 /ai/autopilot/telemetry",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

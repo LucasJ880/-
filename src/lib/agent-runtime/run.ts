@@ -19,7 +19,7 @@ import {
   readRootRunIdFromUnknown,
   type AIRuntimeContext,
 } from "@/lib/ai/runtime-context";
-import { notifyAutopilotRuntime } from "@/lib/autopilot/instrumentation";
+import { enqueueAutopilotTelemetryOutbox } from "@/lib/autopilot/outbox";
 
 function jsonValue(
   value: Record<string, unknown> | undefined,
@@ -167,25 +167,40 @@ export async function createAgentRun(input: {
 
   let run;
   try {
-    run = await db.agentRun.create({
-      data: {
+    run = await db.$transaction(async (tx) => {
+      const created = await tx.agentRun.create({
+        data: {
+          orgId: input.orgId,
+          sessionId: input.sessionId,
+          userMessageId: input.userMessageId || null,
+          runType: input.runType || "conversation",
+          status: "queued",
+          intent: input.intent || null,
+          traceId: trace.traceId,
+          parentRunId: trace.parentRunId,
+          metadata: jsonValue({
+            ...mergedMeta,
+            quotaReservationIds: [
+              rDaily.reservationId,
+              rConc.reservationId,
+            ],
+          }),
+          startedAt: new Date(),
+        },
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
         orgId: input.orgId,
-        sessionId: input.sessionId,
-        userMessageId: input.userMessageId || null,
-        runType: input.runType || "conversation",
-        status: "queued",
-        intent: input.intent || null,
-        traceId: trace.traceId,
-        parentRunId: trace.parentRunId,
-        metadata: jsonValue({
-          ...mergedMeta,
-          quotaReservationIds: [
-            rDaily.reservationId,
-            rConc.reservationId,
-          ],
-        }),
-        startedAt: new Date(),
-      },
+        agentRunId: created.id,
+        noticeType: "run_created",
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId: input.orgId,
+        runId: created.id,
+        eventType: "run.started",
+        title: "任务已创建",
+        visibleToUser: true,
+      });
+      return created;
     });
   } catch (err) {
     await releaseReservation({
@@ -224,21 +239,6 @@ export async function createAgentRun(input: {
         rootRunId: rootRunId ?? run.id,
       }),
     },
-  });
-
-  await appendAgentRunEvent({
-    orgId: input.orgId,
-    runId: run.id,
-    eventType: "run.started",
-    title: "任务已创建",
-    visibleToUser: true,
-  });
-
-  notifyAutopilotRuntime({
-    type: "run_created",
-    orgId: input.orgId,
-    runId: runWithMeta.id,
-    userId: session.userId,
   });
 
   return { run: runWithMeta, reused: false as const };
@@ -312,47 +312,47 @@ export async function updateAgentRunStatus(
 }
 
 export async function completeAgentRun(orgId: string, runId: string) {
-  const run = await db.agentRun.findFirst({
-    where: { id: runId, orgId },
+  return withAgentRunEventSequenceRetry(async () => {
+    return db.$transaction(async (tx) => {
+      const run = await tx.agentRun.findFirst({
+        where: { id: runId, orgId },
+      });
+      if (!run) throw new Error("Run 不存在或跨组织");
+      if (
+        run.status === "cancelled" ||
+        run.status === "completed" ||
+        run.status === "failed"
+      ) {
+        return run;
+      }
+
+      const completedAt = new Date();
+      const latencyMs = run.startedAt
+        ? completedAt.getTime() - run.startedAt.getTime()
+        : null;
+      const next = await tx.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "completed",
+          completedAt,
+          latencyMs,
+        },
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId,
+        runId,
+        eventType: "run.completed",
+        title: "任务完成",
+        payload: { latencyMs },
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
+        orgId,
+        agentRunId: runId,
+        noticeType: "run_terminal",
+      });
+      return next;
+    });
   });
-  if (!run) throw new Error("Run 不存在或跨组织");
-  if (
-    run.status === "cancelled" ||
-    run.status === "completed" ||
-    run.status === "failed"
-  ) {
-    return run;
-  }
-
-  const completedAt = new Date();
-  const latencyMs = run.startedAt
-    ? completedAt.getTime() - run.startedAt.getTime()
-    : null;
-
-  const updated = await db.agentRun.update({
-    where: { id: runId },
-    data: {
-      status: "completed",
-      completedAt,
-      latencyMs,
-    },
-  });
-
-  await appendAgentRunEvent({
-    orgId,
-    runId,
-    eventType: "run.completed",
-    title: "任务完成",
-    payload: { latencyMs },
-  });
-
-  notifyAutopilotRuntime({
-    type: "run_terminal",
-    orgId,
-    runId,
-  });
-
-  return updated;
 }
 
 export async function failAgentRun(
@@ -360,42 +360,42 @@ export async function failAgentRun(
   runId: string,
   error: { code: AgentErrorCode; message: string },
 ) {
-  const run = await db.agentRun.findFirst({ where: { id: runId, orgId } });
-  if (!run) throw new Error("Run 不存在或跨组织");
-  if (run.status === "cancelled") return run;
+  return withAgentRunEventSequenceRetry(async () => {
+    return db.$transaction(async (tx) => {
+      const run = await tx.agentRun.findFirst({ where: { id: runId, orgId } });
+      if (!run) throw new Error("Run 不存在或跨组织");
+      if (run.status === "cancelled") return run;
 
-  const completedAt = new Date();
-  const latencyMs = run.startedAt
-    ? completedAt.getTime() - run.startedAt.getTime()
-    : null;
-
-  const updated = await db.agentRun.update({
-    where: { id: runId },
-    data: {
-      status: "failed",
-      completedAt,
-      latencyMs,
-      errorCode: error.code,
-      errorMessage: error.message.slice(0, 2000),
-    },
+      const completedAt = new Date();
+      const latencyMs = run.startedAt
+        ? completedAt.getTime() - run.startedAt.getTime()
+        : null;
+      const next = await tx.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "failed",
+          completedAt,
+          latencyMs,
+          errorCode: error.code,
+          errorMessage: error.message.slice(0, 2000),
+        },
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId,
+        runId,
+        eventType: "run.failed",
+        title: "任务失败",
+        payload: { code: error.code },
+        visibleToUser: true,
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
+        orgId,
+        agentRunId: runId,
+        noticeType: "run_terminal",
+      });
+      return next;
+    });
   });
-
-  await appendAgentRunEvent({
-    orgId,
-    runId,
-    eventType: "run.failed",
-    title: "任务失败",
-    payload: { code: error.code },
-    visibleToUser: true,
-  });
-
-  notifyAutopilotRuntime({
-    type: "run_terminal",
-    orgId,
-    runId,
-  });
-
-  return updated;
 }
 
 export async function cancelAgentRun(orgId: string, runId: string) {
@@ -409,19 +409,6 @@ export async function cancelAgentRun(orgId: string, runId: string) {
     return run;
   }
 
-  const updated = await db.agentRun.update({
-    where: { id: runId },
-    data: {
-      status: "cancelled",
-      cancelledAt: new Date(),
-      completedAt: new Date(),
-      latencyMs: run.startedAt
-        ? Date.now() - run.startedAt.getTime()
-        : null,
-    },
-  });
-
-  // 联动拒绝该 Run 下未决 PendingAction（不自动执行）
   let rejectedPending = 0;
   try {
     const { rejectPendingActionsForAgentRun } = await import("./pending-link");
@@ -434,24 +421,49 @@ export async function cancelAgentRun(orgId: string, runId: string) {
     /* 联动失败不阻断取消 */
   }
 
-  await appendAgentRunEvent({
-    orgId,
-    runId,
-    eventType: "run.cancelled",
-    title:
-      rejectedPending > 0
-        ? `任务已取消，并拒绝 ${rejectedPending} 个待确认动作`
-        : "任务已取消",
-    payload: { rejectedPending },
-  });
+  return withAgentRunEventSequenceRetry(async () => {
+    return db.$transaction(async (tx) => {
+      const current = await tx.agentRun.findFirst({
+        where: { id: runId, orgId },
+      });
+      if (!current) throw new Error("Run 不存在或跨组织");
+      if (
+        current.status === "completed" ||
+        current.status === "failed" ||
+        current.status === "cancelled"
+      ) {
+        return current;
+      }
 
-  notifyAutopilotRuntime({
-    type: "run_terminal",
-    orgId,
-    runId,
+      const next = await tx.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          completedAt: new Date(),
+          latencyMs: current.startedAt
+            ? Date.now() - current.startedAt.getTime()
+            : null,
+        },
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId,
+        runId,
+        eventType: "run.cancelled",
+        title:
+          rejectedPending > 0
+            ? `任务已取消，并拒绝 ${rejectedPending} 个待确认动作`
+            : "任务已取消",
+        payload: { rejectedPending },
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
+        orgId,
+        agentRunId: runId,
+        noticeType: "run_terminal",
+      });
+      return next;
+    });
   });
-
-  return updated;
 }
 
 export async function isAgentRunCancelled(
@@ -483,12 +495,38 @@ export async function findLatestActiveRun(input: {
 }
 
 /** Prisma unique violation（并发 sequence 抢占时的判定依据） */
-function isUniqueViolation(error: unknown): boolean {
+export function isAgentRunEventSequenceConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
     error !== null &&
     (error as { code?: unknown }).code === "P2002"
   );
+}
+
+export const AGENT_RUN_EVENT_SEQUENCE_MAX_RETRIES = 8;
+
+/**
+ * Canonical bounded retry for AgentRunEvent @@unique([runId, sequence]).
+ * Postgres aborts the interactive transaction on unique violation — retry
+ * the WHOLE work() (a fresh $transaction), never catch P2002 inside the
+ * already-aborted TX.
+ */
+export async function withAgentRunEventSequenceRetry<T>(
+  work: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await work();
+    } catch (error) {
+      if (
+        isAgentRunEventSequenceConflict(error) &&
+        attempt < AGENT_RUN_EVENT_SEQUENCE_MAX_RETRIES
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 export async function appendAgentRunEvent(input: {
@@ -499,10 +537,6 @@ export async function appendAgentRunEvent(input: {
   payload?: Record<string, unknown>;
   visibleToUser?: boolean;
 }) {
-  // Phase 2B-2：sequence = max+1 的读写窗口在并行 Task（同 run 多个并发
-  // append）下会撞 @@unique([runId, sequence])。碰撞时重读重试（有界），
-  // 不再把 unique violation 当普通失败吞掉——否则并行批次的事件会静默丢失。
-  const MAX_SEQUENCE_RETRIES = 8;
   try {
     const run = await db.agentRun.findFirst({
       where: { id: input.runId, orgId: input.orgId },
@@ -510,42 +544,9 @@ export async function appendAgentRunEvent(input: {
     });
     if (!run) return null;
 
-    for (let attempt = 0; ; attempt++) {
-      const last = await db.agentRunEvent.findFirst({
-        where: { runId: input.runId },
-        orderBy: { sequence: "desc" },
-        select: { sequence: true },
-      });
-      const sequence = (last?.sequence ?? 0) + 1;
-
-      try {
-        const created = await db.agentRunEvent.create({
-          data: {
-            orgId: input.orgId,
-            runId: input.runId,
-            sequence,
-            eventType: input.eventType,
-            title: input.title || null,
-            payload: jsonValue(input.payload),
-            visibleToUser: input.visibleToUser !== false,
-          },
-        });
-        notifyAutopilotRuntime({
-          type: "event",
-          orgId: input.orgId,
-          runId: input.runId,
-          eventType: input.eventType,
-          sequence,
-          payload: input.payload ?? null,
-        });
-        return created;
-      } catch (error) {
-        if (isUniqueViolation(error) && attempt < MAX_SEQUENCE_RETRIES) {
-          continue;
-        }
-        throw error;
-      }
-    }
+    return await withAgentRunEventSequenceRetry(() =>
+      db.$transaction((tx) => appendAgentRunEventInTx(tx, input)),
+    );
   } catch (error) {
     console.error("[AgentRunEvent] append failed", {
       runId: input.runId,
@@ -555,6 +556,51 @@ export async function appendAgentRunEvent(input: {
     });
     return null;
   }
+}
+
+export async function appendAgentRunEventInTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    orgId: string;
+    runId: string;
+    eventType: AgentRunEventType;
+    title?: string;
+    payload?: Record<string, unknown>;
+    visibleToUser?: boolean;
+  },
+) {
+  const run = await tx.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { id: true },
+  });
+  if (!run) return null;
+
+  const last = await tx.agentRunEvent.findFirst({
+    where: { runId: input.runId },
+    orderBy: { sequence: "desc" },
+    select: { sequence: true },
+  });
+  const sequence = (last?.sequence ?? 0) + 1;
+  const created = await tx.agentRunEvent.create({
+    data: {
+      orgId: input.orgId,
+      runId: input.runId,
+      sequence,
+      eventType: input.eventType,
+      title: input.title || null,
+      payload: jsonValue(input.payload),
+      visibleToUser: input.visibleToUser !== false,
+    },
+  });
+  await enqueueAutopilotTelemetryOutbox(tx, {
+    orgId: input.orgId,
+    agentRunId: input.runId,
+    noticeType: "event",
+    agentEventId: created.id,
+    sequence,
+    sourceEventType: input.eventType,
+  });
+  return created;
 }
 
 export async function listAgentRunEvents(orgId: string, runId: string) {

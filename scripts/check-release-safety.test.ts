@@ -113,8 +113,9 @@ ok(
       "20260814090000_add_tender_profitability_settlement",
       "20260814150000_add_tender_t4_award_record_foundation",
       "20260814220000_add_autopilot_a0_foundation",
+      "20260815010000_add_autopilot_a1_p0_telemetry_outbox",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

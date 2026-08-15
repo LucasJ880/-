@@ -4,7 +4,7 @@
  */
 
 import { AutopilotAccessError } from "../access";
-import { getAutopilotOverview, getAutopilotRun, listAutopilotRuns } from "../service";
+import { getAutopilotOverview, getAutopilotRun, getAutopilotTelemetryHealth, listAutopilotRuns } from "../service";
 
 let pass = 0;
 let fail = 0;
@@ -51,6 +51,10 @@ async function main() {
     await expectDenied(
       () => getAutopilotRun(admin, orgId, "run_1"),
       "admin 读 run detail → denied",
+    );
+    await expectDenied(
+      () => getAutopilotTelemetryHealth(admin, orgId),
+      "admin 读 telemetry health → denied",
     );
   } finally {
     if (prevEnabled === undefined) delete process.env.AUTOPILOT_ENABLED;

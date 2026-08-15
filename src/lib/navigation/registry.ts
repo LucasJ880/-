@@ -316,6 +316,15 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
         autopilotOwnerOnly: true,
         displayOrder: 20,
       },
+      {
+        key: "autopilot-telemetry",
+        label: "Telemetry",
+        labelKey: "nav_autopilot_telemetry",
+        href: "/ai/autopilot/telemetry",
+        group: "CAPABILITIES",
+        autopilotOwnerOnly: true,
+        displayOrder: 30,
+      },
     ],
   },
 

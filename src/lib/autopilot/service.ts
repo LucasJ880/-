@@ -21,6 +21,7 @@ import {
   listPendingActionsForRun,
   type AutopilotListQuery,
 } from "./repository";
+import { loadAutopilotTelemetryHealth } from "./telemetry-health";
 
 export type AutopilotActor = {
   id: string;
@@ -131,4 +132,12 @@ export async function getAutopilotRun(
     pendingActions: pending,
     overlay: row.autopilotRun,
   });
+}
+
+export async function getAutopilotTelemetryHealth(
+  actor: AutopilotActor,
+  orgId: string,
+) {
+  requireAccess(actor, orgId, "autopilot.view");
+  return loadAutopilotTelemetryHealth(orgId);
 }

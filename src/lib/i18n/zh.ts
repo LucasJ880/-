@@ -92,6 +92,7 @@ export const zh: Messages = {
   nav_autopilot: "Autopilot",
   nav_autopilot_overview: "Autopilot 总览",
   nav_autopilot_runs: "Autopilot Runs",
+  nav_autopilot_telemetry: "Telemetry Health",
   nav_growth_hub: "品牌增长",
   nav_weekly_reports: "经营简报",
   nav_publish_calendar: "内容生产",
