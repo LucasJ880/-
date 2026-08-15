@@ -10,6 +10,7 @@ import {
   autopilotOutboxIdempotencyKey,
   enqueueAutopilotTelemetryOutbox,
   isOutboxRowClaimable,
+  isOutboxRowExpiredMaxAttempt,
   sanitizeOutboxError,
   type AutopilotOutboxClient,
   type ClaimedOutboxRow,
@@ -339,6 +340,57 @@ async function main() {
       "Test4: expired lease 可 reclaim",
     );
 
+    const expiredAtMax: OutboxClaimSnapshot = {
+      status: "processing",
+      attemptCount: AUTOPILOT_OUTBOX_MAX_ATTEMPTS,
+      nextAttemptAt: null,
+      leaseExpiresAt: new Date(now.getTime() - 1),
+    };
+    ok(
+      isOutboxRowClaimable(
+        {
+          status: "processing",
+          attemptCount: 7,
+          nextAttemptAt: null,
+          leaseExpiresAt: new Date(now.getTime() - 1),
+        },
+        now,
+        8,
+      ),
+      "B2: processing + expired + attemptCount=7 → reclaim",
+    );
+    ok(
+      !isOutboxRowClaimable(expiredAtMax, now, 8),
+      "B2: processing + expired + attemptCount=8 → 不可 reclaim",
+    );
+    ok(
+      isOutboxRowExpiredMaxAttempt(expiredAtMax, now, 8),
+      "B2: attemptCount=8 expired processing → DEAD recovery",
+    );
+
+    let crashAttempts = 1;
+    let reclaimCount = 0;
+    for (let i = 0; i < 40; i++) {
+      const snap: OutboxClaimSnapshot = {
+        status: "processing",
+        attemptCount: crashAttempts,
+        nextAttemptAt: null,
+        leaseExpiresAt: new Date(now.getTime() - 1),
+      };
+      if (isOutboxRowClaimable(snap, now, 8)) {
+        crashAttempts += 1;
+        reclaimCount += 1;
+        continue;
+      }
+      ok(
+        isOutboxRowExpiredMaxAttempt(snap, now, 8),
+        "B2: repeated crashes stop at DEAD recovery",
+      );
+      break;
+    }
+    ok(crashAttempts === 8, "B2: attemptCount 有上界 8");
+    ok(reclaimCount === 7, "B2: 从 1 到 8 只允许 7 次 reclaim");
+
     const row: OutboxClaimSnapshot & { owner: string | null } = {
       status: "processing",
       attemptCount: 1,
@@ -450,6 +502,29 @@ async function main() {
     );
     ok(!err.summary.includes("secret-token-value"), "Test6: error diagnostics 无 Bearer");
     ok(!err.summary.includes("hunter2"), "Test6: error diagnostics 无 password");
+    const mid = [
+      "request failed: Authorization: Bearer abc-secret-in-middle",
+      "upstream returned Cookie: qy_session=abc123mid",
+      "database error password=hunter2",
+      "request failed with api_key=sk-live-abcdefghijklmnopqrstuvwxyz",
+    ];
+    for (const raw of mid) {
+      const redacted = sanitizeOutboxError(new Error(raw)).summary;
+      ok(!redacted.includes("abc-secret-in-middle"), `B3 no Bearer secret: ${raw.slice(0, 24)}`);
+      ok(!redacted.includes("qy_session=abc123mid"), `B3 no cookie: ${raw.slice(0, 24)}`);
+      ok(!redacted.includes("hunter2"), `B3 no password: ${raw.slice(0, 24)}`);
+      ok(!redacted.includes("sk-live-abcdefghijklmnopqrstuvwxyz"), `B3 no api_key: ${raw.slice(0, 24)}`);
+    }
+    ok(
+      sanitizeOutboxError(new Error("Unique constraint failed")).code === "PROCESSOR_ERROR" ||
+        sanitizeOutboxError(Object.assign(new Error("db"), { code: "P2002" })).code === "P2002",
+      "B3: structured code preserved when safe",
+    );
+    ok(
+      sanitizeOutboxError(Object.assign(new Error("x"), { code: "Bearer abcdefghijklmnop" })).code ===
+        "PROCESSOR_ERROR",
+      "B3: secret-bearing error.code 不得入库",
+    );
     ok(
       sanitizeAgentTrace("Bearer abcdefghijklmnop") === "[REDACTED]",
       "Test6: sanitizer 仍是硬边界",

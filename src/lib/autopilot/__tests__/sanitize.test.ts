@@ -7,6 +7,8 @@ import {
   sanitizeAgentTrace,
   sanitizeAutopilotPayload,
   toContentRef,
+  redactPersistedErrorText,
+  safePersistedErrorCode,
 } from "../sanitize";
 
 let pass = 0;
@@ -90,6 +92,38 @@ ok(!persisted.includes("acme@example.com"), "业务邮箱不入库");
 ok(!persisted.includes("lucas@sunnyshutter.ca"), "内部邮箱不入库");
 ok(!persisted.includes("12800"), "金额数字不入库");
 ok(toContentRef(null) === null, "空值不写 reference");
+
+ok(
+  sanitizeAgentTrace("Bearer abcdefghijklmnop") === "[REDACTED]",
+  "既有 sanitizer 前缀 Bearer 行为保持",
+);
+ok(
+  typeof sanitizeAgentTrace("request failed: Authorization: Bearer abc-mid") === "string",
+  "既有 sanitizer 不被本轮改成更弱",
+);
+
+const persistedCases = [
+  "request failed: Authorization: Bearer abc-secret-in-middle",
+  "upstream returned Cookie: qy_session=abc123mid",
+  "database error password=hunter2",
+  "request failed with api_key=sk-live-abcdefghijklmnopqrstuvwxyz",
+];
+for (const raw of persistedCases) {
+  const out = redactPersistedErrorText(raw);
+  ok(!out.includes("abc-secret-in-middle"), `persisted redact Bearer mid: ${raw.slice(0, 28)}`);
+  ok(!out.includes("qy_session=abc123mid"), `persisted redact cookie mid: ${raw.slice(0, 28)}`);
+  ok(!out.includes("hunter2"), `persisted redact password: ${raw.slice(0, 28)}`);
+  ok(
+    !out.includes("sk-live-abcdefghijklmnopqrstuvwxyz"),
+    `persisted redact api_key: ${raw.slice(0, 28)}`,
+  );
+}
+ok(safePersistedErrorCode("P2002") === "P2002", "safe code P2002");
+ok(safePersistedErrorCode("CROSS_ORG") === "CROSS_ORG", "safe code CROSS_ORG");
+ok(
+  safePersistedErrorCode("Bearer secret-token-value") === "PROCESSOR_ERROR",
+  "unsafe code 不得入库",
+);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

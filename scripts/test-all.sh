@@ -144,6 +144,8 @@ run_test "Autopilot A0 Service Access" "npx tsx src/lib/autopilot/__tests__/serv
 run_test "Autopilot A0 Security Layers" "npx tsx src/lib/autopilot/__tests__/security-layers.test.ts"
 run_test "Autopilot A1-P0 Durability Matrix" "npx tsx src/lib/autopilot/__tests__/durability-matrix.test.ts"
 run_test "Autopilot A1-P0 Benchmark" "npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts"
+run_test "Autopilot A1-P0 Sequence Retry" "npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts"
+run_test "Autopilot A1-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/durability-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
 run_test "Default Workspace" "npx tsx src/lib/rbac/__tests__/default-workspace.test.ts"

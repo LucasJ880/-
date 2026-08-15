@@ -6,7 +6,7 @@
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { isAutopilotTelemetryCaptureEnabled } from "./flags";
-import { sanitizedErrorSummary } from "./projection";
+import { redactPersistedErrorText, safePersistedErrorCode } from "./sanitize";
 
 export const AUTOPILOT_OUTBOX_MAX_ATTEMPTS = 8;
 export const AUTOPILOT_OUTBOX_LEASE_MS = 60_000;
@@ -39,24 +39,37 @@ export type OutboxClaimSnapshot = {
   leaseExpiresAt: Date | null;
 };
 
-/** CAS claim 条件（与 lease.ts updateMany 模式一致，含过期 processing reclaim）。 */
+/** CAS claim 条件（与 lease.ts updateMany 模式一致）。 */
 export function isOutboxRowClaimable(
   row: OutboxClaimSnapshot,
   now: Date,
   maxAttempts: number,
 ): boolean {
   if (row.status === "processed" || row.status === "dead") return false;
+  if (row.attemptCount >= maxAttempts) return false;
   if (row.status === "processing") {
     return (
       row.leaseExpiresAt != null && row.leaseExpiresAt.getTime() <= now.getTime()
     );
   }
   if (row.status !== "pending") return false;
-  if (row.attemptCount >= maxAttempts) return false;
   if (row.nextAttemptAt && row.nextAttemptAt.getTime() > now.getTime()) {
     return false;
   }
   return true;
+}
+
+/** Expired processing at/over max attempts: recover to DEAD, do not reclaim. */
+export function isOutboxRowExpiredMaxAttempt(
+  row: OutboxClaimSnapshot,
+  now: Date,
+  maxAttempts: number,
+): boolean {
+  if (row.status !== "processing") return false;
+  if (row.attemptCount < maxAttempts) return false;
+  return (
+    row.leaseExpiresAt != null && row.leaseExpiresAt.getTime() <= now.getTime()
+  );
 }
 
 export type AutopilotOutboxEnvelope = {
@@ -95,15 +108,15 @@ export function sanitizeOutboxError(error: unknown): {
   summary: string;
 } {
   const raw = error instanceof Error ? error.message : String(error);
-  const summary = sanitizedErrorSummary(raw)?.slice(0, 240) ?? "[REDACTED]";
-  const code =
+  const summary = redactPersistedErrorText(raw);
+  const rawCode =
     typeof error === "object" &&
     error &&
     "code" in error &&
     typeof (error as { code?: unknown }).code === "string"
-      ? String((error as { code: string }).code).slice(0, 64)
+      ? String((error as { code: string }).code)
       : "PROCESSOR_ERROR";
-  return { code, summary };
+  return { code: safePersistedErrorCode(rawCode), summary };
 }
 
 export function isUniqueViolation(error: unknown): boolean {
@@ -183,6 +196,7 @@ export async function claimAutopilotOutboxBatch(input: {
         },
         {
           status: "processing",
+          attemptCount: { lt: maxAttempts },
           leaseExpiresAt: { lte: now },
         },
       ],
@@ -206,6 +220,7 @@ export async function claimAutopilotOutboxBatch(input: {
           },
           {
             status: "processing",
+            attemptCount: { lt: maxAttempts },
             leaseExpiresAt: { lte: now },
           },
         ],
@@ -306,7 +321,7 @@ export async function markAutopilotOutboxDead(input: {
     where: { id: input.id, leaseToken: input.leaseToken, status: "processing" },
     data: {
       status: "dead",
-      lastErrorCode: input.code.slice(0, 64),
+      lastErrorCode: safePersistedErrorCode(input.code),
       lastErrorSummary: summary,
       leaseExpiresAt: null,
       leaseToken: null,
@@ -314,4 +329,55 @@ export async function markAutopilotOutboxDead(input: {
     },
   });
   return res.count === 1;
+}
+
+/**
+ * Deterministic recovery: expired PROCESSING rows at/over maxAttempts
+ * become DEAD without incrementing attemptCount (no unbounded reclaim).
+ */
+export async function recoverExpiredMaxAttemptOutbox(input: {
+  now?: Date;
+  maxAttempts?: number;
+  limit?: number;
+} = {}): Promise<number> {
+  const now = input.now ?? new Date();
+  const maxAttempts = input.maxAttempts ?? AUTOPILOT_OUTBOX_MAX_ATTEMPTS;
+  const limit = Math.min(
+    AUTOPILOT_OUTBOX_BATCH_LIMIT,
+    Math.max(1, input.limit ?? AUTOPILOT_OUTBOX_BATCH_LIMIT),
+  );
+  const { summary } = sanitizeOutboxError(
+    new Error("lease expired after max attempts"),
+  );
+  const candidates = await db.autopilotTelemetryOutbox.findMany({
+    where: {
+      status: "processing",
+      attemptCount: { gte: maxAttempts },
+      leaseExpiresAt: { lte: now },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: limit,
+    select: { id: true, attemptCount: true },
+  });
+  let recovered = 0;
+  for (const cand of candidates) {
+    const res = await db.autopilotTelemetryOutbox.updateMany({
+      where: {
+        id: cand.id,
+        status: "processing",
+        attemptCount: { gte: maxAttempts },
+        leaseExpiresAt: { lte: now },
+      },
+      data: {
+        status: "dead",
+        lastErrorCode: "LEASE_EXPIRED_MAX_ATTEMPTS",
+        lastErrorSummary: summary,
+        leaseExpiresAt: null,
+        leaseToken: null,
+        nextAttemptAt: null,
+      },
+    });
+    recovered += res.count;
+  }
+  return recovered;
 }

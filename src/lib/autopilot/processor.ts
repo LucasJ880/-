@@ -14,6 +14,7 @@ import {
   markAutopilotOutboxDead,
   markAutopilotOutboxProcessed,
   markAutopilotOutboxRetryOrDead,
+  recoverExpiredMaxAttemptOutbox,
   type ClaimedOutboxRow,
 } from "./outbox";
 
@@ -24,6 +25,7 @@ export type ProcessOutboxResult = {
   retried: number;
   dead: number;
   lost: number;
+  recoveredDead: number;
 };
 
 export type AutopilotProcessorPorts = {
@@ -31,6 +33,10 @@ export type AutopilotProcessorPorts = {
     limit?: number;
     now?: Date;
   }) => Promise<ClaimedOutboxRow[]>;
+  recoverExpiredMaxAttempts?: (input: {
+    now?: Date;
+    limit?: number;
+  }) => Promise<number>;
   markProcessed: typeof markAutopilotOutboxProcessed;
   markRetryOrDead: typeof markAutopilotOutboxRetryOrDead;
   markDead: typeof markAutopilotOutboxDead;
@@ -65,6 +71,7 @@ const TERMINAL_PROCESSOR_CODES = new Set([
 export async function defaultAutopilotProcessorPorts(): Promise<AutopilotProcessorPorts> {
   return {
     claim: claimAutopilotOutboxBatch,
+    recoverExpiredMaxAttempts: recoverExpiredMaxAttemptOutbox,
     markProcessed: markAutopilotOutboxProcessed,
     markRetryOrDead: markAutopilotOutboxRetryOrDead,
     markDead: markAutopilotOutboxDead,
@@ -170,10 +177,17 @@ export async function processAutopilotTelemetryOutbox(input: {
       retried: 0,
       dead: 0,
       lost: 0,
+      recoveredDead: 0,
     };
   }
 
   const ports = input.ports ?? (await defaultAutopilotProcessorPorts());
+  const recoveredDead = ports.recoverExpiredMaxAttempts
+    ? await ports.recoverExpiredMaxAttempts({
+        now: input.now,
+        limit: input.limit ?? AUTOPILOT_OUTBOX_BATCH_LIMIT,
+      })
+    : 0;
   const claimed = await ports.claim({
     limit: input.limit ?? AUTOPILOT_OUTBOX_BATCH_LIMIT,
     now: input.now,
@@ -184,8 +198,9 @@ export async function processAutopilotTelemetryOutbox(input: {
     claimed: claimed.length,
     processed: 0,
     retried: 0,
-    dead: 0,
+    dead: recoveredDead,
     lost: 0,
+    recoveredDead,
   };
 
   for (const row of claimed) {

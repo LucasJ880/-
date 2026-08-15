@@ -312,48 +312,47 @@ export async function updateAgentRunStatus(
 }
 
 export async function completeAgentRun(orgId: string, runId: string) {
-  const run = await db.agentRun.findFirst({
-    where: { id: runId, orgId },
+  return withAgentRunEventSequenceRetry(async () => {
+    return db.$transaction(async (tx) => {
+      const run = await tx.agentRun.findFirst({
+        where: { id: runId, orgId },
+      });
+      if (!run) throw new Error("Run 不存在或跨组织");
+      if (
+        run.status === "cancelled" ||
+        run.status === "completed" ||
+        run.status === "failed"
+      ) {
+        return run;
+      }
+
+      const completedAt = new Date();
+      const latencyMs = run.startedAt
+        ? completedAt.getTime() - run.startedAt.getTime()
+        : null;
+      const next = await tx.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "completed",
+          completedAt,
+          latencyMs,
+        },
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId,
+        runId,
+        eventType: "run.completed",
+        title: "任务完成",
+        payload: { latencyMs },
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
+        orgId,
+        agentRunId: runId,
+        noticeType: "run_terminal",
+      });
+      return next;
+    });
   });
-  if (!run) throw new Error("Run 不存在或跨组织");
-  if (
-    run.status === "cancelled" ||
-    run.status === "completed" ||
-    run.status === "failed"
-  ) {
-    return run;
-  }
-
-  const completedAt = new Date();
-  const latencyMs = run.startedAt
-    ? completedAt.getTime() - run.startedAt.getTime()
-    : null;
-
-  const updated = await db.$transaction(async (tx) => {
-    const next = await tx.agentRun.update({
-      where: { id: runId },
-      data: {
-        status: "completed",
-        completedAt,
-        latencyMs,
-      },
-    });
-    await appendAgentRunEventInTx(tx, {
-      orgId,
-      runId,
-      eventType: "run.completed",
-      title: "任务完成",
-      payload: { latencyMs },
-    });
-    await enqueueAutopilotTelemetryOutbox(tx, {
-      orgId,
-      agentRunId: runId,
-      noticeType: "run_terminal",
-    });
-    return next;
-  });
-
-  return updated;
 }
 
 export async function failAgentRun(
@@ -361,43 +360,42 @@ export async function failAgentRun(
   runId: string,
   error: { code: AgentErrorCode; message: string },
 ) {
-  const run = await db.agentRun.findFirst({ where: { id: runId, orgId } });
-  if (!run) throw new Error("Run 不存在或跨组织");
-  if (run.status === "cancelled") return run;
+  return withAgentRunEventSequenceRetry(async () => {
+    return db.$transaction(async (tx) => {
+      const run = await tx.agentRun.findFirst({ where: { id: runId, orgId } });
+      if (!run) throw new Error("Run 不存在或跨组织");
+      if (run.status === "cancelled") return run;
 
-  const completedAt = new Date();
-  const latencyMs = run.startedAt
-    ? completedAt.getTime() - run.startedAt.getTime()
-    : null;
-
-  const updated = await db.$transaction(async (tx) => {
-    const next = await tx.agentRun.update({
-      where: { id: runId },
-      data: {
-        status: "failed",
-        completedAt,
-        latencyMs,
-        errorCode: error.code,
-        errorMessage: error.message.slice(0, 2000),
-      },
+      const completedAt = new Date();
+      const latencyMs = run.startedAt
+        ? completedAt.getTime() - run.startedAt.getTime()
+        : null;
+      const next = await tx.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "failed",
+          completedAt,
+          latencyMs,
+          errorCode: error.code,
+          errorMessage: error.message.slice(0, 2000),
+        },
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId,
+        runId,
+        eventType: "run.failed",
+        title: "任务失败",
+        payload: { code: error.code },
+        visibleToUser: true,
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
+        orgId,
+        agentRunId: runId,
+        noticeType: "run_terminal",
+      });
+      return next;
     });
-    await appendAgentRunEventInTx(tx, {
-      orgId,
-      runId,
-      eventType: "run.failed",
-      title: "任务失败",
-      payload: { code: error.code },
-      visibleToUser: true,
-    });
-    await enqueueAutopilotTelemetryOutbox(tx, {
-      orgId,
-      agentRunId: runId,
-      noticeType: "run_terminal",
-    });
-    return next;
   });
-
-  return updated;
 }
 
 export async function cancelAgentRun(orgId: string, runId: string) {
@@ -423,37 +421,49 @@ export async function cancelAgentRun(orgId: string, runId: string) {
     /* 联动失败不阻断取消 */
   }
 
-  const updated = await db.$transaction(async (tx) => {
-    const next = await tx.agentRun.update({
-      where: { id: runId },
-      data: {
-        status: "cancelled",
-        cancelledAt: new Date(),
-        completedAt: new Date(),
-        latencyMs: run.startedAt
-          ? Date.now() - run.startedAt.getTime()
-          : null,
-      },
-    });
-    await appendAgentRunEventInTx(tx, {
-      orgId,
-      runId,
-      eventType: "run.cancelled",
-      title:
-        rejectedPending > 0
-          ? `任务已取消，并拒绝 ${rejectedPending} 个待确认动作`
-          : "任务已取消",
-      payload: { rejectedPending },
-    });
-    await enqueueAutopilotTelemetryOutbox(tx, {
-      orgId,
-      agentRunId: runId,
-      noticeType: "run_terminal",
-    });
-    return next;
-  });
+  return withAgentRunEventSequenceRetry(async () => {
+    return db.$transaction(async (tx) => {
+      const current = await tx.agentRun.findFirst({
+        where: { id: runId, orgId },
+      });
+      if (!current) throw new Error("Run 不存在或跨组织");
+      if (
+        current.status === "completed" ||
+        current.status === "failed" ||
+        current.status === "cancelled"
+      ) {
+        return current;
+      }
 
-  return updated;
+      const next = await tx.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          completedAt: new Date(),
+          latencyMs: current.startedAt
+            ? Date.now() - current.startedAt.getTime()
+            : null,
+        },
+      });
+      await appendAgentRunEventInTx(tx, {
+        orgId,
+        runId,
+        eventType: "run.cancelled",
+        title:
+          rejectedPending > 0
+            ? `任务已取消，并拒绝 ${rejectedPending} 个待确认动作`
+            : "任务已取消",
+        payload: { rejectedPending },
+      });
+      await enqueueAutopilotTelemetryOutbox(tx, {
+        orgId,
+        agentRunId: runId,
+        noticeType: "run_terminal",
+      });
+      return next;
+    });
+  });
 }
 
 export async function isAgentRunCancelled(
@@ -485,12 +495,38 @@ export async function findLatestActiveRun(input: {
 }
 
 /** Prisma unique violation（并发 sequence 抢占时的判定依据） */
-function isUniqueViolation(error: unknown): boolean {
+export function isAgentRunEventSequenceConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
     error !== null &&
     (error as { code?: unknown }).code === "P2002"
   );
+}
+
+export const AGENT_RUN_EVENT_SEQUENCE_MAX_RETRIES = 8;
+
+/**
+ * Canonical bounded retry for AgentRunEvent @@unique([runId, sequence]).
+ * Postgres aborts the interactive transaction on unique violation — retry
+ * the WHOLE work() (a fresh $transaction), never catch P2002 inside the
+ * already-aborted TX.
+ */
+export async function withAgentRunEventSequenceRetry<T>(
+  work: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await work();
+    } catch (error) {
+      if (
+        isAgentRunEventSequenceConflict(error) &&
+        attempt < AGENT_RUN_EVENT_SEQUENCE_MAX_RETRIES
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 export async function appendAgentRunEvent(input: {
@@ -501,9 +537,6 @@ export async function appendAgentRunEvent(input: {
   payload?: Record<string, unknown>;
   visibleToUser?: boolean;
 }) {
-  // Sequence unique 冲突必须整段事务重试：Postgres 在同一 interactive TX
-  // 里撞 unique 后会 abort，不能在同一 TX 内 catch 再写。
-  const MAX_SEQUENCE_RETRIES = 8;
   try {
     const run = await db.agentRun.findFirst({
       where: { id: input.runId, orgId: input.orgId },
@@ -511,18 +544,9 @@ export async function appendAgentRunEvent(input: {
     });
     if (!run) return null;
 
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await db.$transaction((tx) =>
-          appendAgentRunEventInTx(tx, input),
-        );
-      } catch (error) {
-        if (isUniqueViolation(error) && attempt < MAX_SEQUENCE_RETRIES) {
-          continue;
-        }
-        throw error;
-      }
-    }
+    return await withAgentRunEventSequenceRetry(() =>
+      db.$transaction((tx) => appendAgentRunEventInTx(tx, input)),
+    );
   } catch (error) {
     console.error("[AgentRunEvent] append failed", {
       runId: input.runId,
