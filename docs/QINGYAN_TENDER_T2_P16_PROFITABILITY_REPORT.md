@@ -345,7 +345,41 @@ Append-only。纠错 = `voidPayment()`（打 `voidedAt` + 回退 `paidAmountCad`
 FLAG fail-closed 三项（OFF 时审批退化为 P1.5 语义 / 读模型 available=false 不抛缺表）、跨 org 付款与记收入被拒、付款冲销 append-only、金额修改重新确认、他人不得改我的费用、变更单必须人工批准、CAD 费用拒绝多余 FX 流程、落标次要原因不得与主要重复、中标项目不得建落标复盘。
 
 ### 工具链
-`tsc --noEmit` **0 error** · `eslint`（新增/改动文件）**0 error**（唯一 1 个 error 在 `project-detail-header.tsx:140`，**基线既有**，未被本分支触碰）· `check-swc-nullish-logical` **PASS** · `verify-migration-history` **49 / 0** · CI unit subset **PASS**
+`tsc --noEmit` **0 error** · `eslint`（新增/改动文件）**0 error**（唯一 1 个 error 在 `project-detail-header.tsx:140`，**基线既有**，未被本分支触碰）· `check-swc-nullish-logical` **PASS** · `verify-migration-history` **49 / 0** · CI unit subset **PASS** · `next build` **PASS**（8 条新路由全部编译进产物）
+
+### 全量 `scripts/test-all.sh`（隔离生产快照分支）
+
+**首轮：212 / 224 通过，12 失败。全部 12 项均为 Workforce runtime 套件，全部为资源争用导致，非逻辑回归。**
+
+诚实记录：首轮跑 test-all 时我**并行**跑了 `next build`，两者同时压同一台机器与同一 Neon 分支，超出该分支连接预算。失败症状全部是资源型而非断言型：
+
+| 症状 | 证据 |
+|---|---|
+| `P2024` 连接池耗尽 | `Timed out fetching a new connection（connection limit: 13, timeout: 10）` |
+| `P2028` 事务过期 | `The timeout for this transaction was 5000 ms, however **89860 ms** passed`（正常应为毫秒级） |
+| 失败位置 | 多数在 `seedWorkforceFixture`（fixture 播种阶段，尚未进入被测逻辑） |
+| 与本 PR 的关联 | 全量日志中 `projectExpensePayable\|projectRevenueEntry\|fundingSource\|estimatedCadAmount` 命中 **0 次** |
+
+**逐项复跑验证（串行、无并发负载、同一分支）——12 / 12 全部转绿：**
+
+| 套件 | 复跑结果 |
+|---|---|
+| Workforce 2A Durable Timeout | 7 / 0 |
+| Workforce 2A Approval Resume Identity | 13 / 0 |
+| Workforce 2A Stale Worker Fencing | 31 / 0 |
+| Workforce 2A Normal Slices Budget | 10 / 0 |
+| Workforce Kill-Switch | 16 / 0 |
+| Workforce 2C-1 Pause/Resume | 26 / 0 |
+| Workforce 2C-1 Expiry 竞态 | 7 / 0 |
+| Workforce 测试隔离契约 | 8 / 0 |
+| Workforce 2B-1 Task/Handoff | 42 / 0 |
+| Workforce 2B-1 审批×Handoff | 19 / 0 |
+| P0 Execution Alignment G2-G10 | 51 / 0 |
+| Workforce 2B-2 受控并行 P1-P4/P8-P9 | 36 / 0 |
+
+**同一次 test-all 中本 PR 的三个套件全部通过**（p16-pure / p16-authz / p16 DB 矩阵 61 / 61），且 P1.5 / T2-P1 / T3 三套回归在其中同样通过。
+
+**结论：`TESTALL_FULL_GREEN = YES（串行复跑口径）`；首轮 12 失败 = 并发负载下的环境性失败，非基线回归。** 复现建议：跑 test-all 时不要并行 `next build`。
 
 ---
 
@@ -359,6 +393,7 @@ FLAG fail-closed 三项（OFF 时审批退化为 P1.5 语义 / 读模型 availab
 | T2-P1.5 财务 DB 矩阵（BUDGET / EXP / COST-READ / EVENT / EXP-ACTIVE / BUDGET-AWARD / BUDGET-CONC） | **43 / 43 PASS** | **NONE** |
 | T3 企业记忆 DB（MEM-01..12） | **43 / 43 PASS** | **NONE** |
 | CI unit subset（T2-P1 / T3 / V2 / tender-eval / workforce / 安全） | **PASS** | **NONE** |
+| Workforce runtime 全部 12 个 DB 套件（2A / 2B-1 / 2B-2 / 2C-1 / P0 / kill-switch / 隔离契约） | **全绿（串行复跑；共 266 项断言）** | **NONE** |
 
 **COST-READ 口径变更说明**：`read-model` 行级 actual 由「approved expense 求和」改为「权威 `ProjectCost.refs.budgetLineId` 滚动」。P1.5 DB 矩阵 COST-READ-01/02 断言值（12,777）**未变**——CAD 场景两条路径同值，改动消除的是多币种下跨币种相加的隐患。
 
@@ -407,6 +442,7 @@ PR_MERGED                 = NO
 | 11 | `T4_MIGRATION_IN_PROD_SNAPSHOT` | 待确认 | 生产快照分支的 `_prisma_migrations` 中已存在 `20260814150000_add_tender_t4_award_record_foundation`。本 PR 未做任何生产操作，仅记录该观察，建议独立确认其部署来源 |
 | 12 | `MOBILE_REAL_DEVICE_UAT_PENDING` | 待做 | 375px 布局纪律（16px input / 44px 触控 / 无横向滚动 / camera-first）已按规范实现并静态自检，**但未在真机 iPhone Safari 上做视觉冒烟**（本 PR 未起 dev server 做浏览器验证） |
 | 13 | `ACCOUNTING_HOLDS_BOTH_POWERS` | 设计取舍 | `accounting` 角色当前同时持 `COST_REVIEW` 与 `PAYMENT_RECORD`。权限位已分离，改为「审核人 ≠ 放款人」只需改角色映射，零代码改动 |
+| 14 | `TESTALL_CONCURRENCY_FRAGILITY` | 既有环境债（非本 PR 引入） | Workforce runtime 的 12 个 DB 套件在**并发负载**下会因 Neon 连接池（limit 13 / timeout 10s）与 5s 交互事务超时而失败（实测事务耗时被拉到 89.8s）。串行复跑 12 / 12 全绿。建议：跑 test-all 时不并行其它重负载；长期可考虑提高 Prisma `connection_limit` 或该批套件的事务超时 |
 
 ---
 
