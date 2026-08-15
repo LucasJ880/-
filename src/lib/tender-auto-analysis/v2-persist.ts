@@ -16,10 +16,16 @@ import { db } from "@/lib/db";
 import { analyzeTender, type AnalyzeOptions } from "@/lib/tender-understanding/analyzer";
 import type { AnalyzerInput } from "@/lib/tender-understanding/contract";
 import { isTenderAnalysisV2Enabled } from "@/lib/tender-understanding/flag";
-import { SECTION_KEYS } from "./constants";
 import { mapRunRoleToV2Role, mapV2Result, type V2MappedResult } from "./v2-map";
+import {
+  persistV2CanonicalTx,
+  type PersistV2Result,
+  type V2PersistTx,
+} from "./v2-persist-core";
 
 export { isTenderAnalysisV2Enabled };
+// canonical 写入核心的形状类型对既有调用方（含 fake tx 测试）保持原样导出
+export type { PersistV2Result, V2PersistTx };
 
 /** V2 canonical 持久化被 lease fence 拒绝（stale worker）。worker 应转为 graceful yield。 */
 export class TenderV2LeaseLostError extends Error {
@@ -180,40 +186,6 @@ export async function runV2Inference(input: {
 
 /* --------------------------- 可注入事务（便于确定性 race 测试） --------------------------- */
 
-type CountResult = { count: number };
-type IdResult = { id: string };
-
-/** 事务内使用的最小 Prisma 委托子集。 */
-export interface V2PersistTx {
-  tenderAnalysisRun: {
-    updateMany(args: unknown): Promise<CountResult>;
-    update(args: unknown): Promise<unknown>;
-  };
-  tenderAnalysisSourceRef: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderAnalysisFact: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderExtractedRequirement: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderClarificationQuestion: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderAnalysisChangeCandidate: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    createMany(args: unknown): Promise<CountResult>;
-  };
-  tenderAnalysisSection: {
-    upsert(args: unknown): Promise<unknown>;
-  };
-}
-
 export type RunV2Tx = <T>(fn: (tx: V2PersistTx) => Promise<T>) => Promise<T>;
 
 const defaultRunTx: RunV2Tx = (fn) =>
@@ -225,17 +197,14 @@ const defaultRunTx: RunV2Tx = (fn) =>
     timeout: 120_000,
   });
 
-export type PersistV2Result = {
-  factCount: number;
-  requirementCount: number;
-  clarificationCount: number;
-  changeCount: number;
-  sectionCount: number;
-};
-
 /**
- * Lease-fenced 持久化：单事务内先 fence，再写全部 canonical 实体。
+ * Legacy Tender lease fence 包装器（**ownership 判定**）。
+ * 单事务内先 fence（run.id / leaseOwner / status∈{EXTRACTING,ANALYZING} / 未过期
+ * + 原子续租，行锁持有至提交），fence 通过才委托 canonical 核心写入。
  * fence 失败 → TenderV2LeaseLostError（零写）；事务内异常 → 全回滚。
+ *
+ * 本函数**只判定执行权**；写什么由 persistV2CanonicalTx 唯一实现
+ * （Workforce 路径复用同一核心，见 tender-workforce/v2-persist-workforce.ts）。
  */
 export async function persistV2Fenced(
   args: {
@@ -267,162 +236,13 @@ export async function persistV2Fenced(
       throw new TenderV2LeaseLostError(args.runId);
     }
 
-    const { mapped } = args;
-
-    // —— 幂等重建（fence 之后、同一事务内） —— //
-    await tx.tenderAnalysisSourceRef.deleteMany({ where: { runId: args.runId } });
-    await tx.tenderAnalysisFact.deleteMany({ where: { runId: args.runId } });
-    await tx.tenderExtractedRequirement.deleteMany({
-      where: { analysisRunId: args.runId },
+    return persistV2CanonicalTx(tx, {
+      runId: args.runId,
+      projectId: args.projectId,
+      parentRunId: args.parentRunId,
+      mapped: args.mapped,
+      model: args.model,
     });
-    await tx.tenderClarificationQuestion.deleteMany({
-      where: { analysisRunId: args.runId },
-    });
-    await tx.tenderAnalysisChangeCandidate.deleteMany({
-      where: { runId: args.runId },
-    });
-
-    let factCount = 0;
-    for (const fct of mapped.facts) {
-      const created = await tx.tenderAnalysisFact.create({
-        data: {
-          runId: args.runId,
-          statementKind: fct.statementKind,
-          contentZh: fct.contentZh,
-          contentOriginal: fct.contentOriginal,
-          confidence: fct.confidence,
-        },
-      });
-      factCount += 1;
-      for (const ref of fct.sourceRefs) {
-        await tx.tenderAnalysisSourceRef.create({
-          data: {
-            runId: args.runId,
-            documentId: ref.documentId,
-            pageNumber: ref.pageNumber,
-            sectionLabel: ref.sectionLabel,
-            originalTextSnippet: ref.originalTextSnippet,
-            extractionMethod: ref.extractionMethod,
-            confidence: ref.confidence,
-            factId: created.id,
-          },
-        });
-      }
-    }
-
-    let requirementCount = 0;
-    for (const r of mapped.requirements) {
-      const created = await tx.tenderExtractedRequirement.create({
-        data: {
-          projectId: args.projectId,
-          analysisRunId: args.runId,
-          requirementCode: r.requirementCode,
-          category: r.category,
-          originalRequirement: r.originalRequirement,
-          chineseTranslation: r.chineseTranslation,
-          mandatory: r.mandatory,
-          evidenceRequired: r.evidenceRequired,
-          complianceStatus: r.complianceStatus,
-          reviewStatus: "AI_EXTRACTED",
-          sourcePage: r.sourcePage,
-          projectionStatus: "NOT_PROJECTED",
-        },
-      });
-      requirementCount += 1;
-      for (const ref of r.sourceRefs) {
-        await tx.tenderAnalysisSourceRef.create({
-          data: {
-            runId: args.runId,
-            documentId: ref.documentId,
-            pageNumber: ref.pageNumber,
-            sectionLabel: ref.sectionLabel,
-            originalTextSnippet: ref.originalTextSnippet,
-            extractionMethod: ref.extractionMethod,
-            confidence: ref.confidence,
-            requirementId: created.id,
-          },
-        });
-      }
-    }
-
-    let clarificationCount = 0;
-    for (const c of mapped.clarifications) {
-      const created = await tx.tenderClarificationQuestion.create({
-        data: {
-          projectId: args.projectId,
-          analysisRunId: args.runId,
-          question: c.question,
-          reason: c.reason,
-          priority: c.priority,
-          enquiryDeadline: c.enquiryDeadline,
-          status: "OPEN",
-        },
-      });
-      clarificationCount += 1;
-      for (const ref of c.sourceRefs) {
-        await tx.tenderAnalysisSourceRef.create({
-          data: {
-            runId: args.runId,
-            documentId: ref.documentId,
-            pageNumber: ref.pageNumber,
-            sectionLabel: ref.sectionLabel,
-            originalTextSnippet: ref.originalTextSnippet,
-            extractionMethod: ref.extractionMethod,
-            confidence: ref.confidence,
-            clarificationQuestionId: created.id,
-          },
-        });
-      }
-    }
-
-    let changeCount = 0;
-    if (mapped.changeCandidates.length > 0) {
-      await tx.tenderAnalysisChangeCandidate.createMany({
-        data: mapped.changeCandidates.map((c) => ({
-          runId: args.runId,
-          parentRunId: args.parentRunId ?? null,
-          changeType: c.changeType,
-          entityType: c.entityType,
-          entityKey: c.entityKey,
-          summaryZh: c.summaryZh,
-          status: "PENDING_REVIEW",
-        })),
-      });
-      changeCount = mapped.changeCandidates.length;
-    }
-
-    const sectionByKey = new Map(mapped.sections.map((s) => [s.sectionKey, s]));
-    let sectionCount = 0;
-    for (const sectionKey of SECTION_KEYS) {
-      const s = sectionByKey.get(sectionKey);
-      const contentZh = s?.contentZh ?? "（暂无）";
-      const structuredJson = (s?.structuredJson ?? {}) as object;
-      const confidence = s?.confidence ?? "INFERRED";
-      await tx.tenderAnalysisSection.upsert({
-        where: { runId_sectionKey: { runId: args.runId, sectionKey } },
-        create: {
-          runId: args.runId,
-          sectionKey,
-          contentZh,
-          structuredJson,
-          confidence,
-          reviewStatus: "AI_DRAFT",
-        },
-        update: { contentZh, structuredJson, confidence, reviewStatus: "AI_DRAFT" },
-      });
-      sectionCount += 1;
-    }
-
-    await tx.tenderAnalysisRun.update({
-      where: { id: args.runId },
-      data: {
-        summaryText: mapped.summaryText,
-        summaryJson: mapped.summaryJson as object,
-        model: args.model,
-      },
-    });
-
-    return { factCount, requirementCount, clarificationCount, changeCount, sectionCount };
   });
 }
 

@@ -29,6 +29,8 @@ import {
   LostLeaseError,
   type RunLeaseHandle,
 } from "@/lib/agent-runtime/lease";
+import { startLeaseHeartbeat } from "./lease-heartbeat";
+import { plannerVisibleRuntimeV2Tools } from "@/lib/agent-runtime-v2/tool-catalog";
 import {
   runtimeFromRunMetadata,
   runtimeContextToTelemetry,
@@ -165,11 +167,24 @@ export async function processWorkforceJobSlice(
     clearError: false,
   });
   if (!claim.ok) return { claimed: false };
-  // holder：renew 后更新 holder.lease，fence 始终引用最新 token
-  const holder: { lease: RunLeaseHandle } = { lease: claim.lease };
+  // T5-P1 §9：心跳持有 holder——round 之间的显式续租只覆盖 round 边界，
+  // 单个 round 内部的长 await（工具/synthesis）此前完全没有保活。
+  // 心跳与防栅栏写入经 holder.runExclusive 互斥（见 lease-heartbeat.ts）。
+  const heartbeat = startLeaseHeartbeat({
+    lease: claim.lease,
+    activeStatuses: ACTIVE_STATUSES,
+  });
+  const holder = heartbeat.holder;
   // BLOCKER 1：fence 传入 V2 执行路径——executor/verifier 的所有
   // AgentRun/AgentRunStep/AgentRunVerification 写入经原子防栅栏
   const fence = createRunFence(holder);
+  try {
+    return await runClaimedSlice();
+  } finally {
+    heartbeat.stop();
+  }
+
+  async function runClaimedSlice(): Promise<WorkforceSliceResult> {
 
   const run = await db.agentRun.findUniqueOrThrow({ where: { id: runId } });
   const orgId = run.orgId;
@@ -379,7 +394,12 @@ export async function processWorkforceJobSlice(
       const { compileWorkforcePlan } = await import("./plan-compile");
       const compiledPlan = compileWorkforcePlan({
         raw: planned.plan,
-        tools: scopedTools ?? [],
+        // 工具白名单必须与 planner **实际使用**的投影一致：
+        // resolveWorkforcePlannerToolsForJob 对非 tender 域返回 undefined
+        // （fail-safe：planner 自己回落 plannerVisibleRuntimeV2Tools），
+        // 这里若传空数组，sanitizePlannerOutput 会把每个 preferredTool 当作
+        // 越权工具剥掉 → 所有步骤以 no_tool「步骤未指定工具」失败。
+        tools: scopedTools ?? plannerVisibleRuntimeV2Tools(),
         maxSteps: getRuntimeV2Limits().maxSteps,
       });
       if (!compiledPlan.ok) {
@@ -599,6 +619,7 @@ export async function processWorkforceJobSlice(
       maxAttempts: WORKFORCE_MAX_ATTEMPTS,
       error,
     });
+  }
   }
 }
 

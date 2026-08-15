@@ -600,6 +600,9 @@ async function executeRoundGuarded(input: {
         // §13：Worker 执行上下文注入（workforce 任务专属；只含必要内容，
         // 不含任何授权语义——Tool 鉴权仍完整走 canInvokeTool/审批链）
         workforce: workforceContext ?? undefined,
+        // T5-P1 Segment 2 §8：server-only 写防栅栏。仅服务端注入的活对象，
+        // 不改变任何工具的业务参数契约；客户端不可构造、不会被序列化。
+        runFence: fence,
       });
     }
   } catch (err) {
@@ -1494,6 +1497,8 @@ async function executeClaimedWorkforceStep(input: {
         // §13：Worker 执行上下文注入（不含任何授权语义——Tool 鉴权仍完整
         // 走 canInvokeTool / scopeGuard / 审批链）
         workforce: context ?? undefined,
+        // T5-P1 Segment 2 §8：server-only 写防栅栏（同上）
+        runFence: fence,
       });
     }
   } catch (err) {

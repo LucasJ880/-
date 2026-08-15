@@ -36,6 +36,11 @@ import { generateReportSections } from "@/lib/tender-auto-analysis/report";
 import { buildClarifications } from "@/lib/tender-auto-analysis/clarifications";
 import { buildGroundedDeliverables } from "@/lib/tender-auto-analysis/deliverables";
 import {
+  isEmptyAnalysisOutcome,
+  runV2Inference,
+} from "@/lib/tender-auto-analysis/v2-persist";
+import { persistV2ForWorkforce } from "./v2-persist-workforce";
+import {
   createOrReuseWorkforceTenderAnalysisRun,
   failWorkforceTenderAnalysisRun,
   finalizeWorkforceTenderAnalysisRun,
@@ -65,10 +70,31 @@ export const TENDER_WORKFORCE_TOOL_NAMES = [
   "tender_clarification_draft",
   "tender_build_deliverables",
   "tender_finalize_analysis",
+  // T5-P1 Segment 2：canonical V2 能力（**可执行但当前 planner 不可见**，见下）
+  "tender_analyze_package_v2",
 ] as const;
 
 export type TenderWorkforceToolName =
   (typeof TENDER_WORKFORCE_TOOL_NAMES)[number];
+
+/**
+ * T5-P1 Segment 2 §15 —— **planner 可见性 ⊊ 可执行集合**。
+ *
+ * `tender_analyze_package_v2` 已具备完整执行 descriptor 与 handler（可被
+ * server/runtime 测试执行），但**不在**本列表中：当前 deterministic DAG 走的仍是
+ * legacy 语义抽取（t3），提前让 planner 看见它只会造出"半迁移"计划。
+ * 接线属 Segment 3，本段不改变任何用户可见行为。
+ */
+export const TENDER_WORKFORCE_PLANNER_TOOL_NAMES = [
+  "tender_validate_input",
+  "tender_parse_documents",
+  "tender_extract_requirements",
+  "tender_evidence_compliance",
+  "tender_risk_analysis",
+  "tender_clarification_draft",
+  "tender_build_deliverables",
+  "tender_finalize_analysis",
+] as const satisfies readonly TenderWorkforceToolName[];
 
 /**
  * Tender Analysis Allowlist：planner 只能看到这 7 个工具（+native
@@ -151,10 +177,31 @@ export const TENDER_WORKFORCE_TOOL_DESCRIPTORS: ToolDescriptor[] = [
     requiresApproval: false,
     supportedChannels: ["web"],
   },
+  {
+    // T5-P1 Segment 2：执行策略 descriptor 必须存在（未知 descriptor 一律
+    // fail-closed，见 workforce-runtime/execution-descriptor.ts），
+    // 但该工具不进 planner 投影（TENDER_WORKFORCE_PLANNER_TOOL_NAMES）。
+    name: "tender_analyze_package_v2",
+    description:
+      "对整个投标文件包运行 canonical V2 grounded 分析引擎，并以 Workforce 执行权防栅栏原子落库（事实/要求/来源引用/澄清/变更/章节/summaryJson）。纯分析步骤：executionMode=analysis、requiresApproval=false；不改变分析记录状态（终态化是另一步）",
+    riskLevel: "MEDIUM",
+    readOnly: false,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+  },
 ];
 
+const PLANNER_VISIBLE = new Set<string>(TENDER_WORKFORCE_PLANNER_TOOL_NAMES);
+
+/**
+ * planner 投影 = descriptor ∩ planner 白名单。
+ * 执行注册（TENDER_WORKFORCE_TOOL_HANDLERS）与执行策略
+ * （TENDER_WORKFORCE_TOOL_DESCRIPTORS）覆盖更大集合——EXECUTABLE ⊋ PLANNER_VISIBLE。
+ */
 export function tenderWorkforcePlannerTools(): ToolDescriptor[] {
-  return TENDER_WORKFORCE_TOOL_DESCRIPTORS.map((d) => ({ ...d }));
+  return TENDER_WORKFORCE_TOOL_DESCRIPTORS.filter((d) =>
+    PLANNER_VISIBLE.has(d.name),
+  ).map((d) => ({ ...d }));
 }
 
 /* ══════════════════ 执行期上下文自证（§35 第二层） ══════════════════ */
@@ -909,6 +956,97 @@ async function handleFinalizeAnalysis(
   };
 }
 
+/* ══════════ canonical V2 分析（T5-P1 Segment 2；能力就绪、当前 DAG 不可达） ══════════ */
+
+/**
+ * 跑 canonical V2 grounded 引擎并以 **Workforce 执行权** 原子落库。
+ *
+ * 与 legacy 的边界（§13 明令）：调用的是 runV2Inference + Workforce 防栅栏
+ * 持久化，**不碰** legacy enqueue / cron / worker.ts / analyzeAndPersistV2，
+ * 不创建第二个 AgentRun 或第二个 Workforce Job。
+ *
+ * 本工具不改变 TenderAnalysisRun 状态：落库后仍是 AGENT_ANALYZING，
+ * 终态化由 finalize 步骤单独负责（Segment 2 不接线，见 §17）。
+ */
+async function handleAnalyzePackageV2(
+  ctx: AdapterContext,
+): Promise<AdapterResult> {
+  const jobCtx = await requireTenderJobContext(ctx);
+  if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
+  const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
+  if (!mf.ok) return { ok: false, error: mf.error };
+  const runId = mf.manifest.analysisRunId;
+
+  // server-only 写防栅栏：没有执行权凭证就绝不进入 canonical 写路径
+  const runFence = ctx.runFence;
+  if (!runFence) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 缺少运行时写防栅栏（canonical V2 落库必须在 Workforce 执行权保护下进行）",
+    };
+  }
+
+  const pages = await db.projectDocumentPage.count({
+    where: { documentId: { in: mf.manifest.documents.map((d) => d.documentId) } },
+  });
+  if (pages === 0) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 投标文件尚未解析出任何页面文本（需先完成文档解析）",
+    };
+  }
+
+  const { mapped, model, llmCalls, llmFailures } = await runV2Inference({
+    runId,
+  });
+
+  // §14：复用**同一个** empty-analysis 判定（不发明第二套），
+  // 且在落库之前判定——空壳分析不该留下 canonical 痕迹。
+  if (
+    isEmptyAnalysisOutcome({
+      llmCalls,
+      llmFailures,
+      factCount: mapped.facts.length,
+      requirementCount: mapped.requirements.length,
+    })
+  ) {
+    return {
+      ok: false,
+      error: `ANALYSIS_EMPTY: 本次分析零成功模型调用且零抽取产出（${llmFailures}/${llmCalls} 次调用失败），拒绝写入空结果`,
+    };
+  }
+
+  const persisted = await persistV2ForWorkforce({
+    orgId: ctx.orgId,
+    projectId: jobCtx.job.projectId,
+    analysisRunId: runId,
+    jobId: jobCtx.job.jobId,
+    mapped,
+    model,
+    runFence,
+  });
+
+  return {
+    ok: true,
+    data: {
+      ...manifestEcho(mf.manifest),
+      tenderAnalyzePackageV2: true,
+      engine: "v2",
+      factCount: persisted.factCount,
+      requirementCount: persisted.requirementCount,
+      clarificationCount: persisted.clarificationCount,
+      changeCount: persisted.changeCount,
+      sectionCount: persisted.sectionCount,
+      llmCalls,
+      llmFailures,
+      model,
+      summary: `canonical V2 分析已落库：${persisted.requirementCount} 条要求、${persisted.factCount} 条事实、${persisted.clarificationCount} 条澄清、${persisted.sectionCount} 个章节`,
+    },
+  };
+}
+
 /* ══════════════════ Handler 注册表（并入 authoritative handler map） ══════════════════ */
 
 export const TENDER_WORKFORCE_TOOL_HANDLERS: Record<
@@ -923,6 +1061,7 @@ export const TENDER_WORKFORCE_TOOL_HANDLERS: Record<
   tender_clarification_draft: handleClarificationDraft,
   tender_build_deliverables: handleBuildDeliverables,
   tender_finalize_analysis: handleFinalizeAnalysis,
+  tender_analyze_package_v2: handleAnalyzePackageV2,
 };
 
 /** Job 失败/取消时的域侧兜底（trigger 层调用；工具层不管 Run 级状态） */
