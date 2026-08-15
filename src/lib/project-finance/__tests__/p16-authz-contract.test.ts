@@ -35,6 +35,7 @@ const P16_PROJECT_ROUTES = [
   "expenses/[expenseId]/fx-settlement/route.ts",
   "revenue/route.ts",
   "revenue/[entryId]/route.ts",
+  "revenue/materialize-award/route.ts",
   "loss-review/route.ts",
   "tender-summary/route.ts",
 ];
@@ -169,6 +170,21 @@ test("P1.6 读模型在 flag OFF 时 fail-closed 返回 available=false，绝不
     );
     assert.ok(/available: false/.test(src), `${f} 读侧必须有 available=false 空结果分支`);
   }
+});
+
+test("R1 §E：Award→Revenue 物化路由需 COST_WRITE，且创建人/资格判定不可由客户端左右", () => {
+  const src = read("revenue/materialize-award/route.ts");
+  assert.ok(/PERMISSIONS\.PROJECT_COST_WRITE/.test(src), "物化需 COST_WRITE");
+  assert.ok(/createdById:\s*access\.user\.id/.test(src), "创建人必须来自 access.user.id");
+  // 资格闸全部在 service 内；route 不得自带旁路判定
+  assert.ok(
+    !/verificationStatus|isProjectAwardEligible|awardRecord\.findFirst/.test(src),
+    "route 不得自行判定资格（一律经 materializeAwardRevenue 的六重闸）",
+  );
+  // 拒绝必须显式回传原因，不静默成功
+  assert.ok(/refusedReason/.test(src) && /status: 409/.test(src), "资格不足必须 409 + 明确 reason");
+  // 只暴露物化，不暴露任何直接改收入金额的旁路
+  assert.ok(!/projectRevenueEntry\.(update|create)/.test(src));
 });
 
 test("审批路径仍以 isLedgerProducerActive 作产成本闸，且 payable 创建在同一事务内", () => {
