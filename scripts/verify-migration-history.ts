@@ -26,6 +26,12 @@ const EXPECTED_ACTIVE = [
   "20260811002000_add_tender_t2_ledger_archive_foundation",
   "20260811040000_add_tender_t3_corporate_memory_foundation",
   "20260811050000_add_project_financial_control",
+  // 以下两条随 origin/main 合入（T4 PR #107 / Autopilot A0 PR #109）。
+  // 二者当时只登记了 check-release-safety.test.ts，漏登本文件 →
+  // main 上 EXPECTED_ACTIVE(14) 与实际 migration 目录(16) 不符，本 gate 在 main 上即为红。
+  // 此处按治理契约补齐（additive，不改任何既有条目），使 P1.5 集成分支恢复绿。
+  "20260814150000_add_tender_t4_award_record_foundation",
+  "20260814220000_add_autopilot_a0_foundation",
 ] as const;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
@@ -60,6 +66,10 @@ const IMMUTABLE: Record<string, string> = {
     "ce7e975fd1e836143cc0e08b016815c15618aa85f1cbfc78c2babd3c2a12b3f4",
   "20260811050000_add_project_financial_control":
     "2e4b67e62d41edc13835ed531bf1047fc1a18b7b807e796973f5047ef13d2b0d",
+  "20260814150000_add_tender_t4_award_record_foundation":
+    "850c045737d590e3e5036eaf86b0d07a529add696c508c00111781abce36b882",
+  "20260814220000_add_autopilot_a0_foundation":
+    "0c6e52baa685da7fea27d7ba6583502c6b5dcfb8791992404bcd94a7d6026585",
 };
 
 let passed = 0;
