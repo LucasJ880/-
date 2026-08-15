@@ -6,3 +6,6 @@ export * from "./sanitize";
 export * from "./outcome";
 export * from "./map-events";
 export * from "./instrumentation";
+export * from "./outbox";
+export * from "./processor";
+export * from "./telemetry-health";

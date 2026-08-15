@@ -61,6 +61,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/autopilot-telemetry",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/tender-auto-analysis",
       "schedule": "*/2 * * * *"
     },

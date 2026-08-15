@@ -92,6 +92,7 @@ export const en: Messages = {
   nav_autopilot: "Autopilot",
   nav_autopilot_overview: "Autopilot Overview",
   nav_autopilot_runs: "Autopilot Runs",
+  nav_autopilot_telemetry: "Telemetry Health",
   nav_growth_hub: "Brand Growth",
   nav_weekly_reports: "Business Briefs",
   nav_publish_calendar: "Content Studio",

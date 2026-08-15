@@ -157,3 +157,60 @@ export function containsRedactedMarker(value: unknown): boolean {
   }
   return false;
 }
+
+const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+/** Structured codes only — never persist arbitrary/secret-bearing error.code. */
+export function safePersistedErrorCode(code: string | null | undefined): string {
+  const raw = (code ?? "").trim();
+  if (SAFE_ERROR_CODE.test(raw)) return raw.slice(0, 64);
+  return "PROCESSOR_ERROR";
+}
+
+function containsEmbeddedSecret(text: string): boolean {
+  if (/bearer\s+(?!\[REDACTED\])\S+/i.test(text)) return true;
+  if (/authorization\s*:\s*(?!\[REDACTED\]|Bearer \[REDACTED\])/i.test(text)) {
+    return true;
+  }
+  if (/\bcookie\s*:\s*(?!\[REDACTED\])/i.test(text)) return true;
+  if (/\bqy_session=(?!\[REDACTED\])/i.test(text)) return true;
+  if (/\bsk-[a-zA-Z0-9]{8,}/.test(text)) return true;
+  if (/\b(ya29\.|xox[baprs]-|ghp_|github_pat_)/i.test(text)) return true;
+  if (
+    /\b(api[_-]?key|password|passwd|secret|token|access_token|refresh_token|oauth_token|client_secret)\s*[=:]\s*(?!\[REDACTED\])[^\s,;]+/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (/eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+\./.test(text)) return true;
+  return false;
+}
+
+/**
+ * Persisted retry / dead-letter diagnostics.
+ * Stronger than prefix-only secret detection: redacts credentials that
+ * appear in the middle or end of free-form error strings.
+ * Does not replace sanitizeAgentTrace (trace sanitizer stays unchanged).
+ */
+export function redactPersistedErrorText(raw: string | null | undefined): string {
+  if (!raw) return REDACTED;
+  let s = raw;
+  s = s.replace(/authorization\s*:\s*bearer\s+\S+/gi, "Authorization: Bearer [REDACTED]");
+  s = s.replace(/authorization\s*:\s*\S+/gi, "Authorization: [REDACTED]");
+  s = s.replace(/cookie\s*:\s*[^\n]+/gi, "Cookie: [REDACTED]");
+  s = s.replace(/bearer\s+[a-z0-9._\-+=/]+/gi, "Bearer [REDACTED]");
+  s = s.replace(/\bqy_session=[^\s;]+/gi, "qy_session=[REDACTED]");
+  s = s.replace(/\bsk-[a-zA-Z0-9]{8,}/g, "[REDACTED]");
+  s = s.replace(/\b(ya29\.|xox[baprs]-|ghp_|github_pat_)[^\s]+/gi, "[REDACTED]");
+  s = s.replace(
+    /\b(api[_-]?key|password|passwd|secret|token|access_token|refresh_token|oauth_token|client_secret)\s*[=:]\s*[^\s,;]+/gi,
+    "$1=[REDACTED]",
+  );
+  s = s.replace(/eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, "[REDACTED]");
+  s = s.trim();
+  if (!s) return REDACTED;
+  if (containsEmbeddedSecret(s)) return REDACTED;
+  if (s.length > MAX_STRING) return `${s.slice(0, MAX_STRING)}…`;
+  return s;
+}
