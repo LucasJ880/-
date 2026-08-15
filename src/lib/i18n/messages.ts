@@ -95,6 +95,7 @@ export interface Messages {
   nav_autopilot: string;
   nav_autopilot_overview: string;
   nav_autopilot_runs: string;
+  nav_autopilot_telemetry: string;
   nav_growth_hub: string;
   nav_weekly_reports: string;
   nav_publish_calendar: string;

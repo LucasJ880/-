@@ -36,7 +36,21 @@ export function getAutopilotOwnerUserIds(
 export function isAutopilotInstrumentationEnabled(
   env: AutopilotFlagEnv = process.env,
 ): boolean {
-  return isAutopilotEnabled(env);
+  return isAutopilotTelemetryCaptureEnabled(env);
+}
+
+/** Durable outbox capture。默认 OFF；与 Lucas UI 开关解耦。 */
+export function isAutopilotTelemetryCaptureEnabled(
+  env: AutopilotFlagEnv = process.env,
+): boolean {
+  return envBool(env.AUTOPILOT_TELEMETRY_CAPTURE_ENABLED);
+}
+
+/** Outbox processor / cron drain。默认 OFF。 */
+export function isAutopilotProcessorEnabled(
+  env: AutopilotFlagEnv = process.env,
+): boolean {
+  return envBool(env.AUTOPILOT_PROCESSOR_ENABLED);
 }
 
 export function describeAutopilotFlag(
@@ -47,5 +61,7 @@ export function describeAutopilotFlag(
     enabled: isAutopilotEnabled(env),
     ownerCount: owners.length,
     instrumentation: isAutopilotInstrumentationEnabled(env),
+    telemetryCapture: isAutopilotTelemetryCaptureEnabled(env),
+    processor: isAutopilotProcessorEnabled(env),
   };
 }

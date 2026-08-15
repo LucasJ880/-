@@ -4664,10 +4664,11 @@ model AgentRun {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  events        AgentRunEvent[]
-  steps         AgentRunStep[]
-  verifications AgentRunVerification[]
-  autopilotRun  AutopilotRun?
+  events                   AgentRunEvent[]
+  steps                    AgentRunStep[]
+  verifications            AgentRunVerification[]
+  autopilotRun             AutopilotRun?
+  autopilotTelemetryOutbox AutopilotTelemetryOutbox[]
 
   @@index([orgId, sessionId])
   @@index([orgId, status])
@@ -4750,6 +4751,39 @@ model AgentRunEvent {
 
   @@unique([runId, sequence])
   @@index([orgId, runId])
+}
+
+/// Autopilot A1-P0：durable telemetry envelope（非业务事实源；Processor 回读 AgentRunEvent）
+model AutopilotTelemetryOutbox {
+  id               String    @id @default(cuid())
+  orgId            String
+  agentRunId       String
+  agentRun         AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  /// Canonical AgentRunEvent.id；run_created / run_terminal 可空
+  agentEventId     String?
+  sequence         Int?
+  /// run_created | event | run_terminal
+  noticeType       String
+  sourceEventType  String?
+  idempotencyKey   String    @unique
+  /// pending | processing | processed | dead
+  status           String    @default("pending")
+  attemptCount     Int       @default(0)
+  nextAttemptAt    DateTime?
+  lastAttemptAt    DateTime?
+  lastErrorCode    String?
+  lastErrorSummary String?   @db.Text
+  leaseExpiresAt   DateTime?
+  leaseToken       String?
+  processedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([orgId, status])
+  @@index([agentRunId])
+  @@index([agentEventId])
 }
 
 /// Autopilot A0：AgentRun 的脱敏观察层（非平行 Runtime；写入失败不得阻断 Agent）
