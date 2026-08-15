@@ -52,6 +52,7 @@ async function main() {
 
   // 准备：创建 Job 并推进首个 slice（plan + s1 completed），交还队列
   const job = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",
@@ -304,6 +305,7 @@ async function main() {
 
   // Setup：全新 Job，planJson=null、0 step
   const job2 = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

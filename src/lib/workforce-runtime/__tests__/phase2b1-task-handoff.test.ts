@@ -105,6 +105,7 @@ async function main() {
   /** 自定义计划走 server 管线：applyWorkforceTaskSpecs → persistPlanAndSteps */
   async function createJobWithPlan(goal: string, steps: Array<AnyRecord>) {
     const job = await createWorkforceJob({
+      workDomain: "sales",
       orgId: fx.orgId,
       userId: fx.ownerUserId,
       role: "sales",
@@ -144,6 +145,7 @@ async function main() {
   // ══ §41 Task persistence（golden 计划 → spec 持久化）══
   console.log("\n[§41 Task persistence]");
   const golden = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

@@ -332,7 +332,19 @@ const compile = (plan: ServerAuthoredPlanV1) =>
 {
   ok(toolDomainForWorkDomain("tender") === "project", "AUTH-01: tender → project 域");
   ok(toolDomainForWorkDomain("delivery") === "project", "AUTH-01b: delivery → project 域");
-  ok(toolDomainForWorkDomain(null) === "system", "AUTH-01c: 缺失 workDomain → system（最小权限）");
+  // Segment 2.5：规则反转——"缺失 → system" 不是最小权限而是把"不知道"当答案
+  // （旧销售 Job 直接 org_role_denied，而 admin 反倒经 system 域获得静默旁路）。
+  // 缺失一律 null，由 resolveEffectiveWorkDomain 取证；system 只来自显式 general。
+  ok(
+    toolDomainForWorkDomain(null) === null &&
+      toolDomainForWorkDomain(undefined) === null &&
+      toolDomainForWorkDomain("unknown") === null,
+    "AUTH-01c: 缺失/未知 workDomain → null（不再兜底为 system）",
+  );
+  ok(
+    toolDomainForWorkDomain("general") === "system",
+    "AUTH-01d: system 域只能来自显式 general",
+  );
   ok(toolDomainForWorkDomain("sales") === "sales", "AUTH-02: sales run 仍为 sales 域");
 }
 

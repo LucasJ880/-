@@ -15,7 +15,6 @@ import { executeRuntimeV2Tool } from "./adapters";
 import { emitRuntimeV2Event } from "./events";
 import { getRuntimeV2Limits } from "./flags";
 import { buildStepOperationKey } from "./idempotency";
-import { getRuntimeV2Tool } from "./tool-catalog";
 import { refreshReadySteps } from "./persist";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 import { isWorkforceProcessingEnabled } from "@/lib/workforce-runtime/flags";
@@ -441,14 +440,16 @@ async function executeRoundGuarded(input: {
     }
     // T5-P0C：策略输入全部来自 server 权威 run context（不再硬编码 sales）。
     // fail-closed：策略上下文解析失败 → 拒绝执行（绝不"无策略放行"）。
-    const execPolicy = await resolveWorkforceExecutionPolicy({
+    const policyResult = await resolveWorkforceExecutionPolicy({
       orgId,
       runId,
       userId,
       role,
       runMetadata: meta,
     });
-    if (!execPolicy) {
+    if (!policyResult.ok) {
+      // Segment 2.5：业务域无法证明也走同一条 fail-closed 出口，
+      // 但带上可审计的 durable 错误码（work_domain_missing / _ambiguous）。
       return await failStepClosed({
         fence,
         orgId,
@@ -456,11 +457,11 @@ async function executeRoundGuarded(input: {
         stepId: step.id,
         stepKey: step.stepKey,
         stepTitle: step.title,
-        errorCode: "policy_context_unavailable",
-        errorMessage:
-          "无法解析执行期策略上下文（org/module/toolPolicy），已 fail-closed",
+        errorCode: policyResult.code,
+        errorMessage: policyResult.error,
       });
     }
+    const execPolicy = policyResult.policy;
     // 重新鉴权（真实 domain + org/module/tool policy 全部参与）
     const decision = canInvokeTool({
       tenant: {
@@ -1114,31 +1115,30 @@ async function executeWorkforceBatchRound(input: {
         continue;
       }
       // T5-P0C：与单步路径同源的 server 权威策略上下文（不再硬编码 sales）
-      const execPolicy = await resolveWorkforceExecutionPolicy({
+      const policyResult = await resolveWorkforceExecutionPolicy({
         orgId,
         runId,
         userId: input.userId,
         role: input.role,
         runMetadata: input.runMetadata ?? null,
       });
-      if (!execPolicy) {
+      if (!policyResult.ok) {
         await failWorkforceStepOnly({
           fence,
           stepId: step.id,
-          errorCode: "policy_context_unavailable",
-          errorMessage:
-            "无法解析执行期策略上下文（org/module/toolPolicy），已 fail-closed",
+          errorCode: policyResult.code,
+          errorMessage: policyResult.error,
         });
         outcomes.push({
           kind: "needs_human",
           stepKey: step.stepKey,
-          errorCode: "policy_context_unavailable",
-          errorMessage:
-            "无法解析执行期策略上下文（org/module/toolPolicy），已 fail-closed",
+          errorCode: policyResult.code,
+          errorMessage: policyResult.error,
           eventTitle: `步骤「${step.title}」策略上下文不可用`,
         });
         continue;
       }
+      const execPolicy = policyResult.policy;
       const decision = canInvokeTool({
         tenant: {
           userId: input.userId,

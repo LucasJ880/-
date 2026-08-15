@@ -35,6 +35,7 @@ async function main() {
   const fx = await seedWorkforceFixture("timeout");
 
   const job = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

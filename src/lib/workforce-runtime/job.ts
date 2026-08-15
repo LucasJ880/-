@@ -33,6 +33,7 @@ import {
 import { compileServerAuthoredPlan, type CompiledPlan } from "./plan-compile";
 import { WORKFORCE_TASK_CONTRACT_WRITE_VERSION } from "./task-contract";
 import { getRuntimeV2Limits } from "@/lib/agent-runtime-v2/flags";
+import { normalizeWorkDomain, type WorkDomain } from "./work-domain";
 
 export type CreateWorkforceJobInput = {
   orgId: string;
@@ -76,8 +77,12 @@ export type CreateWorkforceJobInput = {
    * ToolDomain（进而决定模块门与允许角色），是权限真相的一部分，
    * 绝不能经 generic client metadata 通道定义。该键已列入 RESERVED_METADATA_KEYS，
    * 任何调用方尝试经 extraMetadata 传入都会被整体拒绝（fail-closed）。
+   *
+   * Segment 2.5：**必填**。新建 Job 不再有"缺省域"——缺失即
+   * WORK_DOMAIN_REQUIRED 且零 DB 写。历史 run 的缺失由
+   * resolveEffectiveWorkDomain 取证兼容，与新建路径互不相干。
    */
-  workDomain?: string | null;
+  workDomain: WorkDomain;
 };
 
 /**
@@ -156,6 +161,14 @@ export async function createWorkforceJob(
     return { ok: false, error: "GOAL_TOO_SHORT" };
   }
 
+  // Segment 2.5 §3：新建 Job 必须显式声明业务域。
+  // 运行时再判一次（类型已必填）——JS 调用方或未来的反序列化入口不能靠类型兜底；
+  // 缺失/非法一律零 DB 写，绝不落成"域未知"的 run 留给执行期去猜。
+  const workDomain = normalizeWorkDomain(input.workDomain);
+  if (!workDomain) {
+    return { ok: false, error: "WORK_DOMAIN_REQUIRED" };
+  }
+
   const extra = sanitizeExtraMetadata(input.extraMetadata);
   if (!extra.ok) {
     return { ok: false, error: extra.error };
@@ -227,7 +240,7 @@ export async function createWorkforceJob(
       channel,
       source: runtime.source,
       // T5-P0C-C：server 权威 workDomain（具名参数，非 client metadata）
-      ...(input.workDomain ? { workDomain: input.workDomain } : {}),
+      workDomain,
       // T5-P0A §5/§28：计划来源与契约版本（server 权威、保留键防伪造、可观测）
       planSource: compiled ? PLAN_SOURCE.SERVER_AUTHORED : PLAN_SOURCE.LLM_PLANNER,
       ...(compiled

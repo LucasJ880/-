@@ -166,7 +166,7 @@ export async function checkPolicyFreshness(input: {
   /** 覆盖待恢复工具集（测试注入用；生产由 resolveResumeTargetTools 解析） */
   targetTools?: string[];
 }): Promise<FreshnessResult> {
-  const policy = await resolveWorkforceExecutionPolicy({
+  const policyResult = await resolveWorkforceExecutionPolicy({
     orgId: input.orgId,
     runId: input.runId,
     userId: input.userId,
@@ -174,13 +174,18 @@ export async function checkPolicyFreshness(input: {
     runMetadata: input.runMetadata,
     forceRefresh: true,
   });
-  if (!policy) {
+  if (!policyResult.ok) {
+    // 业务域不可证明与租户策略不可用同属 fail-closed，理由带上具体 code
     return {
       ok: false,
       code: "POLICY_STALE",
-      reason: "POLICY_CONTEXT_UNAVAILABLE",
+      reason:
+        policyResult.code === "policy_context_unavailable"
+          ? "POLICY_CONTEXT_UNAVAILABLE"
+          : policyResult.code.toUpperCase(),
     };
   }
+  const policy = policyResult.policy;
   if (!policy.hasMembership) {
     return { ok: false, code: "POLICY_STALE", reason: "NO_MEMBERSHIP" };
   }

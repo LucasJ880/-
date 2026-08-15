@@ -308,3 +308,85 @@ SCHEMA_CHANGE = NONE ｜ 生产 DB/env/deploy 零改动
 **不在 Segment 2 内擅自放宽授权门**——留待人工裁定。
 
 因此 `phase2a-lease` 目前仍 13/16，`LEGACY_V2_REGRESSION` 只对 V2 持久化面判 PASS。
+
+---
+
+## 9. Segment 2.5 — WorkDomain 兼容闭环
+
+关闭 §8.7 记录的 P0C 回归。**不是**靠恢复宽松默认，而是靠「新建必须显式 + 旧记录窄取证」。
+
+### 9.1 冻结的规则
+
+```
+缺失 workDomain ≠ system
+缺失 workDomain ≠ sales
+system 只能来自显式 general
+```
+
+`toolDomainForWorkDomain` 此前把缺失/未知映射成 `system`，理由写的是"最小权限"。
+实际后果相反：历史销售 Job（建 run 时还没有 workDomain 这个概念）在第一个工具就
+`org_role_denied`，而 platform admin 反而跑得通——因为 `system` 域恰好只允许 admin。
+**"不知道"被当成了一个确定答案，并且顺手给管理员留了一条静默旁路。**
+
+现在该函数是纯映射，缺失/未知返回 `null`；"缺失怎么办"是取证层的职责。
+
+### 9.2 有效域解析（server 权威，fail-closed）
+
+[work-domain.ts](src/lib/workforce-runtime/work-domain.ts)：
+
+| 优先级 | 来源 | source |
+| --- | --- | --- |
+| A | `metadata.workDomain` 显式（**不可被后续证据降级**） | `EXPLICIT` |
+| B | `metadata.projectId` → `Project.workDomain`（canonical） | `PROJECT_CANONICAL` |
+| C | 旧 run 的持久化工具证据全属销售执行集合 | `LEGACY_SALES_COMPAT` |
+| D | 其余 | fail closed |
+
+C 的证据只取 durable server facts（`AgentRunStep.preferredTool`，计划刚落库时回退
+server 校验过的 `planJson`）。**不读**客户端字段、goal 自然语言、用户角色、时间戳。
+工具的域归属从既有 registry 派生（`RUNTIME_V2_TOOL_CATALOG` → sales；
+tender descriptor → project），零第二份工具名单。
+
+未知工具 / 混合域 / 纯项目域但无项目归属 / 零证据 → `work_domain_ambiguous`
+或 `work_domain_missing`，落 durable step errorCode。
+
+### 9.3 新建 Job 必须显式声明域
+
+`CreateWorkforceJobInput.workDomain` 改为**必填**，运行时再判一次
+（类型挡不住 JS 调用方与未来的反序列化入口），缺失/非法 → `WORK_DOMAIN_REQUIRED`
+且**零 DB 写**。`ACTIVE_CREATE_JOB_CALLS_EXPLICIT = 25/25`。
+
+### 9.4 缓存与可观测
+
+策略缓存键仍是 `runId:userId`，但存的是**解析后的有效域 + 来源**；歧义/缺失永不入缓存，
+因此不存在"第一个工具定域、后续工具搭便车"的窗口。工具证据取自计划落库时一次性
+创建的全部 step，run 级稳定。`workDomainResolutionSource` 仅服务端可观测，
+executor 不读它，不参与任何授权判定。
+
+### 9.5 验证
+
+| 面 | 结果 |
+| --- | --- |
+| 纯平面 `t5-seg25-work-domain`（DOMAIN-01..16） | **30/30** |
+| 真实 Postgres `t5-seg25-work-domain-db-validation`（DB-05..12b） | **14/14** |
+| **`phase2a-lease`（§13 门）** | **16/16**（P0C 回归 CLOSED） |
+| `phase2a-job-identity` / `phase2a-normal-slices` / `t1b-integration`（隔离 DB） | 26 · 10 · 40 全绿 |
+| `t5-plan-seam` · `t5-execution-policy` · `t5-seg2-v2-spine` · `contracts` · `parallel-policy` · `t1b-pure` · `verifier-security` · `golden-flow` · `planner` · `durable-state` · `v2-persist-fence` · `v2-map` | 37 · 41 · 44 · 60 · 43 · 35 · 15 · 14 · 17 · 11 · 15 · 24 全绿 |
+| `tsc --noEmit` / `eslint` | 干净 |
+
+真实库覆盖：旧 run + 销售工具证据恢复为 sales 且策略允许 sales 角色；
+旧 run + `Project.workDomain=tender` 判为 tender **而非** sales；项目不存在 → fail closed；
+未知工具 / 零证据 / 混合域 → 对应错误码；显式 tender + 全销售工具证据仍为 project；
+platform admin 在缺失域与歧义域下**同样**被拒。
+
+`t5-plan-seam` 的 `AUTH-01c` 原断言「缺失 → system（最小权限）」编码的是被本段推翻的
+旧规则，已改写为「缺失/未知 → null」+「system 只来自显式 general」。
+
+### 9.6 边界
+
+```
+MISSING_WORKDOMAIN_DEFAULT = FAIL_CLOSED
+ROLE_BASED_DOMAIN_INFERENCE = 0
+SALES_PLANNER_TOOL_STRIPPING = 0（§8.7 回归 1 的修复保留未撤销）
+DAG / V2 工具激活 / finalize 切换：均未改动
+SCHEMA_CHANGE = NONE ｜ 生产 DB/env/deploy 零改动
+```
