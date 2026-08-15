@@ -86,11 +86,20 @@ type Overlay = { outcome: string; humanOverride: boolean; sequences: number[] };
 async function main() {
   console.log("autopilot A1-P0 durability matrix");
 
+  const telemetryGate = AUTOPILOT_A1_MANDATORY_BLOCKERS.find(
+    (b) => b.id === "TELEMETRY_DURABILITY",
+  );
+  ok(!!telemetryGate, "TELEMETRY_DURABILITY id 仍存在");
+  ok(telemetryGate?.phase === "A1", "TELEMETRY_DURABILITY phase = A1");
   ok(
-    AUTOPILOT_A1_MANDATORY_BLOCKERS.some(
-      (b) => b.id === "TELEMETRY_DURABILITY" && b.status === "BLOCKER",
-    ),
-    "TELEMETRY_DURABILITY remains BLOCKER pending Lucas review",
+    telemetryGate?.status === "CLOSED",
+    "TELEMETRY_DURABILITY status = CLOSED after Final Review 2",
+  );
+  ok(
+    Boolean(telemetryGate?.reason?.trim()) &&
+      /durable/i.test(telemetryGate?.reason ?? "") &&
+      /Final Review/i.test(telemetryGate?.reason ?? ""),
+    "TELEMETRY_DURABILITY reason 含 durable / Final Review evidence",
   );
 
   ok(!isAutopilotTelemetryCaptureEnabled({}), "capture default OFF");

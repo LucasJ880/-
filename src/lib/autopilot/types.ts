@@ -16,16 +16,34 @@ export const AUTOPILOT_DISABLED_CAPABILITIES = {
 } as const;
 
 /**
- * A1-P0 已实现 durable outbox，但正式关闭需 Lucas Final Review。
- * 代码内保持 BLOCKER，不得自行改为 CLOSED。
+ * A1 mandatory gate history / closure state.
+ * CLOSED 不授权 Production capture、processor 或 migration。
+ *
+ * Canonical Production Activation Order（只记录，本文件不执行）：
+ * 1. Production migration
+ * 2. Verify AutopilotTelemetryOutbox exists
+ * 3. Enable AUTOPILOT_PROCESSOR_ENABLED
+ * 4. Verify processor health
+ * 5. Enable AUTOPILOT_TELEMETRY_CAPTURE_ENABLED
+ *
+ * NEVER ENABLE CAPTURE BEFORE OUTBOX MIGRATION EXISTS.
+ * Capture=ON 且 Outbox 表不存在时，同事务 Outbox insert 失败会回滚 canonical AgentRunEvent。
  */
+export const AUTOPILOT_PRODUCTION_ACTIVATION_ORDER = [
+  "MIGRATE",
+  "VERIFY_TABLE",
+  "PROCESSOR_ON",
+  "VERIFY_HEALTH",
+  "CAPTURE_ON",
+] as const;
+
 export const AUTOPILOT_A1_MANDATORY_BLOCKERS = [
   {
     id: "TELEMETRY_DURABILITY",
     phase: "A1",
-    status: "BLOCKER",
+    status: "CLOSED",
     reason:
-      "A1-P0 durable outbox is implemented pending Lucas Final Review. Do not treat telemetry as production-complete until TELEMETRY_DURABILITY is CLOSED.",
+      "A1-P0 durable telemetry passed Lucas Final Review 2: transactional canonical-event + outbox capture, whole-transaction sequence retry, at-least-once idempotent projection, retry/backoff/dead-letter, lease reclaim with max-attempt recovery, cross-org isolation, persisted-error redaction, and isolated PostgreSQL E2E verified.",
   },
 ] as const;
 

@@ -4,7 +4,8 @@
  * A1-P0: request path only enqueues a durable outbox envelope (or no-ops when
  * capture flag is off). Projection runs in the async processor.
  *
- * TELEMETRY_DURABILITY remains BLOCKER until Lucas Final Review.
+ * TELEMETRY_DURABILITY is CLOSED after Lucas Final Review 2.
+ * CLOSED does not enable Production capture or processor.
  */
 
 import { runtimeFromRunMetadata } from "@/lib/ai/runtime-context";

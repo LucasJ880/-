@@ -7,6 +7,7 @@ import {
   AUTOPILOT_A1_MANDATORY_BLOCKERS,
   AUTOPILOT_FAILURE_TYPES,
   AUTOPILOT_OUTCOMES,
+  AUTOPILOT_PRODUCTION_ACTIVATION_ORDER,
   AUTOPILOT_TRACE_EVENT_TYPES,
 } from "../types";
 import { AUTOPILOT_METRIC_DEFINITIONS } from "../metrics";
@@ -34,11 +35,22 @@ ok(AUTOPILOT_OUTCOMES.includes("UNKNOWN"), "UNKNOWN");
 ok(AUTOPILOT_FAILURE_TYPES.includes("HALLUCINATION"), "HALLUCINATION 类型存在");
 ok(AUTOPILOT_TRACE_EVENT_TYPES.includes("RE_ASK_SIGNAL"), "RE_ASK_SIGNAL 接口存在");
 ok(AUTOPILOT_METRIC_DEFINITIONS.length >= 14, "metrics 定义齐全");
+const telemetryGate = AUTOPILOT_A1_MANDATORY_BLOCKERS.find(
+  (b) => b.id === "TELEMETRY_DURABILITY",
+);
+ok(!!telemetryGate, "TELEMETRY_DURABILITY id 仍存在于 A1 gate history");
+ok(telemetryGate?.phase === "A1", "TELEMETRY_DURABILITY phase 仍是 A1");
+ok(telemetryGate?.status === "CLOSED", "TELEMETRY_DURABILITY status = CLOSED");
 ok(
-  AUTOPILOT_A1_MANDATORY_BLOCKERS.some(
-    (b) => b.id === "TELEMETRY_DURABILITY" && b.status === "BLOCKER",
-  ),
-  "A1 mandatory blocker: TELEMETRY_DURABILITY remains BLOCKER",
+  Boolean(telemetryGate?.reason?.trim()) &&
+    /durable/i.test(telemetryGate?.reason ?? "") &&
+    /Final Review/i.test(telemetryGate?.reason ?? ""),
+  "TELEMETRY_DURABILITY reason 含 durable / Final Review evidence",
+);
+ok(
+  AUTOPILOT_PRODUCTION_ACTIVATION_ORDER[0] === "MIGRATE" &&
+    AUTOPILOT_PRODUCTION_ACTIVATION_ORDER[4] === "CAPTURE_ON",
+  "Production activation: migrate before capture",
 );
 
 ok(mapDeterministicOutcome({ status: "failed" }) === "FAILURE", "failed → FAILURE");
