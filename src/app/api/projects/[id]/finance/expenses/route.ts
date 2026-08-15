@@ -66,6 +66,14 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       currency: String(body.currency ?? "CAD"),
       projectPhaseSnapshot: (body.projectPhaseSnapshot as string) ?? null,
       projectStageSnapshot: (body.projectStageSnapshot as string) ?? null,
+      // T2-P1.6：多币种 FX 快照 + 出资来源
+      fxRateCadPerOriginalUnit: (body.fxRateCadPerOriginalUnit as string) ?? null,
+      fxRateDate: body.fxRateDate ? new Date(String(body.fxRateDate)) : null,
+      fxRateSource: (body.fxRateSource as never) ?? null,
+      fundingSource: (body.fundingSource as string) ?? null,
+      // 垫资人恒取服务端已认证用户；service 层再次强制「个人垫付人 = 提交人」
+      paidByUserId: body.fundingSource === "EMPLOYEE_PERSONAL" ? access.user.id : null,
+      amountConfirmedById: access.user.id,
     });
     if (body.submit === true) {
       await submitExpense({ orgId, projectId: id, expenseId: expense.id, actor, actorUserId: access.user.id });

@@ -16,10 +16,12 @@ import {
   requestExpenseInfo,
   resubmitExpense,
   submitExpense,
+  updateExpenseDraft,
   listExpenseAttachments,
   ExpenseStateError,
   FinanceContractError,
   FinanceTenantError,
+  FxContractError,
   SelfApprovalError,
 } from "@/lib/project-finance";
 
@@ -27,7 +29,7 @@ type Ctx = { params: Promise<{ id: string; expenseId: string }> };
 
 function financeError(e: unknown): NextResponse {
   if (e instanceof SelfApprovalError) return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
-  if (e instanceof ExpenseStateError || e instanceof FinanceContractError) {
+  if (e instanceof ExpenseStateError || e instanceof FinanceContractError || e instanceof FxContractError) {
     return NextResponse.json({ error: e.message, code: e.code }, { status: (e as { statusCode?: number }).statusCode ?? 409 });
   }
   if (e instanceof FinanceTenantError) return NextResponse.json({ error: "费用不存在", code: e.code }, { status: 404 });
@@ -63,6 +65,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   // 审核动作（accounting/admin）需 REVIEW；提交人动作（submit/resubmit）走 EXPENSE_SUBMIT，
   // 使所有 active 项目成员均可提交/重提本人费用（本人归属由下方 submittedById 校验强制）。
   const reviewActions = new Set(["request_info", "reject", "approve"]);
+  // update 与 submit/resubmit 同权（EXPENSE_SUBMIT）：改的是本人未锁定的费用；
+  // 「本人」由 service 层 submittedById 校验强制，UI 不构成安全边界。
   const perm = reviewActions.has(action) ? PERMISSIONS.PROJECT_COST_REVIEW : PERMISSIONS.PROJECT_EXPENSE_SUBMIT;
 
   const access = await requireCostAccess(request, id, perm);
@@ -83,6 +87,33 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
   try {
     switch (action) {
+      case "update":
+        // 修改本人未锁定的费用（DRAFT / NEEDS_INFO）；金额变化 → 重算 FX + 重记确认事件
+        await updateExpenseDraft({
+          orgId,
+          projectId: id,
+          expenseId,
+          actor,
+          actorUserId: uid,
+          changes: {
+            ...(body.costCategory !== undefined ? { costCategory: String(body.costCategory) } : {}),
+            ...(body.budgetLineId !== undefined ? { budgetLineId: (body.budgetLineId as string) ?? null } : {}),
+            ...(body.expenseOccurredAt !== undefined ? { expenseOccurredAt: new Date(String(body.expenseOccurredAt)) } : {}),
+            ...(body.vendorName !== undefined ? { vendorName: (body.vendorName as string) ?? null } : {}),
+            ...(body.description !== undefined ? { description: String(body.description) } : {}),
+            ...(body.subtotal !== undefined ? { subtotal: (body.subtotal as string) ?? null } : {}),
+            ...(body.taxAmount !== undefined ? { taxAmount: (body.taxAmount as string) ?? null } : {}),
+            ...(body.totalAmount !== undefined ? { totalAmount: String(body.totalAmount) } : {}),
+            ...(body.currency !== undefined ? { currency: String(body.currency) } : {}),
+            ...(body.fxRateCadPerOriginalUnit !== undefined ? { fxRateCadPerOriginalUnit: (body.fxRateCadPerOriginalUnit as string) ?? null } : {}),
+            ...(body.fxRateDate !== undefined ? { fxRateDate: body.fxRateDate ? new Date(String(body.fxRateDate)) : null } : {}),
+            ...(body.fxRateSource !== undefined ? { fxRateSource: (body.fxRateSource as never) ?? null } : {}),
+            ...(body.fundingSource !== undefined ? { fundingSource: (body.fundingSource as string) ?? null } : {}),
+            // 垫资人恒取服务端已认证用户，绝不接受客户端指定他人
+            ...(body.fundingSource !== undefined ? { paidByUserId: body.fundingSource === "EMPLOYEE_PERSONAL" ? uid : null } : {}),
+          },
+        });
+        break;
       case "submit":
         await submitExpense({ orgId, projectId: id, expenseId, actor, actorUserId: uid });
         break;

@@ -29,6 +29,8 @@ npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p15-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p15-authz-contract.test.ts
+npx tsx --test src/lib/project-finance/__tests__/p16-pure.test.ts
+npx tsx --test src/lib/project-finance/__tests__/p16-authz-contract.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts

@@ -10,10 +10,17 @@ import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import { putPrivateBlob } from "@/lib/files/blob-access";
 import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
+import { appendProjectEvent } from "@/lib/project-ledger/event-service";
+import type { LedgerActor } from "@/lib/project-ledger/types";
+import { expenseReceiptUploadedEventKey } from "./event-keys";
 import { FinanceContractError, FinanceTenantError } from "./types";
 
 const RECEIPT_MAX_BYTES = 15 * 1024 * 1024;
-const RECEIPT_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "pdf"];
+/**
+ * heic/heif 自 T2-P1.6 起有真实魔数校验（upload-guard.checkHeifMagic），
+ * 此前落在 default 放行分支 —— 白名单未变，但校验变严。
+ */
+const RECEIPT_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif", "pdf"];
 
 function inferKind(mime: string, ext: string): string {
   if (mime === "application/pdf" || ext === "pdf") return "invoice";
@@ -28,6 +35,8 @@ export interface AddExpenseAttachmentInput {
   file: File;
   uploadedById: string;
   capturedAt?: Date;
+  /** 服务端可信 actor；提供时同事务追加 expense.receipt_uploaded 业务事件 */
+  actor?: LedgerActor;
 }
 
 export async function addExpenseAttachment(input: AddExpenseAttachmentInput) {
@@ -71,21 +80,48 @@ export async function addExpenseAttachment(input: AddExpenseAttachmentInput) {
     contentType: validated.mime,
   });
 
-  return db.projectExpenseAttachment.create({
-    data: {
-      orgId: input.orgId,
-      projectId: input.projectId,
-      expenseSubmissionId: input.expenseSubmissionId,
-      kind: inferKind(validated.mime, validated.ext),
-      originalFilename: validated.safeName,
-      mimeType: validated.mime,
-      fileSize: validated.size,
-      contentHash,
-      storageKey: blob.pathname,
-      blobUrl: blob.proxyUrl,
-      uploadedById: input.uploadedById,
-      capturedAt: input.capturedAt ?? new Date(),
-    },
+  // 落库 + 业务事件同事务（时间线「10:42 receipt uploaded」必须可追溯）
+  return db.$transaction(async (tx) => {
+    const attachment = await tx.projectExpenseAttachment.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        expenseSubmissionId: input.expenseSubmissionId,
+        kind: inferKind(validated.mime, validated.ext),
+        originalFilename: validated.safeName,
+        mimeType: validated.mime,
+        fileSize: validated.size,
+        contentHash,
+        storageKey: blob.pathname,
+        blobUrl: blob.proxyUrl,
+        uploadedById: input.uploadedById,
+        capturedAt: input.capturedAt ?? new Date(),
+      },
+    });
+    if (input.actor) {
+      await appendProjectEvent({
+        tx,
+        orgId: input.orgId,
+        projectId: input.projectId,
+        eventType: "expense.receipt_uploaded",
+        eventKey: expenseReceiptUploadedEventKey(attachment.id),
+        occurredAt: attachment.capturedAt,
+        actor: input.actor,
+        title: `票据已上传：${attachment.originalFilename}`,
+        payload: {
+          schemaVersion: 1,
+          expenseId: input.expenseSubmissionId,
+          attachmentId: attachment.id,
+          kind: attachment.kind,
+          mimeType: attachment.mimeType,
+          fileSize: attachment.fileSize,
+          contentHash,
+          uploadedById: input.uploadedById,
+        },
+        refs: { expenseSubmissionId: input.expenseSubmissionId, attachmentId: attachment.id },
+      });
+    }
+    return attachment;
   });
 }
 

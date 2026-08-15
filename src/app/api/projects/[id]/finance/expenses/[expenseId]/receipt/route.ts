@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { PERMISSIONS, hasProjectPermission } from "@/lib/rbac/permissions";
-import { requireCostAccess } from "@/lib/project-finance/access";
+import { requireCostAccess, serverActor } from "@/lib/project-finance/access";
 import { addExpenseAttachment, FinanceContractError, FinanceTenantError } from "@/lib/project-finance";
 
 type Ctx = { params: Promise<{ id: string; expenseId: string }> };
@@ -39,6 +39,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   try {
     const attachment = await addExpenseAttachment({
       orgId, projectId: id, expenseSubmissionId: expenseId, file, uploadedById: access.user.id,
+      // 服务端可信 actor → 同事务写 expense.receipt_uploaded 业务事件（时间线可追溯）
+      actor: serverActor(access.user.id),
     });
     return NextResponse.json({ attachment }, { status: 201 });
   } catch (e) {

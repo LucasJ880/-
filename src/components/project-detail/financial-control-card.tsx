@@ -1,18 +1,22 @@
 "use client";
 
 /**
- * T2-P1.5 Financial Control Card — 嵌入 Project Workbench。
- * 入口简单、信息很深：概览 tiles + 移动端「添加费用/拍票据」+ Accounting 审核。
- * feature dark（summary 404）时不渲染。移动优先（375px 可用）。
+ * T2-P1.5 / P1.6 Financial Control Card — 嵌入 Project Workbench。
+ * 入口简单、信息很深：概览 tiles + 移动端「记一笔费用」全屏面板 + Accounting 审核
+ * + 付款队列 + Tender 经营结果。feature dark（summary 404）时不渲染。移动优先（375px 可用）。
+ *
+ * P1.6：原 AddExpenseForm 由 MobileExpenseSheet 取代（严格超集：多币种 + FX 快照 +
+ * 出资来源 + 金额人工确认 + camera/gallery 双通道 + 上传失败重试且不丢表单）。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Wallet, Camera, Loader2, CheckCircle2, XCircle, HelpCircle, Plus, Trash2, Lock, Play } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Wallet, Camera, Loader2, CheckCircle2, XCircle, HelpCircle, Plus, Trash2, Lock, Play, Banknote } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import {
-  EXPENSE_COST_CATEGORIES,
   BUDGET_LINE_CATEGORIES,
   PERCENTAGE_BUDGET_CATEGORIES,
 } from "@/lib/project-finance/types";
+import { MobileExpenseSheet } from "./mobile-expense-sheet";
+import { PaymentQueuePanel, TenderOutcomePanel } from "./finance-settlement-panels";
 
 type CategoryVsActual = {
   category: string;
@@ -69,9 +73,11 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [canReview, setCanReview] = useState(false);
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<"overview" | "add" | "budget" | "review">("overview");
+  const [tab, setTab] = useState<"overview" | "mine" | "budget" | "review" | "payments" | "outcome">("overview");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [canRecordPayment, setCanRecordPayment] = useState(false);
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/projects/${projectId}/finance/summary`);
@@ -83,6 +89,12 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
       const d = (await eRes.json()) as { expenses: Expense[]; canReview: boolean };
       setExpenses(d.expenses);
       setCanReview(d.canReview);
+    }
+    // 付款权是独立第四权（RULE 6）：由服务端告知，不从 canReview 推断
+    const pRes = await apiFetch(`/api/projects/${projectId}/finance/payables`);
+    if (pRes.ok) {
+      const d = (await pRes.json()) as { canRecordPayment?: boolean };
+      setCanRecordPayment(Boolean(d.canRecordPayment));
     }
   }, [projectId]);
 
@@ -106,17 +118,42 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
         )}
       </div>
 
+      {/* 移动端主入口：记一笔费用（44px+ 触控目标，全宽，永远在最上面） */}
+      <button
+        type="button"
+        onClick={() => setSheetOpen(true)}
+        data-testid="quick-record-expense"
+        className="mt-3 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-accent text-[15px] font-medium text-[color:var(--on-accent)]"
+      >
+        <Camera size={17} /> 记一笔费用
+      </button>
+
       {/* 分段导航（移动优先，自动换行） */}
       <div className="mt-3 flex flex-wrap gap-1 rounded-lg bg-muted/40 p-1 text-xs">
-        {([["overview", "概览"], ["add", "添加费用"], ["budget", "预算"], ...(canReview ? [["review", "费用审核"] as const] : [])] as const).map(([k, label]) => (
+        {([
+          ["overview", "概览"],
+          ["mine", "我的费用"],
+          ["budget", "预算"],
+          ...(canReview ? [["review", "费用审核"] as const] : []),
+          ["payments", "付款"],
+          ["outcome", "经营结果"],
+        ] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k as typeof tab)}
-            className={`flex-1 whitespace-nowrap rounded-md px-2 py-1.5 ${tab === k ? "bg-accent text-[color:var(--on-accent)]" : "text-muted"}`}>
+            className={`min-h-[36px] flex-1 whitespace-nowrap rounded-md px-2 py-1.5 ${tab === k ? "bg-accent text-[color:var(--on-accent)]" : "text-muted"}`}>
             {label}
           </button>
         ))}
       </div>
 
-      {err && <p className="mt-2 rounded-md bg-danger-bg px-3 py-2 text-xs text-danger">{err}</p>}
+      {err && <p className="mt-2 break-words rounded-md bg-danger-bg px-3 py-2 text-xs text-danger">{err}</p>}
+
+      {sheetOpen && (
+        <MobileExpenseSheet
+          projectId={projectId}
+          onClose={() => setSheetOpen(false)}
+          onSaved={() => { void load(); }}
+        />
+      )}
 
       {tab === "overview" && (
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -130,8 +167,8 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
         </div>
       )}
 
-      {tab === "add" && (
-        <AddExpenseForm projectId={projectId} onDone={() => { setTab("overview"); void load(); }} setErr={setErr} />
+      {tab === "mine" && (
+        <MyExpenseList expenses={expenses} currentUserId={currentUserId} canReview={canReview} />
       )}
 
       {tab === "budget" && (
@@ -142,7 +179,56 @@ export function FinancialControlCard({ projectId, currentUserId }: { projectId: 
         <ReviewList projectId={projectId} pending={pending} currentUserId={currentUserId}
           busy={busy} setBusy={setBusy} setErr={setErr} onDone={load} />
       )}
+
+      {tab === "payments" && (
+        <PaymentQueuePanel projectId={projectId} canRecordPayment={canRecordPayment} setErr={setErr} />
+      )}
+
+      {tab === "outcome" && <TenderOutcomePanel projectId={projectId} setErr={setErr} />}
     </div>
+  );
+}
+
+/* ── 我的费用：Draft / Submitted / Needs Info / Approved / Rejected / 待报销 / 已付 ── */
+
+function MyExpenseList({
+  expenses,
+  currentUserId,
+  canReview,
+}: {
+  expenses: Expense[];
+  currentUserId?: string;
+  canReview: boolean;
+}) {
+  // 列表 API 对无审核权者已在服务端只返回本人；有审核权者本地再过滤成「我的」
+  const mine = canReview && currentUserId
+    ? expenses.filter((e) => e.submittedById === currentUserId)
+    : expenses;
+
+  if (mine.length === 0) return <p className="mt-3 text-sm text-muted">还没有费用记录。点上面「记一笔费用」开始。</p>;
+  return (
+    <ul className="mt-3 space-y-2" data-testid="my-expense-list">
+      {mine.map((e) => (
+        <li key={e.id} className="rounded-lg border border-border p-2.5">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm text-foreground">
+                {e.vendorName ?? e.costCategory} · {e.currency} {e.totalAmount}
+              </div>
+              <div className="truncate text-xs text-muted">{e.description}</div>
+            </div>
+            <span className="shrink-0 rounded-full bg-muted/40 px-2 py-0.5 text-[11px] text-foreground">
+              {STATUS_LABEL[e.status] ?? e.status}
+            </span>
+          </div>
+          {e.status === "APPROVED" && (
+            <p className="mt-1.5 flex items-center gap-1 text-[11px] text-muted">
+              <Banknote size={12} /> 已批准为项目成本；是否已打款见「付款」页
+            </p>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -152,81 +238,6 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="text-[11px] text-muted">{label}</div>
       <div className="mt-0.5 text-sm font-semibold text-foreground">{value}</div>
       {hint && <div className="text-[11px] text-muted">{hint}</div>}
-    </div>
-  );
-}
-
-function AddExpenseForm({ projectId, onDone, setErr }: { projectId: string; onDone: () => void; setErr: (s: string | null) => void }) {
-  const [category, setCategory] = useState<string>("SUPPLIER");
-  const [amount, setAmount] = useState("");
-  const [vendor, setVendor] = useState("");
-  const [occurredAt, setOccurredAt] = useState(new Date().toISOString().slice(0, 10));
-  const [desc, setDesc] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
-  const cameraRef = useRef<HTMLInputElement>(null);
-
-  const submit = async () => {
-    setErr(null);
-    if (!amount || Number(amount) <= 0) { setErr("金额必须为正"); return; }
-    if (!desc.trim()) { setErr("请填写费用说明"); return; }
-    setSaving(true);
-    try {
-      const res = await apiFetch(`/api/projects/${projectId}/finance/expenses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ costCategory: category, totalAmount: amount, vendorName: vendor || null, expenseOccurredAt: occurredAt, description: desc, submit: true }),
-      });
-      if (!res.ok) { setErr(((await res.json()) as { error?: string }).error ?? "提交失败"); return; }
-      const { expense } = (await res.json()) as { expense: { id: string } };
-      if (file && expense?.id) {
-        const fd = new FormData(); fd.append("file", file);
-        await apiFetch(`/api/projects/${projectId}/finance/expenses/${expense.id}/receipt`, { method: "POST", body: fd });
-      }
-      onDone();
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="mt-3 space-y-2.5">
-      <label className="block text-xs text-muted">类别
-        <select value={category} onChange={(e) => setCategory(e.target.value)}
-          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-sm">
-          {EXPENSE_COST_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </label>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block text-xs text-muted">金额
-          <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00"
-            className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-sm" />
-        </label>
-        <label className="block text-xs text-muted">发生日期
-          <input type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-sm" />
-        </label>
-      </div>
-      <label className="block text-xs text-muted">供应商（可选）
-        <input value={vendor} onChange={(e) => setVendor(e.target.value)}
-          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-sm" />
-      </label>
-      <label className="block text-xs text-muted">说明
-        <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2}
-          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-sm" />
-      </label>
-      {/* 移动端拍票据：隐藏 camera input + gallery */}
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
-        onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={() => cameraRef.current?.click()}
-          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-foreground">
-          <Camera size={15} /> {file ? "已选票据" : "拍/传票据"}
-        </button>
-        {file && <span className="truncate text-xs text-muted">{file.name}</span>}
-      </div>
-      <button onClick={submit} disabled={saving}
-        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2.5 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-60">
-        {saving && <Loader2 size={15} className="animate-spin" />} 提交费用
-      </button>
     </div>
   );
 }
