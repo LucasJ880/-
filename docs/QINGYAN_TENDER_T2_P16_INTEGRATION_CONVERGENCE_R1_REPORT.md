@@ -11,6 +11,7 @@
 | 项 | 值 |
 |---|---|
 | `CURRENT_MAIN_SHA`（本轮起点） | `d4a39a77a0ad45ddbe2949b24a0254874ebcae85` |
+| `CURRENT_MAIN_SHA`（本轮**结束时**） | `0837ba9c44c1801f166d318db8409fd8db61ce79`（期间 #110 Autopilot A1-P0 落入 main） |
 | `PR104_HEAD_SHA`（本轮起点） | `e03b9b79e8449f101bad6a30efedbfc3045cbe7a` |
 | `PR111_HEAD_SHA`（本轮起点） | `74764e224beff77a6fb0158433b8f9543487cfc6` |
 | worktree | clean（`git status --porcelain` 空） |
@@ -60,7 +61,7 @@
 
 **SEMANTIC_DRIFT = NONE** → 未触发 STOP。
 
-`PR104_MAIN_INTEGRATED = YES`（新 head `53f4960`，`mergeable` 由 **CONFLICTING → MERGEABLE**）
+`PR104_MAIN_INTEGRATED = YES`（第一次集成 → `53f4960`；main 再前进后二次集成 → **`9c3f4446`**；`mergeable` 由 **CONFLICTING → MERGEABLE**）
 
 ---
 
@@ -354,13 +355,26 @@ R0 阶段的正确表述是 `TESTALL_LOGIC_REGRESSION_CLEARED = YES` / `CANONICA
 | 轮次 | commit | 结果 |
 |---|---|---|
 | canonical #1 | `745ca93b` | **250 / 250 通过，0 失败**（`TESTALL_EXIT=0`） |
-| canonical #2（**最终 HEAD**，全新快照复核） | `8f9e688e` | **250 / 250 通过，0 失败**（`TESTALL_EXIT=0`） |
+| canonical #2 | `8f9e688e` | **250 / 250 通过，0 失败**（`TESTALL_EXIT=0`） |
+| canonical #3（**最终 HEAD**） | `29c864c1` | **254 / 254 通过，0 失败**（`TESTALL_EXIT=0`） |
 
-canonical #2 的存在理由：#1 跑完后我补了一条 `materialize-award` 路由的授权契约断言（覆盖缺口）。
-代码一改，#1 就不再对应 HEAD —— 因此换全新隔离快照重跑一次完整 test-all，
-使「canonical clean run」严格对应最终交付 commit。
+**为什么跑了三次**（如实记录，非重复劳动）：
 
-**套件总数由 224 → 250 的原因**：#104 集成 main 后引入了 main 侧全部新套件（T4 awards ×3、Autopilot A0 ×7、tender-analyst、tender-doc-html、workbench-state 等），加上本轮新增的 `p16-integration-r1-db`。**224 是集成前的旧基数，不再是本树的分母。**
+- #1 → #2：#1 绿之后我补了一条 `materialize-award` 路由的授权契约断言（覆盖缺口）。
+  代码一改，#1 就不再对应 HEAD，故换全新快照重跑。
+- #2 → #3：**main 在本轮进行中又前进了两次** ——
+  `#109 Autopilot A0`（本轮开始前刚落）与 **`#110 Autopilot A1-P0`（在 canonical #2 运行期间落）**。
+  #110 带来新迁移 `20260815010000_add_autopilot_a1_p0_telemetry_outbox`，
+  使 #104 再次 `CONFLICTING`（仍是同两个迁移登记文件的追加冲突）。
+  已再次 ADDITIVE PRESERVE BOTH 收口 → #104 head `53f4960 → 9c3f4446`，
+  #111 head → `29c864c1`，并换全新快照重跑第三次。
+
+**这说明 convergence 的对象是移动靶**：main 平均每几小时前进一次。
+本报告的所有 SHA 与结论均以 `main@0837ba9c` 为准；若 Final Review 时 main 又已前进，
+预期冲突面仍是**同两个迁移登记文件**（追加型，机械可解）。
+
+**套件总数 224 → 250 → 254 的原因**：#104 集成 main 后引入 main 侧全部新套件（T4 awards ×3、Autopilot A0 ×7、tender-analyst、tender-doc-html、workbench-state 等）+ 本轮新增 `p16-integration-r1-db` → 250；二次集成再引入 main PR #110 的 Autopilot A1-P0 四个套件 → **254**。
+**224 是集成前的旧基数，早已不是本树的分母**；任务书里「224/224」的字面阈值对应的是集成前的树。
 
 ### 本轮 P1.6 相关套件
 
@@ -389,8 +403,8 @@ canonical #2 的存在理由：#1 跑完后我补了一条 `materialize-award` �
 ## O. 最终 GATE 输出
 
 ```
-PR104_MAIN_INTEGRATED        = YES   （merge，不重写历史；e03b9b7 → 53f4960；CONFLICTING → MERGEABLE）
-PR111_BASE_UPDATED           = YES   （吸收更新后的 #104；74764e2 → 8f9e688e）
+PR104_MAIN_INTEGRATED        = YES   （merge，不重写历史；e03b9b7 → 53f4960 → 9c3f4446；CONFLICTING → MERGEABLE）
+PR111_BASE_UPDATED           = YES   （吸收更新后的 #104；74764e2 → 29c864c1）
 
 T4_PRESENT_IN_P16_BASE       = YES   （Prisma client 暴露 awardRecord/awardRecordSource；tender-intel/* 在编译上下文内）
 
@@ -425,7 +439,8 @@ T2                           = PASS  （P1/T3.5 ledger DB 60/60，零 drift）
 T3                           = PASS  （memory DB 43/43，零 drift）
 T4                           = PASS  （awards DB 18/18；awards pure 20/20；award-semantics 12/12）
 
-CANONICAL_TESTALL            = 250/250 PASS @ 8f9e688e（全新隔离生产快照，零并行，TESTALL_EXIT=0）
+CANONICAL_TESTALL            = 254/254 PASS @ 29c864c1（全新隔离生产快照，零并行，TESTALL_EXIT=0）
+                                       （224 是集成前旧基数；集成 main 后本树分母为 254）
 TESTALL_FULL_GREEN           = YES
 
 MOBILE_REAL_DEVICE_UAT       = PENDING（PRODUCTION_ACTIVATION_BLOCKER，非 dark-merge blocker）
@@ -484,7 +499,8 @@ P16_STATUS                   = READY_FOR_FINAL_REVIEW
 | 8 | **`PHASE_BOUNDARY_SAMPLE_TOO_SMALL`** | **本轮新增**：WON=1 且无 `sourceTenderProjectId`，覆盖率数字无统计意义 |
 | 9 | `MOBILE_REAL_DEVICE_UAT_PENDING` | 升级为 PRODUCTION_ACTIVATION_BLOCKER |
 | 10 | `TESTALL_CONCURRENCY_FRAGILITY` | 既有环境债：Workforce 12 个 DB 套件在并发负载下会被连接池/事务超时打穿；串行下全绿 |
-| 11 | `MAIN_MIGRATION_REGISTRATION_DEFECT` | **本轮修复**：T4/A0 漏登 `verify-migration-history`（main 上该 gate 即为红）；本分支已补齐，但 **main 本身仍红**，直到本 stack merge 回去 |
+| 11 | `MAIN_MIGRATION_REGISTRATION_DEFECT` | **已解决**：本轮发现 T4/A0 漏登 `verify-migration-history`（main 上该 gate 即为红）并在本分支补齐；随后 main 的 PR #110 也补登了同两条 —— 二次集成时按 ADDITIVE PRESERVE BOTH 合并，双方均保留 |
+| 13 | `MAIN_IS_A_MOVING_TARGET` | **本轮新增**：main 在本轮进行中前进两次（#109、#110），#104 因此二次 CONFLICTING。冲突面恒为两个迁移登记文件（追加型，机械可解）。Final Review 时若 main 再前进，预期同样处理 |
 | 12 | `LEGACY_PROD_SCHEMA_DRIFT` | 生产存在 11 张 greenfield re-baseline 残留表 + `AgentRun.agentTaskId`；与本 PR 无关，长期需独立清理决策 |
 
 ---
