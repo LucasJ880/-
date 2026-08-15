@@ -25,6 +25,7 @@ import {
   TENDER_WORKFORCE_TOOL_HANDLERS,
   TENDER_WORKFORCE_TOOL_NAMES,
   tenderWorkforcePlannerTools,
+  TENDER_WORKFORCE_PLANNER_TOOL_NAMES,
 } from "../tools";
 import {
   buildTenderAnalysisGoal,
@@ -85,9 +86,17 @@ ok(
 /* ── §12 工具白名单与全局目录零污染 ── */
 console.log("\n[§12 Tool Scope]");
 ok(
-  TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 8 &&
-    TENDER_WORKFORCE_TOOL_NAMES.length === 8,
-  "scope: tender 白名单恰 8 个工具（最小集合；T5-P1 交付物 parity closure 后）",
+  TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 9 &&
+    TENDER_WORKFORCE_TOOL_NAMES.length === 9 &&
+    TENDER_WORKFORCE_PLANNER_TOOL_NAMES.length === 8,
+  "scope: 可执行 9 个工具、planner 可见仍 8 个（Segment 2 canonical V2 能力休眠）",
+);
+ok(
+  tenderWorkforcePlannerTools().length === 8 &&
+    !tenderWorkforcePlannerTools().some(
+      (t) => t.name === "tender_analyze_package_v2",
+    ),
+  "scope/§15: tender_analyze_package_v2 不在 planner 投影内（当前产品路径不可达）",
 );
 ok(
   TENDER_WORKFORCE_TOOL_DESCRIPTORS.every(
@@ -108,7 +117,7 @@ ok(
   "scope/#88: 白名单 ⊆ EXECUTABLE（每个工具都有真实 server handler）",
 );
 ok(
-  Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 8 &&
+  Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 9 &&
     TENDER_WORKFORCE_TOOL_NAMES.every(
       (n) => typeof TENDER_WORKFORCE_TOOL_HANDLERS[n] === "function",
     ),
