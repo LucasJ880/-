@@ -30,6 +30,7 @@ import {
 import {
   buildTenderDeterministicPlan,
   TENDER_PLAN_SEMANTIC_STAGES,
+  TENDER_PLAN_STAGE_TASK_IDS,
 } from "@/lib/tender-workforce/deterministic-plan";
 import { isTenderDeterministicPlanEnabledWithEnv } from "@/lib/tender-workforce/flags";
 import { toolDomainForWorkDomain } from "../execution-policy";
@@ -254,11 +255,18 @@ const compile = (plan: ServerAuthoredPlanV1) =>
 /* ---------------- T5-TENDER-03/04：阶段齐备 + 禁用工具不可达 ---------------- */
 {
   const plan = buildTenderDeterministicPlan(PLAN_INPUT);
-  const ids = plan.tasks.map((t) => t.id).join(",");
-  const allStagesPresent = TENDER_PLAN_SEMANTIC_STAGES.every((s) =>
-    ids.includes(s),
+  const ids = new Set(plan.tasks.map((t) => t.id));
+  // Segment 3：阶段名与任务 id 已分离（canonical_v2 → t3_analyze_package_v2 等），
+  // 用显式映射判覆盖，不再靠字符串包含。
+  const missingStages = TENDER_PLAN_SEMANTIC_STAGES.filter(
+    (stage) => !ids.has(TENDER_PLAN_STAGE_TASK_IDS[stage]),
   );
-  ok(allStagesPresent, "T5-TENDER-03: 八个语义阶段全部出现在确定性 DAG");
+  ok(
+    missingStages.length === 0 &&
+      TENDER_PLAN_SEMANTIC_STAGES.length === 9,
+    "T5-TENDER-03: 九个 V2 语义阶段全部落在确定性 DAG（DETERMINISTIC_V2_STAGE_COVERAGE）",
+    missingStages,
+  );
 
   const usedTools = plan.tasks
     .map((t) => t.preferredTool)

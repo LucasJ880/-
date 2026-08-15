@@ -390,3 +390,119 @@ SALES_PLANNER_TOOL_STRIPPING = 0（§8.7 回归 1 的修复保留未撤销）
 DAG / V2 工具激活 / finalize 切换：均未改动
 SCHEMA_CHANGE = NONE ｜ 生产 DB/env/deploy 零改动
 ```
+
+---
+
+## 10. Segment 3 — Projection + DAG Convergence
+
+Segment 1（canonical V2 status-only finalize）与 Segment 2（Workforce-fenced canonical
+V2 persistence）正式接入确定性 DAG。**代码层收敛完成；真实语义 parity 仍待 Segment 4。**
+
+### 10.1 三层工具面
+
+```
+EXECUTABLE            9   全部可执行 tender 工具
+LLM_COMPAT_VISIBLE    7   flag OFF 回滚面 = 旧 T1B 基线（无 canonical V2、无 grounded 交付物）
+DETERMINISTIC_V2      8   确定性面（含 canonical V2，**不含** legacy extract）
+GLOBAL_PLANNER_VISIBLE_TENDER_TOOLS  0
+```
+
+兼容面刻意去掉 grounded 交付物工具：它严格投影 `summaryJson.submissionChecklist`，
+而 legacy 抽取根本不产出该字段——放进 planner 提示词只会诱导它去调一个在该路径下
+必然 fail-closed 的工具。同理 `buildTenderAnalysisGoal()` 也去掉了"生成交付物"这一步
+（flag ON 时 planner 不读 goal，goal 只是 Job Center 标题）。
+
+### 10.2 新 DAG（`tender-plan/v2`）
+
+```
+t1 validate_input
+     ↓
+t2 parse_documents
+     ↓
+t3 analyze_package_v2        ← 唯一语义来源（canonical V2 包级分析 + 防栅栏落库）
+     ↓
+t4 证据覆盖投影 ｜ t5 风险投影 ｜ t6 澄清投影 ｜ t7 交付物物化
+     ↓
+t8 Workforce 执行汇总（Job 级，非 Tender 分析师）
+     ↓
+t9 canonical V2 状态终态化（t1 + t3 + t8）
+```
+
+`TENDER_DETERMINISTIC_PLAN_VERSION` bump 到 **tender-plan/v2**（语义来源变了）。
+`workforce-plan/v1` 未动——那是编排契约，与 Tender 域计划版本不是同一层。
+任务数仍为 9；`AGENT_RUNTIME_V2_MAX_STEPS < 9` 时依旧 `SERVER_PLAN_EXCEEDS_MAX_STEPS`
+fail-closed，绝不截断。
+
+### 10.3 模式判定：只认上游执行证据
+
+`tender_analyze_package_v2` 成功时在 tool result 打 server 生成的 marker
+（`tenderCanonicalV2` / `semanticEngine` / `canonicalPersisted` / `analysisRunId`）。
+下游四个工具用 `findCanonicalV2Evidence(ctx.priorEvidence)` 在**声明依赖**里找它。
+
+刻意不用的三种做法：嗅探 `summaryJson` 形状猜模式（旧 run 也可能有 V2 字段）、
+全库搜索找痕迹（越过 dependsOn 证据边界）、用环境 flag 决定单个工具语义
+（flag 只选编排路径）。t9 因此**直接依赖 t3**，而不是靠"summaryJson 里有没有
+submissionChecklist"倒推 finalize 模式。
+
+### 10.4 四个投影的行为边界
+
+| 任务 | canonical V2 模式 | 兼容模式（flag OFF） |
+| --- | --- | --- |
+| t4 证据覆盖 | 只读聚合（本就零 LLM、零写） | 行为不变 |
+| t5 风险 | 读 `TenderAnalysisSection[RISKS].structuredJson`（审计确认的 canonical 存放位置）→ 校验形状 → 投影 | 保留模型生成 + upsert |
+| t6 澄清 | 读 canonical `TenderClarificationQuestion` → 投影 | 保留 `buildClarifications()` |
+| t7 交付物 | 物化 `summaryJson.submissionChecklist`（1:1，空清单 → 0 条 PASS） | 该工具兼容面不可见 |
+| t9 终态化 | `finalizeWorkforceTenderCanonicalV2Run()`，只转状态 | 保留 V1 投影 finalize |
+
+风险投影会主动拒绝 `{version:"tender-workforce-risks/v1"}` 形状——读到它说明两套语义
+串了，`CANONICAL_INVALID` fail-closed 而不是"凑合用"。
+
+`t8` 正式降级为 **Job 级汇总**：不写 requirements / risks / clarifications /
+submissionChecklist / summaryJson / analystSynthesis。canonical analystSynthesis
+仍只来自 `runV2Inference`。t9 可以把 Job 级 summary 放进 tool result，但绝不写回 canonical。
+
+### 10.5 完成标准（全确定性）
+
+```
+c1_canonical_v2_persisted   ← t3_analyze_package_v2
+c2_deliverables_materialized ← t7_build_deliverables
+c3_analysis_review_ready     ← t9_finalize_analysis
+```
+
+全部 `tool_result` → `VERIFIER_MODEL_CALLS = 0`。criteria 只绑三个证据，
+但 verifier 的 required-task 底线不变：t1..t9 仍须按契约完成，
+不会因为标准少就放行失败的投影任务。
+
+影子对比按 §23 重定义：不再要求两条路径逐工具一致（它们现在**故意**语义不同），
+改为 `DETERMINISTIC_V2_STAGE_COVERAGE`（九个 V2 阶段全覆盖，显式 stage→taskId 映射）
++ `FLAG_OFF_LLM_COMPATIBILITY`（回滚面 = T1B 基线七件套）。
+
+### 10.6 验证
+
+| 面 | 结果 |
+| --- | --- |
+| 纯平面 `t5-seg3-v2-convergence`（V2-CONV-01..16 + MODE + SEMANTIC + GOAL + STAGE） | **40/40** |
+| 真实 Postgres `t5-seg3-projection-db-validation`（A–I） | **18/18** |
+| `phase2a-lease`（隔离 DB） | **16/16** |
+| `t1b-integration`（隔离 DB） | 40/40 |
+| `t5-plan-seam` · `t5-execution-policy` · `t5-seg2-v2-spine` · `t5-seg25-work-domain` · `contracts` · `parallel-policy` · `t1b-pure` · `verifier-security` · `planner` · `durable-state` · `golden-flow` · `v2-persist-fence` · `v2-map` | 37 · 41 · 44 · 30 · 60 · 43 · 36 · 15 · 17 · 11 · 14 · 15 · 24 全绿 |
+| Tender Understanding V2（generic / hallucination / evidence） | 10 · 6 · 11 组全过 |
+| Tender Analyst | 30/30 |
+| `tender-auto-analysis` 全部 25 个套件 | 全绿 |
+| `tsc --noEmit` / `eslint` | 干净 |
+
+真实库覆盖：证据覆盖投影读数正确；风险投影计数正确且 **RISKS 行前后逐字节未变**；
+澄清投影正确且澄清行未变；checklist N → 物化 N、`[]` → 0 且 PASS；
+canonical 终态化后 summaryJson/summaryText 逐字节一致且四个 V2 字段存活；
+无 canonical 证据仍走 V1 finalize；无 marker 走兼容分支且不冒充投影；
+marker 存在但 canonical 行缺失 / 指向别的 run / 形状是 Workforce 二次生成 → 三种 fail-closed。
+
+### 10.7 边界
+
+```
+DETERMINISTIC_V2_DAG = READY        但 TENDER_WORKFORCE_DETERMINISTIC_PLAN_ENABLED 默认 OFF
+REAL_E2E = NOT_RUN                  （真实多文档 LLM parity 属 Segment 4）
+SCHEMA_CHANGE = NONE ｜ 生产 DB / env / deploy 零改动
+```
+
+默认产品路径仍是 flag OFF 的 LLM 兼容路径，行为与本段之前一致。

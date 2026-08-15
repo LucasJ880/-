@@ -549,10 +549,12 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
         "function",
       "V2-SPINE-15c: 但它是可执行的（EXECUTABLE ⊋ PLANNER_VISIBLE）",
     );
+    // Segment 3 起该工具**已接线**进确定性 DAG（这正是 Segment 3 的目的）；
+    // 休眠约束只对 LLM 兼容面成立。
     const dagSrc = read("tender-workforce/deterministic-plan.ts");
     ok(
-      !dagSrc.includes("tender_analyze_package_v2"),
-      "V2-SPINE-15d: 当前 deterministic DAG 不引用该工具（CURRENT_DAG_CANONICAL_V2_ENABLED = NO）",
+      dagSrc.includes("tender_analyze_package_v2"),
+      "V2-SPINE-15d: 确定性 DAG 已接线 canonical V2 工具（Segment 3）",
     );
   }
 

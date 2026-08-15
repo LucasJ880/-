@@ -44,6 +44,7 @@ import {
   createOrReuseWorkforceTenderAnalysisRun,
   failWorkforceTenderAnalysisRun,
   finalizeWorkforceTenderAnalysisRun,
+  finalizeWorkforceTenderCanonicalV2Run,
   requireWorkforceTenderRun,
   upsertWorkforceRiskSection,
   type TenderAnalysisInputManifest,
@@ -89,6 +90,26 @@ export const TENDER_WORKFORCE_PLANNER_TOOL_NAMES = [
   "tender_validate_input",
   "tender_parse_documents",
   "tender_extract_requirements",
+  "tender_evidence_compliance",
+  "tender_risk_analysis",
+  "tender_clarification_draft",
+  "tender_finalize_analysis",
+] as const satisfies readonly TenderWorkforceToolName[];
+
+/**
+ * Segment 3 §2C —— **确定性 V2 编排**允许的工具集合。
+ *
+ * 与 LLM 兼容面的差别是语义来源，不是"多几个工具"：
+ *   canonical V2 走 tender_analyze_package_v2 一次产出全部包级语义，
+ *   因此这里**不含** legacy tender_extract_requirements——两套抽取共存
+ *   就是两套 Tender 真相。
+ * 反过来 tender_build_deliverables 只在这里出现：它严格投影
+ * summaryJson.submissionChecklist，而 legacy 抽取路径根本不产出该字段。
+ */
+export const TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES = [
+  "tender_validate_input",
+  "tender_parse_documents",
+  "tender_analyze_package_v2",
   "tender_evidence_compliance",
   "tender_risk_analysis",
   "tender_clarification_draft",
@@ -192,6 +213,9 @@ export const TENDER_WORKFORCE_TOOL_DESCRIPTORS: ToolDescriptor[] = [
 ];
 
 const PLANNER_VISIBLE = new Set<string>(TENDER_WORKFORCE_PLANNER_TOOL_NAMES);
+const DETERMINISTIC_VISIBLE = new Set<string>(
+  TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES,
+);
 
 /**
  * planner 投影 = descriptor ∩ planner 白名单。
@@ -201,6 +225,13 @@ const PLANNER_VISIBLE = new Set<string>(TENDER_WORKFORCE_PLANNER_TOOL_NAMES);
 export function tenderWorkforcePlannerTools(): ToolDescriptor[] {
   return TENDER_WORKFORCE_TOOL_DESCRIPTORS.filter((d) =>
     PLANNER_VISIBLE.has(d.name),
+  ).map((d) => ({ ...d }));
+}
+
+/** 确定性 V2 计划的工具白名单（server-authored plan 编译用；不进 planner 提示词） */
+export function tenderWorkforceDeterministicTools(): ToolDescriptor[] {
+  return TENDER_WORKFORCE_TOOL_DESCRIPTORS.filter((d) =>
+    DETERMINISTIC_VISIBLE.has(d.name),
   ).map((d) => ({ ...d }));
 }
 
@@ -258,6 +289,49 @@ export function findManifestEvidence(
       Array.isArray(r.documents)
     ) {
       return r as unknown as TenderAnalysisInputManifest;
+    }
+  }
+  return null;
+}
+
+/**
+ * Segment 3 §9/§10 —— canonical V2 模式识别。
+ *
+ * 语义模式**只能**由本 run 上游任务的真实执行证据决定：
+ * tender_analyze_package_v2 成功时在 tool result 里打 server 生成的 marker，
+ * 下游投影工具在**声明依赖**的 durable evidence 里找它。
+ *
+ * 刻意不用的三种做法：
+ *   - 嗅探 summaryJson 形状猜模式（旧 run 也可能有 V2 字段，猜就是猜）
+ *   - 全库搜索找痕迹（越过 dependsOn 声明边界，破坏证据纪律）
+ *   - 用环境 flag 决定单个工具语义（flag 只选编排路径，不选工具语义）
+ */
+export const TENDER_CANONICAL_V2_MARKER = "tenderCanonicalV2" as const;
+export const TENDER_SEMANTIC_ENGINE_V2 = "tender-understanding-v2" as const;
+
+export type CanonicalV2Evidence = {
+  analysisRunId: string;
+  semanticEngine: string;
+  canonicalPersisted: boolean;
+};
+
+export function findCanonicalV2Evidence(
+  prior: Record<string, unknown>,
+): CanonicalV2Evidence | null {
+  for (const v of evidenceValues(prior)) {
+    if (!v || typeof v !== "object") continue;
+    const r = v as Record<string, unknown>;
+    if (
+      r[TENDER_CANONICAL_V2_MARKER] === true &&
+      r.semanticEngine === TENDER_SEMANTIC_ENGINE_V2 &&
+      r.canonicalPersisted === true &&
+      typeof r.analysisRunId === "string"
+    ) {
+      return {
+        analysisRunId: r.analysisRunId,
+        semanticEngine: r.semanticEngine as string,
+        canonicalPersisted: true,
+      };
     }
   }
   return null;
@@ -570,11 +644,20 @@ async function handleEvidenceCompliance(
         "INPUT_MISSING: 尚无已提取的投标要求可分析（需先完成要求提取）",
     };
   }
+  // §11：本工具**本来就是**只读聚合（computeComplianceAggregate 只做 DB 统计，
+  // 零 LLM、零写）。V2 下无需改变语义，只把模式标进输出便于审计与下游识别。
+  const canonicalV2 = findCanonicalV2Evidence(ctx.priorEvidence);
   return {
     ok: true,
     data: {
       ...manifestEcho(mf.manifest),
       tenderCompliance: true,
+      ...(canonicalV2
+        ? {
+            canonicalProjection: true,
+            semanticEngine: TENDER_SEMANTIC_ENGINE_V2,
+          }
+        : {}),
       requirementsSummary: {
         total: aggregate.total,
         mandatory: aggregate.mandatory,
@@ -588,12 +671,117 @@ async function handleEvidenceCompliance(
   };
 }
 
+/**
+ * canonical V2 风险的**唯一存放位置**（本轮审计确认，非推测）：
+ * v2-map.ts 把 `{ risks: RiskV2[], conflicts: ConflictV2[] }` 写进
+ * TenderAnalysisSection(sectionKey="RISKS").structuredJson，由
+ * persistV2CanonicalTx 落库。RiskV2 用 `description`；
+ * legacy workforce 风险工具写的是 `{version:"tender-workforce-risks/v1", risks:[{statement}]}`。
+ * 形状本身即可区分两者——读到后者说明模式串了，fail-closed。
+ */
+type CanonicalV2Risk = {
+  id?: string;
+  severity: string;
+  riskType?: string;
+  description: string;
+  reasonCode?: string;
+};
+
+function readCanonicalV2Risks(structuredJson: unknown):
+  | { ok: true; risks: CanonicalV2Risk[]; conflicts: unknown[] }
+  | { ok: false; error: string } {
+  if (!structuredJson || typeof structuredJson !== "object") {
+    return { ok: false, error: "canonical RISKS 章节缺少结构化结果" };
+  }
+  const sj = structuredJson as Record<string, unknown>;
+  if (!Array.isArray(sj.risks)) {
+    return { ok: false, error: "canonical RISKS 章节的 risks 不是数组" };
+  }
+  if (typeof sj.version === "string") {
+    return {
+      ok: false,
+      error: `RISKS 章节是 ${sj.version} 形状（Workforce 二次生成结果），不是 canonical V2 输出`,
+    };
+  }
+  const risks: CanonicalV2Risk[] = [];
+  for (const [i, raw] of (sj.risks as unknown[]).entries()) {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    if (typeof r.severity !== "string" || typeof r.description !== "string") {
+      return {
+        ok: false,
+        error: `canonical 风险第 ${i + 1} 条缺少 severity/description`,
+      };
+    }
+    risks.push({
+      id: typeof r.id === "string" ? r.id : undefined,
+      severity: r.severity,
+      riskType: typeof r.riskType === "string" ? r.riskType : undefined,
+      description: r.description,
+      reasonCode: typeof r.reasonCode === "string" ? r.reasonCode : undefined,
+    });
+  }
+  return {
+    ok: true,
+    risks,
+    conflicts: Array.isArray(sj.conflicts) ? (sj.conflicts as unknown[]) : [],
+  };
+}
+
 async function handleRiskAnalysis(ctx: AdapterContext): Promise<AdapterResult> {
   const jobCtx = await requireTenderJobContext(ctx);
   if (!jobCtx.ok) return { ok: false, error: jobCtx.error };
   const mf = await requireManifestFromEvidence(ctx, jobCtx.job);
   if (!mf.ok) return { ok: false, error: mf.error };
   const runId = mf.manifest.analysisRunId;
+
+  // ── canonical V2 模式：只读投影，零模型调用、零 canonical 写 ──
+  const canonicalV2 = findCanonicalV2Evidence(ctx.priorEvidence);
+  if (canonicalV2) {
+    if (canonicalV2.analysisRunId !== runId) {
+      return {
+        ok: false,
+        error: "INPUT_MISSING: canonical V2 证据与本次分析记录不一致",
+      };
+    }
+    const section = await db.tenderAnalysisSection.findFirst({
+      where: { runId, sectionKey: "RISKS" },
+      select: { structuredJson: true },
+    });
+    if (!section) {
+      return {
+        ok: false,
+        error: "CANONICAL_MISSING: canonical V2 已声明落库，但 RISKS 章节不存在",
+      };
+    }
+    const parsed = readCanonicalV2Risks(section.structuredJson);
+    if (!parsed.ok) {
+      return { ok: false, error: `CANONICAL_INVALID: ${parsed.error}` };
+    }
+    const bySeverity = (sev: string) =>
+      parsed.risks.filter((r) => r.severity.toUpperCase() === sev).length;
+    return {
+      ok: true,
+      data: {
+        ...manifestEcho(mf.manifest),
+        tenderRisks: true,
+        canonicalProjection: true,
+        semanticEngine: TENDER_SEMANTIC_ENGINE_V2,
+        risks: parsed.risks.slice(0, 20).map((r) => ({
+          severity: r.severity,
+          riskType: r.riskType,
+          description: r.description.slice(0, 400),
+        })),
+        conflictCount: parsed.conflicts.length,
+        counts: {
+          critical: bySeverity("CRITICAL"),
+          high: bySeverity("HIGH"),
+          medium: bySeverity("MEDIUM"),
+          informational: bySeverity("INFORMATIONAL"),
+        },
+        summary: `canonical 风险投影：${parsed.risks.length} 条（CRITICAL ${bySeverity("CRITICAL")} / HIGH ${bySeverity("HIGH")}），冲突 ${parsed.conflicts.length} 项。仅投影，不重新生成风险`,
+      },
+    };
+  }
 
   const [requirements, facts] = await Promise.all([
     db.tenderExtractedRequirement.findMany({
@@ -751,6 +939,39 @@ async function handleClarificationDraft(
   if (!mf.ok) return { ok: false, error: mf.error };
   const runId = mf.manifest.analysisRunId;
 
+  // ── canonical V2 模式：澄清已由 V2 引擎生成并落库，只做投影 ──
+  const canonicalV2 = findCanonicalV2Evidence(ctx.priorEvidence);
+  if (canonicalV2) {
+    if (canonicalV2.analysisRunId !== runId) {
+      return {
+        ok: false,
+        error: "INPUT_MISSING: canonical V2 证据与本次分析记录不一致",
+      };
+    }
+    const rows = await db.tenderClarificationQuestion.findMany({
+      where: { analysisRunId: runId },
+      orderBy: { createdAt: "asc" },
+      select: { question: true, reason: true, priority: true, status: true },
+    });
+    return {
+      ok: true,
+      data: {
+        ...manifestEcho(mf.manifest),
+        tenderClarifications: true,
+        canonicalProjection: true,
+        semanticEngine: TENDER_SEMANTIC_ENGINE_V2,
+        clarificationCount: rows.length,
+        drafts: rows.slice(0, 12).map((q) => ({
+          question: q.question.slice(0, 400),
+          reason: (q.reason ?? "").slice(0, 300),
+          priority: q.priority,
+        })),
+        draftOnly: true,
+        summary: `canonical 澄清投影：${rows.length} 条（仅草稿，须人工决定是否发出）。不二次生成问题`,
+      },
+    };
+  }
+
   const built = await buildClarifications({ runId });
   const questions = await db.tenderClarificationQuestion.findMany({
     where: { analysisRunId: runId },
@@ -822,6 +1043,42 @@ async function handleFinalizeAnalysis(
       ok: false,
       error:
         "INPUT_MISSING: 未在声明依赖中找到综合汇总结果（该任务必须依赖 synthesis 任务）",
+    };
+  }
+
+  // ── canonical V2 模式：只做状态终态化，绝不覆盖 canonical 语义 ──
+  // 模式由**声明依赖里的 canonical V2 执行证据**决定（§18），
+  // 不靠"summaryJson 里有没有 submissionChecklist"猜。
+  const canonicalV2 = findCanonicalV2Evidence(ctx.priorEvidence);
+  if (canonicalV2) {
+    if (canonicalV2.analysisRunId !== runId) {
+      return {
+        ok: false,
+        error: "INPUT_MISSING: canonical V2 证据与本次分析记录不一致",
+      };
+    }
+    const finalizedV2 = await finalizeWorkforceTenderCanonicalV2Run({
+      orgId: ctx.orgId,
+      projectId: jobCtx.job.projectId,
+      analysisRunId: runId,
+    });
+    if (!finalizedV2.ok) {
+      return { ok: false, error: `TOOL_FAILED: ${finalizedV2.error}` };
+    }
+    const aggregateV2 = await computeComplianceAggregate(runId);
+    return {
+      ok: true,
+      data: {
+        tenderFinalized: true,
+        canonicalProjection: true,
+        semanticEngine: TENDER_SEMANTIC_ENGINE_V2,
+        analysisRunId: runId,
+        requirementCount: aggregateV2.total,
+        // §19：Job 级综合结论可以随 tool result 返回（供 Job Center 展示），
+        // 但**绝不**写回 Tender canonical 记录——canonical 语义只有一个来源。
+        jobSummary: synthesis.summary.slice(0, 480),
+        summary: `canonical V2 分析已终态化（${aggregateV2.total} 条要求），进入待人工审核；V2 结果与摘要原样保留`,
+      },
     };
   }
 
@@ -1033,6 +1290,11 @@ async function handleAnalyzePackageV2(
     data: {
       ...manifestEcho(mf.manifest),
       tenderAnalyzePackageV2: true,
+      // §9：canonical 模式 marker——server 生成、只来自本工具的真实成功执行。
+      // 客户端 / task input / goal / metadata 都无法伪造进 tool result。
+      [TENDER_CANONICAL_V2_MARKER]: true,
+      semanticEngine: TENDER_SEMANTIC_ENGINE_V2,
+      canonicalPersisted: true,
       engine: "v2",
       factCount: persisted.factCount,
       requirementCount: persisted.requirementCount,

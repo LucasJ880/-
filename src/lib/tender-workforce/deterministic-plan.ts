@@ -13,20 +13,21 @@
  * 产物、工具、领域服务、审批、handoff、lease/fence 全部不变。
  *
  * DAG 形状按当前代码实证（不按旧文档描述硬凑数量）：
- * 8 个已注册 tender 工具 + 1 个 native synthesis = 9 节点。
- * （T5-P1 parity closure：新增 t7_build_deliverables——审计确认 legacy 的
- *   BUILD_DELIVERABLES 在 V2 下已刻意停用静态模板，grounded 替代品从真实要求派生，
- *   因此本节点依赖 t3_extract_requirements，并被 synthesis 消费。）
+ * 8 个 tender 工具（确定性白名单，不含 legacy extract）+ 1 个 native synthesis = 9 节点。
+ *
+ * Segment 3：语义来源收敛到 canonical V2。t3 一次产出全部包级语义，
+ * t4/t5/t6 退化为**只读投影**，t7 物化 canonical 提交清单，
+ * t8 只做 Job 级汇总，t9 只做状态终态化（不覆盖 canonical summaryJson）。
  *
  *   t1 validate_input（唯一根，无依赖）
- *     ├→ t2 parse_documents            (t1)
- *     ├→ t3 extract_requirements       (t1, t2)
- *     ├→ t4 evidence_compliance        (t1, t3)
- *     ├→ t5 risk_analysis              (t1, t3, t4)
- *     ├→ t6 clarification_draft        (t1, t3)
- *     ├→ t7 build_deliverables         (t1, t3)
+ *     ├→ t2 parse_documents               (t1)
+ *     ├→ t3 analyze_package_v2            (t1, t2)   ← 唯一语义来源
+ *     ├→ t4 evidence_compliance（投影）    (t1, t3)
+ *     ├→ t5 risk_analysis（投影）          (t1, t3, t4)
+ *     ├→ t6 clarification_draft（投影）    (t1, t3)
+ *     ├→ t7 build_deliverables（物化）     (t1, t3)
  *     └→ t8 synthesis  [synthesis_worker, 无 preferredTool]  (t2..t7)
- *          └→ t9 finalize_analysis     (t1, t8)
+ *          └→ t9 finalize_analysis        (t1, t3, t8)
  *
  * 关键实现约束（皆由审计确认，写错即被共享验证链拒绝）：
  * - `defaultWorkerKeyForTaskKind("work")` 返回 **sales_worker**，
@@ -47,13 +48,17 @@ import {
   type ServerAuthoredTaskV1,
 } from "@/lib/workforce-runtime/server-plan";
 
-export const TENDER_DETERMINISTIC_PLAN_VERSION = "tender-plan/v1" as const;
+/**
+ * Segment 3：语义来源从 legacy 抽取切到 canonical V2 包级分析，
+ * 属重大语义变更 → bump 到 v2。与 workforce-plan/v1 无关（那是编排契约，不是一层）。
+ */
+export const TENDER_DETERMINISTIC_PLAN_VERSION = "tender-plan/v2" as const;
 
 /** 与 tools.ts 注册名一一对应（写错即被工具白名单拒绝） */
 const TOOL = {
   validate: "tender_validate_input",
   parse: "tender_parse_documents",
-  extract: "tender_extract_requirements",
+  analyzeV2: "tender_analyze_package_v2",
   compliance: "tender_evidence_compliance",
   risk: "tender_risk_analysis",
   clarification: "tender_clarification_draft",
@@ -115,20 +120,25 @@ export function buildTenderDeterministicPlan(
       resources,
     }),
     analysisTask({
-      id: "t3_extract_requirements",
-      title: "提取要求与报告章节",
+      id: "t3_analyze_package_v2",
+      title: "Canonical V2 包级分析",
       description:
-        "基于页级文本提取招标要求与报告章节（走既有 V2 grounding / 抽取服务，不在编排层复制逻辑）。",
+        "对整个投标文件包运行 canonical V2 grounded 引擎，一次产出并原子落库全部包级语义："
+        + "事实、要求、来源引用、澄清、风险与章节、冲突、补遗变更、提交清单、分析师结论。"
+        + "这是本次分析**唯一**的语义来源；下游任务只做投影与物化，不再各自生成语义。",
       dependsOn: ["t1_validate_input", "t2_parse_documents"],
-      preferredTool: TOOL.extract,
-      expectedOutput: "结构化要求清单与报告章节，均带来源页码。",
+      preferredTool: TOOL.analyzeV2,
+      expectedOutput:
+        "canonical V2 已落库的计数与遥测（要求/事实/澄清/章节数、模型与调用次数）。",
       resources,
     }),
     analysisTask({
       id: "t4_evidence_compliance",
-      title: "证据与合规覆盖分析",
-      description: "统计要求的证据覆盖与合规聚合（只读聚合，不改写抽取结果）。",
-      dependsOn: ["t1_validate_input", "t3_extract_requirements"],
+      title: "证据覆盖投影",
+      description:
+        "对 canonical 要求与来源引用做只读聚合统计（覆盖率、缺来源的强制要求）。"
+        + "纯读：不重新抽取、不重新分类、零模型调用。",
+      dependsOn: ["t1_validate_input", "t3_analyze_package_v2"],
       preferredTool: TOOL.compliance,
       riskLevel: "LOW",
       expectedOutput: "合规覆盖聚合：已覆盖/缺口要求分布。",
@@ -136,11 +146,13 @@ export function buildTenderDeterministicPlan(
     }),
     analysisTask({
       id: "t5_risk_analysis",
-      title: "风险分析",
-      description: "基于要求与覆盖情况生成风险与废标风险条目（既有风险服务）。",
+      title: "Canonical 风险投影",
+      description:
+        "读取 canonical V2 已生成的风险与冲突，校验形状后投影为结构化 Handoff。"
+        + "不重新生成风险、不重新解释严重度、不写回 canonical 风险章节。",
       dependsOn: [
         "t1_validate_input",
-        "t3_extract_requirements",
+        "t3_analyze_package_v2",
         "t4_evidence_compliance",
       ],
       preferredTool: TOOL.risk,
@@ -149,31 +161,36 @@ export function buildTenderDeterministicPlan(
     }),
     analysisTask({
       id: "t6_clarification_draft",
-      title: "澄清问题草稿",
-      description: "生成澄清问题草稿（仅草稿，绝不发送——发送属人工动作）。",
-      dependsOn: ["t1_validate_input", "t3_extract_requirements"],
+      title: "Canonical 澄清投影",
+      description:
+        "读取 canonical V2 已生成的澄清问题并投影为 Handoff（仅草稿，绝不发送）。"
+        + "不二次生成问题、不覆盖 canonical 澄清记录。",
+      dependsOn: ["t1_validate_input", "t3_analyze_package_v2"],
       preferredTool: TOOL.clarification,
       expectedOutput: "澄清问题草稿列表。",
       resources,
     }),
     analysisTask({
       id: "t7_build_deliverables",
-      title: "生成交付物清单",
+      title: "Grounded 交付物物化",
       description:
-        "从本次抽取的强制要求派生投标交付物清单（提交类/需证据的要求 → 交付物，带要求编号与来源页码）。",
-      dependsOn: ["t1_validate_input", "t3_extract_requirements"],
+        "把 canonical summaryJson.submissionChecklist **逐条**物化为交付物记录"
+        + "（1:1 投影，带要求编号与来源页码）。清单为空即产出 0 条，绝不回落静态模板。",
+      dependsOn: ["t1_validate_input", "t3_analyze_package_v2"],
       preferredTool: TOOL.deliverables,
       expectedOutput: "交付物清单：每项可追溯到 requirementCode 与来源页码。",
       resources,
     }),
     {
       id: "t8_synthesis",
-      title: "综合汇总",
+      title: "Workforce 执行汇总",
       description:
-        "合并解析、要求、合规、风险、澄清各上游任务的结构化 Handoff，产出综合结论。",
+        "合并各上游任务的结构化 Handoff，产出 **Job 级**执行说明与结论。"
+        + "这是编排层的汇总，不是 Tender 分析师结论——不产出也不写回任何 canonical 语义"
+        + "（要求/风险/澄清/提交清单/分析师结论全部只属于 canonical V2 引擎）。",
       dependsOn: [
         "t2_parse_documents",
-        "t3_extract_requirements",
+        "t3_analyze_package_v2",
         "t4_evidence_compliance",
         "t5_risk_analysis",
         "t6_clarification_draft",
@@ -191,12 +208,16 @@ export function buildTenderDeterministicPlan(
     },
     analysisTask({
       id: "t9_finalize_analysis",
-      title: "写回最终分析结果",
+      title: "Canonical V2 状态终态化",
       description:
-        "消费综合结论，写回 canonical 分析结果并将分析运行推进到待人工审核状态。",
-      dependsOn: ["t1_validate_input", "t8_synthesis"],
+        "确认 canonical V2 分析与 Job 级汇总均已完成，把分析运行从进行中推进到待人工审核。"
+        + "只做状态转换：canonical summaryJson / summaryText 原样保留，不被执行摘要覆盖。",
+      // §18：直接声明依赖 canonical V2 任务——finalize 模式由**上游执行证据**决定，
+      // 不靠嗅探 summaryJson 形状猜。
+      dependsOn: ["t1_validate_input", "t3_analyze_package_v2", "t8_synthesis"],
       preferredTool: TOOL.finalize,
-      expectedOutput: "canonical 分析结果已写回，运行进入 REVIEW_REQUIRED。",
+      expectedOutput:
+        "分析运行进入 REVIEW_REQUIRED，canonical V2 结果与摘要完整保留。",
       resources,
     }),
   ];
@@ -205,9 +226,9 @@ export function buildTenderDeterministicPlan(
     contractVersion: WORKFORCE_PLAN_CONTRACT_VERSION,
     objective: `对投标项目「${name}」执行一键 AI 投标分析（确定性编排）。`,
     summary:
-      "服务端固定 DAG：校验输入 → 解析文件 → 提取要求 → 证据合规 → 风险 → 澄清 → 交付物 → 综合 → 写回结果。",
+      "服务端固定 DAG：校验输入 → 解析文件 → canonical V2 包级分析 → 证据/风险/澄清投影 + 交付物物化 → 执行汇总 → 状态终态化。",
     assumptions: [
-      "编排由服务端确定；领域判断仍由既有 Tender 服务与模型完成。",
+      "编排由服务端确定；全部业务语义来自 canonical V2 引擎，编排层只投影不生成。",
       "全部步骤仅产生机器分析记录，不产生对外副作用。",
     ],
     // verificationType 必须与 verifier 实际可见的证据对齐。
@@ -217,24 +238,24 @@ export function buildTenderDeterministicPlan(
     // 改为 tool_result：finalize / extract 的工具返回值就是可直接核验的证据。
     completionCriteria: [
       {
-        id: "c1_analysis_persisted",
-        evidenceStepIds: ["t9_finalize_analysis"],
+        id: "c1_canonical_v2_persisted",
+        evidenceStepIds: ["t3_analyze_package_v2"],
         description:
-          "tender_finalize_analysis 返回成功写回 canonical 分析结果，并将分析运行推进到待人工审核状态。",
+          "tender_analyze_package_v2 返回 canonical V2 包级分析已原子落库（含要求/事实/澄清/章节计数）。",
         verificationType: "tool_result",
       },
       {
-        id: "c2_requirements_extracted",
-        evidenceStepIds: ["t3_extract_requirements"],
-        description:
-          "tender_extract_requirements 返回带来源页码的招标要求与报告章节。",
-        verificationType: "tool_result",
-      },
-      {
-        id: "c3_deliverables_materialized",
+        id: "c2_deliverables_materialized",
         evidenceStepIds: ["t7_build_deliverables"],
         description:
-          "tender_build_deliverables 返回交付物投影结果（0 条也是合法成功——验证的是投影过程正确完成，不是必须有交付物）。",
+          "tender_build_deliverables 返回交付物投影结果（0 条也是合法成功——验证投影过程正确完成，不是必须有交付物）。",
+        verificationType: "tool_result",
+      },
+      {
+        id: "c3_analysis_review_ready",
+        evidenceStepIds: ["t9_finalize_analysis"],
+        description:
+          "tender_finalize_analysis 返回分析运行已终态化为待人工审核，且 canonical V2 结果原样保留。",
         verificationType: "tool_result",
       },
     ],
@@ -242,15 +263,33 @@ export function buildTenderDeterministicPlan(
   };
 }
 
-/** 计划语义阶段（影子对比用：比较语义阶段覆盖而非逐字节相同） */
+/**
+ * 计划语义阶段 → 任务 id（Segment 3 §23）。
+ *
+ * 影子对比的目标从"与 LLM 计划逐工具一致"改成"确定性 V2 阶段全覆盖"——
+ * 两条路径现在**故意**语义不同：确定性走 canonical V2，回滚路径仍是旧 T1B 兼容。
+ * 阶段名与任务 id 分离，因此用显式映射而不是字符串包含判断。
+ */
+export const TENDER_PLAN_STAGE_TASK_IDS = {
+  validate_input: "t1_validate_input",
+  parse_documents: "t2_parse_documents",
+  canonical_v2: "t3_analyze_package_v2",
+  evidence_projection: "t4_evidence_compliance",
+  risk_projection: "t5_risk_analysis",
+  clarification_projection: "t6_clarification_draft",
+  deliverables: "t7_build_deliverables",
+  synthesis: "t8_synthesis",
+  finalize: "t9_finalize_analysis",
+} as const;
+
 export const TENDER_PLAN_SEMANTIC_STAGES = [
   "validate_input",
   "parse_documents",
-  "extract_requirements",
-  "evidence_compliance",
-  "risk_analysis",
-  "clarification_draft",
-  "build_deliverables",
+  "canonical_v2",
+  "evidence_projection",
+  "risk_projection",
+  "clarification_projection",
+  "deliverables",
   "synthesis",
-  "finalize_analysis",
+  "finalize",
 ] as const;

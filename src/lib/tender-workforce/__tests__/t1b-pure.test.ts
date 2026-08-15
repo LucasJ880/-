@@ -25,7 +25,9 @@ import {
   TENDER_WORKFORCE_TOOL_HANDLERS,
   TENDER_WORKFORCE_TOOL_NAMES,
   tenderWorkforcePlannerTools,
+  tenderWorkforceDeterministicTools,
   TENDER_WORKFORCE_PLANNER_TOOL_NAMES,
+  TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES,
 } from "../tools";
 import {
   buildTenderAnalysisGoal,
@@ -85,18 +87,36 @@ ok(
 
 /* ── §12 工具白名单与全局目录零污染 ── */
 console.log("\n[§12 Tool Scope]");
+// Segment 3：三层工具面。可执行 9；LLM 兼容面 7（旧 T1B 回滚语义，
+// 既无 canonical V2 也无 grounded 交付物）；确定性 V2 面 8（无 legacy extract）。
 ok(
   TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 9 &&
     TENDER_WORKFORCE_TOOL_NAMES.length === 9 &&
-    TENDER_WORKFORCE_PLANNER_TOOL_NAMES.length === 8,
-  "scope: 可执行 9 个工具、planner 可见仍 8 个（Segment 2 canonical V2 能力休眠）",
+    TENDER_WORKFORCE_PLANNER_TOOL_NAMES.length === 7 &&
+    TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES.length === 8,
+  "scope: 可执行 9 / LLM 兼容 7 / 确定性 V2 8",
+  {
+    exec: TENDER_WORKFORCE_TOOL_NAMES.length,
+    llm: TENDER_WORKFORCE_PLANNER_TOOL_NAMES.length,
+    det: TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES.length,
+  },
 );
 ok(
-  tenderWorkforcePlannerTools().length === 8 &&
-    !tenderWorkforcePlannerTools().some(
-      (t) => t.name === "tender_analyze_package_v2",
+  !tenderWorkforcePlannerTools().some(
+    (t) =>
+      t.name === "tender_analyze_package_v2" ||
+      t.name === "tender_build_deliverables",
+  ),
+  "scope/§2B: LLM 兼容面既无 canonical V2 工具也无 grounded 交付物工具",
+);
+ok(
+  tenderWorkforceDeterministicTools().some(
+    (t) => t.name === "tender_analyze_package_v2",
+  ) &&
+    !tenderWorkforceDeterministicTools().some(
+      (t) => t.name === "tender_extract_requirements",
     ),
-  "scope/§15: tender_analyze_package_v2 不在 planner 投影内（当前产品路径不可达）",
+  "scope/§2C: 确定性 V2 面含 canonical V2 工具、不含 legacy 抽取",
 );
 ok(
   TENDER_WORKFORCE_TOOL_DESCRIPTORS.every(
@@ -146,8 +166,8 @@ console.log("\n[§15 Scope Resolution]");
     workDomain: "tender",
   });
   ok(
-    Array.isArray(tender) && tender.length === 8,
-    "resolve: workDomain=tender → 8 工具白名单",
+    Array.isArray(tender) && tender.length === 7,
+    "resolve: workDomain=tender → 7 个 LLM 兼容工具白名单（planner 投影）",
   );
   const none = await resolveWorkforcePlannerToolsForJob({});
   ok(none === undefined, "resolve: 无 workDomain → undefined（既有默认投影，行为不变）");
@@ -327,10 +347,10 @@ console.log("\n[§8 Goal]");
 {
   const goal = buildTenderAnalysisGoal("测试项目");
   ok(
-    goal.includes("不超过 9 个任务") &&
+    goal.includes("不超过 8 个任务") &&
       goal.includes("synthesis") &&
       goal.includes("tender_finalize_analysis"),
-    "goal: 含步数上限 / synthesis / finalize 约束（§15 结构化上下文）",
+    "goal: 含步数上限 / synthesis / finalize 约束（兼容路径 8 步，不含交付物）",
   );
   ok(goal.length < 600, "goal: 长度有界");
 }

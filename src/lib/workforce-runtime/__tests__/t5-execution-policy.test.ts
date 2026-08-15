@@ -23,7 +23,10 @@ import {
   TENDER_WORKFORCE_TOOL_DESCRIPTORS,
   TENDER_WORKFORCE_TOOL_NAMES,
 } from "@/lib/tender-workforce/tools";
-import { tenderWorkforcePlannerTools } from "@/lib/tender-workforce/tools";
+import {
+  tenderWorkforcePlannerTools,
+  tenderWorkforceDeterministicTools,
+} from "@/lib/tender-workforce/tools";
 import {
   buildTenderDeterministicPlan,
   TENDER_PLAN_SEMANTIC_STAGES,
@@ -217,8 +220,9 @@ import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-p
     "DELIV-08: 计划内 sales_worker fallback = 0",
   );
   ok(
-    (dtask?.dependsOn ?? []).includes("t3_extract_requirements"),
-    "DELIV-09: 交付物依赖真实前置（已抽取要求）——与 legacy 领域先决条件一致",
+    (dtask?.dependsOn ?? []).includes("t3_analyze_package_v2") &&
+      !(dtask?.dependsOn ?? []).includes("t3_extract_requirements"),
+    "DELIV-09: 交付物依赖 canonical V2 包级分析（提交清单的唯一语义来源）",
   );
   const synth = plan.tasks.find((t) => t.taskKind === "synthesis");
   const finalizeTask = plan.tasks[plan.tasks.length - 1];
@@ -227,9 +231,13 @@ import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-p
       (finalizeTask.dependsOn ?? []).includes(synth!.id),
     "DELIV-10: synthesis 消费交付物，finalize 消费 synthesis",
   );
+  // Segment 3 §2B：兼容路径**刻意**看不到 grounded 交付物工具——
+  // legacy 抽取不产 canonical submissionChecklist，让 planner 提议它
+  // 只会调用一个在该路径下必然 fail-closed 的工具。
   ok(
-    tenderWorkforcePlannerTools().some((t) => t.name === DELIV_TOOL),
-    "DELIV-11: flag OFF 的 LLM planner scope 同样可见交付物工具",
+    !tenderWorkforcePlannerTools().some((t) => t.name === DELIV_TOOL) &&
+      tenderWorkforceDeterministicTools().some((t) => t.name === DELIV_TOOL),
+    "DELIV-11: 交付物工具只在确定性 V2 白名单内，LLM 兼容面不可见",
   );
   ok(
     delivSrc.includes("buildGroundedDeliverables") &&
@@ -237,8 +245,8 @@ import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-p
     "DELIV-12: 唯一领域实现（工具不复制 legacy 静态模板逻辑）",
   );
   ok(
-    (TENDER_PLAN_SEMANTIC_STAGES as readonly string[]).includes("build_deliverables"),
-    "DELIV-13: 语义阶段表含交付物",
+    (TENDER_PLAN_SEMANTIC_STAGES as readonly string[]).includes("deliverables"),
+    "DELIV-13: 语义阶段表含交付物物化阶段",
   );
   // Segment 2：可执行集合扩到 9（新增 canonical V2 能力），
   // descriptor 必须仍然 100% 覆盖——未知 descriptor 一律 fail-closed。
