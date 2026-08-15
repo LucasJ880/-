@@ -5,6 +5,7 @@
 
 import type { ProjectDuty } from "@/lib/projects/duty";
 import type { TenderProject } from "@/lib/tender/types";
+import { isTenderProject as isTenderWorkDomain } from "@/lib/projects/work-domain";
 
 export interface ProjectDetail {
   id: string;
@@ -66,7 +67,13 @@ export interface ProjectDetail {
     reviewNotes?: string | null;
     reviewScore?: number | null;
   } | null;
-  documents?: Array<{ id: string; title: string; url: string; fileType: string }>;
+  documents?: Array<{
+    id: string;
+    title: string;
+    url: string;
+    fileType: string;
+    parseStatus?: string | null;
+  }>;
   bidPhaseStatus?: string | null;
   /** AI 建议态（与人工 goDecision 分离，不作真相来源） */
   aiAdviceStatus?: string | null;
@@ -123,8 +130,18 @@ export function buildTenderProps(project: ProjectDetail): TenderProject {
   };
 }
 
-/** 与旧概览 tab 完全一致的招投标项目判定条件（用于阶段卡/进度卡切换）。 */
+/**
+ * 招投标项目判定。
+ *
+ * Canonical source（与后端 Package Analysis gate 对齐）：
+ *   Project.workDomain === "tender"
+ *
+ * 旧字段（sourceSystem/tenderStatus/category）仅作历史项目兼容 fallback，
+ * 不得成为新项目的 Tender 身份来源。
+ */
 export function isTenderProject(project: ProjectDetail): boolean {
+  if (isTenderWorkDomain(project.workDomain)) return true;
+  // legacy compatibility only（历史 bidtogo / 旧 tender 项目）
   return (
     project.sourceSystem === "bidtogo" ||
     Boolean(project.tenderStatus) ||

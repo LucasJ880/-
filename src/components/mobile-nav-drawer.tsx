@@ -133,6 +133,7 @@ export function MobileNavDrawer({
       modules: orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      autopilotAllowed: user?.autopilotAllowed === true,
     }),
     [
       pathname,
@@ -146,6 +147,7 @@ export function MobileNavDrawer({
       hasBidCapability,
       organizations,
       storedOrgId,
+      user?.autopilotAllowed,
     ],
   );
 

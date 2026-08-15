@@ -23,11 +23,11 @@ type Props = {
   showDetailLink?: boolean;
 };
 
+// 仅自转移状态需要轮询；REVIEW_REQUIRED 等人工审批、无自转移（FB-1 后横幅也不渲染）
 const ACTIVE = new Set([
   "PENDING",
   "EXTRACTING",
   "ANALYZING",
-  "REVIEW_REQUIRED",
 ]);
 
 export function AnalysisProgressBanner({
@@ -72,6 +72,16 @@ export function AnalysisProgressBanner({
   }, [run, load]);
 
   if (!run) return null;
+
+  // FB-1：分析已产出（等待人工审核/已批准/被取代）时不再显示进度横幅——
+  // 分析结果本身（项目解读/工作流条）已表达状态；横幅只服务于「进行中/失败」。
+  if (
+    run.status === "REVIEW_REQUIRED" ||
+    run.status === "APPROVED" ||
+    run.status === "SUPERSEDED"
+  ) {
+    return null;
+  }
 
   const tone =
     run.status === "FAILED"

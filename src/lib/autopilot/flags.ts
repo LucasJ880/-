@@ -1,0 +1,51 @@
+/**
+ * Autopilot feature flag。
+ * 总开关不是身份权限：ENABLED=true 仍必须通过 Lucas owner 检查。
+ */
+
+export type AutopilotFlagEnv = Record<string, string | undefined>;
+
+function envBool(v: string | undefined): boolean {
+  if (!v) return false;
+  const s = v.trim().toLowerCase();
+  return s === "1" || s === "true" || s === "on" || s === "yes";
+}
+
+function envList(v: string | undefined): string[] {
+  if (!v) return [];
+  return v
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+export function isAutopilotEnabled(env: AutopilotFlagEnv = process.env): boolean {
+  return envBool(env.AUTOPILOT_ENABLED);
+}
+
+/**
+ * Canonical Autopilot owner user IDs（稳定 User.id，不是显示名）。
+ * 未配置 = 无人拥有 = Default Deny。
+ */
+export function getAutopilotOwnerUserIds(
+  env: AutopilotFlagEnv = process.env,
+): string[] {
+  return envList(env.AUTOPILOT_OWNER_USER_IDS);
+}
+
+export function isAutopilotInstrumentationEnabled(
+  env: AutopilotFlagEnv = process.env,
+): boolean {
+  return isAutopilotEnabled(env);
+}
+
+export function describeAutopilotFlag(
+  env: AutopilotFlagEnv = process.env,
+): Record<string, unknown> {
+  const owners = getAutopilotOwnerUserIds(env);
+  return {
+    enabled: isAutopilotEnabled(env),
+    ownerCount: owners.length,
+    instrumentation: isAutopilotInstrumentationEnabled(env),
+  };
+}

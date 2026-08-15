@@ -315,6 +315,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       modules: orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      autopilotAllowed: user?.autopilotAllowed === true,
     }),
     [
       pathname,
@@ -326,6 +327,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      user?.autopilotAllowed,
     ],
   );
 

@@ -19,6 +19,7 @@ import {
   readRootRunIdFromUnknown,
   type AIRuntimeContext,
 } from "@/lib/ai/runtime-context";
+import { notifyAutopilotRuntime } from "@/lib/autopilot/instrumentation";
 
 function jsonValue(
   value: Record<string, unknown> | undefined,
@@ -233,6 +234,13 @@ export async function createAgentRun(input: {
     visibleToUser: true,
   });
 
+  notifyAutopilotRuntime({
+    type: "run_created",
+    orgId: input.orgId,
+    runId: runWithMeta.id,
+    userId: session.userId,
+  });
+
   return { run: runWithMeta, reused: false as const };
 }
 
@@ -338,6 +346,12 @@ export async function completeAgentRun(orgId: string, runId: string) {
     payload: { latencyMs },
   });
 
+  notifyAutopilotRuntime({
+    type: "run_terminal",
+    orgId,
+    runId,
+  });
+
   return updated;
 }
 
@@ -373,6 +387,12 @@ export async function failAgentRun(
     title: "任务失败",
     payload: { code: error.code },
     visibleToUser: true,
+  });
+
+  notifyAutopilotRuntime({
+    type: "run_terminal",
+    orgId,
+    runId,
   });
 
   return updated;
@@ -423,6 +443,12 @@ export async function cancelAgentRun(orgId: string, runId: string) {
         ? `任务已取消，并拒绝 ${rejectedPending} 个待确认动作`
         : "任务已取消",
     payload: { rejectedPending },
+  });
+
+  notifyAutopilotRuntime({
+    type: "run_terminal",
+    orgId,
+    runId,
   });
 
   return updated;
@@ -493,7 +519,7 @@ export async function appendAgentRunEvent(input: {
       const sequence = (last?.sequence ?? 0) + 1;
 
       try {
-        return await db.agentRunEvent.create({
+        const created = await db.agentRunEvent.create({
           data: {
             orgId: input.orgId,
             runId: input.runId,
@@ -504,6 +530,15 @@ export async function appendAgentRunEvent(input: {
             visibleToUser: input.visibleToUser !== false,
           },
         });
+        notifyAutopilotRuntime({
+          type: "event",
+          orgId: input.orgId,
+          runId: input.runId,
+          eventType: input.eventType,
+          sequence,
+          payload: input.payload ?? null,
+        });
+        return created;
       } catch (error) {
         if (isUniqueViolation(error) && attempt < MAX_SEQUENCE_RETRIES) {
           continue;

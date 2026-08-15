@@ -24,6 +24,10 @@ import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api-fetch";
 import { getProjectStage } from "@/lib/tender/stage";
 import {
+  analysisPhaseFromRunStatus,
+  deriveTenderWorkbenchState,
+} from "@/lib/tender/workbench-state";
+import {
   TENDER_DETAIL_TAB_KEYS,
   TENDER_DETAIL_TAB_LABELS,
   resolveTenderDetailTab,
@@ -45,6 +49,7 @@ import {
 } from "@/components/project-detail/project-context-panel";
 import {
   buildTenderProps,
+  isTenderProject,
   type MemberRow,
   type ProjectDetail,
   type ProjectHandoffInfo,
@@ -70,6 +75,18 @@ const TAB_ICONS: Record<TenderDetailTab, LucideIcon> = {
   intel: Radar,
   submission: Send,
 };
+
+/**
+ * 一级 Tab 切换后主内容统一回顶（SCROLL-01..05）。
+ * scroll 由项目页自管（router.replace 固定 scroll:false，不叠加 Next 的 restoration）；
+ * behavior 用 auto：Tab 切换是状态切换，应立即落在新 Tab 顶部，不做长距离滚动动画。
+ * 仅在真正切换五个一级 Tab 时调用——打开/关闭资料、问青砚 Drawer 不重置页面位置。
+ */
+function scrollProjectContentToTop() {
+  requestAnimationFrame(() => {
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });
+  });
+}
 
 export default function ProjectDetailPage() {
   return (
@@ -104,6 +121,7 @@ function ProjectDetailContent() {
   const [handoffInfo, setHandoffInfo] = useState<ProjectHandoffInfo | null>(null);
   const [orgRulesRefreshKey, setOrgRulesRefreshKey] = useState(0);
   const [pendingActions, setPendingActions] = useState<ProjectContextPendingAction[]>([]);
+  const [analysisRunStatus, setAnalysisRunStatus] = useState<string | null>(null);
 
   // ── 5-Tab 状态：URL ?tab= 优先（含旧 4-tab 别名），其次 sessionStorage，默认工作台 ──
   const [initialResolved] = useState(() => {
@@ -146,7 +164,11 @@ function ProjectDetailContent() {
       setChatOpen(false);
       const next = new URLSearchParams(searchParams.toString());
       next.set("tab", tab);
+      // 用户主动切 Tab 时清除 stale activity 深链，避免回到工作台时
+      // 项目动态 highlight 再次触发 scrollIntoView（把页面拽回底部）
+      next.delete("activity");
       router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+      scrollProjectContentToTop();
     },
     [router, pathname, searchParams],
   );
@@ -163,10 +185,8 @@ function ProjectDetailContent() {
         setChatOpen(true);
         return;
       }
+      // 回顶由 selectTab 统一处理，不再维护第二套滚动逻辑
       selectTab(target);
-      window.setTimeout(() => {
-        document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
-      }, 0);
     },
     [selectTab, setPanelOpen],
   );
@@ -199,8 +219,13 @@ function ProjectDetailContent() {
       apiJson<{
         handoff?: ProjectHandoffInfo | null;
       }>(`/api/projects/${id}/handoff`).catch(() => ({ handoff: null })),
+      // canonical Tender Package Analysis 状态（Quick Start Step 2 唯一事实源；
+      // 非 tender / flag OFF / 无 run 时安全回落 null）
+      apiJson<{ run?: { status?: string | null } | null }>(
+        `/api/projects/${id}/tender-analysis/runs?latest=1`,
+      ).catch(() => null),
     ])
-      .then(([p, m, ov, ho]) => {
+      .then(([p, m, ov, ho, runRes]) => {
         if (p.error) {
           setError(p.error);
           setProject(null);
@@ -212,6 +237,7 @@ function ProjectDetailContent() {
         setMembers(m.members ?? []);
         if (ov?.progress) setProgress(ov.progress);
         setHandoffInfo(ho?.handoff ?? null);
+        setAnalysisRunStatus(runRes?.run?.status ?? null);
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -291,13 +317,52 @@ function ProjectDetailContent() {
     [project],
   );
 
+  // ── 工作台状态单一事实源 ──
+  // documentCount / parseStatus 来自项目 canonical 文档，analysisPhase 来自
+  // 最新 TenderAnalysisRun（绝不使用 ProjectIntelligence 冒充分析完成）。
+  const documentCount = project?.documents?.length ?? 0;
+  const parsingActive = useMemo(
+    () =>
+      (project?.documents ?? []).some(
+        (d) => d.parseStatus === "pending" || d.parseStatus === "parsing",
+      ),
+    [project],
+  );
+  const analysisPhase = useMemo(
+    () => analysisPhaseFromRunStatus(analysisRunStatus),
+    [analysisRunStatus],
+  );
+  const workbench = useMemo(
+    () =>
+      deriveTenderWorkbenchState({
+        documentCount,
+        analysisPhase,
+        parsingActive,
+      }),
+    [documentCount, analysisPhase, parsingActive],
+  );
+
+  // 解析/分析进行中时轻量轮询 run 状态，让 Quick Start 无需手动刷新即可收敛
+  useEffect(() => {
+    if (!id) return;
+    if (!parsingActive && analysisPhase !== "processing") return;
+    const timer = window.setInterval(() => {
+      apiJson<{ run?: { status?: string | null } | null }>(
+        `/api/projects/${id}/tender-analysis/runs?latest=1`,
+      )
+        .then((res) => setAnalysisRunStatus(res?.run?.status ?? null))
+        .catch(() => {});
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [id, parsingActive, analysisPhase]);
+
   const command = useMemo(
     () =>
       deriveProjectCommandState({
         status: project?.status ?? "active",
         stage: tenderStage,
         orgBound: Boolean(project?.orgId),
-        documentCount: project?.documents?.length ?? 0,
+        documentCount,
         closeDate: project?.closeDate ?? project?.dueDate ?? null,
         riskLevel: project?.intelligence?.riskLevel ?? progress?.riskLevel ?? null,
         riskLabel: progress?.riskLabel ?? null,
@@ -306,8 +371,18 @@ function ProjectDetailContent() {
         totalTasks: progress?.totalTasks ?? project?._count.tasks ?? 0,
         pendingCount: pendingActions.length,
         hasIntelligence: Boolean(project?.intelligence || project?.intelligenceRoom),
+        analysisPhase,
+        parsingActive,
       }),
-    [project, progress, pendingActions.length, tenderStage],
+    [
+      project,
+      progress,
+      pendingActions.length,
+      tenderStage,
+      documentCount,
+      analysisPhase,
+      parsingActive,
+    ],
   );
 
   const workspaceContext = useMemo(
@@ -387,10 +462,10 @@ function ProjectDetailContent() {
             data-testid="open-files-drawer"
           >
             <FolderOpen size={13} />
-            资料
-            {(project.documents ?? []).length > 0 ? (
+            {isTenderProject(project) ? workbench.fileEntryLabel : "资料"}
+            {!isTenderProject(project) && documentCount > 0 ? (
               <span className="rounded-full bg-accent/10 px-1.5 text-[10px] font-semibold text-accent">
-                {(project.documents ?? []).length}
+                {documentCount}
               </span>
             ) : null}
           </button>
@@ -446,6 +521,7 @@ function ProjectDetailContent() {
           projectId={id}
           project={project}
           command={command}
+          workbenchState={workbench}
           progress={progress}
           pendingActions={pendingActions}
           businessActivities={businessActivities}

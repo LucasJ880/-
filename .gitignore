@@ -75,3 +75,7 @@ tmp/
 
 # Private local fixtures (real tender PDFs — never commit)
 fixtures/private/
+
+# 会话临时脚本（UAT kick 等）
+*.tmp.ts
+.uat-*

@@ -18,6 +18,10 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { TenderDetailTab } from "@/lib/tender/detail-tabs";
+import {
+  deriveTenderWorkbenchState,
+  type TenderAnalysisPhase,
+} from "@/lib/tender/workbench-state";
 
 /**
  * 项目内导航目标：五个一级 tab + 两个贯穿抽屉（资料 / 问青砚）。
@@ -45,6 +49,10 @@ export interface ProjectContextInput {
   totalTasks: number;
   pendingCount: number;
   hasIntelligence: boolean;
+  /** 最新 TenderAnalysisRun 相位（canonical，驱动文件/分析类推荐） */
+  analysisPhase?: TenderAnalysisPhase;
+  /** 文件解析流水线进行中（真实 active） */
+  parsingActive?: boolean;
 }
 
 interface ContextNotice {
@@ -58,11 +66,14 @@ export interface ProjectCommandState {
   statusTone: "neutral" | "success" | "warning" | "danger";
   missingItems: string[];
   risks: ContextNotice[];
+  /** null = 当前阶段无 primary CTA（如 AI 正在分析，§11） */
   nextAction: {
     label: string;
     reason: string;
     target: ProjectContextTarget;
-  };
+  } | null;
+  /** 状态驱动的推荐下一步文案（始终有值，即使无 CTA） */
+  recommendation: { title: string; body: string };
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -106,10 +117,18 @@ export function deriveProjectCommandState(
   const missingItems: string[] = [];
   const risks: ContextNotice[] = [];
 
+  // canonical 工作台状态投影（单一事实源；避免「AI 分析中」同时「缺少源文件」冲突）
+  const wb = deriveTenderWorkbenchState({
+    documentCount: input.documentCount,
+    analysisPhase: input.analysisPhase ?? "none",
+    parsingActive: input.parsingActive,
+  });
+
   if (!input.orgBound) missingItems.push("绑定所属企业");
-  if (input.documentCount === 0) missingItems.push("上传项目文件");
+  if (input.documentCount === 0) missingItems.push("上传招标文件");
   if (!input.closeDate) missingItems.push("补充截标日期");
-  if (!input.hasIntelligence) missingItems.push("完成项目解读");
+  // 「完成项目解读」不再作为静态缺失项——分析状态已由推荐下一步/步骤驱动，
+  // 避免文件已上传、AI 正在分析时仍提示「完成项目解读 / 缺少源文件」。
   if (input.totalTasks === 0) missingItems.push("建立项目任务");
 
   if (input.status === "abandoned") {
@@ -147,42 +166,85 @@ export function deriveProjectCommandState(
       target: "workbench",
     };
   } else if (input.documentCount === 0) {
+    // 无文件：唯一 primary = 上传（state-driven 文案）
     nextAction = {
-      label: "上传并整理项目文件",
-      reason: "缺少源文件时，项目解读、询价和技术标都无法可靠推进。",
+      label: wb.recommendation.title,
+      reason: wb.recommendation.body,
       target: "files",
     };
-  } else if (!input.hasIntelligence) {
+  } else if (input.analysisPhase === "review_required") {
     nextAction = {
-      label: "开始项目解读",
-      reason: "先确认要求、范围与风险，再推进供应商询价。",
+      label: wb.recommendation.title,
+      reason: wb.recommendation.body,
       target: "requirements",
     };
-  } else if (input.pendingCount > 0) {
+  } else if (input.analysisPhase === "failed") {
     nextAction = {
-      label: "处理待确认动作",
-      reason: "AI 只提供草稿，必须由有权限的用户确认后才会执行。",
-      target: "workbench",
+      label: wb.recommendation.title,
+      reason: wb.recommendation.body,
+      target: "requirements",
     };
-  } else if (input.stage === "supplier_inquiry") {
-    nextAction = {
-      label: "跟进供应商报价",
-      reason: "当前处于询价阶段，应优先补齐供应商回复。",
-      target: "bid",
-    };
-  } else if (input.stage === "supplier_quote") {
-    nextAction = {
-      label: "核对报价并准备提交",
-      reason: "供应商报价已进入汇总阶段，需要检查缺失项和风险。",
-      target: "bid",
-    };
+  } else if (input.analysisPhase === "approved") {
+    if (input.pendingCount > 0) {
+      nextAction = {
+        label: "处理待确认动作",
+        reason: "AI 只提供草稿，必须由有权限的用户确认后才会执行。",
+        target: "workbench",
+      };
+    } else if (input.stage === "supplier_inquiry") {
+      nextAction = {
+        label: "跟进供应商报价",
+        reason: "当前处于询价阶段，应优先补齐供应商回复。",
+        target: "bid",
+      };
+    } else if (input.stage === "supplier_quote") {
+      nextAction = {
+        label: "核对报价并准备提交",
+        reason: "供应商报价已进入汇总阶段，需要检查缺失项和风险。",
+        target: "bid",
+      };
+    } else {
+      nextAction = {
+        label: wb.recommendation.title,
+        reason: wb.recommendation.body,
+        target: "bid",
+      };
+    }
+  } else if (wb.analysisActive) {
+    // 有文件、AI 正在解析/整包分析：无 primary CTA（§11）；推荐显示真实进行中状态
+    nextAction = null;
   } else {
-    nextAction = {
-      label: "查看 AI 项目建议",
-      reason: "结合当前阶段、文件与最近变化确认下一步。",
-      target: "workbench",
-    };
+    // 有文件但无分析 run（legacy / flag-off / 入队间隙）：按业务阶段给真实引导
+    if (input.pendingCount > 0) {
+      nextAction = {
+        label: "处理待确认动作",
+        reason: "AI 只提供草稿，必须由有权限的用户确认后才会执行。",
+        target: "workbench",
+      };
+    } else if (input.stage === "supplier_inquiry") {
+      nextAction = {
+        label: "跟进供应商报价",
+        reason: "当前处于询价阶段，应优先补齐供应商回复。",
+        target: "bid",
+      };
+    } else if (input.stage === "supplier_quote") {
+      nextAction = {
+        label: "核对报价并准备提交",
+        reason: "供应商报价已进入汇总阶段，需要检查缺失项和风险。",
+        target: "bid",
+      };
+    } else {
+      nextAction = {
+        label: wb.recommendation.title,
+        reason: wb.recommendation.body,
+        target: "requirements",
+      };
+    }
   }
+
+  const recommendation = nextAction
+    ? { title: nextAction.label, body: nextAction.reason }
+    : wb.recommendation;
 
   const statusLabel =
     input.status === "active"
@@ -205,6 +267,7 @@ export function deriveProjectCommandState(
     missingItems,
     risks,
     nextAction,
+    recommendation,
   };
 }
 
@@ -250,9 +313,16 @@ export function ProjectCommandOverview({
               : "关键基础项已补齐"}
           </p>
         </div>
-        <Button size="sm" onClick={() => onNavigate(command.nextAction.target)}>
-          {command.nextAction.label} <ArrowRight size={13} />
-        </Button>
+        {command.nextAction ? (
+          <Button size="sm" onClick={() => onNavigate(command.nextAction!.target)}>
+            {command.nextAction.label} <ArrowRight size={13} />
+          </Button>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent">
+            <Sparkles size={13} />
+            {command.recommendation.title}
+          </span>
+        )}
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -276,7 +346,7 @@ export function ProjectCommandOverview({
         <SummaryCell
           icon={Sparkles}
           label="推荐下一步"
-          value={command.nextAction.reason}
+          value={command.recommendation.body}
           tone="accent"
         />
       </div>
@@ -367,18 +437,20 @@ export function ProjectContextPanel({
           推荐下一步
         </div>
         <p className="mt-2 text-sm font-medium text-foreground">
-          {command.nextAction.label}
+          {command.recommendation.title}
         </p>
         <p className="mt-1 text-xs leading-5 text-muted">
-          {command.nextAction.reason}
+          {command.recommendation.body}
         </p>
-        <Button
-          size="sm"
-          className="mt-3 w-full"
-          onClick={() => onNavigate(command.nextAction.target)}
-        >
-          前往处理 <ArrowRight size={13} />
-        </Button>
+        {command.nextAction ? (
+          <Button
+            size="sm"
+            className="mt-3 w-full"
+            onClick={() => onNavigate(command.nextAction!.target)}
+          >
+            前往处理 <ArrowRight size={13} />
+          </Button>
+        ) : null}
       </section>
 
       <ContextSection

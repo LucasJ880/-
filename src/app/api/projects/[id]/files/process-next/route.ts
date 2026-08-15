@@ -4,6 +4,64 @@ import { db } from "@/lib/db";
 import { parseAndStoreContent } from "@/lib/files/parse-content";
 import { generateDocumentSummary } from "@/lib/files/ai-summary";
 import { generateProjectIntelligence } from "@/lib/files/ai-intelligence";
+import { enqueueTenderPackageIfReady } from "@/lib/tender-auto-analysis/enqueue-package";
+
+/** 自动入队业务结果诊断（附在 process-next 响应上；绝不包含 secret） */
+type AutoEnqueueDiagnostic = {
+  attempted: boolean;
+  workDomain: string | null;
+  enqueued: boolean;
+  /** gate / readiness / enqueue 结果码（如 NOT_TENDER_PROJECT / auto_disabled / idempotent_reuse） */
+  code: string;
+  runId?: string;
+};
+
+/**
+ * Phase D — 文件处理完成（package ready）后的最佳努力自动入队。
+ * flag OFF / 非 tender / 未就绪 均在内部安全短路；幂等由 fingerprint 保证。
+ * 绝不因分析入队失败而影响文件处理返回——但业务结果必须可观察：
+ * structured log + 响应附带诊断，杜绝「文件扫描完成而 Package 从未入队且无人知晓」。
+ */
+async function maybeAutoEnqueueOnReady(
+  projectId: string,
+  userId: string,
+): Promise<AutoEnqueueDiagnostic> {
+  let diag: AutoEnqueueDiagnostic;
+  try {
+    const project = await db.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true, workDomain: true },
+    });
+    const result = await enqueueTenderPackageIfReady({
+      projectId,
+      userId,
+      orgId: project?.orgId ?? undefined,
+      trigger: "process_next_done",
+    });
+    diag = {
+      attempted: true,
+      workDomain: project?.workDomain ?? null,
+      enqueued: result.enqueued,
+      code: result.enqueued
+        ? "ENQUEUED"
+        : (result.reason ?? "UNKNOWN"),
+      ...(result.runId ? { runId: result.runId } : {}),
+    };
+  } catch (e) {
+    // 只记录错误类型，不透传 message（可能含内部细节）；secret 一律禁止
+    diag = {
+      attempted: true,
+      workDomain: null,
+      enqueued: false,
+      code: `AUTO_ENQUEUE_ERROR:${e instanceof Error ? e.name : "unknown"}`,
+    };
+  }
+  console.log(
+    "[tender-auto-analysis] auto-enqueue outcome " +
+      JSON.stringify({ projectId, ...diag }),
+  );
+  return diag;
+}
 
 /**
  * POST /api/projects/:id/files/process-next
@@ -15,7 +73,7 @@ import { generateProjectIntelligence } from "@/lib/files/ai-intelligence";
  *
  * 返回 { step, documentId?, remaining, done }
  */
-export const POST = withAuth(async (request, ctx) => {
+export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
 
   // ?retry=1 → 重置失败/卡住的文件，重新处理
@@ -103,11 +161,16 @@ export const POST = withAuth(async (request, ctx) => {
       data: { aiSummaryStatus: "done", aiSummaryJson: null },
     });
     const remaining = await countRemaining(projectId);
+    const autoAnalysis =
+      remaining === 0
+        ? await maybeAutoEnqueueOnReady(projectId, user.id)
+        : null;
     return NextResponse.json({
       step: "ai_summary_skip",
       documentId: pendingSummary.id,
       remaining,
       done: remaining === 0,
+      autoAnalysis,
     });
   }
 
@@ -140,11 +203,13 @@ export const POST = withAuth(async (request, ctx) => {
       const metadata = await applyDocumentMetadataToProject(projectId).catch(
         () => null,
       );
+      const autoAnalysis = await maybeAutoEnqueueOnReady(projectId, user.id);
       return NextResponse.json({
         step: "intelligence",
         remaining: 0,
         done: true,
         metadata,
+        autoAnalysis,
       });
     }
   }
@@ -157,11 +222,14 @@ export const POST = withAuth(async (request, ctx) => {
     () => null,
   );
 
+  const autoAnalysis = await maybeAutoEnqueueOnReady(projectId, user.id);
+
   return NextResponse.json({
     step: "none",
     remaining: 0,
     done: true,
     metadata,
+    autoAnalysis,
   });
 });
 
