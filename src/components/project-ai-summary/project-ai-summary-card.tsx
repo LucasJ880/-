@@ -45,6 +45,25 @@ export function ProjectAiSummaryCard({
     void load();
   }, [load]);
 
+  // FB-8：无摘要时自动生成一次（不再依赖用户点「从情报生成」）；
+  // autoTried 防循环——生成失败/无可用情报时保持提示态。
+  const [autoTried, setAutoTried] = useState(false);
+  useEffect(() => {
+    if (loading || autoTried) return;
+    if (data?.structured || data?.summary) return;
+    setAutoTried(true);
+    void (async () => {
+      setRefreshing(true);
+      try {
+        await apiJson(`/api/projects/${projectId}/ai-summary`, { method: "POST" });
+        await load();
+      } catch {
+        /* 无可用情报或生成失败：保持空态提示 */
+      }
+      setRefreshing(false);
+    })();
+  }, [loading, autoTried, data, projectId, load]);
+
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -82,7 +101,9 @@ export function ProjectAiSummaryCard({
           </button>
         </div>
         <p className="mt-2 text-xs text-muted">
-          尚无结构化摘要。请先在情报卡生成分析，或点击「从情报生成」。
+          {refreshing
+            ? "正在自动生成摘要…"
+            : "暂无摘要：项目情报就绪后将自动生成；也可点击「从情报生成」重试。"}
         </p>
       </div>
     );

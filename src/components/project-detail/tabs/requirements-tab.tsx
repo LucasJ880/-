@@ -11,6 +11,7 @@ import { FileQuestion } from "lucide-react";
 import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 import { AnalysisProgressBanner } from "@/components/tender-analysis/analysis-progress-banner";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
+import { ProjectQuestionStatusList } from "@/components/project-question/project-question-status-list";
 
 interface RequirementsTabProps {
   projectId: string;
@@ -51,6 +52,8 @@ export function RequirementsTab({ projectId, canManage, projectStatus }: Require
             </button>
           </div>
           <p className="mt-1 text-xs text-muted sm:hidden">向业主/GC/顾问发送澄清邮件</p>
+          {/* FB-15：已发问题生命周期 + 业主答复证据 + 手动检索兜底 */}
+          <ProjectQuestionStatusList projectId={projectId} />
         </div>
       )}
       <ProjectQuestionDialog

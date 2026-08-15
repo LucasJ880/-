@@ -131,6 +131,94 @@ export async function generateProjectDocument(input: {
     };
   }
 
+  // FB-4/5：internal_analysis / supplier_rfq 在有 Analyst 分析时走 HTML 模板
+  // （基准=McMaster 管理层决策备忘录；中文安全，根治 jsPDF 无 CJK 字体乱码；
+  //   内部=决策备忘录 ≠ 供应商=符合性确认+报价表，语义彻底分离）。
+  // FB-16：China Supplier Brief 同样切 HTML（jsPDF 无 CJK 字体 → 乱码；与平台无关）
+  if (input.docType === "china_supplier_brief") {
+    const facts = await loadChinaBriefFacts(project.id);
+    const briefText = buildChinaSupplierBriefText({
+      projectName: project.name,
+      clientOrganization: project.clientOrganization,
+      closeDate: project.closeDate
+        ? project.closeDate.toISOString().slice(0, 10)
+        : null,
+      documentTitles: project.documents.map((d) => d.title),
+      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
+      facts,
+      confirmNotes: input.confirmNotes,
+    });
+    const escd = briefText
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const html = `<!doctype html><meta charset="utf-8"><title>China Supplier Sourcing Brief</title>
+<style>body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:800px;margin:0 auto;padding:32px 28px;line-height:1.7;font-size:14px;white-space:pre-wrap}@media print{body{padding:0}}</style>
+${escd}`;
+    return persistGeneratedHtml({
+      project: { id: project.id, name: project.name },
+      orgId: input.orgId,
+      userId: input.userId,
+      docType: input.docType,
+      titleZh: "China Supplier Sourcing Brief",
+      html,
+      addendumFingerprint,
+      conclusionVersion: "china_brief_text_v1",
+    });
+  }
+
+  if (
+    input.docType === "internal_analysis" ||
+    input.docType === "supplier_rfq"
+  ) {
+    const latestRun = await db.tenderAnalysisRun.findFirst({
+      where: {
+        projectId: project.id,
+        status: { in: ["REVIEW_REQUIRED", "APPROVED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { summaryJson: true },
+    });
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(latestRun?.summaryJson ?? null);
+    if (syn) {
+      const { buildInternalDecisionMemoHtml, buildSupplierRfqHtml } =
+        await import("./tender-doc-html");
+      const projMeta = await db.project.findUnique({
+        where: { id: project.id },
+        select: { solicitationNumber: true },
+      });
+      const header = {
+        projectName: project.name,
+        clientOrganization: project.clientOrganization,
+        solicitationNumber: projMeta?.solicitationNumber ?? null,
+        closeDate: project.closeDate
+          ? project.closeDate.toISOString().slice(0, 10)
+          : null,
+        orgName: null,
+        generatedAt: new Date().toISOString().slice(0, 10),
+      };
+      const html = `<!doctype html><meta charset="utf-8">${
+        input.docType === "internal_analysis"
+          ? buildInternalDecisionMemoHtml(header, syn)
+          : buildSupplierRfqHtml(header, syn)
+      }`;
+      return persistGeneratedHtml({
+        project: { id: project.id, name: project.name },
+        orgId: input.orgId,
+        userId: input.userId,
+        docType: input.docType,
+        titleZh:
+          input.docType === "internal_analysis"
+            ? "内部投标决策备忘录"
+            : "供应商询价与符合性确认表",
+        html,
+        addendumFingerprint,
+        conclusionVersion: "analyst_synthesis_v1",
+      });
+    }
+  }
+
   const doc = await createProjectPdfDoc();
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 16;
@@ -158,21 +246,6 @@ export async function generateProjectDocument(input: {
         ctx.slice(0, 1800),
       ].join("\n\n"),
     );
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
-  } else if (input.docType === "china_supplier_brief") {
-    // allowlist 组装；默认不含 estimatedValue / 成本 / 利润 / 原始 AI context
-    const facts = await loadChinaBriefFacts(project.id);
-    const body = buildChinaSupplierBriefText({
-      projectName: project.name,
-      clientOrganization: project.clientOrganization,
-      closeDate: project.closeDate
-        ? project.closeDate.toISOString().slice(0, 10)
-        : null,
-      documentTitles: project.documents.map((d) => d.title),
-      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
-      facts,
-      confirmNotes: input.confirmNotes,
-    });
     y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
   } else if (input.docType === "internal_analysis") {
     const gap = computePriceGap({
@@ -335,6 +408,69 @@ export async function generateProjectDocument(input: {
     },
   });
 
+  return row;
+}
+
+/** HTML 生成文档统一落库：私有 Blob + ProjectGeneratedDocument(版本/stale) + 项目文件列表 */
+async function persistGeneratedHtml(input: {
+  project: { id: string; name: string };
+  orgId: string | null;
+  userId: string;
+  docType: GenerateDocType;
+  titleZh: string;
+  html: string;
+  addendumFingerprint: string;
+  conclusionVersion: string;
+}) {
+  const htmlBuffer = Buffer.from(input.html, "utf-8");
+  const version =
+    (await db.projectGeneratedDocument.count({
+      where: { projectId: input.project.id, docType: input.docType },
+    })) + 1;
+  const blob = await putPrivateBlob({
+    pathname: `projects/${input.project.id}/generated/${input.docType}-v${version}-${Date.now()}.html`,
+    body: htmlBuffer,
+    contentType: "text/html; charset=utf-8",
+  });
+  await db.projectGeneratedDocument.updateMany({
+    where: { projectId: input.project.id, docType: input.docType, stale: false },
+    data: { stale: true },
+  });
+  const row = await db.projectGeneratedDocument.create({
+    data: {
+      orgId: input.orgId,
+      projectId: input.project.id,
+      docType: input.docType,
+      version,
+      title: `${input.titleZh} v${version}`,
+      blobUrl: blob.proxyUrl,
+      fileUrl: blob.proxyUrl,
+      metaJson: JSON.stringify({
+        projectName: input.project.name,
+        docType: input.docType,
+        version,
+        generatedAt: new Date().toISOString(),
+        addendumFingerprint: input.addendumFingerprint,
+        conclusionVersion: input.conclusionVersion,
+        createdById: input.userId,
+      }),
+      stale: false,
+      createdById: input.userId,
+    },
+  });
+  await db.projectDocument.create({
+    data: {
+      projectId: input.project.id,
+      title: row.title,
+      url: blob.proxyUrl,
+      blobUrl: blob.proxyUrl,
+      fileType: "html",
+      fileSize: htmlBuffer.length,
+      parseStatus: "done",
+      source: "generated",
+      uploadedById: input.userId,
+    },
+  });
   return row;
 }
 

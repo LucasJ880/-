@@ -17,6 +17,9 @@ import {
   serializeSourceRef,
 } from "@/lib/tender-auto-analysis/serializers";
 import { CHINESE_REPORT_CHAPTERS } from "@/lib/tender-auto-analysis/constants";
+import { isTenderPackageAiExperienceEnabled } from "@/lib/tender-auto-analysis/auto-flags";
+import { getPackageCoverage } from "@/lib/tender-auto-analysis/package-coverage";
+import { readAnalystSynthesis } from "@/lib/tender-analyst/contract";
 
 /**
  * GET /api/projects/[id]/tender-analysis/runs/[runId]
@@ -136,11 +139,22 @@ export async function GET(
     }
   };
 
+  // Analyst 层（EXPERIENCE flag ON 且 run 带 synthesis 时才进入新 UX；
+  // 旧 run / flag OFF → analystSynthesis:null，前端安全 fallback legacy 视图）
+  const experienceEnabled = isTenderPackageAiExperienceEnabled({ orgId });
+  const analystSynthesis = experienceEnabled
+    ? readAnalystSynthesis(run.summaryJson)
+    : null;
+  const coverage = await getPackageCoverage(projectId, run.id);
+
   return NextResponse.json({
     run: serializeRunListItem({
       ...run,
       pendingChangeCount: run.changeCandidates.length,
     }),
+    experienceEnabled,
+    analystSynthesis,
+    coverage,
     summary: summarySafe,
     chapters,
     sections: run.sections.map(serializeSection),

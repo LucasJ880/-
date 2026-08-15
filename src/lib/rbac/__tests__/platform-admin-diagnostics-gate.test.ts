@@ -112,6 +112,16 @@ const memberHrefs = new Set(
 ok(!memberHrefs.has("/memory"), "树中无 /memory");
 ok(!memberHrefs.has("/capabilities/runs"), "树中无 /capabilities/runs");
 ok(!memberHrefs.has("/settings/agent-skills"), "树中无数字员工技能（本就不在主导航）");
+ok(!memberHrefs.has("/ai/autopilot"), "普通用户树中无 Autopilot");
+ok(!memberHrefs.has("/ai/autopilot/runs"), "普通用户树中无 Autopilot Runs");
+
+const adminHrefs = new Set(
+  resolveNavigationTree(NAVIGATION_REGISTRY, adminCtx).flatMap((i) => [
+    i.href,
+    ...(i.children?.map((c) => c.href) ?? []),
+  ]),
+);
+ok(!adminHrefs.has("/ai/autopilot"), "平台管理员也不自动看见 Autopilot");
 
 // ── 会话 DTO：业务视图不得含诊断字段 ──
 const sampleConv = {

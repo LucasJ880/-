@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
 import { StatementKindBadge } from "./statement-kind-badge";
 import { SourceSnippetDialog } from "./source-snippet-dialog";
+import {
+  AnalystSynthesisView,
+  type AnalystSection,
+} from "./analyst-synthesis-view";
+import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
 
 type TabKey =
   | "report"
@@ -13,7 +18,8 @@ type TabKey =
   | "clarifications"
   | "deliverables"
   | "tasks"
-  | "sources";
+  | "sources"
+  | AnalystSection;
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "report", label: "中文分析" },
@@ -24,6 +30,48 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "tasks", label: "任务" },
   { key: "sources", label: "来源" },
 ];
+
+/**
+ * Analyst 模式（EXPERIENCE ON + run 带 analystSynthesis）的信息架构（§14）：
+ * 默认进入「项目解读」；全部条款 = legacy Requirement 视图；来源 = legacy 来源。
+ * 旧 run / flag OFF 自动 fallback 上方 legacy TABS，不改 flags-off 行为。
+ */
+const ANALYST_TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "analyst_overview", label: "项目解读" },
+  { key: "analyst_key", label: "关键要求" },
+  { key: "analyst_risks", label: "风险与缺口" },
+  { key: "analyst_clar", label: "澄清 / RFI" },
+  { key: "requirements", label: "全部条款" },
+  { key: "sources", label: "来源" },
+];
+
+/**
+ * 入队失败码 → 兜底中文提示。
+ * 后端已随失败响应返回 error/message，此表仅在缺失时兜底，
+ * 与 src/lib/tender-auto-analysis/enqueue-outcome.ts 的码保持一致。
+ */
+const ENQUEUE_CODE_HINTS: Record<string, string> = {
+  NO_PACKAGE_DOCUMENTS: "暂无有效的招标 PDF 文件，请先上传投标文件",
+  PACKAGE_NOT_READY: "招标文件包尚未就绪（仍有文件在处理），请稍候重试",
+  DOCUMENT_PROCESSING: "文件仍在解析中，请稍候重试",
+  MISSING_CONTENT_HASH: "投标文件仍在处理（内容指纹未就绪），请稍候重试",
+  NOT_TENDER_PROJECT:
+    "此项目不是招投标项目（项目类型非「招投标」），不提供招标分析；如需分析请新建招标项目",
+  PACKAGE_TOO_LARGE: "投标文件包总页数超过上限",
+  ACTIVE_RUN_EXISTS: "已有进行中的分析，请等待其完成后再试",
+  RATE_LIMITED: "重新分析过于频繁，请稍后再试",
+  PROJECT_NOT_FOUND: "项目不存在或无法访问",
+  MISSING_ORG: "项目缺少组织，无法发起分析",
+  INVALID_STATUS: "当前分析状态不支持该操作",
+  ANALYSIS_FAILED: "分析失败，请稍后重试",
+  WORKER_UNAVAILABLE: "分析服务暂不可用，请稍后重试",
+  UNKNOWN: "无法发起分析",
+};
+
+function enqueueCodeHint(code: unknown): string | null {
+  if (typeof code !== "string") return null;
+  return ENQUEUE_CODE_HINTS[code] ?? null;
+}
 
 type Source = {
   id: string;
@@ -44,6 +92,21 @@ type PackageDocument = {
   pageCount: number | null;
 };
 
+type CoveragePayload = {
+  uploaded: number;
+  eligible: number;
+  analyzed: number;
+  excluded: number;
+  excludedFiles: Array<{
+    filename: string;
+    fileType: string | null;
+    parseStatus: string | null;
+    exclusionReason: string;
+  }>;
+  label: string;
+  note: string | null;
+};
+
 type ReportPayload = {
   run: {
     id: string;
@@ -55,6 +118,9 @@ type ReportPayload = {
     pendingChangeCount: number;
     approvedAt: string | null;
   };
+  experienceEnabled?: boolean;
+  analystSynthesis?: TenderAnalystSynthesisV1 | null;
+  coverage?: CoveragePayload | null;
   documents?: PackageDocument[];
   summary: {
     text: string | null;
@@ -140,20 +206,35 @@ export function TenderAnalysisPanel({
   initialTab,
   quietEmpty = false,
 }: Props) {
-  const visibleTabs =
+  const legacyTabs =
     sections && sections.length > 0
       ? sections
           .map((key) => TABS.find((t) => t.key === key))
           .filter((t): t is (typeof TABS)[number] => Boolean(t))
       : TABS;
-  const fallbackTab = visibleTabs[0]?.key ?? "report";
+  const fallbackTab = legacyTabs[0]?.key ?? "report";
   const [tab, setTab] = useState<TabKey>(
-    initialTab && visibleTabs.some((t) => t.key === initialTab)
+    initialTab && legacyTabs.some((t) => t.key === initialTab)
       ? initialTab
       : fallbackTab,
   );
   const [data, setData] = useState<ReportPayload | null>(null);
+  // Analyst 模式：EXPERIENCE ON + run 带 synthesis → 新信息架构，默认「项目解读」
+  const analyst = data?.analystSynthesis ?? null;
+  const visibleTabs = analyst && showRunControls ? ANALYST_TABS : legacyTabs;
+
+  // 进入 analyst 模式的首次挂载：无条件落在「项目解读」（UI-SEM-01）。
+  // 注意初始 tab 可能是 "requirements"（legacy 初始值），它同时也是 analyst IA 的
+  // 「全部条款」，因此不能用 “tab 是否合法” 判断，必须用一次性初始化标记。
+  const analystInitRef = useRef(false);
+  useEffect(() => {
+    if (analyst && showRunControls && !analystInitRef.current) {
+      analystInitRef.current = true;
+      setTab("analyst_overview");
+    }
+  }, [analyst, showRunControls]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
@@ -229,6 +310,8 @@ export function TenderAnalysisPanel({
 
   const enqueuePackage = async (action: "enqueue" | "reanalyze" = "enqueue") => {
     setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       const res = await apiFetch(
         `/api/projects/${projectId}/tender-analysis/package`,
@@ -238,8 +321,25 @@ export function TenderAnalysisPanel({
           body: JSON.stringify({ action }),
         },
       );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "操作失败");
+      const json = await res.json().catch(() => ({}) as Record<string, unknown>);
+      // 关键修复：不能只看 res.ok。业务失败必须同时凭 json.ok 判定，
+      // 兼容旧式「HTTP 200 + ok:false」与新契约「非 200 + ok:false」。
+      if (!res.ok || json?.ok === false) {
+        const msg =
+          (typeof json?.error === "string" && json.error) ||
+          (typeof json?.message === "string" && json.message) ||
+          enqueueCodeHint(json?.code) ||
+          "无法发起分析";
+        throw new Error(msg);
+      }
+      // 成功：真正入队（PENDING）或幂等复用既有 run，均给出可见反馈。
+      setNotice(
+        json?.code === "IDEMPOTENT_REUSE"
+          ? "已有进行中的分析，正在加载最新结果…"
+          : action === "reanalyze"
+            ? "已发起重新分析，正在处理…"
+            : "已发起分析，正在处理，请稍候…",
+      );
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -269,10 +369,16 @@ export function TenderAnalysisPanel({
           />
         ) : null}
         <h2 className="text-lg font-semibold">招标文件自动分析</h2>
-        <p className="text-sm text-[var(--muted)]">
+        <p
+          className={`text-sm ${
+            error ? "text-[var(--danger,#b91c1c)]" : "text-[var(--muted)]"
+          }`}
+        >
           {error
             ? error
-            : "暂无分析记录。可对当前项目已上传的投标 PDF 包发起分析（无需重新上传）。"}
+            : notice
+              ? notice
+              : "暂无分析记录。可对当前项目已上传的投标 PDF 包发起分析（无需重新上传）。"}
         </p>
         <button
           type="button"
@@ -280,7 +386,7 @@ export function TenderAnalysisPanel({
           onClick={() => void enqueuePackage("enqueue")}
           className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs text-white disabled:opacity-50"
         >
-          分析投标文件
+          {busy ? "正在发起…" : "分析投标文件"}
         </button>
       </section>
     );
@@ -312,7 +418,31 @@ export function TenderAnalysisPanel({
               ? ` · 建议倾向：${data.summary.recommendation}`
               : ""}
           </p>
-          {packageDocs.length > 0 ? (
+          {data.experienceEnabled && data.coverage ? (
+            // §3/UI-SEM-08：真实覆盖（上传/纳入/排除+原因），禁止让「来源文件：N」
+            // 误导用户以为 AI 读完了整个文件夹
+            <div className="mt-2 text-xs text-[var(--muted)] space-y-1" data-testid="package-coverage">
+              <p>
+                上传 {data.coverage.uploaded} · 纳入分析 {data.coverage.analyzed}
+                {data.coverage.excludedFiles.length > 0
+                  ? ` · 排除 ${data.coverage.excludedFiles.length}`
+                  : ""}
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {packageDocs.map((d) => (
+                  <li key={d.documentId}>
+                    {d.title}
+                    {d.roleLabel ? ` · ${d.roleLabel}` : ""}
+                  </li>
+                ))}
+                {data.coverage.excludedFiles.map((f) => (
+                  <li key={f.filename} className="text-amber-700">
+                    {f.filename} · 未纳入：{f.exclusionReason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : packageDocs.length > 0 ? (
             <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
               <p>来源文件：{packageDocs.length}</p>
               <ul className="list-disc pl-4 space-y-0.5">
@@ -427,6 +557,15 @@ export function TenderAnalysisPanel({
             </button>
           ))}
         </nav>
+      ) : null}
+
+      {analyst && tab.startsWith("analyst_") ? (
+        <AnalystSynthesisView
+          synthesis={analyst}
+          section={tab as AnalystSection}
+          runStatus={data.run.status}
+          onOpenTab={(key) => setTab(key as TabKey)}
+        />
       ) : null}
 
       {tab === "report" && (

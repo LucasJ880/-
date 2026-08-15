@@ -120,6 +120,9 @@ export function isNavItemVisible(
   item: NavigationItem,
   ctx: NavigationFilterContext,
 ): boolean {
+  if (item.autopilotOwnerOnly) {
+    return ctx.autopilotAllowed === true;
+  }
   // 无企业 membership：不展示企业业务 / 中台 / 增长 / 企业管理
   // （平台运营 PLATFORM 与系统 SYSTEM、个人工作台 WORK 仍可按角色显示）
   if (

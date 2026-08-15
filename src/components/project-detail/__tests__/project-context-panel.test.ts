@@ -39,7 +39,7 @@ const missingFiles = deriveProjectCommandState({
   documentCount: 0,
 });
 ok("缺少文件时优先引导到资料抽屉", missingFiles.nextAction.target === "files");
-ok("缺失项明确显示上传项目文件", missingFiles.missingItems.includes("上传项目文件"));
+ok("缺失项明确显示上传招标文件", missingFiles.missingItems.includes("上传招标文件"));
 
 const needsInterpretation = deriveProjectCommandState({
   ...baseline,
