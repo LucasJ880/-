@@ -296,6 +296,7 @@ run_test "Tender T2-P1.5 财务控制 DB 矩阵（BUDGET/EXP/COST-READ/EVENT + E
 run_test "Tender T2-P1.6 盈利/多币种 纯逻辑（FX-01..06/阶段推导/结算映射/静态纪律/flag）" "npx tsx --test src/lib/project-finance/__tests__/p16-pure.test.ts"
 run_test "Tender T2-P1.6 授权契约（付款第四权/actor 不可伪造/落标仅人工确认/org 门）" "npx tsx --test src/lib/project-finance/__tests__/p16-authz-contract.test.ts"
 run_test "Tender T2-P1.6 盈利/结算 DB 矩阵（EXP-MOBILE/REIMB/EXP-APP/FX-SETTLE/TENDER-COST/LOSS/PORT；隔离库执行，否则跳过）" "npx tsx src/lib/project-finance/__tests__/p16-profitability-db.test.ts"
+run_test "Tender T2-P1.6 R1 集成矩阵（INT-AWARD-REV-01..04 / PROFIT-SETTLEMENT-01 / REV-CASH-01；隔离库执行，否则跳过）" "npx tsx src/lib/project-finance/__tests__/p16-integration-r1-db.test.ts"
 run_test "Tender T3 企业记忆 schema 契约" "npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts"
 run_test "Tender T3 企业记忆纯逻辑（归一/排序/校验）" "npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts"
 run_test "Tender T3 企业记忆 DB 集成（Buyer/Claim/证据/隔离/检索）" "npx tsx src/lib/corporate-memory/__tests__/t3-integration.test.ts"

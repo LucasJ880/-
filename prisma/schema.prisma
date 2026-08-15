@@ -7480,7 +7480,7 @@ model ProjectExpenseFxSettlement {
 }
 
 /// 项目收入唯一权威账（REVENUE_SOURCE_GAP 的最小可审计解，镜像 ProjectCost 纪律）：
-/// 金额列填充不覆盖（amountForecastCad → amountRealizedCad）；REALIZED 后禁止原地改实质字段，
+/// 金额列填充不覆盖（amountForecastCad → amountRecognizedCad）；RECOGNIZED 后禁止原地改实质字段，
 /// 修正 = VOID 旧行 + correction 新行（correctionOfEntryId 新→旧）。
 /// Change Order 在本轮只做**收入侧**表达（entryType=CHANGE_ORDER），不构成完整 CO 工作流。
 /// ProjectQuote / Project.estimatedValue|ourBidPrice|winningBidPrice 均为非权威复盘字段，禁止参与利润计算。
@@ -7490,7 +7490,7 @@ model ProjectRevenueEntry {
   projectId                String
   /// CONTRACT_AWARD | CHANGE_ORDER | ADJUSTMENT
   entryType                String
-  /// FORECAST | REALIZED | VOIDED
+  /// FORECAST | RECOGNIZED | VOIDED（RECOGNIZED = 经济收入确认，≠ 客户已付款）
   revenueStatus            String
   description              String?   @db.Text
   /// 原始币种金额（永久保留）
@@ -7503,8 +7503,8 @@ model ProjectRevenueEntry {
   fxRateSource             String
   /// 预测收入（合同额 / 已批变更额）
   amountForecastCad        Decimal?  @db.Decimal(18, 2)
-  /// 已实现收入（开票 / 收款确认）
-  amountRealizedCad        Decimal?  @db.Decimal(18, 2)
+  /// 已确认经济收入（履约完成 / 金额定案）。**不是「客户已付款」** —— 回款属未来 AR 域。
+  amountRecognizedCad      Decimal?  @db.Decimal(18, 2)
   /// 业务发生时间（producer 显式传入）
   recognizedAt             DateTime
   /// entryType=CHANGE_ORDER 时的变更单编号（外部引用，不建第二套 CO 表）
@@ -7514,6 +7514,16 @@ model ProjectRevenueEntry {
   approvedAt               DateTime?
   /// { quoteId?, documentId?, awardNoticeId?, invoiceRef? } —— 只存 id，不复制业务数据
   refs                     Json?
+  // ── R1 结构化 provenance（取代「靠 refs JSON + findFirst 约定」的弱去重） ──
+  /// AWARD_RECORD | MANUAL（来源域；AWARD_RECORD 表示由 T4 AwardRecord 物化而来）
+  sourceType               String?
+  /// 来源域内的记录 id（sourceType=AWARD_RECORD 时即 AwardRecord.id）
+  sourceRefId              String?
+  /// 去重键：ACTIVE 时 = "{entryType}:{sourceType}:{sourceRefId}"；VOID 时置 NULL 释放键位。
+  /// 配合 @@unique([projectId, activeSourceKey]) 保证「同 Project + 同来源 + CONTRACT_AWARD」
+  /// 至多一条**有效**权威收入行；Postgres NULL 互不冲突 → 手工录入（无来源）不受约束，
+  /// VOID + replacement 修正链也不会被唯一键卡死。
+  activeSourceKey          String?
   /// 修正链：新行指回被 void 的旧行
   correctionOfEntryId      String?
   voidedAt                 DateTime?
@@ -7522,8 +7532,10 @@ model ProjectRevenueEntry {
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 
+  @@unique([projectId, activeSourceKey])
   @@index([orgId, projectId, revenueStatus])
   @@index([orgId, entryType, revenueStatus])
+  @@index([orgId, sourceType, sourceRefId])
   @@index([correctionOfEntryId])
 }
 

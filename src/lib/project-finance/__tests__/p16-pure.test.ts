@@ -29,9 +29,11 @@ import {
 import { resolveFxRate, buildFxSnapshot, hasSystemReferenceRateProvider } from "../fx";
 import { resolveCostPhase, resolveCostPhaseBoundary } from "../cost-phase";
 import {
+  buildRevenueActiveSourceKey,
   EXPENSE_FUNDING_SOURCES,
   LOSS_REASON_GROUPS,
   resolveTenderOutcome,
+  REVENUE_STATUSES,
   settlementForFundingSource,
   TENDER_LOSS_REASONS,
 } from "../types";
@@ -386,6 +388,104 @@ test("PORT-06 win rate 零分母返回 null（不造 0% 也不造 NaN）", () =>
   assert.equal(winRate(0, 0), null);
   assert.equal(winRate(3, 9), "25");
   assert.equal(winRate(1, 0), "100");
+});
+
+/* ═══════════════════════════ R1 集成收口契约 ═══════════════════════════ */
+
+test("R1 §G 静态纪律：未结报销/应付**不得**成为 Final Profit blocker（Payment ≠ Cost）", () => {
+  const prof = stripComments(readFileSync(join(SRC, "profitability.ts"), "utf8"));
+  const blockerPushes = [...prof.matchAll(/blockers\.push\(\s*[`"']?([A-Z_]+)/g)].map((m) => m[1]);
+  assert.ok(blockerPushes.length > 0, "未定位到 blockers.push");
+  const forbidden = ["OUTSTANDING_REIMBURSEMENT", "OUTSTANDING_PAYABLE", "OPEN_PAYABLES"];
+  for (const f of forbidden) {
+    assert.ok(
+      !blockerPushes.some((b) => b.startsWith(f)),
+      `${f} 不得作为 Final Profit blocker —— 费用一经审批即已计入成本，是否付款不改变利润`,
+    );
+  }
+  // 允许的 blocker 词表（任务书 §G 白名单）
+  const allowed = new Set([
+    "REVENUE_LEDGER_UNAVAILABLE", "OUTCOME_NOT_WON", "PROJECT_NOT_COMPLETED",
+    "REVENUE_NOT_FINAL", "PENDING_COST_REVIEW", "UNRESOLVED_COST_CORRECTION",
+    "UNKNOWN_CURRENCY_COST", "UNKNOWN_REVENUE_CURRENCY",
+  ]);
+  for (const b of blockerPushes) {
+    assert.ok(allowed.has(b), `blocker ${b} 不在 §G 白名单内`);
+  }
+  // 结算必须作为并列输出存在
+  assert.ok(/settlementStatus/.test(prof) && /outstandingReimbursementCad/.test(prof));
+});
+
+test("R1 §G 静态纪律：portfolio 的 final 资格同样不含未结应付", () => {
+  const port = stripComments(readFileSync(join(SRC, "portfolio.ts"), "utf8"));
+  const m = port.match(/const finalEligible =([\s\S]*?);/);
+  assert.ok(m, "未定位到 portfolio finalEligible");
+  assert.ok(
+    !/projectOutstanding|outstanding/i.test(m![1]),
+    "portfolio final 资格不得含未结应付条件",
+  );
+});
+
+test("R1 §E 静态纪律：利润/组合读模型从不查询 AwardRecord（Award 不进 profit 求和）", () => {
+  for (const f of ["profitability.ts", "portfolio.ts"]) {
+    const src = readFileSync(join(SRC, f), "utf8");
+    assert.ok(!/awardRecord/i.test(src), `${f} 不得查询 AwardRecord`);
+  }
+});
+
+test("R1 §E 静态纪律：不存在 AwardRecord 创建即自动产生收入的路径", () => {
+  // T4 授标服务不得 import 收入服务
+  const awards = readFileSync(join(process.cwd(), "src/lib/tender-intel/awards.ts"), "utf8");
+  assert.ok(
+    !/project-finance|recordRevenueEntry|materializeAwardRevenue/.test(awards),
+    "tender-intel/awards.ts 不得触达收入域（禁止 on-award-created 自动建收入）",
+  );
+  // 物化必须是显式、带六重资格闸的独立函数
+  const rev = readFileSync(join(SRC, "revenue-service.ts"), "utf8");
+  assert.ok(/export async function materializeAwardRevenue/.test(rev));
+  for (const gate of [
+    "AWARD_NOT_LINKED_TO_PROJECT", "AWARD_NOT_ACTIVE", "AWARD_NOT_VERIFIED",
+    "AWARD_AMOUNT_MISSING", "PROJECT_NOT_AWARDED_TO_US",
+  ]) {
+    assert.ok(rev.includes(gate), `物化资格闸缺少 ${gate}`);
+  }
+});
+
+test("R1 §F 结构化 provenance：去重键构造 + VOID 释放键位", () => {
+  assert.equal(
+    buildRevenueActiveSourceKey("CONTRACT_AWARD", "AWARD_RECORD", "aw1"),
+    "CONTRACT_AWARD:AWARD_RECORD:aw1",
+  );
+  // 无来源锚 → NULL（手工录入不受唯一键约束）
+  assert.equal(buildRevenueActiveSourceKey("CONTRACT_AWARD", null, "aw1"), null);
+  assert.equal(buildRevenueActiveSourceKey("CONTRACT_AWARD", "AWARD_RECORD", null), null);
+  // 不同 entryType 不冲突
+  assert.notEqual(
+    buildRevenueActiveSourceKey("CONTRACT_AWARD", "AWARD_RECORD", "aw1"),
+    buildRevenueActiveSourceKey("CHANGE_ORDER", "AWARD_RECORD", "aw1"),
+  );
+  // schema 必须有 DB 层唯一约束（不能只靠 service 约定）
+  const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+  assert.ok(
+    /@@unique\(\[projectId, activeSourceKey\]\)/.test(schema),
+    "ProjectRevenueEntry 必须有 @@unique([projectId, activeSourceKey])",
+  );
+  // VOID 路径必须置空键位
+  const rev = readFileSync(join(SRC, "revenue-service.ts"), "utf8");
+  const voidBody = rev.slice(rev.indexOf("export async function voidRevenueEntry"));
+  assert.ok(/activeSourceKey: null/.test(voidBody), "VOID 必须释放 activeSourceKey");
+});
+
+test("R1 §H：收入状态词表为 FORECAST / RECOGNIZED / VOIDED，且不含 AR/回款概念", () => {
+  assert.deepEqual([...REVENUE_STATUSES], ["FORECAST", "RECOGNIZED", "VOIDED"]);
+  assert.ok(!(REVENUE_STATUSES as readonly string[]).includes("REALIZED"));
+  for (const f of ["revenue-service.ts", "profitability.ts", "portfolio.ts", "types.ts"]) {
+    const src = readFileSync(join(SRC, f), "utf8");
+    assert.ok(
+      !/customerPayment|accountsReceivable|cashCollected|collectionStatus/i.test(src),
+      `${f} 不得引入客户回款 / AR 概念（P1.6 明确不实现）`,
+    );
+  }
 });
 
 test("HEIC 魔数校验已实装（此前落 default 放行分支）", () => {

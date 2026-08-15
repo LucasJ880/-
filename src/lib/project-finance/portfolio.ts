@@ -85,7 +85,7 @@ export interface TenderPortfolioSummary {
   /* 中标项目经营（forecast 与 final 严格分离） */
   wonProjects: {
     forecastRevenueCad: string | null;
-    realizedRevenueCad: string | null;
+    recognizedRevenueCad: string | null;
     /** 尚未终结的中标项目的预测利润（不含已终结项目） */
     currentForecastProfitCad: string | null;
     currentForecastProjectCount: number;
@@ -171,7 +171,7 @@ export async function getTenderPortfolioSummary(
 
   let awardedValue = ZERO;
   let wonForecastRevenue = ZERO;
-  let wonRealizedRevenue = ZERO;
+  let wonRecognizedRevenue = ZERO;
   let currentForecastProfit = ZERO;
   let currentForecastCount = 0;
   let finalizedProfit = ZERO;
@@ -232,31 +232,31 @@ export async function getTenderPortfolioSummary(
       // 收入账挂在投标项目上；若已 handoff，交付项目上的收入也一并计入
       const revenueIds = deliveryId ? [p.id, deliveryId] : [p.id];
       let forecastRevenue = ZERO;
-      let realizedRevenue = ZERO;
+      let recognizedRevenue = ZERO;
       let contractRevenue = ZERO;
       let unrealizedEntries = 0;
       for (const rid of revenueIds) {
         const r = await getProjectRevenueRollup(orgId, rid);
         forecastRevenue = forecastRevenue.add(r.forecastRevenueCad);
-        realizedRevenue = realizedRevenue.add(r.realizedRevenueCad);
+        recognizedRevenue = recognizedRevenue.add(r.recognizedRevenueCad);
         contractRevenue = contractRevenue.add(r.contractRevenueCad);
-        unrealizedEntries += r.unrealizedEntryCount;
+        unrealizedEntries += r.unrecognizedEntryCount;
       }
       awardedValue = awardedValue.add(contractRevenue);
       wonForecastRevenue = wonForecastRevenue.add(forecastRevenue);
-      wonRealizedRevenue = wonRealizedRevenue.add(realizedRevenue);
+      wonRecognizedRevenue = wonRecognizedRevenue.add(recognizedRevenue);
 
+      // 未结应付只做**并列输出**，不参与 final 资格判定（R1 §G：Payment ≠ Cost）
       const outstandingIds = deliveryId ? [p.id, deliveryId] : [p.id];
-      let projectOutstanding = ZERO;
       for (const oid of outstandingIds) {
         const o = await getOutstandingByType(orgId, oid);
         employeeOutstanding = employeeOutstanding.add(o.employeeReimbursementCad);
         vendorOutstanding = vendorOutstanding.add(o.vendorPayableCad);
         affiliateOutstanding = affiliateOutstanding.add(o.affiliatePayableCad);
-        projectOutstanding = projectOutstanding.add(o.totalCad);
       }
 
-      // Final 资格：项目已完工 + 收入全部实现 + 无未结应付（与 profitability.ts 同口径）
+      // Final 资格：项目已完工 + 收入全部确认 + 成本口径干净（与 profitability.ts 同口径）。
+      // 刻意**不含** projectOutstanding —— 员工/供应商是否已拿到钱不改变项目利润。
       const completed = Boolean(
         p.actualCompletionDate ??
           (deliveryId
@@ -271,13 +271,12 @@ export async function getTenderPortfolioSummary(
       const finalEligible =
         completed &&
         unrealizedEntries === 0 &&
-        realizedRevenue.gt(0) &&
-        projectOutstanding.lte(0) &&
+        recognizedRevenue.gt(0) &&
         slice.unknownCurrencyCostCount === 0;
 
       if (finalEligible) {
-        finalizedProfit = finalizedProfit.add(realizedRevenue.sub(projectTotalCost));
-        finalizedRevenue = finalizedRevenue.add(realizedRevenue);
+        finalizedProfit = finalizedProfit.add(recognizedRevenue.sub(projectTotalCost));
+        finalizedRevenue = finalizedRevenue.add(recognizedRevenue);
         finalizedCount += 1;
       } else {
         currentForecastProfit = currentForecastProfit.add(forecastRevenue.sub(projectTotalCost));
@@ -368,7 +367,7 @@ export async function getTenderPortfolioSummary(
 
     wonProjects: {
       forecastRevenueCad: available ? wonForecastRevenue.toString() : null,
-      realizedRevenueCad: available ? wonRealizedRevenue.toString() : null,
+      recognizedRevenueCad: available ? wonRecognizedRevenue.toString() : null,
       currentForecastProfitCad: available ? currentForecastProfit.toString() : null,
       currentForecastProjectCount: currentForecastCount,
       finalizedProfitCad: available ? finalizedProfit.toString() : null,

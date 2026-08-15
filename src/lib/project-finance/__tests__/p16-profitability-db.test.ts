@@ -568,7 +568,7 @@ async function main() {
     await revenueSvc.recordRevenueEntry({
       orgId: orgP, projectId: id, actor: accountant, entryType: "CONTRACT_AWARD",
       originalAmount: "200000", originalCurrency: "CAD", recognizedAt: new Date("2026-08-21"),
-      createdById: ACC, asRealized: idx === 0,
+      createdById: ACC, asRecognized: idx === 0,
     });
     if (idx === 0) {
       await db.project.update({ where: { id }, data: { actualCompletionDate: new Date("2026-08-30") } });

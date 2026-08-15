@@ -1,34 +1,37 @@
 /**
- * T2-P1.6 项目收入账服务 —— REVENUE_SOURCE_GAP 的最小可审计解
+ * T2-P1.6 项目收入账服务 —— 项目收入的**唯一财务事实源**
  *
- * 审计结论（docs/QINGYAN_TENDER_T2_P16_EXISTING_MODEL_AUDIT.md §3）：
- *   本仓库此前**没有**权威项目收入源。现有候选全部不合格：
- *     - `ProjectQuote.totalAmount`  ：报价单文档（草稿/多版本/可 AI 生成），不是成交事实
- *     - `Project.estimatedValue`    ：`Float`，注释即写明「复盘与相似对比用」
- *     - `Project.ourBidPrice` / `winningBidPrice` ：同上，`Float` 复盘字段
- *     - T4 `AwardRecord`            ：**不在本 stack 的 base 内**（仅存在于 origin/main）
- *     - marketing `revenue`         ：MMM 营销域，与项目无关
- *   → 因此新建**唯一**权威收入账 ProjectRevenueEntry。
+ * ── R1 更新：T4 AwardRecord 现已在 base 内（PR #107 merged → #104 集成 main → #111 吸收） ──
+ * 原审计前提「AwardRecord 不在 base」已失效，但**结论不变**，且现在有了正式契约：
  *
- * 去重保证（为什么不会变成第二套收入源）：
- * - 上述字段全部保持 read-only / indicative，本服务不读也不写它们；
- *   read model 里凡引用 `Project.estimatedValue` 之处一律标记 `indicativeOnly`。
- * - 未来 T4 `AwardRecord` 进入本分支后，正确的收敛方式是**由 AwardRecord 驱动创建
- *   一条 CONTRACT_AWARD 收入条目**（AwardRecord = 中标事实，RevenueEntry = 记账事实），
- *   而不是让 read model 同时从两处求和。该衔接点记为 follow-up，不在本轮实现。
+ *   AwardRecord         = Tender Award **Intelligence / Evidence**（组织级情报事实层）
+ *   ProjectRevenueEntry = Project **Financial Revenue Ledger**（收入计算唯一财务源）
+ *
+ * AwardRecord 绝不直接参与 Project Profit 求和 —— 因为它可能记录的是
+ * 历史买家授标 / **竞争对手中标** / 外部市场情报，与我方收入毫无关系。
+ * 二者经 `materializeAwardRevenue()` 单向、显式、受控地衔接（六重资格闸 + 结构化去重）。
+ *
+ * 其余候选仍然不合格（保持 read-only / indicative，本服务不读不写）：
+ *   `ProjectQuote.totalAmount`（报价单文档）、`Project.estimatedValue` /
+ *   `ourBidPrice` / `winningBidPrice`（`Float` 复盘字段）、marketing `revenue`（MMM 域）。
  *
  * 纪律镜像 ProjectCost：
- * - 金额列填充不覆盖：`amountForecastCad` → `amountRealizedCad`
- * - `REALIZED` 后禁止原地改实质字段；修正 = VOID 旧行 + correction 新行（`correctionOfEntryId` 新→旧）
+ * - 金额列填充不覆盖：`amountForecastCad` → `amountRecognizedCad`
+ * - `RECOGNIZED` 后禁止原地改实质字段；修正 = VOID 旧行 + correction 新行（`correctionOfEntryId` 新→旧）
  * - Change Order 只做**收入侧**表达（entryType=CHANGE_ORDER + 人工 approvedById/At），
  *   不构成完整 CO 工作流（CHANGE_ORDER_MODEL_GAP 仍登记在案）
+ *
+ * ── 收入 ≠ 现金（R1 §H）──
+ * `RECOGNIZED` = 经济收入已确认/定案，**不等于**客户已付款。
+ * invoice / customer payment / cash collection / AR aging 均**不在本域**，
+ * P1.6 不实现（CUSTOMER_COLLECTION_OUT_OF_SCOPE）；未来银行回款**禁止**再产生第二条 revenue。
  */
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { appendProjectEvent } from "@/lib/project-ledger/event-service";
 import type { LedgerActor } from "@/lib/project-ledger/types";
 import {
-  revenueRealizedEventKey,
+  revenueRecognizedEventKey,
   revenueRecordedEventKey,
   revenueVoidedEventKey,
 } from "./event-keys";
@@ -36,11 +39,14 @@ import { isProfitabilitySchemaReady } from "./flags";
 import { buildFxSnapshot } from "./fx";
 import { BASE_CURRENCY, dec, roundMoney, ZERO, type DecimalInput, type FxRateSource } from "./money";
 import {
+  buildRevenueActiveSourceKey,
   FinanceContractError,
   FinanceTenantError,
+  isProjectAwardEligible,
   REVENUE_ENTRY_TYPES,
   RevenueLifecycleError,
   type RevenueEntryType,
+  type RevenueSourceType,
 } from "./types";
 
 type Tx = Prisma.TransactionClient;
@@ -79,8 +85,8 @@ export interface RecordRevenueInput {
   fxRateSource?: FxRateSource | null;
   /** 业务发生时间（合同签订日 / 变更批准日 / 开票日） */
   recognizedAt: Date;
-  /** 直接以已实现口径入账（如已开票已收款）；缺省 = FORECAST */
-  asRealized?: boolean;
+  /** 直接以「已确认」口径入账（履约完成且金额定案）；缺省 = FORECAST。与是否收到现金无关 */
+  asRecognized?: boolean;
   changeOrderReference?: string | null;
   /** CHANGE_ORDER 必须有人工批准人（AI 不得自动批准变更收入） */
   approvedById?: string | null;
@@ -89,9 +95,14 @@ export interface RecordRevenueInput {
   createdById: string;
   /** 修正链：本行是对哪条被 void 行的修正 */
   correctionOfEntryId?: string | null;
+  /* ── R1 §F 结构化 provenance ── */
+  /** AWARD_RECORD | MANUAL；缺省 MANUAL（无来源锚 → activeSourceKey 为 NULL，不受唯一键约束） */
+  sourceType?: RevenueSourceType | null;
+  /** 来源域内 id（sourceType=AWARD_RECORD 时为 AwardRecord.id） */
+  sourceRefId?: string | null;
 }
 
-/** 记一条收入（FORECAST 或直接 REALIZED）。 */
+/** 记一条收入（FORECAST 或直接 RECOGNIZED）。 */
 export async function recordRevenueEntry(input: RecordRevenueInput) {
   assertSchemaReady();
   assertEntryType(input.entryType);
@@ -116,7 +127,7 @@ export async function recordRevenueEntry(input: RecordRevenueInput) {
     fxRateDate: input.fxRateDate ?? input.recognizedAt,
     fxRateSource: input.fxRateSource ?? null,
   });
-  const realized = input.asRealized === true;
+  const realized = input.asRecognized === true;
 
   return inTx(input.tx, async (tx) => {
     const project = await tx.project.findFirst({
@@ -130,21 +141,29 @@ export async function recordRevenueEntry(input: RecordRevenueInput) {
         orgId: input.orgId,
         projectId: input.projectId,
         entryType: input.entryType,
-        revenueStatus: realized ? "REALIZED" : "FORECAST",
+        revenueStatus: realized ? "RECOGNIZED" : "FORECAST",
         description: input.description?.trim() || null,
         originalAmount: fx.originalAmount,
         originalCurrency: fx.originalCurrency,
         fxRateCadPerOriginalUnit: fx.fxRateCadPerOriginalUnit,
         fxRateDate: fx.fxRateDate,
         fxRateSource: fx.fxRateSource,
-        // 填充不覆盖：REALIZED 也保留 forecast 列（历史口径可还原）
+        // 填充不覆盖：RECOGNIZED 也保留 forecast 列（历史口径可还原）
         amountForecastCad: fx.estimatedCadAmount,
-        amountRealizedCad: realized ? fx.estimatedCadAmount : null,
+        amountRecognizedCad: realized ? fx.estimatedCadAmount : null,
         recognizedAt: input.recognizedAt,
         changeOrderReference: input.changeOrderReference ?? null,
         approvedById: input.approvedById ?? null,
         approvedAt: input.approvedAt ?? (input.approvedById ? new Date() : null),
         refs: input.refs ?? Prisma.JsonNull,
+        sourceType: input.sourceType ?? null,
+        sourceRefId: input.sourceRefId ?? null,
+        // 有来源锚时写去重键；DB @@unique([projectId, activeSourceKey]) 是最后防线
+        activeSourceKey: buildRevenueActiveSourceKey(
+          input.entryType as RevenueEntryType,
+          input.sourceType,
+          input.sourceRefId,
+        ),
         correctionOfEntryId: input.correctionOfEntryId ?? null,
         createdById: input.createdById,
       },
@@ -182,19 +201,20 @@ export async function recordRevenueEntry(input: RecordRevenueInput) {
 }
 
 /**
- * FORECAST → REALIZED（开票 / 收款确认）。
- * 已实现金额可与预测不同（例如最终合同结算额），差额留在两列上可还原。
+ * FORECAST → RECOGNIZED（经济收入确认：履约完成、金额定案）。
+ * **不是**「收到客户的钱」—— 回款属未来 AR 域，本函数与现金无关。
+ * 确认金额可与预测不同（例如最终合同结算额），差额留在两列上可还原。
  */
-export async function realizeRevenueEntry(input: {
+export async function recognizeRevenueEntry(input: {
   tx?: Tx;
   orgId: string;
   projectId: string;
   entryId: string;
   actor: LedgerActor;
-  realizedById: string;
+  recognizedById: string;
   /** 实际实现的 CAD 金额；缺省沿用预测额 */
-  amountRealizedCad?: DecimalInput | null;
-  realizedAt?: Date | null;
+  amountRecognizedCad?: DecimalInput | null;
+  recognitionOccurredAt?: Date | null;
 }) {
   assertSchemaReady();
   return inTx(input.tx, async (tx) => {
@@ -205,30 +225,30 @@ export async function realizeRevenueEntry(input: {
     if (entry.revenueStatus === "VOIDED") {
       throw new RevenueLifecycleError("已作废收入条目不可实现");
     }
-    if (entry.revenueStatus === "REALIZED") {
+    if (entry.revenueStatus === "RECOGNIZED") {
       // 幂等：已实现直接返回
-      return { entry, realized: false as const };
+      return { entry, recognized: false as const };
     }
 
     const amount =
-      input.amountRealizedCad != null
-        ? roundMoney(dec(input.amountRealizedCad))
+      input.amountRecognizedCad != null
+        ? roundMoney(dec(input.amountRecognizedCad))
         : (entry.amountForecastCad ?? ZERO);
     if (amount.lte(0)) throw new RevenueLifecycleError("已实现收入必须为正", 400);
 
     const updated = await tx.projectRevenueEntry.update({
       where: { id: entry.id },
       // 只填充 realized 列，forecast 列保持不动（留痕）
-      data: { revenueStatus: "REALIZED", amountRealizedCad: amount },
+      data: { revenueStatus: "RECOGNIZED", amountRecognizedCad: amount },
     });
 
     await appendProjectEvent({
       tx,
       orgId: input.orgId,
       projectId: input.projectId,
-      eventType: "revenue.realized",
-      eventKey: revenueRealizedEventKey(entry.id),
-      occurredAt: input.realizedAt ?? new Date(),
+      eventType: "revenue.recognized",
+      eventKey: revenueRecognizedEventKey(entry.id),
+      occurredAt: input.recognitionOccurredAt ?? new Date(),
       actor: input.actor,
       title: `收入已实现：${amount.toString()} ${BASE_CURRENCY}`,
       payload: {
@@ -237,12 +257,12 @@ export async function realizeRevenueEntry(input: {
         entryType: entry.entryType,
         forecastCad: entry.amountForecastCad?.toString() ?? null,
         realizedCad: amount.toString(),
-        realizedById: input.realizedById,
+        recognizedById: input.recognizedById,
       },
       refs: { revenueEntryId: entry.id },
     });
 
-    return { entry: updated, realized: true as const };
+    return { entry: updated, recognized: true as const };
   });
 }
 
@@ -275,7 +295,14 @@ export async function voidRevenueEntry(input: {
 
     const voided = await tx.projectRevenueEntry.update({
       where: { id: entry.id },
-      data: { revenueStatus: "VOIDED", voidedAt: new Date(), voidReason: reason },
+      data: {
+        revenueStatus: "VOIDED",
+        voidedAt: new Date(),
+        voidReason: reason,
+        // 释放去重键位：sourceType/sourceRefId 作为 provenance 永久保留，
+        // 仅 activeSourceKey 置 NULL，使同来源的 replacement 行能够写入（R1 §F）
+        activeSourceKey: null,
+      },
     });
     await appendProjectEvent({
       tx,
@@ -312,6 +339,162 @@ export async function voidRevenueEntry(input: {
   });
 }
 
+/* ═════════════ R1 §E/§F：AwardRecord → CONTRACT_AWARD 物化（唯一受控通道） ═════════════ */
+
+/**
+ * 冻结契约（R1 §E）：
+ *
+ *   AwardRecord         = Tender Award **Intelligence / Evidence**（组织级情报事实层）
+ *   ProjectRevenueEntry = Project **Financial Revenue Ledger**（项目收入唯一财务源）
+ *
+ * - `AwardRecord` 本身**永不**参与 Project Profit 求和 —— profitability/portfolio 读模型
+ *   从不查询 AwardRecord（由 p16-pure 静态断言锁定）。
+ * - `CONTRACT_AWARD` 收入条目**可以**引用一条合法 AwardRecord 作为 provenance。
+ * - **禁止** `on AwardRecord created → auto create revenue`：
+ *   AwardRecord 可能是历史买家授标 / 竞争对手中标 / 外部市场情报，与我方收入毫无关系。
+ *   物化必须是显式、单独授权的人工动作（本函数 + COST_WRITE 路由）。
+ */
+export const AWARD_MATERIALIZE_ELIGIBLE_VERIFICATION = [
+  "HUMAN_CONFIRMED",
+  "SYSTEM_VERIFIED",
+] as const;
+
+export type AwardMaterializeRefusal =
+  | "AWARD_NOT_FOUND"
+  | "AWARD_NOT_LINKED_TO_PROJECT"
+  | "AWARD_NOT_ACTIVE"
+  | "AWARD_NOT_VERIFIED"
+  | "AWARD_AMOUNT_MISSING"
+  | "PROJECT_NOT_AWARDED_TO_US";
+
+export interface MaterializeAwardRevenueResult {
+  materialized: boolean;
+  entryId: string | null;
+  /** materialized=false 时说明为何拒绝（如实返回，绝不静默跳过） */
+  refusedReason: AwardMaterializeRefusal | null;
+  /** true = 命中既有有效条目（幂等），未新建 */
+  idempotentHit: boolean;
+}
+
+/**
+ * 由一条 AwardRecord 物化本项目的 CONTRACT_AWARD 收入条目。
+ *
+ * 六重资格闸（全部满足才允许物化）：
+ *  1. AwardRecord 存在且同 org（租户）
+ *  2. `awardRecord.projectId === projectId` —— 明确关联**当前项目**
+ *     （历史买家授标 / 竞争对手中标 / 外部情报的 projectId 为 null 或指向别的项目 → 拒）
+ *  3. `awardRecord.status === "ACTIVE"`（RETRACTED / NEEDS_REVIEW → 拒）
+ *  4. `verificationStatus ∈ {HUMAN_CONFIRMED, SYSTEM_VERIFIED}`
+ *     （AI_EXTRACTED / NEEDS_REVIEW 不足以产生财务事实）
+ *  5. `contractAmount > 0` 且有 currency
+ *  6. **项目本身处于我方中标态**（`isProjectAwardEligible`）——
+ *     这一条是关键：AwardRecord 完全可以挂在我们**落标**的项目上用来记录
+ *     「是谁中的标」，此时 winnerName 是竞争对手。仅凭 projectId 关联就建收入会
+ *     把竞争对手的中标额记成我方收入。
+ *
+ * 幂等：`@@unique([projectId, activeSourceKey])` + 事务内先查后建；
+ * 重复调用返回既有条目（idempotentHit=true），绝不产生第二条。
+ */
+export async function materializeAwardRevenue(input: {
+  tx?: Tx;
+  orgId: string;
+  projectId: string;
+  awardRecordId: string;
+  actor: LedgerActor;
+  createdById: string;
+  /** 缺省 FORECAST（合同额 = 预期收入，尚未确认为经济收入） */
+  asRecognized?: boolean;
+  description?: string | null;
+}): Promise<MaterializeAwardRevenueResult> {
+  assertSchemaReady();
+
+  return inTx(input.tx, async (tx) => {
+    const refuse = (r: AwardMaterializeRefusal): MaterializeAwardRevenueResult => ({
+      materialized: false,
+      entryId: null,
+      refusedReason: r,
+      idempotentHit: false,
+    });
+
+    const project = await tx.project.findFirst({
+      where: { id: input.projectId, orgId: input.orgId },
+      select: {
+        id: true,
+        bidPhaseStatus: true,
+        tenderStatus: true,
+        workDomain: true,
+      },
+    });
+    if (!project) throw new FinanceTenantError();
+
+    const award = await tx.awardRecord.findFirst({
+      where: { id: input.awardRecordId, orgId: input.orgId },
+    });
+    if (!award) return refuse("AWARD_NOT_FOUND");
+    // ② 必须明确关联当前项目（外部/历史/竞对情报的 projectId 为 null 或指向别处）
+    if (award.projectId !== input.projectId) return refuse("AWARD_NOT_LINKED_TO_PROJECT");
+    // ③ 只认 ACTIVE
+    if (award.status !== "ACTIVE") return refuse("AWARD_NOT_ACTIVE");
+    // ④ 必须过既有人工/系统验证契约
+    if (
+      !(AWARD_MATERIALIZE_ELIGIBLE_VERIFICATION as readonly string[]).includes(
+        award.verificationStatus,
+      )
+    ) {
+      return refuse("AWARD_NOT_VERIFIED");
+    }
+    // ⑤ 金额
+    if (award.contractAmount == null || award.contractAmount.lte(0)) {
+      return refuse("AWARD_AMOUNT_MISSING");
+    }
+    // ⑥ 项目必须处于我方中标态 —— 防止把竞争对手的中标额记成我方收入
+    if (!isProjectAwardEligible(project)) return refuse("PROJECT_NOT_AWARDED_TO_US");
+
+    // 幂等：同 project + 同 award 的有效 CONTRACT_AWARD 至多一条
+    const activeKey = buildRevenueActiveSourceKey(
+      "CONTRACT_AWARD",
+      "AWARD_RECORD",
+      award.id,
+    );
+    const existing = await tx.projectRevenueEntry.findFirst({
+      where: { projectId: input.projectId, activeSourceKey: activeKey },
+    });
+    if (existing) {
+      return {
+        materialized: false,
+        entryId: existing.id,
+        refusedReason: null,
+        idempotentHit: true,
+      };
+    }
+
+    const entry = await recordRevenueEntry({
+      tx,
+      orgId: input.orgId,
+      projectId: input.projectId,
+      actor: input.actor,
+      entryType: "CONTRACT_AWARD",
+      description:
+        input.description?.trim() ||
+        `由授标记录物化：${award.winnerName}${award.solicitationNumber ? ` / ${award.solicitationNumber}` : ""}`,
+      originalAmount: award.contractAmount,
+      originalCurrency: award.currency ?? BASE_CURRENCY,
+      // 授标记录本身不带汇率；非 CAD 时要求财务另行补录（fail-closed，绝不臆造汇率）
+      fxRateCadPerOriginalUnit: (award.currency ?? BASE_CURRENCY) === BASE_CURRENCY ? "1" : null,
+      fxRateDate: award.awardDate ?? new Date(),
+      fxRateSource: (award.currency ?? BASE_CURRENCY) === BASE_CURRENCY ? "BASE_CURRENCY" : "MANUAL",
+      recognizedAt: award.awardDate ?? new Date(),
+      asRecognized: input.asRecognized === true,
+      refs: { awardRecordId: award.id },
+      sourceType: "AWARD_RECORD",
+      sourceRefId: award.id,
+      createdById: input.createdById,
+    });
+
+    return { materialized: true, entryId: entry.id, refusedReason: null, idempotentHit: false };
+  });
+}
+
 /* ═══════════════════════════ 读侧 ═══════════════════════════ */
 
 export interface ProjectRevenueRollup {
@@ -324,11 +507,13 @@ export interface ProjectRevenueRollup {
   adjustmentsCad: Prisma.Decimal;
   /** 预测总收入 = 上述三者之和 */
   forecastRevenueCad: Prisma.Decimal;
-  /** 已实现总收入（仅 REALIZED 行的 amountRealizedCad） */
-  realizedRevenueCad: Prisma.Decimal;
+  /** 已确认总收入（仅 RECOGNIZED 行的 amountRecognizedCad）；≠ 已收到的现金 */
+  recognizedRevenueCad: Prisma.Decimal;
   entryCount: number;
-  /** 仍处于 FORECAST（未实现）的条目数 —— final profit 资格判定用 */
-  unrealizedEntryCount: number;
+  /** 仍处于 FORECAST（未确认）的条目数 —— final profit 资格判定用 */
+  unrecognizedEntryCount: number;
+  /** 非 CAD 且缺 CAD 折算的收入条目数（数据质量；不猜金额） */
+  unknownCurrencyEntryCount: number;
 }
 
 const EMPTY_ROLLUP: ProjectRevenueRollup = {
@@ -337,9 +522,10 @@ const EMPTY_ROLLUP: ProjectRevenueRollup = {
   approvedChangeOrdersCad: ZERO,
   adjustmentsCad: ZERO,
   forecastRevenueCad: ZERO,
-  realizedRevenueCad: ZERO,
+  recognizedRevenueCad: ZERO,
   entryCount: 0,
-  unrealizedEntryCount: 0,
+  unrecognizedEntryCount: 0,
+  unknownCurrencyEntryCount: 0,
 };
 
 /** 项目收入汇总（唯一权威口径；VOIDED 一律排除）。flag OFF → available=false。 */
@@ -350,12 +536,13 @@ export async function getProjectRevenueRollup(
   if (!isProfitabilitySchemaReady()) return EMPTY_ROLLUP;
 
   const rows = await db.projectRevenueEntry.findMany({
-    where: { orgId, projectId, revenueStatus: { in: ["FORECAST", "REALIZED"] } },
+    where: { orgId, projectId, revenueStatus: { in: ["FORECAST", "RECOGNIZED"] } },
     select: {
       entryType: true,
       revenueStatus: true,
       amountForecastCad: true,
-      amountRealizedCad: true,
+      amountRecognizedCad: true,
+      originalCurrency: true,
     },
   });
 
@@ -364,14 +551,17 @@ export async function getProjectRevenueRollup(
   let adjustments = ZERO;
   let realized = ZERO;
   let unrealized = 0;
+  let unknownCurrency = 0;
 
   for (const r of rows) {
+    // 收入行的 CAD 列由 buildFxSnapshot 保证；若历史/异常行缺失则计数上报，不猜
+    if (r.amountForecastCad == null && r.amountRecognizedCad == null) unknownCurrency += 1;
     const forecast = r.amountForecastCad ?? ZERO;
     if (r.entryType === "CONTRACT_AWARD") contract = contract.add(forecast);
     else if (r.entryType === "CHANGE_ORDER") changeOrders = changeOrders.add(forecast);
     else adjustments = adjustments.add(forecast);
 
-    if (r.revenueStatus === "REALIZED") realized = realized.add(r.amountRealizedCad ?? ZERO);
+    if (r.revenueStatus === "RECOGNIZED") realized = realized.add(r.amountRecognizedCad ?? ZERO);
     else unrealized += 1;
   }
 
@@ -381,9 +571,10 @@ export async function getProjectRevenueRollup(
     approvedChangeOrdersCad: changeOrders,
     adjustmentsCad: adjustments,
     forecastRevenueCad: contract.add(changeOrders).add(adjustments),
-    realizedRevenueCad: realized,
+    recognizedRevenueCad: realized,
     entryCount: rows.length,
-    unrealizedEntryCount: unrealized,
+    unrecognizedEntryCount: unrealized,
+    unknownCurrencyEntryCount: unknownCurrency,
   };
 }
 
@@ -405,7 +596,7 @@ export async function listRevenueEntries(orgId: string, projectId: string) {
       originalAmount: r.originalAmount.toString(),
       originalCurrency: r.originalCurrency,
       amountForecastCad: r.amountForecastCad?.toString() ?? null,
-      amountRealizedCad: r.amountRealizedCad?.toString() ?? null,
+      amountRecognizedCad: r.amountRecognizedCad?.toString() ?? null,
       recognizedAt: r.recognizedAt.toISOString(),
       changeOrderReference: r.changeOrderReference,
       approvedById: r.approvedById,

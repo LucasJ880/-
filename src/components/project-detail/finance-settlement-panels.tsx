@@ -251,8 +251,11 @@ type TenderSummary = {
   contractRevenueCad: string;
   approvedChangeOrdersCad: string;
   forecastRevenueCad: string;
-  realizedRevenueCad: string;
+  recognizedRevenueCad: string;
   settlementAvailable: boolean;
+  outstandingReimbursementCad: string;
+  outstandingPayablesCad: string;
+  settlementStatus: string;
   employeeReimbursementOutstandingCad: string;
   vendorPayableOutstandingCad: string;
   affiliatePayableOutstandingCad: string;
@@ -276,16 +279,16 @@ const OUTCOME_LABEL: Record<string, string> = {
 const BLOCKER_LABEL: Record<string, string> = {
   REVENUE_LEDGER_UNAVAILABLE: "收入账未启用",
   PROJECT_NOT_COMPLETED: "项目尚未完工",
-  NO_REALIZED_REVENUE: "尚无已实现收入",
 };
 
 function blockerText(b: string): string {
   const base = b.split("(")[0];
   if (base === "OUTCOME_NOT_WON") return "项目未中标";
-  if (base === "REVENUE_NOT_FULLY_REALIZED") return "仍有收入未实现";
-  if (base === "OPEN_PAYABLES") return "仍有未结清应付";
-  if (base === "OPEN_COMMITTED_COST") return "仍有未落实的承诺成本";
-  if (base === "UNKNOWN_CURRENCY_COST_ROWS") return "存在未折算币种的成本行";
+  if (base === "REVENUE_NOT_FINAL") return "收入尚未定案";
+  if (base === "UNRESOLVED_COST_CORRECTION") return "仍有未落实的承诺成本";
+  if (base === "PENDING_COST_REVIEW") return "仍有待审费用";
+  if (base === "UNKNOWN_CURRENCY_COST") return "存在未折算币种的成本行";
+  if (base === "UNKNOWN_REVENUE_CURRENCY") return "存在未折算币种的收入行";
   return BLOCKER_LABEL[base] ?? base;
 }
 
@@ -376,7 +379,7 @@ export function TenderOutcomePanel({
           <Cell label="合同收入" value={cad(data.contractRevenueCad)} />
           <Cell label="已批变更单" value={cad(data.approvedChangeOrdersCad)} />
           <Cell label="预测收入" value={cad(data.forecastRevenueCad)} />
-          <Cell label="已实现收入" value={cad(data.realizedRevenueCad)} />
+          <Cell label="已确认收入" value={cad(data.recognizedRevenueCad)} />
         </div>
       ) : (
         <p className="text-[11px] leading-snug text-muted">收入账未启用，暂不能计算利润。</p>
@@ -418,6 +421,26 @@ export function TenderOutcomePanel({
           </ul>
         )}
       </div>
+
+      {/* 结算：与利润**并列**，不是利润的前置条件（R1 §G）。
+          「最终利润 CAD 282,000 + 结算 OPEN + 待报销 CAD 1,280」可以同时成立。 */}
+      {data.settlementAvailable && (
+        <div className="rounded-lg border border-border bg-card-bg p-3">
+          <div className="flex items-baseline gap-2">
+            <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800">结算</span>
+            <span className="text-[14px] font-medium text-foreground">
+              {data.settlementStatus === "OPEN" ? "尚未结清" : "已结清"}
+            </span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            <Cell label="待报销给员工" value={cad(data.outstandingReimbursementCad)} />
+            <Cell label="其余未结应付" value={cad(data.outstandingPayablesCad)} />
+          </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-muted">
+            这些钱是否已经付出去，不影响上面的项目利润 —— 费用一经批准就已计入项目成本。
+          </p>
+        </div>
+      )}
 
       {/* 落标 */}
       {data.outcome === "LOST" && (

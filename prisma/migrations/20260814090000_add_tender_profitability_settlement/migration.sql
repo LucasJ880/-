@@ -100,12 +100,15 @@ CREATE TABLE "ProjectRevenueEntry" (
     "fxRateDate" TIMESTAMP(3) NOT NULL,
     "fxRateSource" TEXT NOT NULL,
     "amountForecastCad" DECIMAL(18,2),
-    "amountRealizedCad" DECIMAL(18,2),
+    "amountRecognizedCad" DECIMAL(18,2),
     "recognizedAt" TIMESTAMP(3) NOT NULL,
     "changeOrderReference" TEXT,
     "approvedById" TEXT,
     "approvedAt" TIMESTAMP(3),
     "refs" JSONB,
+    "sourceType" TEXT,
+    "sourceRefId" TEXT,
+    "activeSourceKey" TEXT,
     "correctionOfEntryId" TEXT,
     "voidedAt" TIMESTAMP(3),
     "voidReason" TEXT,
@@ -176,6 +179,16 @@ CREATE INDEX "ProjectExpenseFxSettlement_orgId_projectId_idx" ON "ProjectExpense
 
 -- CreateIndex
 CREATE INDEX "ProjectExpenseFxSettlement_correctedProjectCostId_idx" ON "ProjectExpenseFxSettlement"("correctedProjectCostId");
+
+-- CreateIndex：Award→Revenue 结构化去重锚。
+-- activeSourceKey 在 VOID 时置 NULL（Postgres 唯一索引下 NULL 互不冲突）→
+-- ① 同 Project + 同 AwardRecord 至多一条**有效** CONTRACT_AWARD（结构性防重复物化）
+-- ② VOID + replacement 修正链不被唯一键卡死
+-- ③ 手工录入（activeSourceKey IS NULL）不受约束
+CREATE UNIQUE INDEX "ProjectRevenueEntry_projectId_activeSourceKey_key" ON "ProjectRevenueEntry"("projectId", "activeSourceKey");
+
+-- CreateIndex
+CREATE INDEX "ProjectRevenueEntry_orgId_sourceType_sourceRefId_idx" ON "ProjectRevenueEntry"("orgId", "sourceType", "sourceRefId");
 
 -- CreateIndex
 CREATE INDEX "ProjectRevenueEntry_orgId_projectId_revenueStatus_idx" ON "ProjectRevenueEntry"("orgId", "projectId", "revenueStatus");

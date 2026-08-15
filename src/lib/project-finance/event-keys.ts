@@ -114,8 +114,8 @@ export function revenueRecordedEventKey(entryId: string): string {
 }
 
 /** 收入实现（FORECAST → REALIZED；每条至多一次） */
-export function revenueRealizedEventKey(entryId: string): string {
-  return `revenue.realized:${entryId}`;
+export function revenueRecognizedEventKey(entryId: string): string {
+  return `revenue.recognized:${entryId}`;
 }
 
 /** 收入作废（每条至多一次） */

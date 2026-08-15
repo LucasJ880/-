@@ -23,7 +23,12 @@ import { getLossReview } from "./loss-review-service";
 import { BASE_CURRENCY, isBaseCurrency, marginPercentage, ZERO } from "./money";
 import { getProjectRevenueRollup, type ProjectRevenueRollup } from "./revenue-service";
 import { getOutstandingByType } from "./settlement-service";
-import { FinanceTenantError, resolveTenderOutcome, type TenderOutcome } from "./types";
+import {
+  FinanceTenantError,
+  resolveTenderOutcome,
+  type SettlementStatus,
+  type TenderOutcome,
+} from "./types";
 
 /** 项目 + 其阶段边界所需的最小字段集。 */
 const PROJECT_SELECT = {
@@ -136,10 +141,16 @@ export interface TenderFinancialSummary {
   contractRevenueCad: string;
   approvedChangeOrdersCad: string;
   forecastRevenueCad: string;
-  realizedRevenueCad: string;
+  recognizedRevenueCad: string;
 
-  /* 结算（现金面，不计入成本） */
+  /* 结算（现金面；与利润**正交** —— 不参与 Final Profit 资格判定，R1 §G） */
   settlementAvailable: boolean;
+  /** 任务书 §G 命名：员工未报销合计 */
+  outstandingReimbursementCad: string;
+  /** 任务书 §G 命名：其余未结应付（供应商 + 关联公司）合计 */
+  outstandingPayablesCad: string;
+  /** NONE（结算功能未启用）| OPEN（仍有未结）| SETTLED（已结清） */
+  settlementStatus: SettlementStatus;
   employeeReimbursementOutstandingCad: string;
   vendorPayableOutstandingCad: string;
   affiliatePayableOutstandingCad: string;
@@ -204,27 +215,52 @@ export async function getTenderFinancialSummary(
   const revenue: ProjectRevenueRollup = await getProjectRevenueRollup(orgId, projectId);
   const outstanding = await getOutstandingByType(orgId, projectId);
   const loss = outcome === "LOST" ? await getLossReview(orgId, projectId) : null;
+  // 待审费用数：成本面证据缺口（可能还会增加成本），与现金面无关
+  const pendingCostReviewCount = await db.projectExpenseSubmission.count({
+    where: { orgId, projectId, status: { in: ["PENDING_REVIEW", "SUBMITTED", "RESUBMITTED"] } },
+  });
 
-  /* ── 利润 ── */
+  /* ── 利润（R1 §G：与结算严格正交） ──
+   *
+   * 核心更正：**Payment ≠ Cost**。费用一经审批即产生 ProjectCost.ACTUAL，
+   * 那一刻成本就已进入项目损益；员工/供应商是否已经拿到钱是**现金面**的事，
+   * 不改变项目赚了多少钱。因此
+   *   OUTSTANDING_REIMBURSEMENT / OUTSTANDING_PAYABLE **禁止**作为 Final Profit blocker。
+   * 未结应付改为与利润并列的独立输出（outstanding* + settlementStatus）。
+   *
+   * 允许的 blocker 只能是「利润本身尚未定案」的证据缺口。
+   */
   const forecastProfit = revenue.available ? revenue.forecastRevenueCad.sub(totalCost) : null;
 
-  // Final Profit 资格（证据式判定，全部条件必须成立）
   const blockers: string[] = [];
   if (!revenue.available) blockers.push("REVENUE_LEDGER_UNAVAILABLE");
   if (outcome !== "WON") blockers.push(`OUTCOME_NOT_WON(${outcome})`);
   if (!project.actualCompletionDate) blockers.push("PROJECT_NOT_COMPLETED");
-  if (revenue.available && revenue.unrealizedEntryCount > 0) {
-    blockers.push(`REVENUE_NOT_FULLY_REALIZED(${revenue.unrealizedEntryCount})`);
+  if (revenue.available && revenue.unrecognizedEntryCount > 0) {
+    blockers.push(`REVENUE_NOT_FINAL(${revenue.unrecognizedEntryCount})`);
   }
-  if (revenue.available && revenue.realizedRevenueCad.lte(0)) blockers.push("NO_REALIZED_REVENUE");
-  if (outstanding.available && outstanding.totalCad.gt(0)) {
-    blockers.push(`OPEN_PAYABLES(${outstanding.totalCad.toString()})`);
+  if (revenue.available && revenue.recognizedRevenueCad.lte(0)) {
+    blockers.push("REVENUE_NOT_FINAL(NO_RECOGNIZED_REVENUE)");
   }
-  if (own.committedCad.gt(0)) blockers.push(`OPEN_COMMITTED_COST(${own.committedCad.toString()})`);
-  if (unknownCount > 0) blockers.push(`UNKNOWN_CURRENCY_COST_ROWS(${unknownCount})`);
+  // 尚未落实为 ACTUAL 的承诺成本 = 成本未定案（这是成本面证据缺口，不是现金面）
+  if (own.committedCad.gt(0)) blockers.push(`UNRESOLVED_COST_CORRECTION(${own.committedCad.toString()})`);
+  // 仍有待审费用 = 成本可能还会增加
+  if (pendingCostReviewCount > 0) blockers.push(`PENDING_COST_REVIEW(${pendingCostReviewCount})`);
+  if (unknownCount > 0) blockers.push(`UNKNOWN_CURRENCY_COST(${unknownCount})`);
+  if (revenue.available && revenue.unknownCurrencyEntryCount > 0) {
+    blockers.push(`UNKNOWN_REVENUE_CURRENCY(${revenue.unknownCurrencyEntryCount})`);
+  }
 
   const finalEligible = blockers.length === 0;
-  const finalProfit = finalEligible ? revenue.realizedRevenueCad.sub(totalCost) : null;
+  const finalProfit = finalEligible ? revenue.recognizedRevenueCad.sub(totalCost) : null;
+
+  /* ── 结算状态：与利润并列，互不影响 ── */
+  const outstandingTotal = outstanding.totalCad;
+  const settlementStatus: SettlementStatus = !outstanding.available
+    ? "NONE"
+    : outstandingTotal.gt(0)
+      ? "OPEN"
+      : "SETTLED";
 
   return {
     project: {
@@ -251,9 +287,12 @@ export async function getTenderFinancialSummary(
     contractRevenueCad: revenue.contractRevenueCad.toString(),
     approvedChangeOrdersCad: revenue.approvedChangeOrdersCad.toString(),
     forecastRevenueCad: revenue.forecastRevenueCad.toString(),
-    realizedRevenueCad: revenue.realizedRevenueCad.toString(),
+    recognizedRevenueCad: revenue.recognizedRevenueCad.toString(),
 
     settlementAvailable: outstanding.available,
+    outstandingReimbursementCad: outstanding.employeeReimbursementCad.toString(),
+    outstandingPayablesCad: outstanding.vendorPayableCad.add(outstanding.affiliatePayableCad).toString(),
+    settlementStatus,
     employeeReimbursementOutstandingCad: outstanding.employeeReimbursementCad.toString(),
     vendorPayableOutstandingCad: outstanding.vendorPayableCad.toString(),
     affiliatePayableOutstandingCad: outstanding.affiliatePayableCad.toString(),
@@ -265,7 +304,7 @@ export async function getTenderFinancialSummary(
         : null,
     finalProfitCad: finalProfit?.toString() ?? null,
     finalMarginPercentage:
-      finalProfit != null ? marginPercentage(finalProfit, revenue.realizedRevenueCad) : null,
+      finalProfit != null ? marginPercentage(finalProfit, revenue.recognizedRevenueCad) : null,
     finalProfitEligible: finalEligible,
     finalProfitBlockers: blockers,
 

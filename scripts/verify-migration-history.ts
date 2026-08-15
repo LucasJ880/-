@@ -67,7 +67,7 @@ const IMMUTABLE: Record<string, string> = {
   "20260811050000_add_project_financial_control":
     "2e4b67e62d41edc13835ed531bf1047fc1a18b7b807e796973f5047ef13d2b0d",
   "20260814090000_add_tender_profitability_settlement":
-    "1ad414bbddb2bd26d855a35ba42fdee3fc414dd66c76f3c61165319d48eb931f",
+    "712f2f5a9634215aa61a1e54d868f893897d04899b9a4200f418a5611e9f9b88",
   "20260814150000_add_tender_t4_award_record_foundation":
     "850c045737d590e3e5036eaf86b0d07a529add696c508c00111781abce36b882",
   "20260814220000_add_autopilot_a0_foundation":

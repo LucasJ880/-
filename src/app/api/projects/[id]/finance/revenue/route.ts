@@ -55,9 +55,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       approvedChangeOrdersCad: rollup.approvedChangeOrdersCad.toString(),
       adjustmentsCad: rollup.adjustmentsCad.toString(),
       forecastRevenueCad: rollup.forecastRevenueCad.toString(),
-      realizedRevenueCad: rollup.realizedRevenueCad.toString(),
+      recognizedRevenueCad: rollup.recognizedRevenueCad.toString(),
       entryCount: rollup.entryCount,
-      unrealizedEntryCount: rollup.unrealizedEntryCount,
+      unrecognizedEntryCount: rollup.unrecognizedEntryCount,
     },
   });
 }
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       fxRateDate: body.fxRateDate ? new Date(String(body.fxRateDate)) : null,
       fxRateSource: (body.fxRateSource as never) ?? null,
       recognizedAt: body.recognizedAt ? new Date(String(body.recognizedAt)) : new Date(),
-      asRealized: body.asRealized === true,
+      asRecognized: body.asRecognized === true,
       changeOrderReference: (body.changeOrderReference as string) ?? null,
       // 变更单批准人恒为服务端已认证用户（AI 不得自动批准变更收入）
       approvedById: body.entryType === "CHANGE_ORDER" ? access.user.id : null,

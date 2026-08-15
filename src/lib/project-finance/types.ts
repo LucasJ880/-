@@ -273,8 +273,46 @@ export class SettlementError extends Error {
 export const REVENUE_ENTRY_TYPES = ["CONTRACT_AWARD", "CHANGE_ORDER", "ADJUSTMENT"] as const;
 export type RevenueEntryType = (typeof REVENUE_ENTRY_TYPES)[number];
 
-export const REVENUE_STATUSES = ["FORECAST", "REALIZED", "VOIDED"] as const;
+/**
+ * 收入状态（R1 §H：收入确认 ≠ 收到现金）。
+ *
+ * - `FORECAST`   ：预期 / 合同额 / 已批变更单金额 —— 尚未确认为经济收入
+ * - `RECOGNIZED` ：**经济收入已确认/定案**（履约完成、金额定案）。
+ *                  刻意从 `REALIZED` 改名 —— 「realized」在中英文里都极易被读成
+ *                  「钱已到账」，而这里表达的是**会计确认**，与客户是否付款无关。
+ * - `VOIDED`     ：作废（修正走 VOID + replacement）
+ *
+ * **不在本域内**：invoice / customer payment / cash collection / AR aging。
+ * 客户回款属于未来的 AR / settlement 域（见 CUSTOMER_COLLECTION_OUT_OF_SCOPE），
+ * P1.6 不实现，也**禁止**未来用银行回款再产生第二条 revenue（收入只在本账确认一次）。
+ */
+export const REVENUE_STATUSES = ["FORECAST", "RECOGNIZED", "VOIDED"] as const;
 export type RevenueStatus = (typeof REVENUE_STATUSES)[number];
+
+/** 收入来源域（结构化 provenance；不建泛化 source framework，仅这两个值）。 */
+export const REVENUE_SOURCE_TYPES = ["AWARD_RECORD", "MANUAL"] as const;
+export type RevenueSourceType = (typeof REVENUE_SOURCE_TYPES)[number];
+
+/**
+ * 去重键构造（R1 §F）：ACTIVE 行写入，VOID 时置 NULL 释放键位。
+ * 配合 `@@unique([projectId, activeSourceKey])` 保证「同 Project + 同来源 + CONTRACT_AWARD」
+ * 至多一条**有效**权威收入行 —— 结构性约束，不依赖 findFirst + 开发者约定。
+ */
+export function buildRevenueActiveSourceKey(
+  entryType: RevenueEntryType,
+  sourceType: string | null | undefined,
+  sourceRefId: string | null | undefined,
+): string | null {
+  if (!sourceType || !sourceRefId) return null;
+  return `${entryType}:${sourceType}:${sourceRefId}`;
+}
+
+/**
+ * 结算状态（R1 §G）：与利润**正交**的现金面状态。
+ * Final Profit 可以成立的同时 settlement 仍为 OPEN —— 员工是否已拿到钱不改变项目利润。
+ */
+export const SETTLEMENT_STATUSES = ["NONE", "OPEN", "SETTLED"] as const;
+export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
 
 export class RevenueLifecycleError extends Error {
   readonly code = "REVENUE_LIFECYCLE_VIOLATION";

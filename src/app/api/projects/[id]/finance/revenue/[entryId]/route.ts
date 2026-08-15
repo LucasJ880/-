@@ -1,7 +1,7 @@
 /**
- * PATCH /api/projects/[id]/finance/revenue/[entryId] — { action: "realize" | "void" }
+ * PATCH /api/projects/[id]/finance/revenue/[entryId] — { action: "recognize" | "void" }
  *
- * realize：FORECAST → REALIZED（开票 / 收款确认；填充 amountRealizedCad，不覆盖 forecast 列）
+ * realize：FORECAST → REALIZED（开票 / 收款确认；填充 amountRecognizedCad，不覆盖 forecast 列）
  * void   ：作废（可带 correction 新行；镜像 ProjectCost 的 void + correction）
  * 没有「改金额」动作 —— REALIZED 后实质字段不可原地改。
  */
@@ -13,7 +13,7 @@ import {
   FinanceTenantError,
   FxContractError,
   RevenueLifecycleError,
-  realizeRevenueEntry,
+  recognizeRevenueEntry,
   voidRevenueEntry,
 } from "@/lib/project-finance";
 
@@ -29,17 +29,17 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
   try {
     switch (action) {
-      case "realize": {
-        const r = await realizeRevenueEntry({
+      case "recognize": {
+        const r = await recognizeRevenueEntry({
           orgId: access.orgId,
           projectId: id,
           entryId,
           actor,
-          realizedById: access.user.id,
-          amountRealizedCad: (body.amountRealizedCad as string) ?? null,
-          realizedAt: body.realizedAt ? new Date(String(body.realizedAt)) : null,
+          recognizedById: access.user.id,
+          amountRecognizedCad: (body.amountRecognizedCad as string) ?? null,
+          recognitionOccurredAt: body.recognitionOccurredAt ? new Date(String(body.recognitionOccurredAt)) : null,
         });
-        return NextResponse.json({ ok: true, entry: r.entry, realized: r.realized });
+        return NextResponse.json({ ok: true, entry: r.entry, recognized: r.recognized });
       }
       case "void": {
         const r = await voidRevenueEntry({
