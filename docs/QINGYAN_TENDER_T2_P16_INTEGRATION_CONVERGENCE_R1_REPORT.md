@@ -337,7 +337,43 @@ PROJECTEVENT_ROWS     = 0
 
 ## L. TEST-ALL
 
-（本节在 canonical run 完成后以实测结果填写；未达 224/224 前**禁止**写 `TESTALL_FULL_GREEN = YES`）
+### 历史事实（必须如实保留，不得改写）
+
+| 轮次 | 结果 |
+|---|---|
+| 首次完整 test-all（R0） | **212 / 224**，12 失败 |
+| 12 个失败套件串行复跑（R0） | **12 / 12 PASS**（266 项断言） |
+| 失败根因 | 与 `next build` **并行**导致 Neon 连接池（limit 13 / timeout 10s）与 5s 交互事务超时被打穿（`P2024` / `P2028`，实测一笔事务被拉到 89.8s），多数死在 `seedWorkforceFixture` 播种阶段 |
+
+R0 阶段的正确表述是 `TESTALL_LOGIC_REGRESSION_CLEARED = YES` / `CANONICAL_TESTALL_CLEAN_RUN = PENDING`。
+
+### R1 canonical clean run（本轮）
+
+条件：**全新**隔离生产快照分支 · 完整迁移链已 deploy · **零并行**（无 `next build`、无其它 DB-heavy 套件）· 单次完整 `scripts/test-all.sh`。
+
+| 轮次 | commit | 结果 |
+|---|---|---|
+| canonical #1 | `745ca93b` | **250 / 250 通过，0 失败**（`TESTALL_EXIT=0`） |
+| canonical #2（**最终 HEAD**，全新快照复核） | `8f9e688e` | **250 / 250 通过，0 失败**（`TESTALL_EXIT=0`） |
+
+canonical #2 的存在理由：#1 跑完后我补了一条 `materialize-award` 路由的授权契约断言（覆盖缺口）。
+代码一改，#1 就不再对应 HEAD —— 因此换全新隔离快照重跑一次完整 test-all，
+使「canonical clean run」严格对应最终交付 commit。
+
+**套件总数由 224 → 250 的原因**：#104 集成 main 后引入了 main 侧全部新套件（T4 awards ×3、Autopilot A0 ×7、tender-analyst、tender-doc-html、workbench-state 等），加上本轮新增的 `p16-integration-r1-db`。**224 是集成前的旧基数，不再是本树的分母。**
+
+### 本轮 P1.6 相关套件
+
+| 套件 | 结果 |
+|---|---|
+| `p16-pure` | **32 / 32**（新增 6 项 R1 静态纪律） |
+| `p16-authz-contract` | **12 / 12**（新增 materialize-award 路由契约） |
+| `p16-profitability-db` | **61 / 61** |
+| `p16-integration-r1-db` | **24 / 24**（本轮新增） |
+
+### 工具链
+
+`tsc --noEmit` 0 error · `eslint` 0 error（1 warning：DB 测试内未用变量） · `verify-migration-history` **53 / 0** · `check-release-safety` **27 / 0** · `next build` PASS
 
 ---
 
@@ -352,4 +388,105 @@ PROJECTEVENT_ROWS     = 0
 
 ## O. 最终 GATE 输出
 
-（见报告末尾「GATE BLOCK」章节，canonical test-all 完成后填终值）
+```
+PR104_MAIN_INTEGRATED        = YES   （merge，不重写历史；e03b9b7 → 53f4960；CONFLICTING → MERGEABLE）
+PR111_BASE_UPDATED           = YES   （吸收更新后的 #104；74764e2 → 8f9e688e）
+
+T4_PRESENT_IN_P16_BASE       = YES   （Prisma client 暴露 awardRecord/awardRecordSource；tender-intel/* 在编译上下文内）
+
+MIGRATION_ORDER_INTEGRATION  = PASS  （实测：out-of-order deploy 成功；事后 status exit 0 且 "up to date"；
+                                       全新快照一次性 deploy 三条同样干净 → 无需 rename/re-sequence）
+T4_PROD_MIGRATION_PROVENANCE = VERIFIED
+                                     （仓库内冻结 runbook §0 的预写步骤与生产 _prisma_migrations
+                                       逐条吻合：resolve marketing_economics（started==finished）
+                                       → deploy T2-M1/T3/T4 同批 555ms；PR #107 merge 后 1h43m）
+
+AWARD_TRUTH                  = AwardRecord（Tender Award Intelligence / Evidence）
+REVENUE_TRUTH                = ProjectRevenueEntry（Project Financial Revenue Ledger）
+AWARD_TO_REVENUE_CONTRACT    = FROZEN
+                                     （受控单向桥 materializeAwardRevenue()：六重资格闸
+                                       + sourceType/sourceRefId/activeSourceKey 结构化去重
+                                       + @@unique([projectId, activeSourceKey])
+                                       + VOID/replacement 修正；禁止 on-award-created 自动建收入）
+
+PROFIT_SETTLEMENT_SEPARATED  = YES   （移除 OUTSTANDING_REIMBURSEMENT / OUTSTANDING_PAYABLE blocker；
+                                       改为 outstandingReimbursementCad / outstandingPayablesCad /
+                                       settlementStatus 并列输出；PROFIT-SETTLEMENT-01 实证）
+REVENUE_CASH_SEPARATED       = YES   （REALIZED → RECOGNIZED；AR/回款冻结为域外；REV-CASH-01 实证）
+
+PHASE_BOUNDARY_COVERAGE      = INSUFFICIENT_DATA (n=1)
+                                     （WON=1 且为无 sourceTenderProjectId 的 delivery 项目；
+                                       COHORT_DATE_COVERAGE = 0%：生产 25 个项目**无一**填了 submittedAt
+                                       → 登记为 ACTIVATION BLOCKER + DATA MIGRATION REQUIREMENT）
+
+P15                          = PASS  （finance DB 43/43；pure 7/7；authz 10/10）
+P16                          = PASS  （pure 32/32；authz 12/12；DB 61/61；R1 集成 24/24）
+T2                           = PASS  （P1/T3.5 ledger DB 60/60，零 drift）
+T3                           = PASS  （memory DB 43/43，零 drift）
+T4                           = PASS  （awards DB 18/18；awards pure 20/20；award-semantics 12/12）
+
+CANONICAL_TESTALL            = 250/250 PASS @ 8f9e688e（全新隔离生产快照，零并行，TESTALL_EXIT=0）
+TESTALL_FULL_GREEN           = YES
+
+MOBILE_REAL_DEVICE_UAT       = PENDING（PRODUCTION_ACTIVATION_BLOCKER，非 dark-merge blocker）
+PRODUCTION_ACTIVATION_ALLOWED = NO
+
+PRODUCTION_DB_CHANGED        = NO
+PRODUCTION_ENV_CHANGED       = NO
+PRODUCTION_MIGRATION_RUN     = NO
+PR104_MERGED                 = NO
+PR111_MERGED                 = NO
+
+P16_STATUS                   = READY_FOR_FINAL_REVIEW
+```
+
+### 为什么是 READY_FOR_FINAL_REVIEW 而不是 BLOCKED
+
+本轮四个收口目标全部达成、零 STOP 条件触发：
+① #104/#111 与 main + T4 完成收口（MERGEABLE，byte-identity 校验通过）
+② Profitability 财务语义已更正（Payment ≠ Cost，实证）
+③ Award ↔ Revenue source-of-truth 契约已冻结并有结构化+DB 双层保证
+④ migration / regression integration gate 全部重跑通过（canonical 250/250）
+
+`PHASE_BOUNDARY_COVERAGE` 与 `MOBILE_REAL_DEVICE_UAT` 是**生产启用**前置，
+不是 dark-merge 前置 —— 二者均已登记为 `PRODUCTION_ACTIVATION_ALLOWED = NO` 的具名理由。
+
+---
+
+## 生产激活前置清单（本轮更新后的真实状态）
+
+| 前置 | 状态 |
+|---|---|
+| `MARKETING_ECONOMICS_MIGRATION_STATE` | ✅ **RESOLVED**（2026-08-14 runbook，本轮取证） |
+| `PRODUCTION_M1_SCHEMA_STATUS`（T2 ledger 四表） | ✅ **PRESENT**（`20260811002000` 已 applied） |
+| P1.5 migration deployed | ❌ 未（PR 未 merge） |
+| P1.6 migration deployed | ❌ 未（PR 未 merge） |
+| `COHORT_DATE_COVERAGE`（`Project.submittedAt` 回填） | ❌ **0%** —— Portfolio 启用前必须回填 |
+| `MOBILE_REAL_DEVICE_UAT` | ❌ PENDING |
+| `TENDER_FINANCIAL_CONTROL_ENABLED` | OFF |
+| `TENDER_PROFITABILITY_SCHEMA_READY` | OFF |
+| `T2_LEDGER_SCHEMA_READY` / `PRODUCERS_ENABLED` | OFF |
+| `T4_AWARD_INTELLIGENCE_SCHEMA_READY` | OFF |
+
+---
+
+## OPEN RISKS（继承 + 本轮新增）
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | `CHANGE_ORDER_MODEL_GAP` | 仍 open（只做收入侧，无完整 CO workflow） |
+| 2 | `FX_PROVIDER_GAP` | 仍 open（仅 MANUAL；SYSTEM_REFERENCE 无 provider 时 fail-closed 503） |
+| 3 | `CUSTOMER_COLLECTION_OUT_OF_SCOPE` | 本轮**明确冻结**为域外（AR / 回款不在 P1.6） |
+| 4 | `PAYMENT_INTEGRATION_GAP` | 仍 open（付款手工录入，无银行对账） |
+| 5 | `AI_OCR_NOT_IMPLEMENTED` | 仍 open（只建边界未实现识别） |
+| 6 | `LOSS_REVIEW_AI_SUGGEST_NO_ROUTE` | 仍 open（service API 存在，刻意不暴露 HTTP） |
+| 7 | **`COHORT_DATE_COVERAGE = 0%`** | **本轮新增**：生产无任何 `submittedAt` → Portfolio 对任意窗口返回 0 |
+| 8 | **`PHASE_BOUNDARY_SAMPLE_TOO_SMALL`** | **本轮新增**：WON=1 且无 `sourceTenderProjectId`，覆盖率数字无统计意义 |
+| 9 | `MOBILE_REAL_DEVICE_UAT_PENDING` | 升级为 PRODUCTION_ACTIVATION_BLOCKER |
+| 10 | `TESTALL_CONCURRENCY_FRAGILITY` | 既有环境债：Workforce 12 个 DB 套件在并发负载下会被连接池/事务超时打穿；串行下全绿 |
+| 11 | `MAIN_MIGRATION_REGISTRATION_DEFECT` | **本轮修复**：T4/A0 漏登 `verify-migration-history`（main 上该 gate 即为红）；本分支已补齐，但 **main 本身仍红**，直到本 stack merge 回去 |
+| 12 | `LEGACY_PROD_SCHEMA_DRIFT` | 生产存在 11 张 greenfield re-baseline 残留表 + `AgentRun.agentTaskId`；与本 PR 无关，长期需独立清理决策 |
+
+---
+
+**STOP。等待 Lucas Final Review。不 merge，不开生产。**
