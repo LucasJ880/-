@@ -9,3 +9,5 @@ export * from "./instrumentation";
 export * from "./outbox";
 export * from "./processor";
 export * from "./telemetry-health";
+export * from "./coverage";
+export * from "./coverage-health";

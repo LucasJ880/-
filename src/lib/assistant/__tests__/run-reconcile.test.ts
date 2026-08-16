@@ -325,10 +325,8 @@ ok(
     );
     const hasForUpdate = src.includes("FOR UPDATE");
     const createsInTx = src.includes("createRunEventInTx");
-    // 终态不得在事务外 appendAgentRunEvent
-    const afterTxAppend =
-      /\$transaction[\s\S]*appendAgentRunEvent/.test(src) === false ||
-      !src.includes("appendAgentRunEvent");
+    const usesCanonicalInTx = src.includes("appendAgentRunEventInTx");
+    const nakedAppend = /appendAgentRunEvent\(/.test(src);
     const failClosedOrg = src.includes("ORG_LINK_MISMATCH");
     const noUnknown =
       !src.includes('initiatedByPrincipalId: "unknown"') &&
@@ -336,7 +334,8 @@ ok(
     return (
       hasForUpdate &&
       createsInTx &&
-      afterTxAppend &&
+      usesCanonicalInTx &&
+      !nakedAppend &&
       failClosedOrg &&
       noUnknown
     );

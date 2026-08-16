@@ -9,6 +9,7 @@ import {
   searchOrgKnowledge,
 } from "@/lib/knowledge/org-knowledge";
 import { db } from "@/lib/db";
+import { withObservedRetrieval } from "@/lib/agent-runtime/observe";
 
 async function assertOrgAccess(ctx: ToolExecutionContext) {
   if (ctx.hasMembership === true) return null;
@@ -47,12 +48,25 @@ registry.register({
     if (!query) {
       return { success: false, data: null, error: "query 不能为空" };
     }
-    const result = await searchOrgKnowledge({
+    const result = await withObservedRetrieval({
       orgId: ctx.orgId,
+      runId: ctx.agentRunId,
+      retrievalType: "org_knowledge",
       query,
-      category:
-        typeof ctx.args.category === "string" ? ctx.args.category : undefined,
-      limit: typeof ctx.args.limit === "number" ? ctx.args.limit : 8,
+      run: () =>
+        searchOrgKnowledge({
+          orgId: ctx.orgId,
+          query,
+          category:
+            typeof ctx.args.category === "string" ? ctx.args.category : undefined,
+          limit: typeof ctx.args.limit === "number" ? ctx.args.limit : 8,
+        }),
+      resultCount: (r) => r.hits.length,
+      sourceRefs: (r) => r.hits.map((h) => h.documentId),
+      topScore: (r) =>
+        r.hits.length > 0
+          ? Math.max(...r.hits.map((h) => h.similarity || 0))
+          : undefined,
     });
     return {
       success: true,

@@ -415,6 +415,7 @@ export async function createAgentPlan(input: {
     currentOpportunityId?: string | null;
     currentQuoteId?: string | null;
   };
+  agentRunId?: string;
 }): Promise<AgentPlan> {
   const rules = createAgentPlanFromRules({
     content: input.content,
@@ -450,6 +451,8 @@ export async function createAgentPlan(input: {
       timeoutMs: PLAN_TIMEOUT_MS,
       temperature: 0.2,
       reasoningEffort: "low",
+      orgId: input.orgId,
+      agentRunId: input.agentRunId,
     });
 
     const parsed = extractPlanJson(raw);

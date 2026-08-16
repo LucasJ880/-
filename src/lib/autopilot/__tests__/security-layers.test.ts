@@ -103,6 +103,7 @@ const apiFiles = [
   "src/app/api/autopilot/runs/route.ts",
   "src/app/api/autopilot/runs/[runId]/route.ts",
   "src/app/api/autopilot/telemetry-health/route.ts",
+  "src/app/api/autopilot/event-coverage/route.ts",
 ];
 for (const rel of apiFiles) {
   const src = readFileSync(join(root, rel), "utf8");

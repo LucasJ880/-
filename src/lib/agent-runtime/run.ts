@@ -3,13 +3,14 @@
  */
 
 import { db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type {
   AgentErrorCode,
   AgentRunEventType,
   AgentRunStatus,
+  AgentRunTerminalStatus,
 } from "./types";
-import { ACTIVE_RUN_STATUSES } from "./types";
+import { ACTIVE_RUN_STATUSES, AGENT_RUN_TERMINAL_STATUSES } from "./types";
 import {
   createTraceContext,
   traceContextToMetadata,
@@ -199,6 +200,10 @@ export async function createAgentRun(input: {
         eventType: "run.started",
         title: "任务已创建",
         visibleToUser: true,
+        payload: {
+          schemaVersion: 1,
+          userMessageId: input.userMessageId || null,
+        },
       });
       return created;
     });
@@ -311,46 +316,108 @@ export async function updateAgentRunStatus(
   });
 }
 
+const AGENT_RUN_TERMINAL_EVENT: Record<
+  AgentRunTerminalStatus,
+  AgentRunEventType
+> = {
+  completed: "run.completed",
+  failed: "run.failed",
+  cancelled: "run.cancelled",
+};
+
+function isAgentRunTerminalStatus(status: string): boolean {
+  return (AGENT_RUN_TERMINAL_STATUSES as readonly string[]).includes(status);
+}
+
+async function loadLockedAgentRun(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  runId: string,
+) {
+  const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>(
+    Prisma.sql`
+      SELECT id, status
+      FROM "AgentRun"
+      WHERE id = ${runId} AND "orgId" = ${orgId}
+      FOR UPDATE
+    `,
+  );
+  if (rows.length === 0) throw new Error("Run 不存在或跨组织");
+  const run = await tx.agentRun.findFirst({
+    where: { id: runId, orgId },
+  });
+  if (!run) throw new Error("Run 不存在或跨组织");
+  return run;
+}
+
+async function applyAgentRunTerminalInTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    orgId: string;
+    runId: string;
+    status: (typeof AGENT_RUN_TERMINAL_STATUSES)[number];
+    title: string;
+    payload?: Record<string, unknown>;
+    data: {
+      completedAt?: Date;
+      cancelledAt?: Date;
+      latencyMs?: number | null;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+    };
+  },
+) {
+  const run = await loadLockedAgentRun(tx, input.orgId, input.runId);
+  if (isAgentRunTerminalStatus(run.status)) return run;
+
+  const next = await tx.agentRun.update({
+    where: { id: input.runId },
+    data: {
+      status: input.status,
+      completedAt: input.data.completedAt ?? null,
+      ...(input.data.cancelledAt ? { cancelledAt: input.data.cancelledAt } : {}),
+      latencyMs: input.data.latencyMs ?? null,
+      ...(input.data.errorCode !== undefined
+        ? { errorCode: input.data.errorCode }
+        : {}),
+      ...(input.data.errorMessage !== undefined
+        ? { errorMessage: input.data.errorMessage }
+        : {}),
+    },
+  });
+  await appendAgentRunEventInTx(tx, {
+    orgId: input.orgId,
+    runId: input.runId,
+    eventType: AGENT_RUN_TERMINAL_EVENT[input.status],
+    title: input.title,
+    payload: input.payload,
+    visibleToUser: true,
+  });
+  await enqueueAutopilotTelemetryOutbox(tx, {
+    orgId: input.orgId,
+    agentRunId: input.runId,
+    noticeType: "run_terminal",
+  });
+  return next;
+}
+
 export async function completeAgentRun(orgId: string, runId: string) {
   return withAgentRunEventSequenceRetry(async () => {
     return db.$transaction(async (tx) => {
-      const run = await tx.agentRun.findFirst({
-        where: { id: runId, orgId },
-      });
-      if (!run) throw new Error("Run 不存在或跨组织");
-      if (
-        run.status === "cancelled" ||
-        run.status === "completed" ||
-        run.status === "failed"
-      ) {
-        return run;
-      }
-
+      const run = await loadLockedAgentRun(tx, orgId, runId);
+      if (isAgentRunTerminalStatus(run.status)) return run;
       const completedAt = new Date();
       const latencyMs = run.startedAt
         ? completedAt.getTime() - run.startedAt.getTime()
         : null;
-      const next = await tx.agentRun.update({
-        where: { id: runId },
-        data: {
-          status: "completed",
-          completedAt,
-          latencyMs,
-        },
-      });
-      await appendAgentRunEventInTx(tx, {
+      return applyAgentRunTerminalInTx(tx, {
         orgId,
         runId,
-        eventType: "run.completed",
+        status: "completed",
         title: "任务完成",
         payload: { latencyMs },
+        data: { completedAt, latencyMs },
       });
-      await enqueueAutopilotTelemetryOutbox(tx, {
-        orgId,
-        agentRunId: runId,
-        noticeType: "run_terminal",
-      });
-      return next;
     });
   });
 }
@@ -362,38 +429,25 @@ export async function failAgentRun(
 ) {
   return withAgentRunEventSequenceRetry(async () => {
     return db.$transaction(async (tx) => {
-      const run = await tx.agentRun.findFirst({ where: { id: runId, orgId } });
-      if (!run) throw new Error("Run 不存在或跨组织");
-      if (run.status === "cancelled") return run;
-
+      const run = await loadLockedAgentRun(tx, orgId, runId);
+      if (isAgentRunTerminalStatus(run.status)) return run;
       const completedAt = new Date();
       const latencyMs = run.startedAt
         ? completedAt.getTime() - run.startedAt.getTime()
         : null;
-      const next = await tx.agentRun.update({
-        where: { id: runId },
+      return applyAgentRunTerminalInTx(tx, {
+        orgId,
+        runId,
+        status: "failed",
+        title: "任务失败",
+        payload: { code: error.code },
         data: {
-          status: "failed",
           completedAt,
           latencyMs,
           errorCode: error.code,
           errorMessage: error.message.slice(0, 2000),
         },
       });
-      await appendAgentRunEventInTx(tx, {
-        orgId,
-        runId,
-        eventType: "run.failed",
-        title: "任务失败",
-        payload: { code: error.code },
-        visibleToUser: true,
-      });
-      await enqueueAutopilotTelemetryOutbox(tx, {
-        orgId,
-        agentRunId: runId,
-        noticeType: "run_terminal",
-      });
-      return next;
     });
   });
 }
@@ -423,45 +477,27 @@ export async function cancelAgentRun(orgId: string, runId: string) {
 
   return withAgentRunEventSequenceRetry(async () => {
     return db.$transaction(async (tx) => {
-      const current = await tx.agentRun.findFirst({
-        where: { id: runId, orgId },
-      });
-      if (!current) throw new Error("Run 不存在或跨组织");
-      if (
-        current.status === "completed" ||
-        current.status === "failed" ||
-        current.status === "cancelled"
-      ) {
-        return current;
-      }
-
-      const next = await tx.agentRun.update({
-        where: { id: runId },
-        data: {
-          status: "cancelled",
-          cancelledAt: new Date(),
-          completedAt: new Date(),
-          latencyMs: current.startedAt
-            ? Date.now() - current.startedAt.getTime()
-            : null,
-        },
-      });
-      await appendAgentRunEventInTx(tx, {
+      const current = await loadLockedAgentRun(tx, orgId, runId);
+      if (isAgentRunTerminalStatus(current.status)) return current;
+      const completedAt = new Date();
+      const latencyMs = current.startedAt
+        ? completedAt.getTime() - current.startedAt.getTime()
+        : null;
+      return applyAgentRunTerminalInTx(tx, {
         orgId,
         runId,
-        eventType: "run.cancelled",
+        status: "cancelled",
         title:
           rejectedPending > 0
             ? `任务已取消，并拒绝 ${rejectedPending} 个待确认动作`
             : "任务已取消",
         payload: { rejectedPending },
+        data: {
+          completedAt,
+          cancelledAt: completedAt,
+          latencyMs,
+        },
       });
-      await enqueueAutopilotTelemetryOutbox(tx, {
-        orgId,
-        agentRunId: runId,
-        noticeType: "run_terminal",
-      });
-      return next;
     });
   });
 }

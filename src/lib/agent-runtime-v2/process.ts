@@ -113,7 +113,7 @@ export async function startAgentRuntimeV2Run(
     runId,
     eventType: "plan.started",
     title: "正在理解目标",
-    payload: { goal: input.goal },
+    payload: { goalChars: input.goal.length },
   });
 
   const planned = await planAgentRuntimeV2({
@@ -124,6 +124,7 @@ export async function startAgentRuntimeV2Run(
     goal: input.goal,
     // #88：Planner 只能看到有真实执行路径的工具（ghost tool 不可见）
     availableTools: plannerVisibleRuntimeV2Tools(),
+    agentRunId: runId,
   });
 
   if (!planned.ok) {
