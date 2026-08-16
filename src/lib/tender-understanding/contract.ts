@@ -353,6 +353,8 @@ export type PromptUsage = {
 };
 
 export type AnalysisMetadataV2 = {
+  /** 引文逐字可核验但被模型写错单元号、已纠正到唯一真实单元的条数 */
+  evidenceReattributed?: number;
   analyzerVersion: typeof TENDER_UNDERSTANDING_VERSION;
   resultVersion: typeof TENDER_ANALYSIS_RESULT_VERSION;
   projectId: string;
