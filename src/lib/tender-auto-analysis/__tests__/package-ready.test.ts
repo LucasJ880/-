@@ -38,8 +38,13 @@ console.log("tender-auto-analysis package-ready");
   ok(!r.ready && r.code === "NO_PACKAGE_DOCUMENTS", "空项目 → NO_PACKAGE_DOCUMENTS");
 }
 {
+  const r = assessPackageReadiness([pdf({ fileType: "doc" }), pdf({ fileType: "png" })]);
+  ok(!r.ready && r.code === "NO_PACKAGE_DOCUMENTS", "无可分析文件 → NO_PACKAGE_DOCUMENTS");
+}
+{
+  // docx/xlsx 已可切成可引用单元 → 与 PDF 同为候选
   const r = assessPackageReadiness([pdf({ fileType: "docx" }), pdf({ fileType: "xlsx" })]);
-  ok(!r.ready && r.code === "NO_PACKAGE_DOCUMENTS", "无 PDF → NO_PACKAGE_DOCUMENTS");
+  ok(r.ready && r.documentCount === 2, "docx/xlsx 构成可分析包");
 }
 
 // 任一文件仍在解析 → DOCUMENT_PROCESSING（关键：不提前分析半包）

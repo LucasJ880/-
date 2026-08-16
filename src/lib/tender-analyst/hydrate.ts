@@ -32,6 +32,8 @@ export function collectReferencedIds(synthesis: AnalystLlmOutput): Set<string> {
 export function hydrateEvidenceIndex(
   synthesis: AnalystLlmOutput,
   result: AnalysisResultV2,
+  /** (documentId, 单元序号) → 单元标签；非 PDF 证据据此展示真实定位而非"第 N 页" */
+  unitLabelOf?: (documentId: string, pageNumber: number | null) => string | null,
 ): Record<string, AnalystEvidenceRef> {
   const nameByDoc = new Map(
     result.manifest.documents.map((d) => [d.documentId, d.name] as const),
@@ -43,6 +45,7 @@ export function hydrateEvidenceIndex(
       documentId: e.documentId,
       documentName: nameByDoc.get(e.documentId) ?? null,
       pageNumber: e.pageNumber ?? null,
+      unitLabel: unitLabelOf?.(e.documentId, e.pageNumber ?? null) ?? null,
       snippet: e.snippet ? e.snippet.slice(0, 400) : null,
     }));
 

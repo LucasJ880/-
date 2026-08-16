@@ -14,7 +14,7 @@
  */
 
 import { db } from "@/lib/db";
-import { isPdfFileType } from "./enqueue-helpers";
+import { isAnalyzableFileType } from "./enqueue-helpers";
 
 export type PackageReadinessCode =
   | "NO_PACKAGE_DOCUMENTS"
@@ -55,14 +55,14 @@ export function readinessReason(code: PackageReadinessCode): string {
 
 /**
  * 纯函数：给定项目内文档行，判定 package 是否就绪。
- * 候选 = 可解析 PDF（非 failed、非 addendum-only）。
+ * 候选 = 可解析文件（PDF / docx / xlsx / csv / txt；非 failed、非 addendum-only）。
  */
 export function assessPackageReadiness(
   rows: ReadonlyArray<ReadinessRow>,
 ): PackageReadiness {
   const candidates = rows.filter(
     (r) =>
-      isPdfFileType(r.fileType ?? "") &&
+      isAnalyzableFileType(r.fileType ?? "") &&
       r.parseStatus !== "failed" &&
       !r.addendumOnly,
   );

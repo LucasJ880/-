@@ -36,6 +36,33 @@ export function isPdfFileType(fileType: string): boolean {
 }
 
 /**
+ * Package AI 可分析的文件类型。
+ *
+ * PDF 之外的格式经 document-units 切成**真实可引用单元**（工作表 / 段落块）后同样
+ * 满足 V2 的证据纪律，因此纳入分析。旧二进制 `.doc` 无可靠文本抽取器 → 不纳入
+ * （宁可明示排除，也不产出无法核验的内容）。
+ */
+const ANALYZABLE_TYPES = new Set([
+  "pdf",
+  "application/pdf",
+  "docx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "xlsx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "xls",
+  "application/vnd.ms-excel",
+  "csv",
+  "text/csv",
+  "txt",
+  "text/plain",
+]);
+
+export function isAnalyzableFileType(fileType: string): boolean {
+  const t = (fileType ?? "").trim().toLowerCase().replace(/^\./, "");
+  return ANALYZABLE_TYPES.has(t);
+}
+
+/**
  * @deprecated Phase 1.1.1：FULL 包入队不再用文件名判定 ADDENDUM。
  * 保留给旧测试/增量显式路径；仅当明确含 addendum 关键词时返回 ADDENDUM。
  * 普通第二 PDF 不得仅凭此进入 INCREMENTAL。

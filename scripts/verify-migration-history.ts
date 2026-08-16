@@ -30,6 +30,7 @@ const EXPECTED_ACTIVE = [
   "20260814150000_add_tender_t4_award_record_foundation",
   "20260814220000_add_autopilot_a0_foundation",
   "20260815010000_add_autopilot_a1_p0_telemetry_outbox",
+  "20260816060000_add_document_page_unit_metadata",
 ] as const;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
@@ -70,6 +71,8 @@ const IMMUTABLE: Record<string, string> = {
     "0c6e52baa685da7fea27d7ba6583502c6b5dcfb8791992404bcd94a7d6026585",
   "20260815010000_add_autopilot_a1_p0_telemetry_outbox":
     "710332eb59f6d7d5d6a310e47c288c65a6372c0b5ea715cc45a8a2ac19caa438",
+  "20260816060000_add_document_page_unit_metadata":
+    "11ea9dd36b0ed9a3679088b25e90909df24e02fcc7e19b06c0fb6d53ee36671a",
 };
 
 let passed = 0;

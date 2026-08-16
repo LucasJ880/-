@@ -932,7 +932,9 @@ export function TenderAnalysisPanel({
                         : s.pageNumber != null
                           ? `第 ${s.pageNumber} 页`
                           : "页码未知"}
-                  {s.sectionLabel ? ` · ${s.sectionLabel}` : ""}
+                  {s.sectionLabel && !s.locationLabel?.includes(s.sectionLabel)
+                    ? ` · ${s.sectionLabel}`
+                    : ""}
                 </span>
                 <p className="mt-1 line-clamp-2">{s.snippet}</p>
               </button>

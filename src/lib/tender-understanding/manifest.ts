@@ -58,7 +58,12 @@ export type SectionWindow = {
   documentId: string;
   sourceRole: AnalyzerDocument["sourceRole"];
   documentName: string;
-  pages: { pageNumber: number; contentText: string }[];
+  pages: {
+    pageNumber: number;
+    contentText: string;
+    unitKind?: string | null;
+    unitLabel?: string | null;
+  }[];
   headings: string[];
 };
 
@@ -117,6 +122,8 @@ export function buildSectionWindows(
       pages: slice.map((p) => ({
         pageNumber: p.pageNumber,
         contentText: p.contentText,
+        unitKind: p.unitKind ?? null,
+        unitLabel: p.unitLabel ?? null,
       })),
       headings: slice.flatMap((p) => detectPageHeadings(p.contentText)).slice(0, 6),
     });

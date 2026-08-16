@@ -60,13 +60,32 @@ export async function buildAnalyzerInputForRun(
   const pageRows = await db.projectDocumentPage.findMany({
     where: { documentId: { in: ids } },
     orderBy: [{ documentId: "asc" }, { pageNumber: "asc" }],
-    select: { documentId: true, pageNumber: true, contentText: true },
+    select: {
+      documentId: true,
+      pageNumber: true,
+      contentText: true,
+      unitKind: true,
+      unitLabel: true,
+    },
   });
 
-  const pagesByDoc = new Map<string, { pageNumber: number; contentText: string }[]>();
+  const pagesByDoc = new Map<
+    string,
+    {
+      pageNumber: number;
+      contentText: string;
+      unitKind: string | null;
+      unitLabel: string | null;
+    }[]
+  >();
   for (const p of pageRows) {
     const arr = pagesByDoc.get(p.documentId) ?? [];
-    arr.push({ pageNumber: p.pageNumber, contentText: p.contentText });
+    arr.push({
+      pageNumber: p.pageNumber,
+      contentText: p.contentText,
+      unitKind: p.unitKind,
+      unitLabel: p.unitLabel,
+    });
     pagesByDoc.set(p.documentId, arr);
   }
 

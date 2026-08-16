@@ -82,7 +82,12 @@ export function buildExtractUserPrompt(window: {
   documentName: string;
   sourceRole: string;
   headings: string[];
-  pages: { pageNumber: number; contentText: string }[];
+  pages: {
+    pageNumber: number;
+    contentText: string;
+    unitKind?: string | null;
+    unitLabel?: string | null;
+  }[];
 }): string {
   const header = [
     `DOCUMENT: ${window.documentName}`,
@@ -95,11 +100,16 @@ export function buildExtractUserPrompt(window: {
   ]
     .filter((x): x is string => x !== null)
     .join("\n");
+  // 非 PDF 没有页：定位单元用真实标签（Sheet/段落块），并明确 pageNumber 是单元序号。
+  // 绝不把单元序号说成"页"——引用要能被人核验回原文。
   const body = window.pages
-    .map(
-      (p) =>
-        `=== documentId ${window.documentId} PAGE ${p.pageNumber} ===\n${p.contentText}`,
-    )
+    .map((p) => {
+      const isPage = !p.unitKind || p.unitKind === "page";
+      const locator = isPage
+        ? `PAGE ${p.pageNumber}`
+        : `UNIT ${p.pageNumber} (${p.unitKind}${p.unitLabel ? `: ${p.unitLabel}` : ""})`;
+      return `=== documentId ${window.documentId} ${locator} ===\n${p.contentText}`;
+    })
     .join("\n\n");
   return `${header}${body}\n\nExtract facts / requirements / potentialRisks / ambiguities from the pages above. JSON only.`;
 }
