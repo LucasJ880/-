@@ -7,7 +7,6 @@
  */
 import { readFileSync } from "node:fs";
 import { compileServerAuthoredPlan } from "../plan-compile";
-import { WORKFORCE_PLAN_CONTRACT_VERSION } from "../server-plan";
 import {
   readCanonicalSubmissionChecklist,
   GroundedChecklistError,
