@@ -6,6 +6,11 @@ import { db } from "@/lib/db";
 import { readBlobBuffer } from "@/lib/files/blob-access";
 import { PARSE_VERSION } from "./constants";
 import { sha256Content } from "./hash";
+import {
+  buildBlockUnits,
+  buildSheetUnits,
+  type DocumentUnit,
+} from "./document-units";
 
 /** 与 legacy parse-content 对齐的全文存储上限 */
 export const MAX_CONTENT_TEXT_CHARS = 200_000;
@@ -17,6 +22,9 @@ export const MAX_PDF_PAGES = 80;
 export const NEAR_EMPTY_PAGE_CHARS = 16;
 
 export const EXTRACTION_METHOD_UNPDF = "unpdf" as const;
+/** 非 PDF 单元的抽取方式标记（与 PDF 页级行区分，便于排障与统计） */
+export const EXTRACTION_METHOD_SHEET = "sheet-csv" as const;
+export const EXTRACTION_METHOD_BLOCK = "text-block" as const;
 
 export type PageParseStatus = "done" | "OCR_REQUIRED" | "empty" | "failed";
 
@@ -102,34 +110,43 @@ export async function extractPdfPagesFromBuffer(
   };
 }
 
-async function extractNonPdfText(
+/**
+ * 非 PDF → 可引用单元（sheet / block）。
+ * 与 PDF 的页级行同构落库，使 V2 的「引用必须可核验」在非 PDF 上同样成立。
+ */
+export async function extractNonPdfUnits(
   buffer: Buffer,
   fileType: string,
-): Promise<{ text: string } | { error: string }> {
+): Promise<{ units: DocumentUnit[] } | { error: string }> {
   const type = fileType.toLowerCase();
   try {
-    if (type === "doc" || type === "docx") {
+    if (type === "docx") {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ buffer });
-      return { text: result.value?.trim() || "" };
+      return { units: buildBlockUnits(result.value?.trim() || "") };
     }
     if (type === "xls" || type === "xlsx") {
       const XLSX = await import("xlsx");
       const workbook = XLSX.read(buffer, { type: "buffer" });
-      const lines: string[] = [];
+      const sheets: { name: string; csv: string }[] = [];
       for (const name of workbook.SheetNames) {
         const sheet = workbook.Sheets[name];
         const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
-        if (csv.trim()) {
-          lines.push(`[Sheet: ${name}]`);
-          lines.push(csv.trim());
-        }
+        if (csv.trim()) sheets.push({ name, csv: csv.trim() });
       }
-      return { text: lines.join("\n") };
+      return { units: buildSheetUnits(sheets) };
     }
-    if (type === "csv" || type === "txt") {
-      return { text: buffer.toString("utf-8").trim() };
+    if (type === "csv") {
+      return {
+        units: buildSheetUnits([
+          { name: "CSV", csv: buffer.toString("utf-8").trim() },
+        ]),
+      };
     }
+    if (type === "txt") {
+      return { units: buildBlockUnits(buffer.toString("utf-8").trim()) };
+    }
+    // 旧二进制 .doc 无可靠文本抽取器 → 明确不支持（不静默产出空单元）
     return { error: `不支持的文件格式: ${fileType}` };
   } catch (e) {
     return { error: sanitizeParseError(e) };
@@ -253,8 +270,9 @@ export async function parseDocumentPagesAndStore(
       };
     }
 
-    // 非 PDF：走文本解析，不捏造页级行（pageCount = null）
-    const nonPdf = await extractNonPdfText(buffer, fileType);
+    // 非 PDF：切成**真实存在**的可引用单元（sheet / block），与 PDF 页级行同构落库。
+    // 单元序号写进 pageNumber，但 unitKind≠page + unitLabel 保证展示层不会谎称"第 N 页"。
+    const nonPdf = await extractNonPdfUnits(buffer, fileType);
     if ("error" in nonPdf) {
       await db.projectDocument.update({
         where: { id: documentId },
@@ -274,25 +292,48 @@ export async function parseDocumentPagesAndStore(
       };
     }
 
+    const units = nonPdf.units;
     const contentText =
-      nonPdf.text.slice(0, MAX_CONTENT_TEXT_CHARS) || null;
-    await db.projectDocumentPage.deleteMany({ where: { documentId } });
-    await db.projectDocument.update({
-      where: { id: documentId },
-      data: {
-        contentText,
-        pageCount: null,
-        parseStatus: "done",
-        parseError: null,
-        parseVersion: PARSE_VERSION,
-        contentHash,
-      },
+      units
+        .map((u) => u.contentText)
+        .join("\n\n")
+        .slice(0, MAX_CONTENT_TEXT_CHARS) || null;
+
+    await db.$transaction(async (tx) => {
+      await tx.projectDocumentPage.deleteMany({ where: { documentId } });
+      if (units.length > 0) {
+        await tx.projectDocumentPage.createMany({
+          data: units.map((u) => ({
+            documentId,
+            pageNumber: u.unitNumber,
+            contentText: u.contentText,
+            charCount: u.charCount,
+            extractionMethod:
+              u.unitKind === "sheet" ? EXTRACTION_METHOD_SHEET : EXTRACTION_METHOD_BLOCK,
+            parseStatus: u.parseStatus === "done" ? "done" : "empty",
+            unitKind: u.unitKind,
+            unitLabel: u.unitLabel,
+          })),
+        });
+      }
+      await tx.projectDocument.update({
+        where: { id: documentId },
+        data: {
+          contentText,
+          // 非 PDF 的 pageCount = 可引用单元数（不是页数）；展示层按 unitKind 区分措辞
+          pageCount: units.length > 0 ? units.length : null,
+          parseStatus: "done",
+          parseError: null,
+          parseVersion: PARSE_VERSION,
+          contentHash,
+        },
+      });
     });
 
     return {
       ok: true,
       documentId,
-      pageCount: null,
+      pageCount: units.length > 0 ? units.length : null,
       parseStatus: "done",
       contentHash,
     };

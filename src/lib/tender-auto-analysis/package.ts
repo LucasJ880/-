@@ -7,13 +7,18 @@ import { db } from "@/lib/db";
 import { readBlobBuffer } from "@/lib/files/blob-access";
 import type { DocumentRole } from "./constants";
 import { computePackageFingerprintFromPairs, sha256Content } from "./hash";
-import { isPdfFileType } from "./enqueue-helpers";
+import { isAnalyzableFileType } from "./enqueue-helpers";
 
 /** 单文件页数上限（page-parse 已强制） */
 export { MAX_PDF_PAGES } from "./page-parse";
 
 /** 整包页数之和上限；超过则拒绝入队，不静默截断 */
-export const MAX_TENDER_PACKAGE_PAGES = 200;
+/**
+ * 整包可引用单元上限（PDF 页 + 非 PDF 单元）。
+ * 分片续跑后时间不再是约束，此上限只为兜住 DB/LLM 成本；纳入 docx/xlsx 后同一个
+ * 招标包的单元数会显著上升（每文件另有 MAX_UNITS_PER_DOCUMENT=120 的硬上限）。
+ */
+export const MAX_TENDER_PACKAGE_PAGES = 400;
 
 export type PackageDocument = {
   documentId: string;
@@ -154,7 +159,7 @@ export async function getTenderPackageDocuments(
   const candidates: PackageDocument[] = [];
   const skippedMissingHash: string[] = [];
   for (const row of rows) {
-    if (!isPdfFileType(row.fileType)) continue;
+    if (!isAnalyzableFileType(row.fileType)) continue;
     if (row.parseStatus === "failed") continue;
     if (addendumOnly.has(row.id) && !force.has(row.id)) continue;
 

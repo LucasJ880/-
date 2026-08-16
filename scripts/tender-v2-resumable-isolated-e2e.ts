@@ -52,15 +52,54 @@ function assertIsolated(): void {
 }
 
 const SUBJECTS = ["mattress covers", "curtain rails", "workshop benches"];
+const SHEET_UNIT_LABEL = "Sheet「Category A Pricing」";
+const SHEET_UNIT_TEXT =
+  "Sheet: Category A Pricing\nItem,Description,Qty\n1,Bedroom desk,120\n2,Study chair,240";
 const pageText = (i: number) =>
   `Page ${i} — Section ${i}. The vendor must supply ${SUBJECTS[i - 1]} and complete installation within ${i * 3} days.`;
 const snippet = (i: number) =>
   `The vendor must supply ${SUBJECTS[i - 1]} and complete installation within ${i * 3} days.`;
 
 let llmCalls = 0;
+let sheetPromptSeen: string | null = null;
 const invoker: LlmInvoker = async (req) => {
   llmCalls += 1;
   if (req.promptName.includes("extract")) {
+    // xlsx 单元窗口：prompt 里应出现 UNIT/sheet 定位而非 PAGE
+    if (req.userPrompt.includes("Category A Pricing")) {
+      sheetPromptSeen = req.userPrompt;
+      return {
+        content: JSON.stringify({
+          facts: [],
+          potentialRisks: [],
+          ambiguities: [],
+          requirements: [
+            {
+              category: "PRICING",
+              statement: "Bidder must price 120 bedroom desks in Category A.",
+              actor: "Bidder",
+              action: "price",
+              object: "bedroom desks",
+              mandatory: true,
+              mandatorySignal: "must",
+              deadline: null,
+              quantity: "120",
+              unit: "EA",
+              submissionStage: null,
+              technicalArea: null,
+              revisionAction: null,
+              revisionTargetHint: null,
+              sourceDocumentId: `doc-sheet-${TAG}`,
+              pageNumber: 1,
+              sourceSnippet: "1,Bedroom desk,120",
+              confidence: "HIGH",
+            },
+          ],
+        }),
+        model: "scripted-e2e-model",
+        elapsedMs: 1,
+      };
+    }
     const pages = [...req.userPrompt.matchAll(/Page (\d+) — Section/g)].map((m) =>
       Number(m[1]),
     );
@@ -230,6 +269,39 @@ async function seed(): Promise<{ orgId: string; projectId: string; docIds: strin
     });
     docIds.push(doc.id);
   }
+
+  // 第 4 个文档：xlsx 报价表 —— 单元（sheet）而非页，验证引用不显示假页码
+  const sheetDoc = await db.projectDocument.create({
+    data: {
+      id: `doc-sheet-${TAG}`,
+      projectId: project.id,
+      title: "Appendix C - Pricing Form.xlsx",
+      fileType: "xlsx",
+      url: `https://example.invalid/${TAG}/pricing.xlsx`,
+      blobUrl: `https://example.invalid/${TAG}/pricing.xlsx`,
+      contentText: SHEET_UNIT_TEXT,
+      contentHash: "hash-4",
+      pageCount: 1,
+      parseStatus: "done",
+      parseVersion: PARSE_VERSION,
+      source: "upload",
+    },
+    select: { id: true },
+  });
+  await db.projectDocumentPage.create({
+    data: {
+      documentId: sheetDoc.id,
+      pageNumber: 1,
+      contentText: SHEET_UNIT_TEXT,
+      charCount: SHEET_UNIT_TEXT.length,
+      extractionMethod: "sheet-csv",
+      parseStatus: "done",
+      unitKind: "sheet",
+      unitLabel: SHEET_UNIT_LABEL,
+    },
+  });
+  docIds.push(sheetDoc.id);
+
   return { orgId: org.id, projectId: project.id, docIds };
 }
 
@@ -349,11 +421,57 @@ async function main(): Promise<void> {
   ok(parsed !== null, "A3 jsonb 检查点往返后仍可解析（Prisma Json ↔ 游标契约）");
   ok(parsed?.phase === "PERSIST", `A3 最终阶段=PERSIST（实得 ${parsed?.phase}）`);
   ok(
-    Object.keys(parsed?.windows.outputs ?? {}).length === 3,
-    "A3 三个窗口的抽取结果都在检查点里",
+    Object.keys(parsed?.windows.outputs ?? {}).length === 4,
+    `A3 全部窗口（3 PDF + 1 xlsx 单元）的抽取结果都在检查点里（${Object.keys(parsed?.windows.outputs ?? {}).length}）`,
   );
   const sj = (rows?.summaryJson ?? {}) as Record<string, unknown>;
   ok(sj.analystSynthesis != null, "A4 Analyst 中文综合层已落 summaryJson");
+
+  /* ---------- A7：非 PDF 单元的引用链（不得出现假页码） ---------- */
+  ok(
+    sheetPromptSeen !== null && /UNIT 1 \(sheet: Sheet「Category A Pricing」\)/.test(sheetPromptSeen),
+    "A7 抽取 prompt 对 xlsx 用 UNIT+真实标签定位（不称 PAGE）",
+  );
+  const sheetRefs = await db.tenderAnalysisSourceRef.findMany({
+    where: { runId, documentId: `doc-sheet-${TAG}` },
+    select: { pageNumber: true, sectionLabel: true, originalTextSnippet: true },
+  });
+  ok(sheetRefs.length > 0, `A7 xlsx 单元产生了 canonical 引用（${sheetRefs.length} 条）`);
+  ok(
+    sheetRefs.every((r) => r.sectionLabel === SHEET_UNIT_LABEL),
+    "A7 引用带真实单元标签（sectionLabel=Sheet「…」）",
+  );
+  ok(
+    sheetRefs.every((r) => r.originalTextSnippet.includes("Bedroom desk")),
+    "A7 引用原文逐字可核验（证据硬门通过）",
+  );
+  {
+    const { serializeSourceRef } = await import("@/lib/tender-auto-analysis/serializers");
+    const view = serializeSourceRef(
+      {
+        id: "x",
+        documentId: `doc-sheet-${TAG}`,
+        pageNumber: sheetRefs[0]!.pageNumber,
+        sectionLabel: sheetRefs[0]!.sectionLabel,
+        originalTextSnippet: sheetRefs[0]!.originalTextSnippet,
+        confidence: "CONFIRMED",
+        extractionMethod: "v2-llm-extract",
+      },
+      {
+        documentTitleById: new Map([
+          [`doc-sheet-${TAG}`, "Appendix C - Pricing Form.xlsx"],
+        ]),
+      },
+    );
+    ok(
+      view.locationLabel === `Appendix C - Pricing Form.xlsx · ${SHEET_UNIT_LABEL}`,
+      `A7 展示定位=文件名 · 单元标签（实得 ${view.locationLabel}）`,
+    );
+    ok(
+      !/p\.\d+/.test(view.locationLabel ?? ""),
+      "A7 展示层不出现 p.N（表格没有页，绝不谎报）",
+    );
+  }
 
   const callsAfterFirstRun = llmCalls;
   ok(callsAfterFirstRun > 0, `A4 首轮 LLM 调用数=${callsAfterFirstRun}`);
