@@ -9,16 +9,33 @@ import { requireCronSecret } from "@/lib/cron/auth";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { processQueuedAgentRuns } from "@/lib/agent-runtime/queue";
 import { processQueuedWorkforceJobs } from "@/lib/workforce-runtime/processor";
+import {
+  AGENT_RUNS_MAX_DURATION_S,
+  AGENT_RUNS_INVOCATION_BUDGET_MS,
+} from "@/lib/workforce-runtime/constants";
 
-export const maxDuration = 60;
+/**
+ * T5-P1.1 §3：60s 不足以容纳一次 Analyst 长调用（真实 t3 实测 126–507s）。
+ * 提到 300s（与 #113 的 Tender cron 同一安全模型），但**这不是新的 one-shot 上限**——
+ * 长任务仍必须可续跑；300s 只保证单个安全切片里塞得下一次完整模型调用。
+ */
+export const maxDuration = AGENT_RUNS_MAX_DURATION_S;
 
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request);
   if (denied) return denied;
 
+  // §4：绝对 deadline 必须从 **HTTP invocation 开始**算起，
+  // 否则前面 processQueuedAgentRuns 的耗时不会计入 serverless 总预算。
+  const requestStartedAt = Date.now();
+  const executionBudget = {
+    deadlineAt: requestStartedAt + AGENT_RUNS_INVOCATION_BUDGET_MS,
+    tickBudgetMs: AGENT_RUNS_INVOCATION_BUDGET_MS,
+  };
+
   const data = await runTrackedAutomation("agent-runs", async () => {
     const result = await processQueuedAgentRuns(2);
-    const workforce = await processQueuedWorkforceJobs(2);
+    const workforce = await processQueuedWorkforceJobs(2, { executionBudget });
     return {
       data: { ...result, workforce },
       processedCount: result.processed + workforce.processed,
