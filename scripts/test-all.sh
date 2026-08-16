@@ -147,6 +147,7 @@ run_test "Autopilot A1-P0 Benchmark" "npx tsx src/lib/autopilot/__tests__/durabi
 run_test "Autopilot A1-P0 Sequence Retry" "npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts"
 run_test "Autopilot A1-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/durability-e2e.isolated.test.ts"
 run_test "Autopilot A1-P1 Coverage" "npx tsx src/lib/autopilot/__tests__/coverage.test.ts"
+run_test "Autopilot A1-P1 Tool Hook Durability" "npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts"
 run_test "Autopilot A1-P1 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/coverage-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"

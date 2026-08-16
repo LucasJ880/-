@@ -71,6 +71,7 @@ npx tsx src/lib/autopilot/__tests__/security-layers.test.ts
 npx tsx src/lib/autopilot/__tests__/durability-matrix.test.ts
 npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts
 npx tsx src/lib/autopilot/__tests__/coverage.test.ts
+npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
 npx tsx src/lib/marketing/__tests__/route-access.test.ts

@@ -28,14 +28,13 @@ import type {
   AgentRunOptions,
   AgentRunResult,
   AgentRunHooks,
-  AgentToolCallInfo,
-  AgentToolStartInfo,
   AgentRunFinishInfo,
   ToolDefinition,
   ToolExecutionContext,
   ToolExecutionResult,
 } from "./types";
 import { toolLabel, type AgentStreamEvent } from "./streaming";
+import { fireToolCallHook, fireToolStartHook } from "./run-hooks";
 
 // 确保工具已注册
 import "./tools";
@@ -53,34 +52,7 @@ export class AgentTimeoutError extends Error {
   }
 }
 
-// ── A-P0：观测 hooks（fire-and-forget，绝不影响主链路）──────────
-
-async function fireToolStartHook(
-  hooks: AgentRunHooks | undefined,
-  info: AgentToolStartInfo,
-): Promise<void> {
-  if (!hooks?.onToolStart) return;
-  try {
-    await hooks.onToolStart(info);
-  } catch (err) {
-    logger.warn("agent_core.hook.tool_start_failed", {
-      tool: info.name,
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-function fireToolCallHook(hooks: AgentRunHooks | undefined, info: AgentToolCallInfo): void {
-  if (!hooks?.onToolCall) return;
-  Promise.resolve()
-    .then(() => hooks.onToolCall!(info))
-    .catch((err) => {
-      logger.warn("agent_core.hook.tool_call_failed", {
-        tool: info.name,
-        err: err instanceof Error ? err.message : String(err),
-      });
-    });
-}
+// ── A-P0：onFinish 仍 fire-and-forget。工具 start/terminal 见 run-hooks.ts（await）。
 
 function fireFinishHook(hooks: AgentRunHooks | undefined, info: AgentRunFinishInfo): void {
   if (!hooks?.onFinish) return;
@@ -428,7 +400,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
             result,
           });
 
-          fireToolCallHook(hooks, {
+          await fireToolCallHook(hooks, {
             name: tc.function.name,
             args,
             result,
@@ -812,7 +784,7 @@ export async function* runAgentStream(
         );
 
         toolCallLog.push({ name, args, result });
-        fireToolCallHook(hooks, {
+        await fireToolCallHook(hooks, {
           name,
           args,
           result,

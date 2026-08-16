@@ -11,8 +11,10 @@ import {
 } from "../map-events";
 import {
   CONTEXT_LIFECYCLE,
+  LEGACY_RUNTIME_GAPS,
   MODEL_LIFECYCLE,
   RETRIEVAL_LIFECYCLE,
+  RUNTIME_COVERAGE_GAP_LIVE_NOTE,
   TOOL_LIFECYCLE,
   countLifecycleOrphans,
   durableCaptureGap,
@@ -214,11 +216,37 @@ ok(
 );
 ok(projectionGap({ mappedEventCount: 8, projectedEventCount: 8 }) === 0, "projection gap 0");
 ok(
+  projectionGap({
+    mappedEventCount: 2,
+    unknownEventCount: 1,
+    projectedEventCount: 2,
+  }) === 1,
+  "2 mapped + 1 unknown, projected=2 → PROJECTION_GAP=1",
+);
+ok(
+  projectionGap({
+    mappedEventCount: 2,
+    unknownEventCount: 1,
+    projectedEventCount: 3,
+  }) === 0,
+  "2 mapped + 1 unknown, projected=3 → PROJECTION_GAP=0",
+);
+ok(
+  projectionGap({
+    mappedEventCount: 2,
+    unknownEventCount: 1,
+    projectedEventCount: 2,
+    projectedMappedCount: 0,
+    projectedUnknownCount: 2,
+  }) === 2,
+  "UNKNOWN_EVENT extras do not mask missing mapped projections",
+);
+ok(
   runtimeCoverageGap(
     ["USER_INPUT", "TASK_COMPLETED"],
     ["USER_INPUT", "TASK_COMPLETED"],
   ).gap === 0,
-  "runtime coverage gap 0",
+  "runtime coverage gap 0 for defined scenario contract",
 );
 
 const toolPair = [
@@ -269,6 +297,111 @@ ok(
   "retrievalId start → fail",
 );
 
+const crossRunTools = [
+  {
+    eventType: "tool.started",
+    runId: "runA",
+    payload: { toolCallId: "step1:1" },
+  },
+  {
+    eventType: "tool.completed",
+    runId: "runA",
+    payload: { toolCallId: "step1:1" },
+  },
+  {
+    eventType: "tool.started",
+    runId: "runB",
+    payload: { toolCallId: "step1:1" },
+  },
+  {
+    eventType: "tool.completed",
+    runId: "runB",
+    payload: { toolCallId: "step1:1" },
+  },
+];
+ok(
+  countLifecycleOrphans(crossRunTools, TOOL_LIFECYCLE).orphanCount === 0,
+  "cross-run reused toolCallId step1:1 is not an orphan",
+);
+
+const crossRunModels = [
+  {
+    eventType: "model.started",
+    runId: "runA",
+    payload: { modelCallId: "step1:1" },
+  },
+  {
+    eventType: "model.completed",
+    runId: "runA",
+    payload: { modelCallId: "step1:1" },
+  },
+  {
+    eventType: "response.started",
+    runId: "runB",
+    payload: { modelCallId: "step1:1" },
+  },
+  {
+    eventType: "response.completed",
+    runId: "runB",
+    payload: { modelCallId: "step1:1" },
+  },
+];
+ok(
+  countLifecycleOrphans(crossRunModels, MODEL_LIFECYCLE).orphanCount === 0,
+  "cross-run reused modelCallId is not an orphan",
+);
+
+const crossRunRetrieval = [
+  {
+    eventType: "retrieval.started",
+    runId: "runA",
+    payload: { retrievalId: "step1:1" },
+  },
+  {
+    eventType: "retrieval.completed",
+    runId: "runA",
+    payload: { retrievalId: "step1:1" },
+  },
+  {
+    eventType: "retrieval.started",
+    runId: "runB",
+    payload: { retrievalId: "step1:1" },
+  },
+  {
+    eventType: "retrieval.failed",
+    runId: "runB",
+    payload: { retrievalId: "step1:1" },
+  },
+];
+ok(
+  countLifecycleOrphans(crossRunRetrieval, RETRIEVAL_LIFECYCLE).orphanCount === 0,
+  "cross-run reused retrievalId is not an orphan",
+);
+
+ok(
+  countLifecycleOrphans(
+    [
+      {
+        eventType: "tool.started",
+        runId: "runA",
+        payload: { toolCallId: "step1:1" },
+      },
+      {
+        eventType: "tool.started",
+        runId: "runA",
+        payload: { toolCallId: "step1:1" },
+      },
+      {
+        eventType: "tool.completed",
+        runId: "runA",
+        payload: { toolCallId: "step1:1" },
+      },
+    ],
+    TOOL_LIFECYCLE,
+  ).orphanCount === 1,
+  "same-run duplicate toolCallId remains an orphan",
+);
+
 const snapshot = summarizeCoverage({
   runCount: 1,
   events: [
@@ -284,7 +417,42 @@ const snapshot = summarizeCoverage({
 ok(snapshot.unknownEventTypeCount === 1, "unknownEventTypeCount");
 ok(snapshot.toolOrphans === 0, "snapshot tool orphans 0");
 ok(snapshot.durableCaptureGap === 0, "snapshot durable gap 0");
-ok(snapshot.projectionGap === 0, "mapped 2 vs projected 2");
+ok(snapshot.projectableEvents === 3, "projectable = mapped + unknown, exclude internal");
+ok(
+  snapshot.projectionGap === 1,
+  "2 mapped + 1 unknown + 1 internal, projected=2 → PROJECTION_GAP=1",
+);
+ok(snapshot.runtimeCoverageGap === null, "live runtimeCoverageGap is N/A, not fake 0");
+ok(
+  snapshot.runtimeCoverageGapNote === RUNTIME_COVERAGE_GAP_LIVE_NOTE,
+  "live diagnostics explain N/A reason",
+);
+
+const snapshotClosed = summarizeCoverage({
+  runCount: 1,
+  events: [
+    ...toolPair,
+    { eventType: "ack.sent" },
+    { eventType: "mystery.event" },
+  ],
+  outboxEventCount: 4,
+  projectedEventCount: 3,
+  captureEnabled: true,
+  classify: classifyAgentRunEvent,
+});
+ok(
+  snapshotClosed.projectionGap === 0,
+  "2 mapped + 1 unknown + 1 internal, projected=3 → PROJECTION_GAP=0",
+);
+
+ok(LEGACY_RUNTIME_GAPS.length >= 5, "LEGACY_RUNTIME_GAPS remain documented");
+ok(
+  LEGACY_RUNTIME_GAPS.some((g) => g.id === "sales_create_completion_without_agent_run") &&
+    LEGACY_RUNTIME_GAPS.some((g) => g.id === "trade_firecrawl_retrieval") &&
+    LEGACY_RUNTIME_GAPS.some((g) => g.id === "tender_auto_analysis") &&
+    LEGACY_RUNTIME_GAPS.some((g) => g.id === "assistant_partial_legacy_semantics"),
+  "legacy sales/trade/tender/assistant gaps stay visible",
+);
 
 const typesSrc = readFileSync(
   join(process.cwd(), "src/lib/agent-runtime/types.ts"),
@@ -337,6 +505,31 @@ ok(clientSrc.includes("agentRunId"), "createCompletionDetailed optional agentRun
 ok(
   clientSrc.includes('await import("@/lib/agent-runtime/observe")'),
   "model wrapper dynamic-imports observe",
+);
+
+const runSrc = readFileSync(
+  join(process.cwd(), "src/lib/agent-runtime/run.ts"),
+  "utf8",
+);
+function exportedFn(src: string, name: string) {
+  const start = src.indexOf(`export async function ${name}`);
+  const next = src.indexOf("export async function", start + 1);
+  return start >= 0 ? src.slice(start, next === -1 ? undefined : next) : "";
+}
+ok(runSrc.includes("FOR UPDATE"), "terminal transition locks AgentRun FOR UPDATE");
+ok(
+  runSrc.includes("applyAgentRunTerminalInTx"),
+  "canonical atomic terminal helper exists",
+);
+ok(
+  exportedFn(runSrc, "completeAgentRun").includes("applyAgentRunTerminalInTx") &&
+    exportedFn(runSrc, "failAgentRun").includes("applyAgentRunTerminalInTx") &&
+    exportedFn(runSrc, "cancelAgentRun").includes("applyAgentRunTerminalInTx"),
+  "complete/fail/cancel share one atomic terminal transition",
+);
+ok(
+  exportedFn(runSrc, "failAgentRun").includes("isAgentRunTerminalStatus"),
+  "failAgentRun short-circuits any terminal status, not only cancelled",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

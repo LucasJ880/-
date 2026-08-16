@@ -44,8 +44,10 @@ export function countLifecycleOrphans(
   const started = new Map<string, number>();
   const terminals = new Map<string, number>();
   for (const event of events) {
-    const id = payloadId(event.payload, spec.idKeys as string[]);
-    if (!id) continue;
+    const invocationId = payloadId(event.payload, spec.idKeys as string[]);
+    if (!invocationId) continue;
+    const runId = event.runId?.trim() || "__ungrouped";
+    const id = `${runId}:${invocationId}`;
     if ((spec.started as readonly string[]).includes(event.eventType)) {
       started.set(id, (started.get(id) ?? 0) + 1);
     }
@@ -132,10 +134,60 @@ export function durableCaptureGap(input: {
 
 export function projectionGap(input: {
   mappedEventCount: number;
+  unknownEventCount?: number;
   projectedEventCount: number;
+  projectedMappedCount?: number;
+  projectedUnknownCount?: number;
 }): number {
-  return Math.max(0, input.mappedEventCount - input.projectedEventCount);
+  const unknownEventCount = input.unknownEventCount ?? 0;
+  if (
+    typeof input.projectedMappedCount === "number" &&
+    typeof input.projectedUnknownCount === "number"
+  ) {
+    return (
+      Math.max(0, input.mappedEventCount - input.projectedMappedCount) +
+      Math.max(0, unknownEventCount - input.projectedUnknownCount)
+    );
+  }
+  const projectable = input.mappedEventCount + unknownEventCount;
+  return Math.max(0, projectable - input.projectedEventCount);
 }
+
+/** Live diagnostics must not invent expected retrieval/model/tool events. */
+export const RUNTIME_COVERAGE_GAP_LIVE_NOTE =
+  "RUNTIME_COVERAGE_GAP 仅用于已定义场景/契约。Live diagnostics = N/A；未发生的 retrieval/model/tool 不算缺口。";
+
+/**
+ * Known legacy paths outside AgentRun observation.
+ * Visible future migration work — do not fake events to close these.
+ */
+export const LEGACY_RUNTIME_GAPS = [
+  {
+    id: "sales_create_completion_without_agent_run",
+    summary: "Sales 直接 createCompletion，不创建 AgentRun",
+  },
+  {
+    id: "trade_firecrawl_retrieval",
+    summary: "Trade / Firecrawl 检索未进入 AgentRun 观察面",
+  },
+  {
+    id: "tender_auto_analysis",
+    summary: "招标自动分析路径未进入 AgentRun 观察面",
+  },
+  {
+    id: "assistant_partial_legacy_semantics",
+    summary:
+      "Assistant 部分 legacy context/tool 语义（如 tool.completed / entity.resolved 无 started；daily brief context.loading 无 loaded）",
+  },
+  {
+    id: "v1_conversation_response_wrap",
+    summary: "v1 conversation 将整段 runAgent 包成一次 response.*",
+  },
+  {
+    id: "memory_recall_timeout_not_retrieval",
+    summary: "Memory recall timeout 不是 retrieval 事件",
+  },
+] as const;
 
 export function runtimeCoverageGap(
   expectedTypes: readonly string[],
@@ -152,9 +204,11 @@ export type CoverageSnapshot = {
   outboxEvents: number;
   projectedEvents: number;
   mappedEvents: number;
+  projectableEvents: number;
   durableCaptureGap: number | null;
   projectionGap: number;
   runtimeCoverageGap: number | null;
+  runtimeCoverageGapNote: string;
   toolStarted: number;
   toolCompleted: number;
   toolFailed: number;
@@ -205,12 +259,17 @@ export function summarizeCoverage(input: {
   events: CoverageEvent[];
   outboxEventCount: number;
   projectedEventCount: number;
+  projectedMappedCount?: number;
+  projectedUnknownCount?: number;
   captureEnabled: boolean;
   classify: (eventType: string) => "mapped" | "internal" | "unknown";
   mapToCanonical?: (eventType: string, payload?: unknown) => string | null;
 }): CoverageSnapshot {
   const mappedEvents = input.events.filter(
     (e) => input.classify(e.eventType) === "mapped",
+  ).length;
+  const unknownInstances = input.events.filter(
+    (e) => input.classify(e.eventType) === "unknown",
   ).length;
   const unknownTypes = [
     ...new Set(
@@ -227,12 +286,14 @@ export function summarizeCoverage(input: {
     (e) =>
       e.eventType === "tool.completed" && asRecord(e.payload).ok === false,
   ).length;
+  const projectableEvents = mappedEvents + unknownInstances;
   return {
     runsObserved: input.runCount,
     canonicalEvents: input.events.length,
     outboxEvents: input.outboxEventCount,
     projectedEvents: input.projectedEventCount,
     mappedEvents,
+    projectableEvents,
     durableCaptureGap: durableCaptureGap({
       captureEnabled: input.captureEnabled,
       canonicalEventCount: input.events.length,
@@ -240,9 +301,13 @@ export function summarizeCoverage(input: {
     }),
     projectionGap: projectionGap({
       mappedEventCount: mappedEvents,
+      unknownEventCount: unknownInstances,
       projectedEventCount: input.projectedEventCount,
+      projectedMappedCount: input.projectedMappedCount,
+      projectedUnknownCount: input.projectedUnknownCount,
     }),
     runtimeCoverageGap: null,
+    runtimeCoverageGapNote: RUNTIME_COVERAGE_GAP_LIVE_NOTE,
     toolStarted: count(TOOL_LIFECYCLE.started),
     toolCompleted: count(["tool.completed"]) - toolCompletedFail,
     toolFailed: toolFailedExplicit + toolCompletedFail,

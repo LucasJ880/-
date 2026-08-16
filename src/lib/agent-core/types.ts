@@ -322,7 +322,8 @@ export interface AgentRunFinishInfo {
 /**
  * 可选持久化/观测 hooks。
  * - 由调用方注入（如项目会话 adapter 写 ToolCallTrace、技能入口写 SkillExecution）
- * - engine 统一 fire-and-forget：hook 抛错只记日志，绝不影响主链路
+ * - onToolStart / onToolCall：engine 会 await；抛错只记日志，不改变工具业务结果
+ * - onFinish：仍 fire-and-forget（processor 可异步）
  */
 export interface AgentRunHooks {
   /** 工具执行前。不得改变执行决策。 */

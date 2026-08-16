@@ -32,6 +32,8 @@ type Coverage = {
   toolOrphans: number;
   modelOrphans: number;
   retrievalOrphans: number;
+  runtimeCoverageGap: number | null;
+  runtimeCoverageGapNote?: string;
   unknownEventTypeCount: number;
   unknownEventTypes: string[];
   note: string;
@@ -143,6 +145,14 @@ export default function AutopilotTelemetryPage() {
               }
             />
             <Row label="PROJECTION_GAP" value={String(coverage.projectionGap)} />
+            <Row
+              label="RUNTIME_COVERAGE_GAP"
+              value={
+                coverage.runtimeCoverageGap == null
+                  ? "n/a — scenario/contract-only"
+                  : String(coverage.runtimeCoverageGap)
+              }
+            />
             <Row label="Tool orphans" value={String(coverage.toolOrphans)} />
             <Row label="Model orphans" value={String(coverage.modelOrphans)} />
             <Row
@@ -157,6 +167,11 @@ export default function AutopilotTelemetryPage() {
           {coverage.unknownEventTypes.length > 0 ? (
             <p className="mt-3 text-xs text-muted">
               {coverage.unknownEventTypes.join(", ")}
+            </p>
+          ) : null}
+          {coverage.runtimeCoverageGapNote ? (
+            <p className="mt-3 text-xs text-muted">
+              {coverage.runtimeCoverageGapNote}
             </p>
           ) : null}
           <p className="mt-3 text-xs text-muted">{coverage.note}</p>

@@ -63,11 +63,12 @@ export async function loadAutopilotEventCoverage(
         captureEnabled,
         processorEnabled,
         schemaAvailable: true,
-        note,
+        note: `${note} ${EMPTY.runtimeCoverageGapNote}`,
       };
     }
 
-    const [events, outboxEventCount, projectedEventCount] = await Promise.all([
+    const [events, outboxEventCount, projectedEventCount, projectedUnknownCount] =
+      await Promise.all([
       db.agentRunEvent.findMany({
         where: { orgId, runId: { in: runIds } },
         select: { runId: true, eventType: true, payload: true },
@@ -85,6 +86,13 @@ export async function loadAutopilotEventCoverage(
           run: { agentRunId: { in: runIds } },
         },
       }),
+      db.autopilotRunEvent.count({
+        where: {
+          orgId,
+          eventType: "UNKNOWN_EVENT",
+          run: { agentRunId: { in: runIds } },
+        },
+      }),
     ]);
 
     const snapshot = summarizeCoverage({
@@ -96,6 +104,11 @@ export async function loadAutopilotEventCoverage(
       })),
       outboxEventCount,
       projectedEventCount,
+      projectedMappedCount: Math.max(
+        0,
+        projectedEventCount - projectedUnknownCount,
+      ),
+      projectedUnknownCount,
       captureEnabled,
       classify: classifyAgentRunEvent,
     });
@@ -105,7 +118,7 @@ export async function loadAutopilotEventCoverage(
       captureEnabled,
       processorEnabled,
       schemaAvailable: true,
-      note,
+      note: `${note} ${snapshot.runtimeCoverageGapNote}`,
     };
   } catch (error) {
     if (isMissingTable(error)) {

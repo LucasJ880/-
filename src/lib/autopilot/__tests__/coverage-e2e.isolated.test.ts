@@ -373,39 +373,148 @@ async function main() {
 
   process.env.AUTOPILOT_TELEMETRY_CAPTURE_ENABLED = "1";
 
-  // ── 5. terminal races still one logical terminal ──
-  const race = await seedRun();
-  const [, completed] = await Promise.all([
-    failAgentRun(orgId, race.id, { code: "unknown", message: "race" }),
-    completeAgentRun(orgId, race.id),
-  ]);
-  const raceEvents = await db.agentRunEvent.findMany({
-    where: { runId: race.id },
+  const TERMINAL_EVENTS = ["run.completed", "run.failed", "run.cancelled"] as const;
+  const STATUS_BY_EVENT: Record<(typeof TERMINAL_EVENTS)[number], string> = {
+    "run.completed": "completed",
+    "run.failed": "failed",
+    "run.cancelled": "cancelled",
+  };
+
+  async function assertSingleTerminal(runId: string, label: string) {
+    const run = await db.agentRun.findUnique({ where: { id: runId } });
+    const events = await db.agentRunEvent.findMany({ where: { runId } });
+    const terminals = events.filter((e) =>
+      (TERMINAL_EVENTS as readonly string[]).includes(e.eventType),
+    );
+    ok(terminals.length === 1, `${label}: terminal AgentRunEvent count = 1`, {
+      types: terminals.map((e) => e.eventType),
+    });
+    ok(
+      run?.status === "completed" ||
+        run?.status === "failed" ||
+        run?.status === "cancelled",
+      `${label}: final status is one valid terminal`,
+      run?.status,
+    );
+    const terminalType = terminals[0]?.eventType as
+      | (typeof TERMINAL_EVENTS)[number]
+      | undefined;
+    ok(
+      Boolean(terminalType) &&
+        STATUS_BY_EVENT[terminalType!] === run?.status,
+      `${label}: terminal event matches final status`,
+      { event: terminalType, status: run?.status },
+    );
+    const envelope = terminalType
+      ? await db.autopilotTelemetryOutbox.findFirst({
+          where: {
+            agentRunId: runId,
+            noticeType: "event",
+            agentEventId: terminals[0].id,
+          },
+        })
+      : null;
+    ok(Boolean(envelope), `${label}: terminal event outbox envelope exists`);
+  }
+
+  type TerminalOp = "complete" | "fail" | "cancel";
+  async function invokeTerminal(op: TerminalOp, runId: string) {
+    if (op === "complete") return completeAgentRun(orgId, runId);
+    if (op === "fail") {
+      return failAgentRun(orgId, runId, { code: "unknown", message: "race" });
+    }
+    return cancelAgentRun(orgId, runId);
+  }
+
+  const pairs: Array<[TerminalOp, TerminalOp]> = [
+    ["complete", "fail"],
+    ["fail", "complete"],
+    ["complete", "cancel"],
+    ["cancel", "complete"],
+    ["fail", "cancel"],
+    ["cancel", "fail"],
+  ];
+  const RACE_ITERS = 10;
+  for (const [left, right] of pairs) {
+    for (let i = 0; i < RACE_ITERS; i++) {
+      const raced = await seedRun();
+      await Promise.all([
+        invokeTerminal(left, raced.id),
+        invokeTerminal(right, raced.id),
+      ]);
+      await assertSingleTerminal(raced.id, `${left}-vs-${right}#${i}`);
+    }
+  }
+
+  const alreadyFailed = await seedRun();
+  await failAgentRun(orgId, alreadyFailed.id, {
+    code: "unknown",
+    message: "first terminal",
   });
-  const terminals = raceEvents.filter((e) =>
-    ["run.completed", "run.failed", "run.cancelled"].includes(e.eventType),
-  );
-  ok(
-    terminals.length === 1,
-    "race: one canonical terminal event",
-    terminals.map((e) => e.eventType),
-  );
-  ok(
-    completed.status === "completed" || completed.status === "failed",
-    "race: one terminal status",
-    completed.status,
+  await completeAgentRun(orgId, alreadyFailed.id);
+  await cancelAgentRun(orgId, alreadyFailed.id);
+  await assertSingleTerminal(
+    alreadyFailed.id,
+    "later complete/cancel after fail writes no second terminal",
   );
 
-  const cancelRace = await seedRun();
-  await Promise.all([
-    cancelAgentRun(orgId, cancelRace.id),
-    completeAgentRun(orgId, cancelRace.id),
-  ]);
-  const cancelRow = await db.agentRun.findUnique({ where: { id: cancelRace.id } });
+  // ── 6. cross-run lifecycle correlation (v2-style reused ids) ──
+  const runA = await seedRun();
+  const runB = await seedRun();
+  await emit(runA.id, "tool.started", { toolCallId: "step1:1", name: "x" });
+  await emit(runA.id, "tool.completed", {
+    toolCallId: "step1:1",
+    name: "x",
+    ok: true,
+  });
+  await emit(runB.id, "tool.started", { toolCallId: "step1:1", name: "x" });
+  await emit(runB.id, "tool.completed", {
+    toolCallId: "step1:1",
+    name: "x",
+    ok: true,
+  });
+  await emit(runA.id, "model.started", { modelCallId: "step1:1" });
+  await emit(runA.id, "model.completed", { modelCallId: "step1:1" });
+  await emit(runB.id, "model.started", { modelCallId: "step1:1" });
+  await emit(runB.id, "model.completed", { modelCallId: "step1:1" });
+  await emit(runA.id, "retrieval.started", {
+    retrievalId: "step1:1",
+    retrievalType: "org_knowledge",
+  });
+  await emit(runA.id, "retrieval.completed", { retrievalId: "step1:1" });
+  await emit(runB.id, "retrieval.started", {
+    retrievalId: "step1:1",
+    retrievalType: "org_knowledge",
+  });
+  await emit(runB.id, "retrieval.completed", { retrievalId: "step1:1" });
+  const correlated = await db.agentRunEvent.findMany({
+    where: { runId: { in: [runA.id, runB.id] } },
+  });
   ok(
-    cancelRow?.status === "cancelled" || cancelRow?.status === "completed",
-    "cancel-vs-complete: single terminal status",
-    cancelRow?.status,
+    countLifecycleOrphans(correlated, TOOL_LIFECYCLE).orphanCount === 0,
+    "cross-run: TOOL_ORPHANS = 0 for reused step1:1",
+  );
+  ok(
+    countLifecycleOrphans(correlated, MODEL_LIFECYCLE).orphanCount === 0,
+    "cross-run: MODEL_ORPHANS = 0 for reused step1:1",
+  );
+  ok(
+    countLifecycleOrphans(correlated, RETRIEVAL_LIFECYCLE).orphanCount === 0,
+    "cross-run: RETRIEVAL_ORPHANS = 0 for reused step1:1",
+  );
+
+  const dup = await seedRun();
+  await emit(dup.id, "tool.started", { toolCallId: "step1:1", name: "x" });
+  await emit(dup.id, "tool.started", { toolCallId: "step1:1", name: "x" });
+  await emit(dup.id, "tool.completed", {
+    toolCallId: "step1:1",
+    name: "x",
+    ok: true,
+  });
+  const dupEvents = await db.agentRunEvent.findMany({ where: { runId: dup.id } });
+  ok(
+    countLifecycleOrphans(dupEvents, TOOL_LIFECYCLE).orphanCount === 1,
+    "same-run duplicate toolCallId is still an orphan",
   );
 
   console.log(`\n${pass} passed, ${fail} failed`);

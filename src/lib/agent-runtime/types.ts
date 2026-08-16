@@ -90,6 +90,14 @@ export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "awaiting_approval",
 ];
 
+export const AGENT_RUN_TERMINAL_STATUSES = [
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+
+export type AgentRunTerminalStatus = (typeof AGENT_RUN_TERMINAL_STATUSES)[number];
+
 export type AgentErrorCode =
   | "user_unbound"
   | "org_forbidden"
