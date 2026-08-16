@@ -5994,39 +5994,39 @@ model MarketingPublication {
 }
 
 model MarketingMetricSnapshot {
-  id                String    @id @default(cuid())
-  orgId             String
-  channelAccountId  String?
-  campaignId        String?
-  publicationId     String?
-  source            String    @default("manual")
-  capturedAt        DateTime
-  periodStart       DateTime?
-  periodEnd         DateTime?
-  granularity       String    @default("snapshot") // snapshot / daily / weekly / monthly
-  geography         String?
-  productCategory   String?
-  objective         String?
-  impressions       Int       @default(0)
-  views             Int       @default(0)
-  engagements       Int       @default(0)
-  clicks            Int       @default(0)
-  leads             Int       @default(0)
-  qualifiedLeads    Int       @default(0)
-  appointments      Int       @default(0)
-  quotes            Int       @default(0)
-  wins              Int       @default(0)
-  spend             Float     @default(0)
-  otherMarketingCost Float    @default(0)
-  revenue           Float     @default(0)
-  currency          String    @default("CAD")
-  baseCurrency      String    @default("CAD")
-  ingestionKey      String?
-  externalEventId   String?
-  dataQualityStatus String    @default("unverified") // unverified / valid / warning / invalid
-  rawJson           Json?
-  createdById       String
-  createdAt         DateTime  @default(now())
+  id                 String    @id @default(cuid())
+  orgId              String
+  channelAccountId   String?
+  campaignId         String?
+  publicationId      String?
+  source             String    @default("manual")
+  capturedAt         DateTime
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  granularity        String    @default("snapshot") // snapshot / daily / weekly / monthly
+  geography          String?
+  productCategory    String?
+  objective          String?
+  impressions        Int       @default(0)
+  views              Int       @default(0)
+  engagements        Int       @default(0)
+  clicks             Int       @default(0)
+  leads              Int       @default(0)
+  qualifiedLeads     Int       @default(0)
+  appointments       Int       @default(0)
+  quotes             Int       @default(0)
+  wins               Int       @default(0)
+  spend              Float     @default(0)
+  otherMarketingCost Float     @default(0)
+  revenue            Float     @default(0)
+  currency           String    @default("CAD")
+  baseCurrency       String    @default("CAD")
+  ingestionKey       String?
+  externalEventId    String?
+  dataQualityStatus  String    @default("unverified") // unverified / valid / warning / invalid
+  rawJson            Json?
+  createdById        String
+  createdAt          DateTime  @default(now())
 
   @@unique([orgId, source, ingestionKey])
   @@index([orgId, capturedAt])
@@ -7209,6 +7209,167 @@ model MemoryClaimEvidence {
   @@index([claimId])
   @@index([orgId, sourceType])
   @@index([orgId, archiveItemId])
+}
+
+// ════════════════════════════════════════════════════════════════════
+// T2-P1.5 Project Financial Control（additive-only；生产 dark：
+//   TENDER_FINANCIAL_CONTROL_ENABLED default OFF，审批产成本再叠加 T2_LEDGER_PRODUCERS_ENABLED）
+// 权威成本仍是 ProjectCost（经 cost-service）；本组表是预算/费用提交/证据，非第二成本源。
+// 无 projectId/orgId FK：沿用 ledger 的项目硬删后财务史存活哲学（授权残余见 Deletion Gate）。
+// ════════════════════════════════════════════════════════════════════
+
+/// 项目预算容器（每项目至多一个）；金额不塞 Project 表。
+model ProjectBudget {
+  id                     String   @id @default(cuid())
+  orgId                  String
+  projectId              String
+  currency               String
+  /// 当前 ACTIVE 版本指针
+  currentVersionId       String?
+  /// AWARD_BASELINE 冻结版本指针（原始中标假设永久保留）
+  awardBaselineVersionId String?
+  createdById            String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@unique([orgId, projectId])
+  @@index([orgId, projectId])
+}
+
+/// 版本化预算：一个项目至多一个 current ACTIVE version；AWARD_BASELINE 冻结后财务事实不可原地改。
+model ProjectBudgetVersion {
+  id                 String    @id @default(cuid())
+  orgId              String
+  projectId          String
+  budgetId           String
+  versionNumber      Int
+  /// DRAFT | ACTIVE | SUPERSEDED | AWARD_BASELINE
+  status             String
+  note               String?   @db.Text
+  totalBudgetAmount  Decimal   @default(0) @db.Decimal(18, 2)
+  metadata           Json?
+  createdById        String
+  createdAt          DateTime  @default(now())
+  activatedById      String?
+  activatedAt        DateTime?
+  baselineFrozenById String?
+  baselineFrozenAt   DateTime?
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([budgetId, versionNumber])
+  @@index([orgId, projectId, status])
+  @@index([budgetId])
+}
+
+/// 预算行；百分比型（OVERHEAD/CONTINGENCY/PROFIT）必须保留可还原的计算基础（basis+basisAmount），
+/// 禁止只存无法还原来源的最终金额。
+model ProjectBudgetLine {
+  id                 String   @id @default(cuid())
+  orgId              String
+  projectId          String
+  budgetVersionId    String
+  /// BudgetLineCategory（规划 taxonomy）
+  category           String
+  amount             Decimal  @db.Decimal(18, 2)
+  /// 百分比型：百分数（如 0.1000 = 10%）
+  percentage         Decimal? @db.Decimal(9, 4)
+  /// 计算依据："percent_of_direct_cost" | "supplier_quote" | "manual" | ...
+  basis              String?
+  /// 百分比所依据的基数（可还原来源）
+  basisAmount        Decimal? @db.Decimal(18, 2)
+  note               String?  @db.Text
+  supplierName       String?
+  sourceReference    String?
+  relatedTaskId      String?
+  relatedMilestoneId String?
+  sortOrder          Int      @default(0)
+  createdById        String
+  createdAt          DateTime @default(now())
+  updatedById        String?
+  updatedAt          DateTime @updatedAt
+
+  @@index([orgId, projectId])
+  @@index([budgetVersionId, sortOrder])
+}
+
+/// 成员费用提交（Submission ≠ Authoritative Cost）。审批后经 cost-service 生成 ProjectCost.ACTUAL。
+model ProjectExpenseSubmission {
+  id                    String    @id @default(cuid())
+  orgId                 String
+  projectId             String
+  /// budget-vs-actual 按行滚动的链接（taxonomy 无关）
+  budgetLineId          String?
+  /// 冻结 ProjectCost 类别（减 AI/DATA_API）；审批时 1:1 → ProjectCost.category
+  costCategory          String
+  submittedById         String
+  /// 时间语义三分（不只用 createdAt）
+  expenseOccurredAt     DateTime
+  submittedAt           DateTime?
+  reviewedAt            DateTime?
+  /// 费用发生时的项目上下文快照（阶段变化后仍可还原）
+  projectPhaseSnapshot  String?
+  projectStageSnapshot  String?
+  relatedTaskId         String?
+  relatedMilestoneId    String?
+  vendorName            String?
+  description           String    @db.Text
+  subtotal              Decimal?  @db.Decimal(18, 2)
+  taxAmount             Decimal?  @db.Decimal(18, 2)
+  totalAmount           Decimal   @db.Decimal(18, 2)
+  currency              String
+  /// ExpenseStatus 状态机
+  status                String    @default("DRAFT")
+  reviewedById          String?
+  reviewNote            String?   @db.Text
+  /// 审批产出的权威成本行（一次性写入；immutable link）
+  approvedProjectCostId String?
+  /// 可重复转移（info_requested/resubmitted）的 retry-stable 幂等号
+  transitionCount       Int       @default(0)
+  /// OCR 抽取字段（预留；不得覆盖 human-confirmed 正式字段）
+  extractedVendorName   String?
+  extractedDate         DateTime?
+  extractedSubtotal     Decimal?  @db.Decimal(18, 2)
+  extractedTax          Decimal?  @db.Decimal(18, 2)
+  extractedTotal        Decimal?  @db.Decimal(18, 2)
+  extractedCategory     String?
+  extractionConfidence  Decimal?  @db.Decimal(5, 4)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([orgId, projectId, status])
+  @@index([projectId, status])
+  @@index([submittedById])
+  @@index([budgetLineId])
+  @@index([approvedProjectCostId])
+}
+
+/// 票据/发票证据（镜像 TenderArchiveItem 不可变语义）：create-only、内容寻址、org-scoped、
+/// 无 projectId FK（项目硬删后证据存活）。AI/OCR/审核流程不得覆盖原件。
+model ProjectExpenseAttachment {
+  id                  String   @id @default(cuid())
+  orgId               String
+  projectId           String
+  expenseSubmissionId String
+  /// receipt | invoice | photo | pdf | other
+  kind                String
+  originalFilename    String
+  mimeType            String
+  fileSize            Int
+  /// sha256(bytes)：原件完整性指纹
+  contentHash         String
+  /// 内容寻址存储引用（blob pathname，原件不可变）
+  storageKey          String
+  /// 服务用 proxyUrl（浏览器授权代理，不暴露 raw private URL）
+  blobUrl             String
+  captureMethod       String   @default("upload")
+  uploadedById        String
+  /// 捕获时点（producer 显式传入；刻意无 default）
+  capturedAt          DateTime
+  createdAt           DateTime @default(now())
+
+  @@unique([expenseSubmissionId, contentHash])
+  @@index([orgId, projectId])
+  @@index([expenseSubmissionId])
 }
 
 /// T4 组织级 canonical 授标情报：一条「某买家把某合同授予某供应商」的可追溯记录。

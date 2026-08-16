@@ -25,6 +25,8 @@ const EXPECTED_ACTIVE = [
   "20260805180000_tender_auto_analysis_phase1_1",
   "20260811002000_add_tender_t2_ledger_archive_foundation",
   "20260811040000_add_tender_t3_corporate_memory_foundation",
+  // 字典序：P1.5(0811050000) < T4(0814150000) < A0(0814220000) < A1P0(0815010000)
+  "20260811050000_add_project_financial_control",
   "20260814150000_add_tender_t4_award_record_foundation",
   "20260814220000_add_autopilot_a0_foundation",
   "20260815010000_add_autopilot_a1_p0_telemetry_outbox",
@@ -60,6 +62,8 @@ const IMMUTABLE: Record<string, string> = {
     "013bad981ea141717a1d0d15efb971981d5ebee499d4d68317ff55f30daf8ff6",
   "20260811040000_add_tender_t3_corporate_memory_foundation":
     "ce7e975fd1e836143cc0e08b016815c15618aa85f1cbfc78c2babd3c2a12b3f4",
+  "20260811050000_add_project_financial_control":
+    "2e4b67e62d41edc13835ed531bf1047fc1a18b7b807e796973f5047ef13d2b0d",
   "20260814150000_add_tender_t4_award_record_foundation":
     "850c045737d590e3e5036eaf86b0d07a529add696c508c00111781abce36b882",
   "20260814220000_add_autopilot_a0_foundation":
