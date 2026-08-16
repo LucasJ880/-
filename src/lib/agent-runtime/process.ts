@@ -30,6 +30,10 @@ import { enqueueBackgroundAgentRun } from "./queue";
 import { completeAgentRunRespectingApprovals } from "./pending-link";
 import type { AgentSession } from "@prisma/client";
 import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
+import {
+  emitAgentOutputEvent,
+  newModelCallId,
+} from "./observe";
 
 export type ConversationRunResult = {
   text: string;
@@ -118,6 +122,7 @@ export async function executeConversationRun(input: {
       content: input.content,
       sessionSummary: context.sessionSummary,
       session: input.session,
+      agentRunId: runId,
     }));
   plan = withDefaultSkills(plan);
 
@@ -280,6 +285,9 @@ export async function executeConversationRun(input: {
     payload: {
       intent: plan.intent,
       source: plan.source,
+      confidence: plan.confidence,
+      selectedCapability: plan.skills[0] ?? null,
+      route: route.mode,
       complexity: plan.complexity,
       needsTools: plan.needsTools,
       requiresApproval: plan.requiresApproval,
@@ -465,11 +473,13 @@ ${context.memoryBlock}`;
     { role: "user" as const, content: input.content },
   ];
 
+  const modelCallId = newModelCallId();
   await appendAgentRunEvent({
     orgId,
     runId,
     eventType: "response.started",
     title: "生成回复",
+    payload: { schemaVersion: 1, modelCallId, provider: "openai" },
     visibleToUser: true,
   });
 
@@ -519,7 +529,7 @@ ${context.memoryBlock}`;
       },
       scopeGuard: { orgId, principalUserId: userId },
       hooks: {
-        onToolCall: async (info) => {
+        onToolStart: async (info) => {
           if (await isAgentRunCancelled(orgId, runId)) {
             abort.abort();
             return;
@@ -529,18 +539,34 @@ ${context.memoryBlock}`;
             runId,
             eventType: "tool.started",
             title: `调用 ${info.name}`,
-            payload: { name: info.name, round: info.round },
+            payload: {
+              schemaVersion: 1,
+              name: info.name,
+              round: info.round,
+              toolCallId: info.toolCallId?.trim() || `tool:${info.name}:${info.round}`,
+            },
             visibleToUser: true,
           });
+        },
+        onToolCall: async (info) => {
+          if (await isAgentRunCancelled(orgId, runId)) {
+            abort.abort();
+            return;
+          }
+          const ok = info.result?.success !== false;
           await appendAgentRunEvent({
             orgId,
             runId,
             eventType: "tool.completed",
             title: `${info.name} 完成`,
             payload: {
+              schemaVersion: 1,
               name: info.name,
-              ok: info.result?.success !== false,
+              toolCallId: info.toolCallId?.trim() || `tool:${info.name}:${info.round}`,
+              ok,
               durationMs: info.durationMs,
+              resultType: ok ? "ok" : "error",
+              errorCode: ok ? null : "tool_failed",
             },
             visibleToUser: false,
           });
@@ -557,7 +583,11 @@ ${context.memoryBlock}`;
       runId,
       eventType: "response.completed",
       title: "回复已生成",
-      payload: { toolCalls: result.toolCalls?.length ?? 0 },
+      payload: {
+        schemaVersion: 1,
+        modelCallId,
+        toolCalls: result.toolCalls?.length ?? 0,
+      },
       visibleToUser: false,
     });
 
@@ -575,6 +605,18 @@ ${context.memoryBlock}`;
     if (await isAgentRunCancelled(orgId, runId)) {
       return { text: "任务已取消。" };
     }
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "response.failed",
+      title: "回复生成失败",
+      payload: {
+        schemaVersion: 1,
+        modelCallId,
+        errorCode: "model_failed",
+      },
+      visibleToUser: false,
+    }).catch(() => {});
     if (plan.initialResponse) {
       await failAgentRun(orgId, runId, {
         code: "model_failed",
@@ -624,6 +666,13 @@ async function persistSuccess(input: {
     sessionId: input.session.id,
     summary: mergeSessionSummary(input.session.summary, turnLine),
   }).catch(() => {});
+
+  await emitAgentOutputEvent({
+    orgId: input.orgId,
+    runId: input.runId,
+    output: input.assistantText,
+    outputType: "text",
+  });
 
   await completeAgentRunRespectingApprovals(input.orgId, input.runId);
 }

@@ -19,6 +19,9 @@ export const AUTOPILOT_DISABLED_CAPABILITIES = {
  * A1 mandatory gate history / closure state.
  * CLOSED 不授权 Production capture、processor 或 migration。
  *
+ * A1-P1 Coverage 关闭 TELEMETRY_DURABILITY 后仍不授权 Production activation。
+ * A1_FUTURE_RETENTION_WORK：Outbox / AutopilotRunEvent 留存策略延后，本阶段不自动删数据。
+ *
  * Canonical Production Activation Order（只记录，本文件不执行）：
  * 1. Production migration
  * 2. Verify AutopilotTelemetryOutbox exists
@@ -130,41 +133,59 @@ export type AutopilotFailureSource = "system" | null;
 export type AutopilotTraceEventType =
   | "USER_INPUT"
   | "INTENT_RESOLVED"
+  | "CONTEXT_LOAD_STARTED"
   | "CONTEXT_LOADED"
+  | "CONTEXT_LOAD_FAILED"
   | "RETRIEVAL_STARTED"
   | "RETRIEVAL_COMPLETED"
+  | "RETRIEVAL_FAILED"
   | "TOOL_CALL_STARTED"
   | "TOOL_CALL_COMPLETED"
   | "TOOL_CALL_FAILED"
   | "MODEL_STARTED"
   | "MODEL_COMPLETED"
+  | "MODEL_FAILED"
   | "AGENT_OUTPUT"
   | "HUMAN_EDIT"
   | "HUMAN_OVERRIDE"
   | "HUMAN_ACTION"
+  | "HUMAN_ACTION_REQUESTED"
   | "RE_ASK_SIGNAL"
   | "TASK_COMPLETED"
-  | "TASK_FAILED";
+  | "TASK_FAILED"
+  | "TASK_CANCELLED"
+  | "UNKNOWN_EVENT";
 
 export const AUTOPILOT_TRACE_EVENT_TYPES: readonly AutopilotTraceEventType[] = [
   "USER_INPUT",
   "INTENT_RESOLVED",
+  "CONTEXT_LOAD_STARTED",
   "CONTEXT_LOADED",
+  "CONTEXT_LOAD_FAILED",
   "RETRIEVAL_STARTED",
   "RETRIEVAL_COMPLETED",
+  "RETRIEVAL_FAILED",
   "TOOL_CALL_STARTED",
   "TOOL_CALL_COMPLETED",
   "TOOL_CALL_FAILED",
   "MODEL_STARTED",
   "MODEL_COMPLETED",
+  "MODEL_FAILED",
   "AGENT_OUTPUT",
   "HUMAN_EDIT",
   "HUMAN_OVERRIDE",
   "HUMAN_ACTION",
+  "HUMAN_ACTION_REQUESTED",
   "RE_ASK_SIGNAL",
   "TASK_COMPLETED",
   "TASK_FAILED",
+  "TASK_CANCELLED",
+  "UNKNOWN_EVENT",
 ] as const;
+
+/** A1 future work: AutopilotRunEvent / Outbox retention. Do not auto-delete in A1-P1. */
+export const A1_FUTURE_RETENTION_WORK =
+  "Retention/sampling deferred until Production volume is observed. No cleanup job in A1-P1.";
 
 /** A0 不跑语义 Re-Ask Detector，只保留接口 */
 export type AutopilotReAskStatus =

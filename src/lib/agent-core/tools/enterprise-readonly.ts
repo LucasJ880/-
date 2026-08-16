@@ -640,23 +640,33 @@ registry.register({
     const q = String(ctx.args.query).trim();
     if (!q) return { success: false, data: { error: "query 不能为空" } };
 
-    const docs = await db.projectDocument.findMany({
-      where: {
-        projectId: project.id,
-        OR: [
-          { title: { contains: q, mode: "insensitive" } },
-          { contentText: { contains: q, mode: "insensitive" } },
-          { aiSummaryJson: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: Number(ctx.args.limit ?? 8),
-      select: {
-        id: true,
-        title: true,
-        fileType: true,
-        contentText: true,
-        aiSummaryJson: true,
-      },
+    const { withObservedRetrieval } = await import("@/lib/agent-runtime/observe");
+    const docs = await withObservedRetrieval({
+      orgId: ctx.orgId,
+      runId: ctx.agentRunId,
+      retrievalType: "project_knowledge",
+      query: q,
+      run: () =>
+        db.projectDocument.findMany({
+          where: {
+            projectId: project.id,
+            OR: [
+              { title: { contains: q, mode: "insensitive" } },
+              { contentText: { contains: q, mode: "insensitive" } },
+              { aiSummaryJson: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          take: Number(ctx.args.limit ?? 8),
+          select: {
+            id: true,
+            title: true,
+            fileType: true,
+            contentText: true,
+            aiSummaryJson: true,
+          },
+        }),
+      resultCount: (rows) => rows.length,
+      sourceRefs: (rows) => rows.map((d) => d.id),
     });
 
     return ok({

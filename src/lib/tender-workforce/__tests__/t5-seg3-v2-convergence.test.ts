@@ -8,6 +8,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import {
   buildTenderDeterministicPlan,
@@ -370,12 +371,21 @@ ok(
     clarCanonicalFirst,
     "SEMANTIC-04: V2_CLARIFICATION_SEMANTIC_GENERATORS = 1",
   );
-  // 分析师结论只来自 runV2Inference
-  const v2PersistCode = code("tender-auto-analysis/v2-persist.ts");
+  // 分析师结论只有一个产出点。**不锁死在具体文件**——#113 把 analyst 合成
+  // 从 v2-persist.ts 挪进了分片执行器 v2-resumable.ts，位置会变、不变量不变。
+  // 因此改成全树扫描：整个 canonical V2 域里，写 summaryJson.analystSynthesis
+  // 的地方必须恰好一处，且不得出现在 Workforce 工具层。
+  const writers = execSync(
+    `grep -rn "summaryJson.analystSynthesis[[:space:]]*=" ${JSON.stringify(ROOT)} || true`,
+    { encoding: "utf8" },
+  )
+    .split("\n")
+    .filter(Boolean)
+    .filter((l) => !l.includes("__tests__"));
   ok(
-    v2PersistCode.includes("mapped.summaryJson.analystSynthesis = analyst.synthesis") &&
-      !toolsCode.includes("analystSynthesis"),
-    "SEMANTIC-05: V2_ANALYST_SYNTHESIS_GENERATORS = 1（只在 runV2Inference 内）",
+    writers.length === 1 && !toolsCode.includes("analystSynthesis"),
+    "SEMANTIC-05: V2_ANALYST_SYNTHESIS_GENERATORS = 1（全树唯一写入点，且不在 Workforce 工具层）",
+    writers.map((w) => w.replace(`${ROOT}/`, "").split(":").slice(0, 2).join(":")),
   );
 }
 

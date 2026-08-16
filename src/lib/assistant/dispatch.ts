@@ -35,6 +35,7 @@ import {
   failAgentRun,
   updateAgentRunStatus,
 } from "@/lib/agent-runtime/run";
+import { emitAgentOutputEvent, newModelCallId } from "@/lib/agent-runtime/observe";
 import { runDailyBriefScenario } from "@/lib/assistant/scenarios/daily-brief";
 import {
   analyzeCustomerFollowup,
@@ -387,6 +388,12 @@ async function finalizeScenarioRun(input: {
       content: input.result.assistantContent,
       workSuggestion: input.result.workSuggestion ?? null,
     });
+    await emitAgentOutputEvent({
+      orgId: input.orgId,
+      runId: input.runId,
+      output: input.result.assistantContent,
+      outputType: "text",
+    });
     const completed = await completeAgentRun(input.orgId, input.runId);
     await appendAgentRunEvent({
       orgId: input.orgId,
@@ -394,7 +401,10 @@ async function finalizeScenarioRun(input: {
       eventType: "response.completed",
       title: "response.completed",
       visibleToUser: true,
-      payload: { resultSummary: input.result.resultSummary },
+      payload: {
+        schemaVersion: 1,
+        resultSummary: input.result.resultSummary,
+      },
     });
     const nextMeta = {
       ...((completed.metadata as Record<string, unknown>) ?? {}),
@@ -701,16 +711,19 @@ async function streamDailyBrief(input: {
     eventType: "planning.completed",
     title: "permission.checked",
     visibleToUser: true,
+    payload: { intent: "daily_business_brief" },
   });
 
   await updateAgentRunStatus(input.orgId, created.runId, "running");
   input.emit(buildRunStatusEvent(created.dto, "running"));
+  const briefModelCallId = newModelCallId();
   await appendAgentRunEvent({
     orgId: input.orgId,
     runId: created.runId,
     eventType: "grader.started",
     title: "grader.running",
     visibleToUser: true,
+    payload: { schemaVersion: 1, modelCallId: briefModelCallId },
   });
 
   const result = await runDailyBriefScenario(
@@ -734,6 +747,7 @@ async function streamDailyBrief(input: {
       eventType: "grader.completed",
       title: "grader.completed",
       visibleToUser: true,
+      payload: { schemaVersion: 1, modelCallId: briefModelCallId },
     });
   }
 

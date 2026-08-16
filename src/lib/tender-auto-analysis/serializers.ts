@@ -63,8 +63,14 @@ export function serializeSourceRef(
   const title =
     opts?.documentTitleById?.get(s.documentId)?.trim() ||
     null;
-  const pageLabel =
-    s.pageNumber != null ? `p.${s.pageNumber}` : null;
+  // 非 PDF 没有页：sectionLabel 里存的是真实单元标签（Sheet「…」/ § 段落块），
+  // 此时定位用它，**绝不显示 p.N**——那个数字只是单元序号，用户翻不到"第 N 页"。
+  const unitLabel = s.sectionLabel?.trim() || null;
+  const pageLabel = unitLabel
+    ? unitLabel
+    : s.pageNumber != null
+      ? `p.${s.pageNumber}`
+      : null;
   const locationLabel =
     title && pageLabel
       ? `${title} · ${pageLabel}`

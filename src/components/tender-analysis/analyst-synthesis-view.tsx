@@ -145,7 +145,11 @@ function EvidenceDrawer({
                   >
                     <p className="font-medium">
                       {e.documentName ?? e.documentId}
-                      {e.pageNumber != null ? ` · p.${e.pageNumber}` : ""}
+                      {e.unitLabel
+                        ? ` · ${e.unitLabel}`
+                        : e.pageNumber != null
+                          ? ` · p.${e.pageNumber}`
+                          : ""}
                     </p>
                     {e.snippet ? (
                       <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">

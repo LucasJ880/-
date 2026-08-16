@@ -26,6 +26,9 @@ npx tsx src/lib/tender-auto-analysis/__tests__/v2-map.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/executive-brief.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/document-units.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
@@ -75,6 +78,8 @@ npx tsx src/lib/autopilot/__tests__/service-access.test.ts
 npx tsx src/lib/autopilot/__tests__/security-layers.test.ts
 npx tsx src/lib/autopilot/__tests__/durability-matrix.test.ts
 npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts
+npx tsx src/lib/autopilot/__tests__/coverage.test.ts
+npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
 npx tsx src/lib/marketing/__tests__/route-access.test.ts

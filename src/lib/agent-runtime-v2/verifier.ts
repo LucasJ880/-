@@ -222,6 +222,7 @@ export function applyDeterministicHardFloor(
 async function modelVerify(input: {
   orgId: string;
   userId: string;
+  runId: string;
   plan: PlannerOutput;
   deterministic: VerifierOutput;
 }): Promise<VerifierOutput> {
@@ -239,6 +240,7 @@ async function modelVerify(input: {
       maxTokens: 800,
       orgId: input.orgId,
       userId: input.userId,
+      agentRunId: input.runId,
     });
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return input.deterministic;
@@ -324,6 +326,8 @@ export async function verifyRuntimeV2Run(input: {
     : await modelVerify({
         orgId: input.orgId,
         userId: input.userId,
+        // #112 Autopilot A1-P1：runId 透传给运行时事件遥测
+        runId: input.runId,
         plan,
         deterministic,
       });

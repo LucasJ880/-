@@ -120,16 +120,27 @@ export type V2MappedResult = {
 
 const NA = "（待核）";
 
+/**
+ * 单元标签解析器：把 (documentId, 单元序号) 还原成人类可读定位
+ * （`Sheet「Pricing」· 行 1–40`）。PDF 返回 null → 展示层用"第 N 页"。
+ */
+export type UnitLabelResolver = (
+  documentId: string,
+  pageNumber: number | null,
+) => string | null;
+
 function refsOf(
   evidence: DocumentFactV2["evidence"],
   method: string,
   confidence: ConfidenceLevel,
+  unitLabelOf?: UnitLabelResolver,
 ): V2SourceRefInput[] {
   return evidence.map((e) => ({
     documentId: e.documentId,
     pageNumber: e.pageNumber ?? null,
     originalTextSnippet: (e.snippet ?? "").slice(0, 400),
-    sectionLabel: null,
+    // 非 PDF 的引用必须带真实定位标签，否则 UI 只能显示误导性的"第 N 页"
+    sectionLabel: unitLabelOf?.(e.documentId, e.pageNumber ?? null) ?? null,
     extractionMethod: method,
     confidence,
   }));
@@ -176,7 +187,11 @@ function reqLines(reqs: TenderRequirementV2[]): string {
 }
 
 /** 纯映射：AnalysisResultV2 → 现有实体输入 + 16 章节 + 摘要。 */
-export function mapV2Result(result: AnalysisResultV2): V2MappedResult {
+export function mapV2Result(
+  result: AnalysisResultV2,
+  opts: { unitLabelOf?: UnitLabelResolver } = {},
+): V2MappedResult {
+  const unitLabelOf = opts.unitLabelOf;
   const factById = new Map(result.facts.map((f) => [f.id, f]));
 
   // —— facts（仅 ACTIVE 入库；SUPERSEDED/CONFLICT 由 requirements/conflicts 表达） ——
@@ -187,7 +202,7 @@ export function mapV2Result(result: AnalysisResultV2): V2MappedResult {
       contentZh: f.claim,
       contentOriginal: f.rawValue ?? f.claim,
       confidence: V2_CONFIDENCE_MAP[f.confidence],
-      sourceRefs: refsOf(f.evidence, "v2-llm-extract", V2_CONFIDENCE_MAP[f.confidence]),
+      sourceRefs: refsOf(f.evidence, "v2-llm-extract", V2_CONFIDENCE_MAP[f.confidence], unitLabelOf),
     }));
 
   // —— requirements（ACTIVE + NEEDS_REVIEW；绝不自动 COMPLIANT） ——
@@ -204,7 +219,7 @@ export function mapV2Result(result: AnalysisResultV2): V2MappedResult {
     complianceStatus:
       r.status === "NEEDS_REVIEW" ? "NEEDS_CLARIFICATION" : "NOT_ASSESSED",
     sourcePage: r.evidence[0]?.pageNumber ?? null,
-    sourceRefs: refsOf(r.evidence, "v2-llm-extract", V2_CONFIDENCE_MAP[r.confidence]),
+    sourceRefs: refsOf(r.evidence, "v2-llm-extract", V2_CONFIDENCE_MAP[r.confidence], unitLabelOf),
   }));
 
   // —— clarifications ——
@@ -213,7 +228,7 @@ export function mapV2Result(result: AnalysisResultV2): V2MappedResult {
     reason: c.reason,
     priority: c.priority,
     enquiryDeadline: null,
-    sourceRefs: refsOf(c.supportingEvidence, "v2-clarify", "HIGH_CONFIDENCE"),
+    sourceRefs: refsOf(c.supportingEvidence, "v2-clarify", "HIGH_CONFIDENCE", unitLabelOf),
   }));
 
   // —— addendum precedence → change candidates（含 FULL run 内部覆盖） ——

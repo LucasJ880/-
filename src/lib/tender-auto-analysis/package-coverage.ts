@@ -1,14 +1,14 @@
 /**
  * BLOCKER 3 — Package 覆盖率可见性（evidence correctness，非新格式支持）
  *
- * Package AI 目前只纳入 PDF。若上传 10 文件、仅 7 PDF 进入分析，UI/E2E 绝不能显示
+ * Package AI 纳入 PDF/docx/xlsx/csv/txt（各自切成可引用单元）。若上传 10 文件、仅 7 个可分析，UI/E2E 绝不能显示
  * 「已分析 10 个文件」。必须报告真实覆盖：uploaded / eligible / analyzed / excluded + reasons。
  *
  * 纯函数 summarizePackageCoverage 便于单测；getPackageCoverage 负责取数。
  */
 
 import { db } from "@/lib/db";
-import { isPdfFileType } from "./enqueue-helpers";
+import { isAnalyzableFileType } from "./enqueue-helpers";
 
 export type CoverageRow = {
   documentId: string;
@@ -49,7 +49,7 @@ export type PackageCoverage = {
 
 const REASON_LABEL: Record<string, string> = {
   unsupported_format:
-    "非 PDF：暂无页级文本（V2 引用需页码级证据），未纳入 Package AI",
+    "格式不支持逐条溯源（如旧版 .doc / 图片），未纳入 Package AI",
   parse_failed: "文件解析失败",
 };
 
@@ -68,13 +68,13 @@ export function summarizePackageCoverage(
   let analyzed = 0;
 
   for (const r of userRows) {
-    const isPdf = isPdfFileType(r.fileType ?? "");
-    const isEligible = isPdf && r.parseStatus !== "failed";
+    const analyzable = isAnalyzableFileType(r.fileType ?? "");
+    const isEligible = analyzable && r.parseStatus !== "failed";
     if (isEligible) {
       eligible += 1;
       if (r.analyzed) analyzed += 1;
     } else {
-      const reason = !isPdf ? "unsupported_format" : "parse_failed";
+      const reason = !analyzable ? "unsupported_format" : "parse_failed";
       excludedReasons[reason] = (excludedReasons[reason] ?? 0) + 1;
       excludedFiles.push({
         filename: r.title ?? r.documentId,
