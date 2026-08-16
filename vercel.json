@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/employee-ai-practice-miner",
       "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/cron/release-drift",
+      "schedule": "0 9 * * *"
     }
   ]
 }

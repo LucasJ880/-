@@ -28,6 +28,7 @@ import {
   TenderV2LeaseLostError,
 } from "./v2-persist";
 import { readCursorProgressAt, type V2CursorState } from "./v2-cursor";
+import { notifyTenderRunFailed } from "./alerts";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
@@ -178,6 +179,9 @@ async function markFailed(
       workerStep: null,
     },
   });
+
+  // 只在**终态**告警：还会自动重试的失败不打扰用户
+  if (exhausted) await notifyTenderRunFailed(runId);
 }
 
 type ClaimedRun = {
@@ -947,21 +951,31 @@ export async function processQueuedTenderAnalysisRuns(
   const take = Math.max(1, Math.min(limit, 2));
 
   // 租约过期且失败重试耗尽 → FAILED
-  await db.tenderAnalysisRun.updateMany({
-    where: {
-      status: { in: ["EXTRACTING", "ANALYZING"] },
-      attemptCount: { gte: MAX_ATTEMPTS },
-      leaseExpiresAt: { lte: now },
-    },
-    data: {
-      status: "FAILED",
-      errorCode: "lease_exhausted",
-      errorMessageSanitized: "分析任务超时且已达最大尝试次数",
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      failedAt: now,
-    },
-  });
+  const exhaustedIds = (
+    await db.tenderAnalysisRun.findMany({
+      where: {
+        status: { in: ["EXTRACTING", "ANALYZING"] },
+        attemptCount: { gte: MAX_ATTEMPTS },
+        leaseExpiresAt: { lte: now },
+      },
+      select: { id: true },
+      take: 50,
+    })
+  ).map((r) => r.id);
+  if (exhaustedIds.length > 0) {
+    await db.tenderAnalysisRun.updateMany({
+      where: { id: { in: exhaustedIds } },
+      data: {
+        status: "FAILED",
+        errorCode: "lease_exhausted",
+        errorMessageSanitized: "分析任务超时且已达最大尝试次数",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        failedAt: now,
+      },
+    });
+    for (const id of exhaustedIds) await notifyTenderRunFailed(id);
+  }
 
   // 长期**无进展**的进行中 Run → FAILED（防止无限续跑占用）。
   // 候选先按 startedAt/createdAt 粗筛（走索引），再按检查点时间精判：
@@ -1001,6 +1015,7 @@ export async function processQueuedTenderAnalysisRuns(
         nextAttemptAt: null,
       },
     });
+    for (const id of staleIds) await notifyTenderRunFailed(id);
   }
 
   // 多取候选：单个 not_claimable / 永久失败不得阻塞同批其它 Run

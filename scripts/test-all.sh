@@ -269,6 +269,8 @@ run_test "招标会话 package 上下文" "npx tsx src/lib/tender-auto-analysis/
 run_test "招标 V2 持久化 lease fence" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts"
 run_test "招标 V2 分片续跑（检查点/parity/重试/fence）" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts"
 run_test "招标非 PDF 可引用单元切分（sheet/block）" "npx tsx src/lib/tender-auto-analysis/__tests__/document-units.test.ts"
+run_test "招标分析失败告警（文案/收件人/幂等）" "npx tsx src/lib/tender-auto-analysis/__tests__/alerts.test.ts"
+run_test "发布漂移检查（代码 vs 生产库迁移）" "npx tsx src/lib/release/__tests__/drift.test.ts"
 run_test "招标抽取 prompt 定位契约（LOC-01..07）" "npx tsx src/lib/tender-understanding/__tests__/extract-prompt-locator.test.ts"
 run_test "招标 worker 时间预算与陈旧判定不变量" "npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts"
 run_test "T4 授标情报真实 Postgres 矩阵" "npx tsx src/lib/tender-intel/__tests__/awards-db.test.ts"

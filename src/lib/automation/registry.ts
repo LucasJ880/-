@@ -37,6 +37,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "trade-daily", name: "外贸每日检查", category: "sales", cadence: "每日 08:00", timezone: AUTOMATION_TIMEZONE },
   { key: "proactive-scan", name: "主动工作提醒", category: "projects", cadence: "每小时", timezone: AUTOMATION_TIMEZONE },
   { key: "agent-runs", name: "Agent 后台任务队列", category: "operations", cadence: "每 2 分钟", timezone: "UTC" },
+  { key: "release-drift", name: "发布漂移检查（代码 vs 生产库迁移）", category: "operations", cadence: "每日 09:00", timezone: "UTC" },
   {
     key: "autopilot-telemetry",
     name: "Autopilot telemetry outbox",
