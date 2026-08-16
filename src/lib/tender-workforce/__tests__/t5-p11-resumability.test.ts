@@ -301,7 +301,16 @@ void (async () => {
 }
 
 /* ═══════════ P11-BUDGET：serverless 预算 ═══════════ */
-ok(AGENT_RUNS_MAX_DURATION_S === 300, "P11-BUDGET-01: agent-runs maxDuration = 300", AGENT_RUNS_MAX_DURATION_S);
+{
+  // 路由必须是静态字面量（Next.js segment config 限制），
+  // 同时必须与常量一致 —— 两边一起断言，杜绝日后漂移。
+  const literal = /export const maxDuration = (\d+);/.exec(routeCode)?.[1];
+  ok(
+    literal === "300" && AGENT_RUNS_MAX_DURATION_S === 300,
+    "P11-BUDGET-01: agent-runs maxDuration = 300（路由字面量与常量一致）",
+    { literal, constant: AGENT_RUNS_MAX_DURATION_S },
+  );
+}
 ok(
   AGENT_RUNS_INVOCATION_BUDGET_MS === 240_000 &&
     AGENT_RUNS_INVOCATION_BUDGET_MS < AGENT_RUNS_MAX_DURATION_S * 1000,
