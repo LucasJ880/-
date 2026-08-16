@@ -1,6 +1,8 @@
 /**
  * Lucas-only A1-P1 coverage diagnostics loader.
  * Recent runs only — not a dashboard, not employee scoring.
+ *
+ * Dark / observe-read-off: short-circuit BEFORE Autopilot table queries.
  */
 
 import { db } from "@/lib/db";
@@ -13,23 +15,20 @@ import {
   summarizeCoverage,
   type CoverageSnapshot,
 } from "./coverage";
+import {
+  isObserveTelemetryReadEnabled,
+  noteAutopilotTableQuery,
+} from "./observe-read-gate";
 
 const RECENT_RUN_LIMIT = 20;
 
 export type AutopilotEventCoverage = CoverageSnapshot & {
+  observeReadEnabled: boolean;
   captureEnabled: boolean;
   processorEnabled: boolean;
   schemaAvailable: boolean;
   note: string;
 };
-
-function isMissingTable(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { code?: unknown }).code === "P2021"
-  );
-}
 
 const EMPTY: CoverageSnapshot = summarizeCoverage({
   runCount: 0,
@@ -46,104 +45,100 @@ export async function loadAutopilotEventCoverage(
 ): Promise<AutopilotEventCoverage> {
   const captureEnabled = isAutopilotTelemetryCaptureEnabled(env);
   const processorEnabled = isAutopilotProcessorEnabled(env);
+  const observeReadEnabled = isObserveTelemetryReadEnabled(env);
   const note =
     "A1-P1 Coverage + A1-P2 Human Signals（最近 20 条 Run）。观察人类对 AI 输出的明确动作，不是员工绩效，不是 AI 对错。";
 
-  try {
-    const runs = await db.agentRun.findMany({
-      where: { orgId },
-      orderBy: { createdAt: "desc" },
-      take: RECENT_RUN_LIMIT,
-      select: { id: true },
-    });
-    const runIds = runs.map((r) => r.id);
-    if (runIds.length === 0) {
-      return {
-        ...EMPTY,
-        captureEnabled,
-        processorEnabled,
-        schemaAvailable: true,
-        note: `${note} ${EMPTY.runtimeCoverageGapNote}`,
-      };
-    }
-
-    const [
-      events,
-      outboxEventCount,
-      projectedEventCount,
-      projectedUnknownCount,
-      projectedHumanSignalCount,
-    ] =
-      await Promise.all([
-      db.agentRunEvent.findMany({
-        where: { orgId, runId: { in: runIds } },
-        select: { runId: true, eventType: true, payload: true },
-      }),
-      db.autopilotTelemetryOutbox.count({
-        where: {
-          orgId,
-          noticeType: "event",
-          agentRunId: { in: runIds },
-        },
-      }),
-      db.autopilotRunEvent.count({
-        where: {
-          orgId,
-          run: { agentRunId: { in: runIds } },
-        },
-      }),
-      db.autopilotRunEvent.count({
-        where: {
-          orgId,
-          eventType: "UNKNOWN_EVENT",
-          run: { agentRunId: { in: runIds } },
-        },
-      }),
-      db.autopilotRunEvent.count({
-        where: {
-          orgId,
-          eventType: { in: ["HUMAN_EDIT", "HUMAN_OVERRIDE", "RE_ASK_SIGNAL"] },
-          run: { agentRunId: { in: runIds } },
-        },
-      }),
-    ]);
-
-    const snapshot = summarizeCoverage({
-      runCount: runIds.length,
-      events: events.map((e) => ({
-        runId: e.runId,
-        eventType: e.eventType,
-        payload: e.payload,
-      })),
-      outboxEventCount,
-      projectedEventCount,
-      projectedMappedCount: Math.max(
-        0,
-        projectedEventCount - projectedUnknownCount,
-      ),
-      projectedUnknownCount,
-      projectedHumanSignalCount,
-      captureEnabled,
-      classify: classifyAgentRunEvent,
-    });
-
+  if (!observeReadEnabled) {
     return {
-      ...snapshot,
+      ...EMPTY,
+      observeReadEnabled: false,
+      captureEnabled,
+      processorEnabled,
+      schemaAvailable: false,
+      note: "Autopilot Observe is not active in this environment. Production telemetry is not active.",
+    };
+  }
+
+  const runs = await db.agentRun.findMany({
+    where: { orgId },
+    orderBy: { createdAt: "desc" },
+    take: RECENT_RUN_LIMIT,
+    select: { id: true },
+  });
+  const runIds = runs.map((r) => r.id);
+  if (runIds.length === 0) {
+    return {
+      ...EMPTY,
+      observeReadEnabled: true,
       captureEnabled,
       processorEnabled,
       schemaAvailable: true,
-      note: `${note} ${snapshot.runtimeCoverageGapNote}`,
+      note: `${note} ${EMPTY.runtimeCoverageGapNote}`,
     };
-  } catch (error) {
-    if (isMissingTable(error)) {
-      return {
-        ...EMPTY,
-        captureEnabled,
-        processorEnabled,
-        schemaAvailable: false,
-        note,
-      };
-    }
-    throw error;
   }
+
+  const events = await db.agentRunEvent.findMany({
+    where: { orgId, runId: { in: runIds } },
+    select: { runId: true, eventType: true, payload: true },
+  });
+  noteAutopilotTableQuery();
+  const outboxEventCount = await db.autopilotTelemetryOutbox.count({
+    where: {
+      orgId,
+      noticeType: "event",
+      agentRunId: { in: runIds },
+    },
+  });
+  noteAutopilotTableQuery();
+  const projectedEventCount = await db.autopilotRunEvent.count({
+    where: {
+      orgId,
+      run: { agentRunId: { in: runIds } },
+    },
+  });
+  noteAutopilotTableQuery();
+  const projectedUnknownCount = await db.autopilotRunEvent.count({
+    where: {
+      orgId,
+      eventType: "UNKNOWN_EVENT",
+      run: { agentRunId: { in: runIds } },
+    },
+  });
+  noteAutopilotTableQuery();
+  const projectedHumanSignalCount = await db.autopilotRunEvent.count({
+    where: {
+      orgId,
+      eventType: { in: ["HUMAN_EDIT", "HUMAN_OVERRIDE", "RE_ASK_SIGNAL"] },
+      run: { agentRunId: { in: runIds } },
+    },
+  });
+
+  const snapshot = summarizeCoverage({
+    runCount: runIds.length,
+    events: events.map((e) => ({
+      runId: e.runId,
+      eventType: e.eventType,
+      payload: e.payload,
+    })),
+    outboxEventCount,
+    projectedEventCount,
+    projectedMappedCount: Math.max(
+      0,
+      projectedEventCount - projectedUnknownCount,
+    ),
+    projectedUnknownCount,
+    projectedHumanSignalCount,
+    captureEnabled,
+    classify: classifyAgentRunEvent,
+  });
+
+  return {
+    ...snapshot,
+    observeReadEnabled: true,
+    captureEnabled,
+    processorEnabled,
+    schemaAvailable: true,
+    note: `${note} ${snapshot.runtimeCoverageGapNote}`,
+  };
 }

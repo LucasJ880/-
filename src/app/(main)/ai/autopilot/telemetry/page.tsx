@@ -6,23 +6,25 @@ import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 
 type Health = {
+  observeReadEnabled?: boolean;
   captureEnabled: boolean;
   processorEnabled: boolean;
   schemaAvailable: boolean;
-  pendingCount: number;
-  processingCount: number;
-  processedCount: number;
-  deadCount: number;
-  retryCount: number;
+  pendingCount: number | null;
+  processingCount: number | null;
+  processedCount: number | null;
+  deadCount: number | null;
+  retryCount: number | null;
   oldestPendingAgeMs: number | null;
-  canonicalEventCount: number;
-  outboxEventCount: number;
-  projectedEventCount: number;
+  canonicalEventCount: number | null;
+  outboxEventCount: number | null;
+  projectedEventCount: number | null;
   captureGap: number | null;
   captureGapNote: string;
 };
 
 type Coverage = {
+  observeReadEnabled?: boolean;
   runsObserved: number;
   canonicalEvents: number;
   outboxEvents: number;
@@ -84,7 +86,7 @@ export default function AutopilotTelemetryPage() {
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Telemetry Health"
-        description="A1-P0 耐久性 + A1-P1 Runtime Event Coverage 最小诊断。不是 Observe Dashboard，不是员工排行榜。"
+        description="Lucas-only internal diagnostics. Operator view lives on Overview. Not employee scoring."
         breadcrumbs={
           <Link href="/ai/autopilot" className="hover:underline">
             Autopilot
@@ -95,6 +97,13 @@ export default function AutopilotTelemetryPage() {
       {loading ? <p className="text-sm text-muted">加载中…</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
+      {data && data.observeReadEnabled === false ? (
+        <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
+          Autopilot Observe is not active in this environment. Production
+          telemetry is not active. Counts below are n/a, not zero activity.
+        </p>
+      ) : null}
+
       {data ? (
         <section className="rounded-lg border border-border bg-background p-4 text-sm">
           <dl className="space-y-2">
@@ -102,27 +111,18 @@ export default function AutopilotTelemetryPage() {
             <Row label="Processor" value={data.processorEnabled ? "ON" : "OFF"} />
             <Row
               label="Outbox schema"
-              value={data.schemaAvailable ? "available" : "missing"}
+              value={data.schemaAvailable ? "available" : "n/a"}
             />
-            <Row label="Pending" value={String(data.pendingCount)} />
-            <Row label="Processing" value={String(data.processingCount)} />
-            <Row label="Processed" value={String(data.processedCount)} />
-            <Row label="Dead" value={String(data.deadCount)} />
-            <Row label="Retrying" value={String(data.retryCount)} />
+            <Row label="Pending" value={na(data.pendingCount)} />
+            <Row label="Processing" value={na(data.processingCount)} />
+            <Row label="Processed" value={na(data.processedCount)} />
+            <Row label="Dead" value={na(data.deadCount)} />
+            <Row label="Retrying" value={na(data.retryCount)} />
             <Row
               label="Oldest pending age (ms)"
-              value={
-                data.oldestPendingAgeMs == null
-                  ? "—"
-                  : String(data.oldestPendingAgeMs)
-              }
+              value={na(data.oldestPendingAgeMs)}
             />
-            <Row
-              label="CAPTURE_GAP"
-              value={
-                data.captureGap == null ? "n/a" : String(data.captureGap)
-              }
-            />
+            <Row label="CAPTURE_GAP" value={na(data.captureGap)} />
           </dl>
           <p className="mt-3 text-xs text-muted">{data.captureGapNote}</p>
         </section>
@@ -132,15 +132,21 @@ export default function AutopilotTelemetryPage() {
         <section className="rounded-lg border border-border bg-background p-4 text-sm">
           <h2 className="mb-3 font-medium">Runtime Event Coverage</h2>
           <dl className="space-y-2">
-            <Row label="Runs observed" value={String(coverage.runsObserved)} />
+            <Row
+              label="Runs observed"
+              value={coverageNa(coverage.observeReadEnabled, coverage.runsObserved)}
+            />
             <Row
               label="Canonical events"
-              value={String(coverage.canonicalEvents)}
+              value={coverageNa(coverage.observeReadEnabled, coverage.canonicalEvents)}
             />
-            <Row label="Outbox events" value={String(coverage.outboxEvents)} />
+            <Row
+              label="Outbox events"
+              value={coverageNa(coverage.observeReadEnabled, coverage.outboxEvents)}
+            />
             <Row
               label="Projected events"
-              value={String(coverage.projectedEvents)}
+              value={coverageNa(coverage.observeReadEnabled, coverage.projectedEvents)}
             />
             <Row
               label="DURABLE_CAPTURE_GAP"
@@ -150,7 +156,10 @@ export default function AutopilotTelemetryPage() {
                   : String(coverage.durableCaptureGap)
               }
             />
-            <Row label="PROJECTION_GAP" value={String(coverage.projectionGap)} />
+            <Row
+              label="PROJECTION_GAP"
+              value={coverageNa(coverage.observeReadEnabled, coverage.projectionGap)}
+            />
             <Row
               label="RUNTIME_COVERAGE_GAP"
               value={
@@ -159,40 +168,60 @@ export default function AutopilotTelemetryPage() {
                   : String(coverage.runtimeCoverageGap)
               }
             />
-            <Row label="Tool orphans" value={String(coverage.toolOrphans)} />
-            <Row label="Model orphans" value={String(coverage.modelOrphans)} />
+            <Row
+              label="Tool orphans"
+              value={coverageNa(coverage.observeReadEnabled, coverage.toolOrphans)}
+            />
+            <Row
+              label="Model orphans"
+              value={coverageNa(coverage.observeReadEnabled, coverage.modelOrphans)}
+            />
             <Row
               label="Retrieval orphans"
-              value={String(coverage.retrievalOrphans)}
+              value={coverageNa(coverage.observeReadEnabled, coverage.retrievalOrphans)}
             />
             <Row
               label="Human Edit"
-              value={String(coverage.humanEditCount ?? 0)}
+              value={coverageNa(coverage.observeReadEnabled, coverage.humanEditCount)}
             />
             <Row
               label="Human Override"
-              value={String(coverage.humanOverrideCount ?? 0)}
+              value={coverageNa(
+                coverage.observeReadEnabled,
+                coverage.humanOverrideCount,
+              )}
             />
-            <Row label="Re-Ask" value={String(coverage.reAskCount ?? 0)} />
+            <Row
+              label="Re-Ask"
+              value={coverageNa(coverage.observeReadEnabled, coverage.reAskCount)}
+            />
             <Row
               label="HUMAN_SIGNAL_PROJECTION_GAP"
-              value={
-                coverage.humanSignalProjectionGap == null
-                  ? "n/a"
-                  : String(coverage.humanSignalProjectionGap)
-              }
+              value={coverageNa(
+                coverage.observeReadEnabled,
+                coverage.humanSignalProjectionGap,
+              )}
             />
             <Row
               label="Unlinked human signals"
-              value={String(coverage.unlinkedHumanSignalCount ?? 0)}
+              value={coverageNa(
+                coverage.observeReadEnabled,
+                coverage.unlinkedHumanSignalCount,
+              )}
             />
             <Row
               label="Duplicate signals suppressed"
-              value={String(coverage.duplicateHumanSignalCount ?? 0)}
+              value={coverageNa(
+                coverage.observeReadEnabled,
+                coverage.duplicateHumanSignalCount,
+              )}
             />
             <Row
               label="Unknown event types"
-              value={String(coverage.unknownEventTypeCount)}
+              value={coverageNa(
+                coverage.observeReadEnabled,
+                coverage.unknownEventTypeCount,
+              )}
             />
           </dl>
           {coverage.unknownEventTypes.length > 0 ? (
@@ -210,6 +239,15 @@ export default function AutopilotTelemetryPage() {
       ) : null}
     </div>
   );
+}
+
+function na(value: number | null | undefined): string {
+  return value == null ? "n/a" : String(value);
+}
+
+function coverageNa(active: boolean | undefined, value: number | null | undefined): string {
+  if (active === false) return "n/a";
+  return na(value);
 }
 
 function Row({ label, value }: { label: string; value: string }) {

@@ -14,3 +14,7 @@ export * from "./coverage-health";
 export * from "./human-signals";
 export * from "./observe-human";
 export * from "./reconcile-human";
+export * from "./observe-read-gate";
+export * from "./observe-health";
+export * from "./observe-range";
+export * from "./metrics-definition";
