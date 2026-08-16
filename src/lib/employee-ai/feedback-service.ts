@@ -115,6 +115,36 @@ export async function createHumanFeedbackEvent(input: CreateFeedbackInput) {
     },
   });
 
+  if (event.agentRunId) {
+    const { observeHumanEditSafe, observeHumanOverrideSafe } = await import(
+      "@/lib/autopilot/observe-human"
+    );
+    if (event.humanDecision === "edited") {
+      await observeHumanEditSafe({
+        orgId: input.orgId,
+        sourceAgentRunId: event.agentRunId,
+        actorUserId: input.userId,
+        artifactType: "employee_ai_feedback",
+        artifactId: event.id,
+        committedVersion: "1",
+        commitAction: "save",
+        before: input.aiOutputSnapshot ?? input.aiOutputRef,
+        after: input.humanEditedOutput ?? input.aiOutputSnapshot,
+        sourceOutputRef: event.agentRunId,
+        artifactOrgId: input.orgId,
+      });
+    } else if (event.humanDecision === "rejected" && !event.pendingActionId) {
+      await observeHumanOverrideSafe({
+        orgId: input.orgId,
+        sourceAgentRunId: event.agentRunId,
+        actorUserId: input.userId,
+        overrideType: "REJECTED",
+        decisionRef: event.id,
+        actionType: "employee_ai.feedback",
+      });
+    }
+  }
+
   return event;
 }
 

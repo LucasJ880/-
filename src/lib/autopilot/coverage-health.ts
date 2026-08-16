@@ -47,7 +47,7 @@ export async function loadAutopilotEventCoverage(
   const captureEnabled = isAutopilotTelemetryCaptureEnabled(env);
   const processorEnabled = isAutopilotProcessorEnabled(env);
   const note =
-    "A1-P1 Runtime Event Coverage（最近 20 条 Run）。监控 AI Runtime，不是员工绩效。";
+    "A1-P1 Coverage + A1-P2 Human Signals（最近 20 条 Run）。观察人类对 AI 输出的明确动作，不是员工绩效，不是 AI 对错。";
 
   try {
     const runs = await db.agentRun.findMany({
@@ -67,7 +67,13 @@ export async function loadAutopilotEventCoverage(
       };
     }
 
-    const [events, outboxEventCount, projectedEventCount, projectedUnknownCount] =
+    const [
+      events,
+      outboxEventCount,
+      projectedEventCount,
+      projectedUnknownCount,
+      projectedHumanSignalCount,
+    ] =
       await Promise.all([
       db.agentRunEvent.findMany({
         where: { orgId, runId: { in: runIds } },
@@ -93,6 +99,13 @@ export async function loadAutopilotEventCoverage(
           run: { agentRunId: { in: runIds } },
         },
       }),
+      db.autopilotRunEvent.count({
+        where: {
+          orgId,
+          eventType: { in: ["HUMAN_EDIT", "HUMAN_OVERRIDE", "RE_ASK_SIGNAL"] },
+          run: { agentRunId: { in: runIds } },
+        },
+      }),
     ]);
 
     const snapshot = summarizeCoverage({
@@ -109,6 +122,7 @@ export async function loadAutopilotEventCoverage(
         projectedEventCount - projectedUnknownCount,
       ),
       projectedUnknownCount,
+      projectedHumanSignalCount,
       captureEnabled,
       classify: classifyAgentRunEvent,
     });

@@ -213,6 +213,18 @@ async function main() {
     );
   });
 
+  ok(
+    "Retry 观察 RE_ASK（源码契约）",
+    (() => {
+      const src = readFileSync(resolve(ASSISTANT_DIR, "retry-run.ts"), "utf8");
+      return (
+        src.includes("observeRetryReAsk") &&
+        src.includes("observeReAskSafe") &&
+        src.includes("retryActionId: idemKey")
+      );
+    })(),
+  );
+
   // 源码契约：禁止 runs[0] 猜测；必须先占位再 createAssistantScenarioBinding
   ok(
     "Retry 不依赖 runs[0]（源码契约）",

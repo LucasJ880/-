@@ -44,6 +44,18 @@ export type RetryRunResult =
       newRunId?: string;
     };
 
+async function observeRetryReAsk(input: {
+  orgId: string;
+  originalRunId: string;
+  newRunId: string;
+  actorUserId: string;
+  retryActionId: string;
+  originalMessageId?: string | null;
+}): Promise<void> {
+  const { observeReAskSafe } = await import("@/lib/autopilot/observe-human");
+  await observeReAskSafe(input);
+}
+
 function duplicateOrInProgressResponse(input: {
   orgId: string;
   newRunId: string | null;
@@ -232,6 +244,14 @@ export async function retryAssistantRun(
   });
 
   if (reserved.kind === "completed" && reserved.payload.newRunId) {
+    await observeRetryReAsk({
+      orgId: input.orgId,
+      originalRunId: input.runId,
+      newRunId: reserved.payload.newRunId,
+      actorUserId: input.userId,
+      retryActionId: idemKey,
+      originalMessageId: reserved.payload.userMessageId ?? null,
+    });
     const dto = await getAssistantRunStatusDto({
       orgId: input.orgId,
       runId: reserved.payload.newRunId,
@@ -263,6 +283,14 @@ export async function retryAssistantRun(
         })
       : null;
     if (existingId) {
+      await observeRetryReAsk({
+        orgId: input.orgId,
+        originalRunId: input.runId,
+        newRunId: existingId,
+        actorUserId: input.userId,
+        retryActionId: idemKey,
+        originalMessageId: reserved.payload.userMessageId ?? null,
+      });
       return {
         ok: true,
         oldRunId: input.runId,
@@ -347,6 +375,15 @@ export async function retryAssistantRun(
         error: "重试启动失败，请稍后再试。",
       };
     }
+
+    await observeRetryReAsk({
+      orgId: input.orgId,
+      originalRunId: input.runId,
+      newRunId: binding.runId,
+      actorUserId: input.userId,
+      retryActionId: idemKey,
+      originalMessageId: binding.userMessageId ?? null,
+    });
 
     slot = {
       ...slot,
