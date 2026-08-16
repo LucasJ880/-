@@ -199,7 +199,7 @@ async function main() {
   const counts = await db.$transaction([
     db.tenderAnalysisFact.count({ where: { runId: domainRun.id } }),
     db.tenderExtractedRequirement.count({ where: { analysisRunId: domainRun.id } }),
-    db.tenderAnalysisSection.count({ where: { analysisRunId: domainRun.id } }),
+    db.tenderAnalysisSection.count({ where: { runId: domainRun.id } }),
   ]);
   ok(
     counts[1] > 0 && counts[2] > 0,

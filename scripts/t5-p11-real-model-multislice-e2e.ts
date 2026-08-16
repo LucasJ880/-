@@ -21,6 +21,12 @@ import { parseV2Cursor } from "@/lib/tender-auto-analysis/v2-cursor";
 
 const projectId = process.argv[2];
 if (!projectId) throw new Error("用法：t5-p11-real-model-multislice-e2e.ts <projectId>");
+/**
+ * `--report=<jobId>`：只对**已跑完**的 Job 复核 DB 侧判定（P39-07..13）。
+ * 用途是脚本自身出 bug 时不必重烧一次真实模型分析——跨 invocation 的判定
+ * （P39-01..06）依赖 tick 序列，不在本模式内，必须看原始运行日志。
+ */
+const REPORT_ONLY = process.argv.find((a) => a.startsWith("--report="))?.slice(9) ?? null;
 
 let pass = 0;
 let fail = 0;
@@ -57,16 +63,22 @@ async function main() {
   log(`project=${project.name} domain=${project.workDomain} pages=${pages}`);
   log(`每次 invocation 预算 = ${AGENT_RUNS_INVOCATION_BUDGET_MS}ms（生产值，未调小）`);
 
-  const { startTenderWorkforceAnalysis } = await import(
-    "@/lib/tender-workforce/trigger-service"
-  );
-  const started = await startTenderWorkforceAnalysis({
-    orgId, projectId, projectName: project.name, userId: owner.id,
-    role: owner.role, requestId: `t5p11-${Date.now()}`, restart: true,
-  });
-  if (!started.ok) throw new Error(`start failed: ${JSON.stringify(started)}`);
-  const jobId = started.jobId;
-  log("job started", { jobId });
+  let jobId: string;
+  if (REPORT_ONLY) {
+    jobId = REPORT_ONLY;
+    log(`report-only：复核已完成 Job ${jobId}（跨 invocation 判定见原始运行日志）`);
+  } else {
+    const { startTenderWorkforceAnalysis } = await import(
+      "@/lib/tender-workforce/trigger-service"
+    );
+    const started = await startTenderWorkforceAnalysis({
+      orgId, projectId, projectName: project.name, userId: owner.id,
+      role: owner.role, requestId: `t5p11-${Date.now()}`, restart: true,
+    });
+    if (!started.ok) throw new Error(`start failed: ${JSON.stringify(started)}`);
+    jobId = started.jobId;
+    log("job started", { jobId });
+  }
 
   const { processQueuedWorkforceJobs } = await import(
     "@/lib/workforce-runtime/processor"
@@ -77,7 +89,7 @@ async function main() {
   let terminal = "";
   const t3StepStates: string[] = [];
 
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; !REPORT_ONLY && i < 30; i++) {
     invocations += 1;
     // ── 一次独立的 serverless invocation：绝对 deadline 从"请求起点"算 ──
     const requestStartedAt = Date.now();
@@ -132,16 +144,24 @@ async function main() {
     return (p.stepKey ?? "").includes("analyze_package_v2");
   });
 
+  // P39-01 由 DB 事件推导，report-only 下依然成立；P39-02/03 依赖 tick 序列，跳过
   ok(
     t3Yields.length >= 2,
     `P39-01: 真实模型下 t3 让出 ${t3Yields.length} 次 ≥ 2（生产预算 240s 下确实跨 invocation）`,
     yieldEvents.map((e) => (e.payload as Record<string, unknown>)?.stepKey),
   );
-  ok(
-    invocations >= 3,
-    `P39-02: 总 invocation 数 = ${invocations} ≥ 3（t3 让出 + 后续步骤）`,
-  );
-  ok(terminal === "completed", `P39-03: Job 终态 = completed（实得 ${terminal}）`);
+  if (!REPORT_ONLY) {
+    ok(
+      invocations >= 3,
+      `P39-02: 总 invocation 数 = ${invocations} ≥ 3（t3 让出 + 后续步骤）`,
+    );
+    ok(terminal === "completed", `P39-03: Job 终态 = completed（实得 ${terminal}）`);
+  } else {
+    const runRow = await db.agentRun.findUniqueOrThrow({
+      where: { id: jobId }, select: { status: true },
+    });
+    ok(runRow.status === "completed", `P39-03: Job 终态 = completed（实得 ${runRow.status}）`);
+  }
 
   const steps = await db.agentRunStep.findMany({
     where: { runId: jobId },
@@ -172,7 +192,7 @@ async function main() {
   const counts = await db.$transaction([
     db.tenderAnalysisFact.count({ where: { runId: domainRun.id } }),
     db.tenderExtractedRequirement.count({ where: { analysisRunId: domainRun.id } }),
-    db.tenderAnalysisSection.count({ where: { analysisRunId: domainRun.id } }),
+    db.tenderAnalysisSection.count({ where: { runId: domainRun.id } }),
   ]);
   ok(
     counts[1] > 0 && counts[2] > 0,
@@ -188,7 +208,21 @@ async function main() {
   );
 
   /* ── 关键反例：跨 invocation 有没有重算已完成的窗口 ── */
-  const cursor = parseV2Cursor(domainRun.workerCursor, domainRun.sourceHashFingerprint ?? "");
+  // 游标里的 fingerprint 是 **analyzer input 指纹**（文档 hash/页数/prompt 版本），
+  // 不是 TenderAnalysisRun.sourceHashFingerprint（包级幂等哈希）——用后者去 parse
+  // 必然 null。这里按产品自己的算法重算，等价于问：「下一次 invocation 还会不会
+  // 认这份 checkpoint」。
+  const { buildAnalyzerInputForRun } = await import(
+    "@/lib/tender-auto-analysis/v2-persist"
+  );
+  const { fingerprintAnalyzerInput } = await import(
+    "@/lib/tender-auto-analysis/v2-resumable"
+  );
+  const analyzerInput = await buildAnalyzerInputForRun(domainRun.id);
+  const liveFingerprint = analyzerInput
+    ? fingerprintAnalyzerInput(analyzerInput)
+    : "";
+  const cursor = parseV2Cursor(domainRun.workerCursor, liveFingerprint);
   const raw = domainRun.workerCursor as {
     windows?: { outputs?: Record<string, unknown>; failures?: Record<string, unknown> };
     logs?: { promptName: string; ok: boolean }[];
