@@ -29,6 +29,7 @@ import type {
   AgentRunResult,
   AgentRunHooks,
   AgentToolCallInfo,
+  AgentToolStartInfo,
   AgentRunFinishInfo,
   ToolDefinition,
   ToolExecutionContext,
@@ -53,6 +54,21 @@ export class AgentTimeoutError extends Error {
 }
 
 // ── A-P0：观测 hooks（fire-and-forget，绝不影响主链路）──────────
+
+async function fireToolStartHook(
+  hooks: AgentRunHooks | undefined,
+  info: AgentToolStartInfo,
+): Promise<void> {
+  if (!hooks?.onToolStart) return;
+  try {
+    await hooks.onToolStart(info);
+  } catch (err) {
+    logger.warn("agent_core.hook.tool_start_failed", {
+      tool: info.name,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 function fireToolCallHook(hooks: AgentRunHooks | undefined, info: AgentToolCallInfo): void {
   if (!hooks?.onToolCall) return;
@@ -395,6 +411,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           }
 
           const toolStartedAt = Date.now();
+          await fireToolStartHook(hooks, {
+            name: tc.function.name,
+            round: currentRound,
+            toolCallId: tc.id,
+          });
           const result = await executeToolUnified(
             tc.function.name,
             { args, ...toolCtxBase },
@@ -779,6 +800,11 @@ export async function* runAgentStream(
         }
 
         const toolStartedAt = Date.now();
+        await fireToolStartHook(hooks, {
+          name,
+          round: rounds,
+          toolCallId: tc.id,
+        });
         const result = await executeToolUnified(
           name,
           { args, ...toolCtxBase },

@@ -199,6 +199,10 @@ export async function createAgentRun(input: {
         eventType: "run.started",
         title: "任务已创建",
         visibleToUser: true,
+        payload: {
+          schemaVersion: 1,
+          userMessageId: input.userMessageId || null,
+        },
       });
       return created;
     });

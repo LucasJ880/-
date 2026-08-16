@@ -198,6 +198,7 @@ export function applyDeterministicHardFloor(
 async function modelVerify(input: {
   orgId: string;
   userId: string;
+  runId: string;
   plan: PlannerOutput;
   deterministic: VerifierOutput;
 }): Promise<VerifierOutput> {
@@ -215,6 +216,7 @@ async function modelVerify(input: {
       maxTokens: 800,
       orgId: input.orgId,
       userId: input.userId,
+      agentRunId: input.runId,
     });
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return input.deterministic;
@@ -286,6 +288,7 @@ export async function verifyRuntimeV2Run(input: {
   const modeled = await modelVerify({
     orgId: input.orgId,
     userId: input.userId,
+    runId: input.runId,
     plan,
     deterministic,
   });

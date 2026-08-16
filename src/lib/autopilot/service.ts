@@ -22,6 +22,7 @@ import {
   type AutopilotListQuery,
 } from "./repository";
 import { loadAutopilotTelemetryHealth } from "./telemetry-health";
+import { loadAutopilotEventCoverage } from "./coverage-health";
 
 export type AutopilotActor = {
   id: string;
@@ -140,4 +141,12 @@ export async function getAutopilotTelemetryHealth(
 ) {
   requireAccess(actor, orgId, "autopilot.view");
   return loadAutopilotTelemetryHealth(orgId);
+}
+
+export async function getAutopilotEventCoverage(
+  actor: AutopilotActor,
+  orgId: string,
+) {
+  requireAccess(actor, orgId, "autopilot.view");
+  return loadAutopilotEventCoverage(orgId);
 }

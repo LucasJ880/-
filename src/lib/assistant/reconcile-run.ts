@@ -13,6 +13,7 @@ import {
   type ReconcileDecision,
 } from "@/lib/assistant/reconcile-decision";
 import { logAudit } from "@/lib/audit/logger";
+import { appendAgentRunEventInTx } from "@/lib/agent-runtime/run";
 
 export * from "@/lib/assistant/reconcile-decision";
 
@@ -87,18 +88,6 @@ export type ReconcileResult = {
   errorCode?: string;
 };
 
-async function nextEventSequence(
-  tx: Prisma.TransactionClient,
-  runId: string,
-): Promise<number> {
-  const last = await tx.agentRunEvent.findFirst({
-    where: { runId },
-    orderBy: { sequence: "desc" },
-    select: { sequence: true },
-  });
-  return (last?.sequence ?? 0) + 1;
-}
-
 async function createRunEventInTx(
   tx: Prisma.TransactionClient,
   input: {
@@ -109,17 +98,13 @@ async function createRunEventInTx(
     payload?: Record<string, unknown>;
   },
 ) {
-  const sequence = await nextEventSequence(tx, input.runId);
-  return tx.agentRunEvent.create({
-    data: {
-      orgId: input.orgId,
-      runId: input.runId,
-      sequence,
-      eventType: input.eventType,
-      title: input.title,
-      payload: (input.payload ?? null) as Prisma.InputJsonValue,
-      visibleToUser: true,
-    },
+  return appendAgentRunEventInTx(tx, {
+    orgId: input.orgId,
+    runId: input.runId,
+    eventType: input.eventType,
+    title: input.title,
+    payload: input.payload,
+    visibleToUser: true,
   });
 }
 

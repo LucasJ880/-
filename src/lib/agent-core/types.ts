@@ -301,6 +301,12 @@ export interface AgentToolCallInfo {
   toolCallId?: string;
 }
 
+export interface AgentToolStartInfo {
+  name: string;
+  round: number;
+  toolCallId?: string;
+}
+
 /** 整次 run 结束的观测信息 */
 export interface AgentRunFinishInfo {
   content: string;
@@ -319,6 +325,8 @@ export interface AgentRunFinishInfo {
  * - engine 统一 fire-and-forget：hook 抛错只记日志，绝不影响主链路
  */
 export interface AgentRunHooks {
+  /** 工具执行前。不得改变执行决策。 */
+  onToolStart?: (info: AgentToolStartInfo) => void | Promise<void>;
   onToolCall?: (info: AgentToolCallInfo) => void | Promise<void>;
   onFinish?: (info: AgentRunFinishInfo) => void | Promise<void>;
 }
