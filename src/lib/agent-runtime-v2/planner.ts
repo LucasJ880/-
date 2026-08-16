@@ -30,6 +30,7 @@ export type PlannerInput = {
     description?: string;
     taskKinds: string[];
   }>;
+  agentRunId?: string;
 };
 
 export type PlannerResult =
@@ -323,6 +324,7 @@ ${workerLines}`
       maxTokens: 2500,
       orgId: input.orgId,
       userId: input.userId,
+      agentRunId: input.agentRunId,
     });
     const jsonMatch = text.trim().match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

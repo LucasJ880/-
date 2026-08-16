@@ -32,11 +32,13 @@ export async function loadMinimalContext(input: {
     runId: input.runId,
     eventType: "context.loading",
     title: "加载上下文",
+    payload: { schemaVersion: 1 },
     visibleToUser: false,
   });
 
-  const loadedTypes: string[] = ["recent_messages"];
-  const recent = await db.weChatMessage.findMany({
+  try {
+    const loadedTypes: string[] = ["recent_messages"];
+    const recent = await db.weChatMessage.findMany({
     where: {
       userId: input.userId,
       channel: input.channel,
@@ -126,7 +128,14 @@ export async function loadMinimalContext(input: {
     runId: input.runId,
     eventType: "context.loaded",
     title: "上下文已就绪",
-    payload: { types: loadedTypes },
+    payload: {
+      schemaVersion: 1,
+      types: loadedTypes,
+      contextTypes: loadedTypes,
+      sourceCount: loadedTypes.length,
+      projectId: project?.id ?? null,
+      customerId: customer?.id ?? null,
+    },
     visibleToUser: false,
   });
 
@@ -138,4 +147,15 @@ export async function loadMinimalContext(input: {
     memoryBlock,
     loadedTypes,
   };
+  } catch (error) {
+    await appendAgentRunEvent({
+      orgId: input.orgId,
+      runId: input.runId,
+      eventType: "context.failed",
+      title: "上下文加载失败",
+      payload: { schemaVersion: 1, errorCode: "context_load_failed" },
+      visibleToUser: false,
+    }).catch(() => {});
+    throw error;
+  }
 }

@@ -520,7 +520,7 @@ async function executeRoundGuarded(input: {
     runId,
     eventType: "tool.started",
     title: executionLabel,
-    payload: { stepKey: step.stepKey, operationKey },
+    payload: { stepKey: step.stepKey, operationKey, toolCallId: `${step.stepKey}:${attempt}` },
   });
 
   // P0 #89（§12–§13）：workforce 契约任务（spec valid）的证据消费收敛为
@@ -597,7 +597,13 @@ async function executeRoundGuarded(input: {
       runId,
       eventType: "tool.failed",
       title: executionLabel,
-      payload: { stepKey: step.stepKey, error: result.error, attempt },
+      payload: {
+        stepKey: step.stepKey,
+        error: result.error,
+        attempt,
+        toolCallId: `${step.stepKey}:${attempt}`,
+        errorCode: isNativeSynthesis ? "synthesis_failed" : "tool_failed",
+      },
     });
     return { status: "continued" };
   }
@@ -746,7 +752,7 @@ async function executeRoundGuarded(input: {
     runId,
     eventType: "tool.completed",
     title: executionLabel,
-    payload: { stepKey: step.stepKey },
+    payload: { stepKey: step.stepKey, toolCallId: `${step.stepKey}:${attempt}` },
   });
   await emitRuntimeV2Event({
     orgId,
@@ -1366,7 +1372,7 @@ async function executeClaimedWorkforceStep(input: {
     runId,
     eventType: "tool.started",
     title: executionLabel,
-    payload: { stepKey, operationKey },
+    payload: { stepKey, operationKey, toolCallId: `${stepKey}:${attempt}` },
   });
 
   // #94 P0 #89（§12–§13）：workforce 契约任务（context 存在）的证据消费
@@ -1441,7 +1447,13 @@ async function executeClaimedWorkforceStep(input: {
       runId,
       eventType: "tool.failed",
       title: executionLabel,
-      payload: { stepKey, error: result.error, attempt },
+      payload: {
+        stepKey,
+        error: result.error,
+        attempt,
+        toolCallId: `${stepKey}:${attempt}`,
+        errorCode: isNativeSynthesis ? "synthesis_failed" : "tool_failed",
+      },
     });
     return { kind: "continued" };
   }
@@ -1567,7 +1579,7 @@ async function executeClaimedWorkforceStep(input: {
     runId,
     eventType: "tool.completed",
     title: executionLabel,
-    payload: { stepKey },
+    payload: { stepKey, toolCallId: `${stepKey}:${attempt}` },
   });
   await emitRuntimeV2Event({
     orgId,

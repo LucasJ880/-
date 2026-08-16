@@ -93,9 +93,12 @@ ok(
   "human edit event",
 );
 ok(
-  mapAgentRunEventToAutopilot("run.failed", { code: "tool_failed" })?.eventType ===
-    "TASK_FAILED",
-  "run.failed",
+  mapAgentRunEventToAutopilot("run.cancelled")?.eventType === "TASK_CANCELLED",
+  "run.cancelled → TASK_CANCELLED",
+);
+ok(
+  mapAgentRunEventToAutopilot("mystery.v1")?.eventType === "UNKNOWN_EVENT",
+  "unmapped source → UNKNOWN_EVENT",
 );
 
 const traced = projectAutopilotTraceEvents("r1", [

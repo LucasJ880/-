@@ -124,6 +124,8 @@ export interface CompletionOptions {
   orgId?: string;
   userId?: string;
   workspaceId?: string;
+  /** Optional AgentRun observation. No runId → no model.* events. */
+  agentRunId?: string;
 }
 
 export async function createCompletion(opts: CompletionOptions): Promise<string> {
@@ -167,6 +169,22 @@ export async function createCompletionDetailed(
     : undefined;
 
   const t0 = Date.now();
+  let observedCallId: string | null = null;
+  if (opts.agentRunId && opts.orgId) {
+    const { emitModelLifecycle, newModelCallId } = await import(
+      "@/lib/agent-runtime/observe"
+    );
+    observedCallId = newModelCallId();
+    await emitModelLifecycle({
+      orgId: opts.orgId,
+      runId: opts.agentRunId,
+      modelCallId: observedCallId,
+      phase: "started",
+      provider: "openai",
+      model: actualModel,
+    });
+  }
+
   try {
     const res = await client.chat.completions.create(
       {
@@ -195,6 +213,21 @@ export async function createCompletionDetailed(
       ...usage,
     });
 
+    if (opts.agentRunId && opts.orgId && observedCallId) {
+      const { emitModelLifecycle } = await import("@/lib/agent-runtime/observe");
+      await emitModelLifecycle({
+        orgId: opts.orgId,
+        runId: opts.agentRunId,
+        modelCallId: observedCallId,
+        phase: "completed",
+        provider: "openai",
+        model: actualModel,
+        durationMs: elapsedMs,
+        tokenUsage: usage,
+        finishReason: res.choices[0]?.finish_reason ?? null,
+      });
+    }
+
     return {
       content: res.choices[0]?.message?.content ?? "",
       finishReason: res.choices[0]?.finish_reason ?? null,
@@ -209,6 +242,19 @@ export async function createCompletionDetailed(
       source: "completion",
       error: err instanceof Error ? err.message : String(err),
     });
+    if (opts.agentRunId && opts.orgId && observedCallId) {
+      const { emitModelLifecycle } = await import("@/lib/agent-runtime/observe");
+      await emitModelLifecycle({
+        orgId: opts.orgId,
+        runId: opts.agentRunId,
+        modelCallId: observedCallId,
+        phase: "failed",
+        provider: "openai",
+        model: actualModel,
+        durationMs: Date.now() - t0,
+        errorCode: "model_failed",
+      }).catch(() => undefined);
+    }
     throw err;
   } finally {
     if (timer) clearTimeout(timer);

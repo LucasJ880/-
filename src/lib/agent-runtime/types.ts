@@ -13,6 +13,7 @@ export type AgentRunEventType =
   | "ack.sent"
   | "context.loading"
   | "context.loaded"
+  | "context.failed"
   | "planning.started"
   | "planning.completed"
   | "tool.started"
@@ -25,6 +26,14 @@ export type AgentRunEventType =
   | "response.started"
   | "response.delta"
   | "response.completed"
+  | "response.failed"
+  | "retrieval.started"
+  | "retrieval.completed"
+  | "retrieval.failed"
+  | "model.started"
+  | "model.completed"
+  | "model.failed"
+  | "agent.output"
   | "run.completed"
   | "run.failed"
   | "run.cancelled"
@@ -80,6 +89,14 @@ export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "running",
   "awaiting_approval",
 ];
+
+export const AGENT_RUN_TERMINAL_STATUSES = [
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+
+export type AgentRunTerminalStatus = (typeof AGENT_RUN_TERMINAL_STATUSES)[number];
 
 export type AgentErrorCode =
   | "user_unbound"
