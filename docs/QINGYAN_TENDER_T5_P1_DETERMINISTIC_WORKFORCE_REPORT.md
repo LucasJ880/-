@@ -804,3 +804,97 @@ ISOLATED_BRANCHES_LEFT = 0（本会话建的隔离分支全删）
 PRODUCTION_BLOB_CHANGED = NO ｜ PRODUCTION_DB_CHANGED = NO
 PRODUCTION_ENV_CHANGED = NO ｜ PRODUCTION_DEPLOY = NO
 ```
+
+---
+
+## 13. Final Main Sync + #113 语义合并
+
+### 13.1 职责冻结
+
+```
+#113 OWNS  V2 执行 / 推理编排 / 续跑（resumability）
+#108 OWNS  canonical 持久化分离 / Workforce 归属 fence
+```
+
+`v2-persist.ts` 是**手工语义合并**，没有用 `--ours/--theirs`，也没有整文件取舍：
+
+| 来自 main / #113（保留） | 来自 #108（保留） |
+| --- | --- |
+| `v2-errors` / `v2-cursor` / `v2-resumable` 三个模块 | `v2-persist-core.persistV2CanonicalTx` 唯一 canonical 写入 |
+| `runV2Inference` 继续基于 `advanceV2Analysis({deadlineAt: ∞, tickBudgetMs: ∞})` —— 单次编排与跨 tick 续跑**同源同语义** | `persistV2Fenced` fence 通过后**委托**核心，不再 inline delete/create/upsert/summaryJson |
+| `advanceAndPersistV2`（cursorRaw / saveCursor / deadlineAt / tickBudgetMs / checkLease / YIELD / PERSISTED）原样 | Workforce 侧 `persistV2ForWorkforce` 复用同一核心 |
+| `analyzeAndPersistV2` 兼容包装器原样 | `V2PersistTx` / `PersistV2Result` 由核心定义，本文件 re-export 保持 import 兼容 |
+| `TenderV2LeaseLostError` 只从 `v2-errors` 取（本文件不再声明第二个 class） | |
+
+`verifier.ts` 是追加型冲突，**双方全留**：#108 的 `evidenceStepIds` 确定性 `tool_result`
+核验（全确定性时跳过 `modelVerify`，模型调用 0）+ #112 的 `runId` 遥测透传。
+
+### 13.2 单写者不变量
+
+```
+persistV2CanonicalTx 的调用方恰好 2 个：
+  legacy   v2-persist.ts:persistV2Fenced        （Tender lease ownership fence）
+  workforce v2-persist-workforce.ts:persistV2ForWorkforce（AgentRun RunFence + 域归属守卫）
+两个 wrapper 内 canonical 写语句数 = 0 / 0
+DUPLICATE_CANONICAL_PERSIST_LOGIC = 0
+```
+
+### 13.3 一处断言按"位置变了、不变量没变"重写
+
+`SEMANTIC-05` 原本断言 analyst 合成写在 `v2-persist.ts` 里。#113 把它挪进了分片执行器
+`v2-resumable.ts`——**不变量（全域唯一写入点）没变，是探针锁死了文件位置**。
+改成全树扫描 `summaryJson.analystSynthesis =` 恰好一处且不在 Workforce 工具层，
+比原来更耐重构。这是修探针，不是放宽标准。
+
+### 13.4 ⚠️ 生产激活债（本 PR **不修**）
+
+真实取证（源码 + 三轮真实 E2E）：
+
+```
+CURRENT_AGENT_RUN_CRON_MAX_DURATION = 60s
+  （src/app/api/cron/agent-runs/route.ts:13 —— 驱动 Workforce 的就是它）
+CURRENT_WORKFORCE_SLICE_BUDGET      = 45s（WORKFORCE_SLICE_BUDGET_MS）
+CURRENT_WORKFORCE_LEASE             = 180s（WORKFORCE_LEASE_MS）
+REAL_T3_DURATION_RANGE              = 135s – 507s（四次真实运行实测）
+```
+
+**结论必须说清楚：单个 t3 装不进一次 60s 的 serverless 调用。**
+Segment 2 §9 的心跳只解决**租约存活**，它**不能**阻止 `SERVERLESS_HARD_KILL`；
+而 #113 的 legacy resumability 目前**尚未被 Workforce t3 消费**。
+本轮 E2E 之所以全绿，是因为本地执行没有 serverless 硬超时——
+**本地绿不等于生产可用。**
+
+```
+T5_P1_PRODUCTION_ACTIVATION_GATE = BLOCKED_BY_WORKFORCE_SERVERLESS_SLICE
+```
+
+按 §13 冻结：#108 不再新增 adapter yield 协议 / Workforce V2 游标编排 /
+serverless deadline 传播 / cron 时长重设计 / 新任务态。
+这些属独立的 **T5-P1.1 Workforce V2 Serverless Resumability**。
+
+### 13.5 Post-sync 真实 smoke（§11）
+
+合并后在隔离生产快照上跑一个小真实包（2 文档 / 2 页），目的只有一个：
+证明把 `runV2Inference` 换成 #113 的分片执行器之后，**Workforce 单次本地行为没被破坏**。
+
+```
+9/9 任务 completed ｜ Job completed ｜ 域 run REVIEW_REQUIRED ｜ verifier PASS
+PLAN_SOURCE = SERVER_AUTHORED ｜ PLAN_TASK_COUNT = 9 ｜ PLANNER_LLM_CALLS = 0
+t3 = 126.4s ｜ LEASE_RENEWALS = 10 ｜ LOST_LEASE_FALSE_POSITIVE = 0
+canonical：5 facts / 8 requirements / 16 sourceRefs / 16 sections /
+           3 clarifications / checklist 5 → 交付物 5
+finalize 前后八个 canonical 维度逐字节一致
+```
+
+**这个 smoke 不是生产 serverless 激活证明**（见 §13.4）。
+
+### 13.6 DB 平面回归（同一隔离快照）
+
+| 套件 | 结果 |
+| --- | --- |
+| #113 `tender-v2-resumable-isolated-e2e` | **24/24**（套件随 #114 从 18 增至 24） |
+| `phase2a-lease` | **16/16** |
+| `t1b-integration` | 40/40 |
+| Segment 2 fence 矩阵 | 12/12 |
+| Segment 3 投影矩阵 | 18/18 |
+| PR106 legacy V2 fence | 9/9 |
