@@ -668,3 +668,139 @@ READY_FOR_HUMAN_FINAL_REVIEW = NO（需再做一轮 sync + 回归）
 临时 env / 密钥文件        = 已删
 Award Watch / Memory 自动写 / legacy 队列退休 / 第二 Runtime = 均未启动
 ```
+
+---
+
+## 12. Segment 4 Final Closure — Current-Main Sync + 非生产 Blob A/B Canonical Parity
+
+### 12.1 Sync（到 `ba2bdc70`，#104 Project Finance）
+
+零冲突。三方测试注册全部保留（T5 5/5 · Autopilot 10/9 · Finance 3/2）。
+Prisma client 需按 #104 新模型重新生成——本 PR `SCHEMA_CHANGE = NONE`，
+`prisma/schema.prisma` 与 main **逐字节相同**，因此在共享 node_modules 内 generate 对主 checkout 安全。
+
+`prisma validate` ✓ ｜ migration history 53/53 ｜ release safety 27/27 ｜ `test:ci` ✓ ｜
+tsc ✓ ｜ eslint 与 main 同数 ｜ **phase2a-lease 16/16** ｜ flag-OFF 回滚面 5/5 ｜
+Finance p15-pure 7/7 · p15-authz 10/10。
+
+### 12.2 非生产 Blob parity 环境（上轮 blocker 解除）
+
+用仓库自带的**本地磁盘 blob store**（`PRODUCT_CONTENT_LOCAL_STORE=1` +
+`PRODUCT_CONTENT_LOCAL_STORE_DIR`），`putPrivateBlob`/`getPrivateBlob` 对称读写。
+
+```
+PARITY_STORAGE = NON_PRODUCTION_BLOB（本地磁盘）
+PRODUCTION_BLOB_CREDENTIAL_USED = NO
+```
+
+真实 3 文档 HealthPRO RFP 包（05297 Paper Bags + 两轮 QA），经**真实上传链**
+（`validateUploadedFileAsync` → `putPrivateBlob` → `projectDocument.create` →
+`maybeEnqueueTenderAnalysisAfterUpload`，未 seed 任何文档/页/结果）分别灌入两个隔离项目：
+
+```
+INPUT_DOCUMENT_COUNT = 3      INPUT_PAGE_COUNT = 78
+INPUT_DOCUMENT_HASH_PARITY = 100%（三个文件 sha256 完全一致）
+```
+
+### 12.3 A 路（legacy full V2）与一个真实缺陷复现
+
+A 路走真实 legacy 链：上传自动入队 → legacy 队列 → ENSURE_PAGES → **真实 Blob 下载** →
+页解析 → `analyzeAndPersistV2`。
+
+```
+LEGACY_BLOB_DOWNLOAD = PASS      LEGACY_ENSURE_PAGES = PASS（78 页）
+canonical 结果完整：103 facts / 160 requirements / 315 sourceRefs /
+                    16 sections / 20 clarifications / 93 risks / checklist 71
+```
+
+**但 legacy 编排卡死**：canonical 数据全部写完后，worker 停在 `EXTRACT_FACTS`、
+租约过期、状态永远不翻到 `REVIEW_REQUIRED`。这正是 main 的 **#113
+（`修 V2 分析在 serverless 硬超时下永远跑不完`）** 要修的 bug——本分支 base 早于它。
+canonical **内容**完整可比，只是 legacy 的**状态转换**没落地。
+
+### 12.4 B 路（Workforce 确定性 canonical V2）
+
+```
+WORKFORCE_JOB_ID = cmsvcqdar000an1pzebjebq59
+WORKFORCE_V2_RUN_ID = cmsvcqgzs001en1pz6re17lux
+9/9 任务 completed ｜ Job completed ｜ 域 run REVIEW_REQUIRED ｜ verifier PASS
+PLAN_SOURCE = SERVER_AUTHORED ｜ PLAN_TASK_COUNT = 9 ｜ PLANNER_LLM_CALLS = 0
+t3 = 456.9s（> 180s 租约）｜ LEASE_RENEWALS = 10 ｜ LOST_LEASE_FALSE_POSITIVE = 0
+finalize 前后八个 canonical 维度逐字节一致
+canonical：97 facts / 174 requirements / 313 sourceRefs / 16 sections /
+           12 clarifications / 99 risks / checklist 76 / deliverables 76
+```
+
+### 12.5 Canonical Parity 结果（11/11 PASS）
+
+| 维度 | A（legacy） | B（workforce） |
+| --- | --- | --- |
+| facts | 103 | 97 |
+| requirements | 160 | 174 |
+| sourceRefs | 315 | 313 |
+| sections | 16 | 16 |
+| clarifications | 20 | 12 |
+| risks | 93 | 99 |
+| submissionChecklist | 71 | 76 |
+
+```
+CANONICAL_CONTRACT_PARITY = PASS（无任一 canonical domain 单边整体缺失）
+summaryJson 九个语义字段两路齐备 ｜ 16 章节两路齐备
+
+FACT_PARITY          = 10/10
+REQUIREMENT_PARITY   = 10/10
+SUBMISSION_PARITY    = 10/10
+RISK_PARITY          = 10/10
+CLARIFICATION_PARITY = 7/10   （真实模型措辞差异，非缺失）
+
+EVIDENCE_TRACEABILITY = PASS（A 要求 10/10·事实 10/10；B 同）
+来源引用均指向本项目自己的文档，无跨项目/错文档
+ADDENDUM_PRECEDENCE_PARITY = NA（本包无 addendum 变更）
+OBVIOUS_HALLUCINATION = 0     SECONDARY_TRUTH_GENERATORS = 0
+B 路 RISKS 章节是 canonical V2 形状（非 Workforce 二次生成的 tender-workforce-risks/v1）
+```
+
+**交付物（B 路）**：`CHECKLIST_COUNT = MATERIALIZED = MATCHED = 76`，
+`MISSING/EXTRA/UNSUPPORTED = 0`，`STATIC_TEMPLATE_ITEMS = 0`。
+
+> 说明：A 路 `deliverables = 0` 是**设计如此**——V2 开启后 legacy 刻意停用 V1 静态模板
+> （见 §1 与 `deliverables.ts` 头注），不是 domain 缺失，因此不计入单边缺失判定。
+
+数量差异（facts 103 vs 97、clarifications 20 vs 12 等）属真实模型非确定性，
+在 §13 允许范围内：抽样语义兼容、来源可追、无一边整体缺失、无编造。
+
+### 12.6 ⚠️ 收尾状态：两处 main 冲突需人工定夺
+
+本轮结束时 main 已从 `ba2bdc70` 前进到 **`1f2f53d4`**（新增 #112 Autopilot A1-P1、
+#113 tender V2 分片续跑）。`git merge-tree` 只读探测出**两处冲突**：
+
+1. **`src/lib/agent-runtime-v2/verifier.ts` —— 追加型**。main 加 3 行（`runId` 透传给
+   Autopilot 遥测），我加 44 行（确定性 tool_result 完成标准）。语义不重叠，双方保留即可。
+
+2. **`src/lib/tender-auto-analysis/v2-persist.ts` —— 真语义冲突，STOP**。
+   两侧沿**不同轴**拆了同一个文件：
+
+   | | 拆分轴 | 目的 |
+   | --- | --- | --- |
+   | main #113 | `v2-errors` / `v2-resumable`（`advanceV2Analysis`）/ `v2-cursor` + `loadCoverageForRun` | 分片续跑，熬过 serverless 硬超时 |
+   | 本 PR Seg2 | `v2-persist-core`（`persistV2CanonicalTx`） | legacy lease fence 与 Workforce AgentRun fence 共用写入核心 |
+
+   意图互补（#113 的持久化相位本该调用 `persistV2CanonicalTx`），但合并需要两个设计决定：
+   ① `advanceV2Analysis` 是否直接调用 `persistV2CanonicalTx`；
+   ② **#113 的分片续跑与 Segment 2 §9 的租约心跳在解决同一失败模式的不同层面**——
+   Workforce slice 同样跑在 serverless 上，分片可能是更根本的那一半，心跳是互补还是应被取代，
+   属产品/架构决策。**不由我选 ours/theirs。**
+
+```
+MAIN_AT_FINAL_CLOSURE_START = ba2bdc70   MAIN_AT_FINAL_CLOSURE_END = 1f2f53d4
+MAIN_DRIFT = YES        READY_FOR_HUMAN_FINAL_REVIEW = NO
+```
+
+### 12.7 清理与安全
+
+```
+ISOLATED_BRANCHES_LEFT = 0（本会话建的隔离分支全删）
+本地非生产 blob 目录、临时 env 文件已删
+PRODUCTION_BLOB_CHANGED = NO ｜ PRODUCTION_DB_CHANGED = NO
+PRODUCTION_ENV_CHANGED = NO ｜ PRODUCTION_DEPLOY = NO
+```
