@@ -51,6 +51,7 @@ const MAPPED_SOURCE_EVENTS = new Set([
   "retrieval.failed",
   "tool.started",
   "tool.completed",
+  "tool.yielded",
   "tool.failed",
   "model.started",
   "model.completed",
@@ -197,6 +198,14 @@ export function mapAgentRunEventToAutopilot(
         eventType: "TOOL_CALL_STARTED",
         durationMs,
         payload: pick(p, ["name", "toolCallId", "round"]),
+      };
+    // T5-P1.1：正常让出既不是完成也不是失败——映射成独立事件，
+    // 否则会虚增 TOOL_CALL_COMPLETED / 污染失败率。
+    case "tool.yielded":
+      return {
+        eventType: "TOOL_CALL_YIELDED",
+        durationMs,
+        payload: pick(p, ["name", "toolCallId", "reason", "phase", "ticks"]),
       };
     case "tool.failed":
       return {
