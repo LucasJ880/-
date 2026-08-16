@@ -208,13 +208,30 @@ Append-only。纠错 = `voidPayment()`（打 `voidedAt` + 回退 `paidAmountCad`
 | delivery cost | POST_AWARD 的 `ProjectCost.ACTUAL`（CAD） |
 | total cost | bid + delivery |
 | forecast revenue | 非作废收入条目的 `amountForecastCad` 之和（contract + change orders + adjustments） |
-| actual revenue | `REALIZED` 条目的 `amountRealizedCad` 之和 |
+| recognized revenue | `RECOGNIZED` 条目的 `amountRecognizedCad` 之和（= **经济收入确认**，≠ 客户已付款） |
 | forecast profit | forecast revenue − total cost |
-| final profit | **仅在具备资格时**= realized revenue − total cost，否则 `null` |
+| final profit | **仅在具备资格时**= recognized revenue − total cost，否则 `null` |
 | margin | `profit / revenue × 100`（Decimal，2 位）；收入 ≤ 0 → `null` |
 
-### Final Profit 资格（证据式，全部条件必须成立）
-收入账可用 · outcome = WON · 项目有 `actualCompletionDate` · 无未实现收入条目 · 已实现收入 > 0 · 无未结应付 · 无未落实 COMMITTED 成本 · 无未折算币种成本行。
+> **⚠️ SUPERSEDED BY R1 §G/§H —— 本节初版口径已被更正，以下为最终口径。**
+> 初版曾把「无未结应付」列为 Final Profit 资格条件，并使用 `REALIZED` / `amountRealizedCad` 命名。
+> 二者均已在 R1 收口中更正，原因见
+> [`QINGYAN_TENDER_T2_P16_INTEGRATION_CONVERGENCE_R1_REPORT.md`](QINGYAN_TENDER_T2_P16_INTEGRATION_CONVERGENCE_R1_REPORT.md) §G / §H。
+
+### Final Profit 资格（证据式，全部条件必须成立 —— R1 最终口径）
+
+收入账可用 · outcome = WON · 项目有 `actualCompletionDate` · 收入已定案（无 FORECAST 未确认条目且已确认收入 > 0）·
+无待审费用 · 无未落实 COMMITTED 成本 · 无未折算币种的成本/收入行。
+
+**刻意不含未结报销 / 未结应付**（`Payment ≠ Cost`）：费用一经审批即产生 `ProjectCost.ACTUAL`，
+成本那一刻已进入项目损益；钱是否已付出去属**结算面**，不改变项目赚了多少钱。
+未结金额改为与利润**并列**输出：`outstandingReimbursementCad` / `outstandingPayablesCad` / `settlementStatus`。
+即「Final Profit 有值 + Settlement = OPEN + 待报销 > 0」是**合法且预期**的状态（由 `PROFIT-SETTLEMENT-01` 实证）。
+
+blocker 白名单（`p16-pure` 静态锁定，越界即测试红）：
+`REVENUE_LEDGER_UNAVAILABLE` · `OUTCOME_NOT_WON` · `PROJECT_NOT_COMPLETED` · `REVENUE_NOT_FINAL` ·
+`PENDING_COST_REVIEW` · `UNRESOLVED_COST_CORRECTION` · `UNKNOWN_CURRENCY_COST` · `UNKNOWN_REVENUE_CURRENCY`
+
 任一不成立 → `finalProfitCad = null` + `finalProfitBlockers[]` 逐项列出缺什么证据。**UI 显示「暂不可得」并列出原因，绝不用预测值冒充最终值。**
 
 ---
