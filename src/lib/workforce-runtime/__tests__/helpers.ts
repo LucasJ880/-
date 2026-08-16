@@ -219,6 +219,7 @@ export async function seedForeignQueuedBacklog(
     fixtures.push(fx);
     for (let i = 0; i < PER_ORG && runIds.length < count; i++) {
       const job = await createWorkforceJob({
+        workDomain: "sales",
         orgId: fx.orgId,
         userId: fx.ownerUserId,
         role: "sales",

@@ -1,12 +1,21 @@
 /**
  * Phase E + BLOCKER 2 — 运行 V2 grounded 引擎并 lease-fenced 持久化到现有实体。
  *
+ * 职责边界（两条 PR 合并后冻结）：
+ *   - **执行 / 推理 / 续跑** 归 #113：runV2Inference 与 advanceAndPersistV2 都基于
+ *     advanceV2Analysis 分片执行器（前者 deadline=∞ 一次跑完），单次编排与跨 tick
+ *     续跑**同源同语义**；错误类与游标分别在 v2-errors / v2-cursor。
+ *   - **canonical 写入** 归 #108：唯一实现是 v2-persist-core.persistV2CanonicalTx，
+ *     本文件只保留 legacy Tender lease ownership fence。Workforce 侧的
+ *     AgentRun RunFence 包装器复用同一核心（tender-workforce/v2-persist-workforce.ts），
+ *     因此 DUPLICATE_CANONICAL_PERSIST_LOGIC = 0。
+ *
  * 结构（fail-closed）：
- *   1. runV2Inference：只做 LLM 推理 + 纯映射，零 canonical 写；
- *   2. persistV2Fenced：单个短事务内先 fence（校验 run.id / leaseOwner / status∈{EXTRACTING,ANALYZING}
- *      / lease 未过期，并原子续租——行锁持有至提交，并发认领会阻塞/失败），fence 通过才允许
- *      clear + 所有 canonical 写；fence 失败 → 抛 TenderV2LeaseLostError，ZERO canonical 写；
- *   3. heartbeat 若 renewLease 返回 false → 记 leaseLost，推理返回后立即 fail-closed，不进入持久化。
+ *   1. runV2Inference：只做推理 + 纯映射，零 canonical 写；
+ *   2. persistV2Fenced：单事务内先 fence（run.id / leaseOwner / status∈{EXTRACTING,ANALYZING}
+ *      / lease 未过期 + 原子续租，行锁持有至提交），fence 通过才委托 canonical 核心；
+ *      fence 失败 → TenderV2LeaseLostError，ZERO canonical 写；
+ *   3. heartbeat 若 renewLease 返回 false → 记 leaseLost，推理返回后立即 fail-closed。
  *
  * 复用现有 TenderAnalysisRun leaseOwner 契约，不新建第二套 lease system。
  * 禁 import tender-eval。事务边界内所有写要么全提交要么全回滚（V2-LEASE-03）。
@@ -17,8 +26,9 @@ import type { AnalyzeOptions } from "@/lib/tender-understanding/analyzer";
 import type { AnalyzerInput } from "@/lib/tender-understanding/contract";
 import { isTenderAnalysisV2Enabled } from "@/lib/tender-understanding/flag";
 import type { AnalystCoverage } from "@/lib/tender-analyst/contract";
-import { SECTION_KEYS } from "./constants";
 import { mapRunRoleToV2Role, type V2MappedResult } from "./v2-map";
+// 执行/推理/续跑语义归 #113：错误类、分片执行器、游标都从各自模块取，
+// 本文件不再重新声明第二份。
 import { TenderV2LeaseLostError } from "./v2-errors";
 import {
   advanceV2Analysis,
@@ -31,9 +41,18 @@ import {
   type V2CursorState,
   type V2Phase,
 } from "./v2-cursor";
+// canonical 写入语义归 #108：唯一实现在 v2-persist-core，
+// 本文件只做 legacy lease ownership fence。
+import {
+  persistV2CanonicalTx,
+  type PersistV2Result,
+  type V2PersistTx,
+} from "./v2-persist-core";
 
 export { isTenderAnalysisV2Enabled, TenderV2LeaseLostError };
 export type { V2Inference };
+// 形状类型对既有调用方（含 fake tx 测试）保持原路径可 import
+export type { PersistV2Result, V2PersistTx };
 
 /** 从 run 文档 + 页文本构建 AnalyzerInput（project-scoped）。 */
 export async function buildAnalyzerInputForRun(
@@ -155,40 +174,6 @@ export async function runV2Inference(input: {
 
 /* --------------------------- 可注入事务（便于确定性 race 测试） --------------------------- */
 
-type CountResult = { count: number };
-type IdResult = { id: string };
-
-/** 事务内使用的最小 Prisma 委托子集。 */
-export interface V2PersistTx {
-  tenderAnalysisRun: {
-    updateMany(args: unknown): Promise<CountResult>;
-    update(args: unknown): Promise<unknown>;
-  };
-  tenderAnalysisSourceRef: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderAnalysisFact: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderExtractedRequirement: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderClarificationQuestion: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    create(args: unknown): Promise<IdResult>;
-  };
-  tenderAnalysisChangeCandidate: {
-    deleteMany(args: unknown): Promise<CountResult>;
-    createMany(args: unknown): Promise<CountResult>;
-  };
-  tenderAnalysisSection: {
-    upsert(args: unknown): Promise<unknown>;
-  };
-}
-
 export type RunV2Tx = <T>(fn: (tx: V2PersistTx) => Promise<T>) => Promise<T>;
 
 const defaultRunTx: RunV2Tx = (fn) =>
@@ -200,17 +185,14 @@ const defaultRunTx: RunV2Tx = (fn) =>
     timeout: 120_000,
   });
 
-export type PersistV2Result = {
-  factCount: number;
-  requirementCount: number;
-  clarificationCount: number;
-  changeCount: number;
-  sectionCount: number;
-};
-
 /**
- * Lease-fenced 持久化：单事务内先 fence，再写全部 canonical 实体。
+ * Legacy Tender lease fence 包装器（**ownership 判定**）。
+ * 单事务内先 fence（run.id / leaseOwner / status∈{EXTRACTING,ANALYZING} / 未过期
+ * + 原子续租，行锁持有至提交），fence 通过才委托 canonical 核心写入。
  * fence 失败 → TenderV2LeaseLostError（零写）；事务内异常 → 全回滚。
+ *
+ * 本函数**只判定执行权**；写什么由 persistV2CanonicalTx 唯一实现
+ * （Workforce 路径复用同一核心，见 tender-workforce/v2-persist-workforce.ts）。
  */
 export async function persistV2Fenced(
   args: {
@@ -242,162 +224,13 @@ export async function persistV2Fenced(
       throw new TenderV2LeaseLostError(args.runId);
     }
 
-    const { mapped } = args;
-
-    // —— 幂等重建（fence 之后、同一事务内） —— //
-    await tx.tenderAnalysisSourceRef.deleteMany({ where: { runId: args.runId } });
-    await tx.tenderAnalysisFact.deleteMany({ where: { runId: args.runId } });
-    await tx.tenderExtractedRequirement.deleteMany({
-      where: { analysisRunId: args.runId },
+    return persistV2CanonicalTx(tx, {
+      runId: args.runId,
+      projectId: args.projectId,
+      parentRunId: args.parentRunId,
+      mapped: args.mapped,
+      model: args.model,
     });
-    await tx.tenderClarificationQuestion.deleteMany({
-      where: { analysisRunId: args.runId },
-    });
-    await tx.tenderAnalysisChangeCandidate.deleteMany({
-      where: { runId: args.runId },
-    });
-
-    let factCount = 0;
-    for (const fct of mapped.facts) {
-      const created = await tx.tenderAnalysisFact.create({
-        data: {
-          runId: args.runId,
-          statementKind: fct.statementKind,
-          contentZh: fct.contentZh,
-          contentOriginal: fct.contentOriginal,
-          confidence: fct.confidence,
-        },
-      });
-      factCount += 1;
-      for (const ref of fct.sourceRefs) {
-        await tx.tenderAnalysisSourceRef.create({
-          data: {
-            runId: args.runId,
-            documentId: ref.documentId,
-            pageNumber: ref.pageNumber,
-            sectionLabel: ref.sectionLabel,
-            originalTextSnippet: ref.originalTextSnippet,
-            extractionMethod: ref.extractionMethod,
-            confidence: ref.confidence,
-            factId: created.id,
-          },
-        });
-      }
-    }
-
-    let requirementCount = 0;
-    for (const r of mapped.requirements) {
-      const created = await tx.tenderExtractedRequirement.create({
-        data: {
-          projectId: args.projectId,
-          analysisRunId: args.runId,
-          requirementCode: r.requirementCode,
-          category: r.category,
-          originalRequirement: r.originalRequirement,
-          chineseTranslation: r.chineseTranslation,
-          mandatory: r.mandatory,
-          evidenceRequired: r.evidenceRequired,
-          complianceStatus: r.complianceStatus,
-          reviewStatus: "AI_EXTRACTED",
-          sourcePage: r.sourcePage,
-          projectionStatus: "NOT_PROJECTED",
-        },
-      });
-      requirementCount += 1;
-      for (const ref of r.sourceRefs) {
-        await tx.tenderAnalysisSourceRef.create({
-          data: {
-            runId: args.runId,
-            documentId: ref.documentId,
-            pageNumber: ref.pageNumber,
-            sectionLabel: ref.sectionLabel,
-            originalTextSnippet: ref.originalTextSnippet,
-            extractionMethod: ref.extractionMethod,
-            confidence: ref.confidence,
-            requirementId: created.id,
-          },
-        });
-      }
-    }
-
-    let clarificationCount = 0;
-    for (const c of mapped.clarifications) {
-      const created = await tx.tenderClarificationQuestion.create({
-        data: {
-          projectId: args.projectId,
-          analysisRunId: args.runId,
-          question: c.question,
-          reason: c.reason,
-          priority: c.priority,
-          enquiryDeadline: c.enquiryDeadline,
-          status: "OPEN",
-        },
-      });
-      clarificationCount += 1;
-      for (const ref of c.sourceRefs) {
-        await tx.tenderAnalysisSourceRef.create({
-          data: {
-            runId: args.runId,
-            documentId: ref.documentId,
-            pageNumber: ref.pageNumber,
-            sectionLabel: ref.sectionLabel,
-            originalTextSnippet: ref.originalTextSnippet,
-            extractionMethod: ref.extractionMethod,
-            confidence: ref.confidence,
-            clarificationQuestionId: created.id,
-          },
-        });
-      }
-    }
-
-    let changeCount = 0;
-    if (mapped.changeCandidates.length > 0) {
-      await tx.tenderAnalysisChangeCandidate.createMany({
-        data: mapped.changeCandidates.map((c) => ({
-          runId: args.runId,
-          parentRunId: args.parentRunId ?? null,
-          changeType: c.changeType,
-          entityType: c.entityType,
-          entityKey: c.entityKey,
-          summaryZh: c.summaryZh,
-          status: "PENDING_REVIEW",
-        })),
-      });
-      changeCount = mapped.changeCandidates.length;
-    }
-
-    const sectionByKey = new Map(mapped.sections.map((s) => [s.sectionKey, s]));
-    let sectionCount = 0;
-    for (const sectionKey of SECTION_KEYS) {
-      const s = sectionByKey.get(sectionKey);
-      const contentZh = s?.contentZh ?? "（暂无）";
-      const structuredJson = (s?.structuredJson ?? {}) as object;
-      const confidence = s?.confidence ?? "INFERRED";
-      await tx.tenderAnalysisSection.upsert({
-        where: { runId_sectionKey: { runId: args.runId, sectionKey } },
-        create: {
-          runId: args.runId,
-          sectionKey,
-          contentZh,
-          structuredJson,
-          confidence,
-          reviewStatus: "AI_DRAFT",
-        },
-        update: { contentZh, structuredJson, confidence, reviewStatus: "AI_DRAFT" },
-      });
-      sectionCount += 1;
-    }
-
-    await tx.tenderAnalysisRun.update({
-      where: { id: args.runId },
-      data: {
-        summaryText: mapped.summaryText,
-        summaryJson: mapped.summaryJson as object,
-        model: args.model,
-      },
-    });
-
-    return { factCount, requirementCount, clarificationCount, changeCount, sectionCount };
   });
 }
 

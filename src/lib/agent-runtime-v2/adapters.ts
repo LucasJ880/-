@@ -50,6 +50,17 @@ export type AdapterContext = {
    * 审批链独立判定（§12/§16）。legacy runtime_v2 恒为 undefined。
    */
   workforce?: import("@/lib/workforce-runtime/handoff").WorkforceExecutionContext;
+  /**
+   * T5-P1 Segment 2 §7：**server-only** 写防栅栏（AgentRun 租约 fencing token）。
+   *
+   * 只由 Runtime executor 在服务端注入（见 executor.ts 的 executeRuntimeV2Tool
+   * 调用点），供需要"长 await 后仍原子安全落库"的域工具使用（canonical V2 持久化）。
+   *
+   * 硬规则：这是**活对象、不是数据**——绝不进入 API body / planJson / task contract /
+   * metadata / inputJson / handoff / outputJson / event payload，客户端无法构造。
+   * legacy runtime_v2 与所有非 workforce 路径恒为 undefined。
+   */
+  runFence?: import("@/lib/agent-runtime/lease").RunFence;
 };
 
 export type AdapterResult = {

@@ -76,6 +76,7 @@ async function main() {
 
   async function createJobWithPlan(goal: string, steps: Array<AnyRecord>) {
     const job = await createWorkforceJob({
+      workDomain: "sales",
       orgId: fx.orgId,
       userId: fx.ownerUserId,
       role: "sales",

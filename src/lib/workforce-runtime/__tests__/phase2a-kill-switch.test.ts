@@ -63,6 +63,7 @@ async function main() {
 
   // job1：正常 queued job（黄金模板目标，恢复后可确定性规划）
   const job1 = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",
@@ -72,6 +73,7 @@ async function main() {
 
   // job2：模拟 exhausted（attempts 达上限 + 租约已过期）用于验证清扫也被暂停
   const job2 = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

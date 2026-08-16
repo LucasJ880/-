@@ -169,20 +169,48 @@ export class LostLeaseError extends Error {
  * claim 与本事务竞争同一行锁，两者被 Postgres 串行化，不存在
  * "check 通过但写入落在新 worker 之后" 的窗口。
  */
+/** guard 事务参数（可选；不传 = Prisma 默认，既有调用方行为逐字不变） */
+export type FenceTxOptions = {
+  maxWait?: number;
+  timeout?: number;
+};
+
 export type RunFence = {
   runId: string;
   /** 轻量只读校验（长 await 后先行探测；最终写入仍必须走 guard） */
   check: () => Promise<boolean>;
-  /** 原子防栅栏写入；fence 丢失抛 LostLeaseError */
-  guard: <T>(write: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
+  /**
+   * 原子防栅栏写入；fence 丢失抛 LostLeaseError。
+   *
+   * options（T5-P1 Segment 2）：canonical V2 package 落库实测需要
+   * maxWait 10s / timeout 120s（几十条 facts/requirements 逐行写 + Neon 往返，
+   * 远超 Prisma 默认 5s interactive transaction 上限）。不传即默认，
+   * 因此所有既有调用方行为完全不变。
+   */
+  guard: <T>(
+    write: (tx: Prisma.TransactionClient) => Promise<T>,
+    options?: FenceTxOptions,
+  ) => Promise<T>;
 };
 
 /**
- * 从（可续租的）lease holder 创建 fence。holder.lease 在每次 renew 后被
- * 调用方更新，fence 始终使用最新 token。
+ * lease 持有者。holder.lease 在每次 renew 后被调用方更新，fence 始终使用最新 token。
+ *
+ * runExclusive（可选）：把「续租」与「防栅栏写入」串行化的临界区。
+ * 心跳续租会推进 DB 中的 token，若恰好落在 guard 读取 token 与 guard 发出
+ * 条件更新之间，guard 会拿着旧 token 命中 0 行 → 明明还持有租约却抛
+ * LostLeaseError。持有心跳的调用方（Workforce processor）传入该临界区即可消除
+ * 该竞态；不传时行为与既有完全一致。
  */
-export function createRunFence(holder: { lease: RunLeaseHandle }): RunFence {
+export type LeaseHolder = {
+  lease: RunLeaseHandle;
+  runExclusive?: <T>(fn: () => Promise<T>) => Promise<T>;
+};
+
+export function createRunFence(holder: LeaseHolder): RunFence {
   const runId = holder.lease.runId;
+  const exclusive = <T>(fn: () => Promise<T>): Promise<T> =>
+    holder.runExclusive ? holder.runExclusive(fn) : fn();
   return {
     runId,
     check: async () => {
@@ -195,19 +223,21 @@ export function createRunFence(holder: { lease: RunLeaseHandle }): RunFence {
         holder.lease.leaseExpiresAt.getTime()
       );
     },
-    guard: async (write) =>
-      db.$transaction(async (tx) => {
-        const asserted = await tx.agentRun.updateMany({
-          where: {
-            id: runId,
-            leaseExpiresAt: holder.lease.leaseExpiresAt,
-          },
-          // no-op：仅为取得行锁并断言 token 未被其他 worker 覆盖
-          data: { leaseExpiresAt: holder.lease.leaseExpiresAt },
-        });
-        if (asserted.count === 0) throw new LostLeaseError(runId);
-        return write(tx);
-      }),
+    guard: async (write, options) =>
+      exclusive(() =>
+        db.$transaction(async (tx) => {
+          const asserted = await tx.agentRun.updateMany({
+            where: {
+              id: runId,
+              leaseExpiresAt: holder.lease.leaseExpiresAt,
+            },
+            // no-op：仅为取得行锁并断言 token 未被其他 worker 覆盖
+            data: { leaseExpiresAt: holder.lease.leaseExpiresAt },
+          });
+          if (asserted.count === 0) throw new LostLeaseError(runId);
+          return write(tx);
+        }, options),
+      ),
   };
 }
 

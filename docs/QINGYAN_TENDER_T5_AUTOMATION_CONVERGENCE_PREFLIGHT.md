@@ -19,7 +19,7 @@ deterministic plan 状态、收敛矩阵、事件→作业映射、记忆学习�
 | APPROVAL_SCOPE_POLICY_INTEGRATED | **PARTIAL** | 拦截+PendingAction+单一 resume 入口真实存在（`executor.ts:605/1449`、`resume.ts:85`、过期≠拒绝 `port.ts:526`）；但 `canInvokeTool` 输入被硬编码（`executor.ts:436-441/1065-1070`：`domain:"sales"` 字面量、无 toolPolicy、`modulesJson:undefined`→org/workspace/module 三层策略失活）；resume 时 scope/approval freshness 重查显式未实现（`resume.ts:17-18`）；tender 工具全部 `requiresApproval:false`（`tender-workforce/tools.ts`）→ 审批门在唯一生产调用方上零覆盖 |
 | T2_DATA_READY | **PARTIAL** | 台账/归档基础已 merge（PR #102）；EXPENSE_SUBMIT 三权解耦在 Draft PR #104 未 merge（dark）→ T5 财务相关自动化事件源不齐 |
 | T3_DATA_READY | **PASS**（作为地基）| Buyer/MemoryClaim/Evidence 已 merge（PR #103 @ f9549ab），写门 CONSERVATIVE_ADMIN_ONLY + AI_AUTO_MEMORY_WRITE 拒绝（`claim-service.ts:117-135`）；语义检索 DESIGN_ONLY；**零外部消费者**（本轮 T4 是第一个只读近邻） |
-| T4_DATA_READY | **PARTIAL → 本轮建立 P1** | AwardRecord/AwardRecordSource + canonical service + 七域投影本轮落地（见 T4 P1 报告）；own-project backfill 仅 dry-run；数据量从零积累 |
+| T4_DATA_READY | **PASS（2026-08-14 生产激活）** | PR #107 merged @ 399a769；生产 migration 已应用（drift 取证 → resolve → deploy），`T4_AWARD_INTELLIGENCE_SCHEMA_READY=1`；生产烟测通过（真实 CanadaBuys 检索 → 人工确认 → AwardRecord HUMAN_CONFIRMED + provenance + 组织页可见）。own-project backfill 仍仅 dry-run；数据量从零积累 |
 
 ## 2. 第二队列债务（TENDER_SECOND_QUEUE_DEBT = YES）
 

@@ -41,6 +41,7 @@ async function main() {
 
   // ── Case A：Root Job Identity ──
   const created = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

@@ -45,6 +45,11 @@ npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/list-service.test.ts
 npx tsx 'src/app/(main)/workforce/__tests__/operator-ux.test.ts'
 npx tsx src/lib/tender-workforce/__tests__/t1b-pure.test.ts
+npx tsx src/lib/workforce-runtime/__tests__/t5-plan-seam.test.ts
+npx tsx src/lib/workforce-runtime/__tests__/t5-execution-policy.test.ts
+npx tsx src/lib/tender-workforce/__tests__/t5-seg2-v2-spine.test.ts
+npx tsx src/lib/workforce-runtime/__tests__/t5-seg25-work-domain.test.ts
+npx tsx src/lib/tender-workforce/__tests__/t5-seg3-v2-convergence.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p15-pure.test.ts

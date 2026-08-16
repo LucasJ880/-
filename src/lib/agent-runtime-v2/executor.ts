@@ -2,6 +2,8 @@ import type { AgentRunStep, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getOrgMembership } from "@/lib/auth";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
+import { resolveWorkforceExecutionPolicy } from "@/lib/workforce-runtime/execution-policy";
+import { resolveExecutionPolicyTool } from "@/lib/workforce-runtime/execution-descriptor";
 import { markAgentRunAwaitingApproval } from "@/lib/agent-runtime/pending-link";
 import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
 import {
@@ -13,7 +15,6 @@ import { executeRuntimeV2Tool } from "./adapters";
 import { emitRuntimeV2Event } from "./events";
 import { getRuntimeV2Limits } from "./flags";
 import { buildStepOperationKey } from "./idempotency";
-import { getRuntimeV2Tool } from "./tool-catalog";
 import { refreshReadySteps } from "./persist";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 import { isWorkforceProcessingEnabled } from "@/lib/workforce-runtime/flags";
@@ -309,6 +310,8 @@ async function executeRoundGuarded(input: {
       readySteps,
       toolCallsUsed: toolCalls,
       maxToolCalls: limits.maxToolCalls,
+      // T5-P0C：batch 路径无 run 对象，server 权威 metadata 由此透传
+      runMetadata: meta,
     });
   }
 
@@ -420,8 +423,46 @@ async function executeRoundGuarded(input: {
     : toolName!;
 
   if (!isNativeSynthesis) {
-    const descriptor = getRuntimeV2Tool(toolName!);
-    // 重新鉴权（写工具按 high risk 检查 membership + 模块）
+    // T5-P0C-A：执行策略 descriptor 与 planner 可见性解耦。
+    // 缺失 → fail-closed，绝不给默认风险（任何默认值都是猜风险）。
+    const policyTool = resolveExecutionPolicyTool(toolName!);
+    if (!policyTool.ok) {
+      return await failStepClosed({
+        fence,
+        orgId,
+        runId,
+        stepId: step.id,
+        stepKey: step.stepKey,
+        stepTitle: step.title,
+        errorCode: policyTool.code,
+        errorMessage: policyTool.error,
+      });
+    }
+    // T5-P0C：策略输入全部来自 server 权威 run context（不再硬编码 sales）。
+    // fail-closed：策略上下文解析失败 → 拒绝执行（绝不"无策略放行"）。
+    const policyResult = await resolveWorkforceExecutionPolicy({
+      orgId,
+      runId,
+      userId,
+      role,
+      runMetadata: meta,
+    });
+    if (!policyResult.ok) {
+      // Segment 2.5：业务域无法证明也走同一条 fail-closed 出口，
+      // 但带上可审计的 durable 错误码（work_domain_missing / _ambiguous）。
+      return await failStepClosed({
+        fence,
+        orgId,
+        runId,
+        stepId: step.id,
+        stepKey: step.stepKey,
+        stepTitle: step.title,
+        errorCode: policyResult.code,
+        errorMessage: policyResult.error,
+      });
+    }
+    const execPolicy = policyResult.policy;
+    // 重新鉴权（真实 domain + org/module/tool policy 全部参与）
     const decision = canInvokeTool({
       tenant: {
         userId,
@@ -429,15 +470,18 @@ async function executeRoundGuarded(input: {
         orgRole:
           membership.role === "org_owner" ? "org_admin" : membership.role,
         isPlatformAdmin: role === "admin" || role === "super_admin",
+        workspaceIds: execPolicy.workspaceIds,
       },
       hasMembership: true,
       tool: {
         name: toolName!,
-        domain: "sales",
-        risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
-        allowRoles: ["admin", "sales"],
+        domain: execPolicy.toolDomain,
+        // 唯一风险映射（riskLevel + readOnly + requiresApproval），非二值近似
+        risk: policyTool.risk,
+        allowRoles: execPolicy.allowRoles,
       },
-      modulesJson: undefined,
+      modulesJson: execPolicy.modulesJson,
+      toolPolicy: execPolicy.toolPolicy,
       maxRisk: "l2_soft",
     });
     if (!decision.ok) {
@@ -557,6 +601,9 @@ async function executeRoundGuarded(input: {
         // §13：Worker 执行上下文注入（workforce 任务专属；只含必要内容，
         // 不含任何授权语义——Tool 鉴权仍完整走 canInvokeTool/审批链）
         workforce: workforceContext ?? undefined,
+        // T5-P1 Segment 2 §8：server-only 写防栅栏。仅服务端注入的活对象，
+        // 不改变任何工具的业务参数契约；客户端不可构造、不会被序列化。
+        runFence: fence,
       });
     }
   } catch (err) {
@@ -917,6 +964,8 @@ async function executeWorkforceBatchRound(input: {
   /** 本轮开始时的 attemptCount 总和（= 已消耗工具调用预算） */
   toolCallsUsed: number;
   maxToolCalls: number;
+  /** T5-P0C：run metadata（承载 server 权威 workDomain）——batch 路径无 run 对象，须由上游透传 */
+  runMetadata?: Record<string, unknown> | null;
 }): Promise<ExecuteRoundResult> {
   const { orgId, runId, fence } = input;
 
@@ -1053,7 +1102,49 @@ async function executeWorkforceBatchRound(input: {
 
     // 3. 执行期重鉴权（非 synthesis；与单步路径一致：写工具按 high risk）
     if (!isNativeSynthesis) {
-      const descriptor = getRuntimeV2Tool(toolName!);
+      // T5-P0C-A：执行策略 descriptor 缺失 → fail-closed（与单步路径同纪律）
+      const policyTool = resolveExecutionPolicyTool(toolName!);
+      if (!policyTool.ok) {
+        await failWorkforceStepOnly({
+          fence,
+          stepId: step.id,
+          errorCode: policyTool.code,
+          errorMessage: policyTool.error,
+        });
+        outcomes.push({
+          kind: "needs_human",
+          stepKey: step.stepKey,
+          errorCode: policyTool.code,
+          errorMessage: policyTool.error,
+          eventTitle: `步骤「${step.title}」缺少执行策略 descriptor`,
+        });
+        continue;
+      }
+      // T5-P0C：与单步路径同源的 server 权威策略上下文（不再硬编码 sales）
+      const policyResult = await resolveWorkforceExecutionPolicy({
+        orgId,
+        runId,
+        userId: input.userId,
+        role: input.role,
+        runMetadata: input.runMetadata ?? null,
+      });
+      if (!policyResult.ok) {
+        await failWorkforceStepOnly({
+          fence,
+          stepId: step.id,
+          errorCode: policyResult.code,
+          errorMessage: policyResult.error,
+        });
+        outcomes.push({
+          kind: "needs_human",
+          stepKey: step.stepKey,
+          errorCode: policyResult.code,
+          errorMessage: policyResult.error,
+          eventTitle: `步骤「${step.title}」策略上下文不可用`,
+        });
+        continue;
+      }
+      const execPolicy = policyResult.policy;
       const decision = canInvokeTool({
         tenant: {
           userId: input.userId,
@@ -1064,15 +1155,17 @@ async function executeWorkforceBatchRound(input: {
               : input.membershipRole,
           isPlatformAdmin:
             input.role === "admin" || input.role === "super_admin",
+          workspaceIds: execPolicy.workspaceIds,
         },
         hasMembership: true,
         tool: {
           name: toolName!,
-          domain: "sales",
-          risk: descriptor?.requiresApproval ? "l2_soft" : "l0_read",
-          allowRoles: ["admin", "sales"],
+          domain: execPolicy.toolDomain,
+          risk: policyTool.risk,
+          allowRoles: execPolicy.allowRoles,
         },
-        modulesJson: undefined,
+        modulesJson: execPolicy.modulesJson,
+        toolPolicy: execPolicy.toolPolicy,
         maxRisk: "l2_soft",
       });
       if (!decision.ok) {
@@ -1410,6 +1503,8 @@ async function executeClaimedWorkforceStep(input: {
         // §13：Worker 执行上下文注入（不含任何授权语义——Tool 鉴权仍完整
         // 走 canInvokeTool / scopeGuard / 审批链）
         workforce: context ?? undefined,
+        // T5-P1 Segment 2 §8：server-only 写防栅栏（同上）
+        runFence: fence,
       });
     }
   } catch (err) {
