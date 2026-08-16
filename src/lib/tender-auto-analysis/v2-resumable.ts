@@ -395,12 +395,28 @@ function yieldNow(
   return { status: "YIELD", cursor, phase, reason };
 }
 
+/** 由 AnalyzerInput 建 (documentId, 单元序号) → 单元标签 的解析器（PDF 返回 null）。 */
+export function buildUnitLabelResolver(input: AnalyzerInput) {
+  const labels = new Map<string, string>();
+  for (const doc of input.documents) {
+    for (const page of doc.pages) {
+      if (page.unitLabel) {
+        labels.set(`${doc.documentId}#${page.pageNumber}`, page.unitLabel);
+      }
+    }
+  }
+  return (documentId: string, pageNumber: number | null): string | null =>
+    pageNumber == null ? null : (labels.get(`${documentId}#${pageNumber}`) ?? null);
+}
+
 function buildInference(
   args: V2AdvanceArgs,
   cursor: V2CursorState,
   result: AnalysisResultV2,
 ): V2Inference {
-  const mapped = mapV2Result(result);
+  const mapped = mapV2Result(result, {
+    unitLabelOf: buildUnitLabelResolver(args.input),
+  });
 
   if (cursor.analyst.passA) {
     try {
@@ -413,6 +429,7 @@ function buildInference(
         logs: cursor.analyst.logs,
         analystLatencyMs: cursor.analyst.analystLatencyMs,
         reviewLatencyMs: cursor.analyst.reviewLatencyMs,
+        unitLabelOf: buildUnitLabelResolver(args.input),
       });
       applyAnalystSynthesisToMapped(mapped, synthesis, {
         analystLatencyMs: cursor.analyst.analystLatencyMs,
