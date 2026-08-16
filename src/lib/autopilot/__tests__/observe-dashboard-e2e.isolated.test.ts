@@ -126,12 +126,17 @@ async function main() {
     startedAt?: Date;
     org?: string;
     sessionId?: string;
+    runType?: string;
+    model?: string | null;
+    metadata?: Record<string, unknown>;
   }) {
     return db.agentRun.create({
       data: {
         orgId: input.org ?? orgId,
         sessionId: input.sessionId ?? session.id,
-        runType: "conversation",
+        runType: input.runType ?? "conversation",
+        model: input.model,
+        metadata: input.metadata,
         status: input.status,
         startedAt: input.startedAt ?? startedAt,
         completedAt:
@@ -140,6 +145,45 @@ async function main() {
             : startedAt,
         latencyMs: 120,
       },
+    });
+  }
+
+  async function seedOverlayProjected(
+    agentRunId: string,
+    eventOrgId: string,
+    projected: number,
+  ) {
+    const overlay = await db.autopilotRun.create({
+      data: { agentRunId, orgId: eventOrgId },
+    });
+    if (projected > 0) {
+      await db.autopilotRunEvent.createMany({
+        data: Array.from({ length: projected }, (_, i) => ({
+          runId: overlay.id,
+          orgId: eventOrgId,
+          eventType: "USER_INPUT",
+          sequence: i + 1,
+          timestamp: new Date(),
+        })),
+      });
+    }
+    return overlay;
+  }
+
+  async function seedOutboxEvents(
+    agentRunId: string,
+    eventOrgId: string,
+    count: number,
+  ) {
+    if (count <= 0) return;
+    await db.autopilotTelemetryOutbox.createMany({
+      data: Array.from({ length: count }, (_, i) => ({
+        orgId: eventOrgId,
+        agentRunId,
+        noticeType: "event",
+        idempotencyKey: `${agentRunId}_outbox_${i}_${tag}`,
+        status: "processed",
+      })),
     });
   }
 
@@ -195,6 +239,13 @@ async function main() {
   );
   const overviewScan = scanObserveResponse(overviewA);
   ok(overviewScan.scoreKeys.length === 0, "A: no quality score keys");
+  ok(
+    "healthScope" in overviewA &&
+      overviewA.healthScope?.type === "RECENT_RUNS" &&
+      overviewA.healthScope?.runLimit === 20,
+    "HEALTH_SCOPE_VISIBLE",
+    overviewA.healthScope,
+  );
 
   // ── Scenario B — Run detail + post-terminal human ──
   const runB = await seedRun({ status: "completed" });
@@ -229,7 +280,7 @@ async function main() {
     const raw = JSON.stringify(detailB);
     ok(
       SECRET_NEEDLES.every((n) => !raw.includes(n)),
-      "B/F: privacy needles absent from run detail",
+      "PRIVACY: needles absent from run detail",
     );
     ok(!raw.includes("successRate"), "B: no successRate");
   }
@@ -304,7 +355,7 @@ async function main() {
   );
   ok(
     getAutopilotTableQueryCount() === 0,
-    "E: AUTOPILOT_DB_QUERY_COUNT = ZERO",
+    "DARK_MODE_NO_DB_QUERY",
     getAutopilotTableQueryCount(),
   );
 
@@ -315,7 +366,7 @@ async function main() {
     sessionId: foreignSession.id,
   });
   const cross = await getAutopilotRun(owner, orgId, foreignRun.id);
-  ok(cross === null, "cross-org runId → not found (no existence leak)");
+  ok(cross === null, "ORG_ISOLATION: cross-org runId → not found (no existence leak)");
 
   // ── Pagination: 120 runs, page size 25, stable cursor ──
   const pageOrg = await db.organization.create({
@@ -357,8 +408,330 @@ async function main() {
     cursor = page.nextCursor;
     if (pages > 10) break;
   }
-  ok(seen.size === 120, `pagination: 120 unique runs, pages=${pages}`, seen.size);
-  ok(pages === 5, "pagination: 120/25 = 5 pages", pages);
+  ok(seen.size === 120, `PAGINATION: 120 unique runs, pages=${pages}`, seen.size);
+  ok(pages === 5, "PAGINATION: 120/25 = 5 pages", pages);
+
+  resetAutopilotTableQueryCount();
+  await listAutopilotRuns(owner, pageOrg.id, { limit: 25, range: "30d" });
+  const q25 = getAutopilotTableQueryCount();
+  resetAutopilotTableQueryCount();
+  await listAutopilotRuns(owner, pageOrg.id, { limit: 50, range: "30d" });
+  const q50 = getAutopilotTableQueryCount();
+  ok(
+    q25 === q50 && q25 > 0 && q25 <= 8,
+    "NO_N_PLUS_ONE",
+    { q25, q50 },
+  );
+
+  // ── B1 true agent / domain identity ──
+  const idOrg = await db.organization.create({
+    data: {
+      name: `A1P3 Identity ${tag}`,
+      code: `a1p3_id_${tag}`,
+      ownerId: actor.id,
+      status: "active",
+    },
+  });
+  const idSession = await db.agentSession.create({
+    data: { orgId: idOrg.id, channel: "e2e", status: "active" },
+  });
+  const identityRun = await seedRun({
+    status: "completed",
+    org: idOrg.id,
+    sessionId: idSession.id,
+    runType: "conversation",
+    model: "gpt-test",
+    metadata: {
+      agentId: "tender-agent",
+      agentRole: "tender-compliance",
+      workDomain: "tender",
+    },
+    startedAt: new Date(Date.now() - 1_000),
+  });
+  const legacyRun = await seedRun({
+    status: "completed",
+    org: idOrg.id,
+    sessionId: idSession.id,
+    runType: "conversation",
+    model: "gpt-test",
+    startedAt: new Date(Date.now() - 2_000),
+  });
+  const identityList = await listAutopilotRuns(owner, idOrg.id, {
+    limit: 25,
+    range: "30d",
+  });
+  const identityItem = identityList.items.find((i) => i.runId === identityRun.id);
+  const legacyItem = identityList.items.find((i) => i.runId === legacyRun.id);
+  ok(
+    identityItem != null &&
+      identityItem.agent === "tender-agent / tender-compliance" &&
+      identityItem.agent !== "gpt-test" &&
+      identityItem.model === "gpt-test" &&
+      identityItem.runType === "conversation",
+    "TRUE_AGENT_IDENTITY",
+    identityItem,
+  );
+  ok(
+    identityItem != null &&
+      identityItem.domain === "tender" &&
+      identityItem.domain !== "conversation",
+    "TRUE_DOMAIN_IDENTITY",
+    identityItem,
+  );
+  ok(
+    legacyItem != null &&
+      legacyItem.agent === null &&
+      legacyItem.domain === null,
+    "LEGACY_UNKNOWN_IDENTITY",
+    legacyItem,
+  );
+  const agentFilter = await listAutopilotRuns(owner, idOrg.id, {
+    agent: "tender-agent",
+    range: "30d",
+  });
+  ok(
+    agentFilter.items.some((i) => i.runId === identityRun.id) &&
+      !agentFilter.items.some((i) => i.runId === legacyRun.id),
+    "agent filter uses metadata.agentId",
+  );
+  const modelAlias = await listAutopilotRuns(owner, idOrg.id, {
+    agent: "gpt-test",
+    range: "30d",
+  });
+  ok(
+    !modelAlias.items.some((i) => i.runId === identityRun.id),
+    "agent filter does not alias model",
+  );
+  const domainFilter = await listAutopilotRuns(owner, idOrg.id, {
+    domain: "tender",
+    range: "30d",
+  });
+  ok(
+    domainFilter.items.some((i) => i.runId === identityRun.id),
+    "domain filter uses metadata.workDomain",
+  );
+  const domainAlias = await listAutopilotRuns(owner, idOrg.id, {
+    domain: "conversation",
+    range: "30d",
+  });
+  ok(
+    !domainAlias.items.some((i) => i.runId === identityRun.id),
+    "domain filter does not alias runType",
+  );
+
+  // ── B2 per-run observability health ──
+  const healthOrg = await db.organization.create({
+    data: {
+      name: `A1P3 Health ${tag}`,
+      code: `a1p3_h_${tag}`,
+      ownerId: actor.id,
+      status: "active",
+    },
+  });
+  const healthSession = await db.agentSession.create({
+    data: { orgId: healthOrg.id, channel: "e2e", status: "active" },
+  });
+  const nowHealth = Date.now();
+  const runGap = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 1_000),
+  });
+  for (let i = 1; i <= 10; i++) {
+    await addEvent(runGap.id, i, "run.started", {}, healthOrg.id);
+  }
+  await seedOutboxEvents(runGap.id, healthOrg.id, 10);
+  await seedOverlayProjected(runGap.id, healthOrg.id, 8);
+
+  const runHealthy = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 2_000),
+  });
+  await addEvent(runHealthy.id, 1, "run.started", {}, healthOrg.id);
+  await addEvent(
+    runHealthy.id,
+    2,
+    "tool.started",
+    { toolCallId: "tool-ok" },
+    healthOrg.id,
+  );
+  await addEvent(
+    runHealthy.id,
+    3,
+    "tool.completed",
+    { toolCallId: "tool-ok" },
+    healthOrg.id,
+  );
+  await addEvent(runHealthy.id, 4, "run.completed", {}, healthOrg.id);
+  await seedOutboxEvents(runHealthy.id, healthOrg.id, 4);
+  await seedOverlayProjected(runHealthy.id, healthOrg.id, 4);
+
+  const runOrphan = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 3_000),
+  });
+  await addEvent(
+    runOrphan.id,
+    1,
+    "tool.started",
+    { toolCallId: "tool-orphan" },
+    healthOrg.id,
+  );
+  await seedOutboxEvents(runOrphan.id, healthOrg.id, 1);
+  await seedOverlayProjected(runOrphan.id, healthOrg.id, 1);
+
+  const runUnknown = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 4_000),
+  });
+  await seedOverlayProjected(runUnknown.id, healthOrg.id, 0);
+
+  const runNoOverlay = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 5_000),
+  });
+
+  const healthList = await listAutopilotRuns(owner, healthOrg.id, {
+    limit: 25,
+    range: "30d",
+  });
+  const healthById = new Map(healthList.items.map((i) => [i.runId, i]));
+  ok(
+    healthById.get(runGap.id)?.health === "GAP",
+    "PER_RUN_PROJECTION_GAP",
+    healthById.get(runGap.id),
+  );
+  ok(
+    healthById.get(runHealthy.id)?.health === "HEALTHY",
+    "PER_RUN_HEALTHY overlay is not sufficient without integrity",
+    healthById.get(runHealthy.id),
+  );
+  ok(
+    healthById.get(runOrphan.id)?.health === "ORPHAN",
+    "PER_RUN_ORPHAN",
+    healthById.get(runOrphan.id),
+  );
+  ok(
+    healthById.get(runUnknown.id)?.health === "UNKNOWN" &&
+      healthById.get(runNoOverlay.id)?.health === "UNKNOWN",
+    "PER_RUN_UNKNOWN",
+    {
+      overlay: healthById.get(runUnknown.id),
+      noOverlay: healthById.get(runNoOverlay.id),
+    },
+  );
+
+  const gapFilter = await listAutopilotRuns(owner, healthOrg.id, {
+    hasObservabilityGap: true,
+    range: "30d",
+    limit: 25,
+  });
+  const gapIds = new Set(gapFilter.items.map((i) => i.runId));
+  ok(
+    gapIds.has(runGap.id) &&
+      gapIds.has(runOrphan.id) &&
+      !gapIds.has(runHealthy.id) &&
+      !gapIds.has(runUnknown.id) &&
+      !gapIds.has(runNoOverlay.id),
+    "B2_GAP_FILTER uses real health, not AutopilotRun IS NULL",
+    [...gapIds],
+  );
+
+  // ── B3 full-run aggregates vs bounded timeline ──
+  const overOrg = await db.organization.create({
+    data: {
+      name: `A1P3 Over400 ${tag}`,
+      code: `a1p3_o_${tag}`,
+      ownerId: actor.id,
+      status: "active",
+    },
+  });
+  const overSession = await db.agentSession.create({
+    data: { orgId: overOrg.id, channel: "e2e", status: "active" },
+  });
+  const overRun = await seedRun({
+    status: "completed",
+    org: overOrg.id,
+    sessionId: overSession.id,
+  });
+  await db.agentRunEvent.createMany({
+    data: [
+      {
+        orgId: overOrg.id,
+        runId: overRun.id,
+        sequence: 1,
+        eventType: "run.completed",
+        title: "run.completed",
+        payload: {},
+      },
+      ...Array.from({ length: 399 }, (_, i) => ({
+        orgId: overOrg.id,
+        runId: overRun.id,
+        sequence: i + 2,
+        eventType: "run.started",
+        title: "run.started",
+        payload: {},
+      })),
+      {
+        orgId: overOrg.id,
+        runId: overRun.id,
+        sequence: 401,
+        eventType: "human.edit",
+        title: "human.edit",
+        payload: { sourceAgentRunId: overRun.id },
+      },
+      {
+        orgId: overOrg.id,
+        runId: overRun.id,
+        sequence: 402,
+        eventType: "run.failed",
+        title: "run.failed",
+        payload: {},
+      },
+    ],
+  });
+  const overDetail = await getAutopilotRun(owner, overOrg.id, overRun.id);
+  ok(
+    overDetail != null &&
+      "totalEventCount" in overDetail &&
+      overDetail.totalEventCount > 400 &&
+      overDetail.timelineTruncated === true &&
+      overDetail.timelineShown === 400 &&
+      overDetail.eventCount === overDetail.totalEventCount,
+    "RUN_DETAIL_OVER_400",
+    overDetail && "totalEventCount" in overDetail
+      ? {
+          totalEventCount: overDetail.totalEventCount,
+          timelineShown: overDetail.timelineShown,
+          timelineTruncated: overDetail.timelineTruncated,
+        }
+      : overDetail,
+  );
+  ok(
+    overDetail != null &&
+      "diagnostics" in overDetail &&
+      overDetail.diagnostics.extraTerminal === true,
+    "FULL_TERMINAL_INVARIANT",
+    overDetail && "diagnostics" in overDetail ? overDetail.diagnostics : overDetail,
+  );
+  ok(
+    overDetail != null &&
+      "humanEditCount" in overDetail &&
+      overDetail.humanEditCount === 1,
+    "POST_400_HUMAN_SIGNAL_COUNT",
+    overDetail && "humanEditCount" in overDetail
+      ? overDetail.humanEditCount
+      : overDetail,
+  );
 
   // ── Performance: 500 runs LOCAL/ISOLATED ──
   const perfOrg = await db.organization.create({

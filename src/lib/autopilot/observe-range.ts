@@ -151,17 +151,14 @@ export function parseObserveRunsQuery(
 ): ObserveRunsQueryInput {
   const runType = parseOptionalToken(sp.get("runType"), "runType");
   const domain = parseOptionalToken(sp.get("domain"), "domain");
-  if (runType && domain && runType !== domain) {
-    throw new ObserveQueryError("runType and domain must match when both are set");
-  }
   return {
     range: parseObserveRange(sp.get("range")),
     limit: parseObserveLimit(sp.get("limit")),
     cursor: parseObserveCursor(sp.get("cursor")),
     status: parseObserveStatus(sp.get("status")),
-    runType: runType ?? domain,
+    runType,
     agent: parseOptionalToken(sp.get("agent"), "agent"),
-    domain: domain ?? runType,
+    domain,
     hasToolFailure: parseBoolFlag(sp.get("hasToolFailure")),
     hasModelFailure: parseBoolFlag(sp.get("hasModelFailure")),
     hasRetrievalFailure: parseBoolFlag(sp.get("hasRetrievalFailure")),

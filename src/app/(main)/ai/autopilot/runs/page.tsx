@@ -12,6 +12,7 @@ type RunItem = {
   runId: string;
   startedAt: string;
   runType: string;
+  model: string | null;
   agent: string | null;
   domain: string | null;
   status: string;
@@ -280,7 +281,8 @@ export default function AutopilotRunsPage() {
                     <StatusPill label={row.status} tone={statusTone(row.status)} />
                   </div>
                   <div className="mt-1 text-xs text-muted">
-                    {formatDateTimeToronto(row.startedAt)} · {row.agent ?? row.runType}
+                    {formatDateTimeToronto(row.startedAt)} · {row.agent ?? "—"} /{" "}
+                    {row.domain ?? "—"}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
                     <StatusPill

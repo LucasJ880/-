@@ -68,6 +68,10 @@ type OverviewResponse = {
   autoOptimization?: string;
   aiEvaluator?: string;
   monitorAgent?: string;
+  healthScope?: {
+    type: "RECENT_RUNS";
+    runLimit: number;
+  };
 };
 
 function healthTone(state: ObserveState): ObservePillTone {
@@ -277,7 +281,13 @@ export default function AutopilotOverviewPage() {
               </section>
 
               <section>
-                <h2 className="mb-2 text-sm font-medium">Observability health</h2>
+                <h2 className="mb-2 text-sm font-medium">Observability Health</h2>
+                <p className="mb-1 text-[11px] text-muted">
+                  Scope: Latest {data.healthScope?.runLimit ?? "n/a"} Runs
+                </p>
+                <p className="mb-3 text-[11px] text-muted">
+                  Activity range and health scope are different.
+                </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {(
                     [

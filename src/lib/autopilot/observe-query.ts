@@ -19,18 +19,36 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
-  HUMAN_EDIT_SOURCES,
-  HUMAN_OVERRIDE_SOURCES,
-  RE_ASK_SOURCES,
-} from "./human-signals";
-import { loadAutopilotEventCoverage } from "./coverage-health";
+  summarizeCoverage,
+  type CoverageEvent,
+} from "./coverage";
+import {
+  loadAutopilotEventCoverage,
+  OBSERVE_HEALTH_SCOPE,
+  type ObserveHealthScope,
+} from "./coverage-health";
 import {
   isAutopilotProcessorEnabled,
   isAutopilotTelemetryCaptureEnabled,
   type AutopilotFlagEnv,
 } from "./flags";
-import { mapAgentRunEventToAutopilot } from "./map-events";
+import {
+  HUMAN_EDIT_SOURCES,
+  HUMAN_OVERRIDE_SOURCES,
+  HUMAN_SIGNAL_PROJECTED_TYPES,
+  RE_ASK_SOURCES,
+} from "./human-signals";
+import { classifyAgentRunEvent, mapAgentRunEventToAutopilot } from "./map-events";
 import { observabilityHealthState } from "./observe-health";
+import {
+  extractObserveRunIdentity,
+  formatObserveAgentLabel,
+} from "./observe-identity";
+import {
+  isObserveRunIntegrityIssue,
+  perRunObservabilityHealth,
+  type ObserveRunHealth,
+} from "./observe-run-health";
 import { AUTOMATIC_RECONCILER_TRIGGER } from "./reconcile-cursor";
 import {
   ACTIVATION_WATERMARK,
@@ -39,6 +57,7 @@ import {
 } from "./observe-read-gate";
 import {
   encodeObserveCursor,
+  MAX_RUN_PAGE_SIZE,
   observeWindow,
   utcBucketStart,
   type ObserveRange,
@@ -46,6 +65,7 @@ import {
   type ObserveRunStatus,
 } from "./observe-range";
 import {
+  isTerminalObserveEvent,
   observeEventCategory,
   terminalInvariant,
   timelineSafeSummary,
@@ -59,7 +79,19 @@ const HUMAN_SOURCE_TYPES = [
   ...RE_ASK_SOURCES,
 ] as string[];
 
-const MAX_TIMELINE_EVENTS = 400;
+export const MAX_TIMELINE_EVENTS = 400;
+const GAP_FILTER_MAX_CANDIDATE_PAGES = 4;
+
+const TERMINAL_SOURCE_TYPES = [
+  "TASK_COMPLETED",
+  "TASK_FAILED",
+  "TASK_CANCELLED",
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+  "job.completed",
+  "job.failed",
+] as const;
 
 export type ObserveTrendPoint = {
   bucket: string;
@@ -113,6 +145,7 @@ export type ObserveOverviewData = {
   processorLastActivityAt: string | null;
   coverageUnavailable: boolean;
   projectionBehind: boolean;
+  healthScope: ObserveHealthScope;
   trend: ObserveTrendPoint[];
   reconciler: typeof AUTOMATIC_RECONCILER_TRIGGER;
   activationWatermark: typeof ACTIVATION_WATERMARK;
@@ -123,6 +156,10 @@ export type ObserveRunListItem = {
   runId: string;
   startedAt: string;
   runType: string;
+  model: string | null;
+  agentId: string | null;
+  agentRole: string | null;
+  workDomain: string | null;
   agent: string | null;
   domain: string | null;
   status: string;
@@ -134,7 +171,7 @@ export type ObserveRunListItem = {
   humanEditCount: number;
   humanOverrideCount: number;
   reAskCount: number;
-  health: "HEALTHY" | "GAP" | "ORPHAN" | "UNKNOWN";
+  health: ObserveRunHealth;
 };
 
 export type ObserveTimelineEvent = {
@@ -151,14 +188,21 @@ export type ObserveTimelineEvent = {
 export type ObserveRunDetailData = {
   active: true;
   runId: string;
+  agentId: string | null;
+  agentRole: string | null;
+  workDomain: string | null;
   agent: string | null;
   domain: string | null;
+  model: string | null;
   runType: string;
   startedAt: string | null;
   endedAt: string | null;
   status: string;
   durationMs: number | null;
   eventCount: number;
+  totalEventCount: number;
+  timelineShown: number;
+  timelineTruncated: boolean;
   toolCalls: number;
   modelCalls: number;
   retrievals: number;
@@ -495,6 +539,7 @@ export async function loadObserveOverview(input: {
     processorLastActivityAt,
     coverageUnavailable,
     projectionBehind: (projectionGap ?? 0) > 0,
+    healthScope: OBSERVE_HEALTH_SCOPE,
     trend: [...trendMap.values()].sort((a, b) => a.bucket.localeCompare(b.bucket)),
     reconciler: AUTOMATIC_RECONCILER_TRIGGER,
     activationWatermark: ACTIVATION_WATERMARK,
@@ -509,6 +554,7 @@ export type ObserveRunListQuery = {
   status?: ObserveRunStatus;
   runType?: string;
   agent?: string;
+  domain?: string;
   hasToolFailure?: boolean;
   hasModelFailure?: boolean;
   hasRetrievalFailure?: boolean;
@@ -516,28 +562,58 @@ export type ObserveRunListQuery = {
   hasObservabilityGap?: boolean;
   range?: ObserveRange;
   now?: Date;
+  env?: AutopilotFlagEnv;
 };
 
-export async function listObserveRuns(query: ObserveRunListQuery): Promise<{
-  items: ObserveRunListItem[];
-  nextCursor: string | null;
-}> {
+type ObserveRunRow = {
+  id: string;
+  startedAt: Date | null;
+  latencyMs: number | null;
+  status: string;
+  runType: string;
+  model: string | null;
+  metadata: Prisma.JsonValue | null;
+  _count: { events: number };
+};
+
+type PerRunObserveFacts = {
+  health: ObserveRunHealth;
+  toolCalls: number;
+  modelCalls: number;
+  retrievals: number;
+  humanEditCount: number;
+  humanOverrideCount: number;
+  reAskCount: number;
+};
+
+function observeRunListWhere(
+  query: ObserveRunListQuery,
+  cursor?: ObserveRunCursor | null,
+): Prisma.AgentRunWhereInput {
   const window = query.range ? observeWindow(query.range, query.now) : null;
-  const cursorStartedAt = query.cursor ? new Date(query.cursor.startedAt) : null;
+  const cursorStartedAt = cursor ? new Date(cursor.startedAt) : null;
   const and: Prisma.AgentRunWhereInput[] = [];
-  if (cursorStartedAt && query.cursor) {
+  if (cursorStartedAt && cursor) {
     and.push({
       OR: [
         { startedAt: { lt: cursorStartedAt } },
         {
-          AND: [{ startedAt: cursorStartedAt }, { id: { lt: query.cursor.id } }],
+          AND: [{ startedAt: cursorStartedAt }, { id: { lt: cursor.id } }],
         },
       ],
     });
   }
   if (query.agent) {
     and.push({
-      OR: [{ model: query.agent }, { runType: query.agent }],
+      OR: [
+        { metadata: { path: ["agentId"], equals: query.agent } },
+        { metadata: { path: ["agentRole"], equals: query.agent } },
+      ],
+    });
+  }
+  if (query.domain) {
+    and.push({
+      metadata: { path: ["workDomain"], equals: query.domain },
     });
   }
   if (query.hasToolFailure) {
@@ -569,7 +645,7 @@ export async function listObserveRuns(query: ObserveRunListQuery): Promise<{
     });
   }
 
-  const where: Prisma.AgentRunWhereInput = {
+  return {
     orgId: query.orgId,
     startedAt: {
       not: null,
@@ -577,15 +653,18 @@ export async function listObserveRuns(query: ObserveRunListQuery): Promise<{
     },
     ...(query.status ? { status: query.status } : {}),
     ...(query.runType ? { runType: query.runType } : {}),
-    ...(query.hasObservabilityGap ? { autopilotRun: { is: null } } : {}),
     ...(and.length ? { AND: and } : {}),
   };
+}
 
-  noteAutopilotTableQuery();
-  const rows = await db.agentRun.findMany({
+async function fetchObserveRunRows(
+  where: Prisma.AgentRunWhereInput,
+  take: number,
+): Promise<ObserveRunRow[]> {
+  return db.agentRun.findMany({
     where,
     orderBy: [{ startedAt: "desc" }, { id: "desc" }],
-    take: query.limit,
+    take,
     select: {
       id: true,
       startedAt: true,
@@ -593,72 +672,247 @@ export async function listObserveRuns(query: ObserveRunListQuery): Promise<{
       status: true,
       runType: true,
       model: true,
-      autopilotRun: {
-        select: { id: true },
-      },
+      metadata: true,
       _count: { select: { events: true } },
     },
   });
+}
 
-  const ids = rows.map((r) => r.id);
-  const grouped =
-    ids.length === 0
-      ? []
-      : await db.agentRunEvent.groupBy({
-          by: ["runId", "eventType"],
-          where: {
-            orgId: query.orgId,
-            runId: { in: ids },
-            eventType: {
-              in: [
-                "tool.started",
-                "model.started",
-                "retrieval.started",
-                ...HUMAN_SOURCE_TYPES,
-              ],
-            },
-          },
-          _count: { _all: true },
-        });
+async function loadPerRunObserveFacts(input: {
+  orgId: string;
+  runIds: string[];
+  captureEnabled: boolean;
+  env: AutopilotFlagEnv;
+}): Promise<Map<string, PerRunObserveFacts>> {
+  const out = new Map<string, PerRunObserveFacts>();
+  if (input.runIds.length === 0) return out;
 
-  const byRun = new Map<string, Map<string, number>>();
-  for (const row of grouped) {
-    let inner = byRun.get(row.runId);
-    if (!inner) {
-      inner = new Map();
-      byRun.set(row.runId, inner);
-    }
-    inner.set(row.eventType, row._count._all);
+  const events = await db.agentRunEvent.findMany({
+    where: { orgId: input.orgId, runId: { in: input.runIds } },
+    select: { runId: true, eventType: true, payload: true },
+  });
+  const eventsByRun = new Map<string, CoverageEvent[]>();
+  for (const id of input.runIds) eventsByRun.set(id, []);
+  for (const event of events) {
+    eventsByRun.get(event.runId)?.push({
+      runId: event.runId,
+      eventType: event.eventType,
+      payload: event.payload,
+    });
   }
 
-  const items: ObserveRunListItem[] = rows.map((row) => {
-    const counts = byRun.get(row.id) ?? new Map();
-    return {
-      runId: row.id,
-      startedAt: (row.startedAt ?? new Date(0)).toISOString(),
-      runType: row.runType,
-      agent: row.model ?? row.runType,
-      domain: row.runType,
-      status: row.status,
-      durationMs: row.latencyMs,
-      eventCount: row._count.events,
+  const outboxByRun = new Map<string, number>();
+  const overlayByAgentRun = new Map<string, string>();
+  const projectedByOverlay = new Map<
+    string,
+    { total: number; unknown: number; human: number }
+  >();
+
+  if (isObserveTelemetryReadEnabled(input.env)) {
+    noteAutopilotTableQuery();
+    const outboxGroups = await db.autopilotTelemetryOutbox.groupBy({
+      by: ["agentRunId"],
+      where: {
+        orgId: input.orgId,
+        noticeType: "event",
+        agentRunId: { in: input.runIds },
+      },
+      _count: { _all: true },
+    });
+    for (const row of outboxGroups) {
+      outboxByRun.set(row.agentRunId, row._count._all);
+    }
+
+    noteAutopilotTableQuery();
+    const overlays = await db.autopilotRun.findMany({
+      where: { orgId: input.orgId, agentRunId: { in: input.runIds } },
+      select: { id: true, agentRunId: true },
+    });
+    for (const overlay of overlays) {
+      overlayByAgentRun.set(overlay.agentRunId, overlay.id);
+    }
+    const overlayIds = overlays.map((row) => row.id);
+    if (overlayIds.length > 0) {
+      noteAutopilotTableQuery();
+      const projectedGroups = await db.autopilotRunEvent.groupBy({
+        by: ["runId", "eventType"],
+        where: { orgId: input.orgId, runId: { in: overlayIds } },
+        _count: { _all: true },
+      });
+      for (const row of projectedGroups) {
+        const cur = projectedByOverlay.get(row.runId) ?? {
+          total: 0,
+          unknown: 0,
+          human: 0,
+        };
+        cur.total += row._count._all;
+        if (row.eventType === "UNKNOWN_EVENT") cur.unknown += row._count._all;
+        if (
+          (HUMAN_SIGNAL_PROJECTED_TYPES as readonly string[]).includes(
+            row.eventType,
+          )
+        ) {
+          cur.human += row._count._all;
+        }
+        projectedByOverlay.set(row.runId, cur);
+      }
+    }
+  }
+
+  const telemetryReadable = isObserveTelemetryReadEnabled(input.env);
+  for (const runId of input.runIds) {
+    const runEvents = eventsByRun.get(runId) ?? [];
+    const counts = new Map<string, number>();
+    for (const event of runEvents) {
+      counts.set(event.eventType, (counts.get(event.eventType) ?? 0) + 1);
+    }
+    const facts = {
       toolCalls: counts.get("tool.started") ?? 0,
       modelCalls: counts.get("model.started") ?? 0,
       retrievals: counts.get("retrieval.started") ?? 0,
       humanEditCount: sumTypes(counts, HUMAN_EDIT_SOURCES),
       humanOverrideCount: sumTypes(counts, HUMAN_OVERRIDE_SOURCES),
       reAskCount: sumTypes(counts, RE_ASK_SOURCES),
-      health: row.autopilotRun ? "HEALTHY" : "GAP",
     };
-  });
+    if (!telemetryReadable) {
+      out.set(runId, { ...facts, health: "UNKNOWN" });
+      continue;
+    }
+    const overlayId = overlayByAgentRun.get(runId);
+    const projected = overlayId ? projectedByOverlay.get(overlayId) : undefined;
+    const snap = summarizeCoverage({
+      runCount: 1,
+      events: runEvents,
+      outboxEventCount: outboxByRun.get(runId) ?? 0,
+      projectedEventCount: projected?.total ?? 0,
+      projectedMappedCount: projected
+        ? Math.max(0, projected.total - projected.unknown)
+        : 0,
+      projectedUnknownCount: projected?.unknown ?? 0,
+      projectedHumanSignalCount: projected?.human ?? 0,
+      captureEnabled: input.captureEnabled,
+      classify: classifyAgentRunEvent,
+    });
+    out.set(runId, {
+      ...facts,
+      health: perRunObservabilityHealth({
+        eventCount: runEvents.length,
+        durableCaptureGap: snap.durableCaptureGap,
+        projectionGap: snap.projectionGap,
+        humanSignalProjectionGap: snap.humanSignalProjectionGap,
+        toolOrphans: snap.toolOrphans,
+        modelOrphans: snap.modelOrphans,
+        retrievalOrphans: snap.retrievalOrphans,
+      }),
+    });
+  }
+  return out;
+}
 
-  const last = rows[rows.length - 1];
-  const nextCursor =
-    rows.length === query.limit && last?.startedAt
-      ? encodeObserveCursor(last.startedAt, last.id)
-      : null;
+function toObserveRunListItem(
+  row: ObserveRunRow,
+  facts: PerRunObserveFacts | undefined,
+): ObserveRunListItem {
+  const identity = extractObserveRunIdentity(row.metadata);
+  return {
+    runId: row.id,
+    startedAt: (row.startedAt ?? new Date(0)).toISOString(),
+    runType: row.runType,
+    model: row.model,
+    agentId: identity.agentId,
+    agentRole: identity.agentRole,
+    workDomain: identity.workDomain,
+    agent: formatObserveAgentLabel(identity),
+    domain: identity.workDomain,
+    status: row.status,
+    durationMs: row.latencyMs,
+    eventCount: row._count.events,
+    toolCalls: facts?.toolCalls ?? 0,
+    modelCalls: facts?.modelCalls ?? 0,
+    retrievals: facts?.retrievals ?? 0,
+    humanEditCount: facts?.humanEditCount ?? 0,
+    humanOverrideCount: facts?.humanOverrideCount ?? 0,
+    reAskCount: facts?.reAskCount ?? 0,
+    health: facts?.health ?? "UNKNOWN",
+  };
+}
 
-  return { items, nextCursor };
+export async function listObserveRuns(query: ObserveRunListQuery): Promise<{
+  items: ObserveRunListItem[];
+  nextCursor: string | null;
+}> {
+  const env = query.env ?? process.env;
+  const captureEnabled = isAutopilotTelemetryCaptureEnabled(env);
+  const loadFacts = (runIds: string[]) =>
+    loadPerRunObserveFacts({
+      orgId: query.orgId,
+      runIds,
+      captureEnabled,
+      env,
+    });
+
+  if (!query.hasObservabilityGap) {
+    const rows = await fetchObserveRunRows(
+      observeRunListWhere(query, query.cursor),
+      query.limit,
+    );
+    const facts = await loadFacts(rows.map((row) => row.id));
+    const last = rows[rows.length - 1];
+    return {
+      items: rows.map((row) => toObserveRunListItem(row, facts.get(row.id))),
+      nextCursor:
+        rows.length === query.limit && last?.startedAt
+          ? encodeObserveCursor(last.startedAt, last.id)
+          : null,
+    };
+  }
+
+  const matched: ObserveRunListItem[] = [];
+  let scanCursor = query.cursor ?? null;
+  let scanned = 0;
+  let lastScanned: ObserveRunRow | undefined;
+  let lastBatchTake = 0;
+  let lastBatchLength = 0;
+  const maxScan = MAX_RUN_PAGE_SIZE * GAP_FILTER_MAX_CANDIDATE_PAGES;
+
+  while (matched.length < query.limit && scanned < maxScan) {
+    const take = Math.min(query.limit, maxScan - scanned);
+    const rows = await fetchObserveRunRows(
+      observeRunListWhere(query, scanCursor),
+      take,
+    );
+    lastBatchTake = take;
+    lastBatchLength = rows.length;
+    if (rows.length === 0) break;
+    scanned += rows.length;
+    lastScanned = rows[rows.length - 1];
+    const facts = await loadFacts(rows.map((row) => row.id));
+    for (const row of rows) {
+      const item = toObserveRunListItem(row, facts.get(row.id));
+      if (!isObserveRunIntegrityIssue(item.health)) continue;
+      matched.push(item);
+      if (matched.length === query.limit) break;
+    }
+    if (matched.length === query.limit) break;
+    if (!lastScanned.startedAt) break;
+    scanCursor = {
+      startedAt: lastScanned.startedAt.toISOString(),
+      id: lastScanned.id,
+    };
+    if (rows.length < take) break;
+  }
+
+  const filled = matched.length === query.limit;
+  const lastMatched = matched[matched.length - 1];
+  const exhausted = lastBatchLength === 0 || lastBatchLength < lastBatchTake;
+  let nextCursor: string | null = null;
+  if (filled && lastMatched) {
+    nextCursor = `${lastMatched.startedAt}~${lastMatched.runId}`;
+  } else if (!exhausted && lastScanned?.startedAt) {
+    nextCursor = encodeObserveCursor(lastScanned.startedAt, lastScanned.id);
+  }
+
+  return { items: matched, nextCursor };
 }
 
 export async function loadObserveRunDetail(input: {
@@ -671,13 +925,38 @@ export async function loadObserveRunDetail(input: {
       id: true,
       runType: true,
       model: true,
+      metadata: true,
       status: true,
       startedAt: true,
       completedAt: true,
       latencyMs: true,
       errorCode: true,
       errorMessage: true,
-      events: {
+    },
+  });
+  if (!row) return null;
+
+  const [totalEventCount, typeGroups, terminalRows, timelineRows] =
+    await Promise.all([
+      db.agentRunEvent.count({
+        where: { orgId: input.orgId, runId: input.runId },
+      }),
+      db.agentRunEvent.groupBy({
+        by: ["eventType"],
+        where: { orgId: input.orgId, runId: input.runId },
+        _count: { _all: true },
+      }),
+      db.agentRunEvent.findMany({
+        where: {
+          orgId: input.orgId,
+          runId: input.runId,
+          eventType: { in: [...TERMINAL_SOURCE_TYPES] },
+        },
+        select: { sequence: true, eventType: true },
+        orderBy: { sequence: "asc" },
+      }),
+      db.agentRunEvent.findMany({
+        where: { orgId: input.orgId, runId: input.runId },
         orderBy: { sequence: "asc" },
         take: MAX_TIMELINE_EVENTS,
         select: {
@@ -687,13 +966,28 @@ export async function loadObserveRunDetail(input: {
           payload: true,
           createdAt: true,
         },
-      },
-    },
-  });
-  if (!row) return null;
+      }),
+    ]);
+
+  const counts = eventCountMap(typeGroups);
+  const invariant = terminalInvariant(terminalRows);
+  const firstTerminalSeq = terminalRows.find((event) =>
+    isTerminalObserveEvent(event.eventType),
+  )?.sequence;
+  const postTerminalHumanSignals =
+    firstTerminalSeq == null
+      ? 0
+      : await db.agentRunEvent.count({
+          where: {
+            orgId: input.orgId,
+            runId: input.runId,
+            eventType: { in: HUMAN_SOURCE_TYPES },
+            sequence: { gt: firstTerminalSeq },
+          },
+        });
 
   const mapped: ObserveTimelineEvent[] = [];
-  for (const event of row.events) {
+  for (const event of timelineRows) {
     const mappedEvent = mapAgentRunEventToAutopilot(
       event.eventType,
       event.payload,
@@ -723,32 +1017,28 @@ export async function loadObserveRunDetail(input: {
     });
   }
 
-  const invariant = terminalInvariant(mapped);
-  const counts = new Map<string, number>();
-  for (const event of row.events) {
-    counts.set(event.eventType, (counts.get(event.eventType) ?? 0) + 1);
-  }
-  const firstTerminalSeq = mapped.find((e) =>
-    ["TASK_COMPLETED", "TASK_FAILED", "TASK_CANCELLED"].includes(e.eventType),
-  )?.sequence;
-  const postTerminalHumanSignals = mapped.filter(
-    (e) =>
-      ["HUMAN_EDIT", "HUMAN_OVERRIDE", "RE_ASK_SIGNAL"].includes(e.eventType) &&
-      firstTerminalSeq != null &&
-      e.sequence > firstTerminalSeq,
-  ).length;
+  const identity = extractObserveRunIdentity(row.metadata);
+  const timelineShown = timelineRows.length;
+  const timelineTruncated = totalEventCount > timelineShown;
 
   return {
     active: true,
     runId: row.id,
-    agent: row.model ?? row.runType,
-    domain: row.runType,
+    agentId: identity.agentId,
+    agentRole: identity.agentRole,
+    workDomain: identity.workDomain,
+    agent: formatObserveAgentLabel(identity),
+    domain: identity.workDomain,
+    model: row.model,
     runType: row.runType,
     startedAt: row.startedAt?.toISOString() ?? null,
     endedAt: row.completedAt?.toISOString() ?? null,
     status: row.status,
     durationMs: row.latencyMs,
-    eventCount: row.events.length,
+    eventCount: totalEventCount,
+    totalEventCount,
+    timelineShown,
+    timelineTruncated,
     toolCalls: counts.get("tool.started") ?? 0,
     modelCalls: counts.get("model.started") ?? 0,
     retrievals: counts.get("retrieval.started") ?? 0,

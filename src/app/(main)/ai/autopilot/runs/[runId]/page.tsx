@@ -17,12 +17,16 @@ type DetailResponse = {
   runId?: string;
   agent?: string | null;
   domain?: string | null;
+  model?: string | null;
   runType?: string;
   startedAt?: string | null;
   endedAt?: string | null;
   status?: string;
   durationMs?: number | null;
   eventCount?: number;
+  totalEventCount?: number;
+  timelineShown?: number;
+  timelineTruncated?: boolean;
   toolCalls?: number;
   modelCalls?: number;
   retrievals?: number;
@@ -119,6 +123,7 @@ export default function AutopilotRunDetailPage() {
             <div>Run ID: {data.runId}</div>
             <div>Status: {data.status}</div>
             <div>Agent / Domain: {data.agent ?? "—"} / {data.domain ?? "—"}</div>
+            <div>Model: {data.model ?? "—"}</div>
             <div>Run type: {data.runType}</div>
             <div>
               Started: {data.startedAt ? formatDateTimeToronto(data.startedAt) : "n/a"}
@@ -129,7 +134,7 @@ export default function AutopilotRunDetailPage() {
             <div>
               Duration: {data.durationMs == null ? "n/a" : `${data.durationMs}ms`}
             </div>
-            <div>Events: {data.eventCount}</div>
+            <div>Events: {data.totalEventCount ?? data.eventCount}</div>
             <div>
               Tool / Model / Retrieval: {data.toolCalls} / {data.modelCalls} /{" "}
               {data.retrievals}
@@ -151,6 +156,11 @@ export default function AutopilotRunDetailPage() {
             {data.note} Post-terminal human signals:{" "}
             {data.diagnostics?.postTerminalHumanSignals ?? 0}.
           </p>
+          {data.timelineTruncated ? (
+            <p className="text-[11px] text-muted">
+              Showing first {data.timelineShown} of {data.totalEventCount} events.
+            </p>
+          ) : null}
           <EventTimeline
             events={data.events ?? []}
             extraTerminal={data.diagnostics?.extraTerminal}

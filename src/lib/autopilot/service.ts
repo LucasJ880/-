@@ -14,7 +14,7 @@ import {
   type AutopilotCapability,
 } from "./types";
 import { loadAutopilotTelemetryHealth } from "./telemetry-health";
-import { loadAutopilotEventCoverage } from "./coverage-health";
+import { loadAutopilotEventCoverage, OBSERVE_HEALTH_SCOPE } from "./coverage-health";
 import {
   darkObserveState,
   isObserveTelemetryReadEnabled,
@@ -67,6 +67,7 @@ export async function getAutopilotOverview(
       infrastructureMode: AUTOPILOT_MODE,
       ...AUTOPILOT_DISABLED_CAPABILITIES,
       ...darkObserveState(env),
+      healthScope: OBSERVE_HEALTH_SCOPE,
       range,
     };
   }
@@ -95,6 +96,7 @@ export async function listAutopilotRuns(
     status?: ObserveRunStatus;
     runType?: string;
     agent?: string;
+    domain?: string;
     hasToolFailure?: boolean;
     hasModelFailure?: boolean;
     hasRetrievalFailure?: boolean;
@@ -121,6 +123,7 @@ export async function listAutopilotRuns(
     status: query.status,
     runType: query.runType,
     agent: query.agent,
+    domain: query.domain,
     hasToolFailure: query.hasToolFailure,
     hasModelFailure: query.hasModelFailure,
     hasRetrievalFailure: query.hasRetrievalFailure,
@@ -128,6 +131,7 @@ export async function listAutopilotRuns(
     hasObservabilityGap: query.hasObservabilityGap,
     range: query.range,
     now: query.now,
+    env,
   });
   return { active: true as const, items, nextCursor };
 }

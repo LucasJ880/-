@@ -11,6 +11,11 @@ import {
   observeMetricMapsToAiWrong,
 } from "../metrics-definition";
 import { observabilityHealthState } from "../observe-health";
+import {
+  extractObserveRunIdentity,
+  formatObserveAgentLabel,
+} from "../observe-identity";
+import { perRunObservabilityHealth } from "../observe-run-health";
 import { scanObserveResponse } from "../observe-privacy";
 import {
   ObserveQueryError,
@@ -35,6 +40,7 @@ import {
   getAutopilotRun,
   listAutopilotRuns,
 } from "../service";
+import { AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT } from "../coverage-health";
 
 let pass = 0;
 let fail = 0;
@@ -175,6 +181,104 @@ async function main() {
   });
   ok(parsed.limit === 25 && parsed.range === "7d", "runs query defaults");
 
+  const mixedFilters = parseObserveRunsQuery({
+    get: (key: string) => {
+      if (key === "range") return "7d";
+      if (key === "runType") return "conversation";
+      if (key === "domain") return "tender";
+      if (key === "agent") return "tender-agent";
+      return null;
+    },
+  });
+  ok(
+    mixedFilters.runType === "conversation" &&
+      mixedFilters.domain === "tender" &&
+      mixedFilters.agent === "tender-agent",
+    "runType / domain / agent filters stay independent",
+  );
+
+  const identity = extractObserveRunIdentity({
+    agentId: "tender-agent",
+    agentRole: "tender-compliance",
+    workDomain: "tender",
+  });
+  ok(
+    identity.agentId === "tender-agent" &&
+      identity.agentRole === "tender-compliance" &&
+      identity.workDomain === "tender",
+    "TRUE_AGENT_IDENTITY / TRUE_DOMAIN_IDENTITY from metadata",
+  );
+  ok(
+    formatObserveAgentLabel(identity) === "tender-agent / tender-compliance",
+    "agent display uses agentId / agentRole",
+  );
+  const legacyIdentity = extractObserveRunIdentity({});
+  ok(
+    legacyIdentity.agentId === null &&
+      legacyIdentity.agentRole === null &&
+      legacyIdentity.workDomain === null &&
+      formatObserveAgentLabel(legacyIdentity) === null,
+    "LEGACY_UNKNOWN_IDENTITY does not invent lineage",
+  );
+  const nestedIgnored = extractObserveRunIdentity({
+    agent: { id: "nested-agent" },
+    model: "gpt-test",
+    runType: "conversation",
+  });
+  ok(
+    nestedIgnored.agentId === null && nestedIgnored.workDomain === null,
+    "identity does not infer from model, runType, or nested agent",
+  );
+
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 10,
+      durableCaptureGap: 0,
+      projectionGap: 2,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+    }) === "GAP",
+    "PER_RUN_PROJECTION_GAP: overlay existence is not HEALTHY",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 4,
+      durableCaptureGap: 0,
+      projectionGap: 0,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+    }) === "HEALTHY",
+    "per-run HEALTHY only when integrity indicators are 0",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 1,
+      durableCaptureGap: 0,
+      projectionGap: 0,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 1,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+    }) === "ORPHAN",
+    "PER_RUN_ORPHAN",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 0,
+      durableCaptureGap: 0,
+      projectionGap: 0,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+    }) === "UNKNOWN",
+    "PER_RUN_UNKNOWN: insufficient observation data",
+  );
+
   ok(
     utcBucketStart(new Date("2026-08-16T15:07:00.000Z"), "hour") ===
       "2026-08-16T15:00:00.000Z",
@@ -259,6 +363,11 @@ async function main() {
   ok(darkOverview.observeState === "NOT_ACTIVE", "Lucas dark overview NOT_ACTIVE");
   ok(darkOverview.mode === "DARK", "dark mode DARK");
   ok(
+    darkOverview.healthScope?.type === "RECENT_RUNS" &&
+      darkOverview.healthScope?.runLimit === AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT,
+    "HEALTH_SCOPE_VISIBLE on overview contract",
+  );
+  ok(
     !JSON.stringify(darkOverview).includes("successRate"),
     "overview API has no successRate field",
   );
@@ -298,7 +407,7 @@ async function main() {
     await getAutopilotOverview(other, "org_1");
     ok(false, "non-Lucas overview denied");
   } catch (error) {
-    ok(error instanceof AutopilotAccessError, "non-Lucas authorized user → 403");
+  ok(error instanceof AutopilotAccessError, "LUCAS_ONLY_ACCESS: non-Lucas authorized user → 403");
   }
 
   try {
@@ -329,6 +438,14 @@ async function main() {
     "utf8",
   );
   ok(!/successRate/i.test(overviewUi), "Overview UI has no Success Rate");
+  ok(
+    /Observability Health/.test(overviewUi) &&
+      /Scope: Latest/.test(overviewUi) &&
+      /healthScope\?\.runLimit/.test(overviewUi) &&
+      /Activity range and health scope are different/.test(overviewUi) &&
+      !/Latest 20 Runs/.test(overviewUi),
+    "HEALTH_SCOPE_VISIBLE in Overview UI without duplicated runLimit constant",
+  );
   ok(
     !/retry run|cancel run|optimize|deploy/i.test(overviewUi),
     "Overview has no write actions",
@@ -376,6 +493,44 @@ async function main() {
     coverageHealth.includes("isObserveTelemetryReadEnabled") &&
       !coverageHealth.includes("P2021"),
     "coverage-health gates before Autopilot tables, no P2021 catch",
+  );
+  ok(
+    coverageHealth.includes("export const AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT") &&
+      coverageHealth.includes("take: AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT"),
+    "coverage recent-run limit is a single exported constant",
+  );
+
+  const observeQuery = readFileSync(
+    join(root, "src/lib/autopilot/observe-query.ts"),
+    "utf8",
+  );
+  ok(
+    observeQuery.includes("extractObserveRunIdentity") &&
+      !observeQuery.includes("row.model ?? row.runType") &&
+      !observeQuery.includes("domain: row.runType"),
+    "B1: observe query does not alias agent/model or domain/runType",
+  );
+  ok(
+    !observeQuery.includes("autopilotRun: { is: null }") &&
+      observeQuery.includes("perRunObservabilityHealth"),
+    "B2: hasObservabilityGap is not AutopilotRun IS NULL",
+  );
+  ok(
+    observeQuery.includes("totalEventCount") &&
+      observeQuery.includes("timelineTruncated") &&
+      observeQuery.includes("MAX_TIMELINE_EVENTS"),
+    "B3: full-run totals are separate from bounded timeline",
+  );
+
+  const detailUi = readFileSync(
+    join(root, "src/app/(main)/ai/autopilot/runs/[runId]/page.tsx"),
+    "utf8",
+  );
+  ok(
+    detailUi.includes("totalEventCount") &&
+      detailUi.includes("Showing first") &&
+      detailUi.includes("timelineTruncated"),
+    "B3: run detail UI shows truncation against full totals",
   );
 
   console.log(`\n${pass} passed, ${fail} failed`);

@@ -20,7 +20,15 @@ import {
   noteAutopilotTableQuery,
 } from "./observe-read-gate";
 
-const RECENT_RUN_LIMIT = 20;
+/** A1-P1/P3 coverage window. Observability health is not a 30-day full scan. */
+export const AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT = 20;
+
+export const OBSERVE_HEALTH_SCOPE = {
+  type: "RECENT_RUNS",
+  runLimit: AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT,
+} as const;
+
+export type ObserveHealthScope = typeof OBSERVE_HEALTH_SCOPE;
 
 export type AutopilotEventCoverage = CoverageSnapshot & {
   observeReadEnabled: boolean;
@@ -47,7 +55,9 @@ export async function loadAutopilotEventCoverage(
   const processorEnabled = isAutopilotProcessorEnabled(env);
   const observeReadEnabled = isObserveTelemetryReadEnabled(env);
   const note =
-    "A1-P1 Coverage + A1-P2 Human Signals（最近 20 条 Run）。观察人类对 AI 输出的明确动作，不是员工绩效，不是 AI 对错。";
+    "A1-P1 Coverage + A1-P2 Human Signals（最近 " +
+    `${AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT} 条 Run）。` +
+    "观察人类对 AI 输出的明确动作，不是员工绩效，不是 AI 对错。";
 
   if (!observeReadEnabled) {
     return {
@@ -63,7 +73,7 @@ export async function loadAutopilotEventCoverage(
   const runs = await db.agentRun.findMany({
     where: { orgId },
     orderBy: { createdAt: "desc" },
-    take: RECENT_RUN_LIMIT,
+    take: AUTOPILOT_COVERAGE_RECENT_RUN_LIMIT,
     select: { id: true },
   });
   const runIds = runs.map((r) => r.id);
