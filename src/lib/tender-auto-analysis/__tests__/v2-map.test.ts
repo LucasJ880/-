@@ -191,6 +191,17 @@ ok(m.summaryText.includes("Strathcona"), "summaryText 含采购单位");
 ok((m.summaryJson as { engine?: string }).engine === "v2", "summaryJson.engine=v2");
 ok(Array.isArray((m.summaryJson as { nextActions?: unknown }).nextActions), "summaryJson 携带 nextActions(grounded)");
 
+// 遥测：引错单元纠正条数必须出现在 summaryJson.metadata，
+// 否则只能靠重放游标才知道 prompt 定位规则有没有生效（2026-08-16 实测教训）
+{
+  const meta = (m.summaryJson as { metadata?: Record<string, unknown> }).metadata;
+  ok(meta != null && "evidenceReattributed" in meta, "summaryJson 暴露 evidenceReattributed");
+  ok(
+    typeof (meta as Record<string, unknown>).evidenceReattributed === "number",
+    "evidenceReattributed 为数值（缺省 0，不是 undefined）",
+  );
+}
+
 // role map
 ok(mapRunRoleToV2Role("ADDENDUM") === "ADDENDUM", "role map ADDENDUM");
 ok(mapRunRoleToV2Role("PRIMARY") === "BASE_TENDER", "role map PRIMARY→BASE_TENDER");

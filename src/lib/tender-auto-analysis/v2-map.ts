@@ -387,6 +387,9 @@ export function mapV2Result(
       llmFailures: result.metadata.llmFailures,
       pages: result.metadata.pages,
       windows: result.metadata.windows,
+      // 引错单元被纠正的条数：prompt 定位规则的持续验收指标，必须能在
+      // summaryJson 里直接看到，否则每次都要重放游标才知道（本轮实测教训）
+      evidenceReattributed: result.metadata.evidenceReattributed ?? 0,
     },
   };
 
