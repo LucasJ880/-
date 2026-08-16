@@ -506,3 +506,165 @@ SCHEMA_CHANGE = NONE ｜ 生产 DB / env / deploy 零改动
 ```
 
 默认产品路径仍是 flag OFF 的 LLM 兼容路径，行为与本段之前一致。
+
+---
+
+## 11. Segment 4 — Current-Main Sync + 真实模型 E2E + Canonical V2 Parity
+
+### 11.1 Base sync
+
+`merge origin/main`（0837ba9c，含 #109 Autopilot A0 与 #110 A1-P0）**零冲突**，
+14 个既有提交历史保留（未 rebase）。Autopilot 的 schema / migrations / flags /
+outbox / processor / instrumentation 全部保留，测试注册双方共存。
+
+同时补上一个**本 PR 早期段落的疏漏**：Segment 2 / 2.5 / 3 新增的三个纯平面套件
+当时只创建了文件、没有登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，
+CI 从未真正跑过它们。本段一并登记。
+
+post-sync 门：`prisma validate` 通过 ｜ migration history 51/51 ｜ release safety 27/27 ｜
+`test:ci` 全绿 ｜ tsc 干净 ｜ eslint 错误数与 main 完全一致（既有仓库状态）。
+
+### 11.2 真实模型 E2E（隔离生产快照分支，跑完即删）
+
+三次真实运行，全部走真实入口 `startTenderWorkforceAnalysis`（API route 鉴权后调用的
+同一函数）→ 确定性 server plan → 真实 cron slice 循环 → **真实模型** canonical V2 推理
+→ 投影 → 真实 native synthesis → canonical 终态化。零 mock、零打桩、零预写结果。
+
+`MODEL = gpt-5.6-terra`（grounding/analyst）+ `gpt-5.6-sol`（synthesis）
+｜`SEMANTIC_ENGINE = tender-understanding-v2`
+
+| 包 | 文档/页 | t3 时长 | t3 LLM | 要求 | 清单 | 交付物 | Job | 域 run |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Bid Contract CLZ-2026-001-A | 3 / 15 | 290s | 29（3 失败） | 82 | **42** | **42** | completed | REVIEW_REQUIRED |
+| 08-28 Student Housing | 13 / 61 | 507s | 91（4 失败） | 274 | **94** | **94** | completed | REVIEW_REQUIRED |
+| INTERNAL TEST 多文档 | 2 / 2 | 135s | 10（2 失败） | 8 | **5** | **5** | completed | REVIEW_REQUIRED |
+
+每次运行：`PLAN_SOURCE = SERVER_AUTHORED`、`planTaskCount = 9`、
+`plannerLlmCalls = 0`、9/9 任务 completed、verifier `PASS`、
+三条确定性完成标准全部由 tool_result 证实、零 `needs_human` / `verification_failed` /
+`blocked_graph` / `repairing`。
+
+**交付物逐项核对（两个真实包）**：
+
+```
+CHECKLIST_COUNT = 42 / 94        MATERIALIZED_COUNT = 42 / 94
+MATCHED = 42 / 94                MISSING = 0    EXTRA = 0    UNSUPPORTED = 0
+TITLE_EXACT = 42 / 94            SOURCE_PAGE_TRACEABLE = 42/42, 94/94
+STATIC_TEMPLATE_ITEMS = 0
+```
+
+### 11.3 §7 finalize 保全 —— 真实实证
+
+在 t9 完成前快照、完成后回读，八个维度**逐字节一致**：
+
+```
+summaryJson / summaryText / submissionChecklist / analystSynthesis /
+brief / criticalFacts / conflicts / evidenceCoverage   → 全部 identical
+只有 AGENT_ANALYZING → REVIEW_REQUIRED 与 completedAt 发生变化
+CANONICAL_SUMMARY_MUTATION_BY_FINALIZE = 0
+```
+
+### 11.4 §12 长任务租约心跳 —— 真实实证
+
+三次运行的 t3 分别是 **290s / 507s / 135s**，而 `WORKFORCE_LEASE_MS = 180s`。
+两次明显超过单个租约窗口：
+
+```
+LEASE_RENEWALS_DURING_T3 = 10（每次运行）
+LOST_LEASE_FALSE_POSITIVE = 0
+```
+
+Segment 2 §9 补的心跳在这里得到真实数据验证：**没有它，507s 的 t3 必然中途丢租约、
+整轮作废并无限重跑。**
+
+### 11.5 §13 LLM 调用会计（真实计数）
+
+以 `ai.call` 实际条数与 t3 遥测交叉核对，三次运行完全一致：
+
+```
+PLANNER_LLM_CALLS               = 0
+V2_GROUNDING + V2_ANALYST       = 29 / 91 / 10（t3 内，含各自 3/4/2 次失败重试）
+SECONDARY_EVIDENCE_LLM_CALLS    = 0
+SECONDARY_RISK_LLM_CALLS        = 0
+SECONDARY_CLARIFICATION_LLM_CALLS = 0
+WORKFORCE_SYNTHESIS_LLM_CALLS   = 1
+VERIFIER_MODEL_CALLS            = 0
+总数校验：ai.call 总数 = t3 调用数 + 1（synthesis），30/92/11 三次全对上
+```
+
+### 11.6 §11 legacy 队列双认领 —— 真实并发实证
+
+在 Workforce 域 run 处于 `AGENT_ANALYZING`（t3 推理中）时，反复触发 legacy
+`processQueuedTenderAnalysisRuns`：
+
+```
+legacy sweeps during AGENT_ANALYZING ≥ 3
+LEGACY_QUEUE_DOUBLE_CLAIM = 0
+leaseOwner 保持 null ｜ workerStep / workerCursor / attemptCount 全部未被改动
+冲撞期间 Workforce 仍正常跑完（job completed / 域 run REVIEW_REQUIRED）
+```
+
+### 11.7 §21 / §22 回滚与 Autopilot 回归
+
+```
+FLAG_OFF_ROLLBACK_PATH = PASS
+  flag OFF → 确定性编排不启用；LLM 兼容面恰 7 个工具；
+  canonical V2 与 grounded 交付物工具均不可用；legacy 抽取仍在；
+  旧 T1B 8 步计划仍可构造，7 个工具零剥离；
+  flag ON 但 org 未命中 → 仍走兼容路径。
+
+AUTOPILOT_OFF_WORKFORCE_REGRESSION = PASS
+  capture 默认 OFF 下 8 个纯平面套件全绿；
+  durability-e2e.isolated 在隔离 DB 上 33/33；
+  durability-benchmark 是基准报告器（输出 JSON，无 pass/fail 断言）。
+```
+
+### 11.8 ⚠️ Canonical V2 Parity —— BLOCKED（环境原因，非代码缺陷）
+
+§14/§15 要求 A 路走**真正的 legacy orchestrator**。实测两次尝试：
+
+1. `enqueueTenderPackageAnalysis` 按 package fingerprint 幂等复用，直接返回了
+   **Workforce 产出的 canonical run**（`idempotent_reuse`）——本身是"同一 canonical
+   真相"的一个侧证，但没有可比对的独立 A 路。
+2. 改走 legacy 真实"重新分析"入口 `reanalyzeTenderPackage` → 新建独立 legacy run →
+   **在 ENSURE_PAGES 步骤失败**：`Blob 下载失败：对象不存在或不可读`。
+
+根因（源码确认，非推测）：legacy `stepEnsurePages` 对每个 run 文档**无条件**调用
+`parseDocumentPagesAndStore` 并对任何失败 fail-closed；而 Workforce `t2` 先检查
+已存在页再决定是否解析，且容忍部分文档解析失败（≥1 份成功即继续）。
+隔离快照库里有页文本、但**没有生产 Blob 对象访问权**，因此 legacy 路径在本段
+给定的隔离边界内**根本无法启动**。
+
+我没有为了跑通它去取生产 Blob 凭据——那超出本段"仅隔离环境"的授权范围。
+
+```
+CANONICAL_V2_PARITY = BLOCKED（缺 legacy A 路运行结果）
+解锁方式（二选一，需人工授权）：
+  a) 授予隔离环境对生产 Blob 存储的**只读**访问；或
+  b) 在已具备 Blob 访问的 Preview 环境跑 A 路，再与本段 B 路结果比对。
+```
+
+已具备的间接证据（不足以替代 parity gate，但值得记录）：三个真实包的 canonical
+契约字段全部齐备（15 个 summaryJson 键、facts/requirements/sourceRefs/sections/
+clarifications 全非空）、来源可追（42/42 与 94/94 交付物 100% 带来源页）、
+且 legacy enqueue 主动把 Workforce 产出的 run 认作该 package 的既有分析。
+
+### 11.9 §23 main 漂移
+
+E2E 期间 main 从 `0837ba9c` 前进到 `ba2bdc70`（PR #104 T2-P1.5 项目财务管控合入）。
+虽然未触及 tender-workforce / workforce-runtime / agent-runtime-v2 / tender-auto-analysis，
+但**触及 `prisma/schema.prisma` + 新迁移 + 三个测试注册/治理脚本**，属 §23 的敏感面。
+
+```
+MAIN_DRIFT_DURING_E2E = YES
+READY_FOR_HUMAN_FINAL_REVIEW = NO（需再做一轮 sync + 回归）
+```
+
+### 11.10 安全边界
+
+```
+生产 DB / ENV / DEPLOY   = 未改动
+隔离分支                  = 本段自建 1 个，已删（ISOLATED_BRANCHES_LEFT = 0）
+临时 env / 密钥文件        = 已删
+Award Watch / Memory 自动写 / legacy 队列退休 / 第二 Runtime = 均未启动
+```
