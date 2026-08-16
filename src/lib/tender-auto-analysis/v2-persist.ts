@@ -13,21 +13,27 @@
  */
 
 import { db } from "@/lib/db";
-import { analyzeTender, type AnalyzeOptions } from "@/lib/tender-understanding/analyzer";
+import type { AnalyzeOptions } from "@/lib/tender-understanding/analyzer";
 import type { AnalyzerInput } from "@/lib/tender-understanding/contract";
 import { isTenderAnalysisV2Enabled } from "@/lib/tender-understanding/flag";
+import type { AnalystCoverage } from "@/lib/tender-analyst/contract";
 import { SECTION_KEYS } from "./constants";
-import { mapRunRoleToV2Role, mapV2Result, type V2MappedResult } from "./v2-map";
+import { mapRunRoleToV2Role, type V2MappedResult } from "./v2-map";
+import { TenderV2LeaseLostError } from "./v2-errors";
+import {
+  advanceV2Analysis,
+  fingerprintAnalyzerInput,
+  type V2Inference,
+} from "./v2-resumable";
+import {
+  createV2Cursor,
+  parseV2Cursor,
+  type V2CursorState,
+  type V2Phase,
+} from "./v2-cursor";
 
-export { isTenderAnalysisV2Enabled };
-
-/** V2 canonical 持久化被 lease fence 拒绝（stale worker）。worker 应转为 graceful yield。 */
-export class TenderV2LeaseLostError extends Error {
-  constructor(runId: string) {
-    super(`v2_persist_lease_lost: ${runId}`);
-    this.name = "TenderV2LeaseLostError";
-  }
-}
+export { isTenderAnalysisV2Enabled, TenderV2LeaseLostError };
+export type { V2Inference };
 
 /** 从 run 文档 + 页文本构建 AnalyzerInput（project-scoped）。 */
 export async function buildAnalyzerInputForRun(
@@ -77,17 +83,25 @@ export async function buildAnalyzerInputForRun(
   };
 }
 
-export type V2Inference = {
-  mapped: V2MappedResult;
-  model: string | null;
-  llmCalls: number;
-  llmFailures: number;
-};
+/** run 的 package 覆盖率（Analyst coverage 块的事实源）。 */
+export async function loadCoverageForRun(
+  projectId: string,
+  runId: string,
+): Promise<AnalystCoverage> {
+  const { getPackageCoverage } = await import("./package-coverage");
+  const cov = await getPackageCoverage(projectId, runId);
+  return {
+    uploaded: cov.uploaded,
+    eligible: cov.eligible,
+    analyzed: cov.analyzed,
+    excluded: cov.excludedFiles,
+  };
+}
 
 /**
  * 只做推理 + 纯映射，绝不触碰 canonical 表（可能长耗时）。
- * Analyst Synthesis（PASS A/B）也在此阶段执行（§9：LLM 全部在 DB 事务之外），
- * 结果并入 mapped.summaryJson.analystSynthesis 随 fenced persist 一次落库。
+ * 内部走与生产 worker 同一个分片执行器（deadline=∞ → 一次跑完），
+ * 保证单次编排与跨 tick 续跑**同源同语义**。
  */
 export async function runV2Inference(input: {
   runId: string;
@@ -98,84 +112,26 @@ export async function runV2Inference(input: {
   if (!analyzerInput) {
     throw new Error(`runV2Inference: no documents/pages for run ${input.runId}`);
   }
-  const { result } = await analyzeTender(analyzerInput, {
-    analysisDate: input.analysisDate ?? new Date().toISOString(),
-    ...input.opts,
+  const coverage = await loadCoverageForRun(analyzerInput.projectId, input.runId);
+  const outcome = await advanceV2Analysis({
+    input: analyzerInput,
+    coverage,
+    cursor: createV2Cursor({
+      fingerprint: fingerprintAnalyzerInput(analyzerInput),
+      analysisDate: input.analysisDate ?? new Date().toISOString(),
+      now: new Date(),
+    }),
+    deadlineAt: Number.POSITIVE_INFINITY,
+    tickBudgetMs: Number.POSITIVE_INFINITY,
+    invoker: input.opts?.invoker,
+    maxConcurrency: input.opts?.maxConcurrency,
+    windowOptions: input.opts?.windowOptions,
   });
-  const mapped = mapV2Result(result);
-
-  // —— Analyst 层（Grounding Engine 之上；失败不阻断 canonical 落库） ——
-  let analystCalls = 0;
-  let analystFailures = 0;
-  try {
-    const { runAnalystSynthesis } = await import("@/lib/tender-analyst/synthesize");
-    const { getPackageCoverage } = await import("./package-coverage");
-    const cov = await getPackageCoverage(analyzerInput.projectId, input.runId);
-    const analyst = await runAnalystSynthesis({
-      result,
-      coverage: {
-        uploaded: cov.uploaded,
-        eligible: cov.eligible,
-        analyzed: cov.analyzed,
-        excluded: cov.excludedFiles,
-      },
-      invoker: input.opts?.invoker,
-    });
-    analystCalls = analyst.llmCalls;
-    analystFailures = analyst.llmFailures;
-    if (analyst.synthesis) {
-      mapped.summaryJson.analystSynthesis = analyst.synthesis;
-      // 30 秒看懂 brief 全面采用 Analyst 中文结论（FB-16：情报卡不得吐英文引擎串/内部细节）
-      const brief = mapped.summaryJson.brief as
-        | Record<string, unknown>
-        | undefined;
-      if (brief && typeof brief === "object") {
-        const syn = analyst.synthesis;
-        brief.oneLiner = syn.executiveBrief.oneLinerZh;
-        brief.product = syn.executiveBrief.whatIsBeingBoughtZh; // FB-17.3：产品或服务用中文结论
-        brief.recommendation = syn.currentAssessment.summaryZh;
-        brief.nextActions = [...syn.nextActions]
-          .sort((a, b) => a.order - b.order)
-          .slice(0, 5)
-          .map((n) => n.actionZh);
-        const fatalTitles = [
-          ...syn.keyRequirements,
-          ...syn.technicalRequirements,
-          ...syn.commercialAndDelivery,
-        ]
-          .filter((k) => k.impact === "BID_FATAL")
-          .map((k) => `废标风险：${k.titleZh}`);
-        const riskTitles = syn.risksAndGaps
-          .filter((r) => r.severity === "CRITICAL" || r.severity === "HIGH")
-          .map((r) => r.titleZh);
-        brief.blockers = [...fatalTitles, ...riskTitles].slice(0, 6);
-      }
-    }
-    const meta = mapped.summaryJson.metadata as
-      | Record<string, unknown>
-      | undefined;
-    if (meta && typeof meta === "object") {
-      meta.analystLatencyMs = analyst.analystLatencyMs;
-      meta.reviewLatencyMs = analyst.reviewLatencyMs;
-      meta.analystLlmCalls = analyst.llmCalls;
-      meta.analystLlmFailures = analyst.llmFailures;
-    }
-  } catch (e) {
-    // Analyst 层为增强层：异常时记录并继续（canonical grounding 结果不受影响）
-    console.warn(
-      "[tender-analyst] synthesis failed (non-blocking): " +
-        (e instanceof Error ? e.name : "unknown"),
-    );
-    analystFailures += 1;
+  if (outcome.status !== "READY") {
+    // deadline=∞ 下不可能 YIELD；出现即为契约破坏
+    throw new Error(`runV2Inference: unexpected yield at ${outcome.phase}`);
   }
-
-  return {
-    mapped,
-    model: result.metadata.models[0] ?? null,
-    // 真实 telemetry：grounding + analyst 两层合并
-    llmCalls: result.metadata.llmCalls + analystCalls,
-    llmFailures: result.metadata.llmFailures + analystFailures,
-  };
+  return outcome.inference;
 }
 
 /* --------------------------- 可注入事务（便于确定性 race 测试） --------------------------- */
@@ -444,6 +400,105 @@ export function isEmptyAnalysisOutcome(r: {
 }): boolean {
   const zeroLlmSuccess = r.llmCalls === 0 || r.llmFailures >= r.llmCalls;
   return zeroLlmSuccess && r.factCount === 0 && r.requirementCount === 0;
+}
+
+export type V2StepOutcome =
+  | { status: "PERSISTED"; result: AnalyzeAndPersistV2Result }
+  | { status: "YIELD"; phase: V2Phase; reason: string; ticks: number };
+
+/**
+ * 生产 worker 入口：推进一个 tick（预算内尽量多跑），把检查点写进 workerCursor。
+ *
+ * - 未跑完 → YIELD：本 tick 的 LLM 成果已落盘，下个 cron tick 从断点继续；
+ *   run 保持 EXTRACTING/ANALYZING，workerStep 不前进。
+ * - 跑完 → 立即 lease-fenced 落 canonical 数据，返回 PERSISTED。
+ *
+ * 所有 LLM 调用仍在 DB 事务之外（§9）；检查点写入本身过 lease fence，
+ * stale worker 既不写检查点也不写 canonical（saveCursor=false → LeaseLost）。
+ */
+export async function advanceAndPersistV2(input: {
+  runId: string;
+  projectId: string;
+  leaseOwner: string;
+  leaseMs: number;
+  parentRunId?: string | null;
+  analysisDate?: string | null;
+  opts?: AnalyzeOptions;
+  /** epoch ms（本次 cron 调用的硬截止，留足 serverless 余量） */
+  deadlineAt: number;
+  tickBudgetMs: number;
+  /** run.workerCursor 原值（指纹不符/结构不符 → 自动从头开始） */
+  cursorRaw: unknown;
+  saveCursor: (cursor: V2CursorState) => Promise<boolean>;
+  checkLease?: () => boolean;
+  runTx?: RunV2Tx;
+  now?: () => number;
+}): Promise<V2StepOutcome> {
+  const analyzerInput = await buildAnalyzerInputForRun(input.runId);
+  if (!analyzerInput) {
+    throw new Error(`advanceAndPersistV2: no documents/pages for run ${input.runId}`);
+  }
+  const now = input.now ?? (() => Date.now());
+  const fingerprint = fingerprintAnalyzerInput(analyzerInput);
+  const cursor =
+    parseV2Cursor(input.cursorRaw, fingerprint) ??
+    createV2Cursor({
+      fingerprint,
+      analysisDate: input.analysisDate ?? new Date(now()).toISOString(),
+      now: new Date(now()),
+    });
+
+  const coverage = await loadCoverageForRun(analyzerInput.projectId, input.runId);
+
+  const outcome = await advanceV2Analysis({
+    input: analyzerInput,
+    coverage,
+    cursor,
+    deadlineAt: input.deadlineAt,
+    tickBudgetMs: input.tickBudgetMs,
+    invoker: input.opts?.invoker,
+    maxConcurrency: input.opts?.maxConcurrency,
+    windowOptions: input.opts?.windowOptions,
+    now,
+    saveCursor: input.saveCursor,
+    checkLease: input.checkLease,
+  });
+
+  if (outcome.status === "YIELD") {
+    return {
+      status: "YIELD",
+      phase: outcome.phase,
+      reason: outcome.reason,
+      ticks: outcome.cursor.ticks,
+    };
+  }
+
+  // heartbeat 已判定租约丢失 → 落库前 fail-closed（fence 仍是权威防线）
+  if (input.checkLease && input.checkLease() === false) {
+    throw new TenderV2LeaseLostError(input.runId);
+  }
+
+  const persisted = await persistV2Fenced(
+    {
+      runId: input.runId,
+      projectId: input.projectId,
+      leaseOwner: input.leaseOwner,
+      leaseMs: input.leaseMs,
+      parentRunId: input.parentRunId,
+      mapped: outcome.inference.mapped,
+      model: outcome.inference.model,
+    },
+    input.runTx,
+  );
+
+  return {
+    status: "PERSISTED",
+    result: {
+      ...persisted,
+      llmCalls: outcome.inference.llmCalls,
+      llmFailures: outcome.inference.llmFailures,
+    },
+  };
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   type TenderAnalysisStatus,
   type WorkerStep,
 } from "./constants";
+import { PARSE_VERSION } from "./constants";
 import { canClaim, canTransition } from "./status";
 import { parseDocumentPagesAndStore } from "./page-parse";
 import { extractFromPages, extractRequirements } from "./extract";
@@ -21,22 +22,57 @@ import { generateReportSections } from "./report";
 import { buildDeliverables } from "./deliverables";
 import { buildClarifications } from "./clarifications";
 import {
-  analyzeAndPersistV2,
+  advanceAndPersistV2,
   isEmptyAnalysisOutcome,
   isTenderAnalysisV2Enabled,
   TenderV2LeaseLostError,
 } from "./v2-persist";
+import { readCursorProgressAt, type V2CursorState } from "./v2-cursor";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
 
-export const LEASE_MS = 90_000;
+/**
+ * 租约时长必须 ≥ 单次 cron 调用可能占用的最长时间（INVOCATION_BUDGET_MS），
+ * 否则长阶段跑到一半租约就过期，下个 tick 会重复认领同一 run 并重复烧 LLM。
+ * 代价是进程被硬杀后最多等 LEASE_MS 才被接管——检查点保证零重复工作，值得。
+ */
+export const LEASE_MS = 300_000;
 /** 失败重试上限（仅 PENDING/FAILED 认领或 markFailed 时递增） */
 export const MAX_ATTEMPTS = 5;
-/** 单次 cron tick 内继续推进的时间预算；不足则交还队列 */
-export const TIME_BUDGET_MS = 50_000;
+/**
+ * 单次 cron 调用的工作预算。必须显著小于函数 maxDuration（vercel.json：300s），
+ * 留够余量把检查点写完——否则被 serverless 硬杀，本 tick 的 LLM 成果全丢。
+ */
+export const INVOCATION_BUDGET_MS = 240_000;
+/** 剩余预算低于此值就不再开始下一个 run（避免刚起头就被截断） */
+export const MIN_RUN_SLICE_MS = 45_000;
+/** 剩余预算低于此值就不再开始下一个 step（DB 步很快，但 FINALIZE 含外部检索） */
+export const MIN_STEP_SLICE_MS = 5_000;
+/** ENSURE_PAGES 每份文档开工所需的最小剩余预算 */
+export const ENSURE_PAGES_MIN_MS = 30_000;
+/** 长阶段内的租约心跳间隔 */
+export const HEARTBEAT_MS = 30_000;
 /** 进行中但长期无进展的 Run 视为陈旧失败，防止无限续跑 */
 export const STALE_RUN_MS = 30 * 60_000;
+
+/** 单个 run 在一次 cron 调用中的执行上下文（时间预算 = 唯一的推进闸门） */
+type TickContext = {
+  /** epoch ms 硬截止 */
+  deadlineAt: number;
+  /** 本次 cron 调用的完整预算（阶段准入退化判定用） */
+  tickBudgetMs: number;
+  now: () => number;
+};
+
+function remainingOf(ctx: TickContext): number {
+  return Number.isFinite(ctx.deadlineAt)
+    ? ctx.deadlineAt - ctx.now()
+    : Number.POSITIVE_INFINITY;
+}
+
+/** 步骤结果：DONE=已推进 cursor；YIELD=预算用尽，检查点已落，留给下个 tick */
+type StepResult = "DONE" | "YIELD";
 
 const RETRY_BACKOFF_MS = [15_000, 60_000, 180_000, 600_000, 1_800_000];
 
@@ -272,12 +308,68 @@ async function loadRunDocumentIds(runId: string): Promise<string[]> {
   return docs.map((d) => d.documentId);
 }
 
-async function stepEnsurePages(run: ClaimedRun): Promise<void> {
-  const documentIds = await loadRunDocumentIds(run.id);
-  for (const documentId of documentIds) {
-    const result = await parseDocumentPagesAndStore(documentId);
+async function loadRunDocuments(
+  runId: string,
+): Promise<{ documentId: string; contentHash: string }[]> {
+  const docs = await db.tenderAnalysisRunDocument.findMany({
+    where: { runId },
+    orderBy: { createdAt: "asc" },
+    select: { documentId: true, contentHash: true },
+  });
+  return docs.map((d) => ({ documentId: d.documentId, contentHash: d.contentHash }));
+}
+
+/**
+ * 该文档的页级解析是否已是当前版本且与 run 记录的内容哈希一致。
+ * 是 → 本 tick 直接跳过（ENSURE_PAGES 因此天然可续跑，重试不重复下载/解析）。
+ */
+async function isPageParseCurrent(
+  documentId: string,
+  expectedContentHash: string | null,
+): Promise<boolean> {
+  const doc = await db.projectDocument.findUnique({
+    where: { id: documentId },
+    select: {
+      parseStatus: true,
+      parseVersion: true,
+      contentHash: true,
+      fileType: true,
+      _count: { select: { pages: true } },
+    },
+  });
+  if (!doc) return false;
+  if (doc.parseStatus !== "done") return false;
+  if (doc.parseVersion !== PARSE_VERSION) return false;
+  if (
+    expectedContentHash &&
+    doc.contentHash &&
+    doc.contentHash !== expectedContentHash
+  ) {
+    return false;
+  }
+  // PDF 必须有页级行；非 PDF 不造页行（pageCount=null 合法）
+  if (doc.fileType.toLowerCase() === "pdf" && doc._count.pages <= 0) return false;
+  return true;
+}
+
+async function stepEnsurePages(
+  run: ClaimedRun,
+  ctx: TickContext,
+): Promise<StepResult> {
+  const runDocs = await loadRunDocuments(run.id);
+  const documentIds = runDocs.map((d) => d.documentId);
+  for (const doc of runDocs) {
+    if (await isPageParseCurrent(doc.documentId, doc.contentHash)) continue;
+    if (remainingOf(ctx) < ENSURE_PAGES_MIN_MS) {
+      // 已解析的文档已落库；下个 tick 从未解析的那份继续（不重复解析）
+      return "YIELD";
+    }
+    const result = await parseDocumentPagesAndStore(doc.documentId);
     if (!result.ok) {
       throw new Error(`ENSURE_PAGES failed: ${result.error}`);
+    }
+    if (!(await renewLease(run.id, run.leaseOwner))) {
+      throw new LeaseLostError("ENSURE_PAGES");
     }
   }
 
@@ -301,32 +393,83 @@ async function stepEnsurePages(run: ClaimedRun): Promise<void> {
     status: "EXTRACTING",
   });
   if (!ok) throw new LeaseLostError("ENSURE_PAGES");
+  return "DONE";
 }
 
-async function stepExtractFacts(run: ClaimedRun): Promise<void> {
+/** 检查点体积告警阈值（单行 jsonb）：超过即在日志显形，便于评估分片粒度 */
+export const CURSOR_SIZE_WARN_BYTES = 4 * 1024 * 1024;
+
+/** 检查点落盘：与 persistStep 同一把 lease fence；顺带续租（进展即心跳）。 */
+async function saveV2Cursor(
+  runId: string,
+  leaseOwner: string,
+  cursor: V2CursorState,
+): Promise<boolean> {
+  const serialized = JSON.stringify(cursor);
+  if (serialized.length > CURSOR_SIZE_WARN_BYTES) {
+    console.warn(
+      `[tender-v2-resumable] run=${runId} cursor_bytes=${serialized.length} phase=${cursor.phase} 检查点偏大`,
+    );
+  }
+  const updated = await db.tenderAnalysisRun.updateMany({
+    where: {
+      id: runId,
+      leaseOwner,
+      status: { in: ["EXTRACTING", "ANALYZING"] },
+    },
+    data: {
+      workerCursor: JSON.parse(serialized) as object,
+      leaseExpiresAt: leaseExpiresAt(),
+    },
+  });
+  return updated.count > 0;
+}
+
+async function stepExtractFacts(
+  run: ClaimedRun,
+  ctx: TickContext,
+): Promise<StepResult> {
   if (isTenderAnalysisV2Enabled()) {
-    // V2 grounded 引擎：推理（多 LLM 调用，可能超 LEASE_MS）与 canonical 写分离。
-    // 心跳续租；一旦 renewLease 返回 false 记 leaseLost，推理返回后 fail-closed（不写）。
-    // 持久化本身在 persistV2Fenced 内做权威 lease fence（stale worker 零写）。
+    // V2 grounded 引擎：分片续跑（每次 LLM 结果立即检查点）。推理与 canonical 写分离；
+    // 本 tick 预算用尽 → YIELD，run 保持 EXTRACTING、workerStep 不前进，下个 cron 从断点继续。
+    // 心跳续租；renewLease 返回 false 记 leaseLost，落库前 fail-closed（不写）。
+    // 权威防线仍是 persistV2Fenced / saveCursor 的 lease fence（stale worker 零写）。
     let leaseLost = false;
     const heartbeat = setInterval(() => {
       void renewLease(run.id, run.leaseOwner).then((okLease) => {
         if (!okLease) leaseLost = true;
       });
-    }, 60_000);
+    }, HEARTBEAT_MS);
     try {
-      const v2res = await analyzeAndPersistV2({
+      const current = await db.tenderAnalysisRun.findUnique({
+        where: { id: run.id },
+        select: { workerCursor: true },
+      });
+      const outcome = await advanceAndPersistV2({
         runId: run.id,
         projectId: run.projectId,
         parentRunId: run.parentRunId,
         leaseOwner: run.leaseOwner,
         leaseMs: LEASE_MS,
+        deadlineAt: ctx.deadlineAt,
+        tickBudgetMs: ctx.tickBudgetMs,
+        cursorRaw: current?.workerCursor ?? null,
+        saveCursor: (cursor) => saveV2Cursor(run.id, run.leaseOwner, cursor),
         checkLease: () => !leaseLost,
+        now: ctx.now,
       });
+
+      if (outcome.status === "YIELD") {
+        console.log(
+          `[tender-v2-resumable] run=${run.id} yield phase=${outcome.phase} tick=${outcome.ticks} ${outcome.reason}`,
+        );
+        return "YIELD";
+      }
+
       // FB-18：空壳分析（零成功模型调用且零产出）必须 FAIL，不得进入审核态
-      if (isEmptyAnalysisOutcome(v2res)) {
+      if (isEmptyAnalysisOutcome(outcome.result)) {
         throw new Error(
-          `empty_analysis_zero_llm_success: 模型调用全部失败（${v2res.llmFailures}/${v2res.llmCalls}）且无抽取产出，分析无效`,
+          `empty_analysis_zero_llm_success: 模型调用全部失败（${outcome.result.llmFailures}/${outcome.result.llmCalls}）且无抽取产出，分析无效`,
         );
       }
     } catch (e) {
@@ -346,6 +489,7 @@ async function stepExtractFacts(run: ClaimedRun): Promise<void> {
     status: "ANALYZING",
   });
   if (!ok) throw new LeaseLostError("EXTRACT_FACTS");
+  return "DONE";
 }
 
 async function stepGenerateSections(run: ClaimedRun): Promise<void> {
@@ -596,42 +740,44 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
   }
 }
 
-async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
+async function runStep(
+  run: ClaimedRun,
+  step: WorkerStep,
+  ctx: TickContext,
+): Promise<StepResult> {
   switch (step) {
     case "CLAIMED": {
       const ok = await persistStep(run.id, run.leaseOwner, "CLAIMED", {
         status: "EXTRACTING",
       });
       if (!ok) throw new LeaseLostError("CLAIMED");
-      return;
+      return "DONE";
     }
     case "ENSURE_PAGES":
-      await stepEnsurePages(run);
-      return;
+      return stepEnsurePages(run, ctx);
     case "EXTRACT_FACTS":
-      await stepExtractFacts(run);
-      return;
+      return stepExtractFacts(run, ctx);
     case "GENERATE_SECTIONS":
       await stepGenerateSections(run);
-      return;
+      return "DONE";
     case "EXTRACT_REQUIREMENTS":
       await stepExtractRequirements(run);
-      return;
+      return "DONE";
     case "BUILD_DELIVERABLES":
       await stepBuildDeliverables(run);
-      return;
+      return "DONE";
     case "BUILD_CLARIFICATIONS":
       await stepBuildClarifications(run);
-      return;
+      return "DONE";
     case "CREATE_TASKS":
       await stepCreateTasks(run);
-      return;
+      return "DONE";
     case "PROJECT_ROOM":
       await stepProjectRoom(run);
-      return;
+      return "DONE";
     case "FINALIZE":
       await stepFinalize(run);
-      return;
+      return "DONE";
     default:
       throw new Error(`Unknown workerStep: ${step}`);
   }
@@ -640,14 +786,26 @@ async function runStep(run: ClaimedRun, step: WorkerStep): Promise<void> {
 /**
  * 执行单个已认领 Run：按 workerStep 推进，时间预算不足则提前返回。
  * 失败时标 FAILED + backoff，不向 batch 抛出。
+ *
+ * opts.deadlineAt 是本次 cron 调用的硬截止（epoch ms）。缺省时按 INVOCATION_BUDGET_MS
+ * 从当下起算——脚本/测试直接调用本函数时行为与 cron 一致。
  */
-export async function executeTenderAnalysisRun(runId: string): Promise<{
+export async function executeTenderAnalysisRun(
+  runId: string,
+  opts?: { deadlineAt?: number; tickBudgetMs?: number; now?: () => number },
+): Promise<{
   runId: string;
   status: string | null;
   workerStep: string | null;
   ok: boolean;
   reason?: string;
 }> {
+  const now = opts?.now ?? (() => Date.now());
+  const ctx: TickContext = {
+    deadlineAt: opts?.deadlineAt ?? now() + INVOCATION_BUDGET_MS,
+    tickBudgetMs: opts?.tickBudgetMs ?? INVOCATION_BUDGET_MS,
+    now,
+  };
   const claimed = await claimRun(runId);
   if (!claimed) {
     const cur = await db.tenderAnalysisRun.findUnique({
@@ -663,21 +821,17 @@ export async function executeTenderAnalysisRun(runId: string): Promise<{
     };
   }
 
-  const started = Date.now();
   try {
     let cursorStep: string | null = claimed.workerStep;
 
     // 若尚无步骤，从 CLAIMED 开始
-    if (!cursorStep) {
-      await runStep(claimed, "CLAIMED");
-      cursorStep = "CLAIMED";
-    } else if (stepIndex(cursorStep) < 0) {
-      await runStep(claimed, "CLAIMED");
+    if (!cursorStep || stepIndex(cursorStep) < 0) {
+      await runStep(claimed, "CLAIMED", ctx);
       cursorStep = "CLAIMED";
     }
 
-    // 当前已持久化的 step 视为完成，推进下一步
-    while (Date.now() - started < TIME_BUDGET_MS) {
+    // 当前已持久化的 step 视为完成，推进下一步；预算耗尽即交还队列（下个 tick 续跑）
+    while (remainingOf(ctx) > MIN_STEP_SLICE_MS) {
       const renewed = await renewLease(claimed.id, claimed.leaseOwner);
       if (!renewed) {
         return {
@@ -692,7 +846,11 @@ export async function executeTenderAnalysisRun(runId: string): Promise<{
       const upcoming = nextStep(cursorStep);
       if (!upcoming) break;
 
-      await runStep(claimed, upcoming);
+      const stepResult = await runStep(claimed, upcoming, ctx);
+      if (stepResult === "YIELD") {
+        // 分片续跑：检查点已落盘，本 run 保持进行中，等下个 cron tick
+        break;
+      }
       cursorStep = upcoming;
 
       if (upcoming === "FINALIZE") {
@@ -749,8 +907,30 @@ export async function executeTenderAnalysisRun(runId: string): Promise<{
   }
 }
 
+/**
+ * 陈旧判定（纯函数）：分片续跑下"有没有进展"必须看**检查点时间**，
+ * 而不是 run.startedAt——后者在重试时不重置，一旦超过 STALE_RUN_MS 就会对每次
+ * 租约过期立刻命中，把 5 次重试额度在几分钟内烧光（2026-08-15 生产事故的放大器）。
+ */
+export function isRunStale(
+  run: {
+    startedAt: Date | null;
+    createdAt: Date;
+    workerCursor: unknown;
+  },
+  now: Date,
+  staleMs = STALE_RUN_MS,
+): boolean {
+  const progressAt =
+    readCursorProgressAt(run.workerCursor) ?? run.startedAt ?? run.createdAt;
+  return now.getTime() - progressAt.getTime() >= staleMs;
+}
+
 /** cron / worker 批量消费 */
-export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
+export async function processQueuedTenderAnalysisRuns(
+  limit = 1,
+  opts?: { deadlineAt?: number; tickBudgetMs?: number },
+): Promise<{
   processed: number;
   succeeded: number;
   failed: number;
@@ -783,8 +963,10 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
     },
   });
 
-  // 长期无进展的进行中 Run → FAILED（防止成功续跑路径无限占用）
-  await db.tenderAnalysisRun.updateMany({
+  // 长期**无进展**的进行中 Run → FAILED（防止无限续跑占用）。
+  // 候选先按 startedAt/createdAt 粗筛（走索引），再按检查点时间精判：
+  // 只要还在推进检查点（每次 LLM 调用后都写），就不算陈旧。
+  const staleCandidates = await db.tenderAnalysisRun.findMany({
     where: {
       status: { in: ["EXTRACTING", "ANALYZING"] },
       leaseExpiresAt: { lte: now },
@@ -796,16 +978,30 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
         },
       ],
     },
-    data: {
-      status: "FAILED",
-      errorCode: "stale_run",
-      errorMessageSanitized: "分析任务长时间无进展，已标记失败",
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      failedAt: now,
-      nextAttemptAt: null,
-    },
+    select: { id: true, startedAt: true, createdAt: true, workerCursor: true },
+    take: 50,
   });
+  const staleIds = staleCandidates
+    .filter((r) => isRunStale(r, now))
+    .map((r) => r.id);
+  if (staleIds.length > 0) {
+    await db.tenderAnalysisRun.updateMany({
+      where: {
+        id: { in: staleIds },
+        status: { in: ["EXTRACTING", "ANALYZING"] },
+        leaseExpiresAt: { lte: now },
+      },
+      data: {
+        status: "FAILED",
+        errorCode: "stale_run",
+        errorMessageSanitized: "分析任务长时间无进展，已标记失败",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        failedAt: now,
+        nextAttemptAt: null,
+      },
+    });
+  }
 
   // 多取候选：单个 not_claimable / 永久失败不得阻塞同批其它 Run
   const candidates = await db.tenderAnalysisRun.findMany({
@@ -841,11 +1037,24 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
     return rank(a.status) - rank(b.status);
   });
 
+  // 本次调用的硬预算：多个 run 共享同一条截止线，避免"两个 run 各跑 240s"
+  // 把函数拖过 maxDuration（被硬杀 = 本 tick 全部成果丢失）。
+  const tickBudgetMs = opts?.tickBudgetMs ?? INVOCATION_BUDGET_MS;
+  const deadlineAt = opts?.deadlineAt ?? Date.now() + tickBudgetMs;
+
   const results = [];
+  let skippedForBudget = 0;
   for (const row of candidates) {
     if (results.length >= take) break;
+    if (deadlineAt - Date.now() < MIN_RUN_SLICE_MS) {
+      skippedForBudget += 1;
+      continue;
+    }
     try {
-      const result = await executeTenderAnalysisRun(row.id);
+      const result = await executeTenderAnalysisRun(row.id, {
+        deadlineAt,
+        tickBudgetMs,
+      });
       if (result.reason === "not_claimable") continue;
       results.push(result);
     } catch (error) {
@@ -862,6 +1071,13 @@ export async function processQueuedTenderAnalysisRuns(limit = 1): Promise<{
 
   const succeeded = results.filter((r) => r.ok).length;
   const failed = results.filter((r) => !r.ok && r.reason !== "not_claimable").length;
+
+  if (skippedForBudget > 0) {
+    // 可观测性：没有静默截断——被预算挡下的候选下个 tick 会被再取一次
+    console.log(
+      `[tender-worker] deferred=${skippedForBudget} reason=invocation_budget budget_ms=${tickBudgetMs}`,
+    );
+  }
 
   return {
     processed: results.length,
