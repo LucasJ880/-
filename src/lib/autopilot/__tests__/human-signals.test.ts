@@ -27,6 +27,14 @@ import {
   shouldEmitReAsk,
   snapshotStats,
 } from "../human-signals";
+import {
+  AUTOMATIC_RECONCILER_TRIGGER,
+  clampReconcilePageSize,
+  isHumanSignalReconcileDone,
+  nextStreamCursor,
+  startHumanSignalReconcileCursor,
+  streamCursorWhere,
+} from "../reconcile-cursor";
 import { sanitizeAutopilotPayload } from "../sanitize";
 
 let pass = 0;
@@ -394,6 +402,18 @@ ok(
   "B1 reconciler reads HumanFeedbackEvent / retry slot / PendingAction",
 );
 ok(
+  !humanReconcileSrc.includes("seenRuns") &&
+    humanReconcileSrc.includes("reconcileHumanSignalsUntilExhausted") &&
+    humanReconcileSrc.includes('createdAt: "asc"') &&
+    !humanReconcileSrc.includes('"desc"'),
+  "B1 oldest-first cursor, no seenRuns starvation",
+);
+ok(
+  readFileSync(join(ROOT, "src/lib/autopilot/reconcile-cursor.ts"), "utf8")
+    .includes("REQUIRED_BEFORE_PRODUCTION_ACTIVATION"),
+  "automatic reconciler trigger recorded as required before production activation",
+);
+ok(
   feedbackSrc.includes("!event.pendingActionId"),
   "employee-ai reject skips override when PA will emit it",
 );
@@ -440,6 +460,57 @@ ok(
     }) ?? {},
   ).includes("Bearer xyz"),
   "credential sanitizer still applies",
+);
+
+ok(
+  AUTOMATIC_RECONCILER_TRIGGER === "REQUIRED_BEFORE_PRODUCTION_ACTIVATION",
+  "AUTOMATIC_RECONCILER_TRIGGER = REQUIRED_BEFORE_PRODUCTION_ACTIVATION",
+);
+ok(clampReconcilePageSize(3) === 3, "page size 3 stays bounded");
+ok(clampReconcilePageSize(500) === 50, "page size cannot grow into a table scan");
+ok(
+  nextStreamCursor(
+    [
+      { createdAt: new Date("2026-01-01T00:00:00.000Z"), id: "a" },
+      { createdAt: new Date("2026-01-02T00:00:00.000Z"), id: "b" },
+      { createdAt: new Date("2026-01-03T00:00:00.000Z"), id: "c" },
+    ],
+    3,
+  ).status === "page",
+  "full page returns a continue cursor",
+);
+ok(
+  nextStreamCursor(
+    [
+      { createdAt: new Date("2026-01-01T00:00:00.000Z"), id: "a" },
+      { createdAt: new Date("2026-01-02T00:00:00.000Z"), id: "b" },
+    ],
+    3,
+  ).status === "done",
+  "short page exhausts the stream",
+);
+ok(streamCursorWhere({ status: "done" }) === null, "done cursor does not query");
+ok(
+  JSON.stringify(streamCursorWhere({ status: "start" })) === "{}",
+  "start cursor scans from the oldest fact",
+);
+const continued = streamCursorWhere({
+  status: "page",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  id: "a",
+});
+ok(
+  Boolean(continued && "OR" in continued),
+  "page cursor inspects strictly later facts",
+);
+ok(
+  isHumanSignalReconcileDone({
+    feedback: { status: "done" },
+    retry: { status: "done" },
+    pending: { status: "done" },
+  }) === true &&
+    isHumanSignalReconcileDone(startHumanSignalReconcileCursor()) === false,
+  "window is done only when every stream is exhausted",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

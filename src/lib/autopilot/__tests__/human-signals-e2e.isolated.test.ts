@@ -109,9 +109,8 @@ async function main() {
     observeReAsk,
     forceNextHumanSignalAppendFailureForTests,
   } = await import("@/lib/autopilot/observe-human");
-  const { reconcileHumanSignals } = await import(
-    "@/lib/autopilot/reconcile-human"
-  );
+  const { reconcileHumanSignals, reconcileHumanSignalsUntilExhausted } =
+    await import("@/lib/autopilot/reconcile-human");
   const { reconcileAssistantRunFromPendingActions } = await import(
     "@/lib/assistant/reconcile-run"
   );
@@ -333,6 +332,7 @@ async function main() {
       0,
     "A1-P1: RETRIEVAL_ORPHANS = 0",
   );
+  ok(overlayA?.humanEdit === true, "HUMAN_EDIT_CAPTURE = PASS");
   ok(overlayA?.humanEdit === true, "A: overlay humanEdit flag");
   ok(
     (overlayA?.events ?? []).some((e) => e.eventType === "HUMAN_EDIT"),
@@ -437,6 +437,7 @@ async function main() {
   });
   const rejected = eventsB.filter((e) => e.eventType === "approval.rejected");
   const humanOverrideEvents = eventsB.filter((e) => e.eventType === "human.override");
+  ok(rejected.length === 1, "HUMAN_OVERRIDE_CAPTURE = PASS");
   ok(rejected.length === 1, "B: AI PA rejected → one approval.rejected", rejected.length);
   ok(humanOverrideEvents.length === 0, "B: no duplicate human.override event");
   ok(
@@ -563,6 +564,7 @@ async function main() {
     retryActionId: `assistant-run-retry:${runC.id}:1`,
     originalMessageId: "msg_c",
   });
+  ok(reask.status === "written", "RE_ASK_CAPTURE = PASS", reask);
   ok(reask.status === "written", "C: explicit retry → RE_ASK_SIGNAL", reask);
   const replayReask = await observeReAsk({
     orgId,
@@ -730,6 +732,274 @@ async function main() {
   );
   const paStill = await db.pendingAction.findUnique({ where: { id: paFact.id } });
   ok(paStill?.status === "rejected", "B1: PA business status unchanged");
+
+  // ── B1 fairness: multi-PA + old-missing cannot be starved ──
+  const fairOrg = await db.organization.create({
+    data: {
+      name: `A1P2 Fair ${tag}`,
+      code: `a1p2f_${tag}`,
+      ownerId: actor.id,
+      status: "active",
+    },
+  });
+  await db.organizationMember.create({
+    data: {
+      orgId: fairOrg.id,
+      userId: actor.id,
+      role: "org_member",
+      status: "active",
+    },
+  });
+  const fairSession = await db.agentSession.create({
+    data: { orgId: fairOrg.id, channel: "e2e", status: "active" },
+  });
+
+  async function seedFairRun(status = "completed") {
+    return db.agentRun.create({
+      data: {
+        orgId: fairOrg.id,
+        sessionId: fairSession.id,
+        runType: "conversation",
+        status,
+        startedAt: new Date(),
+      },
+    });
+  }
+
+  async function pause() {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  async function createRejectedPa(runId: string, title: string) {
+    await pause();
+    return db.pendingAction.create({
+      data: {
+        type: "email.send",
+        title,
+        preview: title,
+        payload: {},
+        status: "rejected",
+        createdById: actor.id,
+        orgId: fairOrg.id,
+        agentRunId: runId,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        decidedAt: new Date(),
+        decidedById: actor.id,
+      },
+    });
+  }
+
+  const oldEditRun = await seedFairRun();
+  forceNextHumanSignalAppendFailureForTests();
+  await createHumanFeedbackEvent({
+    orgId: fairOrg.id,
+    userId: actor.id,
+    taskType: "email_draft",
+    humanDecision: "edited",
+    aiOutputRef: { messageId: "fair_old_msg" },
+    aiOutputSnapshot: "fair-old-before",
+    humanEditedOutput: "fair-old-after",
+    agentRunId: oldEditRun.id,
+  });
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: oldEditRun.id, eventType: "human.edit" },
+    })) === 0,
+    "fairness setup: old HUMAN_EDIT missing",
+  );
+  for (let i = 0; i < 5; i += 1) {
+    const newerEditRun = await seedFairRun();
+    await createHumanFeedbackEvent({
+      orgId: fairOrg.id,
+      userId: actor.id,
+      taskType: "email_draft",
+      humanDecision: "edited",
+      aiOutputRef: { messageId: `fair_new_msg_${i}` },
+      aiOutputSnapshot: `fair-new-before-${i}`,
+      humanEditedOutput: `fair-new-after-${i}`,
+      agentRunId: newerEditRun.id,
+    });
+  }
+
+  const oldRetrySrc = await seedFairRun();
+  const oldRetryNew = await seedFairRun();
+  await db.agentRun.update({
+    where: { id: oldRetryNew.id },
+    data: { metadata: { retriedFromRunId: oldRetrySrc.id } },
+  });
+  const oldRetryKey = `assistant-run-retry:${oldRetrySrc.id}:1`;
+  await db.approvalDecisionIdempotency.create({
+    data: {
+      orgId: fairOrg.id,
+      idempotencyKey: oldRetryKey,
+      approvalKey: `assistant-run-retry:${oldRetrySrc.id}`,
+      action: "retry",
+      userId: actor.id,
+      resultJson: {
+        status: "COMPLETED",
+        retryAttempt: 1,
+        oldRunId: oldRetrySrc.id,
+        newRunId: oldRetryNew.id,
+        userMessageId: "fair_old_retry",
+      },
+    },
+  });
+  forceNextHumanSignalAppendFailureForTests();
+  const failedOldRetry = await observeReAsk({
+    orgId: fairOrg.id,
+    originalRunId: oldRetrySrc.id,
+    newRunId: oldRetryNew.id,
+    actorUserId: actor.id,
+    retryActionId: oldRetryKey,
+    originalMessageId: "fair_old_retry",
+  });
+  ok(failedOldRetry.status === "failed", "fairness setup: old RE_ASK missing");
+  for (let i = 0; i < 5; i += 1) {
+    const newerRetrySrc = await seedFairRun();
+    const newerRetryNew = await seedFairRun();
+    await db.agentRun.update({
+      where: { id: newerRetryNew.id },
+      data: { metadata: { retriedFromRunId: newerRetrySrc.id } },
+    });
+    const newerRetryKey = `assistant-run-retry:${newerRetrySrc.id}:1`;
+    await db.approvalDecisionIdempotency.create({
+      data: {
+        orgId: fairOrg.id,
+        idempotencyKey: newerRetryKey,
+        approvalKey: `assistant-run-retry:${newerRetrySrc.id}`,
+        action: "retry",
+        userId: actor.id,
+        resultJson: {
+          status: "COMPLETED",
+          retryAttempt: 1,
+          oldRunId: newerRetrySrc.id,
+          newRunId: newerRetryNew.id,
+          userMessageId: `fair_new_retry_${i}`,
+        },
+      },
+    });
+    await observeReAsk({
+      orgId: fairOrg.id,
+      originalRunId: newerRetrySrc.id,
+      newRunId: newerRetryNew.id,
+      actorUserId: actor.id,
+      retryActionId: newerRetryKey,
+      originalMessageId: `fair_new_retry_${i}`,
+    });
+  }
+
+  const oldPaRun = await seedFairRun("awaiting_approval");
+  await createRejectedPa(oldPaRun.id, "old missing PA");
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: oldPaRun.id, eventType: "approval.rejected" },
+    })) === 0,
+    "fairness setup: old PA override missing",
+  );
+  for (let i = 0; i < 5; i += 1) {
+    const newerPaRun = await seedFairRun("awaiting_approval");
+    const newerPa = await createRejectedPa(newerPaRun.id, `newer complete PA ${i}`);
+    await reconcileAssistantRunFromPendingActions({
+      orgId: fairOrg.id,
+      runId: newerPaRun.id,
+      triggeredByUserId: actor.id,
+      reason: "fairness_newer_pa_seed",
+      triggerAction: {
+        id: newerPa.id,
+        type: "email.send",
+        outcome: "rejected",
+      },
+    });
+  }
+
+  const multiRun = await seedFairRun("awaiting_approval");
+  const paA = await createRejectedPa(multiRun.id, "PA-A");
+  const paB = await createRejectedPa(multiRun.id, "PA-B");
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: multiRun.id, eventType: "approval.rejected" },
+    })) === 0,
+    "multi-PA setup: neither override exists yet",
+  );
+
+  const fairSweep = await reconcileHumanSignalsUntilExhausted({
+    orgId: fairOrg.id,
+    pageSize: 3,
+    maxPages: 20,
+  });
+  ok(
+    fairSweep.done === true && fairSweep.pages >= 2,
+    "RECONCILIATION_FAIRNESS = PASS",
+    fairSweep,
+  );
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: oldEditRun.id, eventType: "human.edit" },
+    })) === 1,
+    "OLD_MISSING_FACT_RECOVERED = PASS",
+  );
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: oldRetrySrc.id, eventType: "human.reask" },
+    })) === 1,
+    "OLD_MISSING_FACT_RECOVERED retry stream = PASS",
+  );
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: oldPaRun.id, eventType: "approval.rejected" },
+    })) === 1,
+    "OLD_MISSING_FACT_RECOVERED pending stream = PASS",
+  );
+
+  const multiRejected = await db.agentRunEvent.findMany({
+    where: { runId: multiRun.id, eventType: "approval.rejected" },
+  });
+  const multiKeys = multiRejected.map((event) => {
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    return String(payload.signalKey ?? "");
+  });
+  ok(
+    multiRejected.length === 2 &&
+      multiKeys.includes(`human.override:${multiRun.id}:${paA.id}:rejected`) &&
+      multiKeys.includes(`human.override:${multiRun.id}:${paB.id}:rejected`),
+    "MULTI_PENDING_ACTION_RECOVERY = PASS",
+    multiKeys,
+  );
+
+  const fairReplay = await reconcileHumanSignalsUntilExhausted({
+    orgId: fairOrg.id,
+    pageSize: 3,
+    maxPages: 20,
+  });
+  const multiAfterReplay = await db.agentRunEvent.count({
+    where: { runId: multiRun.id, eventType: "approval.rejected" },
+  });
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: oldEditRun.id, eventType: "human.edit" },
+    })) === 1 &&
+      (await db.agentRunEvent.count({
+        where: { runId: oldRetrySrc.id, eventType: "human.reask" },
+      })) === 1 &&
+      multiAfterReplay === 2 &&
+      fairReplay.written === 0,
+    "REPEATED_RECONCILIATION_IDEMPOTENT = PASS",
+    fairReplay,
+  );
+
+  await drain(multiRun.id);
+  const multiProjected = await db.autopilotRunEvent.count({
+    where: {
+      orgId: fairOrg.id,
+      eventType: "HUMAN_OVERRIDE",
+      run: { agentRunId: multiRun.id },
+    },
+  });
+  ok(
+    multiProjected === 2,
+    "MULTI_PENDING_ACTION_RECOVERY projected HUMAN_OVERRIDE = 2",
+    multiProjected,
+  );
 
   // ── B2 — org / lineage validation ──
   const foreignActorEdit = await observeHumanEdit({
