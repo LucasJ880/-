@@ -145,6 +145,7 @@ run_test "Autopilot A0 Security Layers" "npx tsx src/lib/autopilot/__tests__/sec
 run_test "Autopilot A1-P0 Durability Matrix" "npx tsx src/lib/autopilot/__tests__/durability-matrix.test.ts"
 run_test "Autopilot A1-P0 Benchmark" "npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts"
 run_test "Autopilot A1-P0 Sequence Retry" "npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts"
+run_test "AgentRunEvent sequence 死锁矩阵 SEQ-DEADLOCK-01..06（隔离库执行，否则跳过）" "npx tsx src/lib/agent-runtime/__tests__/agent-run-event-sequence-deadlock.isolated.test.ts"
 run_test "Autopilot A1-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/durability-e2e.isolated.test.ts"
 run_test "Autopilot A1-P1 Coverage" "npx tsx src/lib/autopilot/__tests__/coverage.test.ts"
 run_test "Autopilot A1-P1 Tool Hook Durability" "npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts"
