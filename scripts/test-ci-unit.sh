@@ -26,6 +26,8 @@ npx tsx src/lib/tender-auto-analysis/__tests__/v2-map.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/executive-brief.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
