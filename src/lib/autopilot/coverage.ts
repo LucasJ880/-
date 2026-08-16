@@ -1,7 +1,18 @@
 /**
  * A1-P1 runtime event coverage diagnostics (pure).
  * Structural gaps only — no AI quality / employee scoring.
+ *
+ * Post-terminal Human Signals (sequence > terminal) are legal.
+ * They are not coverage corruption. A second run.completed is still illegal
+ * (enforced by AgentRun terminal transition, not this summarizer).
  */
+
+import {
+  HUMAN_EDIT_SOURCES,
+  HUMAN_OVERRIDE_SOURCES,
+  RE_ASK_SOURCES,
+  humanSignalProjectionGap as computeHumanSignalProjectionGap,
+} from "./human-signals";
 
 export const AUTOPILOT_EVENT_SCHEMA_VERSION = 1;
 
@@ -222,6 +233,13 @@ export type CoverageSnapshot = {
   retrievalFailed: number;
   retrievalOrphans: number;
   contextOrphans: number;
+  humanEditCount: number;
+  humanOverrideCount: number;
+  reAskCount: number;
+  unlinkedHumanSignalCount: number;
+  duplicateHumanSignalCount: number;
+  humanSignalProjectionGap: number | null;
+  unknownHumanSignalCount: number;
   unknownEventTypes: string[];
   unknownEventTypeCount: number;
 };
@@ -261,6 +279,7 @@ export function summarizeCoverage(input: {
   projectedEventCount: number;
   projectedMappedCount?: number;
   projectedUnknownCount?: number;
+  projectedHumanSignalCount?: number;
   captureEnabled: boolean;
   classify: (eventType: string) => "mapped" | "internal" | "unknown";
   mapToCanonical?: (eventType: string, payload?: unknown) => string | null;
@@ -327,6 +346,51 @@ export function summarizeCoverage(input: {
     retrievalOrphans: countLifecycleOrphans(input.events, RETRIEVAL_LIFECYCLE)
       .orphanCount,
     contextOrphans: countUnpairedPhase(input.events, CONTEXT_LIFECYCLE),
+    humanEditCount: count(HUMAN_EDIT_SOURCES),
+    humanOverrideCount: count(HUMAN_OVERRIDE_SOURCES),
+    reAskCount: count(RE_ASK_SOURCES),
+    unlinkedHumanSignalCount: input.events.filter((e) => {
+      if (
+        !(HUMAN_EDIT_SOURCES as readonly string[]).includes(e.eventType) &&
+        !(HUMAN_OVERRIDE_SOURCES as readonly string[]).includes(e.eventType) &&
+        !(RE_ASK_SOURCES as readonly string[]).includes(e.eventType)
+      ) {
+        return false;
+      }
+      const p = asRecord(e.payload);
+      const source =
+        (typeof p.sourceAgentRunId === "string" && p.sourceAgentRunId.trim()) ||
+        (typeof p.originalAgentRunId === "string" && p.originalAgentRunId.trim());
+      return !source;
+    }).length,
+    duplicateHumanSignalCount: (() => {
+      const seen = new Map<string, number>();
+      for (const e of input.events) {
+        const key = asRecord(e.payload).signalKey;
+        if (typeof key !== "string" || !key.trim()) continue;
+        const id = `${e.runId ?? "__ungrouped"}:${key}`;
+        seen.set(id, (seen.get(id) ?? 0) + 1);
+      }
+      let n = 0;
+      for (const c of seen.values()) {
+        if (c > 1) n += c - 1;
+      }
+      return n;
+    })(),
+    humanSignalProjectionGap:
+      typeof input.projectedHumanSignalCount === "number"
+        ? computeHumanSignalProjectionGap({
+            sourceHumanSignalCount:
+              count(HUMAN_EDIT_SOURCES) +
+              count(HUMAN_OVERRIDE_SOURCES) +
+              count(RE_ASK_SOURCES),
+            projectedHumanSignalCount: input.projectedHumanSignalCount,
+          })
+        : null,
+    unknownHumanSignalCount: input.events.filter(
+      (e) =>
+        input.classify(e.eventType) === "unknown" && e.eventType.includes("human"),
+    ).length,
     unknownEventTypes: unknownTypes,
     unknownEventTypeCount: unknownTypes.length,
   };

@@ -345,6 +345,18 @@ export async function reconcileAssistantRunFromPendingActions(input: {
       lastReconcileReason: input.reason ?? null,
       writtenEventKeys: plan.nextKeys,
     };
+    if (
+      plan.writeAction &&
+      input.triggerAction?.outcome === "rejected"
+    ) {
+      const overrideKey = `human.override:${run.id}:${input.triggerAction.id}:rejected`;
+      const existing = Array.isArray(meta.humanSignalKeys)
+        ? meta.humanSignalKeys.filter((x): x is string => typeof x === "string")
+        : [];
+      if (!existing.includes(overrideKey)) {
+        nextMeta.humanSignalKeys = [...existing, overrideKey];
+      }
+    }
     if (plan.writeTerminal) {
       nextMeta.lastReconcileEventWritten = decision.eventKey;
     }
@@ -395,6 +407,15 @@ export async function reconcileAssistantRunFromPendingActions(input: {
           outcome: input.triggerAction.outcome,
           counts: decision.counts,
           eventKey: plan.actionKey,
+          ...(input.triggerAction.outcome === "rejected"
+            ? {
+                overrideType: "REJECTED",
+                pendingActionId: input.triggerAction.id,
+                sourceAgentRunId: run.id,
+                sourceDecisionRef: input.triggerAction.id,
+                signalKey: `human.override:${run.id}:${input.triggerAction.id}:rejected`,
+              }
+            : {}),
         },
       });
     }

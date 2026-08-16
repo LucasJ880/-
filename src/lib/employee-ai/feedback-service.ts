@@ -10,6 +10,7 @@ import {
   type ReasonCode,
 } from "./types";
 import { EmployeeAiAccessError } from "./access";
+import { extractSourceOutputRef } from "@/lib/autopilot/human-signals";
 
 export interface CreateFeedbackInput {
   orgId: string;
@@ -114,6 +115,39 @@ export async function createHumanFeedbackEvent(input: CreateFeedbackInput) {
       taskType: event.taskType,
     },
   });
+
+  if (event.agentRunId) {
+    const { observeHumanEditSafe, observeHumanOverrideSafe } = await import(
+      "@/lib/autopilot/observe-human"
+    );
+    if (event.humanDecision === "edited") {
+      await observeHumanEditSafe({
+        orgId: input.orgId,
+        sourceAgentRunId: event.agentRunId,
+        actorUserId: input.userId,
+        artifactType: "employee_ai_feedback",
+        artifactId: event.id,
+        committedVersion: "1",
+        commitAction: "save",
+        before: snapshot ?? input.aiOutputRef,
+        after: input.humanEditedOutput ?? snapshot,
+        sourceOutputRef: extractSourceOutputRef(
+          input.aiOutputRef,
+          event.agentRunId,
+        ),
+        artifactOrgId: input.orgId,
+      });
+    } else if (event.humanDecision === "rejected" && !event.pendingActionId) {
+      await observeHumanOverrideSafe({
+        orgId: input.orgId,
+        sourceAgentRunId: event.agentRunId,
+        actorUserId: input.userId,
+        overrideType: "REJECTED",
+        decisionRef: event.id,
+        actionType: "employee_ai.feedback",
+      });
+    }
+  }
 
   return event;
 }

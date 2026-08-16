@@ -89,8 +89,20 @@ ok(
   "approval.rejected → HUMAN_OVERRIDE",
 );
 ok(
-  mapAgentRunEventToAutopilot("job.human_edited")?.eventType === "HUMAN_EDIT",
-  "human edit event",
+  mapAgentRunEventToAutopilot("human.edit")?.eventType === "HUMAN_EDIT",
+  "human.edit → HUMAN_EDIT",
+);
+ok(
+  mapAgentRunEventToAutopilot("human.override")?.eventType === "HUMAN_OVERRIDE",
+  "human.override → HUMAN_OVERRIDE",
+);
+ok(
+  mapAgentRunEventToAutopilot("human.reask")?.eventType === "RE_ASK_SIGNAL",
+  "human.reask → RE_ASK_SIGNAL",
+);
+ok(
+  mapAgentRunEventToAutopilot("approval.executed")?.eventType === "HUMAN_ACTION",
+  "approval.executed → HUMAN_ACTION (not OVERRIDE)",
 );
 ok(
   mapAgentRunEventToAutopilot("run.cancelled")?.eventType === "TASK_CANCELLED",

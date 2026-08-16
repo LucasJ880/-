@@ -11,3 +11,6 @@ export * from "./processor";
 export * from "./telemetry-health";
 export * from "./coverage";
 export * from "./coverage-health";
+export * from "./human-signals";
+export * from "./observe-human";
+export * from "./reconcile-human";
