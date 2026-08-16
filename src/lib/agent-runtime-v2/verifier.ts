@@ -139,6 +139,30 @@ async function deterministicVerify(input: {
     repairs.push("在完整 Grader 证据可用后重新分析并验证");
   }
 
+  // T5-P1 §4：tool_result + evidenceStepIds 的 criterion 由 deterministic verifier
+  // 逐项核验（step 存在 / completed / 有 outputJson / 非 PARTIAL / 非 degraded），
+  // 满足即写入 evidenceReferences——修掉"成功路径证据恒为空 → 模型 PASS 被强制
+  // 降级为 NEEDS_HUMAN"的 Runtime evidence contract 缺陷。
+  const byKey = new Map(steps.map((s) => [s.stepKey, s]));
+  for (const c of input.plan.completionCriteria ?? []) {
+    const ids = (c as { evidenceStepIds?: string[] }).evidenceStepIds ?? [];
+    if (c.verificationType !== "tool_result" || ids.length === 0) continue;
+    const problems: string[] = [];
+    for (const id of ids) {
+      const st = byKey.get(id);
+      if (!st) { problems.push(`${id}:missing`); continue; }
+      if (st.status !== "completed") { problems.push(`${id}:${st.status}`); continue; }
+      if (!st.outputJson) { problems.push(`${id}:no_output`); continue; }
+      const out = st.outputJson as { evidenceQuality?: string; degraded?: boolean };
+      if (out?.evidenceQuality === "PARTIAL" || out?.degraded === true) {
+        problems.push(`${id}:PARTIAL`); continue;
+      }
+      evidence.push(`criterion:${c.id} step:${id}:tool_result`);
+    }
+    if (problems.length === 0) satisfied.push(`完成标准「${c.id}」已由工具结果证实`);
+    else unsatisfied.push(`完成标准「${c.id}」证据不成立：${problems.join(",")}`);
+  }
+
   if (unsatisfied.length === 0) {
     return {
       verdict: "PASS",
@@ -285,13 +309,28 @@ export async function verifyRuntimeV2Run(input: {
     runId: input.runId,
     plan,
   });
-  const modeled = await modelVerify({
-    orgId: input.orgId,
-    userId: input.userId,
-    runId: input.runId,
-    plan,
-    deterministic,
-  });
+  // T5-P1 §5：若全部 completionCriteria 都已被 deterministic verifier 完整核验
+  // （tool_result + evidenceStepIds），不再让模型重新猜"是否完成"——
+  // 确定性事实不交给概率模型复判。model verifier 仍保留给 model_judgement
+  // 及无法确定性验证的 criterion（legacy LLM plan 行为不变）。
+  const criteria = plan.completionCriteria ?? [];
+  const fullyDeterministic =
+    criteria.length > 0 &&
+    criteria.every(
+      (c) =>
+        c.verificationType === "tool_result" &&
+        ((c as { evidenceStepIds?: string[] }).evidenceStepIds ?? []).length > 0,
+    );
+  const modeled = fullyDeterministic
+    ? deterministic
+    : await modelVerify({
+        orgId: input.orgId,
+        userId: input.userId,
+        // #112 Autopilot A1-P1：runId 透传给运行时事件遥测
+        runId: input.runId,
+        plan,
+        deterministic,
+      });
   // #90A §27：deterministic hard floor——LLM 不得解除确定性失败
   const final = applyDeterministicHardFloor(deterministic, modeled);
 

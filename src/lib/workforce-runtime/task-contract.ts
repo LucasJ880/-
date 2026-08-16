@@ -22,7 +22,32 @@ import {
   type WorkforceTaskKind,
 } from "./workers";
 
+/**
+ * 旧版本（历史 envelope 已落库；reader 必须永久支持）。
+ * 保留导出名不变——既有测试与调用点引用它作为"legacy 基线版本"。
+ */
 export const WORKFORCE_TASK_CONTRACT_VERSION = "workforce-task/v1";
+
+/**
+ * T5-P0B — 版本纪律修复。
+ *
+ * 背景（预检 §1 认定为 PARTIAL）：`resources` 是并行安全冲突检测的关键字段，
+ * 却被追加进 v1 而未 bump 版本 → 旧 reader 的 `.strip()` 会静默丢弃它，
+ * 属于隐性降级而非干净的版本门。
+ *
+ * 修复：**新 writer 一律写 v1.1**；reader 同时支持 v1 与 v1.1：
+ *   - v1 envelope（无 resources）→ 正常读取，resources 归一为 []（canonical 默认）
+ *   - v1.1 envelope → 正常读取
+ *   - 未知版本 → fail-closed（invalid），绝不猜测
+ * 库中既有 v1 记录不受影响，legacy AgentRun 恢复不受影响。
+ */
+export const WORKFORCE_TASK_CONTRACT_WRITE_VERSION = "workforce-task/v1.1";
+
+/** reader 支持的版本集合（新增版本必须显式登记，未登记即 fail-closed） */
+export const WORKFORCE_TASK_CONTRACT_SUPPORTED_VERSIONS = [
+  WORKFORCE_TASK_CONTRACT_VERSION,
+  WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
+] as const;
 
 export const WORKFORCE_TASK_LIMITS = {
   maxObjectiveLength: 1000,
@@ -46,7 +71,8 @@ export const WORKFORCE_RESOURCE_KEY_PATTERN = /^[a-z][a-z0-9_-]{0,31}:\S{1,160}$
  */
 export const WorkforceTaskSpecV1Schema = z
   .object({
-    contractVersion: z.literal(WORKFORCE_TASK_CONTRACT_VERSION),
+    // T5-P0B：接受 v1（legacy）与 v1.1（当前 writer）；未登记版本 fail-closed
+    contractVersion: z.enum(WORKFORCE_TASK_CONTRACT_SUPPORTED_VERSIONS),
     worker: z
       .object({
         workerKey: z.string().min(1),
@@ -191,7 +217,8 @@ export function applyWorkforceTaskSpecs(
     }
 
     const parsed = WorkforceTaskSpecV1Schema.safeParse({
-      contractVersion: WORKFORCE_TASK_CONTRACT_VERSION,
+      // T5-P0B：新 writer 只写 v1.1（reader 仍兼容库中既有 v1）
+      contractVersion: WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
       worker: { workerKey: worker.workerKey, role: worker.role },
       taskKind,
       objective: truncate(
@@ -242,5 +269,11 @@ export function readWorkforceTaskSpec(
   if (!parsed.success) {
     return { kind: "invalid", error: parsed.error.message };
   }
-  return { kind: "valid", spec: parsed.data };
+  // T5-P0B：legacy v1 envelope 无 resources → 归一为 canonical 空集合，
+  // 让下游（并行冲突判定等）无需再区分版本；不改变 v1.1 已声明的值。
+  const spec: WorkforceTaskSpecV1 = {
+    ...parsed.data,
+    resources: parsed.data.resources ?? [],
+  };
+  return { kind: "valid", spec };
 }

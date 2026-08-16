@@ -20,7 +20,12 @@ import { cancelAgentRun } from "@/lib/agent-runtime/run";
 import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 import { getWorkforceJobView } from "@/lib/workforce-runtime/read-model/service";
 import type { WorkforceJobViewModel } from "@/lib/workforce-runtime/read-model/types";
-import { isTenderWorkforceAnalysisEnabled } from "./flags";
+import {
+  isTenderWorkforceAnalysisEnabled,
+  isTenderDeterministicPlanEnabled,
+} from "./flags";
+import { buildTenderDeterministicPlan } from "./deterministic-plan";
+import { tenderWorkforceDeterministicTools } from "./tools";
 import {
   failWorkforceTenderAnalysisRun,
   TENDER_AGENT_RUN_STATUS,
@@ -89,6 +94,11 @@ async function findActiveTenderJob(orgId: string, projectId: string) {
 export function buildTenderAnalysisGoal(projectName: string): string {
   return [
     `对投标项目「${projectName.slice(0, 80)}」执行一键 AI 投标分析。`,
+    // Segment 3 §5：本 goal 只服务 **flag OFF 的 LLM 兼容路径**（旧 T1B 语义）。
+    // 刻意不要求"生成交付物"——grounded 交付物严格投影 canonical
+    // summaryJson.submissionChecklist，而兼容路径的 legacy 抽取根本不产出该字段，
+    // 写进 goal 只会诱导 planner 去调一个在这条路径上必然 fail-closed 的工具。
+    // flag ON 时 planner 不读 goal，goal 仅作 Job Center 标题。
     "流程：校验输入并建立分析清单 → 解析投标文件 → 提取要求与报告章节 → 证据与合规覆盖分析 → 风险分析 → 澄清问题草稿 → 综合汇总（synthesis）→ 写回最终分析结果。",
     "约束：总计不超过 8 个任务；每个任务在 dependsOn 中声明其真实消费的上游；全部步骤 executionMode=analysis 且 requiresApproval=false——这些工具只产生机器分析记录，不属于需要人工审批的业务写操作（不发邮件、不建日历、不改客户数据），任何步骤都不要标记 requiresApproval=true 或 executionMode=write；每个分析任务除声明直接上游外，还应把第一步（分析清单）列入 dependsOn；综合任务 taskKind=synthesis、不设 preferredTool、依赖全部分析任务；最后一个任务用 tender_finalize_analysis 并依赖综合任务。",
   ].join("");
@@ -157,16 +167,39 @@ export async function startTenderWorkforceAnalysis(input: {
         });
       }
 
+      // T5-P1 §19：**同一入口、同一 runtime、同一 UI、同一产物**——
+      // flag 只切换"计划从哪来"，不新建按钮也不新建 API。
+      const deterministic = isTenderDeterministicPlanEnabled({
+        orgId: input.orgId,
+      });
+      const serverPlan = deterministic
+        ? buildTenderDeterministicPlan({
+            projectId: input.projectId,
+            projectName: input.projectName,
+          })
+        : undefined;
+
       const created = await createWorkforceJob({
         orgId: input.orgId,
         userId: input.userId,
         role: input.role,
+        // goal 仍然保留：它同时是 Job Center 标题来源（flag ON 时 planner 不会读它）
         goal: buildTenderAnalysisGoal(input.projectName),
         channel: "workforce",
         projectId: input.projectId,
         source: "tender_ui",
+        ...(serverPlan
+          ? {
+              plan: serverPlan,
+              // Segment 3 §3：确定性计划用**确定性工具白名单**（含 canonical V2
+              // 工具、不含 legacy extract）。绝不为了让确定性计划编译通过
+              // 而把 canonical V2 工具塞进 LLM planner 可见面。
+              planTools: tenderWorkforceDeterministicTools(),
+            }
+          : {}),
+        // T5-P0C-C：workDomain 走具名 server 参数（不再经 generic metadata 通道）
+        workDomain: "tender",
         extraMetadata: {
-          workDomain: "tender",
           trigger: "user",
           analysisMode: "full",
           analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,

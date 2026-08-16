@@ -24,6 +24,7 @@
 
 import { db } from "@/lib/db";
 import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
+import { checkResumeFreshness } from "./resume-freshness";
 import {
   runtimeFromRunMetadata,
   runtimeContextToTelemetry,
@@ -67,7 +68,13 @@ export type WorkforceResumeResult =
   /** 终态/取消/非 workforce_job——拒绝恢复 */
   | { ok: false; status: "not_resumable"; reason: string }
   /** 门禁拦截（principal 失效等）——已 park 并写 job.resume_blocked */
-  | { ok: false; status: "blocked"; blockedBy: "principal"; reason: string };
+  | {
+      ok: false;
+      status: "blocked";
+      /** T5-P0C：三道 freshness 门各自独立标识，绝不与 principal 混同 */
+      blockedBy: "principal" | "actor_stale" | "scope_stale" | "policy_stale";
+      reason: string;
+    };
 
 function stepActionIds(step: {
   pendingActionId: string | null;
@@ -311,8 +318,59 @@ export async function resumeWorkforceJob(input: {
     };
   }
 
-  // 6–8. 2C-2 挂载点：resource freshness（§9）/ scope 重查 / approval
-  //      freshness（§10）在此插入；本片（2C-1）不实现。
+  // 6–8. T5-P0C §11/§12：三道 freshness 门（TOCTOU 防护）。
+  //      批准时允许 ≠ 恢复执行时仍允许——必须在真正恢复前重查，
+  //      而不是只在 Approve API 查一次。任一门失败即 park，不推进执行。
+  const freshness = await checkResumeFreshness({
+    orgId,
+    runId,
+    userId: principal.userId,
+    role: principal.role,
+    runMetadata: run.metadata as Record<string, unknown> | null,
+  });
+  if (!freshness.ok) {
+    const blockedBy =
+      freshness.code === "ACTOR_STALE"
+        ? ("actor_stale" as const)
+        : freshness.code === "SCOPE_STALE"
+          ? ("scope_stale" as const)
+          : ("policy_stale" as const);
+    // 复用既有 park 形状：CAS 置 needs_human + 双事件（与 principal 门同构）
+    await db.agentRun
+      .updateMany({
+        where: { id: runId, orgId, runType: WORKFORCE_JOB_RUN_TYPE },
+        data: {
+          status: "needs_human",
+          errorCode: freshness.code.toLowerCase(),
+          errorMessage: `恢复前校验未通过：${freshness.code}（${freshness.reason}）`,
+        },
+      })
+      .catch(() => {});
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "job.resume_blocked",
+      title: "恢复被拦截：执行前校验未通过",
+      payload: { blockedBy, code: freshness.code, reason: freshness.reason },
+      visibleToUser: true,
+    }).catch(() => {});
+    await appendAgentRunEvent({
+      orgId,
+      runId,
+      eventType: "job.waiting_human",
+      title: "需要人工处理",
+      payload: {
+        humanRequirement: { type: "PERMISSION_CHANGED", detail: freshness.code },
+      },
+      visibleToUser: true,
+    }).catch(() => {});
+    return {
+      ok: false,
+      status: "blocked",
+      blockedBy,
+      reason: `${freshness.code}:${freshness.reason}`,
+    };
+  }
   // 9. Task checkpoint 无需动作：steps 即 checkpoint，claim 后
   //    refreshReadySteps 从 step statuses 全量重算 ready 集合。
 

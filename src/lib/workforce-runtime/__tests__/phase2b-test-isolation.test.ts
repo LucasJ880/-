@@ -58,6 +58,7 @@ async function main() {
   const foreign = await seedForeignQueuedBacklog(6);
   // foreign backlog 创建在前（createdAt 更老），必然占满单次 take-5 窗口
   const mine = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fxA.orgId,
     userId: fxA.ownerUserId,
     role: "sales",

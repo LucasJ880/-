@@ -44,6 +44,7 @@ async function main() {
   // ── L1：合法 Job，每 slice 0 个 round（极端 continuation），
   //        连续正常推进 > WORKFORCE_MAX_ATTEMPTS 个 slice ──
   const job = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",
@@ -129,6 +130,7 @@ async function main() {
   // ── L6：连续 retryable failure 仍累计 → maxAttempts → failed ──
   delete process.env.OPENAI_API_KEY;
   const jobFail = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

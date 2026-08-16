@@ -114,6 +114,7 @@ async function main() {
 
   // ── 创建 Job ──
   const job = await createWorkforceJob({
+    workDomain: "sales",
     orgId: org.id,
     userId: owner.id,
     role: "sales",

@@ -49,6 +49,7 @@ async function main() {
 
   // ── Case D：并发双 claim ──
   const jobD = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",
@@ -90,6 +91,7 @@ async function main() {
 
   // ── Case F/G：过期重认领 + completed step 不重跑 ──
   const jobF = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",
@@ -155,6 +157,7 @@ async function main() {
   // 目标不匹配黄金模板 → planner 走模型 → 测试环境无 OPENAI_API_KEY → 抛错 → retryable 回队
   delete process.env.OPENAI_API_KEY;
   const jobJ = await createWorkforceJob({
+    workDomain: "sales",
     orgId: fx.orgId,
     userId: fx.ownerUserId,
     role: "sales",

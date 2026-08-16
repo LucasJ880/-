@@ -12,6 +12,12 @@ export const CompletionCriterionSchema = z.object({
   id: z.string().min(1),
   description: z.string().min(1),
   verificationType: VerificationTypeSchema,
+  /**
+   * T5-P1：criterion 绑定的证据 step（server-authored plan 专用，向后兼容可选）。
+   * 有此字段时 deterministic verifier 可直接核验对应 step 的 tool result，
+   * 无需让模型重新猜"是否完成"。旧 LLM plan 无该字段 → 走既有兼容路径。
+   */
+  evidenceStepIds: z.array(z.string().min(1)).max(8).optional(),
 });
 
 export const PlanStepSchema = z.object({
