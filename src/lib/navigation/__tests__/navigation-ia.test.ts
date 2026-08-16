@@ -239,7 +239,7 @@ const full = resolveNavigationTree(
 );
 const dups = findDuplicateHrefs(full);
 // /capabilities 会在父与「中台总览」各出现一次 —— 允许同一 href 父子；检测其它重复
-const nonCapDups = dups.filter((h) => h !== "/capabilities");
+const nonCapDups = dups.filter((h) => h !== "/capabilities" && h !== "/ai/autopilot");
 ok(nonCapDups.length === 0, `无意外重复 href（${nonCapDups.join(",") || "无"}）`);
 
 // 顺序：OPERATIONS display 前于 GROWTH，CAPABILITIES 前于 GROWTH
@@ -366,6 +366,10 @@ const bossNav = resolveNavigationTree(
 ok(bossNav.some((i) => i.group === "OPERATIONS"), "老板可见企业经营");
 ok(bossNav.some((i) => i.group === "CAPABILITIES"), "老板可见 AI 能力");
 ok(bossNav.some((i) => i.group === "GROWTH"), "老板可见品牌增长");
+ok(
+  !bossNav.some((i) => i.key === "autopilot"),
+  "老板默认不可见 Autopilot（非 owner）",
+);
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

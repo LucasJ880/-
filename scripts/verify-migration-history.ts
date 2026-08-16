@@ -25,6 +25,9 @@ const EXPECTED_ACTIVE = [
   "20260805180000_tender_auto_analysis_phase1_1",
   "20260811002000_add_tender_t2_ledger_archive_foundation",
   "20260811040000_add_tender_t3_corporate_memory_foundation",
+  "20260814150000_add_tender_t4_award_record_foundation",
+  "20260814220000_add_autopilot_a0_foundation",
+  "20260815010000_add_autopilot_a1_p0_telemetry_outbox",
 ] as const;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
@@ -57,6 +60,12 @@ const IMMUTABLE: Record<string, string> = {
     "013bad981ea141717a1d0d15efb971981d5ebee499d4d68317ff55f30daf8ff6",
   "20260811040000_add_tender_t3_corporate_memory_foundation":
     "ce7e975fd1e836143cc0e08b016815c15618aa85f1cbfc78c2babd3c2a12b3f4",
+  "20260814150000_add_tender_t4_award_record_foundation":
+    "850c045737d590e3e5036eaf86b0d07a529add696c508c00111781abce36b882",
+  "20260814220000_add_autopilot_a0_foundation":
+    "0c6e52baa685da7fea27d7ba6583502c6b5dcfb8791992404bcd94a7d6026585",
+  "20260815010000_add_autopilot_a1_p0_telemetry_outbox":
+    "710332eb59f6d7d5d6a310e47c288c65a6372c0b5ea715cc45a8a2ac19caa438",
 };
 
 let passed = 0;

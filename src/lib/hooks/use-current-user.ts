@@ -15,6 +15,8 @@ export interface CurrentUser {
   canEditCustomers?: boolean;
   /** 公司归属（联合品牌）；第一个为主公司，左上角显示「青砚 × 公司logo」 */
   companies?: { id: string; name: string; slug: string; logoUrl: string }[];
+  /** 服务端计算：是否可见 Autopilot。不含 owner id 列表。 */
+  autopilotAllowed?: boolean;
 }
 
 interface UseCurrentUserReturn {

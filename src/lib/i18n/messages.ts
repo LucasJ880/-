@@ -92,6 +92,10 @@ export interface Messages {
   nav_capabilities_catalog: string;
   nav_capabilities_governance: string;
   nav_capabilities_health: string;
+  nav_autopilot: string;
+  nav_autopilot_overview: string;
+  nav_autopilot_runs: string;
+  nav_autopilot_telemetry: string;
   nav_growth_hub: string;
   nav_weekly_reports: string;
   nav_publish_calendar: string;

@@ -133,6 +133,34 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
   def("authorization.policy.manage", "authorization.policy", "manage", "管理权限策略", "修改权限蓝图", ["ORG"], "CRITICAL"),
 
   def("audit.read", "audit", "read", "查看审计", "读取审计日志", ["ORG"], "HIGH"),
+
+  def(
+    "autopilot.view",
+    "autopilot",
+    "view",
+    "查看 Autopilot",
+    "查看 Autopilot 总览。A0 仅 owner allowlist 授予，不绑定任何角色。",
+    ["ORG"],
+    "HIGH",
+  ),
+  def(
+    "autopilot.runs.read",
+    "autopilot.runs",
+    "read",
+    "读取 Autopilot Runs",
+    "读取 Agent Run 观察数据。A0 仅 owner allowlist 授予。",
+    ["ORG"],
+    "HIGH",
+  ),
+  def(
+    "autopilot.admin",
+    "autopilot",
+    "admin",
+    "管理 Autopilot",
+    "Autopilot 管理能力。A0 仅 owner allowlist 授予，admin 角色不自动获得。",
+    ["ORG"],
+    "CRITICAL",
+  ),
 ];
 
 const BY_KEY = new Map(PERMISSION_REGISTRY.map((p) => [p.key, p]));
