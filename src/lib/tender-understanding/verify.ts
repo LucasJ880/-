@@ -61,19 +61,67 @@ type EvidencedCandidate = {
   sourceSnippet: string;
 };
 
+/**
+ * 归属纠正的最小引文长度（归一化后）。
+ * 太短的引文可能在多处偶然唯一命中，纠正没有意义 —— 宁可按原样拒收。
+ */
+export const MIN_REATTRIBUTION_SNIPPET_CHARS = 24;
+
+/**
+ * 在**同一文档内**为引文寻找唯一的逐字所在单元。
+ *
+ * 用途：模型把引文归到了错误的单元号（生产实测：xlsx 多单元窗口下高发，
+ * 92/115 的 SNIPPET_NOT_ON_PAGE 属于此类且**零歧义**）。
+ * 纪律不变——引文仍必须逐字存在、位置仍必须真实；这里只把错误的单元号
+ * 纠正成引文真正所在的那个单元。唯一性不成立（0 处或多处）→ 不纠正。
+ * 跨文档不纠正：模型说是 A 文档却出现在 B 文档，属于实质性错误，照旧拒收。
+ */
+export function locateUniqueUnit(
+  input: AnalyzerInput,
+  documentId: string,
+  snippet: string,
+): number | null {
+  const normalized = normalizeForMatch(snippet);
+  if (normalized.length < MIN_REATTRIBUTION_SNIPPET_CHARS) return null;
+  const doc = input.documents.find((d) => d.documentId === documentId);
+  if (!doc) return null;
+
+  let found: number | null = null;
+  for (const page of doc.pages) {
+    if (!normalizeForMatch(page.contentText).includes(normalized)) continue;
+    if (found !== null) return null; // 多处命中 → 有歧义，不纠正
+    found = page.pageNumber;
+  }
+  return found;
+}
+
+type EvidenceCheckResult =
+  | { ok: true; correctedPageNumber: number | null }
+  | { ok: false; reasonCode: RejectReasonCode };
+
 function checkEvidence(
   c: EvidencedCandidate,
   index: PageIndex,
   documentIds: Set<string>,
-): RejectReasonCode | null {
-  if (!documentIds.has(c.sourceDocumentId)) return "DOCUMENT_NOT_IN_SCOPE";
-  const pageText = index.get(`${c.sourceDocumentId}:${c.pageNumber}`);
-  if (pageText === undefined) return "PAGE_NOT_FOUND";
-  const snippet = normalizeForMatch(c.sourceSnippet);
-  if (snippet.length === 0 || !pageText.includes(snippet)) {
-    return "SNIPPET_NOT_ON_PAGE";
+  input: AnalyzerInput,
+): EvidenceCheckResult {
+  if (!documentIds.has(c.sourceDocumentId)) {
+    return { ok: false, reasonCode: "DOCUMENT_NOT_IN_SCOPE" };
   }
-  return null;
+  const snippet = normalizeForMatch(c.sourceSnippet);
+  const pageText = index.get(`${c.sourceDocumentId}:${c.pageNumber}`);
+  const missReason: RejectReasonCode =
+    pageText === undefined ? "PAGE_NOT_FOUND" : "SNIPPET_NOT_ON_PAGE";
+
+  if (pageText !== undefined && snippet.length > 0 && pageText.includes(snippet)) {
+    return { ok: true, correctedPageNumber: null };
+  }
+
+  // 引错单元号 → 若引文在本文档内唯一定位，纠正到真实单元
+  const corrected = locateUniqueUnit(input, c.sourceDocumentId, c.sourceSnippet);
+  if (corrected !== null) return { ok: true, correctedPageNumber: corrected };
+
+  return { ok: false, reasonCode: missReason };
 }
 
 /**
@@ -126,6 +174,8 @@ function checkSemanticSupport(claim: string, snippet: string): boolean {
 }
 
 export type VerifiedCandidates = {
+  /** 引文逐字可核验但单元号被模型写错、已纠正到唯一真实单元的条数（可观测性） */
+  reattributed: number;
   facts: FactCandidateV2[];
   requirements: RequirementCandidateV2[];
   risks: RiskCandidateV2[];
@@ -151,6 +201,7 @@ export function verifyCandidates(
   const documentIds = new Set(input.documents.map((d) => d.documentId));
 
   const out: VerifiedCandidates = {
+    reattributed: 0,
     facts: [],
     requirements: [],
     risks: [],
@@ -158,12 +209,17 @@ export function verifyCandidates(
     rejected: { facts: [], requirements: [], risks: [], ambiguities: [] },
   };
 
-  for (const f of candidates.facts) {
-    const evidenceFail = checkEvidence(f, index, documentIds);
-    if (evidenceFail) {
-      out.rejected.facts.push({ candidate: f, reasonCode: evidenceFail });
+  for (const raw of candidates.facts) {
+    const ev = checkEvidence(raw, index, documentIds, input);
+    if (!ev.ok) {
+      out.rejected.facts.push({ candidate: raw, reasonCode: ev.reasonCode });
       continue;
     }
+    const f =
+      ev.correctedPageNumber === null
+        ? raw
+        : { ...raw, pageNumber: ev.correctedPageNumber };
+    if (ev.correctedPageNumber !== null) out.reattributed += 1;
     if (
       !checkValueSupport(
         `${f.claim} ${f.rawValue ?? ""}`,
@@ -181,12 +237,17 @@ export function verifyCandidates(
     out.facts.push(f);
   }
 
-  for (const r of candidates.requirements) {
-    const evidenceFail = checkEvidence(r, index, documentIds);
-    if (evidenceFail) {
-      out.rejected.requirements.push({ candidate: r, reasonCode: evidenceFail });
+  for (const rawReq of candidates.requirements) {
+    const ev = checkEvidence(rawReq, index, documentIds, input);
+    if (!ev.ok) {
+      out.rejected.requirements.push({ candidate: rawReq, reasonCode: ev.reasonCode });
       continue;
     }
+    const r =
+      ev.correctedPageNumber === null
+        ? rawReq
+        : { ...rawReq, pageNumber: ev.correctedPageNumber };
+    if (ev.correctedPageNumber !== null) out.reattributed += 1;
     if (!checkSemanticSupport(r.statement, r.sourceSnippet)) {
       out.rejected.requirements.push({
         candidate: r,
@@ -196,7 +257,7 @@ export function verifyCandidates(
     }
     // mandatory=true 但 signal 在证据上下文找不到 → 降级 uncertain（不拒收，但不得算 mandatory）
     if (r.mandatory === true) {
-      const pageText = index.get(`${r.sourceDocumentId}:${r.pageNumber}`)!;
+      const pageText = index.get(`${r.sourceDocumentId}:${r.pageNumber}`) ?? "";
       const signal = r.mandatorySignal ? normalizeForMatch(r.mandatorySignal) : "";
       const signalOk =
         signal.length > 0 &&
@@ -210,12 +271,17 @@ export function verifyCandidates(
     out.requirements.push(r);
   }
 
-  for (const k of candidates.risks) {
-    const evidenceFail = checkEvidence(k, index, documentIds);
-    if (evidenceFail) {
-      out.rejected.risks.push({ candidate: k, reasonCode: evidenceFail });
+  for (const rawRisk of candidates.risks) {
+    const ev = checkEvidence(rawRisk, index, documentIds, input);
+    if (!ev.ok) {
+      out.rejected.risks.push({ candidate: rawRisk, reasonCode: ev.reasonCode });
       continue;
     }
+    const k =
+      ev.correctedPageNumber === null
+        ? rawRisk
+        : { ...rawRisk, pageNumber: ev.correctedPageNumber };
+    if (ev.correctedPageNumber !== null) out.reattributed += 1;
     // 语义门（Final Review §15）：引文真实存在但与 risk 断言无关 → 拒收。
     // 通用 token 支持判定，零领域词；宁可拒掉 borderline，不让 unsupported
     // claim 进业务结果。
@@ -226,12 +292,17 @@ export function verifyCandidates(
     out.risks.push(k);
   }
 
-  for (const a of candidates.ambiguities) {
-    const evidenceFail = checkEvidence(a, index, documentIds);
-    if (evidenceFail) {
-      out.rejected.ambiguities.push({ candidate: a, reasonCode: evidenceFail });
+  for (const rawAmb of candidates.ambiguities) {
+    const ev = checkEvidence(rawAmb, index, documentIds, input);
+    if (!ev.ok) {
+      out.rejected.ambiguities.push({ candidate: rawAmb, reasonCode: ev.reasonCode });
       continue;
     }
+    const a =
+      ev.correctedPageNumber === null
+        ? rawAmb
+        : { ...rawAmb, pageNumber: ev.correctedPageNumber };
+    if (ev.correctedPageNumber !== null) out.reattributed += 1;
     // 语义门（Final Review §16）：topic/description/whatIsUnknown 组合文本
     // 必须被引文支持，否则拒收。
     const ambiguityClaim = `${a.topic} ${a.description} ${a.whatIsUnknown}`;
