@@ -94,21 +94,42 @@ ok(
       /if \(batchContinuation\)[\s\S]{0,600}completedAt: null/.test(execCode),
     "P11-CONT-06: continuation 不写 completedAt",
   );
+  // 两条路径的回滚目标都是「本次 claim 前的值」，但取值来源不同：
+  //   单步路径 `step` = 认领**前**的行 → 直接写 step.attemptCount
+  //   批路径   `row`  = CAS 认领**后**的行（已 +1）→ 必须显式减 1
+  // 早期版本这里断言的是 `attemptCount: row.attemptCount`，字面匹配通过、
+  // 语义却是空写：每让出一次就烧掉一次重试额度。真实 E2E（t3 maxAttempts=2）
+  // 第 3 次 invocation 直接 failed → job needs_human 才暴露出来。
   ok(
     /if \(continuation\)[\s\S]{0,600}attemptCount: step\.attemptCount/.test(execCode) &&
-      /if \(batchContinuation\)[\s\S]{0,600}attemptCount: row\.attemptCount/.test(execCode),
-    "P11-CONT-07: continuation 把 attemptCount 回滚到本次 claim 前的值",
+      /if \(batchContinuation\)[\s\S]{0,900}attemptCount: Math\.max\(0, row\.attemptCount - 1\)/.test(
+        execCode,
+      ),
+    "P11-CONT-07: continuation 把 attemptCount 回滚到本次 claim 前的值（批路径显式 -1）",
+  );
+  ok(
+    !/if \(batchContinuation\)[\s\S]{0,900}attemptCount: row\.attemptCount,/.test(execCode),
+    "P11-CONT-07b: 批路径不得写回认领后的 attemptCount（空写 = 每次让出烧一次重试额度）",
   );
 }
 {
-  // §16 数值证明：claim 时 +1、让出时写回原值 → N 次让出后净增 0
+  // §16 数值证明：模拟**真实的 claim → 让出 → 重新 claim** 循环。
+  // claim 是 DB 侧 `increment: 1`，让出写的是绝对值，必须让净增为 0。
+  const claim = (n: number) => n + 1;                       // CAS: increment
+  const yieldBack = (postClaim: number) => Math.max(0, postClaim - 1); // 批路径回滚
   let attemptCount = 3;
   for (let i = 0; i < 10; i++) {
-    const before = attemptCount;
-    attemptCount = before + 1; // claim
-    attemptCount = before;     // 正常让出写回
+    attemptCount = yieldBack(claim(attemptCount));
   }
-  ok(attemptCount === 3, "P11-CONT-08: 10 次正常让出后 STEP_ATTEMPT_COUNT_DELTA = 0", attemptCount);
+  ok(attemptCount === 3, "P11-CONT-08: 10 次 claim→让出 循环后 STEP_ATTEMPT_COUNT_DELTA = 0", attemptCount);
+  // 反例守卫：空写版本必然线性增长，10 次后越界 maxAttempts
+  let broken = 3;
+  for (let i = 0; i < 10; i++) broken = claim(broken); // 写回认领后的值 = 不回滚
+  ok(
+    broken === 13,
+    "P11-CONT-08b: 不回滚时 attemptCount 线性增长（这正是让可续跑失效的机制）",
+    broken,
+  );
 }
 {
   const procCode = code("agent-runtime-v2/process.ts");

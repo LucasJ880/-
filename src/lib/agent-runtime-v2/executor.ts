@@ -1617,7 +1617,13 @@ async function executeClaimedWorkforceStep(input: {
         where: { id: row.id },
         data: {
           status: "ready",
-          attemptCount: row.attemptCount, // §16：让出不消耗 attempt
+          // §16：让出不消耗 attempt。注意 `row` 是 **CAS 认领后**的行
+          // （attemptCount 已 +1），所以必须显式减回去；直接写 row.attemptCount
+          // 是个空写，等于每让出一次就烧掉一次重试额度——真实 t3（maxAttempts=2）
+          // 让出两次后就再也认领不到，可续跑直接失效。
+          // 单步路径（上方）的 `step` 是认领**前**的行，所以那里写 step.attemptCount
+          // 才是正确回滚，两处语义相同、取值来源不同。
+          attemptCount: Math.max(0, row.attemptCount - 1),
           errorCode: null,
           errorMessage: null,
           completedAt: null,
