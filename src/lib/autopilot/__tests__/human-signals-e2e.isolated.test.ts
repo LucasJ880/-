@@ -107,23 +107,52 @@ async function main() {
     observeHumanEdit,
     observeHumanOverride,
     observeReAsk,
+    forceNextHumanSignalAppendFailureForTests,
   } = await import("@/lib/autopilot/observe-human");
+  const { reconcileHumanSignals } = await import(
+    "@/lib/autopilot/reconcile-human"
+  );
   const { reconcileAssistantRunFromPendingActions } = await import(
     "@/lib/assistant/reconcile-run"
+  );
+  const { createHumanFeedbackEvent } = await import(
+    "@/lib/employee-ai/feedback-service"
   );
 
   console.log("autopilot A1-P2 isolated Postgres E2E");
 
   const tag = `a1p2_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const orgId = `org_${tag}`;
-  const session = await db.agentSession.create({
-    data: { orgId, channel: "e2e", status: "active" },
-  });
   const actor = await db.user.create({
     data: {
       email: `a1p2_${tag}@example.test`,
       name: "A1P2 Actor",
     },
+  });
+  const org = await db.organization.create({
+    data: {
+      name: `A1P2 Org ${tag}`,
+      code: `a1p2_${tag}`,
+      ownerId: actor.id,
+      status: "active",
+    },
+  });
+  const orgId = org.id;
+  await db.organizationMember.create({
+    data: {
+      orgId,
+      userId: actor.id,
+      role: "org_member",
+      status: "active",
+    },
+  });
+  const foreignActor = await db.user.create({
+    data: {
+      email: `a1p2_foreign_${tag}@example.test`,
+      name: "A1P2 Foreign",
+    },
+  });
+  const session = await db.agentSession.create({
+    data: { orgId, channel: "e2e", status: "active" },
   });
 
   async function seedRun(status = "running") {
@@ -578,6 +607,255 @@ async function main() {
     },
   });
   ok(reaskD === 0, "D: ordinary follow-up → RE_ASK_SIGNAL = 0");
+
+  // ── B1 — business fact committed, observe fails, reconciler recovers ──
+  const runFact = await seedRun();
+  await emit(runFact.id, "run.started", { userMessageId: "msg_fact" });
+  await emit(runFact.id, "agent.output", { hash: "hFact" });
+  await completeAgentRun(orgId, runFact.id);
+  forceNextHumanSignalAppendFailureForTests();
+  const feedback = await createHumanFeedbackEvent({
+    orgId,
+    userId: actor.id,
+    taskType: "email_draft",
+    humanDecision: "edited",
+    aiOutputRef: { messageId: "msg_output_ref" },
+    aiOutputSnapshot: "Dear customer, here is the quote.",
+    humanEditedOutput: "Dear customer, here is the revised quote.",
+    agentRunId: runFact.id,
+  });
+  const factEditsBefore = await db.agentRunEvent.count({
+    where: { runId: runFact.id, eventType: "human.edit" },
+  });
+  ok(Boolean(feedback.id), "B1: HumanFeedbackEvent committed despite observe fail");
+  ok(factEditsBefore === 0, "B1: initial HUMAN_EDIT append failed, no signal yet");
+  await reconcileHumanSignals({ orgId, runId: runFact.id });
+  const factEdits = await db.agentRunEvent.findMany({
+    where: { runId: runFact.id, eventType: "human.edit" },
+  });
+  ok(factEdits.length === 1, "B1: reconciler writes exactly one HUMAN_EDIT");
+  const factPayload = (factEdits[0]?.payload ?? {}) as Record<string, unknown>;
+  ok(
+    factPayload.sourceOutputRef === "msg_output_ref" &&
+      factPayload.sourceOutputRef !== runFact.id,
+    "B3: sourceOutputRef is messageId, not agentRunId",
+  );
+  const factOutbox = await db.autopilotTelemetryOutbox.count({
+    where: { agentRunId: runFact.id, noticeType: "event", sourceEventType: "human.edit" },
+  });
+  ok(factOutbox === 1, "B1: outbox exists after reconcile");
+  await drain(runFact.id);
+  const factProjected = await db.autopilotRunEvent.count({
+    where: { orgId, eventType: "HUMAN_EDIT", run: { agentRunId: runFact.id } },
+  });
+  ok(factProjected === 1, "B1: projection appears after drain");
+
+  const runReaskFact = await seedRun();
+  await emit(runReaskFact.id, "agent.output", { hash: "hRF" });
+  await completeAgentRun(orgId, runReaskFact.id);
+  const runReaskNew = await seedRun();
+  await db.agentRun.update({
+    where: { id: runReaskNew.id },
+    data: { metadata: { retriedFromRunId: runReaskFact.id } },
+  });
+  const retryKey = `assistant-run-retry:${runReaskFact.id}:1`;
+  await db.approvalDecisionIdempotency.create({
+    data: {
+      orgId,
+      idempotencyKey: retryKey,
+      approvalKey: `assistant-run-retry:${runReaskFact.id}`,
+      action: "retry",
+      userId: actor.id,
+      resultJson: {
+        status: "COMPLETED",
+        retryAttempt: 1,
+        oldRunId: runReaskFact.id,
+        newRunId: runReaskNew.id,
+        userMessageId: "msg_retry_src",
+      },
+    },
+  });
+  forceNextHumanSignalAppendFailureForTests();
+  const failedReask = await observeReAsk({
+    orgId,
+    originalRunId: runReaskFact.id,
+    newRunId: runReaskNew.id,
+    actorUserId: actor.id,
+    retryActionId: retryKey,
+    originalMessageId: "msg_retry_src",
+  });
+  ok(failedReask.status === "failed", "B1: initial RE_ASK append failed", failedReask);
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: runReaskFact.id, eventType: "human.reask" },
+    })) === 0,
+    "B1: no human.reask before reconcile",
+  );
+  await reconcileHumanSignals({ orgId, runId: runReaskFact.id });
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: runReaskFact.id, eventType: "human.reask" },
+    })) === 1,
+    "B1: reconciler recovers exactly one RE_ASK",
+  );
+
+  const runPaFact = await seedRun("awaiting_approval");
+  const paFact = await db.pendingAction.create({
+    data: {
+      type: "email.send",
+      title: "Send quote",
+      preview: "AI proposed send",
+      payload: { to: "customer@example.test" },
+      status: "rejected",
+      createdById: actor.id,
+      orgId,
+      agentRunId: runPaFact.id,
+      expiresAt: new Date(Date.now() + 86_400_000),
+      decidedAt: new Date(),
+      decidedById: actor.id,
+    },
+  });
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: runPaFact.id, eventType: "approval.rejected" },
+    })) === 0,
+    "B1: PA rejected is durable without signal yet",
+  );
+  await reconcileHumanSignals({ orgId, runId: runPaFact.id });
+  ok(
+    (await db.agentRunEvent.count({
+      where: { runId: runPaFact.id, eventType: "approval.rejected" },
+    })) === 1,
+    "B1: PA reconciler recovers HUMAN_OVERRIDE source",
+  );
+  const paStill = await db.pendingAction.findUnique({ where: { id: paFact.id } });
+  ok(paStill?.status === "rejected", "B1: PA business status unchanged");
+
+  // ── B2 — org / lineage validation ──
+  const foreignActorEdit = await observeHumanEdit({
+    orgId,
+    sourceAgentRunId: runA.id,
+    actorUserId: foreignActor.id,
+    artifactType: "email_draft",
+    artifactId: "draft_foreign_actor",
+    committedVersion: "v1",
+    commitAction: "save",
+    before: "a",
+    after: "b",
+  });
+  ok(
+    foreignActorEdit.status === "rejected" &&
+      foreignActorEdit.reason === "FOREIGN_ACTOR",
+    "B2: foreign actor → REJECT",
+    foreignActorEdit,
+  );
+
+  const foreignSourceRun = await db.agentRun.create({
+    data: {
+      orgId: `${orgId}_other`,
+      sessionId: session.id,
+      runType: "conversation",
+      status: "completed",
+      startedAt: new Date(),
+    },
+  });
+  const foreignSource = await observeHumanEdit({
+    orgId,
+    sourceAgentRunId: foreignSourceRun.id,
+    actorUserId: actor.id,
+    artifactType: "email_draft",
+    artifactId: "draft_foreign_run",
+    committedVersion: "v1",
+    commitAction: "save",
+    before: "a",
+    after: "b",
+  });
+  ok(
+    foreignSource.status === "rejected" &&
+      foreignSource.reason === "FOREIGN_SOURCE_RUN",
+    "B2: foreign source run → REJECT",
+    foreignSource,
+  );
+
+  const foreignNew = await db.agentRun.create({
+    data: {
+      orgId: `${orgId}_other`,
+      sessionId: session.id,
+      runType: "conversation",
+      status: "completed",
+      startedAt: new Date(),
+      metadata: { retriedFromRunId: runC.id },
+    },
+  });
+  const foreignNewReask = await observeReAsk({
+    orgId,
+    originalRunId: runC.id,
+    newRunId: foreignNew.id,
+    actorUserId: actor.id,
+    retryActionId: `assistant-run-retry:${runC.id}:foreign`,
+  });
+  ok(
+    foreignNewReask.status === "rejected" &&
+      foreignNewReask.reason === "FOREIGN_NEW_RUN",
+    "B2: foreign new retry run → REJECT",
+    foreignNewReask,
+  );
+
+  const wrongMeta = await seedRun();
+  await db.agentRun.update({
+    where: { id: wrongMeta.id },
+    data: { metadata: { retriedFromRunId: "not_the_original" } },
+  });
+  const wrongRetry = await observeReAsk({
+    orgId,
+    originalRunId: runC.id,
+    newRunId: wrongMeta.id,
+    actorUserId: actor.id,
+    retryActionId: `assistant-run-retry:${runC.id}:wrong`,
+  });
+  ok(
+    wrongRetry.status === "rejected" &&
+      wrongRetry.reason === "INVALID_RETRIED_FROM_RUN",
+    "B2: wrong retriedFromRunId → REJECT",
+    wrongRetry,
+  );
+
+  const foreignPa = await db.pendingAction.create({
+    data: {
+      type: "email.send",
+      title: "Foreign PA",
+      preview: "other org",
+      payload: {},
+      status: "rejected",
+      createdById: actor.id,
+      orgId: `${orgId}_other`,
+      agentRunId: runB.id,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    },
+  });
+  const foreignPaObs = await observeHumanOverride({
+    orgId,
+    sourceAgentRunId: runB.id,
+    actorUserId: actor.id,
+    overrideType: "REJECTED",
+    decisionRef: foreignPa.id,
+    pendingActionId: foreignPa.id,
+  });
+  ok(
+    foreignPaObs.status === "rejected" &&
+      foreignPaObs.reason === "FOREIGN_PENDING_ACTION",
+    "B2: foreign PendingAction → REJECT",
+    foreignPaObs,
+  );
+
+  const validSameOrg = await observeHumanOverride({
+    orgId,
+    sourceAgentRunId: runReplace.id,
+    actorUserId: actor.id,
+    overrideType: "CANCELLED_AI_ACTION",
+    decisionRef: "cancel_same_org",
+  });
+  ok(validSameOrg.status === "written", "B2: valid same-org path → PASS", validSameOrg);
 
   // ── Capture OFF ──
   process.env.AUTOPILOT_TELEMETRY_CAPTURE_ENABLED = "0";

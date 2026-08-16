@@ -18,6 +18,7 @@ import {
   buildHumanSignalPayload,
   changeMagnitude,
   classifyFollowUp,
+  extractSourceOutputRef,
   humanEditSignalKey,
   humanOverrideSignalKey,
   humanSignalProjectionGap,
@@ -116,6 +117,31 @@ ok(
   changeMagnitude(AI_DRAFT.length, EDITED.length) ===
     Math.abs(EDITED.length - AI_DRAFT.length),
   "changeMagnitude is a deterministic number",
+);
+
+ok(
+  extractSourceOutputRef({ messageId: "msg_1" }, "run_1") === "msg_1",
+  "B3 extract messageId as sourceOutputRef",
+);
+ok(
+  extractSourceOutputRef({ outputRef: "out_9" }, "run_1") === "out_9",
+  "B3 extract outputRef",
+);
+ok(
+  extractSourceOutputRef({ sourceOutputRef: "run_1" }, "run_1") === null,
+  "B3 sourceOutputRef must never equal agentRunId",
+);
+ok(
+  extractSourceOutputRef("run_1", "run_1") === null,
+  "B3 string agentRunId is not an OutputRef",
+);
+ok(
+  extractSourceOutputRef({ id: "run_1", type: "agentRun" }, "run_1") === null,
+  "B3 do not invent lineage from agentRun id",
+);
+ok(
+  extractSourceOutputRef({}, "run_1") === null,
+  "B3 missing canonical ref → null, not agentRunId",
 );
 
 const dirtyPayload = buildHumanSignalPayload({
@@ -310,7 +336,7 @@ ok(
 ok(
   LEGACY_HUMAN_SIGNAL_GAPS.some((g) => g.id === "sales_legacy_ai_draft_lineage") &&
     LEGACY_HUMAN_SIGNAL_GAPS.some((g) => g.id === "tender_auto_analysis_lineage") &&
-    LEGACY_HUMAN_SIGNAL_GAPS.some((g) => g.id === "employee_ai_feedback_observe_best_effort"),
+    LEGACY_HUMAN_SIGNAL_GAPS.some((g) => g.id === "employee_ai_feedback_reconciled_from_fact"),
   "legacy gaps remain visible",
 );
 
@@ -351,6 +377,22 @@ const feedbackSrc = readFileSync(
   "utf8",
 );
 ok(feedbackSrc.includes("observeHumanEditSafe"), "employee-ai edited observes HUMAN_EDIT");
+ok(
+  feedbackSrc.includes("extractSourceOutputRef") &&
+    !feedbackSrc.includes("sourceOutputRef: event.agentRunId"),
+  "B3 sourceOutputRef never falls back to agentRunId",
+);
+
+const humanReconcileSrc = readFileSync(
+  join(ROOT, "src/lib/autopilot/reconcile-human.ts"),
+  "utf8",
+);
+ok(
+  humanReconcileSrc.includes("humanFeedbackEvent.findMany") &&
+    humanReconcileSrc.includes("approvalDecisionIdempotency.findMany") &&
+    humanReconcileSrc.includes("pendingAction.findMany"),
+  "B1 reconciler reads HumanFeedbackEvent / retry slot / PendingAction",
+);
 ok(
   feedbackSrc.includes("!event.pendingActionId"),
   "employee-ai reject skips override when PA will emit it",

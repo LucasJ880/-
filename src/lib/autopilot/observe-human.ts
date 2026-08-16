@@ -8,6 +8,7 @@
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { getOrgMembership } from "@/lib/auth";
 import { logger } from "@/lib/common/logger";
 import {
   appendAgentRunEventInTx,
@@ -38,6 +39,68 @@ function asMeta(value: unknown): Record<string, unknown> {
   return { ...(value as Record<string, unknown>) };
 }
 
+let testForceNextAppendFail = false;
+
+/** Isolated E2E only: next appendHumanSignalOnce returns failed without writing. */
+export function forceNextHumanSignalAppendFailureForTests(): void {
+  if (process.env.NODE_ENV !== "test") return;
+  testForceNextAppendFail = true;
+}
+
+export async function validateHumanSignalLineage(input: {
+  orgId: string;
+  actorUserId: string;
+  sourceAgentRunId: string;
+  newAgentRunId?: string | null;
+  pendingActionId?: string | null;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const membership = await getOrgMembership(input.actorUserId, input.orgId);
+  if (!membership || membership.status !== "active") {
+    return { ok: false, reason: "FOREIGN_ACTOR" };
+  }
+
+  const sourceRun = await db.agentRun.findFirst({
+    where: { id: input.sourceAgentRunId, orgId: input.orgId },
+    select: { id: true, orgId: true },
+  });
+  if (!sourceRun) {
+    return { ok: false, reason: "FOREIGN_SOURCE_RUN" };
+  }
+
+  if (input.newAgentRunId?.trim()) {
+    const newRun = await db.agentRun.findFirst({
+      where: { id: input.newAgentRunId },
+      select: { id: true, orgId: true, metadata: true },
+    });
+    if (!newRun || newRun.orgId !== input.orgId) {
+      return { ok: false, reason: "FOREIGN_NEW_RUN" };
+    }
+    const retriedFrom = asMeta(newRun.metadata).retriedFromRunId;
+    if (
+      typeof retriedFrom === "string" &&
+      retriedFrom.trim() &&
+      retriedFrom !== input.sourceAgentRunId
+    ) {
+      return { ok: false, reason: "INVALID_RETRIED_FROM_RUN" };
+    }
+  }
+
+  if (input.pendingActionId?.trim()) {
+    const pa = await db.pendingAction.findFirst({
+      where: { id: input.pendingActionId },
+      select: { id: true, orgId: true, agentRunId: true },
+    });
+    if (!pa || pa.orgId !== input.orgId) {
+      return { ok: false, reason: "FOREIGN_PENDING_ACTION" };
+    }
+    if (pa.agentRunId !== input.sourceAgentRunId) {
+      return { ok: false, reason: "PENDING_ACTION_RUN_MISMATCH" };
+    }
+  }
+
+  return { ok: true };
+}
+
 async function appendHumanSignalOnce(input: {
   orgId: string;
   runId: string;
@@ -47,6 +110,10 @@ async function appendHumanSignalOnce(input: {
   payload: Record<string, unknown>;
 }): Promise<ObserveResult> {
   try {
+    if (testForceNextAppendFail && process.env.NODE_ENV === "test") {
+      testForceNextAppendFail = false;
+      return { status: "failed", reason: "TEST_FORCED_FAILURE" };
+    }
     const run = await db.agentRun.findFirst({
       where: { id: input.runId, orgId: input.orgId },
       select: { id: true, orgId: true, metadata: true, status: true },
@@ -132,8 +199,19 @@ export async function observeHumanEdit(input: {
   sourceOutputRef?: string | null;
   artifactOrgId?: string | null;
 }): Promise<ObserveResult> {
+  if (!input.sourceAgentRunId?.trim()) {
+    return { status: "skipped", reason: "UNLINKED_AI_LINEAGE" };
+  }
   if (input.artifactOrgId && input.artifactOrgId !== input.orgId) {
     return { status: "rejected", reason: "CROSS_ORG_ARTIFACT" };
+  }
+  const lineage = await validateHumanSignalLineage({
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    sourceAgentRunId: input.sourceAgentRunId,
+  });
+  if (!lineage.ok) {
+    return { status: "rejected", reason: lineage.reason };
   }
   const before = snapshotStats(input.before);
   const after = snapshotStats(input.after);
@@ -188,6 +266,15 @@ export async function observeHumanOverride(input: {
   if (!input.sourceAgentRunId.trim()) {
     return { status: "skipped", reason: "UNLINKED_AI_LINEAGE" };
   }
+  const lineage = await validateHumanSignalLineage({
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    sourceAgentRunId: input.sourceAgentRunId,
+    pendingActionId: input.pendingActionId ?? null,
+  });
+  if (!lineage.ok) {
+    return { status: "rejected", reason: lineage.reason };
+  }
   const signalKey = humanOverrideSignalKey({
     sourceRunId: input.sourceAgentRunId,
     decisionRef: input.decisionRef,
@@ -222,6 +309,15 @@ export async function observeReAsk(input: {
 }): Promise<ObserveResult> {
   if (!input.originalRunId.trim() || !input.newRunId.trim()) {
     return { status: "skipped", reason: "MISSING_RUN_CORRELATION" };
+  }
+  const lineage = await validateHumanSignalLineage({
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    sourceAgentRunId: input.originalRunId,
+    newAgentRunId: input.newRunId,
+  });
+  if (!lineage.ok) {
+    return { status: "rejected", reason: lineage.reason };
   }
   const signalKey = reAskSignalKey({
     sourceRunId: input.originalRunId,

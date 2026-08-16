@@ -10,6 +10,7 @@ import {
   type ReasonCode,
 } from "./types";
 import { EmployeeAiAccessError } from "./access";
+import { extractSourceOutputRef } from "@/lib/autopilot/human-signals";
 
 export interface CreateFeedbackInput {
   orgId: string;
@@ -128,9 +129,12 @@ export async function createHumanFeedbackEvent(input: CreateFeedbackInput) {
         artifactId: event.id,
         committedVersion: "1",
         commitAction: "save",
-        before: input.aiOutputSnapshot ?? input.aiOutputRef,
-        after: input.humanEditedOutput ?? input.aiOutputSnapshot,
-        sourceOutputRef: event.agentRunId,
+        before: snapshot ?? input.aiOutputRef,
+        after: input.humanEditedOutput ?? snapshot,
+        sourceOutputRef: extractSourceOutputRef(
+          input.aiOutputRef,
+          event.agentRunId,
+        ),
         artifactOrgId: input.orgId,
       });
     } else if (event.humanDecision === "rejected" && !event.pendingActionId) {

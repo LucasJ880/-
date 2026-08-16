@@ -45,9 +45,9 @@ export const LEGACY_HUMAN_SIGNAL_GAPS = [
     summary: "普通 follow-up 消息不是 RE_ASK；仅 explicit retry/regenerate",
   },
   {
-    id: "employee_ai_feedback_observe_best_effort",
+    id: "employee_ai_feedback_reconciled_from_fact",
     summary:
-      "HumanFeedbackEvent 是业务事实；observe 在提交后写入 AgentRunEvent。observe 失败不回滚反馈，A1-P2 无自动 replay",
+      "HumanFeedbackEvent 是业务事实；observe 失败不回滚。Human Signal reconciler 从该事实派生并可恢复",
   },
   {
     id: "product_content_visual_regenerate",
@@ -79,8 +79,8 @@ export const DOMAIN_HUMAN_SIGNAL_COVERAGE = [
   },
   {
     domain: "EmployeeAI",
-    humanEdit: "edited + agentRunId (best-effort observe)",
-    humanOverride: "rejected without PA (best-effort observe)",
+    humanEdit: "edited + agentRunId (reconcile from HumanFeedbackEvent)",
+    humanOverride: "rejected without PA (reconcile from HumanFeedbackEvent)",
     reAsk: "N/A",
     aiLineage: "when agentRunId present",
     sourceOfTruth: "HumanFeedbackEvent",
@@ -175,6 +175,41 @@ export function snapshotStats(value: unknown): {
   const text =
     typeof value === "string" ? value : JSON.stringify(value ?? "");
   return { hash: hashAutopilotContent(text), chars: text.length };
+}
+
+const SAFE_OUTPUT_REF_KEYS = [
+  "outputRef",
+  "sourceOutputRef",
+  "messageId",
+  "artifactRef",
+] as const;
+
+/**
+ * Extract a canonical output reference from aiOutputRef.
+ * Never invent. Never fall back to agentRunId.
+ */
+export function extractSourceOutputRef(
+  aiOutputRef: unknown,
+  agentRunId?: string | null,
+): string | null {
+  const runId = agentRunId?.trim() || "";
+  const take = (value: unknown): string | null => {
+    if (typeof value !== "string") return null;
+    const v = value.trim();
+    if (!v) return null;
+    if (runId && v === runId) return null;
+    return v;
+  };
+  if (typeof aiOutputRef === "string") return take(aiOutputRef);
+  if (!aiOutputRef || typeof aiOutputRef !== "object" || Array.isArray(aiOutputRef)) {
+    return null;
+  }
+  const rec = aiOutputRef as Record<string, unknown>;
+  for (const key of SAFE_OUTPUT_REF_KEYS) {
+    const extracted = take(rec[key]);
+    if (extracted) return extracted;
+  }
+  return null;
 }
 
 export function shouldEmitHumanEdit(input: {
