@@ -59,6 +59,7 @@ const ROLE_LEVEL: Record<ProjectRole, number> = {
   project_admin: 40,
   operator: 30,
   tester: 20,
+  accounting: 15,
   viewer: 10,
 };
 

@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
+import { FinancialControlCard } from "@/components/project-detail/financial-control-card";
 import { ProgressComparison } from "@/components/progress/progress-comparison";
 import { StageIndicator } from "@/components/progress/stage-indicator";
 import { ProjectProgressSection } from "@/components/tender/project-progress-section";
@@ -134,6 +135,9 @@ export function WorkbenchTab({
       {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
 
       <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
+
+      {/* T2-P1.5 财务控制卡（feature dark 时自渲染为空） */}
+      <FinancialControlCard projectId={projectId} currentUserId={currentUserId ?? undefined} />
 
       {/* 阶段与决定 */}
       {project.intelligenceAvailable === false ? (

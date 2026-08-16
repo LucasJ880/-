@@ -48,6 +48,9 @@ const ORG_ROLE_LEVEL: Record<OrgRole, number> = {
 export const PROJECT_ROLES = [
   "project_admin",
   "operator",
+  // T2-P1.5：财务审核角色。刻意置于低 level（review 能力经细粒度 project:cost:review 授予，
+  // 不经 hasProjectRole 单调阶梯，避免误授无关管理权）。
+  "accounting",
   "tester",
   "viewer",
 ] as const;
@@ -57,6 +60,7 @@ const PROJECT_ROLE_LEVEL: Record<ProjectRole, number> = {
   project_admin: 40,
   operator: 30,
   tester: 20,
+  accounting: 15,
   viewer: 10,
 };
 
