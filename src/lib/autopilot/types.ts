@@ -147,6 +147,8 @@ export type AutopilotTraceEventType =
   | "RETRIEVAL_FAILED"
   | "TOOL_CALL_STARTED"
   | "TOOL_CALL_COMPLETED"
+  /** T5-P1.1：工具正常让出（预算用尽、已 checkpoint）——既非完成也非失败 */
+  | "TOOL_CALL_YIELDED"
   | "TOOL_CALL_FAILED"
   | "MODEL_STARTED"
   | "MODEL_COMPLETED"
@@ -173,6 +175,7 @@ export const AUTOPILOT_TRACE_EVENT_TYPES: readonly AutopilotTraceEventType[] = [
   "RETRIEVAL_FAILED",
   "TOOL_CALL_STARTED",
   "TOOL_CALL_COMPLETED",
+  "TOOL_CALL_YIELDED",
   "TOOL_CALL_FAILED",
   "MODEL_STARTED",
   "MODEL_COMPLETED",

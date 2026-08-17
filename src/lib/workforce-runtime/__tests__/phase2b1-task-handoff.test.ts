@@ -67,9 +67,11 @@ async function main() {
   const { WORKFORCE_JOB_RUN_TYPE, WORKFORCE_ACTIVE_STATUSES } = await import(
     "../constants"
   );
-  const { applyWorkforceTaskSpecs, readWorkforceTaskSpec } = await import(
-    "../task-contract"
-  );
+  const {
+    applyWorkforceTaskSpecs,
+    readWorkforceTaskSpec,
+    WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
+  } = await import("../task-contract");
   const {
     parseWorkforceHandoff,
     extractHandoffFromStepOutput,
@@ -167,18 +169,22 @@ async function main() {
   const specReads = goldenSteps.map((s) => readWorkforceTaskSpec(s.inputJson));
   ok(
     specReads.every((r) => r.kind === "valid"),
-    "41: 每个 Task 持久化 workforceTask spec（contractVersion=workforce-task/v1）",
+    "41: 每个 Task 持久化可读的 workforceTask spec",
   );
+  // T5-P0B 起 writer 一律写 v1.1；reader 仍兼容库中既有 v1
+  //（版本兼容矩阵由 phase2b1-contracts.test.ts 在纯函数层覆盖，此处不重复）。
+  // 断言 WRITE 常量而非字面量：版本 bump 时此处自动跟随，
+  // 不会像 T5-P0B 那样在集成层留下一条过期的字面量断言。
   ok(
     specReads.every(
       (r) =>
         r.kind === "valid" &&
-        r.spec.contractVersion === "workforce-task/v1" &&
+        r.spec.contractVersion === WORKFORCE_TASK_CONTRACT_WRITE_VERSION &&
         r.spec.worker.workerKey === "sales_worker" &&
         r.spec.worker.role === "sales_specialist" &&
         r.spec.taskKind === "work",
     ),
-    "41: worker assignment + taskKind persisted（server 默认指派）",
+    "41: worker assignment + taskKind persisted（server 默认指派，写当前 write 版本）",
   );
   const s5row = goldenSteps.find((s) => s.stepKey === "s5_prioritize");
   // P0 #89：模板补全真实依赖声明（s5 实际消费商机列表 + 两类分析证据）
