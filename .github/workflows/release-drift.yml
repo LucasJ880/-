@@ -1,0 +1,47 @@
+name: release-drift
+
+# 生产项目**不随 main 自动部署**（2026-08-16 实况：#104/#109/#110 合并后数日未上线）。
+# 这个定时检查回答一个问题：qingyan.ca 上跑的 commit 是不是 main 的最新提交？
+#
+# 数据库侧的漂移（代码需要的 migration 生产库有没有）由应用内 cron
+# /api/cron/release-drift 负责，两者互补。
+on:
+  schedule:
+    - cron: "20 9 * * *" # 每日 09:20 UTC，紧跟应用内迁移漂移检查
+  workflow_dispatch: {}
+
+jobs:
+  deployed-commit-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 读取生产部署的 commit
+        id: deployed
+        run: |
+          RESP=$(curl -fsS --max-time 20 https://qingyan.ca/api/health || echo '{}')
+          echo "response=$RESP"
+          DEPLOYED=$(echo "$RESP" | python3 -c "import json,sys; print((json.load(sys.stdin).get('checks') or {}).get('deployedCommit') or '')" 2>/dev/null || echo "")
+          echo "deployed=$DEPLOYED" >> "$GITHUB_OUTPUT"
+
+      - name: 比对 main HEAD
+        run: |
+          MAIN_SHORT=$(git rev-parse --short=7 HEAD)
+          DEPLOYED="${{ steps.deployed.outputs.deployed }}"
+          echo "main=$MAIN_SHORT deployed=${DEPLOYED:-unknown}"
+
+          if [ -z "$DEPLOYED" ]; then
+            # CLI 部署可能没有 git 元数据 → 不误报失败，只提示
+            echo "::warning::生产健康检查未返回 deployedCommit（可能是 CLI 部署无 git 元数据），本次无法比对"
+            exit 0
+          fi
+
+          if [ "$DEPLOYED" = "$MAIN_SHORT" ]; then
+            echo "生产与 main 一致（$MAIN_SHORT）"
+            exit 0
+          fi
+
+          echo "::error::生产部署落后于 main：线上=$DEPLOYED，main=$MAIN_SHORT。合并后需要手动 vercel --prod 部署（本仓库生产项目未开启自动部署）。"
+          exit 1

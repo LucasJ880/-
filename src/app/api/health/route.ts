@@ -62,6 +62,9 @@ export async function GET() {
         isolation: "ok",
         runtimeEnv: isolation.runtimeEnv,
         dbPlane: isolation.dbPlane,
+        // 短 SHA：供发布漂移检查比对「线上跑的是哪个 commit」；
+        // CLI 部署可能没有 git 元数据 → null（检查方按 unknown 处理，不误报）
+        deployedCommit: (process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || null,
         ...(isolation.dbFingerprint
           ? { dbFingerprint: isolation.dbFingerprint }
           : {}),

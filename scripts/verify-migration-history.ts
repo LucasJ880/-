@@ -6,34 +6,14 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+// 单一事实源：运行期漂移检查（src/lib/release/drift.ts）与本构建期治理共用同一份列表
+import { EXPECTED_ACTIVE_MIGRATIONS } from "@/lib/release/expected-migrations";
+
 const root = process.cwd();
 const activeDir = join(root, "prisma/migrations");
 const legacyDir = join(root, "prisma/migrations_legacy_pre_greenfield_baseline");
 
-const EXPECTED_ACTIVE = [
-  "00000000000000_greenfield_baseline_pre_phase4",
-  "20260728120000_project_work_domain",
-  "20260728180000_project_handoff",
-  "20260729120000_matrix_account_playbook",
-  "20260729180000_phase_c_publish_job_pipeline",
-  "20260803200000_bid_workflow_phase1",
-  "20260804130000_sunny_motor_price",
-  "20260804190000_sales_action_loop",
-  "20260804200000_sales_action_auto_sync",
-  "20260804210000_sales_effectiveness_promotion_approval",
-  "20260805090000_marketing_economics",
-  "20260805180000_tender_auto_analysis_phase1_1",
-  "20260811002000_add_tender_t2_ledger_archive_foundation",
-  "20260811040000_add_tender_t3_corporate_memory_foundation",
-  // 字典序：P1.5(0811050000) < T4(0814150000) < A0(0814220000) < A1P0(0815010000)
-  "20260811050000_add_project_financial_control",
-  // 字典序：P1.5(0811050000) < P1.6(0814090000) < T4(0814150000) < A0(0814220000) < A1P0(0815010000)
-  "20260814090000_add_tender_profitability_settlement",
-  "20260814150000_add_tender_t4_award_record_foundation",
-  "20260814220000_add_autopilot_a0_foundation",
-  "20260815010000_add_autopilot_a1_p0_telemetry_outbox",
-  "20260816060000_add_document_page_unit_metadata",
-] as const;
+const EXPECTED_ACTIVE = EXPECTED_ACTIVE_MIGRATIONS;
 
 /** Active migration 不可变 checksum（sha256 of migration.sql） */
 const IMMUTABLE: Record<string, string> = {
