@@ -11,7 +11,7 @@
     "wechat:worker": "tsx scripts/wechat-worker.ts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
-    "build": "prisma generate && npx tsx scripts/check-preview-db-isolation.ts && next build",
+    "build": "prisma generate && npx tsx scripts/check-preview-db-isolation.ts && npx tsx scripts/predeploy-migration-gate.ts && next build",
     "check:preview-db-isolation": "npx tsx scripts/check-preview-db-isolation.ts",
     "start": "next start",
     "lint": "eslint",
