@@ -19,6 +19,7 @@
  */
 
 import { db } from "@/lib/db";
+import { buildWorkforceTenderIdempotencyKey } from "@/lib/tender-workforce/analysis-run-service";
 
 const projectId = process.argv[2];
 const base = process.argv.find((a) => a.startsWith("--base="))?.slice(7);
@@ -91,7 +92,14 @@ async function main() {
     let body = "";
     try {
       const res = await fetch(`${base}/api/cron/agent-runs`, {
-        headers: { Authorization: `Bearer ${secret}` },
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          // Preview 默认开着 SSO 保护；Protection Bypass for Automation 只对带此
+          // header 的请求生效，不改变 SSO 对人的保护。跑完即 revoke。
+          ...(process.env.VERCEL_PROTECTION_BYPASS
+            ? { "x-vercel-protection-bypass": process.env.VERCEL_PROTECTION_BYPASS }
+            : {}),
+        },
       });
       httpStatus = res.status;
       body = (await res.text()).slice(0, 400);
@@ -107,9 +115,10 @@ async function main() {
       where: { runId: jobId, stepKey: { contains: "analyze_package_v2" } },
       select: { status: true, attemptCount: true },
     });
-    const domainRun = await db.tenderAnalysisRun.findFirst({
-      where: { orgId, projectId, analysisVersion: "tender-workforce-analysis-v1" },
-      orderBy: { createdAt: "desc" },
+    // 必须按 **本 Job** 定位域 run：findFirst(orderBy desc) 在新 run 建出来之前
+    // 会读到上一轮 Job 的游标，导致 ticks 序列出现 [3,3,3,1,2,2] 这种假回退。
+    const domainRun = await db.tenderAnalysisRun.findUnique({
+      where: { idempotencyKey: buildWorkforceTenderIdempotencyKey(jobId) },
       select: { workerCursor: true },
     });
     const cur = domainRun?.workerCursor as { phase?: string; ticks?: number } | null;
@@ -191,9 +200,8 @@ async function main() {
     steps.map((s) => `${s.stepKey}:${s.status}${s.errorCode ? `(${s.errorCode})` : ""}`),
   );
 
-  const domainRun = await db.tenderAnalysisRun.findFirstOrThrow({
-    where: { orgId, projectId, analysisVersion: "tender-workforce-analysis-v1" },
-    orderBy: { createdAt: "desc" },
+  const domainRun = await db.tenderAnalysisRun.findUniqueOrThrow({
+    where: { idempotencyKey: buildWorkforceTenderIdempotencyKey(jobId) },
     select: { id: true, status: true, model: true, workerCursor: true, summaryJson: true },
   });
   const counts = await db.$transaction([
