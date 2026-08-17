@@ -803,6 +803,8 @@ async function loadPerRunObserveFacts(input: {
         toolOrphans: snap.toolOrphans,
         modelOrphans: snap.modelOrphans,
         retrievalOrphans: snap.retrievalOrphans,
+        unknownEventTypeCount: snap.unknownEventTypeCount,
+        unlinkedHumanSignalCount: snap.unlinkedHumanSignalCount,
       }),
     });
   }

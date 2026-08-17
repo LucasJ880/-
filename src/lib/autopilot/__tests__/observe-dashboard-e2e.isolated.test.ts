@@ -170,6 +170,28 @@ async function main() {
     return overlay;
   }
 
+  async function seedOverlayEvents(
+    agentRunId: string,
+    eventOrgId: string,
+    eventTypes: string[],
+  ) {
+    const overlay = await db.autopilotRun.create({
+      data: { agentRunId, orgId: eventOrgId },
+    });
+    if (eventTypes.length > 0) {
+      await db.autopilotRunEvent.createMany({
+        data: eventTypes.map((eventType, i) => ({
+          runId: overlay.id,
+          orgId: eventOrgId,
+          eventType,
+          sequence: i + 1,
+          timestamp: new Date(),
+        })),
+      });
+    }
+    return overlay;
+  }
+
   async function seedOutboxEvents(
     agentRunId: string,
     eventOrgId: string,
@@ -600,6 +622,32 @@ async function main() {
     startedAt: new Date(nowHealth - 5_000),
   });
 
+  const runUnknownEvent = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 6_000),
+  });
+  await addEvent(
+    runUnknownEvent.id,
+    1,
+    "lifecycle.custom.unknown",
+    {},
+    healthOrg.id,
+  );
+  await seedOutboxEvents(runUnknownEvent.id, healthOrg.id, 1);
+  await seedOverlayEvents(runUnknownEvent.id, healthOrg.id, ["UNKNOWN_EVENT"]);
+
+  const runUnlinked = await seedRun({
+    status: "completed",
+    org: healthOrg.id,
+    sessionId: healthSession.id,
+    startedAt: new Date(nowHealth - 7_000),
+  });
+  await addEvent(runUnlinked.id, 1, "human.edit", {}, healthOrg.id);
+  await seedOutboxEvents(runUnlinked.id, healthOrg.id, 1);
+  await seedOverlayEvents(runUnlinked.id, healthOrg.id, ["HUMAN_EDIT"]);
+
   const healthList = await listAutopilotRuns(owner, healthOrg.id, {
     limit: 25,
     range: "30d",
@@ -612,7 +660,7 @@ async function main() {
   );
   ok(
     healthById.get(runHealthy.id)?.health === "HEALTHY",
-    "PER_RUN_HEALTHY overlay is not sufficient without integrity",
+    "PER_RUN_HEALTHY",
     healthById.get(runHealthy.id),
   );
   ok(
@@ -630,6 +678,17 @@ async function main() {
     },
   );
 
+  ok(
+    healthById.get(runUnknownEvent.id)?.health === "UNKNOWN",
+    "PER_RUN_UNKNOWN_EVENT",
+    healthById.get(runUnknownEvent.id),
+  );
+  ok(
+    healthById.get(runUnlinked.id)?.health === "GAP",
+    "PER_RUN_UNLINKED_HUMAN_SIGNAL",
+    healthById.get(runUnlinked.id),
+  );
+
   const gapFilter = await listAutopilotRuns(owner, healthOrg.id, {
     hasObservabilityGap: true,
     range: "30d",
@@ -639,11 +698,58 @@ async function main() {
   ok(
     gapIds.has(runGap.id) &&
       gapIds.has(runOrphan.id) &&
+      gapIds.has(runUnlinked.id) &&
       !gapIds.has(runHealthy.id) &&
       !gapIds.has(runUnknown.id) &&
-      !gapIds.has(runNoOverlay.id),
-    "B2_GAP_FILTER uses real health, not AutopilotRun IS NULL",
+      !gapIds.has(runNoOverlay.id) &&
+      !gapIds.has(runUnknownEvent.id),
+    "GAP_FILTER_EXCLUDES_UNKNOWN",
     [...gapIds],
+  );
+
+  const processorOnlyOrg = await db.organization.create({
+    data: {
+      name: `A1P3 ProcOnly ${tag}`,
+      code: `a1p3_po_${tag}`,
+      ownerId: actor.id,
+      status: "active",
+    },
+  });
+  const processorOnlySession = await db.agentSession.create({
+    data: { orgId: processorOnlyOrg.id, channel: "e2e", status: "active" },
+  });
+  const runCaptureOff = await seedRun({
+    status: "completed",
+    org: processorOnlyOrg.id,
+    sessionId: processorOnlySession.id,
+  });
+  await addEvent(runCaptureOff.id, 1, "run.started", {}, processorOnlyOrg.id);
+  await addEvent(runCaptureOff.id, 2, "run.completed", {}, processorOnlyOrg.id);
+  await seedOverlayProjected(runCaptureOff.id, processorOnlyOrg.id, 2);
+  const processorOnlyEnv = {
+    AUTOPILOT_ENABLED: "1",
+    AUTOPILOT_OWNER_USER_IDS: actor.id,
+    AUTOPILOT_TELEMETRY_CAPTURE_ENABLED: "0",
+    AUTOPILOT_PROCESSOR_ENABLED: "1",
+  };
+  const captureOffList = await listAutopilotRuns(owner, processorOnlyOrg.id, {
+    range: "30d",
+    env: processorOnlyEnv,
+  });
+  ok(
+    captureOffList.items.find((i) => i.runId === runCaptureOff.id)?.health ===
+      "UNKNOWN",
+    "PER_RUN_NULL_DURABILITY",
+    captureOffList.items.find((i) => i.runId === runCaptureOff.id),
+  );
+  const captureOffGap = await listAutopilotRuns(owner, processorOnlyOrg.id, {
+    hasObservabilityGap: true,
+    range: "30d",
+    env: processorOnlyEnv,
+  });
+  ok(
+    !captureOffGap.items.some((i) => i.runId === runCaptureOff.id),
+    "PROCESSOR_ON_CAPTURE_OFF does not enter hasObservabilityGap",
   );
 
   // ── B3 full-run aggregates vs bounded timeline ──

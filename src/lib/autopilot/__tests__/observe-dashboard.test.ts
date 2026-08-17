@@ -239,8 +239,66 @@ async function main() {
       toolOrphans: 0,
       modelOrphans: 0,
       retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 0,
     }) === "GAP",
     "PER_RUN_PROJECTION_GAP: overlay existence is not HEALTHY",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 4,
+      durableCaptureGap: null,
+      projectionGap: 0,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 0,
+    }) === "UNKNOWN",
+    "PER_RUN_NULL_DURABILITY",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 4,
+      durableCaptureGap: 0,
+      projectionGap: 0,
+      humanSignalProjectionGap: null,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 0,
+    }) === "UNKNOWN",
+    "PER_RUN_NULL_HUMAN_PROJECTION",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 2,
+      durableCaptureGap: 0,
+      projectionGap: 0,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+      unknownEventTypeCount: 1,
+      unlinkedHumanSignalCount: 0,
+    }) === "UNKNOWN",
+    "PER_RUN_UNKNOWN_EVENT",
+  );
+  ok(
+    perRunObservabilityHealth({
+      eventCount: 1,
+      durableCaptureGap: 0,
+      projectionGap: 0,
+      humanSignalProjectionGap: 0,
+      toolOrphans: 0,
+      modelOrphans: 0,
+      retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 1,
+    }) === "GAP",
+    "PER_RUN_UNLINKED_HUMAN_SIGNAL",
   );
   ok(
     perRunObservabilityHealth({
@@ -251,8 +309,10 @@ async function main() {
       toolOrphans: 0,
       modelOrphans: 0,
       retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 0,
     }) === "HEALTHY",
-    "per-run HEALTHY only when integrity indicators are 0",
+    "PER_RUN_HEALTHY",
   );
   ok(
     perRunObservabilityHealth({
@@ -263,6 +323,8 @@ async function main() {
       toolOrphans: 1,
       modelOrphans: 0,
       retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 0,
     }) === "ORPHAN",
     "PER_RUN_ORPHAN",
   );
@@ -275,6 +337,8 @@ async function main() {
       toolOrphans: 0,
       modelOrphans: 0,
       retrievalOrphans: 0,
+      unknownEventTypeCount: 0,
+      unlinkedHumanSignalCount: 0,
     }) === "UNKNOWN",
     "PER_RUN_UNKNOWN: insufficient observation data",
   );
@@ -483,6 +547,15 @@ async function main() {
   ok(
     !/code === ["']P2021["']/.test(telemetryHealth),
     "telemetry-health does not catch P2021 as safety",
+  );
+
+  const runHealth = readFileSync(
+    join(root, "src/lib/autopilot/observe-run-health.ts"),
+    "utf8",
+  );
+  ok(
+    !runHealth.includes("?? 0"),
+    "B2: per-run health does not coerce null gaps to zero",
   );
 
   const coverageHealth = readFileSync(
