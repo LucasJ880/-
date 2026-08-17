@@ -35,11 +35,7 @@ import {
 import { generateReportSections } from "@/lib/tender-auto-analysis/report";
 import { buildClarifications } from "@/lib/tender-auto-analysis/clarifications";
 import { buildGroundedDeliverables } from "@/lib/tender-auto-analysis/deliverables";
-import {
-  isEmptyAnalysisOutcome,
-  runV2Inference,
-} from "@/lib/tender-auto-analysis/v2-persist";
-import { persistV2ForWorkforce } from "./v2-persist-workforce";
+import { advanceV2ForWorkforce } from "./v2-resumable-workforce";
 import {
   createOrReuseWorkforceTenderAnalysisRun,
   failWorkforceTenderAnalysisRun,
@@ -1213,17 +1209,21 @@ async function handleFinalizeAnalysis(
   };
 }
 
-/* ══════════ canonical V2 分析（T5-P1 Segment 2；能力就绪、当前 DAG 不可达） ══════════ */
+/* ══════════ canonical V2 分析（可续跑；T5-P1 Segment 3 接线 + P1.1 分片化） ══════════ */
 
 /**
- * 跑 canonical V2 grounded 引擎并以 **Workforce 执行权** 原子落库。
+ * 推进 canonical V2 grounded 分析，并以 **Workforce 执行权** 原子落库。
  *
- * 与 legacy 的边界（§13 明令）：调用的是 runV2Inference + Workforce 防栅栏
- * 持久化，**不碰** legacy enqueue / cron / worker.ts / analyzeAndPersistV2，
- * 不创建第二个 AgentRun 或第二个 Workforce Job。
+ * **T5-P1.1：本工具不再一次性跑完。** 真实 t3 实测 126–507s，
+ * 装不进一次 serverless 调用。改为消费 server-only executionBudget，
+ * 走 #113 的分片执行器（advanceV2Analysis）：预算用尽即 checkpoint 后
+ * 返回 continuation（正常让出，不是失败），下次 invocation 从 workerCursor 继续。
+ * 没有预算 → fail-closed，**绝不回落 one-shot**（§25）。
  *
- * 本工具不改变 TenderAnalysisRun 状态：落库后仍是 AGENT_ANALYZING，
- * 终态化由 finalize 步骤单独负责（Segment 2 不接线，见 §17）。
+ * 边界不变：不碰 legacy enqueue / cron / worker.ts / analyzeAndPersistV2，
+ * 不创建第二个 AgentRun / Workforce Job / Tender 队列。
+ * 本工具也不改变 TenderAnalysisRun 状态：落库后仍是 AGENT_ANALYZING，
+ * 终态化由 t9 单独负责。
  */
 async function handleAnalyzePackageV2(
   ctx: AdapterContext,
@@ -1255,35 +1255,58 @@ async function handleAnalyzePackageV2(
     };
   }
 
-  const { mapped, model, llmCalls, llmFailures } = await runV2Inference({
-    runId,
-  });
-
-  // §14：复用**同一个** empty-analysis 判定（不发明第二套），
-  // 且在落库之前判定——空壳分析不该留下 canonical 痕迹。
-  if (
-    isEmptyAnalysisOutcome({
-      llmCalls,
-      llmFailures,
-      factCount: mapped.facts.length,
-      requirementCount: mapped.requirements.length,
-    })
-  ) {
+  // T5-P1.1 §25：**没有执行预算就 fail-closed**，绝不回落 one-shot。
+  // 真实 t3 实测 126–507s，one-shot 必然被 serverless 硬杀；
+  // 留后门等于哪天新调用路径又把 507s 一次性执行悄悄放回来。
+  const budget = ctx.executionBudget;
+  if (!budget) {
     return {
       ok: false,
-      error: `ANALYSIS_EMPTY: 本次分析零成功模型调用且零抽取产出（${llmFailures}/${llmCalls} 次调用失败），拒绝写入空结果`,
+      error:
+        "WORKFORCE_EXECUTION_BUDGET_MISSING: 缺少本次调用的执行预算，canonical V2 分析必须可续跑执行，拒绝一次性长跑",
     };
   }
 
-  const persisted = await persistV2ForWorkforce({
-    orgId: ctx.orgId,
-    projectId: jobCtx.job.projectId,
-    analysisRunId: runId,
-    jobId: jobCtx.job.jobId,
-    mapped,
-    model,
+  const outcome = await advanceV2ForWorkforce({
+    own: {
+      orgId: ctx.orgId,
+      projectId: jobCtx.job.projectId,
+      analysisRunId: runId,
+      jobId: jobCtx.job.jobId,
+    },
     runFence,
+    deadlineAt: budget.deadlineAt,
+    tickBudgetMs: budget.tickBudgetMs,
   });
+
+  // §13/§19：正常让出——**绝不**输出 canonical marker，
+  // 否则 t4/t5/t6/t7 会误以为 canonical V2 已经完成。
+  if (outcome.status === "YIELD") {
+    return {
+      ok: true,
+      continuation: {
+        reason: "TIME_BUDGET_YIELD",
+        phase: outcome.phase,
+        ticks: outcome.ticks,
+      },
+      data: {
+        tenderAnalyzeProgress: true,
+        phase: outcome.phase,
+        ticks: outcome.ticks,
+        summary: `canonical V2 分析进行中（阶段 ${outcome.phase}，第 ${outcome.ticks} 次推进），本次调用预算用尽已保存检查点`,
+      },
+    };
+  }
+
+  if (outcome.status === "EMPTY_ANALYSIS") {
+    return {
+      ok: false,
+      error: `ANALYSIS_EMPTY: 本次分析零成功模型调用且零抽取产出（${outcome.llmFailures}/${outcome.llmCalls} 次调用失败），拒绝写入空结果`,
+    };
+  }
+
+  const persisted = outcome.result;
+  const model = outcome.model;
 
   return {
     ok: true,
@@ -1301,9 +1324,10 @@ async function handleAnalyzePackageV2(
       clarificationCount: persisted.clarificationCount,
       changeCount: persisted.changeCount,
       sectionCount: persisted.sectionCount,
-      llmCalls,
-      llmFailures,
+      llmCalls: persisted.llmCalls,
+      llmFailures: persisted.llmFailures,
       model,
+      cursorTicks: outcome.ticks,
       summary: `canonical V2 分析已落库：${persisted.requirementCount} 条要求、${persisted.factCount} 条事实、${persisted.clarificationCount} 条澄清、${persisted.sectionCount} 个章节`,
     },
   };

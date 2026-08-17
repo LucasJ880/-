@@ -11,7 +11,11 @@ import {
   LostLeaseError,
   type RunFence,
 } from "@/lib/agent-runtime/lease";
-import { executeRuntimeV2Tool } from "./adapters";
+import {
+  executeRuntimeV2Tool,
+  type RuntimeExecutionBudget,
+  type ToolContinuation,
+} from "./adapters";
 import { emitRuntimeV2Event } from "./events";
 import { getRuntimeV2Limits } from "./flags";
 import { buildStepOperationKey } from "./idempotency";
@@ -46,6 +50,11 @@ function jsonValue(value: unknown): Prisma.InputJsonValue {
 
 export type ExecuteRoundResult =
   | { status: "continued" }
+  /**
+   * T5-P1.1：工具**正常让出**（本次 serverless 预算用尽，成果已 checkpoint）。
+   * 不是失败、不是审批、不消耗重试预算；调用方必须结束本次 invocation 并回队。
+   */
+  | { status: "yielded"; stepKey: string; phase?: string; ticks?: number }
   | { status: "awaiting_approval" }
   | { status: "ready_for_verification" }
   | { status: "failed"; error: string }
@@ -151,6 +160,8 @@ export async function executeRuntimeV2Round(input: {
   role: string;
   threadId?: string | null;
   fence?: RunFence;
+  /** T5-P1.1 §5：server-only serverless 执行预算，注入 AdapterContext 供长工具消费 */
+  executionBudget?: RuntimeExecutionBudget;
 }): Promise<ExecuteRoundResult> {
   try {
     return await executeRoundGuarded(input);
@@ -167,6 +178,8 @@ async function executeRoundGuarded(input: {
   role: string;
   threadId?: string | null;
   fence?: RunFence;
+  /** T5-P1.1 §5：server-only serverless 执行预算 */
+  executionBudget?: RuntimeExecutionBudget;
 }): Promise<ExecuteRoundResult> {
   const { orgId, runId, userId, role, fence } = input;
   const limits = getRuntimeV2Limits();
@@ -312,6 +325,7 @@ async function executeRoundGuarded(input: {
       maxToolCalls: limits.maxToolCalls,
       // T5-P0C：batch 路径无 run 对象，server 权威 metadata 由此透传
       runMetadata: meta,
+      executionBudget: input.executionBudget,
     });
   }
 
@@ -604,6 +618,8 @@ async function executeRoundGuarded(input: {
         // T5-P1 Segment 2 §8：server-only 写防栅栏。仅服务端注入的活对象，
         // 不改变任何工具的业务参数契约；客户端不可构造、不会被序列化。
         runFence: fence,
+        // T5-P1.1 §5：server-only serverless 执行预算（同纪律，不序列化）
+        executionBudget: input.executionBudget,
       });
     }
   } catch (err) {
@@ -620,6 +636,53 @@ async function executeRoundGuarded(input: {
   // 此处先行探测避免 stale 事件写入）。
   if (fence && !(await fence.check())) {
     throw new LostLeaseError(runId);
+  }
+
+  // ── T5-P1.1 §15：正常让出必须在 失败/审批/完成 之前处理 ──
+  // native synthesis 结果没有该字段（也不给它开让出能力），显式按可选字段读取
+  const continuation = (result as { continuation?: ToolContinuation })
+    .continuation;
+  if (continuation) {
+    // §16：让出不是 retry —— 把本次 claim 的 attemptCount+1 回滚，
+    // 否则长标包会被正常切片耗尽 maxAttempts。
+    // §18：回 ready、清错误、不写 completedAt、不产 Handoff、不发 step.completed。
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRunStep.update({
+        where: { id: step.id },
+        data: {
+          status: "ready",
+          attemptCount: step.attemptCount,
+          errorCode: null,
+          errorMessage: null,
+          completedAt: null,
+          evidenceJson: jsonValue({
+            continuation: {
+              reason: continuation.reason,
+              phase: continuation.phase ?? null,
+              ticks: continuation.ticks ?? null,
+            },
+          }),
+        },
+      }),
+    );
+    await emitRuntimeV2Event({
+      orgId,
+      runId,
+      eventType: "tool.yielded",
+      title: executionLabel,
+      payload: {
+        stepKey: step.stepKey,
+        reason: continuation.reason,
+        phase: continuation.phase,
+        ticks: continuation.ticks,
+      },
+    });
+    return {
+      status: "yielded",
+      stepKey: step.stepKey,
+      phase: continuation.phase,
+      ticks: continuation.ticks,
+    };
   }
 
   if (!result.ok) {
@@ -845,6 +908,8 @@ type WorkforceStepRow = AgentRunStep;
 
 type WorkforceStepOutcome =
   | { kind: "continued" }
+  /** T5-P1.1：工具正常让出（已 checkpoint），本轮必须结束、Job 回队 */
+  | { kind: "yielded"; stepKey: string; phase?: string; ticks?: number }
   /** CAS 未命中：另一 driver 已认领（TASK_ALREADY_CLAIMED），未执行 Tool */
   | { kind: "claim_lost"; stepKey: string }
   | { kind: "awaiting_approval"; stepKey: string; pendingActionIds: string[] }
@@ -966,6 +1031,8 @@ async function executeWorkforceBatchRound(input: {
   maxToolCalls: number;
   /** T5-P0C：run metadata（承载 server 权威 workDomain）——batch 路径无 run 对象，须由上游透传 */
   runMetadata?: Record<string, unknown> | null;
+  /** T5-P1.1：server-only serverless 执行预算 */
+  executionBudget?: RuntimeExecutionBudget;
 }): Promise<ExecuteRoundResult> {
   const { orgId, runId, fence } = input;
 
@@ -1280,6 +1347,7 @@ async function executeWorkforceBatchRound(input: {
               executionLabel: c.executionLabel,
               toolName: c.toolName,
               isNativeSynthesis: c.isNativeSynthesis,
+              executionBudget: input.executionBudget,
               operationKey: c.operationKey,
               context: c.context,
             }),
@@ -1333,6 +1401,21 @@ async function executeWorkforceBatchRound(input: {
   // ── coordinator 统一收敛 Run 状态（§16/§20/§21）：
   // needs_human > awaiting_approval > continued。终态（cancelled/failed/
   // completed）绝不被覆盖（§23：cancel 后的迟到收敛安全落地）。──
+  // T5-P1.1 §20：正常让出优先于其它收敛——本轮必须立刻结束、由 processor 回队，
+  // 绝不能在同一个 serverless invocation 里再次执行同一个 t3。
+  const yielded = outcomes.find(
+    (o): o is Extract<WorkforceStepOutcome, { kind: "yielded" }> =>
+      o.kind === "yielded",
+  );
+  if (yielded) {
+    return {
+      status: "yielded",
+      stepKey: yielded.stepKey,
+      phase: yielded.phase,
+      ticks: yielded.ticks,
+    };
+  }
+
   const needsHuman = outcomes.find(
     (o): o is Extract<WorkforceStepOutcome, { kind: "needs_human" }> =>
       o.kind === "needs_human",
@@ -1425,6 +1508,8 @@ async function executeClaimedWorkforceStep(input: {
   isNativeSynthesis: boolean;
   operationKey: string;
   context: WorkforceExecutionContext | null;
+  /** T5-P1.1 §5：server-only serverless 执行预算 */
+  executionBudget?: RuntimeExecutionBudget;
 }): Promise<WorkforceStepOutcome> {
   const {
     orgId,
@@ -1505,6 +1590,8 @@ async function executeClaimedWorkforceStep(input: {
         workforce: context ?? undefined,
         // T5-P1 Segment 2 §8：server-only 写防栅栏（同上）
         runFence: fence,
+        // T5-P1.1 §5：server-only serverless 执行预算（同上）
+        executionBudget: input.executionBudget,
       });
     }
   } catch (err) {
@@ -1519,6 +1606,55 @@ async function executeClaimedWorkforceStep(input: {
   // LostLeaseError（allSettled 收集，coordinator 统一放弃）──
   if (fence && !(await fence.check())) {
     throw new LostLeaseError(runId);
+  }
+
+  // ── T5-P1.1 §15：并行批路径同样先处理正常让出 ──
+  const batchContinuation = (result as { continuation?: ToolContinuation })
+    .continuation;
+  if (batchContinuation) {
+    await fenceGuardedWrite(fence, (c) =>
+      c.agentRunStep.update({
+        where: { id: row.id },
+        data: {
+          status: "ready",
+          // §16：让出不消耗 attempt。注意 `row` 是 **CAS 认领后**的行
+          // （attemptCount 已 +1），所以必须显式减回去；直接写 row.attemptCount
+          // 是个空写，等于每让出一次就烧掉一次重试额度——真实 t3（maxAttempts=2）
+          // 让出两次后就再也认领不到，可续跑直接失效。
+          // 单步路径（上方）的 `step` 是认领**前**的行，所以那里写 step.attemptCount
+          // 才是正确回滚，两处语义相同、取值来源不同。
+          attemptCount: Math.max(0, row.attemptCount - 1),
+          errorCode: null,
+          errorMessage: null,
+          completedAt: null,
+          evidenceJson: jsonValue({
+            continuation: {
+              reason: batchContinuation.reason,
+              phase: batchContinuation.phase ?? null,
+              ticks: batchContinuation.ticks ?? null,
+            },
+          }),
+        },
+      }),
+    );
+    await emitRuntimeV2Event({
+      orgId,
+      runId,
+      eventType: "tool.yielded",
+      title: executionLabel,
+      payload: {
+        stepKey,
+        reason: batchContinuation.reason,
+        phase: batchContinuation.phase,
+        ticks: batchContinuation.ticks,
+      },
+    });
+    return {
+      kind: "yielded",
+      stepKey,
+      phase: batchContinuation.phase,
+      ticks: batchContinuation.ticks,
+    };
   }
 
   if (!result.ok) {

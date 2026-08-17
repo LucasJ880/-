@@ -267,14 +267,16 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
         dupMarkers.every((m) => !legacySrc.includes(m) && !wfSrc.includes(m)),
       "V2-SPINE-01b: DUPLICATE_V2_PERSIST_LOGIC = 0（wrapper 内零 canonical 写语句）",
     );
-    // 封装纪律：核心的导入方仅限两个 fenced wrapper（+ 测试）
+    // 封装纪律的**真正**不变量：谁**调用** persistV2CanonicalTx —— 只能是两个
+    // fenced wrapper。（仅 import 形状类型不构成绕过 fence，P1.1 的
+    // v2-resumable-workforce 就只 import PersistV2Result 类型。）
     const allowed = [
       "tender-auto-analysis/v2-persist.ts",
       "tender-workforce/v2-persist-workforce.ts",
     ];
     const { execSync } = await import("node:child_process");
-    const hits = execSync(
-      `grep -rl "v2-persist-core" ${JSON.stringify(ROOT)} || true`,
+    const callers = execSync(
+      `grep -rln "persistV2CanonicalTx(tx" ${JSON.stringify(ROOT)} || true`,
       { encoding: "utf8" },
     )
       .split("\n")
@@ -282,9 +284,9 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
       .map((f) => f.replace(`${ROOT}/`, ""))
       .filter((f) => !f.includes("__tests__") && !f.endsWith("v2-persist-core.ts"));
     ok(
-      hits.every((h) => allowed.includes(h)),
-      "V2-SPINE-01c: 核心只被两个 fenced wrapper import（禁止绕过 fence）",
-      hits,
+      callers.length === 2 && callers.every((h) => allowed.includes(h)),
+      "V2-SPINE-01c: canonical 核心只被两个 fenced wrapper 调用（禁止绕过 fence）",
+      callers,
     );
   }
 
@@ -506,8 +508,10 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
     const allowed = [
       "agent-runtime-v2/adapters.ts", // 类型声明（server-only 注入点）
       "agent-runtime-v2/executor.ts", // 唯一注入者
-      "tender-workforce/tools.ts", // 唯一消费者
+      "tender-workforce/tools.ts", // 域工具消费者
       "tender-workforce/v2-persist-workforce.ts",
+      // T5-P1.1：可续跑编排层（cursor checkpoint + 落库都要 fence）
+      "tender-workforce/v2-resumable-workforce.ts",
     ];
     ok(
       hits.every((h) => allowed.includes(h)),
@@ -587,21 +591,25 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
     );
     ok(
       handler.indexOf("requireTenderJobContext") <
-        handler.indexOf("runV2Inference") &&
+        handler.indexOf("advanceV2ForWorkforce") &&
         handler.includes("requireManifestFromEvidence"),
       "V2-SPINE-17: 先自证 tender workDomain + 归属，才允许进入推理/落库",
     );
     ok(
-      handler.indexOf("if (!runFence)") < handler.indexOf("runV2Inference"),
-      "V2-SPINE-17b: 无写防栅栏时在推理之前就 fail-closed",
+      handler.indexOf("if (!runFence)") < handler.indexOf("advanceV2ForWorkforce") &&
+        handler.indexOf("if (!budget)") < handler.indexOf("advanceV2ForWorkforce"),
+      "V2-SPINE-17b: 无写防栅栏 / 无执行预算时，都在推理之前 fail-closed",
     );
   }
 
   /* ── V2-SPINE-18：空分析护栏复用同一 predicate ── */
   {
     const toolsSrc = read("tender-workforce/tools.ts");
+    // 位置随 P1.1 移动到可续跑编排层；不变量是"整个域只有这一个判定函数被复用"
+    const resumableSrc = read("tender-workforce/v2-resumable-workforce.ts");
     ok(
-      toolsSrc.includes("isEmptyAnalysisOutcome"),
+      resumableSrc.includes("isEmptyAnalysisOutcome") &&
+        !/function isEmptyAnalysis/.test(resumableSrc + toolsSrc),
       "V2-SPINE-18: 复用既有 isEmptyAnalysisOutcome（不发明第二套判定）",
     );
     ok(
@@ -623,9 +631,10 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
       toolsSrc.indexOf("async function handleAnalyzePackageV2"),
       toolsSrc.indexOf("/* ══════════════════ Handler 注册表"),
     );
+    const resumable = read("tender-workforce/v2-resumable-workforce.ts");
     ok(
-      handler.indexOf("isEmptyAnalysisOutcome") <
-        handler.indexOf("persistV2ForWorkforce"),
+      resumable.indexOf("isEmptyAnalysisOutcome") <
+        resumable.indexOf("persistV2ForWorkforce({"),
       "V2-SPINE-18c: 空壳判定在落库之前（空结果不留 canonical 痕迹）",
     );
   }

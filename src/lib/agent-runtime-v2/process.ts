@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { createAgentRun } from "@/lib/agent-runtime/run";
 import { LostLeaseError, type RunFence } from "@/lib/agent-runtime/lease";
+import type { RuntimeExecutionBudget } from "./adapters";
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
 import { emitRuntimeV2Event, userFacingRunLabel } from "./events";
 import { executeRuntimeV2Round } from "./executor";
@@ -180,7 +181,16 @@ export async function processAgentRuntimeV2Run(input: {
   threadId?: string | null;
   maxRounds?: number;
   fence?: RunFence;
-}): Promise<{ status: string; report?: string }> {
+  /** T5-P1.1：server-only serverless 执行预算，透传给 executor → AdapterContext */
+  executionBudget?: RuntimeExecutionBudget;
+}): Promise<{
+  status: string;
+  report?: string;
+  /** T5-P1.1：正常让出时的可观测信息（不参与任何授权/状态判定） */
+  yieldedStepKey?: string;
+  yieldedPhase?: string;
+  yieldedTicks?: number;
+}> {
   const maxRounds = input.maxRounds ?? 8;
   try {
     for (let i = 0; i < maxRounds; i++) {
@@ -223,10 +233,21 @@ export async function processAgentRuntimeV2Run(input: {
         role: input.role,
         threadId: input.threadId,
         fence: input.fence,
+        executionBudget: input.executionBudget,
       });
 
       if (round.status === "lost_lease") {
         return { status: "lost_lease" };
+      }
+      // T5-P1.1 §20：工具正常让出 —— 立即结束本次 invocation 的 round 循环，
+      // 由 Workforce processor 正常回队（不消耗重试预算、不跑 verifier）。
+      if (round.status === "yielded") {
+        return {
+          status: "yielded",
+          yieldedStepKey: round.stepKey,
+          yieldedPhase: round.phase,
+          yieldedTicks: round.ticks,
+        };
       }
       if (round.status === "awaiting_approval") {
         return {

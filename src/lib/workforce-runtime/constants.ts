@@ -19,3 +19,16 @@ export const WORKFORCE_ACTIVE_STATUSES = [
   "verifying",
   "repairing",
 ] as const;
+
+/**
+ * T5-P1.1 §3/§4 —— agent-runs serverless invocation 预算。
+ *
+ * 路由 maxDuration = 300s；这里只给 **240s** 的活跃工作预算，
+ * 留约 60s 给 checkpoint 落盘、Step 状态写、Job 回队、事件与 DB 往返。
+ * 与 #113 的 Tender cron 采用同一安全模型（INVOCATION_BUDGET_MS = 240s）。
+ *
+ * 注意：这**不是**新的 one-shot 上限——长任务仍必须可续跑，
+ * 240s 只保证单个安全切片里能塞下一次完整的模型调用。
+ */
+export const AGENT_RUNS_MAX_DURATION_S = 300;
+export const AGENT_RUNS_INVOCATION_BUDGET_MS = 240_000;

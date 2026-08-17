@@ -61,6 +61,41 @@ export type AdapterContext = {
    * legacy runtime_v2 与所有非 workforce 路径恒为 undefined。
    */
   runFence?: import("@/lib/agent-runtime/lease").RunFence;
+  /**
+   * T5-P1.1 §5：**server-only** 本次 serverless invocation 的执行预算。
+   *
+   * 由 cron 路由在 HTTP 请求开始时算出绝对 deadline 并逐层下传，供
+   * **可续跑的长工具**判断"还能不能再发起一次模型调用"。与 runFence 同纪律：
+   * 活对象/服务端事实，绝不进入 API body / planJson / task contract / metadata /
+   * handoff / outputJson / event payload。legacy runtime_v2 恒为 undefined。
+   */
+  executionBudget?: RuntimeExecutionBudget;
+};
+
+/** 本次 serverless invocation 的执行预算（绝对时间，非相对） */
+export type RuntimeExecutionBudget = {
+  /** epoch ms 硬截止：超过它就不许再发起新的长调用 */
+  deadlineAt: number;
+  /** 本次 invocation 的完整工作预算（阶段准入判定用） */
+  tickBudgetMs: number;
+};
+
+/**
+ * T5-P1.1 §13 —— **正常让出**（continuation），不是失败。
+ *
+ * 可续跑的长工具（当前唯一使用方：tender_analyze_package_v2）在本次 serverless
+ * invocation 预算耗尽时返回它：成果已 checkpoint 落盘，下次 invocation 从断点继续。
+ *
+ * 刻意**不**复用 ok=false / 特殊错误串 / throw / requiresApproval 来表达让出——
+ * 那些都会消耗重试预算或把进展伪装成失败/审批。
+ */
+export type ToolContinuation = {
+  /** 让出原因（当前只有时间预算） */
+  reason: "TIME_BUDGET_YIELD";
+  /** 让出时所处阶段（域自定义，仅可观测用） */
+  phase?: string;
+  /** 已推进的 tick 数（仅可观测用） */
+  ticks?: number;
 };
 
 export type AdapterResult = {
@@ -69,6 +104,12 @@ export type AdapterResult = {
   error?: string;
   pendingActionId?: string;
   requiresApproval?: boolean;
+  /**
+   * 存在即表示"本次未完成、但已安全 checkpoint"。executor 必须在
+   * 失败/审批/正常完成**之前**处理它（见 executor 的 continuation 分支）。
+   * 普通工具永不设置该字段，因此行为零变化。
+   */
+  continuation?: ToolContinuation;
 };
 
 type RuntimeV2ToolHandler = (ctx: AdapterContext) => Promise<AdapterResult>;
