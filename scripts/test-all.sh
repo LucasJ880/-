@@ -292,6 +292,7 @@ run_test "T5 Seg2 canonical V2 持久化脊柱" "npx tsx src/lib/tender-workforc
 run_test "T5 Seg2.5 workDomain 兼容闭环" "npx tsx src/lib/workforce-runtime/__tests__/t5-seg25-work-domain.test.ts"
 run_test "T5 Seg3 确定性 DAG canonical V2 收敛" "npx tsx src/lib/tender-workforce/__tests__/t5-seg3-v2-convergence.test.ts"
 run_test "T5-P1.1 Workforce V2 可续跑（continuation/游标/预算）" "npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts"
+run_test "观察期包1 延迟压缩（让出链式自触发）" "npx tsx src/lib/workforce-runtime/__tests__/obs-p1-latency-self-trigger.test.ts"
 run_test "招标工作台状态投影" "npx tsx src/lib/tender/__tests__/workbench-state.test.ts"
 run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__tests__/idempotency.test.ts"
 run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"
