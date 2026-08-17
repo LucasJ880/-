@@ -100,11 +100,18 @@ export async function projectAutopilotNotice(
     run.session?.userId ??
     runtime.actor?.userId ??
     null;
-  const outcome = mapDeterministicOutcome({
-    status: run.status,
-    errorCode: run.errorCode,
-  });
+    const outcome = mapDeterministicOutcome({
+      status: run.status,
+      errorCode: run.errorCode,
+    });
+    // Observation flags only. Do not pass humanOverride into outcome mapping
+    // (that would look like A2 evaluation: override ≠ AI wrong).
   const failure = mapDeterministicFailureType(run.errorCode);
+
+  const mapped =
+    notice.type === "event"
+      ? mapAgentRunEventToAutopilot(notice.eventType, notice.payload)
+      : null;
 
   await upsertAutopilotObservation({
     agentRunId: run.id,
@@ -123,6 +130,9 @@ export async function projectAutopilotNotice(
     latencyMs: run.latencyMs,
     errorCode: run.errorCode,
     errorSummary: sanitizedErrorSummary(run.errorMessage),
+    humanOverride: mapped?.eventType === "HUMAN_OVERRIDE" ? true : undefined,
+    humanEdit: mapped?.eventType === "HUMAN_EDIT" ? true : undefined,
+    reAskStatus: mapped?.eventType === "RE_ASK_SIGNAL" ? "CONFIRMED" : undefined,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     metadata: {
@@ -134,7 +144,6 @@ export async function projectAutopilotNotice(
 
   if (notice.type !== "event") return;
 
-  const mapped = mapAgentRunEventToAutopilot(notice.eventType, notice.payload);
   if (!mapped) return;
   await appendAutopilotObservationEvent({
     orgId: notice.orgId,

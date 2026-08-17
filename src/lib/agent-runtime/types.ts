@@ -79,6 +79,9 @@ export type AgentRunEventType =
   | "job.clarification_answered"
   | "job.human_action_completed"
   | "job.human_edited"
+  | "human.edit"
+  | "human.override"
+  | "human.reask"
   // Phase 2B-2（Controlled Parallel）：最小内部观测事件（visibleToUser=false）
   | "task.claimed"
   | "parallel.batch_started"

@@ -206,6 +206,8 @@ export type GroundedState = {
   conflicts: ConflictV2[];
   addendumChanges: AddendumChangeV2[];
   rejectedTally: { reasonCode: string; count: number }[];
+  /** 单元归属纠正条数（可观测性：prompt 改好后应下降） */
+  reattributed: number;
 };
 
 /**
@@ -244,6 +246,7 @@ export function deriveGroundedState(
     conflicts,
     addendumChanges: precedence.addendumChanges,
     rejectedTally,
+    reattributed: verified.reattributed,
   };
 }
 
@@ -341,6 +344,7 @@ export function assembleAnalysisResult(parts: {
       pages: input.documents.reduce((a, d) => a + d.pages.length, 0),
       windows: parts.windowCount,
       rejectedCandidates: grounded.rejectedTally,
+      evidenceReattributed: grounded.reattributed,
       inputChars: logs.reduce((a, l) => a + l.inputChars, 0),
       outputChars: logs.reduce((a, l) => a + l.outputChars, 0),
     },

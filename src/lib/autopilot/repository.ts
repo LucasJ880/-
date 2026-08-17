@@ -121,6 +121,7 @@ export async function upsertAutopilotObservation(input: {
   toolCallCount?: number;
   humanOverride?: boolean;
   humanEdit?: boolean;
+  reAskStatus?: string | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
   metadata?: Record<string, unknown> | null;
@@ -148,7 +149,7 @@ export async function upsertAutopilotObservation(input: {
       toolCallCount: input.toolCallCount ?? 0,
       humanOverride: input.humanOverride ?? false,
       humanEdit: input.humanEdit ?? false,
-      reAskStatus: "NOT_EVALUATED",
+      reAskStatus: input.reAskStatus ?? "NOT_EVALUATED",
       startedAt: input.startedAt ?? null,
       completedAt: input.completedAt ?? null,
       metadata: jsonValue(metadata),
@@ -171,6 +172,7 @@ export async function upsertAutopilotObservation(input: {
       toolCallCount: input.toolCallCount ?? undefined,
       humanOverride: input.humanOverride ?? undefined,
       humanEdit: input.humanEdit ?? undefined,
+      reAskStatus: input.reAskStatus ?? undefined,
       startedAt: input.startedAt ?? undefined,
       completedAt: input.completedAt ?? undefined,
       metadata: jsonValue(metadata),

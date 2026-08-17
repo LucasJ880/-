@@ -63,6 +63,9 @@ const MAPPED_SOURCE_EVENTS = new Set([
   "grader.completed",
   "agent.output",
   "job.human_edited",
+  "human.edit",
+  "human.override",
+  "human.reask",
   "approval.rejected",
   "approval.executed",
   "approval.required",
@@ -258,16 +261,57 @@ export function mapAgentRunEventToAutopilot(
         payload: pick(p, ["outputRef", "hash", "bytes", "outputType"]),
       };
     case "job.human_edited":
+    case "human.edit":
       return {
         eventType: "HUMAN_EDIT",
         durationMs,
-        payload: { source: "job.human_edited", schemaVersion: AUTOPILOT_MAPPING_SCHEMA_VERSION },
+        payload: pick(p, [
+          "source",
+          "signalKey",
+          "sourceAgentRunId",
+          "sourceOutputRef",
+          "artifactType",
+          "artifactRef",
+          "commitAction",
+          "beforeHash",
+          "afterHash",
+          "beforeChars",
+          "afterChars",
+          "changed",
+          "changeMagnitude",
+        ]),
       };
     case "approval.rejected":
+    case "human.override":
       return {
         eventType: "HUMAN_OVERRIDE",
         durationMs,
-        payload: { source: "approval.rejected", schemaVersion: AUTOPILOT_MAPPING_SCHEMA_VERSION },
+        payload: pick(p, [
+          "source",
+          "signalKey",
+          "sourceAgentRunId",
+          "sourceDecisionRef",
+          "pendingActionId",
+          "actionId",
+          "actionType",
+          "overrideType",
+          "replacementRef",
+          "outcome",
+          "eventKey",
+        ]),
+      };
+    case "human.reask":
+      return {
+        eventType: "RE_ASK_SIGNAL",
+        durationMs,
+        payload: pick(p, [
+          "signalKey",
+          "originalAgentRunId",
+          "newAgentRunId",
+          "originalOutputRef",
+          "originalMessageId",
+          "retryActionId",
+        ]),
       };
     case "approval.executed":
     case "job.human_action_completed":
