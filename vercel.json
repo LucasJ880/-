@@ -76,10 +76,5 @@
       "path": "/api/cron/release-drift",
       "schedule": "0 9 * * *"
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  }
+  ]
 }
