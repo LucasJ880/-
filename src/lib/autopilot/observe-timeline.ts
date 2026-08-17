@@ -38,6 +38,7 @@ const CATEGORY_BY_TYPE: Record<AutopilotTraceEventType, ObserveEventCategory> = 
   RETRIEVAL_FAILED: "Retrieval",
   TOOL_CALL_STARTED: "Tool",
   TOOL_CALL_COMPLETED: "Tool",
+  TOOL_CALL_YIELDED: "Tool",
   TOOL_CALL_FAILED: "Tool",
   MODEL_STARTED: "Model",
   MODEL_COMPLETED: "Model",
