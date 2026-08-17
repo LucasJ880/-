@@ -7307,6 +7307,23 @@ model ProjectExpenseSubmission {
   /// 冻结 ProjectCost 类别（减 AI/DATA_API）；审批时 1:1 → ProjectCost.category
   costCategory          String
   submittedById         String
+  // ── T2-P1.6 追加（全部可空；legacy 行语义见 project-finance/money.ts resolveExpenseCad） ──
+  /// 汇率方向固定：1 单位 currency（原始币种）= X CAD。刻意不叫 fxRate，杜绝 reciprocal 歧义。
+  fxRateCadPerOriginalUnit Decimal?  @db.Decimal(18, 8)
+  /// 汇率适用日（快照，非「今天」）
+  fxRateDate               DateTime?
+  /// BASE_CURRENCY | MANUAL | SYSTEM_REFERENCE | BANK_SETTLEMENT
+  fxRateSource             String?
+  /// 折算 CAD（提交/审批时快照，永不因当日汇率变动而重算）；currency=CAD 时 === totalAmount
+  estimatedCadAmount       Decimal?  @db.Decimal(18, 2)
+  /// EMPLOYEE_PERSONAL | COMPANY_CARD | COMPANY_BANK | CHINA_AFFILIATE | VENDOR_INVOICE_UNPAID | OTHER
+  /// legacy NULL = UNSPECIFIED：审批**不产生** payable（fail-closed，绝不凭空造报销义务）
+  fundingSource            String?
+  /// 垫资人（fundingSource=EMPLOYEE_PERSONAL 时必须 = submittedById；服务端强制，禁代他人伪造）
+  paidByUserId             String?
+  /// 金额人工确认留痕（AI/OCR 只可 SUGGEST，最终金额必须提交人显式确认）
+  amountConfirmedAt        DateTime?
+  amountConfirmedById      String?
   /// 时间语义三分（不只用 createdAt）
   expenseOccurredAt     DateTime
   submittedAt           DateTime?
@@ -7375,6 +7392,225 @@ model ProjectExpenseAttachment {
   @@unique([expenseSubmissionId, contentHash])
   @@index([orgId, projectId])
   @@index([expenseSubmissionId])
+}
+
+// ════════════════════════════════════════════════════════════════════
+// T2-P1.6 Tender Profitability / Settlement / Multi-Currency（additive-only）
+//
+// 三层严格分离（RULE 2 + RULE 6）：
+//   经济成本事实  = ProjectCost（经 project-ledger/cost-service，唯一权威，本组表不复制）
+//   费用提交流程  = ProjectExpenseSubmission（P1.5）
+//   现金结算子账  = ProjectExpensePayable + ProjectExpensePayment（本组；**绝不计入成本合计**）
+//
+// 币种（RULE 3/4/5）：BASE_CURRENCY = CAD。原始币种与原始金额永久保留在 submission；
+// 折算只前向填充快照列，历史绝不按当日汇率重算。
+//
+// 生产 dark：新表读写统一经 TENDER_PROFITABILITY_SCHEMA_READY（default OFF，fail-closed）；
+// 触碰 ProjectCost 的路径额外叠加 isLedgerProducerActive()。
+// 无 projectId/orgId FK：沿用 ledger「项目硬删后财务史存活」哲学。
+// ════════════════════════════════════════════════════════════════════
+
+/// 应付子账（settlement，非成本）：审批后「公司还欠谁钱」。
+/// 一条 approved expense 至多一条 payable（unique expenseSubmissionId）→ 天然防重复报销。
+/// amountCad 恒为 CAD（BASE_CURRENCY）；原始币种留在 submission。
+model ProjectExpensePayable {
+  id                    String    @id @default(cuid())
+  orgId                 String
+  projectId             String
+  /// 幂等锚：审批事务内至多创建一条（REIMB-01 / 并发双批安全）
+  expenseSubmissionId   String    @unique
+  /// 审批产出的权威成本行（追溯用；payable 本身不是成本）
+  approvedProjectCostId String?
+  /// EMPLOYEE_REIMBURSEMENT | VENDOR_PAYMENT | AFFILIATE_SETTLEMENT
+  settlementType        String
+  /// USER | VENDOR | AFFILIATE
+  payeeType             String
+  /// payeeType=USER 时的收款人（垫资员工）
+  payeeUserId           String?
+  payeeName             String?
+  /// 应付本金（CAD）
+  amountCad             Decimal   @db.Decimal(18, 2)
+  /// 已付累计（CAD）；由 payment 事务内条件累加，禁止前端计算回写
+  paidAmountCad         Decimal   @default(0) @db.Decimal(18, 2)
+  /// 恒为 "CAD"（列保留以便未来非 CAD 结算；当前服务层强制 CAD）
+  currency              String    @default("CAD")
+  /// PENDING_PAYMENT | PARTIALLY_PAID | PAID | VOID
+  status                String    @default("PENDING_PAYMENT")
+  voidedAt              DateTime?
+  voidReason            String?
+  createdById           String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  payments ProjectExpensePayment[]
+
+  @@index([orgId, projectId, status])
+  @@index([orgId, settlementType, status])
+  @@index([orgId, payeeUserId, status])
+  @@index([approvedProjectCostId])
+}
+
+/// 付款记录（append-only）：错误用 VOID + 补偿记录纠正，禁止覆盖旧 payment。
+/// 一个 payable 可对多条 payment（partial payment 一等公民）。
+/// 唯一内部 FK（Restrict）：对齐 ProjectEventActor / MemoryClaimEvidence 先例，禁级联抹史。
+model ProjectExpensePayment {
+  id             String                @id @default(cuid())
+  orgId          String
+  projectId      String
+  payableId      String
+  payable        ProjectExpensePayable @relation(fields: [payableId], references: [id], onDelete: Restrict)
+  /// 本次付款金额（CAD，正数）
+  amountCad      Decimal               @db.Decimal(18, 2)
+  /// 付款业务发生时间（producer 显式传入；刻意无 default）
+  paidAt         DateTime
+  /// BANK_TRANSFER | ETRANSFER | PAYROLL | CHEQUE | CASH | CREDIT_NOTE | OTHER
+  paymentMethod  String
+  paymentReference String?
+  /// 服务端可信操作人（财务放款人；与费用审批人是两权）
+  paidById       String
+  note           String?               @db.Text
+  /// 幂等键：`payment:{payableId}:{clientKey}`，服务端构造；防双击 / 重试重复放款
+  idempotencyKey String                @unique
+  /// 冲销：VOID 后不计入 paidAmountCad
+  voidedAt       DateTime?
+  voidReason     String?
+  voidedById     String?
+  createdAt      DateTime              @default(now())
+
+  @@index([orgId, projectId, paidAt])
+  @@index([payableId, createdAt])
+}
+
+/// FX 最终结算（RULE 4 §6.3）：审批时的 estimated CAD 与银行实际 CAD 的差额留痕，
+/// 并驱动 ProjectCost 的 VOID + correction（绝不 UPDATE ACTUAL 金额）。
+/// unique(expenseSubmissionId) = 重复结算幂等锚（FX-SETTLE-04）。
+model ProjectExpenseFxSettlement {
+  id                       String   @id @default(cuid())
+  orgId                    String
+  projectId                String
+  expenseSubmissionId      String   @unique
+  /// 结算时复制的原始事实（快照，便于独立审计）
+  originalAmount           Decimal  @db.Decimal(18, 2)
+  originalCurrency         String
+  /// 审批时快照的 estimated CAD（对比基准）
+  estimatedCadAmount       Decimal  @db.Decimal(18, 2)
+  /// 银行实际成交汇率：1 单位 originalCurrency = X CAD
+  settledFxRateCadPerOriginalUnit Decimal @db.Decimal(18, 8)
+  settlementDate           DateTime
+  /// BANK_SETTLEMENT | MANUAL
+  fxRateSource             String
+  /// 银行入账 CAD 本金
+  settledCadAmount         Decimal  @db.Decimal(18, 2)
+  /// 银行 / 电汇手续费（CAD）
+  bankFeeCad               Decimal  @default(0) @db.Decimal(18, 2)
+  /// finalCadAmount = settledCadAmount + bankFeeCad（服务端 Decimal 计算，非前端）
+  finalCadAmount           Decimal  @db.Decimal(18, 2)
+  /// varianceCad = finalCadAmount − estimatedCadAmount（可正可负）
+  varianceCad              Decimal  @db.Decimal(18, 2)
+  /// 修正链：被作废的原 ACTUAL 行 → 新 correction 行
+  previousProjectCostId    String?
+  correctedProjectCostId   String?
+  settledById              String
+  note                     String?  @db.Text
+  createdAt                DateTime @default(now())
+
+  @@index([orgId, projectId])
+  @@index([correctedProjectCostId])
+}
+
+/// 项目收入唯一权威账（REVENUE_SOURCE_GAP 的最小可审计解，镜像 ProjectCost 纪律）：
+/// 金额列填充不覆盖（amountForecastCad → amountRecognizedCad）；RECOGNIZED 后禁止原地改实质字段，
+/// 修正 = VOID 旧行 + correction 新行（correctionOfEntryId 新→旧）。
+/// Change Order 在本轮只做**收入侧**表达（entryType=CHANGE_ORDER），不构成完整 CO 工作流。
+/// ProjectQuote / Project.estimatedValue|ourBidPrice|winningBidPrice 均为非权威复盘字段，禁止参与利润计算。
+model ProjectRevenueEntry {
+  id                       String    @id @default(cuid())
+  orgId                    String
+  projectId                String
+  /// CONTRACT_AWARD | CHANGE_ORDER | ADJUSTMENT
+  entryType                String
+  /// FORECAST | RECOGNIZED | VOIDED（RECOGNIZED = 经济收入确认，≠ 客户已付款）
+  revenueStatus            String
+  description              String?   @db.Text
+  /// 原始币种金额（永久保留）
+  originalAmount           Decimal   @db.Decimal(18, 2)
+  originalCurrency         String
+  /// 1 单位 originalCurrency = X CAD；originalCurrency=CAD 时恒 1
+  fxRateCadPerOriginalUnit Decimal   @db.Decimal(18, 8)
+  fxRateDate               DateTime
+  /// BASE_CURRENCY | MANUAL | SYSTEM_REFERENCE | BANK_SETTLEMENT
+  fxRateSource             String
+  /// 预测收入（合同额 / 已批变更额）
+  amountForecastCad        Decimal?  @db.Decimal(18, 2)
+  /// 已确认经济收入（履约完成 / 金额定案）。**不是「客户已付款」** —— 回款属未来 AR 域。
+  amountRecognizedCad      Decimal?  @db.Decimal(18, 2)
+  /// 业务发生时间（producer 显式传入）
+  recognizedAt             DateTime
+  /// entryType=CHANGE_ORDER 时的变更单编号（外部引用，不建第二套 CO 表）
+  changeOrderReference     String?
+  /// 变更单人工批准留痕（AI 不得自动批准）
+  approvedById             String?
+  approvedAt               DateTime?
+  /// { quoteId?, documentId?, awardNoticeId?, invoiceRef? } —— 只存 id，不复制业务数据
+  refs                     Json?
+  // ── R1 结构化 provenance（取代「靠 refs JSON + findFirst 约定」的弱去重） ──
+  /// AWARD_RECORD | MANUAL（来源域；AWARD_RECORD 表示由 T4 AwardRecord 物化而来）
+  sourceType               String?
+  /// 来源域内的记录 id（sourceType=AWARD_RECORD 时即 AwardRecord.id）
+  sourceRefId              String?
+  /// 去重键：ACTIVE 时 = "{entryType}:{sourceType}:{sourceRefId}"；VOID 时置 NULL 释放键位。
+  /// 配合 @@unique([projectId, activeSourceKey]) 保证「同 Project + 同来源 + CONTRACT_AWARD」
+  /// 至多一条**有效**权威收入行；Postgres NULL 互不冲突 → 手工录入（无来源）不受约束，
+  /// VOID + replacement 修正链也不会被唯一键卡死。
+  activeSourceKey          String?
+  /// 修正链：新行指回被 void 的旧行
+  correctionOfEntryId      String?
+  voidedAt                 DateTime?
+  voidReason               String?
+  createdById              String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@unique([projectId, activeSourceKey])
+  @@index([orgId, projectId, revenueStatus])
+  @@index([orgId, entryType, revenueStatus])
+  @@index([orgId, sourceType, sourceRefId])
+  @@index([correctionOfEntryId])
+}
+
+/// 落标结构化复盘（每项目至多一条）。
+/// primaryLossReason 单选、secondaryLossReasons 多选；AI 只写 aiSuggested*，
+/// 最终原因必须 humanConfirmedAt/ById 人工确认（LOSS-02 / LOSS-03）。
+model ProjectTenderLossReview {
+  id                         String    @id @default(cuid())
+  orgId                      String
+  projectId                  String    @unique
+  /// DRAFT | CONFIRMED
+  status                     String    @default("DRAFT")
+  /// TenderLossReason 词表；仅 CONFIRMED 时非空
+  primaryLossReason          String?
+  secondaryLossReasons       String[]
+  /// [{ kind, note, archiveItemId?, documentId?, sourceUrl? }] —— 证据引用，不复制原文
+  evidence                   Json?
+  ourBidAmountCad            Decimal?  @db.Decimal(18, 2)
+  winningBidAmountCad        Decimal?  @db.Decimal(18, 2)
+  winnerName                 String?
+  notes                      String?   @db.Text
+  /// AI 建议（永远不能直接成为最终原因）
+  aiSuggestedPrimaryReason   String?
+  aiSuggestedSecondaryReasons String[]
+  aiSuggestionAt             DateTime?
+  aiSuggestionSourceRef      String?
+  reviewedById               String?
+  reviewedAt                 DateTime?
+  humanConfirmedById         String?
+  humanConfirmedAt           DateTime?
+  createdById                String
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([orgId, status])
+  @@index([orgId, primaryLossReason])
 }
 
 /// T4 组织级 canonical 授标情报：一条「某买家把某合同授予某供应商」的可追溯记录。

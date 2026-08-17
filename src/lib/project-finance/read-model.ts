@@ -6,13 +6,25 @@
  *
  * 口径：
  * - baseline = AWARD_BASELINE 版本；current = ACTIVE 版本。
- * - actual = ProjectCost.ACTUAL（非 VOIDED，authoritative 合计）；按预算行滚动经 approved expense 的 budgetLineId。
+ * - actual = ProjectCost.ACTUAL（非 VOIDED，authoritative 合计）；
+ *   **行级滚动亦从 ProjectCost 读**（refs.budgetLineId），而非从 submission 表求和 —— T2-P1.6 修正：
+ *   ① 唯一事实源纪律：submission 是流程记录，ProjectCost 才是成本事实；
+ *   ② 多币种下 submission.totalAmount 是**原始币种**金额，直接求和会把 CNY 与 CAD 相加；
+ *   ③ FX 结算修正（void + correction）后金额自动生效，无需二次同步。
  * - committed = ProjectCost.COMMITTED（非 VOIDED，v1 仅项目总计；per-line 待 CO/直接成本链接的后续版本）。
  */
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { isBaseCurrency } from "./money";
 
 const Z = new Prisma.Decimal(0);
+
+/** 从 ProjectCost.refs 安全读出 budgetLineId（refs 是 Json，形状由 cost-service 写入方保证）。 */
+function budgetLineIdOf(refs: Prisma.JsonValue | null): string | null {
+  if (!refs || typeof refs !== "object" || Array.isArray(refs)) return null;
+  const v = (refs as Record<string, unknown>).budgetLineId;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
 
 function pctVariance(budget: Prisma.Decimal, actual: Prisma.Decimal): number | null {
   if (budget.isZero()) return null;
@@ -100,36 +112,31 @@ export async function getBudgetVsActual(
       })
     : [];
 
-  // 实际按预算行滚动：approved expense 的 budgetLineId + totalAmount
-  // （每条 approved expense = 一条同额 ProjectCost.ACTUAL；按 budgetLineId 汇总 = 行级实际）
-  const approvedExpenses = await db.projectExpenseSubmission.findMany({
-    where: { orgId, projectId, status: "APPROVED" },
-    select: { budgetLineId: true, totalAmount: true },
+  // 实际按预算行滚动：直接读权威 ProjectCost.ACTUAL 的 refs.budgetLineId
+  // （VOIDED 天然被 costStatus 过滤掉；FX correction 新行携带同一 budgetLineId）
+  const actualCosts = await db.projectCost.findMany({
+    where: { orgId, projectId, costStatus: "ACTUAL" },
+    select: { amountActual: true, currency: true, refs: true },
   });
   const actualByLine = new Map<string, Prisma.Decimal>();
+  let actualTotal = Z;
   let linkedActual = Z;
-  for (const e of approvedExpenses) {
-    linkedActual = linkedActual.add(e.totalAmount);
-    if (e.budgetLineId) {
-      actualByLine.set(
-        e.budgetLineId,
-        (actualByLine.get(e.budgetLineId) ?? Z).add(e.totalAmount),
-      );
+  for (const c of actualCosts) {
+    // 权威成本行一律 CAD；legacy 非 CAD 行不并入合计（避免跨币种相加），由 profitability 读模型计数上报
+    if (!isBaseCurrency(c.currency)) continue;
+    const amount = c.amountActual ?? Z;
+    actualTotal = actualTotal.add(amount);
+    const lineId = budgetLineIdOf(c.refs);
+    if (lineId) {
+      linkedActual = linkedActual.add(amount);
+      actualByLine.set(lineId, (actualByLine.get(lineId) ?? Z).add(amount));
     }
   }
 
-  // 权威合计：ProjectCost（非 VOIDED）
-  const [actualAgg, committedAgg] = await Promise.all([
-    db.projectCost.aggregate({
-      where: { orgId, projectId, costStatus: "ACTUAL" },
-      _sum: { amountActual: true },
-    }),
-    db.projectCost.aggregate({
-      where: { orgId, projectId, costStatus: "COMMITTED" },
-      _sum: { amountCommitted: true },
-    }),
-  ]);
-  const actualTotal = actualAgg._sum.amountActual ?? Z;
+  const committedAgg = await db.projectCost.aggregate({
+    where: { orgId, projectId, costStatus: "COMMITTED" },
+    _sum: { amountCommitted: true },
+  });
   const committedTotal = committedAgg._sum.amountCommitted ?? Z;
 
   const pendingReviewCount = await db.projectExpenseSubmission.count({
@@ -192,9 +199,8 @@ export async function getBudgetVsActual(
 
   const currentTotal = activeVersion?.totalBudgetAmount ?? Z;
   const baselineTotal = baselineVersion?.totalBudgetAmount ?? Z;
-  const unlinkedActual = linkedActual.sub(
-    [...actualByLine.values()].reduce((a, b) => a.add(b), Z),
-  );
+  // 未关联任何预算行的权威 ACTUAL 合计（如直接记的 ACTUAL 成本 / 无 budgetLineId 的费用）
+  const unlinkedActual = actualTotal.sub(linkedActual);
 
   return {
     currency: budget?.currency ?? null,

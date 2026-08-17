@@ -25,8 +25,9 @@ export const EXPECTED_ACTIVE_MIGRATIONS = [
   "20260805180000_tender_auto_analysis_phase1_1",
   "20260811002000_add_tender_t2_ledger_archive_foundation",
   "20260811040000_add_tender_t3_corporate_memory_foundation",
-  // 字典序：P1.5(0811050000) < T4(0814150000) < A0(0814220000) < A1P0(0815010000)
+  // 字典序：P1.5(0811050000) < P1.6(0814090000) < T4(0814150000) < A0(0814220000) < A1P0(0815010000)
   "20260811050000_add_project_financial_control",
+  "20260814090000_add_tender_profitability_settlement",
   "20260814150000_add_tender_t4_award_record_foundation",
   "20260814220000_add_autopilot_a0_foundation",
   "20260815010000_add_autopilot_a1_p0_telemetry_outbox",

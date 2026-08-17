@@ -104,9 +104,31 @@ function checkMagic(buffer: Buffer, ext: string): boolean {
     case "pptx":
       // zip / ooxml: PK signature
       return b0 === 0x50 && b1 === 0x4b;
+    case "heic":
+    case "heif":
+      // T2-P1.6 收紧：iPhone 票据默认是 HEIC，此前落入 default 放行分支
+      // → .heic 可承载任意字节通过校验。改为按 ISO-BMFF 校验 ftyp box + HEIF 品牌。
+      return checkHeifMagic(buffer);
     default:
       return true; // 未覆盖的类型不拦截
   }
+}
+
+/**
+ * HEIC/HEIF 魔数：ISO base media file format —— 字节 4..7 == "ftyp"，
+ * 紧随其后的 major brand（字节 8..11）必须是已知 HEIF 品牌。
+ * 仅收紧，不放宽：本函数返回 false 的输入在此前是被放行的。
+ */
+const HEIF_BRANDS = new Set([
+  "heic", "heix", "heim", "heis", // HEIF image
+  "hevc", "hevx", "hevm", "hevs", // HEIF sequence
+  "mif1", "msf1",                 // generic HEIF
+]);
+
+function checkHeifMagic(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false;
+  if (buffer.toString("ascii", 4, 8) !== "ftyp") return false;
+  return HEIF_BRANDS.has(buffer.toString("ascii", 8, 12).toLowerCase());
 }
 
 export function validateUploadedFile(

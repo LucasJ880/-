@@ -15,7 +15,9 @@ export type CostPermission =
   | typeof PERMISSIONS.PROJECT_COST_READ
   | typeof PERMISSIONS.PROJECT_EXPENSE_SUBMIT
   | typeof PERMISSIONS.PROJECT_COST_WRITE
-  | typeof PERMISSIONS.PROJECT_COST_REVIEW;
+  | typeof PERMISSIONS.PROJECT_COST_REVIEW
+  // T2-P1.6：付款 / FX 结算确认（审批 ≠ 付款，RULE 6）
+  | typeof PERMISSIONS.PROJECT_PAYMENT_RECORD;
 
 /** flag 关闭 → 404（feature dark） */
 export function financeDisabledResponse(): NextResponse | null {

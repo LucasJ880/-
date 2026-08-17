@@ -62,6 +62,9 @@ export const PERMISSIONS = {
   PROJECT_EXPENSE_SUBMIT: "project:expense:submit",
   PROJECT_COST_WRITE: "project:cost:write", // 编辑预算版本/行（规划）；非费用提交
   PROJECT_COST_REVIEW: "project:cost:review", // accounting 审批/拒绝费用
+  // T2-P1.6：审批 ≠ 付款（RULE 6）。放款 / FX 结算确认是独立的第四权，
+  // 不随 COST_REVIEW 自动附赠 —— 否则「认定这是成本」等于「可以把钱转出去」。
+  PROJECT_PAYMENT_RECORD: "project:payment:record",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -131,6 +134,7 @@ const PROJECT_ADMIN_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
   PERMISSIONS.PROJECT_COST_WRITE,
   PERMISSIONS.PROJECT_COST_REVIEW,
+  PERMISSIONS.PROJECT_PAYMENT_RECORD,
 ];
 
 const OPERATOR_PERMISSIONS: Permission[] = [
@@ -151,7 +155,12 @@ const OPERATOR_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROJECT_COST_WRITE,
 ];
 
-/** T2-P1.5 财务审核角色：读/提交/写预算 + 审核（唯一新增 review 能力的项目角色） */
+/**
+ * T2-P1.5 财务审核角色：读/提交/写预算 + 审核（唯一新增 review 能力的项目角色）。
+ * T2-P1.6 追加 PAYMENT_RECORD：会计既是审核方也是出纳方（青砚当前规模的现实），
+ * 但**权限位仍分离** —— 未来要做「审核人 ≠ 放款人」只需从本角色移除该位，
+ * 无需改动任何 route/service 代码。
+ */
 const ACCOUNTING_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROJECT_READ,
   PERMISSIONS.PROJECT_MEMBER_LIST,
@@ -159,6 +168,7 @@ const ACCOUNTING_PERMISSIONS: Permission[] = [
   PERMISSIONS.PROJECT_EXPENSE_SUBMIT,
   PERMISSIONS.PROJECT_COST_WRITE,
   PERMISSIONS.PROJECT_COST_REVIEW,
+  PERMISSIONS.PROJECT_PAYMENT_RECORD,
 ];
 
 const TESTER_PERMISSIONS: Permission[] = [

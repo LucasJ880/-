@@ -57,3 +57,85 @@ export function expenseRejectedEventKey(expenseId: string): string {
 export function expenseApprovedEventKey(expenseId: string): string {
   return `expense.approved:${expenseId}`;
 }
+
+/* ═══════════════════════════ T2-P1.6 事件键 ═══════════════════════════ */
+
+/**
+ * 金额人工确认（可重复发生：10:32 记 $23 → 10:41 改 $28 → 再次确认）。
+ * 用 expense 的 transitionCount 版本化，retry-stable（回滚后计数不变 → key 稳定）。
+ */
+export function expenseAmountConfirmedEventKey(expenseId: string, transitionSeq: number): string {
+  return `expense.amount_confirmed:${expenseId}:t${transitionSeq}`;
+}
+
+/** 票据上传：attachmentId 即动作身份（同 hash 去重后返回既有 → 天然幂等） */
+export function expenseReceiptUploadedEventKey(attachmentId: string): string {
+  return `expense.receipt_uploaded:${attachmentId}`;
+}
+
+/**
+ * 应付创建：仅认 expenseId —— 一份 expense 至多一条 payable，
+ * 与 DB 层 unique(expenseSubmissionId) 双保险（REIMB-01 防重复报销）。
+ */
+export function expensePayableCreatedEventKey(expenseId: string): string {
+  return `expense.payable_created:${expenseId}`;
+}
+
+/** 付款记录：paymentId 即动作身份（paymentId 由服务端 idempotencyKey 收敛后产生） */
+export function expensePaymentRecordedEventKey(paymentId: string): string {
+  return `expense.payment_recorded:${paymentId}`;
+}
+
+/** 付款冲销：每条 payment 至多冲销一次 */
+export function expensePaymentVoidedEventKey(paymentId: string): string {
+  return `expense.payment_voided:${paymentId}`;
+}
+
+/** 汇率锁定（费用提交/确认时的 FX 快照） */
+export function expenseFxRateLockedEventKey(expenseId: string, transitionSeq: number): string {
+  return `expense.fx_rate_locked:${expenseId}:t${transitionSeq}`;
+}
+
+/** FX 最终结算：仅认 expenseId —— 重复结算幂等收敛（FX-SETTLE-04） */
+export function expenseFxSettledEventKey(expenseId: string): string {
+  return `expense.fx_settled:${expenseId}`;
+}
+
+/** 成本修正（FX variance 驱动的 VOID + correction）：仅认 expenseId */
+export function expenseCostCorrectedEventKey(expenseId: string): string {
+  return `expense.cost_corrected:${expenseId}`;
+}
+
+/* ── 收入账 ── */
+
+/** 收入条目创建（entryId 即动作身份） */
+export function revenueRecordedEventKey(entryId: string): string {
+  return `revenue.recorded:${entryId}`;
+}
+
+/** 收入实现（FORECAST → REALIZED；每条至多一次） */
+export function revenueRecognizedEventKey(entryId: string): string {
+  return `revenue.recognized:${entryId}`;
+}
+
+/** 收入作废（每条至多一次） */
+export function revenueVoidedEventKey(entryId: string): string {
+  return `revenue.voided:${entryId}`;
+}
+
+/* ── 落标复盘 ── */
+
+/** 复盘草稿创建（每项目至多一条 review → reviewId 即身份） */
+export function lossReviewCreatedEventKey(reviewId: string): string {
+  return `tender.loss_review_created:${reviewId}`;
+}
+
+/** AI 建议写入（可重复；用 suggestion 序号版本化） */
+export function lossReviewAiSuggestedEventKey(reviewId: string, seq: number): string {
+  return `tender.loss_review_ai_suggested:${reviewId}:s${seq}`;
+}
+
+/** 人工确认最终原因（每条 review 至多一次 CONFIRMED 转移） */
+export function lossReviewConfirmedEventKey(reviewId: string): string {
+  return `tender.loss_review_confirmed:${reviewId}`;
+}
