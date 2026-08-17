@@ -56,10 +56,13 @@ console.log("tender-auto-analysis package-fingerprint (Phase 1.1.1)");
 }
 
 ok(MAX_PDF_PAGES === 80, "MAX_PDF_PAGES=80 per document");
-ok(MAX_TENDER_PACKAGE_PAGES === 200, "MAX_TENDER_PACKAGE_PAGES=200 per package");
 ok(
-  packageTooLarge([{ pageCount: 80 }, { pageCount: 80 }, { pageCount: 50 }]),
-  "210 页包过大",
+  MAX_TENDER_PACKAGE_PAGES === 400,
+  "MAX_TENDER_PACKAGE_PAGES=400 per package（含非 PDF 可引用单元）",
+);
+ok(
+  packageTooLarge([{ pageCount: 200 }, { pageCount: 150 }, { pageCount: 80 }]),
+  "430 单元包过大",
 );
 ok(
   !packageTooLarge([{ pageCount: 80 }, { pageCount: 80 }]),

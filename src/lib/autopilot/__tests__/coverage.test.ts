@@ -153,7 +153,11 @@ const unknown = mapAgentRunEventToAutopilot("totally.unknown.event");
 ok(unknown?.eventType === "UNKNOWN_EVENT", "15 unknown event diagnostic");
 ok(classifyAgentRunEvent("totally.unknown.event") === "unknown", "15 classify unknown");
 ok(classifyAgentRunEvent("ack.sent") === "internal", "15 internal not unknown");
-ok(mapAgentRunEventToAutopilot("ack.sent") === null, "15 internal not projected");
+ok(
+  mapAgentRunEventToAutopilot("run.retry_requested") === null &&
+    classifyAgentRunEvent("run.retry_requested") === "internal",
+  "run.retry_requested is internal, not RE_ASK",
+);
 
 const dirty = mapAgentRunEventToAutopilot("tool.started", {
   name: "search",
@@ -426,6 +430,32 @@ ok(snapshot.runtimeCoverageGap === null, "live runtimeCoverageGap is N/A, not fa
 ok(
   snapshot.runtimeCoverageGapNote === RUNTIME_COVERAGE_GAP_LIVE_NOTE,
   "live diagnostics explain N/A reason",
+);
+ok(snapshot.humanEditCount === 0, "tool snapshot has no human edits");
+
+const postTerminal = summarizeCoverage({
+  runCount: 1,
+  events: [
+    { eventType: "agent.output", runId: "r1" },
+    { eventType: "run.completed", runId: "r1" },
+    {
+      eventType: "human.edit",
+      runId: "r1",
+      payload: { sourceAgentRunId: "r1", signalKey: "human.edit:r1:d:1" },
+    },
+  ],
+  outboxEventCount: 3,
+  projectedEventCount: 3,
+  projectedHumanSignalCount: 1,
+  captureEnabled: true,
+  classify: classifyAgentRunEvent,
+});
+ok(
+  postTerminal.humanEditCount === 1 &&
+    postTerminal.toolOrphans === 0 &&
+    postTerminal.unknownEventTypeCount === 0 &&
+    postTerminal.humanSignalProjectionGap === 0,
+  "post-terminal human.edit is legal, not coverage corruption",
 );
 
 const snapshotClosed = summarizeCoverage({

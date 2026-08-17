@@ -285,8 +285,14 @@ console.log("\n[§10 资源声明消毒]");
       workforceTask: (adapted.plan.steps[0] as AnyRecord).workforceTask,
     });
   ok(
-    adapted.ok && spec !== false && spec.kind === "valid" && spec.spec.resources === undefined,
-    "P/§10: 未声明资源 → V1 spec 不含 resources（backward-compatible optional）",
+    adapted.ok &&
+      spec !== false &&
+      spec.kind === "valid" &&
+      // T5-P0B：reader 把"未声明 resources"归一为 canonical 空集合，
+      // 下游并行冲突判定无需再区分 v1（无该字段）与 v1.1（显式声明）。
+      Array.isArray(spec.spec.resources) &&
+      spec.spec.resources.length === 0,
+    "P/§10: 未声明资源 → reader 归一为空资源集合（v1/v1.1 统一语义）",
   );
 }
 {

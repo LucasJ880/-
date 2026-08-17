@@ -34,6 +34,12 @@ type Coverage = {
   retrievalOrphans: number;
   runtimeCoverageGap: number | null;
   runtimeCoverageGapNote?: string;
+  humanEditCount?: number;
+  humanOverrideCount?: number;
+  reAskCount?: number;
+  humanSignalProjectionGap?: number | null;
+  unlinkedHumanSignalCount?: number;
+  duplicateHumanSignalCount?: number;
   unknownEventTypeCount: number;
   unknownEventTypes: string[];
   note: string;
@@ -158,6 +164,31 @@ export default function AutopilotTelemetryPage() {
             <Row
               label="Retrieval orphans"
               value={String(coverage.retrievalOrphans)}
+            />
+            <Row
+              label="Human Edit"
+              value={String(coverage.humanEditCount ?? 0)}
+            />
+            <Row
+              label="Human Override"
+              value={String(coverage.humanOverrideCount ?? 0)}
+            />
+            <Row label="Re-Ask" value={String(coverage.reAskCount ?? 0)} />
+            <Row
+              label="HUMAN_SIGNAL_PROJECTION_GAP"
+              value={
+                coverage.humanSignalProjectionGap == null
+                  ? "n/a"
+                  : String(coverage.humanSignalProjectionGap)
+              }
+            />
+            <Row
+              label="Unlinked human signals"
+              value={String(coverage.unlinkedHumanSignalCount ?? 0)}
+            />
+            <Row
+              label="Duplicate signals suppressed"
+              value={String(coverage.duplicateHumanSignalCount ?? 0)}
             />
             <Row
               label="Unknown event types"

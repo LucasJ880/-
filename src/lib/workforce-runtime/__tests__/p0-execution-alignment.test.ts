@@ -175,6 +175,7 @@ async function main() {
     owner: WorkforceFixture = fx,
   ) {
     const job = await createWorkforceJob({
+      workDomain: "sales",
       orgId: owner.orgId,
       userId: owner.ownerUserId,
       role: "sales",

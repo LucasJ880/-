@@ -1848,11 +1848,16 @@ model ProjectDocumentPage {
   id               String          @id @default(cuid())
   documentId       String
   document         ProjectDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  /// 可引用单元序号（1-based）。PDF=真实页码；非 PDF=单元序号（不等于页）
   pageNumber       Int
   contentText      String          @db.Text
   charCount        Int             @default(0)
   extractionMethod String          @default("unpdf")
   parseStatus      String          @default("pending") // pending | done | failed | OCR_REQUIRED
+  /// 单元类型：page（PDF 页）| sheet（表格工作表/行区间）| block（文档段落块）
+  unitKind         String          @default("page")
+  /// 单元人类可读标签（如 `Sheet「Pricing」· 行 1–40`）；PDF 为 null（用页码展示）
+  unitLabel        String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 

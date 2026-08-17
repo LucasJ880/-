@@ -9,7 +9,9 @@
 
 export const PROMPT_EXTRACT = {
   name: "tender-understanding-v2-extract",
-  version: "tender-understanding-v2-extract@3",
+  // @4：明确「pageNumber 必须是引文所在的那个 PAGE/UNIT 块」——
+  // 生产实测多单元窗口（尤其 xlsx 工作表）下模型高频引错单元号。
+  version: "tender-understanding-v2-extract@4",
 } as const;
 
 export const PROMPT_RESOLVE = {
@@ -82,7 +84,12 @@ export function buildExtractUserPrompt(window: {
   documentName: string;
   sourceRole: string;
   headings: string[];
-  pages: { pageNumber: number; contentText: string }[];
+  pages: {
+    pageNumber: number;
+    contentText: string;
+    unitKind?: string | null;
+    unitLabel?: string | null;
+  }[];
 }): string {
   const header = [
     `DOCUMENT: ${window.documentName}`,
@@ -95,13 +102,29 @@ export function buildExtractUserPrompt(window: {
   ]
     .filter((x): x is string => x !== null)
     .join("\n");
+  // 非 PDF 没有页：定位单元用真实标签（Sheet/段落块），并明确 pageNumber 是单元序号。
+  // 绝不把单元序号说成"页"——引用要能被人核验回原文。
   const body = window.pages
-    .map(
-      (p) =>
-        `=== documentId ${window.documentId} PAGE ${p.pageNumber} ===\n${p.contentText}`,
-    )
+    .map((p) => {
+      const isPage = !p.unitKind || p.unitKind === "page";
+      const locator = isPage
+        ? `PAGE ${p.pageNumber}`
+        : `UNIT ${p.pageNumber} (${p.unitKind}${p.unitLabel ? `: ${p.unitLabel}` : ""})`;
+      return `=== documentId ${window.documentId} ${locator} ===\n${p.contentText}`;
+    })
     .join("\n\n");
-  return `${header}${body}\n\nExtract facts / requirements / potentialRisks / ambiguities from the pages above. JSON only.`;
+  return `${header}${body}
+
+LOCATION RULE (strict):
+- Each block above starts with a marker line: "=== documentId <id> PAGE <n> ===" or
+  "=== documentId <id> UNIT <n> (kind: label) ===".
+- sourceSnippet MUST be copied verbatim from ONE single block. Never merge lines from
+  two different blocks into one snippet.
+- pageNumber MUST be the <n> of the block your sourceSnippet was copied from — not the
+  first block, not the block you are summarising about. Copy the number from that block's
+  marker line.
+
+Extract facts / requirements / potentialRisks / ambiguities from the blocks above. JSON only.`;
 }
 
 /* ---------------------------------- 澄清解决检查（corpus resolution） ---------------------------------- */

@@ -189,6 +189,10 @@ export async function createAgentRun(input: {
           startedAt: new Date(),
         },
       });
+      // 新建 run：本事务的 INSERT 已对该 AgentRun 行持有排他锁，
+      // 其它事务此刻还看不到该行（未提交），故不存在并发竞争者 ——
+      // 这里的 outbox→event 顺序与 canonical lock order 不冲突。
+      // appendAgentRunEventInTx 内部会再取一次同行 FOR UPDATE（同事务内 no-op）。
       await enqueueAutopilotTelemetryOutbox(tx, {
         orgId: input.orgId,
         agentRunId: created.id,
@@ -348,6 +352,43 @@ async function loadLockedAgentRun(
   });
   if (!run) throw new Error("Run 不存在或跨组织");
   return run;
+}
+
+/**
+ * 事件追加路径的 per-run 序列化闸（canonical lock order 的第一步）。
+ *
+ * 与 {@link loadLockedAgentRun} 取**同一把锁**（AgentRun 行 `FOR UPDATE`），
+ * 但语义不同：run 不存在 / 跨 org 时**返回 null 而不抛错** —— 保持
+ * appendAgentRunEventInTx 既有的 fail-closed「静默不写事件」契约
+ * （跨 org 追加必须零事件零 outbox，见 A1-P0 E2E case 10）。
+ *
+ * 为什么必须先取这把锁（40P01 根因）：
+ * `AgentRunEvent.runId` 与 `AutopilotTelemetryOutbox.agentRunId` 都对 AgentRun 有 FK，
+ * PostgreSQL 在插入子行时会对父行取隐式 `FOR KEY SHARE`。修复前：
+ *   - terminal 路径：显式 `FOR UPDATE`（强锁）**先**取；
+ *   - 普通 append 路径：**完全不取** AgentRun 锁，直到插入子行时才隐式取 `FOR KEY SHARE`（弱锁、晚取）。
+ * 两条路径以**不同强度、不同时机**触碰同一批资源（AgentRun 行 / `(runId,sequence)` 唯一槽 /
+ * outbox `idempotencyKey` 唯一槽），`FOR UPDATE` 与 `FOR KEY SHARE` 互斥，
+ * 交错即可形成等待环 → 40P01。
+ *
+ * 统一为「先 AgentRun FOR UPDATE」后，同一 run 的所有事件生产者串行化：
+ * 序列号分配不再有并发窗口，锁顺序全局一致，环不可能形成。
+ * 锁粒度是**单行**，不同 run 互不阻塞（见 SEQ-DEADLOCK-05）。
+ */
+async function lockAgentRunForAppend(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  runId: string,
+): Promise<{ id: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(
+    Prisma.sql`
+      SELECT id
+      FROM "AgentRun"
+      WHERE id = ${runId} AND "orgId" = ${orgId}
+      FOR UPDATE
+    `,
+  );
+  return rows[0] ?? null;
 }
 
 async function applyAgentRunTerminalInTx(
@@ -546,6 +587,20 @@ export const AGENT_RUN_EVENT_SEQUENCE_MAX_RETRIES = 8;
  * Postgres aborts the interactive transaction on unique violation — retry
  * the WHOLE work() (a fresh $transaction), never catch P2002 inside the
  * already-aborted TX.
+ *
+ * ── P2002 与 40P01 的关系（刻意不合并处理）──
+ * `P2002` = 唯一键冲突：两事务算出同一 sequence，后者插入失败。
+ * `40P01` = 死锁：两事务互相等待对方的锁，PostgreSQL 主动杀掉其中一个。
+ * 二者是不同故障，**不可用同一个 retry 掩盖**。
+ *
+ * 本次修复（per-run `FOR UPDATE` 序列化）解决的是 **lock correctness**：
+ * 同一 run 的事件生产者被串行化后，序列号分配不再有并发窗口，
+ * 因此 P2002 与 40P01 在同 run 路径上都不应再出现。
+ *
+ * 保留本 retry 的理由是**纵深防御**，不是修复手段：
+ * 它仍覆盖非本模块路径（如历史数据/外部直写）可能残留的唯一冲突。
+ * **刻意不把 40P01 加入 allowlist** —— 若死锁再次出现，那是锁协议被破坏的信号，
+ * 必须让它冒出来被发现，而不是被静默重试掩盖。
  */
 export async function withAgentRunEventSequenceRetry<T>(
   work: () => Promise<T>,
@@ -605,10 +660,14 @@ export async function appendAgentRunEventInTx(
     visibleToUser?: boolean;
   },
 ) {
-  const run = await tx.agentRun.findFirst({
-    where: { id: input.runId, orgId: input.orgId },
-    select: { id: true },
-  });
+  // CANONICAL LOCK ORDER（所有同 run 事件生产者必须一致）：
+  //   ① AgentRun 行 FOR UPDATE  →  ② 定序 max(sequence)  →  ③ 建 AgentRunEvent  →  ④ 入 outbox
+  // 修复前此处是**无锁**存在性读，导致 ②③ 之间存在并发窗口（多事务算出同一 sequence），
+  // 且与 terminal 路径的显式 FOR UPDATE 形成锁强度/时序不一致 → 40P01。
+  //
+  // 幂等性：terminal 路径（applyAgentRunTerminalInTx）在外层已持有同一行的 FOR UPDATE，
+  // 同一事务内重复取锁是 no-op，不会自锁、不改变既有 terminal 语义。
+  const run = await lockAgentRunForAppend(tx, input.orgId, input.runId);
   if (!run) return null;
 
   const last = await tx.agentRunEvent.findFirst({

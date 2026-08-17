@@ -5,7 +5,13 @@
 
 export const ANALYSIS_VERSION = "tender-auto-analysis-v1" as const;
 export const PROMPT_VERSION = "tender-analysis-prompt-v1" as const;
-export const PARSE_VERSION = "tender-page-parse-v1" as const;
+/**
+ * 页/单元解析语义版本。
+ * v2（2026-08-16）：非 PDF 不再只存整篇 contentText，而是切成**可引用单元**
+ * （sheet/block）并写入 ProjectDocumentPage。版本上调 = 既有文档在下次 ENSURE_PAGES
+ * 时按新语义重解析（worker 的"已解析则跳过"判定以此版本为准）。
+ */
+export const PARSE_VERSION = "tender-page-parse-v2" as const;
 
 /** 同一项目短时间重新分析上限（防成本放大） */
 export const REANALYZE_RATE_WINDOW_MS = 5 * 60_000;

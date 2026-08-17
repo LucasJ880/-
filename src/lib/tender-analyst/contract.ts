@@ -152,7 +152,10 @@ export type AnalystEvidenceRef = {
   evidence: Array<{
     documentId: string;
     documentName: string | null;
+    /** 可引用单元序号；非 PDF 时它不是页码，展示必须优先用 unitLabel */
     pageNumber: number | null;
+    /** 非 PDF 单元的真实定位标签（`Sheet「Pricing」· 行 1–40`）；PDF 为 null */
+    unitLabel?: string | null;
     snippet: string | null;
   }>;
 };

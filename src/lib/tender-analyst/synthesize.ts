@@ -141,6 +141,8 @@ export function finalizeAnalystSynthesis(input: {
   logs: LlmCallLog[];
   analystLatencyMs: number;
   reviewLatencyMs: number;
+  /** 非 PDF 单元标签解析器（透传给证据索引，保证 Drawer 不显示假页码） */
+  unitLabelOf?: (documentId: string, pageNumber: number | null) => string | null;
 }): TenderAnalystSynthesisV1 {
   let finalDraft: AnalystLlmOutput;
   let qaStatus: TenderAnalystSynthesisV1["qa"]["status"];
@@ -179,7 +181,7 @@ export function finalizeAnalystSynthesis(input: {
       issues: [...qaIssues, ...finalValidation.issues].slice(0, 40),
       needsHumanReview,
     },
-    evidenceIndex: hydrateEvidenceIndex(sanitized, input.result),
+    evidenceIndex: hydrateEvidenceIndex(sanitized, input.result, input.unitLabelOf),
     telemetry: {
       analystLatencyMs: input.analystLatencyMs,
       reviewLatencyMs: input.reviewLatencyMs,

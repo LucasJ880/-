@@ -14,7 +14,13 @@
  */
 
 import { db } from "@/lib/db";
-import { appendAgentRunEvent } from "@/lib/agent-runtime/run";
+import {
+  appendAgentRunEvent,
+  mergeAgentRunMetadata,
+} from "@/lib/agent-runtime/run";
+import { getRuntimeV2Limits } from "@/lib/agent-runtime-v2/flags";
+import { PLAN_SOURCE } from "./server-plan";
+import { WORKFORCE_TASK_CONTRACT_WRITE_VERSION } from "./task-contract";
 import {
   claimRunLease,
   renewRunLease,
@@ -23,6 +29,8 @@ import {
   LostLeaseError,
   type RunLeaseHandle,
 } from "@/lib/agent-runtime/lease";
+import { startLeaseHeartbeat } from "./lease-heartbeat";
+import { plannerVisibleRuntimeV2Tools } from "@/lib/agent-runtime-v2/tool-catalog";
 import {
   runtimeFromRunMetadata,
   runtimeContextToTelemetry,
@@ -159,11 +167,24 @@ export async function processWorkforceJobSlice(
     clearError: false,
   });
   if (!claim.ok) return { claimed: false };
-  // holder：renew 后更新 holder.lease，fence 始终引用最新 token
-  const holder: { lease: RunLeaseHandle } = { lease: claim.lease };
+  // T5-P1 §9：心跳持有 holder——round 之间的显式续租只覆盖 round 边界，
+  // 单个 round 内部的长 await（工具/synthesis）此前完全没有保活。
+  // 心跳与防栅栏写入经 holder.runExclusive 互斥（见 lease-heartbeat.ts）。
+  const heartbeat = startLeaseHeartbeat({
+    lease: claim.lease,
+    activeStatuses: ACTIVE_STATUSES,
+  });
+  const holder = heartbeat.holder;
   // BLOCKER 1：fence 传入 V2 执行路径——executor/verifier 的所有
   // AgentRun/AgentRunStep/AgentRunVerification 写入经原子防栅栏
   const fence = createRunFence(holder);
+  try {
+    return await runClaimedSlice();
+  } finally {
+    heartbeat.stop();
+  }
+
+  async function runClaimedSlice(): Promise<WorkforceSliceResult> {
 
   const run = await db.agentRun.findUniqueOrThrow({ where: { id: runId } });
   const orgId = run.orgId;
@@ -366,11 +387,35 @@ export async function processWorkforceJobSlice(
       // validation → sanitized assignment。unknown workerKey / 非法 taskKind
       // → FAIL VALIDATION，走现有 planner failure path（throw → 退避重试，
       // 重规划或 attempts 耗尽 failed；planJson 未持久化，不产生半成品计划）。
-      const { applyWorkforceTaskSpecs } = await import("./task-contract");
-      const adapted = applyWorkforceTaskSpecs(planned.plan);
-      if (!adapted.ok) {
-        throw new Error(`${adapted.code}: ${adapted.error}`);
+      // T5-P0A §4：LLM 计划与 server-authored 计划共用同一条验证链
+      // （compileWorkforcePlan = Zod/工具白名单 → DAG 结构 → task spec）。
+      // 绝不允许两侧各写一套标准；本轮为该链补上依赖闭包/环检测，
+      // LLM 路径同样受益（此前悬空依赖只会在 executor 表现为 blocked_graph 卡死）。
+      const { compileWorkforcePlan } = await import("./plan-compile");
+      const compiledPlan = compileWorkforcePlan({
+        raw: planned.plan,
+        // 工具白名单必须与 planner **实际使用**的投影一致：
+        // resolveWorkforcePlannerToolsForJob 对非 tender 域返回 undefined
+        // （fail-safe：planner 自己回落 plannerVisibleRuntimeV2Tools），
+        // 这里若传空数组，sanitizePlannerOutput 会把每个 preferredTool 当作
+        // 越权工具剥掉 → 所有步骤以 no_tool「步骤未指定工具」失败。
+        tools: scopedTools ?? plannerVisibleRuntimeV2Tools(),
+        maxSteps: getRuntimeV2Limits().maxSteps,
+      });
+      if (!compiledPlan.ok) {
+        throw new Error(`${compiledPlan.code}: ${compiledPlan.error}`);
       }
+      const adapted = { plan: compiledPlan.compiled.plan };
+
+      // §5/§28：计划来源可观测（LLM 路径显式标记；server 路径在 job.ts 写入）
+      await mergeAgentRunMetadata(orgId, runId, {
+        planSource: PLAN_SOURCE.LLM_PLANNER,
+        taskContractVersion: WORKFORCE_TASK_CONTRACT_WRITE_VERSION,
+        planTaskCount: compiledPlan.compiled.taskCount,
+        // T5 §G 最小可观测：planner 的模型调用次数（template 计划为 0）。
+        // 只做计数标注，不改动任何计费语义（AiUsageLedger 不受影响）。
+        plannerLlmCalls: planned.source === "model" ? 1 : 0,
+      }).catch(() => {});
 
       // §10 + BLOCKER 1：planner（长 await）之后、persist 之前重新验证租约
       const renewedAfterPlan = await renewRunLease({
@@ -574,6 +619,7 @@ export async function processWorkforceJobSlice(
       maxAttempts: WORKFORCE_MAX_ATTEMPTS,
       error,
     });
+  }
   }
 }
 

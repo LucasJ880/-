@@ -44,7 +44,10 @@ export function SourceSnippetDialog({ open, source, onClose }: Props) {
                     : source.pageNumber != null
                       ? `第 ${source.pageNumber} 页`
                       : "页码未知"}
-              {source.sectionLabel ? ` · ${source.sectionLabel}` : ""}
+              {source.sectionLabel &&
+              !source.locationLabel?.includes(source.sectionLabel)
+                ? ` · ${source.sectionLabel}`
+                : ""}
               {source.methodLabel ? ` · ${source.methodLabel}` : ""}
             </p>
           </div>

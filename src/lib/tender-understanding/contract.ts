@@ -31,8 +31,13 @@ export const DOCUMENT_SOURCE_ROLES = [
 export type DocumentSourceRole = (typeof DOCUMENT_SOURCE_ROLES)[number];
 
 export type AnalyzerPage = {
+  /** 可引用单元序号（1-based）。PDF=页码；非 PDF=单元序号（配合 unitLabel 展示） */
   pageNumber: number;
   contentText: string;
+  /** page | sheet | block；缺省按 page 处理（向后兼容既有调用方与 benchmark fixture） */
+  unitKind?: string | null;
+  /** 单元人类可读定位标签（如 `Sheet「Pricing」· 行 1–40`）；PDF 为 null */
+  unitLabel?: string | null;
 };
 
 export type AnalyzerDocument = {
@@ -348,6 +353,8 @@ export type PromptUsage = {
 };
 
 export type AnalysisMetadataV2 = {
+  /** 引文逐字可核验但被模型写错单元号、已纠正到唯一真实单元的条数 */
+  evidenceReattributed?: number;
   analyzerVersion: typeof TENDER_UNDERSTANDING_VERSION;
   resultVersion: typeof TENDER_ANALYSIS_RESULT_VERSION;
   projectId: string;

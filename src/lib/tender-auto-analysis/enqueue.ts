@@ -8,6 +8,7 @@ import type { TenderAnalysisStatus } from "./constants";
 import { canAutoEnqueueAnalysis } from "./gate";
 import { sha256Content } from "./hash";
 import {
+  isAnalyzableFileType,
   isPdfFileType,
   suggestionWhenGateClosed,
 } from "./enqueue-helpers";
@@ -86,7 +87,7 @@ export async function maybeEnqueueTenderAnalysisAfterUpload(
     };
   }
 
-  if (!isPdfFileType(input.fileType)) {
+  if (!isAnalyzableFileType(input.fileType)) {
     return { enqueued: false, reason: "unsupported_file_type" };
   }
 
