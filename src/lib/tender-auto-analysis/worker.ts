@@ -28,7 +28,7 @@ import {
   TenderV2LeaseLostError,
 } from "./v2-persist";
 import { readCursorProgressAt, type V2CursorState } from "./v2-cursor";
-import { notifyTenderRunFailed } from "./alerts";
+import { notifyTenderRunFailed, notifyTenderRunSucceeded } from "./alerts";
 import { projectAnalysisToRoom } from "./project-room";
 import { createAnalysisTasks } from "./tasks";
 import { computeAndPersistAddendumDiff } from "./addendum-diff";
@@ -624,6 +624,9 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
   if (finalized.count === 0) {
     throw new LeaseLostError("FINALIZE");
   }
+
+  // 分析可用了要有人知道（与失败告警对称）：幂等 + best-effort，绝不阻断收尾
+  await notifyTenderRunSucceeded(run.id);
 
   // 业务阶段推进（FB-7）：AI 解读产出（REVIEW_REQUIRED）即代表项目进入「项目解读」，
   // 不要求先做项目分发（默认使用者即项目负责人）。幂等：已有 interpretedAt 不覆盖。

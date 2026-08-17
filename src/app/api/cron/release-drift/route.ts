@@ -13,7 +13,10 @@ import { requireCronSecret } from "@/lib/cron/auth";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { db } from "@/lib/db";
 import { createNotification } from "@/lib/notifications/create";
-import { EXPECTED_ACTIVE_MIGRATIONS } from "@/lib/release/expected-migrations";
+import {
+  ARCHIVED_MIGRATIONS,
+  EXPECTED_ACTIVE_MIGRATIONS,
+} from "@/lib/release/expected-migrations";
 import {
   diffMigrations,
   driftNotificationTitle,
@@ -33,7 +36,9 @@ export async function GET(request: NextRequest) {
        where finished_at is not null and rolled_back_at is null`,
     );
     const applied = rows.map((r) => r.migration_name);
-    const drift = diffMigrations(EXPECTED_ACTIVE_MIGRATIONS, applied);
+    const drift = diffMigrations(EXPECTED_ACTIVE_MIGRATIONS, applied, {
+      archived: ARCHIVED_MIGRATIONS,
+    });
 
     if (drift.severity === "ok") {
       console.log(`[release-drift] ok expected=${drift.expectedCount}`);

@@ -11,7 +11,10 @@ import {
   driftNotificationTitle,
   driftSourceKey,
 } from "../drift";
-import { EXPECTED_ACTIVE_MIGRATIONS } from "../expected-migrations";
+import {
+  ARCHIVED_MIGRATIONS,
+  EXPECTED_ACTIVE_MIGRATIONS,
+} from "../expected-migrations";
 
 let pass = 0;
 let fail = 0;
@@ -123,6 +126,47 @@ const C = "20260103000000_c";
     ...EXPECTED_ACTIVE_MIGRATIONS,
   ]);
   ok(self.severity === "ok", "DRIFT-10 自比对为 ok（防止列表本身写坏）");
+}
+
+/* ---------------- 归档迁移不得误报（真实生产形态） ---------------- */
+{
+  // 生产库里躺着 greenfield 重基线前的历史迁移；不传 archived 会天天误报
+  const appliedWithLegacy = [...EXPECTED_ACTIVE_MIGRATIONS, ...ARCHIVED_MIGRATIONS];
+  const noisy = diffMigrations(EXPECTED_ACTIVE_MIGRATIONS, appliedWithLegacy);
+  ok(
+    noisy.unexpected.length > 0,
+    `DRIFT-11 前置：不过滤归档会产生 ${noisy.unexpected.length} 条噪音`,
+  );
+
+  const clean = diffMigrations(EXPECTED_ACTIVE_MIGRATIONS, appliedWithLegacy, {
+    archived: ARCHIVED_MIGRATIONS,
+  });
+  ok(clean.severity === "ok", "DRIFT-11 传入归档集后 → ok（生产真实形态不误报）");
+  ok(clean.unexpected.length === 0, "DRIFT-11 归档迁移不计入 unexpected");
+
+  // 归档集不能掩盖真正的缺失
+  const missingOne = diffMigrations(
+    [...EXPECTED_ACTIVE_MIGRATIONS, "20990101000000_future"],
+    appliedWithLegacy,
+    { archived: ARCHIVED_MIGRATIONS },
+  );
+  ok(
+    missingOne.severity === "critical" &&
+      missingOne.missing.join(",") === "20990101000000_future",
+    "DRIFT-12 归档过滤不得掩盖真实缺失",
+  );
+
+  // 真正陌生的迁移仍要报
+  const stranger = diffMigrations(
+    EXPECTED_ACTIVE_MIGRATIONS,
+    [...appliedWithLegacy, "20990101000000_unknown_from_nowhere"],
+    { archived: ARCHIVED_MIGRATIONS },
+  );
+  ok(
+    stranger.severity === "warn" &&
+      stranger.unexpected.join(",") === "20990101000000_unknown_from_nowhere",
+    "DRIFT-12 非归档的陌生迁移仍然报 warn",
+  );
 }
 
 console.log(`\n通过 ${pass}，失败 ${fail}`);

@@ -9,6 +9,8 @@ import {
   resolveFailureRecipients,
   tenderFailureSourceKey,
   tenderFailureSummary,
+  tenderSuccessSourceKey,
+  tenderSuccessSummary,
 } from "../alerts";
 
 let pass = 0;
@@ -89,6 +91,65 @@ function ok(cond: boolean, name: string) {
   ok(
     tenderFailureSourceKey("run_1").startsWith("tender-run-failed:"),
     "ALERT-08 幂等键带命名空间前缀",
+  );
+}
+
+/* ---------------- 完成通知 ---------------- */
+{
+  const full = tenderSuccessSummary({
+    projectName: "08-28 Student Housing Furniture",
+    analyzedFiles: 12,
+    uploadedFiles: 12,
+    keyRequirements: 8,
+    risks: 6,
+    clarifications: 5,
+    needsHumanReview: false,
+  });
+  ok(full.includes("已分析全部 12 个文件"), "ALERT-09 全覆盖时说：全部");
+  ok(
+    full.includes("关键要求 8 条") && full.includes("风险 6 项"),
+    "ALERT-09 给出可核对的数量",
+  );
+  ok(full.includes("可以开始确认招标要求"), "ALERT-09 给出下一步");
+
+  const partial = tenderSuccessSummary({
+    projectName: "P",
+    analyzedFiles: 3,
+    uploadedFiles: 12,
+    keyRequirements: 8,
+    risks: 6,
+    clarifications: 5,
+    needsHumanReview: true,
+  });
+  ok(
+    partial.includes("已分析 3/12 个文件"),
+    "ALERT-10 未全覆盖必须报真实分母（禁止只报好消息）",
+  );
+  ok(
+    partial.includes("需要人工复核"),
+    "ALERT-10 QA 标记需人工复核时必须点出来",
+  );
+  ok(!partial.includes("可以开始确认"), "ALERT-10 需复核时不给「可以开始」的错觉");
+
+  const sparse = tenderSuccessSummary({
+    projectName: null,
+    analyzedFiles: null,
+    uploadedFiles: null,
+    keyRequirements: null,
+    risks: null,
+    clarifications: null,
+    needsHumanReview: false,
+  });
+  ok(sparse.includes("招标项目"), "ALERT-11 缺数据时仍是完整句子");
+  ok(!sparse.includes("null") && !sparse.includes("undefined"), "ALERT-11 不泄漏空值");
+
+  ok(
+    tenderSuccessSourceKey("r1") !== tenderFailureSourceKey("r1"),
+    "ALERT-12 成功与失败通知的幂等键互不冲突",
+  );
+  ok(
+    tenderSuccessSourceKey("r1") === tenderSuccessSourceKey("r1"),
+    "ALERT-12 成功通知幂等键稳定",
   );
 }
 

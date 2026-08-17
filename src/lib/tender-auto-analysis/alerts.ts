@@ -107,3 +107,124 @@ export async function notifyTenderRunFailed(runId: string): Promise<void> {
     );
   }
 }
+
+/* ------------------------------ 分析完成通知 ------------------------------ */
+
+export type TenderSuccessFacts = {
+  projectName: string | null;
+  /** 纳入分析 / 用户上传的文件数（覆盖率，禁止只报好消息） */
+  analyzedFiles: number | null;
+  uploadedFiles: number | null;
+  keyRequirements: number | null;
+  risks: number | null;
+  clarifications: number | null;
+  /** Analyst QA 判定需要人工复核（通常有未解决冲突） */
+  needsHumanReview: boolean;
+};
+
+/**
+ * 完成通知文案：只陈述可核对的事实 + 一个明确的下一步。
+ * 纪律：有排除文件就明说（覆盖率不许只报分子）；需人工复核就点出来。
+ */
+export function tenderSuccessSummary(f: TenderSuccessFacts): string {
+  const parts: string[] = [];
+  if (f.analyzedFiles != null && f.uploadedFiles != null) {
+    parts.push(
+      f.analyzedFiles < f.uploadedFiles
+        ? `已分析 ${f.analyzedFiles}/${f.uploadedFiles} 个文件（其余格式不支持逐条溯源）`
+        : `已分析全部 ${f.analyzedFiles} 个文件`,
+    );
+  }
+  const counts: string[] = [];
+  if (f.keyRequirements != null) counts.push(`关键要求 ${f.keyRequirements} 条`);
+  if (f.risks != null) counts.push(`风险 ${f.risks} 项`);
+  if (f.clarifications != null) counts.push(`待澄清 ${f.clarifications} 条`);
+  if (counts.length > 0) parts.push(counts.join("、"));
+  parts.push(
+    f.needsHumanReview
+      ? "AI 审校标记了需要人工复核的地方，请优先查看"
+      : "可以开始确认招标要求",
+  );
+  const proj = f.projectName ? `「${f.projectName}」` : "招标项目";
+  return `${proj}：${parts.join("；")}。`;
+}
+
+export function tenderSuccessSourceKey(runId: string): string {
+  return `tender-run-succeeded:${runId}`;
+}
+
+/**
+ * 分析进入待审核（REVIEW_REQUIRED）时通知负责人与发起人。
+ * 与失败告警同一套纪律：幂等、best-effort、异常全吞。
+ */
+export async function notifyTenderRunSucceeded(runId: string): Promise<void> {
+  try {
+    const run = await db.tenderAnalysisRun.findUnique({
+      where: { id: runId },
+      select: {
+        id: true,
+        orgId: true,
+        projectId: true,
+        status: true,
+        createdById: true,
+        summaryJson: true,
+        project: { select: { name: true, ownerId: true } },
+      },
+    });
+    if (!run || run.status !== "REVIEW_REQUIRED") return;
+
+    const recipients = resolveFailureRecipients({
+      ownerId: run.project?.ownerId,
+      createdById: run.createdById,
+    });
+    if (recipients.length === 0) return;
+
+    const sj = (run.summaryJson ?? {}) as Record<string, unknown>;
+    const syn = sj.analystSynthesis as
+      | {
+          coverage?: { analyzed?: number; uploaded?: number };
+          keyRequirements?: unknown[];
+          risksAndGaps?: unknown[];
+          clarifications?: unknown[];
+          qa?: { needsHumanReview?: boolean };
+        }
+      | undefined;
+
+    const summary = tenderSuccessSummary({
+      projectName: run.project?.name ?? null,
+      analyzedFiles: syn?.coverage?.analyzed ?? null,
+      uploadedFiles: syn?.coverage?.uploaded ?? null,
+      keyRequirements: syn?.keyRequirements?.length ?? null,
+      risks: syn?.risksAndGaps?.length ?? null,
+      clarifications: syn?.clarifications?.length ?? null,
+      needsHumanReview: syn?.qa?.needsHumanReview === true,
+    });
+
+    for (const userId of recipients) {
+      await createNotification({
+        userId,
+        orgId: run.orgId,
+        projectId: run.projectId,
+        type: "project_update",
+        category: "tender_analysis",
+        priority: syn?.qa?.needsHumanReview === true ? "high" : "medium",
+        title: "招标分析已完成，待确认",
+        summary,
+        entityType: "tender_analysis_run",
+        entityId: run.id,
+        sourceKey: `${tenderSuccessSourceKey(run.id)}:${userId}`,
+        metadata: {
+          analyzed: syn?.coverage?.analyzed ?? null,
+          uploaded: syn?.coverage?.uploaded ?? null,
+          needsHumanReview: syn?.qa?.needsHumanReview === true,
+        },
+      });
+    }
+    console.log(`[tender-alert] run=${run.id} success_notified=${recipients.length}`);
+  } catch (e) {
+    console.error(
+      "[tender-alert] 完成通知失败（不影响 worker）:",
+      e instanceof Error ? e.message : "unknown",
+    );
+  }
+}

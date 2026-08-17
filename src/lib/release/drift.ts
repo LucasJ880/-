@@ -30,12 +30,22 @@ export type MigrationDrift = {
 export function diffMigrations(
   expected: readonly string[],
   applied: readonly string[],
+  opts: {
+    /**
+     * 已知会合法留在库里、但不在当前 active 列表中的迁移
+     * （greenfield 重基线前的归档历史）。不计入 unexpected，否则天天误报。
+     */
+    archived?: readonly string[];
+  } = {},
 ): MigrationDrift {
   const expectedSet = new Set(expected);
+  const archivedSet = new Set(opts.archived ?? []);
   const appliedSet = new Set(applied);
 
   const missing = expected.filter((m) => !appliedSet.has(m));
-  const unexpected = applied.filter((m) => !expectedSet.has(m));
+  const unexpected = applied.filter(
+    (m) => !expectedSet.has(m) && !archivedSet.has(m),
+  );
 
   const severity: DriftSeverity =
     missing.length > 0 ? "critical" : unexpected.length > 0 ? "warn" : "ok";
