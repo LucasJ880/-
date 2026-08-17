@@ -4,41 +4,59 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
+import { EventTimeline } from "@/components/autopilot/event-timeline";
+import { ObserveEmpty } from "@/components/autopilot/observe-empty";
+import { StatusPill } from "@/components/autopilot/status-pill";
 import { apiFetch } from "@/lib/api-fetch";
+import { formatDateTimeToronto } from "@/lib/time";
 
-type TraceEvent = {
-  id: string;
-  eventType: string;
-  sequence: number;
-  timestamp: string;
-  durationMs: number | null;
-  payload: Record<string, unknown> | null;
-};
-
-type RunDetail = {
-  runId: string;
-  time: string;
-  userId: string | null;
-  agent: string | null;
-  projectId: string | null;
-  outcome: string;
-  latencyMs: number | null;
-  toolCallCount: number;
-  error: string | null;
-  status: string;
-  intent: string | null;
-  failureType: string | null;
-  humanOverride: boolean;
-  humanEdit: boolean;
-  reAskStatus: string;
-  events: TraceEvent[];
-  pendingActions: Array<{ id: string; type: string; status: string }>;
+type DetailResponse = {
+  active?: boolean;
+  observeState?: string;
+  message?: string;
+  runId?: string;
+  agent?: string | null;
+  domain?: string | null;
+  model?: string | null;
+  runType?: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  status?: string;
+  durationMs?: number | null;
+  eventCount?: number;
+  totalEventCount?: number;
+  timelineShown?: number;
+  timelineTruncated?: boolean;
+  toolCalls?: number;
+  modelCalls?: number;
+  retrievals?: number;
+  humanEditCount?: number;
+  humanOverrideCount?: number;
+  reAskCount?: number;
+  errorCode?: string | null;
+  errorSummary?: string | null;
+  events?: Array<{
+    id: string;
+    sequence: number;
+    eventType: string;
+    category: "Input" | "Context" | "Retrieval" | "Model" | "Tool" | "Output" | "Human" | "Terminal" | "System";
+    timestamp: string;
+    durationMs: number | null;
+    status: string | null;
+    summary: Record<string, unknown> | null;
+  }>;
+  diagnostics?: {
+    extraTerminal: boolean;
+    terminalCount: number;
+    postTerminalHumanSignals: number;
+  };
+  note?: string;
 };
 
 export default function AutopilotRunDetailPage() {
   const params = useParams<{ runId: string }>();
   const runId = params?.runId;
-  const [data, setData] = useState<RunDetail | null>(null);
+  const [data, setData] = useState<DetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -63,7 +81,7 @@ export default function AutopilotRunDetailPage() {
         setLoading(false);
         return;
       }
-      setData((await res.json()) as RunDetail);
+      setData((await res.json()) as DetailResponse);
       setLoading(false);
     })();
     return () => {
@@ -75,7 +93,7 @@ export default function AutopilotRunDetailPage() {
     <div className="space-y-4 p-4 sm:p-6">
       <PageHeader
         title={runId ?? "Run"}
-        description="Sanitized trace。不含完整 Prompt / credential。"
+        description="Sanitized event timeline. Human signals after a terminal event are legal."
         breadcrumbs={
           <>
             <Link href="/ai/autopilot" className="hover:underline">
@@ -92,59 +110,61 @@ export default function AutopilotRunDetailPage() {
       {loading ? <p className="text-sm text-muted">加载中…</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      {data ? (
+      {data?.observeState === "NOT_ACTIVE" ? (
+        <ObserveEmpty
+          title="Autopilot Observe is not active in this environment."
+          body="Production telemetry is not active. Run detail is not queried."
+        />
+      ) : null}
+
+      {data?.active ? (
         <>
-          <dl className="grid gap-2 text-sm sm:grid-cols-2">
-            <div>Outcome: {data.outcome}</div>
+          <dl className="grid gap-2 rounded-lg border border-border p-4 text-sm sm:grid-cols-2">
+            <div>Run ID: {data.runId}</div>
             <div>Status: {data.status}</div>
-            <div>User: {data.userId ?? "—"}</div>
-            <div>Agent: {data.agent ?? "—"}</div>
-            <div>Project: {data.projectId ?? "—"}</div>
-            <div>Latency: {data.latencyMs == null ? "—" : `${data.latencyMs}ms`}</div>
-            <div>Tool Calls: {data.toolCallCount}</div>
-            <div>Failure: {data.failureType ?? "—"}</div>
-            <div>Human Override: {data.humanOverride ? "true" : "false"}</div>
-            <div>Human Edit: {data.humanEdit ? "true" : "false"}</div>
-            <div>Re-Ask: {data.reAskStatus}</div>
-            <div>Error: {data.error ?? "—"}</div>
+            <div>Agent / Domain: {data.agent ?? "—"} / {data.domain ?? "—"}</div>
+            <div>Model: {data.model ?? "—"}</div>
+            <div>Run type: {data.runType}</div>
+            <div>
+              Started: {data.startedAt ? formatDateTimeToronto(data.startedAt) : "n/a"}
+            </div>
+            <div>
+              Ended: {data.endedAt ? formatDateTimeToronto(data.endedAt) : "n/a"}
+            </div>
+            <div>
+              Duration: {data.durationMs == null ? "n/a" : `${data.durationMs}ms`}
+            </div>
+            <div>Events: {data.totalEventCount ?? data.eventCount}</div>
+            <div>
+              Tool / Model / Retrieval: {data.toolCalls} / {data.modelCalls} /{" "}
+              {data.retrievals}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <StatusPill label={`EDIT ${data.humanEditCount ?? 0}`} tone="neutral" />
+              <StatusPill
+                label={`OVERRIDE ${data.humanOverrideCount ?? 0}`}
+                tone="neutral"
+              />
+              <StatusPill label={`RE-ASK ${data.reAskCount ?? 0}`} tone="neutral" />
+            </div>
+            {data.errorCode ? <div>Error code: {data.errorCode}</div> : null}
+            {data.errorSummary ? <div>Error: {data.errorSummary}</div> : null}
           </dl>
 
-          <h2 className="text-sm font-medium">Trace</h2>
-          {data.events.length === 0 ? (
-            <p className="text-sm text-muted">DATA NOT AVAILABLE YET</p>
-          ) : (
-            <ol className="space-y-2 text-sm">
-              {data.events.map((event) => (
-                <li
-                  key={event.id}
-                  className="rounded border border-border p-2 font-mono text-xs"
-                >
-                  <div>
-                    {event.sequence} · {event.eventType} · {event.timestamp}
-                    {event.durationMs != null ? ` · ${event.durationMs}ms` : ""}
-                  </div>
-                  {event.payload ? (
-                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[11px] text-muted">
-                      {JSON.stringify(event.payload)}
-                    </pre>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          )}
-
-          <h2 className="text-sm font-medium">Pending Actions</h2>
-          {data.pendingActions.length === 0 ? (
-            <p className="text-sm text-muted">无</p>
-          ) : (
-            <ul className="text-sm">
-              {data.pendingActions.map((a) => (
-                <li key={a.id}>
-                  {a.type} · {a.status}
-                </li>
-              ))}
-            </ul>
-          )}
+          <h2 className="text-sm font-medium">Event timeline</h2>
+          <p className="text-[11px] text-muted">
+            {data.note} Post-terminal human signals:{" "}
+            {data.diagnostics?.postTerminalHumanSignals ?? 0}.
+          </p>
+          {data.timelineTruncated ? (
+            <p className="text-[11px] text-muted">
+              Showing first {data.timelineShown} of {data.totalEventCount} events.
+            </p>
+          ) : null}
+          <EventTimeline
+            events={data.events ?? []}
+            extraTerminal={data.diagnostics?.extraTerminal}
+          />
         </>
       ) : null}
     </div>

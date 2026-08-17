@@ -1,28 +1,36 @@
 /**
  * Autopilot 应用服务。所有读路径必须先经过 AutopilotAccess。
+ * A1-P3 Observe Dashboard is read-only. Dark telemetry short-circuits
+ * before Autopilot overlay / outbox table queries.
  */
 
 import { assertAutopilotAccess } from "./access";
 import {
   AUTOPILOT_DISABLED_CAPABILITIES,
   AUTOPILOT_MODE,
+  AUTOPILOT_OBSERVE_SURFACE,
   AUTOPILOT_PHASE,
   type AutopilotAccessContext,
   type AutopilotCapability,
-  type AutopilotMetricAvailability,
 } from "./types";
-import { projectAutopilotRunDetail, projectAutopilotRunListItem } from "./projection";
-import {
-  averageLatencySince,
-  countRunsSince,
-  countToolFailuresSince,
-  getAgentRunForAutopilot,
-  listAgentRunsForAutopilot,
-  listPendingActionsForRun,
-  type AutopilotListQuery,
-} from "./repository";
 import { loadAutopilotTelemetryHealth } from "./telemetry-health";
-import { loadAutopilotEventCoverage } from "./coverage-health";
+import { loadAutopilotEventCoverage, OBSERVE_HEALTH_SCOPE } from "./coverage-health";
+import {
+  darkObserveState,
+  isObserveTelemetryReadEnabled,
+} from "./observe-read-gate";
+import {
+  listObserveRuns,
+  loadObserveOverview,
+  loadObserveRunDetail,
+} from "./observe-query";
+import {
+  parseObserveRange,
+  type ObserveRange,
+  type ObserveRunCursor,
+  type ObserveRunStatus,
+} from "./observe-range";
+import type { AutopilotFlagEnv } from "./flags";
 
 export type AutopilotActor = {
   id: string;
@@ -43,96 +51,105 @@ function requireAccess(
   };
 }
 
-function unavailable(): AutopilotMetricAvailability {
-  return { available: false, reason: "DATA NOT AVAILABLE YET" };
-}
-
-function available(value: number): AutopilotMetricAvailability {
-  return { available: true, value };
-}
-
 export async function getAutopilotOverview(
   actor: AutopilotActor,
   orgId: string,
+  query: { range?: ObserveRange; env?: AutopilotFlagEnv; now?: Date } = {},
 ) {
   requireAccess(actor, orgId, "autopilot.view");
+  const env = query.env ?? process.env;
+  const range = query.range ?? parseObserveRange("7d");
 
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const last7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  if (!isObserveTelemetryReadEnabled(env)) {
+    return {
+      phase: AUTOPILOT_PHASE,
+      surface: AUTOPILOT_OBSERVE_SURFACE,
+      infrastructureMode: AUTOPILOT_MODE,
+      ...AUTOPILOT_DISABLED_CAPABILITIES,
+      ...darkObserveState(env),
+      healthScope: OBSERVE_HEALTH_SCOPE,
+      range,
+    };
+  }
 
-  const [today, last7Days, toolFailures, avgLatency] = await Promise.all([
-    countRunsSince(orgId, startOfToday),
-    countRunsSince(orgId, last7),
-    countToolFailuresSince(orgId, last7),
-    averageLatencySince(orgId, last7),
-  ]);
-
+  const overview = await loadObserveOverview({
+    orgId,
+    range,
+    env,
+    now: query.now,
+  });
   return {
     phase: AUTOPILOT_PHASE,
-    mode: AUTOPILOT_MODE,
+    surface: AUTOPILOT_OBSERVE_SURFACE,
+    infrastructureMode: AUTOPILOT_MODE,
     ...AUTOPILOT_DISABLED_CAPABILITIES,
-    orgId,
-    metrics: {
-      runCountToday: available(today),
-      runCountLast7Days: available(last7Days),
-      toolFailureCountLast7Days: available(toolFailures),
-      avgLatencyMsLast7Days:
-        avgLatency == null ? unavailable() : available(Math.round(avgLatency)),
-      taskSuccessRate: unavailable(),
-      partialSuccessRate: unavailable(),
-      failureRate: unavailable(),
-      humanOverrideRate: unavailable(),
-      humanEditRate: unavailable(),
-      reAskRate: unavailable(),
-      toolFailureRate: unavailable(),
-      retrievalFailureRate: unavailable(),
-      p50Latency: unavailable(),
-      p95Latency: unavailable(),
-      tokenUsage: unavailable(),
-      estimatedCost: unavailable(),
-    },
+    ...overview,
   };
 }
 
 export async function listAutopilotRuns(
   actor: AutopilotActor,
   orgId: string,
-  query: AutopilotListQuery = {},
+  query: {
+    limit?: number;
+    cursor?: ObserveRunCursor | null;
+    status?: ObserveRunStatus;
+    runType?: string;
+    agent?: string;
+    domain?: string;
+    hasToolFailure?: boolean;
+    hasModelFailure?: boolean;
+    hasRetrievalFailure?: boolean;
+    hasHumanSignal?: boolean;
+    hasObservabilityGap?: boolean;
+    range?: ObserveRange;
+    env?: AutopilotFlagEnv;
+    now?: Date;
+  } = {},
 ) {
   requireAccess(actor, orgId, "autopilot.runs.read");
-  const { total, page, pageSize, rows } = await listAgentRunsForAutopilot(
+  const env = query.env ?? process.env;
+  if (!isObserveTelemetryReadEnabled(env)) {
+    return {
+      ...darkObserveState(env),
+      items: [] as const,
+      nextCursor: null,
+    };
+  }
+  const { items, nextCursor } = await listObserveRuns({
     orgId,
-    query,
-  );
-  const items = rows.map((row) =>
-    projectAutopilotRunListItem({
-      run: row,
-      overlay: row.autopilotRun,
-      toolCallCount: row.events.filter((e) => e.eventType === "tool.started")
-        .length,
-      humanOverride: row.autopilotRun?.humanOverride === true,
-    }),
-  );
-  return { total, page, pageSize, items };
+    limit: query.limit ?? 25,
+    cursor: query.cursor,
+    status: query.status,
+    runType: query.runType,
+    agent: query.agent,
+    domain: query.domain,
+    hasToolFailure: query.hasToolFailure,
+    hasModelFailure: query.hasModelFailure,
+    hasRetrievalFailure: query.hasRetrievalFailure,
+    hasHumanSignal: query.hasHumanSignal,
+    hasObservabilityGap: query.hasObservabilityGap,
+    range: query.range,
+    now: query.now,
+    env,
+  });
+  return { active: true as const, items, nextCursor };
 }
 
 export async function getAutopilotRun(
   actor: AutopilotActor,
   orgId: string,
   runId: string,
+  query: { env?: AutopilotFlagEnv } = {},
 ) {
   requireAccess(actor, orgId, "autopilot.runs.read");
-  const row = await getAgentRunForAutopilot(orgId, runId);
-  if (!row) return null;
-  const pending = await listPendingActionsForRun(orgId, runId);
-  return projectAutopilotRunDetail({
-    run: row,
-    events: row.events,
-    pendingActions: pending,
-    overlay: row.autopilotRun,
-  });
+  const env = query.env ?? process.env;
+  if (!isObserveTelemetryReadEnabled(env)) {
+    return { ...darkObserveState(env), run: null };
+  }
+  const detail = await loadObserveRunDetail({ orgId, runId });
+  if (!detail) return null;
+  return detail;
 }
 
 export async function getAutopilotTelemetryHealth(

@@ -8,6 +8,12 @@
 export const AUTOPILOT_PHASE = "A0_FOUNDATION" as const;
 export const AUTOPILOT_MODE = "OBSERVE_INFRASTRUCTURE_ONLY" as const;
 
+/**
+ * A1-P3 read-only Observe surface. Does not replace AUTOPILOT_PHASE history.
+ * Does not authorize AI Judge, Evaluations, Issues, Optimizations, or Production activation.
+ */
+export const AUTOPILOT_OBSERVE_SURFACE = "A1_P3_OBSERVE_DASHBOARD" as const;
+
 export const AUTOPILOT_DISABLED_CAPABILITIES = {
   autoOptimization: "DISABLED",
   autoDeployment: "DISABLED",

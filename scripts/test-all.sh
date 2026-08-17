@@ -152,6 +152,8 @@ run_test "Autopilot A1-P2 Human Signals" "npx tsx src/lib/autopilot/__tests__/hu
 run_test "Autopilot A1-P1 Tool Hook Durability" "npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts"
 run_test "Autopilot A1-P1 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/coverage-e2e.isolated.test.ts"
 run_test "Autopilot A1-P2 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/human-signals-e2e.isolated.test.ts"
+run_test "Autopilot A1-P3 Observe Dashboard" "npx tsx src/lib/autopilot/__tests__/observe-dashboard.test.ts"
+run_test "Autopilot A1-P3 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/observe-dashboard-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
 run_test "Default Workspace" "npx tsx src/lib/rbac/__tests__/default-workspace.test.ts"

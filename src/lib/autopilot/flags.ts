@@ -53,6 +53,19 @@ export function isAutopilotProcessorEnabled(
   return envBool(env.AUTOPILOT_PROCESSOR_ENABLED);
 }
 
+/**
+ * Observe Dashboard 是否允许读取 Autopilot overlay / outbox 表。
+ * Capture 与 Processor 都 OFF 时必须短路，禁止查询可能尚未 migrate 的表。
+ */
+export function isAutopilotObserveTelemetryReadEnabled(
+  env: AutopilotFlagEnv = process.env,
+): boolean {
+  return (
+    isAutopilotTelemetryCaptureEnabled(env) ||
+    isAutopilotProcessorEnabled(env)
+  );
+}
+
 export function describeAutopilotFlag(
   env: AutopilotFlagEnv = process.env,
 ): Record<string, unknown> {
@@ -63,5 +76,6 @@ export function describeAutopilotFlag(
     instrumentation: isAutopilotInstrumentationEnabled(env),
     telemetryCapture: isAutopilotTelemetryCaptureEnabled(env),
     processor: isAutopilotProcessorEnabled(env),
+    observeTelemetryRead: isAutopilotObserveTelemetryReadEnabled(env),
   };
 }

@@ -17,7 +17,10 @@ export async function GET(
     runId,
   );
   if (!detail) {
-    return NextResponse.json({ error: "Not found", code: "NOT_FOUND" }, { status: 404 });
+    return NextResponse.json(
+      { error: "Not found", code: "NOT_FOUND" },
+      { status: 404 },
+    );
   }
   return NextResponse.json(detail);
 }
