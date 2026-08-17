@@ -55,7 +55,7 @@ console.log("tender-auto-analysis package-fingerprint (Phase 1.1.1)");
   );
 }
 
-ok(MAX_PDF_PAGES === 80, "MAX_PDF_PAGES=80 per document");
+ok(MAX_PDF_PAGES === 400, "MAX_PDF_PAGES=400 per document（观察期包4：解析层上限）");
 ok(
   MAX_TENDER_PACKAGE_PAGES === 400,
   "MAX_TENDER_PACKAGE_PAGES=400 per package（含非 PDF 可引用单元）",

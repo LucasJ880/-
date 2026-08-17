@@ -297,6 +297,7 @@ run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__t
 run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"
 run_test "招标自动分析多文档包指纹" "npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts"
 run_test "招标自动分析页级解析" "npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts"
+run_test "观察期包4 页数上限 400（解析/包分析/t2 口径）" "npx tsx src/lib/tender-auto-analysis/__tests__/obs-p4-page-limit.test.ts"
 run_test "招标自动分析来源核验" "npx tsx src/lib/tender-auto-analysis/__tests__/source-verify.test.ts"
 run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"
 run_test "招标自动分析 RCMP 回归" "npx tsx src/lib/tender-auto-analysis/__tests__/rcmp-regression.test.ts"
