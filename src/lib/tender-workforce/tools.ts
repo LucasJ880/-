@@ -1061,6 +1061,22 @@ async function handleFinalizeAnalysis(
     if (!finalizedV2.ok) {
       return { ok: false, error: `TOOL_FAILED: ${finalizedV2.error}` };
     }
+
+    // 观察期包5：分析终态化成功后自动跑外部情报（统一编排服务）。
+    // 失败绝不影响终态化结果；flag OFF 零出站；状态显式落调查室 externalIntelStatus。
+    try {
+      const { runExternalIntelForProject } = await import(
+        "@/lib/tender-intel/orchestrate"
+      );
+      await runExternalIntelForProject({
+        projectId: jobCtx.job.projectId,
+        runId,
+        trigger: "workforce_finalize",
+      });
+    } catch {
+      /* 外部情报失败不影响终态化 */
+    }
+
     const aggregateV2 = await computeComplianceAggregate(runId);
     return {
       ok: true,
@@ -1194,6 +1210,22 @@ async function handleFinalizeAnalysis(
   if (!finalized.ok) {
     return { ok: false, error: `TOOL_FAILED: ${finalized.error}` };
   }
+
+  // 观察期包5：分析终态化成功后自动跑外部情报（统一编排服务）。
+  // 失败绝不影响终态化结果；flag OFF 零出站；状态显式落调查室 externalIntelStatus。
+  try {
+    const { runExternalIntelForProject } = await import(
+      "@/lib/tender-intel/orchestrate"
+    );
+    await runExternalIntelForProject({
+      projectId: jobCtx.job.projectId,
+      runId,
+      trigger: "workforce_finalize",
+    });
+  } catch {
+    /* 外部情报失败不影响终态化 */
+  }
+
 
   return {
     ok: true,
