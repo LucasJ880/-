@@ -38,7 +38,9 @@ import {
 import {
   WORKFORCE_JOB_RUN_TYPE,
   WORKFORCE_ACTIVE_STATUSES,
+  AGENT_RUNS_INVOCATION_BUDGET_MS,
 } from "./constants";
+import type { RuntimeExecutionBudget } from "@/lib/agent-runtime-v2/adapters";
 import { isWorkforceProcessingEnabled } from "./flags";
 
 export const WORKFORCE_LEASE_MS = 3 * 60_000;
@@ -150,7 +152,17 @@ async function requeueWorkforceJobAfterError(input: {
  */
 export async function processWorkforceJobSlice(
   runId: string,
-  opts?: { sliceBudgetMs?: number; maxRounds?: number; leaseMs?: number },
+  opts?: {
+    sliceBudgetMs?: number;
+    maxRounds?: number;
+    leaseMs?: number;
+    /**
+     * T5-P1.1 §5：本次 serverless invocation 的执行预算（server-only）。
+     * 由 cron 路由在 HTTP 请求开始时算出绝对 deadline 后逐层下传，
+     * 只被**可续跑长工具**消费；普通工具不感知。
+     */
+    executionBudget?: RuntimeExecutionBudget;
+  },
 ): Promise<WorkforceSliceResult> {
   // Kill-switch：总开关关闭时不 claim、不写任何状态；job 原状保留
   if (!isWorkforceProcessingEnabled()) return { claimed: false };
@@ -477,11 +489,20 @@ export async function processWorkforceJobSlice(
         threadId: runtime.threadId ?? null,
         maxRounds: 1,
         fence,
+        executionBudget: opts?.executionBudget,
       });
 
       // fence 丢失（V2 内部检测）：本 worker 未写入任何状态，立即放弃
       if (result.status === "lost_lease") {
         return { claimed: true, status: "lost_lease", lostLease: true };
+      }
+
+      // T5-P1.1 §20/§21：工具正常让出（本次 serverless 预算用尽、成果已 checkpoint）。
+      // 立即结束本 slice 的 round 循环——**绝不在同一个 invocation 里重跑同一个长任务**，
+      // 然后走下方既有的 normal continuation 回队（attempts 归零，不消耗重试预算）。
+      // executor 已发过 tool.yielded 事件，这里不重复发。
+      if (result.status === "yielded") {
+        break;
       }
 
       if (
@@ -624,7 +645,10 @@ export async function processWorkforceJobSlice(
 }
 
 /** cron / worker 批量消费（§13） */
-export async function processQueuedWorkforceJobs(limit = 2): Promise<{
+export async function processQueuedWorkforceJobs(
+  limit = 2,
+  opts?: { executionBudget?: RuntimeExecutionBudget },
+): Promise<{
   processed: number;
   runIds: string[];
   exhaustedFailed: number;
@@ -699,7 +723,9 @@ export async function processQueuedWorkforceJobs(limit = 2): Promise<{
 
   let processed = 0;
   for (const r of eligible) {
-    const result = await processWorkforceJobSlice(r.id);
+    const result = await processWorkforceJobSlice(r.id, {
+      executionBudget: opts?.executionBudget,
+    });
     if (result.claimed) processed++;
   }
   return {

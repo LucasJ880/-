@@ -18,6 +18,8 @@ export type AgentRunEventType =
   | "planning.completed"
   | "tool.started"
   | "tool.completed"
+  /** T5-P1.1：工具正常让出（预算用尽、已 checkpoint），非失败 */
+  | "tool.yielded"
   | "approval.required"
   | "approval.executed"
   | "approval.rejected"

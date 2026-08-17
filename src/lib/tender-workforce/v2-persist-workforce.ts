@@ -59,29 +59,84 @@ export type PersistV2ForWorkforceArgs = {
   runFence: RunFence;
 };
 
+/** 域归属标识（canonical persist 与 cursor checkpoint 共用同一条件） */
+export type WorkforceTenderOwnership = {
+  orgId: string;
+  projectId: string;
+  analysisRunId: string;
+  jobId: string;
+};
+
+/**
+ * T5-P1.1 §10 —— **唯一**一份 Workforce 域归属判定。
+ *
+ * canonical 持久化与 cursor checkpoint 都必须用它：两处各写一份 where 条件
+ * 以后必然漂移（改了一处忘另一处 = 一条写路径失去守卫）。
+ *
+ * 语义：同事务内条件更新取行锁并断言归属（no-op data 只为加锁），
+ * 命中 0 行即抛 —— 调用方事务回滚，ZERO 写入。
+ */
+export async function assertWorkforceTenderOwnership(
+  tx: V2PersistTx,
+  own: WorkforceTenderOwnership,
+): Promise<void> {
+  const owned = await tx.tenderAnalysisRun.updateMany({
+    where: {
+      id: own.analysisRunId,
+      orgId: own.orgId,
+      projectId: own.projectId,
+      analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
+      status: TENDER_AGENT_RUN_STATUS.running,
+      idempotencyKey: buildWorkforceTenderIdempotencyKey(own.jobId),
+    },
+    data: { status: TENDER_AGENT_RUN_STATUS.running },
+  });
+  if (owned.count === 0) {
+    throw new WorkforceTenderDomainOwnershipError(own.analysisRunId);
+  }
+}
+
+/**
+ * T5-P1.1 §9 —— cursor checkpoint（fenced）。
+ *
+ * 每次 checkpoint 都要过 AgentRun RunFence + 同一份域归属断言：
+ * stale worker / 错 org / 错 project / 错 job / 非 AGENT_ANALYZING → ZERO cursor 写。
+ * 返回 false 表示"没写成"（advanceV2Analysis 会据此 fail-closed 停止推进）。
+ */
+export async function saveWorkforceV2Cursor(args: {
+  own: WorkforceTenderOwnership;
+  runFence: RunFence;
+  cursor: unknown;
+}): Promise<boolean> {
+  try {
+    await args.runFence.guard(async (client) => {
+      const tx = client as unknown as V2PersistTx;
+      await assertWorkforceTenderOwnership(tx, args.own);
+      await tx.tenderAnalysisRun.update({
+        where: { id: args.own.analysisRunId },
+        data: { workerCursor: args.cursor as object },
+      });
+    }, WORKFORCE_V2_TX_OPTIONS);
+    return true;
+  } catch {
+    // fence 丢失 / 归属不符：不抛给引擎，返回 false 让它按"租约丢失"收尾
+    return false;
+  }
+}
+
 export async function persistV2ForWorkforce(
   args: PersistV2ForWorkforceArgs,
 ): Promise<PersistV2Result> {
-  const expectedIdempotencyKey = buildWorkforceTenderIdempotencyKey(args.jobId);
-
   return args.runFence.guard(async (client) => {
     const tx = client as unknown as V2PersistTx;
 
-    // —— 域归属断言（同事务、条件更新取行锁；no-op data 只为加锁与断言） —— //
-    const owned = await tx.tenderAnalysisRun.updateMany({
-      where: {
-        id: args.analysisRunId,
-        orgId: args.orgId,
-        projectId: args.projectId,
-        analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
-        status: TENDER_AGENT_RUN_STATUS.running,
-        idempotencyKey: expectedIdempotencyKey,
-      },
-      data: { status: TENDER_AGENT_RUN_STATUS.running },
+    // §10：与 cursor checkpoint 共用同一份归属判定（唯一实现）
+    await assertWorkforceTenderOwnership(tx, {
+      orgId: args.orgId,
+      projectId: args.projectId,
+      analysisRunId: args.analysisRunId,
+      jobId: args.jobId,
     });
-    if (owned.count === 0) {
-      throw new WorkforceTenderDomainOwnershipError(args.analysisRunId);
-    }
 
     return persistV2CanonicalTx(tx, {
       runId: args.analysisRunId,
