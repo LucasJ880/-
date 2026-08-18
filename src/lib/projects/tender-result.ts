@@ -4,6 +4,7 @@
  */
 
 import { db } from "@/lib/db";
+import type { OwnResultBackfillOutcome } from "@/lib/tender-intel/own-result-backfill";
 import { maybeCreateReviewDraft } from "@/lib/projects/review";
 
 export const TENDER_RESULTS = ["won", "lost", "no_bid", "cancelled"] as const;
@@ -71,9 +72,27 @@ export async function markProjectTenderResult(input: {
 
   const review = await maybeCreateReviewDraft(input.projectId);
 
+  // 情报阶段2：结果标记（human 动作）回灌 canonical——won → 我方 award 事实
+  // （幂等 sourceKey）；买家 → T3 Buyer。失败绝不影响结果标记本身；
+  // 边界与语义见 tender-intel/own-result-backfill.ts 头注释。
+  let canonicalBackfill: OwnResultBackfillOutcome | null = null;
+  try {
+    const { backfillOwnResultCanonical } = await import(
+      "@/lib/tender-intel/own-result-backfill"
+    );
+    canonicalBackfill = await backfillOwnResultCanonical({
+      projectId: input.projectId,
+      result: input.result,
+      actorUserId: input.actorUserId,
+    });
+  } catch {
+    canonicalBackfill = null;
+  }
+
   return {
     project: updated,
     review,
+    canonicalBackfill,
     before: {
       tenderStatus: before.tenderStatus,
       ourBidPrice: before.ourBidPrice,
