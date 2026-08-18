@@ -76,6 +76,8 @@ export async function GET(
       auto: auto ?? null,
       webIntel: webIntel ?? null,
       externalIntelStatus: intelStatus,
+      // 情报自动流（包6）：AI 策略草案（AI_INFERRED，人审语义）
+      bidStrategyAuto: sj.bidStrategyAuto ?? null,
       findings: [],
       note,
     });

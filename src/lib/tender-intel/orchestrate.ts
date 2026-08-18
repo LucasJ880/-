@@ -32,6 +32,7 @@ import {
   autoWebIntel,
   type WebIntelResult,
 } from "./websearch";
+import { isT4AwardSchemaReady } from "./award-flags";
 
 export type ExternalIntelTrigger =
   | "legacy_finalize"
@@ -44,6 +45,10 @@ export type ExternalIntelOutcome = {
   awardCandidates: number;
   webDomains: number;
   analyzed: boolean;
+  /** 情报自动流（包6）：本次自动观察入 canonical 的权威公开数据条数 */
+  autoObserved?: number;
+  /** 情报自动流（包6）：本次是否生成 AI 策略草案 */
+  strategyGenerated?: boolean;
 };
 
 /** room.summaryJson 里的显式状态键（UI/排障唯一事实源） */
@@ -58,6 +63,8 @@ export type ExternalIntelStatus = {
   awardCandidates: number;
   webDomains: number;
   analyzed: boolean;
+  autoObserved?: number;
+  strategyGenerated?: boolean;
 };
 
 /** manual 触发的简单频控：距上次记录不足窗口则拒绝（默认 60s） */
@@ -193,6 +200,55 @@ export async function runExternalIntelForProject(input: {
     const auto: AutoAwardSearchResult | null =
       queries.length > 0 ? await autoSearchAwardHistory({ queries, env }) : null;
 
+    // 情报自动流（包6）：M1 权威公开数据（带 reference number）自动观察入
+    // canonical。白名单铁律（awards.ts）明文允许 CANADABUYS_OPEN_DATA +
+    // reference 落 SYSTEM_VERIFIED；actor=system（确定性代码观察公开数据，
+    // ai/agent actor 仍被写门拒绝——T3 硬禁不被触碰）。幂等锚点与人工确认
+    // 同键（canadabuys:{reference}）：此后人工确认同一候选只会挂源升级，
+    // 绝不产生重复记录。Web 候选无权威 reference，不自动观察（仍走人工确认线）。
+    let autoObserved = 0;
+    if (auto?.ok && isT4AwardSchemaReady()) {
+      try {
+        const { createOrObserveAwardRecord } = await import("./awards");
+        for (const c of auto.candidates.slice(0, 5)) {
+          const ref = c.bestFinding.referenceNumber?.trim();
+          if (!ref) continue;
+          try {
+            await createOrObserveAwardRecord({
+              orgId: project.orgId,
+              actor: { actorType: "system", userId: null },
+              award: {
+                winnerName: c.vendorName,
+                buyerNameRaw:
+                  c.bestFinding.buyerName ?? c.bestFinding.ownerOrg ?? null,
+                solicitationNumber: ref,
+                awardDate: c.bestFinding.contractDate
+                  ? new Date(c.bestFinding.contractDate)
+                  : null,
+                contractAmount: c.bestFinding.contractValue ?? null,
+                currency: c.bestFinding.contractValue != null ? "CAD" : null,
+                scopeSummary: c.bestFinding.descriptionEn ?? null,
+              },
+              source: {
+                sourceType: "CANADABUYS_OPEN_DATA",
+                sourceKey: `canadabuys:${ref}`,
+                sourceUrl: c.bestFinding.sourceUrl ?? null,
+                evidenceSnippet: c.bestFinding.descriptionEn?.slice(0, 500) ?? null,
+                capturedAt: new Date(),
+              },
+              confidence: c.hitQueries.length >= 2 ? "HIGH" : "MEDIUM",
+              verificationStatus: "SYSTEM_VERIFIED",
+            });
+            autoObserved += 1;
+          } catch {
+            // 单条观察失败（如疑似重复语义）不阻塞其余候选
+          }
+        }
+      } catch {
+        // 观察层整体失败不影响候选展示与状态落库
+      }
+    }
+
     const webQueries = deriveWebQueries({
       confirmedWinner: confirmed?.previousWinner ?? null,
       productPhrase: queries[0] ?? null,
@@ -221,6 +277,30 @@ export async function runExternalIntelForProject(input: {
       }
     }
 
+    // 情报自动流（包6）：AI 投标策略草案（第 7 槽位）——基于组织级七域投影
+    // + 本项目分析摘要合成，AI_INFERRED 标签人审语义。失败不影响其余结果。
+    let strategyGenerated = false;
+    let bidStrategyAuto: unknown = null;
+    try {
+      const { listAwardsForOrg } = await import("./awards");
+      const { deriveAwardIntelligence } = await import("./award-intelligence");
+      const { synthesizeBidStrategyAuto } = await import("./strategy");
+      const orgRows = isT4AwardSchemaReady()
+        ? await listAwardsForOrg({ orgId: project.orgId })
+        : [];
+      const { strategy } = await synthesizeBidStrategyAuto({
+        projectOneLiner: brief?.oneLiner ?? null,
+        analystBriefZh: syn?.executiveBrief?.whatIsBeingBoughtZh ?? null,
+        intelligence: deriveAwardIntelligence(orgRows),
+      });
+      if (strategy) {
+        bidStrategyAuto = strategy;
+        strategyGenerated = true;
+      }
+    } catch {
+      bidStrategyAuto = null;
+    }
+
     const ran = Boolean(auto?.ok || web?.ok);
     const outcome: ExternalIntelOutcome = {
       status: ran ? "ran" : "skipped",
@@ -232,6 +312,8 @@ export async function runExternalIntelForProject(input: {
       awardCandidates: auto?.candidates.length ?? 0,
       webDomains: web?.candidates.length ?? 0,
       analyzed: Boolean(externalAnalysis),
+      autoObserved,
+      strategyGenerated,
     };
 
     await db.bidIntelligenceRoom.update({
@@ -243,6 +325,7 @@ export async function runExternalIntelForProject(input: {
             ...(auto?.ok ? { externalCandidates: auto } : {}),
             ...(web?.ok ? { webIntel: web } : {}),
             ...(externalAnalysis ? { externalAnalysis } : {}),
+            ...(bidStrategyAuto ? { bidStrategyAuto } : {}),
             [EXTERNAL_INTEL_STATUS_KEY]: {
               ...base,
               status: outcome.status,
@@ -251,13 +334,15 @@ export async function runExternalIntelForProject(input: {
               awardCandidates: outcome.awardCandidates,
               webDomains: outcome.webDomains,
               analyzed: outcome.analyzed,
+              autoObserved,
+              strategyGenerated,
             } satisfies ExternalIntelStatus,
           }),
         ),
       },
     });
     console.log(
-      `[tender-external-intel] project=${project.id} trigger=${input.trigger} status=${outcome.status} award_candidates=${outcome.awardCandidates} web_domains=${outcome.webDomains} analyzed=${outcome.analyzed ? 1 : 0}`,
+      `[tender-external-intel] project=${project.id} trigger=${input.trigger} status=${outcome.status} award_candidates=${outcome.awardCandidates} web_domains=${outcome.webDomains} analyzed=${outcome.analyzed ? 1 : 0} auto_observed=${autoObserved} strategy=${strategyGenerated ? 1 : 0}`,
     );
     return outcome;
   } catch (error) {

@@ -128,9 +128,24 @@ function Slot({
   );
 }
 
-export function OrgAwardIntelSlots({ orgId }: { orgId: string | null }) {
+type BidStrategyAuto = {
+  strategyZh: string;
+  keyPoints: Array<{ pointZh: string; basedOn: string }>;
+  dataGapsZh: string;
+  label: string;
+  generatedAt: string;
+};
+
+export function OrgAwardIntelSlots({
+  orgId,
+  projectId,
+}: {
+  orgId: string | null;
+  projectId?: string | null;
+}) {
   const [intel, setIntel] = useState<Intelligence | null>(null);
   const [failed, setFailed] = useState(false);
+  const [strategy, setStrategy] = useState<BidStrategyAuto | null>(null);
 
   useEffect(() => {
     const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
@@ -143,6 +158,16 @@ export function OrgAwardIntelSlots({ orgId }: { orgId: string | null }) {
       })
       .catch(() => setFailed(true));
   }, [orgId]);
+
+  // 情报自动流（包6）：项目级 AI 策略草案（分析完成后自动生成，AI_INFERRED）
+  useEffect(() => {
+    if (!projectId) return;
+    apiJson<{ bidStrategyAuto?: BidStrategyAuto | null }>(
+      `/api/projects/${projectId}/external-intel/award-history`,
+    )
+      .then((res) => setStrategy(res.bidStrategyAuto ?? null))
+      .catch(() => {});
+  }, [projectId]);
 
   const empty = (hint: string) => <p>{hint}</p>;
   const basisNote =
@@ -158,7 +183,7 @@ export function OrgAwardIntelSlots({ orgId }: { orgId: string | null }) {
       </h3>
       <p className="text-xs text-muted">
         {failed ? "组织级授标情报暂不可用（T4 未启用或加载失败）" : basisNote}
-        ；所有数字仅来自权威记录（人工确认/系统核验），样本不足时如实显示暂无。
+        ；权威公开数据（带编号的政府披露）自动入库，人工确认可将候选升级为「已确认」；所有统计数字仅来自权威记录（人工确认/系统核验），样本不足时如实显示暂无。
       </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Slot
@@ -278,8 +303,30 @@ export function OrgAwardIntelSlots({ orgId }: { orgId: string | null }) {
           {empty("规划中：M3 海关数据源（Trade 域证据只读引用）接入后启用")}
         </Slot>
 
-        <Slot slotKey="bid_strategy" title="AI 投标策略" status={null}>
-          {empty("规划中：待历史中标/买家/对手/价格中至少 4 域有权威数据后，做带证据链的策略合成")}
+        <Slot
+          slotKey="bid_strategy"
+          title="AI 投标策略"
+          status={strategy ? "INFERRED" : null}
+        >
+          {strategy ? (
+            <>
+              <p className="text-foreground/70">{strategy.strategyZh}</p>
+              {strategy.keyPoints.slice(0, 4).map((k, i) => (
+                <p key={i} className="truncate">
+                  · {k.pointZh}
+                  <span className="text-muted/70">（依据：{k.basedOn}）</span>
+                </p>
+              ))}
+              {strategy.dataGapsZh ? (
+                <p className="text-muted/80">数据缺口：{strategy.dataGapsZh}</p>
+              ) : null}
+              <p className="text-[10px] text-muted/60">
+                AI 推断草案，仅供人工评审——不构成 GO/NO-GO 决定
+              </p>
+            </>
+          ) : (
+            empty("分析完成后自动生成策略草案（AI 推断，人审语义）")
+          )}
         </Slot>
       </div>
     </section>
