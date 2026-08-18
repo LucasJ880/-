@@ -301,6 +301,7 @@ run_test "招标自动分析来源核验" "npx tsx src/lib/tender-auto-analysis/
 run_test "观察期包5 外部情报自动化闭环" "npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts"
 run_test "情报阶段1+2 槽位接投影+结果回灌" "npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts"
 run_test "情报自动流 七槽位自动化" "npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts"
+run_test "工作台指挥台重构" "npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts"
 run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"
 run_test "招标自动分析 RCMP 回归" "npx tsx src/lib/tender-auto-analysis/__tests__/rcmp-regression.test.ts"
 run_test "招标自动分析中文报告" "npx tsx src/lib/tender-auto-analysis/__tests__/report-core.test.ts"
