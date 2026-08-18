@@ -4,11 +4,7 @@
 
 import { db } from "@/lib/db";
 import { putPrivateBlob } from "@/lib/files/blob-access";
-import {
-  createProjectPdfDoc,
-  sanitizeSupplierFacing,
-  writeWrappedText,
-} from "./pdf-common";
+import { sanitizeSupplierFacing } from "./pdf-common";
 import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
 import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
@@ -219,17 +215,9 @@ ${escd}`;
     }
   }
 
-  const doc = await createProjectPdfDoc();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  let y = 16;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(DOC_TITLES[input.docType], pageWidth / 2, y, { align: "center" });
-  y += 8;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  y = writeWrappedText(doc, `Project: ${project.name}`, 14, y, pageWidth - 28);
-  y += 2;
+  // 中文安全（CJK-PDF 包）：legacy 文本文档并入 HTML → Chromium PDF 统一漏斗，
+  // jsPDF 无 CJK 字体的方块/乱码路径整体退役；正文语义 1:1 保留。
+  let textBody = "";
 
   if (input.docType === "supplier_rfq") {
     const body = sanitizeSupplierFacing(
@@ -246,7 +234,7 @@ ${escd}`;
         ctx.slice(0, 1800),
       ].join("\n\n"),
     );
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+    textBody = body;
   } else if (input.docType === "internal_analysis") {
     const gap = computePriceGap({
       ourBidPrice: project.ourBidPrice,
@@ -271,7 +259,7 @@ ${escd}`;
       "Context excerpt:",
       ctx.slice(0, 2200),
     ].join("\n\n");
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+    textBody = body;
   } else if (input.docType === "teammate_tasks") {
     const taskLines =
       project.tasks.length > 0
@@ -290,7 +278,7 @@ ${escd}`;
       taskLines,
       "Done criteria: answers logged as insights/tasks; files updated.",
     ].join("\n\n");
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+    textBody = body;
   } else if (input.docType === "tech_confirm") {
     const body = sanitizeSupplierFacing(
       [
@@ -309,7 +297,7 @@ ${escd}`;
         ctx.slice(0, 2000),
       ].join("\n"),
     );
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+    textBody = body;
   } else {
     // owner_clarification — English draft + internal checklist
     const body = [
@@ -340,75 +328,29 @@ ${escd}`;
       "Context excerpt for authors:",
       ctx.slice(0, 1800),
     ].join("\n");
-    y = writeWrappedText(doc, body, 14, y, pageWidth - 28, 4.5);
+    textBody = body;
   }
 
-  const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
-  const prev = await db.projectGeneratedDocument.findFirst({
-    where: { projectId: project.id, docType: input.docType },
-    orderBy: { version: "desc" },
-    select: { version: true },
-  });
-  const version = (prev?.version ?? 0) + 1;
-  const pathname = `projects/${project.id}/generated/${input.docType}-v${version}-${Date.now()}.pdf`;
-  const blob = await putPrivateBlob({
-    pathname,
-    body: pdfBuffer,
-    contentType: "application/pdf",
-  });
-
-  // 标记旧版可能过期
-  await db.projectGeneratedDocument.updateMany({
-    where: { projectId: project.id, docType: input.docType, stale: false },
-    data: { stale: true },
-  });
-
-  const meta = {
-    projectName: project.name,
+  const fullText = `${DOC_TITLES[input.docType]}\n\nProject: ${project.name}\n\n${textBody}`;
+  const escd = fullText
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const html = `<!doctype html><meta charset="utf-8"><title>${DOC_TITLES[input.docType]}</title>
+<style>body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:800px;margin:0 auto;padding:32px 28px;line-height:1.7;font-size:13px;white-space:pre-wrap}@media print{body{padding:0}}</style>
+${escd}`;
+  return persistGeneratedHtml({
+    project: { id: project.id, name: project.name },
+    orgId: input.orgId,
+    userId: input.userId,
     docType: input.docType,
-    version,
-    generatedAt: new Date().toISOString(),
+    titleZh: DOC_TITLES[input.docType],
+    html,
     addendumFingerprint,
     conclusionVersion: project.intelligence?.structuredSummaryJson
       ? "structured_v1"
       : "none",
-    createdById: input.userId,
-  };
-
-  // 浏览器必须走 /api/files 代理；私有 Blob 直链会 Forbidden
-  const publicUrl = blob.proxyUrl;
-
-  const row = await db.projectGeneratedDocument.create({
-    data: {
-      orgId: input.orgId,
-      projectId: project.id,
-      docType: input.docType,
-      version,
-      title: `${DOC_TITLES[input.docType]} v${version}`,
-      blobUrl: publicUrl,
-      fileUrl: publicUrl,
-      metaJson: JSON.stringify(meta),
-      stale: false,
-      createdById: input.userId,
-    },
   });
-
-  // 同步一份到项目文件列表，便于下载
-  await db.projectDocument.create({
-    data: {
-      projectId: project.id,
-      title: row.title,
-      url: publicUrl,
-      blobUrl: publicUrl,
-      fileType: "pdf",
-      fileSize: pdfBuffer.length,
-      parseStatus: "done",
-      source: "generated",
-      uploadedById: input.userId,
-    },
-  });
-
-  return row;
 }
 
 /** HTML 生成文档统一落库：私有 Blob + ProjectGeneratedDocument(版本/stale) + 项目文件列表 */
@@ -422,16 +364,40 @@ async function persistGeneratedHtml(input: {
   addendumFingerprint: string;
   conclusionVersion: string;
 }) {
-  const htmlBuffer = Buffer.from(input.html, "utf-8");
   const version =
     (await db.projectGeneratedDocument.count({
       where: { projectId: input.project.id, docType: input.docType },
     })) + 1;
-  const blob = await putPrivateBlob({
-    pathname: `projects/${input.project.id}/generated/${input.docType}-v${version}-${Date.now()}.html`,
-    body: htmlBuffer,
-    contentType: "text/html; charset=utf-8",
-  });
+  // CJK-PDF 包：优先产出真 PDF（Chromium 渲染同一份 HTML，中文完好、任何
+  // 设备可开）；转换失败回落存 HTML（现状行为，浏览器可开可打印），
+  // 显式标注降级原因——绝不静默、绝不把坏字节当 PDF 存库。
+  let blob: Awaited<ReturnType<typeof putPrivateBlob>>;
+  let storedFileType: "pdf" | "html";
+  let storedSize: number;
+  let renderMode: string;
+  try {
+    const { renderHtmlToPdf } = await import("@/lib/pdf/html-to-pdf");
+    const pdfBuffer = await renderHtmlToPdf(input.html);
+    blob = await putPrivateBlob({
+      pathname: `projects/${input.project.id}/generated/${input.docType}-v${version}-${Date.now()}.pdf`,
+      body: pdfBuffer,
+      contentType: "application/pdf",
+    });
+    storedFileType = "pdf";
+    storedSize = pdfBuffer.length;
+    renderMode = "chromium_pdf";
+  } catch (e) {
+    const htmlBuffer = Buffer.from(input.html, "utf-8");
+    blob = await putPrivateBlob({
+      pathname: `projects/${input.project.id}/generated/${input.docType}-v${version}-${Date.now()}.html`,
+      body: htmlBuffer,
+      contentType: "text/html; charset=utf-8",
+    });
+    storedFileType = "html";
+    storedSize = htmlBuffer.length;
+    renderMode = `html_fallback:${e instanceof Error ? e.message.slice(0, 120) : "unknown"}`;
+    console.warn(`[generate-docs] PDF 转换失败，回落 HTML：${renderMode}`);
+  }
   await db.projectGeneratedDocument.updateMany({
     where: { projectId: input.project.id, docType: input.docType, stale: false },
     data: { stale: true },
@@ -452,6 +418,7 @@ async function persistGeneratedHtml(input: {
         generatedAt: new Date().toISOString(),
         addendumFingerprint: input.addendumFingerprint,
         conclusionVersion: input.conclusionVersion,
+        renderMode,
         createdById: input.userId,
       }),
       stale: false,
@@ -464,8 +431,8 @@ async function persistGeneratedHtml(input: {
       title: row.title,
       url: blob.proxyUrl,
       blobUrl: blob.proxyUrl,
-      fileType: "html",
-      fileSize: htmlBuffer.length,
+      fileType: storedFileType,
+      fileSize: storedSize,
       parseStatus: "done",
       source: "generated",
       uploadedById: input.userId,

@@ -84,7 +84,7 @@ export function ChinaSupplierBriefPanel({ projectId }: { projectId: string }) {
         <div>
           <h2 className="text-lg font-semibold">国内供应商简报 PDF</h2>
           <p className="text-xs text-[var(--muted)] mt-1">
-            复用既有 jsPDF；默认 allowlist，不含估值/成本/利润/内部备注。
+            服务端 Chromium 生成真 PDF（中文完好）；默认 allowlist，不含估值/成本/利润/内部备注。
           </p>
           <p className="text-[11px] text-amber-800 bg-amber-50 rounded px-2 py-1 mt-2 inline-block">
             已知限制：中文字体当前为 Helvetica，中文可能显示为缺字或方框；完整字体嵌入延后。

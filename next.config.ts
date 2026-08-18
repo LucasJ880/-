@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["jspdf", "jspdf-autotable"],
+  serverExternalPackages: ["jspdf", "jspdf-autotable", "@sparticuz/chromium", "puppeteer-core"],
   turbopack: {},
 };
 
