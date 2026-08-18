@@ -13,18 +13,9 @@ import { ProjectHistoryExperienceCard } from "@/components/project-history-exper
 import { ProjectOrgRulesCard } from "@/components/project-org-rules/project-org-rules-card";
 import type { ProjectContextTarget } from "@/components/project-detail/project-context-panel";
 import type { ProjectDetail } from "@/components/project-detail/project-detail-types";
-import { Radar } from "lucide-react";
+import { OrgAwardIntelSlots } from "@/components/tender-intel/org-award-intel-slots";
 
-/** T3/T4 情报模块的稳定 UI Slot（key 与 T0 架构文档七域对应） */
-const INTEL_FUTURE_SLOTS: Array<{ key: string; title: string; hint: string }> = [
-  { key: "historical_awards", title: "历史中标", hint: "企业历史数据尚未建立" },
-  { key: "buyer_history", title: "采购机构画像", hint: "尚未建立采购机构历史档案" },
-  { key: "comparable_prices", title: "可比价格", hint: "尚无可比价格数据" },
-  { key: "competitors", title: "竞争对手", hint: "尚未建立竞争对手档案" },
-  { key: "procurement_cycle", title: "采购周期", hint: "尚未分析" },
-  { key: "supply_chain", title: "供应链情报", hint: "尚未建立供应链数据" },
-  { key: "bid_strategy", title: "AI 投标策略", hint: "尚未分析" },
-];
+
 
 interface IntelTabProps {
   projectId: string;
@@ -94,31 +85,8 @@ export function IntelTab({
       {/* 企业规则（既有能力；确认复盘后自动刷新） */}
       <ProjectOrgRulesCard projectId={projectId} refreshKey={orgRulesRefreshKey} />
 
-      {/* 企业历史情报 Slot（T3/T4 规划位；诚实空态） */}
-      <section className="space-y-3" data-testid="intel-future-slots">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Radar size={16} className="text-accent/60" />
-          企业历史情报
-          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-normal text-muted">
-            建设中
-          </span>
-        </h3>
-        <p className="text-xs text-muted">
-          以下模块将随企业项目档案与历史数据积累逐步启用；当前尚无数据，不展示估计值。
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {INTEL_FUTURE_SLOTS.map((slot) => (
-            <div
-              key={slot.key}
-              data-intel-slot={slot.key}
-              className="rounded-xl border border-dashed border-border/70 bg-background/40 p-4"
-            >
-              <p className="text-sm font-medium text-foreground/80">{slot.title}</p>
-              <p className="mt-1 text-xs text-muted">{slot.hint}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* 企业历史情报：七槽位接 T4 组织级授标情报投影（情报阶段1） */}
+      <OrgAwardIntelSlots orgId={project.orgId ?? null} />
     </div>
   );
 }

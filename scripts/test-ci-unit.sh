@@ -55,6 +55,7 @@ npx tsx src/lib/workforce-runtime/__tests__/t5-seg25-work-domain.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-seg3-v2-convergence.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts
 npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
+npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p15-pure.test.ts
