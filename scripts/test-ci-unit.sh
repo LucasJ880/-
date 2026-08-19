@@ -92,6 +92,8 @@ npx tsx src/lib/autopilot/__tests__/durability-benchmark.test.ts
 npx tsx src/lib/autopilot/__tests__/coverage.test.ts
 npx tsx src/lib/autopilot/__tests__/human-signals.test.ts
 npx tsx src/lib/autopilot/__tests__/observe-dashboard.test.ts
+npx tsx src/lib/autopilot/__tests__/evaluate.test.ts
+npx tsx src/lib/autopilot/__tests__/evaluate-dashboard.test.ts
 npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts

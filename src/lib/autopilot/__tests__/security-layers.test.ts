@@ -104,6 +104,7 @@ const apiFiles = [
   "src/app/api/autopilot/runs/[runId]/route.ts",
   "src/app/api/autopilot/telemetry-health/route.ts",
   "src/app/api/autopilot/event-coverage/route.ts",
+  "src/app/api/autopilot/evaluations/route.ts",
 ];
 for (const rel of apiFiles) {
   const src = readFileSync(join(root, rel), "utf8");
@@ -144,6 +145,12 @@ const cronSrc = readFileSync(
 ok(cronSrc.includes("requireCronSecret"), "telemetry cron 使用机器身份 CRON_SECRET");
 ok(!cronSrc.includes("requireAutopilotAccess"), "telemetry cron 不用 Lucas UI 权限代替机器认证");
 
+ok(
+  flattenHrefs(resolveNavigationTree(NAVIGATION_REGISTRY, owner)).includes(
+    "/ai/autopilot/evaluations",
+  ),
+  "owner：可见 /ai/autopilot/evaluations",
+);
 ok(
   flattenHrefs(resolveNavigationTree(NAVIGATION_REGISTRY, owner)).includes(
     "/ai/autopilot/telemetry",

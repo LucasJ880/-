@@ -20,6 +20,7 @@ import {
   enqueueAutopilotTelemetryOutbox,
   type AutopilotOutboxEnvelope,
 } from "./outbox";
+import { persistDeterministicEvaluation } from "./evaluate-persist";
 import {
   appendAutopilotObservationEvent,
   upsertAutopilotObservation,
@@ -113,7 +114,7 @@ export async function projectAutopilotNotice(
       ? mapAgentRunEventToAutopilot(notice.eventType, notice.payload)
       : null;
 
-  await upsertAutopilotObservation({
+  const overlay = await upsertAutopilotObservation({
     agentRunId: run.id,
     orgId: run.orgId,
     userId,
@@ -140,6 +141,18 @@ export async function projectAutopilotNotice(
       status: run.status,
       model: run.model,
     },
+  });
+
+  await persistDeterministicEvaluation({
+    orgId: overlay.orgId,
+    agentRunId: run.id,
+    autopilotRunId: overlay.id,
+    status: run.status,
+    errorCode: run.errorCode,
+    humanOverride: overlay.humanOverride,
+    humanEdit: overlay.humanEdit,
+    reAskStatus: overlay.reAskStatus,
+    cancelled: run.status === "cancelled",
   });
 
   if (notice.type !== "event") return;

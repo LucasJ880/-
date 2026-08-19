@@ -317,6 +317,15 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
         displayOrder: 20,
       },
       {
+        key: "autopilot-evaluations",
+        label: "Evaluations",
+        labelKey: "nav_autopilot_evaluations",
+        href: "/ai/autopilot/evaluations",
+        group: "CAPABILITIES",
+        autopilotOwnerOnly: true,
+        displayOrder: 25,
+      },
+      {
         key: "autopilot-telemetry",
         label: "Telemetry",
         labelKey: "nav_autopilot_telemetry",
