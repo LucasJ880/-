@@ -54,6 +54,16 @@ export function isAutopilotProcessorEnabled(
 }
 
 /**
+ * A2-P1 LLM Judge。默认 OFF，与 Capture/Processor/UI 解耦。
+ * 不授权 Evaluator Agent、自动改 Prompt、或 Production activation。
+ */
+export function isAutopilotLlmJudgeEnabled(
+  env: AutopilotFlagEnv = process.env,
+): boolean {
+  return envBool(env.AUTOPILOT_LLM_JUDGE_ENABLED);
+}
+
+/**
  * Observe Dashboard 是否允许读取 Autopilot overlay / outbox 表。
  * Capture 与 Processor 都 OFF 时必须短路，禁止查询可能尚未 migrate 的表。
  */
@@ -77,5 +87,6 @@ export function describeAutopilotFlag(
     telemetryCapture: isAutopilotTelemetryCaptureEnabled(env),
     processor: isAutopilotProcessorEnabled(env),
     observeTelemetryRead: isAutopilotObserveTelemetryReadEnabled(env),
+    llmJudge: isAutopilotLlmJudgeEnabled(env),
   };
 }

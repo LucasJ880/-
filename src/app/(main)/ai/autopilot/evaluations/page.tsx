@@ -26,6 +26,10 @@ type EvaluateItem = {
   ruleId: string;
   evaluatorKind: string;
   evaluatorVersion: string;
+  llmOutcome?: string | null;
+  llmFailureType?: string | null;
+  llmJudged?: boolean | null;
+  llmRuleId?: string | null;
 };
 
 type EvaluationsResponse = {
@@ -41,6 +45,11 @@ type EvaluationsResponse = {
   taskSuccessCount?: number;
   partialSuccessCount?: number;
   judgedCount?: number;
+  llmJudge?: string;
+  llmJudgedCount?: number;
+  llmTaskSuccessCount?: number;
+  llmPartialSuccessCount?: number;
+  llmFailureCount?: number;
   aiEvaluator?: string;
   items?: EvaluateItem[];
   nextCursor?: string | null;
@@ -50,6 +59,8 @@ const OUTCOMES = ["", "UNKNOWN", "FAILURE", "HUMAN_OVERRIDE", "ABANDONED"];
 
 function outcomeTone(outcome: string): ObservePillTone {
   if (outcome === "FAILURE") return "warn";
+  if (outcome === "TASK_SUCCESS") return "ok";
+  if (outcome === "PARTIAL_SUCCESS") return "info";
   if (outcome === "HUMAN_OVERRIDE") return "info";
   if (outcome === "ABANDONED") return "neutral";
   return "unknown";
@@ -173,9 +184,11 @@ export default function AutopilotEvaluationsPage() {
       ) : (
         <>
           <p className="text-[11px] text-muted">
-            Deterministic evaluator only. AI Evaluator{" "}
-            {summary?.aiEvaluator ?? "DISABLED"}. A2-P0 does not assign TASK_SUCCESS
-            or HALLUCINATION.
+            Deterministic evaluator first. AI Evaluator{" "}
+            {summary?.aiEvaluator ?? "DISABLED"}. LLM Judge{" "}
+            {summary?.llmJudge ?? "OFF"}. Human override is not AI_WRONG. Completed
+            is not automatically TASK_SUCCESS. Semantic failures like HALLUCINATION
+            are not assigned without source text.
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
@@ -208,12 +221,17 @@ export default function AutopilotEvaluationsPage() {
             <MetricCard
               label="TASK_SUCCESS"
               value={summary?.taskSuccessCount ?? 0}
-              hint="A2-P0 never assigns this"
+              hint="Deterministic never assigns this"
             />
             <MetricCard
               label="PARTIAL_SUCCESS"
               value={summary?.partialSuccessCount ?? 0}
-              hint="A2-P0 never assigns this"
+              hint="Deterministic never assigns this"
+            />
+            <MetricCard
+              label="LLM judged"
+              value={summary?.llmJudgedCount ?? 0}
+              hint="Optional structural judge, not a score"
             />
           </div>
 
@@ -232,6 +250,7 @@ export default function AutopilotEvaluationsPage() {
                     <th className="px-3 py-2 font-medium">Domain</th>
                     <th className="px-3 py-2 font-medium">Runtime</th>
                     <th className="px-3 py-2 font-medium">Outcome</th>
+                    <th className="px-3 py-2 font-medium">LLM</th>
                     <th className="px-3 py-2 font-medium">Failure</th>
                     <th className="px-3 py-2 font-medium">Rule</th>
                   </tr>
@@ -262,8 +281,25 @@ export default function AutopilotEvaluationsPage() {
                           tone={judgedTone(item.judged)}
                         />
                       </td>
+                      <td className="px-3 py-2">
+                        {item.llmOutcome ? (
+                          <>
+                            <StatusPill
+                              label={item.llmOutcome}
+                              tone={outcomeTone(item.llmOutcome)}
+                            />
+                            {item.llmRuleId ? (
+                              <span className="ml-1 text-[11px] text-muted">
+                                {item.llmRuleId}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="text-[12px] text-muted">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-[12px]">
-                        {item.failureType ?? "—"}
+                        {item.failureType ?? item.llmFailureType ?? "—"}
                       </td>
                       <td className="px-3 py-2 text-[12px] text-muted">
                         {item.ruleId}

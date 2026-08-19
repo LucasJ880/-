@@ -17,14 +17,20 @@ export const AUTOPILOT_OBSERVE_SURFACE = "A1_P3_OBSERVE_DASHBOARD" as const;
 /**
  * A2-P0 deterministic Evaluate surface.
  * Answers WAS IT GOOD? only with rule-based outcomes.
- * Does not authorize LLM Judge, Monitor Agent, Optimizer, Issues, or Production activation.
+ * Does not authorize Evaluator Agent, Monitor Agent, Optimizer, Issues, or Production activation.
  */
 export const AUTOPILOT_EVALUATE_SURFACE = "A2_P0_DETERMINISTIC_EVALUATE" as const;
+
+/**
+ * A2-P1 LLM Judge: optional second evaluation row for UNKNOWN completed runs.
+ * Structural telemetry only. Not an Evaluator Agent. Default flag OFF.
+ */
+export const AUTOPILOT_LLM_JUDGE_SURFACE = "A2_P1_LLM_JUDGE" as const;
 
 export const AUTOPILOT_DISABLED_CAPABILITIES = {
   autoOptimization: "DISABLED",
   autoDeployment: "DISABLED",
-  /** LLM / AI Judge — still off in A2-P0. Deterministic rules are not this flag. */
+  /** Evaluator Agent / auto quality loop — still off. A2-P1 is a flagged judge function. */
   aiEvaluator: "DISABLED",
   monitorAgent: "DISABLED",
 } as const;
@@ -143,18 +149,30 @@ export const AUTOPILOT_FAILURE_TYPES: readonly AutopilotFailureType[] = [
 
 /**
  * A0/A2-P0 只允许确定性系统错误写入 failureType。
- * INTENT / HALLUCINATION / WRONG_TOOL 仍禁止猜测（留给未来 LLM Judge，本轮不做）。
+ * A2-P1 LLM Judge 仍禁止 HALLUCINATION/INTENT/WRONG_TOOL：本轮不把正文交给模型。
  */
-export type AutopilotFailureSource = "system" | "human_signal" | null;
+export type AutopilotFailureSource = "system" | "human_signal" | "llm" | null;
 
 export const AUTOPILOT_EVALUATOR_KIND = "deterministic" as const;
 export const AUTOPILOT_EVALUATOR_VERSION = "a2p0-deterministic-v1" as const;
+export const AUTOPILOT_LLM_EVALUATOR_KIND = "llm" as const;
+export const AUTOPILOT_LLM_EVALUATOR_VERSION = "a2p1-llm-judge-v1" as const;
 
 export type AutopilotEvaluateRuleId =
   | "HUMAN_OVERRIDE_PRESENT"
   | "RUNTIME_FAILED"
   | "RUNTIME_CANCELLED"
   | "NOT_JUDGED";
+
+export type AutopilotLlmJudgeRuleId =
+  | "LLM_JUDGE_ACCEPTED"
+  | "LLM_JUDGE_ABSTAINED"
+  | "LLM_JUDGE_PARSE_FAILED"
+  | "LLM_JUDGE_REJECTED_INELIGIBLE"
+  | "LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY"
+  | "LLM_JUDGE_REJECTED_SEMANTIC_FAILURE"
+  | "LLM_JUDGE_REJECTED_UNGROUNDED"
+  | "LLM_JUDGE_UNAVAILABLE";
 
 export type AutopilotTraceEventType =
   | "USER_INPUT"

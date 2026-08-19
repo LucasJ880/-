@@ -89,6 +89,7 @@ async function main() {
     /AI Evaluator/.test(ui) && /DISABLED/.test(ui),
     "Evaluations still shows AI Evaluator DISABLED",
   );
+  ok(/LLM Judge/.test(ui), "Evaluations shows LLM Judge status");
   ok(
     /not AI_WRONG/.test(ui) || /Not AI_WRONG/.test(ui),
     "Evaluations copy says override is not AI_WRONG",
@@ -124,6 +125,14 @@ async function main() {
   ok(
     instr.includes("persistDeterministicEvaluation"),
     "projection persists deterministic evaluation separately",
+  );
+  ok(
+    instr.includes("persistLlmJudgeEvaluation"),
+    "projection may persist LLM Judge after deterministic eval",
+  );
+  ok(
+    /LLM Judge must never fail Observe/.test(instr),
+    "LLM Judge errors cannot fail Observe projection",
   );
 
   const nav = readFileSync(join(root, "src/lib/navigation/registry.ts"), "utf8");

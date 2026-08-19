@@ -21,6 +21,7 @@ import {
   type AutopilotOutboxEnvelope,
 } from "./outbox";
 import { persistDeterministicEvaluation } from "./evaluate-persist";
+import { persistLlmJudgeEvaluation } from "./evaluate-judge-persist";
 import {
   appendAutopilotObservationEvent,
   upsertAutopilotObservation,
@@ -155,18 +156,32 @@ export async function projectAutopilotNotice(
     cancelled: run.status === "cancelled",
   });
 
-  if (notice.type !== "event") return;
+  if (notice.type === "event" && mapped) {
+    await appendAutopilotObservationEvent({
+      orgId: notice.orgId,
+      agentRunId: notice.runId,
+      eventType: mapped.eventType,
+      sequence: notice.sequence,
+      timestamp: notice.timestamp ?? new Date(),
+      durationMs: mapped.durationMs,
+      payload: mapped.payload,
+    });
+  }
 
-  if (!mapped) return;
-  await appendAutopilotObservationEvent({
-    orgId: notice.orgId,
-    agentRunId: notice.runId,
-    eventType: mapped.eventType,
-    sequence: notice.sequence,
-    timestamp: notice.timestamp ?? new Date(),
-    durationMs: mapped.durationMs,
-    payload: mapped.payload,
-  });
+  try {
+    await persistLlmJudgeEvaluation({
+      orgId: overlay.orgId,
+      agentRunId: run.id,
+      autopilotRunId: overlay.id,
+      status: run.status,
+      errorCode: run.errorCode,
+      humanOverride: overlay.humanOverride,
+      humanEdit: overlay.humanEdit,
+      reAskStatus: overlay.reAskStatus,
+    });
+  } catch {
+    // LLM Judge must never fail Observe projection / outbox drain.
+  }
 }
 
 /**

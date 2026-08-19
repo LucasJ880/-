@@ -297,6 +297,132 @@ async function main() {
     "foreign org query does not leak home org",
   );
 
+  const { persistLlmJudgeEvaluation } = await import("../evaluate-judge-persist");
+  const { AUTOPILOT_LLM_EVALUATOR_VERSION } = await import("../types");
+  const judgeEnv = {
+    ...envOn,
+    AUTOPILOT_LLM_JUDGE_ENABLED: "1",
+  };
+
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: completed.id,
+    autopilotRunId: (await db.autopilotRun.findUnique({
+      where: { agentRunId: completed.id },
+      select: { id: true },
+    }))!.id,
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () =>
+        JSON.stringify({
+          outcome: "TASK_SUCCESS",
+          failureType: null,
+          confidence: "high",
+          evidenceCode: "clean_completed_run",
+          rationale: "structurally clean",
+        }),
+    },
+  });
+
+  const llmRow = await db.autopilotEvaluation.findUnique({
+    where: {
+      agentRunId_evaluatorVersion: {
+        agentRunId: completed.id,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      },
+    },
+  });
+  ok(llmRow?.outcome === "TASK_SUCCESS", "mock LLM Judge can assign TASK_SUCCESS");
+  ok(llmRow?.judged === true, "accepted LLM Judge is judged");
+  ok(
+    !JSON.stringify(llmRow?.evidence ?? {}).includes("Bearer secret-token-value"),
+    "LLM evidence has no Authorization",
+  );
+
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: edited.id,
+    autopilotRunId: (await db.autopilotRun.findUnique({
+      where: { agentRunId: edited.id },
+      select: { id: true },
+    }))!.id,
+    status: "completed",
+    humanEdit: true,
+    env: judgeEnv,
+    judge: {
+      complete: async () =>
+        JSON.stringify({
+          outcome: "FAILURE",
+          failureType: "HALLUCINATION",
+          confidence: "high",
+          evidenceCode: "human_edit_after_output",
+          rationale: "should not count",
+        }),
+    },
+  });
+  const llmEdit = await db.autopilotEvaluation.findUnique({
+    where: {
+      agentRunId_evaluatorVersion: {
+        agentRunId: edited.id,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      },
+    },
+  });
+  ok(
+    llmEdit?.outcome === "UNKNOWN" &&
+      llmEdit.ruleId === "LLM_JUDGE_REJECTED_SEMANTIC_FAILURE",
+    "E2E rejects HALLUCINATION from human edit",
+  );
+
+  const listedWithLlm = await getAutopilotEvaluations(owner, orgId, {
+    env: envOn,
+    range: "7d",
+    limit: 50,
+  });
+  const completedItem = listedWithLlm.items.find((item) => item.runId === completed.id);
+  ok(completedItem?.llmOutcome === "TASK_SUCCESS", "list overlays LLM outcome");
+  ok(
+    (listedWithLlm.llmTaskSuccessCount ?? 0) >= 1,
+    "LLM TASK_SUCCESS count is separate from deterministic success",
+  );
+  ok(listedWithLlm.llmJudge === "OFF", "list env without judge flag reports OFF");
+  ok(scanObserveResponse(listedWithLlm).ok, "LLM overlay payload still privacy-clean");
+
+  const noLlmOnFailed = await db.autopilotEvaluation.findUnique({
+    where: {
+      agentRunId_evaluatorVersion: {
+        agentRunId: failed.id,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      },
+    },
+  });
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: failed.id,
+    autopilotRunId: (await db.autopilotRun.findUnique({
+      where: { agentRunId: failed.id },
+      select: { id: true },
+    }))!.id,
+    status: "failed",
+    errorCode: "tool_failed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  const stillNone = await db.autopilotEvaluation.findUnique({
+    where: {
+      agentRunId_evaluatorVersion: {
+        agentRunId: failed.id,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      },
+    },
+  });
+  ok(!noLlmOnFailed && !stillNone, "ineligible FAILURE does not call or persist LLM Judge");
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
