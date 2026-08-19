@@ -2,7 +2,15 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["jspdf", "jspdf-autotable", "@sparticuz/chromium", "puppeteer-core"],
+  serverExternalPackages: ["jspdf", "jspdf-autotable", "@sparticuz/chromium", "puppeteer-core", "@expo-google-fonts/noto-sans-sc"],
+  // CJK-PDF：字体经运行时动态 resolve（躲 turbopack 静态打包），
+  // NFT 输出追踪显式带上 TTF 与 chromium 资产
+  outputFileTracingIncludes: {
+    "/api/projects/\[id\]/generate-pdf": [
+      "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
+      "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
+    ],
+  },
   turbopack: {},
 };
 

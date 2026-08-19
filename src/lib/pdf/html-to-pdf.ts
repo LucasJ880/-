@@ -17,6 +17,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 export class HtmlToPdfError extends Error {
   constructor(message: string) {
@@ -28,10 +29,22 @@ export class HtmlToPdfError extends Error {
 const MAC_CHROME =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-const CJK_FONTS: Array<{ weight: number; pkgPath: string }> = [
-  { weight: 400, pkgPath: "@expo-google-fonts/noto-sans-sc/400Regular/NotoSansSC_400Regular.ttf" },
-  { weight: 700, pkgPath: "@expo-google-fonts/noto-sans-sc/700Bold/NotoSansSC_700Bold.ttf" },
+// 路径用数组拼接：躲开 turbopack 对字面 require.resolve(".ttf") 的静态打包
+// （Unknown module type）；serverless 端文件由 next.config 的
+// outputFileTracingIncludes 显式带进 bundle。
+const CJK_FONTS: Array<{ weight: number; segments: string[] }> = [
+  {
+    weight: 400,
+    segments: ["@expo-google-fonts", "noto-sans-sc", "400Regular", "NotoSansSC_400Regular.ttf"],
+  },
+  {
+    weight: 700,
+    segments: ["@expo-google-fonts", "noto-sans-sc", "700Bold", "NotoSansSC_700Bold.ttf"],
+  },
 ];
+const nodeRequire = createRequire(
+  typeof __filename !== "undefined" ? __filename : process.cwd() + "/",
+);
 
 /**
  * CJK 字体以 data-URI @font-face 注入 HTML（模块级缓存）。
@@ -45,7 +58,7 @@ function getCjkFontFaceCss(): string {
   const faces: string[] = [];
   for (const f of CJK_FONTS) {
     try {
-      const b64 = readFileSync(require.resolve(f.pkgPath)).toString("base64");
+      const b64 = readFileSync(nodeRequire.resolve(f.segments.join("/"))).toString("base64");
       faces.push(
         `@font-face{font-family:"Noto Sans SC";font-weight:${f.weight};src:url(data:font/ttf;base64,${b64}) format("truetype")}`,
       );
