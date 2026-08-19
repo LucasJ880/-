@@ -27,6 +27,10 @@ import {
 } from "./repository";
 import { sanitizedErrorSummary } from "./projection";
 
+export type ProjectAutopilotNoticeDeps = {
+  persistDeterministicEvaluation?: typeof persistDeterministicEvaluation;
+};
+
 export type AutopilotRuntimeNotice =
   | {
       type: "run_created" | "run_terminal";
@@ -85,9 +89,15 @@ export function noticeToOutboxEnvelope(
   };
 }
 
-/** Processor 投影：从 canonical AgentRun 重建 overlay / event。 */
+/**
+ * Processor 投影：从 canonical AgentRun 重建 overlay / event。
+ * A1 Observe must finish before A2 Evaluate is attempted.
+ * A2 persistence errors propagate to outbox retry; they must not
+ * prevent A1 overlay/event writes that already committed.
+ */
 export async function projectAutopilotNotice(
   notice: AutopilotRuntimeNotice,
+  deps: ProjectAutopilotNoticeDeps = {},
 ): Promise<void> {
   const run = await db.agentRun.findFirst({
     where: { id: notice.runId, orgId: notice.orgId },
@@ -143,7 +153,21 @@ export async function projectAutopilotNotice(
     },
   });
 
-  await persistDeterministicEvaluation({
+  if (notice.type === "event" && mapped) {
+    await appendAutopilotObservationEvent({
+      orgId: notice.orgId,
+      agentRunId: notice.runId,
+      eventType: mapped.eventType,
+      sequence: notice.sequence,
+      timestamp: notice.timestamp ?? new Date(),
+      durationMs: mapped.durationMs,
+      payload: mapped.payload,
+    });
+  }
+
+  const persistEvaluation =
+    deps.persistDeterministicEvaluation ?? persistDeterministicEvaluation;
+  await persistEvaluation({
     orgId: overlay.orgId,
     agentRunId: run.id,
     autopilotRunId: overlay.id,
@@ -153,19 +177,6 @@ export async function projectAutopilotNotice(
     humanEdit: overlay.humanEdit,
     reAskStatus: overlay.reAskStatus,
     cancelled: run.status === "cancelled",
-  });
-
-  if (notice.type !== "event") return;
-
-  if (!mapped) return;
-  await appendAutopilotObservationEvent({
-    orgId: notice.orgId,
-    agentRunId: notice.runId,
-    eventType: mapped.eventType,
-    sequence: notice.sequence,
-    timestamp: notice.timestamp ?? new Date(),
-    durationMs: mapped.durationMs,
-    payload: mapped.payload,
   });
 }
 

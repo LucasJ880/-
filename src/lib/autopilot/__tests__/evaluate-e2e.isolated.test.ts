@@ -297,6 +297,224 @@ async function main() {
     "foreign org query does not leak home org",
   );
 
+  ok(byRun.get(completed.id)?.outcome === "UNKNOWN", "COMPLETED_UNKNOWN = PASS");
+  ok(byRun.get(failed.id)?.outcome === "FAILURE", "RUNTIME_FAILURE = PASS");
+  ok(byRun.get(cancelled.id)?.outcome === "ABANDONED", "ABANDONED = PASS");
+  ok(
+    byRun.get(overridden.id)?.outcome === "HUMAN_OVERRIDE",
+    "HUMAN_OVERRIDE = PASS",
+  );
+  ok(byRun.get(edited.id)?.outcome === "UNKNOWN", "HUMAN_EDIT_UNKNOWN = PASS");
+  ok(
+    isolated.items.every((item) => item.runId === foreign.id),
+    "ORG_ISOLATION = PASS",
+  );
+  ok(scan.ok, "PRIVACY = PASS");
+  ok(dark.evaluateState === "NOT_ACTIVE", "DARK_MODE = PASS");
+
+  const { persistDeterministicEvaluation } = await import("../evaluate-persist");
+  const { enqueueAutopilotTelemetryOutbox, AUTOPILOT_OUTBOX_MAX_ATTEMPTS } =
+    await import("../outbox");
+  const { defaultAutopilotProcessorPorts, processAutopilotTelemetryOutbox } =
+    await import("../processor");
+
+  async function observeProjection(agentRunId: string) {
+    const overlay = await db.autopilotRun.findUnique({
+      where: { agentRunId },
+      select: {
+        id: true,
+        outcome: true,
+        completedAt: true,
+        metadata: true,
+      },
+    });
+    const events = overlay
+      ? await db.autopilotRunEvent.count({ where: { runId: overlay.id } })
+      : 0;
+    const evaluations = await db.autopilotEvaluation.count({
+      where: { agentRunId },
+    });
+    const canonicalEvents = await db.agentRunEvent.count({
+      where: { runId: agentRunId },
+    });
+    const outbox = await db.autopilotTelemetryOutbox.findMany({
+      where: { agentRunId },
+      select: { status: true, noticeType: true, attemptCount: true },
+    });
+    return { overlay, events, evaluations, canonicalEvents, outbox };
+  }
+
+  async function processRunOutbox(input: {
+    agentRunId: string;
+    failEvaluation: boolean;
+    now: Date;
+  }) {
+    const ports = await defaultAutopilotProcessorPorts();
+    const baseClaim = ports.claim;
+    ports.claim = async (claimInput) => {
+      const rows = await baseClaim(claimInput);
+      return rows.filter((row) => row.agentRunId === input.agentRunId);
+    };
+    ports.project = (notice) =>
+      projectAutopilotNotice(notice, {
+        persistDeterministicEvaluation: async (evalInput) => {
+          if (input.failEvaluation) {
+            throw new Error("forced A2 evaluation failure");
+          }
+          await persistDeterministicEvaluation(evalInput);
+        },
+      });
+    return processAutopilotTelemetryOutbox({
+      env: envOn,
+      now: input.now,
+      ports,
+    });
+  }
+
+  const transient = await seedRun({ status: "completed" });
+  const transientEvent = await db.agentRunEvent.create({
+    data: {
+      orgId,
+      runId: transient.id,
+      eventType: "tool.completed",
+      sequence: 1,
+      title: "tool",
+      payload: { name: "gmail.send" },
+    },
+  });
+  const enqTransient = await enqueueAutopilotTelemetryOutbox(db, {
+    orgId,
+    agentRunId: transient.id,
+    noticeType: "event",
+    agentEventId: transientEvent.id,
+    sequence: 1,
+    sourceEventType: "tool.completed",
+  });
+  ok(enqTransient === "inserted", "transient A2-failure case enqueued");
+
+  const t0 = new Date(Date.now() + 5_000);
+  const firstFail = await processRunOutbox({
+    agentRunId: transient.id,
+    failEvaluation: true,
+    now: t0,
+  });
+  const afterFirstFail = await observeProjection(transient.id);
+  ok(afterFirstFail.canonicalEvents === 1, "canonical AgentRunEvent exists after A2 fail");
+  ok(!!afterFirstFail.overlay, "AutopilotRun exists after A2 fail");
+  ok(
+    afterFirstFail.events === 1,
+    "A2_FAILURE_A1_EVENT_SURVIVES = PASS",
+  );
+  ok(afterFirstFail.evaluations === 0, "A2 evaluation missing after first fail");
+  ok(
+    firstFail.retried === 1 &&
+      afterFirstFail.outbox.some((row) => row.status === "pending"),
+    "processor result = retry/pending after transient A2 fail",
+  );
+
+  const recovered = await processRunOutbox({
+    agentRunId: transient.id,
+    failEvaluation: false,
+    now: new Date(t0.getTime() + 2 * 60 * 60 * 1000),
+  });
+  const afterRetry = await observeProjection(transient.id);
+  ok(afterRetry.events === 1, "A1_EVENT_REPLAY_IDEMPOTENT = PASS");
+  ok(afterRetry.evaluations === 1, "A2_RETRY_RECOVERS_EVALUATION = PASS");
+  ok(
+    recovered.processed === 1 &&
+      afterRetry.outbox.every((row) => row.status === "processed"),
+    "outbox processed after A2 retry",
+  );
+
+  const permanent = await seedRun({ status: "completed" });
+  const permanentEvent = await db.agentRunEvent.create({
+    data: {
+      orgId,
+      runId: permanent.id,
+      eventType: "tool.completed",
+      sequence: 1,
+      title: "tool",
+      payload: { name: "gmail.send" },
+    },
+  });
+  await enqueueAutopilotTelemetryOutbox(db, {
+    orgId,
+    agentRunId: permanent.id,
+    noticeType: "event",
+    agentEventId: permanentEvent.id,
+    sequence: 1,
+    sourceEventType: "tool.completed",
+  });
+  let lastPermanent = {
+    skipped: false,
+    claimed: 0,
+    processed: 0,
+    retried: 0,
+    dead: 0,
+    lost: 0,
+    recoveredDead: 0,
+  };
+  for (let i = 0; i < AUTOPILOT_OUTBOX_MAX_ATTEMPTS; i++) {
+    lastPermanent = await processRunOutbox({
+      agentRunId: permanent.id,
+      failEvaluation: true,
+      now: new Date(t0.getTime() + i * 24 * 60 * 60 * 1000),
+    });
+  }
+  const afterDead = await observeProjection(permanent.id);
+  ok(
+    lastPermanent.dead === 1 &&
+      afterDead.outbox.some((row) => row.status === "dead"),
+    "permanent A2 failure reaches outbox DEAD",
+  );
+  ok(!!afterDead.overlay, "A1 Observe overlay present after permanent A2 fail");
+  ok(afterDead.events === 1, "A1 mapped event projection present after permanent A2 fail");
+  ok(afterDead.evaluations === 0, "A2 evaluation may be missing after permanent fail");
+  ok(
+    afterDead.events === afterDead.canonicalEvents,
+    "PERMANENT_A2_FAILURE_NO_A1_GAP = PASS",
+  );
+  ok(
+    afterDead.overlay != null && afterDead.events === 1,
+    "A2_FAILURE_CAUSES_A1_PROJECTION_GAP = NO",
+  );
+
+  const terminal = await seedRun({ status: "completed" });
+  await enqueueAutopilotTelemetryOutbox(db, {
+    orgId,
+    agentRunId: terminal.id,
+    noticeType: "run_terminal",
+  });
+  await processRunOutbox({
+    agentRunId: terminal.id,
+    failEvaluation: true,
+    now: t0,
+  });
+  const terminalFailed = await observeProjection(terminal.id);
+  ok(!!terminalFailed.overlay, "A2_FAILURE_A1_OVERLAY_SURVIVES = PASS");
+  ok(
+    terminalFailed.overlay?.completedAt != null,
+    "A1 terminal overlay already reflects terminal runtime state",
+  );
+  ok(terminalFailed.evaluations === 0, "terminal A2 evaluation missing after first fail");
+  const terminalMeta = terminalFailed.overlay?.metadata as
+    | { status?: string }
+    | null;
+  ok(terminalMeta?.status === "completed", "A1 overlay status remains completed");
+
+  await processRunOutbox({
+    agentRunId: terminal.id,
+    failEvaluation: false,
+    now: new Date(t0.getTime() + 2 * 60 * 60 * 1000),
+  });
+  const terminalRecovered = await observeProjection(terminal.id);
+  ok(terminalRecovered.evaluations === 1, "terminal retry recovers evaluation");
+  ok(
+    !!terminalRecovered.overlay &&
+      terminalRecovered.overlay.id === terminalFailed.overlay?.id,
+    "A2 failure must not remove or roll back A1 overlay",
+  );
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

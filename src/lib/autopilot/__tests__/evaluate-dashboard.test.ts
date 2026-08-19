@@ -125,6 +125,21 @@ async function main() {
     instr.includes("persistDeterministicEvaluation"),
     "projection persists deterministic evaluation separately",
   );
+  const projectFn = instr.slice(
+    instr.indexOf("export async function projectAutopilotNotice"),
+  );
+  const appendAt = projectFn.indexOf("await appendAutopilotObservationEvent(");
+  const persistAt = projectFn.indexOf("await persistEvaluation(");
+  ok(
+    appendAt >= 0 && persistAt > appendAt,
+    "A1 event projection precedes A2 persist",
+  );
+  ok(
+    !/await persistDeterministicEvaluation\([\s\S]*await appendAutopilotObservationEvent\(/.test(
+      projectFn,
+    ),
+    "A2 persist is not attempted before A1 event append",
+  );
 
   const nav = readFileSync(join(root, "src/lib/navigation/registry.ts"), "utf8");
   ok(/autopilot-evaluations/.test(nav), "nav has evaluations child");
