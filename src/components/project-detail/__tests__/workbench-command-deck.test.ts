@@ -83,5 +83,21 @@ ok(
   "WB-11（反例守卫）: 无分析 run 时计数为 null 而非 0",
 );
 
+// ── 项目团队选人组合框（2026-08-19 用户报告：应可输入+下拉选人） ──
+ok(
+  tab.includes('data-testid="member-picker"') &&
+    tab.includes("/api/organizations/") &&
+    tab.includes("filteredCandidates"),
+  "WB-12: 添加成员=组合框（组织成员候选 + 输入过滤下拉）",
+);
+ok(
+  !tab.includes("用户 ID（须已加入所属组织）"),
+  "WB-13（反例守卫）: 手输 userId（cuid）的旧输入框已退役",
+);
+ok(
+  tab.includes("!selectedUser") && tab.includes("activeMemberIds"),
+  "WB-14: 提交必须来自选择 + 已是项目成员的不出现在候选",
+);
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);
