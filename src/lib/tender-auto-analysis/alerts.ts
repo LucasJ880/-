@@ -31,7 +31,10 @@ export function tenderFailureSummary(input: {
   const reason =
     (input.errorCode && REASON_TEXT[input.errorCode]) || "分析未能完成";
   const proj = input.projectName ? `「${input.projectName}」` : "该招标项目";
-  return `${proj}的 AI 分析已停止：${reason}（已尝试 ${input.attemptCount} 次）。可在项目里重新发起分析。`;
+  // 包2：workforce 域 run 的 attemptCount 恒 0（重试在 Job 层）——不显示误导性次数
+  const attempts =
+    input.attemptCount > 0 ? `（已尝试 ${input.attemptCount} 次）` : "";
+  return `${proj}的 AI 分析已停止：${reason}${attempts}。可在项目里重新发起分析。`;
 }
 
 export function tenderFailureSourceKey(runId: string): string {
@@ -67,7 +70,9 @@ export async function notifyTenderRunFailed(runId: string): Promise<void> {
         project: { select: { name: true, ownerId: true } },
       },
     });
-    if (!run || run.status !== "FAILED") return;
+    // 包2：workforce 域失败终态是 AGENT_FAILED（刻意区别于 legacy FAILED，
+    // 防 legacy 候选查询复活）——两种失败终态都应通知
+    if (!run || (run.status !== "FAILED" && run.status !== "AGENT_FAILED")) return;
 
     const recipients = resolveFailureRecipients({
       ownerId: run.project?.ownerId,

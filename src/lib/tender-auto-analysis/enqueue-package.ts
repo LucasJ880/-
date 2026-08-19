@@ -50,6 +50,8 @@ export type EnqueuePackageResult = {
   runId?: string;
   status?: TenderAnalysisStatus | string;
   reason?: string;
+  /** 包3 双管线收敛：本次自动分析被改派到哪条管线（缺省=legacy） */
+  pipeline?: "workforce";
   documentCount?: number;
   packageFingerprint?: string;
   classificationWarning?: string | null;
@@ -574,6 +576,76 @@ export async function enqueueTenderPackageIfReady(
       enqueued: false,
       reason: readinessReason(readiness.code),
       documentCount: readiness.documentCount,
+    };
+  }
+
+  // ── 包3 双管线收敛：org 命中 workforce flag → 自动分析改派 workforce ──
+  // （canonical 单管线；legacy 仅在 flag 未命中或改派失败时 fallback——
+  //   legacy queue 不 retire，手动 reanalyze 入口不经此函数、原样保留）。
+  // startTenderWorkforceAnalysis 自带三层幂等（requestId 重放 / advisory lock /
+  // 活跃集 reuse）；restart:false = 自动路径绝不取代已有分析。
+  try {
+    const { isTenderWorkforceAnalysisEnabled } = await import(
+      "@/lib/tender-workforce/flags"
+    );
+    if (input.orgId && isTenderWorkforceAnalysisEnabled({ orgId: input.orgId })) {
+      const [project, user] = await Promise.all([
+        db.project.findUnique({
+          where: { id: input.projectId },
+          select: { name: true },
+        }),
+        db.user.findUnique({
+          where: { id: input.userId },
+          select: { role: true },
+        }),
+      ]);
+      const { startTenderWorkforceAnalysis } = await import(
+        "@/lib/tender-workforce/trigger-service"
+      );
+      const started = await startTenderWorkforceAnalysis({
+        orgId: input.orgId,
+        projectId: input.projectId,
+        projectName: project?.name ?? "投标项目",
+        userId: input.userId,
+        role: user?.role ?? null,
+        requestId: `auto-enqueue:${input.projectId}`,
+        restart: false,
+      });
+      if (started.ok) {
+        return {
+          enqueued: true,
+          pipeline: "workforce",
+          runId: started.jobId,
+          reason: started.reused ? "workforce_active" : "dispatched_workforce",
+        };
+      }
+      console.warn(
+        `[tender-auto-analysis] workforce 改派失败（${started.code}），回落 legacy: project=${input.projectId}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      `[tender-auto-analysis] workforce 改派异常，回落 legacy: project=${input.projectId} err=${e instanceof Error ? e.name : "unknown"}`,
+    );
+  }
+
+  // ── 包3(c) 幂等兜底：存在活跃 workforce 域分析（flag 中途关闭/竞态）→
+  // 视为该包已有活跃分析，不再起 legacy（双倍模型花费的根源）──
+  const { TENDER_WORKFORCE_ANALYSIS_VERSION, TENDER_AGENT_RUN_STATUS } =
+    await import("@/lib/tender-workforce/analysis-run-service");
+  const activeWorkforce = await db.tenderAnalysisRun.findFirst({
+    where: {
+      projectId: input.projectId,
+      analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
+      status: TENDER_AGENT_RUN_STATUS.running,
+    },
+    select: { id: true },
+  });
+  if (activeWorkforce) {
+    return {
+      enqueued: false,
+      reason: "workforce_active",
+      runId: activeWorkforce.id,
     };
   }
 
