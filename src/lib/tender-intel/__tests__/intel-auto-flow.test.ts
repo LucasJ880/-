@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { bidStrategyAutoSchema } from "../strategy";
+import { isAutoObserveRelevant } from "../orchestrate";
 
 let pass = 0;
 let fail = 0;
@@ -65,6 +66,20 @@ const awards = code("src/lib/tender-intel/awards.ts");
 ok(
   awards.includes("AWARD_AI_WRITE_DISABLED"),
   "AF-OBS-06（回归钉）: awards 写门 ai/agent 拒绝铁律原样",
+);
+
+// ── 相关性门（2026-08-19 生产复盘：真实 ≠ 相关） ──────────
+ok(
+  isAutoObserveRelevant({ candidateBuyer: "Regional Municipality of Durham", projectBuyer: "regional municipality of durham", hitQueryCount: 1 }) &&
+    !isAutoObserveRelevant({ candidateBuyer: "City of Toronto", projectBuyer: "Regional Municipality of Durham", hitQueryCount: 1 }) &&
+    isAutoObserveRelevant({ candidateBuyer: "City of Toronto", projectBuyer: "Regional Municipality of Durham", hitQueryCount: 2 }) &&
+    !isAutoObserveRelevant({ candidateBuyer: null, projectBuyer: null, hitQueryCount: 1 }),
+  "AF-OBS-07: 相关性门=买家归一匹配 或 交叉命中≥2（缺信息 fail-closed）",
+);
+ok(
+  orch.includes("isAutoObserveRelevant({") &&
+    /if \(!ref\) continue;[\s\S]{0,600}?isAutoObserveRelevant/.test(orch),
+  "AF-OBS-08: 观察循环内逐候选过相关性门（无门直入的旧形状不存在）",
 );
 
 // ── 策略合成 ─────────────────────────────────────────────
