@@ -348,6 +348,15 @@ export async function finalizeWorkforceTenderCanonicalV2Run(input: {
         "分析记录不处于进行中状态（可能已被取消或被新的分析取代），拒绝终态化",
     };
   }
+  // 包2：完成通知（sourceKey 幂等去重；best-effort——通知失败绝不回滚 canonical）
+  try {
+    const { notifyTenderRunSucceeded } = await import(
+      "@/lib/tender-auto-analysis/alerts"
+    );
+    await notifyTenderRunSucceeded(input.analysisRunId);
+  } catch {
+    /* 通知失败不影响终态化 */
+  }
   return { ok: true };
 }
 
@@ -395,6 +404,15 @@ export async function finalizeWorkforceTenderAnalysisRun(input: {
         "分析记录不处于进行中状态（可能已被取消或被新的分析取代），拒绝写入结果",
     };
   }
+  // 包2：完成通知（sourceKey 幂等去重；best-effort——通知失败绝不回滚 canonical）
+  try {
+    const { notifyTenderRunSucceeded } = await import(
+      "@/lib/tender-auto-analysis/alerts"
+    );
+    await notifyTenderRunSucceeded(input.analysisRunId);
+  } catch {
+    /* 通知失败不影响终态化 */
+  }
   return { ok: true };
 }
 
@@ -427,5 +445,32 @@ export async function failWorkforceTenderAnalysisRun(input: {
       failedAt: new Date(),
     },
   });
+  // 包2：失败通知（cancelled=用户主动重新分析，不算失败、不打扰；
+  // best-effort——通知失败绝不影响终态化）
+  if (updated.count > 0 && input.errorCode !== "cancelled") {
+    try {
+      const failedRun = input.analysisRunId
+        ? { id: input.analysisRunId }
+        : await db.tenderAnalysisRun.findFirst({
+            where: {
+              orgId: input.orgId,
+              analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
+              status: TENDER_AGENT_RUN_STATUS.failed,
+              idempotencyKey: input.jobId
+                ? buildWorkforceTenderIdempotencyKey(input.jobId)
+                : undefined,
+            },
+            select: { id: true },
+          });
+      if (failedRun) {
+        const { notifyTenderRunFailed } = await import(
+          "@/lib/tender-auto-analysis/alerts"
+        );
+        await notifyTenderRunFailed(failedRun.id);
+      }
+    } catch {
+      /* 通知失败不影响终态化 */
+    }
+  }
   return { updated: updated.count > 0 };
 }
