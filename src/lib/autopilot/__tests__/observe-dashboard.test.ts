@@ -530,7 +530,7 @@ async function main() {
   );
 
   const nav = readFileSync(join(root, "src/lib/navigation/registry.ts"), "utf8");
-  ok(!/autopilot\/evaluations/.test(nav), "no Evaluations nav");
+  ok(/autopilot\/evaluations/.test(nav), "A2-P0 Evaluations nav exists");
   ok(!/autopilot\/issues/.test(nav), "no Issues nav");
   ok(!/autopilot\/optimizations/.test(nav), "no Optimizations nav");
 

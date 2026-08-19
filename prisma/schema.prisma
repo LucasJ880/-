@@ -4674,6 +4674,7 @@ model AgentRun {
   verifications            AgentRunVerification[]
   autopilotRun             AutopilotRun?
   autopilotTelemetryOutbox AutopilotTelemetryOutbox[]
+  autopilotEvaluations     AutopilotEvaluation[]
 
   @@index([orgId, sessionId])
   @@index([orgId, status])
@@ -4831,6 +4832,7 @@ model AutopilotRun {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   events               AutopilotRunEvent[]
+  evaluations          AutopilotEvaluation[]
 
   @@index([orgId, startedAt])
   @@index([orgId, outcome])
@@ -4855,6 +4857,32 @@ model AutopilotRunEvent {
   @@unique([runId, sequence])
   @@index([orgId, runId])
   @@index([orgId, eventType])
+}
+
+/// Autopilot A2-P0：确定性评估记录（不是 LLM Judge）。
+/// 每条 AgentRun × evaluatorVersion 至多一行，可随 Human Signal 重评。
+model AutopilotEvaluation {
+  id               String        @id @default(cuid())
+  orgId            String
+  agentRunId       String
+  agentRun         AgentRun      @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  autopilotRunId   String?
+  autopilotRun     AutopilotRun? @relation(fields: [autopilotRunId], references: [id], onDelete: SetNull)
+  evaluatorKind    String
+  evaluatorVersion String
+  outcome          String
+  failureType      String?
+  failureSource    String?
+  judged           Boolean       @default(false)
+  ruleId           String
+  evidence         Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([agentRunId, evaluatorVersion])
+  @@index([orgId, updatedAt])
+  @@index([orgId, outcome])
+  @@index([orgId, agentRunId])
 }
 
 /// 客服会话 — 未绑定的外部联系人（客户）发给机器人微信号的会话

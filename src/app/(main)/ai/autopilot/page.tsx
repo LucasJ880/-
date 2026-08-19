@@ -413,6 +413,10 @@ export default function AutopilotOverviewPage() {
           查看 Runs
         </Link>
         <span className="px-2 text-muted">·</span>
+        <Link className="text-primary underline" href="/ai/autopilot/evaluations">
+          Evaluations
+        </Link>
+        <span className="px-2 text-muted">·</span>
         <Link className="text-primary underline" href="/ai/autopilot/telemetry">
           Internal diagnostics
         </Link>
