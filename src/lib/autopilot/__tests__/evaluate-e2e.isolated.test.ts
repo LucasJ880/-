@@ -340,6 +340,37 @@ async function main() {
     "LLM evidence has no Authorization",
   );
 
+  let reuseCalls = 0;
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: completed.id,
+    autopilotRunId: (await db.autopilotRun.findUnique({
+      where: { agentRunId: completed.id },
+      select: { id: true },
+    }))!.id,
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        reuseCalls += 1;
+        throw new Error("same packet must not re-call LLM");
+      },
+    },
+  });
+  const llmRowAfterReuse = await db.autopilotEvaluation.findUnique({
+    where: {
+      agentRunId_evaluatorVersion: {
+        agentRunId: completed.id,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      },
+    },
+  });
+  ok(reuseCalls === 0, "same structural packet skips a second LLM call");
+  ok(
+    llmRowAfterReuse?.outcome === "TASK_SUCCESS",
+    "skipped reuse keeps accepted TASK_SUCCESS",
+  );
+
   await persistLlmJudgeEvaluation({
     orgId,
     agentRunId: edited.id,

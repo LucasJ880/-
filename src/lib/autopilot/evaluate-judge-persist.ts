@@ -11,6 +11,7 @@ import {
   LLM_JUDGE_SYSTEM_PROMPT,
   llmJudgeUnavailable,
   llmJudgeUserPrompt,
+  shouldReuseExistingLlmJudge,
   type LlmJudgeEventCounts,
 } from "./evaluate-judge";
 import { evaluateDeterministicRun } from "./evaluate";
@@ -99,6 +100,16 @@ export async function persistLlmJudgeEvaluation(input: {
     reAsk,
     eventCounts,
   });
+
+  const existing = await db.autopilotEvaluation.findFirst({
+    where: {
+      orgId: input.orgId,
+      agentRunId: input.agentRunId,
+      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+    },
+    select: { ruleId: true, evidence: true },
+  });
+  if (shouldReuseExistingLlmJudge(existing, packet)) return;
 
   let verdict = llmJudgeUnavailable(packet);
   try {

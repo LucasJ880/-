@@ -9,6 +9,8 @@ import {
   isLlmJudgeEligible,
   LLM_JUDGE_SYSTEM_PROMPT,
   llmJudgeUserPrompt,
+  shouldInvokeLlmJudge,
+  shouldReuseExistingLlmJudge,
 } from "../evaluate-judge";
 import { isAutopilotLlmJudgeEnabled } from "../flags";
 import {
@@ -181,6 +183,59 @@ const intent = acceptLlmJudgeVerdict(
 ok(
   intent.ruleId === "LLM_JUDGE_REJECTED_SEMANTIC_FAILURE",
   "INTENT_ERROR is rejected without source text",
+);
+
+ok(
+  shouldInvokeLlmJudge({ noticeType: "run_terminal" }),
+  "run_terminal may invoke LLM Judge",
+);
+ok(
+  !shouldInvokeLlmJudge({ noticeType: "run_created" }),
+  "run_created does not invoke LLM Judge",
+);
+ok(
+  !shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "MODEL_COMPLETED",
+  }),
+  "ordinary model.completed does not invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "HUMAN_EDIT",
+  }),
+  "HUMAN_EDIT may re-invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "TOOL_CALL_FAILED",
+  }),
+  "TOOL_CALL_FAILED may re-invoke LLM Judge",
+);
+
+const acceptedEvidence = {
+  ruleId: "LLM_JUDGE_ACCEPTED",
+  evidence: { packet: clean },
+};
+ok(
+  shouldReuseExistingLlmJudge(acceptedEvidence, clean),
+  "same packet after accepted verdict skips a second model call",
+);
+ok(
+  !shouldReuseExistingLlmJudge(
+    { ruleId: "LLM_JUDGE_UNAVAILABLE", evidence: { packet: clean } },
+    clean,
+  ),
+  "UNAVAILABLE is retried",
+);
+ok(
+  !shouldReuseExistingLlmJudge(
+    acceptedEvidence,
+    buildLlmJudgePacket({ status: "completed", humanEdit: true }),
+  ),
+  "human-edit packet change does not skip",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

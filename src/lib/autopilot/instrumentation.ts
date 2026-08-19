@@ -22,6 +22,7 @@ import {
 } from "./outbox";
 import { persistDeterministicEvaluation } from "./evaluate-persist";
 import { persistLlmJudgeEvaluation } from "./evaluate-judge-persist";
+import { shouldInvokeLlmJudge } from "./evaluate-judge";
 import {
   appendAutopilotObservationEvent,
   upsertAutopilotObservation,
@@ -169,16 +170,23 @@ export async function projectAutopilotNotice(
   }
 
   try {
-    await persistLlmJudgeEvaluation({
-      orgId: overlay.orgId,
-      agentRunId: run.id,
-      autopilotRunId: overlay.id,
-      status: run.status,
-      errorCode: run.errorCode,
-      humanOverride: overlay.humanOverride,
-      humanEdit: overlay.humanEdit,
-      reAskStatus: overlay.reAskStatus,
-    });
+    if (
+      shouldInvokeLlmJudge({
+        noticeType: notice.type,
+        mappedEventType: mapped?.eventType,
+      })
+    ) {
+      await persistLlmJudgeEvaluation({
+        orgId: overlay.orgId,
+        agentRunId: run.id,
+        autopilotRunId: overlay.id,
+        status: run.status,
+        errorCode: run.errorCode,
+        humanOverride: overlay.humanOverride,
+        humanEdit: overlay.humanEdit,
+        reAskStatus: overlay.reAskStatus,
+      });
+    }
   } catch {
     // LLM Judge must never fail Observe projection / outbox drain.
   }

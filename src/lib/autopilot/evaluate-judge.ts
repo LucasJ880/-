@@ -338,3 +338,95 @@ export function acceptLlmJudgeVerdict(
 export function llmJudgeUnavailable(packet: LlmJudgePacket): LlmJudgeVerdict {
   return rejected("LLM_JUDGE_UNAVAILABLE", packet);
 }
+
+/** Notices that may invoke the LLM. Other projected events must not. */
+export const LLM_JUDGE_TRIGGER_EVENT_TYPES: readonly AutopilotTraceEventType[] = [
+  "HUMAN_EDIT",
+  "HUMAN_OVERRIDE",
+  "RE_ASK_SIGNAL",
+  "TOOL_CALL_FAILED",
+  "MODEL_FAILED",
+  "RETRIEVAL_FAILED",
+  "CONTEXT_LOAD_FAILED",
+];
+
+const LLM_JUDGE_RETRYABLE_RULES: readonly AutopilotLlmJudgeRuleId[] = [
+  "LLM_JUDGE_UNAVAILABLE",
+  "LLM_JUDGE_PARSE_FAILED",
+];
+
+export function shouldInvokeLlmJudge(input: {
+  noticeType: "run_created" | "run_terminal" | "event";
+  mappedEventType?: AutopilotTraceEventType | null;
+}): boolean {
+  if (input.noticeType === "run_terminal") return true;
+  if (input.noticeType !== "event") return false;
+  const eventType = input.mappedEventType;
+  if (!eventType) return false;
+  return (LLM_JUDGE_TRIGGER_EVENT_TYPES as readonly string[]).includes(eventType);
+}
+
+export function llmJudgePacketFingerprint(packet: LlmJudgePacket): string {
+  const eventCounts: Record<string, number> = {};
+  for (const key of Object.keys(packet.eventCounts).sort()) {
+    const n = packet.eventCounts[key as AutopilotTraceEventType];
+    if (typeof n === "number" && n > 0) eventCounts[key] = n;
+  }
+  return JSON.stringify({
+    status: packet.status,
+    errorCode: packet.errorCode,
+    humanOverride: packet.humanOverride,
+    humanEdit: packet.humanEdit,
+    reAsk: packet.reAsk,
+    eventCounts,
+    inputBytes: packet.inputBytes,
+    outputBytes: packet.outputBytes,
+  });
+}
+
+export function packetFromJudgeEvidence(evidence: unknown): LlmJudgePacket | null {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    return null;
+  }
+  const raw = (evidence as { packet?: unknown }).packet;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const packet = raw as Record<string, unknown>;
+  const eventCounts =
+    packet.eventCounts &&
+    typeof packet.eventCounts === "object" &&
+    !Array.isArray(packet.eventCounts)
+      ? (packet.eventCounts as LlmJudgeEventCounts)
+      : {};
+  return buildLlmJudgePacket({
+    status: typeof packet.status === "string" ? packet.status : null,
+    errorCode: typeof packet.errorCode === "string" ? packet.errorCode : null,
+    humanOverride: packet.humanOverride === true,
+    humanEdit: packet.humanEdit === true,
+    reAsk: packet.reAsk === true,
+    eventCounts,
+    inputBytes: typeof packet.inputBytes === "number" ? packet.inputBytes : null,
+    outputBytes: typeof packet.outputBytes === "number" ? packet.outputBytes : null,
+  });
+}
+
+/**
+ * Skip a second model call when the structural packet is unchanged.
+ * Retry UNAVAILABLE / PARSE_FAILED so a flake can recover.
+ */
+export function shouldReuseExistingLlmJudge(
+  existing:
+    | { ruleId?: string | null; evidence?: unknown }
+    | null
+    | undefined,
+  packet: LlmJudgePacket,
+): boolean {
+  if (!existing?.ruleId) return false;
+  if (
+    (LLM_JUDGE_RETRYABLE_RULES as readonly string[]).includes(existing.ruleId)
+  ) {
+    return false;
+  }
+  const previous = packetFromJudgeEvidence(existing.evidence);
+  if (!previous) return false;
+  return llmJudgePacketFingerprint(previous) === llmJudgePacketFingerprint(packet);
+}

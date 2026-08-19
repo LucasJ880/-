@@ -131,6 +131,10 @@ async function main() {
     "projection may persist LLM Judge after deterministic eval",
   );
   ok(
+    instr.includes("shouldInvokeLlmJudge"),
+    "LLM Judge is not invoked on every projected event",
+  );
+  ok(
     /LLM Judge must never fail Observe/.test(instr),
     "LLM Judge errors cannot fail Observe projection",
   );
