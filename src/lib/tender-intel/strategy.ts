@@ -207,6 +207,8 @@ export async function synthesizeBidStrategyMemo(input: {
   analystBrief: unknown;
   intelligence: ReturnType<typeof deriveAwardIntelligence>;
   incumbentLead: unknown | null;
+  /** 阶段3：现任供应商联邦合同价格带（自动拉取，可空） */
+  vendorPriceBenchmark?: unknown | null;
   existingClarifications: string[];
   invoker?: LlmInvoker;
 }): Promise<{ memo: BidStrategyMemoV2 | null; errorCode: string | null }> {
@@ -227,6 +229,8 @@ export async function synthesizeBidStrategyMemo(input: {
     }),
     "INCUMBENT LEAD (may be null):",
     JSON.stringify(input.incumbentLead),
+    "INCUMBENT FEDERAL CONTRACT PRICE BENCHMARK (may be null; use in pricingStrategyZh with sources):",
+    JSON.stringify(input.vendorPriceBenchmark ?? null),
     "CLARIFICATIONS ALREADY DRAFTED:",
     JSON.stringify(input.existingClarifications.slice(0, 12)),
   ].join("\n");

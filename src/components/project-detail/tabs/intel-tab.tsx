@@ -14,12 +14,14 @@ import { ProjectOrgRulesCard } from "@/components/project-org-rules/project-org-
 import type { ProjectContextTarget } from "@/components/project-detail/project-context-panel";
 import type { ProjectDetail } from "@/components/project-detail/project-detail-types";
 import { OrgAwardIntelSlots } from "@/components/tender-intel/org-award-intel-slots";
+import { TenderWatchCard } from "@/components/tender-intel/tender-watch-card";
 
 
 
 interface IntelTabProps {
   projectId: string;
   project: ProjectDetail;
+  canManage: boolean;
   orgRulesRefreshKey: number;
   onProjectUpdate: () => void;
   onNavigate: (target: ProjectContextTarget) => void;
@@ -28,6 +30,7 @@ interface IntelTabProps {
 export function IntelTab({
   projectId,
   project,
+  canManage,
   orgRulesRefreshKey,
   onProjectUpdate,
   onNavigate,
@@ -84,6 +87,9 @@ export function IntelTab({
 
       {/* 企业规则（既有能力；确认复盘后自动刷新） */}
       <ProjectOrgRulesCard projectId={projectId} refreshKey={orgRulesRefreshKey} />
+
+      {/* 公告盯梢：Addenda/Q&A 变更提醒（Halifax 时效需求） */}
+      <TenderWatchCard projectId={projectId} canManage={canManage} />
 
       {/* 企业历史情报：七槽位接 T4 组织级授标情报投影（情报阶段1） */}
       <OrgAwardIntelSlots

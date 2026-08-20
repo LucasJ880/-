@@ -13,6 +13,8 @@
  *   EXTERNAL_INTEL_CONTRACTS_RESOURCE_ID 指向更全资源（UAT 配置步骤）。
  */
 
+import { toAmountNumber } from "./awards";
+
 export const EXTERNAL_INTEL_FLAG = "TENDER_EXTERNAL_INTEL_ENABLED" as const;
 
 export function isExternalIntelEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -20,6 +22,116 @@ export function isExternalIntelEnabled(env: NodeJS.ProcessEnv = process.env): bo
 }
 
 const CKAN_BASE = "https://open.canada.ca/data/en/api/3/action/datastore_search";
+/**
+ * 阶段3（用户定的首源）：联邦「Contracts over $10,000」全量披露资源
+ * （1.31M 行，2026-08-20 实证含 334 条 Meltwater 合同、精确命中 ESDC $42,540.75）。
+ * env EXTERNAL_INTEL_CONTRACTS_RESOURCE_ID 可覆盖；默认即全量集。
+ * 查询语法：datastore_search 的 field-scoped JSON q（全文 q 在此资源失灵——实测）。
+ */
+const CONTRACTS_FULL_RESOURCE = "fac950c0-00d5-4ec1-a4d3-9cbebf98a305";
+
+export type VendorContractRow = {
+  vendorName: string;
+  contractValue: number | null;
+  contractDate: string | null;
+  buyer: string | null;
+  descriptionEn: string | null;
+  referenceNumber: string | null;
+};
+
+export type VendorContractsResult = {
+  ok: boolean;
+  total: number;
+  rows: VendorContractRow[];
+  note?: string;
+  fetchedAt: string;
+};
+
+/** 供应商价格带汇总（纯函数，供 memo 输入与 UI；金额缺失行不计入统计） */
+export function summarizeVendorContracts(rows: VendorContractRow[]): {
+  sampleSize: number;
+  min: number | null;
+  max: number | null;
+  median: number | null;
+  recent: VendorContractRow[];
+} {
+  const vals = rows
+    .map((r) => r.contractValue)
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+  const median =
+    vals.length === 0
+      ? null
+      : vals.length % 2
+        ? vals[(vals.length - 1) / 2]
+        : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
+  const recent = [...rows]
+    .filter((r) => r.contractDate)
+    .sort((a, b) => (b.contractDate ?? "").localeCompare(a.contractDate ?? ""))
+    .slice(0, 5);
+  return {
+    sampleSize: vals.length,
+    min: vals[0] ?? null,
+    max: vals[vals.length - 1] ?? null,
+    median,
+    recent,
+  };
+}
+
+/**
+ * 按供应商名查联邦合同披露（现任供应商价格带对标——把用户手工验证过的
+ * 「查供应商政府合同价」收编为自动动作）。flag 门与 M1 相同；失败温和降级。
+ */
+export async function searchContractsByVendor(input: {
+  vendor: string;
+  limit?: number;
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: typeof fetch;
+}): Promise<VendorContractsResult> {
+  const env = input.env ?? process.env;
+  const fetchedAt = new Date().toISOString();
+  if (!isExternalIntelEnabled(env)) {
+    return { ok: false, total: 0, rows: [], note: "外部情报开关未启用", fetchedAt };
+  }
+  const vendor = input.vendor.trim();
+  if (!vendor) return { ok: false, total: 0, rows: [], note: "缺少供应商名", fetchedAt };
+  const resource =
+    env.EXTERNAL_INTEL_CONTRACTS_RESOURCE_ID?.trim() || CONTRACTS_FULL_RESOURCE;
+  const doFetch = input.fetchImpl ?? fetch;
+  try {
+    const q = encodeURIComponent(JSON.stringify({ vendor_name: vendor }));
+    const url = `${CKAN_BASE}?resource_id=${resource}&limit=${Math.min(input.limit ?? 60, 100)}&q=${q}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const res = await doFetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) {
+      return { ok: false, total: 0, rows: [], note: `CKAN ${res.status}`, fetchedAt };
+    }
+    const json = (await res.json()) as {
+      result?: { total?: number; records?: Array<Record<string, unknown>> };
+    };
+    const rows: VendorContractRow[] = (json.result?.records ?? []).map((r) => ({
+      vendorName: String(r.vendor_name ?? ""),
+      contractValue: toAmountNumber(r.contract_value),
+      contractDate: r.contract_date ? String(r.contract_date).slice(0, 10) : null,
+      buyer: r.owner_org_title
+        ? String(r.owner_org_title)
+        : r.buyer_name
+          ? String(r.buyer_name)
+          : null,
+      descriptionEn: r.description_en ? String(r.description_en).slice(0, 160) : null,
+      referenceNumber: r.reference_number ? String(r.reference_number) : null,
+    }));
+    return { ok: true, total: json.result?.total ?? rows.length, rows, fetchedAt };
+  } catch (e) {
+    return {
+      ok: false, total: 0, rows: [],
+      note: e instanceof Error ? e.message.slice(0, 120) : "fetch failed",
+      fetchedAt,
+    };
+  }
+}
 const DEFAULT_RESOURCE = "7f9b18ca-f627-4852-93d5-69adeb9437d6";
 const TIMEOUT_MS = 25_000;
 const MAX_RESULTS = 20;

@@ -557,6 +557,7 @@ function ProjectDetailContent() {
         <IntelTab
           projectId={id}
           project={project}
+          canManage={canManage}
           orgRulesRefreshKey={orgRulesRefreshKey}
           onProjectUpdate={load}
           onNavigate={openProjectArea}
