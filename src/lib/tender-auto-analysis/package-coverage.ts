@@ -9,6 +9,7 @@
 
 import { db } from "@/lib/db";
 import { isAnalyzableFileType } from "./enqueue-helpers";
+import { PACKAGE_ANALYSIS_MAX_PDF_PAGES } from "./page-parse";
 
 export type CoverageRow = {
   documentId: string;
@@ -51,6 +52,9 @@ const REASON_LABEL: Record<string, string> = {
   unsupported_format:
     "格式不支持逐条溯源（如旧版 .doc / 图片），未纳入 Package AI",
   parse_failed: "文件解析失败",
+  // 观察期包4：解析层放行 81–400 页，但包分析（legacy 管线）守 80 页/文件。
+  // 用户必须不用问就知道文件为何被排除（含真实页数，见逐文件明细的动态文案）。
+  over_page_limit: `单文件超出包分析 ${PACKAGE_ANALYSIS_MAX_PDF_PAGES} 页上限（可由 AI 分析纳入）`,
 };
 
 /** 纯函数：由文档行汇总覆盖率。 */
@@ -69,12 +73,20 @@ export function summarizePackageCoverage(
 
   for (const r of userRows) {
     const analyzable = isAnalyzableFileType(r.fileType ?? "");
-    const isEligible = analyzable && r.parseStatus !== "failed";
+    const overPageLimit =
+      typeof r.pageCount === "number" &&
+      r.pageCount > PACKAGE_ANALYSIS_MAX_PDF_PAGES;
+    const isEligible =
+      analyzable && r.parseStatus !== "failed" && !overPageLimit;
     if (isEligible) {
       eligible += 1;
       if (r.analyzed) analyzed += 1;
     } else {
-      const reason = !analyzable ? "unsupported_format" : "parse_failed";
+      const reason = !analyzable
+        ? "unsupported_format"
+        : r.parseStatus === "failed"
+          ? "parse_failed"
+          : "over_page_limit";
       excludedReasons[reason] = (excludedReasons[reason] ?? 0) + 1;
       excludedFiles.push({
         filename: r.title ?? r.documentId,
@@ -82,7 +94,10 @@ export function summarizePackageCoverage(
         parseStatus: r.parseStatus ?? null,
         contentHashReady: r.contentHashReady ?? false,
         pageCount: r.pageCount ?? null,
-        exclusionReason: REASON_LABEL[reason] ?? reason,
+        exclusionReason:
+          reason === "over_page_limit"
+            ? `${r.pageCount} 页超出包分析单文件 ${PACKAGE_ANALYSIS_MAX_PDF_PAGES} 页上限（可由 AI 分析纳入）`
+            : (REASON_LABEL[reason] ?? reason),
       });
     }
   }

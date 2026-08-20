@@ -59,6 +59,13 @@ export const AUTOMATION_REGISTRY = [
     cadence: "每周一",
     timezone: "UTC",
   },
+  {
+    key: "tender-watch",
+    name: "招标公告盯梢",
+    category: "projects",
+    cadence: "每小时",
+    timezone: "UTC",
+  },
 ] as const satisfies readonly AutomationDefinition[];
 
 export type AutomationKey = (typeof AUTOMATION_REGISTRY)[number]["key"];

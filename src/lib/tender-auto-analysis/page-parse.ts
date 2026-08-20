@@ -15,8 +15,25 @@ import {
 /** 与 legacy parse-content 对齐的全文存储上限 */
 export const MAX_CONTENT_TEXT_CHARS = 200_000;
 
-/** 单份 PDF 最大页数（含 RCMP 43 页余量；阻止超大文件撑爆 DB/cron） */
-export const MAX_PDF_PAGES = 80;
+/**
+ * 单份 PDF 最大**解析**页数（观察期包4：80 → 400，与整包上限对齐）。
+ *
+ * 这是解析/落库层的容量护栏（阻止超大文件撑爆 DB/serverless），
+ * 不是分析口径：包分析（legacy 管线）另有单文件上限见下。
+ * 81–400 页文件解析放行后由 Workforce 管线按页级窗口纳入分析
+ * （可续跑、页级读取，无 200k 全文截断问题）。
+ */
+export const MAX_PDF_PAGES = 400;
+
+/**
+ * 包分析（legacy tender-auto-analysis 管线）的单文件页数上限。
+ *
+ * legacy 管线读 200k 字符截断的整文 contentText，且 EXTRACT_FACTS 单步
+ * 必须塞进 300s serverless 预算、无中途 checkpoint——大文件在这条管线上
+ * 只有「静默截断」或「超时烧重试」两种结局，因此守住 80 页不放。
+ * 超限文件：入队选择时跳过（coverage 显式给原因），由 Workforce 管线纳入。
+ */
+export const PACKAGE_ANALYSIS_MAX_PDF_PAGES = 80;
 
 /** trim 后字符数低于此阈值视为近空页，标记 OCR_REQUIRED */
 export const NEAR_EMPTY_PAGE_CHARS = 16;

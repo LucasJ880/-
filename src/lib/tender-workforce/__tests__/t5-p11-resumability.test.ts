@@ -388,10 +388,19 @@ ok(
     `ls ${JSON.stringify(join(process.cwd(), "src", "app", "api", "cron"))} || true`,
     { encoding: "utf8" },
   ).split("\n").filter(Boolean);
+  // 不变量本意=不得新增第二套 tender **分析/队列** cron（防第二套管线）。
+  // tender-watch（2026-08-20 情报运维包）是公告变更通知监视器：零队列消费、
+  // 零 run 处理，不在禁区——显式白名单，其余新增 tender cron 依旧拦截。
+  const TENDER_CRON_ALLOWLIST = new Set([
+    "tender-auto-analysis",
+    "tender-watch",
+  ]);
+  const tenderCrons = crons.filter((c) => c.includes("tender"));
   ok(
-    crons.filter((c) => c.includes("tender")).length === 1,
-    "P11-BUDGET-06: NEW_TENDER_CRON = 0（仍只有 #113 那一个 tender cron）",
-    crons.filter((c) => c.includes("tender")),
+    tenderCrons.every((c) => TENDER_CRON_ALLOWLIST.has(c)) &&
+      tenderCrons.includes("tender-auto-analysis"),
+    "P11-BUDGET-06: 无新增 tender 分析/队列 cron（白名单=analysis + watch 通知器）",
+    tenderCrons,
   );
   ok(
     !code("workforce-runtime/processor.ts").includes("WORKFORCE_SLICE_BUDGET_MS = 240") &&

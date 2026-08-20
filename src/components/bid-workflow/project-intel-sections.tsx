@@ -72,6 +72,7 @@ type BriefFieldState =
   | "FAILED"
   | "NEEDS_EXTERNAL_RESEARCH"
   | "AI_RESEARCHED"
+  | "DOC_STATED"
   | "NOT_STARTED";
 type BriefField = { state: BriefFieldState; value: string | null };
 type ExecutiveBrief = {
@@ -112,6 +113,7 @@ const FIELD_STATE_LABEL: Record<BriefFieldState, string> = {
   FAILED: "分析失败",
   NEEDS_EXTERNAL_RESEARCH: "需外部调查",
   AI_RESEARCHED: "AI 初步调查 · 待人工确认",
+  DOC_STATED: "文档载明 · 名称待核",
   NOT_STARTED: "尚未分析",
 };
 
@@ -123,6 +125,7 @@ const FIELD_STATE_TONE: Record<BriefFieldState, string> = {
   CONFLICT: "text-rose-700",
   FAILED: "text-rose-700",
   AI_RESEARCHED: "text-sky-700",
+  DOC_STATED: "text-indigo-700",
   NEEDS_EXTERNAL_RESEARCH: "text-stone-500",
   NOT_STARTED: "text-stone-500",
 };

@@ -8,9 +8,10 @@ import { readBlobBuffer } from "@/lib/files/blob-access";
 import type { DocumentRole } from "./constants";
 import { computePackageFingerprintFromPairs, sha256Content } from "./hash";
 import { isAnalyzableFileType } from "./enqueue-helpers";
+import { PACKAGE_ANALYSIS_MAX_PDF_PAGES } from "./page-parse";
 
-/** 单文件页数上限（page-parse 已强制） */
-export { MAX_PDF_PAGES } from "./page-parse";
+/** 单文件解析页数上限（page-parse 已强制）+ 包分析单文件上限（选择/worker 强制） */
+export { MAX_PDF_PAGES, PACKAGE_ANALYSIS_MAX_PDF_PAGES } from "./page-parse";
 
 /** 整包页数之和上限；超过则拒绝入队，不静默截断 */
 /**
@@ -161,6 +162,16 @@ export async function getTenderPackageDocuments(
   for (const row of rows) {
     if (!isAnalyzableFileType(row.fileType)) continue;
     if (row.parseStatus === "failed") continue;
+    // 观察期包4：解析层放行到 400 页后，包分析（legacy 管线）仍守 80 页/文件
+    // ——排除原因由 package-coverage 显式呈现，大文件由 Workforce 管线纳入。
+    // 手动强制纳入（force）可越过选择层，但 worker 侧 PAGE_LIMIT 守卫会显式拦截。
+    if (
+      typeof row.pageCount === "number" &&
+      row.pageCount > PACKAGE_ANALYSIS_MAX_PDF_PAGES &&
+      !force.has(row.id)
+    ) {
+      continue;
+    }
     if (addendumOnly.has(row.id) && !force.has(row.id)) continue;
 
     const forced = force.has(row.id);
