@@ -136,6 +136,18 @@ type BidStrategyAuto = {
   generatedAt: string;
 };
 
+type BidStrategyMemo = {
+  summaryZh: string;
+  scoringAnalysisZh: string;
+  competitiveLandscapeZh: string;
+  riskGates: Array<{ gateZh: string; statusZh: string; basisZh: string }>;
+  pricingStrategyZh: string;
+  strategicRfis: Array<{ questionZh: string; whyZh: string }>;
+  teamingAdviceZh: string;
+  dataGapsZh: string;
+  label: string;
+};
+
 /** 与 corporate-memory/normalize 同源的轻量归一（客户端相关性分层用） */
 function normBuyer(s: string | null | undefined): string {
   return (s ?? "")
@@ -157,6 +169,7 @@ export function OrgAwardIntelSlots({
   const [intel, setIntel] = useState<Intelligence | null>(null);
   const [failed, setFailed] = useState(false);
   const [strategy, setStrategy] = useState<BidStrategyAuto | null>(null);
+  const [memo, setMemo] = useState<BidStrategyMemo | null>(null);
 
   useEffect(() => {
     const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
@@ -173,10 +186,14 @@ export function OrgAwardIntelSlots({
   // 情报自动流（包6）：项目级 AI 策略草案（分析完成后自动生成，AI_INFERRED）
   useEffect(() => {
     if (!projectId) return;
-    apiJson<{ bidStrategyAuto?: BidStrategyAuto | null }>(
-      `/api/projects/${projectId}/external-intel/award-history`,
-    )
-      .then((res) => setStrategy(res.bidStrategyAuto ?? null))
+    apiJson<{
+      bidStrategyAuto?: BidStrategyAuto | null;
+      bidStrategyMemo?: BidStrategyMemo | null;
+    }>(`/api/projects/${projectId}/external-intel/award-history`)
+      .then((res) => {
+        setStrategy(res.bidStrategyAuto ?? null);
+        setMemo(res.bidStrategyMemo ?? null);
+      })
       .catch(() => {});
   }, [projectId]);
 
@@ -352,9 +369,36 @@ export function OrgAwardIntelSlots({
         <Slot
           slotKey="bid_strategy"
           title="AI 投标策略"
-          status={strategy ? "INFERRED" : null}
+          status={memo || strategy ? "INFERRED" : null}
         >
-          {strategy ? (
+          {memo ? (
+            <>
+              <p className="text-foreground/70">{memo.summaryZh}</p>
+              {memo.riskGates.slice(0, 4).map((g, i) => (
+                <p key={i} className="truncate">
+                  · {g.gateZh}
+                  <span
+                    className={
+                      g.statusZh === "高风险"
+                        ? "text-danger"
+                        : g.statusZh === "已满足"
+                          ? "text-emerald-600"
+                          : "text-amber-600"
+                    }
+                  >
+                    （{g.statusZh}）
+                  </span>
+                </p>
+              ))}
+              <p className="text-muted/80">报价策略：{memo.pricingStrategyZh.slice(0, 160)}</p>
+              {memo.dataGapsZh ? (
+                <p className="text-muted/80">数据缺口：{memo.dataGapsZh.slice(0, 120)}</p>
+              ) : null}
+              <p className="text-[10px] text-muted/60">
+                AI 推断备忘录，仅供人工评审——不构成 GO/NO-GO 决定
+              </p>
+            </>
+          ) : strategy ? (
             <>
               <p className="text-foreground/70">{strategy.strategyZh}</p>
               {strategy.keyPoints.slice(0, 4).map((k, i) => (

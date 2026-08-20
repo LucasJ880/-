@@ -96,12 +96,30 @@ export async function GET(
   const candidates = (sj.externalCandidates ?? null) as {
     candidates?: unknown[];
   } | null;
-  const strategy = (sj.bidStrategyAuto ?? null) as {
+  // 批次一：优先用文档接地的策略备忘录 v2（映射成 deck 兼容形状），
+  // 老草案仅作存量兜底
+  const memo = (sj.bidStrategyMemo ?? null) as {
+    summaryZh?: string;
+    riskGates?: Array<{ gateZh: string; statusZh: string }>;
+    dataGapsZh?: string;
+    generatedAt?: string;
+  } | null;
+  const legacyDraft = (sj.bidStrategyAuto ?? null) as {
     strategyZh?: string;
     keyPoints?: Array<{ pointZh: string; basedOn: string }>;
     dataGapsZh?: string;
     generatedAt?: string;
   } | null;
+  const strategy = memo
+    ? {
+        strategyZh: memo.summaryZh ?? "",
+        keyPoints: (memo.riskGates ?? [])
+          .slice(0, 3)
+          .map((g) => ({ pointZh: `${g.gateZh}（${g.statusZh}）`, basedOn: "风险门" })),
+        dataGapsZh: memo.dataGapsZh,
+        generatedAt: memo.generatedAt,
+      }
+    : legacyDraft;
 
   return NextResponse.json({
     project: {

@@ -99,8 +99,8 @@ const sample = bidStrategyAutoSchema.safeParse({
 });
 ok(sample.success, "AF-STR-03: 策略 schema 真实校验通过（样例）");
 ok(
-  orch.includes("synthesizeBidStrategyAuto") && orch.includes("bidStrategyAuto"),
-  "AF-STR-04: 编排在检索后自动合成并落 room.summaryJson.bidStrategyAuto",
+  orch.includes("synthesizeBidStrategyMemo") && orch.includes("bidStrategyMemo"),
+  "AF-STR-04: 编排在检索后自动合成策略备忘录并落 room.summaryJson.bidStrategyMemo（批次一 v2）",
 );
 
 // ── 槽位渲染 ─────────────────────────────────────────────
@@ -108,7 +108,7 @@ const slots = read("src/components/tender-intel/org-award-intel-slots.tsx");
 ok(
   slots.includes("bidStrategyAuto") &&
     slots.includes("不构成 GO/NO-GO 决定") &&
-    slots.includes('status={strategy ? "INFERRED" : null}'),
+    slots.includes('status={memo || strategy ? "INFERRED" : null}'),
   "AF-UI-01: 第 7 槽渲染策略草案（AI 推断徽标 + 人审免责）",
 );
 ok(
