@@ -33,6 +33,7 @@ import {
   type WebIntelResult,
 } from "./websearch";
 import { isT4AwardSchemaReady } from "./award-flags";
+import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
 
 export type ExternalIntelTrigger =
   | "legacy_finalize"
@@ -77,6 +78,24 @@ export function isExternalIntelRateLimited(
   const last = Date.parse(status.ranAt);
   if (!Number.isFinite(last)) return false;
   return nowMs - last < windowMs;
+}
+
+/**
+ * 相关性门（2026-08-19 生产复盘）：自动入库不再只看「权威真实」，还要看
+ * 「与本项目相关」——买家归一匹配本项目采购方，或多检索线交叉命中（≥2）。
+ * 其余候选留在调查室候选区走人工确认线。防止泛化检索词把无关政府授标
+ * 灌进组织权威层（真实 ≠ 相关）。
+ */
+export function isAutoObserveRelevant(input: {
+  candidateBuyer: string | null | undefined;
+  projectBuyer: string | null | undefined;
+  hitQueryCount: number;
+}): boolean {
+  if (input.hitQueryCount >= 2) return true;
+  const cand = (input.candidateBuyer ?? "").trim();
+  const proj = (input.projectBuyer ?? "").trim();
+  if (!cand || !proj) return false;
+  return normalizeBuyerName(cand) === normalizeBuyerName(proj);
 }
 
 const ZERO = { awardCandidates: 0, webDomains: 0, analyzed: false } as const;
@@ -129,7 +148,7 @@ export async function runExternalIntelForProject(input: {
 
     const project = await db.project.findUnique({
       where: { id: input.projectId },
-      select: { id: true, name: true, orgId: true, solicitationNumber: true },
+      select: { id: true, name: true, orgId: true, solicitationNumber: true, clientOrganization: true },
     });
     if (!project) return { status: "skipped", reason: "project_not_found", ...ZERO };
     if (!project.orgId) {
@@ -213,6 +232,16 @@ export async function runExternalIntelForProject(input: {
         for (const c of auto.candidates.slice(0, 5)) {
           const ref = c.bestFinding.referenceNumber?.trim();
           if (!ref) continue;
+          // 相关性门：买家匹配本项目采购方 或 交叉命中≥2 才自动入权威层
+          if (
+            !isAutoObserveRelevant({
+              candidateBuyer: c.bestFinding.buyerName ?? c.bestFinding.ownerOrg,
+              projectBuyer: project.clientOrganization,
+              hitQueryCount: c.hitQueries.length,
+            })
+          ) {
+            continue;
+          }
           try {
             await createOrObserveAwardRecord({
               orgId: project.orgId,
@@ -279,26 +308,71 @@ export async function runExternalIntelForProject(input: {
 
     // 情报自动流（包6）：AI 投标策略草案（第 7 槽位）——基于组织级七域投影
     // + 本项目分析摘要合成，AI_INFERRED 标签人审语义。失败不影响其余结果。
+    // 批次一：投标策略备忘录 v2（文档接地深读，替换浅层组织投影草案）。
+    // 输入 = 本单 canonical 事实/强制要求 + 综合层 + 组织投影 + 现任供应商
+    // 线索（incumbentLead，人工记录）。AI_INFERRED 人审语义，禁整体 GO/NO-GO。
     let strategyGenerated = false;
-    let bidStrategyAuto: unknown = null;
+    let bidStrategyMemo: unknown = null;
     try {
       const { listAwardsForOrg } = await import("./awards");
       const { deriveAwardIntelligence } = await import("./award-intelligence");
-      const { synthesizeBidStrategyAuto } = await import("./strategy");
+      const { synthesizeBidStrategyMemo } = await import("./strategy");
       const orgRows = isT4AwardSchemaReady()
         ? await listAwardsForOrg({ orgId: project.orgId })
         : [];
-      const { strategy } = await synthesizeBidStrategyAuto({
-        projectOneLiner: brief?.oneLiner ?? null,
-        analystBriefZh: syn?.executiveBrief?.whatIsBeingBoughtZh ?? null,
+      const [factRows, mandatoryRows, projMeta] = await Promise.all([
+        db.tenderAnalysisFact.findMany({
+          where: { runId: run.id },
+          take: 80,
+          select: { statementKind: true, contentZh: true },
+        }),
+        db.tenderExtractedRequirement.findMany({
+          where: { analysisRunId: run.id, mandatory: true },
+          take: 40,
+          select: { chineseTranslation: true },
+        }),
+        db.project.findUnique({
+          where: { id: project.id },
+          select: {
+            clientOrganization: true,
+            closeDate: true,
+            estimatedValue: true,
+            currency: true,
+          },
+        }),
+      ]);
+      const clarsZh = ((syn as { clarifications?: Array<{ questionZh?: string }> })
+        ?.clarifications ?? [])
+        .map((c) => c.questionZh ?? "")
+        .filter(Boolean);
+      const { memo } = await synthesizeBidStrategyMemo({
+        project: {
+          nameZh: project.name,
+          buyer: projMeta?.clientOrganization ?? null,
+          closeDate: projMeta?.closeDate
+            ? projMeta.closeDate.toISOString().slice(0, 10)
+            : null,
+          estimatedValue: projMeta?.estimatedValue ?? null,
+          currency: projMeta?.currency ?? null,
+        },
+        facts: factRows.map((f) => ({
+          kind: f.statementKind,
+          contentZh: (f.contentZh ?? "").slice(0, 220),
+        })),
+        mandatoryRequirements: mandatoryRows.map((r) =>
+          r.chineseTranslation.slice(0, 160),
+        ),
+        analystBrief: syn ?? null,
         intelligence: deriveAwardIntelligence(orgRows),
+        incumbentLead: (rsj as { incumbentLead?: unknown }).incumbentLead ?? null,
+        existingClarifications: clarsZh,
       });
-      if (strategy) {
-        bidStrategyAuto = strategy;
+      if (memo) {
+        bidStrategyMemo = memo;
         strategyGenerated = true;
       }
     } catch {
-      bidStrategyAuto = null;
+      bidStrategyMemo = null;
     }
 
     const ran = Boolean(auto?.ok || web?.ok);
@@ -325,7 +399,7 @@ export async function runExternalIntelForProject(input: {
             ...(auto?.ok ? { externalCandidates: auto } : {}),
             ...(web?.ok ? { webIntel: web } : {}),
             ...(externalAnalysis ? { externalAnalysis } : {}),
-            ...(bidStrategyAuto ? { bidStrategyAuto } : {}),
+            ...(bidStrategyMemo ? { bidStrategyMemo } : {}),
             [EXTERNAL_INTEL_STATUS_KEY]: {
               ...base,
               status: outcome.status,

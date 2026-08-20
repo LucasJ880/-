@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { bidStrategyAutoSchema } from "../strategy";
+import { isAutoObserveRelevant } from "../orchestrate";
 
 let pass = 0;
 let fail = 0;
@@ -67,6 +68,20 @@ ok(
   "AF-OBS-06（回归钉）: awards 写门 ai/agent 拒绝铁律原样",
 );
 
+// ── 相关性门（2026-08-19 生产复盘：真实 ≠ 相关） ──────────
+ok(
+  isAutoObserveRelevant({ candidateBuyer: "Regional Municipality of Durham", projectBuyer: "regional municipality of durham", hitQueryCount: 1 }) &&
+    !isAutoObserveRelevant({ candidateBuyer: "City of Toronto", projectBuyer: "Regional Municipality of Durham", hitQueryCount: 1 }) &&
+    isAutoObserveRelevant({ candidateBuyer: "City of Toronto", projectBuyer: "Regional Municipality of Durham", hitQueryCount: 2 }) &&
+    !isAutoObserveRelevant({ candidateBuyer: null, projectBuyer: null, hitQueryCount: 1 }),
+  "AF-OBS-07: 相关性门=买家归一匹配 或 交叉命中≥2（缺信息 fail-closed）",
+);
+ok(
+  orch.includes("isAutoObserveRelevant({") &&
+    /if \(!ref\) continue;[\s\S]{0,600}?isAutoObserveRelevant/.test(orch),
+  "AF-OBS-08: 观察循环内逐候选过相关性门（无门直入的旧形状不存在）",
+);
+
 // ── 策略合成 ─────────────────────────────────────────────
 const strat = read("src/lib/tender-intel/strategy.ts");
 ok(
@@ -84,8 +99,8 @@ const sample = bidStrategyAutoSchema.safeParse({
 });
 ok(sample.success, "AF-STR-03: 策略 schema 真实校验通过（样例）");
 ok(
-  orch.includes("synthesizeBidStrategyAuto") && orch.includes("bidStrategyAuto"),
-  "AF-STR-04: 编排在检索后自动合成并落 room.summaryJson.bidStrategyAuto",
+  orch.includes("synthesizeBidStrategyMemo") && orch.includes("bidStrategyMemo"),
+  "AF-STR-04: 编排在检索后自动合成策略备忘录并落 room.summaryJson.bidStrategyMemo（批次一 v2）",
 );
 
 // ── 槽位渲染 ─────────────────────────────────────────────
@@ -93,7 +108,7 @@ const slots = read("src/components/tender-intel/org-award-intel-slots.tsx");
 ok(
   slots.includes("bidStrategyAuto") &&
     slots.includes("不构成 GO/NO-GO 决定") &&
-    slots.includes('status={strategy ? "INFERRED" : null}'),
+    slots.includes('status={memo || strategy ? "INFERRED" : null}'),
   "AF-UI-01: 第 7 槽渲染策略草案（AI 推断徽标 + 人审免责）",
 );
 ok(

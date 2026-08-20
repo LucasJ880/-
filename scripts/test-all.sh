@@ -309,6 +309,7 @@ run_test "情报自动流 七槽位自动化" "npx tsx src/lib/tender-intel/__te
 run_test "CJK-PDF 中文安全文档生成" "npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts"
 run_test "工作台指挥台重构" "npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts"
 run_test "观察期包2+包3 单管线与完成通知" "npx tsx src/lib/tender-auto-analysis/__tests__/obs-p2p3-single-pipeline.test.ts"
+run_test "批次一 投标策略备忘录+合规矩阵" "npx tsx src/lib/tender-intel/__tests__/bid-strategy-memo.test.ts"
 run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"
 run_test "招标自动分析 RCMP 回归" "npx tsx src/lib/tender-auto-analysis/__tests__/rcmp-regression.test.ts"
 run_test "招标自动分析中文报告" "npx tsx src/lib/tender-auto-analysis/__tests__/report-core.test.ts"

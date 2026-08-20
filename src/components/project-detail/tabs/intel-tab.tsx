@@ -86,7 +86,11 @@ export function IntelTab({
       <ProjectOrgRulesCard projectId={projectId} refreshKey={orgRulesRefreshKey} />
 
       {/* 企业历史情报：七槽位接 T4 组织级授标情报投影（情报阶段1） */}
-      <OrgAwardIntelSlots orgId={project.orgId ?? null} projectId={projectId} />
+      <OrgAwardIntelSlots
+        orgId={project.orgId ?? null}
+        projectId={projectId}
+        buyerName={project.clientOrganization ?? null}
+      />
     </div>
   );
 }

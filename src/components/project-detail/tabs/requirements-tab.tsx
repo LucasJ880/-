@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { FileQuestion } from "lucide-react";
 import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
+import { BidFitMatrixCard } from "@/components/tender-analysis/bid-fit-matrix-card";
 import { AnalysisProgressBanner } from "@/components/tender-analysis/analysis-progress-banner";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { ProjectQuestionStatusList } from "@/components/project-question/project-question-status-list";
@@ -25,6 +26,9 @@ export function RequirementsTab({ projectId, canManage, projectStatus }: Require
   return (
     <div className="space-y-6">
       <AnalysisProgressBanner projectId={projectId} showDetailLink={false} />
+
+      {/* 批次一：投标合规矩阵（已有/可开发/需Partner/需RFI/No-Go 一眼观） */}
+      <BidFitMatrixCard projectId={projectId} canManage={canManage} />
 
       <div className="rounded-xl border border-border bg-card-bg p-4 sm:p-5">
         <TenderAnalysisPanel
