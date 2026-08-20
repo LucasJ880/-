@@ -136,12 +136,23 @@ type BidStrategyAuto = {
   generatedAt: string;
 };
 
+/** 与 corporate-memory/normalize 同源的轻量归一（客户端相关性分层用） */
+function normBuyer(s: string | null | undefined): string {
+  return (s ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
 export function OrgAwardIntelSlots({
   orgId,
   projectId,
+  buyerName,
 }: {
   orgId: string | null;
   projectId?: string | null;
+  /** 本项目采购方（相关性分层：同买家记录优先，其余折叠为组织库存） */
+  buyerName?: string | null;
 }) {
   const [intel, setIntel] = useState<Intelligence | null>(null);
   const [failed, setFailed] = useState(false);
@@ -180,6 +191,9 @@ export function OrgAwardIntelSlots({
       <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <Radar size={16} className="text-accent/60" />
         企业历史情报
+        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-normal text-muted">
+          组织级 · 跨项目累积
+        </span>
       </h3>
       <p className="text-xs text-muted">
         {failed ? "组织级授标情报暂不可用（T4 未启用或加载失败）" : basisNote}
@@ -191,18 +205,50 @@ export function OrgAwardIntelSlots({
           title="历史中标"
           status={intel?.historicalAwards.status ?? null}
         >
-          {intel && intel.historicalAwards.records.length > 0
-            ? intel.historicalAwards.records.slice(0, 4).map((r) => (
-                <p key={r.id} className="truncate">
-                  <b className="text-foreground/70">{r.winnerName}</b>
-                  {r.buyerName ? ` ← ${r.buyerName}` : ""}
-                  {r.contractAmount != null
-                    ? ` · ${money(r.contractAmount, r.currency ?? "UNSPECIFIED")}`
-                    : ""}
-                  {r.awardDate ? ` · ${r.awardDate}` : ""}
-                </p>
-              ))
-            : empty("确认外部候选或标记我方中标后出现")}
+          {(() => {
+            const records = intel?.historicalAwards.records ?? [];
+            if (records.length === 0)
+              return empty("确认外部候选或标记我方中标后出现");
+            // 相关性分层：同买家（本项目采购方）优先，其余折叠为组织库存
+            const projNorm = normBuyer(buyerName);
+            const related = projNorm
+              ? records.filter((r) => normBuyer(r.buyerName) === projNorm)
+              : [];
+            const rest = records.filter((r) => !related.includes(r));
+            const row = (r: (typeof records)[number]) => (
+              <p key={r.id} className="truncate">
+                <b className="text-foreground/70">{r.winnerName}</b>
+                {` ← ${r.buyerName ?? "买家未知"}`}
+                {r.contractAmount != null
+                  ? ` · ${money(r.contractAmount, r.currency ?? "UNSPECIFIED")}`
+                  : ""}
+                {r.awardDate ? ` · ${r.awardDate}` : ""}
+                <span className="ml-1 rounded-full border border-border px-1.5 text-[9px] text-muted">
+                  {r.verificationStatus === "HUMAN_CONFIRMED"
+                    ? "已确认"
+                    : r.verificationStatus === "SYSTEM_VERIFIED"
+                      ? "系统核验"
+                      : "待核"}
+                </span>
+              </p>
+            );
+            return (
+              <>
+                {related.slice(0, 4).map(row)}
+                {related.length === 0 ? (
+                  <p className="text-muted/80">本项目采购方暂无相关历史授标</p>
+                ) : null}
+                {rest.length > 0 ? (
+                  <details>
+                    <summary className="cursor-pointer text-muted/80">
+                      组织授标库另有 {rest.length} 条（其它买家/项目）
+                    </summary>
+                    <div className="mt-1 space-y-1">{rest.slice(0, 4).map(row)}</div>
+                  </details>
+                ) : null}
+              </>
+            );
+          })()}
         </Slot>
 
         <Slot

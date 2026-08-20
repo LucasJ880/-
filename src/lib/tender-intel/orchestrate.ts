@@ -33,6 +33,7 @@ import {
   type WebIntelResult,
 } from "./websearch";
 import { isT4AwardSchemaReady } from "./award-flags";
+import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
 
 export type ExternalIntelTrigger =
   | "legacy_finalize"
@@ -77,6 +78,24 @@ export function isExternalIntelRateLimited(
   const last = Date.parse(status.ranAt);
   if (!Number.isFinite(last)) return false;
   return nowMs - last < windowMs;
+}
+
+/**
+ * 相关性门（2026-08-19 生产复盘）：自动入库不再只看「权威真实」，还要看
+ * 「与本项目相关」——买家归一匹配本项目采购方，或多检索线交叉命中（≥2）。
+ * 其余候选留在调查室候选区走人工确认线。防止泛化检索词把无关政府授标
+ * 灌进组织权威层（真实 ≠ 相关）。
+ */
+export function isAutoObserveRelevant(input: {
+  candidateBuyer: string | null | undefined;
+  projectBuyer: string | null | undefined;
+  hitQueryCount: number;
+}): boolean {
+  if (input.hitQueryCount >= 2) return true;
+  const cand = (input.candidateBuyer ?? "").trim();
+  const proj = (input.projectBuyer ?? "").trim();
+  if (!cand || !proj) return false;
+  return normalizeBuyerName(cand) === normalizeBuyerName(proj);
 }
 
 const ZERO = { awardCandidates: 0, webDomains: 0, analyzed: false } as const;
@@ -129,7 +148,7 @@ export async function runExternalIntelForProject(input: {
 
     const project = await db.project.findUnique({
       where: { id: input.projectId },
-      select: { id: true, name: true, orgId: true, solicitationNumber: true },
+      select: { id: true, name: true, orgId: true, solicitationNumber: true, clientOrganization: true },
     });
     if (!project) return { status: "skipped", reason: "project_not_found", ...ZERO };
     if (!project.orgId) {
@@ -213,6 +232,16 @@ export async function runExternalIntelForProject(input: {
         for (const c of auto.candidates.slice(0, 5)) {
           const ref = c.bestFinding.referenceNumber?.trim();
           if (!ref) continue;
+          // 相关性门：买家匹配本项目采购方 或 交叉命中≥2 才自动入权威层
+          if (
+            !isAutoObserveRelevant({
+              candidateBuyer: c.bestFinding.buyerName ?? c.bestFinding.ownerOrg,
+              projectBuyer: project.clientOrganization,
+              hitQueryCount: c.hitQueries.length,
+            })
+          ) {
+            continue;
+          }
           try {
             await createOrObserveAwardRecord({
               orgId: project.orgId,
