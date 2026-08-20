@@ -96,6 +96,39 @@ const clean = buildLlmJudgePacket({ status: "completed" });
 const cleanPrompt = llmJudgeUserPrompt(clean);
 ok(!/Bearer |password|prompt/i.test(cleanPrompt), "packet JSON has no secrets/prompts");
 ok(!("summary" in (JSON.parse(cleanPrompt) as object)), "packet has no text summary");
+const forbiddenNeedles = [
+  "Bearer secret",
+  "Authorization",
+  "api_key",
+  "password=",
+  "cookie=",
+  "OAuth",
+  "gmail.com",
+  "tender body",
+  "quote body",
+  "contract text",
+  "tool args",
+  "retrieval chunk",
+];
+ok(
+  forbiddenNeedles.every((needle) => !cleanPrompt.includes(needle)),
+  "RAW_CONTENT_EXPOSED = ZERO",
+);
+const packetKeys = Object.keys(JSON.parse(cleanPrompt) as object).sort();
+ok(
+  JSON.stringify(packetKeys) ===
+    JSON.stringify([
+      "errorCode",
+      "eventCounts",
+      "humanEdit",
+      "humanOverride",
+      "inputBytes",
+      "outputBytes",
+      "reAsk",
+      "status",
+    ]),
+  "packet keys are structural telemetry only",
+);
 
 const accepted = acceptLlmJudgeVerdict(
   clean,
@@ -201,6 +234,27 @@ ok(
   "ordinary model.completed does not invoke LLM Judge",
 );
 ok(
+  !shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "TOOL_CALL_COMPLETED",
+  }),
+  "TOOL_CALL_COMPLETED does not invoke LLM Judge",
+);
+ok(
+  !shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "RETRIEVAL_COMPLETED",
+  }),
+  "RETRIEVAL_COMPLETED does not invoke LLM Judge",
+);
+ok(
+  !shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "CONTEXT_LOADED",
+  }),
+  "CONTEXT_LOADED does not invoke LLM Judge",
+);
+ok(
   shouldInvokeLlmJudge({
     noticeType: "event",
     mappedEventType: "HUMAN_EDIT",
@@ -210,9 +264,44 @@ ok(
 ok(
   shouldInvokeLlmJudge({
     noticeType: "event",
+    mappedEventType: "HUMAN_OVERRIDE",
+  }),
+  "HUMAN_OVERRIDE may re-invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "RE_ASK_SIGNAL",
+  }),
+  "RE_ASK_SIGNAL may re-invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
     mappedEventType: "TOOL_CALL_FAILED",
   }),
   "TOOL_CALL_FAILED may re-invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "MODEL_FAILED",
+  }),
+  "MODEL_FAILED may re-invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "RETRIEVAL_FAILED",
+  }),
+  "RETRIEVAL_FAILED may re-invoke LLM Judge",
+);
+ok(
+  shouldInvokeLlmJudge({
+    noticeType: "event",
+    mappedEventType: "CONTEXT_LOAD_FAILED",
+  }),
+  "CONTEXT_LOAD_FAILED may re-invoke LLM Judge",
 );
 
 const acceptedEvidence = {
@@ -232,11 +321,43 @@ ok(
 );
 ok(
   !shouldReuseExistingLlmJudge(
+    { ruleId: "LLM_JUDGE_PARSE_FAILED", evidence: { packet: clean } },
+    clean,
+  ),
+  "PARSE_FAILED is retried",
+);
+ok(
+  !shouldReuseExistingLlmJudge(
     acceptedEvidence,
     buildLlmJudgePacket({ status: "completed", humanEdit: true }),
   ),
   "human-edit packet change does not skip",
 );
 
-console.log(`\n${pass} passed, ${fail} failed`);
-if (fail > 0) process.exit(1);
+async function flagOffShortCircuit() {
+  const { persistLlmJudgeEvaluation } = await import("../evaluate-judge-persist");
+  let calls = 0;
+  await persistLlmJudgeEvaluation({
+    orgId: "org_flag_off",
+    agentRunId: "run_flag_off",
+    autopilotRunId: "ap_flag_off",
+    status: "completed",
+    env: {},
+    judge: {
+      complete: async () => {
+        calls += 1;
+        return "{}";
+      },
+    },
+  });
+  ok(calls === 0, "FLAG_OFF_ZERO_LLM_CALL");
+}
+
+void flagOffShortCircuit()
+  .catch((err) => {
+    ok(false, "FLAG_OFF_ZERO_LLM_CALL", err);
+  })
+  .then(() => {
+    console.log(`\n${pass} passed, ${fail} failed`);
+    if (fail > 0) process.exit(1);
+  });

@@ -127,8 +127,33 @@ async function main() {
     "projection persists deterministic evaluation separately",
   );
   ok(
+    instr.includes("deps.persistDeterministicEvaluation"),
+    "A2-P0 failure injection hook is preserved",
+  );
+  const projectFn = instr.slice(
+    instr.indexOf("export async function projectAutopilotNotice"),
+  );
+  const upsertAt = projectFn.indexOf("await upsertAutopilotObservation(");
+  const appendAt = projectFn.indexOf("await appendAutopilotObservationEvent(");
+  const persistAt = projectFn.indexOf("await persistEvaluation(");
+  const judgeAt = projectFn.indexOf("persistLlmJudgeEvaluation(");
+  ok(
+    upsertAt >= 0 && appendAt > upsertAt && persistAt > appendAt,
+    "FINAL_PROJECTION_ORDER overlay → event → A2-P0",
+  );
+  ok(
+    !/await persistDeterministicEvaluation\([\s\S]*await appendAutopilotObservationEvent\(/.test(
+      projectFn,
+    ),
+    "A2 persist is not attempted before A1 event append",
+  );
+  ok(
     instr.includes("persistLlmJudgeEvaluation"),
     "projection may persist LLM Judge after deterministic eval",
+  );
+  ok(
+    persistAt >= 0 && judgeAt > persistAt,
+    "A2-P0 persist precedes A2-P1 LLM Judge",
   );
   ok(
     instr.includes("shouldInvokeLlmJudge"),
