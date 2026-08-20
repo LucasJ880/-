@@ -106,6 +106,11 @@ export const CRITICAL_FACT_TYPES = [
   "submission_method",
   "pricing_method",
   "addenda",
+  // 批次二（2026-08-20，HRM-2026-0395 实测盲区）：竞争格局与授标评分标准
+  // ——「现任供应商自 2021-11、合同 2026-11-01 到期」「价格 70%/绩效 10%/
+  // 国籍 10%」这类事实此前无槽位可落，导致情报与策略层拿不到。
+  "incumbent_supplier",
+  "evaluation_criteria",
 ] as const;
 export type CriticalFactType = (typeof CRITICAL_FACT_TYPES)[number];
 

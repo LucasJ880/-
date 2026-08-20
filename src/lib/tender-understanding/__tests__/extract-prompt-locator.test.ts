@@ -57,8 +57,8 @@ const sheetPrompt = buildExtractUserPrompt({
 });
 
 ok(
-  PROMPT_EXTRACT.version === "tender-understanding-v2-extract@4",
-  "LOC-01 prompt 版本已随定位规则升版（版本进入检查点指纹）",
+  PROMPT_EXTRACT.version === "tender-understanding-v2-extract@5",
+  "LOC-01 prompt 版本已随规则升版（@5=批次二 taxonomy 扩容；版本进入检查点指纹）",
 );
 
 ok(
