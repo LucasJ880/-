@@ -62,6 +62,12 @@ export type WorkforceSliceResult =
       report?: string;
       lostLease?: boolean;
       retryScheduled?: boolean;
+      /**
+       * 观察期包1：本 slice 因工具让出（invocation 预算耗尽、成果已
+       * checkpoint）走 normal continuation 回队。route 层据此决定
+       * 是否链式自触发下一 tick。仅在 normal continuation 返回时出现。
+       */
+      yielded?: boolean;
     };
 
 function backoffMs(attempts: number): number {
@@ -453,6 +459,10 @@ export async function processWorkforceJobSlice(
       "@/lib/agent-runtime-v2/process"
     );
 
+    // 观察期包1：记录本 slice 是否以「工具让出」收尾（区别于 round 耗尽），
+    // 供 route 层链式自触发判定。仅观测，不进入任何状态写入。
+    let sawYield = false;
+
     for (let round = 0; round < maxRounds; round++) {
       // per-slice 时间预算：超出即交还队列，绝不因 Job 年龄判失败
       if (Date.now() - processingStartedAt > sliceBudgetMs) break;
@@ -502,6 +512,7 @@ export async function processWorkforceJobSlice(
       // 然后走下方既有的 normal continuation 回队（attempts 归零，不消耗重试预算）。
       // executor 已发过 tool.yielded 事件，这里不重复发。
       if (result.status === "yielded") {
+        sawYield = true;
         break;
       }
 
@@ -617,11 +628,12 @@ export async function processWorkforceJobSlice(
         runId,
         eventType: "job.queued",
         title: "本时间片结束，交还队列继续",
-        payload: { continuation: true, correlation },
+        // 包1：yielded 落事件 payload，供包0 观察（让出→再认领间隔）直接量
+        payload: { continuation: true, yielded: sawYield, correlation },
         visibleToUser: false,
       });
     }
-    return { claimed: true, status: "queued", lostLease: !requeued };
+    return { claimed: true, status: "queued", lostLease: !requeued, yielded: sawYield };
   } catch (error) {
     // fence 丢失（如 persistPlanAndSteps 的 fenced path）≠ retryable failure：
     // 本 worker 零写入，新 worker 已接管，不消耗 attempts、不 requeue
@@ -652,11 +664,16 @@ export async function processQueuedWorkforceJobs(
   processed: number;
   runIds: string[];
   exhaustedFailed: number;
+  /**
+   * 观察期包1：本批中「工具让出 → normal continuation 回队」的 slice 数。
+   * route 层据此决定是否链式自触发下一 tick（>0 才触发）。
+   */
+  yieldedContinuations: number;
 }> {
   // Kill-switch：总开关关闭 → 整体暂停消费（含 exhausted 清扫）。
   // 已排队 job 保持 queued 原状，不失败、不清理、不改状态；开关恢复后继续。
   if (!isWorkforceProcessingEnabled()) {
-    return { processed: 0, runIds: [], exhaustedFailed: 0 };
+    return { processed: 0, runIds: [], exhaustedFailed: 0, yieldedContinuations: 0 };
   }
 
   const now = new Date();
@@ -722,15 +739,18 @@ export async function processQueuedWorkforceJobs(
   });
 
   let processed = 0;
+  let yieldedContinuations = 0;
   for (const r of eligible) {
     const result = await processWorkforceJobSlice(r.id, {
       executionBudget: opts?.executionBudget,
     });
     if (result.claimed) processed++;
+    if (result.claimed && result.yielded) yieldedContinuations++;
   }
   return {
     processed,
     runIds: eligible.map((r) => r.id),
     exhaustedFailed: exhausted.length,
+    yieldedContinuations,
   };
 }

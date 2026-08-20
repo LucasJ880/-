@@ -111,7 +111,19 @@ async function main() {
     callers,
   );
 
-  console.log(`\n结果：${pass} 通过，${fail} 失败`);
+  // ── 组织级语境（2026-08-19 用户报告：解析中就出现且看不出是组织库存） ──
+ok(
+  slots.includes("组织级 · 跨项目累积") &&
+    slots.includes("买家未知") &&
+    slots.includes("组织授标库另有"),
+  "SLOT-07: 组织级标注 + 逐条买家兜底 + 非相关记录折叠为库存",
+);
+ok(
+  slots.includes("已确认") && slots.includes("系统核验") && slots.includes("normBuyer"),
+  "SLOT-08: 逐条信任徽标 + 相关性分层（同买家优先）",
+);
+
+console.log(`\n结果：${pass} 通过，${fail} 失败`);
   if (fail > 0) process.exit(1);
 }
 

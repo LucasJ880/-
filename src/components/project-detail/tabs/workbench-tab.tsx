@@ -6,7 +6,7 @@
  * 全部复用既有数据源；没有可靠数据的项显示「暂无」而非伪造数值。
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
@@ -20,7 +20,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { FinancialControlCard } from "@/components/project-detail/financial-control-card";
 import { ProgressComparison } from "@/components/progress/progress-comparison";
@@ -213,6 +213,7 @@ export function WorkbenchTab({
       {/* 团队 */}
       <TeamCard
         projectId={projectId}
+        orgId={project.orgId ?? null}
         members={members}
         canManage={canManage}
         currentUserId={currentUserId}
@@ -339,6 +340,7 @@ function NeedsYouCard({
 /** 团队：成员管理 + 加入简报 + 通知规则（原页面底部常驻区收敛为工作台卡片） */
 function TeamCard({
   projectId,
+  orgId,
   members,
   canManage,
   currentUserId,
@@ -346,19 +348,72 @@ function TeamCard({
   onMention,
 }: {
   projectId: string;
+  orgId: string | null;
   members: MemberRow[];
   canManage: boolean;
   currentUserId: string | null;
   onChanged: () => void;
   onMention: (draft: { userId: string; name: string }) => void;
 }) {
-  const [addUserId, setAddUserId] = useState("");
   const [addDuty, setAddDuty] = useState<ProjectDuty>("participant");
+
+  // 选人组合框（输入过滤 + 下拉；替代旧的手输 userId——cuid 没人会输）：
+  // 候选 = 组织活跃成员（既有 org members 端点，邮箱按其权限规则可见与否），
+  // 排除已是项目 active 成员的用户；提交必须来自选择（不接受自由文本）。
+  const [memberQuery, setMemberQuery] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<{ id: string; name: string } | null>(null);
+  const [candidates, setCandidates] = useState<
+    Array<{ id: string; name: string; nickname: string | null; email: string | null }>
+  >([]);
+  useEffect(() => {
+    if (!canManage || !orgId) return;
+    apiJson<{
+      members?: Array<{
+        status?: string;
+        user?: {
+          id: string;
+          name: string;
+          nickname?: string | null;
+          email?: string | null;
+          status?: string | null;
+        };
+      }>;
+    }>(`/api/organizations/${orgId}/members`)
+      .then((res) => {
+        setCandidates(
+          (res.members ?? [])
+            .filter((m) => m.status === "active" && m.user?.id)
+            .map((m) => ({
+              id: m.user!.id,
+              name: m.user!.name,
+              nickname: m.user!.nickname ?? null,
+              email: m.user!.email ?? null,
+            })),
+        );
+      })
+      .catch(() => setCandidates([]));
+  }, [canManage, orgId]);
+
+  const activeMemberIds = new Set(
+    members.filter((m) => m.status === "active").map((m) => m.user.id),
+  );
+  const q = memberQuery.trim().toLowerCase();
+  const filteredCandidates = candidates
+    .filter((c) => !activeMemberIds.has(c.id))
+    .filter(
+      (c) =>
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        (c.nickname ?? "").toLowerCase().includes(q) ||
+        (c.email ?? "").toLowerCase().includes(q),
+    )
+    .slice(0, 8);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
-    const uid = addUserId.trim();
+    const uid = selectedUser?.id ?? "";
     if (!uid) return;
     setBusy("member");
     try {
@@ -369,7 +424,8 @@ function TeamCard({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "添加失败");
-      setAddUserId("");
+      setSelectedUser(null);
+      setMemberQuery("");
       setAddDuty("participant");
       onChanged();
     } catch (err) {
@@ -424,12 +480,73 @@ function TeamCard({
       </p>
       {canManage && (
         <form onSubmit={addMember} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-          <input
-            value={addUserId}
-            onChange={(e) => setAddUserId(e.target.value)}
-            placeholder="用户 ID（须已加入所属组织）"
-            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-          />
+          <div className="relative flex-1" data-testid="member-picker">
+            {selectedUser ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                <span className="flex-1 truncate">{selectedUser.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUser(null);
+                    setMemberQuery("");
+                  }}
+                  className="text-muted hover:text-foreground"
+                  title="重新选择"
+                >
+                  ×
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  value={memberQuery}
+                  onChange={(e) => {
+                    setMemberQuery(e.target.value);
+                    setPickerOpen(true);
+                  }}
+                  onFocus={() => setPickerOpen(true)}
+                  onBlur={() => setTimeout(() => setPickerOpen(false), 150)}
+                  placeholder="输入姓名/邮箱搜索组织成员…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                />
+                {pickerOpen ? (
+                  <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border bg-card-bg py-1 shadow-lg">
+                    {filteredCandidates.length > 0 ? (
+                      filteredCandidates.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setSelectedUser({ id: c.id, name: c.name });
+                              setPickerOpen(false);
+                            }}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/10"
+                          >
+                            <span className="truncate">
+                              {c.name}
+                              {c.nickname ? (
+                                <span className="text-muted">（{c.nickname}）</span>
+                              ) : null}
+                            </span>
+                            {c.email ? (
+                              <span className="shrink-0 text-xs text-muted">{c.email}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="px-3 py-1.5 text-xs text-muted">
+                        {candidates.length === 0
+                          ? "无法加载组织成员（或组织为空）"
+                          : "没有匹配的可添加成员"}
+                      </li>
+                    )}
+                  </ul>
+                ) : null}
+              </>
+            )}
+          </div>
           <select
             value={addDuty}
             onChange={(e) => setAddDuty(e.target.value as ProjectDuty)}
@@ -441,7 +558,7 @@ function TeamCard({
           </select>
           <button
             type="submit"
-            disabled={busy === "member"}
+            disabled={busy === "member" || !selectedUser}
             className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
           >
             添加

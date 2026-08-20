@@ -151,7 +151,10 @@ ok(
 {
   const wpCode = code("workforce-runtime/processor.ts");
   ok(
-    wpCode.includes('result.status === "yielded"') && /result\.status === "yielded"\)\s*\{\s*break;/.test(wpCode),
+    wpCode.includes('result.status === "yielded"') &&
+      // 观察期包1：yielded 分支多了 sawYield 观测标记（纯观测），
+      // 不变量仍是「让出 → 立即 break，块内无任何状态写入/其它逻辑」
+      /result\.status === "yielded"\)\s*\{\s*sawYield = true;\s*break;\s*\}/.test(wpCode),
     "P11-CONT-10: 让出冒泡到 Workforce processor 并立即结束本 slice（§20）",
   );
   const breakIdx = wpCode.indexOf('result.status === "yielded"');
