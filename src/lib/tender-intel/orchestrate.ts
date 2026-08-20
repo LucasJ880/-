@@ -313,6 +313,7 @@ export async function runExternalIntelForProject(input: {
     // 线索（incumbentLead，人工记录）。AI_INFERRED 人审语义，禁整体 GO/NO-GO。
     let strategyGenerated = false;
     let bidStrategyMemo: unknown = null;
+    let vendorPriceBenchmark: unknown = null;
     try {
       const { listAwardsForOrg } = await import("./awards");
       const { deriveAwardIntelligence } = await import("./award-intelligence");
@@ -345,6 +346,26 @@ export async function runExternalIntelForProject(input: {
         ?.clarifications ?? [])
         .map((c) => c.questionZh ?? "")
         .filter(Boolean);
+      // 阶段3：现任供应商线索在场 → 自动拉联邦全量合同披露做价格带对标
+      // （把用户手工验证的动作收编为自动步；失败温和，不阻塞备忘录）
+      const lead = (rsj as { incumbentLead?: { vendor?: string } }).incumbentLead;
+      if (lead?.vendor) {
+        try {
+          const { searchContractsByVendor, summarizeVendorContracts } =
+            await import("./canadabuys");
+          const vc = await searchContractsByVendor({ vendor: lead.vendor, env });
+          if (vc.ok && vc.rows.length > 0) {
+            vendorPriceBenchmark = {
+              vendor: lead.vendor,
+              federalTotal: vc.total,
+              ...summarizeVendorContracts(vc.rows),
+              fetchedAt: vc.fetchedAt,
+            };
+          }
+        } catch {
+          vendorPriceBenchmark = null;
+        }
+      }
       const { memo } = await synthesizeBidStrategyMemo({
         project: {
           nameZh: project.name,
@@ -365,6 +386,7 @@ export async function runExternalIntelForProject(input: {
         analystBrief: syn ?? null,
         intelligence: deriveAwardIntelligence(orgRows),
         incumbentLead: (rsj as { incumbentLead?: unknown }).incumbentLead ?? null,
+        vendorPriceBenchmark,
         existingClarifications: clarsZh,
       });
       if (memo) {
@@ -400,6 +422,7 @@ export async function runExternalIntelForProject(input: {
             ...(web?.ok ? { webIntel: web } : {}),
             ...(externalAnalysis ? { externalAnalysis } : {}),
             ...(bidStrategyMemo ? { bidStrategyMemo } : {}),
+            ...(vendorPriceBenchmark ? { vendorPriceBenchmark } : {}),
             [EXTERNAL_INTEL_STATUS_KEY]: {
               ...base,
               status: outcome.status,

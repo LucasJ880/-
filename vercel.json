@@ -75,6 +75,10 @@
     {
       "path": "/api/cron/release-drift",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/tender-watch",
+      "schedule": "25 * * * *"
     }
   ]
 }
