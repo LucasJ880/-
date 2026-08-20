@@ -6,8 +6,8 @@
  * → 「上一轮中标方 / 历史合同金额 / 周期采购可能」变 READY → 可再喂历史对标。
  */
 
-import { useEffect, useState } from "react";
-import { Landmark, Loader2, Search } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Landmark, Loader2, Radar, Search } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 type Finding = {
@@ -64,19 +64,57 @@ export function AwardHistoryPanel({
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const [web, setWeb] = useState<WebBlock>(null);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
 
-  // M1.1/M2：加载分析完成时自动生成的多线交叉验证候选（授标 + Web）
-  useEffect(() => {
-    apiJson<{ enabled: boolean; auto?: AutoBlock; webIntel?: WebBlock }>(
-      `/api/projects/${projectId}/external-intel/award-history`,
-    )
+  // M1.1/M2：加载自动生成的多线交叉验证候选（授标 + Web）+ 显式检索状态
+  const loadAuto = useCallback(() => {
+    apiJson<{
+      enabled: boolean;
+      auto?: AutoBlock;
+      webIntel?: WebBlock;
+      note?: string | null;
+    }>(`/api/projects/${projectId}/external-intel/award-history`)
       .then((res) => {
         setEnabled(res.enabled);
         setAuto(res.auto ?? null);
         setWeb(res.webIntel ?? null);
+        setAutoNote(res.note ?? null);
       })
       .catch(() => {});
   }, [projectId]);
+  useEffect(() => {
+    loadAuto();
+  }, [loadAuto]);
+
+  // 观察期包5：手动触发外部情报（覆盖「分析完成但情报错过自动时机」的存量项目）
+  const runNow = async () => {
+    setRunning(true);
+    setNote(null);
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/external-intel/run`, {
+        method: "POST",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        outcome?: { status?: string; awardCandidates?: number; webDomains?: number };
+      };
+      if (!res.ok) {
+        setNote(json.error || "检索失败，请稍后重试");
+      } else {
+        const o = json.outcome;
+        setNote(
+          o?.status === "ran"
+            ? `检索完成：授标候选 ${o.awardCandidates ?? 0} 条 · Web 线索 ${o.webDomains ?? 0} 条（人工确认后才会写入结论）`
+            : "检索已执行但未获得可用候选，可稍后重试或用下方关键词人工检索",
+        );
+        loadAuto();
+      }
+    } catch {
+      setNote("检索失败，请稍后重试");
+    }
+    setRunning(false);
+  };
 
   const confirmCompetitor = async (name: string, url: string | null) => {
     setConfirming(name);
@@ -163,6 +201,27 @@ export function AwardHistoryPanel({
       <p className="mt-1 text-xs text-[var(--muted)]">
         查同类采购历史上谁中标、金额多少；<b>人工确认后</b>才会写入调查结论并可用于目标价对标。
       </p>
+      {enabled ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="run-external-intel"
+            disabled={running}
+            onClick={() => void runNow()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-3 py-1.5 text-xs text-[var(--accent)] disabled:opacity-50"
+          >
+            {running ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Radar size={12} />
+            )}
+            立即检索外部情报
+          </button>
+          {autoNote && !auto && !web ? (
+            <span className="text-xs text-[var(--muted)]">{autoNote}</span>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         <input
           value={q}

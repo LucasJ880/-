@@ -6,7 +6,7 @@
  * 全部复用既有数据源；没有可靠数据的项显示「暂无」而非伪造数值。
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
@@ -15,14 +15,12 @@ import {
   Clock3,
   History,
   Loader2,
-  Radar,
   Settings,
   Sparkles,
   Trash2,
   Users,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { FinancialControlCard } from "@/components/project-detail/financial-control-card";
 import { ProgressComparison } from "@/components/progress/progress-comparison";
@@ -36,6 +34,7 @@ import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-
 import { TenderBenchmarkCard } from "@/components/project-detail/tender-benchmark-card";
 import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
 import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
+import { WorkbenchCommandDeck } from "@/components/tender/workbench-command-deck";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
 import {
   ProjectCommandOverview,
@@ -57,12 +56,6 @@ import type { TenderWorkbenchState } from "@/lib/tender/workbench-state";
 
 const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
-const RECOMMENDATION_LABELS: Record<string, string> = {
-  pursue: "建议跟进",
-  review_carefully: "需仔细评估",
-  low_probability: "低概率",
-  skip: "建议跳过",
-};
 
 interface WorkbenchTabProps {
   projectId: string;
@@ -123,6 +116,16 @@ export function WorkbenchTab({
         onNavigate={onNavigate}
       />
 
+      {/* 工作台指挥台（关键信息条 / 项目摘要内联 / 情报摘要真数据）——零跳转 */}
+      {tenderish ? (
+        <WorkbenchCommandDeck
+          projectId={projectId}
+          onOpenIntel={() => onNavigate("intel")}
+        />
+      ) : null}
+
+      <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
+
       {/* Tender 工作流 Quick Start：仅招投标项目展示（canonical workDomain 判定） */}
       {tenderish ? (
         <ProjectOnboardingGuide
@@ -133,8 +136,6 @@ export function WorkbenchTab({
 
       {/* FB-13：历史项目对标（团队成员进工作台即见结论；无候选/未启用时自渲染 null） */}
       {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
-
-      <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
 
       {/* T2-P1.5 财务控制卡（feature dark 时自渲染为空） */}
       <FinancialControlCard projectId={projectId} currentUserId={currentUserId ?? undefined} />
@@ -192,23 +193,27 @@ export function WorkbenchTab({
         )
       )}
 
-      {/* AI 简报（原 4 个摘要面收敛后的工作台入口） */}
-      <section className="space-y-3" data-testid="workbench-ai-brief">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      {/* AI 简报：泛文本摘要默认折叠（关键信息已由顶部指挥台承担，屏幕还给硬字段） */}
+      <details className="group rounded-xl border border-border bg-card-bg" data-testid="workbench-ai-brief">
+        <summary className="flex cursor-pointer items-center gap-2 p-4 text-sm font-semibold text-foreground sm:p-5">
           <Sparkles size={16} className="text-accent/60" />
-          AI 简报
-        </h3>
-        <ProjectAiSummaryCard projectId={projectId} />
-        <ProjectProgressSummary projectId={projectId} />
-      </section>
+          AI 简报（详细文字版）
+          <span className="ml-auto text-[10px] font-normal text-muted group-open:hidden">
+            展开
+          </span>
+        </summary>
+        <div className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
+          <ProjectAiSummaryCard projectId={projectId} />
+          <ProjectProgressSummary projectId={projectId} />
+        </div>
+      </details>
 
       <ProjectInsightsPanel projectId={projectId} canManage={canManage} />
-
-      <IntelSummaryCard project={project} onOpenIntel={() => onNavigate("intel")} />
 
       {/* 团队 */}
       <TeamCard
         projectId={projectId}
+        orgId={project.orgId ?? null}
         members={members}
         canManage={canManage}
         currentUserId={currentUserId}
@@ -332,65 +337,10 @@ function NeedsYouCard({
   );
 }
 
-/** 情报摘要（工作台占位卡；详情在情报 tab。无数据显示诚实空态，禁止伪造数字） */
-function IntelSummaryCard({
-  project,
-  onOpenIntel,
-}: {
-  project: ProjectDetail;
-  onOpenIntel: () => void;
-}) {
-  const intel = project.intelligence ?? null;
-  const room = project.intelligenceRoom ?? null;
-  return (
-    <section className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="workbench-intel-summary">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Radar size={16} className="text-accent/60" />
-          情报摘要
-        </h3>
-        <button
-          type="button"
-          onClick={onOpenIntel}
-          className="text-xs text-accent underline hover:text-accent-hover"
-        >
-          打开情报
-        </button>
-      </div>
-      {intel ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium",
-              intel.recommendation === "pursue"
-                ? "bg-[rgba(46,122,86,0.1)] text-[#2e7a56]"
-                : intel.recommendation === "skip"
-                  ? "bg-danger-bg text-danger"
-                  : "bg-[rgba(154,106,47,0.1)] text-[#9a6a2f]",
-            )}
-          >
-            {RECOMMENDATION_LABELS[intel.recommendation] ?? intel.recommendation}
-          </span>
-          <span className="text-xs text-muted">匹配度 {intel.fitScore}%</span>
-          {intel.summary ? (
-            <p className="w-full text-xs leading-5 text-muted line-clamp-2">{intel.summary}</p>
-          ) : null}
-        </div>
-      ) : room?.summaryText ? (
-        <p className="mt-3 text-xs leading-5 text-muted line-clamp-2">{room.summaryText}</p>
-      ) : (
-        <p className="mt-3 text-xs text-muted">尚未生成项目情报分析。</p>
-      )}
-      <p className="mt-2 text-[11px] text-muted">
-        历史相似项目与企业历史数据见情报页；企业历史情报尚在建设中。
-      </p>
-    </section>
-  );
-}
-
 /** 团队：成员管理 + 加入简报 + 通知规则（原页面底部常驻区收敛为工作台卡片） */
 function TeamCard({
   projectId,
+  orgId,
   members,
   canManage,
   currentUserId,
@@ -398,19 +348,72 @@ function TeamCard({
   onMention,
 }: {
   projectId: string;
+  orgId: string | null;
   members: MemberRow[];
   canManage: boolean;
   currentUserId: string | null;
   onChanged: () => void;
   onMention: (draft: { userId: string; name: string }) => void;
 }) {
-  const [addUserId, setAddUserId] = useState("");
   const [addDuty, setAddDuty] = useState<ProjectDuty>("participant");
+
+  // 选人组合框（输入过滤 + 下拉；替代旧的手输 userId——cuid 没人会输）：
+  // 候选 = 组织活跃成员（既有 org members 端点，邮箱按其权限规则可见与否），
+  // 排除已是项目 active 成员的用户；提交必须来自选择（不接受自由文本）。
+  const [memberQuery, setMemberQuery] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<{ id: string; name: string } | null>(null);
+  const [candidates, setCandidates] = useState<
+    Array<{ id: string; name: string; nickname: string | null; email: string | null }>
+  >([]);
+  useEffect(() => {
+    if (!canManage || !orgId) return;
+    apiJson<{
+      members?: Array<{
+        status?: string;
+        user?: {
+          id: string;
+          name: string;
+          nickname?: string | null;
+          email?: string | null;
+          status?: string | null;
+        };
+      }>;
+    }>(`/api/organizations/${orgId}/members`)
+      .then((res) => {
+        setCandidates(
+          (res.members ?? [])
+            .filter((m) => m.status === "active" && m.user?.id)
+            .map((m) => ({
+              id: m.user!.id,
+              name: m.user!.name,
+              nickname: m.user!.nickname ?? null,
+              email: m.user!.email ?? null,
+            })),
+        );
+      })
+      .catch(() => setCandidates([]));
+  }, [canManage, orgId]);
+
+  const activeMemberIds = new Set(
+    members.filter((m) => m.status === "active").map((m) => m.user.id),
+  );
+  const q = memberQuery.trim().toLowerCase();
+  const filteredCandidates = candidates
+    .filter((c) => !activeMemberIds.has(c.id))
+    .filter(
+      (c) =>
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        (c.nickname ?? "").toLowerCase().includes(q) ||
+        (c.email ?? "").toLowerCase().includes(q),
+    )
+    .slice(0, 8);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
-    const uid = addUserId.trim();
+    const uid = selectedUser?.id ?? "";
     if (!uid) return;
     setBusy("member");
     try {
@@ -421,7 +424,8 @@ function TeamCard({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "添加失败");
-      setAddUserId("");
+      setSelectedUser(null);
+      setMemberQuery("");
       setAddDuty("participant");
       onChanged();
     } catch (err) {
@@ -476,12 +480,73 @@ function TeamCard({
       </p>
       {canManage && (
         <form onSubmit={addMember} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-          <input
-            value={addUserId}
-            onChange={(e) => setAddUserId(e.target.value)}
-            placeholder="用户 ID（须已加入所属组织）"
-            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-          />
+          <div className="relative flex-1" data-testid="member-picker">
+            {selectedUser ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                <span className="flex-1 truncate">{selectedUser.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUser(null);
+                    setMemberQuery("");
+                  }}
+                  className="text-muted hover:text-foreground"
+                  title="重新选择"
+                >
+                  ×
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  value={memberQuery}
+                  onChange={(e) => {
+                    setMemberQuery(e.target.value);
+                    setPickerOpen(true);
+                  }}
+                  onFocus={() => setPickerOpen(true)}
+                  onBlur={() => setTimeout(() => setPickerOpen(false), 150)}
+                  placeholder="输入姓名/邮箱搜索组织成员…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                />
+                {pickerOpen ? (
+                  <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border bg-card-bg py-1 shadow-lg">
+                    {filteredCandidates.length > 0 ? (
+                      filteredCandidates.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setSelectedUser({ id: c.id, name: c.name });
+                              setPickerOpen(false);
+                            }}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/10"
+                          >
+                            <span className="truncate">
+                              {c.name}
+                              {c.nickname ? (
+                                <span className="text-muted">（{c.nickname}）</span>
+                              ) : null}
+                            </span>
+                            {c.email ? (
+                              <span className="shrink-0 text-xs text-muted">{c.email}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="px-3 py-1.5 text-xs text-muted">
+                        {candidates.length === 0
+                          ? "无法加载组织成员（或组织为空）"
+                          : "没有匹配的可添加成员"}
+                      </li>
+                    )}
+                  </ul>
+                ) : null}
+              </>
+            )}
+          </div>
           <select
             value={addDuty}
             onChange={(e) => setAddDuty(e.target.value as ProjectDuty)}
@@ -493,7 +558,7 @@ function TeamCard({
           </select>
           <button
             type="submit"
-            disabled={busy === "member"}
+            disabled={busy === "member" || !selectedUser}
             className="rounded-lg bg-accent px-4 py-2 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
           >
             添加

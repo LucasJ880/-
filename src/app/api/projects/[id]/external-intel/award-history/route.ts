@@ -16,6 +16,7 @@ import {
   type AwardSourceType,
 } from "@/lib/tender-intel/awards";
 import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
+import { EXTERNAL_INTEL_STATUS_KEY } from "@/lib/tender-intel/orchestrate";
 
 /**
  * M1/T4 — 历史授标外部检索 + 人工确认落 canonical
@@ -55,12 +56,32 @@ export async function GET(
       candidates?: unknown[];
       fetchedAt?: string;
     } | null;
+    // 观察期包5：note 由显式状态驱动（不再许「分析完成后自动生成」这种
+    // 在时序错过后永不兑现的承诺）；externalIntelStatus 一并返回供 UI 渲染。
+    const intelStatus = (sj[EXTERNAL_INTEL_STATUS_KEY] ?? null) as {
+      status?: string;
+      ranAt?: string;
+      reason?: string;
+    } | null;
+    const note =
+      auto || webIntel
+        ? null
+        : intelStatus?.status === "ran" || intelStatus?.status === "skipped"
+          ? "自动检索已执行但未获得可用候选，可点击「立即检索外部情报」重试"
+          : intelStatus?.status === "error"
+            ? "上次自动检索出错，可点击「立即检索外部情报」重试"
+            : "尚未执行外部检索——点击「立即检索外部情报」立即获取，或等待下次分析完成后自动执行";
     return NextResponse.json({
       enabled: true,
       auto: auto ?? null,
       webIntel: webIntel ?? null,
+      externalIntelStatus: intelStatus,
+      // 情报自动流（包6）：AI 策略草案（AI_INFERRED，人审语义）
+      bidStrategyAuto: sj.bidStrategyAuto ?? null,
+      // 批次一：投标策略备忘录 v2（文档接地深读；优先于旧草案渲染）
+      bidStrategyMemo: sj.bidStrategyMemo ?? null,
       findings: [],
-      note: auto || webIntel ? null : "尚无自动检索结果（分析完成后自动生成）",
+      note,
     });
   }
 

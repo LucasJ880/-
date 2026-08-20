@@ -32,3 +32,13 @@ export const WORKFORCE_ACTIVE_STATUSES = [
  */
 export const AGENT_RUNS_MAX_DURATION_S = 300;
 export const AGENT_RUNS_INVOCATION_BUDGET_MS = 240_000;
+
+/**
+ * 观察期包1 · 延迟压缩 —— 让出链式自触发的 depth 硬上限（防风暴兜底）。
+ *
+ * 每次让出后由 route 层自触发下一个 cron invocation（消除 2 分钟节拍空转）。
+ * depth 随链递增；到达上限后停止自触发，退回 cron 节拍兜底——不报错、
+ * 不影响 Job（下一班 cron 照常接手）。163 页首单 = 8 个 invocation，
+ * 25 给足数倍余量，只用于拦截病理性循环。
+ */
+export const WORKFORCE_CONTINUATION_MAX_DEPTH = 25;

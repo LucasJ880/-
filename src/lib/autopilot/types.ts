@@ -10,13 +10,21 @@ export const AUTOPILOT_MODE = "OBSERVE_INFRASTRUCTURE_ONLY" as const;
 
 /**
  * A1-P3 read-only Observe surface. Does not replace AUTOPILOT_PHASE history.
- * Does not authorize AI Judge, Evaluations, Issues, Optimizations, or Production activation.
+ * Observe still answers WHAT HAPPENED? only.
  */
 export const AUTOPILOT_OBSERVE_SURFACE = "A1_P3_OBSERVE_DASHBOARD" as const;
+
+/**
+ * A2-P0 deterministic Evaluate surface.
+ * Answers WAS IT GOOD? only with rule-based outcomes.
+ * Does not authorize LLM Judge, Monitor Agent, Optimizer, Issues, or Production activation.
+ */
+export const AUTOPILOT_EVALUATE_SURFACE = "A2_P0_DETERMINISTIC_EVALUATE" as const;
 
 export const AUTOPILOT_DISABLED_CAPABILITIES = {
   autoOptimization: "DISABLED",
   autoDeployment: "DISABLED",
+  /** LLM / AI Judge — still off in A2-P0. Deterministic rules are not this flag. */
   aiEvaluator: "DISABLED",
   monitorAgent: "DISABLED",
 } as const;
@@ -62,8 +70,11 @@ export const AUTOPILOT_A0_PATHS = {
   runs: "/ai/autopilot/runs",
 } as const;
 
-export const AUTOPILOT_RESERVED_PATHS = {
+export const AUTOPILOT_A2_PATHS = {
   evaluations: "/ai/autopilot/evaluations",
+} as const;
+
+export const AUTOPILOT_RESERVED_PATHS = {
   issues: "/ai/autopilot/issues",
   optimizations: "/ai/autopilot/optimizations",
   experiments: "/ai/autopilot/experiments",
@@ -131,10 +142,19 @@ export const AUTOPILOT_FAILURE_TYPES: readonly AutopilotFailureType[] = [
 ] as const;
 
 /**
- * A0 只允许确定性系统错误写入 failureType。
- * INTENT / HALLUCINATION / WRONG_TOOL 等需 A2 Evaluator，禁止本阶段猜测。
+ * A0/A2-P0 只允许确定性系统错误写入 failureType。
+ * INTENT / HALLUCINATION / WRONG_TOOL 仍禁止猜测（留给未来 LLM Judge，本轮不做）。
  */
-export type AutopilotFailureSource = "system" | null;
+export type AutopilotFailureSource = "system" | "human_signal" | null;
+
+export const AUTOPILOT_EVALUATOR_KIND = "deterministic" as const;
+export const AUTOPILOT_EVALUATOR_VERSION = "a2p0-deterministic-v1" as const;
+
+export type AutopilotEvaluateRuleId =
+  | "HUMAN_OVERRIDE_PRESENT"
+  | "RUNTIME_FAILED"
+  | "RUNTIME_CANCELLED"
+  | "NOT_JUDGED";
 
 export type AutopilotTraceEventType =
   | "USER_INPUT"

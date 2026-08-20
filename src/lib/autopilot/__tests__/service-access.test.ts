@@ -4,7 +4,7 @@
  */
 
 import { AutopilotAccessError } from "../access";
-import { getAutopilotOverview, getAutopilotRun, getAutopilotTelemetryHealth, getAutopilotEventCoverage, listAutopilotRuns } from "../service";
+import { getAutopilotOverview, getAutopilotRun, getAutopilotTelemetryHealth, getAutopilotEventCoverage, getAutopilotEvaluations, listAutopilotRuns } from "../service";
 
 let pass = 0;
 let fail = 0;
@@ -59,6 +59,10 @@ async function main() {
     await expectDenied(
       () => getAutopilotEventCoverage(admin, orgId),
       "admin 读 event coverage → denied",
+    );
+    await expectDenied(
+      () => getAutopilotEvaluations(admin, orgId),
+      "admin 读 evaluations → denied",
     );
   } finally {
     if (prevEnabled === undefined) delete process.env.AUTOPILOT_ENABLED;
