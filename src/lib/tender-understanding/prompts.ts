@@ -11,7 +11,9 @@ export const PROMPT_EXTRACT = {
   name: "tender-understanding-v2-extract",
   // @4：明确「pageNumber 必须是引文所在的那个 PAGE/UNIT 块」——
   // 生产实测多单元窗口（尤其 xlsx 工作表）下模型高频引错单元号。
-  version: "tender-understanding-v2-extract@4",
+  // @5（批次二）：新增竞争格局（incumbent_supplier）与授标评分标准
+  // （evaluation_criteria）覆盖指引——HRM-2026-0395 实测两类关键事实全丢。
+  version: "tender-understanding-v2-extract@5",
 } as const;
 
 export const PROMPT_RESOLVE = {
@@ -48,13 +50,15 @@ STAGE DISCIPLINE — always try to fill submissionStage with one of: "with bid" 
    a. Capture document identification data as facts when present: issue/publication date, solicitation/reference numbers, buyer identity, contact for questions.
    b. Deadlines expressed as RULES count as facts too (e.g. "questions no later than N days before closing" → question_deadline with the rule text as rawValue).
    c. Capture quantity/pricing schedule rows and stated quantity limits as quantity facts (e.g. estimated annual quantities, "up to N per period"), quoting the row/line.
+   d. COMPETITIVE LANDSCAPE: statements about an existing/current/incumbent supplier or contract (e.g. "services provided by the current supplier since ...", current contract expiry, current volumes like "approx N items per month") → factType "incumbent_supplier". Quote verbatim; the supplier may be unnamed — extract the statement anyway.
+   e. AWARD/EVALUATION CRITERIA: scoring weights, evaluation stages, formulas, price-score math, deductions or default scores (e.g. "Price 70%", "lowest cost receives full points, others prorated", "suppliers without prior performance receive N%", nationality/origin adjustments) → factType "evaluation_criteria". rawValue must carry the numbers/formula verbatim — these drive bid pricing strategy.
    d. When scope lists products/services, include the enumeration in the scope fact claim so the product types are preserved.
 12. Output ONLY one JSON object matching the schema below. No markdown, no commentary, no code fences.
 
 SCHEMA (all arrays may be empty; that is a valid answer):
 {
   "facts": [{
-    "factType": "buyer|tender_number|project_title|closing_datetime|question_deadline|site_visit|location|scope|quantity|contract_duration|delivery|installation|warranty|bond|insurance|submission_method|pricing_method|addenda|other",
+    "factType": "buyer|tender_number|project_title|closing_datetime|question_deadline|site_visit|location|scope|quantity|contract_duration|delivery|installation|warranty|bond|insurance|submission_method|pricing_method|addenda|incumbent_supplier|evaluation_criteria|other",
     "claim": "concise statement of the fact",
     "rawValue": "literal value text from page or null",
     "sourceDocumentId": "...", "pageNumber": 1, "sourceSnippet": "verbatim quote", "confidence": "HIGH|MEDIUM|LOW"

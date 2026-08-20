@@ -26,6 +26,7 @@ export type BriefFieldState =
   | "FAILED"
   | "NEEDS_EXTERNAL_RESEARCH"
   | "AI_RESEARCHED"
+  | "DOC_STATED"
   | "NOT_STARTED";
 
 export type BriefField = { state: BriefFieldState; value: string | null };
@@ -68,6 +69,9 @@ export type BuildBriefInput = {
     historicalValueZh?: string | null;
     possiblyRecurringZh?: string | null;
   } | null;
+  /** 批次二：标书文档自述的现任供应商事实（criticalFacts.incumbent_supplier，
+   * 常见「有现任但未具名」——DOC_STATED 态，优先级低于人工/AI 外部调查） */
+  docStatedIncumbent?: string | null;
 };
 
 export type ExecutiveBriefFields = {
@@ -124,13 +128,19 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
   const extField = (
     confirmed: string | null | undefined,
     aiZh: string | null | undefined,
+    docStated?: string | null,
   ): BriefField => {
     if (confirmed && confirmed.trim()) return { state: "READY", value: confirmed };
     if (aiZh && aiZh.trim()) return { state: "AI_RESEARCHED", value: aiZh };
+    if (docStated && docStated.trim()) return { state: "DOC_STATED", value: docStated };
     return externalField();
   };
   const external: ExecutiveBriefExternal = {
-    previousWinner: extField(ext?.previousWinner, ai?.previousWinnerZh),
+    previousWinner: extField(
+      ext?.previousWinner,
+      ai?.previousWinnerZh,
+      input.docStatedIncumbent ?? null,
+    ),
     historicalContractValue: extField(ext?.historicalContractValue, ai?.historicalValueZh),
     possiblyRecurring: extField(ext?.possiblyRecurring, ai?.possiblyRecurringZh),
   };
@@ -412,6 +422,14 @@ export async function getExecutiveBrief(
     projectType,
     externalConfirmed: extConfirmed,
     externalAnalysis: extAnalysis,
+    // 批次二：文档自述的现任供应商（v2-map 落 summaryJson.criticalFacts 文本槽；
+    // "N/A"/空 视为无）
+    docStatedIncumbent: (() => {
+      const cf = (run?.summaryJson as Record<string, unknown> | null)
+        ?.criticalFacts as Record<string, string> | undefined;
+      const v = (cf?.incumbent_supplier ?? "").trim();
+      return v && v.toUpperCase() !== "N/A" ? v : null;
+    })(),
   });
 
   const coverage = await getPackageCoverage(projectId, run?.id ?? null);
