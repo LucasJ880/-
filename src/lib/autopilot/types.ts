@@ -170,9 +170,30 @@ export type AutopilotLlmJudgeRuleId =
   | "LLM_JUDGE_PARSE_FAILED"
   | "LLM_JUDGE_REJECTED_INELIGIBLE"
   | "LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY"
+  | "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE"
+  | "LLM_JUDGE_REJECTED_RECOVERED_OR_INSUFFICIENT_EVIDENCE"
   | "LLM_JUDGE_REJECTED_SEMANTIC_FAILURE"
   | "LLM_JUDGE_REJECTED_UNGROUNDED"
   | "LLM_JUDGE_UNAVAILABLE";
+
+/**
+ * A2-P1 Production activation is NOT authorized by this surface.
+ * Global AUTOPILOT_LLM_JUDGE_ENABLED is insufficient for Production.
+ */
+export const AUTOPILOT_A2_P1_ACTIVATION_BLOCKERS = [
+  {
+    id: "A2_P1_PRODUCTION_ORG_SCOPE",
+    status: "REQUIRED_BEFORE_ACTIVATION",
+    reason:
+      "Judge enablement is a global boolean. Production needs an explicit org allowlist before any live call.",
+  },
+  {
+    id: "A2_P1_CALL_BUDGET_OR_RATE_GUARD",
+    status: "REQUIRED_BEFORE_ACTIVATION",
+    reason:
+      "A2-P1 has no call budget or rate guard. Enabling the flag on Production would invoke the model on every allowed trigger.",
+  },
+] as const;
 
 export type AutopilotTraceEventType =
   | "USER_INPUT"

@@ -541,6 +541,17 @@ async function main() {
     });
   }
 
+  async function p0Eval(agentRunId: string) {
+    return db.autopilotEvaluation.findUnique({
+      where: {
+        agentRunId_evaluatorVersion: {
+          agentRunId,
+          evaluatorVersion: AUTOPILOT_EVALUATOR_VERSION,
+        },
+      },
+    });
+  }
+
   let flagOffCalls = 0;
   await persistLlmJudgeEvaluation({
     orgId,
@@ -577,8 +588,12 @@ async function main() {
   });
 
   const llmRow = await llmEval(completed.id);
-  ok(llmRow?.outcome === "TASK_SUCCESS", "mock LLM Judge can assign TASK_SUCCESS");
-  ok(llmRow?.judged === true, "accepted LLM Judge is judged");
+  ok(llmRow?.outcome === "UNKNOWN", "A: clean completed TASK_SUCCESS → UNKNOWN");
+  ok(
+    llmRow?.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE",
+    "A: STRUCTURAL_CLEAN_COMPLETED_NOT_SUCCESS",
+  );
+  ok(llmRow?.judged === false, "A: insufficient evidence is not judged");
   ok(
     !JSON.stringify(llmRow?.evidence ?? {}).includes("Bearer secret-token-value"),
     "LLM evidence has no Authorization",
@@ -599,10 +614,10 @@ async function main() {
     },
   });
   const llmRowAfterReuse = await llmEval(completed.id);
-  ok(reuseCalls === 0, "SAME_PACKET_NO_SECOND_LLM_CALL");
+  ok(reuseCalls === 0, "E: SAME_PACKET_NO_SECOND_LLM_CALL");
   ok(
-    llmRowAfterReuse?.outcome === "TASK_SUCCESS",
-    "skipped reuse keeps accepted TASK_SUCCESS",
+    llmRowAfterReuse?.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE",
+    "E: skipped reuse keeps insufficient-evidence UNKNOWN",
   );
 
   const unavailableRun = await seedRun({ status: "completed" });
@@ -625,7 +640,12 @@ async function main() {
   });
   ok(
     (await llmEval(unavailableRun.id))?.ruleId === "LLM_JUDGE_UNAVAILABLE",
-    "UNAVAILABLE is persisted",
+    "F: UNAVAILABLE is persisted",
+  );
+  ok(!!(await p0Eval(unavailableRun.id)), "H: A2_P0_EVALUATION_PRESENT after Judge UNAVAILABLE");
+  ok(
+    !!(await db.autopilotRun.findUnique({ where: { agentRunId: unavailableRun.id } })),
+    "H: A1_PROJECTION_GAP = 0 after Judge UNAVAILABLE",
   );
   let unavailableRetryCalls = 0;
   await persistLlmJudgeEvaluation({
@@ -638,19 +658,19 @@ async function main() {
       complete: async () => {
         unavailableRetryCalls += 1;
         return JSON.stringify({
-          outcome: "TASK_SUCCESS",
+          outcome: "UNKNOWN",
           failureType: null,
-          confidence: "high",
-          evidenceCode: "clean_completed_run",
-          rationale: "recovered",
+          confidence: "low",
+          evidenceCode: "insufficient_evidence",
+          rationale: "abstain after retry",
         });
       },
     },
   });
-  ok(unavailableRetryCalls === 1, "UNAVAILABLE_RETRY = PASS");
+  ok(unavailableRetryCalls === 1, "F: UNAVAILABLE_RETRY = PASS");
   ok(
-    (await llmEval(unavailableRun.id))?.outcome === "TASK_SUCCESS",
-    "UNAVAILABLE retry can accept TASK_SUCCESS",
+    (await llmEval(unavailableRun.id))?.ruleId === "LLM_JUDGE_ABSTAINED",
+    "F: UNAVAILABLE retry can persist valid abstention",
   );
 
   const parseRun = await seedRun({ status: "completed" });
@@ -691,7 +711,11 @@ async function main() {
       },
     },
   });
-  ok(parseRetryCalls === 1, "PARSE_FAILED_RETRY = PASS");
+  ok(parseRetryCalls === 1, "G: PARSE_FAILED_RETRY = PASS");
+  ok(
+    (await llmEval(parseRun.id))?.ruleId === "LLM_JUDGE_ABSTAINED",
+    "D: explicit abstention after PARSE_FAILED retry",
+  );
 
   await persistLlmJudgeEvaluation({
     orgId,
@@ -703,20 +727,60 @@ async function main() {
     judge: {
       complete: async () =>
         JSON.stringify({
-          outcome: "FAILURE",
-          failureType: "HALLUCINATION",
+          outcome: "PARTIAL_SUCCESS",
+          failureType: null,
           confidence: "high",
           evidenceCode: "human_edit_after_output",
-          rationale: "should not count",
+          rationale: "should not count as quality",
         }),
     },
   });
   const llmEdit = await llmEval(edited.id);
   ok(
     llmEdit?.outcome === "UNKNOWN" &&
-      llmEdit.ruleId === "LLM_JUDGE_REJECTED_SEMANTIC_FAILURE",
-    "E2E rejects HALLUCINATION from human edit",
+      llmEdit.ruleId === "LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY",
+    "B: HUMAN_EDIT_NOT_PARTIAL_SUCCESS",
   );
+
+  const recoveredToolRun = await seedRun({ status: "completed" });
+  await projectAutopilotNotice({
+    type: "run_terminal",
+    orgId,
+    runId: recoveredToolRun.id,
+  });
+  await projectAutopilotNotice({
+    type: "event",
+    orgId,
+    runId: recoveredToolRun.id,
+    eventType: "tool.failed",
+    sequence: 1,
+    payload: { name: "gmail.send" },
+  });
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: recoveredToolRun.id,
+    autopilotRunId: await overlayId(recoveredToolRun.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () =>
+        JSON.stringify({
+          outcome: "FAILURE",
+          failureType: "TOOL_FAILURE",
+          confidence: "high",
+          evidenceCode: "has_tool_failure_event",
+          rationale: "intermediate tool fail",
+        }),
+    },
+  });
+  const llmRecovered = await llmEval(recoveredToolRun.id);
+  ok(
+    llmRecovered?.outcome === "UNKNOWN" &&
+      llmRecovered.ruleId ===
+        "LLM_JUDGE_REJECTED_RECOVERED_OR_INSUFFICIENT_EVIDENCE",
+    "C: RECOVERED_TOOL_FAILURE_NOT_FINAL_FAILURE",
+  );
+  ok(!!(await p0Eval(recoveredToolRun.id)), "C: A2-P0 row remains after recovered-failure reject");
 
   const listedWithLlm = await getAutopilotEvaluations(owner, orgId, {
     env: envOn,
@@ -724,10 +788,16 @@ async function main() {
     limit: 50,
   });
   const completedItem = listedWithLlm.items.find((item) => item.runId === completed.id);
-  ok(completedItem?.llmOutcome === "TASK_SUCCESS", "list overlays LLM outcome");
+  ok(completedItem?.llmOutcome === "UNKNOWN", "list overlays LLM UNKNOWN");
   ok(
-    (listedWithLlm.llmTaskSuccessCount ?? 0) >= 1,
-    "LLM TASK_SUCCESS count is separate from deterministic success",
+    (listedWithLlm.llmTaskSuccessCount ?? 0) === 0 &&
+      (listedWithLlm.llmPartialSuccessCount ?? 0) === 0 &&
+      (listedWithLlm.llmFailureCount ?? 0) === 0,
+    "A2-P1 structural Judge produces no quality outcome counts",
+  );
+  ok(
+    (listedWithLlm.llmRejectedInsufficientCount ?? 0) >= 1,
+    "list counts Rejected: Insufficient Evidence",
   );
   ok(listedWithLlm.llmJudge === "OFF", "list env without judge flag reports OFF");
   ok(scanObserveResponse(listedWithLlm).ok, "LLM overlay payload still privacy-clean");

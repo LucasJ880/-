@@ -71,6 +71,11 @@ export type EvaluateCounts = {
   llmTaskSuccessCount: number;
   llmPartialSuccessCount: number;
   llmFailureCount: number;
+  llmAttemptedCount: number;
+  llmAbstainedCount: number;
+  llmRejectedInsufficientCount: number;
+  llmUnavailableCount: number;
+  llmParseFailedCount: number;
 };
 
 const EMPTY_COUNTS: EvaluateCounts = {
@@ -86,6 +91,11 @@ const EMPTY_COUNTS: EvaluateCounts = {
   llmTaskSuccessCount: 0,
   llmPartialSuccessCount: 0,
   llmFailureCount: 0,
+  llmAttemptedCount: 0,
+  llmAbstainedCount: 0,
+  llmRejectedInsufficientCount: 0,
+  llmUnavailableCount: 0,
+  llmParseFailedCount: 0,
 };
 
 export function parseEvaluateOutcome(
@@ -174,6 +184,35 @@ export async function loadEvaluateOverview(input: {
     _count: { _all: true },
   });
   const llmCounts = countsFromGroups(llmGroups);
+  noteAutopilotTableQuery();
+  const llmRuleGroups = await db.autopilotEvaluation.groupBy({
+    by: ["ruleId"],
+    where: {
+      orgId: input.orgId,
+      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      updatedAt: { gte: since, lte: until },
+    },
+    _count: { _all: true },
+  });
+  const llmRuleCounts = {
+    llmAttemptedCount: 0,
+    llmAbstainedCount: 0,
+    llmRejectedInsufficientCount: 0,
+    llmUnavailableCount: 0,
+    llmParseFailedCount: 0,
+  };
+  for (const row of llmRuleGroups) {
+    const n = row._count._all;
+    llmRuleCounts.llmAttemptedCount += n;
+    if (row.ruleId === "LLM_JUDGE_ABSTAINED") llmRuleCounts.llmAbstainedCount += n;
+    else if (row.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE") {
+      llmRuleCounts.llmRejectedInsufficientCount += n;
+    } else if (row.ruleId === "LLM_JUDGE_UNAVAILABLE") {
+      llmRuleCounts.llmUnavailableCount += n;
+    } else if (row.ruleId === "LLM_JUDGE_PARSE_FAILED") {
+      llmRuleCounts.llmParseFailedCount += n;
+    }
+  }
 
   return {
     surface: AUTOPILOT_EVALUATE_SURFACE,
@@ -189,8 +228,9 @@ export async function loadEvaluateOverview(input: {
     llmTaskSuccessCount: llmCounts.taskSuccessCount,
     llmPartialSuccessCount: llmCounts.partialSuccessCount,
     llmFailureCount: llmCounts.failureCount,
+    ...llmRuleCounts,
     message:
-      "Deterministic outcomes first. LLM Judge is optional, structural-only, and off by default. Human override is not AI_WRONG.",
+      "Deterministic outcomes first. A2-P1 LLM Judge is structural-only and cannot assign TASK_SUCCESS, PARTIAL_SUCCESS, or final FAILURE. Human override is not AI_WRONG.",
   };
 }
 

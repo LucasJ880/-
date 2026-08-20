@@ -90,6 +90,13 @@ async function main() {
     "Evaluations still shows AI Evaluator DISABLED",
   );
   ok(/LLM Judge/.test(ui), "Evaluations shows LLM Judge status");
+  ok(/structural-only/.test(ui), "Evaluations says LLM Judge is structural-only");
+  ok(/LLM Judge Abstained/.test(ui), "Evaluations shows abstention count");
+  ok(
+    /Rejected: Insufficient Evidence/.test(ui),
+    "Evaluations shows insufficient-evidence count",
+  );
+  ok(!/LLM judged/.test(ui), "Evaluations does not present LLM judged as a quality score");
   ok(
     /not AI_WRONG/.test(ui) || /Not AI_WRONG/.test(ui),
     "Evaluations copy says override is not AI_WRONG",

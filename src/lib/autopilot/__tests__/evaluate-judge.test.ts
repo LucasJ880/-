@@ -14,6 +14,7 @@ import {
 } from "../evaluate-judge";
 import { isAutopilotLlmJudgeEnabled } from "../flags";
 import {
+  AUTOPILOT_A2_P1_ACTIVATION_BLOCKERS,
   AUTOPILOT_DISABLED_CAPABILITIES,
   AUTOPILOT_LLM_EVALUATOR_KIND,
   AUTOPILOT_LLM_JUDGE_SURFACE,
@@ -54,9 +55,13 @@ ok(
 ok(!isAutopilotLlmJudgeEnabled({}), "LLM Judge flag default OFF");
 ok(
   LLM_JUDGE_SYSTEM_PROMPT.includes("HUMAN_EDIT") &&
-    LLM_JUDGE_SYSTEM_PROMPT.includes("not AI_WRONG") &&
+    LLM_JUDGE_SYSTEM_PROMPT.includes("MUST NOT output TASK_SUCCESS") &&
     LLM_JUDGE_SYSTEM_PROMPT.includes("Completed is not automatically TASK_SUCCESS"),
   "system prompt locks human-signal and completed rules",
+);
+ok(
+  /Absence of observed failure is NOT proof of success/.test(LLM_JUDGE_SYSTEM_PROMPT),
+  "system prompt forbids inferring success from missing failure",
 );
 ok(
   /Never output HALLUCINATION/.test(LLM_JUDGE_SYSTEM_PROMPT),
@@ -130,14 +135,27 @@ ok(
   "packet keys are structural telemetry only",
 );
 
+ok(
+  AUTOPILOT_A2_P1_ACTIVATION_BLOCKERS.some(
+    (item) => item.id === "A2_P1_PRODUCTION_ORG_SCOPE",
+  ) &&
+    AUTOPILOT_A2_P1_ACTIVATION_BLOCKERS.some(
+      (item) => item.id === "A2_P1_CALL_BUDGET_OR_RATE_GUARD",
+    ),
+  "A2-P1 production org scope and call budget remain activation blockers",
+);
+
 const accepted = acceptLlmJudgeVerdict(
   clean,
   verdictJson({ outcome: "TASK_SUCCESS", evidenceCode: "clean_completed_run" }),
 );
-ok(accepted.outcome === "TASK_SUCCESS", "clean completed can be TASK_SUCCESS");
-ok(accepted.judged === true, "accepted verdict is judged");
+ok(accepted.outcome === "UNKNOWN", "STRUCTURAL_CLEAN_COMPLETED_NOT_SUCCESS");
+ok(accepted.judged === false, "insufficient-evidence TASK_SUCCESS is not judged");
 ok(accepted.evaluatorKind === AUTOPILOT_LLM_EVALUATOR_KIND, "kind=llm");
-ok(accepted.ruleId === "LLM_JUDGE_ACCEPTED", "accepted rule");
+ok(
+  accepted.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE",
+  "clean completed TASK_SUCCESS → REJECTED_INSUFFICIENT_EVIDENCE",
+);
 
 const edited = buildLlmJudgePacket({ status: "completed", humanEdit: true });
 const editAsSuccess = acceptLlmJudgeVerdict(
@@ -159,7 +177,11 @@ const editPartial = acceptLlmJudgeVerdict(
     evidenceCode: "human_edit_after_output",
   }),
 );
-ok(editPartial.outcome === "PARTIAL_SUCCESS", "human edit can be PARTIAL_SUCCESS");
+ok(
+  editPartial.outcome === "UNKNOWN" &&
+    editPartial.ruleId === "LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY",
+  "HUMAN_EDIT_NOT_PARTIAL_SUCCESS",
+);
 
 const hallucinated = acceptLlmJudgeVerdict(
   edited,
@@ -186,8 +208,42 @@ const toolFailure = acceptLlmJudgeVerdict(
     evidenceCode: "has_tool_failure_event",
   }),
 );
-ok(toolFailure.outcome === "FAILURE", "tool failure event can be FAILURE");
-ok(toolFailure.failureType === "TOOL_FAILURE", "grounded TOOL_FAILURE");
+ok(
+  toolFailure.outcome === "UNKNOWN" &&
+    toolFailure.ruleId === "LLM_JUDGE_REJECTED_RECOVERED_OR_INSUFFICIENT_EVIDENCE",
+  "RECOVERED_TOOL_FAILURE_NOT_FINAL_FAILURE",
+);
+
+const modelMismatch = acceptLlmJudgeVerdict(
+  buildLlmJudgePacket({
+    status: "completed",
+    eventCounts: { MODEL_FAILED: 1 },
+  }),
+  verdictJson({
+    outcome: "FAILURE",
+    failureType: "TOOL_FAILURE",
+    evidenceCode: "has_model_failure_event",
+  }),
+);
+ok(
+  modelMismatch.ruleId === "LLM_JUDGE_REJECTED_UNGROUNDED",
+  "FAILURE_TYPE_EVENT_MISMATCH",
+);
+
+const abstained = acceptLlmJudgeVerdict(
+  clean,
+  verdictJson({
+    outcome: "UNKNOWN",
+    confidence: "low",
+    evidenceCode: "insufficient_evidence",
+  }),
+);
+ok(
+  abstained.outcome === "UNKNOWN" &&
+    abstained.judged === true &&
+    abstained.ruleId === "LLM_JUDGE_ABSTAINED",
+  "VALID_ABSTENTION",
+);
 
 const ungroundedFailure = acceptLlmJudgeVerdict(
   clean,
@@ -304,13 +360,13 @@ ok(
   "CONTEXT_LOAD_FAILED may re-invoke LLM Judge",
 );
 
-const acceptedEvidence = {
-  ruleId: "LLM_JUDGE_ACCEPTED",
+const abstainedEvidence = {
+  ruleId: "LLM_JUDGE_ABSTAINED",
   evidence: { packet: clean },
 };
 ok(
-  shouldReuseExistingLlmJudge(acceptedEvidence, clean),
-  "same packet after accepted verdict skips a second model call",
+  shouldReuseExistingLlmJudge(abstainedEvidence, clean),
+  "same packet after abstention skips a second model call",
 );
 ok(
   !shouldReuseExistingLlmJudge(
@@ -328,7 +384,7 @@ ok(
 );
 ok(
   !shouldReuseExistingLlmJudge(
-    acceptedEvidence,
+    abstainedEvidence,
     buildLlmJudgePacket({ status: "completed", humanEdit: true }),
   ),
   "human-edit packet change does not skip",

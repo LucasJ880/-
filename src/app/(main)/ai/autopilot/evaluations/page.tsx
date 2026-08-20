@@ -50,6 +50,11 @@ type EvaluationsResponse = {
   llmTaskSuccessCount?: number;
   llmPartialSuccessCount?: number;
   llmFailureCount?: number;
+  llmAttemptedCount?: number;
+  llmAbstainedCount?: number;
+  llmRejectedInsufficientCount?: number;
+  llmUnavailableCount?: number;
+  llmParseFailedCount?: number;
   aiEvaluator?: string;
   items?: EvaluateItem[];
   nextCursor?: string | null;
@@ -186,9 +191,9 @@ export default function AutopilotEvaluationsPage() {
           <p className="text-[11px] text-muted">
             Deterministic evaluator first. AI Evaluator{" "}
             {summary?.aiEvaluator ?? "DISABLED"}. LLM Judge{" "}
-            {summary?.llmJudge ?? "OFF"}. Human override is not AI_WRONG. Completed
-            is not automatically TASK_SUCCESS. Semantic failures like HALLUCINATION
-            are not assigned without source text.
+            {summary?.llmJudge ?? "OFF"} is structural-only, not a semantic-quality
+            Judge. Human override is not AI_WRONG. Completed is not automatically
+            TASK_SUCCESS. Absence of observed failure is not proof of success.
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
@@ -228,10 +233,32 @@ export default function AutopilotEvaluationsPage() {
               value={summary?.partialSuccessCount ?? 0}
               hint="Deterministic never assigns this"
             />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <MetricCard
-              label="LLM judged"
-              value={summary?.llmJudgedCount ?? 0}
-              hint="Optional structural judge, not a score"
+              label="LLM Judge Attempted"
+              value={summary?.llmAttemptedCount ?? 0}
+              hint="Structural telemetry only"
+            />
+            <MetricCard
+              label="LLM Judge Abstained"
+              value={summary?.llmAbstainedCount ?? 0}
+              hint="Valid UNKNOWN result"
+            />
+            <MetricCard
+              label="Rejected: Insufficient Evidence"
+              value={summary?.llmRejectedInsufficientCount ?? 0}
+              hint="Not a quality score"
+            />
+            <MetricCard
+              label="Unavailable"
+              value={summary?.llmUnavailableCount ?? 0}
+              hint="Retryable"
+            />
+            <MetricCard
+              label="Parse Failed"
+              value={summary?.llmParseFailedCount ?? 0}
+              hint="Retryable"
             />
           </div>
 

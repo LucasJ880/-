@@ -24,12 +24,16 @@ You only see structural run telemetry. You do not see user prompts, emails, quot
 
 Rules:
 - Completed is not automatically TASK_SUCCESS.
+- A2-P1 MUST NOT output TASK_SUCCESS from structural telemetry alone.
+- Absence of observed failure is NOT proof of success.
 - HUMAN_EDIT / HUMAN_OVERRIDE / RE_ASK are not AI_WRONG and not HALLUCINATION.
-- Prefer UNKNOWN when evidence is insufficient.
-- Allowed outcomes: TASK_SUCCESS, PARTIAL_SUCCESS, FAILURE, UNKNOWN.
+- Human edit is NOT proof of partial success.
+- Intermediate TOOL_CALL_FAILED / MODEL_FAILED / RETRIEVAL_FAILED / CONTEXT_LOAD_FAILED on a completed run is NOT proof of final task FAILURE.
+- "clean_completed_run" means only: no structural failure observed. It does not mean TASK_SUCCESS.
+- Prefer UNKNOWN / insufficient_evidence.
+- Allowed persisted quality outcome for A2-P1 is UNKNOWN.
 - Never output HUMAN_OVERRIDE or ABANDONED (those are deterministic).
 - Never output HALLUCINATION, INTENT_ERROR, WRONG_TOOL, REASONING_ERROR, USER_INPUT_AMBIGUOUS, or CONTEXT_MISSING.
-- FAILURE is only valid with a system-grounded failureType that matches failure events.
 
 Reply with JSON only:
 {"outcome":"...","failureType":null,"confidence":"low|medium|high","evidenceCode":"...","rationale":"<=160 chars"}`;
@@ -58,12 +62,15 @@ export const LLM_JUDGE_SEMANTIC_FAILURES: readonly AutopilotFailureType[] = [
 export const LLM_JUDGE_GROUNDED_FAILURES: readonly AutopilotFailureType[] = [
   "TOOL_FAILURE",
   "RETRIEVAL_FAILURE",
-  "EXTERNAL_SERVICE_FAILURE",
-  "WORKFLOW_ERROR",
-  "LATENCY_ERROR",
-  "PERMISSION_ERROR",
-  "UNKNOWN",
 ];
+
+/** Deterministic event → failureType compatibility for A2-P2 inheritance. */
+export const LLM_JUDGE_FAILURE_TYPE_EVENTS: Partial<
+  Record<AutopilotFailureType, AutopilotTraceEventType>
+> = {
+  TOOL_FAILURE: "TOOL_CALL_FAILED",
+  RETRIEVAL_FAILURE: "RETRIEVAL_FAILED",
+};
 
 export type LlmJudgeEventCounts = Partial<Record<AutopilotTraceEventType, number>>;
 
@@ -145,6 +152,33 @@ export function packetHasSystemFailureEvent(packet: LlmJudgePacket): boolean {
     eventCount(packet, "RETRIEVAL_FAILED") > 0 ||
     eventCount(packet, "CONTEXT_LOAD_FAILED") > 0
   );
+}
+
+export function isFailureTypeGroundedInPacket(
+  packet: LlmJudgePacket,
+  failureType: AutopilotFailureType,
+): boolean {
+  if (!(LLM_JUDGE_GROUNDED_FAILURES as readonly string[]).includes(failureType)) {
+    return false;
+  }
+  const eventType = LLM_JUDGE_FAILURE_TYPE_EVENTS[failureType];
+  if (!eventType) return false;
+  return eventCount(packet, eventType) > 0;
+}
+
+function evidenceCodeSupportsFailureType(
+  code: LlmJudgeEvidenceCode,
+  failureType: AutopilotFailureType,
+): boolean {
+  if (code === "has_tool_failure_event") return failureType === "TOOL_FAILURE";
+  if (code === "has_retrieval_failure_event") {
+    return failureType === "RETRIEVAL_FAILURE";
+  }
+  return false;
+}
+
+function hasHumanQualitySignal(packet: LlmJudgePacket): boolean {
+  return packet.humanEdit || packet.reAsk || packet.humanOverride;
 }
 
 function isEvidenceCode(value: string): value is LlmJudgeEvidenceCode {
@@ -262,65 +296,46 @@ export function acceptLlmJudgeVerdict(
   }
 
   if (outcomeRaw === "TASK_SUCCESS") {
-    if (packet.humanEdit || packet.reAsk || packetHasSystemFailureEvent(packet)) {
+    if (hasHumanQualitySignal(packet)) {
       return rejected("LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY", packet, {
         parsed,
       });
     }
-    if (evidenceCodeRaw !== "clean_completed_run" || confidence !== "high") {
-      return rejected("LLM_JUDGE_REJECTED_UNGROUNDED", packet, { parsed });
-    }
-    return {
-      evaluatorKind: AUTOPILOT_LLM_EVALUATOR_KIND,
-      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
-      outcome: "TASK_SUCCESS",
-      failureType: null,
-      failureSource: "llm",
-      judged: true,
-      ruleId: "LLM_JUDGE_ACCEPTED",
-      evidence: { packet, evidenceCode: evidenceCodeRaw, confidence, rationale },
-    };
+    return rejected("LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE", packet, {
+      parsed,
+      evidenceCode: evidenceCodeRaw,
+      confidence,
+      rationale,
+    });
   }
 
   if (outcomeRaw === "PARTIAL_SUCCESS") {
-    if (!packet.humanEdit || packet.humanOverride) {
-      return rejected("LLM_JUDGE_REJECTED_UNGROUNDED", packet, { parsed });
+    if (hasHumanQualitySignal(packet)) {
+      return rejected("LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY", packet, {
+        parsed,
+      });
     }
-    if (evidenceCodeRaw !== "human_edit_after_output") {
-      return rejected("LLM_JUDGE_REJECTED_UNGROUNDED", packet, { parsed });
-    }
-    return {
-      evaluatorKind: AUTOPILOT_LLM_EVALUATOR_KIND,
-      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
-      outcome: "PARTIAL_SUCCESS",
-      failureType: null,
-      failureSource: "llm",
-      judged: true,
-      ruleId: "LLM_JUDGE_ACCEPTED",
-      evidence: { packet, evidenceCode: evidenceCodeRaw, confidence, rationale },
-    };
+    return rejected("LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE", packet, {
+      parsed,
+      evidenceCode: evidenceCodeRaw,
+      confidence,
+      rationale,
+    });
   }
 
   if (outcomeRaw === "FAILURE") {
-    if (!packetHasSystemFailureEvent(packet)) {
-      return rejected("LLM_JUDGE_REJECTED_UNGROUNDED", packet, { parsed });
-    }
     if (
       !failureType ||
-      !(LLM_JUDGE_GROUNDED_FAILURES as readonly string[]).includes(failureType)
+      !isFailureTypeGroundedInPacket(packet, failureType) ||
+      !evidenceCodeSupportsFailureType(evidenceCodeRaw, failureType)
     ) {
       return rejected("LLM_JUDGE_REJECTED_UNGROUNDED", packet, { parsed });
     }
-    return {
-      evaluatorKind: AUTOPILOT_LLM_EVALUATOR_KIND,
-      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
-      outcome: "FAILURE",
-      failureType,
-      failureSource: "llm",
-      judged: true,
-      ruleId: "LLM_JUDGE_ACCEPTED",
-      evidence: { packet, evidenceCode: evidenceCodeRaw, confidence, rationale },
-    };
+    return rejected(
+      "LLM_JUDGE_REJECTED_RECOVERED_OR_INSUFFICIENT_EVIDENCE",
+      packet,
+      { parsed, evidenceCode: evidenceCodeRaw, confidence, rationale },
+    );
   }
 
   return {
