@@ -71,6 +71,7 @@ export type EvaluateCounts = {
   llmTaskSuccessCount: number;
   llmPartialSuccessCount: number;
   llmFailureCount: number;
+  /** Current Judge rows, not historical LLM call count. */
   llmAttemptedCount: number;
   llmAbstainedCount: number;
   llmRejectedInsufficientCount: number;
@@ -195,6 +196,8 @@ export async function loadEvaluateOverview(input: {
     _count: { _all: true },
   });
   const llmRuleCounts = {
+    // Current AutopilotEvaluation rows for the LLM evaluatorVersion.
+    // One upserted row per run; retries overwrite. Not historical LLM call count.
     llmAttemptedCount: 0,
     llmAbstainedCount: 0,
     llmRejectedInsufficientCount: 0,

@@ -236,29 +236,29 @@ export default function AutopilotEvaluationsPage() {
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <MetricCard
-              label="LLM Judge Attempted"
+              label="Current Judge Records"
               value={summary?.llmAttemptedCount ?? 0}
-              hint="Structural telemetry only"
+              hint="Latest result per run; not LLM call count"
             />
             <MetricCard
               label="LLM Judge Abstained"
               value={summary?.llmAbstainedCount ?? 0}
-              hint="Valid UNKNOWN result"
+              hint="Latest row state; not historical totals"
             />
             <MetricCard
               label="Rejected: Insufficient Evidence"
               value={summary?.llmRejectedInsufficientCount ?? 0}
-              hint="Not a quality score"
+              hint="Latest row state; not a quality score"
             />
             <MetricCard
               label="Unavailable"
               value={summary?.llmUnavailableCount ?? 0}
-              hint="Retryable"
+              hint="Latest row state; not historical totals"
             />
             <MetricCard
               label="Parse Failed"
               value={summary?.llmParseFailedCount ?? 0}
-              hint="Retryable"
+              hint="Latest row state; not historical totals"
             />
           </div>
 

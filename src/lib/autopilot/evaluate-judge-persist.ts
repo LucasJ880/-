@@ -1,6 +1,8 @@
 /**
  * Persist A2-P1 LLM Judge after deterministic evaluation.
- * Never throws to Observe projection. Flag default OFF. No Evaluator Agent.
+ * Model/LLM transport failures become LLM_JUDGE_UNAVAILABLE and do not throw.
+ * DB/infrastructure failures propagate to the outbox processor.
+ * Flag default OFF. No Evaluator Agent.
  */
 
 import { db } from "@/lib/db";
