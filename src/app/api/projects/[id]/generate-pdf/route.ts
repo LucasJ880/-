@@ -12,6 +12,9 @@ import {
   PROJECT_PDF_DOC_TYPES,
 } from "@/lib/bid-workflow/pdf-doc-types";
 
+// CJK-PDF 包：Chromium 冷启动 + 渲染需要余量（生成文档为低频动作）
+export const maxDuration = 60;
+
 const ALLOWED: GenerateDocType[] = [...PROJECT_PDF_DOC_TYPES];
 
 function asBrowserUrl(url: string | null | undefined): string | null {

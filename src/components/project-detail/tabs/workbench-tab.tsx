@@ -15,13 +15,11 @@ import {
   Clock3,
   History,
   Loader2,
-  Radar,
   Settings,
   Sparkles,
   Trash2,
   Users,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { ActivityTimeline } from "@/components/activity/activity-timeline";
 import { FinancialControlCard } from "@/components/project-detail/financial-control-card";
@@ -36,6 +34,7 @@ import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-
 import { TenderBenchmarkCard } from "@/components/project-detail/tender-benchmark-card";
 import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
 import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
+import { WorkbenchCommandDeck } from "@/components/tender/workbench-command-deck";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
 import {
   ProjectCommandOverview,
@@ -57,12 +56,6 @@ import type { TenderWorkbenchState } from "@/lib/tender/workbench-state";
 
 const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
-const RECOMMENDATION_LABELS: Record<string, string> = {
-  pursue: "建议跟进",
-  review_carefully: "需仔细评估",
-  low_probability: "低概率",
-  skip: "建议跳过",
-};
 
 interface WorkbenchTabProps {
   projectId: string;
@@ -123,6 +116,16 @@ export function WorkbenchTab({
         onNavigate={onNavigate}
       />
 
+      {/* 工作台指挥台（关键信息条 / 项目摘要内联 / 情报摘要真数据）——零跳转 */}
+      {tenderish ? (
+        <WorkbenchCommandDeck
+          projectId={projectId}
+          onOpenIntel={() => onNavigate("intel")}
+        />
+      ) : null}
+
+      <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
+
       {/* Tender 工作流 Quick Start：仅招投标项目展示（canonical workDomain 判定） */}
       {tenderish ? (
         <ProjectOnboardingGuide
@@ -133,8 +136,6 @@ export function WorkbenchTab({
 
       {/* FB-13：历史项目对标（团队成员进工作台即见结论；无候选/未启用时自渲染 null） */}
       {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
-
-      <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
 
       {/* T2-P1.5 财务控制卡（feature dark 时自渲染为空） */}
       <FinancialControlCard projectId={projectId} currentUserId={currentUserId ?? undefined} />
@@ -192,19 +193,22 @@ export function WorkbenchTab({
         )
       )}
 
-      {/* AI 简报（原 4 个摘要面收敛后的工作台入口） */}
-      <section className="space-y-3" data-testid="workbench-ai-brief">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      {/* AI 简报：泛文本摘要默认折叠（关键信息已由顶部指挥台承担，屏幕还给硬字段） */}
+      <details className="group rounded-xl border border-border bg-card-bg" data-testid="workbench-ai-brief">
+        <summary className="flex cursor-pointer items-center gap-2 p-4 text-sm font-semibold text-foreground sm:p-5">
           <Sparkles size={16} className="text-accent/60" />
-          AI 简报
-        </h3>
-        <ProjectAiSummaryCard projectId={projectId} />
-        <ProjectProgressSummary projectId={projectId} />
-      </section>
+          AI 简报（详细文字版）
+          <span className="ml-auto text-[10px] font-normal text-muted group-open:hidden">
+            展开
+          </span>
+        </summary>
+        <div className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
+          <ProjectAiSummaryCard projectId={projectId} />
+          <ProjectProgressSummary projectId={projectId} />
+        </div>
+      </details>
 
       <ProjectInsightsPanel projectId={projectId} canManage={canManage} />
-
-      <IntelSummaryCard project={project} onOpenIntel={() => onNavigate("intel")} />
 
       {/* 团队 */}
       <TeamCard
@@ -328,62 +332,6 @@ function NeedsYouCard({
         <Sparkles size={12} />
         在对话中处理
       </button>
-    </section>
-  );
-}
-
-/** 情报摘要（工作台占位卡；详情在情报 tab。无数据显示诚实空态，禁止伪造数字） */
-function IntelSummaryCard({
-  project,
-  onOpenIntel,
-}: {
-  project: ProjectDetail;
-  onOpenIntel: () => void;
-}) {
-  const intel = project.intelligence ?? null;
-  const room = project.intelligenceRoom ?? null;
-  return (
-    <section className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="workbench-intel-summary">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Radar size={16} className="text-accent/60" />
-          情报摘要
-        </h3>
-        <button
-          type="button"
-          onClick={onOpenIntel}
-          className="text-xs text-accent underline hover:text-accent-hover"
-        >
-          打开情报
-        </button>
-      </div>
-      {intel ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium",
-              intel.recommendation === "pursue"
-                ? "bg-[rgba(46,122,86,0.1)] text-[#2e7a56]"
-                : intel.recommendation === "skip"
-                  ? "bg-danger-bg text-danger"
-                  : "bg-[rgba(154,106,47,0.1)] text-[#9a6a2f]",
-            )}
-          >
-            {RECOMMENDATION_LABELS[intel.recommendation] ?? intel.recommendation}
-          </span>
-          <span className="text-xs text-muted">匹配度 {intel.fitScore}%</span>
-          {intel.summary ? (
-            <p className="w-full text-xs leading-5 text-muted line-clamp-2">{intel.summary}</p>
-          ) : null}
-        </div>
-      ) : room?.summaryText ? (
-        <p className="mt-3 text-xs leading-5 text-muted line-clamp-2">{room.summaryText}</p>
-      ) : (
-        <p className="mt-3 text-xs text-muted">尚未生成项目情报分析。</p>
-      )}
-      <p className="mt-2 text-[11px] text-muted">
-        历史相似项目与企业历史数据见情报页；企业历史情报尚在建设中。
-      </p>
     </section>
   );
 }

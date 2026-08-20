@@ -637,98 +637,18 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
     })
     .catch(() => undefined);
 
-  // M1.1：立项自动外部检索（分析一完成即多线检索历史授标并交叉验证；
-  // 结果仅作候选存入调查室，人工确认门不变；flag OFF 时零出站）
+  // M1/M2/M2.5 外部情报：统一编排服务（观察期包5，从本处内联块抽出）。
+  // 房间不存在会自动创建；显式状态落 room.summaryJson.externalIntelStatus；
+  // 结果仅作候选存入调查室，人工确认门不变；flag OFF 时零出站。
   try {
-    const { isExternalIntelEnabled, deriveAwardQueries, autoSearchAwardHistory } =
-      await import("@/lib/tender-intel/canadabuys");
-    if (isExternalIntelEnabled()) {
-      const cur = await db.tenderAnalysisRun.findUnique({
-        where: { id: run.id },
-        select: { summaryJson: true },
-      });
-      const sj = (cur?.summaryJson as Record<string, unknown>) ?? {};
-      const syn = sj.analystSynthesis as
-        | { executiveBrief?: { whatIsBeingBoughtZh?: string }; scope?: { deliverables?: string[] } }
-        | undefined;
-      const brief = sj.brief as { buyer?: string | null } | undefined;
-      const proj = await db.project.findUnique({
-        where: { id: run.projectId },
-        select: { name: true },
-      });
-      const queries = deriveAwardQueries({
-        projectName: proj?.name ?? null,
-        buyerText: brief?.buyer ?? null,
-        productTexts: [
-          syn?.executiveBrief?.whatIsBeingBoughtZh ?? "",
-          ...(syn?.scope?.deliverables ?? []),
-        ],
-      });
-      const auto =
-        queries.length > 0 ? await autoSearchAwardHistory({ queries }) : null;
-
-      // M2：Web 多线检索（中标方线/产品+机构线/招标编号线）——同一契约
-      const { deriveWebQueries, autoWebIntel } = await import(
-        "@/lib/tender-intel/websearch"
-      );
-      const roomBefore = await db.bidIntelligenceRoom.findUnique({
-        where: { projectId: run.projectId },
-        select: { id: true, summaryJson: true },
-      });
-      const rsj0 = (roomBefore?.summaryJson as Record<string, unknown>) ?? {};
-      const confirmed = rsj0.externalConfirmed as
-        | { previousWinner?: string | null }
-        | undefined;
-      const solNum = await db.project.findUnique({
-        where: { id: run.projectId },
-        select: { solicitationNumber: true },
-      });
-      const webQueries = deriveWebQueries({
-        confirmedWinner: confirmed?.previousWinner ?? null,
-        productPhrase: queries[0] ?? null,
-        buyerPhrase: queries.find((q) => /general|ministry|department|city|university/i.test(q)) ?? null,
-        solicitationNumber: solNum?.solicitationNumber ?? null,
-      });
-      const web = webQueries.length > 0 ? await autoWebIntel({ queries: webQueries }) : null;
-
-      if ((auto?.ok || web?.ok) && roomBefore) {
-        // M2.5：AI 分析师读检索结果 → 中文结论（八模块直接可读；仍属 AI 初步调查）
-        let externalAnalysis: unknown = null;
-        try {
-          const { analyzeExternalIntel } = await import("@/lib/tender-intel/analyze");
-          const briefBlock = (
-            (await db.tenderAnalysisRun.findUnique({
-              where: { id: run.id },
-              select: { summaryJson: true },
-            }))?.summaryJson as Record<string, unknown>
-          )?.brief as { oneLiner?: string | null } | undefined;
-          const { analysis } = await analyzeExternalIntel({
-            projectOneLiner: briefBlock?.oneLiner ?? null,
-            awardCandidates: auto?.candidates ?? [],
-            webCandidates: web?.candidates ?? [],
-          });
-          externalAnalysis = analysis;
-        } catch {
-          externalAnalysis = null;
-        }
-        await db.bidIntelligenceRoom.update({
-          where: { id: roomBefore.id },
-          data: {
-            summaryJson: JSON.parse(
-              JSON.stringify({
-                ...rsj0,
-                ...(auto?.ok ? { externalCandidates: auto } : {}),
-                ...(web?.ok ? { webIntel: web } : {}),
-                ...(externalAnalysis ? { externalAnalysis } : {}),
-              }),
-            ),
-          },
-        });
-        console.log(
-          `[tender-external-intel] project=${run.projectId} award_candidates=${auto?.candidates.length ?? 0} web_domains=${web?.candidates.length ?? 0} analyzed=${externalAnalysis ? 1 : 0}`,
-        );
-      }
-    }
+    const { runExternalIntelForProject } = await import(
+      "@/lib/tender-intel/orchestrate"
+    );
+    await runExternalIntelForProject({
+      projectId: run.projectId,
+      runId: run.id,
+      trigger: "legacy_finalize",
+    });
   } catch {
     /* 外部检索失败不影响分析结果 */
   }

@@ -5,6 +5,7 @@
  * 2026-08-15 事故：run 13:18 就 FAILED，十小时无人知晓，靠用户主动问才发现。
  */
 
+import { readFileSync } from "node:fs";
 import {
   resolveFailureRecipients,
   tenderFailureSourceKey,
@@ -150,6 +151,33 @@ function ok(cond: boolean, name: string) {
   ok(
     tenderSuccessSourceKey("r1") === tenderSuccessSourceKey("r1"),
     "ALERT-12 成功通知幂等键稳定",
+  );
+}
+
+
+/* ---------------- 包2：workforce 域适配 ---------------- */
+{
+  // attemptCount=0（workforce 域 run：重试在 Job 层）→ 不显示误导性次数
+  const s0 = tenderFailureSummary({
+    projectName: "P",
+    errorCode: "worker_failed",
+    attemptCount: 0,
+  });
+  ok(!s0.includes("已尝试"), "ALERT-P2-01: attemptCount=0 不显示尝试次数");
+  ok(s0.includes("重新发起分析"), "ALERT-P2-02: 仍给明确下一步");
+  const s1 = tenderFailureSummary({
+    projectName: "P",
+    errorCode: "worker_failed",
+    attemptCount: 3,
+  });
+  ok(s1.includes("已尝试 3 次"), "ALERT-P2-03: attemptCount>0 照旧显示次数");
+}
+{
+  // 失败态门接受 AGENT_FAILED（workforce 刻意区别于 legacy FAILED）——源码探针
+  const src = readFileSync("src/lib/tender-auto-analysis/alerts.ts", "utf8");
+  ok(
+    src.includes('run.status !== "FAILED" && run.status !== "AGENT_FAILED"'),
+    "ALERT-P2-04: 失败通知门接受 FAILED 与 AGENT_FAILED 两种终态",
   );
 }
 

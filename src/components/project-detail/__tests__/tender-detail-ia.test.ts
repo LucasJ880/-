@@ -99,12 +99,18 @@ const intelCardCount = allTabs.filter((s) => s.includes("BidToGoIntelligenceCard
 ok("BidToGo 情报主卡只在情报 tab 一处渲染", intelCardCount === 1 && intel.includes("BidToGoIntelligenceCard"));
 ok("旧调查室客户端第二实例已随重构移除", !existsSync(join(ROOT, "src/components/bid-workflow/intelligence-room-client.tsx")));
 
-// ── A6 诚实空态 ──
+// ── A6 诚实空态（情报阶段1：槽位改挂 T4 投影组件，不变量=诚实空态不变） ──
+const intelSlots = read("src/components/tender-intel/org-award-intel-slots.tsx");
 ok(
-  "情报未来 Slot 使用「尚未建立」类空态文案",
-  intel.includes("企业历史数据尚未建立") && intel.includes("尚未分析"),
+  "情报槽位组件挂载且保留诚实空态（暂无数据 + 如何让它有）",
+  intel.includes("OrgAwardIntelSlots") &&
+    intelSlots.includes("暂无数据") &&
+    intelSlots.includes("样本不足时如实显示暂无"),
 );
-ok("情报未来 Slot 不含硬编码 0 数值", !/[">]0 个/.test(intel) && !/\$0/.test(intel));
+ok(
+  "情报槽位不含硬编码 0 数值",
+  !/[">]0 个/.test(intelSlots) && !/\$0/.test(intelSlots),
+);
 const banner = read("src/components/tender-analysis/analysis-progress-banner.tsx");
 ok("分析进度条不再向业务用户透出原始 errorMessage", !banner.includes("{run.errorMessage}"));
 ok("分析进度条链接指向招标要求 tab", banner.includes("?tab=requirements") && !banner.includes("intelligence-room"));

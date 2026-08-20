@@ -7,11 +7,13 @@
 import { assertAutopilotAccess } from "./access";
 import {
   AUTOPILOT_DISABLED_CAPABILITIES,
+  AUTOPILOT_EVALUATE_SURFACE,
   AUTOPILOT_MODE,
   AUTOPILOT_OBSERVE_SURFACE,
   AUTOPILOT_PHASE,
   type AutopilotAccessContext,
   type AutopilotCapability,
+  type AutopilotOutcome,
 } from "./types";
 import { loadAutopilotTelemetryHealth } from "./telemetry-health";
 import { loadAutopilotEventCoverage, OBSERVE_HEALTH_SCOPE } from "./coverage-health";
@@ -24,6 +26,7 @@ import {
   loadObserveOverview,
   loadObserveRunDetail,
 } from "./observe-query";
+import { listEvaluateRows, loadEvaluateOverview } from "./evaluate-query";
 import {
   parseObserveRange,
   type ObserveRange,
@@ -166,4 +169,57 @@ export async function getAutopilotEventCoverage(
 ) {
   requireAccess(actor, orgId, "autopilot.view");
   return loadAutopilotEventCoverage(orgId);
+}
+
+export async function getAutopilotEvaluations(
+  actor: AutopilotActor,
+  orgId: string,
+  query: {
+    range?: ObserveRange;
+    limit?: number;
+    cursor?: ObserveRunCursor | null;
+    outcome?: AutopilotOutcome;
+    env?: AutopilotFlagEnv;
+    now?: Date;
+  } = {},
+) {
+  requireAccess(actor, orgId, "autopilot.view");
+  const env = query.env ?? process.env;
+  const range = query.range ?? parseObserveRange("7d");
+
+  if (!isObserveTelemetryReadEnabled(env)) {
+    return {
+      phase: AUTOPILOT_PHASE,
+      surface: AUTOPILOT_EVALUATE_SURFACE,
+      infrastructureMode: AUTOPILOT_MODE,
+      ...AUTOPILOT_DISABLED_CAPABILITIES,
+      ...darkObserveState(env),
+      evaluateState: "NOT_ACTIVE" as const,
+      range,
+      items: [] as const,
+      nextCursor: null,
+    };
+  }
+
+  const [overview, list] = await Promise.all([
+    loadEvaluateOverview({ orgId, range, env, now: query.now }),
+    listEvaluateRows({
+      orgId,
+      range,
+      limit: query.limit ?? 25,
+      cursor: query.cursor,
+      outcome: query.outcome,
+      env,
+      now: query.now,
+    }),
+  ]);
+
+  return {
+    phase: AUTOPILOT_PHASE,
+    infrastructureMode: AUTOPILOT_MODE,
+    ...AUTOPILOT_DISABLED_CAPABILITIES,
+    ...overview,
+    items: list.items,
+    nextCursor: list.nextCursor,
+  };
 }

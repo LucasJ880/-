@@ -5,7 +5,11 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { sanitizeAutopilotPayload } from "./sanitize";
-import type { AutopilotTraceEventType } from "./types";
+import {
+  AUTOPILOT_EVALUATOR_KIND,
+  AUTOPILOT_EVALUATOR_VERSION,
+  type AutopilotTraceEventType,
+} from "./types";
 
 export type AutopilotListQuery = {
   page?: number;
@@ -263,4 +267,61 @@ function isProjectionUniqueViolation(error: unknown): boolean {
     error !== null &&
     (error as { code?: unknown }).code === "P2002"
   );
+}
+
+export async function upsertAutopilotEvaluation(input: {
+  orgId: string;
+  agentRunId: string;
+  autopilotRunId?: string | null;
+  evaluatorKind?: string;
+  evaluatorVersion?: string;
+  outcome: string;
+  failureType?: string | null;
+  failureSource?: string | null;
+  judged: boolean;
+  ruleId: string;
+  evidence?: Record<string, unknown> | null;
+}) {
+  if (input.orgId.trim() === "" || input.agentRunId.trim() === "") return null;
+  const run = await db.agentRun.findFirst({
+    where: { id: input.agentRunId },
+    select: { orgId: true },
+  });
+  if (!run || run.orgId !== input.orgId) return null;
+  const evaluatorKind = input.evaluatorKind ?? AUTOPILOT_EVALUATOR_KIND;
+  const evaluatorVersion = input.evaluatorVersion ?? AUTOPILOT_EVALUATOR_VERSION;
+  const evidence = sanitizeAutopilotPayload(input.evidence ?? null);
+
+  return db.autopilotEvaluation.upsert({
+    where: {
+      agentRunId_evaluatorVersion: {
+        agentRunId: input.agentRunId,
+        evaluatorVersion,
+      },
+    },
+    create: {
+      orgId: input.orgId,
+      agentRunId: input.agentRunId,
+      autopilotRunId: input.autopilotRunId ?? null,
+      evaluatorKind,
+      evaluatorVersion,
+      outcome: input.outcome,
+      failureType: input.failureType ?? null,
+      failureSource: input.failureSource ?? null,
+      judged: input.judged,
+      ruleId: input.ruleId,
+      evidence: jsonValue(evidence),
+    },
+    update: {
+      orgId: input.orgId,
+      autopilotRunId: input.autopilotRunId ?? undefined,
+      evaluatorKind,
+      outcome: input.outcome,
+      failureType: input.failureType ?? null,
+      failureSource: input.failureSource ?? null,
+      judged: input.judged,
+      ruleId: input.ruleId,
+      evidence: jsonValue(evidence),
+    },
+  });
 }
