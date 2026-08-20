@@ -64,6 +64,7 @@ npx tsx src/lib/tender-auto-analysis/__tests__/obs-p2p3-single-pipeline.test.ts
 npx tsx src/lib/tender-intel/__tests__/bid-strategy-memo.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts
 npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/obs-p4-page-limit.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p15-pure.test.ts

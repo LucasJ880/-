@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { shouldUseTenderAnalysisLlm } from "../extract/llm-enrich";
-import { MAX_PDF_PAGES } from "../page-parse";
+import { MAX_PDF_PAGES, PACKAGE_ANALYSIS_MAX_PDF_PAGES } from "../page-parse";
 import { mergeCommercialJudgmentProjection } from "../project-room";
 import {
   REANALYZE_RATE_MAX,
@@ -147,7 +147,11 @@ console.log("tender-auto-analysis ready-gate");
 }
 
 {
-  ok(MAX_PDF_PAGES === 80, "MAX_PDF_PAGES=80");
+  ok(MAX_PDF_PAGES === 400, "MAX_PDF_PAGES=400（观察期包4：解析层上限）");
+  ok(
+    PACKAGE_ANALYSIS_MAX_PDF_PAGES === 80,
+    "PACKAGE_ANALYSIS_MAX_PDF_PAGES=80（包分析/legacy 管线单文件上限不变）",
+  );
   const pageParse = read("src/lib/tender-auto-analysis/page-parse.ts");
   ok(pageParse.includes("页数超过上限"), "超页有明确错误文案");
 }

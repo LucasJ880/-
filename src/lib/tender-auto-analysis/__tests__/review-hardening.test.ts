@@ -4,7 +4,8 @@
  */
 
 import { shouldUseTenderAnalysisLlm } from "../extract/llm-enrich";
-import { MAX_PDF_PAGES } from "../page-parse";
+import { MAX_PDF_PAGES, PACKAGE_ANALYSIS_MAX_PDF_PAGES } from "../page-parse";
+import { MAX_TENDER_PACKAGE_PAGES } from "../package";
 import { mergeCommercialJudgmentProjection } from "../project-room";
 import {
   REANALYZE_RATE_MAX,
@@ -40,8 +41,11 @@ console.log("tender-auto-analysis review-hardening");
 }
 
 {
-  ok(MAX_PDF_PAGES >= 43, "页数上限覆盖 RCMP 43 页");
-  ok(MAX_PDF_PAGES <= 120, "页数上限不过大");
+  ok(MAX_PDF_PAGES >= 43, "解析页数上限覆盖 RCMP 43 页");
+  // 观察期包4：解析层放宽到 400（Workforce 页级窗口可续跑）；
+  // 「上限不过大」的成本关切由包分析（legacy 管线）单文件 80 页上限承接。
+  ok(MAX_PDF_PAGES <= MAX_TENDER_PACKAGE_PAGES, "解析上限不超过整包上限");
+  ok(PACKAGE_ANALYSIS_MAX_PDF_PAGES <= 120, "包分析单文件上限不过大（legacy 成本守卫）");
 }
 
 {

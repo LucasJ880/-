@@ -377,12 +377,29 @@ async function stepEnsurePages(
     }
   }
 
-  // Phase 1.1.1：整包页数上限（单文件上限仍由 MAX_PDF_PAGES 在 parse 内强制）
-  const { MAX_TENDER_PACKAGE_PAGES } = await import("./package");
+  // 观察期包4：解析层上限已放宽到 400 页，包分析（本管线）单文件仍守 80。
+  // 入队选择层（getTenderPackageDocuments）已跳过 pageCount 已知的超限文件；
+  // 这里兜住「入队时 pageCount 未知、本步解析后才知道超限」与手动 force 的情况
+  // ——显式失败（信息带页数与上限），绝不静默截断；重试的新 run 会在选择层排除。
+  const { MAX_TENDER_PACKAGE_PAGES, PACKAGE_ANALYSIS_MAX_PDF_PAGES } =
+    await import("./package");
   const pageAgg = await db.projectDocument.findMany({
     where: { id: { in: documentIds } },
-    select: { id: true, pageCount: true },
+    select: { id: true, title: true, pageCount: true },
   });
+  const overLimit = pageAgg.filter(
+    (d) =>
+      typeof d.pageCount === "number" &&
+      d.pageCount > PACKAGE_ANALYSIS_MAX_PDF_PAGES,
+  );
+  if (overLimit.length > 0) {
+    const detail = overLimit
+      .map((d) => `${d.title ?? d.id}（${d.pageCount} 页）`)
+      .join("、");
+    throw new Error(
+      `PAGE_LIMIT_EXCEEDED: ${detail} 超出包分析单文件 ${PACKAGE_ANALYSIS_MAX_PDF_PAGES} 页上限（大文件由 Workforce 分析纳入）`,
+    );
+  }
   const totalPages = pageAgg.reduce(
     (sum, d) => sum + (typeof d.pageCount === "number" ? d.pageCount : 0),
     0,

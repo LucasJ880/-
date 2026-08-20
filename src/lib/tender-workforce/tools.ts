@@ -28,6 +28,7 @@ import type {
 } from "@/lib/agent-runtime-v2/adapters";
 import type { ToolDescriptor } from "@/lib/agent-runtime-v2/schemas";
 import { parseDocumentPagesAndStore } from "@/lib/tender-auto-analysis/page-parse";
+import { MAX_TENDER_PACKAGE_PAGES } from "@/lib/tender-auto-analysis/package";
 import {
   extractFromPages,
   extractRequirements,
@@ -571,6 +572,22 @@ async function handleParseDocuments(ctx: AdapterContext): Promise<AdapterResult>
       error: `DOCUMENT_PARSE_FAILED: 所有投标文件解析失败（${unparsed.join("；").slice(0, 400)}）`,
     };
   }
+
+  // 观察期包4：单文件解析上限放宽到 400 页后，workforce 也必须有整包页数门
+  // ——t3 grounding 窗口数（≈模型成本/耗时）随总页数线性涨，无门 = 成本无上限。
+  // 与 auto 路径（enqueue-package / legacy worker）同一口径 400；
+  // fail-closed 显式报错，绝不静默截断或悄悄丢文档。
+  const totalParsedPages = parsed.reduce(
+    (sum, d) => sum + (typeof d.pageCount === "number" ? d.pageCount : 0),
+    0,
+  );
+  if (totalParsedPages > MAX_TENDER_PACKAGE_PAGES) {
+    return {
+      ok: false,
+      error: `PACKAGE_TOO_LARGE: 投标包总页数 ${totalParsedPages} 超过上限 ${MAX_TENDER_PACKAGE_PAGES}，请在文件层归档部分文档后重新发起分析`,
+    };
+  }
+
   return {
     ok: true,
     data: {
