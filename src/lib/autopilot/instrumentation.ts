@@ -21,6 +21,8 @@ import {
   type AutopilotOutboxEnvelope,
 } from "./outbox";
 import { persistDeterministicEvaluation } from "./evaluate-persist";
+import { persistLlmJudgeEvaluation } from "./evaluate-judge-persist";
+import { shouldInvokeLlmJudge } from "./evaluate-judge";
 import {
   appendAutopilotObservationEvent,
   upsertAutopilotObservation,
@@ -29,6 +31,7 @@ import { sanitizedErrorSummary } from "./projection";
 
 export type ProjectAutopilotNoticeDeps = {
   persistDeterministicEvaluation?: typeof persistDeterministicEvaluation;
+  persistLlmJudgeEvaluation?: typeof persistLlmJudgeEvaluation;
 };
 
 export type AutopilotRuntimeNotice =
@@ -178,6 +181,28 @@ export async function projectAutopilotNotice(
     reAskStatus: overlay.reAskStatus,
     cancelled: run.status === "cancelled",
   });
+
+  const persistJudge =
+    deps.persistLlmJudgeEvaluation ?? persistLlmJudgeEvaluation;
+  if (
+    shouldInvokeLlmJudge({
+      noticeType: notice.type,
+      mappedEventType: mapped?.eventType,
+    })
+  ) {
+    // Model/LLM failures are converted to LLM_JUDGE_UNAVAILABLE inside persist.
+    // DB/infrastructure failures must propagate for outbox retry.
+    await persistJudge({
+      orgId: overlay.orgId,
+      agentRunId: run.id,
+      autopilotRunId: overlay.id,
+      status: run.status,
+      errorCode: run.errorCode,
+      humanOverride: overlay.humanOverride,
+      humanEdit: overlay.humanEdit,
+      reAskStatus: overlay.reAskStatus,
+    });
+  }
 }
 
 /**

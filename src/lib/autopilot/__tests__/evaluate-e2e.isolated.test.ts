@@ -59,7 +59,8 @@ async function main() {
   const { db } = await import("@/lib/db");
   const { projectAutopilotNotice } = await import("../instrumentation");
   const { getAutopilotEvaluations } = await import("../service");
-  const { AUTOPILOT_EVALUATOR_VERSION } = await import("../types");
+  const { AUTOPILOT_EVALUATOR_VERSION, AUTOPILOT_LLM_EVALUATOR_VERSION } =
+    await import("../types");
 
   console.log("autopilot A2-P0 isolated Postgres E2E");
 
@@ -209,6 +210,10 @@ async function main() {
     AUTOPILOT_TELEMETRY_CAPTURE_ENABLED: "1",
     AUTOPILOT_PROCESSOR_ENABLED: "1",
   };
+  const judgeEnv = {
+    ...envOn,
+    AUTOPILOT_LLM_JUDGE_ENABLED: "1",
+  };
   const listed = await getAutopilotEvaluations(owner, orgId, {
     env: envOn,
     range: "7d",
@@ -313,6 +318,7 @@ async function main() {
   ok(dark.evaluateState === "NOT_ACTIVE", "DARK_MODE = PASS");
 
   const { persistDeterministicEvaluation } = await import("../evaluate-persist");
+  const { persistLlmJudgeEvaluation } = await import("../evaluate-judge-persist");
   const { enqueueAutopilotTelemetryOutbox, AUTOPILOT_OUTBOX_MAX_ATTEMPTS } =
     await import("../outbox");
   const { defaultAutopilotProcessorPorts, processAutopilotTelemetryOutbox } =
@@ -334,6 +340,15 @@ async function main() {
     const evaluations = await db.autopilotEvaluation.count({
       where: { agentRunId },
     });
+    const p0Evaluations = await db.autopilotEvaluation.count({
+      where: { agentRunId, evaluatorVersion: AUTOPILOT_EVALUATOR_VERSION },
+    });
+    const p1Evaluations = await db.autopilotEvaluation.count({
+      where: {
+        agentRunId,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      },
+    });
     const canonicalEvents = await db.agentRunEvent.count({
       where: { runId: agentRunId },
     });
@@ -341,12 +356,23 @@ async function main() {
       where: { agentRunId },
       select: { status: true, noticeType: true, attemptCount: true },
     });
-    return { overlay, events, evaluations, canonicalEvents, outbox };
+    return {
+      overlay,
+      events,
+      evaluations,
+      p0Evaluations,
+      p1Evaluations,
+      canonicalEvents,
+      outbox,
+    };
   }
 
   async function processRunOutbox(input: {
     agentRunId: string;
     failEvaluation: boolean;
+    failLlmJudgePersist?: boolean;
+    judgeEnv?: typeof envOn & { AUTOPILOT_LLM_JUDGE_ENABLED?: string };
+    judgeComplete?: () => Promise<string>;
     now: Date;
   }) {
     const ports = await defaultAutopilotProcessorPorts();
@@ -362,6 +388,27 @@ async function main() {
             throw new Error("forced A2 evaluation failure");
           }
           await persistDeterministicEvaluation(evalInput);
+        },
+        persistLlmJudgeEvaluation: async (evalInput) => {
+          if (input.failLlmJudgePersist) {
+            throw new Error("forced A2-P1 persistence failure");
+          }
+          await persistLlmJudgeEvaluation({
+            ...evalInput,
+            env: input.judgeEnv ?? envOn,
+            judge: {
+              complete:
+                input.judgeComplete ??
+                (async () =>
+                  JSON.stringify({
+                    outcome: "UNKNOWN",
+                    failureType: null,
+                    confidence: "low",
+                    evidenceCode: "insufficient_evidence",
+                    rationale: "abstain",
+                  })),
+            },
+          });
         },
       });
     return processAutopilotTelemetryOutbox({
@@ -514,6 +561,450 @@ async function main() {
       terminalRecovered.overlay.id === terminalFailed.overlay?.id,
     "A2 failure must not remove or roll back A1 overlay",
   );
+
+  async function overlayId(agentRunId: string): Promise<string> {
+    const row = await db.autopilotRun.findUnique({
+      where: { agentRunId },
+      select: { id: true },
+    });
+    return row!.id;
+  }
+
+  async function llmEval(agentRunId: string) {
+    return db.autopilotEvaluation.findUnique({
+      where: {
+        agentRunId_evaluatorVersion: {
+          agentRunId,
+          evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+        },
+      },
+    });
+  }
+
+  async function p0Eval(agentRunId: string) {
+    return db.autopilotEvaluation.findUnique({
+      where: {
+        agentRunId_evaluatorVersion: {
+          agentRunId,
+          evaluatorVersion: AUTOPILOT_EVALUATOR_VERSION,
+        },
+      },
+    });
+  }
+
+  let flagOffCalls = 0;
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: completed.id,
+    autopilotRunId: await overlayId(completed.id),
+    status: "completed",
+    env: envOn,
+    judge: {
+      complete: async () => {
+        flagOffCalls += 1;
+        return "{}";
+      },
+    },
+  });
+  ok(flagOffCalls === 0, "FLAG_OFF_ZERO_LLM_CALL");
+  ok(!(await llmEval(completed.id)), "FLAG_OFF does not write Judge evaluation");
+
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: completed.id,
+    autopilotRunId: await overlayId(completed.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () =>
+        JSON.stringify({
+          outcome: "TASK_SUCCESS",
+          failureType: null,
+          confidence: "high",
+          evidenceCode: "clean_completed_run",
+          rationale: "structurally clean",
+        }),
+    },
+  });
+
+  const llmRow = await llmEval(completed.id);
+  ok(llmRow?.outcome === "UNKNOWN", "A: clean completed TASK_SUCCESS → UNKNOWN");
+  ok(
+    llmRow?.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE",
+    "A: STRUCTURAL_CLEAN_COMPLETED_NOT_SUCCESS",
+  );
+  ok(llmRow?.judged === false, "A: insufficient evidence is not judged");
+  ok(
+    !JSON.stringify(llmRow?.evidence ?? {}).includes("Bearer secret-token-value"),
+    "LLM evidence has no Authorization",
+  );
+
+  let reuseCalls = 0;
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: completed.id,
+    autopilotRunId: await overlayId(completed.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        reuseCalls += 1;
+        throw new Error("same packet must not re-call LLM");
+      },
+    },
+  });
+  const llmRowAfterReuse = await llmEval(completed.id);
+  ok(reuseCalls === 0, "E: SAME_PACKET_NO_SECOND_LLM_CALL");
+  ok(
+    llmRowAfterReuse?.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE",
+    "E: skipped reuse keeps insufficient-evidence UNKNOWN",
+  );
+
+  const unavailableRun = await seedRun({ status: "completed" });
+  await projectAutopilotNotice({
+    type: "run_terminal",
+    orgId,
+    runId: unavailableRun.id,
+  });
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: unavailableRun.id,
+    autopilotRunId: await overlayId(unavailableRun.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        throw new Error("judge unavailable");
+      },
+    },
+  });
+  ok(
+    (await llmEval(unavailableRun.id))?.ruleId === "LLM_JUDGE_UNAVAILABLE",
+    "MODEL_UNAVAILABLE_IS_DATA = PASS",
+  );
+  ok(!!(await p0Eval(unavailableRun.id)), "H: A2_P0_EVALUATION_PRESENT after Judge UNAVAILABLE");
+  ok(
+    !!(await db.autopilotRun.findUnique({ where: { agentRunId: unavailableRun.id } })),
+    "H: A1_PROJECTION_GAP = 0 after Judge UNAVAILABLE",
+  );
+  let unavailableRetryCalls = 0;
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: unavailableRun.id,
+    autopilotRunId: await overlayId(unavailableRun.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        unavailableRetryCalls += 1;
+        return JSON.stringify({
+          outcome: "UNKNOWN",
+          failureType: null,
+          confidence: "low",
+          evidenceCode: "insufficient_evidence",
+          rationale: "abstain after retry",
+        });
+      },
+    },
+  });
+  ok(unavailableRetryCalls === 1, "F: UNAVAILABLE_RETRY = PASS");
+  ok(
+    (await llmEval(unavailableRun.id))?.ruleId === "LLM_JUDGE_ABSTAINED",
+    "F: UNAVAILABLE retry can persist valid abstention",
+  );
+
+  const parseRun = await seedRun({ status: "completed" });
+  await projectAutopilotNotice({
+    type: "run_terminal",
+    orgId,
+    runId: parseRun.id,
+  });
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: parseRun.id,
+    autopilotRunId: await overlayId(parseRun.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: { complete: async () => "not json" },
+  });
+  ok(
+    (await llmEval(parseRun.id))?.ruleId === "LLM_JUDGE_PARSE_FAILED",
+    "PARSE_FAILED is persisted",
+  );
+  let parseRetryCalls = 0;
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: parseRun.id,
+    autopilotRunId: await overlayId(parseRun.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        parseRetryCalls += 1;
+        return JSON.stringify({
+          outcome: "UNKNOWN",
+          failureType: null,
+          confidence: "low",
+          evidenceCode: "insufficient_evidence",
+          rationale: "abstain",
+        });
+      },
+    },
+  });
+  ok(parseRetryCalls === 1, "G: PARSE_FAILED_RETRY = PASS");
+  ok(
+    (await llmEval(parseRun.id))?.ruleId === "LLM_JUDGE_ABSTAINED",
+    "D: explicit abstention after PARSE_FAILED retry",
+  );
+
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: edited.id,
+    autopilotRunId: await overlayId(edited.id),
+    status: "completed",
+    humanEdit: true,
+    env: judgeEnv,
+    judge: {
+      complete: async () =>
+        JSON.stringify({
+          outcome: "PARTIAL_SUCCESS",
+          failureType: null,
+          confidence: "high",
+          evidenceCode: "human_edit_after_output",
+          rationale: "should not count as quality",
+        }),
+    },
+  });
+  const llmEdit = await llmEval(edited.id);
+  ok(
+    llmEdit?.outcome === "UNKNOWN" &&
+      llmEdit.ruleId === "LLM_JUDGE_REJECTED_HUMAN_SIGNAL_AS_QUALITY",
+    "B: HUMAN_EDIT_NOT_PARTIAL_SUCCESS",
+  );
+
+  const recoveredToolRun = await seedRun({ status: "completed" });
+  await projectAutopilotNotice({
+    type: "run_terminal",
+    orgId,
+    runId: recoveredToolRun.id,
+  });
+  await projectAutopilotNotice({
+    type: "event",
+    orgId,
+    runId: recoveredToolRun.id,
+    eventType: "tool.failed",
+    sequence: 1,
+    payload: { name: "gmail.send" },
+  });
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: recoveredToolRun.id,
+    autopilotRunId: await overlayId(recoveredToolRun.id),
+    status: "completed",
+    env: judgeEnv,
+    judge: {
+      complete: async () =>
+        JSON.stringify({
+          outcome: "FAILURE",
+          failureType: "TOOL_FAILURE",
+          confidence: "high",
+          evidenceCode: "has_tool_failure_event",
+          rationale: "intermediate tool fail",
+        }),
+    },
+  });
+  const llmRecovered = await llmEval(recoveredToolRun.id);
+  ok(
+    llmRecovered?.outcome === "UNKNOWN" &&
+      llmRecovered.ruleId ===
+        "LLM_JUDGE_REJECTED_RECOVERED_OR_INSUFFICIENT_EVIDENCE",
+    "C: RECOVERED_TOOL_FAILURE_NOT_FINAL_FAILURE",
+  );
+  ok(!!(await p0Eval(recoveredToolRun.id)), "C: A2-P0 row remains after recovered-failure reject");
+
+  const listedWithLlm = await getAutopilotEvaluations(owner, orgId, {
+    env: envOn,
+    range: "7d",
+    limit: 50,
+  });
+  const completedItem = listedWithLlm.items.find((item) => item.runId === completed.id);
+  ok(completedItem?.llmOutcome === "UNKNOWN", "list overlays LLM UNKNOWN");
+  ok(
+    (listedWithLlm.llmTaskSuccessCount ?? 0) === 0 &&
+      (listedWithLlm.llmPartialSuccessCount ?? 0) === 0 &&
+      (listedWithLlm.llmFailureCount ?? 0) === 0,
+    "A2-P1 structural Judge produces no quality outcome counts",
+  );
+  ok(
+    (listedWithLlm.llmRejectedInsufficientCount ?? 0) >= 1,
+    "list counts Rejected: Insufficient Evidence",
+  );
+  ok(listedWithLlm.llmJudge === "OFF", "list env without judge flag reports OFF");
+  ok(scanObserveResponse(listedWithLlm).ok, "LLM overlay payload still privacy-clean");
+
+  const noLlmOnFailed = await llmEval(failed.id);
+  await persistLlmJudgeEvaluation({
+    orgId,
+    agentRunId: failed.id,
+    autopilotRunId: await overlayId(failed.id),
+    status: "failed",
+    errorCode: "tool_failed",
+    env: judgeEnv,
+    judge: {
+      complete: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  const stillNone = await llmEval(failed.id);
+  ok(!noLlmOnFailed && !stillNone, "ineligible FAILURE does not call or persist LLM Judge");
+
+  const p1FailRun = await seedRun({ status: "completed" });
+  const p1FailEvent = await db.agentRunEvent.create({
+    data: {
+      orgId,
+      runId: p1FailRun.id,
+      eventType: "tool.failed",
+      sequence: 1,
+      title: "tool",
+      payload: { name: "gmail.send" },
+    },
+  });
+  ok(
+    (await enqueueAutopilotTelemetryOutbox(db, {
+      orgId,
+      agentRunId: p1FailRun.id,
+      noticeType: "event",
+      agentEventId: p1FailEvent.id,
+      sequence: 1,
+      sourceEventType: "tool.failed",
+    })) === "inserted",
+    "P1 persist-failure case enqueued",
+  );
+  const p1FailNow = new Date(Date.now() + 15_000);
+  const p1First = await processRunOutbox({
+    agentRunId: p1FailRun.id,
+    failEvaluation: false,
+    failLlmJudgePersist: true,
+    judgeEnv,
+    now: p1FailNow,
+  });
+  const afterP1First = await observeProjection(p1FailRun.id);
+  ok(!!afterP1First.overlay, "A1 overlay exists after P1 persist fail");
+  ok(afterP1First.events === 1, "A1 mapped event exists after P1 persist fail");
+  ok(afterP1First.p0Evaluations === 1, "A2-P0 exists after P1 persist fail");
+  ok(afterP1First.p1Evaluations === 0, "A2-P1 missing after P1 persist fail");
+  ok(p1First.processed === 0, "A2_P1_DB_FAILURE_PROPAGATES = PASS");
+  ok(
+    p1First.retried === 1 &&
+      afterP1First.outbox.some((row) => row.status === "pending"),
+    "A2_P1_DB_FAILURE_OUTBOX_RETRIES = PASS",
+  );
+
+  const p1Retry = await processRunOutbox({
+    agentRunId: p1FailRun.id,
+    failEvaluation: false,
+    failLlmJudgePersist: false,
+    judgeEnv,
+    now: new Date(p1FailNow.getTime() + 2 * 60 * 60 * 1000),
+  });
+  const afterP1Retry = await observeProjection(p1FailRun.id);
+  ok(afterP1Retry.p1Evaluations === 1, "A2_P1_RETRY_RECOVERS = PASS");
+  ok(afterP1Retry.events === 1, "A2_P1_RETRY_NO_A1_DUPLICATE = PASS");
+  ok(afterP1Retry.p0Evaluations === 1, "A2_P1_RETRY_NO_A2P0_DUPLICATE = PASS");
+  ok(
+    p1Retry.processed === 1 &&
+      afterP1Retry.outbox.every((row) => row.status === "processed"),
+    "P1 retry marks outbox processed",
+  );
+  ok(
+    afterP1Retry.overlay?.id === afterP1First.overlay?.id,
+    "P1 retry keeps the same A1 overlay",
+  );
+
+  const p1DeadRun = await seedRun({ status: "completed" });
+  const p1DeadEvent = await db.agentRunEvent.create({
+    data: {
+      orgId,
+      runId: p1DeadRun.id,
+      eventType: "tool.failed",
+      sequence: 1,
+      title: "tool",
+      payload: { name: "gmail.send" },
+    },
+  });
+  await enqueueAutopilotTelemetryOutbox(db, {
+    orgId,
+    agentRunId: p1DeadRun.id,
+    noticeType: "event",
+    agentEventId: p1DeadEvent.id,
+    sequence: 1,
+    sourceEventType: "tool.failed",
+  });
+  let lastP1Dead = {
+    skipped: false,
+    claimed: 0,
+    processed: 0,
+    retried: 0,
+    dead: 0,
+    lost: 0,
+    recoveredDead: 0,
+  };
+  for (let i = 0; i < AUTOPILOT_OUTBOX_MAX_ATTEMPTS; i++) {
+    lastP1Dead = await processRunOutbox({
+      agentRunId: p1DeadRun.id,
+      failEvaluation: false,
+      failLlmJudgePersist: true,
+      judgeEnv,
+      now: new Date(p1FailNow.getTime() + i * 24 * 60 * 60 * 1000),
+    });
+  }
+  const afterP1Dead = await observeProjection(p1DeadRun.id);
+  ok(
+    lastP1Dead.dead === 1 &&
+      afterP1Dead.outbox.some((row) => row.status === "dead"),
+    "permanent P1 persist failure reaches outbox DEAD",
+  );
+  ok(
+    !!afterP1Dead.overlay && afterP1Dead.events === 1,
+    "PERMANENT_P1_FAILURE_NO_A1_GAP = PASS",
+  );
+  ok(
+    afterP1Dead.overlay != null && afterP1Dead.events === 1,
+    "A2_P1_FAILURE_CAUSES_A1_GAP = NO",
+  );
+  ok(
+    afterP1Dead.p0Evaluations === 1 && afterP1Dead.p1Evaluations === 0,
+    "A2_P1_FAILURE_REMOVES_A2_P0 = NO",
+  );
+
+  const modelUnavailProc = await seedRun({ status: "completed" });
+  await enqueueAutopilotTelemetryOutbox(db, {
+    orgId,
+    agentRunId: modelUnavailProc.id,
+    noticeType: "run_terminal",
+  });
+  const unavailProc = await processRunOutbox({
+    agentRunId: modelUnavailProc.id,
+    failEvaluation: false,
+    judgeEnv,
+    judgeComplete: async () => {
+      throw new Error("judge unavailable");
+    },
+    now: new Date(Date.now() + 25_000),
+  });
+  const afterUnavailProc = await observeProjection(modelUnavailProc.id);
+  ok(
+    (await llmEval(modelUnavailProc.id))?.ruleId === "LLM_JUDGE_UNAVAILABLE",
+    "processor MODEL_UNAVAILABLE persists as data",
+  );
+  ok(
+    unavailProc.processed === 1 &&
+      unavailProc.retried === 0 &&
+      afterUnavailProc.outbox.every((row) => row.status === "processed"),
+    "MODEL_UNAVAILABLE does not force processor retry",
+  );
+  ok(afterUnavailProc.p0Evaluations === 1, "MODEL_UNAVAILABLE keeps A2-P0");
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

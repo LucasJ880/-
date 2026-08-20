@@ -20,3 +20,4 @@ export * from "./observe-range";
 export * from "./metrics-definition";
 export * from "./evaluate";
 export * from "./evaluate-metrics";
+export * from "./evaluate-judge";

@@ -195,6 +195,7 @@ export async function getAutopilotEvaluations(
       ...AUTOPILOT_DISABLED_CAPABILITIES,
       ...darkObserveState(env),
       evaluateState: "NOT_ACTIVE" as const,
+      llmJudge: "OFF" as const,
       range,
       items: [] as const,
       nextCursor: null,

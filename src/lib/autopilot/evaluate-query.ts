@@ -25,11 +25,12 @@ import {
   type ObserveRange,
   type ObserveRunCursor,
 } from "./observe-range";
-import type { AutopilotFlagEnv } from "./flags";
+import { isAutopilotLlmJudgeEnabled, type AutopilotFlagEnv } from "./flags";
 import {
   AUTOPILOT_EVALUATE_SURFACE,
   AUTOPILOT_EVALUATOR_KIND,
   AUTOPILOT_EVALUATOR_VERSION,
+  AUTOPILOT_LLM_EVALUATOR_VERSION,
   type AutopilotOutcome,
 } from "./types";
 import { isKnownAutopilotOutcome } from "./evaluate";
@@ -51,6 +52,10 @@ export type EvaluateListItem = {
   ruleId: string;
   evaluatorKind: string;
   evaluatorVersion: string;
+  llmOutcome: AutopilotOutcome | null;
+  llmFailureType: string | null;
+  llmJudged: boolean | null;
+  llmRuleId: string | null;
 };
 
 export type EvaluateCounts = {
@@ -62,6 +67,16 @@ export type EvaluateCounts = {
   taskSuccessCount: number;
   partialSuccessCount: number;
   judgedCount: number;
+  llmJudgedCount: number;
+  llmTaskSuccessCount: number;
+  llmPartialSuccessCount: number;
+  llmFailureCount: number;
+  /** Current Judge rows, not historical LLM call count. */
+  llmAttemptedCount: number;
+  llmAbstainedCount: number;
+  llmRejectedInsufficientCount: number;
+  llmUnavailableCount: number;
+  llmParseFailedCount: number;
 };
 
 const EMPTY_COUNTS: EvaluateCounts = {
@@ -73,6 +88,15 @@ const EMPTY_COUNTS: EvaluateCounts = {
   taskSuccessCount: 0,
   partialSuccessCount: 0,
   judgedCount: 0,
+  llmJudgedCount: 0,
+  llmTaskSuccessCount: 0,
+  llmPartialSuccessCount: 0,
+  llmFailureCount: 0,
+  llmAttemptedCount: 0,
+  llmAbstainedCount: 0,
+  llmRejectedInsufficientCount: 0,
+  llmUnavailableCount: 0,
+  llmParseFailedCount: 0,
 };
 
 export function parseEvaluateOutcome(
@@ -132,6 +156,7 @@ export async function loadEvaluateOverview(input: {
       evaluatorVersion: AUTOPILOT_EVALUATOR_VERSION,
       ...darkObserveState(env),
       evaluateState: "NOT_ACTIVE" as const,
+      llmJudge: "OFF" as const,
       range: input.range,
       ...EMPTY_COUNTS,
       items: [] as EvaluateListItem[],
@@ -149,6 +174,48 @@ export async function loadEvaluateOverview(input: {
     },
     _count: { _all: true },
   });
+  noteAutopilotTableQuery();
+  const llmGroups = await db.autopilotEvaluation.groupBy({
+    by: ["outcome", "judged"],
+    where: {
+      orgId: input.orgId,
+      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      updatedAt: { gte: since, lte: until },
+    },
+    _count: { _all: true },
+  });
+  const llmCounts = countsFromGroups(llmGroups);
+  noteAutopilotTableQuery();
+  const llmRuleGroups = await db.autopilotEvaluation.groupBy({
+    by: ["ruleId"],
+    where: {
+      orgId: input.orgId,
+      evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+      updatedAt: { gte: since, lte: until },
+    },
+    _count: { _all: true },
+  });
+  const llmRuleCounts = {
+    // Current AutopilotEvaluation rows for the LLM evaluatorVersion.
+    // One upserted row per run; retries overwrite. Not historical LLM call count.
+    llmAttemptedCount: 0,
+    llmAbstainedCount: 0,
+    llmRejectedInsufficientCount: 0,
+    llmUnavailableCount: 0,
+    llmParseFailedCount: 0,
+  };
+  for (const row of llmRuleGroups) {
+    const n = row._count._all;
+    llmRuleCounts.llmAttemptedCount += n;
+    if (row.ruleId === "LLM_JUDGE_ABSTAINED") llmRuleCounts.llmAbstainedCount += n;
+    else if (row.ruleId === "LLM_JUDGE_REJECTED_INSUFFICIENT_EVIDENCE") {
+      llmRuleCounts.llmRejectedInsufficientCount += n;
+    } else if (row.ruleId === "LLM_JUDGE_UNAVAILABLE") {
+      llmRuleCounts.llmUnavailableCount += n;
+    } else if (row.ruleId === "LLM_JUDGE_PARSE_FAILED") {
+      llmRuleCounts.llmParseFailedCount += n;
+    }
+  }
 
   return {
     surface: AUTOPILOT_EVALUATE_SURFACE,
@@ -157,10 +224,16 @@ export async function loadEvaluateOverview(input: {
     active: true as const,
     evaluateState: "ACTIVE" as const,
     mode: "EVALUATE" as const,
+    llmJudge: isAutopilotLlmJudgeEnabled(env) ? ("FLAG_ON" as const) : ("OFF" as const),
     range: input.range,
     ...countsFromGroups(groups),
+    llmJudgedCount: llmCounts.judgedCount,
+    llmTaskSuccessCount: llmCounts.taskSuccessCount,
+    llmPartialSuccessCount: llmCounts.partialSuccessCount,
+    llmFailureCount: llmCounts.failureCount,
+    ...llmRuleCounts,
     message:
-      "Deterministic outcomes only. Completed is not TASK_SUCCESS. Human override is not AI_WRONG.",
+      "Deterministic outcomes first. A2-P1 LLM Judge is structural-only and cannot assign TASK_SUCCESS, PARTIAL_SUCCESS, or final FAILURE. Human override is not AI_WRONG.",
   };
 }
 
@@ -246,8 +319,42 @@ export async function listEvaluateRows(input: {
       ruleId: row.ruleId,
       evaluatorKind: row.evaluatorKind,
       evaluatorVersion: row.evaluatorVersion,
+      llmOutcome: null,
+      llmFailureType: null,
+      llmJudged: null,
+      llmRuleId: null,
     };
   });
+
+  const runIds = items.map((item) => item.runId);
+  if (runIds.length > 0) {
+    noteAutopilotTableQuery();
+    const llmRows = await db.autopilotEvaluation.findMany({
+      where: {
+        orgId: input.orgId,
+        evaluatorVersion: AUTOPILOT_LLM_EVALUATOR_VERSION,
+        agentRunId: { in: runIds },
+      },
+      select: {
+        agentRunId: true,
+        outcome: true,
+        failureType: true,
+        judged: true,
+        ruleId: true,
+      },
+    });
+    const llmByRun = new Map(llmRows.map((row) => [row.agentRunId, row]));
+    for (const item of items) {
+      const llm = llmByRun.get(item.runId);
+      if (!llm) continue;
+      item.llmOutcome = isKnownAutopilotOutcome(llm.outcome)
+        ? llm.outcome
+        : "UNKNOWN";
+      item.llmFailureType = llm.failureType;
+      item.llmJudged = llm.judged;
+      item.llmRuleId = llm.ruleId;
+    }
+  }
 
   const last = rows[rows.length - 1];
   return {

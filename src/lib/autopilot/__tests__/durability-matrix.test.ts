@@ -23,6 +23,7 @@ import { describeCaptureGap } from "../telemetry-health";
 import { AUTOPILOT_A1_MANDATORY_BLOCKERS } from "../types";
 import {
   isAutopilotEnabled,
+  isAutopilotLlmJudgeEnabled,
   isAutopilotProcessorEnabled,
   isAutopilotTelemetryCaptureEnabled,
 } from "../flags";
@@ -104,7 +105,16 @@ async function main() {
 
   ok(!isAutopilotTelemetryCaptureEnabled({}), "capture default OFF");
   ok(!isAutopilotProcessorEnabled({}), "processor default OFF");
+  ok(!isAutopilotLlmJudgeEnabled({}), "LLM Judge default OFF");
   ok(!isAutopilotEnabled({}), "UI flag default OFF");
+  ok(
+    !isAutopilotLlmJudgeEnabled({
+      AUTOPILOT_ENABLED: "1",
+      AUTOPILOT_TELEMETRY_CAPTURE_ENABLED: "1",
+      AUTOPILOT_PROCESSOR_ENABLED: "1",
+    }),
+    "UI/capture/processor 不打开 LLM Judge",
+  );
   ok(
     !isAutopilotTelemetryCaptureEnabled({ AUTOPILOT_ENABLED: "1" }),
     "UI flag 不打开 capture",

@@ -89,6 +89,23 @@ async function main() {
     /AI Evaluator/.test(ui) && /DISABLED/.test(ui),
     "Evaluations still shows AI Evaluator DISABLED",
   );
+  ok(/LLM Judge/.test(ui), "Evaluations shows LLM Judge status");
+  ok(/structural-only/.test(ui), "Evaluations says LLM Judge is structural-only");
+  ok(/LLM Judge Abstained/.test(ui), "Evaluations shows abstention count");
+  ok(
+    /Rejected: Insufficient Evidence/.test(ui),
+    "Evaluations shows insufficient-evidence count",
+  );
+  ok(/Current Judge Records/.test(ui), "Evaluations shows current Judge records");
+  ok(
+    /Latest result per run; not LLM call count/.test(ui),
+    "DASHBOARD_LATEST_STATE_SEMANTICS",
+  );
+  ok(
+    !/LLM Judge Attempted/.test(ui),
+    "Evaluations does not present Attempted as LLM call count",
+  );
+  ok(!/LLM judged/.test(ui), "Evaluations does not present LLM judged as a quality score");
   ok(
     /not AI_WRONG/.test(ui) || /Not AI_WRONG/.test(ui),
     "Evaluations copy says override is not AI_WRONG",
@@ -125,20 +142,59 @@ async function main() {
     instr.includes("persistDeterministicEvaluation"),
     "projection persists deterministic evaluation separately",
   );
+  ok(
+    instr.includes("deps.persistDeterministicEvaluation"),
+    "A2-P0 failure injection hook is preserved",
+  );
+  ok(
+    instr.includes("deps.persistLlmJudgeEvaluation"),
+    "A2-P1 failure injection hook is present",
+  );
   const projectFn = instr.slice(
     instr.indexOf("export async function projectAutopilotNotice"),
   );
+  const upsertAt = projectFn.indexOf("await upsertAutopilotObservation(");
   const appendAt = projectFn.indexOf("await appendAutopilotObservationEvent(");
   const persistAt = projectFn.indexOf("await persistEvaluation(");
+  const judgeAt = projectFn.indexOf("await persistJudge(");
   ok(
-    appendAt >= 0 && persistAt > appendAt,
-    "A1 event projection precedes A2 persist",
+    upsertAt >= 0 && appendAt > upsertAt && persistAt > appendAt,
+    "FINAL_PROJECTION_ORDER overlay → event → A2-P0",
   );
   ok(
     !/await persistDeterministicEvaluation\([\s\S]*await appendAutopilotObservationEvent\(/.test(
       projectFn,
     ),
     "A2 persist is not attempted before A1 event append",
+  );
+  ok(
+    instr.includes("persistLlmJudgeEvaluation"),
+    "projection may persist LLM Judge after deterministic eval",
+  );
+  ok(
+    persistAt >= 0 && judgeAt > persistAt,
+    "A2-P0 persist precedes A2-P1 LLM Judge",
+  );
+  ok(
+    instr.includes("shouldInvokeLlmJudge"),
+    "LLM Judge is not invoked on every projected event",
+  );
+  ok(
+    !/try \{\s*if \(\s*shouldInvokeLlmJudge/.test(projectFn),
+    "A2_P1_DB_FAILURE_PROPAGATES",
+  );
+  ok(
+    !/LLM Judge must never fail Observe/.test(instr),
+    "Judge DB failures are not swallowed",
+  );
+  const persistSrc = readFileSync(
+    join(root, "src/lib/autopilot/evaluate-judge-persist.ts"),
+    "utf8",
+  );
+  ok(
+    /verdict = llmJudgeUnavailable\(packet\)/.test(persistSrc) &&
+      /catch \{\s*verdict = llmJudgeUnavailable/.test(persistSrc),
+    "MODEL_UNAVAILABLE_IS_DATA is persisted internally, not thrown",
   );
 
   const nav = readFileSync(join(root, "src/lib/navigation/registry.ts"), "utf8");
