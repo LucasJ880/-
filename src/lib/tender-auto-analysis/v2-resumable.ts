@@ -322,10 +322,33 @@ export async function advanceV2Analysis(
       return yieldNow(cursor, "PERSIST", `budget_remaining_ms=${remaining}`);
     }
     ensureLease();
+    const inference = buildInference(args, cursor, buildResult());
+    // 要求中文化 pass（矩阵可用性批次）：租约内、canonical 事务外。
+    // 失败/超时回退英文原样（服务内部吞错），绝不阻塞终态化；
+    // 若本 tick 让出后重入会重翻一次（幂等，多花一次调用可接受）。
+    try {
+      const { translateRequirementTexts } = await import("./requirement-translate");
+      const reqs = inference.mapped.requirements;
+      const outcome = await translateRequirementTexts(
+        reqs.map((r) => r.chineseTranslation),
+        {
+          // 与抽取/analyst 同一注入面：测试 fake invoker 可观测翻译调用
+          invoker: args.invoker,
+          timeoutMs: Math.min(240_000, Math.max(10_000, remaining - 5_000)),
+          apply: (idx, zh) => {
+            reqs[idx]!.chineseTranslation = zh;
+          },
+        },
+      );
+      inference.llmCalls += outcome.llmCalls;
+      inference.llmFailures += outcome.llmCalls > 0 && outcome.translated === 0 ? 1 : 0;
+    } catch {
+      // 回退英文（与既有行为一致）
+    }
     return {
       status: "READY",
       cursor,
-      inference: buildInference(args, cursor, buildResult()),
+      inference,
     };
   }
 }
