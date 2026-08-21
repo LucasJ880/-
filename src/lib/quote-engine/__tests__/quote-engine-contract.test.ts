@@ -106,5 +106,14 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
   ok(/process\.env\.NODE_ENV === "production" \? null : \(body\.demo/.test(list), "QE-07f: demo 种子在生产环境禁用");
 }
 
+// QE-08 入口：投标 tab 引擎置顶 + legacy 折叠（flag OFF 回落原样）；工作台报价与成本卡
+{
+  const area = readFileSync(join(process.cwd(), "src/components/quote-engine/bid-quote-area.tsx"), "utf-8");
+  const bid = readFileSync(join(process.cwd(), "src/components/project-detail/tabs/bid-tab.tsx"), "utf-8");
+  const wb = readFileSync(join(process.cwd(), "src/components/project-detail/tabs/workbench-tab.tsx"), "utf-8");
+  ok(bid.includes("<BidQuoteArea") && !bid.includes("<ProjectQuoteSection") && area.includes('data-testid="legacy-quote-collapsed"') && area.includes("if (!data) return <ProjectQuoteSection"), "QE-08a: 投标 tab 引擎区块置顶、legacy 折叠；引擎未启用时回落为原 legacy 区块");
+  ok(wb.includes("<QuoteBudgetCard") && readFileSync(join(process.cwd(), "src/components/quote-engine/quote-budget-card.tsx"), "utf-8").includes("已批准 / Awarded"), "QE-08b: 工作台「报价与成本」卡（当前/已批准/版本/Bid/成本/毛利率/状态）");
+}
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);
