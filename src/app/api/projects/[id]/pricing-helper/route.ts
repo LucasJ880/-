@@ -52,7 +52,7 @@ async function evalTexts(runId: string, summaryJson: unknown): Promise<string[]>
   const ec = cf.evaluation_criteria;
   if (ec && typeof ec === "object" && ec.status === "KNOWN" && ec.text) out.push(ec.text);
   for (const f of facts) {
-    if (EVAL_FACT_PATTERN.test(f.contentOriginal) || EVAL_FACT_PATTERN.test(f.contentZh)) {
+    if (EVAL_FACT_PATTERN.test(f.contentOriginal) || EVAL_FACT_PATTERN.test(f.contentZh ?? "")) {
       out.push(f.contentOriginal);
     }
   }
