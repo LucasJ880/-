@@ -86,5 +86,24 @@ ok(
 const tab = read("src/components/project-detail/tabs/requirements-tab.tsx");
 ok(tab.includes("BidFitMatrixCard"), "FIT-04: 挂载于招标要求 tab");
 
+// ── Lane 3：评分演算进备忘录 ──
+{
+  const orch = read("src/lib/tender-intel/orchestrate.ts");
+  ok(
+    orch.includes('import("@/lib/tender-pricing/calc")') &&
+      orch.includes("heuristicScoringModel(") &&
+      orch.includes("pricingAnalysis,") &&
+      orch.includes("contentOriginal: true"),
+    "MEMO-07: 编排装配确定性演算（启发式回退用英文原文 contentOriginal，不受中文化影响）并传入备忘录",
+  );
+  const strat = read("src/lib/tender-intel/strategy.ts");
+  ok(
+    strat.includes("SCORING MODEL & DETERMINISTIC PRICE SCENARIOS") &&
+      /quote its numbers verbatim/.test(strat) &&
+      /do NOT recompute/.test(strat),
+    "MEMO-08（反例守卫）: 备忘录引用演算数字而非自行重算（算术留在纯函数）",
+  );
+}
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);

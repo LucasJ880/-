@@ -128,7 +128,7 @@ export async function synthesizeBidStrategyAuto(input: {
  * 不发明事实；数据缺口显式列出。 */
 
 export const BID_STRATEGY_MEMO_VERSION = "tender-bid-strategy-memo/v2" as const;
-export const BID_STRATEGY_MEMO_PROMPT = { name: "tender-bid-strategy-memo", version: "2" } as const;
+export const BID_STRATEGY_MEMO_PROMPT = { name: "tender-bid-strategy-memo", version: "3" } as const;
 
 const gateStatus = z.preprocess((v) => {
   const raw = String(v ?? "").trim();
@@ -187,7 +187,7 @@ TASK: produce a Simplified Chinese bid strategy memo a bid manager can act on.
 
 HARD RULES:
 1. Ground every claim ONLY in the provided inputs. Never invent weights, incumbents, prices or history. If evaluation weights/incumbent/price data are absent, say so in dataGapsZh instead of guessing.
-2. scoringAnalysisZh: if scoring weights appear in the inputs, do the real math (e.g. price-gap needed to offset other scoring differences). If absent, state what to extract and how it would change strategy.
+2. scoringAnalysisZh: if SCORING MODEL & DETERMINISTIC PRICE SCENARIOS is provided, quote its numbers verbatim (price weight, formula, break-even price, each scenario's price/total-score delta/margin, other-criteria points) and interpret them — do NOT recompute with different assumptions; list its assumptionsZh as caveats. If it is null but weights appear elsewhere, do the real math yourself. If absent, state what to extract and how it would change strategy.
 3. competitiveLandscapeZh: use the incumbent lead and its confidence level verbatim-honestly (e.g. 疑似, 未100%确认); cite the evidence briefly.
 4. riskGates: qualification/compliance gates (references, insurance, WCB, data residency, IP, delivery SLA...) each with statusZh ∈ 已满足/需解决/高风险 and basis. These are assessments, NOT a final verdict.
 5. NEVER output an overall GO/NO-GO decision — the human decides.
@@ -209,6 +209,11 @@ export async function synthesizeBidStrategyMemo(input: {
   incumbentLead: unknown | null;
   /** 阶段3：现任供应商联邦合同价格带（自动拉取，可空） */
   vendorPriceBenchmark?: unknown | null;
+  /**
+   * Lane 3：报价表助手的确定性演算（评分模型 + 情景表 + 打平价 + 假设清单，可空）。
+   * 备忘录必须引用这些数字而不是自己重算——算术在纯函数里，LLM 只负责解读。
+   */
+  pricingAnalysis?: unknown | null;
   existingClarifications: string[];
   invoker?: LlmInvoker;
 }): Promise<{ memo: BidStrategyMemoV2 | null; errorCode: string | null }> {
@@ -231,6 +236,8 @@ export async function synthesizeBidStrategyMemo(input: {
     JSON.stringify(input.incumbentLead),
     "INCUMBENT FEDERAL CONTRACT PRICE BENCHMARK (may be null; use in pricingStrategyZh with sources):",
     JSON.stringify(input.vendorPriceBenchmark ?? null),
+    "SCORING MODEL & DETERMINISTIC PRICE SCENARIOS (computed by the system's pricing calculator; may be null):",
+    JSON.stringify(input.pricingAnalysis ?? null).slice(0, 3500),
     "CLARIFICATIONS ALREADY DRAFTED:",
     JSON.stringify(input.existingClarifications.slice(0, 12)),
   ].join("\n");
