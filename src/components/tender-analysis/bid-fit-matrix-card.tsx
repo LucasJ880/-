@@ -10,7 +10,7 @@
  * 五态语义不变：已有/可开发/需 Partner/需 RFI/No-Go。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ClipboardCheck, Languages, Loader2 } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import {
@@ -36,7 +36,20 @@ type Req = {
   mandatory: boolean;
   evidenceRequired: boolean;
 };
-type Mark = { fit: string; noteZh: string | null };
+type Mark = {
+  fit: string;
+  noteZh: string | null;
+  provenance?: { via?: string; kind?: string; score?: number; sourceProjectName?: string | null; sourceRequirementCode?: string | null } | null;
+};
+type Suggestion = {
+  requirementId: string;
+  kind: "exact" | "fuzzy";
+  score: number;
+  fit: string;
+  noteZh: string | null;
+  sourceProjectName: string | null;
+  sourceRequirementCode: string | null;
+};
 
 export function BidFitMatrixCard({
   projectId,
@@ -59,15 +72,20 @@ export function BidFitMatrixCard({
   );
   const [translating, setTranslating] = useState(false);
   const [translateNote, setTranslateNote] = useState<string | null>(null);
+  // 合规记忆（B）：历史确认建议；exact 自动带入一次，fuzzy 一键采纳
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [memoryNote, setMemoryNote] = useState<string | null>(null);
+  const autoAppliedRef = useRef(false);
 
   const load = useCallback(() => {
-    apiJson<{ runId: string | null; requirements: Req[]; matrix: Record<string, Mark> }>(
+    apiJson<{ runId: string | null; requirements: Req[]; matrix: Record<string, Mark>; suggestions?: Suggestion[] }>(
       `/api/projects/${projectId}/bid-fit`,
     )
       .then((res) => {
         setRunId(res.runId);
         setReqs(res.requirements);
         setMatrix(res.matrix ?? {});
+        setSuggestions(res.suggestions ?? []);
       })
       .catch(() => {});
   }, [projectId]);
@@ -113,6 +131,35 @@ export function BidFitMatrixCard({
     [visible, matrix],
   );
   const allCollapsed = BID_FIT_GROUPS.every((g) => collapsed[g.key]);
+
+  const applyMemory = async (mode: "exact" | "all") => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/bid-fit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, action: "apply-memory", mode }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { applied?: number; error?: string };
+      if (res.ok) {
+        setMemoryNote(`已带入历史确认 ${json.applied ?? 0} 条（标注可改）`);
+        load();
+      } else {
+        setMemoryNote(json.error ?? "带入失败");
+      }
+    } catch {
+      setMemoryNote("带入失败");
+    }
+  };
+  const exactPending = suggestions.filter((s) => s.kind === "exact").length;
+  const fuzzyPending = suggestions.filter((s) => s.kind === "fuzzy").length;
+  useEffect(() => {
+    // 指纹一致的历史确认自动带入一次（幂等：只填未标）
+    if (canManage && runId && exactPending > 0 && !autoAppliedRef.current) {
+      autoAppliedRef.current = true;
+      void applyMemory("exact");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage, runId, exactPending]);
 
   if (!runId || reqs.length === 0) return null;
 
@@ -169,6 +216,7 @@ export function BidFitMatrixCard({
     n: Object.values(matrix).filter((m) => m.fit === o.value).length,
   }));
 
+  const suggestionFor = (id: string) => suggestions.find((s) => s.requirementId === id) ?? null;
   const row = (r: Req) => (
     <div
       key={r.id}
@@ -182,7 +230,18 @@ export function BidFitMatrixCard({
         {r.evidenceRequired ? (
           <span className="ml-1 rounded-full border border-sky-300 bg-sky-50 px-1.5 text-[9px] text-sky-700">需证据</span>
         ) : null}
+        {matrix[r.id]?.provenance?.via === "memory" ? (
+          <span className="ml-1 rounded-full border border-violet-300 bg-violet-50 px-1.5 text-[9px] text-violet-700" title={`来源：${matrix[r.id]?.provenance?.sourceProjectName ?? "历史项目"} ${matrix[r.id]?.provenance?.sourceRequirementCode ?? ""}`}>
+            历史确认{matrix[r.id]?.provenance?.kind === "fuzzy" ? `（相似 ${matrix[r.id]?.provenance?.score ?? ""}）` : ""}
+          </span>
+        ) : null}
         <p className="mt-0.5 leading-5 text-foreground/85">{r.textZh}</p>
+        {!matrix[r.id] && suggestionFor(r.id) ? (
+          <p className="mt-0.5 text-[10px] text-violet-700">
+            建议：{FIT_OPTIONS.find((o) => o.value === suggestionFor(r.id)!.fit)?.label ?? suggestionFor(r.id)!.fit}
+            （来自 {suggestionFor(r.id)!.sourceProjectName ?? "历史项目"}，相似 {suggestionFor(r.id)!.score}）
+          </p>
+        ) : null}
       </div>
       {fitSelect(r)}
     </div>
@@ -257,6 +316,26 @@ export function BidFitMatrixCard({
           </button>
         </div>
       </div>
+
+      {suggestions.length > 0 || memoryNote ? (
+        <div className="mt-2 rounded-lg border border-violet-200/70 bg-violet-50/40 px-3 py-2 text-[11px]" data-testid="bid-fit-memory">
+          合规记忆：
+          {exactPending > 0 ? `${exactPending} 条与历史确认逐字一致（自动带入中）` : ""}
+          {exactPending > 0 && fuzzyPending > 0 ? "；" : ""}
+          {fuzzyPending > 0 ? `${fuzzyPending} 条相似可复用` : ""}
+          {canManage && fuzzyPending > 0 ? (
+            <button
+              type="button"
+              data-testid="bid-fit-apply-memory"
+              onClick={() => void applyMemory("all")}
+              className="ml-2 rounded border border-violet-300 px-1.5 py-0.5 text-[10px] text-violet-800 hover:bg-violet-100"
+            >
+              采纳全部历史建议（{fuzzyPending}）
+            </button>
+          ) : null}
+          {memoryNote ? <span className="ml-2 text-muted">{memoryNote}</span> : null}
+        </div>
+      ) : null}
 
       {canManage ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
