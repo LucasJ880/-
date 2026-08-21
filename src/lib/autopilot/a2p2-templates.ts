@@ -8,17 +8,17 @@ import {
   A2P2_DOMAIN_IDS,
   A2P2_RESOLVER_VERSION,
   A2P2_TASK_CONTRACT_VERSION,
-  assertFiniteBudget,
-  assertRecoveryAllowlist,
   defaultEscalationPolicy,
   defaultEvaluationBudget,
   defaultRecoveryPolicy,
-  hasForbiddenContractFields,
+  failClosedTaskContract,
+  parseTaskContract,
   sanitizeGoalSummary,
   type A2P2DomainId,
   type AutonomousEvaluationTaskContract,
   type EvaluationRequirement,
   type TaskContractSource,
+  type ValidatedTaskContract,
 } from "./a2p2-contract";
 
 function requirement(
@@ -250,72 +250,53 @@ function isKnownDomain(value: string | null | undefined): value is A2P2DomainId 
   return (A2P2_DOMAIN_IDS as readonly string[]).includes(value ?? "");
 }
 
-function asTaskContract(
+function parseOrFail(
   value: AutonomousEvaluationTaskContract | Record<string, unknown>,
   source: TaskContractSource,
   createdAt: string,
-): AutonomousEvaluationTaskContract | null {
-  if (hasForbiddenContractFields(value as Record<string, unknown>)) {
-    return null;
+): ValidatedTaskContract | null {
+  const parsed = parseTaskContract(value, { source, createdAt });
+  return parsed.ok ? parsed.contract : null;
+}
+
+function domainTemplate(domain: A2P2DomainId, createdAt: string): ValidatedTaskContract {
+  const parsed = parseTaskContract(A2P2_DOMAIN_TEMPLATES[domain](createdAt), {
+    source: domain === "GENERIC" ? "GENERIC_FALLBACK" : "DOMAIN_TEMPLATE",
+    createdAt,
+  });
+  if (!parsed.ok) {
+    return failClosedTaskContract("INVALID_EXPLICIT_CONTRACT", createdAt);
   }
-  const candidate = value as AutonomousEvaluationTaskContract;
-  if (candidate.version !== A2P2_TASK_CONTRACT_VERSION) return null;
-  if (!isKnownDomain(candidate.taskType)) return null;
-  if (candidate.automationLevel === "L4_CONTROLLED_EXTERNAL_ACTION") return null;
-  if (candidate.automationLevel === "L5_RESTRICTED") return null;
-  try {
-    assertFiniteBudget(candidate.evaluationBudget);
-    const allowed = assertRecoveryAllowlist(
-      candidate.recoveryPolicy.allowedActions as readonly string[],
-    );
-    return {
-      ...candidate,
-      goalSummary: sanitizeGoalSummary(candidate.goalSummary ?? ""),
-      recoveryPolicy: {
-        ...candidate.recoveryPolicy,
-        allowedActions: allowed,
-      },
-      provenance: {
-        ...candidate.provenance,
-        contractVersion: A2P2_TASK_CONTRACT_VERSION,
-        source,
-        resolverVersion: A2P2_RESOLVER_VERSION,
-        createdAt: candidate.provenance?.createdAt ?? createdAt,
-      },
-    };
-  } catch {
-    return null;
-  }
+  return parsed.contract;
 }
 
 /**
  * Priority: explicit typed contract → workflow contract → domain template → generic.
  * Never parses conversation text or customer content.
+ *
+ * If an explicit or workflow contract EXISTS and is malformed/unsafe,
+ * fail closed. Do not silently fall through to a lower-risk domain template.
  */
 export function resolveTaskContract(
   input: ResolveTaskContractInput = {},
-): AutonomousEvaluationTaskContract {
+): ValidatedTaskContract {
   const createdAt = (input.now ?? new Date()).toISOString();
-  if (input.explicitContract) {
-    const explicit = asTaskContract(
-      input.explicitContract,
-      "EXPLICIT_CONTRACT",
-      createdAt,
+  if (input.explicitContract != null) {
+    return (
+      parseOrFail(input.explicitContract, "EXPLICIT_CONTRACT", createdAt) ??
+      failClosedTaskContract("INVALID_EXPLICIT_CONTRACT", createdAt)
     );
-    if (explicit) return explicit;
   }
-  if (input.workflowContract) {
-    const workflow = asTaskContract(
-      input.workflowContract,
-      "WORKFLOW_TEMPLATE",
-      createdAt,
+  if (input.workflowContract != null) {
+    return (
+      parseOrFail(input.workflowContract, "WORKFLOW_TEMPLATE", createdAt) ??
+      failClosedTaskContract("INVALID_WORKFLOW_CONTRACT", createdAt)
     );
-    if (workflow) return workflow;
   }
   if (isKnownDomain(input.domainHint)) {
-    return A2P2_DOMAIN_TEMPLATES[input.domainHint](createdAt);
+    return domainTemplate(input.domainHint, createdAt);
   }
-  return conservativeGeneric(createdAt, "GENERIC_FALLBACK");
+  return domainTemplate("GENERIC", createdAt);
 }
 
 export function emailDraftForbidsAutoSend(

@@ -65,16 +65,26 @@ P2.0 不计费，只锁定有界常量。
 
 任务合同 `goalSummary` 只存规范化元数据，禁止 raw prompt / 邮件正文 / 标书正文 / tool payload。
 
+## 合同权威
+
+- 唯一运行时校验入口：`parseTaskContract()`。未知顶层字段拒绝；递归拒绝 forbidden keys；只重建批准字段。
+- 显式/工作流合同存在但畸形 → `INVALID_*` fail-closed（`RESTRICTED` + `L0_HUMAN_CONTROLLED` + 恢复关闭），不得降到领域模板。
+- `verdictState`：`NOT_EVALUATED` | `PROPOSED` | `ACCEPTED` | `ABSTAINED`。语义 outcome 不得暗示 final。仅 `ACCEPTED` 可走 `AUTO_FINALIZE`。
+- `AutomationLevel` 描述任务权威。Evaluation 恢复上限始终 `READ_SEARCH_VERIFY_ONLY`。L0 必人工；L5 fail-closed；L4 可 inspect，Evaluation 单独不授权对外动作。
+
 ## 路由优先级
 
-1. 策略 / 隐私硬阻断 → `POLICY_BLOCKED`
-2. HIGH / RESTRICTED → `HUMAN_ESCALATE`（受限动作信号可为 `POLICY_BLOCKED`）
-3. 证据不足 + 允许恢复 + 预算剩余 → `AUTO_RECOVER`
-4. 证据冲突：可恢复则 `AUTO_RECOVER`，否则 `HUMAN_ESCALATE`
-5. 低风险 UNKNOWN 且无有效恢复 → `AUTO_ABSTAIN`
-6. 证据充足且评价已终结、策略允许 → `AUTO_FINALIZE`
+1. 未校验合同 / 隐私 / 受限动作 → `POLICY_BLOCKED`
+2. L5 → `POLICY_BLOCKED`；L0 → `HUMAN_ESCALATE`
+3. legal / financial / external side effect / irreversible → `HUMAN_ESCALATE`
+4. `escalationPolicy.requireHumanForRisk` 命中当前风险 → `HUMAN_ESCALATE`
+5. `goalAmbiguous` → `HUMAN_ESCALATE`
+6. `recoveryState = IN_PROGRESS` → `AUTO_WAIT`（不重复调度）
+7. 证据不足/冲突 + 仍有安全恢复动作 → `AUTO_RECOVER`（Judge 预算耗尽不阻断本地读/搜；外搜预算只过滤外搜）
+8. `ACCEPTED` + 证据充足 + 策略允许 → `AUTO_FINALIZE`（只结束评价记录）
+9. 低风险未决 → `AUTO_ABSTAIN`
 
-默认不是 `HUMAN_ESCALATE`。
+`UNKNOWN` 默认不是人工。预算：恢复周期/全局费用耗尽才停止全部恢复。
 
 ## 领域模板
 
@@ -85,7 +95,7 @@ P2.0 不计费，只锁定有界常量。
 | EMAIL_DRAFT | MEDIUM | L2 | 不得隐含 `SEND_EMAIL` |
 | GENERIC | MEDIUM | L1 | 无编造需求；无外网研究 |
 
-解析优先级：显式合同 → 工作流合同 → 领域模板 → GENERIC。P2.0 不解析对话或客户正文。
+解析优先级：显式合同 → 工作流合同 → 领域模板 → GENERIC。显式/工作流若存在且不安全则 fail-closed，不解析对话或客户正文。
 
 每个合同带 provenance：`contractVersion` · `source` · `sourceId?` · `resolverVersion` · `createdAt`。
 

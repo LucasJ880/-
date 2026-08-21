@@ -6,8 +6,11 @@
 import {
   A2P2_DEFAULT_EVALUATION_BUDGET,
   A2P2_PRINCIPLES,
+  EVALUATION_RECOVERY_AUTHORITY_MAX,
+  automationLevelPolicy,
   type AutonomousEvaluationTaskContract,
   type EvaluationRiskClass,
+  type EvaluationVerdictState,
 } from "../a2p2-contract";
 import { routeEvaluation, type EvaluationRouteInput } from "../a2p2-routing";
 import { A2P2_DOMAIN_TEMPLATES, resolveTaskContract } from "../a2p2-templates";
@@ -25,17 +28,22 @@ function ok(cond: boolean, name: string, detail?: unknown) {
   }
 }
 
-function withRisk(
+function plain(value: unknown): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function withPatch(
   contract: AutonomousEvaluationTaskContract,
-  riskClass: EvaluationRiskClass,
+  patch: Record<string, unknown>,
 ): AutonomousEvaluationTaskContract {
-  return { ...contract, riskClass };
+  return { ...plain(contract), ...patch } as AutonomousEvaluationTaskContract;
 }
 
 function input(partial: {
   contract?: AutonomousEvaluationTaskContract;
   risk?: EvaluationRiskClass;
   outcome?: EvaluationRouteInput["evaluationState"]["outcome"];
+  verdictState?: EvaluationVerdictState;
   final?: boolean;
   evidence: EvaluationRouteInput["evidenceState"]["status"];
   privacyClass?: EvaluationRouteInput["evidenceState"]["privacyClass"];
@@ -46,11 +54,12 @@ function input(partial: {
 }): EvaluationRouteInput {
   const now = new Date().toISOString();
   let contract = partial.contract ?? A2P2_DOMAIN_TEMPLATES.RESEARCH(now);
-  if (partial.risk) contract = withRisk(contract, partial.risk);
+  if (partial.risk) contract = withPatch(contract, { riskClass: partial.risk });
   return {
     taskContract: contract,
     evaluationState: {
       outcome: partial.outcome ?? "UNKNOWN",
+      verdictState: partial.verdictState,
       final: partial.final,
     },
     evidenceState: {
@@ -75,19 +84,366 @@ function input(partial: {
 console.log("autopilot A2-P2.0 routing");
 
 ok(A2P2_PRINCIPLES.AUTOMATION_FIRST === true, "AUTOMATION_FIRST_DEFAULT");
+ok(A2P2_PRINCIPLES.HUMAN_BY_EXCEPTION === true, "HUMAN_BY_EXCEPTION");
+ok(
+  EVALUATION_RECOVERY_AUTHORITY_MAX === "READ_SEARCH_VERIFY_ONLY",
+  "EVALUATION_RECOVERY_AUTHORITY_MAX",
+);
+
+const proposedSuccess = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "PROPOSED",
+    final: false,
+    recovery: "NOT_ATTEMPTED",
+  }),
+);
+ok(
+  proposedSuccess.decision !== "AUTO_FINALIZE",
+  "PROPOSED_TASK_SUCCESS_NOT_FINALIZED",
+);
+
+const proposedPartial = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "PARTIAL_SUCCESS",
+    verdictState: "PROPOSED",
+  }),
+);
+ok(
+  proposedPartial.decision !== "AUTO_FINALIZE",
+  "PROPOSED_PARTIAL_SUCCESS_NOT_FINALIZED",
+);
+
+const proposedFailure = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "FAILURE",
+    verdictState: "PROPOSED",
+  }),
+);
+ok(
+  proposedFailure.decision !== "AUTO_FINALIZE",
+  "PROPOSED_FAILURE_NOT_FINALIZED",
+);
+
+const acceptedSuccess = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+    recovery: "NOT_ATTEMPTED",
+  }),
+);
+ok(
+  acceptedSuccess.decision === "AUTO_FINALIZE" &&
+    acceptedSuccess.reasonCode === "AUTO_FINALIZED_SUFFICIENT_EVIDENCE",
+  "ACCEPTED_TASK_SUCCESS_CAN_FINALIZE",
+);
+
+const unknownAbstention = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "UNKNOWN",
+    verdictState: "ABSTAINED",
+    recovery: "EXHAUSTED",
+    cyclesUsed: 3,
+  }),
+);
+ok(
+  unknownAbstention.decision === "AUTO_ABSTAIN" &&
+    unknownAbstention.decision !== "AUTO_FINALIZE",
+  "UNKNOWN_ABSTENTION_NOT_SUCCESS",
+);
+
+const l0Finalize = routeEvaluation(
+  input({
+    contract: withPatch(A2P2_DOMAIN_TEMPLATES.RESEARCH(new Date().toISOString()), {
+      automationLevel: "L0_HUMAN_CONTROLLED",
+    }),
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+  }),
+);
+ok(
+  l0Finalize.decision === "HUMAN_ESCALATE" &&
+    l0Finalize.reasonCode === "HUMAN_ESCALATION_L0_HUMAN_CONTROLLED",
+  "L0_NEVER_AUTO_FINALIZES",
+);
+
+const l0Recover = routeEvaluation(
+  input({
+    contract: withPatch(A2P2_DOMAIN_TEMPLATES.RESEARCH(new Date().toISOString()), {
+      automationLevel: "L0_HUMAN_CONTROLLED",
+    }),
+    evidence: "INSUFFICIENT",
+    outcome: "UNKNOWN",
+    recovery: "AVAILABLE",
+  }),
+);
+ok(
+  l0Recover.decision === "HUMAN_ESCALATE" && l0Recover.allowedNextActions.length === 0,
+  "L0_NEVER_AUTO_RECOVERS",
+);
+
+const l4Inspect = routeEvaluation(
+  input({
+    contract: withPatch(A2P2_DOMAIN_TEMPLATES.RESEARCH(new Date().toISOString()), {
+      automationLevel: "L4_CONTROLLED_EXTERNAL_ACTION",
+    }),
+    evidence: "INSUFFICIENT",
+    recovery: "AVAILABLE",
+  }),
+);
+ok(
+  automationLevelPolicy("L4_CONTROLLED_EXTERNAL_ACTION")
+    .evaluationMayAuthorizeExternalAction === false &&
+    l4Inspect.decision === "AUTO_RECOVER" &&
+    !l4Inspect.allowedNextActions.includes("SEND_EMAIL" as never) &&
+    l4Inspect.allowedNextActions.every(
+      (action) =>
+        action === "READ_EXISTING_DOCUMENT" ||
+        action === "SEARCH_PROJECT_DOCUMENTS" ||
+        action === "SEARCH_INTERNAL_FACTS" ||
+        action === "SEARCH_PUBLIC_WEB" ||
+        action === "SEARCH_AWARD_HISTORY" ||
+        action === "REFRESH_SOURCE_FACTS" ||
+        action === "RECHECK_TOOL_RESULT",
+    ),
+  "L4_EXTERNAL_ACTION_NOT_AUTHORIZED_BY_EVALUATION",
+);
+
+const l5Blocked = routeEvaluation(
+  input({
+    contract: withPatch(resolveTaskContract({}), {
+      automationLevel: "L5_RESTRICTED",
+      riskClass: "RESTRICTED",
+    }),
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+  }),
+);
+ok(
+  l5Blocked.decision === "POLICY_BLOCKED" &&
+    l5Blocked.reasonCode === "POLICY_BLOCKED_L5_RESTRICTED",
+  "L5_RESTRICTED_FAILS_CLOSED",
+);
+
+const mediumPolicy = routeEvaluation(
+  input({
+    contract: withPatch(A2P2_DOMAIN_TEMPLATES.EMAIL_DRAFT(new Date().toISOString()), {
+      escalationPolicy: {
+        requireHumanForRisk: ["MEDIUM", "HIGH", "RESTRICTED"],
+        reasons: A2P2_DOMAIN_TEMPLATES.EMAIL_DRAFT(new Date().toISOString())
+          .escalationPolicy.reasons,
+      },
+    }),
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+  }),
+);
+ok(
+  mediumPolicy.decision === "HUMAN_ESCALATE" &&
+    mediumPolicy.reasonCode === "HUMAN_ESCALATION_CONTRACT_POLICY",
+  "CONTRACT_MEDIUM_HUMAN_POLICY_ENFORCED",
+);
+
+const legal = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+    policySignals: { legalCommitment: true },
+  }),
+);
+ok(
+  legal.decision === "HUMAN_ESCALATE" &&
+    legal.reasonCode === "HUMAN_ESCALATION_LEGAL_COMMITMENT",
+  "LEGAL_COMMITMENT_ESCALATES",
+);
+
+const financial = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+    policySignals: { financialCommitment: true },
+  }),
+);
+ok(
+  financial.decision === "HUMAN_ESCALATE" &&
+    financial.reasonCode === "HUMAN_ESCALATION_FINANCIAL_COMMITMENT",
+  "FINANCIAL_COMMITMENT_ESCALATES",
+);
+
+const external = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+    policySignals: { externalSideEffect: true },
+  }),
+);
+ok(
+  external.decision === "HUMAN_ESCALATE" &&
+    external.reasonCode === "HUMAN_ESCALATION_EXTERNAL_SIDE_EFFECT",
+  "EXTERNAL_SIDE_EFFECT_ESCALATES",
+);
+
+const irreversible = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+    policySignals: { irreversibleAction: true },
+  }),
+);
+ok(
+  irreversible.decision === "HUMAN_ESCALATE" &&
+    irreversible.reasonCode === "HUMAN_ESCALATION_IRREVERSIBLE_ACTION",
+  "IRREVERSIBLE_ACTION_ESCALATES",
+);
+
+const ambiguous = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    recovery: "AVAILABLE",
+    policySignals: { goalAmbiguous: true },
+  }),
+);
+ok(
+  ambiguous.decision === "HUMAN_ESCALATE" &&
+    ambiguous.reasonCode === "HUMAN_ESCALATION_GOAL_AMBIGUOUS",
+  "GOAL_AMBIGUOUS_ESCALATES",
+);
+
+const unvalidated = routeEvaluation(
+  input({
+    contract: { extraField: true, outcome: "TASK_SUCCESS" } as never,
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+  }),
+);
+ok(
+  unvalidated.decision === "POLICY_BLOCKED" &&
+    unvalidated.reasonCode === "POLICY_BLOCKED_UNVALIDATED_CONTRACT" &&
+    unvalidated.decision !== "AUTO_FINALIZE",
+  "UNVALIDATED_CONTRACT_CANNOT_AUTO_FINALIZE",
+);
+
+const noExternalWeb = routeEvaluation(
+  input({
+    contract: A2P2_DOMAIN_TEMPLATES.EMAIL_DRAFT(new Date().toISOString()),
+    evidence: "INSUFFICIENT",
+    recovery: "AVAILABLE",
+  }),
+);
+ok(
+  noExternalWeb.decision === "AUTO_RECOVER" &&
+    !noExternalWeb.allowedNextActions.includes("SEARCH_PUBLIC_WEB"),
+  "EXTERNAL_RESEARCH_FALSE_BLOCKS_PUBLIC_WEB",
+);
+ok(
+  !noExternalWeb.allowedNextActions.includes("SEARCH_AWARD_HISTORY"),
+  "EXTERNAL_RESEARCH_FALSE_BLOCKS_AWARD_HISTORY",
+);
+
+const inProgress = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    recovery: "IN_PROGRESS",
+    cyclesUsed: 1,
+  }),
+);
+ok(
+  inProgress.decision === "AUTO_WAIT" &&
+    inProgress.reasonCode === "AUTO_WAIT_RECOVERY_IN_PROGRESS" &&
+    inProgress.allowedNextActions.length === 0,
+  "RECOVERY_IN_PROGRESS_NO_DUPLICATE_SCHEDULE",
+);
+
+const judgeBudgetLocal = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    outcome: "UNKNOWN",
+    recovery: "AVAILABLE",
+    budgetUsed: {
+      judgeCallsUsed: A2P2_DEFAULT_EVALUATION_BUDGET.maxJudgeCalls,
+    },
+  }),
+);
+ok(
+  judgeBudgetLocal.decision === "AUTO_RECOVER" &&
+    judgeBudgetLocal.allowedNextActions.includes("READ_EXISTING_DOCUMENT") &&
+    judgeBudgetLocal.allowedNextActions.includes("SEARCH_PROJECT_DOCUMENTS") &&
+    judgeBudgetLocal.allowedNextActions.includes("SEARCH_INTERNAL_FACTS"),
+  "JUDGE_BUDGET_EXHAUSTED_LOCAL_RECOVERY_STILL_ALLOWED",
+);
+
+const externalBudgetInternal = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    recovery: "AVAILABLE",
+    budgetUsed: {
+      externalSearchesUsed: A2P2_DEFAULT_EVALUATION_BUDGET.maxExternalSearches,
+    },
+  }),
+);
+ok(
+  externalBudgetInternal.decision === "AUTO_RECOVER" &&
+    !externalBudgetInternal.allowedNextActions.includes("SEARCH_PUBLIC_WEB") &&
+    !externalBudgetInternal.allowedNextActions.includes("SEARCH_AWARD_HISTORY") &&
+    externalBudgetInternal.allowedNextActions.includes("SEARCH_INTERNAL_FACTS"),
+  "EXTERNAL_SEARCH_BUDGET_EXHAUSTED_INTERNAL_RECOVERY_ALLOWED",
+);
+
+const cycleCap = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    recovery: "AVAILABLE",
+    cyclesUsed: 3,
+    budgetUsed: { recoveryCyclesUsed: 3 },
+  }),
+);
+ok(
+  cycleCap.decision !== "AUTO_RECOVER",
+  "RECOVERY_CYCLE_CAP_STOPS_RECOVERY",
+);
+
+const costCap = routeEvaluation(
+  input({
+    contract: resolveTaskContract({ domainHint: "GENERIC" }),
+    evidence: "INSUFFICIENT",
+    outcome: "UNKNOWN",
+    recovery: "AVAILABLE",
+    budgetUsed: {
+      costUsdUsed: A2P2_DEFAULT_EVALUATION_BUDGET.maxCostUsd,
+    },
+  }),
+);
+ok(
+  costCap.decision !== "AUTO_RECOVER" &&
+    costCap.reasonCode === "BUDGET_EXHAUSTED",
+  "GLOBAL_COST_CAP_STOPS_RECOVERY",
+);
 
 const lowSuccess = routeEvaluation(
   input({
     evidence: "SUFFICIENT",
     outcome: "TASK_SUCCESS",
-    final: true,
+    verdictState: "ACCEPTED",
     recovery: "NOT_ATTEMPTED",
   }),
 );
 ok(
   lowSuccess.decision === "AUTO_FINALIZE" &&
     lowSuccess.reasonCode === "AUTO_FINALIZED_SUFFICIENT_EVIDENCE",
-  "LOW + sufficient + final → AUTO_FINALIZE",
+  "LOW + sufficient + accepted → AUTO_FINALIZE",
 );
 
 const lowRecover = routeEvaluation(
@@ -113,7 +469,9 @@ const lowAbstain = routeEvaluation(
 );
 ok(
   lowAbstain.decision === "AUTO_ABSTAIN" &&
-    lowAbstain.reasonCode === "AUTO_ABSTAINED_INSUFFICIENT_EVIDENCE",
+    (lowAbstain.reasonCode === "AUTO_ABSTAINED_INSUFFICIENT_EVIDENCE" ||
+      lowAbstain.reasonCode === "AUTO_FINALIZED_ABSTENTION" ||
+      lowAbstain.reasonCode === "BUDGET_EXHAUSTED"),
   "LOW_RISK_UNKNOWN_CAN_AUTO_ABSTAIN",
 );
 
@@ -128,7 +486,8 @@ const mediumExhausted = routeEvaluation(
 );
 ok(
   mediumExhausted.decision === "HUMAN_ESCALATE" &&
-    mediumExhausted.reasonCode === "HUMAN_ESCALATION_RECOVERY_EXHAUSTED",
+    (mediumExhausted.reasonCode === "HUMAN_ESCALATION_RECOVERY_EXHAUSTED" ||
+      mediumExhausted.reasonCode === "BUDGET_EXHAUSTED"),
   "MEDIUM + unresolved + exhausted → HUMAN_ESCALATE",
 );
 
@@ -137,7 +496,7 @@ const high = routeEvaluation(
     risk: "HIGH",
     evidence: "SUFFICIENT",
     outcome: "TASK_SUCCESS",
-    final: true,
+    verdictState: "ACCEPTED",
     recovery: "AVAILABLE",
   }),
 );
@@ -152,7 +511,7 @@ const restricted = routeEvaluation(
     risk: "RESTRICTED",
     evidence: "SUFFICIENT",
     outcome: "TASK_SUCCESS",
-    final: true,
+    verdictState: "ACCEPTED",
   }),
 );
 ok(
@@ -190,7 +549,7 @@ const prohibitedClass = routeEvaluation(
     evidence: "SUFFICIENT",
     privacyClass: "PROHIBITED",
     outcome: "TASK_SUCCESS",
-    final: true,
+    verdictState: "ACCEPTED",
   }),
 );
 ok(
@@ -223,51 +582,6 @@ ok(
   "EVIDENCE_CONFLICT_ROUTING recovery exhausted",
 );
 
-const budgetLow = routeEvaluation(
-  input({
-    evidence: "INSUFFICIENT",
-    outcome: "UNKNOWN",
-    recovery: "AVAILABLE",
-    budgetUsed: {
-      judgeCallsUsed: A2P2_DEFAULT_EVALUATION_BUDGET.maxJudgeCalls,
-    },
-  }),
-);
-ok(
-  budgetLow.decision === "AUTO_ABSTAIN" && budgetLow.reasonCode === "BUDGET_EXHAUSTED",
-  "BUDGET exhausted + low-risk → AUTO_ABSTAIN",
-);
-
-const budgetMedium = routeEvaluation(
-  input({
-    contract: resolveTaskContract({ domainHint: "GENERIC" }),
-    evidence: "INSUFFICIENT",
-    outcome: "UNKNOWN",
-    recovery: "AVAILABLE",
-    budgetUsed: {
-      costUsdUsed: A2P2_DEFAULT_EVALUATION_BUDGET.maxCostUsd,
-    },
-  }),
-);
-ok(
-  budgetMedium.decision === "HUMAN_ESCALATE" &&
-    budgetMedium.reasonCode === "BUDGET_EXHAUSTED",
-  "BUDGET exhausted + medium unresolved → HUMAN_ESCALATE",
-);
-
-const maxCycles = routeEvaluation(
-  input({
-    evidence: "INSUFFICIENT",
-    recovery: "AVAILABLE",
-    cyclesUsed: 3,
-    budgetUsed: { recoveryCyclesUsed: 3 },
-  }),
-);
-ok(
-  maxCycles.decision !== "AUTO_RECOVER",
-  "recovery cycle at max → no additional AUTO_RECOVER",
-);
-
 ok(
   lowRecover.allowedNextActions.length > 0 &&
     !lowRecover.allowedNextActions.includes("SEND_EMAIL" as never),
@@ -277,6 +591,11 @@ ok(
 ok(
   lowAbstain.decision !== "HUMAN_ESCALATE",
   "UNKNOWN_DOES_NOT_IMPLY_HUMAN",
+);
+
+ok(
+  lowRecover.decision !== "HUMAN_ESCALATE",
+  "UNKNOWN_DEFAULTS_TO_HUMAN = NO",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

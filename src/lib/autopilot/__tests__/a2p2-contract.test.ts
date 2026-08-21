@@ -16,6 +16,7 @@ import {
   AUTOMATION_LEVELS,
   DEFAULT_READ_SEARCH_RECOVERY_ACTIONS,
   EVALUATION_RECOVERY_ACTION_KINDS,
+  EVALUATION_RECOVERY_AUTHORITY_MAX,
   EVALUATION_RISK_CLASSES,
   EVALUATOR_MAX_AUTOMATION_LEVEL,
   FORBIDDEN_CONTRACT_FIELD_NAMES,
@@ -23,12 +24,15 @@ import {
   FORBIDDEN_JUDGE_EVIDENCE_KINDS,
   assertFiniteBudget,
   assertRecoveryAllowlist,
+  automationLevelPolicy,
   defaultEvaluationBudget,
   defaultRecoveryPolicy,
+  findForbiddenContractField,
   hasForbiddenContractFields,
   isForbiddenSideEffectAction,
   isJudgeEligibleEvidenceKind,
   isJudgeEligiblePrivacyClass,
+  parseTaskContract,
   rejectUnknownRecoveryAction,
   sanitizeGoalSummary,
 } from "../a2p2-contract";
@@ -51,6 +55,10 @@ function ok(cond: boolean, name: string, detail?: unknown) {
   }
 }
 
+function plain(value: unknown): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
 console.log("autopilot A2-P2.0 contract");
 
 ok(A2P2_SURFACE === "A2_P2_0_AUTONOMOUS_EVAL_CONTRACT", "P2.0 surface id");
@@ -69,6 +77,10 @@ ok(
 ok(
   EVALUATOR_MAX_AUTOMATION_LEVEL === "L2_AUTO_PREPARE",
   "evaluator recovery stays at analyze/prepare",
+);
+ok(
+  EVALUATION_RECOVERY_AUTHORITY_MAX === "READ_SEARCH_VERIFY_ONLY",
+  "EVALUATION_RECOVERY_AUTHORITY_MAX = READ_SEARCH_VERIFY_ONLY",
 );
 
 ok(
@@ -92,6 +104,17 @@ try {
   ok(false, "RECOVERY_BUDGET_BOUNDED Infinity rejected");
 } catch {
   ok(true, "RECOVERY_BUDGET_BOUNDED Infinity rejected");
+}
+try {
+  assertFiniteBudget({
+    maxJudgeCalls: 1.5,
+    maxRecoveryCycles: 3,
+    maxExternalSearches: 5,
+    maxCostUsd: 0.25,
+  });
+  ok(false, "FRACTIONAL_COUNT_BUDGET_REJECTED");
+} catch {
+  ok(true, "FRACTIONAL_COUNT_BUDGET_REJECTED");
 }
 try {
   defaultEvaluationBudget();
@@ -152,6 +175,18 @@ ok(
   "rawContent is a forbidden contract field",
 );
 ok(
+  findForbiddenContractField({
+    provenance: { nested: { rawContent: "secret" } },
+  }) === "$.provenance.nested.rawContent",
+  "NESTED_RAW_CONTENT_REJECTED",
+);
+ok(
+  findForbiddenContractField({
+    requirements: [{ userPrompt: "do it" }],
+  }) === "$.requirements[0].userPrompt",
+  "NESTED_USER_PROMPT_REJECTED",
+);
+ok(
   !hasForbiddenContractFields({ goalSummary: "analyze tender" }),
   "goalSummary is allowed",
 );
@@ -198,7 +233,7 @@ ok(
 
 const explicit = resolveTaskContract({
   explicitContract: {
-    ...generic,
+    ...plain(generic),
     taskType: "RESEARCH",
     goalSummary: "  classified research  ",
     riskClass: "LOW",
@@ -210,20 +245,149 @@ ok(
   "explicit typed contract wins",
 );
 
+const l4Explicit = resolveTaskContract({
+  explicitContract: {
+    ...plain(generic),
+    automationLevel: "L4_CONTROLLED_EXTERNAL_ACTION",
+  },
+});
+ok(
+  l4Explicit.automationLevel === "L4_CONTROLLED_EXTERNAL_ACTION" &&
+    l4Explicit.provenance.source === "EXPLICIT_CONTRACT",
+  "explicit L4 is not silently discarded",
+);
+ok(
+  automationLevelPolicy("L4_CONTROLLED_EXTERNAL_ACTION")
+    .evaluationMayAuthorizeExternalAction === false,
+  "L4_EXTERNAL_ACTION_NOT_AUTHORIZED_BY_EVALUATION",
+);
+
+const l5Explicit = resolveTaskContract({
+  explicitContract: {
+    ...plain(generic),
+    automationLevel: "L5_RESTRICTED",
+    riskClass: "RESTRICTED",
+  },
+});
+ok(
+  l5Explicit.automationLevel === "L5_RESTRICTED" &&
+    l5Explicit.riskClass === "RESTRICTED",
+  "explicit L5 is not silently discarded",
+);
+
 const poisoned = resolveTaskContract({
   explicitContract: {
-    ...generic,
+    ...plain(generic),
     rawContent: "full user prompt",
-  } as typeof generic & { rawContent: string },
+  },
   domainHint: "RESEARCH",
 });
 ok(
-  poisoned.taskType === "RESEARCH" && poisoned.provenance.source === "DOMAIN_TEMPLATE",
-  "poisoned explicit contract is ignored for domain template",
+  poisoned.riskClass === "RESTRICTED" &&
+    poisoned.automationLevel === "L0_HUMAN_CONTROLLED" &&
+    poisoned.recoveryPolicy.enabled === false &&
+    poisoned.provenance.source === "INVALID_EXPLICIT_CONTRACT",
+  "POISONED_CONTRACT_FAILS_CLOSED",
+);
+ok(
+  poisoned.taskType !== "RESEARCH" && poisoned.riskClass !== "LOW",
+  "INVALID_RESTRICTED_EXPLICIT_NEVER_DOWNGRADES_TO_LOW",
+);
+
+const nestedPoison = resolveTaskContract({
+  explicitContract: {
+    ...plain(generic),
+    provenance: {
+      ...plain(generic.provenance),
+      extra: { rawContent: "nested leak" },
+    },
+  },
+  domainHint: "TENDER_ANALYSIS",
+});
+ok(
+  nestedPoison.provenance.source === "INVALID_EXPLICIT_CONTRACT" &&
+    nestedPoison.riskClass === "RESTRICTED",
+  "nested forbidden field fail-closed",
+);
+
+const invalidWorkflow = resolveTaskContract({
+  workflowContract: {
+    ...plain(generic),
+    riskClass: "NOT_A_RISK",
+  },
+  domainHint: "TENDER_ANALYSIS",
+});
+ok(
+  invalidWorkflow.provenance.source === "INVALID_WORKFLOW_CONTRACT" &&
+    invalidWorkflow.riskClass === "RESTRICTED" &&
+    invalidWorkflow.taskType !== "TENDER_ANALYSIS",
+  "INVALID_WORKFLOW_NEVER_DOWNGRADES_TO_DOMAIN",
 );
 
 const domain = resolveTaskContract({ domainHint: "TENDER_ANALYSIS" });
 ok(domain.taskType === "TENDER_ANALYSIS", "known domain template resolves");
+
+const parsedOk = parseTaskContract(plain(generic));
+ok(parsedOk.ok === true, "canonical parser accepts reconstructed generic");
+
+const unknownTop = parseTaskContract({ ...plain(generic), extraField: true });
+ok(
+  unknownTop.ok === false &&
+    unknownTop.ok === false &&
+    (unknownTop as { reason: string }).reason.startsWith("UNKNOWN_TOP_LEVEL_FIELD"),
+  "UNKNOWN_TOP_LEVEL_FIELD_REJECTED",
+);
+
+const nestedRaw = parseTaskContract({
+  ...plain(generic),
+  recoveryPolicy: {
+    ...plain(generic.recoveryPolicy),
+    rawContent: "nope",
+  },
+});
+ok(nestedRaw.ok === false, "NESTED_RAW_CONTENT_REJECTED");
+
+const nestedPrompt = parseTaskContract({
+  ...plain(generic),
+  requirements: [{ ...(plain(tender).requirements as object[])[0], userPrompt: "x" }],
+});
+ok(nestedPrompt.ok === false, "NESTED_USER_PROMPT_REJECTED");
+
+const badEvidence = parseTaskContract({
+  ...plain(tender),
+  requirements: [
+    {
+      ...(plain(tender).requirements as object[])[0],
+      evidenceKinds: ["RAW_PROMPT"],
+    },
+  ],
+});
+ok(badEvidence.ok === false, "INVALID_EVIDENCE_KIND_REJECTED");
+
+const badRisk = parseTaskContract({ ...plain(generic), riskClass: "CRITICAL" });
+ok(badRisk.ok === false, "INVALID_RISK_CLASS_REJECTED");
+
+const badLevel = parseTaskContract({
+  ...plain(generic),
+  automationLevel: "L9_UNLIMITED",
+});
+ok(badLevel.ok === false, "INVALID_AUTOMATION_LEVEL_REJECTED");
+
+const fractional = parseTaskContract({
+  ...plain(generic),
+  evaluationBudget: { ...plain(generic.evaluationBudget), maxJudgeCalls: 1.5 },
+});
+ok(fractional.ok === false, "FRACTIONAL_COUNT_BUDGET_REJECTED parser");
+
+const inconsistentExternal = parseTaskContract({
+  ...plain(generic),
+  recoveryPolicy: {
+    ...plain(generic.recoveryPolicy),
+    allowExternalResearch: false,
+    allowedActions: ["SEARCH_PUBLIC_WEB"],
+  },
+});
+ok(inconsistentExternal.ok === false, "external research inconsistency rejected");
 
 ok(
   A2P2_ACTIVATION_BLOCKERS.some((item) => item.id === "A2_P1_PRODUCTION_ORG_SCOPE") &&
@@ -236,6 +400,18 @@ ok(
   A2P2_KPI_TARGETS.AUTO_EVALUATION_RATE_TARGET >= 0.95 &&
     A2P2_KPI_TARGETS.UNBOUNDED_RETRY_TARGET === 0,
   "KPI targets are documented constants only",
+);
+
+const l0Policy = automationLevelPolicy("L0_HUMAN_CONTROLLED");
+ok(
+  l0Policy.mayAutoFinalize === false && l0Policy.mayAutoRecover === false,
+  "L0 policy forbids finalize and recover",
+);
+const l3Policy = automationLevelPolicy("L3_AUTO_EXECUTE_REVERSIBLE");
+ok(
+  l3Policy.evaluationMayAuthorizeExternalAction === false &&
+    l3Policy.mayAutoRecover === true,
+  "L3 does not expand evaluation recovery beyond inspect/recover allowlist",
 );
 
 const root = process.cwd();

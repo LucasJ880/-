@@ -128,6 +128,7 @@ export type EvaluationEscalationReason =
 export const EVALUATION_ROUTE_DECISIONS = [
   "AUTO_FINALIZE",
   "AUTO_RECOVER",
+  "AUTO_WAIT",
   "AUTO_ABSTAIN",
   "HUMAN_ESCALATE",
   "POLICY_BLOCKED",
@@ -137,18 +138,37 @@ export type EvaluationRouteDecisionKind =
 
 export const EVALUATION_ROUTE_REASON_CODES = [
   "AUTO_FINALIZED_SUFFICIENT_EVIDENCE",
+  "AUTO_FINALIZED_ABSTENTION",
   "AUTO_RECOVERY_MISSING_EVIDENCE",
   "AUTO_RECOVERY_SOURCE_CONFLICT",
+  "AUTO_WAIT_RECOVERY_IN_PROGRESS",
   "AUTO_ABSTAINED_INSUFFICIENT_EVIDENCE",
   "HUMAN_ESCALATION_HIGH_RISK",
   "HUMAN_ESCALATION_RECOVERY_EXHAUSTED",
   "HUMAN_ESCALATION_EVIDENCE_CONFLICT",
+  "HUMAN_ESCALATION_LEGAL_COMMITMENT",
+  "HUMAN_ESCALATION_FINANCIAL_COMMITMENT",
+  "HUMAN_ESCALATION_EXTERNAL_SIDE_EFFECT",
+  "HUMAN_ESCALATION_IRREVERSIBLE_ACTION",
+  "HUMAN_ESCALATION_GOAL_AMBIGUOUS",
+  "HUMAN_ESCALATION_CONTRACT_POLICY",
+  "HUMAN_ESCALATION_L0_HUMAN_CONTROLLED",
   "POLICY_BLOCKED_PRIVACY",
   "POLICY_BLOCKED_RESTRICTED_ACTION",
+  "POLICY_BLOCKED_L5_RESTRICTED",
+  "POLICY_BLOCKED_UNVALIDATED_CONTRACT",
   "BUDGET_EXHAUSTED",
 ] as const;
 export type EvaluationRouteReasonCode =
   (typeof EVALUATION_ROUTE_REASON_CODES)[number];
+
+export const EVALUATION_VERDICT_STATES = [
+  "NOT_EVALUATED",
+  "PROPOSED",
+  "ACCEPTED",
+  "ABSTAINED",
+] as const;
+export type EvaluationVerdictState = (typeof EVALUATION_VERDICT_STATES)[number];
 
 export const EVALUATION_OUTCOMES = [
   "TASK_SUCCESS",
@@ -182,8 +202,20 @@ export const TASK_CONTRACT_SOURCES = [
   "WORKFLOW_TEMPLATE",
   "DOMAIN_TEMPLATE",
   "GENERIC_FALLBACK",
+  "INVALID_EXPLICIT_CONTRACT",
+  "INVALID_WORKFLOW_CONTRACT",
 ] as const;
 export type TaskContractSource = (typeof TASK_CONTRACT_SOURCES)[number];
+
+export const REQUIREMENT_CRITICALITIES = ["LOW", "MEDIUM", "HIGH"] as const;
+export type RequirementCriticality = (typeof REQUIREMENT_CRITICALITIES)[number];
+
+export const EXTERNAL_RESEARCH_ACTIONS = [
+  "SEARCH_PUBLIC_WEB",
+  "SEARCH_AWARD_HISTORY",
+] as const;
+
+export const EVALUATION_RECOVERY_AUTHORITY_MAX = "READ_SEARCH_VERIFY_ONLY" as const;
 
 export const A2P2_DOMAIN_IDS = [
   "TENDER_ANALYSIS",
@@ -192,6 +224,54 @@ export const A2P2_DOMAIN_IDS = [
   "GENERIC",
 ] as const;
 export type A2P2DomainId = (typeof A2P2_DOMAIN_IDS)[number];
+
+export const TASK_CONTRACT_TOP_LEVEL_KEYS = [
+  "version",
+  "taskType",
+  "goalSummary",
+  "requirements",
+  "riskClass",
+  "automationLevel",
+  "recoveryPolicy",
+  "escalationPolicy",
+  "evaluationBudget",
+  "provenance",
+] as const;
+
+export const REQUIREMENT_KEYS = [
+  "id",
+  "label",
+  "normalizedDescription",
+  "required",
+  "evidenceKinds",
+  "minimumEvidenceRefs",
+  "allowUnknown",
+  "criticality",
+] as const;
+
+export const RECOVERY_POLICY_KEYS = [
+  "enabled",
+  "allowedActions",
+  "maxRecoveryCycles",
+  "allowExternalResearch",
+] as const;
+
+export const ESCALATION_POLICY_KEYS = ["requireHumanForRisk", "reasons"] as const;
+
+export const BUDGET_KEYS = [
+  "maxJudgeCalls",
+  "maxRecoveryCycles",
+  "maxExternalSearches",
+  "maxCostUsd",
+] as const;
+
+export const PROVENANCE_KEYS = [
+  "contractVersion",
+  "source",
+  "sourceId",
+  "resolverVersion",
+  "createdAt",
+] as const;
 
 export const FORBIDDEN_CONTRACT_FIELD_NAMES = [
   "rawContent",
@@ -233,7 +313,7 @@ export type EvaluationRequirement = {
   evidenceKinds: readonly EvaluationEvidenceKind[];
   minimumEvidenceRefs: number;
   allowUnknown: boolean;
-  criticality: "LOW" | "MEDIUM" | "HIGH";
+  criticality: RequirementCriticality;
 };
 
 export type EvaluationEvidenceRef = {
@@ -288,7 +368,8 @@ export type AutonomousEvaluationTaskContract = {
   provenance: TaskContractProvenance;
 };
 
-const GOAL_SUMMARY_MAX = 240;
+const METADATA_MAX = 240;
+const ID_MAX = 80;
 
 export function isEvaluationRecoveryActionKind(
   value: string,
@@ -304,6 +385,12 @@ export function isForbiddenSideEffectAction(value: string): boolean {
   );
 }
 
+export function isExternalResearchAction(
+  value: string,
+): value is (typeof EXTERNAL_RESEARCH_ACTIONS)[number] {
+  return (EXTERNAL_RESEARCH_ACTIONS as readonly string[]).includes(value);
+}
+
 export function isJudgeEligiblePrivacyClass(
   privacyClass: EvaluationPrivacyClass,
 ): boolean {
@@ -317,27 +404,59 @@ export function isJudgeEligibleEvidenceKind(
 }
 
 export function sanitizeGoalSummary(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, GOAL_SUMMARY_MAX);
+  return value.replace(/\s+/g, " ").trim().slice(0, METADATA_MAX);
 }
 
-export function hasForbiddenContractFields(
-  value: Record<string, unknown>,
-): boolean {
-  return FORBIDDEN_CONTRACT_FIELD_NAMES.some((key) => key in value);
+export function findForbiddenContractField(
+  value: unknown,
+  path = "$",
+): string | null {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const nested = findForbiddenContractField(value[i], `${path}[${i}]`);
+      if (nested) return nested;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if ((FORBIDDEN_CONTRACT_FIELD_NAMES as readonly string[]).includes(key)) {
+      return `${path}.${key}`;
+    }
+    const nested = findForbiddenContractField(child, `${path}.${key}`);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+export function hasForbiddenContractFields(value: Record<string, unknown>): boolean {
+  return findForbiddenContractField(value) != null;
+}
+
+function isNonNegInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isNonNegFinite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function unknownKeys(value: Record<string, unknown>, allowed: readonly string[]): string[] {
+  return Object.keys(value).filter((key) => !allowed.includes(key));
 }
 
 export function assertFiniteBudget(budget: EvaluationBudget): EvaluationBudget {
-  const fields: Array<keyof EvaluationBudget> = [
-    "maxJudgeCalls",
-    "maxRecoveryCycles",
-    "maxExternalSearches",
-    "maxCostUsd",
-  ];
-  for (const field of fields) {
-    const n = budget[field];
-    if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
-      throw new Error(`A2-P2.0 budget ${field} must be a finite number >= 0`);
-    }
+  if (!isNonNegInt(budget.maxJudgeCalls)) {
+    throw new Error("maxJudgeCalls must be a finite integer >= 0");
+  }
+  if (!isNonNegInt(budget.maxRecoveryCycles)) {
+    throw new Error("maxRecoveryCycles must be a finite integer >= 0");
+  }
+  if (!isNonNegInt(budget.maxExternalSearches)) {
+    throw new Error("maxExternalSearches must be a finite integer >= 0");
+  }
+  if (!isNonNegFinite(budget.maxCostUsd)) {
+    throw new Error("maxCostUsd must be a finite number >= 0");
   }
   return budget;
 }
@@ -352,27 +471,31 @@ export function defaultRecoveryPolicy(input?: {
   maxRecoveryCycles?: number;
   allowExternalResearch?: boolean;
 }): EvaluationRecoveryPolicy {
-  const allowedActions = (input?.allowedActions ??
-    DEFAULT_READ_SEARCH_RECOVERY_ACTIONS).filter(
-    (action) =>
-      isEvaluationRecoveryActionKind(action) &&
-      !isForbiddenSideEffectAction(action),
-  );
+  const allowExternalResearch = input?.allowExternalResearch ?? true;
+  const allowedActions = (input?.allowedActions ?? DEFAULT_READ_SEARCH_RECOVERY_ACTIONS)
+    .filter(
+      (action) =>
+        isEvaluationRecoveryActionKind(action) &&
+        !isForbiddenSideEffectAction(action) &&
+        (allowExternalResearch || !isExternalResearchAction(action)),
+    );
   const maxRecoveryCycles = input?.maxRecoveryCycles ?? A2P2_DEFAULT_MAX_RECOVERY_CYCLES;
-  if (!Number.isFinite(maxRecoveryCycles) || maxRecoveryCycles < 0) {
-    throw new Error("maxRecoveryCycles must be finite and >= 0");
+  if (!isNonNegInt(maxRecoveryCycles)) {
+    throw new Error("maxRecoveryCycles must be a finite integer >= 0");
   }
   return {
     enabled: input?.enabled ?? true,
     allowedActions,
     maxRecoveryCycles,
-    allowExternalResearch: input?.allowExternalResearch ?? true,
+    allowExternalResearch,
   };
 }
 
-export function defaultEscalationPolicy(): EvaluationEscalationPolicy {
+export function defaultEscalationPolicy(
+  requireHumanForRisk: readonly EvaluationRiskClass[] = ["HIGH", "RESTRICTED"],
+): EvaluationEscalationPolicy {
   return {
-    requireHumanForRisk: ["HIGH", "RESTRICTED"],
+    requireHumanForRisk,
     reasons: EVALUATION_ESCALATION_REASONS,
   };
 }
@@ -394,3 +517,343 @@ export function assertRecoveryAllowlist(
 ): readonly EvaluationRecoveryActionKind[] {
   return actions.map(rejectUnknownRecoveryAction);
 }
+
+export type AutomationLevelPolicy = {
+  mayAutoFinalize: boolean;
+  mayAutoRecover: boolean;
+  evaluationMayInspect: boolean;
+  evaluationMayAuthorizeExternalAction: boolean;
+  failClosedDecision: EvaluationRouteDecisionKind | null;
+  failClosedReason: EvaluationRouteReasonCode | null;
+};
+
+export function automationLevelPolicy(
+  level: AutomationLevel,
+): AutomationLevelPolicy {
+  if (level === "L0_HUMAN_CONTROLLED") {
+    return {
+      mayAutoFinalize: false,
+      mayAutoRecover: false,
+      evaluationMayInspect: true,
+      evaluationMayAuthorizeExternalAction: false,
+      failClosedDecision: "HUMAN_ESCALATE",
+      failClosedReason: "HUMAN_ESCALATION_L0_HUMAN_CONTROLLED",
+    };
+  }
+  if (level === "L5_RESTRICTED") {
+    return {
+      mayAutoFinalize: false,
+      mayAutoRecover: false,
+      evaluationMayInspect: true,
+      evaluationMayAuthorizeExternalAction: false,
+      failClosedDecision: "POLICY_BLOCKED",
+      failClosedReason: "POLICY_BLOCKED_L5_RESTRICTED",
+    };
+  }
+  return {
+    mayAutoFinalize: true,
+    mayAutoRecover: true,
+    evaluationMayInspect: true,
+    evaluationMayAuthorizeExternalAction: false,
+    failClosedDecision: null,
+    failClosedReason: null,
+  };
+}
+
+export const VALIDATED_TASK_CONTRACT_BRAND: unique symbol = Symbol(
+  "ValidatedTaskContract",
+);
+
+export type ValidatedTaskContract = AutonomousEvaluationTaskContract & {
+  readonly [VALIDATED_TASK_CONTRACT_BRAND]: true;
+};
+
+export type ParseTaskContractResult =
+  | { ok: true; contract: ValidatedTaskContract }
+  | { ok: false; reason: string };
+
+function boundedString(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = sanitizeGoalSummary(value);
+  if (!trimmed || trimmed.length > max) return null;
+  return trimmed.slice(0, max);
+}
+
+function parseRequirement(value: unknown): EvaluationRequirement | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (unknownKeys(row, REQUIREMENT_KEYS).length > 0) return null;
+  const id = boundedString(row.id, ID_MAX);
+  const label = boundedString(row.label, METADATA_MAX);
+  const normalizedDescription = boundedString(row.normalizedDescription, METADATA_MAX);
+  if (!id || !label || !normalizedDescription) return null;
+  if (typeof row.required !== "boolean" || typeof row.allowUnknown !== "boolean") {
+    return null;
+  }
+  if (!Array.isArray(row.evidenceKinds) || row.evidenceKinds.length === 0) return null;
+  if (
+    !row.evidenceKinds.every(
+      (kind) => typeof kind === "string" && isJudgeEligibleEvidenceKind(kind),
+    )
+  ) {
+    return null;
+  }
+  if (!isNonNegInt(row.minimumEvidenceRefs)) return null;
+  if (
+    typeof row.criticality !== "string" ||
+    !(REQUIREMENT_CRITICALITIES as readonly string[]).includes(row.criticality)
+  ) {
+    return null;
+  }
+  return {
+    id,
+    label,
+    normalizedDescription,
+    required: row.required,
+    evidenceKinds: row.evidenceKinds as EvaluationEvidenceKind[],
+    minimumEvidenceRefs: row.minimumEvidenceRefs,
+    allowUnknown: row.allowUnknown,
+    criticality: row.criticality as RequirementCriticality,
+  };
+}
+
+function brandContract(
+  contract: AutonomousEvaluationTaskContract,
+): ValidatedTaskContract {
+  return Object.freeze({
+    ...contract,
+    requirements: Object.freeze([...contract.requirements]),
+    recoveryPolicy: Object.freeze({
+      ...contract.recoveryPolicy,
+      allowedActions: Object.freeze([...contract.recoveryPolicy.allowedActions]),
+    }),
+    escalationPolicy: Object.freeze({
+      ...contract.escalationPolicy,
+      requireHumanForRisk: Object.freeze([
+        ...contract.escalationPolicy.requireHumanForRisk,
+      ]),
+      reasons: Object.freeze([...contract.escalationPolicy.reasons]),
+    }),
+    evaluationBudget: Object.freeze({ ...contract.evaluationBudget }),
+    provenance: Object.freeze({ ...contract.provenance }),
+    [VALIDATED_TASK_CONTRACT_BRAND]: true as const,
+  });
+}
+
+export function parseTaskContract(
+  value: unknown,
+  meta?: { source?: TaskContractSource; createdAt?: string },
+): ParseTaskContractResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, reason: "CONTRACT_NOT_OBJECT" };
+  }
+  const raw = value as Record<string, unknown>;
+  const forbidden = findForbiddenContractField(raw);
+  if (forbidden) {
+    return { ok: false, reason: `FORBIDDEN_FIELD:${forbidden}` };
+  }
+  const extra = unknownKeys(raw, TASK_CONTRACT_TOP_LEVEL_KEYS);
+  if (extra.length > 0) {
+    return { ok: false, reason: `UNKNOWN_TOP_LEVEL_FIELD:${extra[0]}` };
+  }
+  if (raw.version !== A2P2_TASK_CONTRACT_VERSION) {
+    return { ok: false, reason: "INVALID_VERSION" };
+  }
+  if (
+    typeof raw.taskType !== "string" ||
+    !(A2P2_DOMAIN_IDS as readonly string[]).includes(raw.taskType)
+  ) {
+    return { ok: false, reason: "INVALID_TASK_TYPE" };
+  }
+  if (
+    typeof raw.riskClass !== "string" ||
+    !(EVALUATION_RISK_CLASSES as readonly string[]).includes(raw.riskClass)
+  ) {
+    return { ok: false, reason: "INVALID_RISK_CLASS" };
+  }
+  if (
+    typeof raw.automationLevel !== "string" ||
+    !(AUTOMATION_LEVELS as readonly string[]).includes(raw.automationLevel)
+  ) {
+    return { ok: false, reason: "INVALID_AUTOMATION_LEVEL" };
+  }
+  const goalSummary = boundedString(raw.goalSummary, METADATA_MAX);
+  if (!goalSummary) return { ok: false, reason: "INVALID_GOAL_SUMMARY" };
+  if (!Array.isArray(raw.requirements)) {
+    return { ok: false, reason: "INVALID_REQUIREMENTS" };
+  }
+  const requirements: EvaluationRequirement[] = [];
+  for (const item of raw.requirements) {
+    const parsed = parseRequirement(item);
+    if (!parsed) return { ok: false, reason: "INVALID_REQUIREMENT" };
+    requirements.push(parsed);
+  }
+
+  if (!raw.recoveryPolicy || typeof raw.recoveryPolicy !== "object") {
+    return { ok: false, reason: "INVALID_RECOVERY_POLICY" };
+  }
+  const recoveryRaw = raw.recoveryPolicy as Record<string, unknown>;
+  if (unknownKeys(recoveryRaw, RECOVERY_POLICY_KEYS).length > 0) {
+    return { ok: false, reason: "UNKNOWN_RECOVERY_POLICY_FIELD" };
+  }
+  if (
+    typeof recoveryRaw.enabled !== "boolean" ||
+    typeof recoveryRaw.allowExternalResearch !== "boolean" ||
+    !Array.isArray(recoveryRaw.allowedActions)
+  ) {
+    return { ok: false, reason: "INVALID_RECOVERY_POLICY" };
+  }
+  if (!isNonNegInt(recoveryRaw.maxRecoveryCycles)) {
+    return { ok: false, reason: "INVALID_RECOVERY_CYCLES" };
+  }
+  let allowedActions: EvaluationRecoveryActionKind[];
+  try {
+    allowedActions = [
+      ...assertRecoveryAllowlist(recoveryRaw.allowedActions as string[]),
+    ];
+  } catch {
+    return { ok: false, reason: "INVALID_RECOVERY_ACTION" };
+  }
+  if (
+    recoveryRaw.allowExternalResearch === false &&
+    allowedActions.some((action) => isExternalResearchAction(action))
+  ) {
+    return { ok: false, reason: "EXTERNAL_RESEARCH_POLICY_INCONSISTENT" };
+  }
+
+  if (!raw.escalationPolicy || typeof raw.escalationPolicy !== "object") {
+    return { ok: false, reason: "INVALID_ESCALATION_POLICY" };
+  }
+  const escalationRaw = raw.escalationPolicy as Record<string, unknown>;
+  if (unknownKeys(escalationRaw, ESCALATION_POLICY_KEYS).length > 0) {
+    return { ok: false, reason: "UNKNOWN_ESCALATION_POLICY_FIELD" };
+  }
+  if (
+    !Array.isArray(escalationRaw.requireHumanForRisk) ||
+    !escalationRaw.requireHumanForRisk.every(
+      (item) =>
+        typeof item === "string" &&
+        (EVALUATION_RISK_CLASSES as readonly string[]).includes(item),
+    )
+  ) {
+    return { ok: false, reason: "INVALID_REQUIRE_HUMAN_FOR_RISK" };
+  }
+  if (
+    !Array.isArray(escalationRaw.reasons) ||
+    !escalationRaw.reasons.every(
+      (item) =>
+        typeof item === "string" &&
+        (EVALUATION_ESCALATION_REASONS as readonly string[]).includes(item),
+    )
+  ) {
+    return { ok: false, reason: "INVALID_ESCALATION_REASONS" };
+  }
+
+  if (!raw.evaluationBudget || typeof raw.evaluationBudget !== "object") {
+    return { ok: false, reason: "INVALID_BUDGET" };
+  }
+  const budgetRaw = raw.evaluationBudget as Record<string, unknown>;
+  if (unknownKeys(budgetRaw, BUDGET_KEYS).length > 0) {
+    return { ok: false, reason: "UNKNOWN_BUDGET_FIELD" };
+  }
+  let evaluationBudget: EvaluationBudget;
+  try {
+    evaluationBudget = assertFiniteBudget({
+      maxJudgeCalls: budgetRaw.maxJudgeCalls as number,
+      maxRecoveryCycles: budgetRaw.maxRecoveryCycles as number,
+      maxExternalSearches: budgetRaw.maxExternalSearches as number,
+      maxCostUsd: budgetRaw.maxCostUsd as number,
+    });
+  } catch {
+    return { ok: false, reason: "INVALID_BUDGET" };
+  }
+
+  if (!raw.provenance || typeof raw.provenance !== "object") {
+    return { ok: false, reason: "INVALID_PROVENANCE" };
+  }
+  const provenanceRaw = raw.provenance as Record<string, unknown>;
+  if (unknownKeys(provenanceRaw, PROVENANCE_KEYS).length > 0) {
+    return { ok: false, reason: "UNKNOWN_PROVENANCE_FIELD" };
+  }
+  if (
+    provenanceRaw.contractVersion != null &&
+    provenanceRaw.contractVersion !== A2P2_TASK_CONTRACT_VERSION
+  ) {
+    return { ok: false, reason: "INVALID_PROVENANCE_VERSION" };
+  }
+  const source =
+    meta?.source ??
+    (typeof provenanceRaw.source === "string" &&
+    (TASK_CONTRACT_SOURCES as readonly string[]).includes(provenanceRaw.source)
+      ? (provenanceRaw.source as TaskContractSource)
+      : null);
+  if (!source) return { ok: false, reason: "INVALID_PROVENANCE_SOURCE" };
+  const createdAt =
+    meta?.createdAt ??
+    (typeof provenanceRaw.createdAt === "string" ? provenanceRaw.createdAt : "");
+  if (!createdAt) return { ok: false, reason: "INVALID_PROVENANCE_CREATED_AT" };
+  const sourceId =
+    provenanceRaw.sourceId === undefined
+      ? undefined
+      : boundedString(provenanceRaw.sourceId, ID_MAX) ?? undefined;
+  if (provenanceRaw.sourceId !== undefined && !sourceId) {
+    return { ok: false, reason: "INVALID_PROVENANCE_SOURCE_ID" };
+  }
+
+  const contract: AutonomousEvaluationTaskContract = {
+    version: A2P2_TASK_CONTRACT_VERSION,
+    taskType: raw.taskType as A2P2DomainId,
+    goalSummary,
+    requirements,
+    riskClass: raw.riskClass as EvaluationRiskClass,
+    automationLevel: raw.automationLevel as AutomationLevel,
+    recoveryPolicy: {
+      enabled: recoveryRaw.enabled,
+      allowedActions,
+      maxRecoveryCycles: recoveryRaw.maxRecoveryCycles,
+      allowExternalResearch: recoveryRaw.allowExternalResearch,
+    },
+    escalationPolicy: {
+      requireHumanForRisk: escalationRaw.requireHumanForRisk as EvaluationRiskClass[],
+      reasons: escalationRaw.reasons as EvaluationEscalationReason[],
+    },
+    evaluationBudget,
+    provenance: {
+      contractVersion: A2P2_TASK_CONTRACT_VERSION,
+      source,
+      sourceId,
+      resolverVersion: A2P2_RESOLVER_VERSION,
+      createdAt,
+    },
+  };
+  return { ok: true, contract: brandContract(contract) };
+}
+
+export function failClosedTaskContract(
+  source: "INVALID_EXPLICIT_CONTRACT" | "INVALID_WORKFLOW_CONTRACT",
+  createdAt: string,
+): ValidatedTaskContract {
+  return brandContract({
+    version: A2P2_TASK_CONTRACT_VERSION,
+    taskType: "GENERIC",
+    goalSummary: "invalid contract fail-closed",
+    requirements: [],
+    riskClass: "RESTRICTED",
+    automationLevel: "L0_HUMAN_CONTROLLED",
+    recoveryPolicy: defaultRecoveryPolicy({
+      enabled: false,
+      allowedActions: [],
+      maxRecoveryCycles: 0,
+      allowExternalResearch: false,
+    }),
+    escalationPolicy: defaultEscalationPolicy(["HIGH", "RESTRICTED"]),
+    evaluationBudget: defaultEvaluationBudget(),
+    provenance: {
+      contractVersion: A2P2_TASK_CONTRACT_VERSION,
+      source,
+      resolverVersion: A2P2_RESOLVER_VERSION,
+      createdAt,
+    },
+  });
+}
+
