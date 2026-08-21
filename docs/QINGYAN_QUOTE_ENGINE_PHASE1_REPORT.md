@@ -80,4 +80,8 @@ QE_ISOLATED_BRANCHES    = 0
 | B5 P1 | 客户视图税复用引擎售价口径税额 | `buildCustomerView({ tax })` 按客户可见应税小计（非 optional 公开行）`computeTax` 重算；路由传 `engineOf(q).tax` | QE-09：售价 1000 / 公开行 900 / HST 13% → 117 / 1017（引擎税 130 不被复用）；QE-10e 反例守卫 |
 | B6 P1 | 分级用 4 位显示值算百万件 | `UnitEconomics.exact{landedPerPiece…}` 全精度；`computeTiers` 用 exact；显示值只做输出舍入 | QC-15a–c：3,750,000 件下 4 位舍入漂移 >1 CAD（证明回归有意义）；分级成本 = 数量 × exact |
 
-修复后验证：quote-calc **34/34** · quote-engine-contract **28/28** · 隔离 DB E2E **10/10**（新分支 `migrate deploy` 后，已删）· 迁移守卫 61/61 + 27/27 · swc-nullish 守卫 PASS · tsc 零错 · eslint 零告警；full test-all / lint / build / GitHub CI / qingyan-staging 结果见最终返回。
+修复后验证：quote-calc **34/34** · quote-engine-contract **28/28** · 隔离 DB E2E **10/10**（新分支 `migrate deploy` 后，已删）· 迁移守卫 61/61 + 27/27 · swc-nullish 守卫 PASS · tsc 零错 · eslint 零告警；`npm run build` PASS · ESLint baseline gate PASS（CI 强制门；本地原始 `npm run lint` 52 errors = 历史欠账，基线 53，本分支未新增）· GitHub CI（validate-lint-typecheck-test-build + Vercel qingyan-staging）在 head 06c61fb3 双绿。
+
+全量 `scripts/test-all.sh`（隔离 Neon 分支 e2e-qe-fullreg2 上跑，已删）：**297/299**，2 个失败均与本分支无关——本分支未触碰 `src/lib/assistant`、`src/lib/env`、`google-email`，且两套件在干净 `origin/main`（bb1aff3b）检出上的行为与 HEAD 完全一致：
+- `Phase3B-A Customer Followup Scenario`：全量并发跑时失败一次；单独重跑 HEAD ×3 全 PASS，origin/main 亦 PASS → 负载下偶发，未复现。
+- `Gmail Draft OAuth Compose Scope`：断言 `GMAIL_DRAFT_ENABLED=true → 开启` 失败。根因：`isGmailDraftAllowed`（`src/lib/env/runtime-isolation.ts`，2026-08-02 @5e71d1e9 收紧）在非 test/production 运行时额外要求 `QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD`，本地 shell 未设 → 环境性失败；干净 origin/main 同样失败；该套件不在 CI 子集（`test-ci-unit.sh`）内。
