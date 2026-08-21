@@ -37,6 +37,7 @@ import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs
 import { WorkbenchCommandDeck } from "@/components/tender/workbench-command-deck";
 import { PricingHelperCard } from "@/components/tender/pricing-helper-card";
 import { BidDraftCard } from "@/components/tender/bid-draft-card";
+import { QuoteBudgetCard } from "@/components/quote-engine/quote-budget-card";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
 import {
   ProjectCommandOverview,
@@ -138,6 +139,9 @@ export function WorkbenchTab({
 
       {/* FB-13：历史项目对标（团队成员进工作台即见结论；无候选/未启用时自渲染 null） */}
       {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
+
+      {/* 报价与成本（Quote Engine §17 最小入口）：当前/已批准报价 KPI → Pricing Control Center（flag OFF 自渲染 null） */}
+      {tenderish ? <QuoteBudgetCard projectId={projectId} onOpenBid={() => onNavigate("bid")} /> : null}
 
       {/* 报价表助手：评分模型 + 价格带 + 我方成本 → 情景表/打平价（无分析时自渲染 null） */}
       {tenderish ? <PricingHelperCard projectId={projectId} canManage={canManage} /> : null}

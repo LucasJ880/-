@@ -33,6 +33,7 @@ export const EXPECTED_ACTIVE_MIGRATIONS = [
   "20260815010000_add_autopilot_a1_p0_telemetry_outbox",
   "20260816060000_add_document_page_unit_metadata",
   "20260819190000_add_autopilot_a2_p0_evaluation",
+  "20260821150000_add_quote_cost_engine_phase1",
 ] as const;
 
 export type ExpectedMigrationName = (typeof EXPECTED_ACTIVE_MIGRATIONS)[number];
