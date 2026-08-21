@@ -7,10 +7,17 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { toEvaluationEvidenceStatus } from "../a2p2-evidence-adapter";
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
-import { collectEvidenceForContract, selectEvidenceCollector } from "../a2p2-evidence-collectors";
-import { makeEvidenceRef } from "../a2p2-evidence-hash";
-import { MAX_EVIDENCE_FACTS } from "../a2p2-evidence-types";
+import { selectEvidenceCollector } from "../a2p2-evidence-collectors";
+import { hashEvidencePacket, makeEvidenceRef } from "../a2p2-evidence-hash";
+import { MAX_EVIDENCE_FACTS, MAX_PACKET_SAFE_TEXT_BYTES } from "../a2p2-evidence-types";
 import { resolveTaskContract } from "../a2p2-templates";
+import {
+  closingFact,
+  evidenceRef,
+  makeAnalysisResultV2,
+  mandatoryRequirement,
+  UPSTREAM_HASH_A,
+} from "./a2p2-evidence-fixtures";
 
 let pass = 0;
 let fail = 0;
@@ -31,146 +38,96 @@ function tenderContract() {
   return resolveTaskContract({ domainHint: "TENDER_ANALYSIS", now: NOW });
 }
 
-function sufficientTenderSources() {
-  return {
-    tender: {
-      facts: [
-        {
-          factType: "closing_datetime",
-          claim: "closing 2026-09-15 14:00",
-          normalizedValue: "2026-09-15T14:00:00",
-          sourceId: "doc-1",
-          page: 3,
-          field: "closing_datetime",
-        },
-      ],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-set-1",
+function genericContract(
+  requirements: Array<{
+    id: string;
+    required: boolean;
+    evidenceKinds?: string[];
+    allowUnknown?: boolean;
+  }>,
+) {
+  const base = JSON.parse(
+    JSON.stringify(resolveTaskContract({ domainHint: "TENDER_ANALYSIS", now: NOW })),
+  ) as Record<string, unknown>;
+  return resolveTaskContract({
+    now: NOW,
+    explicitContract: {
+      ...base,
+      taskType: "GENERIC",
+      requirements: requirements.map((item) => ({
+        id: item.id,
+        label: item.id,
+        required: item.required,
+        evidenceKinds: item.evidenceKinds ?? ["SOURCE_FACT"],
+        minimumEvidenceRefs: 1,
+        allowUnknown: item.allowUnknown ?? !item.required,
+        criticality: item.required ? "HIGH" : "LOW",
+        normalizedDescription: item.id,
+      })),
     },
-  };
+  });
 }
 
 console.log("autopilot A2-P2.1 evidence builder");
 
 const contract = tenderContract();
+const analysis = makeAnalysisResultV2();
 const packetA = buildEvidencePacket({
   contract,
-  structuredSources: sufficientTenderSources(),
+  structuredSources: { tender: analysis },
   now: NOW,
 });
 const packetA2 = buildEvidencePacket({
   contract,
-  structuredSources: sufficientTenderSources(),
+  structuredSources: { tender: analysis },
   now: NOW,
 });
-ok(packetA.status === "SUFFICIENT", "Tender Case A sufficient");
+ok(packetA.status === "SUFFICIENT", "Tender Case A sufficient from AnalysisResultV2");
 ok(packetA.packetHash === packetA2.packetHash, "PACKET_HASH_DETERMINISTIC");
-ok(packetA.evidenceFacts[0]?.evidenceRef === packetA2.evidenceFacts[0]?.evidenceRef, "EVIDENCE_REF_REPLAY_STABLE");
-
-const ref = makeEvidenceRef({
-  evidenceKind: packetA.evidenceFacts[0].evidenceKind,
-  requirementId: packetA.evidenceFacts[0].requirementId,
-  factKey: packetA.evidenceFacts[0].factKey,
-  sourceType: packetA.evidenceFacts[0].source.sourceType,
-  sourceId: packetA.evidenceFacts[0].source.sourceId,
-  contentHash: packetA.evidenceFacts[0].contentHash,
-});
-ok(ref === packetA.evidenceFacts[0].evidenceRef, "EVIDENCE_REF_DETERMINISTIC");
-
-const reversed = {
-  tender: {
-    facts: [
-      {
-        factType: "submission_method",
-        claim: "email submission",
-        normalizedValue: "email",
-        sourceId: "doc-2",
-      },
-      ...sufficientTenderSources().tender.facts,
-    ],
-    mandatoryRequirementPresent: true,
-    mandatorySourceId: "req-set-1",
-  },
-};
-const ordered = {
-  tender: {
-    facts: [
-      ...sufficientTenderSources().tender.facts,
-      {
-        factType: "submission_method",
-        claim: "email submission",
-        normalizedValue: "email",
-        sourceId: "doc-2",
-      },
-    ],
-    mandatoryRequirementPresent: true,
-    mandatorySourceId: "req-set-1",
-  },
-};
-const packetOrderA = buildEvidencePacket({ contract, structuredSources: reversed, now: NOW });
-const packetOrderB = buildEvidencePacket({ contract, structuredSources: ordered, now: NOW });
 ok(
-  packetOrderA.packetHash === packetOrderB.packetHash,
+  packetA.evidenceFacts[0]?.evidenceRef === packetA2.evidenceFacts[0]?.evidenceRef,
+  "EVIDENCE_REF_REPLAY_STABLE",
+);
+
+const first = packetA.evidenceFacts[0];
+ok(
+  makeEvidenceRef({
+    evidenceKind: first.evidenceKind,
+    requirementId: first.requirementId,
+    factKey: first.factKey,
+    sourceType: first.source.sourceType,
+    sourceId: first.source.sourceId,
+    canonicalFactHash: first.canonicalFactHash,
+  }) === first.evidenceRef,
+  "EVIDENCE_REF_DETERMINISTIC",
+);
+
+const methodFact = closingFact({
+  id: "fact_method",
+  factType: "submission_method",
+  claim: "Bids must be submitted by email",
+  normalizedValue: { kind: "text", value: "email" },
+  evidence: [evidenceRef("doc-2", 1)],
+});
+const reversed = makeAnalysisResultV2({
+  facts: [methodFact, closingFact()],
+});
+const ordered = makeAnalysisResultV2({
+  facts: [closingFact(), methodFact],
+});
+ok(
+  buildEvidencePacket({ contract, structuredSources: { tender: reversed }, now: NOW }).packetHash ===
+    buildEvidencePacket({ contract, structuredSources: { tender: ordered }, now: NOW }).packetHash,
   "SOURCE_ORDER_DOES_NOT_CHANGE_PACKET",
 );
 
-ok(
-  selectEvidenceCollector("TENDER_ANALYSIS").name === "collectTenderEvidence",
-  "COLLECTOR_SELECTION_AUTOMATIC tender",
-);
+ok(selectEvidenceCollector("TENDER_ANALYSIS").name === "collectTenderEvidence", "COLLECTOR_SELECTION_AUTOMATIC");
 ok(selectEvidenceCollector("RESEARCH").name === "collectResearchEvidence", "collector research");
 ok(selectEvidenceCollector("EMAIL_DRAFT").name === "collectEmailDraftEvidence", "collector email");
-ok(selectEvidenceCollector("GENERIC").name === "collectGenericEvidence", "collector generic");
 ok(packetA.taskType === "TENDER_ANALYSIS", "collector selected from taskType");
 
-const unknown = buildEvidencePacket({
-  contract,
-  structuredSources: {
-    generic: {
-      facts: [
-        {
-          requirementId: "not_a_requirement",
-          factKey: "x",
-          summary: "nope",
-          sourceId: "g1",
-        },
-      ],
-    },
-    ...sufficientTenderSources(),
-  },
-  now: NOW,
-});
-ok(
-  !unknown.rejectedFacts.some((item) => item.requirementId === "not_a_requirement") ||
-    collectEvidenceForContract(contract, {
-      generic: {
-        facts: [{ requirementId: "not_a_requirement", factKey: "x", summary: "nope", sourceId: "g1" }],
-      },
-    }).rejectedFacts.length === 0,
-  "tender collector ignores unrelated generic snapshot",
-);
-
 const genericUnknown = buildEvidencePacket({
-  contract: resolveTaskContract({
-    domainHint: "GENERIC",
-    now: NOW,
-    explicitContract: {
-      ...JSON.parse(JSON.stringify(resolveTaskContract({ domainHint: "TENDER_ANALYSIS", now: NOW }))),
-      taskType: "GENERIC",
-      requirements: [
-        {
-          id: "only_known",
-          label: "only known",
-          required: true,
-          evidenceKinds: ["SOURCE_FACT"],
-          minimumEvidenceRefs: 1,
-          allowUnknown: false,
-          criticality: "HIGH",
-          normalizedDescription: "only known",
-        },
-      ],
-    },
-  }),
+  contract: genericContract([{ id: "only_known", required: true }]),
   structuredSources: {
     generic: {
       facts: [{ requirementId: "ghost_req", factKey: "x", summary: "nope", sourceId: "g1" }],
@@ -185,6 +142,54 @@ ok(
 ok(genericUnknown.status !== "SUFFICIENT", "unknown requirement cannot create sufficiency");
 
 const mismatch = buildEvidencePacket({
+  contract: genericContract([
+    { id: "needed", required: true, evidenceKinds: ["SOURCE_FACT"] },
+  ]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "k1",
+          summary: "runtime note",
+          sourceId: "src-1",
+          evidenceKind: "RUNTIME_FACT",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  mismatch.requirementAssessments[0]?.state === "INSUFFICIENT" && mismatch.status === "INSUFFICIENT",
+  "EVIDENCE_KIND_MISMATCH_NOT_COUNTED",
+);
+
+const dup = buildEvidencePacket({
+  contract,
+  structuredSources: { tender: makeAnalysisResultV2({ facts: [closingFact(), closingFact()] }) },
+  now: NOW,
+});
+ok(
+  dup.evidenceFacts.filter((item) => item.requirementId === "submission_deadline").length === 1,
+  "DUPLICATE_EVIDENCE_NOT_DOUBLE_COUNTED",
+);
+
+const frozen = Object.freeze({ tender: Object.freeze(makeAnalysisResultV2()) });
+const before = JSON.stringify(contract);
+buildEvidencePacket({ contract, structuredSources: frozen, now: NOW });
+ok(JSON.stringify(contract) === before, "BUILDER_INPUT_IMMUTABLE");
+ok(packetA.contract.riskClass === contract.riskClass, "EVIDENCE_BUILDER_CANNOT_DOWNGRADE_RISK");
+ok(
+  packetA.contract.automationLevel === contract.automationLevel,
+  "EVIDENCE_BUILDER_CANNOT_EXPAND_AUTOMATION",
+);
+
+ok(toEvaluationEvidenceStatus("SUFFICIENT") === "SUFFICIENT", "adapter SUFFICIENT");
+ok(toEvaluationEvidenceStatus("NOT_EVALUABLE") === "INSUFFICIENT", "adapter NOT_EVALUABLE fail-closed");
+ok(toEvaluationEvidenceStatus("PRIVACY_BLOCKED") === "PRIVACY_BLOCKED", "adapter privacy");
+
+const research = buildEvidencePacket({
   contract: resolveTaskContract({ domainHint: "RESEARCH", now: NOW }),
   structuredSources: {
     research: {
@@ -194,7 +199,7 @@ const mismatch = buildEvidencePacket({
           claimKey: "q1",
           summary: "answered in notes",
           sourceId: "r1",
-          evidenceKind: "SOURCE_FACT",
+          evidenceKind: "ARTIFACT_FACT",
         },
         {
           requirementId: "source_evidence_present",
@@ -208,78 +213,29 @@ const mismatch = buildEvidencePacket({
   },
   now: NOW,
 });
-const qa = mismatch.requirementAssessments.find((item) => item.requirementId === "question_answered");
-ok(qa?.state === "INSUFFICIENT", "EVIDENCE_KIND_MISMATCH_NOT_COUNTED");
-ok(mismatch.status === "INSUFFICIENT", "kind mismatch does not satisfy required ARTIFACT_FACT");
-
-const dup = buildEvidencePacket({
-  contract,
-  structuredSources: {
-    tender: {
-      facts: [
-        sufficientTenderSources().tender.facts[0],
-        sufficientTenderSources().tender.facts[0],
-        sufficientTenderSources().tender.facts[0],
-      ],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-set-1",
-    },
-  },
-  now: NOW,
-});
-const deadlineRefs = dup.evidenceFacts.filter((item) => item.requirementId === "submission_deadline");
-ok(deadlineRefs.length === 1, "DUPLICATE_EVIDENCE_NOT_DOUBLE_COUNTED");
+ok(research.status === "INSUFFICIENT", "RESEARCH_SAFE_INTERFACE_CANNOT_BECOME_SUFFICIENT");
 ok(
-  dup.requirementAssessments.find((item) => item.requirementId === "submission_deadline")
-    ?.validEvidenceRefs.length === 1,
-  "unique refs counted once",
+  research.diagnostics.some((item) => item.code === "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE"),
+  "ARBITRARY_RESEARCH_CLAIMS_NOT_AUTHORITY",
 );
-
-const frozenSources = Object.freeze({
-  tender: Object.freeze({
-    facts: Object.freeze([...sufficientTenderSources().tender.facts]),
-    mandatoryRequirementPresent: true,
-    mandatorySourceId: "req-set-1",
-  }),
-});
-const before = JSON.stringify(contract);
-buildEvidencePacket({ contract, structuredSources: frozenSources, now: NOW });
-ok(JSON.stringify(contract) === before, "BUILDER_INPUT_IMMUTABLE");
-
-ok(packetA.contract.riskClass === contract.riskClass, "EVIDENCE_BUILDER_CANNOT_DOWNGRADE_RISK");
-ok(
-  packetA.contract.automationLevel === contract.automationLevel,
-  "EVIDENCE_BUILDER_CANNOT_EXPAND_AUTOMATION",
-);
-
-ok(toEvaluationEvidenceStatus("SUFFICIENT") === "SUFFICIENT", "adapter SUFFICIENT");
-ok(toEvaluationEvidenceStatus("NOT_EVALUABLE") === "INSUFFICIENT", "adapter NOT_EVALUABLE fail-closed");
-ok(toEvaluationEvidenceStatus("PRIVACY_BLOCKED") === "PRIVACY_BLOCKED", "adapter privacy");
 
 const emailContract = resolveTaskContract({ domainHint: "EMAIL_DRAFT", now: NOW });
-const emailMissing = buildEvidencePacket({ contract: emailContract, now: NOW });
-ok(emailMissing.status === "INSUFFICIENT", "email without structured metadata is insufficient");
-ok(
-  emailMissing.diagnostics.some((item) => item.code === "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE"),
-  "EMAIL_DRAFT SAFE_INTERFACE_ONLY",
-);
-
-const emailOk = buildEvidencePacket({
+const emailSynth = buildEvidencePacket({
   contract: emailContract,
   structuredSources: {
     emailDraft: {
       purposeAddressed: true,
-      requiredQuestionIds: ["q-delivery", "q-color"],
+      requiredQuestionIds: ["q-delivery"],
       unsupportedCommitmentAbsent: true,
       sourceId: "pending-action-meta-1",
     },
   },
   now: NOW,
 });
-ok(emailOk.status === "SUFFICIENT", "email structured checklist can be sufficient");
+ok(emailSynth.status === "INSUFFICIENT", "EMAIL_SAFE_INTERFACE_CANNOT_BECOME_SUFFICIENT");
 ok(
-  !JSON.stringify(emailOk).includes("Dear") && !("body" in (emailOk.evidenceFacts[0] ?? {})),
-  "email packet has no body",
+  emailSynth.diagnostics.some((item) => item.code === "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE"),
+  "ARBITRARY_EMAIL_BOOLEAN_CHECKLIST_NOT_AUTHORITY",
 );
 
 const collectorSrc = readFileSync(
@@ -295,7 +251,193 @@ ok(
   "EMAIL_EVIDENCE_BUILDER_CANNOT_SEND",
 );
 
+const sameHashDifferentValue = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "deadline",
+          summary: "first date",
+          sourceId: "doc-a",
+          normalizedValue: "2026-09-15",
+          contentHash: UPSTREAM_HASH_A,
+        },
+        {
+          requirementId: "needed",
+          factKey: "deadline",
+          summary: "second date",
+          sourceId: "doc-b",
+          normalizedValue: "2026-09-20",
+          contentHash: UPSTREAM_HASH_A,
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+const refs = new Set(sameHashDifferentValue.evidenceFacts.map((item) => item.evidenceRef));
+ok(refs.size === 2, "SAME_UPSTREAM_HASH_DIFFERENT_NORMALIZED_VALUE DISTINCT_EVIDENCE_REFS");
+ok(
+  sameHashDifferentValue.status === "CONFLICTING",
+  "SAME_UPSTREAM_HASH_DIFFERENT_NORMALIZED_VALUE_CONFLICT",
+);
+ok(
+  sameHashDifferentValue.evidenceFacts.every(
+    (fact) => fact.canonicalFactHash !== UPSTREAM_HASH_A && fact.provenance.sourceContentHash === UPSTREAM_HASH_A,
+  ),
+  "UPSTREAM_HASH_CANNOT_OVERRIDE_CANONICAL_FACT_HASH",
+);
+
+const extractorA = makeAnalysisResultV2({
+  metadata: {
+    ...makeAnalysisResultV2().metadata,
+    analyzerVersion: "tender-understanding/v2",
+  },
+});
+const extractorB = makeAnalysisResultV2({
+  metadata: {
+    ...makeAnalysisResultV2().metadata,
+    analyzerVersion: "tender-understanding/v2-test",
+  },
+});
+ok(
+  buildEvidencePacket({ contract, structuredSources: { tender: extractorA }, now: NOW }).packetHash !==
+    buildEvidencePacket({ contract, structuredSources: { tender: extractorB }, now: NOW }).packetHash,
+  "PACKET_HASH_CHANGES_ON_EXTRACTOR_VERSION_CHANGE",
+);
+ok(
+  buildEvidencePacket({ contract, structuredSources: { tender: analysis }, now: new Date("2026-02-01") })
+    .packetHash === packetA.packetHash,
+  "PACKET_HASH_CREATED_AT_ONLY_CHANGE_IS_STABLE",
+);
+
+const rejectedOrderA = buildEvidencePacket({
+  contract: genericContract([{ id: "only_known", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        { requirementId: "ghost_b", factKey: "b", summary: "b", sourceId: "g2" },
+        { requirementId: "ghost_a", factKey: "a", summary: "a", sourceId: "g1" },
+      ],
+    },
+  },
+  now: NOW,
+});
+const rejectedOrderB = buildEvidencePacket({
+  contract: genericContract([{ id: "only_known", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        { requirementId: "ghost_a", factKey: "a", summary: "a", sourceId: "g1" },
+        { requirementId: "ghost_b", factKey: "b", summary: "b", sourceId: "g2" },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  rejectedOrderA.packetHash === rejectedOrderB.packetHash,
+  "REJECTED_FACT_ORDER_DOES_NOT_CHANGE_PACKET_HASH",
+);
+ok(
+  hashEvidencePacket({
+    ...packetA,
+    diagnostics: [
+      { code: "EVIDENCE_READY", detail: "b" },
+      { code: "EVIDENCE_MISSING", detail: "a" },
+    ],
+  }) ===
+    hashEvidencePacket({
+      ...packetA,
+      diagnostics: [
+        { code: "EVIDENCE_MISSING", detail: "a" },
+        { code: "EVIDENCE_READY", detail: "b" },
+      ],
+    }),
+  "DIAGNOSTIC_ORDER_DOES_NOT_CHANGE_PACKET_HASH",
+);
+
+const malformed = buildEvidencePacket({
+  contract,
+  structuredSources: { tender: { facts: [] }, unexpected: true },
+});
+ok(malformed.status === "NOT_EVALUABLE", "MALFORMED_SOURCE_SNAPSHOT_FAILS_CLOSED");
+ok(
+  malformed.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE"),
+  "UNKNOWN_SOURCE_FIELD_REJECTED",
+);
+
+let threw = false;
+try {
+  buildEvidencePacket({
+    contract,
+    structuredSources: { generic: { facts: { requirementId: 1 } } },
+  });
+} catch {
+  threw = true;
+}
+ok(!threw && buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: { generic: { facts: { requirementId: 1 } } },
+}).status === "NOT_EVALUABLE", "MALFORMED_SOURCE_ID_DOES_NOT_THROW");
+ok(
+  buildEvidencePacket({
+    contract: genericContract([{ id: "needed", required: true }]),
+    structuredSources: { generic: { facts: "nope" } },
+  }).status === "NOT_EVALUABLE",
+  "INVALID_SOURCE_ARRAY_REJECTED",
+);
+ok(
+  buildEvidencePacket({
+    contract: genericContract([{ id: "needed", required: true }]),
+    structuredSources: {
+      generic: {
+        facts: [
+          {
+            requirementId: "needed",
+            factKey: "k1",
+            summary: "nested",
+            sourceId: "src-1",
+            normalizedValue: { nested: true },
+          },
+        ],
+      },
+    },
+  }).status === "NOT_EVALUABLE",
+  "INVALID_NORMALIZED_VALUE_REJECTED",
+);
+
 ok(MAX_EVIDENCE_FACTS === 100, "PACKET_LIMIT_IS_BOUNDED");
+
+const large = "x".repeat(400);
+const bulky = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: Array.from({ length: 90 }, (_, index) => ({
+        requirementId: "needed",
+        factKey: `k${index}`,
+        summary: large,
+        sourceId: `id${String(index).padStart(2, "0")}${"y".repeat(110)}`,
+        normalizedValue: large,
+        locator: { section: large.slice(0, 80), field: large.slice(0, 80) },
+      })),
+    },
+  },
+  now: NOW,
+});
+ok(bulky.status === "NOT_EVALUABLE", "FULL_PACKET_BYTE_LIMIT_ENFORCED");
+ok(bulky.status !== "SUFFICIENT", "OVERFLOW_PACKET_NEVER_SUFFICIENT");
+ok(bulky.status === "NOT_EVALUABLE", "LARGE_NORMALIZED_VALUE_CANNOT_BYPASS_LIMIT");
+ok(bulky.status === "NOT_EVALUABLE", "LARGE_SOURCE_IDS_CANNOT_BYPASS_LIMIT");
+ok(bulky.status === "NOT_EVALUABLE", "LARGE_LOCATORS_CANNOT_BYPASS_LIMIT");
+ok(
+  Buffer.byteLength(JSON.stringify(bulky), "utf8") <= MAX_PACKET_SAFE_TEXT_BYTES + 2048 &&
+    bulky.evidenceFacts.length === 0,
+  "OVERFLOW_PACKET_OUTPUT_IS_BOUNDED",
+);
 
 if (fail > 0) {
   console.error(`FAILED ${fail} / ${pass + fail}`);

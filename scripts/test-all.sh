@@ -162,6 +162,7 @@ run_test "Autopilot A2-P2.0 Routing" "npx tsx src/lib/autopilot/__tests__/a2p2-r
 run_test "Autopilot A2-P2.1 Evidence Privacy" "npx tsx src/lib/autopilot/__tests__/a2p2-evidence-privacy.test.ts"
 run_test "Autopilot A2-P2.1 Evidence Builder" "npx tsx src/lib/autopilot/__tests__/a2p2-evidence-builder.test.ts"
 run_test "Autopilot A2-P2.1 Evidence Sufficiency" "npx tsx src/lib/autopilot/__tests__/a2p2-evidence-sufficiency.test.ts"
+run_test "Autopilot A2-P2.1 Tender Adapter" "npx tsx src/lib/autopilot/__tests__/a2p2-evidence-tender-adapter.test.ts"
 run_test "Autopilot A2-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/evaluate-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"

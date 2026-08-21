@@ -23,6 +23,8 @@ export const MAX_FACTS_PER_REQUIREMENT = 20;
 export const MAX_PACKET_SAFE_TEXT_BYTES = 32 * 1024;
 export const MAX_SAFE_SCALAR_ARRAY = 20;
 export const MAX_LOCATOR_STRING = 80;
+export const MAX_SOURCE_ID_LENGTH = 128;
+export const MAX_STRUCTURED_FACTS = 200;
 
 export const EVIDENCE_SOURCE_STATES = [
   "FOUND",
@@ -67,12 +69,16 @@ export const EVIDENCE_REASON_CODES = [
   "EVIDENCE_PRIVACY_BLOCKED",
   "EVIDENCE_SECRET_BLOCKED",
   "EVIDENCE_RAW_CONTENT_REJECTED",
+  "EVIDENCE_PROHIBITED_CLASS_BLOCKED",
   "EVIDENCE_UNKNOWN_REQUIREMENT",
   "EVIDENCE_PACKET_LIMIT_EXCEEDED",
   "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE",
   "EVIDENCE_GENERIC_NOT_EVALUABLE",
   "EVIDENCE_UNVALIDATED_CONTRACT",
   "EVIDENCE_INVALID_VALUE",
+  "EVIDENCE_INVALID_STRUCTURED_SOURCE",
+  "EVIDENCE_UNSAFE_IDENTIFIER",
+  "EVIDENCE_HTML_REJECTED",
   "EVIDENCE_OPTIONAL_REJECTED",
 ] as const;
 export type EvidenceReasonCode = (typeof EVIDENCE_REASON_CODES)[number];
@@ -100,13 +106,14 @@ export type EvidenceFact = {
     sourceId: string;
     locator?: EvidenceLocator;
   };
-  contentHash: string;
+  canonicalFactHash: string;
   privacyClass: EvaluationPrivacyClass;
   acceptance: EvidenceAcceptanceState;
   countsTowardRequirement: boolean;
   provenance: {
     collectorVersion: typeof A2P2_EVIDENCE_COLLECTOR_VERSION;
     extractorVersion?: string;
+    sourceContentHash?: string;
     sourceObservedAt?: string;
     createdAt: string;
   };
@@ -148,43 +155,32 @@ export type EvidenceCandidate = {
   sourceType: string;
   sourceId: string;
   locator?: EvidenceLocator;
-  contentHash?: string;
+  sourceContentHash?: string;
   privacyClass?: EvaluationPrivacyClass;
   extractorVersion?: string;
   sourceObservedAt?: string;
 };
 
-export type TenderStructuredFact = {
-  factType: string;
-  claim?: string;
-  normalizedValue?: SafeNormalizedValue;
-  sourceState?: EvidenceSourceState;
-  sourceType?: string;
-  sourceId: string;
-  page?: number;
-  field?: string;
-  contentHash?: string;
-  status?: "ACTIVE" | "SUPERSEDED" | "CONFLICT";
-};
-
-export type TenderStructuredSnapshot = {
-  facts?: readonly TenderStructuredFact[];
-  mandatoryRequirementPresent?: boolean;
-  mandatorySourceId?: string;
-};
-
-export type ResearchStructuredClaim = {
+export type GenericStructuredFact = {
   requirementId: string;
-  claimKey: string;
+  factKey: string;
   summary: string;
   sourceId: string;
-  sourceDate?: string;
-  contentHash?: string;
   evidenceKind?: EvaluationEvidenceKind;
+  normalizedValue?: SafeNormalizedValue;
+  privacyClass?: EvaluationPrivacyClass;
+  locator?: EvidenceLocator;
+  contentHash?: string;
+  extractorVersion?: string;
+  sourceType?: string;
+};
+
+export type GenericStructuredSnapshot = {
+  facts?: readonly GenericStructuredFact[];
 };
 
 export type ResearchStructuredSnapshot = {
-  claims?: readonly ResearchStructuredClaim[];
+  claims?: readonly Record<string, unknown>[];
 };
 
 export type EmailDraftStructuredSnapshot = {
@@ -195,21 +191,8 @@ export type EmailDraftStructuredSnapshot = {
   sourceId?: string;
 };
 
-export type GenericStructuredFact = {
-  requirementId: string;
-  factKey: string;
-  summary: string;
-  sourceId: string;
-  evidenceKind?: EvaluationEvidenceKind;
-  normalizedValue?: SafeNormalizedValue;
-};
-
-export type GenericStructuredSnapshot = {
-  facts?: readonly GenericStructuredFact[];
-};
-
 export type StructuredSourcesSnapshot = {
-  tender?: TenderStructuredSnapshot;
+  tender?: unknown;
   research?: ResearchStructuredSnapshot;
   emailDraft?: EmailDraftStructuredSnapshot;
   generic?: GenericStructuredSnapshot;

@@ -3,6 +3,7 @@
  */
 
 import {
+  EVALUATION_PRIVACY_CLASSES,
   FORBIDDEN_CONTRACT_FIELD_NAMES,
   findForbiddenContractField,
   isJudgeEligiblePrivacyClass,
@@ -11,6 +12,7 @@ import {
 import {
   MAX_LOCATOR_STRING,
   MAX_SAFE_SCALAR_ARRAY,
+  MAX_SOURCE_ID_LENGTH,
   SAFE_FACT_STRING_MAX,
   type EvidenceLocator,
   type SafeNormalizedValue,
@@ -30,6 +32,8 @@ export const FORBIDDEN_EVIDENCE_FIELD_NAMES = [
   "pageText",
   "fullBody",
   "fullContent",
+  "contentText",
+  "sourceSnippet",
 ] as const;
 
 const SECRET_NEEDLES = [
@@ -53,12 +57,15 @@ const CREDENTIAL_URL = /\b(?:postgres|mysql|mongodb|redis|amqp):\/\/[^\s]+:[^\s]
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_RE =
   /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})/g;
+const HTML_RE = /<\/?[a-z][a-z0-9]*\b[^>]*>/i;
+const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 export type PrivacyScanResult = {
   secret: boolean;
   forbiddenField: string | null;
   privacyClass: EvaluationPrivacyClass;
   redacted: boolean;
+  html: boolean;
 };
 
 export function scanForbiddenEvidenceFields(value: unknown): string | null {
@@ -97,6 +104,16 @@ export function containsSecretMaterial(value: unknown): boolean {
   return false;
 }
 
+export function containsUnsafeMarkup(value: unknown): boolean {
+  return collectStrings(value).some((text) => HTML_RE.test(text));
+}
+
+export function containsPiiText(value: string): boolean {
+  EMAIL_RE.lastIndex = 0;
+  PHONE_RE.lastIndex = 0;
+  return EMAIL_RE.test(value) || PHONE_RE.test(value);
+}
+
 function collectStrings(value: unknown, out: string[] = []): string[] {
   if (typeof value === "string") {
     out.push(value);
@@ -125,41 +142,75 @@ export function boundFactString(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, SAFE_FACT_STRING_MAX);
 }
 
+export function isOpaqueSourceId(value: string): boolean {
+  if (value.length < 1 || value.length > MAX_SOURCE_ID_LENGTH) return false;
+  if (!OPAQUE_ID_RE.test(value)) return false;
+  if (containsPiiText(value)) return false;
+  if (containsSecretMaterial(value)) return false;
+  if (containsUnsafeMarkup(value)) return false;
+  return true;
+}
+
+export function isOpaqueToken(value: string): boolean {
+  return isOpaqueSourceId(value);
+}
+
 export function sanitizeLocator(
   locator: EvidenceLocator | undefined,
-): EvidenceLocator | undefined {
-  if (!locator) return undefined;
+): { locator?: EvidenceLocator; redacted: boolean } {
+  if (!locator) return { redacted: false };
   const page =
     typeof locator.page === "number" && Number.isInteger(locator.page) && locator.page > 0
       ? locator.page
       : undefined;
-  const section = boundLocator(locator.section);
-  const field = boundLocator(locator.field);
-  const recordKey = boundLocator(locator.recordKey);
-  const toolName = boundLocator(locator.toolName);
-  if (!page && !section && !field && !recordKey && !toolName) return undefined;
-  return { page, section, field, recordKey, toolName };
+  const section = redactLocatorField(locator.section);
+  const field = redactLocatorField(locator.field);
+  const recordKey = redactLocatorField(locator.recordKey);
+  const toolName = redactLocatorField(locator.toolName);
+  const redacted =
+    section.redacted || field.redacted || recordKey.redacted || toolName.redacted;
+  if (!page && !section.text && !field.text && !recordKey.text && !toolName.text) {
+    return { redacted };
+  }
+  return {
+    redacted,
+    locator: {
+      page,
+      section: section.text,
+      field: field.text,
+      recordKey: recordKey.text,
+      toolName: toolName.text,
+    },
+  };
 }
 
-function boundLocator(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = boundFactString(value).slice(0, MAX_LOCATOR_STRING);
-  return trimmed || undefined;
+function redactLocatorField(value: string | undefined): {
+  text: string | undefined;
+  redacted: boolean;
+} {
+  if (typeof value !== "string") return { text: undefined, redacted: false };
+  const pii = redactPiiText(boundFactString(value).slice(0, MAX_LOCATOR_STRING));
+  return { text: pii.text || undefined, redacted: pii.redacted };
 }
 
-export function sanitizeNormalizedValue(
-  value: unknown,
-): SafeNormalizedValue | undefined {
-  if (value === null || typeof value === "boolean") return value;
+export function sanitizeNormalizedValue(value: unknown): {
+  value: SafeNormalizedValue;
+  redacted: boolean;
+} | undefined {
+  if (value === null || typeof value === "boolean") {
+    return { value, redacted: false };
+  }
   if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
+    return Number.isFinite(value) ? { value, redacted: false } : undefined;
   }
   if (typeof value === "string") {
-    return redactPiiText(boundFactString(value)).text;
+    const pii = redactPiiText(boundFactString(value));
+    return { value: pii.text, redacted: pii.redacted };
   }
   if (Array.isArray(value)) {
     if (value.length > MAX_SAFE_SCALAR_ARRAY) return undefined;
     const items: SafeScalar[] = [];
+    let redacted = false;
     for (const item of value) {
       if (item === null || typeof item === "boolean") {
         items.push(item);
@@ -170,29 +221,40 @@ export function sanitizeNormalizedValue(
         continue;
       }
       if (typeof item === "string") {
-        items.push(redactPiiText(boundFactString(item)).text);
+        const pii = redactPiiText(boundFactString(item));
+        items.push(pii.text);
+        redacted = redacted || pii.redacted;
         continue;
       }
       return undefined;
     }
-    return items;
+    return { value: items, redacted };
   }
   return undefined;
+}
+
+export function isKnownPrivacyClass(value: unknown): value is EvaluationPrivacyClass {
+  return (
+    typeof value === "string" &&
+    (EVALUATION_PRIVACY_CLASSES as readonly string[]).includes(value)
+  );
 }
 
 export function scanEvidenceValue(value: unknown): PrivacyScanResult {
   const forbiddenField = scanForbiddenEvidenceFields(value);
   const secret = containsSecretMaterial(value);
+  const html = containsUnsafeMarkup(value);
   const texts = collectStrings(value).join(" ");
   const pii = redactPiiText(texts).redacted;
   let privacyClass: EvaluationPrivacyClass = "INTERNAL";
   if (secret || forbiddenField) privacyClass = "PROHIBITED";
   else if (pii) privacyClass = "SENSITIVE";
   return {
-    secret: secret || forbiddenField != null,
+    secret,
     forbiddenField,
     privacyClass,
     redacted: pii,
+    html,
   };
 }
 

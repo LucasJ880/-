@@ -1,11 +1,17 @@
 /**
  * Autopilot A2-P2.1 — deterministic EvidenceRef and packetHash.
+ *
+ * canonicalFactHash is always computed locally from sanitized fields.
+ * Upstream hashes may be stored as provenance.sourceContentHash only.
+ * packetHash includes stable provenance and excludes provenance.createdAt.
  */
 
 import { createHash } from "node:crypto";
 import {
   A2P2_EVIDENCE_PACKET_VERSION,
+  type EvidenceDiagnostic,
   type EvidenceFact,
+  type RejectedEvidence,
   type RequirementEvidenceAssessment,
 } from "./a2p2-evidence-types";
 
@@ -33,13 +39,24 @@ function sortValue(value: unknown): unknown {
   return value;
 }
 
+export function makeCanonicalFactHash(input: {
+  evidenceKind: string;
+  requirementId: string;
+  factKey: string;
+  normalizedValue: unknown;
+  sourceType: string;
+  sourceId: string;
+}): string {
+  return sha256Hex(canonicalJson(input));
+}
+
 export function makeEvidenceRef(input: {
   evidenceKind: string;
   requirementId: string;
   factKey: string;
   sourceType: string;
   sourceId: string;
-  contentHash: string;
+  canonicalFactHash: string;
 }): string {
   return sha256Hex(
     canonicalJson({
@@ -49,19 +66,35 @@ export function makeEvidenceRef(input: {
       factKey: input.factKey,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
-      contentHash: input.contentHash,
+      canonicalFactHash: input.canonicalFactHash,
     }),
   );
 }
 
-export function makeContentHash(input: {
-  evidenceKind: string;
-  requirementId: string;
-  factKey: string;
-  normalizedValue: unknown;
-  sourceId: string;
-}): string {
-  return sha256Hex(canonicalJson(input));
+export function compareRejectedEvidence(a: RejectedEvidence, b: RejectedEvidence): number {
+  return (
+    a.reasonCode.localeCompare(b.reasonCode) ||
+    (a.requirementId ?? "").localeCompare(b.requirementId ?? "") ||
+    (a.factKey ?? "").localeCompare(b.factKey ?? "")
+  );
+}
+
+export function compareDiagnostics(a: EvidenceDiagnostic, b: EvidenceDiagnostic): number {
+  return a.code.localeCompare(b.code) || (a.detail ?? "").localeCompare(b.detail ?? "");
+}
+
+export function stableProvenance(fact: EvidenceFact): {
+  collectorVersion: string;
+  extractorVersion?: string;
+  sourceContentHash?: string;
+  sourceObservedAt?: string;
+} {
+  return {
+    collectorVersion: fact.provenance.collectorVersion,
+    extractorVersion: fact.provenance.extractorVersion,
+    sourceContentHash: fact.provenance.sourceContentHash,
+    sourceObservedAt: fact.provenance.sourceObservedAt,
+  };
 }
 
 export function hashEvidencePacket(input: {
@@ -72,8 +105,8 @@ export function hashEvidencePacket(input: {
   evidenceFacts: readonly EvidenceFact[];
   requirementAssessments: readonly RequirementEvidenceAssessment[];
   status: string;
-  rejectedFacts: unknown;
-  diagnostics: unknown;
+  rejectedFacts: readonly RejectedEvidence[];
+  diagnostics: readonly EvidenceDiagnostic[];
   privacySummary: unknown;
   provenanceSummary: { collectorVersion: string; factCount: number; rejectedCount: number };
 }): string {
@@ -85,12 +118,57 @@ export function hashEvidencePacket(input: {
     factSummary: fact.factSummary,
     normalizedValue: fact.normalizedValue,
     source: fact.source,
-    contentHash: fact.contentHash,
+    canonicalFactHash: fact.canonicalFactHash,
     privacyClass: fact.privacyClass,
     acceptance: fact.acceptance,
     countsTowardRequirement: fact.countsTowardRequirement,
+    provenance: stableProvenance(fact),
   }));
   return sha256Hex(
+    canonicalJson({
+      version: input.version,
+      taskType: input.taskType,
+      contract: input.contract,
+      requirements: input.requirements,
+      evidenceFacts: facts,
+      requirementAssessments: input.requirementAssessments,
+      status: input.status,
+      rejectedFacts: [...input.rejectedFacts].sort(compareRejectedEvidence),
+      diagnostics: [...input.diagnostics].sort(compareDiagnostics),
+      privacySummary: input.privacySummary,
+      provenanceSummary: input.provenanceSummary,
+    }),
+  );
+}
+
+export function judgeFacingPacketBytes(input: {
+  version: string;
+  taskType: string;
+  contract: unknown;
+  requirements: unknown;
+  evidenceFacts: readonly EvidenceFact[];
+  requirementAssessments: readonly RequirementEvidenceAssessment[];
+  status: string;
+  rejectedFacts: readonly RejectedEvidence[];
+  diagnostics: readonly EvidenceDiagnostic[];
+  privacySummary: unknown;
+  provenanceSummary: unknown;
+}): number {
+  const facts = input.evidenceFacts.map((fact) => ({
+    evidenceRef: fact.evidenceRef,
+    evidenceKind: fact.evidenceKind,
+    requirementId: fact.requirementId,
+    factKey: fact.factKey,
+    factSummary: fact.factSummary,
+    normalizedValue: fact.normalizedValue,
+    source: fact.source,
+    canonicalFactHash: fact.canonicalFactHash,
+    privacyClass: fact.privacyClass,
+    acceptance: fact.acceptance,
+    countsTowardRequirement: fact.countsTowardRequirement,
+    provenance: stableProvenance(fact),
+  }));
+  return Buffer.byteLength(
     canonicalJson({
       version: input.version,
       taskType: input.taskType,
@@ -104,5 +182,6 @@ export function hashEvidencePacket(input: {
       privacySummary: input.privacySummary,
       provenanceSummary: input.provenanceSummary,
     }),
+    "utf8",
   );
 }

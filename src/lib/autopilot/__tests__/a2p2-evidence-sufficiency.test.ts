@@ -9,6 +9,12 @@
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
 import { MAX_FACTS_PER_REQUIREMENT, MAX_PACKET_SAFE_TEXT_BYTES } from "../a2p2-evidence-types";
 import { resolveTaskContract } from "../a2p2-templates";
+import {
+  closingFact,
+  evidenceRef,
+  makeAnalysisResultV2,
+  mandatoryRequirement,
+} from "./a2p2-evidence-fixtures";
 
 let pass = 0;
 let fail = 0;
@@ -33,20 +39,7 @@ ok(MAX_PACKET_SAFE_TEXT_BYTES === 32 * 1024, "PACKET_LIMIT_IS_BOUNDED bytes");
 
 const caseA = buildEvidencePacket({
   contract: tender,
-  structuredSources: {
-    tender: {
-      facts: [
-        {
-          factType: "closing_datetime",
-          claim: "closing 2026-09-15",
-          normalizedValue: "2026-09-15",
-          sourceId: "doc-a",
-        },
-      ],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-a",
-    },
-  },
+  structuredSources: { tender: makeAnalysisResultV2() },
   now: NOW,
 });
 ok(caseA.status === "SUFFICIENT", "Tender Case A SUFFICIENT");
@@ -59,11 +52,10 @@ ok(
 const caseB = buildEvidencePacket({
   contract: tender,
   structuredSources: {
-    tender: {
+    tender: makeAnalysisResultV2({
       facts: [],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-b",
-    },
+      criticalFacts: makeAnalysisResultV2().criticalFacts,
+    }),
   },
   now: NOW,
 });
@@ -74,27 +66,45 @@ ok(
   "missing deadline uses EVIDENCE_MISSING",
 );
 
+const existenceBitGone = buildEvidencePacket({
+  contract: tender,
+  structuredSources: {
+    tender: makeAnalysisResultV2({
+      facts: [],
+      requirements: [mandatoryRequirement({ evidence: [] })],
+      mandatoryRequirementIds: ["req_bond"],
+    }),
+  },
+  now: NOW,
+});
+ok(
+  existenceBitGone.requirementAssessments.find((item) => item.requirementId === "mandatory_requirements")
+    ?.state === "INSUFFICIENT",
+  "MANDATORY_EXISTENCE_BIT_REMOVED",
+);
+ok(
+  !existenceBitGone.evidenceFacts.some((item) => item.source.sourceId === "tender-mandatory"),
+  "NO_FABRICATED_TENDER_SOURCE_ID",
+);
+
 const caseC = buildEvidencePacket({
   contract: tender,
   structuredSources: {
-    tender: {
+    tender: makeAnalysisResultV2({
       facts: [
-        {
-          factType: "closing_datetime",
-          claim: "closing 2026-09-15",
-          normalizedValue: "2026-09-15",
-          sourceId: "doc-c1",
-        },
-        {
-          factType: "closing_datetime",
-          claim: "closing 2026-09-20",
-          normalizedValue: "2026-09-20",
-          sourceId: "doc-c2",
-        },
+        closingFact({
+          id: "fact_c1",
+          normalizedValue: { kind: "date", value: "2026-09-15" },
+          evidence: [evidenceRef("doc-c1", 1)],
+        }),
+        closingFact({
+          id: "fact_c2",
+          claim: "Closing date is 20 September 2026",
+          normalizedValue: { kind: "date", value: "2026-09-20" },
+          evidence: [evidenceRef("doc-c2", 1)],
+        }),
       ],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-c",
-    },
+    }),
   },
   now: NOW,
 });
@@ -108,18 +118,14 @@ ok(
 const caseD = buildEvidencePacket({
   contract: tender,
   structuredSources: {
-    tender: {
+    tender: makeAnalysisResultV2({
       facts: [
-        {
-          factType: "closing_datetime",
+        closingFact({
           claim: "api_key=sk-live-abcdefghijklmnopqrstuvwxyz",
-          normalizedValue: "sk-live-abcdefghijklmnopqrstuvwxyz",
-          sourceId: "doc-d",
-        },
+          normalizedValue: { kind: "text", value: "sk-live-abcdefghijklmnopqrstuvwxyz" },
+        }),
       ],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-d",
-    },
+    }),
   },
   now: NOW,
 });
@@ -133,21 +139,15 @@ const genericEmpty = buildEvidencePacket({
 ok(genericEmpty.status === "NOT_EVALUABLE", "GENERIC_EMPTY_CONTRACT_NOT_SEMANTICALLY_SUFFICIENT");
 ok(genericEmpty.status !== "SUFFICIENT", "empty generic cannot be SUFFICIENT");
 
-const overflowFacts = Array.from({ length: MAX_FACTS_PER_REQUIREMENT + 1 }, (_, index) => ({
-  factType: "closing_datetime",
-  claim: "closing 2026-09-15",
-  normalizedValue: "2026-09-15",
-  sourceId: `doc-overflow-${index}`,
-}));
+const overflowFacts = Array.from({ length: MAX_FACTS_PER_REQUIREMENT + 1 }, (_, index) =>
+  closingFact({
+    id: `fact_overflow_${index}`,
+    evidence: [evidenceRef(`doc-overflow-${index}`, 1)],
+  }),
+);
 const overflow = buildEvidencePacket({
   contract: tender,
-  structuredSources: {
-    tender: {
-      facts: overflowFacts,
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-overflow",
-    },
-  },
+  structuredSources: { tender: makeAnalysisResultV2({ facts: overflowFacts }) },
   now: NOW,
 });
 ok(overflow.status === "NOT_EVALUABLE", "PACKET_OVERFLOW_DOES_NOT_FALSE_SUCCEED");
@@ -156,23 +156,13 @@ ok(overflow.status !== "SUFFICIENT", "overflow cannot become SUFFICIENT");
 const notFound = buildEvidencePacket({
   contract: tender,
   structuredSources: {
-    tender: {
-      facts: [
-        {
-          factType: "closing_datetime",
-          claim: "budget",
-          normalizedValue: 0,
-          sourceState: "NOT_FOUND",
-          sourceId: "doc-absent",
-        },
-      ],
-      mandatoryRequirementPresent: true,
-      mandatorySourceId: "req-absent",
-    },
+    tender: makeAnalysisResultV2({
+      facts: [],
+    }),
   },
   now: NOW,
 });
-ok(notFound.status === "INSUFFICIENT", "NOT_FOUND does not become a fake value");
+ok(notFound.status === "INSUFFICIENT", "absence of deadline is INSUFFICIENT");
 ok(
   !notFound.evidenceFacts.some((item) => item.requirementId === "submission_deadline"),
   "absence is not a negative fact",
@@ -185,6 +175,7 @@ const falseSufficiency = [
   genericEmpty.status === "SUFFICIENT",
   overflow.status === "SUFFICIENT",
   notFound.status === "SUFFICIENT",
+  existenceBitGone.status === "SUFFICIENT",
 ].filter(Boolean).length;
 ok(falseSufficiency === 0, "FALSE_SUFFICIENCY_PATHS = ZERO");
 

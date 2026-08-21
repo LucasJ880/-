@@ -42,63 +42,50 @@ raw structured fact candidate
 
 P2.1 **只消费已结构化快照**，不查库、不读原文、不调 LLM、不外搜。
 
+入口 `parseStructuredSourcesSnapshot()` 做运行时闭合校验：未知顶层/嵌套字段、非法数组、非法 normalized value 一律 `NOT_EVALUABLE` + `EVIDENCE_INVALID_STRUCTURED_SOURCE`，且不得抛异常。
+
 | 领域 | 仓库内 canonical 源 | P2.1 覆盖 |
 |---|---|---|
-| TENDER_ANALYSIS | Tender Understanding V2 `DocumentFactV2` / `CriticalFactType`（`closing_datetime`、`submission_method`、`pricing_method`、`evaluation_criteria`）+ 强制要求存在位。不读 PDF / `sourceSnippet` / `rawValue`。 | **IMPLEMENTED** |
-| RESEARCH | 无与 P2.0 RESEARCH 需求对齐的、可安全进入 Judge 的 claim 库。Trade `ResearchBundleV1` 含页面正文，禁止当证据原文。 | **SAFE_INTERFACE_ONLY** |
-| EMAIL_DRAFT | `PendingAction` / `EmailDraftPayload` 含邮件正文，禁止为证明语义质量而入库。仅接受 checklist 元数据快照。 | **SAFE_INTERFACE_ONLY** |
+| TENDER_ANALYSIS | `AnalysisResultV2`（`src/lib/tender-understanding/contract.ts`）。纯适配器 `adaptAnalysisResultV2()` 丢掉 `rawValue` / `snippet` / 文档正文。强制要求必须是 ACTIVE + `mandatory===true` + 有 evidence 的真实 requirement，禁止存在位 / `tender-mandatory` 伪造 sourceId。 | **IMPLEMENTED** |
+| RESEARCH | 无安全 canonical claim 源。合成 claims **不得**变成 `SUFFICIENT`。 | **SAFE_INTERFACE_ONLY** |
+| EMAIL_DRAFT | 无安全 canonical 元数据源。合成 boolean checklist **不得**变成 `SUFFICIENT`。 | **SAFE_INTERFACE_ONLY** |
 | GENERIC | 仅映射合同中已有 requirementId 的显式事实。空需求不得语义充分。 | **IMPLEMENTED** |
 
 无安全结构化源时，collector 返回 `EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE`。这是正确失败，不是缺陷。
-
-## 安全值合同
-
-`normalizedValue` 只允许：`string` / `number` / `boolean` / `null`，或上述标量的有界数组。
-
-- `SAFE_FACT_STRING_MAX = 500`
-- 禁止 HTML、全文邮件、标书段落、raw model/tool 输出、任意嵌套 JSON
-- `factSummary` 是规范化、有界、脱敏后的评价摘要，不是原文
 
 ## 隐私
 
 复用 P2.0：`PUBLIC` · `INTERNAL` · `SENSITIVE` · `PROHIBITED`
 
-接受态：`COLLECTED` · `REDACTED` · `BLOCKED`
-
-- 密钥 / Bearer / API key / cookie / password / 私钥 / 带凭证的 DB URL：**fail-closed**。不脱敏后继续。必填证据含密钥 → 包级 `PRIVACY_BLOCKED`，不得静默变成 `INSUFFICIENT`。
-- PII（邮箱、电话）确定性替换为 `[EMAIL]` / `[PHONE]`。不做 AI PII 检测。
-- `PROHIBITED` 不得作为 Judge-ready fact 进入包。
-- 递归拒绝 P2.0 forbidden keys 以及 `rawPrompt` / `rawEmail` / `documentText` / `fullBody` 等。
+- `candidate.privacyClass === PROHIBITED` 或扫描结果为 PROHIBITED：**不得进入** `evidenceFacts`。必填 → 包级 `PRIVACY_BLOCKED`；选填 → 拒绝并记审计，不得混入 `SUFFICIENT` 包。
+- `factSummary` / `normalizedValue` / locator 可读字段：确定性 `[EMAIL]` / `[PHONE]`。任一处脱敏 → `acceptance=REDACTED`、`privacyClass=SENSITIVE`。
+- `sourceId` 必须是不透明标识符。含 PII / 密钥 / 自由文本 → 拒绝该事实，**不得**把邮箱 sourceId 收成 `[EMAIL]`。
+- HTML/markup 载荷 fail-closed：`EVIDENCE_HTML_REJECTED`。
+- `privacySummary.prohibitedCount` 计入 SECRET / RAW / PROHIBITED_CLASS。
 
 ## 证据身份与 provenance
 
-`EvidenceRef` = sha256(packet version + kind + requirementId + factKey + sourceType + sourceId + contentHash)。禁止随机 UUID。
+`canonicalFactHash` **始终本地**由脱敏后的 kind + requirementId + factKey + normalizedValue + sourceType + sourceId 计算。上游 64-hex **不得**覆盖身份，只可写入 `provenance.sourceContentHash`。
 
-`packetHash` 对规范化包内容哈希，**排除** `createdAt`。同源事实重放得到同一 ref 与同一 hash。
+`EvidenceRef` = sha256(packet version + kind + requirementId + factKey + sourceType + sourceId + **canonicalFactHash**)。禁止随机 UUID。
 
-每条事实至少包含：`sourceType` · `sourceId` · `collectorVersion` · `contentHash`。locator 闭合为 page / section / field / recordKey / toolName。
-
-## 去重、冲突、计数
-
-- 同一 `EvidenceRef` 只计一次（`minimumEvidenceRefs` 计 unique accepted refs）。
-- 同 `requirementId` + `factKey`、不同 `normalizedValue` → `CONFLICTING`。不自动选边。
-- 需求允许的 `evidenceKinds` 不匹配 → 可留作 metadata，**不计入**该需求。
-- 未知 `requirementId` → 拒绝。
-- 缺证据 ≠ 负向事实。禁止把 “budget 未出现” 写成 `budget = 0`。
-
-需求级状态：`READY` · `INSUFFICIENT` · `CONFLICTING` · `PRIVACY_BLOCKED` · `NOT_EVALUABLE`。  
-**READY = 结构上够证据，不是需求语义为真。**
-
-包级优先级：`PRIVACY_BLOCKED` > 必填 `CONFLICTING` > 必填不足 `INSUFFICIENT` > 已知域必填均 READY 则 `SUFFICIENT` > GENERIC 空需求 `NOT_EVALUABLE`。溢出 → `NOT_EVALUABLE`，禁止截断后假 `SUFFICIENT`。
+`packetHash` 对 Judge-facing 包内容哈希，**仅排除** `provenance.createdAt`。稳定 provenance（collectorVersion / extractorVersion / sourceContentHash / sourceObservedAt）计入 hash。`rejectedFacts` / `diagnostics` 排序后再哈希。
 
 ## 界限
 
 - `MAX_EVIDENCE_FACTS = 100`
 - `MAX_FACTS_PER_REQUIREMENT = 20`
-- `MAX_FACT_SUMMARY_LENGTH = 500`（`SAFE_FACT_STRING_MAX`）
-- `MAX_PACKET_SAFE_TEXT_BYTES = 32 KB`
+- `MAX_FACT_SUMMARY_LENGTH = 500`
+- `MAX_PACKET_SAFE_TEXT_BYTES = 32 KB`（完整 Judge-facing payload，不仅是 factSummary 列表）
 
-溢出行为：确定性拒绝评价（`EVIDENCE_PACKET_LIMIT_EXCEEDED` → `NOT_EVALUABLE`），不静默丢掉可能造成冲突的事实。
+溢出：`EVIDENCE_PACKET_LIMIT_EXCEEDED` → `NOT_EVALUABLE`，输出空 facts + 溢出诊断，**禁止**截断后再算成 `SUFFICIENT`。溢出输出本身必须有界。
+
+需求级状态：`READY` · `INSUFFICIENT` · `CONFLICTING` · `PRIVACY_BLOCKED` · `NOT_EVALUABLE`。  
+**READY = 结构上够证据，不是需求语义为真。**
+
+包级优先级：`PRIVACY_BLOCKED` > 溢出 `NOT_EVALUABLE` > 必填 `CONFLICTING` > 必填不足 `INSUFFICIENT` > 已知域必填均 READY 则 `SUFFICIENT` > GENERIC 空需求 `NOT_EVALUABLE`。
+
+同一 `EvidenceRef` 只计一次。同 `requirementId` + `factKey`、不同 `normalizedValue` → `CONFLICTING`，不自动选边。kind 不匹配不计分。未知 requirementId 拒绝。缺证据 ≠ 负向事实。
 
 ## Collector 权威
 

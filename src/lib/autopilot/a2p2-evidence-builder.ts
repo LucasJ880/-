@@ -14,14 +14,26 @@ import {
   type ValidatedTaskContract,
 } from "./a2p2-contract";
 import { collectEvidenceForContract } from "./a2p2-evidence-collectors";
-import { hashEvidencePacket, makeContentHash, makeEvidenceRef } from "./a2p2-evidence-hash";
+import {
+  compareDiagnostics,
+  compareRejectedEvidence,
+  hashEvidencePacket,
+  judgeFacingPacketBytes,
+  makeCanonicalFactHash,
+  makeEvidenceRef,
+} from "./a2p2-evidence-hash";
 import {
   boundFactString,
+  containsSecretMaterial,
+  containsUnsafeMarkup,
+  isOpaqueSourceId,
+  isOpaqueToken,
   redactPiiText,
   sanitizeLocator,
   sanitizeNormalizedValue,
   scanEvidenceValue,
 } from "./a2p2-evidence-privacy";
+import { parseStructuredSourcesSnapshot } from "./a2p2-evidence-sources";
 import { assessPacketStatus, assessRequirementEvidence } from "./a2p2-evidence-sufficiency";
 import {
   A2P2_EVIDENCE_BUILDER_VERSION,
@@ -34,15 +46,22 @@ import {
   type EvidenceFact,
   type EvidencePacketStatus,
   type RejectedEvidence,
+  type RequirementEvidenceAssessment,
   type SemanticEvidencePacketV1,
-  type StructuredSourcesSnapshot,
 } from "./a2p2-evidence-types";
 
 export type BuildEvidencePacketInput = {
   contract: unknown;
-  structuredSources?: StructuredSourcesSnapshot;
+  structuredSources?: unknown;
   now?: Date;
 };
+
+const PRIVACY_REJECT_CODES = new Set([
+  "EVIDENCE_SECRET_BLOCKED",
+  "EVIDENCE_RAW_CONTENT_REJECTED",
+  "EVIDENCE_PROHIBITED_CLASS_BLOCKED",
+  "EVIDENCE_PRIVACY_BLOCKED",
+]);
 
 function requirementOf(
   contract: ValidatedTaskContract,
@@ -52,14 +71,28 @@ function requirementOf(
 }
 
 function compareFacts(a: EvidenceFact, b: EvidenceFact): number {
-  return [
-    a.requirementId.localeCompare(b.requirementId),
-    a.evidenceKind.localeCompare(b.evidenceKind),
-    a.factKey.localeCompare(b.factKey),
-    a.source.sourceType.localeCompare(b.source.sourceType),
-    a.source.sourceId.localeCompare(b.source.sourceId),
-    a.evidenceRef.localeCompare(b.evidenceRef),
-  ].find((value) => value !== 0) ?? 0;
+  return (
+    [
+      a.requirementId.localeCompare(b.requirementId),
+      a.evidenceKind.localeCompare(b.evidenceKind),
+      a.factKey.localeCompare(b.factKey),
+      a.source.sourceType.localeCompare(b.source.sourceType),
+      a.source.sourceId.localeCompare(b.source.sourceId),
+      a.evidenceRef.localeCompare(b.evidenceRef),
+    ].find((value) => value !== 0) ?? 0
+  );
+}
+
+function reject(
+  rejected: RejectedEvidence[],
+  reasonCode: RejectedEvidence["reasonCode"],
+  candidate: Pick<EvidenceCandidate, "requirementId" | "factKey">,
+): void {
+  rejected.push({
+    reasonCode,
+    requirementId: candidate.requirementId,
+    factKey: candidate.factKey,
+  });
 }
 
 function acceptCandidate(
@@ -70,93 +103,93 @@ function acceptCandidate(
 ): { fact?: EvidenceFact; privacyBlockedRequired: boolean } {
   const requirement = requirementOf(contract, candidate.requirementId);
   if (!requirement) {
-    rejected.push({
-      reasonCode: "EVIDENCE_UNKNOWN_REQUIREMENT",
-      requirementId: candidate.requirementId,
-      factKey: candidate.factKey,
-    });
+    reject(rejected, "EVIDENCE_UNKNOWN_REQUIREMENT", candidate);
     return { privacyBlockedRequired: false };
   }
   const scan = scanEvidenceValue(candidate);
   if (scan.forbiddenField) {
-    rejected.push({
-      reasonCode: "EVIDENCE_RAW_CONTENT_REJECTED",
-      requirementId: candidate.requirementId,
-      factKey: candidate.factKey,
-    });
+    reject(rejected, "EVIDENCE_RAW_CONTENT_REJECTED", candidate);
     return { privacyBlockedRequired: requirement.required };
   }
   if (scan.secret) {
-    rejected.push({
-      reasonCode: "EVIDENCE_SECRET_BLOCKED",
-      requirementId: candidate.requirementId,
-      factKey: candidate.factKey,
-    });
+    reject(rejected, "EVIDENCE_SECRET_BLOCKED", candidate);
     return { privacyBlockedRequired: requirement.required };
+  }
+  if (candidate.privacyClass === "PROHIBITED") {
+    reject(rejected, "EVIDENCE_PROHIBITED_CLASS_BLOCKED", candidate);
+    return { privacyBlockedRequired: requirement.required };
+  }
+  if (containsUnsafeMarkup(candidate.factSummary) || containsUnsafeMarkup(candidate.normalizedValue)) {
+    reject(rejected, "EVIDENCE_HTML_REJECTED", candidate);
+    return { privacyBlockedRequired: false };
+  }
+  if (containsSecretMaterial(candidate.sourceId) || containsSecretMaterial(candidate.sourceType)) {
+    reject(rejected, "EVIDENCE_SECRET_BLOCKED", candidate);
+    return { privacyBlockedRequired: requirement.required };
+  }
+  if (!isOpaqueSourceId(candidate.sourceId) || !isOpaqueToken(candidate.sourceType) || !isOpaqueToken(candidate.factKey)) {
+    reject(rejected, "EVIDENCE_UNSAFE_IDENTIFIER", candidate);
+    return { privacyBlockedRequired: false };
   }
   const normalized = sanitizeNormalizedValue(candidate.normalizedValue);
   if (normalized === undefined) {
-    rejected.push({
-      reasonCode: "EVIDENCE_INVALID_VALUE",
-      requirementId: candidate.requirementId,
-      factKey: candidate.factKey,
-    });
+    reject(rejected, "EVIDENCE_INVALID_VALUE", candidate);
     return { privacyBlockedRequired: false };
   }
-  const summaryRaw = boundFactString(candidate.factSummary);
-  const summary = redactPiiText(summaryRaw);
-  const sourceId = boundFactString(candidate.sourceId);
-  const sourceType = boundFactString(candidate.sourceType);
-  const factKey = boundFactString(candidate.factKey);
-  if (!summaryRaw || !sourceId || !sourceType || !factKey) {
-    rejected.push({
-      reasonCode: "EVIDENCE_INVALID_VALUE",
-      requirementId: candidate.requirementId,
-      factKey: candidate.factKey,
-    });
+  const summary = redactPiiText(boundFactString(candidate.factSummary));
+  if (!summary.text) {
+    reject(rejected, "EVIDENCE_INVALID_VALUE", candidate);
     return { privacyBlockedRequired: false };
   }
-  const contentHash =
-    candidate.contentHash && /^[a-f0-9]{64}$/i.test(candidate.contentHash)
-      ? candidate.contentHash.toLowerCase()
-      : makeContentHash({
-          evidenceKind: candidate.evidenceKind,
-          requirementId: candidate.requirementId,
-          factKey,
-          normalizedValue: normalized,
-          sourceId,
-        });
+  const locator = sanitizeLocator(candidate.locator);
+  if (containsUnsafeMarkup(locator.locator)) {
+    reject(rejected, "EVIDENCE_HTML_REJECTED", candidate);
+    return { privacyBlockedRequired: false };
+  }
+  const redactedAnywhere = summary.redacted || normalized.redacted || locator.redacted;
+  const canonicalFactHash = makeCanonicalFactHash({
+    evidenceKind: candidate.evidenceKind,
+    requirementId: candidate.requirementId,
+    factKey: candidate.factKey,
+    normalizedValue: normalized.value,
+    sourceType: candidate.sourceType,
+    sourceId: candidate.sourceId,
+  });
   const evidenceRef = makeEvidenceRef({
     evidenceKind: candidate.evidenceKind,
     requirementId: candidate.requirementId,
-    factKey,
-    sourceType,
-    sourceId,
-    contentHash,
+    factKey: candidate.factKey,
+    sourceType: candidate.sourceType,
+    sourceId: candidate.sourceId,
+    canonicalFactHash,
   });
+  const sourceContentHash =
+    candidate.sourceContentHash && /^[a-f0-9]{64}$/i.test(candidate.sourceContentHash)
+      ? candidate.sourceContentHash.toLowerCase()
+      : undefined;
   const kindOk = requirement.evidenceKinds.includes(candidate.evidenceKind);
-  const privacyClass = summary.redacted ? "SENSITIVE" : (candidate.privacyClass ?? "INTERNAL");
   return {
     privacyBlockedRequired: false,
     fact: {
       evidenceRef,
       evidenceKind: candidate.evidenceKind,
       requirementId: candidate.requirementId,
-      factKey,
+      factKey: candidate.factKey,
       factSummary: summary.text,
-      normalizedValue: normalized,
+      normalizedValue: normalized.value,
       source: {
-        sourceType,
-        sourceId,
-        locator: sanitizeLocator(candidate.locator),
+        sourceType: candidate.sourceType,
+        sourceId: candidate.sourceId,
+        locator: locator.locator,
       },
-      contentHash,
-      privacyClass,
-      acceptance: summary.redacted ? "REDACTED" : "COLLECTED",
+      canonicalFactHash,
+      privacyClass: redactedAnywhere ? "SENSITIVE" : (candidate.privacyClass ?? "INTERNAL"),
+      acceptance: redactedAnywhere ? "REDACTED" : "COLLECTED",
       countsTowardRequirement: kindOk,
       provenance: {
         collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
         extractorVersion: candidate.extractorVersion,
+        sourceContentHash,
         sourceObservedAt: candidate.sourceObservedAt,
         createdAt,
       },
@@ -176,7 +209,7 @@ function emptyPacket(input: {
     automationLevel: "L0",
     requirementCount: 0,
   };
-  const packet: SemanticEvidencePacketV1 = {
+  return finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
     contract,
@@ -186,33 +219,53 @@ function emptyPacket(input: {
     rejectedFacts: input.rejectedFacts ?? [],
     requirementAssessments: [],
     status: input.status,
-    privacySummary: { blocked: input.status === "PRIVACY_BLOCKED", redactedCount: 0, prohibitedCount: 0 },
+    privacySummary: {
+      blocked: input.status === "PRIVACY_BLOCKED",
+      redactedCount: 0,
+      prohibitedCount: (input.rejectedFacts ?? []).filter((item) =>
+        PRIVACY_REJECT_CODES.has(item.reasonCode),
+      ).length,
+    },
     provenanceSummary: {
       collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
       factCount: 0,
       rejectedCount: (input.rejectedFacts ?? []).length,
     },
     diagnostics: input.diagnostics,
-    packetHash: "",
-  };
-  return finalizePacket(packet);
-}
-
-function utf8Bytes(value: string): number {
-  return Buffer.byteLength(value, "utf8");
-}
-
-function finalizePacket(packet: Omit<SemanticEvidencePacketV1, "packetHash"> & { packetHash?: string }): SemanticEvidencePacketV1 {
-  const packetHash = hashEvidencePacket(packet);
-  return Object.freeze({
-    ...packet,
-    packetHash,
-    evidenceFacts: Object.freeze([...packet.evidenceFacts]),
-    rejectedFacts: Object.freeze([...packet.rejectedFacts]),
-    requirementAssessments: Object.freeze([...packet.requirementAssessments]),
-    diagnostics: Object.freeze([...packet.diagnostics]),
-    requirements: Object.freeze([...packet.requirements]),
   });
+}
+
+function finalizePacket(
+  packet: Omit<SemanticEvidencePacketV1, "packetHash"> & { packetHash?: string },
+): SemanticEvidencePacketV1 {
+  const rejectedFacts = Object.freeze([...packet.rejectedFacts].sort(compareRejectedEvidence));
+  const diagnostics = Object.freeze([...packet.diagnostics].sort(compareDiagnostics));
+  const evidenceFacts = Object.freeze([...packet.evidenceFacts]);
+  const requirementAssessments = Object.freeze([...packet.requirementAssessments]);
+  const frozen = {
+    ...packet,
+    evidenceFacts,
+    rejectedFacts,
+    requirementAssessments,
+    diagnostics,
+    requirements: Object.freeze([...packet.requirements]),
+  };
+  return Object.freeze({
+    ...frozen,
+    packetHash: hashEvidencePacket(frozen),
+  });
+}
+
+function overflowAssessments(
+  contract: ValidatedTaskContract,
+): RequirementEvidenceAssessment[] {
+  return contract.requirements.map((requirement) => ({
+    requirementId: requirement.id,
+    requiredEvidenceRefs: requirement.minimumEvidenceRefs,
+    validEvidenceRefs: [],
+    state: "NOT_EVALUABLE" as const,
+    reasonCode: "EVIDENCE_PACKET_LIMIT_EXCEEDED" as const,
+  }));
 }
 
 export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEvidencePacketV1 {
@@ -225,19 +278,20 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     });
   }
   const contract = parsed.contract;
+  const parsedSources = parseStructuredSourcesSnapshot(input.structuredSources);
+  if (!parsedSources.ok) {
+    return emptyPacket({
+      taskType: contract.taskType,
+      status: "NOT_EVALUABLE",
+      diagnostics: [{ code: "EVIDENCE_INVALID_STRUCTURED_SOURCE" }],
+    });
+  }
   const createdAt = (input.now ?? new Date(0)).toISOString();
-  const sources = input.structuredSources ?? {};
-  const collected = collectEvidenceForContract(contract, sources);
+  const collected = collectEvidenceForContract(contract, parsedSources.sources);
   const rejected: RejectedEvidence[] = [...collected.rejectedFacts];
   const diagnostics: EvidenceDiagnostic[] = [...collected.diagnostics];
   let privacyBlockedRequired = rejected.some((item) => {
-    if (
-      item.reasonCode !== "EVIDENCE_SECRET_BLOCKED" &&
-      item.reasonCode !== "EVIDENCE_RAW_CONTENT_REJECTED" &&
-      item.reasonCode !== "EVIDENCE_PRIVACY_BLOCKED"
-    ) {
-      return false;
-    }
+    if (!PRIVACY_REJECT_CODES.has(item.reasonCode)) return false;
     return requirementOf(contract, item.requirementId ?? "")?.required === true;
   });
   const accepted: EvidenceFact[] = [];
@@ -261,28 +315,18 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     seen.add(fact.evidenceRef);
     deduped.push(fact);
   }
-  const packetLimitExceeded = deduped.length > MAX_EVIDENCE_FACTS;
-  const boundedFacts = packetLimitExceeded ? deduped.slice(0, MAX_EVIDENCE_FACTS) : deduped;
-  if (packetLimitExceeded) {
+  const countOverflow = deduped.length > MAX_EVIDENCE_FACTS;
+  const boundedFacts = countOverflow ? [] : deduped;
+  if (countOverflow) {
     diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_EVIDENCE_FACTS" });
   }
-  const { assessments, packetLimitExceeded: perRequirementLimit } = assessRequirementEvidence(
+  let { assessments, packetLimitExceeded: perRequirementLimit } = assessRequirementEvidence(
     contract,
     boundedFacts,
   );
-  const overflow = packetLimitExceeded || perRequirementLimit;
-  const textBytes = utf8Bytes(JSON.stringify(boundedFacts.map((fact) => fact.factSummary)));
-  const byteOverflow = textBytes > MAX_PACKET_SAFE_TEXT_BYTES;
-  if (byteOverflow) {
-    diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_PACKET_SAFE_TEXT_BYTES" });
+  if (countOverflow) {
+    assessments = overflowAssessments(contract);
   }
-  const status = assessPacketStatus({
-    contract,
-    assessments,
-    privacyBlocked: privacyBlockedRequired,
-    packetLimitExceeded: overflow || byteOverflow,
-  });
-  const redactedCount = boundedFacts.filter((fact) => fact.acceptance === "REDACTED").length;
   const requirements = contract.requirements.map((item) => ({
     id: item.id,
     required: item.required,
@@ -290,6 +334,50 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     minimumEvidenceRefs: item.minimumEvidenceRefs,
     allowUnknown: item.allowUnknown,
   }));
+  const privacySummary = {
+    blocked: false,
+    redactedCount: boundedFacts.filter((fact) => fact.acceptance === "REDACTED").length,
+    prohibitedCount: rejected.filter((item) => PRIVACY_REJECT_CODES.has(item.reasonCode)).length,
+  };
+  const provenanceSummary = {
+    collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
+    factCount: boundedFacts.length,
+    rejectedCount: rejected.length,
+  };
+  const byteCount = judgeFacingPacketBytes({
+    version: A2P2_EVIDENCE_PACKET_VERSION,
+    taskType: contract.taskType,
+    contract: {
+      taskType: contract.taskType,
+      riskClass: contract.riskClass,
+      automationLevel: contract.automationLevel,
+      requirementCount: contract.requirements.length,
+    },
+    requirements,
+    evidenceFacts: boundedFacts,
+    requirementAssessments: assessments,
+    status: "INSUFFICIENT",
+    rejectedFacts: rejected,
+    diagnostics,
+    privacySummary,
+    provenanceSummary,
+  });
+  const byteOverflow = byteCount > MAX_PACKET_SAFE_TEXT_BYTES;
+  if (byteOverflow) {
+    diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_PACKET_SAFE_TEXT_BYTES" });
+  }
+  const overflow = countOverflow || perRequirementLimit || byteOverflow;
+  const factsOut = byteOverflow ? [] : boundedFacts;
+  const assessmentsOut = overflow ? overflowAssessments(contract) : assessments;
+  const status = assessPacketStatus({
+    contract,
+    assessments: assessmentsOut,
+    privacyBlocked: privacyBlockedRequired,
+    packetLimitExceeded: overflow,
+  });
+  privacySummary.blocked = status === "PRIVACY_BLOCKED";
+  privacySummary.redactedCount = factsOut.filter((fact) => fact.acceptance === "REDACTED").length;
+  provenanceSummary.factCount = factsOut.length;
   return finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
@@ -301,20 +389,12 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     },
     taskType: contract.taskType,
     requirements,
-    evidenceFacts: boundedFacts,
+    evidenceFacts: factsOut,
     rejectedFacts: rejected,
-    requirementAssessments: assessments,
+    requirementAssessments: assessmentsOut,
     status,
-    privacySummary: {
-      blocked: status === "PRIVACY_BLOCKED",
-      redactedCount,
-      prohibitedCount: rejected.filter((item) => item.reasonCode === "EVIDENCE_SECRET_BLOCKED").length,
-    },
-    provenanceSummary: {
-      collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
-      factCount: boundedFacts.length,
-      rejectedCount: rejected.length,
-    },
+    privacySummary,
+    provenanceSummary,
     diagnostics,
   });
 }

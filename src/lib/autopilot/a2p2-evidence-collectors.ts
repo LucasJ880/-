@@ -11,6 +11,7 @@ import {
   type ValidatedTaskContract,
 } from "./a2p2-contract";
 import { containsSecretMaterial, scanForbiddenEvidenceFields } from "./a2p2-evidence-privacy";
+import { adaptAnalysisResultV2 } from "./a2p2-evidence-tender-adapter";
 import {
   A2P2_EVIDENCE_COLLECTOR_VERSION,
   type CollectorResult,
@@ -19,13 +20,7 @@ import {
   type RejectedEvidence,
   type StructuredSourcesSnapshot,
 } from "./a2p2-evidence-types";
-
-const TENDER_FACT_TYPE_TO_REQUIREMENT: Record<string, string> = {
-  closing_datetime: "submission_deadline",
-  submission_method: "submission_method",
-  pricing_method: "pricing_requirements",
-  evaluation_criteria: "evaluation_criteria",
-};
+import type { AnalysisResultV2 } from "../tender-understanding/contract";
 
 function emptyResult(
   taskType: A2P2DomainId,
@@ -79,61 +74,30 @@ export function collectTenderEvidence(
   contract: ValidatedTaskContract,
   sources: StructuredSourcesSnapshot,
 ): CollectorResult {
-  const snapshot = sources.tender;
-  if (!snapshot) {
+  if (!sources.tender) {
     return emptyResult("TENDER_ANALYSIS", [
       { code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "tender snapshot missing" },
     ]);
   }
+  const adapted = adaptAnalysisResultV2(sources.tender as AnalysisResultV2);
   const ids = knownRequirementIds(contract);
   const facts: EvidenceCandidate[] = [];
-  const rejected: RejectedEvidence[] = [];
-  for (const fact of snapshot.facts ?? []) {
-    if (fact.sourceState === "NOT_FOUND" || fact.sourceState === "NOT_APPLICABLE") {
-      continue;
-    }
-    if (fact.status === "SUPERSEDED") continue;
-    const requirementId = TENDER_FACT_TYPE_TO_REQUIREMENT[fact.factType];
-    if (!requirementId) continue;
-    if (!ids.has(requirementId)) {
+  const rejected: RejectedEvidence[] = [...adapted.rejectedFacts];
+  for (const fact of adapted.facts) {
+    if (!ids.has(fact.requirementId)) {
       rejected.push({
         reasonCode: "EVIDENCE_UNKNOWN_REQUIREMENT",
-        requirementId,
-        factKey: fact.factType,
+        requirementId: fact.requirementId,
+        factKey: fact.factKey,
       });
       continue;
     }
-    const unsafe = rejectIfUnsafe(fact, requirementId, fact.factType);
+    const unsafe = rejectIfUnsafe(fact, fact.requirementId, fact.factKey);
     if (unsafe) {
       rejected.push(unsafe);
       continue;
     }
-    if (fact.sourceState === "UNKNOWN") continue;
-    const summary = (fact.claim ?? String(fact.normalizedValue ?? fact.factType)).slice(0, 500);
-    facts.push({
-      requirementId,
-      evidenceKind: "SOURCE_FACT",
-      factKey: fact.factType,
-      factSummary: summary,
-      normalizedValue: fact.normalizedValue ?? summary,
-      sourceType: fact.sourceType ?? "TENDER_DOCUMENT_FACT",
-      sourceId: fact.sourceId,
-      locator: { page: fact.page, field: fact.field },
-      contentHash: fact.contentHash,
-      extractorVersion: "tender-understanding/v2",
-    });
-  }
-  if (snapshot.mandatoryRequirementPresent === true && ids.has("mandatory_requirements")) {
-    facts.push({
-      requirementId: "mandatory_requirements",
-      evidenceKind: "SOURCE_FACT",
-      factKey: "mandatory_requirement_present",
-      factSummary: "structured mandatory requirement present",
-      normalizedValue: true,
-      sourceType: "TENDER_REQUIREMENT",
-      sourceId: snapshot.mandatorySourceId ?? "tender-mandatory",
-      extractorVersion: "tender-understanding/v2",
-    });
+    facts.push(fact);
   }
   return {
     collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
@@ -145,117 +109,21 @@ export function collectTenderEvidence(
 }
 
 export function collectResearchEvidence(
-  contract: ValidatedTaskContract,
-  sources: StructuredSourcesSnapshot,
+  _contract: ValidatedTaskContract,
+  _sources: StructuredSourcesSnapshot,
 ): CollectorResult {
-  const snapshot = sources.research;
-  if (!snapshot || !snapshot.claims || snapshot.claims.length === 0) {
-    return emptyResult("RESEARCH", [
-      { code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "research claims missing" },
-    ]);
-  }
-  const ids = knownRequirementIds(contract);
-  const facts: EvidenceCandidate[] = [];
-  const rejected: RejectedEvidence[] = [];
-  for (const claim of snapshot.claims) {
-    if (!ids.has(claim.requirementId)) {
-      rejected.push({
-        reasonCode: "EVIDENCE_UNKNOWN_REQUIREMENT",
-        requirementId: claim.requirementId,
-        factKey: claim.claimKey,
-      });
-      continue;
-    }
-    const unsafe = rejectIfUnsafe(claim, claim.requirementId, claim.claimKey);
-    if (unsafe) {
-      rejected.push(unsafe);
-      continue;
-    }
-    facts.push({
-      requirementId: claim.requirementId,
-      evidenceKind: claim.evidenceKind ?? "SOURCE_FACT",
-      factKey: claim.claimKey,
-      factSummary: claim.summary,
-      normalizedValue: claim.summary,
-      sourceType: "RESEARCH_CLAIM",
-      sourceId: claim.sourceId,
-      locator: { field: claim.sourceDate },
-      contentHash: claim.contentHash,
-    });
-  }
-  return {
-    collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
-    taskType: "RESEARCH",
-    facts,
-    rejectedFacts: rejected,
-    diagnostics: [],
-  };
+  return emptyResult("RESEARCH", [
+    { code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "research has no safe canonical source" },
+  ]);
 }
 
 export function collectEmailDraftEvidence(
-  contract: ValidatedTaskContract,
-  sources: StructuredSourcesSnapshot,
+  _contract: ValidatedTaskContract,
+  _sources: StructuredSourcesSnapshot,
 ): CollectorResult {
-  const snapshot = sources.emailDraft;
-  if (!snapshot) {
-    return emptyResult("EMAIL_DRAFT", [
-      { code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "email structured metadata missing" },
-    ]);
-  }
-  const emailUnsafe = rejectIfUnsafe(snapshot, "purpose_addressed", "email_draft_snapshot");
-  if (emailUnsafe) {
-    return emptyResult("EMAIL_DRAFT", [], [emailUnsafe]);
-  }
-  const ids = knownRequirementIds(contract);
-  const sourceId = snapshot.sourceId ?? "email-draft-metadata";
-  const facts: EvidenceCandidate[] = [];
-  if (snapshot.purposeAddressed === true && ids.has("purpose_addressed")) {
-    facts.push({
-      requirementId: "purpose_addressed",
-      evidenceKind: "ARTIFACT_FACT",
-      factKey: "purpose_addressed",
-      factSummary: "structured draft purpose addressed",
-      normalizedValue: true,
-      sourceType: "EMAIL_DRAFT_METADATA",
-      sourceId,
-    });
-  }
-  if (
-    snapshot.requiredQuestionIds &&
-    snapshot.requiredQuestionIds.length > 0 &&
-    ids.has("required_questions_present")
-  ) {
-    facts.push({
-      requirementId: "required_questions_present",
-      evidenceKind: "ARTIFACT_FACT",
-      factKey: "required_questions_present",
-      factSummary: "structured required question ids present",
-      normalizedValue: snapshot.requiredQuestionIds.map((id) => String(id).slice(0, 80)),
-      sourceType: "EMAIL_DRAFT_METADATA",
-      sourceId,
-    });
-  }
-  if (
-    snapshot.unsupportedCommitmentAbsent === true &&
-    ids.has("unsupported_commitment_absent")
-  ) {
-    facts.push({
-      requirementId: "unsupported_commitment_absent",
-      evidenceKind: "ARTIFACT_FACT",
-      factKey: "unsupported_commitment_absent",
-      factSummary: "structured unsupported commitment absent",
-      normalizedValue: true,
-      sourceType: "EMAIL_DRAFT_METADATA",
-      sourceId,
-    });
-  }
-  return {
-    collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
-    taskType: "EMAIL_DRAFT",
-    facts,
-    rejectedFacts: [],
-    diagnostics: [],
-  };
+  return emptyResult("EMAIL_DRAFT", [
+    { code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "email draft has no safe canonical source" },
+  ]);
 }
 
 export function collectGenericEvidence(
@@ -264,9 +132,12 @@ export function collectGenericEvidence(
 ): CollectorResult {
   const snapshot = sources.generic;
   if (!snapshot || !snapshot.facts || snapshot.facts.length === 0) {
-    return emptyResult("GENERIC", contract.requirements.length === 0
-      ? [{ code: "EVIDENCE_GENERIC_NOT_EVALUABLE", detail: "empty generic contract" }]
-      : [{ code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "generic facts missing" }]);
+    return emptyResult(
+      "GENERIC",
+      contract.requirements.length === 0
+        ? [{ code: "EVIDENCE_GENERIC_NOT_EVALUABLE", detail: "empty generic contract" }]
+        : [{ code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "generic facts missing" }],
+    );
   }
   const ids = knownRequirementIds(contract);
   const facts: EvidenceCandidate[] = [];
@@ -291,8 +162,12 @@ export function collectGenericEvidence(
       factKey: fact.factKey,
       factSummary: fact.summary,
       normalizedValue: fact.normalizedValue ?? fact.summary,
-      sourceType: "GENERIC_STRUCTURED_FACT",
+      sourceType: fact.sourceType ?? "GENERIC_STRUCTURED_FACT",
       sourceId: fact.sourceId,
+      locator: fact.locator,
+      sourceContentHash: fact.contentHash,
+      privacyClass: fact.privacyClass,
+      extractorVersion: fact.extractorVersion,
     });
   }
   return {
