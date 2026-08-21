@@ -73,6 +73,8 @@ export default function TenderProfilePage() {
     }
   };
 
+  // swc 守卫：`??` 与 `||` 不同行
+  const termRows = (k: string) => (k === "exclusions" || k === "assumptions" ? 3 : 2);
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <OrgSelectBanner />
@@ -122,7 +124,7 @@ export default function TenderProfilePage() {
         <div className="grid gap-2 sm:grid-cols-2">
           {([["paymentTerms", "Payment terms"], ["delivery", "Delivery"], ["leadTime", "Lead time"], ["warranty", "Warranty"], ["validity", "Validity"], ["notes", "Notes"], ["exclusions", "Exclusions（每行一条）"], ["assumptions", "Assumptions（每行一条）"]] as const).map(([k, label]) => (
             <label key={k} className="block text-xs text-muted">{label}
-              <textarea value={quoteTerms[k] ?? ""} onChange={(e) => setQuoteTerms((prev) => ({ ...prev, [k]: e.target.value }))} rows={k === "exclusions" || k === "assumptions" ? 3 : 2} className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-sm text-foreground" />
+              <textarea value={quoteTerms[k] ?? ""} onChange={(e) => setQuoteTerms((prev) => ({ ...prev, [k]: e.target.value }))} rows={termRows(k)} className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1.5 text-sm text-foreground" />
             </label>
           ))}
         </div>
