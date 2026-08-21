@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { canManageUsers } from "@/lib/rbac/roles";
-import { TENDER_PROFILE_FIELDS, type TenderProfile } from "@/lib/tender-profile/contract";
+import { TENDER_PROFILE_FIELDS, tenderProfileSchema, type TenderProfile } from "@/lib/tender-profile/contract";
 import { getTenderProfile, saveTenderProfile } from "@/lib/tender-profile/store";
 
 export const GET = withAuth(async (request, _ctx, user) => {
@@ -29,6 +29,17 @@ export const PUT = withAuth(async (request, _ctx, user) => {
     const raw = body[f.key];
     if (raw === undefined) continue;
     (patch as Record<string, string>)[f.key] = String(raw ?? "");
+  }
+  // Quote Operations Phase 2：报价抬头 / 默认条款（嵌套对象，按 schema 片段校验；零 schema 变更）
+  if (body.quoteHeader !== undefined) {
+    const parsed = tenderProfileSchema.shape.quoteHeader.safeParse(body.quoteHeader ?? {});
+    if (!parsed.success) return NextResponse.json({ error: "quoteHeader 格式无效" }, { status: 400 });
+    patch.quoteHeader = parsed.data;
+  }
+  if (body.quoteTerms !== undefined) {
+    const parsed = tenderProfileSchema.shape.quoteTerms.safeParse(body.quoteTerms ?? {});
+    if (!parsed.success) return NextResponse.json({ error: "quoteTerms 格式无效" }, { status: 400 });
+    patch.quoteTerms = parsed.data;
   }
   const profile = await saveTenderProfile(orgRes.orgId, patch);
   return NextResponse.json({ profile });

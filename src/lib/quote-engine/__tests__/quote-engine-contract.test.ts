@@ -92,8 +92,8 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
 
 // QE-07 结构守卫：路由全部过 requireQuoteAccess；flag 门；approve 级别；服务层禁 NaN 入库；无 eval
 {
-  const routes = ["route.ts", "[quoteId]/route.ts", "[quoteId]/status/route.ts", "[quoteId]/revise/route.ts", "[quoteId]/customer-view/route.ts", "[quoteId]/analyze/route.ts", "[quoteId]/award/route.ts"].map((f) => code(`src/app/api/projects/[id]/quote-engine/${f}`));
-  ok(routes.every((r) => r.includes("requireQuoteAccess(")), "QE-07a: 7 条路由全部经 requireQuoteAccess（租户 + 成员 + 细粒度权限）");
+  const routes = ["route.ts", "[quoteId]/route.ts", "[quoteId]/status/route.ts", "[quoteId]/revise/route.ts", "[quoteId]/customer-view/route.ts", "[quoteId]/analyze/route.ts", "[quoteId]/award/route.ts", "[quoteId]/imports/route.ts", "[quoteId]/imports/[importId]/route.ts", "[quoteId]/customer-quote/route.ts", "[quoteId]/pdf/route.ts", "[quoteId]/select-bid/route.ts", "tender-bid/route.ts"].map((f) => code(`src/app/api/projects/[id]/quote-engine/${f}`));
+  ok(routes.every((r) => r.includes("requireQuoteAccess(")), "QE-07a: 13 条路由（Phase 1 7 + Phase 2 6）全部经 requireQuoteAccess（租户 + 成员 + 细粒度权限）");
   const access = code("src/lib/quote-engine/access.ts");
   ok(access.includes("quoteEngineDisabledResponse") && access.includes("PROJECT_COST_READ") && access.includes("PROJECT_COST_WRITE") && access.includes("PROJECT_COST_REVIEW"), "QE-07b: flag 门 + cost:read/write/review 三级映射");
   const status = code("src/app/api/projects/[id]/quote-engine/[quoteId]/status/route.ts");
@@ -134,7 +134,7 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
   const route = code("src/app/api/projects/[id]/quote-engine/[quoteId]/award/route.ts");
   ok(/mode === "without_budget" \? "without_budget" : "with_budget"/.test(route), "QE-10d: award 路由显式 mode（默认 with_budget）");
   const cv = code("src/lib/quote-engine/customer-view.ts");
-  ok(cv.includes("computeTax(subtotal, input.tax ?? null)") && !cv.includes("input.calc.tax.hst"), "QE-10e（B5 反例守卫）: 客户视图不再复用引擎税额");
+  ok(cv.includes("computeTax(taxableSubtotal, input.tax ?? null)") && !cv.includes("input.calc.tax.hst"), "QE-10e（B5 反例守卫）: 客户视图不再复用引擎税额");
   const so = code("src/lib/quote-engine/standing-offer.ts");
   ok(/SO_FX_REQUIRED/.test(so) && /input\.unit\.exact\.landedPerPiece/.test(so) && !/so\.fxRate \?\? 1/.test(so), "QE-10f（B1/B6 反例守卫）: 无 `fxRate ?? 1` 默认；分级用 exact 单件成本");
 }

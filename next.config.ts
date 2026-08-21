@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
       "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
       "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
     ],
+    // Quote Operations Phase 2：客户报价 PDF 路由同样需要 CJK 字体 + 品牌 logo 被 trace 进函数包
+    "/api/projects/\[id\]/quote-engine/\[quoteId\]/pdf": [
+      "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
+      "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
+      "./public/brands/*.png",
+      "./public/logo.png",
+    ],
   },
   turbopack: {},
 };

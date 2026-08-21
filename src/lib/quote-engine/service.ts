@@ -268,6 +268,11 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
   const action = input.to === "review" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUBMITTED_FOR_REVIEW : input.to === "approved" ? QUOTE_AUDIT_ACTIONS.QUOTE_APPROVED : input.to === "superseded" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED : input.to === "awarded" ? QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED : input.to === "cancelled" ? QUOTE_AUDIT_ACTIONS.QUOTE_CANCELLED : QUOTE_AUDIT_ACTIONS.QUOTE_UPDATED;
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: from }, afterData: { status: input.to, note: input.note ?? null, version: q.version } }).catch(() => undefined);
   await appendLedgerEvent({ orgId: input.orgId, projectId: input.projectId, userId: input.userId, quoteId: q.id, eventType: `QUOTE_${input.to.toUpperCase()}`, title: `报价 v${q.version} ${input.to}`, payload: { status: input.to, from, sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null } });
+  // Phase 2：Tender 我方报价指针同步（首个 approved 自动选中 / superseded 跟随修订 / 写穿 ourBidPrice）——best-effort
+  if (input.to === "approved" || input.to === "superseded" || input.to === "awarded" || input.to === "cancelled") {
+    const { syncTenderBidPointer } = await import("./tender-bid");
+    await syncTenderBidPointer({ projectId: input.projectId, orgId: input.orgId, userId: input.userId });
+  }
   return getQuote(q.id, input.projectId);
 }
 
@@ -300,6 +305,10 @@ export async function reviseQuote(input: { quoteId: string; projectId: string; u
   await snapshotQuote(created.id, input.projectId);
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_VERSION_CREATED, targetType: QUOTE_AUDIT_TARGET, targetId: created.id, beforeData: { sourceQuoteId: q.id, sourceVersion: q.version, sourceSellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null, sourceCost: (q.summaryJson as { estimatedCost?: number } | null)?.estimatedCost ?? null, sourceMargin: (q.summaryJson as { grossMarginPct?: number } | null)?.grossMarginPct ?? null }, afterData: { version: created.version, reason: input.reason } }).catch(() => undefined);
   if (q.status === "approved") await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, afterData: { supersededBy: created.id } }).catch(() => undefined);
+  if (q.status === "approved") {
+    const { syncTenderBidPointer } = await import("./tender-bid");
+    await syncTenderBidPointer({ projectId: input.projectId, orgId: input.orgId, userId: input.userId });
+  }
   return getQuote(created.id, input.projectId);
 }
 

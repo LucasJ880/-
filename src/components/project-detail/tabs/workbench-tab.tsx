@@ -38,6 +38,8 @@ import { WorkbenchCommandDeck } from "@/components/tender/workbench-command-deck
 import { PricingHelperCard } from "@/components/tender/pricing-helper-card";
 import { BidDraftCard } from "@/components/tender/bid-draft-card";
 import { QuoteBudgetCard } from "@/components/quote-engine/quote-budget-card";
+import { TenderOurBidCard } from "@/components/quote-engine/tender-our-bid";
+import { FinancialPerformanceCard } from "@/components/project-detail/financial-performance-card";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
 import {
   ProjectCommandOverview,
@@ -141,6 +143,8 @@ export function WorkbenchTab({
       {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
 
       {/* 报价与成本（Quote Engine §17 最小入口）：当前/已批准报价 KPI → Pricing Control Center（flag OFF 自渲染 null） */}
+      {/* Phase 2：Our Bid = 被选中的 Approved Quote（唯一权威来源；flag OFF / 无报价自渲染 null） */}
+      {tenderish ? <TenderOurBidCard projectId={projectId} /> : null}
       {tenderish ? <QuoteBudgetCard projectId={projectId} onOpenBid={() => onNavigate("bid")} /> : null}
 
       {/* 报价表助手：评分模型 + 价格带 + 我方成本 → 情景表/打平价（无分析时自渲染 null） */}
@@ -151,6 +155,9 @@ export function WorkbenchTab({
 
       {/* T2-P1.5 财务控制卡（feature dark 时自渲染为空） */}
       <FinancialControlCard projectId={projectId} currentUserId={currentUserId ?? undefined} />
+
+      {/* Phase 2：Financial Performance（Budget vs Actual / 合同价值 / 完工预测 / 利润预测；财务 dark 时自渲染 null） */}
+      <FinancialPerformanceCard projectId={projectId} canManage={canManage} />
 
       {/* 阶段与决定 */}
       {project.intelligenceAvailable === false ? (

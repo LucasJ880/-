@@ -14,6 +14,10 @@ import type { QuoteCalcResult, QuoteCalcFailure } from "@/lib/quote-engine/calc"
 import type { TierResult, UnitEconomics } from "@/lib/quote-engine/standing-offer";
 import type { CustomerQuoteView } from "@/lib/quote-engine/customer-view";
 import type { QuoteAnalysis } from "@/lib/quote-engine/analyze";
+import { CostImportPanel } from "./cost-import-panel";
+import { CustomerQuoteBuilder } from "./customer-quote-builder";
+import { TenderBidPanel } from "./tender-our-bid";
+import { AwardProjectPanel } from "./award-project-panel";
 
 type Line = CostLinePayload & { id: string; calculatedCost?: number | null };
 type Tier = TierPayload & { id: string };
@@ -183,6 +187,9 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
           </div>
 
           {/* Cost Builder */}
+          {/* Phase 2 · Source Documents + Cost Import Review（抽取→人工审核→确认→成本行） */}
+          <CostImportPanel projectId={projectId} quoteId={quoteId} editable={editable} currency={ccy} onApplied={() => void load()} />
+
           <div className="rounded-xl border border-border bg-card-bg p-4" data-testid="cost-builder">
             <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Cost Builder（成本行，内部视图）</h3>{editable ? <select className="rounded border border-border bg-transparent px-2 py-1 text-[11px]" defaultValue="" onChange={(e) => { if (e.target.value) { addLine(e.target.value); e.target.value = ""; } }}><option value="">+ 添加成本行到类别…</option>{COST_CATEGORIES.map((c) => <option key={c} value={c}>{CAT_ZH[c] ?? c}</option>)}</select> : null}</div>
             {grouped.map((g) => {
@@ -274,6 +281,12 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
               </div>
             </div>
           ) : null}
+          {/* Phase 2 · Customer Quote（公开行 / 抬头 / 条款 / 草稿 / PDF） */}
+          <CustomerQuoteBuilder projectId={projectId} quoteId={quoteId} editable={data.capabilities.canEdit} currency={ccy} onChanged={() => void load()} />
+          {/* Phase 2 · Tender Integration（Approved Quote → Our Bid） */}
+          <TenderBidPanel projectId={projectId} quoteId={quoteId} quoteStatus={q.status} canApprove={data.capabilities.canApprove} onChanged={() => void load()} />
+          {/* Phase 2 · Award / Project（预算激活 / 基线 / Financial Performance 入口） */}
+          <AwardProjectPanel projectId={projectId} quoteId={quoteId} quoteStatus={q.status} />
           {busy ? <p className="text-[11px] text-muted"><Loader2 size={12} className="inline animate-spin" /> 处理中…</p> : null}
         </>
       )}
