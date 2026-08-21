@@ -15,7 +15,8 @@ export type GenerateDocType =
   | "internal_analysis"
   | "teammate_tasks"
   | "tech_confirm"
-  | "owner_clarification";
+  | "owner_clarification"
+  | "bid_draft";
 
 const DOC_TITLES: Record<GenerateDocType, string> = {
   supplier_rfq: "国内供应商询价",
@@ -24,6 +25,7 @@ const DOC_TITLES: Record<GenerateDocType, string> = {
   teammate_tasks: "同事执行任务单",
   tech_confirm: "供应商技术确认表",
   owner_clarification: "RFI 问题清单（中英）",
+  bid_draft: "投标文件起草（英文提交稿 + 中文审阅注）",
 };
 
 export async function generateProjectDocument(input: {
@@ -299,6 +301,46 @@ ${escd}`;
       ].join("\n"),
     );
     textBody = body;
+  } else if (input.docType === "bid_draft") {
+    // Lane 5：投标文件起草——装配（只读）→ LLM 合成（AI_DRAFT，能力/价格不编造）→ HTML；
+    // 结果元信息落 room.summaryJson.bidDraft 供工作台卡片展示（失败温和，不写半成品）
+    const { gatherBidDraftInputs, synthesizeBidDraft, renderBidDraftHtml } = await import(
+      "@/lib/tender-bid-draft"
+    );
+    const inputs = await gatherBidDraftInputs({ projectId: project.id, orgId: input.orgId, userId: input.userId });
+    if (!inputs) throw new Error("尚无已完成的分析，无法起草");
+    const { result, errorCode } = await synthesizeBidDraft(inputs);
+    if (!result) throw new Error(`起草失败（${errorCode ?? "unknown"}）`);
+    htmlOverride = renderBidDraftHtml(inputs, result);
+    textBody = "";
+    try {
+      const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId: project.id }, select: { id: true, summaryJson: true } });
+      if (room) {
+        const rsj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+        await db.bidIntelligenceRoom.update({
+          where: { id: room.id },
+          data: {
+            summaryJson: JSON.parse(
+              JSON.stringify({
+                ...rsj,
+                bidDraft: {
+                  version: result.version,
+                  generatedAt: result.generatedAt,
+                  placeholders: result.placeholders,
+                  toConfirm: result.compliance.filter((c) => c.status === "TO_CONFIRM").length,
+                  excludedNameHits: result.excludedNameHits,
+                  forbiddenHits: result.forbiddenHits,
+                  requirementCount: result.compliance.length,
+                  internalNotesZh: result.sections.internalNotesZh.slice(0, 12),
+                },
+              }),
+            ),
+          },
+        });
+      }
+    } catch {
+      // 元信息落库失败不影响文档产出
+    }
   } else {
     // owner_clarification — Lane 2：真·RFI 问题清单（备忘录策略 RFI + 分析器澄清，
     // 去重编号；AI 只做中→英翻译；渲染为中英对照表，可直接贴进门户提交）

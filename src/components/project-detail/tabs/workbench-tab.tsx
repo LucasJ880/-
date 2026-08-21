@@ -36,6 +36,7 @@ import { StartIntelligencePanel } from "@/components/bid-workflow/start-intellig
 import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
 import { WorkbenchCommandDeck } from "@/components/tender/workbench-command-deck";
 import { PricingHelperCard } from "@/components/tender/pricing-helper-card";
+import { BidDraftCard } from "@/components/tender/bid-draft-card";
 import { ProjectNotificationRuleCard } from "@/components/notification/project-notification-rule-card";
 import {
   ProjectCommandOverview,
@@ -140,6 +141,9 @@ export function WorkbenchTab({
 
       {/* 报价表助手：评分模型 + 价格带 + 我方成本 → 情景表/打平价（无分析时自渲染 null） */}
       {tenderish ? <PricingHelperCard projectId={projectId} canManage={canManage} /> : null}
+
+      {/* 投标文件起草：英文提交稿 + 中文审阅注（AI_DRAFT；无分析时自渲染 null） */}
+      {tenderish ? <BidDraftCard projectId={projectId} canManage={canManage} /> : null}
 
       {/* T2-P1.5 财务控制卡（feature dark 时自渲染为空） */}
       <FinancialControlCard projectId={projectId} currentUserId={currentUserId ?? undefined} />

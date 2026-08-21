@@ -12,6 +12,7 @@ const OPTIONS = [
   { docType: "internal_analysis", label: "内部项目分析 PDF" },
   { docType: "teammate_tasks", label: "同事执行任务单 PDF" },
   { docType: "owner_clarification", label: "RFI 问题清单 PDF（中英，可直接提交）" },
+  { docType: "bid_draft", label: "投标文件起草 PDF（英文提交稿 + 中文审阅注）" },
 ] as const;
 
 type GenDoc = {
