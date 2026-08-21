@@ -22,6 +22,8 @@
  *   系统若说出 Meltwater 等名称即幻觉（名称来自调查室人工线索，不在文件里）。
  * - RFQ 第 5 节 1.4 保险「Not Applicable」（p17）与 PO §13 最低保险清单（PO p14）相互
  *   矛盾——期望系统标歧义/产生澄清。
+ * - GOLDEN_CHANGE（首跑后，2026-08-21）：incumbent_name 禁用锚词 "cision" 在 "precision" 内子串
+ *   误命中（PO 隐私条款），改为 "cision ltd"/"cision canada"。锚词为匹配辅助，不改变事实语义。
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -530,7 +532,7 @@ export const caseCHrmMediaMonitoring: CaseModule = {
 
       expectedUnknowns: [
         { field: "enquiry_deadline", description: "文件未给提问截止日（门户上的 8/28 不在文件里）", forbiddenClaimAnchors: [["august 28"], ["aug 28"], ["8月28"], ["2026-08-28"]] },
-        { field: "incumbent_name", description: "现任供应商未具名（Meltwater 为调查室人工线索，不在文件里）", forbiddenClaimAnchors: [["meltwater"], ["cision"], ["agility pr"]] },
+        { field: "incumbent_name", description: "现任供应商未具名（Meltwater 为调查室人工线索，不在文件里）", forbiddenClaimAnchors: [["meltwater"], ["cision ltd"], ["cision canada"], ["agility pr"]] },
         { field: "insurance_limits", description: "两份文件均未给保险限额金额", forbiddenClaimAnchors: [["$2,000,000"], ["$5,000,000"], ["$1,000,000"], ["2,000,000"], ["5,000,000"]] },
         { field: "estimated_contract_value", description: "HRM 内部估算/预算未披露", forbiddenClaimAnchors: [["estimated contract value", "$"], ["预算", "$"], ["budget", "$"]] },
       ],
