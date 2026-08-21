@@ -355,6 +355,24 @@ ok(
     mediumPolicy.reasonCode === "HUMAN_ESCALATION_CONTRACT_POLICY",
   "CONTRACT_MEDIUM_HUMAN_POLICY_ENFORCED",
 );
+ok(
+  mediumPolicy.decision === "HUMAN_ESCALATE",
+  "MEDIUM_ADDED_TO_POLICY_ESCALATES",
+);
+
+const mediumCanAutomate = routeEvaluation(
+  input({
+    contract: A2P2_DOMAIN_TEMPLATES.EMAIL_DRAFT(new Date().toISOString()),
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ACCEPTED",
+    recovery: "NOT_ATTEMPTED",
+  }),
+);
+ok(
+  mediumCanAutomate.decision === "AUTO_FINALIZE",
+  "MEDIUM_NOT_IN_POLICY_CAN_STILL_AUTOMATE",
+);
 
 const legal = routeEvaluation(
   input({
@@ -595,6 +613,11 @@ ok(
     lowRecover.reasonCode === "AUTO_RECOVERY_MISSING_EVIDENCE",
   "UNKNOWN_AUTO_RECOVERY_BEFORE_HUMAN",
 );
+ok(
+  lowSuccess.decision === "AUTO_FINALIZE" &&
+    lowRecover.decision === "AUTO_RECOVER",
+  "LOW_AUTOMATION_FIRST_PRESERVED",
+);
 
 const lowAbstain = routeEvaluation(
   input({
@@ -642,6 +665,10 @@ ok(
     high.reasonCode === "HUMAN_ESCALATION_HIGH_RISK",
   "HIGH_RISK_REQUIRES_HUMAN",
 );
+ok(
+  high.decision === "HUMAN_ESCALATE" && high.decision !== "AUTO_FINALIZE",
+  "HIGH_ACCEPTED_SUFFICIENT_STILL_HUMAN",
+);
 
 const restricted = routeEvaluation(
   input({
@@ -654,6 +681,11 @@ const restricted = routeEvaluation(
 ok(
   restricted.decision === "HUMAN_ESCALATE",
   "RESTRICTED_NEVER_AUTO_EXECUTES",
+);
+ok(
+  restricted.decision === "HUMAN_ESCALATE" &&
+    restricted.decision !== "AUTO_FINALIZE",
+  "RESTRICTED_ACCEPTED_SUFFICIENT_STILL_HUMAN",
 );
 
 const restrictedPolicy = routeEvaluation(

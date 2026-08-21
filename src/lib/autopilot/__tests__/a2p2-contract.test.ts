@@ -22,6 +22,7 @@ import {
   FORBIDDEN_CONTRACT_FIELD_NAMES,
   FORBIDDEN_EVALUATION_SIDE_EFFECT_ACTIONS,
   FORBIDDEN_JUDGE_EVIDENCE_KINDS,
+  HARD_HUMAN_RISK_CLASSES,
   assertFiniteBudget,
   assertRecoveryAllowlist,
   automationLevelPolicy,
@@ -36,6 +37,7 @@ import {
   rejectUnknownRecoveryAction,
   sanitizeGoalSummary,
   hasEvaluatableRequirements,
+  hasHardHumanRiskFloor,
 } from "../a2p2-contract";
 import {
   A2P2_DOMAIN_TEMPLATES,
@@ -422,6 +424,60 @@ ok(
     hasEvaluatableRequirements(generic) === false,
   "GENERIC empty contract is not evaluatable for semantic success",
 );
+
+ok(
+  HARD_HUMAN_RISK_CLASSES.join(",") === "HIGH,RESTRICTED" &&
+    hasHardHumanRiskFloor(["HIGH", "RESTRICTED"]) &&
+    !hasHardHumanRiskFloor(["HIGH"]) &&
+    !hasHardHumanRiskFloor(["RESTRICTED"]) &&
+    !hasHardHumanRiskFloor([]) &&
+    !hasHardHumanRiskFloor(["MEDIUM"]),
+  "HIGH_HUMAN_FLOOR_CANNOT_BE_REMOVED",
+);
+ok(
+  hasHardHumanRiskFloor(["MEDIUM", "HIGH", "RESTRICTED"]) &&
+    !hasHardHumanRiskFloor(["HIGH"]),
+  "RESTRICTED_HUMAN_FLOOR_CANNOT_BE_REMOVED",
+);
+
+const emptyHumanPolicy = parseTaskContract({
+  ...plain(tender),
+  riskClass: "HIGH",
+  escalationPolicy: {
+    ...plain(tender.escalationPolicy),
+    requireHumanForRisk: [],
+  },
+});
+ok(
+  emptyHumanPolicy.ok === false &&
+    (emptyHumanPolicy as { reason: string }).reason === "MISSING_HARD_HUMAN_RISK_FLOOR",
+  "HIGH_WITH_EMPTY_REQUIRE_HUMAN_POLICY_REJECTED",
+);
+
+const restrictedEmptyPolicy = parseTaskContract({
+  ...plain(generic),
+  riskClass: "RESTRICTED",
+  escalationPolicy: {
+    ...plain(generic.escalationPolicy),
+    requireHumanForRisk: [],
+  },
+});
+ok(
+  restrictedEmptyPolicy.ok === false &&
+    (restrictedEmptyPolicy as { reason: string }).reason ===
+      "MISSING_HARD_HUMAN_RISK_FLOOR",
+  "RESTRICTED_WITH_EMPTY_REQUIRE_HUMAN_POLICY_REJECTED",
+);
+
+const highOnlyPolicy = parseTaskContract({
+  ...plain(tender),
+  riskClass: "HIGH",
+  escalationPolicy: {
+    ...plain(tender.escalationPolicy),
+    requireHumanForRisk: ["HIGH"],
+  },
+});
+ok(highOnlyPolicy.ok === false, "HIGH-only requireHumanForRisk is incomplete floor");
 
 ok(
   A2P2_ACTIVATION_BLOCKERS.some((item) => item.id === "A2_P1_PRODUCTION_ORG_SCOPE") &&

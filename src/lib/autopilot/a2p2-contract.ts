@@ -219,6 +219,10 @@ export const EXTERNAL_RESEARCH_ACTIONS = [
 
 export const EVALUATION_RECOVERY_AUTHORITY_MAX = "READ_SEARCH_VERIFY_ONLY" as const;
 
+/** System policy. Contracts may add LOW/MEDIUM; they cannot remove these. */
+export const HARD_HUMAN_RISK_CLASSES = ["HIGH", "RESTRICTED"] as const;
+export type HardHumanRiskClass = (typeof HARD_HUMAN_RISK_CLASSES)[number];
+
 export const A2P2_KNOWN_DOMAIN_IDS = [
   "TENDER_ANALYSIS",
   "RESEARCH",
@@ -497,12 +501,29 @@ export function defaultRecoveryPolicy(input?: {
 }
 
 export function defaultEscalationPolicy(
-  requireHumanForRisk: readonly EvaluationRiskClass[] = ["HIGH", "RESTRICTED"],
+  requireHumanForRisk: readonly EvaluationRiskClass[] = HARD_HUMAN_RISK_CLASSES,
 ): EvaluationEscalationPolicy {
+  const extra = requireHumanForRisk.filter(
+    (item) => !(HARD_HUMAN_RISK_CLASSES as readonly string[]).includes(item),
+  );
   return {
-    requireHumanForRisk,
+    requireHumanForRisk: [...HARD_HUMAN_RISK_CLASSES, ...extra],
     reasons: EVALUATION_ESCALATION_REASONS,
   };
+}
+
+export function hasHardHumanRiskFloor(
+  requireHumanForRisk: readonly string[],
+): boolean {
+  return HARD_HUMAN_RISK_CLASSES.every((item) =>
+    requireHumanForRisk.includes(item),
+  );
+}
+
+export function isHardHumanRiskClass(
+  risk: string,
+): risk is HardHumanRiskClass {
+  return (HARD_HUMAN_RISK_CLASSES as readonly string[]).includes(risk);
 }
 
 export function rejectUnknownRecoveryAction(
@@ -756,6 +777,11 @@ export function parseTaskContract(
     )
   ) {
     return { ok: false, reason: "INVALID_REQUIRE_HUMAN_FOR_RISK" };
+  }
+  if (
+    !hasHardHumanRiskFloor(escalationRaw.requireHumanForRisk as string[])
+  ) {
+    return { ok: false, reason: "MISSING_HARD_HUMAN_RISK_FLOOR" };
   }
   if (
     !Array.isArray(escalationRaw.reasons) ||

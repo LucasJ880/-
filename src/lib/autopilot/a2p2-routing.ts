@@ -14,6 +14,7 @@ import {
   canClaimSemanticSuccess,
   isExternalResearchAction,
   isForbiddenSideEffectAction,
+  isHardHumanRiskClass,
   isJudgeEligiblePrivacyClass,
   isVerdictOutcomeCompatible,
   parseTaskContract,
@@ -135,8 +136,9 @@ function filterRecoveryActions(
  * 2. invalid verdict/outcome combination
  * 3. L0 / L5 automation authority
  * 4. legal / financial / external / irreversible
- * 5. contract requireHumanForRisk
- * 6. recovery already IN_PROGRESS → AUTO_WAIT
+ * 5. HARD HIGH/RESTRICTED human floor (not removable by contract)
+ * 6. contract requireHumanForRisk may only add LOW/MEDIUM
+ * 7. recovery already IN_PROGRESS → AUTO_WAIT
  * 7. recoverable goalAmbiguous → AUTO_RECOVER; else HUMAN_ESCALATE
  * 8. insufficient / conflicting + remaining safe recovery
  * 9. ACCEPTED + sufficient + compatible outcome → AUTO_FINALIZE
@@ -194,13 +196,12 @@ export function routeEvaluation(
     return decided("HUMAN_ESCALATE", "HUMAN_ESCALATION_IRREVERSIBLE_ACTION");
   }
 
+  if (isHardHumanRiskClass(risk)) {
+    return decided("HUMAN_ESCALATE", "HUMAN_ESCALATION_HIGH_RISK");
+  }
+
   if (contract.escalationPolicy.requireHumanForRisk.includes(risk)) {
-    return decided(
-      "HUMAN_ESCALATE",
-      risk === "MEDIUM"
-        ? "HUMAN_ESCALATION_CONTRACT_POLICY"
-        : "HUMAN_ESCALATION_HIGH_RISK",
-    );
+    return decided("HUMAN_ESCALATE", "HUMAN_ESCALATION_CONTRACT_POLICY");
   }
 
   if (input.recoveryState.status === "IN_PROGRESS") {

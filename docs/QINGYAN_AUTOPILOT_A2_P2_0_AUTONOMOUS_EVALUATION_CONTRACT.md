@@ -77,6 +77,7 @@ P2.0 不计费，只锁定有界常量。
   - `ACCEPTED` → `TASK_SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE`
   - `ABSTAINED` → 仅 `UNKNOWN`
 - `hasEvaluatableRequirements()`：GENERIC 且 `requirements.length === 0` 时，**不得**仅因未来 Judge 提议就产出语义 `TASK_SUCCESS` / `PARTIAL_SUCCESS`。P2.2 才允许在后续合同解析补齐 grounded requirements 后宣称成功。
+- `HARD_HUMAN_RISK_CLASSES = HIGH · RESTRICTED` 是系统策略，合同/工作流/模板/LLM 只能把 LOW/MEDIUM **加入** `requireHumanForRisk`，不能拿掉硬底线。缺 `HIGH` 或 `RESTRICTED` 的合同 fail-closed。
 - `AutomationLevel` 描述任务权威。Evaluation 恢复上限始终 `READ_SEARCH_VERIFY_ONLY`。L0 必人工；L5 fail-closed；L4 可 inspect，Evaluation 单独不授权对外动作。
 
 ## 路由优先级
@@ -84,12 +85,13 @@ P2.0 不计费，只锁定有界常量。
 1. 未校验合同 / 隐私 / 受限动作 → `POLICY_BLOCKED`
 2. L5 → `POLICY_BLOCKED`；L0 → `HUMAN_ESCALATE`
 3. legal / financial / external side effect / irreversible → `HUMAN_ESCALATE`
-4. `escalationPolicy.requireHumanForRisk` 命中当前风险 → `HUMAN_ESCALATE`
-5. `recoveryState = IN_PROGRESS` → `AUTO_WAIT`（不重复调度；歧义也不得抢跑）
-6. `goalAmbiguous`：仍有 READ/SEARCH/VERIFY 恢复 → `AUTO_RECOVER` / `AUTO_RECOVERY_GOAL_AMBIGUOUS`；耗尽/不允许 → `HUMAN_ESCALATION_GOAL_AMBIGUOUS`
-7. 证据不足/冲突 + 仍有安全恢复动作 → `AUTO_RECOVER`（Judge 预算耗尽不阻断本地读/搜；外搜预算只过滤外搜）
-8. `ACCEPTED` + 证据充足 + 兼容 outcome + 策略允许 → `AUTO_FINALIZE`（只结束评价记录）
-9. 低风险未决 → `AUTO_ABSTAIN`
+4. 系统硬底线 `HIGH` / `RESTRICTED` → `HUMAN_ESCALATE`（合同不能拿掉）
+5. 合同把 `LOW`/`MEDIUM` 加入 `requireHumanForRisk` → `HUMAN_ESCALATE`
+6. `recoveryState = IN_PROGRESS` → `AUTO_WAIT`（不重复调度；歧义也不得抢跑）
+7. `goalAmbiguous`：仍有 READ/SEARCH/VERIFY 恢复 → `AUTO_RECOVER` / `AUTO_RECOVERY_GOAL_AMBIGUOUS`；耗尽/不允许 → `HUMAN_ESCALATION_GOAL_AMBIGUOUS`
+8. 证据不足/冲突 + 仍有安全恢复动作 → `AUTO_RECOVER`（Judge 预算耗尽不阻断本地读/搜；外搜预算只过滤外搜）
+9. `ACCEPTED` + 证据充足 + 兼容 outcome + 策略允许 → `AUTO_FINALIZE`（只结束评价记录）
+10. 低风险未决 → `AUTO_ABSTAIN`
 
 `UNKNOWN` 默认不是人工。预算：恢复周期/全局费用耗尽才停止全部恢复。
 
