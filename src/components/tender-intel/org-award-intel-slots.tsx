@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { Radar } from "lucide-react";
-import { apiJson } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 
 type DomainStatus = "CONFIRMED" | "SUPPORTED" | "INFERRED" | "UNKNOWN";
 
@@ -166,6 +166,8 @@ export function OrgAwardIntelSlots({
   /** 本项目采购方（相关性分层：同买家记录优先，其余折叠为组织库存） */
   buyerName?: string | null;
 }) {
+  // Lane 2：一键导出 RFI 问题清单 PDF（走既有 generate-pdf / owner_clarification 文档链）
+  const [rfiExport, setRfiExport] = useState<"idle" | "busy" | "done" | "error">("idle");
   const [intel, setIntel] = useState<Intelligence | null>(null);
   const [failed, setFailed] = useState(false);
   const [strategy, setStrategy] = useState<BidStrategyAuto | null>(null);
@@ -394,6 +396,31 @@ export function OrgAwardIntelSlots({
               {memo.dataGapsZh ? (
                 <p className="text-muted/80">数据缺口：{memo.dataGapsZh.slice(0, 120)}</p>
               ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="export-rfi-pdf"
+                  disabled={rfiExport === "busy"}
+                  onClick={() => {
+                    setRfiExport("busy");
+                    void apiFetch(`/api/projects/${projectId}/generate-pdf`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ docType: "owner_clarification" }),
+                    })
+                      .then((res) => setRfiExport(res.ok ? "done" : "error"))
+                      .catch(() => setRfiExport("error"));
+                  }}
+                  className="rounded border border-border px-2 py-1 text-[11px] text-foreground/80 hover:bg-accent/5"
+                >
+                  {rfiExport === "busy" ? "生成中…" : "导出 RFI 问题清单 PDF（中英）"}
+                </button>
+                {rfiExport === "done" ? (
+                  <span className="text-[10px] text-muted">已生成，见「文件」tab（英文列提交前请人工核对）</span>
+                ) : rfiExport === "error" ? (
+                  <span className="text-[10px] text-danger">生成失败，请稍后重试</span>
+                ) : null}
+              </div>
               <p className="text-[10px] text-muted/60">
                 AI 推断备忘录，仅供人工评审——不构成 GO/NO-GO 决定
               </p>

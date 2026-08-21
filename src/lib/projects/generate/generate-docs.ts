@@ -23,7 +23,7 @@ const DOC_TITLES: Record<GenerateDocType, string> = {
   internal_analysis: "内部项目分析",
   teammate_tasks: "同事执行任务单",
   tech_confirm: "供应商技术确认表",
-  owner_clarification: "业主澄清问题",
+  owner_clarification: "RFI 问题清单（中英）",
 };
 
 export async function generateProjectDocument(input: {
@@ -218,6 +218,7 @@ ${escd}`;
   // 中文安全（CJK-PDF 包）：legacy 文本文档并入 HTML → Chromium PDF 统一漏斗，
   // jsPDF 无 CJK 字体的方块/乱码路径整体退役；正文语义 1:1 保留。
   let textBody = "";
+  let htmlOverride: string | null = null;
 
   if (input.docType === "supplier_rfq") {
     const body = sanitizeSupplierFacing(
@@ -299,36 +300,43 @@ ${escd}`;
     );
     textBody = body;
   } else {
-    // owner_clarification — English draft + internal checklist
-    const body = [
-      "Owner / Consultant Clarification Draft (EN)",
-      `Subject: Clarification Questions – ${project.name}`,
-      "",
-      "Dear Sir/Madam,",
-      "Please clarify the following items so we can prepare an accurate bid.",
-      "Do NOT re-ask items already answered in the issued documents.",
-      "",
-      "Technical:",
-      "1) ",
-      "Quantity / Scope:",
-      "2) ",
-      "Schedule:",
-      "3) ",
-      "Certification:",
-      "4) ",
-      "Installation / Interface (if applicable):",
-      "5) ",
-      "Contract / Responsibility boundary:",
-      "6) ",
-      "",
-      "Internal checklist (CN):",
-      "- 仅列文件中未明确的问题",
-      "- 分类：技术 / 数量 / 交期 / 认证 / 安装 / 合同 / 范围边界",
-      "",
-      "Context excerpt for authors:",
-      ctx.slice(0, 1800),
-    ].join("\n");
-    textBody = body;
+    // owner_clarification — Lane 2：真·RFI 问题清单（备忘录策略 RFI + 分析器澄清，
+    // 去重编号；AI 只做中→英翻译；渲染为中英对照表，可直接贴进门户提交）
+    const { buildRfiItems, translateRfiToEn, renderRfiHtml } = await import("./rfi-export");
+    const latestRunForRfi = await db.tenderAnalysisRun.findFirst({
+      where: { projectId: project.id, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { summaryJson: true },
+    });
+    const roomForRfi = await db.bidIntelligenceRoom.findUnique({
+      where: { projectId: project.id },
+      select: { summaryJson: true },
+    });
+    const rsj = (latestRunForRfi?.summaryJson ?? {}) as Record<string, unknown>;
+    const syn = (rsj.analystSynthesis ?? null) as {
+      clarifications?: Array<{ questionZh?: unknown; reasonZh?: unknown; priority?: unknown }>;
+    } | null;
+    const memo = ((roomForRfi?.summaryJson as Record<string, unknown>) ?? {}).bidStrategyMemo as {
+      strategicRfis?: Array<{ questionZh?: unknown; whyZh?: unknown }>;
+    } | null;
+    const items = buildRfiItems({
+      memoRfis: memo?.strategicRfis ?? null,
+      synthesisClarifications: syn?.clarifications ?? null,
+    });
+    await translateRfiToEn(items, { timeoutMs: 60_000 });
+    const cf = (rsj.criticalFacts ?? {}) as Record<string, { status?: string; text?: string | null }>;
+    const known = (k: string) => (cf[k]?.status === "KNOWN" && cf[k]?.text ? String(cf[k]!.text) : null);
+    htmlOverride = renderRfiHtml({
+      projectName: project.name,
+      tenderNumber: known("tender_number"),
+      buyer: known("buyer") ?? project.clientOrganization ?? null,
+      questionDeadline: known("question_deadline"),
+      closing: known("closing_datetime") ?? (project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null),
+      submitChannel: known("submission_method"),
+      items,
+      generatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+    });
+    textBody = "";
   }
 
   const fullText = `${DOC_TITLES[input.docType]}\n\nProject: ${project.name}\n\n${textBody}`;
@@ -336,7 +344,7 @@ ${escd}`;
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  const html = `<!doctype html><meta charset="utf-8"><title>${DOC_TITLES[input.docType]}</title>
+  const html = htmlOverride ?? `<!doctype html><meta charset="utf-8"><title>${DOC_TITLES[input.docType]}</title>
 <style>body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:800px;margin:0 auto;padding:32px 28px;line-height:1.7;font-size:13px;white-space:pre-wrap}@media print{body{padding:0}}</style>
 ${escd}`;
   return persistGeneratedHtml({

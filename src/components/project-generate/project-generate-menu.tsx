@@ -11,7 +11,7 @@ const OPTIONS = [
   { docType: "tech_confirm", label: "供应商技术确认表 PDF" },
   { docType: "internal_analysis", label: "内部项目分析 PDF" },
   { docType: "teammate_tasks", label: "同事执行任务单 PDF" },
-  { docType: "owner_clarification", label: "业主澄清问题 PDF" },
+  { docType: "owner_clarification", label: "RFI 问题清单 PDF（中英，可直接提交）" },
 ] as const;
 
 type GenDoc = {
