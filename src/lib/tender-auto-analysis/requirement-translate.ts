@@ -29,7 +29,7 @@ export const REQUIREMENT_TRANSLATE_PROMPT = {
 } as const;
 
 /** 总量上限：条数与单条长度（超出部分保持原样，绝不静默丢条目） */
-export const TRANSLATE_MAX_ITEMS = 200;
+export const TRANSLATE_MAX_ITEMS = 400;
 export const TRANSLATE_MAX_CHARS = 400;
 /**
  * 单次模型调用批大小。真实 E2E 实测：200 条单批必超时/截断
@@ -143,4 +143,66 @@ export async function translateRequirementTexts(
     }
   }
   return { translated, skipped, failed, llmCalls };
+}
+
+/* ------------------------------------------------------------------------------------------
+ * 全分析中文化（要求 + 事实 claim + 关键事实槽文本）——一次合并分批，共享总预算。
+ * 管线挂点与存量补翻端点共用；按 index 区间回写，失败条目保持原样。
+ * ---------------------------------------------------------------------------------------- */
+
+export type AnalysisTranslateTarget = {
+  /** 要求译文槽（原地回写） */
+  requirements: { chineseTranslation: string }[];
+  /** 事实 claim（原地回写 contentZh） */
+  facts: { contentZh: string }[];
+  /** run.summaryJson.criticalFacts：{ slot: { status, text } }（原地回写 text） */
+  criticalFacts: Record<string, { status?: string; text?: string | null }> | null | undefined;
+};
+
+export type AnalysisTranslateOutcome = TranslateOutcome & {
+  byKind: { requirements: number; facts: number; criticalFacts: number };
+};
+
+export async function translateAnalysisZh(
+  target: AnalysisTranslateTarget,
+  opts: { invoker?: LlmInvoker; timeoutMs?: number } = {},
+): Promise<AnalysisTranslateOutcome> {
+  const texts: string[] = [];
+  const apply: Array<(zh: string) => void> = [];
+  for (const r of target.requirements) {
+    texts.push(r.chineseTranslation);
+    apply.push((zh) => {
+      r.chineseTranslation = zh;
+    });
+  }
+  for (const f of target.facts) {
+    texts.push(f.contentZh);
+    apply.push((zh) => {
+      f.contentZh = zh;
+    });
+  }
+  const cf = target.criticalFacts ?? null;
+  if (cf) {
+    for (const slot of Object.values(cf)) {
+      if (!slot || typeof slot !== "object" || slot.status !== "KNOWN" || !slot.text) continue;
+      texts.push(slot.text);
+      apply.push((zh) => {
+        slot.text = zh;
+      });
+    }
+  }
+  const byKind = { requirements: 0, facts: 0, criticalFacts: 0 };
+  const nReq = target.requirements.length;
+  const nFact = target.facts.length;
+  const out = await translateRequirementTexts(texts, {
+    invoker: opts.invoker,
+    timeoutMs: opts.timeoutMs,
+    apply: (idx, zh) => {
+      apply[idx]!(zh);
+      if (idx < nReq) byKind.requirements += 1;
+      else if (idx < nReq + nFact) byKind.facts += 1;
+      else byKind.criticalFacts += 1;
+    },
+  });
+  return { ...out, byKind };
 }
