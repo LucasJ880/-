@@ -319,6 +319,8 @@ run_test "合规矩阵可用性批次" "npx tsx src/lib/tender-auto-analysis/__t
 run_test "报价表助手 计算与推导" "npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts"
 run_test "RFI 问题清单导出" "npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts"
 run_test "投标文件起草" "npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts"
+run_test "合规记忆" "npx tsx src/lib/tender-compliance-memory/__tests__/compliance-memory.test.ts"
+run_test "投标业务档案" "npx tsx src/lib/tender-profile/__tests__/tender-profile.test.ts"
 run_test "Quote Engine 计算" "npx tsx src/lib/quote-engine/__tests__/quote-calc.test.ts"
 run_test "Quote Engine 契约与安全" "npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts"
 run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"

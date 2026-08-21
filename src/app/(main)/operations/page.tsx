@@ -140,6 +140,18 @@ export default function OperationsPage() {
           </div>
         </Link>
         <Link
+          href="/operations/tender-profile"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
+        >
+          <BookOpen className="h-5 w-5 shrink-0 text-accent" />
+          <div>
+            <div className="font-semibold">投标业务档案</div>
+            <div className="mt-0.5 text-xs text-muted">
+              与品牌档案分离：投标起草、备忘录、合规响应只读这份档案，不回退到其他业务线
+            </div>
+          </div>
+        </Link>
+        <Link
           href="/operations/calendar"
           className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
         >
